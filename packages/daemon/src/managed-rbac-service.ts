@@ -260,16 +260,26 @@ export class ManagedRbacService {
   async #stopChild(name: "postgres" | "keycloak"): Promise<boolean> {
     const child = this.#children.get(name);
     if (!child) return false;
-    child.kill("SIGTERM");
     await new Promise<void>((resolve) => {
-      const timer = setTimeout(() => {
-        child.kill("SIGKILL");
-        resolve();
-      }, 10_000);
-      child.once("exit", () => {
+      let settled = false;
+      const timer = setTimeout(() => child.kill("SIGKILL"), 4_000);
+      const finish = () => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
+        child.removeListener("exit", finish);
         resolve();
-      });
+      };
+      timer.unref();
+      child.once("exit", finish);
+      if (
+        (child.exitCode !== null && child.exitCode !== undefined) ||
+        (child.signalCode !== null && child.signalCode !== undefined)
+      ) {
+        finish();
+        return;
+      }
+      child.kill("SIGTERM");
     });
     this.#children.delete(name);
     this.#readiness.delete(name);

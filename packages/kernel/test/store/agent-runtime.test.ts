@@ -125,6 +125,67 @@ test("runtime session semantics preserve the four judged liveness/outcome cases"
     ["running", "succeeded", "failed", "cancelled", "ended-indeterminate", "unavailable"],
   );
 });
+
+test("legacy runtime session bindings are rebuilt in resumable batches only once", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const store = makeTaskEventStore({ repoId: "runtime-binding-backfill", rootDir }),
+      projection = makeTaskProjection({ rootDir, eventStore: store });
+    projection.catchUp();
+    const projectionPath = projection.path;
+    projection.close();
+    const db = new DatabaseSync(projectionPath),
+      insertSession = db.prepare(
+        "INSERT INTO runtime_session(runtime_session_id, workspace_revision, value_json) VALUES (?, 0, ?)",
+      );
+    for (let index = 0; index < 513; index += 1) {
+      const runtimeSessionId = `runtime-backfill-${String(index).padStart(4, "0")}`;
+      insertSession.run(
+        runtimeSessionId,
+        JSON.stringify({
+          runtimeSessionId,
+          taskBindings: [
+            { taskId: "task-backfilled", executionId: `execution-${index}`, boundAt: "2026-10-31T00:00:00.000Z" },
+          ],
+        }),
+      );
+    }
+    db.prepare(
+      "INSERT INTO runtime_session_task_binding(task_id, runtime_session_id, execution_id, bound_at) VALUES ('task-stale', 'runtime-backfill-0000', 'stale-execution', '2026-10-30T00:00:00.000Z')",
+    ).run();
+    db.prepare("DELETE FROM projection_maintenance WHERE key = ?").run("runtime-session-task-binding-v1");
+    db.close();
+
+    const progress: { readonly applied: number; readonly total: number }[] = [],
+      migrated = makeTaskProjection({
+        rootDir,
+        eventStore: store,
+        projectionPath,
+        onValidationProgress: (value) => progress.push(value),
+      });
+    assert.deepEqual(progress, [
+      { applied: 256, total: 513 },
+      { applied: 512, total: 513 },
+      { applied: 513, total: 513 },
+    ]);
+    assert.equal(migrated.readRuntimeSessionsForTask("task-backfilled").length, 513);
+    assert.deepEqual(migrated.readRuntimeSessionsForTask("task-stale"), []);
+    migrated.close();
+
+    const reopenedProgress: { readonly applied: number; readonly total: number }[] = [],
+      reopened = makeTaskProjection({
+        rootDir,
+        eventStore: store,
+        projectionPath,
+        onValidationProgress: (value) => reopenedProgress.push(value),
+      });
+    assert.deepEqual(reopenedProgress, []);
+    assert.equal(reopened.readRuntimeSessionsForTask("task-backfilled").length, 513);
+    reopened.close();
+    await store.drain();
+  });
+});
+
 const actor = { principal: { personId: "person-runtime" }, executor: null } as const;
 const envelope = (revision: number, source: AgentRuntimeEventV1["source"] = "local") => ({
   eventId: `event-runtime-${revision}`,

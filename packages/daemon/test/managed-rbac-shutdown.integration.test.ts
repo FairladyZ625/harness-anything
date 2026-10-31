@@ -45,7 +45,7 @@ test(
         certificateFile: path.join(root, "test.crt"),
         certificateKeyFile: path.join(root, "test.key"),
       },
-      predecessor = managedShutdownFixture(root),
+      predecessor = managedShutdownFixture(root, { ignoreSigterm: "keycloak" }),
       successor = managedShutdownFixture(root);
     mkdirSync(bin, { recursive: true });
     mkdirSync(data, { recursive: true });
@@ -83,9 +83,10 @@ test(
       await closing;
       assert.equal(predecessor.children.length, 2);
       assert.ok(
-        predecessor.children.every((child) => child.exitCode === 0),
-        "close returns only after owned children exit",
+        predecessor.children.every((child) => child.exitCode === 0 || child.signalCode === "SIGKILL"),
+        "close waits through SIGKILL until owned children actually exit",
       );
+      assert.equal(predecessor.children[1]?.signalCode, "SIGKILL", "Keycloak intentionally ignored SIGTERM");
       assert.equal(existsSync(pidFile), false);
       await assert.rejects(exchange(listener.port), { code: "ECONNREFUSED" });
       await successor.service.start();

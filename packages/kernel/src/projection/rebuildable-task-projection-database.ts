@@ -10,13 +10,13 @@ import { taskProjectionSchemaVersion } from "./projection-schema.ts";
 import { createTaskRelationProjectionTable } from "./task-query-projection.ts";
 import { REPOSITORY_READ_TABLES_SQL, TASK_INDEX_TABLES_SQL } from "./projection-tables.ts";
 import type { EventStreamPort } from "./rebuildable-task-projection-types.ts";
-import { prepareQuery, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
+import { prepareQuery, queryRows, runSql, transaction } from "./rebuildable-task-projection-sql.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
 
 // Projection database ownership, lifetime, initialization, and schema checks.
 interface ProjectionDatabaseOwner {
-  readonly use: <A>(operation: (db: DatabaseSync) => A) => A;
+  readonly use: <A>(operation: (db: DatabaseSync) => A, onValidationProgress?: ProjectionProgress) => A;
   readonly close: () => void;
 }
 
@@ -71,6 +71,9 @@ export class ProjectionEventStreamIncompleteError extends Error {
 const projectionDatabaseOwners = new WeakMap<EventStreamPort["readHead"], Map<string, ProjectionDatabaseOwner>>();
 const projectionClosers = new Map<string, Set<() => void>>();
 const projectionBusyTimeoutMs = 250;
+const runtimeBindingBatchSize = 256;
+const runtimeBindingMaintenanceKey = "runtime-session-task-binding-v1";
+type ProjectionProgress = (progress: { readonly applied: number; readonly total: number }) => void;
 let queryOnlySession: {
   readonly projectionPath: string;
   readonly readHead: EventStreamPort["readHead"];
@@ -139,13 +142,14 @@ export function withDatabase<A>(
   projectionPath: string,
   readHead: EventStreamPort["readHead"],
   use: (db: DatabaseSync) => A,
+  onValidationProgress?: ProjectionProgress,
 ): A {
   if (
     queryOnlySession?.projectionPath === canonicalProjectionPath(projectionPath) &&
     queryOnlySession.readHead === readHead
   )
     return use(queryOnlySession.db);
-  return projectionDatabaseOwner(projectionPath, readHead).use(use);
+  return projectionDatabaseOwner(projectionPath, readHead).use(use, onValidationProgress);
 }
 
 export function withQueryOnlyDatabaseSession<A>(
@@ -298,24 +302,24 @@ function projectionDatabaseOwner(
     configureDatabase(db);
     fingerprint = projectionFileFingerprint(projectionPath);
   };
-  const initialize = () => {
+  const initialize = (onValidationProgress?: ProjectionProgress) => {
     open();
     const observed = projectionSchemaVersion(db!);
     if (observed !== null && observed !== taskProjectionSchemaVersion) {
       close();
       throw new ProjectionSchemaMismatchError(observed, projectionPath);
     }
-    if (!schemaChecked || observed === null) createTables(db!);
+    if (!schemaChecked || observed === null) createTables(db!, onValidationProgress);
     schemaChecked = true;
   };
-  const use = <A>(operation: (database: DatabaseSync) => A): A => {
+  const use = <A>(operation: (database: DatabaseSync) => A, onValidationProgress?: ProjectionProgress): A => {
     // A query operation can call back into this same owner while its own `operation` is still
     // running (an event-shape migration's rewrite reads the scratch projection it is replaying
     // into, mid-round). useDepth makes that reentrant, so a nested call reuses the still-open
     // connection instead of initializing a second owner.
     if (useDepth === 0) {
       if (db !== null && fingerprint !== projectionFileFingerprint(projectionPath)) close();
-      if (db === null) initialize();
+      if (db === null) initialize(onValidationProgress);
     }
     // initialize() verified the schema version of this file identity; only a replaced file
     // (a changed fingerprint) can carry another one, and that reopens and verifies again.
@@ -447,7 +451,7 @@ function configureDatabase(db: DatabaseSync): void {
   db.exec(`PRAGMA busy_timeout = ${projectionBusyTimeoutMs}; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON`);
 }
 
-function createTables(db: DatabaseSync): void {
+function createTables(db: DatabaseSync, onValidationProgress?: ProjectionProgress): void {
   /* @gate-identity check-bypass-write-boundary/bypass-write-009 */
   db.exec(`
     CREATE TABLE IF NOT EXISTS archived_entity (
@@ -522,30 +526,82 @@ ${REPOSITORY_READ_TABLES_SQL}
       execution_id TEXT GENERATED ALWAYS AS (json_extract(lease_json, '$.executionId')) STORED
     );
     CREATE INDEX IF NOT EXISTS lease_cas_execution ON lease_cas(execution_id);
+    CREATE TABLE IF NOT EXISTS projection_maintenance (
+      key TEXT PRIMARY KEY,
+      completed_at TEXT NOT NULL
+    );
   `);
-  // This table is a disposable lookup over runtime_session.value_json, so adding it must not
-  // invalidate the self-contained projection database (event_source lives in the same file).
-  // Backfill once in place; steady-state runtime events maintain the rows transactionally.
-  runSql(
-    db,
-    `
-    INSERT OR IGNORE INTO runtime_session_task_binding(task_id, runtime_session_id, execution_id, bound_at)
-    SELECT
-      json_extract(binding.value, '$.taskId'),
-      session.runtime_session_id,
-      json_extract(binding.value, '$.executionId'),
-      json_extract(binding.value, '$.boundAt')
-    FROM runtime_session AS session
-    JOIN json_each(session.value_json, '$.taskBindings') AS binding
-    WHERE json_type(binding.value, '$.taskId') = 'text'
-      AND json_type(binding.value, '$.executionId') = 'text'
-      AND json_type(binding.value, '$.boundAt') = 'text';
-  `,
-  );
+  backfillRuntimeSessionBindings(db, onValidationProgress);
   createTaskRelationProjectionTable(db);
   createRelationGraphProjectionTables(db);
   createFactProjectionTables(db);
   createDecisionProjectionTables(db);
+}
+
+function backfillRuntimeSessionBindings(db: DatabaseSync, onProgress?: ProjectionProgress): void {
+  const complete = queryRows(db, "SELECT 1 FROM projection_maintenance WHERE key = ?", runtimeBindingMaintenanceKey);
+  if (complete.length > 0) return;
+  // A prior process can have committed one or more batches before it was interrupted. Clear the
+  // disposable lookup and rebuild it from the authoritative session rows instead of mistaking a
+  // partial index for a completed migration.
+  runSql(db, "DELETE FROM runtime_session_task_binding");
+  const total = Number(queryRows(db, "SELECT COUNT(*) AS count FROM runtime_session")[0]?.count ?? 0);
+  if (total === 0) {
+    runSql(
+      db,
+      "INSERT INTO projection_maintenance(key, completed_at) VALUES (?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
+      runtimeBindingMaintenanceKey,
+    );
+    return;
+  }
+  let cursor = 0,
+    applied = 0;
+  for (;;) {
+    const rows = queryRows<{
+      readonly rowid: number;
+      readonly runtime_session_id: string;
+      readonly value_json: string;
+    }>(
+      db,
+      "SELECT rowid, runtime_session_id, value_json FROM runtime_session WHERE rowid > ? ORDER BY rowid LIMIT ?",
+      cursor,
+      runtimeBindingBatchSize,
+    );
+    if (rows.length === 0) break;
+    transaction(db, () => {
+      for (const row of rows) {
+        const session = JSON.parse(row.value_json) as {
+          readonly taskBindings?: readonly {
+            readonly taskId?: unknown;
+            readonly executionId?: unknown;
+            readonly boundAt?: unknown;
+          }[];
+        };
+        for (const binding of session.taskBindings ?? [])
+          if (
+            typeof binding.taskId === "string" &&
+            typeof binding.executionId === "string" &&
+            typeof binding.boundAt === "string"
+          )
+            runSql(
+              db,
+              "INSERT OR IGNORE INTO runtime_session_task_binding(task_id, runtime_session_id, execution_id, bound_at) VALUES (?, ?, ?, ?)",
+              binding.taskId,
+              row.runtime_session_id,
+              binding.executionId,
+              binding.boundAt,
+            );
+      }
+    });
+    applied += rows.length;
+    cursor = rows.at(-1)!.rowid;
+    onProgress?.({ applied, total });
+  }
+  runSql(
+    db,
+    "INSERT INTO projection_maintenance(key, completed_at) VALUES (?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
+    runtimeBindingMaintenanceKey,
+  );
 }
 
 export function projectionSchemaVersion(db: DatabaseSync): number | null {

@@ -5,15 +5,22 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ManagedRbacService } from "../src/managed-rbac-service.ts";
 
-export function managedShutdownFixture(root: string) {
+export function managedShutdownFixture(
+  root: string,
+  fixtureOptions: { readonly ignoreSigterm?: "postgres" | "keycloak" } = {},
+) {
   const children: ReturnType<typeof spawn>[] = [];
   const service = new ManagedRbacService(root, {
-    spawn: ((command: string, _args: string[], options: { env: NodeJS.ProcessEnv }) => {
+    spawn: ((command: string, _args: string[], spawnOptions: { env: NodeJS.ProcessEnv }) => {
       const name = path.basename(command) === "postgres" ? "postgres" : "keycloak",
-        child = spawn(process.execPath, [fileURLToPath(import.meta.url), "server", root, name], {
-          env: options.env,
-          stdio: ["ignore", "pipe", "pipe"],
-        });
+        child = spawn(
+          process.execPath,
+          [fileURLToPath(import.meta.url), "server", root, name, fixtureOptions.ignoreSigterm ?? ""],
+          {
+            env: spawnOptions.env,
+            stdio: ["ignore", "pipe", "pipe"],
+          },
+        );
       children.push(child);
       return child;
     }) as typeof spawn,
@@ -24,6 +31,7 @@ export function managedShutdownFixture(root: string) {
 if (process.argv[2] === "server") {
   const root = process.argv[3]!,
     name = process.argv[4]!,
+    ignoreSigterm = process.argv[5],
     config = JSON.parse(readFileSync(path.join(root, "rbac", "config.json"), "utf8")),
     pidFile = path.join(root, "rbac", "data", "postgres", "postmaster.pid");
   if (name === "postgres" && existsSync(pidFile)) process.exit(1);
@@ -32,10 +40,12 @@ if (process.argv[2] === "server") {
     if (name === "postgres") writeFileSync(pidFile, `${process.pid}\n`);
     console.log(name === "postgres" ? "database system is ready to accept connections" : "Keycloak 26 started in 1s");
   });
-  process.once("SIGTERM", () => {
-    server.close(() => {
-      if (name === "postgres") rmSync(pidFile, { force: true });
-      process.exit(0);
+  if (name === ignoreSigterm) process.on("SIGTERM", () => {});
+  else
+    process.once("SIGTERM", () => {
+      server.close(() => {
+        if (name === "postgres") rmSync(pidFile, { force: true });
+        process.exit(0);
+      });
     });
-  });
 }
