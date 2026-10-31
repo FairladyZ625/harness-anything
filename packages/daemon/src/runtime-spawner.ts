@@ -481,6 +481,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                     allowedInstanceIds,
                     providerHealth,
                     input.now(),
+                    explicitRuntimeInstanceId === undefined,
                   )
                 : initialFallback,
             fallbackAttemptForDispatch = fallbackAttempt,

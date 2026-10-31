@@ -47,6 +47,8 @@ export function initialFallbackAttempt(
   allowedInstanceIds?: readonly string[],
   health?: Parameters<typeof resolveRuntimeInstanceCandidates>[0]["health"],
   now?: string,
+  /** An auto-selected anchor must still keep candidates that sort before it as successors. */
+  includeCandidatesBeforePin = false,
 ): RuntimeFallbackAttempt | undefined {
   // A resumed dispatch inherits its provider session's instance, and its fallback continuation is a
   // fresh session, never a resume: the chain still belongs to this dispatch. Anchoring it at the
@@ -109,15 +111,24 @@ export function initialFallbackAttempt(
       instances,
       allowedInstanceIds,
       sessions,
-      health,
+      // Health is a selection-time signal, never chain membership: a candidate cooling when the
+      // dispatch starts must stay in the chain so settle can wait for its recovery. The anchor
+      // above still uses health, because the first attempt has to launch now.
+      health: undefined,
       now,
     }).filter((instanceId) => instanceId !== resumedInstanceId),
     configuredInstances = allowedInstanceIds?.filter((instanceId) => derivedInstances.includes(instanceId)),
     fallbackOrder = configuredInstances ?? derivedInstances,
     requestedIndex = pin ? fallbackOrder.indexOf(pin) : -1,
-    // A pinned attempt starts its fallback chain at its configured allowlist position; providers
-    // before it are not successors and must not be retried as fallbacks.
-    successors = pin === undefined || requestedIndex < 0 ? derivedInstances : fallbackOrder.slice(requestedIndex + 1),
+    // A user-pinned attempt starts its fallback chain at its configured allowlist position;
+    // providers before it are not successors. An auto-selected anchor has no such exclusion:
+    // a cooling candidate that sorts before it is still a declared fallback.
+    successors =
+      includeCandidatesBeforePin && pin !== undefined
+        ? derivedInstances.filter((instanceId) => instanceId !== pin)
+        : pin === undefined || requestedIndex < 0
+          ? derivedInstances
+          : fallbackOrder.slice(requestedIndex + 1),
     candidates = [
       ...(pin === undefined ? [] : [pin]),
       ...(resumedInstanceId === undefined ? [] : [resumedInstanceId]),
@@ -174,6 +185,35 @@ function fallbackAvailabilitySummary(
     .join("; ");
 }
 
+interface NextFallbackCandidate {
+  readonly index: number;
+  /** Epoch ms when a cooling candidate becomes usable; null when the candidate is usable now. */
+  readonly recoverAt: number | null;
+}
+
+/**
+ * Select the next fallback candidate using health as a filter, not as chain membership.
+ * Permanently frozen rows are skipped; the first usable row in chain order wins. When every
+ * remaining row is cooling, the soonest recovery is selected so settle can wait for it.
+ */
+function nextFallbackCandidate(
+  candidates: RuntimeFallbackAttempt["candidates"],
+  fromIndex: number,
+  health: RuntimeSpawnerInput["runtimeProviderHealth"],
+  observedAt: number,
+): NextFallbackCandidate | null {
+  let cooling: NextFallbackCandidate | null = null;
+  for (let index = fromIndex; index < candidates.length; index += 1) {
+    const row = health?.get(candidates[index]!.instance);
+    if (row?.frozen) continue;
+    const blockedUntil = row?.frozenUntil ?? row?.cooldownUntil,
+      blockedMs = blockedUntil ? Date.parse(blockedUntil) : Number.NaN;
+    if (!Number.isFinite(blockedMs) || blockedMs <= observedAt) return { index, recoverAt: null };
+    if (cooling === null || blockedMs < cooling.recoverAt!) cooling = { index, recoverAt: blockedMs };
+  }
+  return cooling;
+}
+
 export async function settleFallbackAttempt(
   context: RuntimeSpawnerContext,
   active: ActiveRuntime,
@@ -216,13 +256,19 @@ export async function settleFallbackAttempt(
     retryRound = fallback.retryRound ?? 0,
     runtimeSettings = input.readSettings?.()?.runtime,
     maxRetries = Math.max(0, Number(runtimeSettings?.providerMaxRetries ?? 3)),
-    exhausted = nextCandidateIndex >= fallback.candidates.length;
+    observedAt = Date.parse(input.now()),
+    selection =
+      nextCandidateIndex >= fallback.candidates.length
+        ? null
+        : nextFallbackCandidate(fallback.candidates, nextCandidateIndex, input.runtimeProviderHealth, observedAt),
+    // No usable candidate in this pass. The exhausted branch either waits out a retry round
+    // (including candidates that recover later) or settles permanently unavailable.
+    exhausted = selection === null;
   if (exhausted) {
     if (retryRound < maxRetries) {
       const roundBaseMs = Math.max(0, Number(runtimeSettings?.providerRoundBackoffBaseSeconds ?? 5) * 1_000),
         roundMaxMs = Math.max(roundBaseMs, Number(runtimeSettings?.providerRoundBackoffMaxSeconds ?? 60) * 1_000),
         delayMs = Math.min(roundMaxMs, roundBaseMs * 2 ** retryRound),
-        observedAt = Date.parse(input.now()),
         waitStartedAt = fallback.waitStartedAt ? Date.parse(fallback.waitStartedAt) : observedAt,
         maxWaitMs = Math.max(0, Number(runtimeSettings?.providerMaxWaitSeconds ?? 300) * 1_000),
         recoverAt = fallback.candidates.reduce<number | null>((earliest, candidate) => {
@@ -284,16 +330,42 @@ export async function settleFallbackAttempt(
     }
     return;
   }
-  const next = fallback.candidates[nextCandidateIndex]!,
+  const selected = selection!,
+    next = fallback.candidates[selected.index]!,
     roundBaseMs = Math.max(0, Number(runtimeSettings?.providerRoundBackoffBaseSeconds ?? 5) * 1_000),
     roundMaxMs = Math.max(roundBaseMs, Number(runtimeSettings?.providerRoundBackoffMaxSeconds ?? 60) * 1_000),
     delayMs = Math.min(roundMaxMs, roundBaseMs * 2 ** retryRound),
-    observedAt = Date.parse(input.now()),
     resetAt = outcome.classification === "provider_quota" && outcome.resetAt ? Date.parse(outcome.resetAt) : Number.NaN,
-    notBeforeAt = new Date(
-      Math.max(observedAt + delayMs, Number.isFinite(resetAt) ? resetAt : observedAt),
-    ).toISOString();
-  active.stream.appendFallbackState({ state: "scheduled", delayMs, notBeforeAt, nextProvider: next }, input.now());
+    notBeforeMs = Math.max(
+      observedAt + delayMs,
+      Number.isFinite(resetAt) ? resetAt : observedAt,
+      selected.recoverAt ?? 0,
+    ),
+    waitStartedAt =
+      fallback.waitStartedAt === undefined
+        ? selected.recoverAt === null
+          ? null
+          : observedAt
+        : Date.parse(fallback.waitStartedAt),
+    maxWaitMs = Math.max(0, Number(runtimeSettings?.providerMaxWaitSeconds ?? 300) * 1_000);
+  if (waitStartedAt !== null && observedAt - waitStartedAt + Math.max(0, notBeforeMs - observedAt) > maxWaitMs) {
+    const reason =
+      `Provider fallback wait budget exhausted after ${String(Math.max(0, observedAt - waitStartedAt))}ms. ` +
+      `Candidates: ${fallbackAvailabilitySummary(fallback.candidates, input.runtimeProviderHealth)}`;
+    active.stream.appendFallbackState({ state: "exhausted", reason }, input.now());
+    await input.onAttemptTerminal?.({ ...terminal, outcome: "failed", reason });
+    return;
+  }
+  active.stream.appendFallbackState(
+    {
+      state: "scheduled",
+      delayMs,
+      notBeforeAt: new Date(notBeforeMs).toISOString(),
+      ...(waitStartedAt === null ? {} : { waitStartedAt: new Date(waitStartedAt).toISOString() }),
+      nextProvider: next,
+    },
+    input.now(),
+  );
   context.reconcileFallback(readDispatchStream(input.rootDir, active.dispatchId));
 }
 
@@ -361,20 +433,31 @@ export function scheduleFallbackContinuation(args: {
         const fallback = header.fallbackAttempt!,
           nextAttemptIndex = fallback.attemptIndex + 1,
           currentCandidateIndex = fallback.candidateIndex ?? fallback.attemptIndex,
-          nextCandidateIndex = currentCandidateIndex + 1,
-          nextRound = (fallback.retryRound ?? 0) + (nextCandidateIndex >= fallback.candidates.length ? 1 : 0),
+          naturalNextIndex = currentCandidateIndex + 1,
+          exhaustedPass = naturalNextIndex >= fallback.candidates.length,
+          // Settle may skip permanently frozen rows, so the scheduled provider is the authority
+          // for the next position. A pass reset still starts at zero and counts a retry round.
+          scheduledCandidateIndex = fallback.candidates.findIndex(
+            (candidate) =>
+              candidate.instance === current.fallbackSchedule!.nextProvider.instance &&
+              candidate.model === current.fallbackSchedule!.nextProvider.model,
+          ),
+          nextCandidateIndex = exhaustedPass
+            ? 0
+            : scheduledCandidateIndex >= 0
+              ? scheduledCandidateIndex
+              : naturalNextIndex,
+          nextRound = (fallback.retryRound ?? 0) + (exhaustedPass ? 1 : 0),
           nextFallback = {
             ...fallback,
             attemptIndex: nextAttemptIndex,
-            candidateIndex: nextCandidateIndex >= fallback.candidates.length ? 0 : nextCandidateIndex,
+            candidateIndex: nextCandidateIndex,
             retryRound: nextRound,
-            ...(fallback.waitStartedAt ||
-            current.fallbackSchedule.waitStartedAt ||
-            nextCandidateIndex >= fallback.candidates.length
+            ...(fallback.waitStartedAt || current.fallbackSchedule.waitStartedAt || exhaustedPass
               ? { waitStartedAt: fallback.waitStartedAt ?? current.fallbackSchedule.waitStartedAt ?? input.now() }
               : {}),
           },
-          next = fallback.candidates[nextCandidateIndex >= fallback.candidates.length ? 0 : nextCandidateIndex],
+          next = fallback.candidates[nextCandidateIndex],
           writer = reopenDispatchStream(input.rootDir, header),
           continuation = continuationMission(current.attemptOutcome, fallback.originalMission);
         if (
