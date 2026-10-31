@@ -625,11 +625,13 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
   }
 
   const catalogActions = new Map(
-    [
-      ...new Set(actionDeclarations.flatMap(({ catalogId }) => (catalogId === null ? [] : [catalogId.split("/")[0]!]))),
-    ].flatMap((kind) => {
-      const contract = getEntityKindContract(kind);
-      return (contract?.actionCatalog?.actions ?? []).map((action) => [`${kind}/${action.id}`, action] as const);
+    actionDeclarations.flatMap(({ catalogId }) => {
+      if (catalogId === null) return [];
+      const separator = catalogId.indexOf("/"),
+        kind = catalogId.slice(0, separator),
+        actionId = catalogId.slice(separator + 1),
+        action = getEntityKindContract(kind)?.actionCatalog?.actions.find(({ id }) => id === actionId);
+      return action === undefined ? [] : ([[catalogId, action]] as const);
     }),
   );
   const declaredNullRows = catalogNullKinds(

@@ -554,6 +554,7 @@ const factActionCatalog = Object.freeze({
     ),
     executableAction("fact", factIdentity, "archive", "fact-archive", compileFactArchiveAction, factExposure),
     executableAction("fact", factIdentity, "unarchive", "fact-unarchive", compileFactUnarchiveAction, factExposure),
+    entityAction("fact", factIdentity, "promote", noSdkExposure, executionContract("distill-promote", null, false)),
     catalogRuntimeAction("fact", factIdentity, "rematerialize", "fact-rematerialize", factExposure),
     executableAction("fact", factIdentity, "type-list", "fact-type-list", null, factExposure, true),
     executableAction("fact", factIdentity, "show", "fact-show", null, factExposure, true),
@@ -665,6 +666,13 @@ const relationExecutableAction = (
 const relationActionCatalog = Object.freeze({
   ref: "kernel/relation-event/v1",
   actions: Object.freeze([
+    entityAction(
+      "relation",
+      relationIdentity,
+      "migrate-assignment",
+      noSdkExposure,
+      executionContract("assignment-migrate", null, false),
+    ),
     relationExecutableAction(
       "relate",
       relationActionInput([

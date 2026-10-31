@@ -242,12 +242,24 @@ export function executeRepoAction(
     const targetIdField = actionContract.execution.targetIdField ?? "taskId",
       targetId =
         typeof action[targetIdField] === "string" && action[targetIdField] ? String(action[targetIdField]) : null,
-      targetRevision = targetId
-        ? (action.kind === "task-contract-migrate"
-            ? cell.projection.readForTaskContractMigration(targetId)
-            : cell.projection.read(targetId)
-          ).snapshot.revision
-        : (cell.store.readHead()?.revision ?? 0),
+      // Specialized Task writers own their readiness/error semantics. Reading the snapshot here first
+      // would turn a missing or stale projection into a generic entity_not_found before the writer can
+      // report content_not_ready or the repository-qualified task_not_found contract.
+      specializedTaskWriter =
+        action.kind === "task-artifact-add" ||
+        action.kind === "task-settle" ||
+        action.kind === "task-progress-append" ||
+        action.kind === "task-annotate" ||
+        action.kind === "task-attest" ||
+        action.kind === "task-declare-executor" ||
+        action.kind === "task-submit",
+      targetRevision =
+        targetId && !specializedTaskWriter
+          ? (action.kind === "task-contract-migrate"
+              ? cell.projection.readForTaskContractMigration(targetId)
+              : cell.projection.read(targetId)
+            ).snapshot.revision
+          : (cell.store.readHead()?.revision ?? 0),
       lifecycle = actionContract.execution.lifecycle;
     if (lifecycle?.coordination === "reserve" && targetId) cell.assertTaskWipCapacity(targetId, "active");
     return cell.entityActionExecutor.run(
