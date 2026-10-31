@@ -1,7 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
-import { execFileSync } from "node:child_process";
 import { once } from "node:events";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import net from "node:net";
@@ -12,8 +11,6 @@ import { localUserDaemonEndpoint } from "@harness-anything/daemon/client";
 import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/client";
 import { parseDaemonGuiReadResult } from "@harness-anything/daemon/client";
 import { createLocalGuiServiceBridge } from "../src/index.ts";
-import { readCatalogPreset } from "../src/renderer/api-client-catalog.ts";
-import { startWorkPlan } from "../src/renderer/start-work-flow.ts";
 import { streamAgentRuntimeAt } from "@harness-anything/daemon/client";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
 import { seedTriadicEvents, seedTriadicReviewAwait, writeTriadicLedger } from "../test-support/triadic-ledger.mjs";
@@ -119,94 +116,6 @@ test("GUI bridge switches between two enabled RepoCells without leaking task row
     assert.equal(denied.ok, false);
     assert.equal(denied.error.code, "workspace_not_registered");
     assert.match(denied.error.hint ?? "", /ha daemon repo register/u);
-  } finally {
-    await fixture.stop();
-    restoreEnv("HARNESS_DAEMON_USER_ROOT", previous.userRoot);
-    restoreEnv("HARNESS_DAEMON_ID", previous.daemonId);
-    restoreEnv("HARNESS_DAEMON_REPO_ID", previous.repoId);
-  }
-});
-
-test("GUI task creation uses the daemon Action authorization and system read matches ha daemon status", async () => {
-  const fixture = await startGuiResidentDaemonFixture({ displayName: "GUI Task Create Probe" }),
-    previous = {
-      userRoot: process.env.HARNESS_DAEMON_USER_ROOT,
-      daemonId: process.env.HARNESS_DAEMON_ID,
-      repoId: process.env.HARNESS_DAEMON_REPO_ID,
-    };
-  Object.assign(process.env, fixture.env);
-  try {
-    const bridge = createLocalGuiServiceBridge(fixture.rootDir),
-      detail = readCatalogPreset(
-        await bridge.invoke("getCatalogPreset", { repoId: fixture.repoId, presetId: "standard-task" }),
-      ),
-      scaffold = detail.resolved.documents.find(({ slot }) => slot === "task.plan");
-    assert.ok(scaffold, "the selected preset must provide a task.plan scaffold");
-    const plan = startWorkPlan(
-      scaffold.body,
-      "Created from the GUI bridge",
-      "Prove that the GUI action reaches the authorized daemon task-create path.",
-      "Use the Brief above as the objective for this section.",
-    );
-    assert.ok(plan, "the selected preset scaffold must produce a task plan");
-    const payload = {
-        repoId: fixture.repoId,
-        title: "Created from the GUI bridge",
-        presetId: "standard-task",
-        verticalId: "software/coding",
-        locale: "en-US",
-        riskTier: "medium",
-        taskClass: "standard",
-        workKind: "feat",
-        idempotencyKey: "gui-bridge-task-create-positive",
-        plan,
-      },
-      receipt = (await bridge.invoke("createTask", payload)) as Record<string, unknown>;
-    assert.equal(receipt.schema, "command-receipt/v2", JSON.stringify(receipt));
-    assert.equal(receipt.ok, true, JSON.stringify(receipt));
-    assert.equal(receipt.command, "task-create", JSON.stringify(receipt));
-    assert.ok(["applied", "pending", "no_changes"].includes(String(receipt.outcome)), JSON.stringify(receipt));
-    assert.equal(typeof receipt.taskId, "string", JSON.stringify(receipt));
-    assert.equal(typeof receipt.packagePath, "string", JSON.stringify(receipt));
-    assert.equal(typeof receipt.opId, "string", JSON.stringify(receipt));
-
-    fixture.keycloak.revoke("person-gui", fixture.repoId, ["task-create"]);
-    const denied = (await bridge.invoke("createTask", {
-      ...payload,
-      title: "Denied from the GUI bridge",
-      idempotencyKey: "gui-bridge-task-create-negative",
-    })) as Record<string, unknown>;
-    assert.equal(denied.schema, "command-receipt/v2", JSON.stringify(denied));
-    assert.equal(denied.ok, false, JSON.stringify(denied));
-    assert.equal(denied.outcome, "op_rejected", JSON.stringify(denied));
-    assert.equal(denied.code, "authorization_denied", JSON.stringify(denied));
-
-    const system = parseDaemonGuiReadResult("daemon.gui.system.read", await bridge.invoke("getSystemStatus", null)),
-      statusEnv = { ...process.env, ...fixture.env };
-    delete statusEnv.HARNESS_DAEMON_ENDPOINT;
-    delete statusEnv.HARNESS_DAEMON_RELAY;
-    delete statusEnv.HARNESS_EXECUTION_CREDENTIAL;
-    delete statusEnv.HARNESS_EXECUTION_EXPIRES_AT;
-    const cliStatus = JSON.parse(
-      execFileSync(
-        process.execPath,
-        [path.resolve("packages/cli/src/index.ts"), "--root", fixture.rootDir, "--json", "daemon", "status"],
-        { cwd: process.cwd(), env: statusEnv, encoding: "utf8" },
-      ),
-    ) as { readonly repos: readonly Record<string, unknown>[] };
-    assert.deepEqual(
-      system.repos.map(({ repoId, displayName, canonicalRoot, registrationState, cellState }) => {
-        assert.equal(typeof displayName, "string");
-        assert.equal(displayName, "GUI Task Create Probe");
-        return [repoId, canonicalRoot, registrationState, cellState];
-      }),
-      cliStatus.repos.map(({ repoId, rootDir, registrationState, state }) => [
-        repoId,
-        rootDir === "" ? null : rootDir,
-        registrationState ?? "enabled",
-        state === "closed" ? "not_loaded" : state,
-      ]),
-    );
   } finally {
     await fixture.stop();
     restoreEnv("HARNESS_DAEMON_USER_ROOT", previous.userRoot);

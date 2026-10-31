@@ -401,6 +401,10 @@ describe("G1 开始一项工作:向导经真实 GUI Action 创建", () => {
     expect(view.presetReads).toHaveBeenCalledTimes(1);
     expect(queryTestId(document.body, "start-work-command")).toBeNull();
     expect(queryTestId(document.body, "start-work-publish-command")).toBeNull();
+    await until(
+      () => queryTestId(document.body, "start-work-idempotency") !== null,
+      "resolved preset plan never produced an idempotency note",
+    );
     expect(dialogTestId("start-work-idempotency").textContent).toContain("gui-start-work-");
     await until(
       () => (dialogTestId("start-work-preconditions").textContent ?? "").includes("manual-attest"),
