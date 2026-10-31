@@ -11,7 +11,27 @@ export {
   type LocalDaemonJsonRpcOptions,
   type LocalDaemonTarget,
 } from "./client/local-json-rpc-client.ts";
-export { openDaemonHost, type DaemonHost } from "./daemon-host.ts";
+export { openDaemonHost, type DaemonHost, type DaemonHostOpenInput } from "./daemon-host.ts";
+export {
+  SkillEvalRunner,
+  type SkillEvalCase,
+  type SkillEvalCaseDraft,
+  type SkillEvalCaseResultRecord,
+  type SkillEvalCaseView,
+  type SkillEvalRecord,
+  type SkillEvalRole,
+  type SkillEvalRunResult,
+  type SkillEvalRuntimeBinding,
+  type SkillEvalRuntimeMessage,
+  type SkillEvalRuntimePort,
+  type SkillEvalRuntimeRequest,
+  type SkillEvalRuntimeResult,
+  type SkillEvalScope,
+  type SkillEvalSkill,
+  type SkillEvalSlotQueue,
+  type SkillEvalStore,
+  type SkillEvalRunnerOptions,
+} from "./skill-eval-runner.ts";
 export { listenFleetTls, type FleetCenterOptions, type FleetTlsCenter } from "./fleet/center.ts";
 export {
   FleetRemoteError,

@@ -56,6 +56,8 @@ export async function startDaemon(input: {
   readonly runtimeGithubToken?: DaemonHostOpenInput["runtimeGithubToken"];
   readonly runtimeCredentialPort?: DaemonHostOpenInput["runtimeCredentialPort"];
   readonly managedRbac?: DaemonHostOpenInput["managedRbac"];
+  /** Optional platform skill evaluation capability supplied by the daemon composition root. */
+  readonly skillEvalRunner?: DaemonHostOpenInput["skillEvalRunner"];
   /** Called after a build-superseded exit released everything, so the resident entry can hand the
    * slot to the disk build. */
   readonly onSupersededExit?: () => void | Promise<void>;

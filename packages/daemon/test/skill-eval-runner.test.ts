@@ -5,12 +5,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  openDaemonHost,
   SkillEvalRunner,
   type SkillEvalCase,
   type SkillEvalRuntimePort,
   type SkillEvalSkill,
   type SkillEvalStore,
-} from "../src/skill-eval-runner.ts";
+} from "../src/index.ts";
 
 function fixture() {
   const skill: SkillEvalSkill = {
@@ -88,6 +89,26 @@ test("redacts hidden case input and expectations for the drafting principal", as
     assert.equal(curatorRows[1]?.input, "secret input");
   } finally {
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("exposes the runner through the daemon package composition surface", () => {
+  assert.equal(typeof SkillEvalRunner, "function");
+});
+
+test("keeps the runner injectable through the resident daemon start composition", async () => {
+  const userRoot = await mkdtemp(path.join(tmpdir(), "skill-eval-daemon-"));
+  try {
+    const f = fixture();
+    const runner = new SkillEvalRunner(f.store, f.runtime, { runRoot: userRoot, binding: { runtime: "local" } });
+    const host = await openDaemonHost({ daemonId: "skill-eval", userRoot, skillEvalRunner: runner });
+    try {
+      assert.equal(host.skillEvalRunner, runner);
+    } finally {
+      await host.close();
+    }
+  } finally {
+    await rm(userRoot, { recursive: true, force: true });
   }
 });
 

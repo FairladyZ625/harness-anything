@@ -105,6 +105,7 @@ import type { createEdgeJoinStore } from "./fleet/edge-join.ts";
 import { accessAdminOperations } from "./protocol/daemon-protocol.contract.ts";
 import { ManagedRbacService } from "./managed-rbac-service.ts";
 import { OidcSessionService } from "./oidc-session-service.ts";
+import type { SkillEvalRunner } from "./skill-eval-runner.ts";
 import { runFleetReplicaSync, waitForFleetReplicaReady } from "./fleet/replica-sync.ts";
 export interface DaemonHostOpenInput {
   readonly daemonId: string;
@@ -135,6 +136,8 @@ export interface DaemonHostOpenInput {
   ) => Promise<RepoCell>;
   readonly sshTunnels?: EdgeJoinSshTunnelManager;
   readonly edgeJoins?: ReturnType<typeof createEdgeJoinStore>;
+  /** Platform skill evaluation is wired by the composition root with policy, storage, runtime, and queue ports. */
+  readonly skillEvalRunner?: SkillEvalRunner;
 }
 
 export async function openDaemonHost(input: DaemonHostOpenInput): Promise<DaemonHost> {
@@ -737,6 +740,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   const parkedWaitController = new AbortController(),
     edgeJoinProgress = createEdgeJoinProgressTap();
   const host: DaemonHost = {
+    ...(input.skillEvalRunner ? { skillEvalRunner: input.skillEvalRunner } : {}),
     remoteProxy,
     home,
     keycloakCenter,
