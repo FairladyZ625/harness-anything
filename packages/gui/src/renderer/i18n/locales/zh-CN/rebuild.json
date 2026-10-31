@@ -262,6 +262,7 @@
   "collaboration.loading": "正在读取舰队拓扑…",
   "collaboration.empty": "本仓还没有舰队节点。",
   "collaboration.centerNotice": "本机即舰队中心（Center）：本地通道执行的租约计入「中心」节点，边缘节点连入后并列显示。",
+  "collaboration.centerRequired": "舰队拓扑需连接中心查看；边缘节点不保存中心的实时舰队状态。",
   "collaboration.filterAll": "全部节点",
   "collaboration.centerNode": "中心",
   "collaboration.nodeExecuting": "执行中 {count}",

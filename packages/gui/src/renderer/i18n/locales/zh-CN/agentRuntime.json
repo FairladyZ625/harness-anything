@@ -20,6 +20,7 @@
   "agentRuntime.idle": "空闲",
   "agentRuntime.loading": "读取中…",
   "agentRuntime.readFailed": "读取 Agent Runtime 失败:{error}",
+  "agentRuntime.edgeRuntimeDetailsUnavailable": "会话列表来自中心派工记录；运行时详情未复制到此边缘节点。",
   "agentRuntime.notFound": "该条目已不存在。",
   "agentRuntime.feedbackApplied": "{label} · {id}",
   "agentRuntime.feedbackFailed": "{label} 失败:{error}",

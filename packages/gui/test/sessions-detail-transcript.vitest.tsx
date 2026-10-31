@@ -121,7 +121,11 @@ beforeAll(() => {
 
 const mounted: { readonly root: Root; readonly container: HTMLElement }[] = [];
 
-async function mountPanel(row: SessionRow | null, session: AgentRuntimeSessionDto = sessionDto) {
+async function mountPanel(
+  row: SessionRow | null,
+  session: AgentRuntimeSessionDto = sessionDto,
+  options: { readonly snapshotError?: string; readonly remoteEdge?: boolean } = {},
+) {
   vi.stubGlobal(
     "ResizeObserver",
     class {
@@ -146,16 +150,19 @@ async function mountPanel(row: SessionRow | null, session: AgentRuntimeSessionDt
       createElement(SessionsPanel, {
         repoId: "repo-a",
         runtimeSessionId: session.runtimeSessionId,
-        snapshot: {
-          ok: true,
-          status: "ready",
-          session,
-          result: null,
-          settlement: null,
-          watermark: 1,
-          sourceRevision: 1,
-        },
-        snapshotError: null,
+        snapshot:
+          options.snapshotError === undefined
+            ? {
+                ok: true,
+                status: "ready",
+                session,
+                result: null,
+                settlement: null,
+                watermark: 1,
+                sourceRevision: 1,
+              }
+            : null,
+        snapshotError: options.snapshotError ?? null,
         row,
         squadNames: new Map(),
         decisionRefs: [],
@@ -164,7 +171,8 @@ async function mountPanel(row: SessionRow | null, session: AgentRuntimeSessionDt
         onResume: async () => undefined,
         onOpenTask: () => undefined,
         onNavigateEntity: () => undefined,
-      }),
+        remoteEdge: options.remoteEdge ?? false,
+      } as never),
     );
   });
   await act(async () => {
@@ -187,6 +195,18 @@ afterEach(() => {
 });
 
 describe("session detail dispatch resolution", () => {
+  it("explains that a listed center session has no runtime detail in the edge replica", async () => {
+    const { container } = await mountPanel(null, sessionDto, {
+      snapshotError: "runtime_session_not_found: Runtime session runtime-bound was not found.",
+      remoteEdge: true,
+    });
+
+    expect(container.querySelector('[data-testid="session-detail-edge-unavailable"]')?.textContent).toContain(
+      "runtime details are not replicated to this edge",
+    );
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
   it("prefers the expanded round row's dispatch", () => {
     const row = {
       kind: "round",

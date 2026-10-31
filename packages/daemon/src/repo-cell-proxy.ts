@@ -60,6 +60,7 @@ import { workspaceSummaryFromProjection } from "./workspace-summary-read.ts";
 import { workspaceScopeFromProjection } from "./workspace-scope-read.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { withEdgeReadModel } from "./fleet-edge-task-read.ts";
+import { readReplicaHealth } from "./fleet/replica-health.ts";
 
 const writerAttached = (cell: { readonly state: string }): boolean => cell.state === "attached";
 const projectionReady = (read: { readonly status: string }): boolean => read.status === "ready";
@@ -219,7 +220,16 @@ export async function openRepoCellProxy(
       },
       (projection, frame, view) => {
         edgeViews.set(projection, view);
-        return read(projection, frame, view);
+        const health = readReplicaHealth(view.viewDir),
+          failure = health.modelFailure ?? health.syncFailure,
+          framed =
+            failure === null
+              ? frame
+              : {
+                  ...frame,
+                  warning: [frame.warning, `${failure.code}: ${failure.message}`].filter(Boolean).join(" · "),
+                };
+        return read(projection, framed, view);
       },
     );
   };

@@ -113,6 +113,24 @@ test(
       assert.deepEqual(JSON.parse(String(edge.evidence)), JSON.parse(String(workTruths[index]!.evidence)));
     }
 
+    const view = locateFleetMirrorView(e.viewRoot, "lease-repo")!;
+    writeFileSync(
+      path.join(view.viewDir, "replica-health.json"),
+      JSON.stringify({
+        rebuildCount: 0,
+        lastHeartbeatAt: new Date().toISOString(),
+        syncFailure: {
+          code: "human_confirmation_required",
+          message: "Center refused replication: reader authorization requires confirmation.",
+        },
+        modelFailure: null,
+      }),
+    );
+    const failedSyncRead = await local();
+    assert.equal(failedSyncRead.ok, true, JSON.stringify(failedSyncRead));
+    assert.match(JSON.stringify(failedSyncRead.warnings), /human_confirmation_required/u);
+    assert.match(JSON.stringify(failedSyncRead.warnings), /Center refused replication/u);
+
     // 6. An edge that never pulled has no local answer and says so instead of returning an empty list.
     const empty = await fleetEdgeHostFixture(t, f, { name: "edge-empty" });
     assert.equal((await empty.command({ kind: "task-list" })).code, "replica_unavailable");

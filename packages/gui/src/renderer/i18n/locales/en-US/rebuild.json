@@ -262,6 +262,7 @@
   "collaboration.loading": "Reading the fleet topology…",
   "collaboration.empty": "No fleet nodes for this repository yet.",
   "collaboration.centerNotice": "This machine is the fleet center: leases executed over the local channel count toward the Center node; connected edges appear alongside it.",
+  "collaboration.centerRequired": "Connect to the center to view fleet topology; edge nodes do not store the center's live fleet state.",
   "collaboration.filterAll": "All nodes",
   "collaboration.centerNode": "Center",
   "collaboration.nodeExecuting": "executing {count}",
