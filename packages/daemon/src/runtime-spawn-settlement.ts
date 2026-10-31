@@ -526,7 +526,7 @@ async function publishTerminalOutcome(
     active.role === "reviewer" &&
     active.task &&
     payload.outcome === "failed" &&
-    payload.attempt?.classification === "dispatch_stalled"
+    (payload.attempt?.classification === "dispatch_stalled" || payload.reasonCode === "review_result_missing")
   )
     context.input.onStalledReviewer?.({
       dispatchId: active.dispatchId,
