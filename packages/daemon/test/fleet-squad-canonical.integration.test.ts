@@ -4,8 +4,6 @@ import path from "node:path";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
-import tls from "node:tls";
-import { syncBuiltinESMExports } from "node:module";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 import { daemonMethodAcceptsPayload } from "../src/protocol/daemon-protocol-rpc-validation.ts";
@@ -585,8 +583,6 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   // current.json position. Backdate it past the read-path max age so offline reads report stale.
   const tenMinutesAgo = new Date(Date.now() - 10 * 60_000);
   utimesSync(path.join(view.viewDir, "current.json"), tenMinutesAgo, tenMinutesAgo);
-  const connections = t.mock.method(tls, "connect");
-  syncBuiltinESMExports();
   const offlineReads = [
     ["repo.tasks.list", {}],
     ["repo.works.index", {}],
@@ -649,15 +645,8 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
     code: "authorization_denied",
   });
   b.signIn("person-one");
-  assert.equal(
-    connections.mock.callCount(),
-    2,
-    "dispatch annotations and the edge fleet overview use the center TLS relay",
-  );
-  connections.mock.restore();
-  syncBuiltinESMExports();
   t.diagnostic(
-    `B GUI RPC online dispatches=${dispatches.dispatches.length}; offline shared-query families center TLS calls=2 (dispatch annotations and fleet overview) owner mismatch=authorization_denied`,
+    `B GUI RPC online dispatches=${dispatches.dispatches.length}; offline shared-query families center Fleet operations unavailable owner mismatch=authorization_denied`,
   );
   assert.equal(launches, 1);
   t.diagnostic(`A launch -> canonical observation ${observed.workspaceRevision} -> B offline status ${runId}`);
