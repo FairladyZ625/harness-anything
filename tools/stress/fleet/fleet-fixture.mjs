@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { openDaemonHost } from "../../../packages/daemon/src/daemon-host.ts";
 import { openRuntimeInstanceStore } from "../../../packages/daemon/src/agent-runtime-instances.ts";
-import { openPersistentWriterEpoch } from "../../../packages/daemon/src/writer-epoch.ts";
+import { openPersistentWriterEpoch } from "../../../packages/storage/src/writer-epoch.ts";
 import { listenFleetTls } from "../../../packages/daemon/src/fleet/center.ts";
 import { runFleetScheduleCommandClient } from "../../../packages/daemon/src/fleet/peer.ts";
 import { catchUpReplica } from "../../../packages/daemon/test/replica-catch-up.fixture.ts";

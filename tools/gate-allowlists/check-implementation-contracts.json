@@ -47,12 +47,12 @@
       ],
       "store": [
         {
-          "value": "packages/kernel/test/store/task-event-store.test.ts",
+          "value": "packages/storage/test/store/task-event-store.test.ts",
           "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
           "reason": "W3 store implementation requires event publication, recovery, publish-once, process, and fsync evidence."
         },
         {
-          "value": "packages/kernel/test/store/task-projection-steady-state.integration.test.ts",
+          "value": "packages/storage/test/store/task-projection-steady-state.integration.test.ts",
           "ref": "task_01KZRMKJT7YKQ2TNXA8WR1W5DN",
           "reason": "W3 store implementation requires event-derived SQLite projection and lease CAS evidence."
         },
@@ -141,6 +141,11 @@
         "value": "packages/preset/tsconfig.json",
         "ref": "dec_01KZVA9GQFJ0T6H05RHCSTV4CE",
         "reason": "Preset v3 Slice A adds the governed canonical preset workspace."
+      },
+      {
+        "value": "packages/storage/tsconfig.json",
+        "ref": "dec_D90F19C8AAAF39747F8F0D6698",
+        "reason": "Storage implementation is a governed workspace package."
       }
     ],
     "requiredCompilerOptions": [

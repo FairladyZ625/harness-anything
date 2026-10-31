@@ -17,11 +17,16 @@ import test, { after, before, describe, mock } from "node:test";
 import workerThreads, { Worker } from "node:worker_threads";
 import { DEFAULT_BACKUP_EXECUTION_LIMIT_MS as backupExecutionLimitMs } from "@harness-anything/kernel";
 import { syncBuiltinESMExports } from "node:module";
-import { readOfflineLedgerEvents, readVerifiedLedgerBackup, type ScheduleV1 } from "@harness-anything/kernel";
+import { type ScheduleV1 } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoWriterCell } from "../src/repo-cell-open.ts";
 import { acquireWorkspaceLock } from "../src/repo-cell-lock.ts";
-import { openPersistentWriterEpoch, readLedgerWriterEpoch } from "../src/writer-epoch.ts";
+import {
+  openPersistentWriterEpoch,
+  readLedgerWriterEpoch,
+  readOfflineLedgerEvents,
+  readVerifiedLedgerBackup,
+} from "@harness-anything/storage";
 import { seedSettingsEvent } from "./repo-settings.fixture.ts";
 import { initHarnessRepo } from "./schedule-actions.fixtures.ts";
 import { provisionPolicyTestRepository, withPolicyGroup } from "./keycloak-policy.fixtures.ts";

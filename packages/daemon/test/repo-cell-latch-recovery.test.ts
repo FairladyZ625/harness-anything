@@ -9,17 +9,15 @@ import path from "node:path";
 import test from "node:test";
 import {
   createImmutableLegacyGenerationSnapshot,
-  bindWriterGenerationToken,
   legacyGenerationSnapshotPath,
   makeTaskEventReader,
   openSqliteEventStore,
-  serializePersistedCanonicalEvent,
-  sha256Text,
-} from "@harness-anything/kernel";
+} from "@harness-anything/storage";
+import { bindWriterGenerationToken, serializePersistedCanonicalEvent, sha256Text } from "@harness-anything/kernel";
 import {
   contentClaims,
   preflightConvertedGenerationActivation,
-} from "../../kernel/test/store/canonical-generation.fixtures.ts";
+} from "../../storage/test/store/canonical-generation.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { causeClassOf, type RepoCell } from "../src/repo-cell.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";

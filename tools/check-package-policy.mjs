@@ -6,6 +6,7 @@ import { backupName, ownerName } from "./package-exports-lifecycle.mjs";
 const root = process.cwd();
 const expectedPackages = new Map([
   ["packages/kernel/package.json", "@harness-anything/kernel"],
+  ["packages/storage/package.json", "@harness-anything/storage"],
   ["packages/application/package.json", "@harness-anything/application"],
   ["packages/daemon/package.json", "@harness-anything/daemon"],
   ["packages/cli/package.json", "@harness-anything/cli"],
@@ -61,6 +62,7 @@ for (const [relativePath, expectedName] of expectedPackages.entries()) {
 
 for (const relativePath of [
   "packages/kernel/.git",
+  "packages/storage/.git",
   "packages/application/.git",
   "packages/daemon/.git",
   "packages/cli/.git",

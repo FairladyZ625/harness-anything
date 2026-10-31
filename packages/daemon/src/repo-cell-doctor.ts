@@ -1,7 +1,7 @@
 import { edgeReplicaDoctor } from "./edge-replica-doctor.ts";
+import { resolveLedgerGitLayout } from "@harness-anything/storage";
 import {
   currentExecutionCuts,
-  resolveLedgerGitLayout,
   taskWipOccupyingStatuses,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";

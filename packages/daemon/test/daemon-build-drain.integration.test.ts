@@ -10,13 +10,9 @@ import { JsonRpcLineClient } from "../src/client/local-json-rpc-client.ts";
 import { openRemoteProxyManager } from "../src/remote-proxy.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import test from "node:test";
-import {
-  consumeKnownError,
-  makeTaskEventReader,
-  makeTaskProjection,
-  type AgentDefinitionSnapshot,
-} from "@harness-anything/kernel";
-import { registerDaemonRepo } from "@harness-anything/kernel";
+import { makeTaskEventReader, makeTaskProjection, registerDaemonRepo } from "@harness-anything/storage";
+import { consumeKnownError, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
+
 import { ensureLocalDaemonRunning, type DaemonLaunchSpec } from "../src/client/daemon-autostart.ts";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { openDaemonJsonRpcClientAt, requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";

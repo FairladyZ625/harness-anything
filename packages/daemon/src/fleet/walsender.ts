@@ -1,13 +1,9 @@
 import { createReadStream } from "node:fs";
-import {
-  replicationContentClaims,
-  type PersistedCanonicalEventV1,
-  type ReplicationCommit,
-  type ReplicationPosition,
-} from "@harness-anything/kernel";
-import type { BaseBackupArchive } from "./basebackup.ts";
+import { replicationContentClaims, type ReplicationCommit, type ReplicationPosition } from "@harness-anything/storage";
+import { type PersistedCanonicalEventV1 } from "@harness-anything/kernel";
+import type { BaseBackupArchive } from "@harness-anything/storage";
 import { REPLICATION_CHUNK_BYTES, type ReplicationPeer } from "./protocol.ts";
-import type { ReplicationSlotLease, ReplicationSlots } from "./replication-slot.ts";
+import type { ReplicationSlotLease, ReplicationSlots } from "@harness-anything/storage";
 
 export interface ReplicationSource {
   readonly read: (after: ReplicationPosition) => {

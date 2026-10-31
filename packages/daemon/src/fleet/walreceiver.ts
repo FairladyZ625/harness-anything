@@ -2,20 +2,22 @@ import { mkdir, open, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import {
-  canonicalDocumentClaims,
-  canonicalDocumentRetirements,
   makeTaskEventReader,
   makeTaskProjection,
   openReplicaStore,
-  TASK_EVENT_SHAPE_COMPAT_VERSION,
   type ReplicationCommit,
   type ReplicationPosition,
+} from "@harness-anything/storage";
+import {
+  canonicalDocumentClaims,
+  canonicalDocumentRetirements,
+  TASK_EVENT_SHAPE_COMPAT_VERSION,
 } from "@harness-anything/kernel";
 import { daemonBuildStamp } from "../build-identity.ts";
 import { parseReplicationCommit, type ReplicationPeer } from "./protocol.ts";
-import type { BaseBackupMetadata } from "./basebackup.ts";
+import type { BaseBackupMetadata } from "@harness-anything/storage";
 import type { ReplicaGeneration } from "./replica-generation.ts";
-import { syncDirectory } from "../durable-file.ts";
+import { syncDirectory } from "@harness-anything/storage";
 
 /** The receiver owns the only mutable ledger handle; projection application is the center's implementation. */
 export function openWalReceiverGeneration(generation: ReplicaGeneration) {

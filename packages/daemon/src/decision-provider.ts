@@ -13,7 +13,7 @@ import type {
   DecisionUsage,
 } from "@harness-anything/kernel";
 import { credentialPort, isCredentialReferenceText, type CredentialPort } from "./agent-runtime-credential-port.ts";
-import { writeFileDurably } from "./durable-file.ts";
+import { writeFileDurably } from "../../storage/src/durable-file.ts";
 
 const fileSchema = "decision-providers/v1" as const;
 const providerIdPattern = /^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/u;

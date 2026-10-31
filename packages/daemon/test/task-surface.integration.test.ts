@@ -5,14 +5,8 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after, before } from "node:test";
-import {
-  makeTaskEventReader,
-  makeTaskEventStore,
-  makeTaskProjection,
-  REPLAY_TASK_GRAPH,
-  taskLifecycleWritePlan,
-  type TaskEventV1,
-} from "@harness-anything/kernel";
+import { makeTaskEventReader, makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
+import { REPLAY_TASK_GRAPH, taskLifecycleWritePlan, type TaskEventV1 } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import {
   acceptedWorkDecision,

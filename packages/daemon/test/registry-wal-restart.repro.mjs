@@ -2,7 +2,8 @@
 import { signInProcessPolicyTestUser } from "./keycloak-process-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { makeTaskEventReader } from "@harness-anything/kernel";
+import { makeTaskEventReader } from "@harness-anything/storage";
+
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";

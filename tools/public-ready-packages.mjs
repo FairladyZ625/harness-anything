@@ -8,6 +8,14 @@ export const publicReadyPackages = Object.freeze([
     required: false,
   }),
   Object.freeze({
+    packagePath: "packages/storage/package.json",
+    packageName: "@harness-anything/storage",
+    version: "0.0.1",
+    repositoryDirectory: "packages/storage",
+    bins: Object.freeze({}),
+    required: false,
+  }),
+  Object.freeze({
     packagePath: "packages/application/package.json",
     packageName: "@harness-anything/application",
     version: "0.0.1",

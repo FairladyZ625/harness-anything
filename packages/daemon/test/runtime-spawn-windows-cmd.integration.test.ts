@@ -5,7 +5,8 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { cmdShellInvocation } from "@harness-anything/kernel";
+import { cmdShellInvocation } from "@harness-anything/storage";
+
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
 // The only environment that can adjudicate cmd.exe's two parsing layers (cmd /c plus the

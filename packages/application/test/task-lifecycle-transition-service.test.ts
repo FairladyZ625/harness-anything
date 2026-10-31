@@ -7,8 +7,6 @@ import path from "node:path";
 import test from "node:test";
 import { completionSnapshot, emptyCompletionContract } from "../../kernel/test/domain/completion.fixtures.ts";
 import {
-  openSqliteEventStore,
-  activateEmptyCanonicalGeneration,
   applyTransition,
   canonicalGateReceipts,
   completionBlockers,
@@ -19,12 +17,13 @@ import {
   submissionDigest,
   type TaskEventV1,
 } from "@harness-anything/kernel";
+import { openSqliteEventStore, activateEmptyCanonicalGeneration } from "@harness-anything/storage";
 import {
   makeTaskEventStore,
   makeTaskProjection,
   serializeTaskEvent,
   TASK_LEASE_BROKER_CONTRACT,
-} from "../../kernel/test/store/task-lifecycle-runtime.ts";
+} from "../../storage/test/store/task-lifecycle-runtime.ts";
 import { makeTaskLifecycleService, TaskLifecycleOperationConflict } from "../src/task-lifecycle-service.ts";
 import { lifecycleHarness, replayGraph } from "./task-lifecycle-test-harness.ts";
 
@@ -930,7 +929,7 @@ test("second lifecycle claim uses monotonic lease CAS", async () => {
 });
 
 test("SQLite/response killpoints reconstruct the exact applied receipt by opId without another commit", async () => {
-  for (const point of ["after_sqlite_commit", "before_response_write", "after_response_write"] as const) {
+  for (const point of ["after_store_commit", "before_response_write", "after_response_write"] as const) {
     const rootDir = mkdtempSync(path.join(tmpdir(), `ha-response-${point}-`));
     let projection: ReturnType<typeof makeTaskProjection> | undefined;
     try {

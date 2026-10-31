@@ -6,21 +6,18 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import {
-  consumeKnownError,
-  makeTaskEventReader,
-  makeTaskProjection,
-  type AgentDefinitionSnapshot,
-} from "@harness-anything/kernel";
+import { consumeKnownError, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import { type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/dispatch-stream.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import {
+  makeTaskEventReader,
+  makeTaskProjection,
   openPersistentWriterEpoch,
   readLedgerWriterEpoch,
   type WriterEpochFenceDescriptor,
-} from "../src/writer-epoch.ts";
+} from "@harness-anything/storage";
 import { launchExitNotification } from "../src/runtime-spawn.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
@@ -131,7 +128,7 @@ test("attached task runtime settlement releases its execution lease before publi
         };
       },
       killpoint: (point) => {
-        if (!failSettlement || point !== "after_sqlite_commit") return;
+        if (!failSettlement || point !== "after_store_commit") return;
         const latest = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read().events.at(-1);
         if (latest?.type === "lease_released" && latest.taskId === "task-runtime-settlement-failed") {
           failSettlement = false;

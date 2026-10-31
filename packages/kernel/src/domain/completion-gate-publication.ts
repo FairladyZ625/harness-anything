@@ -140,3 +140,4 @@ export function compileCompletionGateWitness(input: {
     currentDocuments: input.currentDocuments,
   });
 }
+/** @slice-activation kernel completion-gate publication is consumed by the daemon completion writer. */

@@ -13,7 +13,7 @@ import {
 import { userInfo } from "node:os";
 import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel";
-import { writeFileDurably } from "./durable-file.ts";
+import { writeFileDurably } from "../../storage/src/durable-file.ts";
 import { credentialPort } from "./agent-runtime-credential-port.ts";
 import type { FlatRuntimeInstanceConfig, LegacyRuntimeInstanceConfig } from "./agent-runtime-instance-config.ts";
 import {

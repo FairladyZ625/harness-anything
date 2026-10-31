@@ -1,19 +1,17 @@
 import { existsSync, lstatSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import type { CanonicalEventStore, TaskProjection } from "@harness-anything/kernel";
+import { ledgerGitPath, localGitWorktreeSettlement, resolveLedgerGitLayout } from "@harness-anything/storage";
 import {
   classifyRawArtifactPath,
   classifyTextualArtifactPath,
   DOC_SYNC_INLINE_MAX_BYTES,
   documentPath,
   isDocEvent,
-  ledgerGitPath,
-  localGitWorktreeSettlement,
   parseDocWriteIntent,
   RAW_ARTIFACT_MAX_BYTES,
   resolveDocRoute,
   resolveHarnessLayout,
-  resolveLedgerGitLayout,
   sha256Bytes,
   stableStringify,
   normalizeCommandEnvelope,

@@ -5,12 +5,8 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import {
-  deriveBasePolicyGroups,
-  effectivePolicyGroupScopes,
-  makeTaskEventReader,
-  makeTaskProjection,
-} from "@harness-anything/kernel";
+import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
+import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { openRepoCell } from "../src/repo-cell-open.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { startDaemon } from "../src/runtime.ts";

@@ -126,7 +126,7 @@ export function appendProgress(
     plan = carried === null ? compiled.plan : taskProgressWritePlan(event),
     blobs = carried === null ? compiled.blobs : [...compiled.blobs, ...carried.blobs];
   const appended = cell.store.append({ event, plan, blobs });
-  cell.input.killpoint?.("after_sqlite_commit");
+  cell.input.killpoint?.("after_store_commit");
   cell.projection.apply(event, plan);
   const receipt = cell.progressReceipt(event, cell.publicPublication(appended));
   cell.input.killpoint?.("before_response_write");

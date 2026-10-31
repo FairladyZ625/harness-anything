@@ -10,7 +10,8 @@ import { existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskProjectionReader } from "@harness-anything/kernel";
+import { makeTaskProjectionReader } from "@harness-anything/storage";
+
 import {
   fakeReplicationCenter,
   fleetReplicationFixture,

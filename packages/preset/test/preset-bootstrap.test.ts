@@ -8,11 +8,10 @@ import test from "node:test";
 import {
   assessTransitionDocument,
   compileTaskLifecycleWrite,
-  makeTaskEventStore,
-  makeTaskProjection,
   sha256Text,
   type TaskEventV1,
 } from "@harness-anything/kernel";
+import { makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
 import { compilePresetSnapshotUpgrade, compileTaskBootstrap, compileTaskPackage } from "../src/index.ts";
 
 const PR_TEMPLATE_FIXTURE = `# English

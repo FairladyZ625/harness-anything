@@ -14,7 +14,8 @@ import {
   makeTaskEventStore,
   makeTaskEventReader,
   makeTaskProjection,
-} from "@harness-anything/kernel";
+} from "@harness-anything/storage";
+
 import { migrateCompletion } from "@harness-anything/preset/internal/preset-resolver";
 import { initRepo, ownerBinding, standardMigration } from "./doc-sync-slice-a.fixtures.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";

@@ -4,7 +4,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, makeTaskProjection, type FactEventDraftV1 } from "@harness-anything/kernel";
+import { type FactEventDraftV1 } from "@harness-anything/kernel";
+import { makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
 import { makeFactService } from "../src/index.ts";
 
 import {

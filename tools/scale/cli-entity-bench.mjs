@@ -41,7 +41,7 @@ function parseArgs(argv) {
 async function main() {
   const { parseThinCommand } = await import("../../packages/cli/src/cli/thin-command.ts");
   const { runCommandThroughDaemon } = await import("../../packages/cli/src/daemon/client.ts");
-  const { openSqliteEventStore } = await import("../../packages/kernel/src/store/sqlite-event-store.ts");
+  const { openSqliteEventStore } = await import("../../packages/storage/src/store/sqlite-event-store.ts");
   mkdirSync(args.out, { recursive: true });
   const started = Date.now(),
     f = fixture(args.seed, { daemonId: "scale-bench", frames: false }),

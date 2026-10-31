@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { renameLegacyTaskWorktrees } from "./task-worktree-legacy-rename.ts";
 import { presetSnapshotReader } from "./task-worktree.ts";
+import { createEntityStore } from "@harness-anything/storage";
 import {
-  createEntityStore,
   isMigrationImportEvent,
   isTerminalStatus,
   requireEntityStoreKindContract,
@@ -167,7 +167,7 @@ export function supersedeWithNewTask(
     publication = cell.publicPublication(appended);
   applyPreparedTaskCreate(cell, preparedCreate);
   cell.projection.apply(preparedSupersede.compiled.event, preparedSupersede.compiled.plan);
-  cell.input.killpoint?.("after_sqlite_commit");
+  cell.input.killpoint?.("after_store_commit");
   const created = preparedTaskCreateReceipt(cell, preparedCreate, publication),
     replaced = {
       ...cell.lifecycleReceipt(
@@ -645,7 +645,7 @@ export function upsertEntity(
     }),
     appended = cell.store.append(compiled);
   cell.projection.apply(compiled.event, compiled.plan);
-  cell.input.killpoint?.("after_sqlite_commit");
+  cell.input.killpoint?.("after_store_commit");
   const applied = cell.projection.readOperation(compiled.event.opId),
     visible = !!applied && applied.watermark >= compiled.event.workspaceRevision,
     proof = {

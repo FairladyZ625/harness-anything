@@ -24,13 +24,13 @@ import {
   type RelationEventV1,
   validateCurrentRelationEvent,
 } from "../../src/domain/relation-event.ts";
-import { createRelationGraphProjectionTables } from "../../src/projection/relation-graph-projection.ts";
+import { createRelationGraphProjectionTables } from "../../../storage/src/projection/relation-graph-projection.ts";
 import {
   applyRelationProjectionEvent,
   readRelationProjectionRows,
   RELATION_PROJECTION_VERSION,
-} from "../../src/projection/relation-entity-projection.ts";
-import { markEntityProjectionMissing } from "../../src/projection/rebuildable-task-projection-entities.ts";
+} from "../../../storage/src/projection/relation-entity-projection.ts";
+import { markEntityProjectionMissing } from "../../../storage/src/projection/rebuildable-task-projection-entities.ts";
 import { blockingOf } from "../../src/domain/task-blocking.ts";
 
 const actor = {

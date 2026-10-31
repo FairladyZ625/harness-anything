@@ -11,10 +11,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader } from "@harness-anything/kernel";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { rawPeer } from "./fleet-tls-session.fixture.ts";
-import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
+import { makeTaskEventReader, openPersistentWriterEpoch } from "@harness-anything/storage";
 
 const repoId = "lease-repo";
 

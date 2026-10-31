@@ -112,7 +112,7 @@ export function publishGateWitness(
   const appended = cell.store.append(compiled),
     publication = cell.publicPublication(appended);
   cell.projection.apply(compiled.event, compiled.plan);
-  cell.completionKillpoint("after_sqlite_commit", opId);
+  cell.completionKillpoint("after_store_commit", opId);
   const receipt = cell.lifecycleReceipt(
     compiled.event,
     cell.projection.read(taskId).snapshot,

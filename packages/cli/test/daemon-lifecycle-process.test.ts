@@ -19,7 +19,7 @@ import { openDaemonLifecycleLog } from "@harness-anything/daemon/internal/lifecy
 import { daemonPidPath, readDaemonPid } from "@harness-anything/daemon/internal/runtime";
 import { buildProjectionOracle } from "../../daemon/test/migration-import.fixtures.ts";
 import { registerBootstrappedDaemonRepo, seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
-import { makeTaskEventReader } from "@harness-anything/kernel";
+import { makeTaskEventReader } from "@harness-anything/storage";
 import { daemonServeEntry } from "../src/daemon/client.ts";
 import { withAutostart } from "../src/daemon/with-autostart.ts";
 

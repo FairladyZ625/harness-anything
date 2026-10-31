@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
+import { taskEntryToRow, type ColdDecisionProjectionRow } from "@harness-anything/storage";
 import {
   MIGRATION_DOCUMENT_POLICY_ID,
   MIGRATION_IMPORT_SOURCE,
@@ -7,15 +8,14 @@ import {
   decisionStates,
   migrationImportWritePlan,
   sha256Text,
-  taskEntryToRow,
   type ActorIdentity,
-  type ColdDecisionProjectionRow,
   type DecisionState,
   type MigrationDocumentClaim,
   type MigrationImportEventV1,
   type RelationFactRow,
 } from "@harness-anything/kernel";
-import { isMigrationImportRecord, nonEmpty, timestamp } from "./migration-import-report.ts";
+import { isMigrationImportRecord, nonEmpty } from "@harness-anything/storage";
+import { timestamp } from "./migration-import-report.ts";
 import { migrationOperationId } from "./migration-import-source.ts";
 import type { ImportedTask, Prepared } from "./migration-import-types.ts";
 

@@ -11,7 +11,7 @@ import {
   taskPrPublicationNote,
   taskQueryGuidance,
 } from "@harness-anything/daemon/internal/runtime-spawn-mission";
-import { makeTaskEventReader } from "@harness-anything/kernel";
+import { makeTaskEventReader } from "@harness-anything/storage";
 import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
 import {
   assertTaskMissionPrompt,

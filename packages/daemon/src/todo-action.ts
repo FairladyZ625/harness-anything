@@ -135,7 +135,7 @@ export function runTodoAction(
       if (prepared && item === prepared.compiled) applyPreparedTaskCreate(cell, prepared);
       else cell.projection.apply(item.event, item.plan);
     }
-    cell.input.killpoint?.("after_sqlite_commit");
+    cell.input.killpoint?.("after_store_commit");
     return {
       ...cell.readResult(
         opId,

@@ -1,18 +1,17 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
+import { makeTaskProjectionReader, openSqliteEventStore } from "@harness-anything/storage";
 import {
   documentPath,
   inspectDocCandidate,
-  makeTaskProjectionReader,
-  openSqliteEventStore,
   resolveHarnessLayout,
   serializeEventHead,
   sha256Bytes,
   sha256Text,
 } from "@harness-anything/kernel";
-import { BASE_BACKUP_ARCHIVE_ROOT } from "./fleet/basebackup-layout.ts";
+import { BASE_BACKUP_ARCHIVE_ROOT } from "@harness-anything/storage";
 import { withReplicaGeneration, type ReplicaGeneration } from "./fleet/replica-generation.ts";
-import { removeFileDurably, writeFileDurably } from "./durable-file.ts";
+import { removeFileDurably, writeFileDurably } from "../../storage/src/durable-file.ts";
 
 export interface FleetMirrorBlob {
   readonly sha256: string;

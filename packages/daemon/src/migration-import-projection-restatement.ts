@@ -7,8 +7,8 @@ import {
   type DecisionDocumentState,
 } from "@harness-anything/kernel";
 import type { MigrationImportContext } from "./migration-import-run.ts";
-import type { ProjectionOracleDecision, ProjectionOracleFact } from "./migration-import-oracle.ts";
-import { isMigrationImportRecord, nonEmpty } from "./migration-import-report.ts";
+import type { ProjectionOracleDecision, ProjectionOracleFact } from "@harness-anything/storage";
+import { isMigrationImportRecord, nonEmpty } from "@harness-anything/storage";
 
 export function addOracleDecision(context: MigrationImportContext, source: ProjectionOracleDecision): boolean {
   if (context.decisionMap.has(source.decisionId)) return true;

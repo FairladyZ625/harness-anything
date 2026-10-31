@@ -89,7 +89,7 @@ test("selectQosPrefix runs bare when no QoS tool is available", () => {
 
 for (const file of [
   "packages/cli/src/index.ts",
-  "packages/kernel/src/store/task-store.ts",
+  "packages/storage/src/store/task-store.ts",
   "packages/daemon/src/runtime.ts",
 ]) {
   test(`default local steps include integration for ${file}`, () => {

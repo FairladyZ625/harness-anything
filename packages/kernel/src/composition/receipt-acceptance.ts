@@ -4,9 +4,10 @@ import {
   unsatisfiedReceiptPredicates,
   type ReceiptWaitPredicate,
 } from "../domain/receipt-acceptance.ts";
-import type { CanonicalEventStore } from "./index.ts";
+import type { CanonicalEventStore } from "../ports/task-event-store.ts";
 import type { ReceiptAcceptanceFields, ReceiptConsumerCut, ReceiptFacet } from "../domain/receipt-acceptance.ts";
-import type { TaskProjection, WriteReceiptDraft } from "../index.ts";
+import type { WriteReceiptDraft } from "../domain/receipt-domain-registry.ts";
+import type { TaskProjection } from "../ports/task-projection.ts";
 
 type AcceptedCommandOutcome = NonNullable<ReturnType<CanonicalEventStore["readCommandOutcome"]>> & {
   readonly status: "accepted_durable";
@@ -181,3 +182,4 @@ export async function waitForReceiptAcceptance<R extends WriteReceiptDraft>(
   }
   return { ...receipt, wait: { state: unsatisfied.length ? "timed_out" : "satisfied", unsatisfied } };
 }
+// @slice-activation kernel receipt settlement is consumed by daemon write receipt composition.

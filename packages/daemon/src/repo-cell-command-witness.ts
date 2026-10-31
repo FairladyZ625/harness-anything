@@ -1,11 +1,11 @@
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir, devNull } from "node:os";
 import path from "node:path";
+import { localGitObjectRefStore } from "@harness-anything/storage";
 import {
   completionEvidenceBasis,
   completionPredicateIssues,
   currentGateRun,
-  localGitObjectRefStore,
   validCompletionWitnessResult,
   type CompletionEvidenceV1,
   type CompletionWitnessResult,

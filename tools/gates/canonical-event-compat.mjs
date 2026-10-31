@@ -1,6 +1,6 @@
 import { completionGenerationFixtures, convertFrozenCompletionSample } from "./completion-generation-fixtures.mjs";
 import { readOnlyGenerationOneFixtures } from "./canonical-event-generations.mjs";
-import { decodeLegacyEventBytes } from "../../packages/kernel/src/store/legacy-generation-source.ts";
+import { decodeLegacyEventBytes } from "../../packages/storage/src/store/legacy-generation-source.ts";
 import { validateCurrentCanonicalEvent } from "../../packages/kernel/src/domain/doc-sync-canonical-events.ts";
 import { validateRetiredCiRunObservationEvent } from "../../packages/kernel/src/domain/ci-run-observation-retired-event.ts";
 import { createHash } from "node:crypto";
@@ -28,8 +28,8 @@ import {
 import { isTaskBootstrapEvent, taskBootstrapWritePlan } from "../../packages/kernel/src/domain/task-bootstrap-event.ts";
 import { isRelationEvent, relationEventWritePlan } from "../../packages/kernel/src/domain/relation-event.ts";
 import { sha256Text } from "../../packages/kernel/src/integrity/stable-hash.ts";
-import { makeTaskProjection } from "../../packages/kernel/src/projection/rebuildable-task-projection.ts";
-import { canonicalEventContentClaims } from "../../packages/kernel/src/store/task-event-store.ts";
+import { makeTaskProjection } from "../../packages/storage/src/projection/rebuildable-task-projection.ts";
+import { canonicalEventContentClaims } from "../../packages/storage/src/store/task-event-store.ts";
 import { listProjectedTaskDocuments, readProjectedDocument } from "../../packages/daemon/src/doc-sync-actions.ts";
 import { readTaskDispatches } from "../../packages/daemon/src/dispatch-read.ts";
 import {

@@ -8,17 +8,15 @@ import path from "node:path";
 import test from "node:test";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import {
-  canonicalEventWritePlan,
+  openPersistentWriterEpoch,
   makeTaskEventReader,
   makeTaskEventStore,
   makeTaskProjection,
   activateEmptyCanonicalGeneration,
-  type AgentRuntimeEventV1,
-  type FrozenWritePlan,
-} from "@harness-anything/kernel";
-import { WRITE_RECEIPT_SCHEMA } from "@harness-anything/kernel/internal/domain/receipt-domain-registry";
+} from "@harness-anything/storage";
+import { canonicalEventWritePlan, type AgentRuntimeEventV1, type FrozenWritePlan } from "@harness-anything/kernel";
+import { WRITE_RECEIPT_SCHEMA } from "@harness-anything/kernel";
 import { validateWriteReceipt } from "../../kernel/test/contracts/receipt-acceptance.fixtures.ts";
 import {
   canonicalRoot,
@@ -351,7 +349,7 @@ for (const killpoint of ["before_event_write", "after_event_write"] as const) {
     }
   });
 }
-for (const killpoint of ["after_sqlite_commit", "before_response_write", "after_response_write"] as const) {
+for (const killpoint of ["after_store_commit", "before_response_write", "after_response_write"] as const) {
   test(`RepoCell records durable acceptance before the ${killpoint} failure`, async () => {
     const rootDir = mkdtempSync(path.join(tmpdir(), "ha-repo-cell-postaccept-crash-")),
       repoId = workspaceId("postaccept-crash"),
@@ -464,7 +462,7 @@ test("a post-accept Git failure leaves SQLite writable and the receipt independe
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
-for (const killpoint of ["after_sqlite_commit", "before_response_write", "after_response_write"] as const) {
+for (const killpoint of ["after_store_commit", "before_response_write", "after_response_write"] as const) {
   // harness-contract: daemon.recovery-publishes-once
   test(`Decision response recovery handles ${killpoint} without a duplicate publication`, async () => {
     const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-response-crash-")),

@@ -4,7 +4,8 @@ import assert from "node:assert/strict";
 import { existsSync, globSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader } from "@harness-anything/kernel";
+import { makeTaskEventReader } from "@harness-anything/storage";
+
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { listenFleetTls } from "../src/fleet/center.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";

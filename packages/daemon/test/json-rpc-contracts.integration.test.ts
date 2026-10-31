@@ -5,12 +5,8 @@ import test from "node:test";
 import { PassThrough } from "node:stream";
 import { JsonRpcLineClient } from "../src/client/local-json-rpc-client.ts";
 import { serveJsonRpcStream } from "../src/transport/json-rpc-stream.ts";
-import {
-  INITIAL_SETTINGS_V1,
-  SETTINGS_DECLARATION_RUNTIME,
-  projectDecisionReadiness,
-  settingsUpdateInputFields,
-} from "@harness-anything/kernel";
+import { projectDecisionReadiness } from "@harness-anything/storage";
+import { INITIAL_SETTINGS_V1, SETTINGS_DECLARATION_RUNTIME, settingsUpdateInputFields } from "@harness-anything/kernel";
 import {
   actionForDaemonMethod,
   daemonGuiActionMethods,

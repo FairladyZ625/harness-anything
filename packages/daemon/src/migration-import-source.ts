@@ -1,7 +1,7 @@
 import { realpathSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError, sha256Text } from "@harness-anything/kernel";
-import { migrationImportError } from "./migration-import-report.ts";
+import { migrationImportError } from "@harness-anything/storage";
 import type {
   AuthoredCoverage,
   IdRemapping,
@@ -9,7 +9,7 @@ import type {
   MigrationImportReceipt,
   SourceGitIdentity,
 } from "./migration-import-types.ts";
-import { migrationOracleKinds } from "./migration-import-oracle.ts";
+import { migrationOracleKinds } from "./migration-import-types.ts";
 import { runProcessText } from "./process-port.ts";
 import type { RepoTaskAction } from "./repo-cell.ts";
 

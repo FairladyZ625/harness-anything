@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { emptyCompletionContract, retiredHostedCiSource } from "../domain/completion.fixtures.ts";
 import test from "node:test";
-import { makeOfflineCompletionChain } from "../../src/store/offline-completion-chain.ts";
+import { makeOfflineCompletionChain } from "../../../storage/src/store/offline-completion-chain.ts";
 import { claimGateRun } from "../../src/domain/gate-run.ts";
 import {
   REPLAY_TASK_GRAPH,

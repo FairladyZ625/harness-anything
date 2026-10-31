@@ -5,10 +5,10 @@ import {
   restoreLedgerBackup,
   resolveActiveGeneration,
   runCompletionGenerationConversion,
-} from "@harness-anything/kernel";
+} from "@harness-anything/storage";
 import { canonicalRoot } from "./protocol/daemon-protocol-identifiers.ts";
 import { acquireWorkspaceLock } from "./repo-cell-lock.ts";
-import { openReplicationSlots } from "./fleet/replication-slot.ts";
+import { openReplicationSlots } from "@harness-anything/storage";
 import {
   agentDeclarationMigrationCommand,
   completionMigrationCommand,
@@ -19,7 +19,7 @@ import { migrateAgentDeclarations } from "./agent-declaration-migration.ts";
 import { migrateCompletion } from "@harness-anything/preset/internal/preset-resolver";
 import { daemonUserRoot } from "./client/local-daemon-target.ts";
 import { daemonProcessAlive } from "./daemon-singleton.ts";
-import { migrateLegacyWriterEpochDatabase, WriterEpochError } from "./writer-epoch.ts";
+import { migrateLegacyWriterEpochDatabase, WriterEpochError } from "@harness-anything/storage";
 
 export async function runOfflineStorageCommand(argv: readonly string[]): Promise<number> {
   try {
@@ -201,7 +201,7 @@ function isErrorCode(error: unknown): error is Error & { readonly code: string }
 }
 export function backupReceipt(
   backupDir: string,
-  manifest: ReturnType<typeof import("@harness-anything/kernel").createLedgerBackup>,
+  manifest: ReturnType<typeof import("@harness-anything/storage").createLedgerBackup>,
 ): Record<string, unknown> {
   return {
     backupDir,

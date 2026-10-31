@@ -1,6 +1,6 @@
 import path from "node:path";
 import { authoredNode, destinationNode, nodeSummary, symlinkTarget, utf8File } from "./migration-import-legacy.ts";
-import { migrationImportError } from "./migration-import-report.ts";
+import { migrationImportError } from "@harness-anything/storage";
 import type { AuthoredClassification, ResolutionChoice } from "./migration-import-types.ts";
 
 export function resolveAuthoredConflict(

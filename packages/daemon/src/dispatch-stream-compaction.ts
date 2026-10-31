@@ -1,6 +1,6 @@
 import { readSync, statSync, writeSync } from "node:fs";
 import { StringDecoder } from "node:string_decoder";
-import { withReadOnlyFile, writeFileDurablyFrom } from "./durable-file.ts";
+import { withReadOnlyFile, writeFileDurablyFrom } from "../../storage/src/durable-file.ts";
 
 const compactionVersion = 1 as const;
 const compactionSchema = "dispatch-transcript-compaction/v1" as const;

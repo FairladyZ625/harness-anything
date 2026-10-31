@@ -5,14 +5,14 @@ import path from "node:path";
 import {
   openPersistentWriterEpoch,
   withWriterEpochFenceDescriptor,
-} from "../../../packages/daemon/src/writer-epoch.ts";
+} from "../../../packages/storage/src/writer-epoch.ts";
 import { lifecycleFixture } from "../../../packages/kernel/test/store/task-lifecycle-fixture.ts";
 import { taskLifecycleWritePlan } from "../../../packages/kernel/src/domain/task-lifecycle-publication.ts";
-import { makeTaskEventStore } from "../../../packages/kernel/src/store/task-event-store.ts";
-import { makeTaskProjection } from "../../../packages/kernel/src/projection/rebuildable-task-projection.ts";
+import { makeTaskEventStore } from "../../../packages/storage/src/store/task-event-store.ts";
+import { makeTaskProjection } from "../../../packages/storage/src/projection/rebuildable-task-projection.ts";
 import { oracleO5, oracleO6 } from "../core/oracles.mjs";
 
-const writerSource = path.resolve("packages/daemon/src/writer-epoch.ts"),
+const writerSource = path.resolve("packages/storage/src/writer-epoch.ts"),
   writerFixture = path.resolve("packages/daemon/test/stress/recovery/writer-epoch-process.fixture.mjs"),
   regressionFixture = path.resolve("packages/daemon/test/writer-epoch-process.fixture.mjs");
 

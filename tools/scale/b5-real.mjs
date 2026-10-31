@@ -126,8 +126,8 @@ function directoryBytes(directory) {
 async function measureB5RealSingle(options) {
   const importSource = (relativePath) => import(pathToFileURL(join(options.sourceRoot, relativePath)).href);
   const kernel = await importSource("packages/kernel/src/index.ts");
-  const { makeTaskProjection } = await importSource("packages/kernel/src/projection/rebuildable-task-projection.ts");
-  const relationGraphProjection = await importSource("packages/kernel/src/projection/relation-graph-projection.ts");
+  const { makeTaskProjection } = await importSource("packages/storage/src/projection/rebuildable-task-projection.ts");
+  const relationGraphProjection = await importSource("packages/storage/src/projection/relation-graph-projection.ts");
   const daemonQueryModule = await importSource("packages/daemon/src/task-query-read.ts").catch(() => null);
   const metadata =
     options.events !== null
@@ -586,7 +586,7 @@ async function measureB5RealSingle(options) {
       buildMs: Number(buildMs.toFixed(1)),
       ledgerBuildMs: Number(ledgerBuiltMs.toFixed(1)),
       catchUpMs: Number(catchUpMs.toFixed(1)),
-      catchUpReads: catchUp.metrics.sqliteTransactions,
+      catchUpReads: catchUp.metrics.storeTransactions,
       fixtureDirectoryBytes: directoryBytes(rootDir),
       processMaxRssBytes: process.resourceUsage().maxRSS * (process.platform === "darwin" ? 1024 : 1),
       narrowSupported,

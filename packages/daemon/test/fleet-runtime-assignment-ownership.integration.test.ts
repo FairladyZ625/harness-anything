@@ -4,7 +4,8 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { perUserSocketRoot } from "../src/client/local-daemon-target.ts";
-import { makeTaskEventReader } from "@harness-anything/kernel";
+import { makeTaskEventReader } from "@harness-anything/storage";
+
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";

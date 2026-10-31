@@ -6,7 +6,8 @@ import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/kernel";
+import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
+
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { rejectHostAction } from "../src/daemon-host-errors.ts";

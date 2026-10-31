@@ -23,7 +23,7 @@ import docSyncContract, {
 } from "../../src/domain/doc-sync.contract.ts";
 import { validateWriteReceipt, validateWriteSource } from "../../src/domain/write-chain.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
-import { validateCanonicalWriteBundle } from "../../src/store/task-event-store.ts";
+import { validateCanonicalWriteBundle } from "../../../storage/src/store/task-event-store.ts";
 
 import {
   baseLedgerSha,

@@ -259,9 +259,9 @@ test("one command: snapshot, isolated daemon attach, reads, cold rebuild, receip
     assert.equal(receipt.build.drifted, false);
     // The receipt may only name the build that ran: the daemon's own stamp and the loaded dist
     // marker are two independent sources and must agree.
-    assert.equal(receipt.build.commit, receipt.build.loadedBuildId);
+    assert.equal(receipt.build.headCommit, receipt.build.loadedBuildId);
     const headCommit = repoHead();
-    if (headCommit.status === 0) assert.equal(receipt.build.commit, headCommit.stdout.trim());
+    if (headCommit.status === 0) assert.equal(receipt.build.headCommit, headCommit.stdout.trim());
     assert.equal(receipt.reads.storeHead.revision, 1);
     assert.ok(Array.isArray(receipt.reads.taskIndex.first) && receipt.reads.taskIndex.first.length === 0);
     assert.ok(Array.isArray(receipt.reads.events) && receipt.reads.events.length === 1);

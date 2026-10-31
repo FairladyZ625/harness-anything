@@ -5,16 +5,14 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader, openSqliteEventStore } from "@harness-anything/kernel";
+import { makeTaskEventReader, openSqliteEventStore } from "@harness-anything/storage";
+
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { connectSocket, JsonRpcLineClient } from "../src/client/local-json-rpc-client.ts";
 import { fatalCellError } from "../src/repo-cell-errors.ts";
 import { ArtifactEntityServiceError } from "@harness-anything/application/internal/artifact-entity-service";
-import {
-  SettingsActionError,
-  SettingsProjectionError,
-} from "@harness-anything/kernel/internal/domain/settings-action-contract";
+import { SettingsActionError, SettingsProjectionError } from "@harness-anything/kernel";
 import { startDaemon, type RunningDaemon } from "../src/runtime.ts";
 import {
   openBootstrappedRepoCell,

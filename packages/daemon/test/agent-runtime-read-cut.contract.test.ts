@@ -5,13 +5,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import {
-  eventObjectTarget,
-  makeTaskEventStore,
-  makeTaskProjection,
-  type AgentRuntimeEventV1,
-  type FrozenWritePlan,
-} from "@harness-anything/kernel";
+import { makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
+import { eventObjectTarget, type AgentRuntimeEventV1, type FrozenWritePlan } from "@harness-anything/kernel";
 import { makeAgentRuntimeReadModel } from "../src/agent-runtime-read.ts";
 
 test("runtime lifecycle cursors stay at the projection cut while the canonical stream is ahead", async (t) => {

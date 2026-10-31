@@ -72,7 +72,7 @@ test(
 );
 
 // An upstream PATH entry can lead back into the wrapper: a shim that execs `which git`
-// (the shape of the git-version stub in packages/kernel/test/store/ledger-maintenance.test.ts)
+// (the shape of the git-version stub in packages/storage/test/store/ledger-maintenance.test.ts)
 // or a second copy of the wrapper installed into a temporary repository ahead of the
 // canonical one. Filtering out only its own directory left the wrapper delegating to that
 // upstream entry, so every repository probe forked the other party, which forked the wrapper

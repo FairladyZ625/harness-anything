@@ -13,7 +13,7 @@ import { readSourceIdentity } from "./gate-allowlists/source-identity.mjs";
 import { listWorktreeFiles } from "./gates/git.mjs";
 
 const GATE_ID = "check-sync-subprocess";
-const SOURCE_ROOTS = ["packages/daemon/src", "packages/kernel/src"];
+const SOURCE_ROOTS = ["packages/daemon/src", "packages/kernel/src", "packages/storage/src"];
 const SOURCE_FILE = /\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/u;
 const CHILD_PROCESS_MODULE = "node:child_process";
 const SYNC_APIS = new Set(["execFileSync", "execSync", "spawnSync"]);

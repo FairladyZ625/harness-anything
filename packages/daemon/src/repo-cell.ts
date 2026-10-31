@@ -1,24 +1,26 @@
 import { existsSync } from "node:fs";
 import { makeTaskLifecycleService } from "@harness-anything/application/internal/task-lifecycle-service";
 import {
-  blockingOf,
-  closeoutReadiness,
   configureLedgerMaintenance,
-  consumeKnownError,
   activateEmptyCanonicalGeneration,
   applyAttachMigrations,
   installLedgerCommitGuard,
   makeTaskEventStore,
   makeTaskProjection,
   ProjectionIdentityMismatchError,
-  resolveHarnessLayout,
   resolveActiveGeneration,
   sqliteLedgerPath,
+} from "@harness-anything/storage";
+import {
+  blockingOf,
+  closeoutReadiness,
+  consumeKnownError,
+  resolveHarnessLayout,
   type DaemonRepoMode,
   type TaskProjectionQueries,
 } from "@harness-anything/kernel";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
-import { removeFileDurably } from "./durable-file.ts";
+import { removeFileDurably } from "../../storage/src/durable-file.ts";
 import { readRuntimeAttemptChain, readSessionGroupDispatches, readTaskDispatchSession } from "./dispatch-read.ts";
 import { makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
 import { cellErrorCode, cellErrorMessage } from "./repo-cell-errors.ts";
@@ -30,7 +32,7 @@ import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
 import type { TaskQueryJudgments } from "./task-query-read.ts";
 import type { AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
-import { type WriterEpochFenceDescriptor } from "./writer-epoch.ts";
+import { type WriterEpochFenceDescriptor } from "@harness-anything/storage";
 
 export { causeClassOf, latchReprobeThrottleMs } from "./repo-cell-lock.ts";
 export { openRepoCell } from "./repo-cell-open.ts";

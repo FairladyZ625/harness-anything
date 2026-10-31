@@ -79,7 +79,7 @@ test("write-road registry classifies sqlite read-only by construction site, not 
   withFixture((root) => {
     write(
       root,
-      "packages/kernel/src/projection/mixed-projection.ts",
+      "packages/storage/src/projection/mixed-projection.ts",
       [
         'import { DatabaseSync } from "node:sqlite";',
         'export function readTruth(path) { const db = new DatabaseSync(path, { readOnly: true }); try { return db.prepare("SELECT 1").all(); } finally { db.close(); } }',
@@ -97,7 +97,7 @@ test("write-road registry does not flag a file whose sqlite sites are all read-o
   withFixture((root) => {
     write(
       root,
-      "packages/kernel/src/projection/read-only-projection.ts",
+      "packages/storage/src/projection/read-only-projection.ts",
       [
         'import { DatabaseSync } from "node:sqlite";',
         'export function readTruth(path) { const db = new DatabaseSync(path, { readOnly: true }); try { return db.prepare("SELECT 1").all(); } finally { db.close(); } }',
@@ -214,7 +214,7 @@ function withFixture(run) {
     );
     write(
       root,
-      "packages/kernel/src/store/task-event-store.ts",
+      "packages/storage/src/store/task-event-store.ts",
       `const CANONICAL_EVENT_REF = "refs/ha/canonical"; prepareCommit(); finalizeRefs();\n`,
     );
     write(
@@ -240,9 +240,9 @@ function withFixture(run) {
                 "task-submit",
               ],
               authority: "packages/daemon/src/repo-cell.ts",
-              store: "packages/kernel/src/store/task-event-store.ts",
+              store: "packages/storage/src/store/task-event-store.ts",
               leasePolicy: "domain-contract",
-              evidence: ["packages/daemon/src/repo-cell.ts", "packages/kernel/src/store/task-event-store.ts"],
+              evidence: ["packages/daemon/src/repo-cell.ts", "packages/storage/src/store/task-event-store.ts"],
             },
             {
               id: "workspace.bootstrap",
@@ -267,8 +267,8 @@ function withFixture(run) {
             {
               id: "projection.sqlite",
               source: "task-event-store",
-              authority: "packages/kernel/src/projection/rebuildable-task-projection.ts",
-              evidence: ["packages/kernel/src/projection/rebuildable-task-projection.ts"],
+              authority: "packages/storage/src/projection/rebuildable-task-projection.ts",
+              evidence: ["packages/storage/src/projection/rebuildable-task-projection.ts"],
             },
             {
               id: "fleet.edge-write",
@@ -310,7 +310,7 @@ function withFixture(run) {
     for (const file of [
       "packages/daemon/src/daemon-host.ts",
       "packages/daemon/src/runtime.ts",
-      "packages/kernel/src/projection/rebuildable-task-projection.ts",
+      "packages/storage/src/projection/rebuildable-task-projection.ts",
       "packages/daemon/src/fleet-edge-write.ts",
       "packages/daemon/src/fleet/center-listener.ts",
     ])

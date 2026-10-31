@@ -5,21 +5,23 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
-  blockingOf,
-  closeoutReadiness,
   createImmutableLegacyGenerationSnapshot,
   convertLegacyGeneration,
-  deriveRelationId,
   makeTaskProjection,
+  openSqliteEventStore,
+} from "@harness-anything/storage";
+import {
+  blockingOf,
+  closeoutReadiness,
+  deriveRelationId,
   parseCanonicalEvent,
   type EntityUpsertEventV1,
-  openSqliteEventStore,
   sha256Text,
   validateCurrentCanonicalEvent,
   type CanonicalEventStore,
   type CanonicalEventV1,
 } from "@harness-anything/kernel";
-import { planLegacyGenerationConversion } from "../../kernel/test/store/canonical-generation.fixtures.ts";
+import { planLegacyGenerationConversion } from "../../storage/test/store/canonical-generation.fixtures.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { initRepo } from "./migration-import.fixtures.ts";
 import { canonicalRoot } from "../src/protocol/daemon-protocol.contract.ts";

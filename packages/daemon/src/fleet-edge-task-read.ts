@@ -1,5 +1,6 @@
 import { statSync, watch } from "node:fs";
-import { makeTaskProjectionReader, type EdgeReadFreshness, type TaskProjectionQueries } from "@harness-anything/kernel";
+import { makeTaskProjectionReader } from "@harness-anything/storage";
+import { type EdgeReadFreshness, type TaskProjectionQueries } from "@harness-anything/kernel";
 import { locateFleetMirrorView, type FleetMirrorView } from "./fleet-edge-mirror.ts";
 import { withReplicaGeneration } from "./fleet/replica-generation.ts";
 import type { RepositoryReadFrame } from "./protocol/repository-read-frame.ts";

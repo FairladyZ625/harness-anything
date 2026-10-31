@@ -6,9 +6,13 @@ export { validSquadRunSubject } from "./domain/squad-run.ts";
 export type { ContractVersion } from "./domain/contract-version.ts";
 export type { FreshnessReason } from "./domain/decision-coverage.ts";
 export type { RelationDirection, RelationState, RelationType } from "./domain/entity-relation.ts";
-export type { DecisionProjectionRow } from "./projection/decision-event-projection.ts";
-export type { FactProjectionRow } from "./projection/fact-event-projection.ts";
-export type { FactAnchorRow, RelationFactRow, RelationGraphEdgeRow } from "./projection/relation-graph-projection.ts";
-export type { ProjectionWarning } from "./projection/types.ts";
+export type { DecisionProjectionRow } from "./ports/decision-projection-model.ts";
+export type {
+  FactAnchorRow,
+  FactProjectionRow,
+  RelationFactRow,
+  RelationGraphEdgeRow,
+} from "./ports/projection-contracts.ts";
+export type { ProjectionWarning } from "./ports/projection-types.ts";
 
 export { todoIsOpen, type Todo } from "./domain/todo.ts";

@@ -125,6 +125,7 @@ function writeValidFixture(root) {
   });
   const packages = new Map([
     ["packages/kernel/package.json", "@harness-anything/kernel"],
+    ["packages/storage/package.json", "@harness-anything/storage"],
     ["packages/application/package.json", "@harness-anything/application"],
     ["packages/daemon/package.json", "@harness-anything/daemon"],
     ["packages/gui/package.json", "@harness-anything/gui"],

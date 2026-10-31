@@ -3,17 +3,19 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
-  activateEmptyCanonicalGeneration,
   compileSettingsChangedEvent,
   compileVerticalDeclarationEvent,
   decodeVerticalDefinition,
-  makeTaskEventStore,
   readSettingsFacet,
-  registerDaemonRepo as registerProductDaemonRepo,
   resolveHarnessLayout,
   writeRepositorySettingsFacet,
 } from "@harness-anything/kernel";
-import { daemonRegistryPaths } from "../../kernel/test/store/canonical-generation.fixtures.ts";
+import {
+  activateEmptyCanonicalGeneration,
+  makeTaskEventStore,
+  registerDaemonRepo as registerProductDaemonRepo,
+} from "@harness-anything/storage";
+import { daemonRegistryPaths } from "../../storage/test/store/canonical-generation.fixtures.ts";
 import { defaultAssets } from "@harness-anything/preset/internal/preset-resolver-common";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell as openProductRepoCell, type RepoCell, type RepoCellBinding } from "../src/repo-cell.ts";
@@ -21,7 +23,7 @@ import {
   openPersistentWriterEpoch,
   readLedgerWriterEpoch,
   type WriterEpochFenceDescriptor,
-} from "../src/writer-epoch.ts";
+} from "@harness-anything/storage";
 import { initialRuntimeInstanceSettings } from "../src/runtime-spawn-allowlist.ts";
 import type { DaemonHost } from "../src/daemon-host.ts";
 import { policyTestCenter, provisionPolicyTestRepository, withPolicyGroup } from "./keycloak-policy.fixtures.ts";

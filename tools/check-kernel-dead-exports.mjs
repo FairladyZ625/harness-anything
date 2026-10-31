@@ -66,6 +66,12 @@ function collectKernelExports() {
   if (!symbol) throw new Error(`${kernelEntry} has no module symbol`);
   return checker
     .getExportsOfModule(symbol)
+    .filter(
+      (item) =>
+        !item.declarations?.some((declaration) =>
+          declaration.getSourceFile().fileName.includes("/packages/kernel/src/ports/"),
+        ),
+    )
     .map((item) => String(item.escapedName))
     .filter((name) => name !== "default" && !name.startsWith("__"))
     .sort((left, right) => left.localeCompare(right));

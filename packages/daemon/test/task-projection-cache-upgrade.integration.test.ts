@@ -2,12 +2,13 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { makeTaskEventStore, makeTaskProjection, taskLifecycleWritePlan } from "@harness-anything/kernel";
+import { makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
+import { taskLifecycleWritePlan } from "@harness-anything/kernel";
 import { canonicalRoot } from "../src/protocol/daemon-protocol.contract.ts";
 import { makeTaskQueryReadModel } from "../src/task-query-read.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
-import { initRepo } from "../../kernel/test/store/task-event-store.fixtures.ts";
-import { withTempStoreAsync } from "../../kernel/test/store/helpers.ts";
+import { initRepo } from "../../storage/test/store/task-event-store.fixtures.ts";
+import { withTempStoreAsync } from "../../storage/test/store/helpers.ts";
 
 const oldSnapshotSchemaVersion = 37;
 

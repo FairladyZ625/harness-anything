@@ -1,6 +1,6 @@
 [
   { "path": "packages/daemon/src/migration-import.ts", "module": "daemon" },
   { "path": "packages/kernel/src/domain/migration-import-event.ts", "module": "kernel" },
-  { "path": "packages/kernel/src/store/local-version-control-system.ts", "module": "kernel" },
-  { "path": "packages/kernel/src/store/task-event-store.ts", "module": "kernel" }
+  { "path": "packages/storage/src/store/local-version-control-system.ts", "module": "storage" },
+  { "path": "packages/storage/src/store/task-event-store.ts", "module": "storage" }
 ]

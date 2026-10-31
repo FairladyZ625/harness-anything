@@ -102,7 +102,7 @@ test("source identities survive formatting and a responsibility split into a ren
     assert.equal(runChecker(root, policyRoot).status, 0);
 
     writeFileSync(
-      path.join(root, "packages/kernel/src/store/generated-human-writer.ts"),
+      path.join(root, "packages/storage/src/store/generated-human-writer.ts"),
       [
         "import { writeFileSync } from 'node:fs';",
         "export function writeGeneratedHuman() {",
@@ -115,7 +115,7 @@ test("source identities survive formatting and a responsibility split into a ren
       ].join("\n"),
       "utf8",
     );
-    rmSync(path.join(root, "packages/kernel/src/store/fixture.ts"));
+    rmSync(path.join(root, "packages/storage/src/store/fixture.ts"));
 
     const moved = runChecker(root, policyRoot);
     assert.equal(moved.status, 0, moved.stderr);
@@ -180,7 +180,7 @@ test("bypass write boundary rejects new fs writes outside the allowlist", () => 
 
     const result = runChecker(root, policyRoot);
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /packages\/kernel\/src\/store\/fixture\.ts:.*writeFileSync/u);
+    assert.match(result.stderr, /packages\/storage\/src\/store\/fixture\.ts:.*writeFileSync/u);
   } finally {
     rmSync(root, { recursive: true, force: true });
     rmSync(policyRoot, { recursive: true, force: true });
@@ -284,9 +284,9 @@ for (const [api, declaration, call] of [
 }
 
 const requiredRoots = [
-  "packages/kernel/src/store",
+  "packages/storage/src/store",
   "packages/kernel/src/local",
-  "packages/kernel/src/projection",
+  "packages/storage/src/projection",
   "packages/cli/src",
 ];
 
@@ -335,15 +335,15 @@ function makeFixtureRoot() {
     ["config", "core.excludesFile", "/dev/null"],
   ])
     spawnSync("git", args, { cwd: root });
-  mkdirSync(path.join(root, "packages/kernel/src/store"), { recursive: true });
+  mkdirSync(path.join(root, "packages/storage/src/store"), { recursive: true });
   mkdirSync(path.join(root, "packages/kernel/src/local"), { recursive: true });
-  mkdirSync(path.join(root, "packages/kernel/src/projection"), { recursive: true });
+  mkdirSync(path.join(root, "packages/storage/src/projection"), { recursive: true });
   mkdirSync(path.join(root, "packages/cli/src"), { recursive: true });
   return root;
 }
 
 function writeStore(root, lines) {
-  writeFileSync(path.join(root, "packages/kernel/src/store/fixture.ts"), `${lines.join("\n")}\n`, "utf8");
+  writeFileSync(path.join(root, "packages/storage/src/store/fixture.ts"), `${lines.join("\n")}\n`, "utf8");
 }
 
 function writeAllowlist(policyRoot, allowedValue = []) {
