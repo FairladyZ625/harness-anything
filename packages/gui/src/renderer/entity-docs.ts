@@ -335,6 +335,7 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
       "delete",
       "reopen",
       "contract-migrate",
+      "preset-upgrade",
       "assign",
       "unassign",
     ],

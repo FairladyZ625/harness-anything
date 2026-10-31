@@ -839,6 +839,13 @@ export const declarations: readonly Declaration[] = Object.freeze([
     "Each selected legacy Task has one deterministic task-contract/v1 backfill or repair.",
     "Plan or apply deterministic Task contract backfills through the catalog runtime.",
   ),
+  mutation(
+    "preset-upgrade",
+    input([taskId]),
+    "content_not_ready",
+    "The Task and its managed contract are ready for an explicit preset snapshot upgrade.",
+    "Upgrade the frozen preset snapshot recorded by a Task.",
+  ),
 ]);
 
 const receiptFields: readonly EntityActionInputField[] = Object.freeze(

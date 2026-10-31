@@ -396,7 +396,7 @@ export const actionDeclarations = Object.freeze([
   local("preset-run-start", "repo-write", runtimeResidency),
   local("preset-seed", "repo-write", hostResidency),
   local("preset-uninstall", "repo-write", hostResidency),
-  canonical("preset-upgrade", null, "repo-write"),
+  canonical("preset-upgrade", "task/preset-upgrade", "repo-write"),
   local("projection-rebuild", "repo-write", hostResidency),
   hostAdmin("provider-create"),
   hostAdmin("provider-delete"),

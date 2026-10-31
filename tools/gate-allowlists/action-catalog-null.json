@@ -70,11 +70,6 @@
         "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
       },
       {
-        "value": "preset-upgrade",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
         "value": "runtime-batch",
         "ref": "dec_2BF45FF7E52020380F5F35CE2D",
         "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."

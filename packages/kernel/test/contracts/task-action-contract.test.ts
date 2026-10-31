@@ -51,6 +51,7 @@ test("all public Task writes are complete executable Action contracts", () => {
       "delete",
       "reopen",
       "contract-migrate",
+      "preset-upgrade",
       "assign",
       "unassign",
     ],
@@ -89,6 +90,7 @@ test("all public Task writes are complete executable Action contracts", () => {
     ["push", "task-push"],
     ["rematerialize", "task-rematerialize"],
     ["settle", "task-settle"],
+    ["preset-upgrade", "preset-upgrade"],
   ] as const) {
     const action = actions.find((candidate) => candidate.id === id);
     assert.equal(action?.execution?.ingress, ingress);
@@ -124,6 +126,7 @@ test("all public Task writes are complete executable Action contracts", () => {
     "delete",
     "reopen",
     "contract-migrate",
+    "preset-upgrade",
     "assign",
     "unassign",
   ]);

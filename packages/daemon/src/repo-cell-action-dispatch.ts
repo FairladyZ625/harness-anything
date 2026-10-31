@@ -258,6 +258,24 @@ export function executeRepoAction(
         ...cell.entityActionRuntimes,
         task: async (contract, catalogAction, catalogBinding) => {
           if (catalogAction.kind === "task-submit") return submitTask(cell, catalogAction, catalogBinding);
+          if (catalogAction.kind === "preset-upgrade") return cell.upgradePresetSnapshot(catalogAction, catalogBinding);
+          if (catalogAction.kind === "task-artifact-add")
+            return runArtifactAdd({
+              action: catalogAction,
+              binding: catalogBinding,
+              workspaceId: cell.input.repoId,
+              rootDir: cell.rootDir,
+              store: cell.store,
+              projection: cell.projection,
+              now: cell.now,
+              killpoint: cell.input.killpoint,
+            });
+          if (catalogAction.kind === "task-settle") return settleTask(cell, catalogAction, catalogBinding);
+          if (catalogAction.kind === "task-progress-append") return cell.appendProgress(catalogAction, catalogBinding);
+          if (catalogAction.kind === "task-annotate") return cell.annotateExecution(catalogAction, catalogBinding);
+          if (catalogAction.kind === "task-attest") return attestGateWitness(cell, catalogAction, catalogBinding);
+          if (catalogAction.kind === "task-declare-executor")
+            return cell.declareExecutionExecutor(catalogAction, catalogBinding);
           if (Array.isArray(catalogAction.docChanges))
             return cell.runTaskCommandWithDocs(catalogAction as TaskCommandWithDocsAction, catalogBinding);
           if (contract.execution?.implementation === "catalog-runtime") {
