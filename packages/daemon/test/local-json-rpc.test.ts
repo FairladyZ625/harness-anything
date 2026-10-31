@@ -708,6 +708,22 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
     assert.equal(declaration?.residency.scope, "host-local", kind);
     assert.equal(declaration?.receiptSettlement, "none", kind);
   }
+  // dec_2446BC2F8C68630F71AE3E3BD7/CH4: these commands write daemon/workspace state, not a
+  // canonical Entity. Their existing host Policy actions remain intact while their residency is host-local.
+  for (const [kind, writeRoad] of [
+    ["daemon-control-request", undefined],
+    ["daemon-fleet-center-start", undefined],
+    ["daemon-fleet-edge-sync", undefined],
+    ["daemon-start", "daemon.runtime-control"],
+    ["daemon-stop", "daemon.runtime-control"],
+    ["repo-purge", "workspace.bootstrap"],
+    ["repo-bootstrap", "workspace.bootstrap"],
+  ] as const) {
+    const declaration = actionDeclarations.find((candidate) => candidate.kind === kind);
+    assert.equal(declaration?.residency.scope, "host-local", kind);
+    assert.equal(declaration?.receiptSettlement, "none", kind);
+    assert.equal(declaration?.writeRoad, writeRoad, kind);
+  }
   assert.equal(
     actionDeclarations.find(({ kind }) => kind === "fact-record")?.receiptSettlement,
     "canonical-acceptance",

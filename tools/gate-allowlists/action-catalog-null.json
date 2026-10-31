@@ -10,31 +10,6 @@
         "reason": "Stays in the list until CH4's implementation task gives its target kind; dec_2BF45FF7 CH3 keeps it frozen and out of the convergence order. #3945 added this canonical write road without a catalogId; bind it and delete this row in the same commit."
       },
       {
-        "value": "daemon-control-request",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "daemon-fleet-center-start",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "daemon-fleet-edge-sync",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "daemon-start",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "daemon-stop",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
         "value": "distill-candidate",
         "ref": "dec_2BF45FF7E52020380F5F35CE2D",
         "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
@@ -136,16 +111,6 @@
       },
       {
         "value": "projection-rebuild",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "repo-bootstrap",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "repo-purge",
         "ref": "dec_2BF45FF7E52020380F5F35CE2D",
         "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
       },
