@@ -586,7 +586,7 @@ async function measureB5RealSingle(options) {
       buildMs: Number(buildMs.toFixed(1)),
       ledgerBuildMs: Number(ledgerBuiltMs.toFixed(1)),
       catchUpMs: Number(catchUpMs.toFixed(1)),
-      catchUpReads: catchUp.metrics.sqliteTransactions,
+      catchUpReads: catchUp.metrics.storeTransactions,
       fixtureDirectoryBytes: directoryBytes(rootDir),
       processMaxRssBytes: process.resourceUsage().maxRSS * (process.platform === "darwin" ? 1024 : 1),
       narrowSupported,

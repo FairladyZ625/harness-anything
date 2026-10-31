@@ -161,7 +161,7 @@ const hasGuiImplementation = files.some((file) =>
   /packages\/gui\/src\/(?:main|preload|renderer|api|terminal|doc-renderer)\//.test(relative(file)),
 );
 const hasDaemonImplementation = files.some((file) => relative(file).startsWith("packages/daemon/src/"));
-const hasStoreImplementation = files.some((file) => /packages\/kernel\/src\/store\//.test(relative(file)));
+const hasStoreImplementation = files.some((file) => /packages\/(?:kernel|storage)\/src\/store\//.test(relative(file)));
 const hasPublishImplementation = files.some((file) =>
   /packages\/(?:kernel|cli|gui)\/src\/.*publish/i.test(relative(file)),
 );
