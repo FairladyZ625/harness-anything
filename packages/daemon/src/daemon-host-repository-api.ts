@@ -812,27 +812,39 @@ export function createDaemonHostRepositoryApi(
         );
       if (edge && edge.canonicalRoot) {
         // Advisory annotations live only at the center. GUI and CLI share this read route.
-        if (method === "repo.task.dispatches") {
+        if (method === "repo.task.dispatches" || method === "repo.fleet.overview.read") {
           const config = readFleetEdgeConfig(edge.canonicalRoot);
           if (!config)
             throw context.hostCodedError("fleet_edge_config_missing", "Center reads require fleet-edge.json.");
-          return parseDaemonGuiReadResult(
-            method,
-            await readFleetOperationalClient({
-              hostname: config.host,
-              port: config.port,
-              ca: readFileSync(config.caPath, "utf8"),
-              servername: config.servername,
-              nodeId: config.nodeId,
-              credential: config.credential,
-              repoId,
+          try {
+            return parseDaemonGuiReadResult(
               method,
-              payload,
-              connectionSignal: auth.connectionSignal,
-              readAccessToken: async () =>
-                (await context.oidc.bind(auth, edge.canonicalRoot!)).oidcPrincipal?.accessToken,
-            }),
-          );
+              await readFleetOperationalClient({
+                hostname: config.host,
+                port: config.port,
+                ca: readFileSync(config.caPath, "utf8"),
+                servername: config.servername,
+                nodeId: config.nodeId,
+                credential: config.credential,
+                repoId,
+                method,
+                payload,
+                connectionSignal: auth.connectionSignal,
+                readAccessToken: async () =>
+                  (await context.oidc.bind(auth, edge.canonicalRoot!)).oidcPrincipal?.accessToken,
+              }),
+            );
+          } catch (error) {
+            if (
+              method === "repo.fleet.overview.read" &&
+              ["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "ENOTFOUND", "EHOSTUNREACH"].includes(context.code(error))
+            )
+              throw context.hostCodedError(
+                "replica_unavailable",
+                `Fleet center unavailable: ${context.daemonErrorMessage(error)}`,
+              );
+            throw error;
+          }
         }
         const binding = await context.binding(edge.canonicalRoot, auth, undefined, undefined, true),
           readBinding =

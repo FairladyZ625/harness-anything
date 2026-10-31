@@ -495,7 +495,7 @@ export async function runFleetRuntimeArchiveClient(
 export async function readFleetOperationalClient(
   options: FleetPeerOptions & {
     readonly repoId: string;
-    readonly method: "repo.agentRuntime.sessions.await" | "repo.task.dispatches";
+    readonly method: "repo.agentRuntime.sessions.await" | "repo.task.dispatches" | "repo.fleet.overview.read";
     readonly connectionSignal?: AbortSignal;
     readonly payload: Readonly<Record<string, unknown>>;
   },

@@ -6,6 +6,7 @@ import {
   resolveLoginListenerTrust,
   type LoginWebviewAttachment,
 } from "./login-webview-boundary.ts";
+import { closeLoginProxy, openLoginProxy } from "./login-webview-proxy.ts";
 
 /**
  * The Electron shell of the sign-in certificate boundary. A sign-in whose authorization URL is the
@@ -21,7 +22,7 @@ export function createLoginWebviewSecurity(): {
     readonly authorizationUrl: string;
     readonly callbackOrigin: string;
     readonly listenerReply: unknown;
-  }) => { readonly partitionToken: string; readonly release: () => void } | null;
+  }) => Promise<{ readonly partitionToken: string; readonly release: () => Promise<void> } | null>;
   readonly installCertificateErrorHandler: (app: App) => void;
   readonly consumeWebviewAttachment: (params: {
     readonly partition?: string;
@@ -31,7 +32,7 @@ export function createLoginWebviewSecurity(): {
 } {
   const grants = createLoginWebviewGrants();
   return {
-    openLoginWebview: ({ authorizationUrl, callbackOrigin, listenerReply }) => {
+    openLoginWebview: async ({ authorizationUrl, callbackOrigin, listenerReply }) => {
       const trust = resolveLoginListenerTrust({
         authorizationUrl,
         listenerReply,
@@ -49,13 +50,34 @@ export function createLoginWebviewSecurity(): {
       // request-layer origin allowlist that keeps a cached certificate acceptance from ever being
       // exercised outside the listener origin and the loopback callback.
       const loginSession = session.fromPartition(grant.partition);
+      const proxy = trust.proxyTarget === undefined ? null : await openLoginProxy(trust.proxyTarget, trust.origin);
+      try {
+        if (proxy) {
+          const address = proxy.address();
+          if (address === null || typeof address === "string") throw new Error("The login proxy did not bind a port.");
+          await loginSession.setProxy({
+            proxyRules: `http=127.0.0.1:${address.port};https=127.0.0.1:${address.port}`,
+          });
+        }
+      } catch (error) {
+        await closeLoginProxy(proxy);
+        grants.release(grant.partitionToken);
+        throw error;
+      }
       loginSession.setPermissionCheckHandler(() => false);
       loginSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
       loginSession.on("will-download", (event) => event.preventDefault());
       loginSession.webRequest.onBeforeRequest((details, callback) => {
         callback({ cancel: !isAllowedLoginRequest(details.url, allowedOrigins) });
       });
-      return { partitionToken: grant.partitionToken, release: () => grants.release(grant.partitionToken) };
+      return {
+        partitionToken: grant.partitionToken,
+        release: async () => {
+          grants.release(grant.partitionToken);
+          await loginSession.setProxy({ mode: "direct" });
+          await closeLoginProxy(proxy);
+        },
+      };
     },
     installCertificateErrorHandler: (app) => {
       app.on("certificate-error", (event, webContents, url, _error, certificate, callback) => {

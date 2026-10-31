@@ -315,6 +315,20 @@ test("a session in use outlives its access token without signing in again", asyn
   assert.equal(active.keycloak.refreshes, 3);
 });
 
+test("starting a second login does not sign out the existing session when the browser is cancelled", async (t) => {
+  const active = fixture(1_000, {}, t);
+  await signIn(active);
+  const boundBefore = (await active.service.bind({ transportKind: "unix-socket" })).oidcPrincipal;
+  await active.service.begin("http://127.0.0.1:43124/callback");
+
+  // The GUI cancellation aborts its browser/callback wait and leaves this pending attempt unused.
+  // Starting that attempt must not invalidate a session that was already committed before it.
+  assert.equal((await active.service.status()).personId, "person-zeyu");
+  const boundAfter = (await active.service.bind({ transportKind: "unix-socket" })).oidcPrincipal;
+  assert.equal(boundAfter?.personId, boundBefore?.personId);
+  assert.equal((await active.service.status()).authenticated, true);
+});
+
 test("concurrent uses of a session whose access token lapsed renew it once", async (t) => {
   const active = fixture(1_000, {}, t);
   await signIn(active);

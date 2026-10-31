@@ -436,14 +436,14 @@ interface LoginWebviewPortTrace {
 }
 
 function loginWebviewPort(trace: LoginWebviewPortTrace) {
-  return (input: {
+  return async (input: {
     readonly authorizationUrl: string;
     readonly callbackOrigin: string;
     readonly listenerReply: unknown;
-  }): { readonly partitionToken: string; readonly release: () => void } | null => {
+  }): Promise<{ readonly partitionToken: string; readonly release: () => Promise<void> } | null> => {
     trace.inputs.push(input);
     if (trace.partitionToken === null) return null;
-    return { partitionToken: trace.partitionToken, release: () => void trace.released++ };
+    return { partitionToken: trace.partitionToken, release: async () => void trace.released++ };
   };
 }
 

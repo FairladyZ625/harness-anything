@@ -838,6 +838,25 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           return oidc.configureAuthority(() => managedRbac.run(request), requireLoginTarget());
         if (request.repoId && !loginTarget)
           throw hostCodedError("repo_namespace_unknown", "Select a registered repository for login.");
+        if (request.operation === "listener" && loginTarget) {
+          const edge = readFleetEdgeConfig(loginTarget);
+          if (edge?.loginUrl && edge.loginBrowserUrl && edge.loginCertificate) {
+            const browser = new URL(edge.loginBrowserUrl),
+              target = new URL(edge.loginUrl);
+            return {
+              ok: true,
+              command: "rbac-listener",
+              listener: {
+                address: target.hostname,
+                hostname: browser.hostname,
+                port: Number(browser.port || 443),
+                certificate: edge.loginCertificate,
+                targetUrl: target.toString(),
+              },
+              version: "fleet-edge-login",
+            };
+          }
+        }
         if (
           (request.operation === "health" || request.operation === "bootstrap-status") &&
           loginTarget &&

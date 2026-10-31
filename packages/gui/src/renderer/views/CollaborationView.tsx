@@ -42,7 +42,7 @@ export function CollaborationView({
   readonly onNavigateEntity: (ref: string) => void;
   readonly now?: string;
 }) {
-  const shownOverview = mode === "remote-edge" ? null : overview,
+  const shownOverview = overview,
     nodes = shownOverview?.nodes ?? [];
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [eventNode, setEventNode] = useState("all");
@@ -96,16 +96,7 @@ export function CollaborationView({
             {t("collaboration.centerNotice")}
           </p>
         ) : null}
-        {mode === "remote-edge" ? (
-          <p
-            data-testid="collaboration-center-required"
-            role="status"
-            className="border-l-2 border-status-active pl-3 ui-meta text-text-muted"
-          >
-            {t("collaboration.centerRequired")}
-          </p>
-        ) : null}
-        {shownOverview !== null && overviewError !== null ? (
+        {overviewError !== null ? (
           <p
             data-testid="collaboration-read-error"
             data-reason={READ_ERROR_LABELS[overviewError] === undefined ? undefined : overviewError}
@@ -118,7 +109,7 @@ export function CollaborationView({
             })}
           </p>
         ) : null}
-        {overviewLoading && shownOverview === null && mode !== "remote-edge" ? (
+        {overviewLoading && shownOverview === null ? (
           <Empty>{t("collaboration.loading")}</Empty>
         ) : shownOverview === null ? null : nodes.length === 0 ? (
           <Empty>{t("collaboration.empty")}</Empty>

@@ -134,7 +134,7 @@ function renderCliReceiptBase(
   if (receipt.pending === true && typeof receipt.verificationUri === "string" && typeof receipt.userCode === "string")
     return {
       stream: "stdout",
-      text: `Open ${receipt.verificationUri}\nEnter code: ${receipt.userCode}\nExpires: ${new Date(Number(receipt.expiresAt)).toISOString()}\nWaiting for browser approval…`,
+      text: `Open ${String(receipt.managedVerificationUri ?? receipt.verificationUri)}\nEnter code: ${receipt.userCode}\nExpires: ${new Date(Number(receipt.expiresAt)).toISOString()}\nWaiting for browser approval…`,
     };
   if (typeof receipt.authenticated === "boolean")
     return {

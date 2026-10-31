@@ -1036,7 +1036,16 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       };
       let result;
       try {
-        if (frame.method === "repo.task.dispatches") {
+        if (frame.method === "repo.task.dispatches" || frame.method === "repo.fleet.overview.read") {
+          if (frame.method === "repo.fleet.overview.read") {
+            result = await options.host.read(a.repoId, frame.method, frame.payload as JsonObject, binding);
+            return immediate({
+              schema: "fleet.operational.read.result/v1",
+              messageId: mid(frame.messageId, "runtime-read"),
+              inReplyTo: frame.messageId,
+              result: result as unknown as Readonly<Record<string, unknown>>,
+            });
+          }
           const errors = validateTaskDispatchesPayload(frame.payload);
           if (errors.length) throw new FleetFault("invalid_field", errors.join("; "));
           result = await options.host.read(a.repoId, frame.method, frame.payload as JsonObject, binding);

@@ -28,6 +28,7 @@ import type { FleetDeviceLoginNotice } from "./fleet/command-protocol.ts";
 import { reportFleetDeviceLogin, readFleetLoginAuthorityClient } from "./fleet/peer.ts";
 import { errorMessageWithCause } from "./error-cause.ts";
 import { oidcCenterSelections } from "./oidc-center-selection.ts";
+import { openDeviceConfirmationGateway, type DeviceConfirmationGateway } from "./oidc-device-confirmation-gateway.ts";
 import {
   fetchWithTlsCa,
   probeSystemCaTrust,
@@ -66,6 +67,7 @@ interface PendingDeviceLogin {
   interval: number;
   nextPollAt: number;
   lastTransportError?: string;
+  gateway?: DeviceConfirmationGateway;
 }
 
 /** What one use of the session finds. `unavailable` is set when Keycloak could not be asked to renew it. */
@@ -98,6 +100,7 @@ export class OidcSessionService {
   #pending: PendingLogin | undefined;
   #centerTokenCache: CenterToken | undefined;
   #loginGeneration = 0;
+  #sessionGeneration = 0;
   #device: PendingDeviceLogin | undefined;
   readonly #deviceRequests = new Map<string, DeviceLoginRequest>();
   #writes: Promise<unknown> = Promise.resolve();
@@ -193,6 +196,12 @@ export class OidcSessionService {
     authorityOverride?: OidcLoginAuthority,
     expiresAtLimit?: number,
   ): Promise<Record<string, unknown>> {
+    if (this.#device) {
+      const previous = this.#device;
+      this.#device = undefined;
+      await this.#closeDeviceGateway(previous);
+      await this.#reportDevice(previous, false);
+    }
     const authority = authorityOverride ?? (await this.#loginAuthority(loginTarget, true)),
       verifier = this.#ports.randomBytes(32).toString("base64url");
     let issuer: string;
@@ -235,6 +244,7 @@ export class OidcSessionService {
         userCode,
       ),
       notice = { userCode, createdAt, expiresAt, pending: true };
+    const gateway = await this.#managedDeviceGateway(authority, verificationUri, expiresAt - createdAt);
     this.#device = {
       notice,
       authority,
@@ -245,6 +255,7 @@ export class OidcSessionService {
       expiresAt,
       nextPollAt: this.#ports.now() + interval * 1_000,
       ...(loginTarget ? { loginTarget } : {}),
+      ...(gateway ? { gateway } : {}),
     };
     this.#centers.write(loginTarget, { authority, issuer });
     await this.#reportDevice(this.#device, true);
@@ -252,6 +263,7 @@ export class OidcSessionService {
       ok: true,
       pending: true,
       verificationUri,
+      ...(gateway ? { managedVerificationUri: gateway.verificationUri } : {}),
       userCode,
       interval,
       expiresAt,
@@ -322,6 +334,7 @@ export class OidcSessionService {
       if (!pending) throw coded("oidc_device_missing", "Start device login first.");
       if (this.#ports.now() >= pending.expiresAt) {
         this.#device = undefined;
+        await this.#closeDeviceGateway(pending);
         await this.#reportDevice(pending, false);
         throw coded(
           "oidc_device_expired",
@@ -362,6 +375,8 @@ export class OidcSessionService {
       delete pending.lastTransportError;
       if (!response.ok) {
         if (result.error === "invalid_grant") {
+          this.#device = undefined;
+          await this.#closeDeviceGateway(pending);
           await this.#reportDevice(pending, false);
           return this.beginDevice(pending.loginTarget, pending.authority, pending.expiresAt);
         }
@@ -371,14 +386,32 @@ export class OidcSessionService {
           return { ok: true, pending: true, interval: pending.interval };
         }
         this.#device = undefined;
+        await this.#closeDeviceGateway(pending);
         await this.#reportDevice(pending, false);
         throw coded("oidc_device_rejected", `Device authorization ended: ${String(result.error)}.`);
       }
       this.#device = undefined;
       const accepted = await this.#acceptTokens(result, pending.authority, pending.issuer, pending.loginTarget);
+      await this.#closeDeviceGateway(pending);
       await this.#reportDevice(pending, false);
       return accepted;
     });
+  }
+
+  async #managedDeviceGateway(
+    authority: OidcLoginAuthority,
+    verificationUri: string,
+    expiresInMs: number,
+  ): Promise<DeviceConfirmationGateway | undefined> {
+    if (!authority.browserUrl || !authority.url.startsWith("https://")) return undefined;
+    const endpoint = new URL(authority.url);
+    if (!(endpoint.hostname === "127.0.0.1" || endpoint.hostname === "localhost" || endpoint.hostname === "[::1]"))
+      return undefined;
+    return openDeviceConfirmationGateway(authority, verificationUri, expiresInMs, this.#ports.fetch);
+  }
+
+  async #closeDeviceGateway(pending: PendingDeviceLogin): Promise<void> {
+    await pending.gateway?.close();
   }
 
   async #acceptTokens(
@@ -410,12 +443,15 @@ export class OidcSessionService {
       issuer,
     );
     this.#centers.write(loginTarget, { authority, issuer });
-    if (generation === undefined) this.#writeSession(session, store);
-    else
+    if (generation === undefined) {
+      this.#writeSession(session, store);
+      ++this.#sessionGeneration;
+    } else
       await this.serialize(async () => {
         // Serialize with renewal/logout; a late exchange must not replace the newer session.
         this.#assertLoginGeneration(generation);
         this.#writeSession(session, store);
+        ++this.#sessionGeneration;
       });
     return { ok: true, authenticated: true, personId: session.personId, expiresAt: session.sessionExpiresAt };
   }
@@ -460,10 +496,12 @@ export class OidcSessionService {
   /** Queued behind a renewal in flight, so a session that is being renewed stays signed out. */
   logout(loginTarget?: string): Promise<Record<string, unknown>> {
     ++this.#loginGeneration;
+    ++this.#sessionGeneration;
     this.#pending = undefined;
     const device = this.#device;
     this.#device = undefined;
     return this.serialize(async () => {
+      if (device) await this.#closeDeviceGateway(device);
       const { authority: targetAuthority, sessionStore } = await this.#centerIdentity(loginTarget),
         session = this.#session(sessionStore);
       sessionStore.delete();
@@ -578,9 +616,9 @@ export class OidcSessionService {
       });
     }
     const { sessionStore } = await this.#centerIdentity(loginTarget),
-      generation = this.#loginGeneration,
+      generation = this.#sessionGeneration,
       { session, unavailable } = await this.#use(sessionStore);
-    if (!session || generation !== this.#loginGeneration) return auth;
+    if (!session || generation !== this.#sessionGeneration) return auth;
     if (replicaRead && session.sessionExpiresAt !== null && session.sessionExpiresAt <= this.#ports.now()) return auth;
     if (unavailable) {
       if (!replicaRead || (session.sessionExpiresAt !== null && session.sessionExpiresAt <= this.#ports.now()))
@@ -597,7 +635,7 @@ export class OidcSessionService {
         const current = await this.#live(sessionStore);
         if (
           !current ||
-          generation !== this.#loginGeneration ||
+          generation !== this.#sessionGeneration ||
           current.personId !== session.personId ||
           current.subject !== session.subject
         )
@@ -1010,7 +1048,7 @@ export class OidcSessionService {
 
   /** One refresh grant per use: Keycloak refusing it ends the session here, and nothing retries. */
   async #renew(session: StoredSession, sessionStore: OidcSessionStorePort): Promise<SessionUse> {
-    const generation = this.#loginGeneration,
+    const generation = this.#sessionGeneration,
       edge = session.loginTarget ? readFleetEdgeConfig(session.loginTarget) : null,
       authority =
         edge && session.authority
@@ -1031,7 +1069,7 @@ export class OidcSessionService {
           }),
         },
       ).catch((error: unknown) => unavailable("Keycloak could not be reached to renew the session.", error));
-    if (generation !== this.#loginGeneration) return { session: undefined };
+    if (generation !== this.#sessionGeneration) return { session: undefined };
     if (response instanceof Error)
       return {
         session:
@@ -1049,7 +1087,7 @@ export class OidcSessionService {
         unavailable: unavailable(`Keycloak session renewal returned HTTP ${response.status}.`),
       };
     const tokens = (await response.json()) as Record<string, unknown>;
-    if (generation !== this.#loginGeneration) return { session: undefined };
+    if (generation !== this.#sessionGeneration) return { session: undefined };
     const accessToken = requiredString(tokens.access_token, "access_token");
     if (requiredString(decodeJwtPayload(accessToken).iss, "iss") !== session.issuer)
       throw coded("oidc_issuer_mismatch", "The renewed token issuer does not match the selected center.");

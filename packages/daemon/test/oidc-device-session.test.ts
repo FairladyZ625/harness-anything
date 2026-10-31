@@ -160,10 +160,11 @@ test("invited login authority supplies a request-scoped TLS CA", async (t) => {
 test("SSH device authorization uses the loopback login endpoint and hands the browser to the canonical center URL", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-device-ssh-browser-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
+  let now = 0;
   const requests: string[] = [],
     dispatchers: unknown[] = [],
     service = new OidcSessionService(root, {
-      now: () => 0,
+      now: () => now,
       fetch: (async (input, init) => {
         requests.push(String(input));
         dispatchers.push((init as RequestInit & { dispatcher?: unknown }).dispatcher);
@@ -179,7 +180,7 @@ test("SSH device authorization uses the loopback login endpoint and hands the br
       }) as typeof fetch,
     });
 
-  const begun = await service.beginDevice(undefined, {
+  const begun = await service.beginDevice("edge-root", {
     url: "https://127.0.0.1:41232",
     servername: "login.center.example",
     browserUrl: "https://login.center.example:18544",
@@ -194,7 +195,13 @@ test("SSH device authorization uses the loopback login endpoint and hands the br
   ]);
   assert.ok(dispatchers[0], "the loopback request still uses the invitation TLS authority");
   assert.equal(begun.verificationUri, "https://login.center.example:18544/realms/harness/device?user_code=SSH-CODE");
+  assert.match(
+    String(begun.managedVerificationUri),
+    /^http:\/\/127\.0\.0\.1:\d+\/realms\/harness\/device\?user_code=SSH-CODE&harness_gateway=[A-Za-z0-9_-]+$/u,
+  );
   assert.equal(JSON.stringify(begun).includes("private-device"), false);
+  now = 600_000;
+  await assert.rejects(service.pollDevice(), /Device authorization expired/u);
 });
 
 test("device login survives transient transport loss and replaces a code invalidated by Keycloak restart", async (t) => {
