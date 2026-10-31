@@ -161,3 +161,97 @@ test("a pinned fallback chain accepts the shared case-insensitive model resoluti
     ["ds-bailian", "ds-harness-api"],
   );
 });
+
+const providerHealth = (
+  instanceId: string,
+  overrides: Partial<{
+    failureStreak: number;
+    cooldownUntil: string | null;
+    frozen: boolean;
+    frozenUntil: string | null;
+    reason: string | null;
+    lastFailureAt: string | null;
+    lastResetAt: string | null;
+  }> = {},
+) => ({
+  instanceId,
+  failureStreak: overrides.failureStreak ?? 1,
+  cooldownUntil: overrides.cooldownUntil ?? null,
+  frozen: overrides.frozen ?? false,
+  frozenUntil: overrides.frozenUntil ?? null,
+  reason: overrides.reason ?? "HTTP 429",
+  lastFailureAt: overrides.lastFailureAt ?? "2026-10-28T00:00:00.000Z",
+  lastResetAt: overrides.lastResetAt ?? null,
+});
+
+// The original incident: data-migration declared two runtimes, the second was cooling at dispatch
+// time, and the frozen chain recorded only the first. After the first provider fault the dispatch
+// could only retry codex-api; the cooling second candidate was never usable. Health must be a
+// selection-time filter, not chain membership.
+test("a cooling successor stays in the chain so it can recover after dispatch", () => {
+  const attempt = initialFallbackAttempt(
+    agent,
+    undefined,
+    undefined,
+    undefined,
+    "task-review:task_1:exe_1:reviewer",
+    "dispatch_successor",
+    "mission",
+    [instance("ds-bailian"), instance("ds-harness-api")],
+    [],
+    ["ds-bailian", "ds-harness-api"],
+    [providerHealth("ds-harness-api", { cooldownUntil: "2099-01-01T00:05:00.000Z" })],
+  );
+  assert.ok(attempt);
+  assert.deepEqual(
+    attempt.candidates.map(({ instance: instanceId }) => instanceId),
+    ["ds-bailian", "ds-harness-api"],
+    "a cooling successor is still a declared candidate and must enter the chain",
+  );
+});
+
+test("a temporarily frozen successor stays in the chain so it can recover after dispatch", () => {
+  const attempt = initialFallbackAttempt(
+    agent,
+    undefined,
+    undefined,
+    undefined,
+    "task-review:task_1:exe_1:reviewer",
+    "dispatch_successor",
+    "mission",
+    [instance("ds-bailian"), instance("ds-harness-api")],
+    [],
+    ["ds-bailian", "ds-harness-api"],
+    [providerHealth("ds-harness-api", { frozen: false, frozenUntil: "2099-01-01T00:30:00.000Z" })],
+  );
+  assert.ok(attempt);
+  assert.deepEqual(
+    attempt.candidates.map(({ instance: instanceId }) => instanceId),
+    ["ds-bailian", "ds-harness-api"],
+    "a temporary freeze is health, not membership; the candidate must remain in the chain",
+  );
+});
+
+test("an auto-selected anchor keeps a cooling candidate that sorts before it", () => {
+  const attempt = initialFallbackAttempt(
+    agent,
+    "ds-harness-api",
+    undefined,
+    undefined,
+    "task-review:task_1:exe_1:reviewer",
+    "dispatch_successor",
+    "mission",
+    [instance("ds-bailian"), instance("ds-harness-api")],
+    [],
+    ["ds-bailian", "ds-harness-api"],
+    [providerHealth("ds-bailian", { cooldownUntil: "2099-01-01T00:05:00.000Z" })],
+    undefined,
+    true,
+  );
+  assert.ok(attempt);
+  assert.deepEqual(
+    attempt.candidates.map(({ instance: instanceId }) => instanceId),
+    ["ds-harness-api", "ds-bailian"],
+    "an auto-selected anchor must not drop a declared candidate that sorts before it",
+  );
+});
