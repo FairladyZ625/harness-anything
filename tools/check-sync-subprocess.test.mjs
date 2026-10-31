@@ -204,7 +204,7 @@ function makeGateRoot(prefix) {
 function withFixture(files, run) {
   const root = makeGateRoot("ha-sync-subprocess-");
   try {
-    for (const scanRoot of ["packages/daemon/src", "packages/kernel/src"]) {
+    for (const scanRoot of ["packages/daemon/src", "packages/kernel/src", "packages/storage/src"]) {
       mkdirSync(path.join(root, scanRoot), { recursive: true });
       writeFileSync(path.join(root, scanRoot, "clean.ts"), "export const clean = true;\n");
     }
@@ -222,7 +222,7 @@ function withFixture(files, run) {
 import { spawnSync as runGate } from "node:child_process";
 import { mkdirSync as makeGateDir, writeFileSync as writeGateFile, rmSync as removeGateRoot } from "node:fs";
 
-const requiredScanRoots = ["packages/daemon/src", "packages/kernel/src"];
+const requiredScanRoots = ["packages/daemon/src", "packages/kernel/src", "packages/storage/src"];
 for (const omitted of requiredScanRoots) {
   for (const state of ["missing", "empty", "excluded-only"]) {
     test(`check-sync-subprocess rejects ${state} required scan root ${omitted}`, () => {

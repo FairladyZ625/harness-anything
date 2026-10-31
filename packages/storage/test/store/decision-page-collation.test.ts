@@ -2,8 +2,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { DecisionEventDraftV1 } from "../../src/domain/decision-event-types.ts";
-import { readDecisionDocumentState } from "../../src/projection/decision-projection-documents.ts";
-import { compileDecisionWrite } from "../../src/index.ts";
+import { readDecisionDocumentState } from "../../src/projection/decision-event-projection.ts";
+import { compileDecisionWrite } from "@harness-anything/kernel";
 import { listDecisionRowsPage, reduceDecisionEvent } from "../../src/projection/decision-event-projection.ts";
 import { encodePageCursor } from "../../src/projection/task-query-projection.ts";
 import { decisionProjectionDatabase, proposal } from "./relation-graph-projection.fixtures.ts";

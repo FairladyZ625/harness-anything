@@ -1,10 +1,6 @@
 import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/client";
-import {
-  eventObjectTarget,
-  makeTaskEventStore,
-  type AgentRuntimeEventV1,
-  type FrozenWritePlan,
-} from "@harness-anything/kernel";
+import { eventObjectTarget, type AgentRuntimeEventV1, type FrozenWritePlan } from "@harness-anything/kernel";
+import { makeTaskEventStore } from "@harness-anything/storage";
 import type { WriterEpochFenceDescriptor } from "@harness-anything/daemon/client";
 import { seedTriadicEvents } from "../test-support/triadic-ledger.mjs";
 

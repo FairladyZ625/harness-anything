@@ -7,9 +7,8 @@ import {
   compileFactWrite,
   decisionReviewContentDigest,
   deriveRelationId,
-  makeTaskEventStore,
-  makeTaskProjection,
 } from "@harness-anything/kernel";
+import { makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
 
 export function writeTriadicLedger(rootDir) {
   const taskDir = path.join(rootDir, "harness/tasks/task-gui-smoke");

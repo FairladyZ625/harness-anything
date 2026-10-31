@@ -12,8 +12,8 @@ import {
   compileScheduleDefinitionEvent,
   createScheduleV1,
   deriveUseCaseProjectionInputs,
-  makeTaskEventStore,
 } from "@harness-anything/kernel";
+import { makeTaskEventStore } from "@harness-anything/storage";
 import { daemonGuiReadMethods, type DaemonGuiRpcReadMethod } from "@harness-anything/daemon/client";
 import {
   parseDaemonGuiActionResponse,

@@ -28,7 +28,7 @@ function relative(file: string): string {
 test("a temporary named after its writer exists only where it was judged", () => {
   const pidTemplate = /`[^`]*\$\{process\.pid\}[^`]*`/gu,
     namesATemporary = /\.tmp|\.ha-(?:settle|visible)-/u;
-  const offenders = ["daemon/src", "kernel/src", "preset/src"]
+  const offenders = ["daemon/src", "kernel/src", "preset/src", "storage/src"]
     .flatMap((root) =>
       sourceFiles(path.join(packagesRoot, root)).flatMap((file) =>
         (readFileSync(file, "utf8").match(pidTemplate) ?? [])
@@ -41,13 +41,13 @@ test("a temporary named after its writer exists only where it was judged", () =>
     "daemon/src/agent-runtime-instance-storage.ts: `${target}.${process.pid}.tmp`",
     "daemon/src/agent-runtime-instance-storage.ts: `${target}.${process.pid}.tmp`",
     "daemon/src/agent-runtime-instance-store.ts: `${target}.${process.pid}.tmp`",
-    "daemon/src/durable-file.ts: `${file}.${process.pid}.${randomUUID()}.tmp`",
     "daemon/src/runtime-provider-health.ts: `${target}.${process.pid}.tmp`",
     "daemon/src/skill-eval-production.ts: `${target}.${process.pid}.tmp`",
     "kernel/src/daemon/registry.ts: `${registryPath}.${process.pid}.${Date.now()}.tmp`",
     "kernel/src/local/local-layout-file-system.ts: `${entry.path}.${process.pid}.tmp`",
-    "kernel/src/store/local-version-control-system.ts: `${target}.tmp-${process.pid}`",
-    "kernel/src/store/local-version-control-system.ts: `.ha-visible-${process.pid}-${index}`",
+    "storage/src/durable-file.ts: `${file}.${process.pid}.${randomUUID()}.tmp`",
+    "storage/src/store/local-version-control-system.ts: `${target}.tmp-${process.pid}`",
+    "storage/src/store/local-version-control-system.ts: `.ha-visible-${process.pid}-${index}`",
   ]);
 });
 
@@ -56,13 +56,16 @@ test("a temporary named after its writer exists only where it was judged", () =>
 // harness/ is its own git repository and does not ignore *.tmp, so a leftover there travels.
 // Both write paths below reach a repository worktree, so neither may probe a pid.
 test("a write path that reaches a repository worktree mounts no pid-liveness reclaim", () => {
-  const durableWrite = readFileSync(path.join(packagesRoot, "kernel/src/store/local-version-control-system.ts"), "utf8")
+  const durableWrite = readFileSync(
+    path.join(packagesRoot, "storage/src/store/local-version-control-system.ts"),
+    "utf8",
+  )
     .split("function durableWrite(")[1]
     ?.split("\nfunction ")[0];
   assert.ok(durableWrite, "durableWrite must still be a top-level function in the store");
   assert.equal(durableWrite.includes("sweepStaleSettlementMarkers"), false);
   assert.equal(durableWrite.includes("processMayBeAlive"), false);
-  const durableFile = readFileSync(path.join(packagesRoot, "daemon/src/durable-file.ts"), "utf8");
+  const durableFile = readFileSync(path.join(packagesRoot, "storage/src/durable-file.ts"), "utf8");
   assert.equal(durableFile.includes("process.kill"), false);
   // The mirror's cross-process lock (and its pid probe) retired with the old pull machinery
   // (dec_9284BD61): the replica generation is installed atomically and needs no stale-round

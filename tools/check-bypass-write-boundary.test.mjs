@@ -180,7 +180,7 @@ test("bypass write boundary rejects new fs writes outside the allowlist", () => 
 
     const result = runChecker(root, policyRoot);
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /packages\/kernel\/src\/store\/fixture\.ts:.*writeFileSync/u);
+    assert.match(result.stderr, /packages\/storage\/src\/store\/fixture\.ts:.*writeFileSync/u);
   } finally {
     rmSync(root, { recursive: true, force: true });
     rmSync(policyRoot, { recursive: true, force: true });

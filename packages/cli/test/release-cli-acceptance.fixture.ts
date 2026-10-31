@@ -21,7 +21,8 @@ import { tmpdir } from "node:os";
 
 import path from "node:path";
 
-import { makeTaskEventReader, sha256Bytes } from "@harness-anything/kernel";
+import { sha256Bytes } from "@harness-anything/kernel";
+import { makeTaskEventReader } from "@harness-anything/storage";
 
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 

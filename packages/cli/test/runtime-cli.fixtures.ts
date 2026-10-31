@@ -10,7 +10,7 @@ import { after, type TestContext } from "node:test";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
 import { unattendedRulingContract } from "@harness-anything/daemon/internal/runtime-spawn-mission";
 import { renderDispatchPrompt } from "@harness-anything/daemon/internal/runtime-spawn-prompt";
-import { makeTaskEventReader } from "@harness-anything/kernel";
+import { makeTaskEventReader } from "@harness-anything/storage";
 import { localUserDaemonEndpoint } from "../src/daemon/client.ts";
 import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
 

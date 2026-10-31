@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { compileDecisionWrite } from "../../src/index.ts";
+import { compileDecisionWrite } from "@harness-anything/kernel";
 import { REPLAY_TASK_GRAPH } from "@harness-anything/kernel/internal/domain/task-graph.ts";
 import {
   createDecisionProjectionTables,

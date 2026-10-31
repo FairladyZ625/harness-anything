@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { applyAttachMigrations, attachMigrationRegistry } from "../../src/store/attach-migrations.ts";
-import { historicalReadConclusions as publicHistoricalReadConclusions } from "../../src/index.ts";
+import { historicalReadConclusions as publicHistoricalReadConclusions } from "@harness-anything/kernel";
 import { retiredPersistedSchemaFields } from "@harness-anything/kernel/internal/domain/event-shape-migration-event.ts";
 import {
   normalizeHistoricalEvent,

@@ -29,8 +29,8 @@ test("kernel public source index is importable by the explicit TS test runner", 
   assert.deepEqual(runtimeEffortModule.runtimeEffortValues, kernel.runtimeEffortValues);
   assert.equal("LifecycleEngine" in kernel, false);
   assert.equal("LockRegistry" in kernel, false);
-  assert.equal("VersionControlSystem" in kernel, false);
-  assert.equal(typeof kernel.makeTaskEventStore, "function");
-  assert.equal(typeof kernel.makeTaskProjection, "function");
+  assert.equal("VersionControlSystem" in kernel, true);
+  assert.equal("makeTaskEventStore" in kernel, false);
+  assert.equal("makeTaskProjection" in kernel, false);
   assert.equal(typeof kernel.schemaRegistry.length, "number");
 });

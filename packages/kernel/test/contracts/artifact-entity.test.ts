@@ -11,7 +11,6 @@ import {
   compileEntityReferenceDeclared,
   compileEntityTargetMissing,
   compileVerticalContract,
-  createEntityStore,
   decodeArtifactDescriptor,
   deriveArtifactContentVersion,
   mintArtifactEntityId,
@@ -21,6 +20,7 @@ import {
   type EntityEventV1,
   type EntityStoreKindContract,
 } from "../../src/index.ts";
+import { createEntityStore } from "../../../storage/src/index.ts";
 import {
   artifactEntityContractFromSnapshot,
   artifactMutationOperationId,

@@ -7,8 +7,6 @@ import path from "node:path";
 import test from "node:test";
 import { completionSnapshot, emptyCompletionContract } from "../../kernel/test/domain/completion.fixtures.ts";
 import {
-  openSqliteEventStore,
-  activateEmptyCanonicalGeneration,
   applyTransition,
   canonicalGateReceipts,
   completionBlockers,
@@ -19,6 +17,7 @@ import {
   submissionDigest,
   type TaskEventV1,
 } from "@harness-anything/kernel";
+import { openSqliteEventStore, activateEmptyCanonicalGeneration } from "@harness-anything/storage";
 import {
   makeTaskEventStore,
   makeTaskProjection,

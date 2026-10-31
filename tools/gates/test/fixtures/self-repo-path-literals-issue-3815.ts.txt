@@ -9,6 +9,8 @@ const persistedShapeSurfacePrefixes = [
   "packages/kernel/src/schemas/",
   "packages/kernel/src/store/",
   "packages/kernel/src/projection/",
+  "packages/storage/src/store/",
+  "packages/storage/src/projection/",
   "packages/preset/src/",
   "packages/preset/assets/",
 ] as const;

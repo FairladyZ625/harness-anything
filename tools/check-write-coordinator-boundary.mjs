@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { listWorktreeFiles } from "./gates/git.mjs";
 
 const legacyProductionPath =
-  /^(?:packages\/kernel\/src\/(?:ports\/(?:artifact-store-writer|current-session-probe|lifecycle-engine|lock-registry|write-coordinator)\.ts|store\/(?:content-addressed-blob-store|daemon-runtime(?:-queue)?|ledger-materializer|local-lock-registry|write-journal[^/]*)\.ts|write-coordination\/)|packages\/cli\/src\/daemon\/(?:command-service|doc-sync-service|queued-write-coordinator)\.ts|packages\/application\/src\/(?:current-session-probe|decision-write-service|doc-sync|fact-write-service|provenance-binding|provenance-session-exporter|runtime-event-ledger-service|runtime-session-logs|session-entity-reader|task-write-route-policy)\.ts)$/u;
+  /^(?:packages\/(?:kernel|storage)\/src\/(?:ports\/(?:artifact-store-writer|current-session-probe|lifecycle-engine|lock-registry|write-coordinator)\.ts|store\/(?:content-addressed-blob-store|daemon-runtime(?:-queue)?|ledger-materializer|local-lock-registry|write-journal[^/]*)\.ts|write-coordination\/)|packages\/cli\/src\/daemon\/(?:command-service|doc-sync-service|queued-write-coordinator)\.ts|packages\/application\/src\/(?:current-session-probe|decision-write-service|doc-sync|fact-write-service|provenance-binding|provenance-session-exporter|runtime-event-ledger-service|runtime-session-logs|session-entity-reader|task-write-route-policy)\.ts)$/u;
 const coordinatedCommitAuthorities = Object.freeze([
   Object.freeze({ functionName: "prepareCommit", primitive: "gitObjects.importCommit(" }),
   Object.freeze({ functionName: "finalizeRefs", primitive: "gitObjects.updateRefs(" }),
