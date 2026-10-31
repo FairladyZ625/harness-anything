@@ -113,7 +113,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     prepareDaemonGitEnvironment = (instanceId: string, provider: "github" | "gitlab" = "github") =>
       input.prepareDaemonGitEnvironment?.(instanceId, provider).then((value) => value ?? undefined) ??
       Promise.resolve(undefined);
-  const modelSlotQueue = input.modelSlotQueue ?? new ModelSlotQueue();
+  const modelSlotQueue = input.modelSlotQueue ?? new ModelSlotQueue({ globalCapacity: 64, perOwnerCapacity: 64 });
   const ownsModelSlotQueue = input.modelSlotQueue === undefined;
   let fallbackClosed = false;
   const preflightRuntimeSelection = async (payload: JsonObject): Promise<void> => {
