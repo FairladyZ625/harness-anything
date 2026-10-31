@@ -241,7 +241,9 @@ function fixture(t, { branch = "codex/pr-123", haState = { fail: true }, rejectP
       url: "https://example.test/pull/123",
     }),
   );
-  writeFileSync(haStatePath, JSON.stringify(haState));
+  // A factory receives the fixture's PR head: the frozen delivery commit of a task PR normally *is*
+  // that head, and a receipt whose commitSha differs models a branch that moved after submit.
+  writeFileSync(haStatePath, JSON.stringify(typeof haState === "function" ? haState(headRefOid) : haState));
 
   const fakeBin = makeFakeGh(root);
   makeFakeHa(fakeBin);
@@ -496,9 +498,14 @@ function consentMissingHaState() {
 // A historical task-show receipt retains the retired CI gate in its frozen declaration. Its
 // current completion blocker is delivery_missing until merge; review consent is judged separately.
 // The digests use the kernel helpers so the fixture matches the facts production consumes.
-function reviewChainWithDeliveryBlockerHaState({ consented = true, staleConsent = false, closeoutOverrides } = {}) {
+function reviewChainWithDeliveryBlockerHaState({
+  consented = true,
+  staleConsent = false,
+  closeoutOverrides,
+  commitSha = `5a1f${"0".repeat(36)}`,
+} = {}) {
   const submission = {
-      commitSha: `5a1f${"0".repeat(36)}`,
+      commitSha,
       completionClaim: "Delivered the guarded merge path.",
       deliverables: ["tools/pr-merge.mjs"],
       outputs: [],
@@ -616,7 +623,11 @@ test("refuses a task PR whose current execution has no consented approved review
 test("merges a consented task PR with a historical CI gate declaration and delivery_missing blocker", (t) => {
   // CH4 keeps frozen CI gates readable as retired history; completion now waits for merge evidence.
   // The merge command checks the approved review and owner consent before it creates that evidence.
-  const setup = fixture(t, { branch: TASK_BRANCH, haState: reviewChainWithDeliveryBlockerHaState() });
+  // The frozen delivery commit is the PR head, so the merge commit will contain it by ancestry.
+  const setup = fixture(t, {
+    branch: TASK_BRANCH,
+    haState: (head) => reviewChainWithDeliveryBlockerHaState({ commitSha: head }),
+  });
 
   const result = run(process.execPath, [helper, "123"], { cwd: setup.main, env: setup.env });
 
@@ -626,14 +637,50 @@ test("merges a consented task PR with a historical CI gate declaration and deliv
   assert.equal(existsSync(setup.prWorktree), false);
 });
 
+test("refuses a task PR whose rebased head is not the frozen delivery commit", (t) => {
+  // #4127: the owner consented a cut frozen at ae7ba2d5, then the branch was rebased to 242617be.
+  // The gate judged only the ledger's consent, merged the new head, and completion then found the
+  // merge commit could not contain the frozen cut (delivery_missing) after the merge was final.
+  // The head is the merge commit's second parent, so merging it must be the frozen cut itself.
+  const reviewedCommit = `ae7ba2d5${"0".repeat(32)}`;
+  const setup = fixture(t, {
+    branch: TASK_BRANCH,
+    haState: () => reviewChainWithDeliveryBlockerHaState({ commitSha: reviewedCommit }),
+  });
+  const initialHead = git(setup.main, "rev-parse", "HEAD");
+  assert.notEqual(setup.headRefOid, reviewedCommit);
+
+  const result = run(process.execPath, [helper, "123"], {
+    cwd: setup.main,
+    env: setup.env,
+    allowFailure: true,
+  });
+
+  assert.equal(result.status, 1, result.stdout);
+  assert.match(result.stderr, new RegExp(`froze its delivery at ${reviewedCommit}`, "u"));
+  assert.match(result.stderr, new RegExp(`PR #123 head is ${setup.headRefOid}`, "u"));
+  assert.match(result.stderr, new RegExp(`ha task submit ${TASK_BRANCH} --amend`, "u"));
+  assert.match(result.stderr, /--as-owner/u);
+  assert.match(result.stderr, /Refusing to merge\./u);
+  assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "OPEN");
+  assert.equal(git(setup.main, "rev-parse", "HEAD"), initialHead);
+  assert.equal(existsSync(setup.prWorktree), true);
+  assert.notEqual(git(setup.main, "ls-remote", "--heads", "origin", `refs/heads/${TASK_BRANCH}`), "");
+});
+
 test("merges a task PR whose receipt exceeds the spawnSync default maxBuffer", (t) => {
   // PR #3502's failure: a long-lived task's task-show receipt grew to 2.2 MiB, past spawnSync's
   // 1 MiB default maxBuffer, so reading it died with ENOBUFS and the merge failed closed. The
   // lifecycle progress log is what grows with task age, so pad it past the old default on top of
   // an otherwise consented receipt and require the judgment to still be read and the merge to run.
-  const haState = reviewChainWithDeliveryBlockerHaState();
-  haState.receipt.progress = [{ schema: "task-progress/v1", statement: "p".repeat(3 * 1024 * 1024) }];
-  const setup = fixture(t, { branch: TASK_BRANCH, haState });
+  const setup = fixture(t, {
+    branch: TASK_BRANCH,
+    haState: (head) => {
+      const haState = reviewChainWithDeliveryBlockerHaState({ commitSha: head });
+      haState.receipt.progress = [{ schema: "task-progress/v1", statement: "p".repeat(3 * 1024 * 1024) }];
+      return haState;
+    },
+  });
 
   const result = run(process.execPath, [helper, "123"], { cwd: setup.main, env: setup.env });
 
@@ -646,11 +693,11 @@ test("refuses a task PR whose missing consent is masked by a merge-only gate", a
   const cases = [
     {
       label: "no consent recorded",
-      haState: reviewChainWithDeliveryBlockerHaState({ consented: false }),
+      haState: (head) => reviewChainWithDeliveryBlockerHaState({ consented: false, commitSha: head }),
     },
     {
       label: "consent pinned to a superseded submission",
-      haState: reviewChainWithDeliveryBlockerHaState({ staleConsent: true }),
+      haState: (head) => reviewChainWithDeliveryBlockerHaState({ staleConsent: true, commitSha: head }),
     },
   ];
   for (const { label, haState } of cases) {
@@ -684,10 +731,12 @@ test("merges a lightweight task PR whose review and consent gates were lifted at
   // very class of low-risk PRs the short path exists for.
   const setup = fixture(t, {
     branch: TASK_BRANCH,
-    haState: reviewChainWithDeliveryBlockerHaState({
-      consented: false,
-      closeoutOverrides: { review: false, consent: false },
-    }),
+    haState: (head) =>
+      reviewChainWithDeliveryBlockerHaState({
+        commitSha: head,
+        consented: false,
+        closeoutOverrides: { review: false, consent: false },
+      }),
   });
 
   const result = run(process.execPath, [helper, "123"], { cwd: setup.main, env: setup.env });
@@ -728,7 +777,10 @@ test("a daemon restart between merge and annotation does not skip the post-merge
   // #4045/#4047: the merge succeeded, then the daemon restarting into a new build made the second
   // `ha task show` fail. The merge-sha annotation reuses the pre-merge snapshot, so the daemon
   // becoming unreachable after the merge must not abort the branch/worktree/main cleanup.
-  const setup = fixture(t, { branch: TASK_BRANCH, haState: reviewChainWithDeliveryBlockerHaState() });
+  const setup = fixture(t, {
+    branch: TASK_BRANCH,
+    haState: (head) => reviewChainWithDeliveryBlockerHaState({ commitSha: head }),
+  });
   setup.env.HA_FAIL_SHOW_FROM = "2";
 
   const result = run(process.execPath, [helper, "123"], { cwd: setup.main, env: setup.env });
