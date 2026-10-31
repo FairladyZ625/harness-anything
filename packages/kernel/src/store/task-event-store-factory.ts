@@ -1,5 +1,15 @@
-import { makeSqliteTaskEventStore, type SqliteTaskEventStoreOptions } from "./sqlite-task-event-store.ts";
+import {
+  makeSqliteTaskEventStore,
+  type SqliteCanonicalEventStore,
+  type SqliteTaskEventStoreOptions,
+} from "./sqlite-task-event-store.ts";
 import { activateEmptyCanonicalGeneration, resolveActiveGeneration } from "./sqlite-event-store.ts";
+import {
+  resolveStorageBackend,
+  unsupportedStorageBackendError,
+  type LedgerEventStorePort,
+} from "./task-event-store-types.ts";
+import type { PostgresStorageBackendConfig } from "../composition/storage-backend.ts";
 
 // Ordinary attachment cannot bypass activation with an explicit old generation.
 // Offline conversion opens its source through the read-only SQLite storage port.
@@ -11,7 +21,23 @@ const selectGeneration = (options: SqliteTaskEventStoreOptions): SqliteTaskEvent
   return { ...options, generation: resolveActiveGeneration({ rootInput, repoId: options.repoId }) };
 };
 
-export const makeTaskEventStore = (options: SqliteTaskEventStoreOptions) => {
+type TaskEventStoreFactoryOptions = SqliteTaskEventStoreOptions | PostgresTaskEventStoreOptions;
+
+export type PostgresTaskEventStoreOptions = Omit<SqliteTaskEventStoreOptions, "storage"> & {
+  readonly storage: PostgresStorageBackendConfig;
+};
+
+function selectBackend(options: TaskEventStoreFactoryOptions): asserts options is SqliteTaskEventStoreOptions {
+  const backend = resolveStorageBackend(options);
+  if (backend.backend === "postgres") throw unsupportedStorageBackendError(backend.backend);
+}
+
+export function makeTaskEventStore(options: PostgresTaskEventStoreOptions): LedgerEventStorePort;
+export function makeTaskEventStore(options: SqliteTaskEventStoreOptions): SqliteCanonicalEventStore;
+export function makeTaskEventStore(
+  options: TaskEventStoreFactoryOptions,
+): SqliteCanonicalEventStore | LedgerEventStorePort {
+  selectBackend(options);
   const selected = selectGeneration(options);
   return makeSqliteTaskEventStore({
     ...selected,
@@ -19,8 +45,24 @@ export const makeTaskEventStore = (options: SqliteTaskEventStoreOptions) => {
       ? { activationPreflight: activateEmptyCanonicalGeneration }
       : {}),
   });
-};
-export const makeTaskEventReader = (options: SqliteTaskEventStoreOptions) =>
-  makeSqliteTaskEventStore({ ...selectGeneration(options), mutable: false });
+}
+export function makeTaskEventReader(options: PostgresTaskEventStoreOptions): LedgerEventStorePort;
+export function makeTaskEventReader(options: SqliteTaskEventStoreOptions): SqliteCanonicalEventStore;
+export function makeTaskEventReader(
+  options: TaskEventStoreFactoryOptions,
+): SqliteCanonicalEventStore | LedgerEventStorePort {
+  selectBackend(options);
+  return makeSqliteTaskEventStore({ ...selectGeneration(options), mutable: false });
+}
 export type { SqliteCanonicalEventStore, SqliteTaskEventStoreOptions } from "./sqlite-task-event-store.ts";
+export type {
+  LedgerEventStorePort,
+  PostgresStorageBackendConfig,
+  ResolvedStorageBackend,
+  SqliteStorageBackendConfig,
+  StorageBackend,
+  StorageBackendConfig,
+  StorageBackendOptions,
+  StorageScope,
+} from "./task-event-store-types.ts";
 export { readCertifiedGitFollower, type CertifiedGitFollower } from "./sqlite-task-event-publication.ts";

@@ -4,6 +4,8 @@ export {
   canonicalEventEntityRefs,
   materializationStates,
   TaskEventStoreError,
+  resolveStorageBackend,
+  unsupportedStorageBackendError,
   type CanonicalContentBlob,
   type CanonicalEventAppendReceipt,
   type CanonicalEventCut,
@@ -20,6 +22,14 @@ export {
   type PublicationFile,
   type PublicationMetrics,
   type TaskEventStoreErrorCode,
+  type LedgerEventStorePort,
+  type PostgresStorageBackendConfig,
+  type ResolvedStorageBackend,
+  type SqliteStorageBackendConfig,
+  type StorageBackend,
+  type StorageBackendConfig,
+  type StorageBackendOptions,
+  type StorageScope,
 } from "./task-event-store-types.ts";
 export {
   canonicalEventCut,
@@ -28,8 +38,13 @@ export {
   canonicalEventWritePlan,
   validateCanonicalWriteBundle,
 } from "./task-event-store-contract.ts";
-export { makeTaskEventStore, readCertifiedGitFollower } from "./task-event-store-factory.ts";
-export type { CertifiedGitFollower } from "./task-event-store-factory.ts";
+export { makeTaskEventReader, makeTaskEventStore, readCertifiedGitFollower } from "./task-event-store-factory.ts";
+export type {
+  CertifiedGitFollower,
+  PostgresTaskEventStoreOptions,
+  SqliteCanonicalEventStore,
+  SqliteTaskEventStoreOptions,
+} from "./task-event-store-factory.ts";
 export {
   canonicalDocumentClaims,
   canonicalDocumentMode,

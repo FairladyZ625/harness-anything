@@ -7,6 +7,16 @@ import type { TaskEventV1 } from "../domain/task-lifecycle.contract.ts";
 import { squadRunSubjectEntityIdentity } from "../domain/squad-run.ts";
 import { type EventHead, type FrozenWritePlan, type LedgerCutIdentity } from "../domain/write-chain.contract.ts";
 import { type LedgerLayoutState } from "../layout/ledger-object-layout.ts";
+export { resolveStorageBackend, unsupportedStorageBackendError } from "../composition/storage-backend.ts";
+export type {
+  PostgresStorageBackendConfig,
+  ResolvedStorageBackend,
+  SqliteStorageBackendConfig,
+  StorageBackend,
+  StorageBackendConfig,
+  StorageBackendOptions,
+  StorageScope,
+} from "../composition/storage-backend.ts";
 
 // Public store contract, publication records, and write-bundle shapes.
 export const CANONICAL_EVENT_REF = "refs/ha/canonical";
@@ -27,6 +37,7 @@ export class TaskEventStoreError extends Error {
     this.code = code;
   }
 }
+
 export interface CanonicalEventStreamV1 {
   readonly schema: "canonical-event-stream/v1";
   readonly revision: number;
@@ -246,3 +257,10 @@ export interface CanonicalEventStore {
   readonly drain: () => Promise<void>;
   readonly settlePendingMaterialization?: (context: string) => Promise<void>;
 }
+
+/**
+ * The cross-backend port is deliberately synchronous. PostgreSQL adapters must hide their async
+ * driver behind the repository's dedicated worker/Atomics bridge so existing single-writer callers
+ * keep one contract and SQLite remains source-compatible.
+ */
+export type LedgerEventStorePort = CanonicalEventStore;

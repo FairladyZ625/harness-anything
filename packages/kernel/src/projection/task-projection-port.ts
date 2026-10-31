@@ -292,6 +292,9 @@ export interface TaskProjection {
   readonly readSquadRuns: () => readonly SquadRunProjectionRow[];
 }
 
+/** Cross-backend projection methods stay synchronous; PG adapters use the storage worker bridge. */
+export type TaskProjectionPort = TaskProjection;
+
 export type TaskProjectionWriter = TaskProjection;
 
 export type TaskProjectionQueries = Omit<
@@ -313,3 +316,6 @@ export interface TaskProjectionReader {
   readonly withSession: <A>(read: (queries: TaskProjectionQueries) => A) => A;
   readonly close: () => void;
 }
+
+export type TaskProjectionQueriesPort = TaskProjectionQueries;
+export type TaskProjectionReaderPort = TaskProjectionReader;

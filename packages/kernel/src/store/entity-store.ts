@@ -11,6 +11,14 @@ import { interpretEntityValue } from "../domain/entity-kind-projection.ts";
 import { requireEntityStoreKindContract, type EntityStoreKindContract } from "../domain/entity-kind-registry.ts";
 import { openSqliteEventStore } from "./sqlite-event-store.ts";
 import type { CanonicalEventStore } from "./task-event-store-types.ts";
+import {
+  resolveStorageBackend,
+  unsupportedStorageBackendError,
+  type PostgresStorageBackendConfig,
+  type SqliteStorageBackendConfig,
+  type StorageBackendOptions,
+  type StorageScope,
+} from "../composition/storage-backend.ts";
 
 export interface StoredEntity<T = unknown> {
   readonly kind: string;
@@ -21,13 +29,24 @@ export interface StoredEntity<T = unknown> {
   readonly workspaceRevision: number;
 }
 
+export interface EntityDeclarationStorePort {
+  readonly upsert: (input: Parameters<typeof compileEntityUpsert>[0], scope?: StorageScope) => EntityUpsertBundle;
+  readonly get: <T = unknown>(kind: string, id: string, scope?: StorageScope) => StoredEntity<T> | null;
+  readonly list: <T = unknown>(kind: string, scope?: StorageScope) => readonly StoredEntity<T>[];
+}
+
+/** Existing synchronous SQLite entity-store contract. */
 export interface EntityStore {
-  readonly upsert: (input: Parameters<typeof compileEntityUpsert>[0]) => EntityUpsertBundle;
-  readonly get: <T = unknown>(kind: string, id: string) => StoredEntity<T> | null;
-  readonly list: <T = unknown>(kind: string) => readonly StoredEntity<T>[];
+  readonly upsert: (input: Parameters<typeof compileEntityUpsert>[0], scope?: StorageScope) => EntityUpsertBundle;
+  readonly get: <T = unknown>(kind: string, id: string, scope?: StorageScope) => StoredEntity<T> | null;
+  readonly list: <T = unknown>(kind: string, scope?: StorageScope) => readonly StoredEntity<T>[];
 }
 
 type EntityEventSource = Pick<CanonicalEventStore, "readBatch" | "readContentBlob">;
+type SqliteEntityStoreOptions = Omit<StorageBackendOptions, "storage"> & {
+  readonly storage?: SqliteStorageBackendConfig;
+};
+export type PostgresEntityDeclarationStoreOptions = { readonly storage: PostgresStorageBackendConfig };
 
 const entityEventCaches = new WeakMap<
   EntityEventSource,
@@ -85,15 +104,39 @@ function entityEventCache(source: EntityEventSource): Map<string, Map<string, St
 
 export function createEntityStore(
   source: EntityEventSource,
-  dynamicContracts: readonly EntityStoreKindContract[] = [],
-): EntityStore {
+  options: PostgresEntityDeclarationStoreOptions,
+): EntityDeclarationStorePort;
+export function createEntityStore(
+  source: EntityEventSource,
+  dynamicContracts: readonly EntityStoreKindContract[],
+  options: PostgresEntityDeclarationStoreOptions,
+): EntityDeclarationStorePort;
+export function createEntityStore(source: EntityEventSource): EntityStore;
+export function createEntityStore(source: EntityEventSource, options: SqliteEntityStoreOptions): EntityStore;
+export function createEntityStore(
+  source: EntityEventSource,
+  dynamicContracts: readonly EntityStoreKindContract[],
+  options?: SqliteEntityStoreOptions,
+): EntityStore;
+export function createEntityStore(
+  source: EntityEventSource,
+  dynamicContractsOrOptions: readonly EntityStoreKindContract[] | StorageBackendOptions = [],
+  options: StorageBackendOptions = {},
+): EntityStore | EntityDeclarationStorePort {
+  const dynamicContracts = Array.isArray(dynamicContractsOrOptions) ? dynamicContractsOrOptions : [];
+  const backendOptions: StorageBackendOptions = Array.isArray(dynamicContractsOrOptions)
+    ? options
+    : (dynamicContractsOrOptions as StorageBackendOptions);
+  const backend = resolveStorageBackend(backendOptions);
+  if (backend.backend === "postgres") throw unsupportedStorageBackendError(backend.backend);
+  const sqliteSource = source as EntityEventSource;
   const contractForKind = (kind: string): EntityStoreKindContract => {
     const dynamic = dynamicContracts.find((candidate) => candidate.kind === kind);
     if (dynamic) return dynamic;
     try {
       return requireEntityStoreKindContract(kind);
     } catch (error) {
-      const declaration = [...(entityEventCache(source).get(kind)?.values() ?? [])].find(
+      const declaration = [...(entityEventCache(sqliteSource).get(kind)?.values() ?? [])].find(
         (event) => event.type === "entity_content_observed" || event.type === "entity_reference_declared",
       );
       if (
@@ -106,20 +149,20 @@ export function createEntityStore(
   };
   const latestEvents = (kind: string): ReadonlyMap<string, StoredEntityEventV1> => {
     const contract = contractForKind(kind);
-    return entityEventCache(source).get(contract.kind) ?? new Map<string, StoredEntityEventV1>();
+    return entityEventCache(sqliteSource).get(contract.kind) ?? new Map<string, StoredEntityEventV1>();
   };
   const records = (kind: string): readonly StoredEntity[] => {
     const contract = contractForKind(kind);
     return [...latestEvents(kind).values()]
       .map((event) => {
-        const record = entityEventRecord(event, source, contract);
-        return kind === "agent" && retiredAgents.get(source)?.has(record.id)
+        const record = entityEventRecord(event, sqliteSource, contract);
+        return kind === "agent" && retiredAgents.get(sqliteSource)?.has(record.id)
           ? ({
               ...record,
               value: {
                 ...(record.value as Record<string, unknown>),
                 lifecycleState: "retired",
-                retirement: retiredAgents.get(source)!.get(record.id),
+                retirement: retiredAgents.get(sqliteSource)!.get(record.id),
               },
             } as StoredEntity)
           : record;
@@ -132,15 +175,15 @@ export function createEntityStore(
       const contract = contractForKind(kind),
         event = latestEvents(kind).get(id);
       if (event === undefined) return null;
-      const record = entityEventRecord(event, source, contract);
+      const record = entityEventRecord(event, sqliteSource, contract);
       return (
-        kind === "agent" && retiredAgents.get(source)?.has(id)
+        kind === "agent" && retiredAgents.get(sqliteSource)?.has(id)
           ? {
               ...record,
               value: {
                 ...(record.value as Record<string, unknown>),
                 lifecycleState: "retired",
-                retirement: retiredAgents.get(source)!.get(id),
+                retirement: retiredAgents.get(sqliteSource)!.get(id),
               },
             }
           : record
@@ -150,23 +193,37 @@ export function createEntityStore(
   };
 }
 
-export function openEntityStore(rootInput: HarnessLayoutInput): EntityStore {
+export function openEntityStore(
+  rootInput: HarnessLayoutInput,
+  options: PostgresEntityDeclarationStoreOptions,
+): EntityDeclarationStorePort;
+export function openEntityStore(rootInput: HarnessLayoutInput, options?: SqliteEntityStoreOptions): EntityStore;
+export function openEntityStore(
+  rootInput: HarnessLayoutInput,
+  options: StorageBackendOptions = {},
+): EntityStore | EntityDeclarationStorePort {
+  const backend = resolveStorageBackend(options);
+  if (backend.backend === "postgres") throw unsupportedStorageBackendError(backend.backend);
   const canonical = openSqliteEventStore({ rootInput, readOnly: true });
-  return createEntityStore({
-    readBatch: (cursor, maxItems) => {
-      const start = cursor === null ? 0 : Number(cursor),
-        events = canonical.eventsAfter(start, maxItems),
-        next = start + events.length;
-      return {
-        sourceRevision: canonical.revision(),
-        events,
-        cursor: events.length ? String(next) : cursor,
-        done: next === canonical.revision(),
-        accessedItems: events.length,
-      };
+  return createEntityStore(
+    {
+      readBatch: (cursor, maxItems) => {
+        const start = cursor === null ? 0 : Number(cursor),
+          events = canonical.eventsAfter(start, maxItems),
+          next = start + events.length;
+        return {
+          sourceRevision: canonical.revision(),
+          events,
+          cursor: events.length ? String(next) : cursor,
+          done: next === canonical.revision(),
+          accessedItems: events.length,
+        };
+      },
+      readContentBlob: canonical.readContentObject,
     },
-    readContentBlob: canonical.readContentObject,
-  });
+    [],
+    options as SqliteEntityStoreOptions,
+  );
 }
 
 function entityEventRecord(
