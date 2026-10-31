@@ -32,17 +32,34 @@ export function prepareDecisionAmend(
 ): Readonly<Record<string, unknown>> {
   let title = current.title,
     decisionClass = current.decisionClass,
-    chosen = [...current.chosen],
-    rejected = [...current.rejected],
-    claims = current.claims.map((claim) => ({ ...claim }));
+    chosen: DecisionProjectionRow["chosen"] = [...current.chosen],
+    rejected: DecisionProjectionRow["rejected"] = [...current.rejected],
+    claims: DecisionProjectionRow["claims"] = current.claims.map((claim) => ({ ...claim }));
+  const reason = requiredDecisionText(action.reason, "reason");
+  if (Array.from(reason).length > 199) fail("Decision amendment reason must be 1..199 characters.");
   if (typeof action.title === "string") title = action.title;
   const sets = stringArray(action.sets, "sets");
   if (typeof action.title === "string" && sets.some((entry) => entry.startsWith("title:")))
     fail("Specify title with either --title or --set, not both.");
   for (const patch of sets) {
     const parsed = splitPatch(patch);
-    if (parsed.field !== "title") fail(`replace is not supported for Decision field: ${parsed.field}`);
-    title = parsed.value;
+    if (parsed.field === "title") {
+      title = parsed.value;
+      continue;
+    }
+    if (parsed.field === "chosen") {
+      chosen = replaceChosen(parsed.value);
+      continue;
+    }
+    if (parsed.field === "rejected") {
+      rejected = replaceRejected(parsed.value);
+      continue;
+    }
+    if (parsed.field === "claims") {
+      claims = replaceClaims(parsed.value, claims);
+      continue;
+    }
+    fail(`replace is not supported for Decision field: ${parsed.field}`);
   }
   if (action.standingPolicy === true) decisionClass = "standing_policy";
   for (const patch of stringArray(action.appends, "appends")) {
@@ -121,17 +138,33 @@ export function prepareDecisionAmend(
     });
     if (!found) fail(`Claim ${claimId} does not exist.`);
   }
-  const next: DecisionAmendableSnapshot = { title, decisionClass, chosen, rejected, claims },
+  const ids = [...chosen, ...rejected, ...claims].map(({ id }) => id);
+  if (new Set(ids).size !== ids.length) fail("Chosen, rejected, and claim ids must be unique across the Decision.");
+  const previous: DecisionAmendableSnapshot = {
+      title: current.title,
+      decisionClass: current.decisionClass,
+      chosen: current.chosen,
+      rejected: current.rejected,
+      claims: current.claims,
+    },
+    next: DecisionAmendableSnapshot = { title, decisionClass, chosen, rejected, claims },
     fields = [
       title !== current.title ? "title" : null,
       decisionClass !== current.decisionClass ? "decisionClass" : null,
       JSON.stringify(chosen) !== JSON.stringify(current.chosen) ? "chosen" : null,
       JSON.stringify(rejected) !== JSON.stringify(current.rejected) ? "rejected" : null,
       JSON.stringify(claims) !== JSON.stringify(current.claims) ? "claims" : null,
-      typeof action.body === "string" ? "body" : null,
+      typeof action.body === "string" && action.body !== (current.body?.body ?? "") ? "body" : null,
     ].filter((field): field is string => field !== null);
   if (!fields.length) fail("Decision amend produced no effective machine-field or prose change.");
-  return { ...action, next, fields };
+  const { body: amendedBody, ...withoutBody } = action;
+  return {
+    ...withoutBody,
+    ...(fields.includes("body") && typeof amendedBody === "string" ? { body: amendedBody } : {}),
+    previous,
+    next,
+    fields,
+  };
 }
 
 export function validateDecisionPackages(
@@ -250,15 +283,71 @@ function nextId(prefix: "CH" | "RJ" | "C", ids: readonly string[]): string {
 function optionalId(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
 }
-function jsonObject(value: string): Readonly<Record<string, unknown>> {
+function jsonObject(value: string): Readonly<Record<string, unknown>>;
+function jsonObject(value: string, expected: "array", field: string): readonly unknown[];
+function jsonObject(
+  value: string,
+  expected: "array" | "object" = "object",
+  field = "append",
+): Readonly<Record<string, unknown>> | readonly unknown[] {
   let parsed: unknown;
   try {
     parsed = JSON.parse(value);
   } catch (error) {
     consumeKnownError(error);
-    fail("Decision append value must be a JSON object.");
+    fail(
+      expected === "array"
+        ? `Decision replace value for ${field} must be a JSON array.`
+        : "Decision append value must be a JSON object.",
+    );
   }
-  return jsonObjectValue(parsed, "append");
+  return expected === "array" ? decisionArray(parsed, field) : jsonObjectValue(parsed, field);
+}
+function jsonArray(value: string, field: string): readonly unknown[] {
+  return jsonObject(value, "array", field);
+}
+function replaceChosen(value: string): DecisionProjectionRow["chosen"] {
+  return jsonArray(value, "chosen").map((entry, index) => {
+    const row = jsonObjectValue(entry, `chosen[${index}]`),
+      id = requiredOptionId(row.id, "CH", `chosen[${index}].id`),
+      text = requiredDecisionText(row.text, `chosen[${index}].text`);
+    return {
+      id,
+      text,
+      ...(typeof row.rationale === "string" && row.rationale.trim() ? { rationale: row.rationale } : {}),
+    };
+  });
+}
+function replaceRejected(value: string): DecisionProjectionRow["rejected"] {
+  return jsonArray(value, "rejected").map((entry, index) => {
+    const row = jsonObjectValue(entry, `rejected[${index}]`);
+    return {
+      id: requiredOptionId(row.id, "RJ", `rejected[${index}].id`),
+      text: requiredDecisionText(row.text, `rejected[${index}].text`),
+      whyNot: requiredDecisionText(row.whyNot ?? row.why_not, `rejected[${index}].whyNot`),
+    };
+  });
+}
+function replaceClaims(value: string, current: DecisionProjectionRow["claims"]): DecisionProjectionRow["claims"] {
+  const previous = new Map(current.map((claim) => [claim.id, claim]));
+  return jsonArray(value, "claims").map((entry, index) => {
+    const row = jsonObjectValue(entry, `claims[${index}]`),
+      id = requiredOptionId(row.id, "C", `claims[${index}].id`),
+      prior = previous.get(id),
+      text = requiredDecisionText(row.text, `claims[${index}].text`);
+    if (typeof row.loadBearing !== "boolean") fail(`claims[${index}].loadBearing must be a boolean.`);
+    return {
+      id,
+      text,
+      loadBearing: row.loadBearing,
+      fulfillment: prior?.text === text ? prior.fulfillment : null,
+    };
+  });
+}
+function requiredOptionId(value: unknown, prefix: "CH" | "RJ" | "C", field: string): string {
+  const id = requiredDecisionText(value, field);
+  if (!new RegExp(`^${prefix}[A-Za-z0-9_-]+$`, "u").test(id)) fail(`${field} must use the ${prefix} id prefix.`);
+  return id;
 }
 function jsonObjectValue(value: unknown, field: string): Readonly<Record<string, unknown>> {
   if (value && typeof value === "object" && !Array.isArray(value)) return value as Readonly<Record<string, unknown>>;

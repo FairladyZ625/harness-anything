@@ -177,6 +177,72 @@ test("an independent approved review lets the proposal owner accept the current 
       }
     ).judgmentConsents.at(-1);
     assert.equal(humanApprovedConsent?.basis, "human");
+    const staleReviewProposal = await cell.run(
+        { ...decisionProposal(), body: realizedDecisionBody("Stale approved review cut") },
+        proposer,
+      ),
+      staleReviewDecisionId = receiptJson(staleReviewProposal).decisionId as string,
+      staleReviewDigest = (
+        receiptJson(await cell.run({ kind: "decision-show", decisionId: staleReviewDecisionId }, proposer))
+          .decision as {
+          readonly currentReviewContentDigest: `sha256:${string}`;
+        }
+      ).currentReviewContentDigest,
+      staleReviewReportRef = `decisions/decision-${staleReviewDecisionId}/artifacts/reports/stale-cut.md`;
+    writeReport(rootDir, staleReviewReportRef);
+    const staleCutReview = await cell.run(
+      {
+        kind: "decision-review",
+        decisionId: staleReviewDecisionId,
+        reviewId: "review-stale-cut",
+        reviewContentDigest: staleReviewDigest,
+        verdict: "approved",
+        reason: "This approval is pinned to the original Decision content.",
+        findings: [],
+        evidenceChecked: [],
+        reportRef: staleReviewReportRef,
+      },
+      independentReviewer,
+    );
+    assert.equal(staleCutReview.outcome, "applied", JSON.stringify(staleCutReview));
+    const staleCutAmendment = await cell.run(
+      {
+        kind: "decision-amend",
+        decisionId: staleReviewDecisionId,
+        reason: "Correct content after the approved review.",
+        title: "Corrected after approval",
+        standingPolicy: false,
+        fulfillments: [],
+        sets: [],
+        appends: [],
+      },
+      proposer,
+    );
+    assert.equal(staleCutAmendment.outcome, "applied", JSON.stringify(staleCutAmendment));
+    const currentReviewDigest = (
+      receiptJson(await cell.run({ kind: "decision-show", decisionId: staleReviewDecisionId }, proposer)).decision as {
+        readonly currentReviewContentDigest: `sha256:${string}`;
+      }
+    ).currentReviewContentDigest;
+    assert.notEqual(currentReviewDigest, staleReviewDigest);
+    const staleCutAccept = await cell.run(
+      {
+        kind: "decision-accept",
+        decisionId: staleReviewDecisionId,
+        rationale: "Attempt acceptance using the original approval.",
+        judgmentOnlyRationale: null,
+        expectedDigest: staleReviewDigest,
+        consentBy: proposer.actor.principal.personId,
+        consentAt: "2026-09-29T01:02:03.000Z",
+        consentChannel: "chat",
+      },
+      owner,
+    );
+    assert.deepEqual(
+      { outcome: staleCutAccept.outcome, code: staleCutAccept.code },
+      { outcome: "op_rejected", code: "invalid_transition" },
+    );
+    assert.match(String(staleCutAccept.rejectionExplanation), /review content changed/u);
     const reportRef = `decisions/decision-${decisionId}/artifacts/reports/independent.md`;
     const samePrincipalReportRef = `decisions/decision-${decisionId}/artifacts/reports/same-principal.md`;
     writeReport(rootDir, samePrincipalReportRef);
@@ -539,6 +605,7 @@ test("Decision scope authorization and human approval govern judgment and review
       {
         kind: "decision-amend",
         decisionId,
+        reason: "Update content after the requested review changes.",
         standingPolicy: false,
         fulfillments: [],
         sets: [],
@@ -1102,6 +1169,7 @@ test("a person's ask on the proposal owner survives the review changes being res
       {
         kind: "decision-amend",
         decisionId,
+        reason: "Update content after the requested review changes.",
         standingPolicy: false,
         fulfillments: [],
         sets: [],

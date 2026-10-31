@@ -879,6 +879,7 @@ test(
       const amended = await runDecision({
         kind: "decision-amend",
         decisionId,
+        reason: "Clarify the reviewed content while retaining the active review dispatch.",
         standingPolicy: false,
         fulfillments: [],
         sets: [],

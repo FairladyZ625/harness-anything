@@ -104,15 +104,27 @@ function validateDecisionEventFields(value: unknown, allowUnknownFields: boolean
       ? []
       : [`${type} payload is invalid`];
   if (type === "decision_amended")
-    return matchesFields(
+    return requiredWithOptional(
       payload,
       ["next", "fields", "body", "amendment", "contentPin", ...common],
+      ["previous", "reason", "ownerConsent"],
       allowUnknownFields,
     ) &&
       amendableSnapshot(payload.next, allowUnknownFields) &&
+      (payload.previous === undefined || amendableSnapshot(payload.previous, allowUnknownFields)) &&
       uniqueFactStrings(payload.fields) &&
       payload.fields.length > 0 &&
       (payload.body === null || typeof payload.body === "string") &&
+      (payload.reason === undefined || codePoints(payload.reason, 1, 199)) &&
+      (payload.reason === undefined ||
+        (isRecord(payload.amendment) &&
+          payload.amendment.reason === payload.reason &&
+          payload.previous !== undefined &&
+          Array.isArray(payload.amendment.changes))) &&
+      (payload.ownerConsent === undefined ||
+        (isRecord(payload.amendment) &&
+          payload.amendment.ownerConsent !== undefined &&
+          JSON.stringify(payload.ownerConsent) === JSON.stringify(payload.amendment.ownerConsent))) &&
       amendment(payload.amendment, value, allowUnknownFields) &&
       contentPin(payload.contentPin, value, allowUnknownFields)
       ? []

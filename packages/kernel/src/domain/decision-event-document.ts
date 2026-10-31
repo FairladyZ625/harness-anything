@@ -78,7 +78,10 @@ export function compileDecisionWrite(input: {
               : undefined,
           )
         : null,
-    amendment = base && input.event.type === "decision_amended" ? decisionAmendment(input.event) : null,
+    amendment =
+      base && input.event.type === "decision_amended"
+        ? decisionAmendment(input.event, base, input.currentDocument!.body)
+        : null,
     pin =
       base &&
       (decisionTransition(input.event) ||
@@ -858,11 +861,27 @@ function decisionConsent(
 }
 function decisionAmendment(
   event: Extract<DecisionEventDraftV1 | DecisionEventV1, { readonly type: "decision_amended" }>,
+  current: DecisionDocumentState,
+  currentBody: string,
 ): DecisionAmendmentV1 {
+  const before = current as unknown as Readonly<Record<string, unknown>>,
+    after = event.payload.next as unknown as Readonly<Record<string, unknown>>,
+    changes = event.payload.fields.map((field) => {
+      const beforeValue = field === "body" ? decisionDocumentProse(currentBody) : before[field],
+        afterValue = field === "body" ? event.payload.body : after[field];
+      return {
+        field,
+        beforeDigest: `sha256:${sha256Text(stableStringify(beforeValue))}`,
+        afterDigest: `sha256:${sha256Text(stableStringify(afterValue))}`,
+      } as const;
+    });
   return {
     schema: "decision-amendment/v1",
     amendmentId: `dam_${sha256Text(event.opId).slice(0, 26)}`,
     fields: event.payload.fields,
+    reason: event.payload.reason,
+    changes,
+    ...(event.payload.ownerConsent === undefined ? {} : { ownerConsent: event.payload.ownerConsent }),
     actor: event.actor,
     amendedAt: event.occurredAt,
   };

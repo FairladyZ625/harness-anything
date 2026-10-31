@@ -103,8 +103,23 @@ export interface DecisionAmendmentV1 {
   readonly schema: "decision-amendment/v1";
   readonly amendmentId: string;
   readonly fields: readonly string[];
+  /** Existing amendment records predate reason and change digests. */
+  readonly reason?: string;
+  readonly changes?: readonly DecisionAmendmentChangeV1[];
+  readonly ownerConsent?: DecisionAmendmentOwnerConsentV1;
   readonly actor: ActorIdentity;
   readonly amendedAt: string;
+}
+export interface DecisionAmendmentChangeV1 {
+  readonly field: string;
+  readonly beforeDigest: `sha256:${string}`;
+  readonly afterDigest: `sha256:${string}`;
+}
+export interface DecisionAmendmentOwnerConsentV1 {
+  readonly consentBy: string;
+  readonly consentAt: string;
+  readonly consentChannel: "chat" | "cli" | "gui";
+  readonly recordedBy: ActorIdentity;
 }
 export type DecisionReviewVerdict = "approved" | "changes_requested";
 export interface DecisionReviewFindingV1 {
@@ -176,9 +191,12 @@ export interface DecisionPayloads {
   readonly decision_superseded: { readonly reason: string };
   readonly decision_retired: { readonly reason: string };
   readonly decision_amended: {
+    readonly previous: DecisionAmendableSnapshot;
     readonly next: DecisionAmendableSnapshot;
     readonly fields: readonly string[];
     readonly body: string | null;
+    readonly reason: string;
+    readonly ownerConsent?: DecisionAmendmentOwnerConsentV1;
   };
   readonly decision_repinned: { readonly migrationEvidence: string };
   readonly decision_claim_declared: {
