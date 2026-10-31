@@ -4,7 +4,14 @@ The CLI and daemon require Node.js 24 or newer. They are not currently published
 
 ## CLI and daemon
 
-The source checkout path builds the CLI locally and runs it from that checkout. It does not install a global `ha` command.
+After the 0.0.1 registry publication, install the user-facing packages globally:
+
+```bash
+npm install --global @harness-anything/cli@0.0.1 @harness-anything/daemon@0.0.1
+ha init
+```
+
+The source checkout path remains available before publication. It builds the CLI locally and runs it from that checkout; it does not install a global `ha` command.
 
 ## Install the desktop App
 

@@ -130,6 +130,32 @@ jobs:
             npm publish --workspace "$workspace" --access public --tag "$NPM_TAG" --provenance
           done
 
+  publish-dry-run:
+    # Manual release dispatches are rehearsals. This exercises every public package's
+    # npm lifecycle without credentials or registry publication.
+    if: github.event_name == 'workflow_dispatch'
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Publish all public workspaces as dry-run
+        env:
+          NPM_TAG: ${{ needs.validate.outputs.npm_tag || 'latest' }}
+        run: |
+          set -euo pipefail
+          for workspace in @harness-anything/kernel @harness-anything/application @harness-anything/preset @harness-anything/cli @harness-anything/daemon @harness-anything/gui; do
+            npm publish --dry-run --workspace "$workspace" --access public --tag "$NPM_TAG"
+          done
+
   build-app:
     if: github.event_name == 'push'
     needs: validate
