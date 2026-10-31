@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after, before } from "node:test";
@@ -348,6 +348,26 @@ test("review-execution and review-consent require a substantive physical report 
       { outcome: "op_rejected", code: "review_report_invalid" },
       JSON.stringify(crashed),
     );
+
+    // A canonical report must be a regular file. A symlink into a reviewer worktree would
+    // disappear when that worktree is reclaimed and must never become the physical review
+    // credential that completion or consent relies on.
+    const reclaimedWorktree = mkdtempSync(path.join(tmpdir(), "ha-review-worktree-")),
+      linkedReport = writeReviewReport(rootDir, packagePath, "review-symlink");
+    writeFileSync(path.join(reclaimedWorktree, "review.md"), "# Review symlink\n\nFindings from a worktree.\n");
+    rmSync(linkedReport);
+    symlinkSync(path.join(reclaimedWorktree, "review.md"), linkedReport);
+    const linked = await record("review-symlink");
+    assert.deepEqual(
+      { outcome: linked.outcome, code: linked.code },
+      { outcome: "op_rejected", code: "review_report_invalid" },
+      JSON.stringify(linked),
+    );
+    rmSync(reclaimedWorktree, { recursive: true, force: true });
+    rmSync(linkedReport);
+    writeReviewReport(rootDir, packagePath, "review-symlink");
+    const regular = await record("review-symlink");
+    assert.equal(regular.outcome, "applied", JSON.stringify(regular));
 
     // A substantive report records cleanly.
     const reportPath = writeReviewReport(rootDir, packagePath, "review-landed");

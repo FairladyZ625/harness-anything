@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
   classifyTextualArtifactPath,
@@ -56,13 +56,22 @@ export function assertPhysicalReviewReport(input: {
   const absolute = path.join(resolveHarnessLayout(input.rootDir).authoredRoot, ...report.split("/"));
   if (input.carriedReport && input.carriedReport.path !== report)
     throw cellCodedError("review_report_invalid", `Review report must be ${report}.`);
-  if (!input.carriedReport && (!existsSync(absolute) || !statSync(absolute).isFile()))
-    throw cellCodedError(
-      "review_report_missing",
-      `Review ${input.reviewId} has no physical report on disk: expected harness/${report}. ` +
-        `Write the reviewer-authored Markdown report there, then retry ${retry}. ` +
-        "A Review recorded without its landed report cannot be consented.",
-    );
+  if (!input.carriedReport) {
+    const entry = lstatSync(absolute, { throwIfNoEntry: false });
+    if (!entry)
+      throw cellCodedError(
+        "review_report_missing",
+        `Review ${input.reviewId} has no physical report on disk: expected harness/${report}. ` +
+          `Write the reviewer-authored Markdown report there, then retry ${retry}. ` +
+          "A Review recorded without its landed report cannot be consented.",
+      );
+    if (!entry.isFile() || entry.isSymbolicLink())
+      throw cellCodedError(
+        "review_report_invalid",
+        `Review report harness/${report} must be a regular file, not a symbolic link; rewrite the reviewer-authored ` +
+          `Markdown report there, then retry ${retry}.`,
+      );
+  }
   let body: string;
   try {
     body = input.carriedReport?.body ?? new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(absolute));
@@ -171,13 +180,21 @@ export function reviewerArtifactsForReview(
       requestedPacket === packet ||
       (path.isAbsolute(requestedValue) && path.resolve(requestedValue) === packetAbsolute);
   if (action.reviewId !== `review-${dispatchId}` || !packetNamed) return null;
-  for (const candidate of [packet, report])
-    if (!existsSync(path.join(authoredRoot, ...candidate.split("/"))))
+  for (const candidate of [packet, report]) {
+    const absolute = path.join(authoredRoot, ...candidate.split("/")),
+      entry = lstatSync(absolute, { throwIfNoEntry: false });
+    if (!entry)
       throw cell.cellCodedError(
         "invalid_command",
         `Reviewer dispatch ${dispatchId} must write both declared artifacts before recording its review: ` +
           `${packet}, ${report}.`,
       );
+    if (!entry.isFile() || entry.isSymbolicLink())
+      throw cell.cellCodedError(
+        "invalid_command",
+        `Reviewer artifact ${candidate} must be a regular file, not a symbolic link.`,
+      );
+  }
   const rows = [packet, report].map((candidate) => {
     const classification = classifyTextualArtifactPath(candidate);
     if (!classification)
