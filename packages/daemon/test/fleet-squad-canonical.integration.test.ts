@@ -649,11 +649,15 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
     code: "authorization_denied",
   });
   b.signIn("person-one");
-  assert.equal(connections.mock.callCount(), 1, "only the edge fleet overview read uses the center TLS relay");
+  assert.equal(
+    connections.mock.callCount(),
+    2,
+    "dispatch annotations and the edge fleet overview use the center TLS relay",
+  );
   connections.mock.restore();
   syncBuiltinESMExports();
   t.diagnostic(
-    `B GUI RPC online dispatches=${dispatches.dispatches.length}; offline shared-query families center TLS calls=1 (fleet overview relay) owner mismatch=authorization_denied`,
+    `B GUI RPC online dispatches=${dispatches.dispatches.length}; offline shared-query families center TLS calls=2 (dispatch annotations and fleet overview) owner mismatch=authorization_denied`,
   );
   assert.equal(launches, 1);
   t.diagnostic(`A launch -> canonical observation ${observed.workspaceRevision} -> B offline status ${runId}`);
