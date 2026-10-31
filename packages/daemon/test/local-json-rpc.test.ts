@@ -728,14 +728,65 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
     actionDeclarations.find(({ kind }) => kind === "fact-record")?.receiptSettlement,
     "canonical-acceptance",
   );
-  for (const kind of ["agent-run", "doc-conflict-discard-local", "doc-materialize", "projection-rebuild"])
-    assert.equal(actionDeclarations.find((candidate) => candidate.kind === kind)?.receiptSettlement, "none", kind);
-  // The GUI exit admits an applied receipt only with its committed acceptance or a settled no-write.
-  // A GUI write left at settlement "none" answers applied/unknown, which that exit rejects after the
-  // write already happened, so the click reports a closed connection.
-  for (const { method, actionKind } of daemonGuiActionMethods) {
+  // dec_2446BC2F8C68630F71AE3E3BD7/CH4: these effects write repository-local files or projection state.
+  // Keep their Policy action and tier while excluding them from canonical residency.
+  for (const kind of [
+    "distill-candidate",
+    "doc-conflict-discard-local",
+    "doc-materialize",
+    "preset-install",
+    "preset-seed",
+    "preset-uninstall",
+    "projection-rebuild",
+  ]) {
+    const declaration = actionDeclarations.find((candidate) => candidate.kind === kind);
+    assert.equal(declaration?.residency.scope, "host-local", kind);
+    assert.equal(declaration?.receiptSettlement, "none", kind);
+    assert.equal(declaration?.policyAction, kind, kind);
+    assert.equal(declaration?.policyTier, "contributor", kind);
+  }
+  // Runtime launch, instance authentication, and PTY control live on the selected runtime host.
+  for (const kind of [
+    "agent-run",
+    "preset-run-start",
+    "runtime-instance-login",
+    "runtime-instance-logout",
+    "terminal-input",
+    "terminal-resize",
+    "terminal-spawn",
+    "terminal-terminate",
+  ]) {
+    const declaration = actionDeclarations.find((candidate) => candidate.kind === kind);
+    assert.equal(declaration?.residency.scope, "runtime-local", kind);
+    assert.equal(declaration?.receiptSettlement, "none", kind);
+    assert.equal(declaration?.policyAction, kind, kind);
+    assert.equal(declaration?.policyTier, "contributor", kind);
+  }
+  // Standard GUI command receipts must carry committed acceptance. The daemon control bridge is a
+  // host-local long-running operation, and terminal control acts on the runtime host; each has a
+  // dedicated receipt schema rather than the canonical command receipt.
+  for (const { method, actionKind } of daemonGuiActionMethods.filter(
+    ({ method }) => method !== "daemon.gui.control.request" && !method.startsWith("repo.terminal."),
+  )) {
     const declaration = actionDeclarations.find((candidate) => candidate.kind === actionKind);
     if (declaration) assert.equal(declaration.receiptSettlement, "canonical-acceptance", method);
+  }
+  assert.equal(actionDeclarations.find(({ kind }) => kind === "daemon-control-request")?.receiptSettlement, "none");
+  assert.equal(
+    daemonGuiActionMethods.find(({ method }) => method === "daemon.gui.control.request")?.outputSchemaId,
+    "daemon-control-receipt/v1",
+  );
+  for (const [method, actionKind, outputSchemaId] of [
+    ["repo.terminal.spawn", "terminal-spawn", "terminal-control-receipt/v1"],
+    ["repo.terminal.input", "terminal-input", "terminal-input-ack/v1"],
+    ["repo.terminal.resize", "terminal-resize", "terminal-control-receipt/v1"],
+    ["repo.terminal.terminate", "terminal-terminate", "terminal-control-receipt/v1"],
+  ] as const) {
+    assert.equal(actionDeclarations.find(({ kind }) => kind === actionKind)?.receiptSettlement, "none", method);
+    assert.equal(
+      daemonGuiActionMethods.find((candidate) => candidate.method === method)?.outputSchemaId,
+      outputSchemaId,
+    );
   }
 });
 

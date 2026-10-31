@@ -10,17 +10,7 @@
         "reason": "Stays in the list until CH4's implementation task gives its target kind; dec_2BF45FF7 CH3 keeps it frozen and out of the convergence order. #3945 added this canonical write road without a catalogId; bind it and delete this row in the same commit."
       },
       {
-        "value": "distill-candidate",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
         "value": "distill-promote",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "doc-conflict-discard-local",
         "ref": "dec_2BF45FF7E52020380F5F35CE2D",
         "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
       },
@@ -31,11 +21,6 @@
       },
       {
         "value": "doc-conflict-resolve",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "doc-materialize",
         "ref": "dec_2BF45FF7E52020380F5F35CE2D",
         "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
       },
@@ -85,32 +70,7 @@
         "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
       },
       {
-        "value": "preset-install",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "preset-run-start",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "preset-seed",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "preset-uninstall",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
         "value": "preset-upgrade",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "projection-rebuild",
         "ref": "dec_2BF45FF7E52020380F5F35CE2D",
         "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
       },
@@ -145,16 +105,6 @@
         "reason": "Added to main by task_90599b2e after the gate cut and measured into this freeze by dec_2BF45FF7 CH3 (64th row) so the gate can land without blocking main. It is not bound; a convergence task must bind it or justify a non-canonical residency."
       },
       {
-        "value": "runtime-instance-login",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "runtime-instance-logout",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
         "value": "runtime-run",
         "ref": "dec_2BF45FF7E52020380F5F35CE2D",
         "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
@@ -181,26 +131,6 @@
       },
       {
         "value": "task-unpin",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "terminal-input",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "terminal-resize",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "terminal-spawn",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "terminal-terminate",
         "ref": "dec_2BF45FF7E52020380F5F35CE2D",
         "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
       },
