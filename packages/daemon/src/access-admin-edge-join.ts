@@ -7,7 +7,7 @@ import {
   sha256Text,
   stableStringify,
 } from "@harness-anything/kernel";
-import { KeycloakPolicyAdapter, type KeycloakGrant } from "./keycloak-policy-adapter.ts";
+import type { AuthorizationGrant, AuthorizationProvider } from "@harness-anything/kernel";
 import type { AccessAdminPorts, AccessAdminRequest } from "./access-admin-contract.ts";
 import { coded, names, requiredUserId, text, uniqueSorted } from "./access-admin-utils.ts";
 import { admitEdgeJoin, restoreEdgeJoinStore } from "./fleet/edge-join-admission.ts";
@@ -20,17 +20,17 @@ import {
 } from "./fleet/edge-join.ts";
 import { readFleetCenterConfig } from "./fleet-center-config.ts";
 import { EdgeJoinSshTunnelManager, validateSshTarget, type EdgeJoinTunnelPorts } from "./fleet/edge-join-ssh-tunnel.ts";
-import type { OidcSessionService } from "./oidc-session-service.ts";
+import type { IdentitySessionPort } from "@harness-anything/kernel";
 
 interface Session {
-  readonly adapter: KeycloakPolicyAdapter;
+  readonly adapter: AuthorizationProvider;
   readonly token: string;
 }
 
 type Schedule = (callback: () => void, delayMs: number) => () => void;
 
 export class EdgeJoinAdminService {
-  readonly #oidc: OidcSessionService;
+  readonly #oidc: IdentitySessionPort;
   readonly #userRoot: string;
   readonly #daemonId: string;
   readonly #now: () => string;
@@ -41,7 +41,7 @@ export class EdgeJoinAdminService {
   #cancelExpirySweep?: () => void;
 
   constructor(input: {
-    readonly oidc: OidcSessionService;
+    readonly oidc: IdentitySessionPort;
     readonly userRoot: string;
     readonly daemonId: string;
     readonly now: () => string;
@@ -137,7 +137,7 @@ export class EdgeJoinAdminService {
           true,
         );
       const userId = await requiredUserId(session.adapter, session.token, personId),
-        grants: readonly KeycloakGrant[] = await session.adapter.readGrants(session.token);
+        grants: readonly AuthorizationGrant[] = await session.adapter.readGrants(session.token);
       for (const repoId of repoIds) {
         const resource = encodeAuthorizationResource({ kind: "repository", repoId });
         for (const { groupId } of permissionSnapshot) {
@@ -371,7 +371,7 @@ export class EdgeJoinAdminService {
     const session = await this.#session(),
       groups = await session.adapter.readPolicyGroups(session.token),
       userId = await requiredUserId(session.adapter, session.token, record.personId),
-      grants: readonly KeycloakGrant[] = await session.adapter.readGrants(session.token);
+      grants: readonly AuthorizationGrant[] = await session.adapter.readGrants(session.token);
     for (const snapshot of record.permissionSnapshot) {
       const group = groups.find((candidate) => candidate.id === snapshot.groupId),
         effectiveScopes = group ? effectivePolicyGroupScopes(groups, snapshot.groupId) : [];

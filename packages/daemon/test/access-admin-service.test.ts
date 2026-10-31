@@ -9,10 +9,13 @@ import test, { type TestContext } from "node:test";
 import { actionDeclarations, disableDaemonRepo, unbindDaemonRepo } from "@harness-anything/kernel";
 import { AccessAdminService, type AccessAdminRequest } from "../src/access-admin-service.ts";
 import { requireAuthorizedFleetAction } from "../src/host-action-authorization.ts";
-import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
-import { alignSessionLifetime, sessionLifetimeBounds } from "../src/keycloak-session-lifetime.ts";
-import { managedRbacReceiptJournal } from "../src/managed-rbac-service.ts";
-import { OidcSessionService } from "../src/oidc-session-service.ts";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
+import {
+  alignSessionLifetime,
+  sessionLifetimeBounds,
+} from "@harness-anything/authorization-keycloak/keycloak-session-lifetime";
+import { managedRbacReceiptJournal } from "../src/access-admin-state.ts";
+import { createIdentitySession } from "../src/authorization-provider.ts";
 import { fleetCenterConfigPath, saveFleetCenterConfig } from "../src/fleet-center-config.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { evaluateRepoCellAction } from "../src/repo-cell-authorization.ts";
@@ -36,14 +39,16 @@ async function fixture(
   const keycloak = fakeKeycloak(),
     user = keycloakUserRoot(),
     fetchPort = ports.wrapFetch?.(keycloak.fetch) ?? keycloak.fetch,
-    oidc = new OidcSessionService(user.root, { fetch: fetchPort, ...(ports.now ? { now: ports.now } : {}) }),
+    oidc = createIdentitySession(user.root, { fetch: fetchPort, ...(ports.now ? { now: ports.now } : {}) }),
     admin = new AccessAdminService(oidc, user.root, { fetch: fetchPort }),
     config = { url: keycloakUrl, realm: keycloakRealm, resourceServerClientId: "harness-center" };
   t.after(user.cleanup);
-  await new KeycloakPolicyAdapter(config, keycloak.fetch).syncBasePolicy("center-token");
+  const provider = new KeycloakPolicyAdapter(config, keycloak.fetch);
+  await provider.syncBasePolicy("center-token");
   keycloak.writes.length = 0;
   return {
     keycloak,
+    provider,
     admin,
     oidc,
     ...user,
@@ -62,6 +67,7 @@ async function fixture(
             source: "local",
             keycloakAuthorization: {
               session: {
+                provider,
                 personId,
                 accessToken: `token-${personId}`,
                 url: keycloakUrl,
@@ -773,7 +779,7 @@ test("first-administrator bootstrap with two different usernames creates exactly
 });
 
 test("host-level actions answer to the fleet grant of the signed-in person, never to a repository", async (t) => {
-  const { keycloak, root, run } = await fixture(t),
+  const { keycloak, root, run, provider } = await fixture(t),
     requests: string[] = [],
     fetchPort = (async (input, init) => {
       requests.push(String((init?.body as URLSearchParams).get("permission")));
@@ -788,6 +794,7 @@ test("host-level actions answer to the fleet grant of the signed-in person, neve
           ...(personId
             ? {
                 oidcPrincipal: {
+                  provider,
                   personId,
                   subject: personId,
                   expiresAt: Date.now() + 60_000,

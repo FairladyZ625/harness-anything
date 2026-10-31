@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { OidcSessionService } from "../src/oidc-session-service.ts";
+import { createIdentitySession } from "../src/authorization-provider.ts";
 import { serveKeycloak } from "./keycloak.fixtures.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
@@ -45,7 +45,7 @@ test("a local-center repository still writes after login to an edge center", asy
       effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"),
     );
   }
-  const oidc = new OidcSessionService(userRoot, {
+  const oidc = createIdentitySession(userRoot, {
     loginAuthority: async (target) => ({
       url: target === edgeRoot ? edge.url : local.url,
       realm: "harness",

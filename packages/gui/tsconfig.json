@@ -33,6 +33,9 @@
   ],
   "references": [
     {
+      "path": "../authorization-gui"
+    },
+    {
       "path": "../application"
     },
     {

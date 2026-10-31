@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import type { RuntimeSession, TaskProjection } from "@harness-anything/kernel";
 import { binding } from "../src/daemon-host-binding.ts";
-import { OidcSessionService } from "../src/oidc-session-service.ts";
+import { createIdentitySession } from "../src/authorization-provider.ts";
 import { serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
 import { makeAgentRuntimeReadModel, readObservedRuntimeSession } from "../src/agent-runtime-read.ts";
@@ -129,7 +129,7 @@ test("local runtime claims do not establish a principal after interactive logout
   realm.bind(userRoot);
   realm.keycloak.account("person-runtime-test");
   signInAt(userRoot, "person-runtime-test");
-  const oidc = new OidcSessionService(userRoot, {
+  const oidc = createIdentitySession(userRoot, {
       // The shared policy fixture implements grants; this test also exercises OIDC revocation.
       fetch: (input, init) =>
         String(input).endsWith("/protocol/openid-connect/revoke")

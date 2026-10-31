@@ -78,7 +78,7 @@ const retiredHostKinds = [
 function hostSnapshot(t) {
   const root = makeGateRoot("ontology-host-authorization-");
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  for (const directory of ["packages/daemon/src", "packages/application/src"])
+  for (const directory of ["packages/daemon/src", "packages/authorization-keycloak/src", "packages/application/src"])
     cpSync(path.join(repoRoot, directory), path.join(root, directory), { recursive: true });
   const receipt = "packages/kernel/src/domain/receipt-domain-registry.ts";
   writeRepoFile(root, receipt, readFileSync(path.join(repoRoot, receipt), "utf8"));
@@ -86,7 +86,7 @@ function hostSnapshot(t) {
 }
 
 function mutate(root, name, before, after, unique = false) {
-  const file = `packages/daemon/src/${name}.ts`,
+  const file = name.includes("/") ? name : `packages/daemon/src/${name}.ts`,
     source = readFileSync(path.join(root, file), "utf8").replaceAll("\r\n", "\n");
   assert.ok(source.includes(before), `mutation anchor missing in ${name}: ${before}`);
   if (unique) assert.equal(source.split(before).length - 1, 1, `ambiguous mutation anchor in ${name}: ${before}`);
@@ -148,15 +148,15 @@ for (const mutation of [
   {
     name: "session adapter authorization",
     file: "repo-cell-authorization",
-    before: ").authorize({",
-    after: ").unchecked({",
+    before: "decisionProvider.authorize({",
+    after: "decisionProvider.unchecked({",
     missing: retiredHostKinds.filter((kind) => kind !== "rbac-bootstrap"),
   },
   {
     name: "center adapter authorization",
     file: "repo-cell-authorization",
-    before: ").authorizePerson({",
-    after: ").uncheckedPerson({",
+    before: "currentCenter.provider.authorizePerson({",
+    after: "currentCenter.provider.uncheckedPerson({",
     missing: retiredHostKinds.filter((kind) => kind !== "rbac-bootstrap"),
   },
   {
@@ -189,14 +189,14 @@ for (const mutation of [
   },
   {
     name: "bootstrap one-time rejection",
-    file: "oidc-session-service",
+    file: "packages/authorization-keycloak/src/oidc-session-service.ts",
     before: 'throw coded("bootstrap_admin_closed", "The first Harness administrator already exists.");',
     after: "return { ok: true };",
     missing: ["rbac-bootstrap"],
   },
   {
     name: "bootstrap serialization",
-    file: "oidc-session-service",
+    file: "packages/authorization-keycloak/src/oidc-session-service.ts",
     before: "return this.serialize(async () => {",
     after: "return independently(async () => {",
     missing: ["rbac-bootstrap"],

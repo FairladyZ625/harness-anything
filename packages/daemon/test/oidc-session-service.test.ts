@@ -7,8 +7,9 @@ import { createServer as createHttpsServer } from "node:https";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
-import { OidcSessionService, type OidcSessionPorts, type OidcLoginAuthority } from "../src/oidc-session-service.ts";
+import { managedRbacSessionStore } from "@harness-anything/authorization-keycloak/managed-rbac-service";
+import { createIdentitySession } from "../src/authorization-provider.ts";
+import { type OidcSessionPorts, type OidcLoginAuthority } from "@harness-anything/kernel";
 import { evaluateKeycloakPerson } from "../src/repo-cell-authorization.ts";
 import { localDefaultBinding } from "../src/daemon-host-binding.ts";
 import type { DaemonHost } from "../src/daemon-host.ts";
@@ -143,7 +144,7 @@ function fixture(start: number, ports: Partial<OidcSessionPorts>, t: TestContext
     requests,
     clock,
     keycloak,
-    service: new OidcSessionService(root, {
+    service: createIdentitySession(root, {
       now: () => clock.now,
       randomBytes: ((size: number) => Buffer.alloc(size, ++nonce)) as typeof import("node:crypto").randomBytes,
       fetch: (async (input, init) => {
@@ -189,13 +190,18 @@ test("PKCE login validates state, keeps tokens daemon-side, and binds the Keyclo
   });
   assert.match(await requests[0]!.text(), /code_verifier=/u);
   const bound = (await service.bind({ transportKind: "unix-socket" })).oidcPrincipal;
-  assert.deepEqual(bound && { ...bound, accessToken: "<redacted>" }, {
-    personId: "person-zeyu",
-    subject: "keycloak-subject",
-    expiresAt: 61_000,
-    accessToken: "<redacted>",
-    authority: { url: "http://127.0.0.1:8080", realm: "harness", clientId: "harness-center" },
-  });
+  assert.equal(bound?.provider.policyRef, "keycloak-policy@1");
+  const { provider: _provider, ...publicBound } = bound!;
+  assert.deepEqual(
+    { ...publicBound, accessToken: "<redacted>" },
+    {
+      personId: "person-zeyu",
+      subject: "keycloak-subject",
+      expiresAt: 61_000,
+      accessToken: "<redacted>",
+      authority: { url: "http://127.0.0.1:8080", realm: "harness", clientId: "harness-center" },
+    },
+  );
   assert.equal((await service.requireRole("access-admin")).personId, "person-zeyu");
   assert.equal("accessToken" in completed, false);
   assert.equal("refreshToken" in completed, false);
@@ -479,7 +485,7 @@ test("first administrator closes after one success and access-admin can invite",
   writeFileSync(path.join(rbac, "config.json"), JSON.stringify({ url: "http://127.0.0.1:8080", realm: "harness" }));
   writeFileSync(path.join(rbac, "center-client-secret"), "fixture-secret");
   const jwt = `x.${Buffer.from(JSON.stringify({ iss: testIssuer, realm_access: { roles: ["access-admin"] } })).toString("base64url")}.x`,
-    service = new OidcSessionService(root, {
+    service = createIdentitySession(root, {
       fetch: (async (input, init) => {
         const url = String(input),
           method = init?.method ?? "GET";
@@ -540,7 +546,7 @@ test("an invitation inside the OIDC write queue renews a lapsing session in plac
   writeFileSync(path.join(rbac, "center-client-secret"), "fixture-secret");
   let refreshes = 0;
   const adminJwt = `x.${Buffer.from(JSON.stringify({ iss: testIssuer, realm_access: { roles: ["access-admin"] } })).toString("base64url")}.x`,
-    service = new OidcSessionService(root, {
+    service = createIdentitySession(root, {
       fetch: (async (input, init) => {
         const url = String(input),
           method = init?.method ?? "GET";
@@ -834,7 +840,7 @@ test("a reachable token endpoint error does not grant an offline identity", asyn
   await signIn(active);
   const store = sessionStore(active.root);
   store.write(JSON.stringify({ ...JSON.parse(store.read()!), expiresAt: Date.now() - 1 }));
-  const service = new OidcSessionService(active.root, {
+  const service = createIdentitySession(active.root, {
     fetch: (async (input) =>
       String(input).endsWith("/.well-known/openid-configuration")
         ? Response.json({ issuer: testIssuer })
@@ -1074,7 +1080,7 @@ test("a listener change retires the cached center token from the previous issuer
   writeFileSync(configFile, JSON.stringify({ url: "http://127.0.0.1:8080", realm: "harness" }));
   writeFileSync(path.join(rbac, "center-client-secret"), "fixture-secret");
   let tokenCalls = 0;
-  const service = new OidcSessionService(root, {
+  const service = createIdentitySession(root, {
     now: () => 1_000,
     fetch: (async (input, init) => {
       const url = String(input);
@@ -1122,7 +1128,7 @@ test("the first administrator deletes the bootstrap user before retiring its pas
   let created = false;
   const store = sessionStore(root),
     retire = store.retireBootstrap,
-    service = new OidcSessionService(root, {
+    service = createIdentitySession(root, {
       fetch: (async (input, init) => {
         const url = String(input),
           method = init?.method ?? "GET";

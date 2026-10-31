@@ -13,7 +13,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { makeTaskProjectionReader } from "@harness-anything/kernel";
 import { AccessAdminService } from "../src/access-admin-service.ts";
-import { OidcSessionService } from "../src/oidc-session-service.ts";
+import { createIdentitySession } from "../src/authorization-provider.ts";
 import {
   fleetReplicationFixture,
   replicationNodes,
@@ -396,7 +396,7 @@ test("revoking a node's registration cuts its replication session", { timeout: 1
   await edge.waitForEvent("installed");
   const replicationStatus = () => center.status().replicas.find((replica) => replica.nodeId === "edge-three");
   assert.equal(replicationStatus()?.connected, true, "the installed edge owns a live replication session");
-  const admin = new AccessAdminService(new OidcSessionService(fixture.userRoot), fixture.userRoot, {
+  const admin = new AccessAdminService(createIdentitySession(fixture.userRoot), fixture.userRoot, {
       onNodeRemoved: (nodeId) => center.disconnectNode(nodeId),
     }),
     listed = (await admin.run({ operation: "node-list", operationId: randomUUID() })) as {

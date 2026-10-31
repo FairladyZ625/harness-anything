@@ -2,7 +2,7 @@ import {
   EDGE_JOIN_ENTRY_CHANNEL,
   EDGE_JOIN_LINK_CHANNEL,
   type EdgeJoinEntryApi,
-} from "../api/edge-join-entry-contract.ts";
+} from "@harness-anything/authorization-gui/edge-join-entry-contract";
 
 /**
  * 边缘节点加入向导的 preload 面:join/poll/progress 三条只读请求走同一通道,主进程收窄见

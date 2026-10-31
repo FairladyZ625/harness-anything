@@ -4,8 +4,8 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
-import { verifyFleetHuman } from "../src/oidc-fleet-principal.ts";
-import { OidcSessionService } from "../src/oidc-session-service.ts";
+import { verifyFleetHuman } from "@harness-anything/authorization-keycloak/oidc-fleet-principal";
+import { createIdentitySession } from "../src/authorization-provider.ts";
 
 const claims = {
   active: true,
@@ -83,7 +83,7 @@ test("the center's local session never supplies a missing edge human credential"
     }),
   );
   const auth = { transportKind: "fleet-tls" as const, nodePrincipal: { nodeId: "a", personId: "person-a" } };
-  await assert.rejects(new OidcSessionService(root).bind(auth), { code: "authentication_required" });
+  await assert.rejects(createIdentitySession(root).bind(auth), { code: "authentication_required" });
 });
 
 // dec_F01770FD0DCF72683B7C4C7A47: a device client alone never supplies a user session.

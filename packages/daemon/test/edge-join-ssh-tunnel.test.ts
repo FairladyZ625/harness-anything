@@ -10,7 +10,7 @@ import { EdgeJoinSshTunnelManager, validateSshTarget } from "../src/fleet/edge-j
 import { EdgeJoinAdminService } from "../src/access-admin-edge-join.ts";
 import { createEdgeJoinStore } from "../src/fleet/edge-join.ts";
 import { saveFleetCenterConfig } from "../src/fleet-center-config.ts";
-import type { OidcSessionService } from "../src/oidc-session-service.ts";
+import type { IdentitySessionPort } from "@harness-anything/kernel";
 import type { ChildProcess } from "node:child_process";
 
 interface FakeProcess {
@@ -390,7 +390,7 @@ test("resume derives actual service hosts and an expired invitation releases its
           interactiveAuthorityCalls += 1;
           throw Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:18544"), { code: "ECONNREFUSED" });
         },
-      } as OidcSessionService,
+      } as IdentitySessionPort,
       userRoot,
       daemonId: "default",
       now: () => new Date(now).toISOString(),
@@ -475,7 +475,7 @@ test("resume restores consumed SSH invitations without probing the login listene
         interactiveAuthority: async () => {
           throw Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:18544"), { code: "ECONNREFUSED" });
         },
-      } as OidcSessionService,
+      } as IdentitySessionPort,
       userRoot,
       daemonId: "default",
       now: () => "2026-10-22T00:00:00.000Z",

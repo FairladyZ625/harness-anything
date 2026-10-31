@@ -1,6 +1,6 @@
 import type { IpcMainInvokeEvent } from "electron";
 import type { JsonObject } from "@harness-anything/daemon";
-import { ACCESS_ADMIN_CHANNEL } from "../api/access-admin-contract.ts";
+import { ACCESS_ADMIN_CHANNEL } from "@harness-anything/authorization-gui/access-admin-contract";
 import { assertTrustedIpcSender } from "./ipc-handlers.ts";
 import type { IpcWebContentsTrustPolicy } from "./security-policy.ts";
 

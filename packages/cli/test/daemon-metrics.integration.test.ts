@@ -15,7 +15,7 @@ import { startDaemon } from "@harness-anything/daemon/internal/runtime";
 import { initIngressRepo } from "../../daemon/test/fixtures/runtime-ingress.ts";
 import { registerBootstrappedDaemonRepo, openFencedRepoCell } from "../../daemon/test/repo-settings.fixture.ts";
 import { signInPolicyTestUser } from "../../daemon/test/keycloak-policy.fixtures.ts";
-import { OidcSessionService, signOutAt } from "../../daemon/test/keycloak.fixtures.ts";
+import { IdentitySessionPort, signOutAt } from "../../daemon/test/keycloak.fixtures.ts";
 import { runDaemonControl } from "../src/daemon/control.ts";
 import { readMetricsHistory } from "../src/daemon/metrics.ts";
 import { requestWindowMetrics } from "../src/daemon/metrics-summary.ts";
@@ -126,7 +126,7 @@ test("native metrics reads real rotated logs over one socket and rejects an actu
     initIngressRepo(rootDir, process.getuid?.() ?? 0);
     registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
     signInPolicyTestUser(userRoot, "metrics-reader", [repoId], "viewer");
-    const oidc = new OidcSessionService(userRoot);
+    const oidc = IdentitySessionPort(userRoot);
     const now = Date.now();
     const rows = Array.from({ length: 130 }, (_, index) => ({
       schema: "daemon-request-log/v1",

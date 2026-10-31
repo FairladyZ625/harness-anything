@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
-import type { OidcLoginAuthority } from "./oidc-session-contracts.ts";
+import type { OidcLoginAuthority } from "@harness-anything/kernel";
 
 export interface OidcCenterSelection {
   readonly issuer: string;

@@ -21,7 +21,7 @@ import { connect, createServer, type TLSSocket } from "node:tls";
 import { DatabaseSync } from "node:sqlite";
 import { makeTaskProjectionReader, sqliteLedgerPath, TASK_EVENT_SHAPE_COMPAT_VERSION } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { OidcSessionService } from "../src/oidc-session-service.ts";
+import { createIdentitySession } from "../src/authorization-provider.ts";
 import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
 import { parseFleetFrame, serializeFleetFrame } from "../src/fleet/command-protocol.ts";
 import { parseReplicationFrame, serializeReplicationFrame, type ReplicationFrame } from "../src/fleet/protocol.ts";
@@ -198,7 +198,7 @@ export async function fleetReplicationFixture(
           (replicationNodes as readonly string[]).includes(nodeId) && credential === `secret-${nodeId}`,
         nodeOwner: owners.nodeOwner,
         verifyHuman: owners.verifyHuman,
-        revokeDeviceSessions: (nodeId: string) => new OidcSessionService(userRoot).revokeDeviceSessions(nodeId),
+        revokeDeviceSessions: (nodeId: string) => createIdentitySession(userRoot).revokeDeviceSessions(nodeId),
         onError: (entry) => transportErrors.push({ nodeId: entry.nodeId, error: entry.error }),
       });
       center = opened;

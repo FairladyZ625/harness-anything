@@ -13,7 +13,7 @@ import {
 import { emptyTaskLifecycleSnapshot } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract";
 import { readClaimableTasks } from "../src/task-claimable-read.ts";
 import { readEntityAssignmentDirectory } from "../src/entity-assignment-directory.ts";
-import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
 import { serveKeycloak } from "./keycloak.fixtures.ts";
 
 const now = "2026-10-03T12:00:00.000Z",
@@ -101,6 +101,7 @@ test("fresh claimable query applies three scopes, live membership, task permissi
       source: { kind: "node", nodeId: "node-a" } as const,
       keycloakAuthorization: {
         session: {
+          provider: adapter,
           personId: "owner",
           accessToken: "token-owner",
           url: realm.url,
@@ -108,6 +109,7 @@ test("fresh claimable query applies three scopes, live membership, task permissi
           clientId: "harness-center",
         },
         center: async () => ({
+          provider: adapter,
           url: realm.url,
           realm: "harness",
           clientId: "harness-center",

@@ -5,8 +5,9 @@ import path from "node:path";
 import type { TestContext } from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { oidcCenterSelections } from "../src/oidc-center-selection.ts";
-import { OidcSessionService, type OidcSessionPorts } from "../src/oidc-session-service.ts";
-import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
+import { createIdentitySession } from "../src/authorization-provider.ts";
+import { type OidcSessionPorts } from "@harness-anything/kernel";
+import { managedRbacSessionStore } from "@harness-anything/authorization-keycloak/managed-rbac-service";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
@@ -141,7 +142,7 @@ export async function fleetEdgeHostFixture(
   if (options.writeEdgeConfig !== false) writeFileSync(path.join(edgeRoot, "fleet-edge.json"), JSON.stringify(config));
   await options.beforeOpen?.(edgeRoot);
   if (authority.url)
-    await new OidcSessionService(edgeUser, {
+    await createIdentitySession(edgeUser, {
       fetch,
       loginAuthority: fixtureLoginAuthority,
     }).status(edgeRoot);
@@ -160,7 +161,7 @@ export async function fleetEdgeHostFixture(
     ...(options.runtimeLaunch ? { runtimeLaunch: options.runtimeLaunch } : {}),
     ...(options.runtimeDiscover ? { runtimeDiscover: options.runtimeDiscover } : {}),
     userRoot: edgeUser,
-    oidc: new OidcSessionService(edgeUser, {
+    oidc: createIdentitySession(edgeUser, {
       fetch,
       ...options.oidcPorts,
       loginAuthority: fixtureLoginAuthority,

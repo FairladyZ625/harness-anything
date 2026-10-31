@@ -15,7 +15,7 @@ import {
   type BootstrapAdminInput,
   type EmbeddedLoginPage,
   type RbacBindingInput,
-} from "../api/oidc-auth-contract.ts";
+} from "@harness-anything/authorization-gui/oidc-auth-contract";
 import { assertTrustedIpcSender } from "./ipc-handlers.ts";
 import type { IpcWebContentsTrustPolicy } from "./security-policy.ts";
 import type { JsonObject } from "@harness-anything/daemon";

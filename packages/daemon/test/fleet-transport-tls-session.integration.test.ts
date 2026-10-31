@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { createServer } from "node:tls";
 import { sha256Bytes, type LedgerCutIdentity } from "@harness-anything/kernel";
-import { OidcSessionService } from "../src/oidc-session-service.ts";
+import { createIdentitySession } from "../src/authorization-provider.ts";
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
 import { digestId } from "../src/fleet/center-transport.ts";
 import {
@@ -344,7 +344,7 @@ test(
     signInAt(fixture.userRoot, "person-owner");
     await applied(
       { kind: "task-review-consent", taskId, executionId, reviewId },
-      await new OidcSessionService(fixture.userRoot).bind({ transportKind: "unix-socket" }),
+      await createIdentitySession(fixture.userRoot).bind({ transportKind: "unix-socket" }),
     );
     git(fixture.repo, "update-ref", "refs/remotes/origin/main", delivery);
     await applied(

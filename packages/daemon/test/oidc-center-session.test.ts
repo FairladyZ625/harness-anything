@@ -1,11 +1,13 @@
 // harness-test-tier: fast
+import type { IdentitySessionPort } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
-import { OidcSessionService, type OidcLoginAuthority } from "../src/oidc-session-service.ts";
+import { managedRbacSessionStore } from "@harness-anything/authorization-keycloak/managed-rbac-service";
+import { createIdentitySession } from "../src/authorization-provider.ts";
+import { type OidcLoginAuthority } from "@harness-anything/kernel";
 import { oidcCenterSelections } from "../src/oidc-center-selection.ts";
 import { writeFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
 
@@ -38,7 +40,7 @@ function fixture(t: TestContext, options: FixtureOptions = {}) {
   const legacyFile = path.join(userRoot, "rbac", "oidc-session.json");
   if (options.legacySession) writeFileSync(legacyFile, JSON.stringify({ schema: "harness-oidc-session/v2" }));
   let serial = 0;
-  const service = new OidcSessionService(userRoot, {
+  const service = createIdentitySession(userRoot, {
     loginAuthority: async (target) => {
       const authority = target ? authorities.get(target) : undefined;
       if (!authority) throw new Error(`Unknown login target ${String(target)}.`);
@@ -75,7 +77,7 @@ function fixture(t: TestContext, options: FixtureOptions = {}) {
   return { userRoot, localRoot, localSiblingRoot, edgeRoot, localIssuer, edgeIssuer, legacyFile, service };
 }
 
-async function signIn(service: OidcSessionService, root: string): Promise<void> {
+async function signIn(service: IdentitySessionPort, root: string): Promise<void> {
   const pending = await service.begin("http://127.0.0.1:43123/callback", root);
   await service.complete("authorization-code", String(pending.state));
 }
@@ -117,7 +119,7 @@ test("Fleet identity validation derives the authorized client from the authentic
   );
   writeFileSync(path.join(rbac, "center-client-secret"), "fixture-center-secret");
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const service = new OidcSessionService(root, {
+  const service = createIdentitySession(root, {
     now: () => 10_000,
     fetch: (async (input) => {
       const url = String(input);

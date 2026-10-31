@@ -2,7 +2,8 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
-import { OidcSessionService, type DeviceLoginRequest } from "../src/oidc-session-service.ts";
+import { createIdentitySession } from "../src/authorization-provider.ts";
+import { type DeviceLoginRequest } from "@harness-anything/kernel";
 import { listenFleetTls } from "../src/fleet/center.ts";
 import { reportFleetDeviceLogin } from "../src/fleet/peer.ts";
 import { fleetFixture } from "./fleet-tls-session.fixture.ts";
@@ -14,7 +15,7 @@ test(
   async (t) => {
     const fixture = await fleetFixture(t, undefined, "standard", false);
     let now = Date.now();
-    const service = new OidcSessionService(fixture.userRoot, { now: () => now });
+    const service = createIdentitySession(fixture.userRoot, { now: () => now });
     const center = await fixture.hold(
       listenFleetTls({
         host: fixture.host,
