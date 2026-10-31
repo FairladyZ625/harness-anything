@@ -180,8 +180,9 @@ export function parseCanonicalEvent(body: string): PersistedCanonicalEventV1 {
   }
   if (!isRecord(value)) throw new Error("canonical event is not an object");
   const normalized = normalizePersistedCanonicalEvent(value as unknown as CanonicalEventV1),
+    validationValue = normalizeHistoricalCloseoutOverrides(normalized),
     entry = canonicalEventSchemas.find((candidate) => candidate.schema === normalized.schema),
-    errors = entry?.validate(normalized) ?? ["canonical event schema is unknown"];
+    errors = entry?.validate(validationValue) ?? ["canonical event schema is unknown"];
   if (errors.length) throw new Error(errors.join("; "));
   if (serializeCanonicalEventUnchecked(value as unknown as CanonicalEventV1) !== body)
     throw new Error("canonical event bytes are not canonical");
@@ -228,17 +229,8 @@ function normalizePersistedValue(value: unknown, field = ""): unknown {
     return normalized ?? value;
   }
   const normalized = Object.fromEntries(
-    Object.entries(value).flatMap(([key, nested]) => {
-      const entry = normalizePersistedValue(nested, key);
-      return key === "closeoutOverrides" && entry === undefined ? [] : [[key, entry]];
-    }),
+    Object.entries(value).map(([key, nested]) => [key, normalizePersistedValue(nested, key)]),
   );
-  // Frozen historical overrides remain readable; current event writers still use strict validators.
-  if (
-    field === "closeoutOverrides" &&
-    retiredCloseoutOverrideKeys.every((key) => !Object.hasOwn(normalized, key) || typeof normalized[key] === "boolean")
-  )
-    return withoutRetiredCloseoutOverrides(normalized);
   return normalized.schema === "task/v1"
     ? {
         ...normalized,
@@ -247,6 +239,23 @@ function normalizePersistedValue(value: unknown, field = ""): unknown {
         packageDisposition: normalized.packageDisposition ?? "active",
       }
     : normalized;
+}
+
+function normalizeHistoricalCloseoutOverrides(value: unknown, field = ""): unknown {
+  if (Array.isArray(value)) return value.map((entry) => normalizeHistoricalCloseoutOverrides(entry));
+  if (!isRecord(value)) return value;
+  const normalized = Object.fromEntries(
+    Object.entries(value).flatMap(([key, nested]) => {
+      const entry = normalizeHistoricalCloseoutOverrides(nested, key);
+      return key === "closeoutOverrides" && entry === undefined ? [] : [[key, entry]];
+    }),
+  );
+  if (
+    field === "closeoutOverrides" &&
+    retiredCloseoutOverrideKeys.every((key) => !Object.hasOwn(normalized, key) || typeof normalized[key] === "boolean")
+  )
+    return withoutRetiredCloseoutOverrides(normalized);
+  return normalized;
 }
 
 /** Encode already validated current or historical events without changing their persisted bytes. */

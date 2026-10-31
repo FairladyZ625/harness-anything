@@ -20,7 +20,7 @@ import {
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection-factory.ts";
 import { submissionDigest, submissionId } from "../../src/domain/execution.ts";
 import { reviewDigest } from "../../src/domain/review.ts";
-import { sha256Text } from "../../src/integrity/stable-hash.ts";
+import { sha256Text, stableStringify } from "../../src/integrity/stable-hash.ts";
 
 test("R2: two snapshots collapse, two amendments retain every review cut, disposition, consent, packet and original outcome", () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-closure-")),
@@ -123,6 +123,53 @@ test("R2: two snapshots collapse, two amendments retain every review cut, dispos
       projection.close();
       target.close();
     }
+  } finally {
+    source.close();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("generation-two conversion rejects retired closeout overrides before target admission", () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-closure-retired-override-")),
+    root = path.join(parent, "source"),
+    targetRoot = path.join(parent, "target");
+  completionClosureFixture(root);
+  const database = new DatabaseSync(sqliteLedgerPath(root, 2));
+  let mutatedEvents = 0;
+  try {
+    const rows = database.prepare("SELECT revision,event_json FROM event ORDER BY revision").all() as {
+        readonly revision: number;
+        readonly event_json: string;
+      }[],
+      update = database.prepare("UPDATE event SET event_json=?,digest=? WHERE revision=?");
+    for (const row of rows) {
+      const event = JSON.parse(row.event_json) as { readonly payload?: { readonly task?: Record<string, unknown> } },
+        task = event.payload?.task;
+      if (!task) continue;
+      task.closeoutOverrides = { fact: false, codeDoc: true };
+      const bytes = `${stableStringify(event)}\n`;
+      update.run(bytes, `sha256:${sha256Text(bytes)}`, row.revision);
+      mutatedEvents++;
+    }
+  } finally {
+    database.close();
+  }
+  assert.ok(mutatedEvents > 0, "fixture must include task-carrier events");
+
+  const source = openSqliteEventStore({ rootInput: root, generation: 2, readOnly: true });
+  try {
+    const plan = planCompletionGeneration(source, new Set());
+    assert.throws(
+      () => writeCompletionGeneration(source, targetRoot, plan),
+      /closeoutOverrides must map closeout gate ids to booleans/u,
+    );
+    const target = new DatabaseSync(sqliteLedgerPath(targetRoot, 3), { readOnly: true });
+    try {
+      assert.equal(Number(target.prepare("SELECT COUNT(*) AS count FROM event").get()!.count), 0);
+    } finally {
+      target.close();
+    }
+    console.log(`GENERATION_TWO_RETIRED_CLOSEOUT_REJECTED=${mutatedEvents}`);
   } finally {
     source.close();
     rmSync(parent, { recursive: true, force: true });
