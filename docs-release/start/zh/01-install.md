@@ -1,19 +1,10 @@
 # 安装
 
-CLI 与 daemon 通过 npm 发布，需要 Node.js 24 或更新版本。桌面 App 从 [GitHub Releases](https://github.com/FairladyZ625/harness-anything/releases) 下载。
+CLI 与 daemon 需要 Node.js 24 或更新版本，目前尚未发布到公开 npm registry；发布前请使用[源码 checkout smoke demo](00-what-is-this.md)。桌面 App 从 [GitHub Releases](https://github.com/FairladyZ625/harness-anything/releases) 下载。
 
-## 从 npm 安装 CLI 与 daemon
+## CLI 与 daemon
 
-```bash
-npm install --global @harness-anything/cli@latest @harness-anything/daemon@latest
-ha --version
-```
-
-预览版使用 `next` channel：
-
-```bash
-npm install --global @harness-anything/cli@next @harness-anything/daemon@next
-```
+源码 checkout 路径会在本地构建 CLI，并从该 checkout 运行；它不会安装全局 `ha` 命令。
 
 ## 安装桌面 App
 
@@ -26,6 +17,7 @@ AppImage 自动更新，deb 手动升级。
 - Node.js 24 或更新版本，以及 npm。
 - `git`。
 - 一个可初始化的 git 仓库，或已经注册到本机 daemon 的仓库。
+- 初始化仓库前需要配置授权服务并登录用户；见[Server Daemon 运维](../../operations-server-daemon.zh-CN.md)。
 
 ## 首次运行
 
@@ -33,4 +25,4 @@ AppImage 自动更新，deb 手动升级。
 
 ## 卸载
 
-运行 `npm uninstall --global @harness-anything/cli @harness-anything/daemon`。只有明确要删除 daemon registry 与 cache state 时才删除 `~/.harness`。
+不再需要时可删除源码 checkout。Daemon state 与代码分开保存在 `~/.harness`；只有明确要删除 registry 与 cache state 时才删除它。

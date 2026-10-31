@@ -15,9 +15,9 @@ agent 产生的**决策（decision）、任务（task）和事实（fact）**变
 在自用（self-involving）中看到的是：没有门禁的路径会被 100% 旁路。没有
 gate，就等于一定被绕过。
 
-## 先看 30 秒证明
+## 试运行源码 checkout demo
 
-0.0.1 CLI 候选版可以从本地 npm package archive 安装。今天最快的路径仍是源码 checkout smoke demo：
+0.0.1 CLI 候选版尚未发布到公开 npm registry；当前可通过源码 checkout smoke demo 构建并运行：
 
 ```bash
 git clone https://github.com/FairladyZ625/harness-anything
@@ -30,8 +30,12 @@ npm run quickstart:demo
 fact，并渲染 relation graph。承重步骤如果拿不出证据，会 fail closed，而不
 是静默放行。
 
+这个 demo 不负责初始化首次使用所需的授权服务。运行前需要已有的授权服务、
+已登录的人类会话，以及 `quickstart` 仓库的管理员策略访问权；先按[Server
+Daemon 运维](../../operations-server-daemon.zh-CN.md)配置授权服务并登录。
+
 等 package 正式发布到 registry 后，可安装 scoped package 并直接运行不带参数的 `ha init`。在那之前，
-请使用本地 package archive 或上面的源码路径。
+请使用上面的源码路径。
 
 ## 什么会落到磁盘上
 
