@@ -32,6 +32,25 @@ test("package policy accepts a daemon that remains private", async () => {
   });
 });
 
+test("package policy keeps Keycloak GUI implementation private until an explicit publish decision", async () => {
+  await withFixtureRepo((root) => {
+    writeValidFixture(root);
+    writeJson(root, "packages/authorization-keycloak-gui/package.json", {
+      name: "@harness-anything/authorization-keycloak-gui",
+      version: "0.0.1",
+      publishConfig: { access: "public" },
+    });
+
+    const result = runCheck(root);
+
+    assert.notEqual(result.status, 0);
+    assert.match(
+      result.stderr,
+      /packages\/authorization-keycloak-gui\/package\.json is not in the approved npm publish set and must stay private/u,
+    );
+  });
+});
+
 test("package policy accepts GUI in the approved npm publish set", async () => {
   await withFixtureRepo((root) => {
     writeValidFixture(root);
@@ -126,6 +145,9 @@ function writeValidFixture(root) {
   const packages = new Map([
     ["packages/kernel/package.json", "@harness-anything/kernel"],
     ["packages/application/package.json", "@harness-anything/application"],
+    ["packages/authorization-keycloak/package.json", "@harness-anything/authorization-keycloak"],
+    ["packages/authorization-gui/package.json", "@harness-anything/authorization-gui"],
+    ["packages/authorization-keycloak-gui/package.json", "@harness-anything/authorization-keycloak-gui"],
     ["packages/daemon/package.json", "@harness-anything/daemon"],
     ["packages/gui/package.json", "@harness-anything/gui"],
   ]);

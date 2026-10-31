@@ -101,6 +101,7 @@ test("fresh claimable query applies three scopes, live membership, task permissi
       source: { kind: "node", nodeId: "node-a" } as const,
       keycloakAuthorization: {
         session: {
+          provider: adapter,
           personId: "owner",
           accessToken: "token-owner",
           url: realm.url,
@@ -108,6 +109,7 @@ test("fresh claimable query applies three scopes, live membership, task permissi
           clientId: "harness-center",
         },
         center: async () => ({
+          provider: adapter,
           url: realm.url,
           realm: "harness",
           clientId: "harness-center",

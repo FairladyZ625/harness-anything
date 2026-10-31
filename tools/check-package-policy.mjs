@@ -9,6 +9,7 @@ const expectedPackages = new Map([
   ["packages/application/package.json", "@harness-anything/application"],
   ["packages/authorization-keycloak/package.json", "@harness-anything/authorization-keycloak"],
   ["packages/authorization-gui/package.json", "@harness-anything/authorization-gui"],
+  ["packages/authorization-keycloak-gui/package.json", "@harness-anything/authorization-keycloak-gui"],
   ["packages/daemon/package.json", "@harness-anything/daemon"],
   ["packages/cli/package.json", "@harness-anything/cli"],
   ["packages/gui/package.json", "@harness-anything/gui"],

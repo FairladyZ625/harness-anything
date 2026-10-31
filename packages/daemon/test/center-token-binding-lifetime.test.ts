@@ -15,21 +15,6 @@ test("a retained user-device binding uses its current session after token rotati
   let currentToken = "token-A",
     centerCalls = 0;
   const requests: { readonly route: string; readonly bearer: string | null }[] = [],
-    auth: DaemonAuthenticationContext = {
-      transportKind: "fleet-tls",
-      nodePrincipal: { nodeId: "node-rotation", personId: "person_rotation" },
-      oidcPrincipal: {
-        personId: "person_rotation",
-        subject: "user-rotation",
-        expiresAt: Date.now() + 60_000,
-        accessToken: currentToken,
-        authority: { url: "https://keycloak.invalid", realm: "harness", clientId: "harness-center" },
-      },
-      localSessionAccessToken: async () => {
-        centerCalls += 1;
-        return currentToken;
-      },
-    },
     fetchPort: typeof fetch = async (input, init) => {
       const url = new URL(String(input)),
         route = `${url.pathname.replace("/admin/realms/harness", "")}${url.search}`,
@@ -40,6 +25,25 @@ test("a retained user-device binding uses its current session after token rotati
       assert.equal(init?.method, "POST");
       assert.equal((init?.body as URLSearchParams).get("grant_type"), "urn:ietf:params:oauth:grant-type:uma-ticket");
       return Response.json({ result: true });
+    },
+    auth: DaemonAuthenticationContext = {
+      transportKind: "fleet-tls",
+      nodePrincipal: { nodeId: "node-rotation", personId: "person_rotation" },
+      oidcPrincipal: {
+        provider: new KeycloakPolicyAdapter(
+          { url: "https://keycloak.invalid", realm: "harness", resourceServerClientId: "harness-center" },
+          fetchPort,
+        ),
+        personId: "person_rotation",
+        subject: "user-rotation",
+        expiresAt: Date.now() + 60_000,
+        accessToken: currentToken,
+        authority: { url: "https://keycloak.invalid", realm: "harness", clientId: "harness-center" },
+      },
+      localSessionAccessToken: async () => {
+        centerCalls += 1;
+        return currentToken;
+      },
     },
     evaluate = (binding: RepoCellBinding) =>
       evaluateRepoCellAction({
@@ -55,7 +59,14 @@ test("a retained user-device binding uses its current session after token rotati
 
   assert.equal(typeof retained.keycloakAuthorization?.session?.currentAccessToken, "function");
   assert.deepEqual(serializableRepoCellBinding(retained).keycloakAuthorization, {
-    session: { ...retained.keycloakAuthorization?.session, currentAccessToken: true },
+    session: {
+      personId: "person_rotation",
+      accessToken: "token-A",
+      url: "https://keycloak.invalid",
+      realm: "harness",
+      clientId: "harness-center",
+      currentAccessToken: true,
+    },
   });
 
   await t.test("the same action allows A before rotation and a fresh binding allows B after rotation", async () => {
