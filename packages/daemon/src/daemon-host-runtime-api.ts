@@ -662,26 +662,26 @@ export function createDaemonHostRuntimeApi(
       context.requireHostMode(repoId, ledgerWriteCommandTopology, auth);
       await context.attemptHostRecovery(repoId);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId),
-        serverBinding = await context.binding(cell.status().rootDir, auth);
-      const operation = method.slice("repo.runtimeInstance.auth.".length);
+        serverBinding = await context.binding(cell.status().rootDir, auth),
+        operation = method.slice("repo.runtimeInstance.auth.".length);
       if (!["login", "logout"].includes(operation))
         throw context.hostCodedError("unsupported_command", `Unsupported runtime auth method: ${method}.`);
-      await context.instances.refreshInstallations();
-      const command = context.instances.prepareAuthCommand(
-          context.requiredText(payload.instanceId, "instanceId"),
-          operation as "login" | "logout",
-        ),
-        env = Object.fromEntries(
-          Object.entries(command.env).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
-        );
-      const actionKind = operation === "logout" ? "runtime-instance-logout" : "runtime-instance-login",
+      const instanceId = context.requiredText(payload.instanceId, "instanceId"),
+        actionKind = operation === "logout" ? "runtime-instance-logout" : "runtime-instance-login",
         authorizationDecision = await requireAuthorizedHostAction({
           kind: actionKind,
           repoId,
           binding: serverBinding,
-          actionId: `${actionKind}:${context.requiredText(payload.instanceId, "instanceId")}`,
+          actionId: `${actionKind}:${instanceId}`,
           evaluatedAtCut: `repository:${repoId}:current`,
-        }),
+        });
+      // Authorization precedes every local effect: a denied call must not re-witness provider CLI
+      // installations, create an instance state root, or move readiness.
+      await context.instances.refreshInstallations();
+      const command = context.instances.prepareAuthCommand(instanceId, operation as "login" | "logout"),
+        env = Object.fromEntries(
+          Object.entries(command.env).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+        ),
         result = cell.terminal.spawnTrusted(
           {
             idempotencyKey: context.requiredText(payload.idempotencyKey, "idempotencyKey"),

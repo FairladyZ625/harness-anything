@@ -1,8 +1,8 @@
 // harness-test-tier: integration
-import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
+import { revokeTestPolicyActions, signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -185,6 +185,74 @@ test("daemon ingress spawns interactive sign-in terminals on the isolated state 
         "runtime_subscription_required",
       );
     });
+  } finally {
+    await host.close();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+test("denied runtime auth leaves no installation witness or instance state", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-auth-denied-")),
+    root = path.join(parent, "repo"),
+    userRoot = path.join(parent, "user"),
+    executablePath = writeProviderExecutable(path.join(parent, "codex-signin-stub"), stubBody),
+    repoId = "runtime-auth-denied",
+    uid = process.getuid?.() ?? 0;
+  const installation: RuntimeInstallationWitness = {
+    installationId: "installation-codex-signin",
+    kindId: "codex",
+    executablePath,
+    version: "1.0.0",
+    observedAt: "2026-08-19T00:00:00.000Z",
+  };
+  initIngressRepo(root, uid);
+  signInPolicyTestUser(userRoot, "owner", [repoId], "admin");
+  revokeTestPolicyActions("owner", repoId, ["runtime-instance-login", "runtime-instance-logout"]);
+  registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
+  const auth = {
+    transportKind: "unix-socket",
+    unixSocketOwnerBoundary: { ownerUid: uid, source: "unix-socket-filesystem-owner-boundary" },
+  } as const;
+  const host = await openDaemonHost({
+      daemonId: "runtime-auth-denied",
+      userRoot,
+      runtimeDiscover: () => [installation],
+      runtimeEnv: { HOME: path.join(parent, "operator-home"), PATH: process.env.PATH ?? "" },
+    }),
+    installationsFile = path.join(userRoot, "runtime-installations.json"),
+    stateRoot = path.join(userRoot, "runtime-instances", "codex-denied");
+  try {
+    await host.runtimeInstance(
+      "daemon.runtimeInstance.create",
+      {
+        instanceId: "codex-denied",
+        name: "Codex Denied",
+        kindId: "codex",
+        installationId: installation.installationId,
+        providerId: "openai",
+        models: ["gpt-5.6-sol"],
+        authMode: "subscription",
+        isolationState: "operator-environment",
+      },
+      auth,
+    );
+    // Instance creation witnesses installations by design; start from the never-recorded state
+    // so a denied auth call cannot hide a rewrite behind a pre-existing record.
+    rmSync(installationsFile, { force: true });
+    assert.equal(existsSync(installationsFile), false);
+    assert.equal(existsSync(stateRoot), false);
+    for (const [method, idempotencyKey] of [
+      ["repo.runtimeInstance.auth.login", "denied-login-once"],
+      ["repo.runtimeInstance.auth.logout", "denied-logout-once"],
+    ] as const) {
+      const denied = await rpc(host, auth, method, {
+        repo: { repoId },
+        payload: { instanceId: "codex-denied", idempotencyKey },
+      });
+      assert.equal(denied.ok, false, JSON.stringify(denied));
+      assert.equal(denied.code, "authorization_denied");
+      assert.equal(existsSync(installationsFile), false, `${method} recorded an installation witness`);
+      assert.equal(existsSync(stateRoot), false, `${method} created an instance state root`);
+    }
   } finally {
     await host.close();
     rmSync(parent, { recursive: true, force: true });
