@@ -83,7 +83,7 @@ import { daemonCliBinDirectory, prepareBoundRuntimeLaunch } from "./runtime-spaw
 import type { RuntimeEventOf, RuntimeEventType, RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { assertReviewerTarget, selectReadOnlyAttachTarget, selectReviewTarget } from "./review-dispatch-admission.ts";
-import { ModelSlotQueue } from "./runtime/model-slot-queue.ts";
+import { assertContextBudget, ModelSlotQueue } from "./runtime/model-slot-queue.ts";
 import { relayBudgetMicrosOf } from "./runtime/cloud-dispatch-relay.ts";
 import { initialFallbackAttempt, reconcileFallback, requiredRuntimeFast } from "./runtime-spawn-fallback.ts";
 import {
@@ -597,6 +597,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               newDispatchId,
               Boolean(trustedSchedule) && squadId === undefined,
             );
+          assertContextBudget(prompt);
 
           // Dry-run preview ends exactly at the launch boundary: the same inputs, same
           // assembly calls, no prepareLaunch, no dispatch event, no lease handoff.
