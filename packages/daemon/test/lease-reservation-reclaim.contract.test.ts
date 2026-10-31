@@ -505,10 +505,23 @@ test("terminal runtime lease release requires a process-group stop proof", () =>
       instanceId: "codex-test",
       startedAt: now,
     });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: process.pid });
+    assert.throws(
+      () =>
+        taskMutation(
+          terminalCell,
+          { ...terminalAction, terminalProcessGroupPid: 2_147_483_647 },
+          task,
+          { ...snapshot(), lease: orphanedLease },
+          authorized(owner("replacement-worker")),
+        ),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
+      "an unrelated stopped process group cannot prove this runtime stopped",
+    );
     appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: 2_147_483_647 });
     const mutation = taskMutation(
       terminalCell,
-      terminalAction,
+      { ...terminalAction, terminalProcessGroupPid: 2_147_483_647 },
       task,
       { ...snapshot(), lease: orphanedLease },
       authorized(owner("replacement-worker")),

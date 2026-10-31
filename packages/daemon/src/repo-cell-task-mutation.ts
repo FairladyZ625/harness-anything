@@ -110,16 +110,13 @@ export function taskMutation(
       terminalRuntimeSessionId ??
       (terminalRuntimeBinding !== null ? runtimeSessionIdFromActor(activeLease.actor) : null);
     if (proofRuntimeSessionId !== null) {
-      const suppliedPid = action.terminalProcessGroupPid;
-      const verdict =
-        Number.isSafeInteger(suppliedPid) && Number(suppliedPid) > 1
-          ? reconcileProcessGroup(Number(suppliedPid))
-          : terminalRuntimeStopProof(
-              cell.rootDir,
-              task.taskId,
-              terminalExecutionId ?? activeLease.executionId,
-              proofRuntimeSessionId,
-            );
+      const verdict = terminalRuntimeStopProof(
+        cell.rootDir,
+        task.taskId,
+        terminalExecutionId ?? activeLease.executionId,
+        proofRuntimeSessionId,
+        action.terminalProcessGroupPid,
+      );
       if (verdict !== "proven_stopped")
         throw cell.cellCodedError(
           "runtime_process_group_unproven",
@@ -374,6 +371,7 @@ function terminalRuntimeStopProof(
   taskId: string,
   executionId: string,
   runtimeSessionId: string,
+  suppliedPid: unknown,
 ): ReturnType<typeof reconcileProcessGroup> {
   const header = readDispatchStreamHeaders(rootDir, true).find(
     (candidate) =>
@@ -383,6 +381,8 @@ function terminalRuntimeStopProof(
   );
   const process = header ? readDispatchStreamSummary(rootDir, header.dispatchId)?.process : null;
   if (!process) return "unknown_unreachable";
+  if (suppliedPid !== undefined && (!Number.isSafeInteger(suppliedPid) || Number(suppliedPid) !== process.pid))
+    return "unknown_unreachable";
   return reconcileProcessGroup({ pid: process.pid, pgid: process.pid });
 }
 
