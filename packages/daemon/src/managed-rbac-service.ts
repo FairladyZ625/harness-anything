@@ -21,6 +21,7 @@ import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { consumeKnownError } from "@harness-anything/kernel";
 import { runProcessExitAsync, runProcessText } from "./process-port.ts";
+import { awaitRuntimeProcessExit } from "./runtime-spawn-process.ts";
 import type { AccessAdminOperation, AccessAdminRequest } from "./access-admin-service.ts";
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 import { transientTransportFailure } from "./oidc-session-helpers.ts";
@@ -247,6 +248,8 @@ export class ManagedRbacService {
     if (!existsSync(managedExecutable(this.#root, "runtime/postgres/bin/postgres", this.#ports.platform)))
       throw managedRbacError("rbac_not_installed", "Run ha bootstrap before starting managed RBAC services.");
     if (config.stopped) this.#writeConfig({ ...config, stopped: false });
+    if (!this.#children.has("keycloak")) await this.#stopOrphanedChild("keycloak");
+    if (!this.#children.has("postgres")) await this.#stopOrphanedChild("postgres");
     await this.#startPostgres();
     await this.#startKeycloak();
   }
@@ -259,13 +262,13 @@ export class ManagedRbacService {
 
   async #stopChild(name: "postgres" | "keycloak"): Promise<boolean> {
     const child = this.#children.get(name);
-    if (!child) return false;
+    if (!child) return this.#stopOrphanedChild(name);
     child.kill("SIGTERM");
     await new Promise<void>((resolve) => {
       const timer = setTimeout(() => {
         child.kill("SIGKILL");
-        resolve();
       }, 10_000);
+      timer.unref();
       child.once("exit", () => {
         clearTimeout(timer);
         resolve();
@@ -273,6 +276,25 @@ export class ManagedRbacService {
     });
     this.#children.delete(name);
     this.#readiness.delete(name);
+    return true;
+  }
+
+  async #stopOrphanedChild(name: "postgres" | "keycloak"): Promise<boolean> {
+    const marker = path.join(this.#root, "data", `${name}.pid`),
+      pid = existsSync(marker) ? Number(readFileSync(marker, "utf8").trim()) : null;
+    if (pid === null || !Number.isSafeInteger(pid) || pid <= 0 || pid === process.pid) return false;
+    const managedPid = pid;
+    if (this.#children.get(name)?.pid === managedPid) return false;
+    try {
+      process.kill(managedPid, "SIGTERM");
+    } catch (error) {
+      if (!isProcessGone(error)) throw error;
+      consumeKnownError(error);
+      removePidMarker(marker, managedPid);
+      return false;
+    }
+    await waitForProcessExit(managedPid, 10_000);
+    removePidMarker(marker, managedPid);
     return true;
   }
 
@@ -647,9 +669,14 @@ export class ManagedRbacService {
   }
 
   #track(name: "postgres" | "keycloak", child: ChildProcess): void {
+    if (child.pid !== undefined) {
+      mkdirSync(path.join(this.#root, "data"), { recursive: true, mode: 0o700 });
+      writeFileSync(path.join(this.#root, "data", `${name}.pid`), `${child.pid}\n`, { mode: 0o600 });
+    }
     child.once("exit", () => {
       this.#children.delete(name);
       this.#readiness.delete(name);
+      if (child.pid !== undefined) removePidMarker(path.join(this.#root, "data", `${name}.pid`), child.pid);
     });
     this.#children.set(name, child);
   }
@@ -1274,6 +1301,29 @@ function run(command: string, args: readonly string[]): void {
 
 function managedRbacError(code: string, message: string): Error {
   return Object.assign(new Error(message), { code });
+}
+
+function isProcessGone(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "ESRCH";
+}
+
+async function waitForProcessExit(pid: number, timeoutMs: number): Promise<void> {
+  if ((await awaitRuntimeProcessExit([pid], timeoutMs)).length === 0) return;
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch (error) {
+    if (!isProcessGone(error)) throw error;
+    consumeKnownError(error);
+    return;
+  }
+  if ((await awaitRuntimeProcessExit([pid], timeoutMs)).length > 0)
+    throw managedRbacError("rbac_stop_timeout", `Managed ${String(pid)} did not exit.`);
+}
+
+function removePidMarker(marker: string, pid: number): void {
+  if (!existsSync(marker)) return;
+  const current = Number(readFileSync(marker, "utf8").trim());
+  if (current === pid) rmSync(marker, { force: true });
 }
 
 async function healthReadinessAttempt(

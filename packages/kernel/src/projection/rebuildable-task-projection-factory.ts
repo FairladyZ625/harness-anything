@@ -84,7 +84,7 @@ export function makeTaskProjection(options: {
     throw new Error("task projection catch-up limit must be between 1 and 4096");
   if (localRuntimeStateFileSystem.exists(projectionPath)) {
     try {
-      withDatabase(projectionPath, readHead, () => undefined);
+      withDatabase(projectionPath, readHead, () => undefined, options.onValidationProgress);
     } catch (error) {
       if (error instanceof ProjectionSchemaMismatchError && error.observed < taskProjectionSchemaVersion) {
         consumeKnownError(error);
@@ -144,13 +144,18 @@ export function makeTaskProjection(options: {
       return rebuildProjection(projectionPath, readHead, options.eventStore, limit, onProgress);
     },
     catchUp: () => {
-      const initialWatermark = withDatabase(projectionPath, readHead, watermark);
+      const initialWatermark = withDatabase(projectionPath, readHead, watermark, options.onValidationProgress);
       let sqliteTransactions = 0,
         reducedItems = 0,
         maxBatchItems = 0,
         reportedWatermark = initialWatermark;
       for (;;) {
-        const round = withDatabase(projectionPath, readHead, (db) => catchUpRound(db, options.eventStore, limit));
+        const round = withDatabase(
+          projectionPath,
+          readHead,
+          (db) => catchUpRound(db, options.eventStore, limit),
+          options.onValidationProgress,
+        );
         sqliteTransactions += round.sqliteTransactions;
         reducedItems += round.reducedItems;
         maxBatchItems = Math.max(maxBatchItems, round.accessedItems);
@@ -168,13 +173,18 @@ export function makeTaskProjection(options: {
       }
     },
     catchUpAsync: async () => {
-      const initialWatermark = withDatabase(projectionPath, readHead, watermark);
+      const initialWatermark = withDatabase(projectionPath, readHead, watermark, options.onValidationProgress);
       let sqliteTransactions = 0,
         reducedItems = 0,
         maxBatchItems = 0,
         reportedWatermark = initialWatermark;
       for (;;) {
-        const round = withDatabase(projectionPath, readHead, (db) => catchUpRound(db, options.eventStore, limit));
+        const round = withDatabase(
+          projectionPath,
+          readHead,
+          (db) => catchUpRound(db, options.eventStore, limit),
+          options.onValidationProgress,
+        );
         sqliteTransactions += round.sqliteTransactions;
         reducedItems += round.reducedItems;
         maxBatchItems = Math.max(maxBatchItems, round.accessedItems);

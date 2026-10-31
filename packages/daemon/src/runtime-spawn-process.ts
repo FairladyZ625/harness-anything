@@ -292,7 +292,7 @@ function signalRuntimeTargets(
     }
 }
 
-async function awaitRuntimeProcessExit(pids: readonly number[], timeoutMs: number): Promise<readonly number[]> {
+export async function awaitRuntimeProcessExit(pids: readonly number[], timeoutMs: number): Promise<readonly number[]> {
   const deadline = Date.now() + timeoutMs;
   let survivors = pids.filter(runtimePidIsAlive);
   while (survivors.length > 0 && Date.now() < deadline) {
