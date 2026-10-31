@@ -194,7 +194,6 @@
    "packages/daemon/src/runtime-ruling.ts#readFileIfPresent",
    "packages/daemon/src/runtime-spawn-fallback.ts#scheduleFallbackContinuation",
    "packages/daemon/src/runtime-spawn-mission.ts#prepareRuntimeInstance",
-   "packages/daemon/src/runtime-spawner.ts#cleanupFailedLaunch",
    "packages/daemon/src/runtime-spawn-process.ts#drain",
    "packages/daemon/src/runtime-spawn-process.ts#launchExitNotification",
    "packages/daemon/src/runtime-spawn-process.ts#observeResumeProcess",

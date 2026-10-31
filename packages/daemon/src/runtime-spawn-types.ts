@@ -119,6 +119,12 @@ export interface RuntimeLeaseScope {
   readonly leaseVersion: number | null;
 }
 
+export interface RuntimeLeaseReleasePending {
+  readonly outcome: "lease_unproven";
+  readonly code: "runtime_process_group_unproven";
+  readonly reason: string;
+}
+
 export interface RuntimeAttemptTerminal {
   readonly runtimeSessionId: string;
   readonly dispatchId: string;
@@ -132,6 +138,8 @@ export interface RuntimeAttemptTerminal {
   readonly binding: RuntimeBinding;
   /** Runtime root whose process group must be proven stopped before releasing the lease. */
   readonly processGroupPid?: number;
+  /** Failed-launch cleanup returns an unresolved A6 proof instead of replacing its primary error. */
+  readonly preservePrimaryError?: true;
 }
 
 export interface StalledReviewerContinuation {
@@ -424,7 +432,9 @@ export interface RuntimeSpawnerInput {
   ) => void;
   /** Re-enters the existing task-review dispatch lane once after a primary reviewer cannot deliver. */
   readonly onStalledReviewer?: (continuation: StalledReviewerContinuation) => void;
-  readonly onAttemptTerminal?: (terminal: RuntimeAttemptTerminal) => void | Promise<void>;
+  readonly onAttemptTerminal?: (
+    terminal: RuntimeAttemptTerminal,
+  ) => void | RuntimeLeaseReleasePending | Promise<void | RuntimeLeaseReleasePending>;
   readonly handoffTaskLease?: (input: {
     readonly taskId: string;
     readonly runtimeSessionId: string;

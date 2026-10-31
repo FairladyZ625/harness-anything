@@ -21,14 +21,9 @@ import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 import { reconcileProcessGroup } from "./runtime/process-group-reconciler.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
+import type { RuntimeLeaseReleasePending } from "./runtime-spawn-types.ts";
 
-export function taskMutation(
-  cell: RepoCellActionContext,
-  action: RepoTaskAction,
-  task: TaskV2,
-  snapshot: Snapshot,
-  binding: RepoCellBinding,
-): {
+interface TaskMutation {
   readonly type: TaskEventV1["type"];
   readonly task: TaskV2;
   readonly audit: {
@@ -39,7 +34,52 @@ export function taskMutation(
   readonly execution?: Snapshot["executions"][number];
   readonly releasedLease?: NonNullable<Snapshot["lease"]>;
   readonly authorizationDecision?: AuthorizationDecision;
-} {
+}
+
+export function taskMutation(
+  cell: RepoCellActionContext,
+  action: RepoTaskAction,
+  task: TaskV2,
+  snapshot: Snapshot,
+  binding: RepoCellBinding,
+): TaskMutation {
+  return taskMutationWithStopResult(cell, action, task, snapshot, binding, false);
+}
+
+export function taskMutationForRuntimeTerminal(
+  cell: RepoCellActionContext,
+  action: RepoTaskAction,
+  task: TaskV2,
+  snapshot: Snapshot,
+  binding: RepoCellBinding,
+): TaskMutation | RuntimeLeaseReleasePending {
+  return taskMutationWithStopResult(cell, action, task, snapshot, binding, true);
+}
+
+function taskMutationWithStopResult(
+  cell: RepoCellActionContext,
+  action: RepoTaskAction,
+  task: TaskV2,
+  snapshot: Snapshot,
+  binding: RepoCellBinding,
+  returnUnprovenStop: false,
+): TaskMutation;
+function taskMutationWithStopResult(
+  cell: RepoCellActionContext,
+  action: RepoTaskAction,
+  task: TaskV2,
+  snapshot: Snapshot,
+  binding: RepoCellBinding,
+  returnUnprovenStop: true,
+): TaskMutation | RuntimeLeaseReleasePending;
+function taskMutationWithStopResult(
+  cell: RepoCellActionContext,
+  action: RepoTaskAction,
+  task: TaskV2,
+  snapshot: Snapshot,
+  binding: RepoCellBinding,
+  returnUnprovenStop: boolean,
+): TaskMutation | RuntimeLeaseReleasePending {
   const forceTakeover = action.kind === "task-release" && action.forceTakeover === true,
     reason = forceTakeover
       ? `Owner forced takeover: ${cell.requiredCellText(action.reason, "reason")}`
@@ -119,11 +159,16 @@ export function taskMutation(
         action.terminalProcessGroupPid,
         binding.source,
       );
-      if (verdict !== "proven_stopped")
-        throw cell.cellCodedError(
-          "runtime_process_group_unproven",
-          `Runtime process group for ${proofRuntimeSessionId} is ${verdict}; lease release waits for a stop proof.`,
-        );
+      if (verdict !== "proven_stopped") {
+        const reason = `Runtime process group for ${proofRuntimeSessionId} is ${verdict}; lease release waits for a stop proof.`;
+        if (returnUnprovenStop)
+          return {
+            outcome: "lease_unproven",
+            code: "runtime_process_group_unproven",
+            reason,
+          };
+        throw cell.cellCodedError("runtime_process_group_unproven", reason);
+      }
     }
     return {
       type: "lease_released",

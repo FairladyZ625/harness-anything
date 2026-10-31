@@ -1,4 +1,4 @@
-import { consumeKnownError, type SquadDispatchContext } from "@harness-anything/kernel";
+import type { SquadDispatchContext } from "@harness-anything/kernel";
 import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS } from "@harness-anything/kernel";
 import type { RuntimeHandoffCheckpoint } from "./runtime-handoff-store.ts";
 import { createHash, randomUUID } from "node:crypto";
@@ -835,8 +835,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         if (stream) removeDispatchStream(input.rootDir, newDispatchId);
         return;
       }
-      try {
-        await input.onAttemptTerminal?.({
+      const preservePrimaryError = runtimeErrorCode(error) === "runtime_resume_failed",
+        settlement = await input.onAttemptTerminal?.({
           runtimeSessionId,
           dispatchId: newDispatchId,
           task: taskBinding,
@@ -845,22 +845,11 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           reason: `Runtime dispatch failed before provider registration: ${runtimeErrorMessage(error)}`,
           endedAt: input.now(),
           binding: activeBinding,
+          ...(preservePrimaryError ? { preservePrimaryError: true } : {}),
         });
-      } catch (cleanupError) {
-        // A rejected resume has a known provider admission failure. If its newly handed-off lease
-        // cannot yet be released because A6 lacks a stop proof, retain that primary error and the
-        // stream for later reconciliation; replacing it with the cleanup boundary misreports the
-        // provider's refusal and invites an unsafe retry.
-        if (
-          runtimeErrorCode(error) !== "runtime_resume_failed" ||
-          runtimeErrorCode(cleanupError) !== "runtime_process_group_unproven"
-        ) {
-          throw cleanupError;
-        }
-        consumeKnownError(cleanupError);
+      if (settlement?.outcome === "lease_unproven") {
         return;
       }
-      if (stream) removeDispatchStream(input.rootDir, newDispatchId);
       if (stream) removeDispatchStream(input.rootDir, newDispatchId);
     };
     try {

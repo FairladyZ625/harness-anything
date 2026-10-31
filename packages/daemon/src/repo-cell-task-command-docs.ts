@@ -25,6 +25,8 @@ import { readCompletionContext } from "./task-completion-read.ts";
 import { readTaskLineageDispatches } from "./dispatch-read.ts";
 import { assertTaskTransitionDocumentReady, readOnDiskBody } from "./transition-document-access.ts";
 import type { RepoCellActionContext, RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import { taskMutationForRuntimeTerminal } from "./repo-cell-task-mutation.ts";
+import type { RuntimeLeaseReleasePending } from "./runtime-spawn-types.ts";
 import { archiveTaskOnComplete } from "./repo-cell-task-auto-archive.ts";
 import { reviewerArtifactsForReview } from "./reviewer-artifact-publication.ts";
 import { runTaskActionCatalogRuntime } from "./task-action-catalog-runtime.ts";
@@ -422,6 +424,17 @@ export function taskSurfaceWriteAt(
   return acceptPreparedTaskSurfaceWrites(cell, [prepared])[0]!;
 }
 
+export function taskSurfaceWriteAtForRuntimeTerminal(
+  cell: RepoCellActionContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+  occurredAt: string,
+): WriteReceipt | RuntimeLeaseReleasePending {
+  const prepared = prepareTaskSurfaceWriteAt(cell, action, binding, occurredAt, undefined, true);
+  if (!("compiled" in prepared)) return prepared;
+  return acceptPreparedTaskSurfaceWrites(cell, [prepared])[0]!;
+}
+
 export interface PreparedTaskSurfaceWrite {
   readonly compiled: ReturnType<typeof compileTaskLifecycleWrite>;
   readonly taskId: string;
@@ -436,7 +449,23 @@ export function prepareTaskSurfaceWriteAt(
   binding: RepoCellBinding,
   occurredAt: string,
   assigned?: { readonly workspaceRevision: number; readonly opId?: string },
-): WriteReceipt | PreparedTaskSurfaceWrite {
+): WriteReceipt | PreparedTaskSurfaceWrite;
+export function prepareTaskSurfaceWriteAt(
+  cell: RepoCellActionContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+  occurredAt: string,
+  assigned: undefined,
+  returnUnprovenStop: true,
+): WriteReceipt | PreparedTaskSurfaceWrite | RuntimeLeaseReleasePending;
+export function prepareTaskSurfaceWriteAt(
+  cell: RepoCellActionContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+  occurredAt: string,
+  assigned?: { readonly workspaceRevision: number; readonly opId?: string },
+  returnUnprovenStop = false,
+): WriteReceipt | PreparedTaskSurfaceWrite | RuntimeLeaseReleasePending {
   const taskId = cell.requiredCellText(
       action.kind === "task-supersede" ? action.oldTaskId : action.taskId,
       action.kind === "task-supersede" ? "oldTaskId" : "taskId",
@@ -446,9 +475,12 @@ export function prepareTaskSurfaceWriteAt(
     throw cell.cellCodedError("task_not_found", `Create or import task ${taskId} before running ${action.kind}.`);
   const snapshot = current.snapshot,
     original = snapshot.task!,
-    mutation = cell.taskMutation(action, original, snapshot, binding),
+    mutation = returnUnprovenStop
+      ? taskMutationForRuntimeTerminal(cell, action, original, snapshot, binding)
+      : cell.taskMutation(action, original, snapshot, binding),
     canonicalAction = cell.withoutDryRun(action),
     canonicalOpId = cell.operationId(canonicalAction, binding, cell.input.repoId, snapshot.revision);
+  if ("outcome" in mutation) return mutation;
   if (action.dryRun === true)
     return cell.previewResult(
       `preview:${canonicalOpId}`,
