@@ -812,7 +812,7 @@ export function createDaemonHostRepositoryApi(
         );
       if (edge && edge.canonicalRoot) {
         // Advisory annotations live only at the center. GUI and CLI share this read route.
-        if (method === "repo.task.dispatches") {
+        if (method === "repo.task.dispatches" || method === "repo.fleet.overview.read") {
           const config = readFleetEdgeConfig(edge.canonicalRoot);
           if (!config)
             throw context.hostCodedError("fleet_edge_config_missing", "Center reads require fleet-edge.json.");

@@ -410,14 +410,14 @@ describe("协作页舰队拓扑契约", () => {
     );
   });
 
-  it("边缘节点把中心专属拓扑显示为明确的连接中心状态", () => {
+  it("边缘节点显示经中心通道返回的拓扑并保留离线错误", () => {
     const edge = renderView({ mode: "remote-edge", data: overview(), error: "replica_unavailable" });
-    expect(edge.host.querySelector('[data-testid="collaboration-center-required"]')?.textContent).toContain(
-      "需连接中心",
+    expect(edge.host.querySelector('[data-testid="collaboration-center-required"]')).toBeNull();
+    expect(edge.host.querySelector('[data-testid="collaboration-topology"]')).not.toBeNull();
+    expect(edge.host.querySelector('[data-testid="collaboration-read-error"]')?.textContent).toContain(
+      "replica_unavailable",
     );
-    expect(edge.host.querySelector('[data-testid="collaboration-topology"]')).toBeNull();
-    expect(edge.host.querySelector('[data-testid="collaboration-read-error"]')).toBeNull();
-    expect(edge.host.querySelector('[data-testid="collaboration-view"] header')?.textContent).not.toContain("0 节点");
+    expect(edge.host.querySelector('[data-testid="collaboration-view"] header')?.textContent).toContain("节点");
   });
 
   it("授权类读拒绝显示人话原因,机器码只进 data-reason/title;未识别码原样保留", () => {

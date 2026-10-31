@@ -199,6 +199,8 @@ test("fleet operational read admits dispatches and the parked operational wait",
   assert.deepEqual(parseFleetFrame(frame), frame);
   const dispatches = { ...frame, method: "repo.task.dispatches", payload: { taskId: "task-one" } };
   assert.deepEqual(parseFleetFrame(dispatches), dispatches);
+  const overview = { ...frame, method: "repo.fleet.overview.read", payload: {} };
+  assert.deepEqual(parseFleetFrame(overview), overview);
   assert.throws(() => parseFleetFrame({ ...frame, schema: "fleet.runtime.read/v1" }), FleetContractError);
   assert.throws(() => parseFleetFrame({ ...frame, method: "repo.agentRuntime.overview" }), FleetContractError);
   assert.throws(() => parseFleetFrame({ ...frame, method: "repo.task.run" }), FleetContractError);

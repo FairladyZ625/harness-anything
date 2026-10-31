@@ -1,3 +1,4 @@
+import path from "node:path";
 import { scheduleOccurrenceSettlementOwner } from "./schedule-runtime-outcome.ts";
 import { repositoryRuntimeReads } from "./repository-runtime-reads.ts";
 import { readEntityLocator } from "./entity-locator-read.ts";
@@ -61,6 +62,7 @@ import { workspaceScopeFromProjection } from "./workspace-scope-read.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { withEdgeReadModel } from "./fleet-edge-task-read.ts";
 import { readReplicaHealth } from "./fleet/replica-health.ts";
+import { readReplicaGeneration } from "./fleet/replica-generation.ts";
 
 const writerAttached = (cell: { readonly state: string }): boolean => cell.state === "attached";
 const projectionReady = (read: { readonly status: string }): boolean => read.status === "ready";
@@ -125,15 +127,11 @@ export async function openRepoCellProxy(
     }
     consumeKnownError(error);
     const lastError = error instanceof Error ? error.message : String(error),
-      rejectWrite = async (): Promise<never> => {
-        throw cellCodedError("repo_unavailable", lastError);
-      };
-    supervisor = {
-      status: () => ({
+      baseStatus = () => ({
         repoId: input.repoId,
         rootDir: input.rootDir,
-        mode: "remote-edge",
-        state: "unavailable",
+        mode: "remote-edge" as const,
+        state: "unavailable" as const,
         generation: null,
         queueDepth: null,
         recoveryMs: null,
@@ -141,6 +139,35 @@ export async function openRepoCellProxy(
         lastError,
         causeClass: causeClassOf(error),
       }),
+      replicaStatus = () => {
+        const config = edgeConfig();
+        if (!config) return baseStatus();
+        const viewDir = path.join(config.viewRoot, "repos", input.repoId, "views", config.nodeId),
+          generation = readReplicaGeneration(viewDir),
+          health = readReplicaHealth(viewDir),
+          failure = health.modelFailure ?? health.syncFailure;
+        if (generation !== null && failure === null)
+          return {
+            ...baseStatus(),
+            state: "attached" as const,
+            projectionReadable: true,
+            generation: generation.metadata.ledgerGeneration,
+            lastError: null,
+            causeClass: null,
+          };
+        if (failure !== null)
+          return {
+            ...baseStatus(),
+            lastError: failure.message,
+            causeClass: causeClassOf(Object.assign(new Error(failure.message), { code: failure.code })),
+          };
+        return baseStatus();
+      },
+      rejectWrite = async (): Promise<never> => {
+        throw cellCodedError("repo_unavailable", lastError);
+      };
+    supervisor = {
+      status: replicaStatus,
       request: rejectWrite,
       control: rejectWrite,
       bootstrapReceipt: () => undefined,

@@ -80,6 +80,7 @@ test("projection recovery names and carries the reachable rebuild command", () =
     "projection",
   );
   assert.equal(causeClassOf(new Error("kernel projection schema 999 is newer than daemon schema 3")), "data-shape");
+  assert.equal(causeClassOf(new TypeError("fetch failed")), "infrastructure");
   assert.deepEqual(recoveryCommandPolicy("projection-rebuild", "projection"), {
     causes: ["projection"],
     settlesLatch: true,
