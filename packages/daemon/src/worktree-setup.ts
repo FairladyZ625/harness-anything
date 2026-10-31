@@ -418,8 +418,9 @@ function clearWorktreeLedgerCopies(marker: string): void {
 /**
  * A ledger path as the worker reaches it: its task package is the doc-sync channel; other files are worker-local
  * copies so a runtime given a private skill path cannot write through to the canonical ledger. An executable entry
- * is copied with its directory because its relative imports are part of the entry. A worker in the canonical
- * checkout, a cwd that does not reach this ledger, and a path outside the ledger keep the path as it is.
+ * and a skill manifest are copied with their directory because the sibling modules and scripts are part of the unit;
+ * other documents stay single files. A worker in the canonical checkout, a cwd that does not reach this ledger, and
+ * a path outside the ledger keep the path as it is.
  */
 export function workerLedgerPath(rootDir: string, cwd: string, target: string): string {
   const { authoredRoot, mirror } = ledgerMirror(rootDir, cwd);
@@ -438,16 +439,16 @@ export function workerLedgerPath(rootDir: string, cwd: string, target: string): 
     existsSync(packagePath)
   )
     return packagePath;
-  // A script runs with the directory it lives in: its relative imports are part of the entry. Copy the
-  // directory so the worker receives a runnable entry instead of a file whose first `./sibling.mjs`
-  // import fails. Documents are still copied one file at a time.
-  const executable = parts.length > 1 && /\.(?:mjs|py|sh)$/u.test(real),
-    source = executable ? path.dirname(real) : real,
-    sourceRelative = executable ? path.dirname(relative) : relative,
+  // A skill manifest and an executable entry are both consumed with their siblings: SKILL.md names
+  // the scripts beside it, and a script imports its modules. Copy the directory so the worker
+  // receives the whole unit; other documents stay single files.
+  const directoryEntry = parts.length > 1 && (/\.(?:mjs|py|sh)$/u.test(real) || path.basename(real) === "SKILL.md"),
+    source = directoryEntry ? path.dirname(real) : real,
+    sourceRelative = directoryEntry ? path.dirname(relative) : relative,
     reached = workerLedgerCopyPath(marker, sourceRelative);
   ensureRealDirectory(path.dirname(marker), path.dirname(reached));
   copyWorkerLedgerEntry(source, reached);
-  return executable ? path.join(reached, path.basename(real)) : reached;
+  return directoryEntry ? path.join(reached, path.basename(real)) : reached;
 }
 
 function workerLedgerCopyPath(marker: string, relative: string): string {
