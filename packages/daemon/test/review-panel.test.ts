@@ -19,21 +19,21 @@ test("a professional path rule replaces the default seat instead of adding one",
     selectReviewSeat({
       repositoryDefault: "closeout-reviewer",
       frozenReviewer: "closeout-reviewer",
-      pathReviewers: [{ agentId: "data-migration", paths: ["packages/kernel/src/store/schema.ts"] }],
+      pathReviewers: [{ agentId: "data-migration", paths: ["packages/storage/src/store/schema.ts"] }],
     }),
     {
       kind: "seat",
       seat: {
         reviewerId: "data-migration",
         source: "path",
-        matchedPaths: ["packages/kernel/src/store/schema.ts"],
+        matchedPaths: ["packages/storage/src/store/schema.ts"],
       },
     },
   );
 });
 
 test("an explicit argument and a task reviewer outrank the professional path seat", () => {
-  const pathReviewers = [{ agentId: "data-migration", paths: ["packages/kernel/src/store/schema.ts"] }];
+  const pathReviewers = [{ agentId: "data-migration", paths: ["packages/storage/src/store/schema.ts"] }];
   assert.deepEqual(selectReviewSeat({ argument: "reviewer-a", pathReviewers }), {
     kind: "seat",
     seat: { reviewerId: "reviewer-a", source: "argument" },
@@ -48,7 +48,7 @@ test("two professional rules on one cut escalate instead of silently dropping on
   const selection = selectReviewSeat({
     pathReviewers: [
       { agentId: "gui-acceptance-reviewer", paths: ["packages/gui/src/a.ts"] },
-      { agentId: "data-migration", paths: ["packages/kernel/src/store/schema.ts"] },
+      { agentId: "data-migration", paths: ["packages/storage/src/store/schema.ts"] },
     ],
   });
   assert.equal(selection.kind, "escalated");

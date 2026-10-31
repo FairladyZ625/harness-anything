@@ -26,13 +26,13 @@ for (const [frozen, argument, setting, reviewerId, source] of [
 test("a matched path reviewer replaces the default seat", () => {
   const selection = selectReviewSeat({
     repositoryDefault: "setting-reviewer",
-    pathReviewers: [{ agentId: "data-migration", paths: ["packages/kernel/src/store/"] }],
+    pathReviewers: [{ agentId: "data-migration", paths: ["packages/storage/src/store/"] }],
   });
   assert.equal(selection.kind, "seat");
   if (selection.kind !== "seat") return;
   assert.equal(selection.seat.reviewerId, "data-migration");
   assert.equal(selection.seat.source, "path");
-  assert.deepEqual(selection.seat.matchedPaths, ["packages/kernel/src/store/"]);
+  assert.deepEqual(selection.seat.matchedPaths, ["packages/storage/src/store/"]);
 });
 
 test("a cut matching two professional reviewers escalates instead of dropping one", () => {

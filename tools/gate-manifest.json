@@ -1705,7 +1705,7 @@
         "dec_5EC2631352B17EE2BF4979E37E#CH2"
       ],
       "consumerScope": [
-        "AST-classified fs write calls in packages/kernel/src/store and packages/cli/src",
+        "AST-classified fs write calls in packages/storage/src/store, packages/kernel/src/local, and packages/cli/src",
         "ADR-0016 D1 bypass write channel closure and explicit exemption registry"
       ],
       "githubContext": {
