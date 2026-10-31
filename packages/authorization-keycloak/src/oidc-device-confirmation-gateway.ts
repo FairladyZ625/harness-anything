@@ -39,6 +39,7 @@ export async function openDeviceConfirmationGateway(
         gatewayOriginRef.value,
         capability,
         fetcher,
+        host,
       ).catch(() => {
         if (!response.headersSent) response.writeHead(502);
         response.end();
@@ -79,6 +80,7 @@ async function proxyRequest(
   gatewayOrigin: string,
   capability: string,
   fetcher: typeof fetch,
+  host: Pick<KeycloakSessionHost, "fetchWithTlsCa" | "systemCaCertificates">,
 ): Promise<void> {
   const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1"),
     parameters = requestUrl.searchParams,
