@@ -7,6 +7,9 @@ import ts from "typescript";
 const expectedMethods = Object.freeze([
   { method: "protocol.hello", requiresRepo: false },
   { method: "daemon.status", requiresRepo: false },
+  { method: "daemon.skillEval.case.add", requiresRepo: false },
+  { method: "daemon.skillEval.cases.list", requiresRepo: false },
+  { method: "daemon.skillEval.run", requiresRepo: false },
   { method: "daemon.stop", requiresRepo: false },
   { method: "daemon.repo.bootstrap", requiresRepo: false },
   { method: "daemon.rbac.manage", requiresRepo: false },

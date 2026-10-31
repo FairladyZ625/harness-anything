@@ -105,7 +105,7 @@ import type { createEdgeJoinStore } from "./fleet/edge-join.ts";
 import { accessAdminOperations } from "./protocol/daemon-protocol.contract.ts";
 import { ManagedRbacService } from "./managed-rbac-service.ts";
 import { OidcSessionService } from "./oidc-session-service.ts";
-import type { SkillEvalCaseDraft, SkillEvalCaseView, SkillEvalRecord, SkillEvalRunner } from "./skill-eval-runner.ts";
+import type { SkillEvalCaseView, SkillEvalRecord, SkillEvalRunner } from "./skill-eval-runner.ts";
 import { openSkillEvalProduction, type SkillEvalProductionInput } from "./skill-eval-production.ts";
 import { runFleetReplicaSync, waitForFleetReplicaReady } from "./fleet/replica-sync.ts";
 export interface DaemonHostOpenInput {
