@@ -5,7 +5,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
 import { startDaemon } from "@harness-anything/daemon/internal/runtime";
-import { openPersistentWriterEpoch, readLedgerWriterEpoch } from "@harness-anything/daemon/internal/writer-epoch";
+import { openPersistentWriterEpoch, readLedgerWriterEpoch } from "@harness-anything/storage";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes, registerDaemonRepo } from "@harness-anything/kernel";
 import { serveKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
