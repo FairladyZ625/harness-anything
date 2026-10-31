@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs";
-import { connect, createServer, type Server } from "node:net";
 import { session, type App, type WebContents } from "electron";
 import {
   createLoginWebviewGrants,
@@ -7,6 +6,7 @@ import {
   resolveLoginListenerTrust,
   type LoginWebviewAttachment,
 } from "./login-webview-boundary.ts";
+import { closeLoginProxy, openLoginProxy } from "./login-webview-proxy.ts";
 
 /**
  * The Electron shell of the sign-in certificate boundary. A sign-in whose authorization URL is the
@@ -50,7 +50,7 @@ export function createLoginWebviewSecurity(): {
       // request-layer origin allowlist that keeps a cached certificate acceptance from ever being
       // exercised outside the listener origin and the loopback callback.
       const loginSession = session.fromPartition(grant.partition);
-      const proxy = trust.proxyTarget === undefined ? null : await openLoginProxy(trust.proxyTarget);
+      const proxy = trust.proxyTarget === undefined ? null : await openLoginProxy(trust.proxyTarget, trust.origin);
       try {
         if (proxy) {
           const address = proxy.address();
@@ -105,53 +105,4 @@ export function createLoginWebviewSecurity(): {
       return true;
     },
   };
-}
-/**
- * Keeps the browser origin on the center hostname while the TCP connection uses the edge's
- * loopback SSH reverse-forward. CONNECT is the only supported proxy operation and the target is
- * fixed from the signed edge configuration, so a login page cannot turn this into an open proxy.
- */
-async function openLoginProxy(targetUrl: string): Promise<Server> {
-  const target = new URL(targetUrl),
-    targetPort = Number(target.port || 443),
-    targetHost = target.hostname;
-  const proxy = createServer((client) => {
-    let header = Buffer.alloc(0);
-    const reject = () => {
-      client.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n");
-    };
-    const onData = (chunk: Buffer): void => {
-      header = Buffer.concat([header, chunk]);
-      const end = header.indexOf("\r\n\r\n");
-      if (end < 0) {
-        if (header.length > 16 * 1024) reject();
-        return;
-      }
-      client.off("data", onData);
-      const first = header.subarray(0, end).toString("latin1").split("\r\n", 1)[0] ?? "",
-        match = /^CONNECT\s+([^\s]+)\s+HTTP\/1\.[01]$/u.exec(first),
-        expected = `${targetHost}:${targetPort}`;
-      if (!match || match[1] !== expected) {
-        reject();
-        return;
-      }
-      const upstream = connect(targetPort, targetHost);
-      upstream.once("error", () => client.destroy());
-      upstream.once("connect", () => {
-        client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
-        client.pipe(upstream).pipe(client);
-      });
-    };
-    client.on("data", onData);
-  });
-  await new Promise<void>((resolve, reject) => {
-    proxy.once("error", reject);
-    proxy.listen(0, "127.0.0.1", () => resolve());
-  });
-  return proxy;
-}
-
-async function closeLoginProxy(proxy: Server | null): Promise<void> {
-  if (!proxy) return;
-  await new Promise<void>((resolve) => proxy.close(() => resolve()));
 }
