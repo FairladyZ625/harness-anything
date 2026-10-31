@@ -168,7 +168,8 @@ const relationIdentity = Object.freeze({
 // ledger; the kind rows exist so their write roads can bind <kind>/<action> instead of staying null.
 const documentIdentity = Object.freeze({
   field: "path",
-  pattern: "^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$",
+  // A document ref is a portable logical path: no empty, "." or ".." segment can be addressed.
+  pattern: "^(?!\\.{1,2}(?:/|$))[A-Za-z0-9._-]+(?:/(?!\\.{1,2}(?:/|$))[A-Za-z0-9._-]+)*$",
   refTemplate: "document/{id}" as const,
 });
 /** Repository-scoped migration state; the import event carries no single entity identity. */

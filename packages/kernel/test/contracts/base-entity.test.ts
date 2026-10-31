@@ -65,6 +65,13 @@ test("all registered kinds are referenceable relation endpoints from one type co
   assert.equal(parseEntityRef("agent/bad/id"), null);
   assert.throws(() => formatEntityRef("unknown", "id"), /no ref authority/u);
   assert.throws(() => formatEntityRef("agent", "bad/id"), /not a valid agent/u);
+  // A document identity is a portable logical path: dot segments are not addressable.
+  assert.equal(
+    formatEntityRef("document", "tasks/task_example/closeout.md"),
+    "document/tasks/task_example/closeout.md",
+  );
+  assert.throws(() => formatEntityRef("document", "../escape.md"), /not a valid document/u);
+  assert.throws(() => formatEntityRef("document", "tasks/../escape.md"), /not a valid document/u);
 });
 
 test("BaseEntity hot projection and cold rebuild retain late occurredAt at the later canonical revision", () => {
