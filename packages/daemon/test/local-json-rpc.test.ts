@@ -768,6 +768,18 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
     assert.equal(declaration?.policyAction, kind, kind);
     assert.equal(declaration?.policyTier, "contributor", kind);
   }
+  // dec_2446BC2F8C68630F71AE3E3BD7/CH4: a steer's only durable effect is a dispatch-stream record
+  // (runtime-spawn-control.ts, settled_no_write); it publishes no ledger event, so it is runtime-local
+  // while its GUI command receipt still settles as a declared no-write.
+  const steerDeclaration = actionDeclarations.find(({ kind }) => kind === "runtime-steer");
+  assert.equal(steerDeclaration?.residency.scope, "runtime-local");
+  assert.equal(steerDeclaration?.receiptSettlement, "canonical-acceptance");
+  // The incident dismissal appends one decision_action record to the dispatch stream and settles no
+  // canonical event; the preserved maintainer tier proves reclassification did not widen who may dismiss.
+  const dismissDeclaration = actionDeclarations.find(({ kind }) => kind === "runtime-incident-dismiss");
+  assert.equal(dismissDeclaration?.residency.scope, "host-local");
+  assert.equal(dismissDeclaration?.receiptSettlement, "none");
+  assert.equal(dismissDeclaration?.policyTier, "maintainer");
   // Standard GUI command receipts must carry committed acceptance. The daemon control bridge is a
   // host-local long-running operation, and terminal control acts on the runtime host; each has a
   // dedicated receipt schema rather than the canonical command receipt.
