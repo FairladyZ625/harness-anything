@@ -9,16 +9,18 @@ import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   compileTaskLifecycleWrite,
-  makeTaskEventStore,
-  makeTaskEventReader,
-  activateEmptyCanonicalGeneration,
-  openSqliteEventStore,
   reduceTaskEvent,
   REPLAY_TASK_GRAPH,
   serializePersistedCanonicalEvent,
   sha256Text,
   type TaskEventV1,
 } from "@harness-anything/kernel";
+import {
+  activateEmptyCanonicalGeneration,
+  makeTaskEventReader,
+  makeTaskEventStore,
+  openSqliteEventStore,
+} from "@harness-anything/storage";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import {
