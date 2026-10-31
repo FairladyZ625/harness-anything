@@ -776,6 +776,10 @@ test("an owner rework with no provider session falls back to a fresh worker disp
     assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
     await settleReviewerDispatch(f);
     assert.equal((await f.consent("review-missing-provider-session-approved")).outcome, "applied");
+    // End the fake provider while its no-op terminate handle is still registered. After reopen,
+    // adoption sees the test process PID as the runtime root and would inspect the whole test
+    // process tree instead of modeling a worker-owned provider process.
+    assert.equal((await f.cancel(source.payload.runtimeSessionId)).outcome, "applied");
     await f.reopen();
     const sourceStreamPath = dispatchStreamPath(f.root, source.payload.dispatchId),
       sourceStream = readFileSync(sourceStreamPath, "utf8")
