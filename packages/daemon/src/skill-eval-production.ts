@@ -125,8 +125,8 @@ const defaultPolicy: SkillEvalPolicy = {
       });
     return {
       principalId,
-      role: auth.nodePrincipal ? "operator" : "reviewer",
-      canReview: true,
+      role: auth.nodePrincipal ? "operator" : "drafter",
+      canReview: false,
     };
   },
 };

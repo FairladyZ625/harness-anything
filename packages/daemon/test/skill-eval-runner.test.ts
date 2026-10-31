@@ -128,6 +128,13 @@ test("routes the resident daemon skill-evaluation protocol through composed poli
         store: f.store,
         runtime: f.runtime,
         binding: { runtime: "admitted-test" },
+        policy: {
+          scope: (auth) => ({
+            principalId: auth.oidcPrincipal?.personId ?? "reviewer",
+            role: "reviewer",
+            canReview: true,
+          }),
+        },
       },
     });
     try {
@@ -161,6 +168,64 @@ test("routes the resident daemon skill-evaluation protocol through composed poli
       const run = await request(4, "daemon.skillEval.run", { skillId: "report", version: "1.0.0" });
       assert.equal((run as { result?: { ok?: boolean } }).result?.ok, true);
       assert.equal(f.calls.length, 3);
+      server.close();
+    } finally {
+      await host.close();
+    }
+  } finally {
+    await rm(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("keeps ordinary OIDC principals as redacted drafters under the default policy", async () => {
+  const userRoot = await mkdtemp(path.join(tmpdir(), "skill-eval-default-policy-"));
+  try {
+    const f = fixture();
+    const host = await openDaemonHost({
+      daemonId: "skill-eval-default-policy",
+      userRoot,
+      skillEval: {
+        store: f.store,
+        runtime: f.runtime,
+        binding: { runtime: "admitted-test" },
+      },
+    });
+    try {
+      const server = createJsonRpcProtocolServer({
+        host,
+        build: { commit: null },
+        authContext: { transportKind: "unix-socket" },
+        sessionPrincipal: async () => ({
+          personId: "ordinary-user",
+          subject: "subject-ordinary-user",
+          expiresAt: Date.now() + 60_000,
+          accessToken: "test-token",
+          authority: { url: "https://issuer.test", realm: "harness", clientId: "harness-center" },
+        }),
+        emit: async () => undefined,
+      });
+      const request = (id: number, method: string, params: Record<string, unknown>) =>
+        server.handle({ jsonrpc: "2.0", id, method, params });
+      const hello = await request(1, "protocol.hello", { protocolVersion: currentDaemonProtocolVersion });
+      assert.equal((hello as { result?: { ok?: boolean } }).result?.ok, true);
+      const listed = await request(2, "daemon.skillEval.cases.list", { skillId: "report" });
+      const rows = (
+        listed as { result?: { cases?: readonly { id: string; input: string | null; expect?: unknown }[] } }
+      ).result?.cases;
+      const hidden = rows?.find((row) => row.id === "hidden");
+      assert.equal(hidden?.input, null);
+      assert.equal(hidden?.expect, null);
+
+      const add = await request(3, "daemon.skillEval.case.add", {
+        skillId: "report",
+        id: "ordinary-case",
+        input: "ordinary input",
+        hidden: true,
+      });
+      assert.equal((add as { result?: { code?: string } }).result?.code, "FORBIDDEN");
+
+      const run = await request(4, "daemon.skillEval.run", { skillId: "report", version: "1.0.0" });
+      assert.equal((run as { result?: { code?: string } }).result?.code, "FORBIDDEN");
       server.close();
     } finally {
       await host.close();
