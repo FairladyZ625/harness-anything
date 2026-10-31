@@ -120,7 +120,7 @@ const defaultPolicy: SkillEvalPolicy = {
   scope: (auth) => {
     const principalId = auth.oidcPrincipal?.personId ?? auth.nodePrincipal?.personId;
     if (!principalId)
-      throw Object.assign(new Error("Sign in with Keycloak before using skill evaluation."), {
+      throw Object.assign(new Error("Sign in with the configured identity provider before using skill evaluation."), {
         code: "authentication_required",
       });
     return {

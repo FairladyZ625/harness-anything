@@ -81,13 +81,13 @@ export function readTaskActionExplanation(
       actor: binding.actor,
       authorize: ({ action, target, evaluatedAtCut }) =>
         binding.personExplanation?.decisions.get(`${target}:${action.id}`) ?? {
-          policyRef: "keycloak-policy@1",
+          policyRef: "authorization-provider@1",
           actor: binding.actor,
           subject: target,
           bindingsUsed: [],
           outcome: "denied",
           reasonCodes: ["keycloak_evaluation_missing"],
-          nextActions: ["Retry the explanation after Keycloak authorization is available."],
+          nextActions: ["Retry the explanation after authorization is available."],
           evaluatedAtCut,
         },
     }),
@@ -140,7 +140,7 @@ export function readTaskActionExplanation(
         );
       else if (entity.kind === "person") {
         // Person identity is no longer projected from people.yaml. The only local witness we can
-        // safely materialize is the daemon-authenticated Keycloak principal itself; every other
+        // safely materialize is the daemon-authenticated principal itself; every other
         // person ref must fail closed instead of inventing a profile from authored content.
         if (!binding.personExplanation?.existsIds.has(entity.id))
           subject = failure(
@@ -148,7 +148,7 @@ export function readTaskActionExplanation(
             entity.raw as EntityRef,
             "entity_not_found",
             `Person ${entity.id} was not found.`,
-            ["Confirm the Person is provisioned in Keycloak, then retry the explanation."],
+            ["Confirm the Person is provisioned with the configured identity provider, then retry the explanation."],
           );
         else {
           const entityWitness = projectBaseEntityAtCut<BaseEntity<"person">>(requireEntityTypeContract("person"), {
@@ -354,13 +354,13 @@ function missingExplanationDecision(
   evaluatedAtCut: string,
 ): AuthorizationDecision {
   return {
-    policyRef: "keycloak-policy@1",
+    policyRef: "authorization-provider@1",
     actor: binding.actor,
     subject: target,
     bindingsUsed: [],
     outcome: "denied",
     reasonCodes: ["keycloak_evaluation_missing"],
-    nextActions: ["Retry the explanation after Keycloak authorization is available."],
+    nextActions: ["Retry the explanation after authorization is available."],
     evaluatedAtCut,
   };
 }

@@ -155,8 +155,8 @@ for (const mutation of [
   {
     name: "center adapter authorization",
     file: "repo-cell-authorization",
-    before: "currentCenter.provider.authorizePerson({",
-    after: "currentCenter.provider.uncheckedPerson({",
+    before: "centerProvider!.authorizePerson({",
+    after: "centerProvider!.uncheckedPerson({",
     missing: retiredHostKinds.filter((kind) => kind !== "rbac-bootstrap"),
   },
   {

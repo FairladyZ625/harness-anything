@@ -444,7 +444,13 @@ export async function openRepoWriterCell(
   // Async work outlives its initiating RPC. Resolve the daemon's current local session at acceptance;
   // a device request must keep its own verified session and can never borrow this local one.
   const onlineBinding = async (binding: RepoCellBinding): Promise<RepoCellBinding> =>
-    input.keycloakSession ? withOnlineRuntimeSession(binding, () => input.keycloakSession!(input.rootDir)) : binding;
+    input.keycloakSession
+      ? withOnlineRuntimeSession(
+          binding,
+          () => input.keycloakSession!(input.rootDir),
+          input.keycloakCenter ? () => input.keycloakCenter!() : undefined,
+        )
+      : binding;
   const authorizeRuntimeAction = async (
     action: RepoTaskAction,
     binding: RuntimeAttemptTerminal["binding"],

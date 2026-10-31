@@ -16,7 +16,7 @@ import {
   type VerticalDefinition,
 } from "@harness-anything/kernel";
 import type { TaskDispatchRow } from "./protocol/task-dispatch-contract.ts";
-import type { RepoCell } from "./repo-cell-types.ts";
+import type { RepoCell, RepoCellBinding } from "./repo-cell-types.ts";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 import { decisionAdvisoryFromProvider, openDecisionAnnotationStore } from "./decision-annotations.ts";
 import { appendIncidentActionReceipt, readIncidentActionReceipt } from "./decision-incident-receipt.ts";
@@ -44,6 +44,7 @@ export function openDecisionPointExecutor(input: {
   readonly now: () => string;
   /** The daemon's current local operator session, the same source a manual runtime launch uses. */
   readonly keycloakSession: () => Promise<RuntimeOperatorSession>;
+  readonly keycloakCenter?: NonNullable<RepoCellBinding["keycloakAuthorization"]>["center"];
 }) {
   const annotations = openDecisionAnnotationStore(input.rootDir);
   // The single settlement path every executable disposition funnels into: the durable dispatch
@@ -70,6 +71,7 @@ export function openDecisionPointExecutor(input: {
         binding: incidentActionBinding(input.rootDir, args.dispatchId),
         dispatchId: args.dispatchId,
         keycloakSession: input.keycloakSession,
+        keycloakCenter: input.keycloakCenter,
       }),
       decidedAt = input.now(),
       reason = outcome.reason ?? args.note,
@@ -549,6 +551,7 @@ export function openDecisionPointExecutorFactory(input: {
   readonly providers: { readonly list: () => readonly DecisionProviderRecord[]; readonly port: DecisionPort };
   readonly now: () => string;
   readonly keycloakSession: (rootDir: string) => Promise<RuntimeOperatorSession>;
+  readonly keycloakCenter?: NonNullable<RepoCellBinding["keycloakAuthorization"]>["center"];
 }) {
   const executors = new Map<
     string,

@@ -252,6 +252,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     providers: { list: decisionProviders.list, port: decisionProviders.port },
     now,
     keycloakSession,
+    keycloakCenter,
   });
   const hostBinding: DaemonHostApiContext["binding"] = async (
     rootDir,

@@ -119,17 +119,17 @@
       },
       {
         "value": "packages/authorization-keycloak/tsconfig.json",
-        "ref": "dec_D90F19C8AAAF39747F8F0D6698/CH13",
+        "ref": "dec_D90F19C8AAAF39747F8F0D6698",
         "reason": "The Keycloak authorization implementation is an independently replaceable provider package."
       },
       {
         "value": "packages/authorization-keycloak-gui/tsconfig.json",
-        "ref": "dec_D90F19C8AAAF39747F8F0D6698/CH14",
+        "ref": "dec_D90F19C8AAAF39747F8F0D6698",
         "reason": "The Keycloak GUI implementation is an independently replaceable provider component package."
       },
       {
         "value": "packages/authorization-gui/tsconfig.json",
-        "ref": "dec_D90F19C8AAAF39747F8F0D6698/CH14",
+        "ref": "dec_D90F19C8AAAF39747F8F0D6698",
         "reason": "The login and access-control GUI contracts are independently replaceable provider components."
       },
       {

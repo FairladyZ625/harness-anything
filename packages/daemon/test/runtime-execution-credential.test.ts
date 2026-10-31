@@ -24,6 +24,7 @@ import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts"
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { executeRepoAction } from "../src/repo-cell-action-dispatch.ts";
 import { bindVerifiedExecutorClaim } from "../src/repo-cell-authorization.ts";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
 
 const center = {
@@ -491,13 +492,20 @@ test("the submitting worker may push and amend its current cut after a successfu
 });
 
 test("queued node executions recheck current Keycloak node ownership", async () => {
-  const realm = fakeKeycloak();
+  const realm = fakeKeycloak(),
+    centerWithProvider = {
+      ...center,
+      provider: new KeycloakPolicyAdapter(
+        { url: center.url, realm: center.realm, resourceServerClientId: center.clientId },
+        realm.fetch,
+      ),
+    };
   realm.node("edge-one", "person-worker");
   const p = { ...principal(), source: { kind: "node" as const, nodeId: "edge-one" } };
-  await issueRuntimeExecutionCredential(center, p, realm.fetch);
-  await verifyRuntimeExecutionPrincipal(center, p, realm.fetch);
+  await issueRuntimeExecutionCredential(centerWithProvider, p, realm.fetch);
+  await verifyRuntimeExecutionPrincipal(centerWithProvider, p, realm.fetch);
   realm.node("edge-one", "person-other");
-  await assert.rejects(verifyRuntimeExecutionPrincipal(center, p, realm.fetch), {
+  await assert.rejects(verifyRuntimeExecutionPrincipal(centerWithProvider, p, realm.fetch), {
     code: "execution_credential_rejected",
   });
 });

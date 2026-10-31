@@ -5,12 +5,17 @@ import {
   type ActorIdentity,
   type BasePolicyGroupId,
 } from "@harness-anything/kernel";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
 import { serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
 
 // Business suites explicitly provision people and Base groups in this test-file realm. The
 // production adapter still performs HTTP evaluation for each action/resource; no decision is
 // injected into a binding. Authority-boundary suites use their own realm and exact grants.
 const realm = await serveKeycloak(),
+  provider = new KeycloakPolicyAdapter(
+    { url: realm.url, realm: "harness", resourceServerClientId: "harness-center" },
+    realm.fetch,
+  ),
   groups = deriveBasePolicyGroups(),
   repositories = new Set<string>(),
   people = new Map<string, { token: string; groups: Set<BasePolicyGroupId> }>();
@@ -29,6 +34,7 @@ export const policyTestCenter = async () => ({
   realm: "harness",
   clientId: "harness-center",
   accessToken: "center-token",
+  provider,
 });
 
 export function withPolicyGroup<T extends { readonly actor: ActorIdentity }>(binding: T, group: BasePolicyGroupId) {
@@ -47,6 +53,7 @@ export function withPolicyGroup<T extends { readonly actor: ActorIdentity }>(bin
     ...binding,
     keycloakAuthorization: {
       session: {
+        provider,
         personId,
         accessToken: person.token,
         url: realm.url,

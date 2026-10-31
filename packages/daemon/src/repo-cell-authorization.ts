@@ -165,8 +165,13 @@ export async function evaluateKeycloakPerson(input: {
       authority: "authorization-provider",
     };
   const resourceAncestors = input.resourceAncestors ?? [];
-  const decisionProvider =
-    input.fetchPort && provider.withFetchPort ? provider.withFetchPort(input.fetchPort) : provider;
+  const fetchPort = input.fetchPort ?? fetch,
+    decisionProvider = provider.withFetchPort ? provider.withFetchPort(fetchPort) : provider,
+    centerProvider = currentCenter
+      ? currentCenter.provider.withFetchPort
+        ? currentCenter.provider.withFetchPort(fetchPort)
+        : currentCenter.provider
+      : undefined;
   if (currentCenter) {
     const userToken = session.currentAccessToken ? await session.currentAccessToken() : session.accessToken,
       valid = await decisionProvider.validateUserAccessToken(userToken, input.personId);
@@ -187,7 +192,7 @@ export async function evaluateKeycloakPerson(input: {
     });
     return { ...result, policyRef: decisionProvider.policyRef, authority: decisionProvider.authority };
   }
-  const result = await currentCenter.provider.authorizePerson({
+  const result = await centerProvider!.authorizePerson({
     adminAccessToken: currentCenter.accessToken,
     personId: input.personId,
     action: input.action,
@@ -196,8 +201,8 @@ export async function evaluateKeycloakPerson(input: {
   });
   return {
     ...result,
-    policyRef: currentCenter.provider.policyRef,
-    authority: currentCenter.provider.authority,
+    policyRef: centerProvider!.policyRef,
+    authority: centerProvider!.authority,
   };
 }
 
@@ -248,7 +253,7 @@ export function keycloakDecision(
         : [
             resource
               ? `Request policy group ${groupId} on resource ${resourceName(resource)} from an access administrator; run ha bootstrap --operation grant --person-id ${action.actor.principal.personId} --group-id ${groupId} --resource ${resourceName(resource)} --operation-id <id>.`
-              : "Sign in with Keycloak and request an applicable policy group.",
+              : "Sign in with the configured authorization provider and request an applicable policy group.",
           ],
     ),
     evaluatedAtCut,

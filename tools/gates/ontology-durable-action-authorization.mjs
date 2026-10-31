@@ -121,6 +121,7 @@ function authorizationAuthority(rootDir, analysis) {
 }
 
 function providerConstruction(expression) {
+  expression = unwrapExpression(expression);
   if (ts.isNewExpression(expression))
     return ts.isIdentifier(expression.expression) && expression.expression.text === "KeycloakPolicyAdapter";
   if (
@@ -132,7 +133,7 @@ function providerConstruction(expression) {
   // The provider is now injected by the daemon composition root. Authorization must remain
   // visible to this ontology gate when the evaluated session or center carries that provider,
   // even though the consumer no longer constructs the Keycloak implementation.
-  if (ts.isIdentifier(expression)) return ["decisionProvider", "provider"].includes(expression.text);
+  if (ts.isIdentifier(expression)) return ["centerProvider", "decisionProvider", "provider"].includes(expression.text);
   return (
     ts.isPropertyAccessExpression(expression) &&
     expression.name.text === "provider" &&

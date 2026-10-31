@@ -75,7 +75,10 @@ export function localDefaultBinding(
       : undefined;
   if (replicaPrincipal) auth = { ...auth, oidcPrincipal: undefined };
   else if (!auth.oidcPrincipal || auth.oidcPrincipal.expiresAt <= Date.now())
-    throw hostCodedError("authentication_required", "Sign in with Keycloak before performing this action.");
+    throw hostCodedError(
+      "authentication_required",
+      "Sign in with the configured identity provider before performing this action.",
+    );
   return withSessionEnvironment(
     {
       ...(auth.oidcPrincipal

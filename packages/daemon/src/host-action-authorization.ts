@@ -37,7 +37,7 @@ export async function evaluateFleetAction(input: {
       authorizationRef:
         input.binding.keycloakAuthorization?.session?.provider?.policyRef ??
         input.binding.authorizationDecision?.policyRef ??
-        "keycloak-policy@1",
+        "authorization-provider@1",
     }),
     credential = input.binding.keycloakAuthorization;
   if (!credential) {

@@ -10,7 +10,7 @@ export type RuntimeOperatorSession = Omit<
 >;
 
 /**
- * The only place a persisted local runtime binding regains its online Keycloak credential.
+ * The only place a persisted local runtime binding regains its current authorization credentials.
  * `runtimeBindingForDispatch` deliberately drops transport fences and credentials before a
  * dispatch is persisted, so every continuation that replays one must re-read the daemon's
  * current operator session first. A device-scoped binding keeps its own verified session.
@@ -18,10 +18,18 @@ export type RuntimeOperatorSession = Omit<
 export async function withOnlineRuntimeSession(
   binding: RepoCellBinding,
   readSession: () => Promise<RuntimeOperatorSession>,
+  readCenter?: NonNullable<RepoCellBinding["keycloakAuthorization"]>["center"],
 ): Promise<RepoCellBinding> {
   if (binding.source !== "local") return binding;
   const session = await readSession();
   if (session.personId !== binding.actor.principal.personId)
     throw cellCodedError("authentication_required", "The original runtime owner must sign in on this device.");
-  return { ...binding, keycloakAuthorization: { ...binding.keycloakAuthorization, session } };
+  return {
+    ...binding,
+    keycloakAuthorization: {
+      ...binding.keycloakAuthorization,
+      session,
+      ...(readCenter ? { center: readCenter } : {}),
+    },
+  };
 }

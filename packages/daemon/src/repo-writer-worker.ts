@@ -100,9 +100,15 @@ async function startRepoWriterWorker(): Promise<void> {
                     config.bootstrap.keycloakAuthorization,
                     () => asyncCapability("currentAccessToken", null) as Promise<string>,
                     (rejectedAccessToken) =>
-                      asyncCapability("keycloakCenter", rejectedAccessToken ?? null) as ReturnType<
-                        NonNullable<RepoCellOpenInput["keycloakCenter"]>
-                      >,
+                      reviveCenterCredential(
+                        asyncCapability("keycloakCenter", rejectedAccessToken ?? null) as Promise<
+                          Omit<Awaited<ReturnType<NonNullable<RepoCellOpenInput["keycloakCenter"]>>>, "provider">
+                        >,
+                        (token) =>
+                          asyncCapability("keycloakCenter", token ?? null) as Promise<
+                            Omit<Awaited<ReturnType<NonNullable<RepoCellOpenInput["keycloakCenter"]>>>, "provider">
+                          >,
+                      ),
                   )
                 : undefined,
             }
@@ -247,9 +253,15 @@ async function startRepoWriterWorker(): Promise<void> {
         request.writerEpoch,
         () => asyncCapability("currentAccessToken", request.requestId) as Promise<string>,
         (rejectedAccessToken) =>
-          asyncCapability("keycloakCenter", rejectedAccessToken ?? null) as ReturnType<
-            NonNullable<RepoCellOpenInput["keycloakCenter"]>
-          >,
+          reviveCenterCredential(
+            asyncCapability("keycloakCenter", rejectedAccessToken ?? null) as Promise<
+              Omit<Awaited<ReturnType<NonNullable<RepoCellOpenInput["keycloakCenter"]>>>, "provider">
+            >,
+            (token) =>
+              asyncCapability("keycloakCenter", token ?? null) as Promise<
+                Omit<Awaited<ReturnType<NonNullable<RepoCellOpenInput["keycloakCenter"]>>>, "provider">
+              >,
+          ),
       );
       // Reject a stale descriptor before any effect: runtime cancel terminates a process and a
       // resumed spawn launches one before their first ledger append reaches the append fence.
@@ -449,21 +461,7 @@ function reviveKeycloakAuthorization(
   currentCenter: NonNullable<RepoCellOpenInput["keycloakCenter"]>,
 ): NonNullable<RepoCellBinding["keycloakAuthorization"]> {
   const { session, center } = credential;
-  const revivedCenter = center
-    ? {
-        center: async (rejected?: string) => {
-          const data = await currentCenter(rejected);
-          return {
-            ...data,
-            provider: createAuthorizationProvider(
-              { ...data, resourceServerClientId: data.clientId },
-              undefined,
-              async (token) => (await currentCenter(token)).accessToken,
-            ),
-          };
-        },
-      }
-    : {};
+  const revivedCenter = center ? { center: currentCenter } : {};
   if (!session) return revivedCenter;
   const { currentAccessToken: required, ...data } = session;
   return {
@@ -473,6 +471,24 @@ function reviveKeycloakAuthorization(
       provider: createAuthorizationProvider({ ...data, resourceServerClientId: data.clientId }),
       ...(required ? { currentAccessToken } : {}),
     },
+  };
+}
+
+/** Recreate the provider after a capability crosses the worker boundary as plain data. */
+async function reviveCenterCredential(
+  credential: Promise<Omit<Awaited<ReturnType<NonNullable<RepoCellOpenInput["keycloakCenter"]>>>, "provider">>,
+  refresh: (
+    rejectedAccessToken?: string,
+  ) => Promise<Omit<Awaited<ReturnType<NonNullable<RepoCellOpenInput["keycloakCenter"]>>>, "provider">>,
+): Promise<Awaited<ReturnType<NonNullable<RepoCellOpenInput["keycloakCenter"]>>>> {
+  const data = await credential;
+  return {
+    ...data,
+    provider: createAuthorizationProvider(
+      { ...data, resourceServerClientId: data.clientId },
+      undefined,
+      async (token) => (await refresh(token)).accessToken,
+    ),
   };
 }
 

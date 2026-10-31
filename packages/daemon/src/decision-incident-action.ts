@@ -295,6 +295,8 @@ export async function executeIncidentAction(input: {
   readonly dispatchId: string;
   /** The same daemon-local session source a manual runtime launch resolves at acceptance. */
   readonly keycloakSession: () => Promise<RuntimeOperatorSession>;
+  /** Current provider authority used to recheck the resumed runtime's permissions. */
+  readonly keycloakCenter?: NonNullable<RepoCellBinding["keycloakAuthorization"]>["center"];
 }): Promise<IncidentActionOutcome> {
   if (input.plan.action === "no_action")
     return { action: "no_action", attention: null, status: "applied", reason: null, successorDispatchId: null };
@@ -315,7 +317,7 @@ export async function executeIncidentAction(input: {
       successorDispatchId: null,
     };
   try {
-    const binding = await withOnlineRuntimeSession(input.binding, input.keycloakSession),
+    const binding = await withOnlineRuntimeSession(input.binding, input.keycloakSession, input.keycloakCenter),
       receipt = await input.cell.spawnRuntime(input.plan.payload, binding),
       successorDispatchId = typeof receipt.dispatchId === "string" ? receipt.dispatchId : null;
     if (!successorDispatchId) throw new Error("the spawn receipt names no successor dispatch.");
