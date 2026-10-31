@@ -43,6 +43,20 @@ test(
     assert.deepEqual(readFleetEdgeConfig(e.edgeRoot), connection);
     assert.equal(statSync(configFile).mode & 0o777, 0o600, "the file carries the machine credential");
 
+    writeFleetEdgeConfig(e.edgeRoot, {
+      ...connection,
+      loginUrl: f.owners.url,
+      loginBrowserUrl: f.owners.url,
+      humanClientId: "harness-gui",
+    });
+    f.owners.keycloak.interactiveSession(
+      "person-one",
+      "node-one",
+      f.owners.url,
+      "device-token-node-one",
+      "harness-gui",
+    );
+
     // A changed connection is rewritten and the stream restarts on it; sync waits on the new stream.
     assert.equal(
       (await f.command("center-node", { kind: "task-create", taskId: "synced-1", title: "Synced 1" })).outcome,
@@ -51,7 +65,19 @@ test(
     const changed = { ...connection, quotaBytes: connection.quotaBytes * 2 };
     const second = await edgeSync(changed);
     assert.equal(second.ok, true, JSON.stringify(second));
-    assert.deepEqual(readFleetEdgeConfig(e.edgeRoot), changed);
+    const persisted = readFleetEdgeConfig(e.edgeRoot)!;
+    const {
+      loginUrl: _loginUrl,
+      loginServername: _loginServername,
+      loginBrowserUrl: _loginBrowserUrl,
+      loginCertificate: _loginCertificate,
+      humanClientId: _humanClientId,
+      ...persistedConnection
+    } = persisted;
+    assert.deepEqual(persistedConnection, changed);
+    assert.equal(persisted?.loginUrl, f.owners.url);
+    assert.equal(persisted?.loginBrowserUrl, f.owners.url);
+    assert.equal(persisted?.humanClientId, "harness-gui");
     const listed = await e.command({ kind: "task-list" });
     const rows = listed.rows as Array<{ readonly taskId?: string }>;
     assert.deepEqual(

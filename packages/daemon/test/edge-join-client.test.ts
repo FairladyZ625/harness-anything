@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createEdgeJoinProgressTap, joinFleetEdge, type EdgeJoinClientPorts } from "../src/fleet/edge-join-client.ts";
+import { readFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
 import { createEdgeJoinStore, encodeEdgeJoinLink } from "../src/fleet/edge-join.ts";
 
 test("one invitation creates and syncs an independent workspace for every repository", async (t) => {
@@ -228,6 +229,87 @@ test("one invitation creates and syncs an independent workspace for every reposi
       return true;
     },
   );
+});
+
+test("ssh-reverse writes the login authority before the first sync", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-edge-join-login-before-sync-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const certFile = path.join(root, "center.pem");
+  execFileSync(
+    "openssl",
+    [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      path.join(root, "center.key"),
+      "-out",
+      certFile,
+      "-subj",
+      "/CN=center.example",
+      "-days",
+      "1",
+    ],
+    { stdio: "ignore" },
+  );
+  const invite = createEdgeJoinStore({ randomToken: () => "pre-sync-token" }).create({
+      centerOrigin: "https://127.0.0.1:8443",
+      transport: "ssh-reverse",
+      centerServername: "center.example",
+      repoIds: ["repo-a"],
+      personId: "person-edge",
+      permissionSnapshot: [],
+      spkiSha256: "a".repeat(64),
+      loginUrl: "https://127.0.0.1:9443",
+      loginServername: "login.example",
+      loginBrowserUrl: "https://login.example",
+      loginRealm: "harness",
+      loginClientId: "harness-gui",
+      createdBy: "person-admin",
+      ttlMs: 60_000,
+    }),
+    workspaceRoot = path.join(root, "workspace");
+  let configAtSync: ReturnType<typeof readFleetEdgeConfig>;
+  const result = await joinFleetEdge(
+    { link: encodeEdgeJoinLink(invite.link), workspaceRoot },
+    {
+      probeCenter: async () => undefined,
+      probeLogin: async () => undefined,
+      session: async () => ({
+        accessToken: "person-access-token",
+        authority: {
+          url: "https://127.0.0.1:9443",
+          realm: "harness",
+          servername: "login.example",
+          browserUrl: "https://login.example",
+        },
+      }),
+      beginLogin: async () => assert.fail("the matching session must be reused"),
+      register: async () => undefined,
+      sync: async (payload) => {
+        configAtSync = readFleetEdgeConfig(String(payload.workspaceRoot));
+        return { ok: true };
+      },
+      join: async () => ({
+        schema: "fleet.edge.join.result/v1",
+        messageId: "result",
+        inReplyTo: "request",
+        joinId: invite.record.joinId,
+        nodeId: "edge-node",
+        personId: "person-edge",
+        credential: "machine-credential",
+        repositories: [{ repoId: "repo-a", harnessYaml: "schema: harness-anything/v1\nname: A\n" }],
+        certificate: readFileSync(certFile).toString("base64"),
+      }),
+      homeDir: root,
+      availableBytes: () => 10 * 1024 * 1024 * 1024,
+    },
+  );
+  assert.equal(result.ok, true);
+  assert.equal(configAtSync?.loginUrl, "https://127.0.0.1:9443");
+  assert.equal(configAtSync?.humanClientId, "harness-gui");
 });
 
 test("both external addresses are probed before login, and each failure names its address", async () => {

@@ -306,6 +306,10 @@ function persistEdgeConnection(request: FleetEdgeSyncRequest["payload"]): void {
       : previous?.humanClientId
         ? { humanClientId: previous.humanClientId }
         : {}),
+    ...(previous?.loginUrl ? { loginUrl: previous.loginUrl } : {}),
+    ...(previous?.loginServername ? { loginServername: previous.loginServername } : {}),
+    ...(previous?.loginBrowserUrl ? { loginBrowserUrl: previous.loginBrowserUrl } : {}),
+    ...(previous?.loginCertificate ? { loginCertificate: previous.loginCertificate } : {}),
     viewRoot: request.viewRoot,
     quotaBytes: request.quotaBytes,
     ...(previous?.waitTimeoutMs !== undefined ? { waitTimeoutMs: previous.waitTimeoutMs } : {}),

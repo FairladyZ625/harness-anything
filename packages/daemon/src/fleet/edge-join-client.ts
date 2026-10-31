@@ -179,10 +179,27 @@ export async function joinFleetEdge(
     writeFileDurably(caPath, certificate);
     report("register");
     await ports.register(root, repository.repoId);
-    report("sync");
     const quotaBytes =
       request.quotaBytes ??
       deriveEdgeJoinQuotaBytes(root, ports.availableBytes ?? ((directory) => availableFilesystemBytes(directory)));
+    if (link.transport === "ssh-reverse")
+      writeFleetEdgeConfig(root, {
+        repoId: repository.repoId,
+        host: center.hostname,
+        port,
+        servername: centerServername,
+        caPath,
+        nodeId: admitted.nodeId,
+        credential: admitted.credential,
+        humanClientId: authority.clientId,
+        loginUrl: authority.url,
+        ...(authority.servername ? { loginServername: authority.servername } : {}),
+        ...(authority.browserUrl ? { loginBrowserUrl: authority.browserUrl } : {}),
+        ...(authority.certificate ? { loginCertificate: authority.certificate } : {}),
+        viewRoot: `${root}-view`,
+        quotaBytes,
+      });
+    report("sync");
     const synced = await ports.sync({
       repoId: repository.repoId,
       workspaceRoot: root,

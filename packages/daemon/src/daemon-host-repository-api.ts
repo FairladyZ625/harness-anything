@@ -57,6 +57,7 @@ import {
   validateBackupDestination,
   validateRepoAllPurge,
 } from "./repo-all-purge.ts";
+import { removeFileDurably } from "./durable-file.ts";
 
 function isRepoCellReadMethod(method: DaemonGuiRpcReadMethod): method is RepoCellReadMethod {
   return (
@@ -594,6 +595,10 @@ export function createDaemonHostRepositoryApi(
         userRoot: context.input.userRoot,
         createConvenienceLinks: false,
       });
+      if (rootDir) {
+        const fleetEdgeFile = path.join(rootDir, "fleet-edge.json");
+        if (existsSync(fleetEdgeFile)) removeFileDurably(fleetEdgeFile);
+      }
       const repo = context.publicRegistryRepo(result.repo);
       if (purging) {
         const removed = purgingAll ? removeRepoHarnessData(rootDir!) : purgeRepoCache(rootDir!);

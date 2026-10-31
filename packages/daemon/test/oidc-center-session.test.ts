@@ -6,6 +6,8 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
 import { OidcSessionService, type OidcLoginAuthority } from "../src/oidc-session-service.ts";
+import { oidcCenterSelections } from "../src/oidc-center-selection.ts";
+import { writeFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
 
 interface FixtureOptions {
   readonly tokenIssuer?: string;
@@ -103,6 +105,29 @@ test("a token issued by another center is rejected without writing a center sess
     code: "oidc_issuer_mismatch",
   });
   assert.equal(managedRbacSessionStore(active.userRoot, active.edgeIssuer, "harness").read(), undefined);
+});
+
+test("changing edge quota does not select a different OIDC center", (t) => {
+  const active = fixture(t),
+    selection = oidcCenterSelections(active.userRoot),
+    authority = { url: "https://login.example", realm: "harness", clientId: "harness-gui" },
+    edgeConfig = {
+      repoId: "edge-repo",
+      host: "center",
+      port: 7443,
+      caPath: "/tmp/center-ca.pem",
+      nodeId: "edge-node",
+      credential: "machine-credential",
+      viewRoot: "/tmp/view",
+      quotaBytes: 100,
+      loginUrl: authority.url,
+    };
+  writeFleetEdgeConfig(active.edgeRoot, edgeConfig);
+  selection.write(active.edgeRoot, { issuer: active.edgeIssuer, authority }, true);
+  writeFleetEdgeConfig(active.edgeRoot, { ...edgeConfig, quotaBytes: 200 });
+  assert.deepEqual(selection.read(active.edgeRoot), { issuer: active.edgeIssuer, authority });
+  writeFleetEdgeConfig(active.edgeRoot, { ...edgeConfig, loginUrl: "https://other-center.example" });
+  assert.equal(selection.read(active.edgeRoot), undefined, "changing the login authority selects a new center");
 });
 
 test("an old single-session file is deleted and does not block the first center login", async (t) => {
