@@ -2,7 +2,8 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
-import { makeTaskEventReader } from "@harness-anything/kernel";
+import { makeTaskEventReader } from "@harness-anything/storage";
+
 import { listenFleetTls } from "../src/fleet/center.ts";
 import { runFleetRuntimeEventClient } from "../src/fleet/peer.ts";
 import { fleetFixture } from "./fleet-runtime-recovery.fixtures.ts";

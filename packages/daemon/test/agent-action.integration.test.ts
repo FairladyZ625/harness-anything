@@ -9,12 +9,11 @@ import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import {
   activateEmptyCanonicalGeneration,
-  compileEntityUpsert,
   makeTaskEventReader,
   openSqliteEventStore,
-  sha256Bytes,
   openEntityStore,
-} from "@harness-anything/kernel";
+} from "@harness-anything/storage";
+import { compileEntityUpsert, sha256Bytes } from "@harness-anything/kernel";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";

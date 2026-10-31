@@ -5,7 +5,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after, before } from "node:test";
-import { makeTaskEventReader } from "@harness-anything/kernel";
+import { makeTaskEventReader } from "@harness-anything/storage";
+
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
 import { canonicalRoot, workspaceId, type DaemonAgendaResult } from "../src/protocol/daemon-protocol.contract.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";

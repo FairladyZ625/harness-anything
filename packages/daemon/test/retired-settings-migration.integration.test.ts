@@ -1,12 +1,9 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  applyAttachMigrations,
-  normalizeHistoricalVerticalDocument,
-  type CanonicalEventStore,
-} from "@harness-anything/kernel";
-import type { PersistedCanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync-types";
+import { applyAttachMigrations } from "@harness-anything/storage";
+import { normalizeHistoricalVerticalDocument, type CanonicalEventStore } from "@harness-anything/kernel";
+import type { PersistedCanonicalEventV1 } from "@harness-anything/kernel";
 
 function event(schema: string, payload: unknown, opId: string): PersistedCanonicalEventV1 {
   return {

@@ -8,11 +8,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { makeTaskEventReader, makeTaskEventStore } from "@harness-anything/storage";
 import {
   decideDocWrite,
   docSyncWritePlan,
-  makeTaskEventReader,
-  makeTaskEventStore,
   OPAQUE_TEXTUAL_POLICY_ID,
   parseDocWriteIntent,
   RAW_ARTIFACT_MEDIA_TYPE,

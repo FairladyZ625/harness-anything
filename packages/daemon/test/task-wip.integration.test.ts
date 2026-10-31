@@ -6,10 +6,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { makeTaskEventStore } from "@harness-anything/storage";
 import {
   MIGRATION_DOCUMENT_POLICY_ID,
   MIGRATION_IMPORT_SOURCE,
-  makeTaskEventStore,
   migrationImportWritePlan,
   sha256Text,
   type ActorIdentity,

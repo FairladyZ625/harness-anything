@@ -6,7 +6,8 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
+import { makeTaskEventStore } from "@harness-anything/storage";
+import { type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import {
   openRuntimeInstanceStore,
   type RuntimeInstallationWitness,

@@ -9,13 +9,11 @@ import path from "node:path";
 import test from "node:test";
 import {
   createImmutableLegacyGenerationSnapshot,
-  bindWriterGenerationToken,
   legacyGenerationSnapshotPath,
   makeTaskEventReader,
   openSqliteEventStore,
-  serializePersistedCanonicalEvent,
-  sha256Text,
-} from "@harness-anything/kernel";
+} from "@harness-anything/storage";
+import { bindWriterGenerationToken, serializePersistedCanonicalEvent, sha256Text } from "@harness-anything/kernel";
 import {
   contentClaims,
   preflightConvertedGenerationActivation,

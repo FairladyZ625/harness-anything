@@ -5,7 +5,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/kernel";
+import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
+
 import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";

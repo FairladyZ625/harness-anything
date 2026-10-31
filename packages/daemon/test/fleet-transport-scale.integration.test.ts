@@ -7,7 +7,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { fleetHostWriterOptions, fleetLedgerRevision, fleetNodeOwners } from "./fleet-store.fixture.ts";
-import { openSqliteEventStore } from "@harness-anything/kernel";
+import { openSqliteEventStore } from "@harness-anything/storage";
+
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
 import { openRepoCell } from "../src/repo-cell.ts";

@@ -5,7 +5,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader, type CompletionNext } from "@harness-anything/kernel";
+import { makeTaskEventReader } from "@harness-anything/storage";
+import { type CompletionNext } from "@harness-anything/kernel";
 import {
   acceptedWorkDecision,
   openBootstrappedRepoCell as openRepoCell,

@@ -7,10 +7,9 @@ import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
 import {
   eventObjectTarget,
-  makeTaskEventStore,
-  makeTaskProjection,
   type AgentDefinitionSnapshot,
   type AgentRuntimeEventV1,
   type FrozenWritePlan,

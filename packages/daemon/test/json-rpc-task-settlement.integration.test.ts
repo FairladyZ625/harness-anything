@@ -8,17 +8,15 @@ import path from "node:path";
 import test from "node:test";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { openPersistentWriterEpoch } from "@harness-anything/storage";
 import {
-  canonicalEventWritePlan,
+  openPersistentWriterEpoch,
   makeTaskEventReader,
   makeTaskEventStore,
   makeTaskProjection,
   activateEmptyCanonicalGeneration,
-  type AgentRuntimeEventV1,
-  type FrozenWritePlan,
-} from "@harness-anything/kernel";
-import { WRITE_RECEIPT_SCHEMA } from "@harness-anything/kernel/internal/domain/receipt-domain-registry";
+} from "@harness-anything/storage";
+import { canonicalEventWritePlan, type AgentRuntimeEventV1, type FrozenWritePlan } from "@harness-anything/kernel";
+import { WRITE_RECEIPT_SCHEMA } from "@harness-anything/kernel";
 import { validateWriteReceipt } from "../../kernel/test/contracts/receipt-acceptance.fixtures.ts";
 import {
   canonicalRoot,

@@ -4,11 +4,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import {
-  makeTaskEventReader,
-  type AgentDefinitionSnapshot,
-  type RuntimeInstallationWitness,
-} from "@harness-anything/kernel";
+import { makeTaskEventReader } from "@harness-anything/storage";
+import { type AgentDefinitionSnapshot, type RuntimeInstallationWitness } from "@harness-anything/kernel";
 import type { RuntimeInstanceSummary } from "../src/agent-runtime-instances.ts";
 import { requireExecutionRequestScope } from "../src/runtime-execution-scope.ts";
 import { CAUSAL_CONTEXT_MAX_BYTES } from "../src/dispatch-causal-context.ts";

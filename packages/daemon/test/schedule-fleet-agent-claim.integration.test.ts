@@ -6,7 +6,8 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { registerDaemonRepo } from "@harness-anything/kernel";
+import { registerDaemonRepo } from "@harness-anything/storage";
+
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
 import { listenFleetTls } from "../src/fleet/center.ts";

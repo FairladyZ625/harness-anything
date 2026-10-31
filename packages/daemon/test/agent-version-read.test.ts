@@ -4,13 +4,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import {
-  compileAgentRetired,
-  makeTaskEventStore,
-  makeTaskProjection,
-  openEntityStore,
-  sha256Text,
-} from "@harness-anything/kernel";
+import { makeTaskEventStore, makeTaskProjection, openEntityStore } from "@harness-anything/storage";
+import { compileAgentRetired, sha256Text } from "@harness-anything/kernel";
 import { prepareAgentEntityInstall } from "../src/agent-entities.ts";
 import {
   diffAgentDeclarations,

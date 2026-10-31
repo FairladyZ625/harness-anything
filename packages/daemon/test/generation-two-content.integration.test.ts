@@ -12,7 +12,8 @@ import {
   openSqliteEventStore,
   sha256Bytes,
 } from "../../storage/test/store/canonical-generation.fixtures.ts";
-import { makeTaskEventReader, serializePersistedCanonicalEvent, sha256Text } from "@harness-anything/kernel";
+import { makeTaskEventReader } from "@harness-anything/storage";
+import { serializePersistedCanonicalEvent, sha256Text } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";

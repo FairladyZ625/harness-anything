@@ -1,13 +1,13 @@
 // harness-test-tier: integration
+import { sha256Bytes } from "@harness-anything/kernel";
+import { DatabaseSync } from "node:sqlite";
 import {
   activateEmptyCanonicalGeneration,
   makeTaskProjection,
   openSqliteEventStore,
-  sha256Bytes,
   sqliteLedgerPath,
-} from "@harness-anything/kernel";
-import { DatabaseSync } from "node:sqlite";
-import { startBaseBackup } from "@harness-anything/storage";
+  startBaseBackup,
+} from "@harness-anything/storage";
 import { installReplicaGeneration, readReplicaGeneration } from "../src/fleet/replica-generation.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";

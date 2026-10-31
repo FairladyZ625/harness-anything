@@ -7,14 +7,16 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
-  DOC_POLICY_ID,
-  MIGRATION_DOCUMENT_POLICY_ID,
   activateEmptyCanonicalGeneration,
-  classifyTextualArtifactPath,
-  compileTaskLifecycleWrite,
   makeTaskEventReader,
   makeTaskEventStore,
   makeTaskProjection,
+} from "@harness-anything/storage";
+import {
+  DOC_POLICY_ID,
+  MIGRATION_DOCUMENT_POLICY_ID,
+  classifyTextualArtifactPath,
+  compileTaskLifecycleWrite,
   reduceTaskEvent,
   serializeCanonicalEvent,
   sha256Text,
