@@ -12,7 +12,7 @@ import { validateCertificateNames } from "../src/tls-listener-admission.ts";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
 
 test("managed RBAC pins supported platform artifacts and published checksums", () => {
-  for (const platform of ["darwin-arm64", "darwin-x64", "linux-x64"] as const) {
+  for (const platform of ["darwin-arm64", "darwin-x64", "linux-x64", "win32-x64", "win32-arm64"] as const) {
     const artifacts = artifactManifest(platform);
     assert.deepEqual(
       artifacts.map(({ name }) => name),
@@ -24,6 +24,11 @@ test("managed RBAC pins supported platform artifacts and published checksums", (
     );
     assert.match(artifacts[0]?.url ?? "", new RegExp(managedRbacVersions.keycloak.replaceAll(".", "\\."), "u"));
     assert.match(artifacts[2]?.url ?? "", new RegExp(managedRbacVersions.postgres.replaceAll(".", "\\."), "u"));
+    if (platform.startsWith("win32-")) {
+      assert.match(artifacts[0]?.url ?? "", /keycloak-26\.7\.3\.zip$/u);
+      assert.match(artifacts[1]?.url ?? "", /\/windows\/x64\//u);
+      assert.match(artifacts[2]?.url ?? "", /embedded-postgres-binaries-windows-amd64/u);
+    }
   }
 });
 
@@ -254,6 +259,7 @@ const keycloakArgsWithoutListener = [
 function managedFixture(
   startsUnder: (env: NodeJS.ProcessEnv) => boolean = () => true,
   fetchPort: typeof fetch = (() => Promise.resolve(new Response("{}", { status: 200 }))) as typeof fetch,
+  platform: "darwin" | "win32" = "darwin",
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-rbac-listener-")),
     configFile = path.join(root, "rbac", "config.json"),
@@ -261,7 +267,10 @@ function managedFixture(
     certificateKeyFile = path.join(root, "center.key"),
     launches: { name: string; args: readonly string[]; env: NodeJS.ProcessEnv }[] = [];
   mkdirSync(path.join(root, "rbac", "runtime", "postgres", "bin"), { recursive: true });
-  writeFileSync(path.join(root, "rbac", "runtime", "postgres", "bin", "postgres"), "");
+  writeFileSync(
+    path.join(root, "rbac", "runtime", "postgres", "bin", platform === "win32" ? "postgres.exe" : "postgres"),
+    "",
+  );
   execFileSync(
     "openssl",
     [
@@ -303,6 +312,8 @@ function managedFixture(
   );
   const service = new ManagedRbacService(root, {
     fetch: fetchPort,
+    platform,
+    arch: platform === "win32" ? "x64" : "arm64",
     spawn: ((command: string, args: readonly string[], options: { env: NodeJS.ProcessEnv }) => {
       const name = path.basename(command),
         child = Object.assign(new EventEmitter(), {
@@ -311,7 +322,7 @@ function managedFixture(
         });
       launches.push({ name, args, env: options.env });
       setImmediate(() =>
-        name === "postgres"
+        name.startsWith("postgres")
           ? child.stdout.emit("data", "database system is ready to accept connections")
           : startsUnder(options.env)
             ? child.stdout.emit("data", "Keycloak 26 started in 1s")
@@ -327,8 +338,15 @@ function managedFixture(
     certificateKeyFile,
     configText: () => readFileSync(configFile, "utf8"),
     config: () => JSON.parse(readFileSync(configFile, "utf8")),
-    keycloakLaunches: () => launches.filter(({ name }) => name === "kc.sh"),
-    postgresLaunches: () => launches.filter(({ name }) => name === "postgres"),
+    keycloakLaunches: () =>
+      launches.filter(
+        ({ name, args }) =>
+          name === "kc.sh" ||
+          name === "kc.bat" ||
+          name === "powershell.exe" ||
+          args.some((arg) => /kc\.bat/u.test(arg)),
+      ),
+    postgresLaunches: () => launches.filter(({ name }) => name.startsWith("postgres")),
     version: async () => String((await service.run({ operation: "listener" })).version),
     close: async () => {
       await service.stop();
@@ -372,6 +390,19 @@ test("managed RBAC resume surfaces an unclassified realm health failure immediat
   try {
     await assert.rejects(managed.service.resume(), (error) => error === failure);
     assert.equal(healthAttempts, 1, "unknown failures are not treated as startup transport transients");
+  } finally {
+    await managed.close();
+  }
+});
+
+test("Windows managed services use native executable and batch entrypoints", async () => {
+  const managed = managedFixture(() => true, undefined, "win32");
+  try {
+    await managed.service.start();
+    assert.equal(managed.postgresLaunches()[0]?.name, "postgres.exe");
+    assert.equal(managed.keycloakLaunches()[0]?.name, "powershell.exe");
+    assert.equal(managed.keycloakLaunches()[0]?.args[3], "-EncodedCommand");
+    assert.match(managed.keycloakLaunches()[0]?.args[4] ?? "", /^[A-Za-z0-9+/=]+$/u);
   } finally {
     await managed.close();
   }
