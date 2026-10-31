@@ -79,6 +79,7 @@ export function SessionsPanel({
   onNavigateEntity,
   cacheTtl,
   needsYou,
+  remoteEdge = false,
 }: {
   readonly repoId: string;
   readonly runtimeSessionId: string;
@@ -101,6 +102,7 @@ export function SessionsPanel({
   readonly onNavigateEntity: (ref: string) => void;
   readonly cacheTtl?: PromptCacheTtlState | null;
   readonly needsYou?: boolean;
+  readonly remoteEdge?: boolean;
 }) {
   const [session, setSession] = useState<AgentRuntimeSessionDto | null>(null),
     [result, setResult] = useState<string | null>(null),
@@ -123,9 +125,14 @@ export function SessionsPanel({
       setError(cause instanceof Error ? cause.message : String(cause));
     }
   }, [repoId, runtimeSessionId]);
+  const edgeRuntimeUnavailable = remoteEdge && snapshotError?.includes("runtime_session_not_found") === true;
   return (
     <>
-      {error ? (
+      {edgeRuntimeUnavailable ? (
+        <p data-testid="session-detail-edge-unavailable" role="status" className="ui-micro text-text-muted">
+          {t("agentRuntime.edgeRuntimeDetailsUnavailable")}
+        </p>
+      ) : error ? (
         <p role="alert" className="ui-micro text-status-blocked">
           {error}
         </p>

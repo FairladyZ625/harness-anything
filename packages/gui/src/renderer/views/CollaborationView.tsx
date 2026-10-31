@@ -42,11 +42,12 @@ export function CollaborationView({
   readonly onNavigateEntity: (ref: string) => void;
   readonly now?: string;
 }) {
-  const nodes = overview?.nodes ?? [];
+  const shownOverview = mode === "remote-edge" ? null : overview,
+    nodes = shownOverview?.nodes ?? [];
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [eventNode, setEventNode] = useState("all");
   const selected = selectedNode === null ? null : (nodes.find((node) => node.nodeId === selectedNode) ?? null);
-  const events = overview?.events ?? [];
+  const events = shownOverview?.events ?? [];
   const visibleEvents = eventNode === "all" ? events : events.filter((event) => event.nodeId === eventNode);
   const executing = nodes.reduce(
     (total, node) =>
@@ -91,7 +92,16 @@ export function CollaborationView({
             {t("collaboration.centerNotice")}
           </p>
         ) : null}
-        {overviewError !== null ? (
+        {mode === "remote-edge" ? (
+          <p
+            data-testid="collaboration-center-required"
+            role="status"
+            className="border-l-2 border-status-active pl-3 ui-meta text-text-muted"
+          >
+            {t("collaboration.centerRequired")}
+          </p>
+        ) : null}
+        {shownOverview !== null && overviewError !== null ? (
           <p
             data-testid="collaboration-read-error"
             data-reason={READ_ERROR_LABELS[overviewError] === undefined ? undefined : overviewError}
@@ -104,9 +114,9 @@ export function CollaborationView({
             })}
           </p>
         ) : null}
-        {overviewLoading && overview === null ? (
+        {overviewLoading && shownOverview === null && mode !== "remote-edge" ? (
           <Empty>{t("collaboration.loading")}</Empty>
-        ) : overview === null ? null : nodes.length === 0 ? (
+        ) : shownOverview === null ? null : nodes.length === 0 ? (
           <Empty>{t("collaboration.empty")}</Empty>
         ) : (
           <>
@@ -122,9 +132,9 @@ export function CollaborationView({
               <div style={{ height: "max(420px, 68vh)" }} className="fleet-canvas-clip">
                 <FleetTopology
                   nodes={nodes}
-                  links={overview.links}
-                  center={overview.center}
-                  centerRevision={overview.centerRevision}
+                  links={shownOverview.links}
+                  center={shownOverview.center}
+                  centerRevision={shownOverview.centerRevision}
                   selectedNode={selectedNode}
                   onSelectNode={(nodeId) => setSelectedNode((current) => (current === nodeId ? null : nodeId))}
                   flashNodes={flashNodes}
@@ -169,9 +179,9 @@ export function CollaborationView({
                 ) : null}
               </div>
             </Section>
-            {overview.warnings.length > 0 ? (
+            {shownOverview.warnings.length > 0 ? (
               <p className="ui-micro text-text-faint" data-testid="collaboration-warnings">
-                {overview.warnings.map((warning, index) => (
+                {shownOverview.warnings.map((warning, index) => (
                   <Fragment key={warning}>
                     {index > 0 ? " · " : null}
                     <span title={warning}>{warningLabel(warning)}</span>
@@ -191,7 +201,7 @@ export function CollaborationView({
         {selected === null ? null : (
           <NodeDetails
             node={selected}
-            overview={overview!}
+            overview={shownOverview!}
             now={now}
             onOpenTask={onOpenTask}
             onNavigateEntity={onNavigateEntity}

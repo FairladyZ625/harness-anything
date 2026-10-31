@@ -20,6 +20,7 @@
   "agentRuntime.idle": "idle",
   "agentRuntime.loading": "Loading…",
   "agentRuntime.readFailed": "Agent Runtime read failed: {error}",
+  "agentRuntime.edgeRuntimeDetailsUnavailable": "The session list comes from center dispatch records; runtime details are not replicated to this edge.",
   "agentRuntime.notFound": "That entry no longer exists.",
   "agentRuntime.feedbackApplied": "{label} · {id}",
   "agentRuntime.feedbackFailed": "{label} failed: {error}",

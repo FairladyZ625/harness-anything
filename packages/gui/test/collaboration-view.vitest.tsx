@@ -309,7 +309,7 @@ describe("舰队拓扑视觉重做(task_16c20131)", () => {
 function renderView(
   overrides: {
     data?: FleetOverviewRead | null;
-    mode?: "local" | "remote-center";
+    mode?: "local" | "remote-center" | "remote-edge";
     error?: string | null;
     loading?: boolean;
   } = {},
@@ -408,6 +408,15 @@ describe("协作页舰队拓扑契约", () => {
     expect(failed.host.querySelector('[data-testid="collaboration-read-error"]')!.textContent).toContain(
       "repo_unavailable",
     );
+  });
+
+  it("边缘节点把中心专属拓扑显示为明确的连接中心状态", () => {
+    const edge = renderView({ mode: "remote-edge", data: overview(), error: "replica_unavailable" });
+    expect(edge.host.querySelector('[data-testid="collaboration-center-required"]')?.textContent).toContain(
+      "需连接中心",
+    );
+    expect(edge.host.querySelector('[data-testid="collaboration-topology"]')).toBeNull();
+    expect(edge.host.querySelector('[data-testid="collaboration-read-error"]')).toBeNull();
   });
 
   it("授权类读拒绝显示人话原因,机器码只进 data-reason/title;未识别码原样保留", () => {

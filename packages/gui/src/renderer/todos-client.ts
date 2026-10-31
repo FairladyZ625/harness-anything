@@ -20,6 +20,7 @@ function result(value: unknown) {
   const receipt = readGuiActionResult(value) as ReturnType<typeof readGuiActionResult> & {
     readonly evidence?: string;
     readonly error?: { readonly code?: string; readonly hint?: string };
+    readonly rejectionExplanation?: string;
   };
   if (
     !receipt.ok ||
@@ -28,7 +29,7 @@ function result(value: unknown) {
     receipt.outcome === "pending"
   )
     throw new Error(
-      `${receipt.error?.code ?? receipt.outcome}: ${receipt.error?.hint ?? "Todo request did not complete."}`,
+      `${receipt.error?.code ?? receipt.outcome}: ${receipt.error?.hint ?? receipt.rejectionExplanation ?? "Todo request did not complete."}`,
     );
   return receipt;
 }

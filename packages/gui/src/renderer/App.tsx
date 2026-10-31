@@ -242,7 +242,10 @@ function AppShell() {
   useProjectWindowTitle(activeRepo?.displayName ?? null);
   // 协作页舰队拓扑(task_8ce646d94):repo.fleet.overview.read 一条 typed read,挂统一
   // 节奏常量自持轮询(见 collaboration-data.ts:半数事实是 daemon 级状态,cut 覆盖不到)。
-  const fleetOverview = useFleetOverview(activeRepoId, view === "collaboration");
+  const fleetOverview = useFleetOverview(
+    activeRepoId,
+    view === "collaboration" && activeRepo !== undefined && activeRepo?.mode !== "remote-edge",
+  );
   const project = adaptRepoProject(
     projectId,
     activeRepo,
@@ -953,6 +956,7 @@ function AppShell() {
               ) : view === "sessions" ? (
                 <SessionsView
                   repoId={projectId}
+                  remoteEdge={activeRepo?.mode === "remote-edge"}
                   relations={edgeRelations}
                   works={works}
                   focusedEntityRef={focusedEntityRef}

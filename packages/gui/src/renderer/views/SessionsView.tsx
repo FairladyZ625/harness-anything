@@ -100,6 +100,7 @@ export interface SessionsViewProps {
   readonly onBack: () => void;
   /** App 层常驻的工作索引(dec_5F7E74F1):「工作」层只归桶,不另起读。 */
   readonly works?: WorkIndex;
+  readonly remoteEdge?: boolean;
 }
 
 /** 页头插槽:计数结论与主动作由工作区实况派生,页面/面板各自决定要不要装。 */
@@ -121,6 +122,7 @@ export function SessionsView({
   onOpenTaskDoc,
   onBack,
   works = NO_WORKS,
+  remoteEdge = false,
   renderHeader = renderSessionsPageHeader,
 }: SessionsViewProps & {
   /** 页面组合的页头渲染;工作台面板传空渲染(面板标签即标题)。 */
@@ -966,6 +968,7 @@ export function SessionsView({
                         : String(selectedSession.error)
                       : null
                   }
+                  remoteEdge={remoteEdge}
                   row={detailRow}
                   squadNames={squadNames}
                   taskTitles={taskTitles}
