@@ -198,6 +198,7 @@ export type { ContractVersion } from "./contract-version.ts";
 export { normalizePersistedTimestamp, timestamp } from "./timestamp.ts";
 
 export {
+  baseEntityPolicyActions,
   entityContentPath,
   entityContentRoot,
   entityDocumentPath,

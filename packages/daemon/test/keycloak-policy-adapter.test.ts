@@ -1,7 +1,12 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { actionDeclarations, deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
+import {
+  actionDeclarations,
+  baseEntityPolicyActions,
+  deriveBasePolicyGroups,
+  effectivePolicyGroupScopes,
+} from "@harness-anything/kernel";
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
 import {
   authorizeRepoCellAction,
@@ -11,12 +16,16 @@ import {
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
 
 const config = { url: "http://127.0.0.1:8080", realm: "harness", resourceServerClientId: "harness-center" };
+const policyScopeCount = new Set([
+  ...actionDeclarations.map(({ policyAction }) => policyAction),
+  ...baseEntityPolicyActions,
+]).size;
 
 test("sync derives every Keycloak scope and four composite Base roles, and no permission that is not bound to a resource", async () => {
   const keycloak = fakeKeycloak(),
     receipt = await new KeycloakPolicyAdapter(config, keycloak.fetch).syncBasePolicy("admin-token");
-  assert.deepEqual(receipt, { scopeCount: actionDeclarations.length, groupCount: 4 });
-  assert.equal(keycloak.scopes.size, actionDeclarations.length);
+  assert.deepEqual(receipt, { scopeCount: policyScopeCount, groupCount: 4 });
+  assert.equal(keycloak.scopes.size, policyScopeCount);
   assert.deepEqual([...keycloak.roles.keys()].sort(), ["admin", "contributor", "maintainer", "viewer"]);
   assert.deepEqual(
     ["admin", "maintainer", "contributor", "viewer"].map((id) => [...keycloak.roles.get(id)!.composites]),
@@ -37,7 +46,7 @@ test("sync reads complete paginated collections and does not recreate existing e
   assert.equal(keycloak.scopes.size > 100, true, "the scope collection spans more than one page");
   keycloak.writes.length = 0;
   assert.deepEqual(await adapter.syncBasePolicy("admin-token"), {
-    scopeCount: actionDeclarations.length,
+    scopeCount: policyScopeCount,
     groupCount: 4,
   });
   assert.deepEqual(
@@ -59,7 +68,7 @@ test("sync re-expands stored grants to the currently declared actions of their g
   resource!.scopes = [{ name: "task-create" }];
   await adapter.syncBasePolicy("admin-token");
   assert.deepEqual(permission!.scopes, contributorScopes);
-  assert.equal(resource!.scopes.length, actionDeclarations.length);
+  assert.equal(resource!.scopes.length, policyScopeCount);
   assert.deepEqual(await adapter.readGrants("admin-token"), [
     { groupId: "contributor", resource: "repo-a", userIds: ["user-a"] },
   ]);
@@ -239,6 +248,56 @@ test("RepoCell online evaluation uses the authenticated token and asks for the r
   assert.equal(entity.outcome, "allowed");
   assert.deepEqual(permissions, ["repo-a#repo-bootstrap", "repo-b#task-start", "repo-b:task/task_123#task-start"]);
   assert.deepEqual(missing.reasonCodes, ["authentication_required"]);
+});
+
+test("Task pin scope cannot authorize a non-Task EntityRef", async () => {
+  const permissions: string[] = [],
+    binding = {
+      actor: { principal: { personId: "person-pin-scope" }, executor: null },
+      source: "local" as const,
+      keycloakAuthorization: {
+        session: {
+          personId: "person-pin-scope",
+          accessToken: "pin-scope-token",
+          url: config.url,
+          realm: config.realm,
+          clientId: config.resourceServerClientId,
+        },
+      },
+    },
+    fetchPort = async (_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+      const permission = new URLSearchParams(String(init?.body)).get("permission") ?? "";
+      permissions.push(permission);
+      return permission.endsWith("#task/pin")
+        ? Response.json({ result: true })
+        : Response.json({ error: "access_denied" }, { status: 403 });
+    },
+    task = await evaluateRepoCellAction({
+      action: { kind: "entity-pin", entityRef: "task/task-scope" },
+      binding,
+      actionId: "action-task-pin-scope",
+      repoId: "repo-pin",
+      revision: 1,
+      now: "2026-09-30T00:00:06.000Z",
+      fetchPort,
+    }),
+    decision = await evaluateRepoCellAction({
+      action: { kind: "entity-pin", entityRef: "decision/decision-scope" },
+      binding,
+      actionId: "action-decision-pin-scope",
+      repoId: "repo-pin",
+      revision: 2,
+      now: "2026-09-30T00:00:07.000Z",
+      fetchPort,
+    });
+  assert.equal(task.outcome, "allowed");
+  assert.equal(decision.outcome, "denied");
+  assert.deepEqual(decision.reasonCodes, ["keycloak_denied"]);
+  assert.deepEqual(permissions, [
+    "repo-pin#task/pin",
+    "repo-pin#decision/pin",
+    "repo-pin:decision/decision-scope#decision/pin",
+  ]);
 });
 
 test("retired roster bindings and machine authentication confer no repository permission", async () => {

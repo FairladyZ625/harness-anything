@@ -152,10 +152,43 @@ export function createRuntimeSessionActionCatalog(
   baseAction: (id: RuntimeSessionActionId) => EntityActionContract,
   actionResultContract: EntityActionContract["returns"],
 ) {
+  const run = Object.freeze({
+    ...baseAction("runtime_session_started"),
+    id: "run",
+    input: input([
+      field("agentId", "string", false),
+      field("taskId", "string", false),
+      field("executionId", "string", false),
+      field("runtimeInstanceId", "string", false),
+      field("prompt", "string", false),
+    ]),
+    policy: Object.freeze({ ref: "keycloak-policy@1", action: "runtime-run" }),
+    criteria: Object.freeze([]),
+    concurrency: Object.freeze({
+      expectedVersion: Object.freeze({ authority: "runtime-session-launch-fence", required: false }),
+      leasePolicy: Object.freeze({ authority: "task-lease/v1 when taskId is supplied" }),
+      occurrenceClaim: noOccurrence,
+      idempotency: Object.freeze({ authority: "dispatch-key" }),
+      artifactOwnership: Object.freeze({ owner: "dispatch/{dispatchId}" }),
+    }),
+    effects: Object.freeze([{ ref: "runtime_session_started", projection: "RuntimeSessionProjection" }]),
+    returns: actionResultContract,
+    explain: "Create a RuntimeSession through the canonical runtime dispatch writer.",
+    execution: Object.freeze({
+      ingress: "runtime-run",
+      compile: null,
+      read: false,
+      implementation: "catalog-runtime" as const,
+      topology: "center-forward-write" as const,
+      remoteEdgeAdmission: "via-center-forward" as const,
+      targetIdField: "runtimeSessionId",
+    }),
+  });
   return Object.freeze({
     ref: "kernel/runtime-session-action/v1",
-    actions: Object.freeze(
-      runtimeSessionActionIds.map((id) => {
+    actions: Object.freeze([
+      run,
+      ...runtimeSessionActionIds.map((id) => {
         const declared = baseAction(id);
         return Object.freeze({
           ...declared,
@@ -176,7 +209,7 @@ export function createRuntimeSessionActionCatalog(
           }),
         });
       }),
-    ),
+    ]),
   });
 }
 

@@ -28,7 +28,12 @@ const now = "2026-09-19T10:00:00.000Z",
   };
 
 test("Person exposes center private delegation and retires roster mutations", () => {
-  assert.deepEqual(explainEntityKind("person").transitions.available, ["delegate", "revoke-delegation"]);
+  assert.deepEqual(explainEntityKind("person").transitions.available, [
+    "delegate",
+    "revoke-delegation",
+    "pin",
+    "unpin",
+  ]);
   assert.equal(getExecutableEntityAction("people-add"), undefined);
   assert.equal(getExecutableEntityAction("people-remove"), undefined);
   const delegate = getExecutableEntityAction("people-delegate");

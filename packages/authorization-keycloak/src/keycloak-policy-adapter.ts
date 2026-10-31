@@ -2,6 +2,7 @@ import { sessionLifetimeBounds, readSessionLifetime, writeSessionLifetime } from
 import {
   actionDeclarations,
   assertAcyclicPolicyGroups,
+  baseEntityPolicyActions,
   decodeAuthorizationResource,
   deriveBasePolicyGroups,
   effectivePolicyGroupScopes,
@@ -117,7 +118,7 @@ export class KeycloakPolicyAdapter
   }
   readonly #config: KeycloakPolicyAdapterConfig;
   readonly #fetch: FetchPort;
-  readonly #knownScopes = new Set(actionDeclarations.map((item) => item.policyAction));
+  readonly #knownScopes = new Set([...actionDeclarations.map((item) => item.policyAction), ...baseEntityPolicyActions]);
   readonly #readCache: PolicyReadCache;
   readonly #refreshAdminAccessToken?: (rejectedAccessToken: string) => Promise<string>;
   #refreshedAdminAccessToken: string | undefined;

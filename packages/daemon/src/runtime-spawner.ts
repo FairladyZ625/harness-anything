@@ -262,6 +262,11 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           ? requiredRuntimeSpawnText(payload.providerSessionId, "providerSessionId")
           : (handoff?.providerSessionId ?? resumed?.providerSessionId);
     assertResumeAgent(requestedDispatchId, inherited?.agentId, payload.agentId, agentId);
+    if (!taskId && requestedExecutionId !== undefined)
+      throw runtimeSpawnError(
+        "runtime_execution_binding_forbidden",
+        "An unbound runtime run cannot attach to an Execution; use ha agent run with --task.",
+      );
     if (missionName && !taskId)
       throw runtimeSpawnError("invalid_runtime_mission", "Use --mission <name> only with --task <task-id>.");
     if (missionName && explicitMission)

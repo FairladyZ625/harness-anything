@@ -258,17 +258,25 @@ const canonical = (
   receiptSettlement: ReceiptSettlementClass = "canonical-acceptance",
   policyTier: ActionPolicyTier = policyTierFor(executionClass),
   writeRoad?: ActionDeclaration["writeRoad"],
+  policyAction: string = kind,
 ): ActionDeclaration =>
   Object.freeze({
     kind,
     catalogId,
     executionClass,
-    policyAction: kind,
+    policyAction,
     policyTier,
     residency: canonicalResidency,
     receiptSettlement,
     ...(writeRoad === undefined ? {} : { writeRoad }),
   });
+
+const canonicalWithPolicyAction = (
+  kind: keyof typeof actionPresentation,
+  catalogId: string,
+  executionClass: ActionExecutionClass,
+  policyAction: string,
+): ActionDeclaration => canonical(kind, catalogId, executionClass, undefined, undefined, undefined, policyAction);
 
 /** Commanding a submitted cut and closing a task are lifecycle closure: the maintainer tier, never the creator. */
 const closure = (
@@ -385,8 +393,8 @@ export const actionDeclarations = Object.freeze([
   canonical("entity-archive", null, "repo-write"),
   canonical("entity-delete", null, "repo-write"),
   canonical("entity-import", null, "repo-write"),
-  canonical("entity-pin", null, "repo-write"),
-  canonical("entity-unpin", null, "repo-write"),
+  canonicalWithPolicyAction("entity-pin", "task/pin", "repo-write", "task/pin"),
+  canonicalWithPolicyAction("entity-unpin", "task/unpin", "repo-write", "task/unpin"),
   canonical("entity-update", null, "repo-write"),
   canonical("fact-archive", "fact/archive", "repo-write"),
   canonical("fact-assign", "fact/assign", "repo-write"),
@@ -448,7 +456,7 @@ export const actionDeclarations = Object.freeze([
   runtimeAdmin("runtime-instance-update"),
   // dec_6C9E3399972A2F06C046BA89DC/CH3: ha runtime run and ha agent run share the canonical
   // runtime-session/run target; Policy action stays runtime-run and the command behavior is unchanged.
-  canonical("runtime-run", "runtime-session/run", "repo-write"),
+  canonicalWithPolicyAction("runtime-run", "runtime-session/run", "repo-write", "runtime-run"),
   local("runtime-spawn", "repo-write", runtimeResidency, { receiptSettlement: "canonical-acceptance" }),
   canonical("todo-add", "todo/add", "repo-write"),
   canonical("todo-done", "todo/done", "repo-write"),
@@ -493,7 +501,6 @@ export const actionDeclarations = Object.freeze([
   canonical("task-declare-executor", "task/declare-executor", "repo-write"),
   canonical("task-delete", "task/delete", "repo-write"),
   canonical("task-dispatch-review", "task/dispatch-review", "repo-write", "none"),
-  canonical("task-pin", null, "repo-write"),
   canonical("task-rematerialize", "task/rematerialize", "repo-write"),
   canonical("task-progress-append", "task/progress-append", "repo-write"),
   canonical("task-push", "task/push", "repo-write", "none"),
@@ -515,7 +522,6 @@ export const actionDeclarations = Object.freeze([
   canonical("task-submit", "task/submit", "repo-write", undefined, undefined, "lifecycle.event-publication"),
   canonical("task-supersede", "task/supersede", "repo-write"),
   canonical("task-transition", "task/transition", "repo-write"),
-  canonical("task-unpin", null, "repo-write"),
   local("terminal-input", "repo-write", runtimeResidency),
   local("terminal-resize", "repo-write", runtimeResidency),
   local("terminal-spawn", "repo-write", runtimeResidency),

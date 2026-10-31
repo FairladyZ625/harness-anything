@@ -54,6 +54,8 @@ test("all public Task writes are complete executable Action contracts", () => {
       "preset-upgrade",
       "assign",
       "unassign",
+      "pin",
+      "unpin",
     ],
   );
   for (const action of actions) {
@@ -62,7 +64,9 @@ test("all public Task writes are complete executable Action contracts", () => {
     assert.equal(action.target.kind, "task");
     assert.equal(
       action.input.schema,
-      action.id === "assign" || action.id === "unassign" ? "entity-action-input/v1" : "entity-action-input/v2",
+      action.id === "assign" || action.id === "unassign" || action.id === "pin" || action.id === "unpin"
+        ? "entity-action-input/v1"
+        : "entity-action-input/v2",
     );
     assert.ok(action.criteria.length >= 1, action.id);
     assert.deepEqual(Object.keys(action.concurrency), concurrencyFields);
@@ -71,7 +75,9 @@ test("all public Task writes are complete executable Action contracts", () => {
       action.effects.every(({ ref }) =>
         action.id === "assign" || action.id === "unassign"
           ? ref.startsWith("relation/") || ref.startsWith("assignment/")
-          : ref.includes("task-lifecycle") || ref.includes("task-mutation"),
+          : action.id === "pin" || action.id === "unpin"
+            ? ref === "entity-pin-event/v1"
+            : ref.includes("task-lifecycle") || ref.includes("task-mutation"),
       ),
       action.id,
     );
@@ -129,6 +135,8 @@ test("all public Task writes are complete executable Action contracts", () => {
     "preset-upgrade",
     "assign",
     "unassign",
+    "pin",
+    "unpin",
   ]);
   assert.deepEqual(explainEntityKind("agent").transitions.available, [
     "install",
@@ -139,6 +147,8 @@ test("all public Task writes are complete executable Action contracts", () => {
     "inspect",
     "assign",
     "unassign",
+    "pin",
+    "unpin",
   ]);
 });
 

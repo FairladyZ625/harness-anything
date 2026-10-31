@@ -344,6 +344,7 @@ function reviewCommand(taskId: string, executionId: string, reviewId: string): s
 
 export function taskActionUsage(action: EntityActionContract, taskId = "<task-id>"): string {
   const ingress = action.execution?.ingress;
+  if (action.id === "pin" || action.id === "unpin") return `ha ${action.id} task/${taskId}`;
   if (ingress === undefined || (!ingress.startsWith("task-") && action.id !== "preset-upgrade"))
     throw new Error(`Task Action ${action.id} has no Task command ingress.`);
   const flags = action.input.fields.flatMap((field) => {

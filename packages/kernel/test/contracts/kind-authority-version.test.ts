@@ -101,6 +101,8 @@ test("one named kind-contract authority explains all registered entity kinds wit
       "show",
       "assign",
       "unassign",
+      "pin",
+      "unpin",
     ],
   );
   assert.equal(
@@ -110,16 +112,16 @@ test("one named kind-contract authority explains all registered entity kinds wit
   const settings = explanations.find(({ kind }) => kind === "settings");
   assert.deepEqual(settings?.residency, { authored: "ledger", current: "projection" });
   assert.deepEqual(settings?.statusVocabulary, []);
-  assert.deepEqual(settings?.transitions.available, ["read", "update"]);
+  assert.deepEqual(settings?.transitions.available, ["read", "update", "pin", "unpin"]);
   assert.deepEqual(
     settings?.transitions.actions.map(({ id }) => id),
-    ["read", "update"],
+    ["read", "update", "pin", "unpin"],
   );
   const person = explanations.find(({ kind }) => kind === "person");
-  assert.deepEqual(person?.transitions.available, ["delegate", "revoke-delegation"]);
+  assert.deepEqual(person?.transitions.available, ["delegate", "revoke-delegation", "pin", "unpin"]);
   assert.deepEqual(
     person?.transitions.actions.map(({ id }) => id),
-    ["delegate", "revoke-delegation"],
+    ["delegate", "revoke-delegation", "pin", "unpin"],
   );
   assert.equal(person?.authoring, null);
 });

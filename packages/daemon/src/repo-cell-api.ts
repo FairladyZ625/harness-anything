@@ -732,7 +732,11 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
     return enqueueRuntimePublication(
       context,
       "runtime-run",
-      { kind: "runtime-spawn", ...payload },
+      {
+        kind: "runtime-spawn",
+        ...payload,
+        executionRuntimeIngress: { kind: "runtime-run", ...payload },
+      },
       binding,
       (authorizedBinding) => context.runtimeSpawner.spawn(spawn, authorizedBinding, worktree),
     );
