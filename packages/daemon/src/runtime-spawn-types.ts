@@ -130,6 +130,8 @@ export interface RuntimeAttemptTerminal {
   /** A worker ruling is an intentional owner wait; terminal settlement parks its task. */
   readonly waitingOnOwner?: boolean;
   readonly binding: RuntimeBinding;
+  /** Runtime root whose process group must be proven stopped before releasing the lease. */
+  readonly processGroupPid?: number;
 }
 
 export interface StalledReviewerContinuation {

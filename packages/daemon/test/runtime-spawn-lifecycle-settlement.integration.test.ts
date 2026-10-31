@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
@@ -28,6 +28,15 @@ function dispatchText(root: string, dispatchId: string): string {
   const stream = readDispatchStream(root, dispatchId);
   return stream ? [stream.header, ...stream.records].map((record) => JSON.stringify(record)).join("\n") : "";
 }
+
+function stopFixtureGroup(child: ReturnType<typeof spawn>): void {
+  if (!child.pid) return;
+  try {
+    process.kill(-child.pid, "SIGKILL");
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) throw error;
+  }
+}
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const definition: AgentDefinitionSnapshot = {
@@ -52,7 +61,8 @@ const installation: RuntimeInstallationWitness = {
 
 test("attached task runtime settlement releases its execution lease before publishing the terminal outcome", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-attached-tail-"));
-  let exit: ((code: number | null) => void) | null = null,
+  let fixtureChild: ReturnType<typeof spawn> | undefined,
+    exit: ((code: number | null) => void) | null = null,
     output: ((chunk: string, persisted?: boolean) => void) | null = null,
     failSettlement = false,
     launchedPrompt: string | undefined;
@@ -98,17 +108,28 @@ test("attached task runtime settlement releases its execution lease before publi
           prompt: request.prompt,
         };
       },
-      runtimeLaunch: () => ({
-        pid: process.pid,
-        onOutput: (listener) => {
-          output = listener;
-        },
-        onErrorOutput: () => undefined,
-        onExit: (listener) => {
-          exit = listener;
-        },
-        terminate: () => undefined,
-      }),
+      runtimeLaunch: () => {
+        const child = spawn(process.execPath, ["-e", "process.exit(0)"], {
+          detached: true,
+          stdio: ["pipe", "ignore", "ignore"],
+        });
+        if (!child.pid) throw new Error("fixture worker child did not expose a pid");
+        child.unref();
+        fixtureChild = child;
+        const stop = (): void => stopFixtureGroup(child);
+        return {
+          pid: child.pid,
+          onOutput: (listener) => {
+            output = listener;
+          },
+          onErrorOutput: () => undefined,
+          onExit: (listener) => {
+            exit = listener;
+          },
+          terminate: stop,
+          terminateTree: async () => stop(),
+        };
+      },
       killpoint: (point) => {
         if (!failSettlement || point !== "after_sqlite_commit") return;
         const latest = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read().events.at(-1);
@@ -152,6 +173,11 @@ test("attached task runtime settlement releases its execution lease before publi
           dispatchKey: "attached-tail",
         },
         binding,
+      );
+      assert.match(
+        dispatchText(root, String(receipt.dispatchId)),
+        /"kind":"process_started"/u,
+        "the fixture launcher must record the real child process group",
       );
       // A task-bound dispatch without an agent declaration is worker work and carries the shared discipline.
       assert.match(launchedPrompt ?? "", /^# Harness Execution Discipline/u);
@@ -480,13 +506,15 @@ test("attached task runtime settlement releases its execution lease before publi
       await cell.close();
     }
   } finally {
+    if (fixtureChild) stopFixtureGroup(fixtureChild);
     rmSync(root, { recursive: true, force: true });
   }
 });
 
 test("terminal settlement leaves an execution lease generation it never dispatched under held", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-lease-generation-"));
-  let exit: ((code: number | null) => void) | null = null;
+  let fixtureChild: ReturnType<typeof spawn> | undefined,
+    exit: ((code: number | null) => void) | null = null;
   try {
     initIngressRepo(root, 4311);
     const cell = await openRepoCell({
@@ -526,15 +554,26 @@ test("terminal settlement leaves an execution lease generation it never dispatch
         cwd: request.cwd,
         prompt: request.prompt,
       }),
-      runtimeLaunch: () => ({
-        pid: process.pid,
-        onOutput: () => undefined,
-        onErrorOutput: () => undefined,
-        onExit: (listener) => {
-          exit = listener;
-        },
-        terminate: () => undefined,
-      }),
+      runtimeLaunch: () => {
+        const child = spawn(process.execPath, ["-e", "process.exit(0)"], {
+          detached: true,
+          stdio: ["pipe", "ignore", "ignore"],
+        });
+        if (!child.pid) throw new Error("fixture worker child did not expose a pid");
+        child.unref();
+        fixtureChild = child;
+        const stop = (): void => stopFixtureGroup(child);
+        return {
+          pid: child.pid,
+          onOutput: () => undefined,
+          onErrorOutput: () => undefined,
+          onExit: (listener) => {
+            exit = listener;
+          },
+          terminate: stop,
+          terminateTree: async () => stop(),
+        };
+      },
     });
     try {
       const taskId = "task-runtime-lease-generation",
@@ -624,6 +663,7 @@ test("terminal settlement leaves an execution lease generation it never dispatch
       await cell.close();
     }
   } finally {
+    if (fixtureChild) stopFixtureGroup(fixtureChild);
     rmSync(root, { recursive: true, force: true });
   }
 });

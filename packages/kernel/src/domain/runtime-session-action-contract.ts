@@ -78,6 +78,7 @@ const actionFields: Readonly<Record<RuntimeSessionActionId, readonly EntityActio
   runtime_session_liveness_changed: Object.freeze([
     runtimeSessionId,
     field("liveness", "string", true, ["live", "stale", "unknown"]),
+    field("processGroupPid", "number", false),
   ]),
   runtime_session_cancelled: Object.freeze([runtimeSessionId]),
   runtime_session_exited: Object.freeze([runtimeSessionId]),

@@ -166,7 +166,7 @@ export async function adoptRuntimes(
         if (processAlive && session?.liveness !== "live" && session?.liveness !== "exited") {
           await context.publishRuntimeEvent(
             "runtime_session_liveness_changed",
-            { runtimeSessionId: active.runtimeSessionId, liveness: "live" },
+            { runtimeSessionId: active.runtimeSessionId, liveness: "live", processGroupPid: processState.pid },
             randomUUID(),
             active.binding,
           );

@@ -89,3 +89,11 @@ export type { DaemonAuthenticationContext, DaemonTransportKind } from "./transpo
 export { createJsonLineFrameReader, encodeJsonLineFrame, isJsonRpcRequestLike } from "./transport/frame-codec.ts";
 export { serveJsonRpcStream, type DaemonTransportConnection } from "./transport/json-rpc-stream.ts";
 export { createUnixSocketTransportServer, defaultUnixSocketPath } from "./transport/unix-socket.ts";
+export {
+  probeProcessGroup,
+  reconcileProcessGroup,
+  sweepOrphanedProcessGroup,
+  type ProcessGroupIdentity,
+  type ProcessGroupReconcilerDeps,
+  type ProviderGroupSweepVerdict,
+} from "./runtime/process-group-reconciler.ts";

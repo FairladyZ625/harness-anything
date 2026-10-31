@@ -35,6 +35,15 @@ import {
   writeIdentity,
 } from "./runtime-cli.fixtures.ts";
 
+function killProcessIfAlive(pid: number): void {
+  if (!processAlive(pid)) return;
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch (error) {
+    if (!(error && typeof error === "object" && "code" in error && error.code === "ESRCH")) throw error;
+  }
+}
+
 test("parked runtime awaits omit the repo-read response deadline at the transport seam", async (context) => {
   const { root, env } = createRuntimeFixture(context);
   const deadlines: unknown[] = [];
@@ -803,6 +812,14 @@ for (const afterResult of [false, true])
         assert.equal(result.status, 1, JSON.stringify(result));
         assert.equal(typeof result.receipt.nextAction, "string", JSON.stringify(result));
         assert.ok(String(result.receipt.nextAction).includes(taskId));
+        const unresolvedSession = result.receipt.session as {
+          associations?: readonly { taskId?: string; lease?: { phase?: string } }[];
+        };
+        assert.equal(
+          unresolvedSession.associations?.find((association) => association.taskId === taskId)?.lease?.phase,
+          "held",
+          "an unproven process group must retain its task lease",
+        );
         const dispatches = runMaybe(root, env, ["task", "dispatches", taskId]).receipt.dispatches as Record<
           string,
           unknown
@@ -827,7 +844,7 @@ for (const afterResult of [false, true])
         context.diagnostic(`native host loss: ${JSON.stringify(result.receipt)}`);
       } finally {
         if (timer) clearTimeout(timer);
-        process.kill(Number(readFileSync(pidPath, "utf8")), "SIGKILL");
+        killProcessIfAlive(Number(readFileSync(pidPath, "utf8")));
       }
     },
   );

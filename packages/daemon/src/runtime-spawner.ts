@@ -829,9 +829,11 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       releaseModelSlot();
       await cloudRelay?.close();
       cleanupCallbackRelay();
-      if (stream) removeDispatchStream(input.rootDir, newDispatchId);
       reclaimFailedLaunchTempDirectory(input, runtimeInstanceId, runtimeSessionId);
-      if (!taskLeaseHandoff || !taskBinding) return;
+      if (!taskLeaseHandoff || !taskBinding) {
+        if (stream) removeDispatchStream(input.rootDir, newDispatchId);
+        return;
+      }
       await input.onAttemptTerminal?.({
         runtimeSessionId,
         dispatchId: newDispatchId,
@@ -842,6 +844,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         endedAt: input.now(),
         binding: activeBinding,
       });
+      if (stream) removeDispatchStream(input.rootDir, newDispatchId);
     };
     try {
       assertRuntimeHandoffLaunch(
@@ -1142,7 +1145,15 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     input.schedule(async () => {
       await publishRuntimeEvent(
         "runtime_session_liveness_changed",
-        { runtimeSessionId, liveness: "live" },
+        {
+          runtimeSessionId,
+          liveness: "live",
+          ...(runtimeProcess.pid !== globalThis.process.pid &&
+          Number.isSafeInteger(runtimeProcess.pid) &&
+          runtimeProcess.pid > 1
+            ? { processGroupPid: runtimeProcess.pid }
+            : {}),
+        },
         randomUUID(),
         binding,
       );

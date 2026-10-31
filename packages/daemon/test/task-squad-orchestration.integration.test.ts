@@ -2,6 +2,7 @@
 import { makeScheduleScheduler } from "../src/schedule-scheduler.ts";
 import { latestSquadStates } from "../src/squad-run-state.ts";
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -32,6 +33,7 @@ type Provider = {
   sessionId: string;
   output?: (chunk: string) => void;
   exit?: (code: number | null) => void;
+  process?: ReturnType<typeof spawn>;
 };
 type Status = {
   squadRunId: string;
@@ -42,6 +44,21 @@ type Status = {
   workerCallbackCount: number;
   pendingLeaderCallbackCount: number;
 };
+
+async function stopFixtureProcess(child: ReturnType<typeof spawn>): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  const closed = new Promise<void>((resolve) => child.once("close", () => resolve()));
+  if (child.pid && process.platform !== "win32") {
+    try {
+      process.kill(-child.pid, "SIGKILL");
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+    }
+  } else {
+    child.kill("SIGKILL");
+  }
+  await closed;
+}
 
 test(
   "squad children submit independently, resume one leader and integrate a verified local-remote delivery",
@@ -125,7 +142,7 @@ test(
         git(fixture.providers.find((provider) => provider.dispatchId === child.dispatchId)!.cwd, "rev-parse", "HEAD"),
       );
       await fixture.submit(child, heads[index]);
-      fixture.finish(child.dispatchId!, "child delivery");
+      await fixture.finish(child.dispatchId!, "child delivery");
       if (index === 0) {
         await fixture.waitStatus((state) => state.workerCallbackCount === 1);
         assert.equal((await fixture.status()).leaderTurns.length, 1, "one live child keeps the leader suspended");
@@ -176,7 +193,7 @@ test(
     git(fixture.root, "push", "origin", "codex/mission-delivery");
     assert.equal(git(bare, "rev-parse", "refs/heads/codex/mission-delivery"), git(fixture.root, "rev-parse", "HEAD"));
     assert.equal(git(bare, "for-each-ref", "--format=%(refname)", "refs/heads/codex/squad-"), "");
-    fixture.finish(
+    await fixture.finish(
       leader.dispatchId,
       JSON.stringify({
         schema: "squad-decision/v1",
@@ -279,7 +296,7 @@ test(
     });
     t.after(async () => scheduler.close());
     await scheduler.start();
-    fixture.finish(state.leaderTurns[0]!.dispatchId, "Leader returned an invalid decision; retry this turn.");
+    await fixture.finish(state.leaderTurns[0]!.dispatchId, "Leader returned an invalid decision; retry this turn.");
     assert.equal(
       await eventually(() => latestSquadStates(fixture.root).get(state.squadRunId)?.leaderTurns.length === 2),
       true,
@@ -296,7 +313,7 @@ test(
     );
     assert.equal(existsSync(occurrenceCwd), true, "the second leader still owns its occurrence worktree");
     const secondLeader = latestSquadStates(fixture.root).get(state.squadRunId)!.leaderTurns[1]!;
-    fixture.finish(
+    await fixture.finish(
       secondLeader.dispatchId,
       JSON.stringify({ schema: "squad-decision/v1", action: "converged", report: "Schedule Squad converged." }),
     );
@@ -380,8 +397,8 @@ for (const restart of [false, true])
         git(directory, "add", "a.txt");
         git(directory, "commit", "-qm", "feat: targeted delivery");
       }
-      fixture.finish(child.dispatchId!, "child delivery", 0, restart);
-      fixture.finish(String(direct.dispatchId), "direct delivery", 0, restart);
+      await fixture.finish(child.dispatchId!, "child delivery", 0, restart);
+      await fixture.finish(String(direct.dispatchId), "direct delivery", 0, restart);
       if (restart) await fixture.reopen();
       await fixture.waitStatus((state) => state.workerCallbackCount >= 1);
       await fixture.cell.settlePendingMaterialization("publication owner");
@@ -417,9 +434,9 @@ for (const ending of ["cancelled", "failed"] as const)
       const receipt = await fixture.cell.run({ kind: "squad-cancel", squadRunId: running.squadRunId }, binding);
       assert.equal(receipt.phase, "cancelled", JSON.stringify(receipt));
     } else {
-      for (const child of running.workerAttempts) fixture.finish(child.dispatchId!, "completed");
+      for (const child of running.workerAttempts) await fixture.finish(child.dispatchId!, "completed");
       const resumed = await fixture.waitStatus((state) => state.leaderTurns.length === 2);
-      fixture.finish(
+      await fixture.finish(
         resumed.leaderTurns[1].dispatchId,
         JSON.stringify({ schema: "squad-decision/v1", action: "converged" }),
       );
@@ -462,14 +479,14 @@ test("failed child wakes the leader with the failure after its sibling settles",
   const running = await fixture.waitStatus(
     (state) => state.workerAttempts.length === 2 && state.workerAttempts.every((w) => w.runtimeSessionId),
   );
-  fixture.finish(running.workerAttempts[0].dispatchId!, "child could not complete", 1);
+  await fixture.finish(running.workerAttempts[0].dispatchId!, "child could not complete", 1);
   await fixture.waitStatus((state) => state.workerCallbackCount === 1);
   assert.equal((await fixture.status()).leaderTurns.length, 1);
-  fixture.finish(running.workerAttempts[1].dispatchId!, "sibling completed");
+  await fixture.finish(running.workerAttempts[1].dispatchId!, "sibling completed");
   const resumed = await fixture.waitStatus((state) => state.leaderTurns.length === 2);
   const leader = fixture.providers.find((p) => p.dispatchId === resumed.leaderTurns[1].dispatchId)!;
   assert.match(leader.prompt, /failed/u);
-  fixture.finish(
+  await fixture.finish(
     leader.dispatchId,
     JSON.stringify({
       schema: "squad-decision/v1",
@@ -508,7 +525,7 @@ test(
     assert.ok(first.taskId);
     assert.equal(fixture.task(first.taskId!).snapshot.task?.status, "active");
     assert.deepEqual(await counted(), [fixture.taskId, first.taskId!].sort());
-    fixture.finish(first.dispatchId!, "stage one delivered");
+    await fixture.finish(first.dispatchId!, "stage one delivered");
     const secondTurn = await fixture.waitStatus((state) => state.leaderTurns.length === 2);
     const settledFirst = fixture.task(first.taskId!);
     assert.equal(settledFirst.snapshot.task?.status, "cancelled", "ended stage assignment must leave the worktable");
@@ -522,7 +539,7 @@ test(
     assert.ok(second.taskId);
     assert.equal(fixture.task(second.taskId!).snapshot.task?.status, "active");
     assert.deepEqual(await counted(), [fixture.taskId, second.taskId!].sort());
-    fixture.finish(second.dispatchId!, "stage two delivered");
+    await fixture.finish(second.dispatchId!, "stage two delivered");
     const thirdTurn = await fixture.waitStatus((state) => state.leaderTurns.length === 3);
     assert.equal(fixture.task(second.taskId!).snapshot.task?.status, "cancelled");
     assert.deepEqual(await counted(), [fixture.taskId]);
@@ -533,9 +550,9 @@ test(
     const third = stageThree.workerAttempts[2];
     assert.ok(third.taskId);
     assert.deepEqual(await counted(), [fixture.taskId, third.taskId!].sort());
-    fixture.finish(third.dispatchId!, "stage three delivered");
+    await fixture.finish(third.dispatchId!, "stage three delivered");
     const finalTurn = await fixture.waitStatus((state) => state.leaderTurns.length === 4);
-    fixture.finish(
+    await fixture.finish(
       finalTurn.leaderTurns[3].dispatchId,
       JSON.stringify({
         schema: "squad-decision/v1",
@@ -559,7 +576,7 @@ test("overlapping worker declarations reject the second child before execution",
   assert.match(state.workerAttempts[1].rejection ?? "", /Ownership conflict/u);
   assert.equal(state.workerAttempts[1].taskId, null);
   assert.equal(state.workerAttempts[1].runtimeSessionId, null);
-  fixture.finish(
+  await fixture.finish(
     state.workerAttempts[0].dispatchId!,
     "first child completed\n```bash\ncloseout/submission/review/consent\n```",
   );
@@ -568,7 +585,7 @@ test("overlapping worker declarations reject the second child before execution",
   assert.match(callback.prompt, /worker_rejected/u);
   assert.match(callback.prompt, /Ownership conflict/u);
   assert.match(callback.prompt, /closeout\/submission\/review\/consent/u);
-  fixture.finish(
+  await fixture.finish(
     resumed.leaderTurns[1].dispatchId,
     JSON.stringify({
       schema: "squad-decision/v1",
@@ -591,13 +608,13 @@ test(
     for (const child of running.workerAttempts) {
       assert.ok(child.taskId && child.executionId);
       assert.equal(fixture.task(child.taskId).snapshot.task?.metadata?.parentTaskId, fixture.taskId);
-      fixture.finish(child.dispatchId!, "runtime caller child delivery");
+      await fixture.finish(child.dispatchId!, "runtime caller child delivery");
     }
     const resumed = await fixture.waitStatus(
       (state) => state.leaderTurns.length === 2 && state.workerCallbackCount === 2,
     );
     assert.equal(resumed.pendingLeaderCallbackCount, 0, "same-cut child outcomes are consumed by one leader turn");
-    fixture.finish(
+    await fixture.finish(
       resumed.leaderTurns[1].dispatchId,
       JSON.stringify({
         schema: "squad-decision/v1",
@@ -607,7 +624,7 @@ test(
     );
     await fixture.waitStatus((state) => state.status === "converged");
     assertChildrenClosed(fixture, running.workerAttempts);
-    fixture.finish(fixture.parentDispatchId!, "parent caller completed");
+    await fixture.finish(fixture.parentDispatchId!, "parent caller completed");
   },
 );
 
@@ -641,15 +658,22 @@ async function openFixture(
   git(root, "add", ".gitignore");
   git(root, "commit", "-qm", "test: fixture boundaries");
   const runtimeLaunch: RuntimeLauncher = (prepared, persistence) => {
+    const child = spawn(process.execPath, ["-e", "process.stdin.resume()"], {
+      detached: true,
+      stdio: ["pipe", "ignore", "ignore"],
+    });
+    if (!child.pid) throw new Error("fixture worker child did not expose a pid");
+    child.unref();
     const provider: Provider = {
       prompt: prepared.prompt,
       cwd: prepared.cwd,
       dispatchId: persistence.dispatchId,
       sessionId: prepared.args[0] ?? `provider-${persistence.dispatchId}`,
+      process: child,
     };
     providers.push(provider);
     return {
-      pid: process.pid,
+      pid: child.pid,
       onOutput: (listener) => {
         provider.output = listener;
         queueMicrotask(() =>
@@ -660,7 +684,10 @@ async function openFixture(
       onExit: (listener) => {
         provider.exit = listener;
       },
-      terminate: () => undefined,
+      terminate: () => {
+        void stopFixtureProcess(child);
+      },
+      terminateTree: () => stopFixtureProcess(child),
     };
   };
   const open = () =>
@@ -723,6 +750,9 @@ async function openFixture(
     });
   let cell = await open();
   t.after(async () => {
+    await Promise.all(
+      providers.flatMap((provider) => (provider.process ? [stopFixtureProcess(provider.process)] : [])),
+    );
     await cell.close();
     rmSync(parent, { recursive: true, force: true });
   });
@@ -817,13 +847,14 @@ async function openFixture(
       projection.close();
     }
   };
-  const finish = (dispatchId: string, text: string, code = 0, offline = false) => {
+  const finish = async (dispatchId: string, text: string, code = 0, offline = false) => {
     const provider = providers.find((row) => row.dispatchId === dispatchId)!;
+    await stopFixtureProcess(provider.process!);
     if (offline)
       appendRuntimeWorkerRecord(root, dispatchId, {
         kind: "process_started",
         occurredAt: new Date().toISOString(),
-        pid: process.pid,
+        pid: provider.process?.pid,
       });
     for (const event of [
       { type: "thread.started", thread_id: provider.sessionId },
@@ -889,7 +920,7 @@ async function openFixture(
     },
     plan: async (first: string[], second: string[]) => {
       const state = await status();
-      finish(
+      await finish(
         state.leaderTurns[0].dispatchId,
         JSON.stringify({
           schema: "runtime-batch/v1",

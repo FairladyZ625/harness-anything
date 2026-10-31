@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
-import { launchNative } from "../src/runtime-spawn-process.ts";
+import { launchNative, RuntimeProcessStartRejected } from "../src/runtime-spawn-process.ts";
 import { readDispatchStreamSummary } from "../src/dispatch-stream.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
@@ -102,7 +102,9 @@ test(
       },
       runtimeLaunch: (input, persistence) => {
         if (input.env.FAIL_LAUNCH)
-          throw Object.assign(new Error("fixture launch refused"), { code: "fixture_refused" });
+          throw new RuntimeProcessStartRejected(
+            Object.assign(new Error("fixture launch refused"), { code: "fixture_refused" }),
+          );
         return launchNative(input, persistence);
       },
       prepareRuntimeLaunch: async (_instanceId, request) => {

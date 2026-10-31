@@ -64,7 +64,21 @@ export async function publishExit(
     // A non-failed terminal snapshot follows successful lease settlement and can replay
     // while the replica still shows an earlier liveness. Failed snapshots can include a
     // rejected lease settlement, so retain their recovery path until exit was published.
-    if (persistedTerminal && (resumePublishedExit || persistedTerminal.payload.outcome !== "failed")) {
+    const replaySettlement =
+      persistedTerminal &&
+      (resumePublishedExit ||
+        persistedTerminal.payload.outcome !== "failed" ||
+        persistedTerminal.payload.reasonCode === "runtime_archive_failed" ||
+        persistedTerminal.payload.reasonCode === "runtime_lease_release_failed" ||
+        persistedTerminal.payload.reasonCode === "runtime_settlement_failed");
+    if (
+      replaySettlement &&
+      !(
+        active.lossReason !== null &&
+        persistedTerminal.payload.outcome === "unknown" &&
+        persistedTerminal.payload.reasonCode === "lease_conflict"
+      )
+    ) {
       context.processes.delete(active.runtimeSessionId);
       active.process.release?.();
       // The stream's terminal append and its ledger settlement are separate steps: a daemon
@@ -91,6 +105,9 @@ export async function publishExit(
               : "failed",
           reason: persistedTerminal.payload.outcome === "succeeded" ? null : persistedTerminal.reason,
           endedAt: persistedTerminal.payload.endedAt ?? context.input.now(),
+          ...(persistedTerminal.processGroupPid === undefined
+            ? {}
+            : { processGroupPid: persistedTerminal.processGroupPid }),
           ...(persistedTerminal.payload.attempt?.classification === "awaiting_ruling" ? { waitingOnOwner: true } : {}),
           binding: active.binding,
         });
@@ -436,6 +453,10 @@ export async function publishExit(
         )
           ? null
           : completedTask;
+    const processGroupPid =
+      Number.isSafeInteger(active.process.pid) && active.process.pid > 1 && active.process.pid !== process.pid
+        ? active.process.pid
+        : undefined;
     // Every sibling archives while the generation that authorized it is still held. The final
     // live sibling alone releases that generation, after all earlier siblings made their files visible.
     await context
@@ -458,6 +479,7 @@ export async function publishExit(
         // dispatches store the handed-off RuntimeSession binding, while Schedule and squad paths
         // retain their coordinator binding.
         binding: active.binding,
+        ...(processGroupPid === undefined ? {} : { processGroupPid }),
       })
       .catch((error: unknown) => {
         // A Schedule's claim settlement is the occurrence's single-flight witness, so its terminal
@@ -471,12 +493,29 @@ export async function publishExit(
         if (active.schedule && (error as { readonly retryable?: unknown }).retryable !== false) throw error;
         consumeKnownError(error);
         const settlementCode = runtimeErrorCode(error) || "runtime_settlement_failed";
-        reasonCode = settlementCode;
-        outcome = "failed";
-        body = `${body}\n\nRuntime terminal settlement failed (${settlementCode}): ${runtimeErrorMessage(error)}`;
-        sha256 = createHash("sha256").update(body).digest("hex");
-        result = { sha256, size: Buffer.byteLength(body), mediaType: context.resultMediaType };
-        resultRef = `artifact:runtime-result/sha256/${sha256}`;
+        // A remote owner rejection is an authorization boundary, not a worker failure. Leave the
+        // dispatch unresolved so recovery can re-adopt it under the original owner. Likewise, an
+        // unproven process group must stay unknown: publishing a failed outcome would make the
+        // lease appear safely settled while the writer may still be alive.
+        if (context.input.remote && active.task) {
+          // A Fleet Edge cannot prove a terminal lease settlement from the center-side stream while
+          // the owner, credential, transport, or process proof is unresolved. Keep the worker's
+          // terminal result unknown so replay can retry the authoritative release after recovery.
+          outcome = "unknown";
+          if (["lease_conflict", "runtime_lease_release_failed"].includes(settlementCode)) reasonCode = settlementCode;
+        } else if (settlementCode === "runtime_process_group_unproven") {
+          // An exited host does not prove its process group stopped: a child may still write.
+          // Keep the runtime unknown and the lease held until an OS stop proof is available.
+          // A reasonCode would restate `unknown` as `failed` in runtimeSessionOutcomeFromEvidence.
+          outcome = "unknown";
+        } else {
+          reasonCode = settlementCode;
+          outcome = "failed";
+          body = `${body}\n\nRuntime terminal settlement failed (${settlementCode}): ${runtimeErrorMessage(error)}`;
+          sha256 = createHash("sha256").update(body).digest("hex");
+          result = { sha256, size: Buffer.byteLength(body), mediaType: context.resultMediaType };
+          resultRef = `artifact:runtime-result/sha256/${sha256}`;
+        }
       });
     const terminalOutcome: DispatchTerminalOutcome = {
       payload: {
@@ -502,6 +541,7 @@ export async function publishExit(
       },
       body,
       reason: attemptOutcome.reason,
+      ...(processGroupPid === undefined ? {} : { processGroupPid }),
     };
     active.stream.appendTerminalOutcome(terminalOutcome, endedAt);
     await publishTerminalOutcome(context, active, terminalBinding, terminalOutcome);

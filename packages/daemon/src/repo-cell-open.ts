@@ -428,6 +428,7 @@ export async function openRepoWriterCell(
     leaseAt: string,
     occurredAt: string,
     binding: RuntimeAttemptTerminal["binding"],
+    processGroupPid: number | undefined,
   ) => Promise<void> = async () => {
     throw cellCodedError("runtime_preconditions_unavailable", "RepoCell execution settlement is not ready.");
   };
@@ -737,6 +738,7 @@ export async function openRepoWriterCell(
         settlement.endedAt,
         settlement.endedAt,
         binding,
+        undefined,
       ),
   });
   operationalContext satisfies RepoCellOperationalContext;
@@ -833,6 +835,7 @@ export async function openRepoWriterCell(
     leaseAt: string,
     occurredAt: string,
     terminalBinding: RuntimeAttemptTerminal["binding"],
+    processGroupPid: number | undefined,
   ): Promise<void> => {
     const lease = extracted.projection.currentLease(task.taskId, leaseAt);
     // The terminal runtime can release only its own current lease. Its dispatch execution/version
@@ -849,6 +852,7 @@ export async function openRepoWriterCell(
         taskId: task.taskId,
         terminalExecutionId: lease.executionId,
         terminalRuntimeSessionId: runtimeSessionId,
+        terminalProcessGroupPid: processGroupPid,
         reason: `Runtime session ${runtimeSessionId} reached a terminal dispatch state.`,
       },
       binding = await authorizeRuntimeAction(action, terminalBinding, `runtime-task-release:${runtimeSessionId}`),
@@ -864,6 +868,7 @@ export async function openRepoWriterCell(
       terminal.endedAt,
       now(),
       terminal.binding,
+      terminal.processGroupPid,
     );
     if (!terminal.waitingOnOwner) return;
     // The release above is deliberately a separate canonical event: task-transition's domain

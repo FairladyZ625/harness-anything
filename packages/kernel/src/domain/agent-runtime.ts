@@ -409,6 +409,7 @@ interface RuntimePayloads {
   readonly runtime_session_liveness_changed: {
     readonly runtimeSessionId: string;
     readonly liveness: Exclude<RuntimeLiveness, "exited">;
+    readonly processGroupPid?: number;
   };
   readonly runtime_session_cancelled: { readonly runtimeSessionId: string };
   readonly runtime_session_exited: { readonly runtimeSessionId: string };
@@ -554,27 +555,29 @@ function validateAgentRuntimePayloadFields(
       ? ["reasonCode", "dispatchId", "endedAt", "runtimeMetrics", "attempt"]
       : type === "runtime_session_started"
         ? ["taskBinding"]
-        : type === "runtime_dispatch_requested"
-          ? [
-              "startedAt",
-              "resumedFromDispatchId",
-              "handoffEnabled",
-              "handoffCheckpointId",
-              "acceptedCommit",
-              "resumeProviderSessionId",
-              "taskId",
-              "executionId",
-              "attemptGroupId",
-              "attemptIndex",
-              "agentId",
-              "agentName",
-              "squadId",
-              "squadRun",
-              "cwd",
-              "role",
-              "reviewTarget",
-            ]
-          : [];
+        : type === "runtime_session_liveness_changed"
+          ? ["processGroupPid"]
+          : type === "runtime_dispatch_requested"
+            ? [
+                "startedAt",
+                "resumedFromDispatchId",
+                "handoffEnabled",
+                "handoffCheckpointId",
+                "acceptedCommit",
+                "resumeProviderSessionId",
+                "taskId",
+                "executionId",
+                "attemptGroupId",
+                "attemptIndex",
+                "agentId",
+                "agentName",
+                "squadId",
+                "squadRun",
+                "cwd",
+                "role",
+                "reviewTarget",
+              ]
+            : [];
   if (
     !isRecord(value) ||
     !hasRequiredFields(value, requiredFields) ||
@@ -641,6 +644,12 @@ function validateAgentRuntimePayloadFields(
     return ["runtime transcript ref is invalid"];
   if (type === "runtime_session_liveness_changed" && !["live", "stale", "unknown"].includes(String(value.liveness)))
     return ["runtime liveness transition is invalid"];
+  if (
+    type === "runtime_session_liveness_changed" &&
+    value.processGroupPid !== undefined &&
+    (!Number.isSafeInteger(value.processGroupPid) || Number(value.processGroupPid) <= 1)
+  )
+    return ["runtime process group identity is invalid"];
   if (
     type === "runtime_session_outcome_observed" &&
     (!["succeeded", "failed", "unknown", "cancelled", "stopped"].includes(String(value.outcome)) ||

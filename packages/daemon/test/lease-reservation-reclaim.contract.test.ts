@@ -11,6 +11,7 @@ import {
   appendRuntimeWorkerRecord,
   openDispatchStream,
   removeDispatchLiveIndexEntries,
+  removeDispatchStream,
 } from "../src/dispatch-stream.ts";
 
 const now = "2026-08-25T03:15:20.000Z";
@@ -239,6 +240,16 @@ test("the task owner reclaims a held lease from an exited holder across executio
     terminalSnapshot = { ...snapshot(), task: ownedTask, executions: [execution], lease: heldLease },
     taskOwnerBinding = authorized({ principal: taskOwner.principal, executor: null });
   try {
+    const proofDispatchId = "dispatch_" + "d".repeat(24);
+    openDispatchStream(rootDir, {
+      dispatchId: proofDispatchId,
+      taskId: heldLease.taskId,
+      executionId: heldLease.executionId,
+      runtimeSessionId,
+      instanceId: "codex-test",
+      startedAt: now,
+    });
+    appendRuntimeWorkerRecord(rootDir, proofDispatchId, { kind: "process_started", pid: 2_147_483_647 });
     const mutation = taskMutation(
       terminalCell,
       { kind: "task-release", taskId: task.taskId, reason: "The bound worker exited." },
@@ -329,14 +340,16 @@ test("the same principal recovers an exited holder after settlement removes its 
     }),
     dispatchId = "dispatch_cccccccccccccccccccccccc";
   try {
-    openDispatchStream(rootDir, {
+    const stream = openDispatchStream(rootDir, {
       dispatchId,
       taskId: heldLease.taskId,
       executionId: heldLease.executionId,
       runtimeSessionId,
       instanceId: "codex-test",
       startedAt: now,
-    }).appendAttemptOutcome(
+    });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: 2_147_483_647 });
+    stream.appendAttemptOutcome(
       {
         classification: "worker_stop",
         reason: "Worker reached a normal attempt boundary.",
@@ -455,6 +468,259 @@ test("the same principal reclaims a live-projected RuntimeSession only after its
     );
     assert.equal(mutation.type, "lease_released");
     assert.equal(mutation.releasedLease, heldLease);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("terminal runtime lease release requires a process-group stop proof", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-terminal-process-group-proof-")),
+    runtimeSessionId = "runtime-terminal-proof",
+    dispatchId = "dispatch_cccccccccccccccccccccccc",
+    orphanedLease = { ...lease, phase: "orphaned" as const },
+    edgeSource = { kind: "node" as const, nodeId: "edge-terminal-proof" };
+  let runtimeEvents: Array<{ type: string; source: unknown; payload: Record<string, unknown> }> = [];
+  const terminalCell = {
+      ...cell,
+      rootDir,
+      projection: { readRuntimeSessionEvents: () => runtimeEvents },
+    },
+    terminalAction = {
+      kind: "task-release" as const,
+      taskId: task.taskId,
+      terminalExecutionId: lease.executionId,
+      terminalRuntimeSessionId: runtimeSessionId,
+    },
+    sessionStarted = (source: unknown = "local", bindTask = true) => ({
+      type: "runtime_session_started",
+      source,
+      payload: {
+        runtimeSessionId,
+        ...(bindTask ? { taskBinding: { taskId: task.taskId, executionId: lease.executionId } } : {}),
+      },
+    });
+  try {
+    assert.throws(
+      () =>
+        taskMutation(
+          terminalCell,
+          terminalAction,
+          task,
+          { ...snapshot(), lease: orphanedLease },
+          authorized(owner("replacement-worker")),
+        ),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
+    );
+    assert.throws(
+      () =>
+        taskMutation(
+          terminalCell,
+          { ...terminalAction, terminalProcessGroupPid: 2_147_483_647 },
+          task,
+          { ...snapshot(), lease: orphanedLease },
+          authorized(owner("replacement-worker")),
+        ),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
+      "an unrelated stopped pid without a matching RuntimeSession start cannot prove this runtime stopped",
+    );
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: task.taskId,
+      executionId: lease.executionId,
+      runtimeSessionId,
+      instanceId: "codex-test",
+      startedAt: now,
+    });
+    runtimeEvents = [sessionStarted()];
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_exit", exitCode: 1, signal: null });
+    assert.throws(
+      () =>
+        taskMutation(
+          terminalCell,
+          terminalAction,
+          task,
+          { ...snapshot(), lease: orphanedLease },
+          authorized(owner("replacement-worker")),
+        ),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
+      "process_exit without a process-group witness only proves the worker host closed",
+    );
+    removeDispatchStream(rootDir, dispatchId);
+
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: task.taskId,
+      executionId: lease.executionId,
+      runtimeSessionId,
+      instanceId: "codex-test",
+      startedAt: now,
+    });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_start_rejected", errorCode: "fixture_refused" });
+    const rejectedLaunchMutation = taskMutation(
+      terminalCell,
+      terminalAction,
+      task,
+      { ...snapshot(), lease: orphanedLease },
+      authorized(owner("replacement-worker")),
+    );
+    assert.equal(
+      rejectedLaunchMutation.type,
+      "lease_released",
+      "explicit pre-spawn rejection proves no process group was created",
+    );
+    removeDispatchStream(rootDir, dispatchId);
+
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: task.taskId,
+      executionId: lease.executionId,
+      runtimeSessionId,
+      instanceId: "codex-test",
+      startedAt: now,
+    });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_start_rejected", errorCode: "fixture_refused" });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_exit", exitCode: 1, signal: null });
+    assert.throws(
+      () =>
+        taskMutation(
+          terminalCell,
+          terminalAction,
+          task,
+          { ...snapshot(), lease: orphanedLease },
+          authorized(owner("replacement-worker")),
+        ),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
+      "a process_start_rejected record followed by process_exit is not proof that no process group existed",
+    );
+    removeDispatchStream(rootDir, dispatchId);
+
+    runtimeEvents = [sessionStarted()];
+    assert.throws(
+      () =>
+        taskMutation(
+          terminalCell,
+          { ...terminalAction, terminalProcessGroupPid: 2_147_483_647 },
+          task,
+          { ...snapshot(), lease: orphanedLease },
+          authorized(owner("replacement-worker")),
+        ),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
+      "a local caller cannot substitute an unrecorded process group",
+    );
+
+    runtimeEvents = [sessionStarted({ kind: "node", nodeId: "another-edge" })];
+    assert.throws(
+      () =>
+        taskMutation(
+          terminalCell,
+          { ...terminalAction, terminalProcessGroupPid: 2_147_483_647 },
+          task,
+          { ...snapshot(), lease: orphanedLease },
+          { ...authorized(owner("replacement-worker")), source: edgeSource },
+        ),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
+      "an Edge PID is bound to the node that published the matching RuntimeSession start",
+    );
+
+    runtimeEvents = [sessionStarted(edgeSource)];
+    const edgeMutation = taskMutation(
+      terminalCell,
+      { ...terminalAction, terminalProcessGroupPid: 2_147_483_647 },
+      task,
+      { ...snapshot(), lease: orphanedLease },
+      { ...authorized(owner("replacement-worker")), source: edgeSource },
+    );
+    assert.equal(edgeMutation.type, "lease_released", "a matching Edge start binds its locally proven PID");
+
+    runtimeEvents = [sessionStarted(edgeSource, false)];
+    const unboundEdgeMutation = taskMutation(
+      terminalCell,
+      { ...terminalAction, terminalProcessGroupPid: 2_147_483_647 },
+      task,
+      { ...snapshot(), lease: orphanedLease },
+      { ...authorized(owner("replacement-worker")), source: edgeSource },
+    );
+    assert.equal(
+      unboundEdgeMutation.type,
+      "lease_released",
+      "a matching RuntimeSession start with no taskBinding still binds the lease's supplied Edge proof",
+    );
+
+    runtimeEvents = [{ type: "runtime_session_exited", source: "local", payload: { runtimeSessionId } }];
+    const exitedMutation = taskMutation(
+      terminalCell,
+      terminalAction,
+      task,
+      { ...snapshot(), lease: orphanedLease },
+      authorized(owner("replacement-worker")),
+    );
+    assert.equal(exitedMutation.type, "lease_released", "an exited session with no recorded PID is terminal evidence");
+    assert.throws(
+      () =>
+        taskMutation(
+          terminalCell,
+          { ...terminalAction, terminalProcessGroupPid: 2_147_483_647 },
+          task,
+          { ...snapshot(), lease: orphanedLease },
+          authorized(owner("replacement-worker")),
+        ),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
+      "an unrelated supplied PID cannot replace the exited session's missing process-group witness",
+    );
+
+    runtimeEvents = [
+      sessionStarted(edgeSource),
+      {
+        type: "runtime_session_liveness_changed",
+        source: edgeSource,
+        payload: { runtimeSessionId, liveness: "live", processGroupPid: 12345 },
+      },
+    ];
+    assert.throws(
+      () =>
+        taskMutation(
+          terminalCell,
+          { ...terminalAction, terminalProcessGroupPid: 2_147_483_647 },
+          task,
+          { ...snapshot(), lease: orphanedLease },
+          { ...authorized(owner("replacement-worker")), source: edgeSource },
+        ),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
+      "a supplied Edge PID cannot contradict a PID recorded by the matching RuntimeSession",
+    );
+
+    runtimeEvents = [];
+
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: task.taskId,
+      executionId: lease.executionId,
+      runtimeSessionId,
+      instanceId: "codex-test",
+      startedAt: now,
+    });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: process.pid });
+    assert.throws(
+      () =>
+        taskMutation(
+          terminalCell,
+          { ...terminalAction, terminalProcessGroupPid: 2_147_483_647 },
+          task,
+          { ...snapshot(), lease: orphanedLease },
+          authorized(owner("replacement-worker")),
+        ),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
+      "an unrelated stopped process group cannot prove this runtime stopped",
+    );
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: 2_147_483_647 });
+    const mutation = taskMutation(
+      terminalCell,
+      { ...terminalAction, terminalProcessGroupPid: 2_147_483_647 },
+      task,
+      { ...snapshot(), lease: orphanedLease },
+      authorized(owner("replacement-worker")),
+    );
+    assert.equal(mutation.type, "lease_released");
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

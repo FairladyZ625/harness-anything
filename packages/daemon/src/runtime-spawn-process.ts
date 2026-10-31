@@ -13,6 +13,7 @@ import { runtimeKindForId } from "./runtime-inventory.ts";
 import {
   appendRuntimeWorkerRecord,
   dispatchStreamPath,
+  readDispatchStreamSummary,
   readRuntimeWorkerChunk,
   scrubProviderValue,
   type DispatchStreamWriter,
@@ -43,6 +44,19 @@ export function requiredRuntimeProjection(input: { readonly projection?: () => T
   return input.projection();
 }
 
+/** A launcher may use this only when it can establish that it created no OS process. */
+export class RuntimeProcessStartRejected extends Error {
+  readonly code?: string;
+  readonly data = { runtimeProcessStartRejected: true } as const;
+
+  constructor(error: unknown) {
+    super(runtimeErrorMessage(error), { cause: error });
+    this.name = "RuntimeProcessStartRejected";
+    const code = runtimeErrorCode(error);
+    if (code !== null) this.code = code;
+  }
+}
+
 /** Launch once, and for a resume retain the buffered witness until the session is registered. */
 export async function launchRuntimeProcess(
   launch: RuntimeLauncher,
@@ -52,7 +66,26 @@ export async function launchRuntimeProcess(
 ): Promise<{ process: RuntimeProcess; resumeObservation?: ResumeProcessObservation }> {
   let process: RuntimeProcess | undefined;
   try {
-    process = launch(prepared, persistence);
+    try {
+      process = launch(prepared, persistence);
+    } catch (error) {
+      if (isRuntimeProcessStartRejected(error))
+        appendRuntimeWorkerRecord(persistence.rootDir, persistence.dispatchId, {
+          kind: "process_start_rejected",
+          occurredAt: new Date().toISOString(),
+          ...(error.code ? { errorCode: error.code } : {}),
+        });
+      throw error;
+    }
+    const processIsChild =
+      Number.isSafeInteger(process.pid) && process.pid > 1 && process.pid !== globalThis.process.pid;
+    if (readDispatchStreamSummary(persistence.rootDir, persistence.dispatchId)?.process === null && processIsChild) {
+      appendRuntimeWorkerRecord(persistence.rootDir, persistence.dispatchId, {
+        kind: "process_started",
+        occurredAt: new Date().toISOString(),
+        pid: process.pid,
+      });
+    }
     if (!providerSessionId) return { process };
     const resumeObservation = observeResumeProcess(
       process,
@@ -62,14 +95,29 @@ export async function launchRuntimeProcess(
     await resumeObservation.ready;
     return { process, resumeObservation };
   } catch (error) {
-    process?.terminate();
-    process?.release?.();
+    try {
+      if (process?.terminateTree) await process.terminateTree();
+      else process?.terminate();
+    } finally {
+      process?.release?.();
+    }
     if (!providerSessionId || runtimeErrorCode(error) === "runtime_resume_failed") throw error;
     throw runtimeSpawnError(
       "runtime_resume_failed",
       `${prepared.definition.kindId} session ${providerSessionId} could not be resumed: ${runtimeErrorMessage(error)}`,
     );
   }
+}
+
+function isRuntimeProcessStartRejected(error: unknown): error is RuntimeProcessStartRejected {
+  const data = error instanceof Error && "data" in error ? error.data : null;
+  return (
+    error instanceof RuntimeProcessStartRejected ||
+    (typeof data === "object" &&
+      data !== null &&
+      "runtimeProcessStartRejected" in data &&
+      data.runtimeProcessStartRejected === true)
+  );
 }
 
 // A resume receipt is an admission claim: the provider has accepted the old
@@ -94,7 +142,7 @@ export function observeResumeProcess(
       rejectReady = reject;
     }),
     timer = setTimeout(
-      () => rejectResume(`provider did not confirm the session within ${resumeAdmissionTimeoutMs}ms`, true),
+      () => rejectResume(`provider did not confirm the session within ${resumeAdmissionTimeoutMs}ms`),
       resumeAdmissionTimeoutMs,
     );
   timer.unref();
@@ -102,11 +150,10 @@ export function observeResumeProcess(
     if (sink) sink(event);
     else events.push(event);
   };
-  const rejectResume = (reason: string, terminate: boolean): void => {
+  const rejectResume = (reason: string): void => {
     if (settled) return;
     settled = true;
     clearTimeout(timer);
-    if (terminate) process.terminate();
     rejectReady(
       runtimeSpawnError(
         "runtime_resume_failed",
@@ -119,7 +166,7 @@ export function observeResumeProcess(
     if (settled) return;
     buffer += chunk;
     if (Buffer.byteLength(buffer) > providerErrorLimit) {
-      rejectResume("provider emitted too much output before confirming the session", true);
+      rejectResume("provider emitted too much output before confirming the session");
       return;
     }
     const lines = buffer.split(/\r?\n/u);
@@ -131,7 +178,7 @@ export function observeResumeProcess(
         if (frame.failureText) failureText = frame.failureText;
         if (!frame.sessionIdentity?.sessionId) continue;
         if (frame.sessionIdentity.sessionId !== expectedProviderSessionId) {
-          rejectResume(`provider bound unexpected session ${frame.sessionIdentity.sessionId}`, true);
+          rejectResume(`provider bound unexpected session ${frame.sessionIdentity.sessionId}`);
           return;
         }
         settled = true;
@@ -156,7 +203,7 @@ export function observeResumeProcess(
         detail = diagnostic
           ? (scrubProviderValue(diagnostic) as string)
           : "provider exited before confirming the session";
-      rejectResume(`${detail} (exit ${code === null ? "unknown" : String(code)})`, false);
+      rejectResume(`${detail} (exit ${code === null ? "unknown" : String(code)})`);
     }
   });
   return {
@@ -480,15 +527,20 @@ export function launchNative(
     readonly callbackRelay?: { readonly endpoint: string; readonly path: string };
   },
 ): RuntimeProcess {
-  const command = nativeCommand(input);
-  const workerHost = import.meta.url.endsWith(".js") ? "./bin.js" : "./bin.ts";
-  const entry = fileURLToPath(new URL(workerHost, import.meta.url));
-  const child = spawn(process.execPath, [entry, "--runtime-worker-host"], {
-    detached: true,
-    stdio: ["pipe", "ignore", "ignore"],
-    windowsHide: true,
-    env: process.env,
-  });
+  let command: ReturnType<typeof nativeCommand>, child: ReturnType<typeof spawn>;
+  try {
+    command = nativeCommand(input);
+    const workerHost = import.meta.url.endsWith(".js") ? "./bin.js" : "./bin.ts",
+      entry = fileURLToPath(new URL(workerHost, import.meta.url));
+    child = spawn(process.execPath, [entry, "--runtime-worker-host"], {
+      detached: true,
+      stdio: ["pipe", "ignore", "ignore"],
+      windowsHide: true,
+      env: process.env,
+    });
+  } catch (error) {
+    throw new RuntimeProcessStartRejected(error);
+  }
   const pid = child.pid ?? 0;
   const observed = observeDispatchProcess(persistence.rootDir, persistence.dispatchId, pid);
   appendRuntimeWorkerRecord(persistence.rootDir, persistence.dispatchId, {
