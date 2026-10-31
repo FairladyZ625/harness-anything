@@ -177,6 +177,23 @@ async function dispatchContinuation(
   input: ReworkContext & { readonly binding: RepoCellBinding; readonly opId: string },
   binding: RepoCellBinding,
 ): Promise<ReviewReworkStep> {
+  const previous = submittingWorkerDispatch(cell, input.taskId, input.execution.executionId);
+  // A submitted provider turn can keep using its checkout for post-submit CI repair. Rework
+  // retires its execution lease but cannot revoke those OS-level writes, so settle a live source
+  // runtime before the continuation receives the same worktree. The existing cancel path waits
+  // for terminal publication; if another node owns the source, its ownership refusal fails this
+  // continuation closed instead of starting a second writer here.
+  if (previous?.status === "running" || (previous?.status === "unknown" && previous.outcome === null)) {
+    try {
+      await cancelSubmittingWorker(cell, input.taskId, previous.runtimeSessionId, binding);
+    } catch (error) {
+      const failure = cell.failed(input.opId, error);
+      return {
+        continuation: { mode: previous.resume === undefined ? "fresh" : "resume", ...failure },
+        steps: [failure],
+      };
+    }
+  }
   // One resume attempt, then one fresh fallback: a provider that cannot resume the prior session
   // is not a stop — the fresh session carries the same report (dec_E369B861 CH3 checkpoint).
   for (let attempt = 0; ; attempt += 1) {
@@ -224,6 +241,28 @@ async function dispatchContinuation(
       return { continuation: { mode: continuation.mode, ...failure }, steps: [failure] };
     }
   }
+}
+
+async function cancelSubmittingWorker(
+  cell: RepoCellOperationalContext,
+  taskId: string,
+  runtimeSessionId: string,
+  binding: RepoCellBinding,
+): Promise<void> {
+  const payload = { runtimeSessionId },
+    revision = cell.store.readHead()?.revision ?? 0,
+    authorizationDecision = await evaluateRepoCellAction({
+      action: { kind: "runtime-cancel", ...payload },
+      repoId: cell.input.repoId,
+      binding,
+      actionId: `task-return-cancel:${taskId}:${runtimeSessionId}:${revision}`,
+      revision,
+      now: cell.now(),
+      readTask: (id) => cell.projection.read(id).snapshot.task,
+    });
+  if (authorizationDecision.outcome !== "allowed")
+    throw cell.cellCodedError("authorization_denied", authorizationDecision.nextActions.join(" "));
+  await cell.runtimeSpawner.cancel(payload, { ...binding, authorizationDecision });
 }
 
 /** The last dispatch of the execution's lease holders — the session that submitted the cut. */
