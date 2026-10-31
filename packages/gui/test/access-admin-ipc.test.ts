@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import type { IpcMainInvokeEvent } from "electron";
 import { validateDaemonRpcCall } from "@harness-anything/daemon/protocol/validation";
-import { ACCESS_ADMIN_CHANNEL, type AccessAdminApi } from "../src/api/access-admin-contract.ts";
+import { ACCESS_ADMIN_CHANNEL, type AccessAdminApi } from "@harness-anything/authorization-gui/access-admin-contract";
 import { accessAdminParams, registerAccessAdminIpc } from "../src/main/access-admin-ipc.ts";
 import { accessAdminPreloadApi } from "../src/preload/access-admin-preload.ts";
 

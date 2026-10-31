@@ -7,6 +7,8 @@ const root = process.cwd();
 const expectedPackages = new Map([
   ["packages/kernel/package.json", "@harness-anything/kernel"],
   ["packages/application/package.json", "@harness-anything/application"],
+  ["packages/authorization-keycloak/package.json", "@harness-anything/authorization-keycloak"],
+  ["packages/authorization-gui/package.json", "@harness-anything/authorization-gui"],
   ["packages/daemon/package.json", "@harness-anything/daemon"],
   ["packages/cli/package.json", "@harness-anything/cli"],
   ["packages/gui/package.json", "@harness-anything/gui"],

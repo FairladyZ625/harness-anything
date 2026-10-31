@@ -1,4 +1,4 @@
-import type { AccessAction, AccessPolicyGroup } from "../../../api/access-admin-contract.ts";
+import type { AccessAction, AccessPolicyGroup } from "@harness-anything/authorization-gui/access-admin-contract";
 import { roleLabel } from "../../access-model.ts";
 import { currentLocale } from "../../i18n/core.ts";
 import { t, type MessageKey } from "../../i18n/index.tsx";

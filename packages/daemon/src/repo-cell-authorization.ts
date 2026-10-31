@@ -28,7 +28,7 @@ import {
 } from "@harness-anything/kernel";
 import type { ExecutionDelegationRecord } from "@harness-anything/kernel";
 import { authorizeAction } from "./authorization.ts";
-import { KeycloakPolicyAdapter, type KeycloakPermissionDecision } from "./keycloak-policy-adapter.ts";
+import { createAuthorizationProvider, type AuthorizationPermissionDecision } from "./authorization-provider.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 const repositoryTarget: EntityRef = "settings/repository";
@@ -134,13 +134,13 @@ export async function evaluateKeycloakPerson(input: {
   readonly resource: AuthorizationResource;
   readonly resourceAncestors?: readonly AuthorizationResource[];
   readonly fetchPort?: typeof fetch;
-}): Promise<Pick<KeycloakPermissionDecision, "outcome" | "reasonCode">> {
+}): Promise<Pick<AuthorizationPermissionDecision, "outcome" | "reasonCode">> {
   const { session, center } = input.credential;
   if (session?.personId !== input.personId) return { outcome: "denied", reasonCode: "keycloak_denied" };
   const resourceAncestors = input.resourceAncestors ?? [];
   if (center) {
     const userToken = session.currentAccessToken ? await session.currentAccessToken() : session.accessToken,
-      userSession = new KeycloakPolicyAdapter(
+      userSession = createAuthorizationProvider(
         { url: session.url, realm: session.realm, resourceServerClientId: session.clientId },
         input.fetchPort,
       );
@@ -148,7 +148,7 @@ export async function evaluateKeycloakPerson(input: {
       return { outcome: "denied", reasonCode: "keycloak_denied" };
   }
   if (!center)
-    return new KeycloakPolicyAdapter(
+    return createAuthorizationProvider(
       { url: session.url, realm: session.realm, resourceServerClientId: session.clientId },
       input.fetchPort,
     ).authorize({
@@ -158,7 +158,7 @@ export async function evaluateKeycloakPerson(input: {
       resourceAncestors,
     });
   const currentCenter = await center();
-  return new KeycloakPolicyAdapter(
+  return createAuthorizationProvider(
     { url: currentCenter.url, realm: currentCenter.realm, resourceServerClientId: currentCenter.clientId },
     input.fetchPort,
     async (rejectedAccessToken) => (await center(rejectedAccessToken)).accessToken,

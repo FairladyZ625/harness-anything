@@ -5,7 +5,7 @@ import {
   type TaskClaimant,
   type TaskProjection,
 } from "@harness-anything/kernel";
-import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
+import { createAuthorizationProvider } from "./authorization-provider.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
 
@@ -15,7 +15,7 @@ async function principalDirectory(binding: RepoCellBinding) {
     throw cellCodedError("authorization_denied", "Assignment target resolution requires the center directory.");
   const center = await centerAuthority();
   return {
-    adapter: new KeycloakPolicyAdapter({
+    adapter: createAuthorizationProvider({
       url: center.url,
       realm: center.realm,
       resourceServerClientId: center.clientId,

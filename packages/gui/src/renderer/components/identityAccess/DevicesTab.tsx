@@ -4,7 +4,7 @@ import type {
   AccessDevice,
   AccessReceipt,
   AccessRejection,
-} from "../../../api/access-admin-contract.ts";
+} from "@harness-anything/authorization-gui/access-admin-contract";
 import { isRejection } from "../../access-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";

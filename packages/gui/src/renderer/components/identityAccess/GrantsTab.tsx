@@ -4,7 +4,7 @@ import type {
   AccessEffectivePermissionsReply,
   AccessGrant,
   AccessRejection,
-} from "../../../api/access-admin-contract.ts";
+} from "@harness-anything/authorization-gui/access-admin-contract";
 import {
   grantsByPerson,
   isRejection,

@@ -21,7 +21,7 @@ import { createLoginWebviewSecurity } from "./login-webview-security.ts";
 import { registerOidcAuthIpc } from "./oidc-auth-ipc.ts";
 import { registerAccessAdminIpc } from "./access-admin-ipc.ts";
 import { registerCenterSettingsIpc } from "./center-settings-ipc.ts";
-import { EDGE_JOIN_LINK_CHANNEL } from "../api/edge-join-entry-contract.ts";
+import { EDGE_JOIN_LINK_CHANNEL } from "@harness-anything/authorization-gui/edge-join-entry-contract";
 import { edgeJoinLinkFromArgv, registerEdgeJoinEntryIpc } from "./edge-join-entry-ipc.ts";
 import { registerArtifactOpenIpc } from "./artifact-open-ipc.ts";
 import { registerLocalDocIpc } from "./local-doc-ipc.ts";

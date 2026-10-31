@@ -2,7 +2,7 @@
 // dec_F01770FD0DCF72683B7C4C7A47/CH5: product removal explicitly revokes native offline consent.
 import assert from "node:assert/strict";
 import test from "node:test";
-import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
 
 function fixture(options: { consent?: boolean; reject?: string; missingUser?: boolean; missingNode?: boolean } = {}) {
   const calls: string[] = [],

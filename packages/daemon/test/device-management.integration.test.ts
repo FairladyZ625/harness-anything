@@ -12,7 +12,7 @@ import path from "node:path";
 import test from "node:test";
 import { AccessAdminService, type AccessAdminRequest } from "../src/access-admin-service.ts";
 import { keycloakNodeRegistry } from "../src/fleet-center-admission.ts";
-import { KeycloakPolicyAdapter, type KeycloakNode } from "../src/keycloak-policy-adapter.ts";
+import { KeycloakPolicyAdapter, type KeycloakNode } from "@harness-anything/authorization-keycloak";
 import { OidcSessionService } from "../src/oidc-session-service.ts";
 import { fakeKeycloak, keycloakUserRoot, keycloakUrl, keycloakRealm } from "./keycloak.fixtures.ts";
 

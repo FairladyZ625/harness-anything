@@ -8,7 +8,7 @@ import {
   type TaskV2,
   type AssignmentRelationLike,
 } from "@harness-anything/kernel";
-import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
+import { createAuthorizationProvider } from "./authorization-provider.ts";
 import { canonicalResourceAncestors, evaluateKeycloakPerson } from "./repo-cell-authorization.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
@@ -30,7 +30,7 @@ export async function readClaimableTasks(input: {
   if (typeof source !== "object" || source.kind !== "node" || !centerAuthority)
     throw cellCodedError("authentication_required", "Claimable tasks require an authenticated execution node.");
   const center = await centerAuthority(),
-    adapter = new KeycloakPolicyAdapter({
+    adapter = createAuthorizationProvider({
       url: center.url,
       realm: center.realm,
       resourceServerClientId: center.clientId,

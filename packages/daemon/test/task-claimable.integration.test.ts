@@ -13,7 +13,7 @@ import {
 import { emptyTaskLifecycleSnapshot } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract";
 import { readClaimableTasks } from "../src/task-claimable-read.ts";
 import { readEntityAssignmentDirectory } from "../src/entity-assignment-directory.ts";
-import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
 import { serveKeycloak } from "./keycloak.fixtures.ts";
 
 const now = "2026-10-03T12:00:00.000Z",

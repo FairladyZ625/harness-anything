@@ -1,5 +1,9 @@
 import { useState } from "react";
-import type { AccessAdminApi, AccessReceipt, AccessRejection } from "../../../api/access-admin-contract.ts";
+import type {
+  AccessAdminApi,
+  AccessReceipt,
+  AccessRejection,
+} from "@harness-anything/authorization-gui/access-admin-contract";
 import { isRejection } from "../../access-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { Region } from "../primitives/Region.tsx";

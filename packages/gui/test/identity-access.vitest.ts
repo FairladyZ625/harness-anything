@@ -3,7 +3,8 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { OidcAuthApi } from "../src/api/oidc-auth-contract.ts";
+import type { OidcAuthApi } from "@harness-anything/authorization-gui/oidc-auth-contract";
+import type { AuthorizationUiComponents } from "@harness-anything/authorization-gui/ui-component-contract";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { IdentityAccessView } from "../src/renderer/views/IdentityAccessView.tsx";
 
@@ -24,9 +25,9 @@ function auth(overrides: Partial<OidcAuthApi> = {}): OidcAuthApi {
   };
 }
 
-async function render(viewAuth: OidcAuthApi) {
+async function render(viewAuth: OidcAuthApi, components?: AuthorizationUiComponents) {
   Object.defineProperty(window, "harness", { configurable: true, value: { auth: viewAuth } });
-  await act(async () => root.render(createElement(IdentityAccessView)));
+  await act(async () => root.render(createElement(IdentityAccessView, { components })));
   await act(async () => undefined);
 }
 
@@ -143,6 +144,20 @@ describe("IdentityAccessView", () => {
     expect(container.textContent).toContain("Identity & access");
     expect(container.textContent).toContain("Sign in with Keycloak");
     expect(container.textContent).not.toMatch(/[\u3400-\u9fff]/u);
+  });
+
+  it("uses host-provided identity and login components", async () => {
+    const UserIdentity: NonNullable<AuthorizationUiComponents["UserIdentity"]> = ({ personId }) =>
+        createElement("output", { "data-testid": "host-user" }, personId),
+      Login: NonNullable<AuthorizationUiComponents["Login"]> = () =>
+        createElement("output", { "data-testid": "host-login" }, "Studio login");
+    await render(auth({ status: vi.fn(async () => ({ authenticated: true, personId: "studio-person" })) }), {
+      UserIdentity,
+      Login,
+    });
+    expect(container.querySelector('[data-testid="host-user"]')?.textContent).toBe("studio-person");
+    expect(container.querySelector('[data-testid="host-login"]')?.textContent).toBe("Studio login");
+    expect(container.querySelector('[data-testid="external-binding-form"]')).toBeNull();
   });
 });
 

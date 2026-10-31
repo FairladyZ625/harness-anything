@@ -1,4 +1,8 @@
-import { ACCESS_ADMIN_CHANNEL, type AccessAdminApi, type AccessAdminRequest } from "../api/access-admin-contract.ts";
+import {
+  ACCESS_ADMIN_CHANNEL,
+  type AccessAdminApi,
+  type AccessAdminRequest,
+} from "@harness-anything/authorization-gui/access-admin-contract";
 
 /**
  * 账号与访问控制页的 preload 面:每个方法是同一通道上的一条带类型请求,主进程收窄见

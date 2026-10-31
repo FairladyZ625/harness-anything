@@ -3,7 +3,7 @@ import type {
   EdgeJoinJoined,
   EdgeJoinProgress,
   EdgeJoinRejection,
-} from "../api/edge-join-entry-contract.ts";
+} from "@harness-anything/authorization-gui/edge-join-entry-contract";
 import { guiHostBridge } from "./gui-transport.ts";
 import { isRendererRecord, rendererReadError } from "./result-validation.ts";
 

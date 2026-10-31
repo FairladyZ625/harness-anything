@@ -1,10 +1,10 @@
-import type { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
+import type { AuthorizationProvider } from "./authorization-provider.ts";
 
 export function coded(code: string, message: string): Error {
   return Object.assign(new Error(message), { code });
 }
 
-export async function requiredUserId(adapter: KeycloakPolicyAdapter, token: string, personId: string): Promise<string> {
+export async function requiredUserId(adapter: AuthorizationProvider, token: string, personId: string): Promise<string> {
   const userId = await adapter.findUserId(token, personId);
   if (!userId) throw coded("access_person_unknown", `No Keycloak account carries Harness person ${personId}.`);
   return userId;

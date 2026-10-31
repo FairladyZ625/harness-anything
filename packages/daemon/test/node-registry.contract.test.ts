@@ -9,7 +9,7 @@ import test, { type TestContext } from "node:test";
 import { AccessAdminService, type AccessAdminRequest } from "../src/access-admin-service.ts";
 import { binding as deriveBinding } from "../src/daemon-host-binding.ts";
 import { keycloakNodeRegistry } from "../src/fleet-center-admission.ts";
-import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
 import { managedRbacReceiptJournal, reserveCredentialFile } from "../src/managed-rbac-service.ts";
 import { OidcSessionService } from "../src/oidc-session-service.ts";
 import { evaluateRepoCellAction } from "../src/repo-cell-authorization.ts";
