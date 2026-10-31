@@ -389,13 +389,13 @@ function terminalRuntimeStopProof(
   const exact = candidates.filter((candidate) => candidate.header.executionId === executionId),
     eligible = exact.length ? exact : candidates,
     matched =
-      suppliedPid === undefined
-        ? eligible.length === 1
+      eligible.length !== 1
+        ? null
+        : suppliedPid === undefined
           ? eligible[0]
-          : null
-        : Number.isSafeInteger(suppliedPid)
-          ? (eligible.find((candidate) => candidate.process.pid === Number(suppliedPid)) ?? null)
-          : null;
+          : Number.isSafeInteger(suppliedPid) && eligible[0]!.process.pid === Number(suppliedPid)
+            ? eligible[0]
+            : null;
   if (!matched) return "unknown_unreachable";
   return reconcileProcessGroup({ pid: matched.process.pid, pgid: matched.process.pid });
 }
