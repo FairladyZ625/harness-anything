@@ -42,11 +42,12 @@ test("the bundled stop-reason point classifies a ruling stop instead of silently
   assert.equal(decisionWhenMatches(point.when, { outcome: "cancelled", classification: "awaiting_ruling" }), true);
 });
 
-test("the bundled incident disposition excludes successful worker stops", () => {
+test("the bundled incident disposition declares provider faults and excludes successful worker stops", () => {
   const definition = loadCanonicalAssets(defaultAssets).compiledVertical.definition,
     point = definition.decisions?.points["runtime-incident-worker-stop"];
   assert.ok(point, "the bundled vertical still declares the runtime incident disposition point");
   assert.equal(decisionWhenMatches(point.when, { outcome: "failed", classification: "worker_stop" }), true);
+  assert.equal(decisionWhenMatches(point.when, { outcome: "failed", classification: "provider_fault" }), true);
   assert.equal(decisionWhenMatches(point.when, { outcome: "stopped", classification: "worker_stop" }), true);
   assert.equal(decisionWhenMatches(point.when, { outcome: "succeeded", classification: "worker_stop" }), false);
 });
