@@ -2,8 +2,8 @@ import { closeSync, mkdirSync, openSync, writeSync } from "node:fs";
 import path from "node:path";
 import { serializePersistedCanonicalEvent } from "../../../packages/kernel/src/domain/doc-sync.contract.ts";
 import { sha256Text } from "../../../packages/kernel/src/integrity/stable-hash.ts";
-import { openSqliteEventStore } from "../../../packages/kernel/src/store/sqlite-event-store.ts";
-import { eventAt } from "../../../packages/kernel/test/store/task-event-store.fixtures.ts";
+import { openSqliteEventStore } from "../../../packages/storage/src/store/sqlite-event-store.ts";
+import { eventAt } from "../../../packages/storage/test/store/task-event-store.fixtures.ts";
 
 const [mode, rootDir, repoId, taskId] = process.argv.slice(2);
 if (!mode || !rootDir) throw new Error("usage: repo-cell-shadow-fixture.mjs <mode> <root> [repo-id] [task-id]");

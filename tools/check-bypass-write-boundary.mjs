@@ -10,9 +10,9 @@ import { listWorktreeFiles } from "./gates/git.mjs";
 const gateId = "check-bypass-write-boundary";
 
 const targetRoots = [
-  "packages/kernel/src/store",
+  "packages/storage/src/store",
   "packages/kernel/src/local",
-  "packages/kernel/src/projection",
+  "packages/storage/src/projection",
   "packages/cli/src",
 ];
 
@@ -111,7 +111,7 @@ export function checkBypassWriteBoundary(root = process.cwd()) {
 function inspectFile(root, rel) {
   const sourceText = readFileSync(path.join(root, rel), "utf8");
   const category =
-    rel.startsWith("packages/kernel/src/projection/") &&
+    rel.startsWith("packages/storage/src/projection/") &&
     sourceText.includes("@write-boundary-exemption rebuildable-projection")
       ? "rebuildable-projection"
       : "governed-write";

@@ -14,14 +14,14 @@ import {
   openReplicaStore,
   TASK_EVENT_SHAPE_COMPAT_VERSION,
 } from "@harness-anything/kernel";
-import { eventAt, initRepo } from "../../kernel/test/store/task-event-store.fixtures.ts";
+import { eventAt, initRepo } from "../../storage/test/store/task-event-store.fixtures.ts";
 import { backup, DatabaseSync } from "node:sqlite";
 import { ReadableStream, type ReadableStreamDefaultController } from "node:stream/web";
 import { runWalSender } from "../src/fleet/walsender.ts";
 import { runWalReceiver, openWalReceiverGeneration } from "../src/fleet/walreceiver.ts";
-import { startBaseBackup } from "../src/fleet/basebackup.ts";
+import { startBaseBackup } from "@harness-anything/storage";
 import { installReplicaGeneration, readReplicaGeneration } from "../src/fleet/replica-generation.ts";
-import { createReplicationRetention, openReplicationSlots } from "../src/fleet/replication-slot.ts";
+import { createReplicationRetention, openReplicationSlots } from "@harness-anything/storage";
 import {
   parseReplicationFrame,
   ReplicationDecoder,

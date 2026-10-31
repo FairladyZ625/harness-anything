@@ -13,7 +13,7 @@ import {
 import path from "node:path";
 import type { AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import { consumeKnownError } from "@harness-anything/kernel";
-import { writeFileDurably } from "./durable-file.ts";
+import { writeFileDurably } from "../../storage/src/durable-file.ts";
 import { identifier, runtimeInstanceError, unavailable } from "./agent-runtime-instance-config.ts";
 import type {
   RuntimeAuthReadiness,

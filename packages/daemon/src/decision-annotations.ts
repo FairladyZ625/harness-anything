@@ -7,7 +7,7 @@ import {
   type DecisionEventName,
   type DecisionReadSurface,
 } from "@harness-anything/kernel";
-import { writeFileDurably } from "./durable-file.ts";
+import { writeFileDurably } from "../../storage/src/durable-file.ts";
 import type { TaskDispatchAdvisory } from "./protocol/task-dispatch-contract.ts";
 
 export const decisionAnnotationRetention = 1_000;

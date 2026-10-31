@@ -5,7 +5,7 @@
 // `ha daemon fleet edge sync` writes it; the resident replica stream reads it.
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { writeFileDurably } from "../durable-file.ts";
+import { writeFileDurably } from "@harness-anything/storage";
 export interface FleetEdgeConfig {
   readonly repoId: string;
   readonly host: string;

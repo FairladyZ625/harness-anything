@@ -20,7 +20,7 @@ import {
   openPersistentWriterEpoch,
   readLedgerWriterEpoch,
   type WriterEpochFenceDescriptor,
-} from "../src/writer-epoch.ts";
+} from "@harness-anything/storage";
 import { launchExitNotification } from "../src/runtime-spawn.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
@@ -131,7 +131,7 @@ test("attached task runtime settlement releases its execution lease before publi
         };
       },
       killpoint: (point) => {
-        if (!failSettlement || point !== "after_sqlite_commit") return;
+        if (!failSettlement || point !== "after_store_commit") return;
         const latest = makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }).read().events.at(-1);
         if (latest?.type === "lease_released" && latest.taskId === "task-runtime-settlement-failed") {
           failSettlement = false;

@@ -19,7 +19,7 @@ import {
 } from "../src/fleet-edge-mirror.ts";
 import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
 import { listenFleetTls } from "../src/fleet/center.ts";
-import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
+import { openPersistentWriterEpoch } from "@harness-anything/storage";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 import { waitForState } from "./fleet-replication.fixture.ts";

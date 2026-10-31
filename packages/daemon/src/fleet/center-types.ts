@@ -1,9 +1,9 @@
-import type { ReplicaDeliveryLease } from "./replica-delivery-lease.ts";
+import type { ReplicaDeliveryLease } from "@harness-anything/storage";
 import { type WriteReceiptDraft as WriteReceipt } from "@harness-anything/kernel";
 import type { DaemonHost } from "../daemon-host.ts";
-import type { WriterEpochLease } from "../writer-epoch.ts";
+import type { WriterEpochLease } from "@harness-anything/storage";
 import { type FleetBlob, type FleetDescriptor, type FleetFrameV1 } from "./command-protocol.ts";
-import type { ReplicationSlotKey } from "./replication-slot.ts";
+import type { ReplicationSlotKey, ReplicaDeliveryKey } from "@harness-anything/storage";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import type { FleetDeviceLoginNotice, FleetLoginAuthority } from "./command-protocol.ts";
 import type { ReplicationFrame, ReplicationPeer } from "./protocol.ts";
@@ -94,10 +94,6 @@ export interface FleetReplicaStatus extends ReplicationSlotKey {
   readonly delivery: "current" | "delta" | "snapshot_required";
   readonly diskQuotaBytes: number | null;
   readonly syncFailure: { readonly code: string; readonly message: string } | null;
-}
-
-export interface ReplicaDeliveryKey extends ReplicationSlotKey {
-  readonly viewId: string;
 }
 
 export interface FleetTlsCenter {

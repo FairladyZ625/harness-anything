@@ -1,0 +1,50 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { Effect } from "effect";
+import type { Exit } from "effect";
+import type { WriteOp } from "@harness-anything/kernel/internal/ports/index.ts";
+import { closeTaskProjectionsUnder } from "../../src/projection/rebuildable-task-projection.ts";
+import { closeSqliteEventStoresUnder } from "../../src/store/sqlite-ledger-connections.ts";
+
+export function withTempStore<T>(fn: (rootDir: string) => T): T {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-kernel-store-"));
+  try {
+    return fn(rootDir);
+  } finally {
+    closeTaskProjectionsUnder(rootDir);
+    closeSqliteEventStoresUnder(rootDir);
+    rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+}
+
+export async function withTempStoreAsync<T>(fn: (rootDir: string) => Promise<T>): Promise<T> {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-kernel-store-"));
+  try {
+    return await fn(rootDir);
+  } finally {
+    closeTaskProjectionsUnder(rootDir);
+    closeSqliteEventStoresUnder(rootDir);
+    rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+}
+
+export async function runEffect<A, E>(effect: Effect.Effect<A, E>): Promise<A> {
+  const exit = await new Promise<Exit.Exit<A, E>>((resolve) => {
+    Effect.runCallback(effect, { onExit: resolve });
+  });
+  if (exit._tag === "Success") return exit.value;
+  throw new Error(String(exit.cause));
+}
+
+export function docWrite(opId: string, taskId: string, documentPath: string, body: string): WriteOp {
+  return {
+    opId,
+    entityId: `task/${taskId}`,
+    kind: "doc_write",
+    payload: {
+      path: documentPath,
+      body,
+    },
+  };
+}

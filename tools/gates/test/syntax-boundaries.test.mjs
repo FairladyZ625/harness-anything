@@ -161,7 +161,7 @@ test("G4 command witness registration authorizes only its named consumer and det
 // dec_5EC2631352B17EE2BF4979E37E: same-generation corruption must surface unchanged.
 test("G4 rejects restoring the retired physical worktree error consumer", (t) => {
   const root = fixture(t);
-  const source = "packages/kernel/src/store/sqlite-task-event-publication.ts";
+  const source = "packages/storage/src/store/sqlite-task-event-publication.ts";
   const key = `${source}#physicalWorktreeRevision`;
   const production = JSON.parse(
     readFileSync(path.join(repoRoot, "tools/gate-allowlists/check-fallback-boundaries.json"), "utf8"),

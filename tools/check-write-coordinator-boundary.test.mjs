@@ -14,7 +14,7 @@ test("W3 write authority accepts RepoCell as the sole production event-store com
 
 test("W3 write authority rejects restoration of a journal coordinator", () =>
   withFixture((root) => {
-    write(root, "packages/kernel/src/store/write-journal-coordinator.ts", "export const legacy = true;\n");
+    write(root, "packages/storage/src/store/write-journal-coordinator.ts", "export const legacy = true;\n");
     assert.match(findW3WriteAuthorityViolations(root).join("\n"), /W3-retired production write path must not exist/u);
   }));
 
@@ -26,7 +26,7 @@ test("W3 write authority rejects a second event-store composition root", () =>
 
 test("W3 write authority rejects worktree mutation capability in the object/ref publisher", () =>
   withFixture((root) => {
-    write(root, "packages/kernel/src/store/task-event-store-git-refs.ts", publisherFixture('runGit("update-index");'));
+    write(root, "packages/storage/src/store/task-event-store-git-refs.ts", publisherFixture('runGit("update-index");'));
     assert.match(findW3WriteAuthorityViolations(root).join("\n"), /must not expose update-index/u);
   }));
 
@@ -34,7 +34,7 @@ test("W3 write authority rejects moving a coordinated-commit primitive outside i
   withFixture((root) => {
     write(
       root,
-      "packages/kernel/src/store/task-event-store-git-refs.ts",
+      "packages/storage/src/store/task-event-store-git-refs.ts",
       `
 export function prepareCommit() {}
 export function finalizeRefs() { gitObjects.updateRefs(); }
@@ -51,7 +51,7 @@ test("W3 write authority rejects an additional coordinated-commit primitive call
   withFixture((root) => {
     write(
       root,
-      "packages/kernel/src/store/alternate-commit.ts",
+      "packages/storage/src/store/alternate-commit.ts",
       "export function alternateCommitter() { gitObjects.importCommit(); }\n",
     );
     assert.match(findW3WriteAuthorityViolations(root).join("\n"), /primitive must belong only to prepareCommit/u);
@@ -93,10 +93,10 @@ function withFixture(run) {
     );
     write(
       root,
-      "packages/kernel/src/store/task-event-store.ts",
+      "packages/storage/src/store/task-event-store.ts",
       `export const CANONICAL_EVENT_REF = "refs/ha/canonical";\nexport function makeTaskEventStore() {}\n`,
     );
-    write(root, "packages/kernel/src/store/task-event-store-git-refs.ts", publisherFixture());
+    write(root, "packages/storage/src/store/task-event-store-git-refs.ts", publisherFixture());
     write(
       root,
       "packages/application/src/task-lifecycle-service.ts",

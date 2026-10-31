@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { writeFileDurably } from "./durable-file.ts";
+import { writeFileDurably } from "../../storage/src/durable-file.ts";
 
 const schema = "terminal-session-registry/v1" as const;
 

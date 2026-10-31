@@ -37,7 +37,7 @@ import { openDispatchStream } from "../src/dispatch-stream.ts";
 import { backupRepo, drillRepoBackup } from "../src/repo-all-purge.ts";
 import { localUserDaemonEndpoint, perUserSocketRoot } from "../src/client/local-daemon-target.ts";
 import { runtimeCallbackRelaySpec } from "../src/runtime-callback-relay.ts";
-import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
+import { openPersistentWriterEpoch } from "@harness-anything/storage";
 import { localSystemBinding } from "../src/daemon-host-binding.ts";
 import { rejectHostAction, rejectPresetRun } from "../src/daemon-host-errors.ts";
 import type { DaemonHostOpenInput } from "../src/daemon-host-open.ts";

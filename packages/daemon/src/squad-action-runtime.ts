@@ -1,8 +1,8 @@
 import { readProjectedAgentDeclaration } from "./agent-declaration-resolution.ts";
 import { makeSquadCanonicalReader } from "./squad-canonical-read.ts";
 import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
+import { createEntityStore } from "@harness-anything/storage";
 import {
-  createEntityStore,
   parseSquadDeclarationV1,
   type SquadDeclarationV1,
   type WriteReceiptDraft as WriteReceipt,

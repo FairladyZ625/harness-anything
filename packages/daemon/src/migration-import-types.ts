@@ -5,7 +5,18 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import type { TaskContractRestatementCounts } from "./migration-import-task-restatement.ts";
-import type { MigrationOracleKind } from "./migration-import-oracle.ts";
+import type { MigrationFormatObservation } from "@harness-anything/storage";
+export const migrationOracleKinds = [
+  "task",
+  "decision",
+  "fact",
+  "relation",
+  "execution",
+  "agent",
+  "schedule",
+  "runtime-session",
+] as const;
+export type MigrationOracleKind = (typeof migrationOracleKinds)[number];
 
 export type EntityKind =
   | "task"
@@ -56,13 +67,6 @@ export interface MigrationOracleBasis {
   readonly databasePath: string;
   readonly watermark: number;
   readonly eventHeadRevision: number | null;
-}
-
-export interface MigrationFormatObservation {
-  readonly code: "legacy_event_normalized" | "schedule_definition_facet_mismatch" | "source_projection_rebuilt";
-  readonly sourcePath: string;
-  readonly detail: string;
-  readonly treatment: "mechanically_normalized" | "accepted_truth_gap" | "rebuilt_read_only";
 }
 
 export interface Draft {
@@ -175,3 +179,5 @@ export type ImportedRelation = Extract<
   MigrationImportEventV1["payload"]["entity"],
   { readonly kind: "relation" }
 >["relation"];
+
+export type { MigrationFormatObservation } from "@harness-anything/storage";

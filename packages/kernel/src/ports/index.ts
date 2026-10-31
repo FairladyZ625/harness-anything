@@ -37,3 +37,13 @@ export type {
   CertificateMode,
   IdentityManagementPort,
 } from "./identity-management-port.ts";
+export * from "./canonical-document-claims.ts";
+export * from "./canonical-event-store.ts";
+export * from "./canonical-event-validation.ts";
+export * from "./decision-projection-model.ts";
+export * from "./projection-contracts.ts";
+export * from "./projection-reads.ts";
+export * from "./projection-types.ts";
+export * from "./task-event-store.ts";
+export * from "./task-projection.ts";
+export * from "./version-control-system.ts";

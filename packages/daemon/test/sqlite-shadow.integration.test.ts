@@ -9,7 +9,7 @@ import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/kernel";
 import { WRITE_RECEIPT_SCHEMA } from "@harness-anything/kernel/internal/domain/receipt-domain-registry";
 import { validateWriteReceipt } from "../../kernel/test/contracts/receipt-acceptance.fixtures.ts";
-import { initRepo } from "../../kernel/test/store/task-event-store.fixtures.ts";
+import { initRepo } from "../../storage/test/store/task-event-store.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 

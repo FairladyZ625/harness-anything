@@ -1,10 +1,7 @@
 import path from "node:path";
 import { Worker, type WorkerOptions } from "node:worker_threads";
-import {
-  DEFAULT_BACKUP_EXECUTION_LIMIT_MS,
-  type applyLedgerBackupRetention,
-  type LedgerBackupRetentionPolicyV1,
-} from "@harness-anything/kernel";
+import { type applyLedgerBackupRetention, type LedgerBackupRetentionPolicyV1 } from "@harness-anything/storage";
+import { DEFAULT_BACKUP_EXECUTION_LIMIT_MS } from "@harness-anything/kernel";
 
 export interface BackupVerification {
   readonly rootDir: string;

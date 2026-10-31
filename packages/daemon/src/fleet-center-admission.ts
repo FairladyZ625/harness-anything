@@ -12,7 +12,7 @@ import { failFleetReplicaSync, waitForFleetReplicaReady, waitForFleetReplicaSequ
 import { readReplicaHealth } from "./fleet/replica-health.ts";
 import { applyFleetMirrorCut, withFleetMirrorLock } from "./fleet-edge-mirror.ts";
 import { reclaimEdgeTaskWorktrees } from "./fleet-edge-worktree-reclaim.ts";
-import type { WriterEpochLease } from "./writer-epoch.ts";
+import type { WriterEpochLease } from "@harness-anything/storage";
 import { readFleetEdgeConfig, writeFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { parseFleetCenterExternalUrl } from "./fleet-center-config.ts";
 import { mapListenerBindError, validateCertificateNames } from "./tls-listener-admission.ts";

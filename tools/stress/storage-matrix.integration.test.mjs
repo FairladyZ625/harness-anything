@@ -13,9 +13,9 @@ import { withPolicyGroup } from "../../packages/daemon/test/keycloak-policy.fixt
 import { actor } from "../../packages/daemon/test/task-surface.fixtures.ts";
 import { serializePersistedCanonicalEvent } from "../../packages/kernel/src/domain/doc-sync.contract.ts";
 import { sha256Text } from "../../packages/kernel/src/integrity/stable-hash.ts";
-import { openSqliteEventStore } from "../../packages/kernel/src/store/sqlite-event-store.ts";
-import { canonicalEventContentClaims, makeTaskEventStore } from "../../packages/kernel/src/store/task-event-store.ts";
-import { docBundle, eventAt, initRepo } from "../../packages/kernel/test/store/task-event-store.fixtures.ts";
+import { openSqliteEventStore } from "../../packages/storage/src/store/sqlite-event-store.ts";
+import { canonicalEventContentClaims, makeTaskEventStore } from "../../packages/storage/src/store/task-event-store.ts";
+import { docBundle, eventAt, initRepo } from "../../packages/storage/test/store/task-event-store.fixtures.ts";
 import { generateCoverageDenominators } from "./core/denominators.mjs";
 import { oracleO2, oracleO3, oracleO8 } from "./core/oracles.mjs";
 import { buildStressReport, emitStressReport } from "./core/report.mjs";
@@ -491,8 +491,8 @@ async function storageDenominators() {
   const storage = all.required.filter(
     ({ source, kind }) =>
       [
-        "packages/kernel/src/store/sqlite-event-store.ts",
-        "packages/kernel/src/store/sqlite-task-event-store.ts",
+        "packages/storage/src/store/sqlite-event-store.ts",
+        "packages/storage/src/store/sqlite-task-event-store.ts",
         "packages/kernel/src/local/local-layout-file-system.ts",
         "packages/daemon/src/repo-cell.ts",
       ].some((file) => source.includes(file)) && ["claim-point", "durable-boundary"].includes(kind),

@@ -7,7 +7,7 @@ import {
   sqliteLedgerPath,
 } from "@harness-anything/kernel";
 import { DatabaseSync } from "node:sqlite";
-import { startBaseBackup } from "../src/fleet/basebackup.ts";
+import { startBaseBackup } from "@harness-anything/storage";
 import { installReplicaGeneration, readReplicaGeneration } from "../src/fleet/replica-generation.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";

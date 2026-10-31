@@ -9,7 +9,7 @@ import {
   ledgerBackupDirPattern,
   planLedgerBackupRetention,
   type LedgerBackupRetentionEntryV1,
-} from "../src/store/ledger-backup-retention.ts";
+} from "../../storage/src/store/ledger-backup-retention.ts";
 
 const policy = { keepDays: 3, keepMonthly: true };
 

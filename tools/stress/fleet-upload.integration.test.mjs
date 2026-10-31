@@ -58,7 +58,7 @@ async function uploadDenominators() {
     required = all.required.filter(
       ({ source, boundary }) =>
         (source.includes("packages/daemon/src/fleet/center-listener.ts") && boundary === "rename") ||
-        (source.includes("packages/daemon/src/writer-epoch.ts") && boundary === "commit"),
+        (source.includes("packages/storage/src/writer-epoch.ts") && boundary === "commit"),
     );
   return {
     denominatorSchema: all.schema,

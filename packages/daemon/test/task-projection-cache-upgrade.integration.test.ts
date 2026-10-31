@@ -6,8 +6,8 @@ import { makeTaskEventStore, makeTaskProjection, taskLifecycleWritePlan } from "
 import { canonicalRoot } from "../src/protocol/daemon-protocol.contract.ts";
 import { makeTaskQueryReadModel } from "../src/task-query-read.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
-import { initRepo } from "../../kernel/test/store/task-event-store.fixtures.ts";
-import { withTempStoreAsync } from "../../kernel/test/store/helpers.ts";
+import { initRepo } from "../../storage/test/store/task-event-store.fixtures.ts";
+import { withTempStoreAsync } from "../../storage/test/store/helpers.ts";
 
 const oldSnapshotSchemaVersion = 37;
 

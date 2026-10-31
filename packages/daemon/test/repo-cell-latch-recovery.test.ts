@@ -19,7 +19,7 @@ import {
 import {
   contentClaims,
   preflightConvertedGenerationActivation,
-} from "../../kernel/test/store/canonical-generation.fixtures.ts";
+} from "../../storage/test/store/canonical-generation.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { causeClassOf, type RepoCell } from "../src/repo-cell.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";

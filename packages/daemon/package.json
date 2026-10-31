@@ -61,6 +61,7 @@
     "@harness-anything/application": "0.0.1",
     "@harness-anything/authorization-keycloak": "0.0.1",
     "@harness-anything/kernel": "0.0.1",
+    "@harness-anything/storage": "0.0.1",
     "@harness-anything/preset": "0.0.1",
     "@openrouter/sdk": "1.4.25",
     "cron-parser": "5.10.0",

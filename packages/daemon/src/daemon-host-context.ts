@@ -1,7 +1,7 @@
 import type { DaemonHomeOverviewResult } from "./home/home-overview-types.ts";
 import type { CommandTopology } from "@harness-anything/preset/internal/preset-command-contract";
 import type { DaemonRepoMode, InvalidDaemonRegistryRepo } from "@harness-anything/kernel";
-import type { registerDaemonRepo } from "@harness-anything/kernel";
+import type { registerDaemonRepo } from "@harness-anything/storage";
 import type { RuntimeInstanceSummary, openRuntimeInstanceStore } from "./agent-runtime-instances.ts";
 import type { DaemonBuildObserver } from "./build-identity.ts";
 import type { DaemonHostOpenInput } from "./daemon-host-open.ts";
@@ -19,7 +19,7 @@ import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import type { makeWarmingSettlement } from "./daemon-host-errors.ts";
 import type { RuntimeProviderHealthStore } from "./runtime-provider-health.ts";
 import type { RemoteProxyManager } from "./remote-proxy.ts";
-import type { WriterEpochFenceDescriptor, WriterEpochLease } from "./writer-epoch.ts";
+import type { WriterEpochFenceDescriptor, WriterEpochLease } from "@harness-anything/storage";
 import type { openDecisionProviderService } from "./decision-provider.ts";
 import type { openDecisionPointExecutor } from "./decision-point-executor.ts";
 

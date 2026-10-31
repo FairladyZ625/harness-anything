@@ -5,14 +5,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import {
-  REPLAY_TASK_GRAPH,
-  canonicalizeContractValue,
-  makeTaskProjection,
-  serializeEventHead,
-  sha256Text,
-} from "@harness-anything/kernel";
+import { REPLAY_TASK_GRAPH, canonicalizeContractValue, serializeEventHead, sha256Text } from "@harness-anything/kernel";
 import { readMigrationProjectionOracle } from "../src/migration-import-oracle.ts";
+import { makeTaskProjection } from "../../storage/src/projection/rebuildable-task-projection.ts";
 import {
   compileRestatedTaskContract,
   restateLegacyTaskEvents,

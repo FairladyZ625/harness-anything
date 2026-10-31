@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { writeFileDurably } from "../durable-file.ts";
+import { writeFileDurably } from "@harness-anything/storage";
 
 interface ReplicaHealth {
   readonly rebuildCount: number;

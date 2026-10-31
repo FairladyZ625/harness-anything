@@ -1,9 +1,9 @@
+import { makeTaskProjection } from "@harness-anything/storage";
 import {
   canonicalMigrationProvenance,
   renderFactsDocument,
   sha256Text,
   stableStringify,
-  makeTaskProjection,
   serializePersistedCanonicalEvent,
   type CanonicalEventStore,
   type CanonicalEventV1,
@@ -17,7 +17,7 @@ import {
   type MigrationImportRunInput,
 } from "./migration-import-run.ts";
 import { combineMigrationReceipts, migrationSourceRoots } from "./migration-import-source.ts";
-import { migrationImportError } from "./migration-import-report.ts";
+import { migrationImportError } from "@harness-anything/storage";
 import { createMigrationPlanningWorkspace } from "./migration-import-oracle-rebuild.ts";
 import type { MigrationImportReceipt } from "./migration-import-types.ts";
 

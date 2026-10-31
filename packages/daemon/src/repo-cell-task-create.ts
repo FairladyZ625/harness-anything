@@ -120,7 +120,7 @@ export function createTask(
   try {
     const publication = cell.publicPublication(appended);
     applyPreparedTaskCreate(cell, prepared);
-    cell.input.killpoint?.("after_sqlite_commit");
+    cell.input.killpoint?.("after_store_commit");
     const receipt = preparedTaskCreateReceipt(cell, prepared, publication);
     cell.input.killpoint?.("before_response_write");
     cell.input.killpoint?.("after_response_write");

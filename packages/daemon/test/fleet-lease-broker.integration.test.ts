@@ -11,7 +11,7 @@ import {
   runFleetUploadClient,
   runFleetTaskCommandClient,
 } from "../src/fleet/peer.ts";
-import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
+import { openPersistentWriterEpoch } from "@harness-anything/storage";
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
 import { parseFleetFrame } from "../src/fleet/command-protocol.ts";
 

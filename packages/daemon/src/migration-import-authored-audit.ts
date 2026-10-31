@@ -3,7 +3,7 @@ import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel";
 import { classifyAuthored } from "./migration-import-authored-classification.ts";
 import { portableMigrationPath, resolveAuthoredConflict } from "./migration-import-conflicts.ts";
-import { migrationImportError } from "./migration-import-report.ts";
+import { migrationImportError } from "@harness-anything/storage";
 import type { AuthoredCoverage, AuthoredDisposition, ResolutionChoice } from "./migration-import-types.ts";
 
 export function parseResolutions(

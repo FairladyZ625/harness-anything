@@ -12,7 +12,7 @@ import {
   makeTaskProjection,
   type TaskEventV1,
 } from "@harness-anything/kernel";
-import { migrateEventsToSqlite } from "../../kernel/test/store/canonical-generation.fixtures.ts";
+import { migrateEventsToSqlite } from "../../storage/test/store/canonical-generation.fixtures.ts";
 import {
   compilePresetSnapshotUpgrade,
   compileTaskBootstrap,

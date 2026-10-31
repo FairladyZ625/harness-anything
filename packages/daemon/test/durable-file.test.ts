@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { syncFile, writeFileDurably, writeFileDurablyFrom } from "../src/durable-file.ts";
+import { syncFile, writeFileDurably, writeFileDurablyFrom } from "@harness-anything/storage";
 
 const sourceRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src");
 
@@ -79,7 +79,7 @@ test("#1586: a read-only handle is opened for flushing in exactly one module", (
   const offenders = sourceFiles(sourceRoot)
     .filter((file) => /openSync\([^)]*, "r"\)/u.test(readFileSync(file, "utf8")))
     .map((file) => path.relative(sourceRoot, file));
-  assert.deepEqual(offenders, ["durable-file.ts"]);
+  assert.deepEqual(offenders, ["@harness-anything/storage"]);
 });
 
 test("#1586: flushing a file uses a writable handle, which Windows requires", (t) => {

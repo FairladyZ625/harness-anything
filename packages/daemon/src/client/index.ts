@@ -6,7 +6,7 @@ export { appendRuntimeWorkerRecord, openDispatchStream } from "../dispatch-strea
 export { openDaemonHost } from "../daemon-host.ts";
 export { readDaemonPid, startDaemon } from "../runtime.ts";
 export type { RunningDaemon } from "../runtime.ts";
-export type { WriterEpochFenceDescriptor } from "../writer-epoch.ts";
+export type { WriterEpochFenceDescriptor } from "@harness-anything/storage";
 export {
   assertRuntimeCredentialEndpoint,
   daemonIdFromEnv,

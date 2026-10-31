@@ -11,7 +11,7 @@ import {
   contentClaims,
   openSqliteEventStore,
   sha256Bytes,
-} from "../../kernel/test/store/canonical-generation.fixtures.ts";
+} from "../../storage/test/store/canonical-generation.fixtures.ts";
 import { makeTaskEventReader, serializePersistedCanonicalEvent, sha256Text } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";

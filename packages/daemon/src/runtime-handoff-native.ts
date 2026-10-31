@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { readDispatchStream } from "./dispatch-stream.ts";
 import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
-import { writeFileDurably } from "./durable-file.ts";
+import { writeFileDurably } from "../../storage/src/durable-file.ts";
 
 const git = promisify(execFile);
 /** The one verified-version list: source closure reads a rollout's `cli_version`, target admission

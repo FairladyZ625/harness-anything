@@ -126,8 +126,8 @@ function directoryBytes(directory) {
 async function measureB5RealSingle(options) {
   const importSource = (relativePath) => import(pathToFileURL(join(options.sourceRoot, relativePath)).href);
   const kernel = await importSource("packages/kernel/src/index.ts");
-  const { makeTaskProjection } = await importSource("packages/kernel/src/projection/rebuildable-task-projection.ts");
-  const relationGraphProjection = await importSource("packages/kernel/src/projection/relation-graph-projection.ts");
+  const { makeTaskProjection } = await importSource("packages/storage/src/projection/rebuildable-task-projection.ts");
+  const relationGraphProjection = await importSource("packages/storage/src/projection/relation-graph-projection.ts");
   const daemonQueryModule = await importSource("packages/daemon/src/task-query-read.ts").catch(() => null);
   const metadata =
     options.events !== null

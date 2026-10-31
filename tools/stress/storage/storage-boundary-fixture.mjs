@@ -1,8 +1,8 @@
 import { serializePersistedCanonicalEvent } from "../../../packages/kernel/src/domain/doc-sync.contract.ts";
 import { sha256Text } from "../../../packages/kernel/src/integrity/stable-hash.ts";
-import { openSqliteEventStore } from "../../../packages/kernel/src/store/sqlite-event-store.ts";
-import { makeTaskEventStore } from "../../../packages/kernel/src/store/task-event-store.ts";
-import { docBundle, eventAt } from "../../../packages/kernel/test/store/task-event-store.fixtures.ts";
+import { openSqliteEventStore } from "../../../packages/storage/src/store/sqlite-event-store.ts";
+import { makeTaskEventStore } from "../../../packages/storage/src/store/task-event-store.ts";
+import { docBundle, eventAt } from "../../../packages/storage/test/store/task-event-store.fixtures.ts";
 
 const [mode, target, repoId = "stress-s2-boundary", option = "same"] = process.argv.slice(2);
 if (!mode || !target) throw new Error("usage: storage-boundary-fixture.mjs <mode> <target> [repo-id] [option]");

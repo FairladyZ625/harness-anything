@@ -13,7 +13,7 @@ import {
   sqliteLedgerPath,
 } from "@harness-anything/kernel";
 import { installCostProbe, resetCostProbe, snapshotCostProbe } from "./fixtures/g1-cost-probe.mjs";
-import { startBaseBackup } from "../src/fleet/basebackup.ts";
+import { startBaseBackup } from "@harness-anything/storage";
 import { installReplicaGeneration, readReplicaGeneration } from "../src/fleet/replica-generation.ts";
 import { readEdgeRuntimeRepository } from "../src/fleet-edge-runtime-read.ts";
 import {

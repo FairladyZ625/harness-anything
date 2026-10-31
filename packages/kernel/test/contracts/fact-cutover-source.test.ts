@@ -15,7 +15,7 @@ test("Fact product code limits legacy facts.md handling to migration cold-read a
     .sort();
   assert.deepEqual(mentions, [
     "packages/kernel/src/domain/doc-sync-writer.ts",
-    "packages/kernel/src/projection/cold-rebuild-source.ts",
+    "packages/storage/src/projection/cold-rebuild-source.ts",
   ]);
   for (const retired of [
     "packages/kernel/src/domain/fact-record.ts",

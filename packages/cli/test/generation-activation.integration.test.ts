@@ -15,7 +15,7 @@ import {
   sqliteLedgerPath,
   sha256Bytes,
   type DocEventV1,
-} from "../../kernel/test/store/canonical-generation.fixtures.ts";
+} from "../../storage/test/store/canonical-generation.fixtures.ts";
 
 const cli = fileURLToPath(new URL("../src/index.ts", import.meta.url)),
   repoId = "activation-test";

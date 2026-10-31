@@ -17,8 +17,8 @@ export function findW3WriteAuthorityViolations(rootDir = process.cwd()) {
   for (const file of files.filter((candidate) => legacyProductionPath.test(candidate)))
     violations.push(`${file}: W3-retired production write path must not exist`);
   const cellPath = "packages/daemon/src/repo-cell.ts",
-    storePath = "packages/kernel/src/store/task-event-store.ts",
-    publisherPath = "packages/kernel/src/store/task-event-store-git-refs.ts",
+    storePath = "packages/storage/src/store/task-event-store.ts",
+    publisherPath = "packages/storage/src/store/task-event-store-git-refs.ts",
     servicePath = "packages/application/src/task-lifecycle-service.ts";
   const cell = source(rootDir, cellPath, violations),
     store = source(rootDir, storePath, violations),

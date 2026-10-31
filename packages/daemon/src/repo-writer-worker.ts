@@ -28,7 +28,7 @@ import {
   assertWriterEpochFenceDescriptor,
   closeWriterEpochFenceDescriptors,
   withWriterEpochFenceDescriptor,
-} from "./writer-epoch.ts";
+} from "@harness-anything/storage";
 
 const bootstrap = workerData as RepoWriterBootstrapV1;
 

@@ -1,6 +1,6 @@
-import type { ReplicationPosition } from "@harness-anything/kernel";
+import type { ReplicationPosition } from "@harness-anything/storage";
 import type { FleetReplicaStatus } from "./center-types.ts";
-import { replicationSlotKey, type ReplicationSlotKey, type ReplicationSlots } from "./replication-slot.ts";
+import { replicationSlotKey, type ReplicationSlotKey, type ReplicationSlots } from "@harness-anything/storage";
 
 export interface ReplicaSyncFailure {
   readonly code: string;

@@ -14,7 +14,7 @@ import {
   type WriteReceiptDraft,
   type WriteSource,
 } from "@harness-anything/kernel";
-import { writeFileDurably, readFileWindow, removeFileDurably } from "./durable-file.ts";
+import { writeFileDurably, readFileWindow, removeFileDurably } from "../../storage/src/durable-file.ts";
 import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { validateHandoffRollout } from "./runtime-handoff-native.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";

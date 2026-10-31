@@ -15,31 +15,34 @@ import { markdownH1 } from "./migration-import-tasks.ts";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
+  makeTaskProjection,
+  legacyRelationManualReason,
+  normalizeLegacyRelationMigrationEvent,
+  readLegacyMigrationSource,
+  readMarkdownSource,
+  taskEntryToRow,
+  eventShapeMigrations,
+} from "@harness-anything/storage";
+import {
   REPLAY_TASK_GRAPH,
   canonicalMigrationProvenance,
   compileFactWrite,
   consumeKnownError,
-  makeTaskProjection,
   isMigrationImportEvent,
-  legacyRelationManualReason,
   normalizePersistedCanonicalEvent,
-  normalizeLegacyRelationMigrationEvent,
   parseCanonicalEvent,
-  readLegacyMigrationSource,
-  readMarkdownSource,
   readScalar,
   resolveHarnessLayout,
   serializePersistedCanonicalEvent,
   sha256Text,
   stableStringify,
-  taskEntryToRow,
-  eventShapeMigrations,
   type CanonicalWriteBundle,
   type MigrationImportEventV1,
   type PersistedCanonicalEventV1,
 } from "@harness-anything/kernel";
-import { readMigrationProjectionOracleAtPath, type MigrationProjectionOracle } from "./migration-import-oracle.ts";
-import { isMigrationImportRecord, migrationImportError, timestamp } from "./migration-import-report.ts";
+import { readMigrationProjectionOracleAtPath, type MigrationProjectionOracle } from "@harness-anything/storage";
+import { isMigrationImportRecord, migrationImportError } from "@harness-anything/storage";
+import { timestamp } from "./migration-import-report.ts";
 import { restateTaskContract } from "./migration-import-task-restatement.ts";
 import type { MigrationFormatObservation } from "./migration-import-types.ts";
 

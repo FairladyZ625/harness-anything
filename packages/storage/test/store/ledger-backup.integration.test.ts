@@ -1,0 +1,535 @@
+// harness-test-tier: integration
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+import { DatabaseSync } from "node:sqlite";
+import { Worker } from "node:worker_threads";
+import {
+  createLedgerBackup,
+  restoreLedgerBackup,
+  drillLedgerBackup,
+  readOfflineLedgerEvents,
+  readVerifiedLedgerBackup,
+} from "../../src/store/ledger-backup.ts";
+import { openSqliteEventStore, sqliteLedgerPath } from "../../src/store/sqlite-event-store.ts";
+import {
+  localContentObjectFileSystem,
+  localLedgerBackupFileSystem,
+} from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
+import { objectPath } from "../../src/store/content-objects.ts";
+import { sha256Bytes, sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
+import { event, flatLedgerFixture } from "./task-event-store.fixtures.ts";
+
+test("backup, verification, restore and drill digest files above the whole-file read limit", (t) => {
+  const root = fixture("bounded-read"),
+    backupDir = path.join(root, "backup"),
+    large = path.join(root, "harness", "large.bin"),
+    // Inject Node's whole-file read limit without allocating a 2 GiB CI fixture.
+    limit = 256 * 1024,
+    body = Buffer.alloc(limit * 5 + 17, 0xa5),
+    originalRead = localLedgerBackupFileSystem.read;
+  try {
+    writeFileSync(large, body);
+    writeFileSync(path.join(root, "harness", "empty.bin"), "");
+    t.mock.method(localLedgerBackupFileSystem, "read", (file: string, ...args: unknown[]) => {
+      if (statSync(file).size > limit)
+        throw Object.assign(new Error("file exceeds whole-file read limit"), { code: "ERR_FS_FILE_TOO_LARGE" });
+      return Reflect.apply(originalRead, localLedgerBackupFileSystem, [file, ...args]);
+    });
+    const manifest = createLedgerBackup({ generation: 1, rootInput: root, backupDir }),
+      entry = manifest.files.find(({ path: file }) => file === "harness/large.bin")!;
+    assert.equal(entry.size, body.byteLength);
+    assert.equal(entry.backupSha256, `sha256:${sha256Bytes(body)}`);
+    assert.equal(
+      manifest.files.find(({ path: file }) => file === "harness/empty.bin")!.backupSha256,
+      `sha256:${sha256Bytes(Buffer.alloc(0))}`,
+    );
+    assert.deepEqual(readVerifiedLedgerBackup(backupDir), manifest);
+    const restored = restoreLedgerBackup({ backupDir, destinationRoot: path.join(root, "restored") }),
+      drilled = drillLedgerBackup({ backupDir, shadowParent: path.join(root, "shadows") });
+    for (const destination of [restored.restoredRoot, drilled.shadowRoot])
+      assert.deepEqual(readFileSync(path.join(destination, "harness/large.bin")), body);
+  } finally {
+    t.mock.restoreAll();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("failed capture and manifest publication remove only the new backup and retain the original error", (t) => {
+  const root = fixture("failed-backup"),
+    backupDir = path.join(root, "backup"),
+    failure = new Error("injected backup failure");
+  try {
+    for (const phase of ["capture", "manifest"]) {
+      if (phase === "manifest")
+        t.mock.method(localLedgerBackupFileSystem, "write", () => {
+          throw failure;
+        });
+      assert.throws(
+        () =>
+          createLedgerBackup({
+            generation: 1,
+            rootInput: root,
+            backupDir,
+            onSnapshotCaptured: () => {
+              if (phase === "capture") throw failure;
+            },
+          }),
+        (error) => error === failure,
+      );
+      assert.equal(existsSync(backupDir), false);
+      assert.equal(readOfflineLedgerEvents({ generation: 1, rootInput: root }).length, 1);
+      assert.throws(() => restoreLedgerBackup({ backupDir, destinationRoot: path.join(root, "restored") }), {
+        code: "ENOENT",
+      });
+      t.mock.restoreAll();
+    }
+  } finally {
+    t.mock.restoreAll();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("generation-aware backup preserves legacy sources and does not create an absent generation", () => {
+  const root = fixture("legacy"),
+    backupDir = path.join(os.tmpdir(), `ha-backup-${process.pid}-${Date.now()}`),
+    interruptedDir = `${backupDir}-interrupted`;
+  try {
+    writeFileSync(interruptedDir, "partial backup");
+    assert.throws(
+      () => createLedgerBackup({ generation: 1, rootInput: root, backupDir: interruptedDir }),
+      /must not already exist/u,
+    );
+    const manifest = createLedgerBackup({
+      generation: 1,
+      rootInput: root,
+      backupDir,
+      now: new Date("2026-09-06T00:00:00Z"),
+    });
+    assert.deepEqual(manifest.accepted, { revision: 1, opIds: 1 });
+    assert.equal(manifest.sqlite.present, false);
+    const eventFile = manifest.files.find(
+      ({ path: file }) => file.startsWith("harness/events/") && file.endsWith(".json") && !file.endsWith("head.json"),
+    )!;
+    assert.ok(eventFile);
+    assert.equal(
+      manifest.files.some(({ path: file }) => file.endsWith("ledger.sqlite")),
+      false,
+    );
+    assert.equal(readOfflineLedgerEvents({ generation: 1, rootInput: root }).length, 1);
+    const drilled = drillLedgerBackup({ backupDir, shadowParent: path.join(root, "shadow") });
+    assert.equal(readFileSync(path.join(drilled.shadowRoot, eventFile.path), "utf8").length > 0, true);
+    writeFileSync(path.join(backupDir, "payload", eventFile.path), "corrupt");
+    assert.throws(() => drillLedgerBackup({ backupDir, shadowParent: path.join(root, "shadow") }), /digest differs/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(backupDir, { recursive: true, force: true });
+    rmSync(interruptedDir, { recursive: true, force: true });
+  }
+});
+
+test("backup includes tracked files, untracked drafts and Git metadata on every platform", () => {
+  const root = fixture("scope"),
+    authoredRoot = path.join(root, "harness"),
+    backupDir = path.join(os.tmpdir(), `ha-backup-scope-${process.pid}-${Date.now()}`),
+    context = path.join(authoredRoot, "context"),
+    nested = path.join(context, "nested"),
+    ignored = path.join(authoredRoot, ".claude", "settings.json"),
+    wal = path.join(root, ".harness", "wal", "accepted.json");
+  try {
+    mkdirSync(context, { recursive: true });
+    writeFileSync(path.join(context, "tracked.md"), "tracked content\n");
+    mkdirSync(nested, { recursive: true });
+    execFileSync("git", ["init", "-q"], { cwd: nested });
+    execFileSync("git", ["config", "user.name", "Store Test"], { cwd: nested });
+    execFileSync("git", ["config", "user.email", "store@example.invalid"], { cwd: nested });
+    writeFileSync(path.join(nested, "note.md"), "tool state\n");
+    execFileSync("git", ["add", "note.md"], { cwd: nested });
+    execFileSync("git", ["commit", "-qm", "nested"], { cwd: nested });
+    writeFileSync(path.join(authoredRoot, ".gitignore"), ".claude/\n");
+    execFileSync("git", ["add", ".gitignore", "context"], { cwd: authoredRoot });
+    execFileSync("git", ["commit", "-qm", "tracked scope"], { cwd: authoredRoot });
+    writeFileSync(path.join(context, "untracked.md"), "untracked note\n");
+    mkdirSync(path.dirname(ignored), { recursive: true });
+    writeFileSync(ignored, "ignored tool state\n");
+    mkdirSync(path.dirname(wal), { recursive: true });
+    writeFileSync(wal, "explicit source\n");
+    execFileSync("git", ["worktree", "add", "--quiet", "--detach", path.join(root, "retained"), "HEAD"], {
+      cwd: authoredRoot,
+    });
+    execFileSync("git", ["worktree", "prune", "--expire", "now"], { cwd: authoredRoot });
+    const manifest = createLedgerBackup({ generation: 1, rootInput: root, backupDir }),
+      entries = new Set(manifest.files.map((file) => file.path));
+    assert.equal(entries.has("harness/context/tracked.md"), true);
+    assert.equal(entries.has("harness/context/untracked.md"), true);
+    assert.equal(
+      readFileSync(path.join(backupDir, "payload/harness/context/untracked.md"), "utf8"),
+      "untracked note\n",
+    );
+    assert.equal(entries.has("harness/.claude/settings.json"), false);
+    assert.equal(entries.has("harness/.git/refs/ha/canonical"), true);
+    assert.equal(entries.has("harness/.git/worktrees/retained/HEAD"), true);
+    assert.equal(entries.has(".harness/wal/accepted.json"), true);
+    assert.equal(
+      [...entries].some((file) => file.startsWith("harness/context/nested/")),
+      false,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(backupDir, { recursive: true, force: true });
+  }
+});
+
+test(
+  "backup records symbolic links by target and never follows them",
+  { skip: process.platform === "win32" ? "symbolic links need privileges on Windows" : false },
+  () => {
+    const root = fixture("legacy"),
+      external = mkdtempSync(path.join(os.tmpdir(), "ha-backup-external-")),
+      backupDir = path.join(os.tmpdir(), `ha-backup-symlink-${process.pid}-${Date.now()}`),
+      linked = path.join(root, "harness", "context", "linked-external"),
+      dangling = path.join(root, "harness", "context", "dangling");
+    try {
+      mkdirSync(path.join(root, "harness", "context"), { recursive: true });
+      writeFileSync(path.join(external, "secret.md"), "outside the ledger\n");
+      symlinkSync(external, linked);
+      symlinkSync(path.join("..", "missing-target"), dangling);
+      execFileSync("git", ["add", "context"], { cwd: path.join(root, "harness") });
+      execFileSync("git", ["commit", "-qm", "tracked links"], { cwd: path.join(root, "harness") });
+      const manifest = createLedgerBackup({ generation: 1, rootInput: root, backupDir }),
+        entries = new Map(manifest.files.map((file) => [file.path, file]));
+      for (const [relative, target] of [
+        ["harness/context/linked-external", external],
+        ["harness/context/dangling", path.join("..", "missing-target")],
+      ] as const) {
+        const entry = entries.get(relative)!;
+        assert.equal(entry.method, "symlink");
+        assert.equal(entry.size, Buffer.byteLength(target));
+        assert.equal(entry.backupSha256, `sha256:${sha256Bytes(Buffer.from(target))}`);
+      }
+      assert.equal(
+        manifest.files.some(({ path: file }) => file.includes("secret.md")),
+        false,
+      );
+      const drilled = drillLedgerBackup({ backupDir, shadowParent: path.join(root, "shadow") });
+      assert.equal(lstatSync(path.join(drilled.shadowRoot, "harness/context/linked-external")).isSymbolicLink(), true);
+      assert.equal(lstatSync(path.join(drilled.shadowRoot, "harness/context/dangling")).isSymbolicLink(), true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(backupDir, { recursive: true, force: true });
+      rmSync(external, { recursive: true, force: true });
+    }
+  },
+);
+
+test("VACUUM backup survives source deletion and rejects wrong generation metadata", () => {
+  const root = fixture("sqlite"),
+    databasePath = sqliteLedgerPath(root, 1),
+    backupDir = path.join(os.tmpdir(), `ha-backup-sqlite-${process.pid}-${Date.now()}`),
+    store = openSqliteEventStore({ repoId: "backup-test", rootInput: root, generation: 1 });
+  try {
+    execFileSync("git", ["update-ref", "-d", "refs/ha/canonical"], { cwd: path.join(root, "harness") });
+    store.appendCommand({
+      fence: { repoId: "backup-test", holder: "test", epoch: 1 },
+      intent: { opId: event.opId, intentDigest: `sha256:${sha256Text(JSON.stringify(event))}`, summary: event.type },
+      events: [event],
+    });
+    store.close();
+    const before = openSqliteEventStore({ databasePath, generation: 1, readOnly: true }).readCommandOutcome(event.opId);
+    createLedgerBackup({ generation: 1, rootInput: root, backupDir });
+    rmSync(databasePath, { force: true });
+    const drilled = drillLedgerBackup({ backupDir, shadowParent: path.join(root, "shadow") }),
+      restoredPath = path.join(drilled.shadowRoot, path.relative(root, databasePath)),
+      restored = openSqliteEventStore({ databasePath: restoredPath, generation: 1, readOnly: true });
+    assert.deepEqual(restored.readCommandOutcome(event.opId), before);
+    restored.close();
+    const backupDatabasePath = path.join(backupDir, "payload", path.relative(root, databasePath)),
+      db = new DatabaseSync(backupDatabasePath);
+    db.prepare("UPDATE ledger_meta SET generation=2 WHERE singleton=1").run();
+    db.close();
+    const manifestPath = path.join(backupDir, "manifest.json"),
+      manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+        files: { path: string; size: number; backupSha256: string }[];
+      },
+      entry = manifest.files.find(({ path: file }) => file.endsWith("ledger.sqlite"))!;
+    entry.size = statSync(backupDatabasePath).size;
+    entry.backupSha256 = `sha256:${sha256Bytes(readFileSync(backupDatabasePath))}`;
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    assert.throws(
+      () => drillLedgerBackup({ backupDir, shadowParent: path.join(root, "wrong") }),
+      /generation metadata differs/u,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(backupDir, { recursive: true, force: true });
+  }
+});
+
+test("backup and restore reject missing or wrong-sized accepted content in generation two", (t) => {
+  const generation = 2,
+    root = fixture("claims-2"),
+    backupDir = path.join(root, "backup"),
+    body = "accepted plan\n",
+    sha256 = sha256Text(body),
+    claim = {
+      path: "tasks/task-1/task_plan.md",
+      sha256,
+      size: Buffer.byteLength(body),
+      mediaType: "text/markdown",
+      policyId: "markdown-body-replaceable/v1",
+    } as const,
+    claimedEvent = { ...event, payload: { ...event.payload, documentClaims: [claim] } },
+    store = openSqliteEventStore({ repoId: "backup-test", rootInput: root, generation }),
+    object = objectPath(path.join(path.dirname(store.databasePath), "objects/sha256"), sha256);
+  try {
+    store.appendCommand({
+      fence: { repoId: "backup-test", holder: "test", epoch: 1 },
+      intent: {
+        opId: event.opId,
+        intentDigest: `sha256:${sha256Text(JSON.stringify(claimedEvent))}`,
+        summary: event.type,
+      },
+      events: [claimedEvent],
+      blobs: [{ ...claim, body }],
+    });
+    store.close();
+    const copy = localLedgerBackupFileSystem.copy;
+    t.mock.method(localLedgerBackupFileSystem, "copy", (...args: Parameters<typeof copy>) => {
+      const result = copy(...args);
+      if (args[0] === object) rmSync(object);
+      return result;
+    });
+    t.mock.method(localContentObjectFileSystem, "readBytes", () => {
+      assert.fail("claim verification must not reread full content objects");
+    });
+    createLedgerBackup({ rootInput: root, backupDir, generation });
+    t.mock.restoreAll();
+    const payloadObject = path.join(backupDir, "payload", path.relative(root, object));
+    // Restore must use frozen content even after the live source loses its object.
+    assert.equal(store.readContentObject(sha256), null);
+    restoreLedgerBackup({ backupDir, destinationRoot: path.join(root, "healthy-restore") });
+    assert.throws(
+      () => createLedgerBackup({ rootInput: root, backupDir: path.join(root, "missing"), generation }),
+      new RegExp(`content object ${sha256} is missing`, "u"),
+    );
+    writeFileSync(object, "short");
+    assert.throws(
+      () => createLedgerBackup({ rootInput: root, backupDir: path.join(root, "size"), generation }),
+      new RegExp(`content object ${sha256} size differs`, "u"),
+    );
+    rmSync(payloadObject);
+    assert.throws(
+      () => restoreLedgerBackup({ backupDir, destinationRoot: path.join(root, "lost-restore") }),
+      /inventory differs/u,
+    );
+    // A backup made by the old verifier can have an internally consistent inventory while missing a claim.
+    const manifestPath = path.join(backupDir, "manifest.json"),
+      manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    manifest.files = manifest.files.filter(
+      (entry: { path: string }) =>
+        entry.path !== path.relative(path.join(backupDir, "payload"), payloadObject).split(path.sep).join("/"),
+    );
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+    for (const verify of [
+      () => readVerifiedLedgerBackup(backupDir),
+      () => restoreLedgerBackup({ backupDir, destinationRoot: path.join(root, "incomplete-restore") }),
+      () => drillLedgerBackup({ backupDir, shadowParent: path.join(root, "shadow") }),
+    ])
+      assert.throws(verify, new RegExp(`content object ${sha256} is missing`, "u"));
+  } finally {
+    t.mock.restoreAll();
+    store.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("capture boundary freezes SQLite, authored bytes and legacy events before validation", () => {
+  for (const kind of ["sqlite", "legacy"]) {
+    const root = fixture(kind),
+      backupDir = path.join(os.tmpdir(), `ha-backup-cut-${kind}-${process.pid}-${Date.now()}`),
+      note = path.join(root, "harness", "cut.md");
+    let store: ReturnType<typeof openSqliteEventStore> | undefined;
+    try {
+      writeFileSync(note, "before cut\n");
+      writeFileSync(
+        path.join(root, "harness/harness.yaml"),
+        "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n",
+      );
+      if (kind === "sqlite") {
+        store = openSqliteEventStore({ repoId: "backup-test", rootInput: root, generation: 1 });
+        store.appendCommand({
+          fence: { repoId: "backup-test", holder: "test", epoch: 1 },
+          intent: {
+            opId: event.opId,
+            intentDigest: `sha256:${sha256Text(JSON.stringify(event))}`,
+            summary: event.type,
+          },
+          events: [event],
+        });
+        store.close();
+        store = undefined;
+      }
+      let captured = false;
+      const manifest = createLedgerBackup({
+        generation: 1,
+        rootInput: root,
+        backupDir,
+        onSnapshotCaptured: () => {
+          captured = true;
+          assert.equal(readFileSync(path.join(backupDir, "payload/harness/cut.md"), "utf8"), "before cut\n");
+          writeFileSync(note, "after cut\n");
+          if (kind === "sqlite") {
+            const database = new DatabaseSync(sqliteLedgerPath(root, 1));
+            database.prepare("UPDATE ledger_meta SET revision=99 WHERE singleton=1").run();
+            database.close();
+          } else {
+            execFileSync("git", ["update-ref", "-d", "refs/ha/canonical"], { cwd: path.join(root, "harness") });
+          }
+        },
+      });
+      assert.equal(captured, true);
+      assert.deepEqual(manifest.accepted, { revision: 1, opIds: 1 });
+      const restored = drillLedgerBackup({ backupDir, shadowParent: path.join(root, "shadow") });
+      assert.equal(readOfflineLedgerEvents({ generation: 1, rootInput: restored.shadowRoot }).length, 1);
+      assert.equal(readFileSync(path.join(restored.shadowRoot, "harness/cut.md"), "utf8"), "before cut\n");
+      assert.equal(readFileSync(note, "utf8"), "after cut\n");
+    } finally {
+      store?.close();
+      rmSync(root, { recursive: true, force: true });
+      rmSync(backupDir, { recursive: true, force: true });
+    }
+  }
+});
+
+test("restore drill rolls shadows by retention, preserves unrelated directories and reports removals", () => {
+  const root = fixture("retention"),
+    backupDir = path.join(os.tmpdir(), `ha-backup-retention-${process.pid}-${Date.now()}`),
+    shadowParent = path.join(root, "shadow"),
+    unrelated = path.join(shadowParent, "keep-me");
+  try {
+    const manifest = createLedgerBackup({ generation: 1, rootInput: root, backupDir });
+    mkdirSync(unrelated, { recursive: true });
+    const drilled = [];
+    for (let index = 0; index < 4; index += 1) {
+      const result = drillLedgerBackup({ backupDir, shadowParent, retention: 2 });
+      utimesSync(result.shadowRoot, new Date(1_000 + index * 1_000), new Date(1_000 + index * 1_000));
+      drilled.push(result);
+    }
+    const retained = drilled.slice(-2).map(({ shadowRoot }) => shadowRoot);
+    assert.equal(lstatSync(unrelated).isDirectory(), true);
+    // readdir order is not creation order for mkdtemp names, so compare the sets.
+    assert.deepEqual(
+      readdirDirectories(shadowParent)
+        .filter((entry) => entry.startsWith("restore-drill-"))
+        .sort(),
+      retained.map((entry) => path.basename(entry)).sort(),
+    );
+    assert.equal(drilled.at(-1)?.manifest.tag, manifest.tag);
+    assert.deepEqual(drilled[2]?.removedShadowRoots, [drilled[0]?.shadowRoot]);
+    assert.deepEqual(drilled[3]?.removedShadowRoots, [drilled[1]?.shadowRoot]);
+
+    const single = drillLedgerBackup({ backupDir, shadowParent, retention: 1 });
+    assert.deepEqual(
+      readdirDirectories(shadowParent).filter((entry) => entry.startsWith("restore-drill-")),
+      [path.basename(single.shadowRoot)],
+    );
+    assert.equal(single.removedShadowRoots.length, 2);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(backupDir, { recursive: true, force: true });
+  }
+});
+
+// Git's own gc/maintenance briefly creates and deletes lock files inside .git/ while a
+// backup walks it (#2543): a vanishing worker deletes enumerated-but-unvisited entries
+// mid-traversal, and the backup must skip them instead of failing on lstat ENOENT.
+test("backup skips entries that vanish after enumeration instead of failing", async () => {
+  const root = fixture("vanish"),
+    backupDir = path.join(os.tmpdir(), `ha-backup-vanish-${process.pid}-${Date.now()}`),
+    gitDir = path.join(root, "harness", ".git"),
+    fillerCount = 1000,
+    lockCount = 30;
+  let worker: Worker | undefined;
+  try {
+    for (let index = 0; index < fillerCount; index += 1)
+      writeFileSync(path.join(gitDir, `vanish-f-${index}.pack`), "x");
+    for (let index = 0; index < lockCount; index += 1)
+      writeFileSync(path.join(gitDir, `vanish-lock-${index}.lock`), "transient\n");
+    const ready = new Promise<void>((resolve) => {
+      worker = new Worker(new URL("./ledger-backup-vanishing-source.fixture.ts", import.meta.url), {
+        execArgv: process.execArgv.filter(
+          (argument) => argument === "--experimental-strip-types" || argument === "--enable-source-maps",
+        ),
+        workerData: {
+          sourceDir: gitDir,
+          // The payload .git directory appears after the source .git was enumerated.
+          triggerPath: path.join(backupDir, "payload", "harness", ".git"),
+          prefix: "vanish-lock-",
+        },
+      });
+      worker.on("message", (message: unknown) => {
+        if ((message as { readonly ready?: boolean }).ready === true) resolve();
+      });
+    });
+    await ready;
+    const manifest = createLedgerBackup({ generation: 1, rootInput: root, backupDir }),
+      report = new Promise<number>((resolve, reject) => {
+        worker!.on("message", (message: unknown) => {
+          const vanished = (message as { readonly vanished?: number }).vanished;
+          if (typeof vanished === "number") resolve(vanished);
+        });
+        worker!.once("error", reject);
+        worker!.once("exit", (code) => {
+          if (code !== 0) reject(new Error(`vanishing worker exited ${code}`));
+        });
+      });
+    assert.equal(await report, lockCount);
+    const manifestLocks = manifest.files.filter(({ path: file }) => file.startsWith("harness/.git/vanish-lock-"));
+    assert.ok(
+      manifestLocks.length < lockCount,
+      `vanishing must overtake at least one enumerated entry (copied ${manifestLocks.length})`,
+    );
+    assert.equal(
+      manifest.files.some(({ path: file }) => file === "harness/.git/HEAD"),
+      true,
+    );
+    readVerifiedLedgerBackup(backupDir);
+  } finally {
+    await worker?.terminate();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(backupDir, { recursive: true, force: true });
+  }
+});
+
+function readdirDirectories(parent: string): string[] {
+  return readdirSync(parent).filter((entry) => lstatSync(path.join(parent, entry)).isDirectory());
+}
+
+function fixture(name: string): string {
+  const root = mkdtempSync(path.join(os.tmpdir(), `ha-ledger-backup-${name}-`)),
+    cwd = path.join(root, "harness");
+  flatLedgerFixture(root, 1);
+  execFileSync("git", ["init", "-q"], { cwd });
+  execFileSync("git", ["config", "user.name", "Store Test"], { cwd });
+  execFileSync("git", ["config", "user.email", "store@example.invalid"], { cwd });
+  execFileSync("git", ["add", "."], { cwd });
+  execFileSync("git", ["commit", "-qm", "tracked authored backup fixture"], { cwd });
+  const parent = execFileSync("git", ["rev-parse", "HEAD"], { cwd, encoding: "utf8" }).trim();
+  execFileSync("git", ["update-ref", "refs/ha/canonical", parent], { cwd });
+  return root;
+}

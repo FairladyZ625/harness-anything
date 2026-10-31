@@ -1,6 +1,8 @@
+import { nonEmpty, migrationImportError } from "@harness-anything/storage";
 import { readdirSync, statSync } from "node:fs";
 import path from "node:path";
-import { normalizePersistedTimestamp, type ColdRebuildIssue } from "@harness-anything/kernel";
+import { type ColdRebuildIssue } from "@harness-anything/storage";
+import { normalizePersistedTimestamp } from "@harness-anything/kernel";
 import type {
   AuthoredCoverage,
   Draft,
@@ -16,19 +18,11 @@ import type {
   Skip,
   SourceGitIdentity,
 } from "./migration-import-types.ts";
-import { migrationOracleKinds, type MigrationOracleKind } from "./migration-import-oracle.ts";
+import { migrationOracleKinds, type MigrationOracleKind } from "./migration-import-types.ts";
 import type { TaskContractRestatementCounts } from "./migration-import-task-restatement.ts";
-
-export function isMigrationImportRecord(value: unknown): value is Readonly<Record<string, unknown>> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 export function hasExactMigrationFields(value: Readonly<Record<string, unknown>>, fields: readonly string[]): boolean {
   return Object.keys(value).length === fields.length && fields.every((field) => Object.hasOwn(value, field));
-}
-
-export function nonEmpty(value: unknown): value is string {
-  return typeof value === "string" && value.trim().length > 0;
 }
 
 export function hasNonEmptyMigrationStrings(value: unknown): boolean {
@@ -278,10 +272,6 @@ export function bySkip(a: Skip, b: Skip): number {
 export function requiredMigrationText(value: unknown, field: string): string {
   if (typeof value !== "string" || !value.trim()) throw migrationImportError("invalid_command", `${field} is required`);
   return value;
-}
-
-export function migrationImportError(code: string, detail: string): Error {
-  return Object.assign(new Error(detail), { code });
 }
 
 export function message(error: unknown): string {

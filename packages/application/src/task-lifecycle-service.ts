@@ -29,7 +29,7 @@ export class TaskLifecycleOperationConflict extends Error {
     this.code = code;
   }
 }
-export type TaskLifecycleKillpoint = "after_sqlite_commit" | "before_response_write" | "after_response_write";
+export type TaskLifecycleKillpoint = "after_store_commit" | "before_response_write" | "after_response_write";
 export interface TaskLifecycleServiceRead {
   readonly status: "ready" | "pending";
   readonly snapshot: TaskLifecycleSnapshot;
@@ -186,7 +186,7 @@ export function makeTaskLifecycleService(options: {
     // The canonical event and all carried blobs are durable at this point; a
     // crash before projection application must be recoverable by replaying the
     // one event, so expose the killpoint before the projection transaction.
-    options.killpoint?.("after_sqlite_commit");
+    options.killpoint?.("after_store_commit");
     if (claim !== null)
       try {
         const active = options.projection.activateLease(claim.reserving);

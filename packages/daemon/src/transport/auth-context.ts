@@ -1,7 +1,7 @@
 import type { IdentityAuthenticationContext } from "@harness-anything/kernel";
 import type { AuthorizationProvider } from "@harness-anything/kernel";
 import type { DaemonSessionEnvironment } from "../protocol/daemon-protocol.contract.ts";
-import type { WriterEpochFenceDescriptor } from "../writer-epoch.ts";
+import type { WriterEpochFenceDescriptor } from "@harness-anything/storage";
 
 export type DaemonTransportKind = "unix-socket" | "fleet-tls";
 /** The center's Keycloak location and one service-account token, as plain data a writer can receive. */

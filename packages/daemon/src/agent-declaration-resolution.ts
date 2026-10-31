@@ -1,8 +1,8 @@
 import { readBundledAgentDeclaration } from "@harness-anything/preset";
+import { openEntityStore } from "@harness-anything/storage";
 import {
   consumeKnownError,
   entitySlug,
-  openEntityStore,
   parseAgentDeclarationV1,
   type AgentDeclarationV1,
 } from "@harness-anything/kernel";

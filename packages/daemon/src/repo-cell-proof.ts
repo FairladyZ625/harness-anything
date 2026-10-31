@@ -1,4 +1,5 @@
 import { type TaskLifecycleServiceProof } from "@harness-anything/application/internal/task-lifecycle-service";
+import { localGitObjectRefStore, makeTaskProjection } from "@harness-anything/storage";
 import {
   canonicalGateReceipts,
   isRetiredCiRequirement,
@@ -12,8 +13,6 @@ import {
   isNativeExecution,
   isSameExecution,
   isSamePerson,
-  localGitObjectRefStore,
-  makeTaskProjection,
   normalizeCommandEnvelope,
   requiredGateWitnessCount,
   runtimeSessionIdFromActor,

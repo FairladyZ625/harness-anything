@@ -6,8 +6,8 @@ import { tmpdir } from "node:os";
 import { openReceiptLog, readReceiptLog } from "../core/receipt-log.mjs";
 import { serializePersistedCanonicalEvent } from "../../../packages/kernel/src/domain/doc-sync.contract.ts";
 import { sha256Text } from "../../../packages/kernel/src/integrity/stable-hash.ts";
-import { openSqliteEventStore } from "../../../packages/kernel/src/store/sqlite-event-store.ts";
-import { docBundle } from "../../../packages/kernel/test/store/task-event-store.fixtures.ts";
+import { openSqliteEventStore } from "../../../packages/storage/src/store/sqlite-event-store.ts";
+import { docBundle } from "../../../packages/storage/test/store/task-event-store.fixtures.ts";
 import { oracleO1, oracleO2, oracleO3 } from "../core/oracles.mjs";
 
 const maximumVolumeBytes = 4 * 1024 ** 3;

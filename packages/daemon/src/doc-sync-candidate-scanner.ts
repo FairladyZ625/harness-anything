@@ -4,6 +4,7 @@ import {
 } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { resolveLedgerGitLayout, localGitWorktreeSettlement } from "@harness-anything/storage";
 import {
   artifactSubtreePath,
   decideDocWriteCriteria,
@@ -14,12 +15,10 @@ import {
   RAW_ARTIFACT_MAX_BYTES,
   inspectDocCandidate,
   resolveHarnessLayout,
-  resolveLedgerGitLayout,
   resolveTaskBoundRuntimeBinding,
   runtimeSessionIdFromActor,
   isSameExecution,
   isTaskBoundRuntimeWriter,
-  localGitWorktreeSettlement,
   sameWriteSource,
   sha256Bytes,
   stableStringify,

@@ -107,7 +107,7 @@ test("queued command retains acceptance when receipt assembly fails after the st
       rootDir: canonicalRoot(rootDir),
       ownerId: "post-accept-receipt",
       killpoint: (point) => {
-        if (armed && point === "after_sqlite_commit" && ++commitCallbacks === 2)
+        if (armed && point === "after_store_commit" && ++commitCallbacks === 2)
           throw new Error("receipt assembly failed after store acceptance");
       },
     });

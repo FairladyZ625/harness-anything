@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { resolveHarnessLayout } from "../../src/layout/index.ts";
-import { defaultLifecycleTaskProjectionPath } from "../../src/projection/rebuildable-task-projection.ts";
+import { defaultLifecycleTaskProjectionPath } from "../../../storage/src/projection/rebuildable-task-projection.ts";
 
 function repoWithLocalRoot(localRoot: string): string {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-local-root-"));

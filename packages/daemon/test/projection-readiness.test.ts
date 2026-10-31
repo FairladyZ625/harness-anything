@@ -329,7 +329,7 @@ function readyTaskRead(): TaskRead {
     watermark: 2,
     sourceRevision: 2,
     warnings: [],
-    catchUp: { maxItems: 1, reducedItems: 1, sqliteTransactions: 1 },
+    catchUp: { maxItems: 1, reducedItems: 1, storeTransactions: 1 },
   } as unknown as TaskRead;
 }
 

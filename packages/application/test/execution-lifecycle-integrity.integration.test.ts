@@ -14,7 +14,7 @@ import {
   openSqliteEventStore,
   submissionDigest,
 } from "@harness-anything/kernel";
-import { makeTaskEventStore, makeTaskProjection } from "../../kernel/test/store/task-lifecycle-runtime.ts";
+import { makeTaskEventStore, makeTaskProjection } from "../../storage/test/store/task-lifecycle-runtime.ts";
 import { commitSha, lifecycleHarness, owner, reviewer } from "./task-lifecycle-test-harness.ts";
 
 const actor = { principal: { personId: "person-1" }, executor: { kind: "agent" as const, id: "codex" } };
@@ -24,8 +24,8 @@ test("claim releases its CAS reservation after response loss and converges from 
   const harness = lifecycleHarness();
   try {
     await harness.create();
-    harness.kill("after_sqlite_commit");
-    await assert.rejects(harness.start("execution-failed", "op-start-failed"), /killpoint:after_sqlite_commit/u);
+    harness.kill("after_store_commit");
+    await assert.rejects(harness.start("execution-failed", "op-start-failed"), /killpoint:after_store_commit/u);
     assert.equal(harness.projection.currentLease("task-1")?.phase, "released");
     assert.equal(harness.eventStore.read().events.length, 2);
     const reopened = openSqliteEventStore({ repoId: "test-repo", rootInput: harness.rootDir, readOnly: true });
@@ -97,8 +97,8 @@ test("G29 submit publishes only its frozen targets while preserving unrelated by
     writeFileSync(sentinel, Buffer.from([0, 1, 2, 255]));
     const before = readFileSync(sentinel);
 
-    harness.kill("after_sqlite_commit");
-    await assert.rejects(harness.submit("execution-1", "op-submit-interrupted"), /killpoint:after_sqlite_commit/u);
+    harness.kill("after_store_commit");
+    await assert.rejects(harness.submit("execution-1", "op-submit-interrupted"), /killpoint:after_store_commit/u);
     const reopened = openSqliteEventStore({ repoId: "test-repo", rootInput: harness.rootDir, readOnly: true });
     try {
       assert.equal(
@@ -401,10 +401,10 @@ test("changes_requested records Review, return edge, Execution closure, and Task
     harness.projection.catchUp();
     assert.deepEqual((await harness.service.read("task-1")).snapshot, before);
     assert.equal(harness.eventStore.read().revision, 3);
-    harness.kill("after_sqlite_commit");
+    harness.kill("after_store_commit");
     await assert.rejects(
       harness.review("execution-1", "anti_entropy", "changes_requested"),
-      /killpoint:after_sqlite_commit/u,
+      /killpoint:after_store_commit/u,
     );
     assert.equal(harness.eventStore.read().revision, 4);
     harness.projection.catchUp();

@@ -7,7 +7,10 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
-import { canonicalLedgerCut, planCompletionGeneration } from "../../kernel/test/store/canonical-generation.fixtures.ts";
+import {
+  canonicalLedgerCut,
+  planCompletionGeneration,
+} from "../../storage/test/store/canonical-generation.fixtures.ts";
 import {
   createLedgerBackup,
   openSqliteEventStore,
@@ -16,7 +19,7 @@ import {
   sha256Bytes,
   type DocEventV1,
   type AgentRuntimeEventV1,
-} from "../../kernel/test/store/canonical-generation.fixtures.ts";
+} from "../../storage/test/store/canonical-generation.fixtures.ts";
 
 function targetRows(destination: string) {
   const store = openSqliteEventStore({ rootInput: destination, generation: 3, readOnly: true });

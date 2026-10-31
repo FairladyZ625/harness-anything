@@ -46,7 +46,7 @@ import {
   serializeEventHead,
   serializePersistedCanonicalEvent,
 } from "@harness-anything/kernel";
-import { eventObjectRelativePath } from "../../kernel/test/store/canonical-generation.fixtures.ts";
+import { eventObjectRelativePath } from "../../storage/test/store/canonical-generation.fixtures.ts";
 import {
   attributionFixture,
   hierarchyFixture,

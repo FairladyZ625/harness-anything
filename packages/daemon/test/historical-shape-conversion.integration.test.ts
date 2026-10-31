@@ -19,7 +19,7 @@ import {
   type CanonicalEventStore,
   type CanonicalEventV1,
 } from "@harness-anything/kernel";
-import { planLegacyGenerationConversion } from "../../kernel/test/store/canonical-generation.fixtures.ts";
+import { planLegacyGenerationConversion } from "../../storage/test/store/canonical-generation.fixtures.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { initRepo } from "./migration-import.fixtures.ts";
 import { canonicalRoot } from "../src/protocol/daemon-protocol.contract.ts";

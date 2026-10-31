@@ -1,12 +1,12 @@
 import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { normalizeHistoricalVerticalDocument } from "@harness-anything/kernel";
 import {
   applyVerticalKindCommand,
   compileVerticalContract,
   compileVerticalDeclarationEvent,
   decodeVerticalDefinition,
-  normalizeHistoricalVerticalDocument,
   parseVerticalDeclarationDocument,
   resolveGovernedRelationAuthority,
   VERTICAL_DECLARATION_PATH,

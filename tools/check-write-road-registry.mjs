@@ -131,7 +131,7 @@ export function findWriteRoadRegistryViolations(
   const lifecycle = registry.rows.find((row) => row.id === "lifecycle.event-publication");
   if (
     lifecycle?.authority !== "packages/daemon/src/repo-cell.ts" ||
-    lifecycle?.store !== "packages/kernel/src/store/task-event-store.ts" ||
+    lifecycle?.store !== "packages/storage/src/store/task-event-store.ts" ||
     lifecycle?.leasePolicy !== "domain-contract"
   ) {
     violations.push(

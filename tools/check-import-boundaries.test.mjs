@@ -202,11 +202,82 @@ test("import boundary check allows application imports from kernel public contra
   }
 });
 
+test("import boundary check rejects kernel imports from storage", () => {
+  const root = makeFixtureRoot();
+  try {
+    writeFileSync(
+      path.join(root, "packages/kernel/src/index.ts"),
+      [
+        "import { openSqliteEventStore } from '@harness-anything/storage';",
+        "export const open = openSqliteEventStore;",
+      ].join("\n"),
+      "utf8",
+    );
+    writeFileSync(
+      path.join(root, "packages/storage/src/index.ts"),
+      "export function openSqliteEventStore() { return {}; }\n",
+      "utf8",
+    );
+
+    const result = runChecker(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /kernel must not depend on storage/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("import boundary check rejects storage imports from delivery packages", () => {
+  const root = makeFixtureRoot();
+  try {
+    writeFileSync(
+      path.join(root, "packages/storage/src/index.ts"),
+      "import { startDaemon } from '@harness-anything/daemon';\nexport const start = startDaemon;\n",
+      "utf8",
+    );
+    writeFileSync(
+      path.join(root, "packages/daemon/src/index.ts"),
+      "export function startDaemon() { return {}; }\n",
+      "utf8",
+    );
+
+    const result = runChecker(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /storage must depend inward on kernel only/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("import boundary check resolves package export patterns before enforcing storage direction", () => {
+  const root = makeFixtureRoot();
+  try {
+    addPackageExport(root, "packages/application", "./internal/*.ts", "./src/*.ts");
+    mkdirSync(path.join(root, "packages/application/src/internal"), { recursive: true });
+    writeFileSync(
+      path.join(root, "packages/application/src/internal/probe.ts"),
+      "export const applicationProbe = true;\n",
+      "utf8",
+    );
+    writeFileSync(
+      path.join(root, "packages/storage/src/index.ts"),
+      "import { applicationProbe } from '@harness-anything/application/internal/probe.ts';\nexport const observed = applicationProbe;\n",
+      "utf8",
+    );
+
+    const result = runChecker(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /storage must depend inward on kernel only/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("import boundary check confines kernel store imports to the kernel composition root", () => {
   const root = makeFixtureRoot();
   try {
     mkdirSync(path.join(root, "packages/kernel/src/composition"), { recursive: true });
-    mkdirSync(path.join(root, "packages/kernel/src/store"), { recursive: true });
+    mkdirSync(path.join(root, "packages/storage/src/store"), { recursive: true });
     mkdirSync(path.join(root, "packages/kernel/src/application"), { recursive: true });
     writeFileSync(
       path.join(root, "packages/kernel/src/index.ts"),
@@ -229,7 +300,7 @@ test("import boundary check confines kernel store imports to the kernel composit
       "utf8",
     );
     writeFileSync(
-      path.join(root, "packages/kernel/src/store/index.ts"),
+      path.join(root, "packages/storage/src/store/index.ts"),
       ["export function makeStore() {", "  return {};", "}"].join("\n"),
       "utf8",
     );
@@ -253,8 +324,8 @@ test("import boundary check rejects every CLI kernel store import", () => {
   const policyRoot = mkdtempSync(path.join(tmpdir(), "ha-import-boundary-policy-"));
   try {
     mkdirSync(path.join(root, "packages/cli/src"), { recursive: true });
-    mkdirSync(path.join(root, "packages/kernel/src/store"), { recursive: true });
-    writeFileSync(path.join(root, "packages/kernel/src/store/ledger-backup.ts"), "export const backup = true;\n");
+    mkdirSync(path.join(root, "packages/storage/src/store"), { recursive: true });
+    writeFileSync(path.join(root, "packages/storage/src/store/ledger-backup.ts"), "export const backup = true;\n");
     writeFileSync(
       path.join(root, "packages/cli/src/not-a-composition-root.ts"),
       "import { backup } from '../../" + "kernel/src/store/ledger-backup.ts';\nexport { backup };\n",
@@ -517,28 +588,28 @@ test("package-form mutations cover every import-boundary rule class", async (con
       "global kernel store boundary",
       "packages/daemon/src/package-probe.ts",
       "@harness-anything/kernel/store/package-probe",
-      "packages/kernel/src/store/package-probe.ts",
+      "packages/storage/src/store/package-probe.ts",
       /store implementation is internal to the kernel/u,
     ],
     [
       "application kernel store boundary",
       "packages/application/src/package-probe.ts",
       "@harness-anything/kernel/store/package-probe",
-      "packages/kernel/src/store/package-probe.ts",
+      "packages/storage/src/store/package-probe.ts",
       /application layer imports store\/adapter\/controller implementation/u,
     ],
     [
       "GUI kernel store boundary",
       "packages/gui/src/package-probe.ts",
       "@harness-anything/kernel/store/package-probe",
-      "packages/kernel/src/store/package-probe.ts",
+      "packages/storage/src/store/package-probe.ts",
       /GUI imports store or external adapter implementation/u,
     ],
     [
       "CLI kernel store boundary",
       "packages/cli/src/package-probe.ts",
       "@harness-anything/kernel/store/package-probe",
-      "packages/kernel/src/store/package-probe.ts",
+      "packages/storage/src/store/package-probe.ts",
       /CLI imports GUI, adapter, or store implementation/u,
     ],
     [
@@ -675,6 +746,7 @@ function makeFixtureRoot() {
     ["packages/application", "@harness-anything/application"],
     ["packages/adapters/local", "@harness-anything/adapter-local"],
     ["packages/kernel", "@harness-anything/kernel"],
+    ["packages/storage", "@harness-anything/storage"],
     ["packages/daemon", "@harness-anything/daemon"],
     ["packages/preset", "@harness-anything/preset"],
     ["packages/cli", "@harness-anything/cli"],

@@ -18,7 +18,7 @@ import {
   canonicalDocumentClaims,
   canonicalDocumentRetirements,
   canonicalEventContentClaims,
-} from "../../src/store/task-event-store.ts";
+} from "../../../storage/src/store/task-event-store.ts";
 
 const actor = { principal: { personId: "person-schedule" }, executor: null } as const;
 

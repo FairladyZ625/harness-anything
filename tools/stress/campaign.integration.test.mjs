@@ -12,9 +12,9 @@ import { withPolicyGroup } from "../../packages/daemon/test/keycloak-policy.fixt
 import { actor, initRepo } from "../../packages/daemon/test/task-surface.fixtures.ts";
 import { serializePersistedCanonicalEvent } from "../../packages/kernel/src/domain/doc-sync.contract.ts";
 import { sha256Text } from "../../packages/kernel/src/integrity/stable-hash.ts";
-import { makeTaskProjection } from "../../packages/kernel/src/projection/rebuildable-task-projection.ts";
-import { openSqliteEventStore } from "../../packages/kernel/src/store/sqlite-event-store.ts";
-import { eventAt } from "../../packages/kernel/test/store/task-event-store.fixtures.ts";
+import { makeTaskProjection } from "../../packages/storage/src/projection/rebuildable-task-projection.ts";
+import { openSqliteEventStore } from "../../packages/storage/src/store/sqlite-event-store.ts";
+import { eventAt } from "../../packages/storage/test/store/task-event-store.fixtures.ts";
 import { createProcessTree, createSeededScenario, runScenario } from "./core/controller.mjs";
 import { generateCoverageDenominators } from "./core/denominators.mjs";
 import { runOracleNegativeControls, runOracles } from "./core/oracles.mjs";

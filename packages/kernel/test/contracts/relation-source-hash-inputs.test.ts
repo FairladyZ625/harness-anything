@@ -3,8 +3,11 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { readMarkdownSource, readTaskProjectionSourceHashInputs } from "../../src/projection/sqlite-task-source.ts";
-import { withTempStore } from "../store/helpers.ts";
+import {
+  readMarkdownSource,
+  readTaskProjectionSourceHashInputs,
+} from "../../../storage/src/projection/sqlite-task-source.ts";
+import { withTempStore } from "../../../storage/test/store/helpers.ts";
 import { realizedDecisionBody } from "../../../../tools/fixtures/task-plan.mjs";
 
 test("freshness preserves task index hash input order", () => {

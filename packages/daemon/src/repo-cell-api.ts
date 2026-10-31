@@ -5,7 +5,7 @@ import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
-import { writeFileDurably, removeFileDurably } from "./durable-file.ts";
+import { writeFileDurably, removeFileDurably } from "../../storage/src/durable-file.ts";
 import { queryPayloadFacets as sharedQueryPayloadFacets, taskListQueryFromPayload } from "./repo-query-payload.ts";
 import { runRuntimeHandoff } from "./runtime-handoff.ts";
 import { requireCurrentExecutionScope } from "./runtime-execution-scope.ts";
@@ -15,7 +15,7 @@ import {
   readRuntimeExecutionPrincipal,
   runtimeExecutionActor,
 } from "./runtime-execution-credential.ts";
-import { assertWriterEpochFenceDescriptor } from "./writer-epoch.ts";
+import { assertWriterEpochFenceDescriptor } from "@harness-anything/storage";
 import { executeBuiltinScheduleOccurrence, type BuiltinExecutorCell } from "./schedule-builtin-executor.ts";
 import { readTaskCompletion } from "./task-completion-read.ts";
 import { readTaskRuntimeContext } from "./task-runtime-context-read.ts";
@@ -28,13 +28,13 @@ import { decisionStateWords } from "./protocol/daemon-protocol-vocabulary.ts";
 import { settingsLastChanged, settingsSingletonRevision } from "./repo-cell-settings-state.ts";
 import { settleWriteReceipt } from "./write-receipt-settlement.ts";
 import { repoCellStatus, repoCellStatusCuts } from "./repo-cell-status.ts";
+import { projectDecisionReadiness } from "@harness-anything/storage";
 import {
   assertCurrentWriter,
   buildVerticalDeclarationRead,
   buildEntityKindCatalog,
   deriveUseCaseProjectionInputs,
   durablePolicyActions,
-  projectDecisionReadiness,
   relationDirections,
   relationStates,
   relationTypes,

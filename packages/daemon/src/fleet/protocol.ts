@@ -1,6 +1,6 @@
 import { TextDecoder } from "node:util";
-import type { ReplicationCommit, ReplicationPosition } from "@harness-anything/kernel";
-import type { BaseBackupMetadata } from "./basebackup.ts";
+import type { ReplicationCommit, ReplicationPosition } from "@harness-anything/storage";
+import type { BaseBackupMetadata } from "@harness-anything/storage";
 
 export const REPLICATION_FRAME_BYTES = 96 * 1024;
 export const REPLICATION_CHUNK_BYTES = 64 * 1024;
