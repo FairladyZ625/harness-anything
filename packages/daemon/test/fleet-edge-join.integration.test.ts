@@ -190,9 +190,10 @@ test(
         method: "daemon.rbac.manage",
         params: { operation: "edge-join", link: invitation, workspaceRoot },
       });
-      return { response: response as Record<string, unknown>, workspaceRoot };
+      return { edge, response: response as Record<string, unknown>, workspaceRoot };
     };
 
+    const joinedEdges = new Map<string, Awaited<ReturnType<typeof fleetEdgeHostFixture>>>();
     for (const nodeName of ["node-one", "node-two"]) {
       const invitation = await link("person-one", spkiSha256, nodeName === "node-one");
       if (nodeName === "node-one") {
@@ -206,7 +207,7 @@ test(
         `device-token-${nodeName}`,
         decodeEdgeJoinLink(invitation.link).loginClientId,
       );
-      const { response, workspaceRoot } = await join(nodeName, invitation.link, nodeName === "node-one"),
+      const { edge, response, workspaceRoot } = await join(nodeName, invitation.link, nodeName === "node-one"),
         result = response.result as Record<string, unknown>;
       assert.equal(result?.ok, true, JSON.stringify(response));
       assert.equal(result.joinId, invitation.joinId);
@@ -221,6 +222,7 @@ test(
         config = readFleetEdgeConfig(repoWorkspace);
       assert.equal(config?.nodeId, issuedNodeId);
       assert.equal(config?.credential, `secret-${issuedNodeId}`);
+      joinedEdges.set(issuedNodeId, edge);
       if (nodeName === "node-one") {
         assert.equal(config?.host, "127.0.0.1");
         assert.equal(config?.servername, "localhost");
@@ -260,5 +262,16 @@ test(
     assert.equal("result" in refused.response && (refused.response.result as { ok?: unknown }).ok === true, false);
     assert.match(JSON.stringify(refused.response), /person_mismatch|another person/u);
     assert.equal(existsSync(path.join(refused.workspaceRoot, "fleet-edge.json")), false);
+    const formerOwnerNodeId = [...joinedEdges.keys()][0]!,
+      formerOwnerEdge = joinedEdges.get(formerOwnerNodeId)!;
+    f.owners.reassign(formerOwnerNodeId, "person-two");
+    assert.equal(f.owners.nodeOwner(formerOwnerNodeId), "person-two");
+    const formerOwnerWrite = await formerOwnerEdge.command({
+      kind: "task-create",
+      taskId: "former-owner-write",
+      title: "Former owner write",
+    });
+    assert.equal(formerOwnerWrite.code, "human_confirmation_required", JSON.stringify(formerOwnerWrite));
+    assert.equal(f.owners.nodeOwner(formerOwnerNodeId), "person-two");
   },
 );
