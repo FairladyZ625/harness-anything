@@ -2,7 +2,6 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { randomBytes } from "node:crypto";
 import type { OidcLoginAuthority } from "@harness-anything/kernel";
 import type { KeycloakSessionHost } from "./session-host.ts";
-import { fetchWithTlsCa, systemCaCertificates } from "./tls-ca-certificate.ts";
 
 const maxBodyBytes = 2 * 1024 * 1024;
 
