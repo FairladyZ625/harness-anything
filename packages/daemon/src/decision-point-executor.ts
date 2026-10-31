@@ -148,17 +148,9 @@ export function openDecisionPointExecutor(input: {
           outcome: event.payload.outcome,
           classification: event.payload.attempt?.classification ?? null,
         } as const,
-        points = Object.entries(decisionContract.points).filter(([, point]) => {
-          const question = decisionContract.questions[point.question];
-          if (decisionWhenMatches(point.when, eventFields)) return true;
-          // The executable incident contract also owns a terminal provider fault with no fallback
-          // successor, even when an installed filter only names the older worker_stop case.
-          return (
-            question?.version === incidentDispositionQuestionVersion &&
-            eventFields.outcome === "failed" &&
-            eventFields.classification === "provider_fault"
-          );
-        });
+        points = Object.entries(decisionContract.points).filter(([, point]) =>
+          decisionWhenMatches(point.when, eventFields),
+        );
       for (const [pointId, point] of points) {
         const question = decisionContract.questions[point.question];
         if (!question) continue;

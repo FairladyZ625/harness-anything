@@ -2,7 +2,7 @@
   "schema": "vertical-definition/v1",
   "id": "software/coding",
   "title": "Software Coding",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "decisions": {
     "questions": {
       "stop-reason": {
@@ -65,11 +65,11 @@
         "show": ["task.dispatches"]
       },
       "runtime-incident-worker-stop": {
-        "revision": "1",
+        "revision": "2",
         "on": "dispatch.settled",
         "when": {
           "outcome": ["stopped", "failed"],
-          "classification": ["worker_stop"]
+          "classification": ["worker_stop", "provider_fault"]
         },
         "input": [
           "dispatch.classification",

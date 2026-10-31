@@ -434,7 +434,7 @@ const incidentQuestion: DecisionQuestionDeclaration = {
   incidentPoint: DecisionPointDeclaration = {
     revision: "1",
     on: "dispatch.settled",
-    when: { outcome: ["stopped", "failed"], classification: ["worker_stop"] },
+    when: { outcome: ["stopped", "failed"], classification: ["worker_stop", "provider_fault"] },
     input: [
       "dispatch.classification",
       "dispatch.reason",
@@ -497,6 +497,8 @@ function fakeIncidentCell(input: {
   readonly spawnFails?: boolean;
   readonly providerEnabled?: boolean;
   readonly reviewReturnBudget?: number;
+  readonly vertical?: VerticalDefinition;
+  readonly enabledPoint?: string;
   readonly continuationContext?: {
     readonly dispatchId: string;
     readonly lastConclusion: string | null;
@@ -553,7 +555,7 @@ function fakeIncidentCell(input: {
         }
         if (method === "repo.vertical.declaration.read")
           return {
-            declaration: {
+            declaration: input.vertical ?? {
               decisions: {
                 questions: { "runtime-incident-disposition": incidentQuestion },
                 points: { [incidentPointId]: incidentPoint },
@@ -563,7 +565,7 @@ function fakeIncidentCell(input: {
         if (method === "repo.settings.read")
           return {
             settings: {
-              decisions: { provider: provider.providerId, enabledPoints: [incidentBindingKey] },
+              decisions: { provider: provider.providerId, enabledPoints: [input.enabledPoint ?? incidentBindingKey] },
               reviewReturnBudget: input.reviewReturnBudget ?? 3,
             },
           };
@@ -776,6 +778,42 @@ test("a provider fault uses the existing incident continuation and its shared bu
   const receipt = readIncidentActionReceipt(rootDir, dispatchId);
   assert.equal(receipt?.action, "rerun");
   assert.deepEqual(receipt?.budget, { used: 1, limit: 3, source: "daemon" });
+});
+
+test("provider faults obey the declared incident filter instead of bypassing an older binding", async (t) => {
+  const rootDir = isolatedRoot();
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  seedIncidentStream(rootDir);
+  const oldPoint: DecisionPointDeclaration = {
+      ...incidentPoint,
+      revision: "1",
+      when: { outcome: ["stopped", "failed"], classification: ["worker_stop"] },
+    },
+    oldVertical = {
+      decisions: {
+        questions: { "runtime-incident-disposition": incidentQuestion },
+        points: { [incidentPointId]: oldPoint },
+      },
+    } as VerticalDefinition,
+    oldBindingKey = `${incidentPointId}@${decisionPointBindingDigest(incidentPointId, oldPoint, incidentQuestion).slice(0, 12)}`,
+    executor = openTestExecutor({
+      rootDir,
+      providers: {
+        list: () => [provider],
+        port: { decide: async () => choiceAnswer("rerun_same_identity") },
+      },
+      now: () => "2026-10-19T00:00:01.000Z",
+    }),
+    { cell, spawns } = fakeIncidentCell({
+      rootDir,
+      vertical: oldVertical,
+      enabledPoint: oldBindingKey,
+      agentId: "terra",
+    });
+
+  await executor.settle(cell, incidentOutcomeEvent("failed", "provider_fault"));
+  assert.equal(spawns.length, 0, "an old declaration must not be widened by executor code");
+  assert.equal(readIncidentActionReceipt(rootDir, dispatchId), null);
 });
 
 test("an automatic resume refuses a local session owned by a different person", async (t) => {
