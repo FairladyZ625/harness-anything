@@ -483,6 +483,28 @@ const executableAction = (
   read = false,
 ) => entityAction(kind, identity, id, sdkExposure, executionContract(ingress, compile, read));
 
+const catalogRuntimeAction = (
+  kind: string,
+  identity: EntityKindContract["id"],
+  id: string,
+  ingress: string,
+  sdkExposure: EntitySdkExposure,
+  topology: NonNullable<EntityActionExecutionContract["topology"]> = "ledger-write",
+  remoteEdgeAdmission: NonNullable<EntityActionExecutionContract["remoteEdgeAdmission"]> = "rejected",
+) => {
+  const declared = executableAction(kind, identity, id, ingress, null, sdkExposure);
+  return Object.freeze({
+    ...declared,
+    execution: Object.freeze({
+      ...declared.execution!,
+      implementation: "catalog-runtime" as const,
+      topology,
+      remoteEdgeAdmission,
+      targetIdField: identity.field,
+    }),
+  });
+};
+
 const taskActionCatalog = createTaskActionCatalog((id) => entityAction("task", taskIdentity, id, taskExposure));
 const assignmentCatalogFor = (kind: string, identity: EntityKindContract["id"], exposure: EntitySdkExposure) =>
   createAssignmentActionCatalog(kind, identity.refTemplate, (id) => entityAction(kind, identity, id, exposure));
@@ -532,6 +554,7 @@ const factActionCatalog = Object.freeze({
     ),
     executableAction("fact", factIdentity, "archive", "fact-archive", compileFactArchiveAction, factExposure),
     executableAction("fact", factIdentity, "unarchive", "fact-unarchive", compileFactUnarchiveAction, factExposure),
+    catalogRuntimeAction("fact", factIdentity, "rematerialize", "fact-rematerialize", factExposure),
     executableAction("fact", factIdentity, "type-list", "fact-type-list", null, factExposure, true),
     executableAction("fact", factIdentity, "show", "fact-show", null, factExposure, true),
   ]),
@@ -574,6 +597,8 @@ const decisionActionCatalog = Object.freeze({
       ];
     }),
     ...Object.values(decisionAuxiliaryActions).map(([id, ingress]) => decisionWriteAction(id, ingress)),
+    catalogRuntimeAction("decision", decisionIdentity, "dispatch-review", "decision-dispatch-review", decisionExposure),
+    catalogRuntimeAction("decision", decisionIdentity, "rematerialize", "decision-rematerialize", decisionExposure),
     decisionWriteAction("review", "decision-review"),
     decisionWriteAction("respond-review", "decision-respond-review"),
     decisionWriteAction("override-review", "decision-override-review"),

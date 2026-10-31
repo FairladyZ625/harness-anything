@@ -175,6 +175,12 @@ export function executeRepoAction(
   if (action.kind === "task-review") return cell.reviewTask(action, binding);
   if (action.kind === "task-dispatch-review") return dispatchTaskReview(cell, action, binding);
   if (action.kind === "decision-dispatch-review") return dispatchDecisionReview(cell, action, binding);
+  if (
+    action.kind === "decision-rematerialize" ||
+    action.kind === "fact-rematerialize" ||
+    action.kind === "task-rematerialize"
+  )
+    return runEntityDocumentRematerialize(cell, action, binding);
   if (action.kind === "distill-candidate") {
     const taskId = cell.requiredCellText(action.taskId, "taskId");
     if (!cell.projection.read(taskId).snapshot.task)
@@ -281,12 +287,6 @@ export function executeRepoAction(
       binding,
       cell.operationId(action, binding, cell.input.repoId, Number(action.expectedVersion ?? 0)),
     );
-  if (
-    action.kind === "decision-rematerialize" ||
-    action.kind === "fact-rematerialize" ||
-    action.kind === "task-rematerialize"
-  )
-    return runEntityDocumentRematerialize(cell, action, binding);
   if (action.kind.startsWith("fact-")) return runFactAction(cell, action, binding);
   if (action.kind.startsWith("decision-")) {
     const resolved = cell.decisionProposalAction(cell.rootDir, action, () => cell.settings.read());
