@@ -29,6 +29,21 @@ test("checks the manifest produced inside the tarball", async () => {
   });
 });
 
+test("accepts wildcard export targets present in the tarball", async () => {
+  await withFixtureRepo((root) => {
+    writePackage(root, "wildcard", {
+      exports: { "./internal/*.ts": "./dist/*.js" },
+      files: ["dist", "package.json"],
+    });
+    writeFileSync(path.join(root, "packages/wildcard/dist/index.js"), "export {};\n");
+
+    const result = runCheck(root);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Package tarball exports check passed/u);
+  });
+});
+
 test("rejects missing exports and bin targets", async () => {
   await withFixtureRepo((root) => {
     writePackage(root, "bad", {

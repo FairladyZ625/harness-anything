@@ -13,11 +13,8 @@ import {
 } from "../../src/store/sqlite-event-store.ts";
 import { sha256Text, stableStringify } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { planCompletionGeneration } from "../../src/store/completion-generation-plan.ts";
-import {
-  writeCompletionGeneration,
-  verifyCompletionGeneration,
-  completionConversionStream,
-} from "../../src/store/completion-generation-target.ts";
+import { writeCompletionGeneration, verifyCompletionGeneration } from "../../src/store/completion-generation-target.ts";
+import { completionConversionStream } from "../../src/store/completion-conversion-stream.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection-factory.ts";
 import { selectGenerationThree } from "../../src/store/generation-three-selection.ts";
 

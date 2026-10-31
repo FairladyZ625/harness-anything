@@ -3,13 +3,8 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import {
-  compileDecisionWrite,
-  decisionWritePlan,
-  projectDecisionReadiness,
-  renderDecisionDocument,
-  sha256Text,
-} from "../../src/index.ts";
+import { compileDecisionWrite, decisionWritePlan, renderDecisionDocument, sha256Text } from "@harness-anything/kernel";
+import { projectDecisionReadiness } from "../../src/projection/decision-readiness-projection.ts";
 import { readDecisionDocumentState, reduceDecisionEvent } from "../../src/projection/decision-event-projection.ts";
 import { withTempStore } from "./helpers.ts";
 

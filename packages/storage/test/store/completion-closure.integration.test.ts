@@ -7,11 +7,8 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { completionClosureFixture } from "./completion-closure.fixture.ts";
 import { planCompletionGeneration } from "../../src/store/completion-generation-plan.ts";
-import {
-  writeCompletionGeneration,
-  verifyCompletionGeneration,
-  completionConversionStream,
-} from "../../src/store/completion-generation-target.ts";
+import { writeCompletionGeneration, verifyCompletionGeneration } from "../../src/store/completion-generation-target.ts";
+import { completionConversionStream } from "../../src/store/completion-conversion-stream.ts";
 import {
   openSqliteEventStore,
   openUnactivatedGenerationThreeEventStore,

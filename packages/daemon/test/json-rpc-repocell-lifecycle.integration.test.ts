@@ -9,7 +9,7 @@ import test from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
 import { readDaemonRegistry } from "@harness-anything/kernel";
-import { WRITE_RECEIPT_SCHEMA } from "@harness-anything/kernel";
+import { WRITE_RECEIPT_SCHEMA } from "@harness-anything/kernel/internal/domain/receipt-domain-registry";
 import { validateWriteReceipt } from "../../kernel/test/contracts/receipt-acceptance.fixtures.ts";
 import { reviewDigest } from "@harness-anything/kernel";
 import {

@@ -14,7 +14,7 @@ import {
 } from "../../src/store/completion-generation-conversion.ts";
 import { resolveActiveGeneration, sqliteLedgerPath, openSqliteEventStore } from "../../src/store/sqlite-event-store.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection-factory.ts";
-import { completionConversionStream } from "../../src/store/completion-generation-target.ts";
+import { completionConversionStream } from "../../src/store/completion-conversion-stream.ts";
 
 for (const interrupt of ["verified", "source-retired", "derived-invalidated", "published"] as const) {
   test(`generation 2 active execution retirement resumes after ${interrupt}`, () => {

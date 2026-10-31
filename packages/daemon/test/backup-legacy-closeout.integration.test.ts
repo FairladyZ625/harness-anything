@@ -9,7 +9,7 @@ import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { sqliteLedgerPath } from "@harness-anything/storage";
 import { readDaemonRegistry, serializeCanonicalEvent, sha256Text } from "@harness-anything/kernel";
-import { serializeCanonicalEventUnchecked } from "@harness-anything/kernel";
+import { serializeCanonicalEventUnchecked } from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
