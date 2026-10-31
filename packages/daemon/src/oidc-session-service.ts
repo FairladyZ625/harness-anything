@@ -98,6 +98,7 @@ export class OidcSessionService {
   #pending: PendingLogin | undefined;
   #centerTokenCache: CenterToken | undefined;
   #loginGeneration = 0;
+  #sessionGeneration = 0;
   #device: PendingDeviceLogin | undefined;
   readonly #deviceRequests = new Map<string, DeviceLoginRequest>();
   #writes: Promise<unknown> = Promise.resolve();
@@ -410,12 +411,15 @@ export class OidcSessionService {
       issuer,
     );
     this.#centers.write(loginTarget, { authority, issuer });
-    if (generation === undefined) this.#writeSession(session, store);
-    else
+    if (generation === undefined) {
+      this.#writeSession(session, store);
+      ++this.#sessionGeneration;
+    } else
       await this.serialize(async () => {
         // Serialize with renewal/logout; a late exchange must not replace the newer session.
         this.#assertLoginGeneration(generation);
         this.#writeSession(session, store);
+        ++this.#sessionGeneration;
       });
     return { ok: true, authenticated: true, personId: session.personId, expiresAt: session.sessionExpiresAt };
   }
@@ -460,6 +464,7 @@ export class OidcSessionService {
   /** Queued behind a renewal in flight, so a session that is being renewed stays signed out. */
   logout(loginTarget?: string): Promise<Record<string, unknown>> {
     ++this.#loginGeneration;
+    ++this.#sessionGeneration;
     this.#pending = undefined;
     const device = this.#device;
     this.#device = undefined;
@@ -578,9 +583,9 @@ export class OidcSessionService {
       });
     }
     const { sessionStore } = await this.#centerIdentity(loginTarget),
-      generation = this.#loginGeneration,
+      generation = this.#sessionGeneration,
       { session, unavailable } = await this.#use(sessionStore);
-    if (!session || generation !== this.#loginGeneration) return auth;
+    if (!session || generation !== this.#sessionGeneration) return auth;
     if (replicaRead && session.sessionExpiresAt !== null && session.sessionExpiresAt <= this.#ports.now()) return auth;
     if (unavailable) {
       if (!replicaRead || (session.sessionExpiresAt !== null && session.sessionExpiresAt <= this.#ports.now()))
@@ -597,7 +602,7 @@ export class OidcSessionService {
         const current = await this.#live(sessionStore);
         if (
           !current ||
-          generation !== this.#loginGeneration ||
+          generation !== this.#sessionGeneration ||
           current.personId !== session.personId ||
           current.subject !== session.subject
         )
@@ -1010,7 +1015,7 @@ export class OidcSessionService {
 
   /** One refresh grant per use: Keycloak refusing it ends the session here, and nothing retries. */
   async #renew(session: StoredSession, sessionStore: OidcSessionStorePort): Promise<SessionUse> {
-    const generation = this.#loginGeneration,
+    const generation = this.#sessionGeneration,
       edge = session.loginTarget ? readFleetEdgeConfig(session.loginTarget) : null,
       authority =
         edge && session.authority
@@ -1031,7 +1036,7 @@ export class OidcSessionService {
           }),
         },
       ).catch((error: unknown) => unavailable("Keycloak could not be reached to renew the session.", error));
-    if (generation !== this.#loginGeneration) return { session: undefined };
+    if (generation !== this.#sessionGeneration) return { session: undefined };
     if (response instanceof Error)
       return {
         session:
@@ -1049,7 +1054,7 @@ export class OidcSessionService {
         unavailable: unavailable(`Keycloak session renewal returned HTTP ${response.status}.`),
       };
     const tokens = (await response.json()) as Record<string, unknown>;
-    if (generation !== this.#loginGeneration) return { session: undefined };
+    if (generation !== this.#sessionGeneration) return { session: undefined };
     const accessToken = requiredString(tokens.access_token, "access_token");
     if (requiredString(decodeJwtPayload(accessToken).iss, "iss") !== session.issuer)
       throw coded("oidc_issuer_mismatch", "The renewed token issuer does not match the selected center.");

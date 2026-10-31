@@ -42,7 +42,7 @@ export function registerOidcAuthIpc(
       readonly authorizationUrl: string;
       readonly callbackOrigin: string;
       readonly listenerReply: unknown;
-    }) => { readonly partitionToken: string; readonly release: () => void } | null;
+    }) => Promise<{ readonly partitionToken: string; readonly release: () => Promise<void> } | null>;
   },
 ): void {
   const logins = new Map<number, AbortController>();
@@ -76,7 +76,7 @@ export function registerOidcAuthIpc(
         ]);
         if (begun === null) return { ok: true };
         const url = String(begun.authorizationUrl),
-          grant = ports.openLoginWebview?.({
+          grant = await ports.openLoginWebview?.({
             authorizationUrl: url,
             callbackOrigin: new URL(url).origin,
             listenerReply: begun,
@@ -90,7 +90,7 @@ export function registerOidcAuthIpc(
           await closed;
           return { ok: true };
         } finally {
-          grant?.release();
+          await grant?.release();
         }
       }
       return await embeddedBrowserLogin({
@@ -205,7 +205,7 @@ export async function embeddedBrowserLogin(ports: {
     readonly authorizationUrl: string;
     readonly callbackOrigin: string;
     readonly listenerReply: unknown;
-  }) => { readonly partitionToken: string; readonly release: () => void } | null;
+  }) => Promise<{ readonly partitionToken: string; readonly release: () => Promise<void> } | null>;
 }): Promise<unknown> {
   type CallbackResult = { readonly code: string; readonly state: string } | Error;
   let settle!: (value: CallbackResult) => void;
@@ -246,7 +246,7 @@ export async function embeddedBrowserLogin(ports: {
   const cancelled = () => interrupt("Sign-in cancelled.");
   ports.signal.addEventListener("abort", cancelled, { once: true });
   const timeout = setTimeout(() => interrupt("OIDC callback timed out."), 300_000);
-  let loginWebview: { readonly partitionToken: string; readonly release: () => void } | null = null;
+  let loginWebview: { readonly partitionToken: string; readonly release: () => Promise<void> } | null = null;
   try {
     ports.signal.throwIfAborted();
     const address = server.address() as AddressInfo,
@@ -264,7 +264,7 @@ export async function embeddedBrowserLogin(ports: {
         ports.daemonRequest({ operation: "listener" }),
         interrupted.promise,
       ]).catch(() => null);
-      loginWebview = ports.openLoginWebview({
+      loginWebview = await ports.openLoginWebview({
         authorizationUrl: begun.authorizationUrl,
         callbackOrigin: `http://127.0.0.1:${address.port}`,
         listenerReply,
@@ -283,7 +283,7 @@ export async function embeddedBrowserLogin(ports: {
       await Promise.race([ports.daemonRequest({ operation: "login-complete", ...result }), interrupted.promise]),
     );
   } finally {
-    loginWebview?.release();
+    await loginWebview?.release();
     clearTimeout(timeout);
     ports.signal.removeEventListener("abort", cancelled);
     await new Promise<void>((resolve) => server.close(() => resolve()));

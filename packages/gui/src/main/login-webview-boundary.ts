@@ -11,6 +11,8 @@ import { X509Certificate } from "node:crypto";
 export interface LoginListenerTrust {
   readonly origin: string;
   readonly fingerprint256: string;
+  /** SSH reverse target, when the browser origin must stay on the center hostname. */
+  readonly proxyTarget?: string;
 }
 
 /**
@@ -28,12 +30,30 @@ export function resolveLoginListenerTrust(input: {
   const listener = (input.listenerReply as { readonly listener?: unknown } | null)?.listener;
   if (listener === null || typeof listener !== "object") return null;
   const { hostname, port, certificateFile } = listener as Record<string, unknown>;
-  if (typeof hostname !== "string" || typeof certificateFile !== "string") return null;
+  const certificate = (listener as Record<string, unknown>).certificate;
+  if (typeof hostname !== "string" || (typeof certificateFile !== "string" && typeof certificate !== "string"))
+    return null;
   if (!Number.isInteger(port) || (port as number) < 1 || (port as number) > 65_535) return null;
   const origin = `https://${hostname.toLowerCase()}:${port}`;
   if (new URL(input.authorizationUrl).origin !== origin) return null;
   // A configured certificate that cannot be read or parsed fails the sign-in with its own error.
-  return { origin, fingerprint256: certificateFingerprint256(input.readCertificateFile(certificateFile)) };
+  return {
+    origin,
+    fingerprint256: certificateFingerprint256(
+      typeof certificate === "string" ? certificate : input.readCertificateFile(certificateFile as string),
+    ),
+    ...((listener as Record<string, unknown>).targetUrl === undefined
+      ? {}
+      : { proxyTarget: validateProxyTarget((listener as Record<string, unknown>).targetUrl) }),
+  };
+}
+
+function validateProxyTarget(value: unknown): string {
+  if (typeof value !== "string") throw new Error("The login listener proxy target must be a URL.");
+  const target = new URL(value);
+  if (target.protocol !== "https:" || !["127.0.0.1", "localhost"].includes(target.hostname))
+    throw new Error("The login listener proxy target must be a loopback HTTPS URL.");
+  return target.toString();
 }
 
 /** The leaf is the first certificate in the file, which is the certificate the listener serves. */

@@ -43,6 +43,22 @@ test("a listener-backed authorization URL earns trust in exactly its origin and 
   );
 });
 
+test("an edge listener can pin its delivered certificate without exposing a private file", () => {
+  const target = resolve(authorizationUrl, {
+    listener: {
+      hostname: "10.211.55.2",
+      port: 18544,
+      certificate: leaf,
+      targetUrl: "https://127.0.0.1:56506",
+    },
+  });
+  assert.deepEqual(target, {
+    origin: "https://10.211.55.2:18544",
+    fingerprint256: leafFingerprint,
+    proxyTarget: "https://127.0.0.1:56506/",
+  });
+});
+
 test("any other origin, listener shape, or certificate file earns no trust", () => {
   const refusals: readonly [string, unknown][] = [
     ["different port", { listener: listener({ port: 18545 }) }],
