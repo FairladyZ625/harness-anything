@@ -164,6 +164,7 @@ export function resolveRepoBootstrap(
       : {
           keycloakAuthorization: {
             session: {
+              provider: auth.oidcPrincipal.provider,
               personId: auth.oidcPrincipal.personId,
               accessToken: auth.oidcPrincipal.accessToken,
               ...(auth.localSessionAccessToken ? { currentAccessToken: auth.localSessionAccessToken } : {}),

@@ -13,9 +13,9 @@ import {
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { OidcSessionService } from "../src/oidc-session-service.ts";
+import { createIdentitySession } from "../src/authorization-provider.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
-import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
+import { managedRbacSessionStore } from "@harness-anything/authorization-keycloak/managed-rbac-service";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { daemonMethodAcceptsPayload } from "../src/protocol/daemon-protocol-rpc-validation.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
@@ -38,13 +38,13 @@ test(
     const f = await fleetNodeClaimFixture(
       t,
       undefined,
-      (input) => new OidcSessionService(path.join(f.root, "user")).bind(input),
+      (input) => createIdentitySession(path.join(f.root, "user")).bind(input),
       undefined,
       (nodeId) => ({ url: "https://keycloak.example", realm: "harness", clientId: `harness-node-${nodeId}` }),
       true,
       {},
       undefined,
-      (nodeId) => new OidcSessionService(path.join(f.root, "user")).revokeDeviceSessions(nodeId),
+      (nodeId) => createIdentitySession(path.join(f.root, "user")).revokeDeviceSessions(nodeId),
     );
     const vertical = await f.host.run("lease-repo", { kind: "vertical-declaration-migrate" }, auth);
     assert.equal(vertical.outcome, "applied", JSON.stringify(vertical));
@@ -129,7 +129,7 @@ test(
     edge = await openDaemonHost({
       daemonId: "read-edge",
       userRoot: edgeUser,
-      oidc: new OidcSessionService(edgeUser, { fetch: f.owners.keycloak.fetch }),
+      oidc: createIdentitySession(edgeUser, { fetch: f.owners.keycloak.fetch }),
     });
     await edge.attachmentsSettled();
     const local = makeTaskProjectionReader({ rootDir: edgeRoot });

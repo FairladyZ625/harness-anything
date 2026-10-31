@@ -4,11 +4,18 @@
   "private": true,
   "license": "AGPL-3.0-or-later",
   "type": "module",
-  "engines": { "node": ">=24" },
+  "engines": {
+    "node": ">=24"
+  },
   "exports": {
     ".": "./src/index.ts",
     "./internal/keycloak-policy-adapter": "./src/keycloak-policy-adapter.ts",
-    "./internal/keycloak-login-client": "./src/keycloak-login-client.ts"
+    "./internal/keycloak-login-client": "./src/keycloak-login-client.ts",
+    "./managed-rbac-service": "./src/managed-rbac-service.ts",
+    "./managed-rbac-listener-certificate": "./src/managed-rbac-listener-certificate.ts",
+    "./keycloak-session-lifetime": "./src/keycloak-session-lifetime.ts",
+    "./oidc-session-helpers": "./src/oidc-session-helpers.ts",
+    "./oidc-fleet-principal": "./src/oidc-fleet-principal.ts"
   },
   "dependencies": {
     "@harness-anything/kernel": "0.0.1"

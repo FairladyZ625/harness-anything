@@ -1,3 +1,4 @@
+import { createAuthorizationProvider } from "./authorization-provider.ts";
 import { randomUUID } from "node:crypto";
 import { isMainThread, parentPort, workerData } from "node:worker_threads";
 import { consumeKnownError } from "@harness-anything/kernel";
@@ -125,9 +126,19 @@ async function startRepoWriterWorker(): Promise<void> {
         ...(bootstrap.capabilities.keycloakCenter
           ? {
               keycloakCenter: (rejectedAccessToken) =>
-                asyncCapability("keycloakCenter", rejectedAccessToken ?? null) as ReturnType<
-                  NonNullable<RepoCellOpenInput["keycloakCenter"]>
-                >,
+                (
+                  asyncCapability("keycloakCenter", rejectedAccessToken ?? null) as ReturnType<
+                    NonNullable<RepoCellOpenInput["keycloakCenter"]>
+                  >
+                ).then((data) => ({
+                  ...data,
+                  provider: createAuthorizationProvider(
+                    { ...data, resourceServerClientId: data.clientId },
+                    undefined,
+                    async (token) =>
+                      ((await asyncCapability("keycloakCenter", token)) as { accessToken: string }).accessToken,
+                  ),
+                })),
             }
           : {}),
         ...(bootstrap.capabilities.prepareRuntimeLaunch
@@ -438,10 +449,31 @@ function reviveKeycloakAuthorization(
   currentCenter: NonNullable<RepoCellOpenInput["keycloakCenter"]>,
 ): NonNullable<RepoCellBinding["keycloakAuthorization"]> {
   const { session, center } = credential;
-  const revivedCenter = center ? { center: currentCenter } : {};
+  const revivedCenter = center
+    ? {
+        center: async (rejected?: string) => {
+          const data = await currentCenter(rejected);
+          return {
+            ...data,
+            provider: createAuthorizationProvider(
+              { ...data, resourceServerClientId: data.clientId },
+              undefined,
+              async (token) => (await currentCenter(token)).accessToken,
+            ),
+          };
+        },
+      }
+    : {};
   if (!session) return revivedCenter;
   const { currentAccessToken: required, ...data } = session;
-  return { ...revivedCenter, session: { ...data, ...(required ? { currentAccessToken } : {}) } };
+  return {
+    ...revivedCenter,
+    session: {
+      ...data,
+      provider: createAuthorizationProvider({ ...data, resourceServerClientId: data.clientId }),
+      ...(required ? { currentAccessToken } : {}),
+    },
+  };
 }
 
 function assertWriterEpoch(descriptor: SerializableRepoCellBindingV1["writerEpochFence"] | null): void {

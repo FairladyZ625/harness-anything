@@ -7,7 +7,7 @@ import {
   sha256Text,
   stableStringify,
 } from "@harness-anything/kernel";
-import { type AuthorizationGrant, type AuthorizationProvider } from "./authorization-provider.ts";
+import type { AuthorizationGrant, AuthorizationProvider } from "@harness-anything/kernel";
 import type { AccessAdminPorts, AccessAdminRequest } from "./access-admin-contract.ts";
 import { coded, names, requiredUserId, text, uniqueSorted } from "./access-admin-utils.ts";
 import { admitEdgeJoin, restoreEdgeJoinStore } from "./fleet/edge-join-admission.ts";
@@ -20,7 +20,7 @@ import {
 } from "./fleet/edge-join.ts";
 import { readFleetCenterConfig } from "./fleet-center-config.ts";
 import { EdgeJoinSshTunnelManager, validateSshTarget, type EdgeJoinTunnelPorts } from "./fleet/edge-join-ssh-tunnel.ts";
-import type { OidcSessionService } from "./oidc-session-service.ts";
+import type { IdentitySessionPort } from "@harness-anything/kernel";
 
 interface Session {
   readonly adapter: AuthorizationProvider;
@@ -30,7 +30,7 @@ interface Session {
 type Schedule = (callback: () => void, delayMs: number) => () => void;
 
 export class EdgeJoinAdminService {
-  readonly #oidc: OidcSessionService;
+  readonly #oidc: IdentitySessionPort;
   readonly #userRoot: string;
   readonly #daemonId: string;
   readonly #now: () => string;
@@ -41,7 +41,7 @@ export class EdgeJoinAdminService {
   #cancelExpirySweep?: () => void;
 
   constructor(input: {
-    readonly oidc: OidcSessionService;
+    readonly oidc: IdentitySessionPort;
     readonly userRoot: string;
     readonly daemonId: string;
     readonly now: () => string;

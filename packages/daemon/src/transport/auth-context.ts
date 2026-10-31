@@ -1,9 +1,12 @@
+import type { IdentityAuthenticationContext } from "@harness-anything/kernel";
+import type { AuthorizationProvider } from "@harness-anything/kernel";
 import type { DaemonSessionEnvironment } from "../protocol/daemon-protocol.contract.ts";
 import type { WriterEpochFenceDescriptor } from "../writer-epoch.ts";
 
 export type DaemonTransportKind = "unix-socket" | "fleet-tls";
 /** The center's Keycloak location and one service-account token, as plain data a writer can receive. */
 export interface KeycloakCenterCredential {
+  readonly provider: AuthorizationProvider;
   readonly url: string;
   readonly realm: string;
   readonly clientId: string;
@@ -18,8 +21,10 @@ export interface UnixSocketOwnerBoundary {
   readonly source: "unix-socket-filesystem-owner-boundary";
 }
 
-export interface DaemonAuthenticationContext {
+export interface DaemonAuthenticationContext extends IdentityAuthenticationContext {
   readonly transportKind: DaemonTransportKind;
+  /** Authenticated fleet node owner, established by transport admission and never by payload data. */
+  readonly nodePrincipal?: { readonly nodeId: string; readonly personId: string };
   /** Unverified execution secret carried over Fleet TLS; only the center may authenticate it. */
   readonly executionCredential?: string;
   /** Keycloak-verified execution identity; never populated from a client claim. */
@@ -30,32 +35,6 @@ export interface DaemonAuthenticationContext {
   readonly sessionEnvironment?: DaemonSessionEnvironment;
   readonly endpoint?: string;
   readonly unixSocketOwnerBoundary?: UnixSocketOwnerBoundary;
-  /** Principal established by the daemon's OIDC session service; never accepted from JSON-RPC payloads. */
-  readonly oidcPrincipal?: {
-    readonly personId: string;
-    readonly subject: string;
-    readonly expiresAt: number;
-    readonly accessToken: string;
-    readonly authority: {
-      readonly url: string;
-      readonly realm: string;
-      readonly clientId: string;
-      /** Public CA root selected by the invitation; used only for matching that invitation on reuse. */
-      readonly certificate?: string;
-    };
-  };
-  /** Resolves the bound local login token at use time; never supplied by a fleet client. */
-  readonly localSessionAccessToken?: () => Promise<string>;
-  /** Daemon-owned identity for an unreachable renewal, usable only in a server-selected edge replica read. */
-  readonly replicaReadPrincipal?: { readonly personId: string; readonly sessionExpiresAt: number | null };
-  /** Center service authority for evaluating a person who holds no token here; attached by the host only. */
-  readonly keycloakCenter?: KeycloakCenterAuthority;
-  /** The authenticated node and its owner from the center node registry; never accepted from a fleet frame. */
-  readonly nodePrincipal?: { readonly nodeId: string; readonly personId: string };
-  /** Transient fleet credential, consumed by the center's online introspection, never action data. */
-  readonly humanAccessToken?: string;
-  /** Center-selected clients for invitation-bound sessions; never accepted from a fleet payload. */
-  readonly fleetExpectedAzps?: readonly { readonly clientId: string; readonly personId?: string }[];
   /** Center-only admission context; never accepted from a client payload. */
   readonly writerEpoch?: number;
   readonly withWriterEpochFence?: <T>(operation: () => T) => T;

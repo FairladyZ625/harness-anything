@@ -9,20 +9,18 @@ import {
   stableStringify,
   sha256Text,
 } from "@harness-anything/kernel";
-import {
-  createAuthorizationProvider,
-  type AuthorizationProvider,
-  type AuthorizationGrant,
-  type AuthorizationNode,
-  type AuthorizationPolicyGroup,
-} from "./authorization-provider.ts";
-import { readSessionLifetime, sessionLifetimeBounds, writeSessionLifetime } from "./keycloak-session-lifetime.ts";
+import type {
+  AuthorizationProvider,
+  AuthorizationGrant,
+  AuthorizationNode,
+  AuthorizationPolicyGroup,
+} from "@harness-anything/kernel";
 import {
   managedPermissionRequestStore,
   managedRbacReceiptJournal,
   reserveCredentialFile,
-} from "./managed-rbac-service.ts";
-import type { OidcSessionService } from "./oidc-session-service.ts";
+} from "./access-admin-state.ts";
+import type { IdentitySessionPort } from "@harness-anything/kernel";
 import { type AccessAdminOperation, type AccessAdminPorts, type AccessAdminRequest } from "./access-admin-contract.ts";
 import { EdgeJoinAdminService } from "./access-admin-edge-join.ts";
 import { EdgeJoinSshTunnelManager } from "./fleet/edge-join-ssh-tunnel.ts";
@@ -96,13 +94,13 @@ interface PermissionRequest {
  * here is an audit trail that nothing evaluates.
  */
 export class AccessAdminService {
-  readonly #oidc: OidcSessionService;
+  readonly #oidc: IdentitySessionPort;
   readonly #ports: AccessAdminPorts;
   readonly #permissionRequests: ReturnType<typeof managedPermissionRequestStore>;
   readonly #edgeJoinAdmin: EdgeJoinAdminService;
   readonly #edgeJoinTunnels: EdgeJoinSshTunnelManager;
 
-  constructor(oidc: OidcSessionService, userRoot: string, ports: Partial<AccessAdminPorts> = {}) {
+  constructor(oidc: IdentitySessionPort, userRoot: string, ports: Partial<AccessAdminPorts> = {}) {
     this.#oidc = oidc;
     this.#permissionRequests = managedPermissionRequestStore(userRoot);
     this.#ports = {
@@ -415,13 +413,13 @@ export class AccessAdminService {
 
   async #sessionLifetime(): Promise<Record<string, unknown>> {
     const session = await this.#session(),
-      seconds = await readSessionLifetime(session.realmAdmin, this.#ports.fetch);
+      seconds = await session.adapter.readSessionLifetime(session.token);
     return {
       ok: true,
       seconds,
       version: String(seconds),
       authority: { url: session.realmAdmin.url, realm: session.realmAdmin.realm },
-      ...sessionLifetimeBounds,
+      ...session.adapter.sessionLifetimeBounds,
     };
   }
 
@@ -647,7 +645,7 @@ export class AccessAdminService {
           if (!(await this.#observed(session, { kind: "node", ...expected }))) return false;
         return true;
       case "session-lifetime":
-        return (await readSessionLifetime(session.realmAdmin, this.#ports.fetch)) === expect.seconds;
+        return (await session.adapter.readSessionLifetime(session.token)) === expect.seconds;
     }
   }
 
@@ -768,7 +766,7 @@ export class AccessAdminService {
   /** The lifetime is one number, so the value an administrator read is the version their change is made against. */
   async #planSessionLifetime(session: Session, request: AccessAdminRequest): Promise<Plan | Conflict> {
     const seconds = request.sessionLifetimeSeconds,
-      { minimumSeconds, maximumSeconds } = sessionLifetimeBounds;
+      { minimumSeconds, maximumSeconds } = session.adapter.sessionLifetimeBounds;
     if (!Number.isInteger(seconds) || seconds! < minimumSeconds || seconds! > maximumSeconds)
       throw coded(
         "session_lifetime_invalid",
@@ -780,11 +778,11 @@ export class AccessAdminService {
         "Access administration requires expectedVersion. Run `ha bootstrap --operation session-lifetime` and pass its version as --expected-version.",
       );
     const expectedVersion = text(request.expectedVersion, "expectedVersion"),
-      currentVersion = String(await readSessionLifetime(session.realmAdmin, this.#ports.fetch));
+      currentVersion = String(await session.adapter.readSessionLifetime(session.token));
     if (currentVersion !== expectedVersion) return { conflict: { expectedVersion, currentVersion } };
     return {
       expect: { kind: "session-lifetime", seconds: seconds! },
-      apply: () => writeSessionLifetime(session.realmAdmin, seconds!, this.#ports.fetch),
+      apply: () => session.adapter.writeSessionLifetime(session.token, seconds!),
     };
   }
 
@@ -928,15 +926,13 @@ export class AccessAdminService {
 
   async #session(): Promise<Session> {
     const center = await this.#oidc.center(),
-      authority = { url: center.url, realm: center.realm, clientId: resourceServerClientId };
+      authority = { url: center.url, realm: center.realm, clientId: resourceServerClientId },
+      adapter = center.provider.withFetchPort?.(this.#ports.fetch) ?? center.provider;
     return {
       authority,
       realmAdmin: center,
       token: center.accessToken,
-      adapter: createAuthorizationProvider(
-        { url: center.url, realm: center.realm, resourceServerClientId },
-        this.#ports.fetch,
-      ),
+      adapter,
     };
   }
 

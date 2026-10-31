@@ -1,4 +1,4 @@
-import type { OidcLoginAuthority } from "./oidc-session-contracts.ts";
+import type { OidcLoginAuthority } from "@harness-anything/kernel";
 
 export function clientFields(authority: OidcLoginAuthority): Record<string, string> {
   return {

@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import test from "node:test";
 import { AccessAdminService } from "../src/access-admin-service.ts";
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
-import { OidcSessionService } from "../src/oidc-session-service.ts";
+import { createIdentitySession } from "../src/authorization-provider.ts";
 import { fakeKeycloak, keycloakRealm, keycloakUrl, keycloakUserRoot } from "./keycloak.fixtures.ts";
 
 test("work teams use native membership, reject stale edits, and do not grant business permissions", async (t) => {
@@ -20,7 +20,7 @@ test("work teams use native membership, reject stale edits, and do not grant bus
     },
     user = keycloakUserRoot(),
     teamCleanup = user.cleanup,
-    oidc = new OidcSessionService(user.root, { fetch: kc.fetch }),
+    oidc = createIdentitySession(user.root, { fetch: kc.fetch }),
     admin = new AccessAdminService(oidc, user.root, { fetch: kc.fetch }),
     adapter = new KeycloakPolicyAdapter(
       { url: keycloakUrl, realm: keycloakRealm, resourceServerClientId: "harness-center" },

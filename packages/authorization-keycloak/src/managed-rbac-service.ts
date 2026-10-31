@@ -1,13 +1,11 @@
 import { createHash, randomBytes } from "node:crypto";
 import {
-  appendFileSync,
   chmodSync,
-  closeSync,
+  openSync,
   createReadStream,
   createWriteStream,
   existsSync,
   mkdirSync,
-  openSync,
   readdirSync,
   readFileSync,
   renameSync,
@@ -20,20 +18,17 @@ import { connect, createServer, type Server } from "node:net";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { consumeKnownError } from "@harness-anything/kernel";
-import { runProcessExitAsync, runProcessText } from "./process-port.ts";
-import type { AccessAdminOperation, AccessAdminRequest } from "./access-admin-service.ts";
-import {
-  createAuthorizationProvider,
-  keycloakLoginAttributes,
-  keycloakLoginMappers,
-} from "./authorization-provider.ts";
+import type { ManagedRbacHost } from "./managed-host.ts";
+import type { ManagedRbacRequest, ManagedRbacListener, CertificateMode } from "@harness-anything/kernel";
+import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
+import { keycloakLoginAttributes, keycloakLoginMappers } from "./keycloak-login-client.ts";
 import { transientTransportFailure } from "./oidc-session-helpers.ts";
 import {
   alignSessionLifetime,
   sessionLifetimeBounds,
   sessionLifetimeRealmSettings,
 } from "./keycloak-session-lifetime.ts";
-import { mapListenerBindError, validateCertificateNames } from "./tls-listener-admission.ts";
+
 import {
   ensureSelfSignedCertificate,
   firstReachableAddress,
@@ -51,78 +46,6 @@ export const managedRbacVersions = Object.freeze({
 });
 
 type SupportedPlatform = "darwin-arm64" | "darwin-x64" | "linux-x64" | "win32-arm64" | "win32-x64";
-type ManagedRbacOperation =
-  | "bootstrap"
-  | "health"
-  | "start"
-  | "stop"
-  | "backup"
-  | "restore"
-  | "upgrade"
-  | "listener"
-  | "listener-set"
-  | "login-begin"
-  | "login-complete"
-  | "login"
-  | "login-poll"
-  | "device-approval"
-  | "edge-join"
-  | "edge-join-progress"
-  | "session"
-  | "logout"
-  | "bootstrap-status"
-  | "bootstrap-admin"
-  | "invite"
-  | AccessAdminOperation;
-
-export interface ManagedRbacRequest extends AccessAdminRequest {
-  readonly repoId?: string;
-  readonly rootDir?: string;
-  /** edge-join: where the remote-edge mirror lives; defaults to ~/harness-edge/<repoId>. */
-  readonly workspaceRoot?: string;
-  /** edge-join: persistent replica quota in bytes; omitted to derive from the target volume. */
-  readonly quotaBytes?: number;
-  readonly link?: string;
-  readonly operation?: ManagedRbacOperation;
-  readonly mode?: "managed" | "external";
-  readonly url?: string;
-  readonly realm?: string;
-  readonly clientId?: string;
-  readonly clientSecret?: string;
-  readonly loginUrl?: string;
-  readonly loginRealm?: string;
-  readonly loginClientId?: string;
-  readonly backupDir?: string;
-  readonly redirectUri?: string;
-  readonly code?: string;
-  readonly state?: string;
-  readonly username?: string;
-  readonly email?: string;
-  readonly displayName?: string;
-  readonly password?: string;
-  readonly personId?: string;
-  readonly listenAddress?: string;
-  readonly hostname?: string;
-  readonly port?: number;
-  readonly certificateFile?: string;
-  readonly certificateKeyFile?: string;
-  readonly certificateMode?: CertificateMode;
-}
-
-export type CertificateMode = "self-signed" | "domain" | "internal-ca";
-
-/**
- * Where edge nodes reach the managed Keycloak: HTTPS on one address of this machine, under the
- * hostname its certificate names. Without one, Keycloak serves loopback HTTP only.
- */
-export interface ManagedRbacListener {
-  readonly address: string;
-  readonly hostname: string;
-  readonly port: number;
-  readonly certificateFile: string;
-  readonly certificateKeyFile: string;
-}
-
 interface ManagedRbacConfig {
   readonly schema: "harness-managed-rbac/v1";
   readonly mode: "managed" | "external";
@@ -166,13 +89,18 @@ const defaultPorts: ManagedRbacPorts = {
 };
 
 export class ManagedRbacService {
+  readonly #host: ManagedRbacHost;
+  #execute(command: string, args: readonly string[]): void {
+    run(command, args, this.#host.runProcessText);
+  }
   readonly #root: string;
   readonly #ports: ManagedRbacPorts;
   readonly #children = new Map<"postgres" | "keycloak", ChildProcess>();
   readonly #readiness = new Map<"postgres" | "keycloak", Promise<void>>();
   #lifecycle: Promise<unknown> = Promise.resolve();
 
-  constructor(userRoot: string, ports: Partial<ManagedRbacPorts> = {}) {
+  constructor(userRoot: string, host: ManagedRbacHost, ports: Partial<ManagedRbacPorts> = {}) {
+    this.#host = host;
     this.#root = path.join(userRoot, "rbac");
     this.#ports = { ...defaultPorts, ...ports };
   }
@@ -322,14 +250,17 @@ export class ManagedRbacService {
       };
     if (listener) {
       requirePrivateKeyFile(listener.certificateKeyFile);
-      validateCertificateNames(readFileSync(listener.certificateFile), [listener.address, listener.hostname]);
+      this.#host.validateCertificateNames(readFileSync(listener.certificateFile), [
+        listener.address,
+        listener.hostname,
+      ]);
     }
     try {
       await apply(listener ? { ...loopback, listener, certificateMode } : { ...loopback, certificateMode });
       if (certificateMode === "domain" || certificateMode === "internal-ca") removeSelfSignedCertificate(this.#root);
     } catch (error) {
       await apply(config);
-      throw mapListenerBindError(error);
+      throw this.#host.mapListenerBindError(error);
     }
     return {
       ok: true,
@@ -347,8 +278,11 @@ export class ManagedRbacService {
       const hostname = request.hostname ?? address;
       const port = request.port ?? 8443;
       const endpoint = validateListenerInput(address, hostname, port),
-        generated = await ensureSelfSignedCertificate(this.#root, endpoint.hostname, endpoint.address);
-      validateCertificateNames(readFileSync(generated.certificateFile), [endpoint.address, endpoint.hostname]);
+        generated = await ensureSelfSignedCertificate(this.#root, endpoint.hostname, endpoint.address, this.#host);
+      this.#host.validateCertificateNames(readFileSync(generated.certificateFile), [
+        endpoint.address,
+        endpoint.hostname,
+      ]);
       return {
         ...endpoint,
         certificateFile: generated.certificateFile,
@@ -444,7 +378,7 @@ export class ManagedRbacService {
     renameSync(temporary, archive);
     rmSync(destination, { recursive: true, force: true });
     mkdirSync(destination, { recursive: true, mode: 0o700 });
-    extractArtifact(archive, destination, artifact.archive, this.#ports.platform);
+    extractArtifact(archive, destination, artifact.archive, this.#ports.platform, this.#host.runProcessText);
     flattenSingleDirectory(destination);
     writeFileSync(marker, `${artifact.url}\n${actual}\n`, { mode: 0o600 });
   }
@@ -464,7 +398,7 @@ export class ManagedRbacService {
     if (existsSync(path.join(data, "PG_VERSION"))) return;
     mkdirSync(data, { recursive: true, mode: 0o700 });
     this.#postgresPassword();
-    run(initdb, [
+    this.#execute(initdb, [
       "-D",
       data,
       "--username=postgres",
@@ -565,9 +499,9 @@ export class ManagedRbacService {
         `SELECT '${applied}' FROM pg_authid WHERE rolname = 'postgres' AND rolpassword LIKE 'SCRAM-SHA-256$%';`,
         "",
       ].join("\n");
-    let result: Awaited<ReturnType<typeof runProcessExitAsync>>;
+    let result: Awaited<ReturnType<ManagedRbacHost["runProcessExitAsync"]>>;
     try {
-      result = await runProcessExitAsync(
+      result = await this.#host.runProcessExitAsync(
         binary,
         ["--single", "-D", data, "postgres"],
         undefined,
@@ -775,7 +709,7 @@ export class ManagedRbacService {
     const payload = (await tokenResponse.json()) as { readonly access_token?: unknown };
     if (typeof payload.access_token !== "string" || !payload.access_token)
       throw managedRbacError("rbac_policy_sync_failed", "Keycloak center token response omitted access_token.");
-    const adapter = createAuthorizationProvider(
+    const adapter = new KeycloakPolicyAdapter(
       { url: config.url, realm: config.realm, resourceServerClientId: config.clientId },
       this.#ports.fetch,
     );
@@ -873,7 +807,7 @@ export class ManagedRbacService {
       wasRunning = this.#children.size > 0;
     if (wasRunning) await this.stop();
     try {
-      run("tar", ["-czf", output, "-C", path.join(this.#root, "data"), "postgres"]);
+      this.#execute("tar", ["-czf", output, "-C", path.join(this.#root, "data"), "postgres"]);
       writeFileSync(
         path.join(request.backupDir, "manifest.json"),
         `${JSON.stringify(this.#readManagedConfig(), null, 2)}\n`,
@@ -905,7 +839,7 @@ export class ManagedRbacService {
     await this.stop();
     rmSync(postgresData, { recursive: true, force: true });
     mkdirSync(data, { recursive: true, mode: 0o700 });
-    run("tar", ["-xzf", input, "-C", data]);
+    this.#execute("tar", ["-xzf", input, "-C", data]);
     await this.start();
     await this.#waitUntilReady();
     return { ok: true, command: "rbac-restore", backupDir: request.backupDir };
@@ -968,73 +902,6 @@ export function managedRbacSessionStore(
     },
     delete: () => rmSync(file, { force: true }),
     retireBootstrap: () => rmSync(path.join(root, "bootstrap-admin-password"), { force: true }),
-  };
-}
-
-/** Append-only audit trail of access administration. Authorization never reads it. */
-export function managedRbacReceiptJournal(userRoot: string): {
-  readonly read: () => readonly string[];
-  readonly append: (line: string) => void;
-} {
-  const root = path.join(userRoot, "rbac"),
-    file = path.join(root, "access-receipts.jsonl");
-  return {
-    read: () => (existsSync(file) ? readFileSync(file, "utf8").split("\n").filter(Boolean) : []),
-    append: (line) => {
-      mkdirSync(root, { recursive: true, mode: 0o700 });
-      appendFileSync(file, `${line}\n`, { mode: 0o600 });
-    },
-  };
-}
-
-/** Pending permission requests are center-owned workflow state, separate from Keycloak's grant authority. */
-export function managedPermissionRequestStore(userRoot: string): {
-  readonly read: () => readonly string[];
-  readonly write: (lines: readonly string[]) => void;
-} {
-  const root = path.join(userRoot, "rbac"),
-    file = path.join(root, "permission-requests.json");
-  return {
-    read: () => (existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as string[]) : []),
-    write: (lines) => {
-      mkdirSync(root, { recursive: true, mode: 0o700 });
-      const temporary = `${file}.tmp`;
-      writeFileSync(temporary, `${JSON.stringify(lines, null, 2)}\n`, { mode: 0o600 });
-      renameSync(temporary, file);
-      chmodSync(file, 0o600);
-    },
-  };
-}
-
-/**
- * Reserves a new file only its owner can read, for a credential the caller writes before the
- * external write that makes it real. A path that is already taken throws instead of being
- * overwritten; the descriptor closes exactly once, so `discard` after a `keep` whose write failed
- * removes the reservation instead of failing on the closed descriptor.
- */
-export function reserveCredentialFile(file: string): {
-  readonly keep: (credential: string) => void;
-  readonly discard: () => void;
-} {
-  const descriptor = openSync(file, "wx", 0o600);
-  let closed = false;
-  const close = () => {
-    if (closed) return;
-    closed = true;
-    closeSync(descriptor);
-  };
-  return {
-    keep: (credential) => {
-      try {
-        writeFileSync(descriptor, credential);
-      } finally {
-        close();
-      }
-    },
-    discard: () => {
-      close();
-      rmSync(file, { force: true });
-    },
   };
 }
 
@@ -1198,7 +1065,11 @@ function extractArtifact(
   destination: string,
   format: Artifact["archive"],
   platform: NodeJS.Platform,
+  execute: ManagedRbacHost["runProcessText"],
 ): void {
+  const run = (command: string, args: readonly string[]) => {
+    execute(command, args);
+  };
   if (format === "tar.gz") return run("tar", ["-xzf", archive, "-C", destination]);
   if (format === "zip") return run("tar", ["-xf", archive, "-C", destination]);
   const unpacked = path.join(destination, "jar");
@@ -1274,9 +1145,9 @@ function readOrCreateSecret(file: string): string {
   return readFileSync(file, "utf8").trim();
 }
 
-function run(command: string, args: readonly string[]): void {
+function run(command: string, args: readonly string[], execute: ManagedRbacHost["runProcessText"]): void {
   try {
-    runProcessText(command, args);
+    execute(command, args);
   } catch (error) {
     throw managedRbacError(
       "rbac_process_failed",

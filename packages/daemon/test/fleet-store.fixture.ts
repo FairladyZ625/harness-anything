@@ -4,7 +4,7 @@ import { binding as deriveBinding } from "../src/daemon-host-binding.ts";
 import { openSqliteEventStore } from "@harness-anything/kernel";
 import type { DaemonHost } from "../src/daemon-host.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
-import { serveKeycloak, signInAt, OidcSessionService } from "./keycloak.fixtures.ts";
+import { serveKeycloak, signInAt, IdentitySessionPort } from "./keycloak.fixtures.ts";
 import { actionDeclarations, deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 
 export function fleetHostWriterOptions(userRoot: string, repoIds: readonly string[]) {
@@ -110,14 +110,14 @@ export async function fleetNodeOwners(input: {
     binding: async (nodeId: string) =>
       deriveBinding(
         "/unused",
-        await new OidcSessionService(input.userRoot).bind({
+        await IdentitySessionPort(input.userRoot).bind({
           transportKind: "fleet-tls",
           nodePrincipal: { nodeId, personId: ownerOf(nodeId)! },
           humanAccessToken: `device-token-${nodeId}`,
         }),
       ),
     verifyHuman: (auth: import("../src/transport/auth-context.ts").DaemonAuthenticationContext) =>
-      new OidcSessionService(input.userRoot).bind(auth),
+      IdentitySessionPort(input.userRoot).bind(auth),
     readAccessToken: (nodeId: string) => async () => `device-token-${nodeId}`,
 
     /** Re-registers a node to another person, the way an administrator moves a machine between owners. */

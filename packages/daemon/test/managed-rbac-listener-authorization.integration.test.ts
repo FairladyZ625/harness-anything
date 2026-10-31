@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { managedRbacVersions } from "../src/managed-rbac-service.ts";
-import { OidcSessionService } from "../src/oidc-session-service.ts";
+import { managedRbacVersions } from "@harness-anything/authorization-keycloak/managed-rbac-service";
+import { createIdentitySession } from "../src/authorization-provider.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
 
 test("the first-admin window closes and later listener changes require access-admin", async () => {
@@ -27,7 +27,7 @@ test("the first-admin window closes and later listener changes require access-ad
         sessionExpiresAt: Date.now() + 3_600_000,
         roles,
       }),
-    oidc = new OidcSessionService(userRoot, {
+    oidc = createIdentitySession(userRoot, {
       fetch: (async (input, init) => {
         const url = String(input);
         if (url.endsWith("/.well-known/openid-configuration"))

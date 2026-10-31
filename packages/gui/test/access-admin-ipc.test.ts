@@ -355,21 +355,21 @@ test("edge-join-create carries SSH transport and target to the daemon unchanged 
 });
 
 const rendererRoot = path.resolve(import.meta.dirname, "../src/renderer"),
+  keycloakUiRoot = path.resolve(import.meta.dirname, "../../authorization-keycloak-gui/src"),
   pageSources = [
-    "views/IdentityAccessView.tsx",
-    "access-model.ts",
-    ...readdirSync(path.join(rendererRoot, "components/identityAccess")).map(
-      (file) => `components/identityAccess/${file}`,
-    ),
+    path.join(rendererRoot, "views/IdentityAccessView.tsx"),
+    path.join(rendererRoot, "authorization-ui.tsx"),
+    ...readdirSync(keycloakUiRoot)
+      .filter((file) => /\.(ts|tsx)$/u.test(file))
+      .map((file) => path.join(keycloakUiRoot, file)),
   ],
-  // The page talks to its preload surface only: no network call, no embedded console, no Keycloak endpoint.
+  // The page talks to its preload surface only: no network call, no embedded console, no provider endpoint.
   beyondThePreload =
     /\bfetch\s*\(|XMLHttpRequest|WebSocket|<iframe|<webview|\/admin\/|\/realms\/|openid-connect|from\s+["'](?:node:[^"']+|electron|@harness-anything\/daemon(?!\/protocol)[^"']*)["']/u;
 
-test("the access control page reaches Keycloak only through its preload surface", () => {
+test("the access control page reaches the identity provider only through its preload surface", () => {
   assert.ok(pageSources.length >= 6);
-  for (const file of pageSources)
-    assert.equal(beyondThePreload.exec(readFileSync(path.join(rendererRoot, file), "utf8"))?.[0], undefined, file);
+  for (const file of pageSources) assert.equal(beyondThePreload.exec(readFileSync(file, "utf8"))?.[0], undefined, file);
   // Negative control: each way out of that boundary is something this check sees.
   for (const sample of [
     'await fetch("http://127.0.0.1:8080/x")',

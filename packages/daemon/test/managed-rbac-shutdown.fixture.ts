@@ -3,14 +3,14 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { ManagedRbacService } from "../src/managed-rbac-service.ts";
+import { createIdentityManagement } from "../src/authorization-provider.ts";
 
 export function managedShutdownFixture(
   root: string,
   fixtureOptions: { readonly ignoreSigterm?: "postgres" | "keycloak" } = {},
 ) {
   const children: ReturnType<typeof spawn>[] = [];
-  const service = new ManagedRbacService(root, {
+  const service = createIdentityManagement(root, {
     spawn: ((command: string, _args: string[], spawnOptions: { env: NodeJS.ProcessEnv }) => {
       const name = path.basename(command) === "postgres" ? "postgres" : "keycloak",
         child = spawn(

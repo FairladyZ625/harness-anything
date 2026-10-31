@@ -1,18 +1,20 @@
-import { DevicesTab } from "../components/identityAccess/DevicesTab.tsx";
-import { TeamsTab } from "../components/identityAccess/TeamsTab.tsx";
 import { useEffect, useState } from "react";
-import { AccessServiceTab } from "../components/identityAccess/AccessServiceTab.tsx";
-import { GrantsTab } from "../components/identityAccess/GrantsTab.tsx";
-import { PolicyGroupsTab } from "../components/identityAccess/PolicyGroupsTab.tsx";
-import { ReceiptsTab } from "../components/identityAccess/ReceiptsTab.tsx";
 import type { RepoMode } from "../components/RepoModeBadge.tsx";
 import { TabPanel } from "../components/primitives/EntryBoundary.tsx";
 import { Tabs } from "../components/primitives/Tabs.tsx";
 import { IdText } from "../components/IdText.tsx";
 import { guiHostBridge } from "../gui-transport.ts";
 import { t } from "../i18n/index.tsx";
-import { PermissionRequestsTab } from "../components/identityAccess/PermissionRequestsTab.tsx";
 import type { AuthorizationUiComponents } from "@harness-anything/authorization-gui/ui-component-contract";
+import {
+  AccessServiceTab,
+  DevicesTab,
+  GrantsTab,
+  PermissionRequestsTab,
+  PolicyGroupsTab,
+  ReceiptsTab,
+  TeamsTab,
+} from "../authorization-ui.tsx";
 
 type AccessTab = "devices" | "service" | "teams" | "groups" | "grants" | "requests" | "receipts";
 

@@ -12,10 +12,9 @@ import {
 } from "../../edge-invite-client.ts";
 import type { EdgeJoinIssued } from "@harness-anything/authorization-gui/access-admin-contract";
 import type { SystemRepoRow } from "../../api-client.ts";
-import { roleLabel } from "../../access-model.ts";
 import { CopyContextButton } from "../../components/CopyContextButton.tsx";
 import { Row } from "../../components/ui/widgets.tsx";
-import { GroupScopePreview } from "../../components/identityAccess/GroupScopePreview.tsx";
+import { GroupScopePreview, roleLabel } from "../../authorization-ui.tsx";
 import { Section } from "../../components/primitives/Section.tsx";
 import { Button } from "../../components/primitives/Button.tsx";
 import { StatusTag } from "../../components/primitives/StatusTag.tsx";

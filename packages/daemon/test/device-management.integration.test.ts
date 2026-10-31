@@ -13,7 +13,7 @@ import test from "node:test";
 import { AccessAdminService, type AccessAdminRequest } from "../src/access-admin-service.ts";
 import { keycloakNodeRegistry } from "../src/fleet-center-admission.ts";
 import { KeycloakPolicyAdapter, type KeycloakNode } from "@harness-anything/authorization-keycloak";
-import { OidcSessionService } from "../src/oidc-session-service.ts";
+import { createIdentitySession } from "../src/authorization-provider.ts";
 import { fakeKeycloak, keycloakUserRoot, keycloakUrl, keycloakRealm } from "./keycloak.fixtures.ts";
 
 test("owners rename, transfer, pause, reapprove, remove and globally revoke versioned devices", async (t) => {
@@ -22,17 +22,20 @@ test("owners rename, transfer, pause, reapprove, remove and globally revoke vers
   t.after(user.cleanup);
   keycloak.account("alice");
   keycloak.account("bob");
-  const oidc = new OidcSessionService(user.root, { fetch: keycloak.fetch }),
+  const oidc = createIdentitySession(user.root, { fetch: keycloak.fetch }),
     admin = new AccessAdminService(oidc, user.root, { fetch: keycloak.fetch }),
     run = (request: AccessAdminRequest) => admin.run({ operationId: randomUUID(), ...request }),
     adapter = new KeycloakPolicyAdapter(
       { url: keycloakUrl, realm: keycloakRealm, resourceServerClientId: "harness-center" },
       keycloak.fetch,
     ),
-    registry = keycloakNodeRegistry(
-      async () => ({ url: keycloakUrl, realm: keycloakRealm, clientId: "harness-center", accessToken: "center-token" }),
-      keycloak.fetch,
-    ),
+    registry = keycloakNodeRegistry(async () => ({
+      url: keycloakUrl,
+      realm: keycloakRealm,
+      clientId: "harness-center",
+      accessToken: "center-token",
+      provider: adapter,
+    })),
     read = async (id: string) => (await adapter.readNode("center-token", id))!,
     devices = async () => (await run({ operation: "device-list" })).nodes as KeycloakNode[];
   for (const [nodeId, personId] of [
@@ -124,7 +127,7 @@ test("a different verified device login transfers ownership and revokes only the
   keycloak.node("A", "alice");
   keycloak.interactiveSession("alice", "A", keycloakUrl, "old-A");
   keycloak.interactiveSession("bob", "A", keycloakUrl, "new-A");
-  const oidc = new OidcSessionService(user.root, { fetch: keycloak.fetch }),
+  const oidc = createIdentitySession(user.root, { fetch: keycloak.fetch }),
     adapter = new KeycloakPolicyAdapter(
       { url: keycloakUrl, realm: keycloakRealm, resourceServerClientId: "harness-center" },
       keycloak.fetch,
@@ -159,7 +162,7 @@ test("revocation failure blocks the device before settlement, and an explicit ne
       fail && init?.method === "DELETE" && String(input).includes("/consents/")
         ? Promise.resolve(new Response(null, { status: 503 }))
         : keycloak.fetch(input, init),
-    admin = new AccessAdminService(new OidcSessionService(user.root, { fetch: fetchPort }), user.root, {
+    admin = new AccessAdminService(createIdentitySession(user.root, { fetch: fetchPort }), user.root, {
       fetch: fetchPort,
     }),
     operationId = randomUUID();
@@ -189,7 +192,7 @@ test("real center CLI lists and changes only the current person's versioned devi
   served.keycloak.node("B", "alice");
   served.keycloak.node("C", "bob");
   user.signIn("alice", []);
-  const oidc = new OidcSessionService(user.root),
+  const oidc = createIdentitySession(user.root),
     host = await openDaemonHost({ userRoot: user.root, daemonId: "device-cli", oidc });
   const transport = createUnixSocketTransportServer({
     daemonId: "device-cli",

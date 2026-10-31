@@ -7,7 +7,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { IpcMainInvokeEvent } from "electron";
-import { OidcSessionService, type OidcSessionPorts } from "../../daemon/src/oidc-session-service.ts";
+import { createIdentitySession } from "../../daemon/src/authorization-provider.ts";
+import { type OidcSessionPorts } from "@harness-anything/kernel";
 import { registerOidcAuthIpc } from "../src/main/oidc-auth-ipc.ts";
 import { OIDC_LOGIN_CHANNEL, OIDC_CANCEL_LOGIN_CHANNEL } from "@harness-anything/authorization-gui/oidc-auth-contract";
 
@@ -28,7 +29,7 @@ function fixture(ports: Partial<OidcSessionPorts> = {}) {
     },
   });
   const event = { sender, senderFrame: { url: "file:///renderer/index.html" } } as unknown as IpcMainInvokeEvent;
-  const service = new OidcSessionService(root, {
+  const service = createIdentitySession(root, {
     loginAuthority: async () => authority,
     fetch: (async (input, init) => {
       if (String(input).endsWith("/.well-known/openid-configuration"))

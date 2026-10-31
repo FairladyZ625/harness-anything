@@ -6,7 +6,7 @@ import { createServer } from "node:https";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { OidcSessionService } from "../src/oidc-session-service.ts";
+import { createIdentitySession } from "../src/authorization-provider.ts";
 
 test("edge device login trusts only the invitation's self-signed Keycloak certificate", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-oidc-login-trust-"));
@@ -90,7 +90,7 @@ test("edge device login trusts only the invitation's self-signed Keycloak certif
       clientId: "harness-node-one",
     },
     loginTarget = root,
-    service = new OidcSessionService(root, {
+    service = createIdentitySession(root, {
       now: () => now,
       defaultCaCertificates: () => defaultRoots,
       loginAuthority: async () => authority,

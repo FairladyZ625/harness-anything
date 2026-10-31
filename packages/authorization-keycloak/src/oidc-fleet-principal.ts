@@ -1,8 +1,9 @@
-import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
+import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
+import type { IdentityAuthenticationContext } from "@harness-anything/kernel";
 
 /** The resource server independently checks a transient human token against its own authority. */
-export async function verifyFleetHuman(input: {
-  readonly auth: DaemonAuthenticationContext;
+export async function verifyFleetHuman<T extends IdentityAuthenticationContext>(input: {
+  readonly auth: T;
   readonly url: string;
   readonly issuerUrl: string;
   readonly realm: string;
@@ -12,7 +13,7 @@ export async function verifyFleetHuman(input: {
   readonly adminAccessToken: string;
   readonly fetch: typeof fetch;
   readonly now: number;
-}): Promise<DaemonAuthenticationContext> {
+}): Promise<T & IdentityAuthenticationContext> {
   const token = input.auth.humanAccessToken,
     node = input.auth.nodePrincipal;
   const reject = () =>
@@ -62,6 +63,10 @@ export async function verifyFleetHuman(input: {
     ...input.auth,
     nodePrincipal: { ...node, personId: claims.harness_person_id },
     oidcPrincipal: {
+      provider: new KeycloakPolicyAdapter(
+        { url: input.url, realm: input.realm, resourceServerClientId: input.clientId },
+        input.fetch,
+      ),
       personId: claims.harness_person_id,
       subject: claims.sub,
       expiresAt,

@@ -10,7 +10,7 @@ import test from "node:test";
 import { writeDaemonRegistryRepo } from "@harness-anything/kernel/daemon-registry";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { listenFleetTls } from "../src/fleet/center.ts";
-import { OidcSessionService } from "../src/oidc-session-service.ts";
+import { createIdentitySession } from "../src/authorization-provider.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
@@ -45,7 +45,7 @@ test("edge binding health reads the selected login authority through fleet disco
   );
   let session: string | undefined,
     realmStatus = 200;
-  const oidc = new OidcSessionService(userRoot, {
+  const oidc = createIdentitySession(userRoot, {
     sessionStore: () => ({
       read: () => session,
       write: (value) => void (session = value),

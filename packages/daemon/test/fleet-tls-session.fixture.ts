@@ -14,7 +14,7 @@ import {
 import { AccessAdminService } from "../src/access-admin-service.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
-import { OidcSessionService } from "../src/oidc-session-service.ts";
+import { createIdentitySession } from "../src/authorization-provider.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { parseFleetFrame, serializeFleetFrame, type FleetFrameV1 } from "../src/fleet/command-protocol.ts";
@@ -214,7 +214,7 @@ export async function fleetFixture(
     },
     /** The administrator composition root for node removal, wired to one center the way the daemon host is. */
     admin: (center: FleetTlsCenter) =>
-      new AccessAdminService(new OidcSessionService(userRoot), userRoot, {
+      new AccessAdminService(createIdentitySession(userRoot), userRoot, {
         onNodeRemoved: (nodeId) => center.disconnectNode(nodeId),
       }),
     /** Parks the next hello inside `authenticate` until released, for handshake-race cases. */
@@ -276,13 +276,13 @@ export async function fleetFixture(
           cert,
           replicaDiskQuotaBytes: diskQuotaBytes,
           ...timing,
-          verifyHuman: (auth) => new OidcSessionService(userRoot).bind(auth),
+          verifyHuman: (auth) => createIdentitySession(userRoot).bind(auth),
           loginAuthority: (nodeId) => ({
             url: "https://keycloak.example.invalid",
             realm: "harness",
             clientId: `harness-node-${nodeId}`,
           }),
-          revokeDeviceSessions: (nodeId) => new OidcSessionService(userRoot).revokeDeviceSessions(nodeId),
+          revokeDeviceSessions: (nodeId) => createIdentitySession(userRoot).revokeDeviceSessions(nodeId),
           onError: (entry) => transportErrors.push(entry),
           authenticate: async (nodeId, credential) => {
             const barrier = authenticateBarrier;
