@@ -216,13 +216,17 @@ export function executeRepoAction(
       ),
     );
   const actionContract = getExecutableEntityAction(action.kind);
-  if (actionContract?.target.kind === "todo" && actionContract.execution)
+  if (actionContract?.target.kind === "todo" && actionContract.execution) {
+    const sourceRevision = actionContract.execution.read
+      ? cell.projection.readCut().sourceRevision
+      : (cell.store.readHead()?.revision ?? 0);
     return cell.entityActionExecutor.run(
       action,
       binding,
-      cell.operationId(action, binding, cell.input.repoId, cell.store.readHead()?.revision ?? 0),
+      cell.operationId(action, binding, cell.input.repoId, sourceRevision),
       { entity: { todo: (_contract, intent, actor, opId) => runTodoAction(cell, intent, actor, opId) } },
     );
+  }
   if (actionContract?.target.kind === "task" && actionContract.execution) {
     if (action.kind === "task-create") {
       const entering = cell.taskWipEnteringAction(action);
