@@ -15,6 +15,8 @@ import {
   actionForDaemonMethod,
   daemonGuiActionMethods,
   daemonProtocolCommands,
+  isDaemonGuiActionMethod,
+  isDaemonGuiOnlyActionMethod,
   parseDaemonRpcParams,
   serializeDaemonRpcCall,
   validateDaemonDecisionList,
@@ -337,6 +339,8 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
     ["repo.terminal.terminate", { sessionId: "terminal-a", confirmed: true }]
   ]);
   assert.deepEqual(daemonGuiActionMethods.map(({ method }) => method), [...cases.keys()]); assert.equal(daemonGuiActionMethods.some(({ method }) => method === "repo.task.run"), false);
+  assert.equal(isDaemonGuiActionMethod("repo.task.create"), true);
+  assert.equal(isDaemonGuiOnlyActionMethod("repo.task.create"), false, "task creation is also an existing preset RPC");
   for (const [method, payload] of cases) { const params = method.startsWith("daemon.") ? { payload } : { repo: { repoId: "alpha" }, payload }; assert.equal(parseDaemonRpcParams(method, params).ok, true, method); assert.equal(parseDaemonRpcParams(method, { ...params, payload: { ...payload, unexpected: true } }).ok, false, `${method}: unknown`); }
   const terminalSpawn = cases.get("repo.terminal.spawn")!; assert.equal(parseDaemonRpcParams("repo.terminal.spawn", { repo: { repoId: "alpha" }, payload: { ...terminalSpawn, backend: "tmux" } }).ok, true); assert.equal(parseDaemonRpcParams("repo.terminal.spawn", { repo: { repoId: "alpha" }, payload: { ...terminalSpawn, backend: "remote" } }).ok, false); const { backend: _backend, ...missingBackend } = terminalSpawn; assert.equal(parseDaemonRpcParams("repo.terminal.spawn", { repo: { repoId: "alpha" }, payload: missingBackend }).ok, false);
   assert.deepEqual(actionForDaemonMethod("repo.task.create", cases.get("repo.task.create")!), {
