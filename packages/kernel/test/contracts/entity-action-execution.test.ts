@@ -121,25 +121,33 @@ test("canonical-stream kind bindings resolve to declared Actions on their stream
     assert.equal(action?.execution?.implementation, "declared-only");
     assert.equal(action?.execution?.read, false);
   }
-  for (const [ingress, id] of [
-    ["runtime-run", "run"],
-    ["runtime-batch", "batch"],
-    ["runtime-spawn", "spawn"],
-    ["runtime-cancel", "cancel"],
-    ["runtime-handoff-export", "handoff-export"],
-    ["runtime-handoff-claim", "handoff-claim"],
-    ["runtime-handoff-revoke", "handoff-revoke"],
-  ] as const) {
-    const action = getExecutableEntityAction(ingress);
-    assert.equal(action?.id, id, ingress);
-    assert.equal(action?.target.kind, "runtime-session", ingress);
-    assert.equal(action?.execution?.ingress, ingress);
-    assert.equal(action?.execution?.implementation, "catalog-runtime");
-    assert.equal(action?.execution?.read, false);
-  }
-  // The two reclassified writers must not resolve through a canonical catalog Action at all.
-  assert.equal(getExecutableEntityAction("runtime-steer"), undefined);
-  assert.equal(getExecutableEntityAction("runtime-incident-dismiss"), undefined);
+  // Runtime control is host ingress, not an entity-catalog action: its canonical events are written
+  // by the RuntimeSession event actions or the auxiliary runtime ingress, so no control command may
+  // resolve through the catalog (dec_2446BC2F8C68630F71AE3E3BD7/CH4).
+  for (const ingress of [
+    "runtime-run",
+    "runtime-batch",
+    "runtime-spawn",
+    "runtime-cancel",
+    "runtime-handoff-export",
+    "runtime-handoff-claim",
+    "runtime-handoff-revoke",
+    "runtime-steer",
+    "runtime-incident-dismiss",
+  ] as const)
+    assert.equal(getExecutableEntityAction(ingress), undefined, ingress);
+  assert.deepEqual(
+    explainEntityKind("runtime-session").transitions.actions.map(({ id }) => id),
+    [
+      "runtime_session_started",
+      "runtime_session_provider_bound",
+      "runtime_session_task_bound",
+      "runtime_session_liveness_changed",
+      "runtime_session_cancelled",
+      "runtime_session_exited",
+      "runtime_session_outcome_observed",
+    ],
+  );
 });
 
 test("entity explanations expose action identity but keep runtime compile hooks private", () => {
@@ -268,13 +276,6 @@ test("RuntimeSession explains adoption, operation replay, center arbitration, an
     "runtime_session_cancelled",
     "runtime_session_exited",
     "runtime_session_outcome_observed",
-    "run",
-    "batch",
-    "spawn",
-    "cancel",
-    "handoff-export",
-    "handoff-claim",
-    "handoff-revoke",
   ]);
   assert.deepEqual(explanation.canonicalProjection, {
     embeddedEvents: [],

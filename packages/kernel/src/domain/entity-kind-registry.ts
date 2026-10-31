@@ -868,57 +868,6 @@ const documentActionCatalog = Object.freeze({
     ]),
   });
 
-/**
- * Runtime control rides the RuntimeSession stream: every one of these commands either requests a
- * dispatch or appends a RuntimeSession transition (dec_2446BC2F8C68630F71AE3E3BD7/CH4). They are
- * separate Actions from the seven session-event Actions above, so their ingresses never move.
- */
-const runtimeSessionControlAction = (id: string, ingress: string, explain: string) =>
-    Object.freeze({
-      ...catalogRuntimeAction(
-        "runtime-session",
-        runtimeSessionIdentity,
-        id,
-        ingress,
-        noSdkExposure,
-        "center-forward-write",
-        "via-center-forward",
-      ),
-      explain,
-    }),
-  runtimeSessionControlCatalog = Object.freeze({
-    ref: "daemon/runtime-session-control/v1",
-    actions: Object.freeze([
-      runtimeSessionControlAction(
-        "run",
-        "runtime-run",
-        "Request one runtime dispatch and its canonical RuntimeSession.",
-      ),
-      runtimeSessionControlAction("batch", "runtime-batch", "Request a bounded batch of runtime dispatches."),
-      runtimeSessionControlAction("spawn", "runtime-spawn", "Spawn the provider process for one runtime dispatch."),
-      runtimeSessionControlAction(
-        "cancel",
-        "runtime-cancel",
-        "Cancel one RuntimeSession and append its canonical cancelled/exited transitions.",
-      ),
-      runtimeSessionControlAction(
-        "handoff-export",
-        "runtime-handoff-export",
-        "Export a settled dispatch as a handoff checkpoint and record the canonical export audit event.",
-      ),
-      runtimeSessionControlAction(
-        "handoff-claim",
-        "runtime-handoff-claim",
-        "Claim a handoff checkpoint and resume it as a canonical runtime dispatch.",
-      ),
-      runtimeSessionControlAction(
-        "handoff-revoke",
-        "runtime-handoff-revoke",
-        "Revoke a handoff checkpoint and record the canonical revoke audit event.",
-      ),
-    ]),
-  });
-
 export const entityKindContracts = withDeclaredEntityActions([
   {
     kind: "task",
@@ -1158,10 +1107,7 @@ export const entityKindContracts = withDeclaredEntityActions([
         words: ["running", "succeeded", "failed", "cancelled", "stopped", "ended-indeterminate", "unavailable"],
       },
     ],
-    actionCatalog: Object.freeze({
-      ...runtimeSessionActionCatalog,
-      actions: Object.freeze([...runtimeSessionActionCatalog.actions, ...runtimeSessionControlCatalog.actions]),
-    }),
+    actionCatalog: runtimeSessionActionCatalog,
     entityStore: null,
     authoring: { kind: "agent-runtime-event", contractRef: "agent-runtime-event/v1" },
     sdkExposure: noSdkExposure,

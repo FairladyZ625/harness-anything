@@ -416,15 +416,23 @@ export const actionDeclarations = Object.freeze([
   canonical("relation-relate", "relation/relate", "repo-write"),
   canonical("relation-unrelate", "relation/unrelate", "repo-write"),
   hostAdmin("repo-bootstrap", "workspace.bootstrap", false),
-  canonical("runtime-batch", "runtime-session/batch", "repo-write"),
-  canonical("runtime-cancel", "runtime-session/cancel", "repo-write"),
+  // Runtime control is host ingress, not entity-catalog write actions: the canonical events these
+  // commands cause are appended by the RuntimeSession event actions (runtime_session_*), by the
+  // auxiliary runtime ingress, or by the dispatch writer, each under its own canonical action. The
+  // command's own state is the process/checkpoint state on the host that owns the runtime, so it
+  // stays local (dec_2446BC2F8C68630F71AE3E3BD7/CH4 "no write path of its own"). Receipt settlement
+  // is unchanged: these receipts still accept the canonical outcome produced by that writer.
+  local("runtime-batch", "repo-write", hostResidency, { receiptSettlement: "canonical-acceptance" }),
+  local("runtime-cancel", "repo-write", runtimeResidency, { receiptSettlement: "canonical-acceptance" }),
   // The steer's only durable effect is a dispatch-stream record; it appends no ledger event
   // (runtime-spawn-control.ts, settled_no_write receipt). Its receipt still settles through the
   // declared no-write path, so the GUI command keeps canonical-acceptance.
   local("runtime-steer", "repo-write", runtimeResidency, { receiptSettlement: "canonical-acceptance" }),
-  canonical("runtime-handoff-export", "runtime-session/handoff-export", "repo-write"),
-  canonical("runtime-handoff-claim", "runtime-session/handoff-claim", "repo-write"),
-  canonical("runtime-handoff-revoke", "runtime-session/handoff-revoke", "repo-write"),
+  local("runtime-handoff-export", "repo-write", hostResidency, {
+    receiptSettlement: "canonical-acceptance",
+  }),
+  local("runtime-handoff-claim", "repo-write", hostResidency, { receiptSettlement: "canonical-acceptance" }),
+  local("runtime-handoff-revoke", "repo-write", hostResidency, { receiptSettlement: "canonical-acceptance" }),
   // Owner adjudication of an escalated incident receipt: the dismiss appends one decision_action
   // record to the dispatch's own stream and settles no canonical event, so its state stays on the
   // daemon host. The maintainer tier is preserved: reclassification must not widen who may dismiss.
@@ -438,8 +446,12 @@ export const actionDeclarations = Object.freeze([
   local("runtime-instance-logout", "repo-write", runtimeResidency),
   runtimeAdmin("runtime-instance-show"),
   runtimeAdmin("runtime-instance-update"),
-  canonical("runtime-run", "runtime-session/run", "repo-write"),
-  canonical("runtime-spawn", "runtime-session/spawn", "repo-write"),
+  // dec_6C9E3399972A2F06C046BA89DC/CH3 assigns runtime-run's canonical target
+  // (runtime-session/run) to task_0d5da74fbeaa266f99e717089c. Until that action lands the ingress
+  // maps to the same runtime publication queue, whose dispatch/session events settle canonically;
+  // the sibling task replaces this classification with the canonical binding.
+  local("runtime-run", "repo-write", runtimeResidency, { receiptSettlement: "canonical-acceptance" }),
+  local("runtime-spawn", "repo-write", runtimeResidency, { receiptSettlement: "canonical-acceptance" }),
   canonical("todo-add", "todo/add", "repo-write"),
   canonical("todo-done", "todo/done", "repo-write"),
   canonical("todo-archive", "todo/archive", "repo-write"),

@@ -768,12 +768,25 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
     assert.equal(declaration?.policyAction, kind, kind);
     assert.equal(declaration?.policyTier, "contributor", kind);
   }
-  // dec_2446BC2F8C68630F71AE3E3BD7/CH4: a steer's only durable effect is a dispatch-stream record
-  // (runtime-spawn-control.ts, settled_no_write); it publishes no ledger event, so it is runtime-local
-  // while its GUI command receipt still settles as a declared no-write.
-  const steerDeclaration = actionDeclarations.find(({ kind }) => kind === "runtime-steer");
-  assert.equal(steerDeclaration?.residency.scope, "runtime-local");
-  assert.equal(steerDeclaration?.receiptSettlement, "canonical-acceptance");
+  // dec_2446BC2F8C68630F71AE3E3BD7/CH4: runtime control is host ingress. The canonical events these
+  // commands cause are appended by the RuntimeSession event actions or the auxiliary runtime ingress,
+  // so the commands themselves stay local; their receipts still accept the canonical outcome.
+  for (const [kind, scope] of [
+    ["runtime-run", "runtime-local"],
+    ["runtime-spawn", "runtime-local"],
+    ["runtime-cancel", "runtime-local"],
+    ["runtime-batch", "host-local"],
+    ["runtime-handoff-export", "host-local"],
+    ["runtime-handoff-claim", "host-local"],
+    ["runtime-handoff-revoke", "host-local"],
+    ["runtime-steer", "runtime-local"],
+  ] as const) {
+    const declaration = actionDeclarations.find((candidate) => candidate.kind === kind);
+    assert.equal(declaration?.residency.scope, scope, kind);
+    assert.equal(declaration?.receiptSettlement, "canonical-acceptance", kind);
+    assert.equal(declaration?.policyTier, "contributor", kind);
+    assert.equal(declaration?.catalogId, null, kind);
+  }
   // The incident dismissal appends one decision_action record to the dispatch stream and settles no
   // canonical event; the preserved maintainer tier proves reclassification did not widen who may dismiss.
   const dismissDeclaration = actionDeclarations.find(({ kind }) => kind === "runtime-incident-dismiss");
