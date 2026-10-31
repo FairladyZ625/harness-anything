@@ -6,10 +6,6 @@ import path from "node:path";
 import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS, resolveHarnessLayout } from "@harness-anything/kernel";
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
 
-/** A provider-declared tool timeout is a bound on the tool, not on the daemon receiving its
- *  settling frame; this grace covers that delivery gap without stretching the bound materially. */
-const TOOL_CALL_SETTLE_GRACE_MS = 5_000;
-
 type ActiveRuntimeBase = Omit<
   ActiveRuntime,
   | "buffer"
@@ -30,7 +26,6 @@ type ActiveRuntimeBase = Omit<
   | "cancelOpId"
   | "spendCapExceeded"
   | "lastProgressAtMs"
-  | "inFlightToolCalls"
   | "workspaceActivityCount"
   | "stalledAt"
   | "recordProviderProgress"
@@ -92,7 +87,6 @@ export function createActiveRuntime(base: ActiveRuntimeBase): ActiveRuntime {
     cancelOpId: null,
     spendCapExceeded: false,
     lastProgressAtMs,
-    inFlightToolCalls: new Map(),
     workspaceActivityCount: base.workspaceActivityCount ?? 0,
     stalledAt: base.stalledAt ?? null,
     recordProviderProgress: null,
@@ -124,8 +118,6 @@ type RuntimeObservationHandles = {
   timer: NodeJS.Timeout | null;
   watcher: FSWatcher | null;
   disposed: boolean;
-  /** True while the current deadline is the extended one granted by an in-flight tool call. */
-  deferring: boolean;
 };
 
 const observationHandles = new WeakMap<ActiveRuntime, RuntimeObservationHandles>();
@@ -180,11 +172,6 @@ function stallEvidence(
     lastProgressAt: new Date(active.lastProgressAtMs).toISOString(),
     stallTimeoutMs: active.stallTimeoutMs,
     idleMs: Math.max(0, Date.parse(stalledAt) - active.lastProgressAtMs),
-    inFlightToolCalls: [...active.inFlightToolCalls].map(([toolCallId, call]) => ({
-      toolCallId,
-      startedAt: new Date(call.startedAtMs).toISOString(),
-      timeoutMs: call.timeoutMs,
-    })),
     liveProcessPids,
   };
 }
@@ -196,25 +183,15 @@ async function liveDescendantPids(active: ActiveRuntime): Promise<readonly numbe
   return probe?.available ? probe.pids : null;
 }
 
-/** The latest deadline an in-flight tool call may hold the watchdog to. Null when nothing is in
- *  flight; a call that declared no timeout gets one further stall window, never an open bound. */
-function toolCallBoundMs(active: ActiveRuntime): number | null {
-  if (active.inFlightToolCalls.size === 0) return null;
-  let bound = 0;
-  for (const call of active.inFlightToolCalls.values())
-    bound = Math.max(bound, call.startedAtMs + (call.timeoutMs ?? active.stallTimeoutMs));
-  return bound + TOOL_CALL_SETTLE_GRACE_MS;
-}
-
 function armStallDeadline(
   context: RuntimeSpawnerContext,
   active: ActiveRuntime,
   handles: RuntimeObservationHandles,
+  deadlineOverride?: number,
 ): void {
   if (handles.disposed || active.stalledAt !== null) return;
   if (handles.timer) clearTimeout(handles.timer);
-  const baseDeadline = active.lastProgressAtMs + active.stallTimeoutMs,
-    deadline = handles.deferring ? (toolCallBoundMs(active) ?? baseDeadline) : baseDeadline,
+  const deadline = deadlineOverride ?? active.lastProgressAtMs + active.stallTimeoutMs,
     remaining = Math.max(0, deadline - Date.now());
   handles.timer = setTimeout(() => {
     context.input.schedule(async () => {
@@ -224,19 +201,13 @@ function armStallDeadline(
         armStallDeadline(context, active, handles);
         return;
       }
-      // The base deadline is evidence of silence, not yet of a stall: a provider-announced tool
-      // call that still has live child processes is work in progress, so hold the deadline to the
-      // call's own timeout instead of killing the subtree mid-command.
-      if (!handles.deferring) {
-        const bound = toolCallBoundMs(active);
-        if (bound !== null && bound > Date.now()) {
-          const childPids = await liveDescendantPids(active);
-          if (childPids !== null && childPids.length > 0) {
-            handles.deferring = true;
-            armStallDeadline(context, active, handles);
-            return;
-          }
-        }
+      // Provider frames are an incomplete view of work: a command may produce no frame until it
+      // exits, or the provider may not announce it in a structured form. The OS process tree is
+      // the single liveness source; an active descendant keeps this dispatch under observation.
+      const childPids = await liveDescendantPids(active);
+      if (childPids !== null && childPids.length > 0) {
+        armStallDeadline(context, active, handles, Date.now() + active.stallTimeoutMs);
+        return;
       }
       await settleStalledRuntime(context, active);
     }, active.binding);
@@ -245,7 +216,7 @@ function armStallDeadline(
 }
 
 function attachRuntimeObservations(context: RuntimeSpawnerContext, active: ActiveRuntime): void {
-  const handles: RuntimeObservationHandles = { timer: null, watcher: null, disposed: false, deferring: false };
+  const handles: RuntimeObservationHandles = { timer: null, watcher: null, disposed: false };
   const localRoot =
       typeof context.input.rootDir === "string" ? resolveHarnessLayout(context.input.rootDir).localRoot : null,
     localRootRelative = localRoot === null ? null : path.relative(active.cwd, localRoot),
@@ -261,14 +232,6 @@ function attachRuntimeObservations(context: RuntimeSpawnerContext, active: Activ
     if (handles.disposed || context.processes.get(active.runtimeSessionId) !== active || active.stalledAt !== null)
       return;
     const observedAtMs = Date.now();
-    // A frame that arrives after the deadline while a tool call is in flight is most likely that
-    // call's settling update: record it as progress instead of settling an attempt the provider is
-    // still serving. With no tool in flight the historical late-frame judgment is unchanged.
-    if (observedAtMs - active.lastProgressAtMs >= active.stallTimeoutMs && active.inFlightToolCalls.size === 0) {
-      context.input.schedule(() => settleStalledRuntime(context, active), active.binding);
-      return;
-    }
-    handles.deferring = false;
     active.lastProgressAtMs = observedAtMs;
     if (workspaceChanged) {
       active.workspaceActivityCount += 1;
