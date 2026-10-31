@@ -8,6 +8,6 @@
   { "path": "packages/kernel/src/domain/decision-event.ts", "module": "decision" },
   { "path": "packages/kernel/src/domain/entity-action-execution.ts", "module": "kernel" },
   { "path": "packages/kernel/src/domain/index.ts", "module": "kernel" },
-  { "path": "packages/storage/src/projection/decision-event-projection.ts", "module": "decision" },
-  { "path": "packages/storage/src/projection/rebuildable-task-projection.ts", "module": "kernel" }
+  { "path": "packages/storage/src/projection/decision-event-projection.ts", "module": "storage" },
+  { "path": "packages/storage/src/projection/rebuildable-task-projection.ts", "module": "storage" }
 ]
