@@ -6,8 +6,6 @@ import path from "node:path";
 import test from "node:test";
 import { openDispatchStream, type DispatchStallEvidence } from "../src/dispatch-stream.ts";
 import { attachActiveRuntime, disposeActiveRuntimeObservations } from "../src/runtime-spawn-active.ts";
-import { consumeProviderLine } from "../src/runtime-spawn-provider-stream.ts";
-import { parseProviderFrame } from "../src/runtime-spawn-provider-frames.ts";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
 import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
 import { active as runtimeFixture } from "./runtime-spawn-settlement.fixtures.ts";
@@ -46,7 +44,6 @@ function watchdogFixture(options: {
   readonly rootDir: string;
   readonly nowMs: number;
   readonly liveChildPids: readonly number[] | null;
-  readonly inFlight: boolean;
   readonly captured: Array<{ readonly occurredAt: string; readonly evidence: DispatchStallEvidence | undefined }>;
 }) {
   const dispatchId = "dispatch_0000000000000000000000aa",
@@ -81,8 +78,6 @@ function watchdogFixture(options: {
       lastProgressAtMs: options.nowMs,
       stallTimeoutMs: 10_000,
     });
-  if (options.inFlight)
-    runtime.inFlightToolCalls.set("toolu_long_command", { startedAtMs: options.nowMs, timeoutMs: 30_000 });
   return runtime;
 }
 
@@ -122,7 +117,7 @@ async function fireNextTimer(
   await Promise.all(scheduled.splice(0));
 }
 
-test("an in-flight tool call with live descendants defers the stall to the tool's own timeout", async () => {
+test("live descendants defer the stall regardless of provider frame activity", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-stall-deferral-")),
     nowMs = 1_000_000,
     clock = installFakeClock(nowMs);
@@ -130,7 +125,7 @@ test("an in-flight tool call with live descendants defers the stall to the tool'
     scheduled: Array<Promise<void>> = [],
     terminators: string[] = [];
   try {
-    const runtime = watchdogFixture({ rootDir, nowMs, liveChildPids: [5555, 6666], inFlight: true, captured }),
+    const runtime = watchdogFixture({ rootDir, nowMs, liveChildPids: [5555, 6666], captured }),
       context = watchdogContext(runtime, rootDir, scheduled, terminators);
     attachActiveRuntime(context, runtime);
     assert.equal(clock.timers.length, 1);
@@ -141,21 +136,11 @@ test("an in-flight tool call with live descendants defers the stall to the tool'
     assert.deepEqual(terminators, []);
     assert.equal(clock.timers.length, 1, "the watchdog re-arms instead of cancelling");
 
-    // The bound is the provider's own timeout (30_000) plus the settle grace (5_000).
-    clock.set(nowMs + 35_000);
+    // The watchdog keeps observing the live subtree instead of inventing a provider timeout.
+    clock.set(nowMs + 20_000);
     await fireNextTimer(clock, scheduled);
-    assert.equal(runtime.stalledAt, new Date(nowMs + 35_000).toISOString());
-    assert.deepEqual(terminators, [runtime.runtimeSessionId]);
-    assert.equal(captured.length, 1);
-    assert.deepEqual(captured[0]?.evidence, {
-      lastProgressAt: new Date(nowMs).toISOString(),
-      stallTimeoutMs: 10_000,
-      idleMs: 35_000,
-      inFlightToolCalls: [
-        { toolCallId: "toolu_long_command", startedAt: new Date(nowMs).toISOString(), timeoutMs: 30_000 },
-      ],
-      liveProcessPids: [5555, 6666],
-    });
+    assert.equal(runtime.stalledAt, null, "a command still running in the child process is not a stall");
+    assert.deepEqual(terminators, []);
     disposeActiveRuntimeObservations(runtime);
   } finally {
     clock.restore();
@@ -163,7 +148,7 @@ test("an in-flight tool call with live descendants defers the stall to the tool'
   }
 });
 
-test("a settling frame at the deferred deadline renews progress instead of settling", async () => {
+test("a provider frame is not required to keep an active child command alive", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-stall-renewal-")),
     nowMs = 2_000_000,
     clock = installFakeClock(nowMs);
@@ -171,7 +156,7 @@ test("a settling frame at the deferred deadline renews progress instead of settl
     scheduled: Array<Promise<void>> = [],
     terminators: string[] = [];
   try {
-    const runtime = watchdogFixture({ rootDir, nowMs, liveChildPids: [7777], inFlight: true, captured }),
+    const runtime = watchdogFixture({ rootDir, nowMs, liveChildPids: [7777], captured }),
       context = watchdogContext(runtime, rootDir, scheduled, terminators);
     attachActiveRuntime(context, runtime);
 
@@ -179,19 +164,10 @@ test("a settling frame at the deferred deadline renews progress instead of settl
     await fireNextTimer(clock, scheduled);
     assert.equal(runtime.stalledAt, null);
 
-    // The tool call's own settling frame arrives after the base deadline; it is progress, not a stall.
     clock.set(nowMs + 20_000);
-    runtime.recordProviderProgress?.();
-    runtime.inFlightToolCalls.delete("toolu_long_command");
-    assert.equal(runtime.lastProgressAtMs, nowMs + 20_000);
+    await fireNextTimer(clock, scheduled);
     assert.equal(runtime.stalledAt, null);
-
-    clock.set(nowMs + 29_999);
-    await fireNextTimer(clock, scheduled);
-    assert.equal(runtime.stalledAt, null, "the renewed deadline is still ahead");
-    clock.set(nowMs + 30_000);
-    await fireNextTimer(clock, scheduled);
-    assert.equal(runtime.stalledAt, new Date(nowMs + 30_000).toISOString());
+    assert.equal(terminators.length, 0);
     disposeActiveRuntimeObservations(runtime);
   } finally {
     clock.restore();
@@ -199,7 +175,7 @@ test("a settling frame at the deferred deadline renews progress instead of settl
   }
 });
 
-test("an in-flight tool call with no live child process still stalls at the base deadline", async () => {
+test("no live child process still triggers the stall at the base deadline", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-stall-negative-")),
     nowMs = 3_000_000,
     clock = installFakeClock(nowMs);
@@ -207,7 +183,7 @@ test("an in-flight tool call with no live child process still stalls at the base
     scheduled: Array<Promise<void>> = [],
     terminators: string[] = [];
   try {
-    const runtime = watchdogFixture({ rootDir, nowMs, liveChildPids: [], inFlight: true, captured }),
+    const runtime = watchdogFixture({ rootDir, nowMs, liveChildPids: [], captured }),
       context = watchdogContext(runtime, rootDir, scheduled, terminators);
     attachActiveRuntime(context, runtime);
 
@@ -216,76 +192,9 @@ test("an in-flight tool call with no live child process still stalls at the base
     assert.equal(runtime.stalledAt, new Date(nowMs + 10_000).toISOString());
     assert.deepEqual(terminators, [runtime.runtimeSessionId]);
     assert.deepEqual(captured[0]?.evidence?.liveProcessPids, []);
-    assert.equal(captured[0]?.evidence?.inFlightToolCalls.length, 1, "the evidence still names the open call");
     disposeActiveRuntimeObservations(runtime);
   } finally {
     clock.restore();
     rmSync(rootDir, { recursive: true, force: true });
   }
-});
-
-test("provider tool-call frames open and close the in-flight ledger with the declared timeout", async () => {
-  const runtime = runtimeFixture({
-      kindId: "deepseek-harness",
-      stream: { ref: "runtime-stream:test", appendProviderEvent: () => undefined } as never,
-    }),
-    context = {
-      input: { now: () => new Date().toISOString() },
-      parseProviderFrame,
-      markProtocolError: () => {
-        throw new Error("the ACP tool-call frames must parse");
-      },
-      bindProvider: async () => undefined,
-      isStructuredSuccessResult: () => false,
-    } as unknown as RuntimeSpawnerContext,
-    start = {
-      sessionId: "session-tool-call",
-      type: "acp.update",
-      update: {
-        sessionUpdate: "tool_call",
-        toolCallId: "toolu_c30c1dfe167041409b3ba8ad",
-        status: "in_progress",
-        rawInput: { command: "sleep 300", timeoutMs: 330_000 },
-      },
-    },
-    settled = {
-      sessionId: "session-tool-call",
-      type: "acp.update",
-      update: {
-        sessionUpdate: "tool_call_update",
-        toolCallId: "toolu_c30c1dfe167041409b3ba8ad",
-        status: "completed",
-      },
-    };
-
-  await consumeProviderLine(context, runtime, JSON.stringify(start), false, false);
-  const open = runtime.inFlightToolCalls.get("toolu_c30c1dfe167041409b3ba8ad");
-  assert.equal(open?.timeoutMs, 330_000);
-  assert.ok((open?.startedAtMs ?? 0) > 0);
-
-  await consumeProviderLine(context, runtime, JSON.stringify(settled), false, false);
-  assert.equal(runtime.inFlightToolCalls.size, 0);
-});
-
-test("codex item.started and item.completed bracket a command in the in-flight ledger", async () => {
-  const runtime = runtimeFixture({
-      kindId: "codex",
-      stream: { ref: "runtime-stream:test", appendProviderEvent: () => undefined } as never,
-    }),
-    context = {
-      input: { now: () => new Date().toISOString() },
-      parseProviderFrame,
-      markProtocolError: () => {
-        throw new Error("the codex item frames must parse");
-      },
-      bindProvider: async () => undefined,
-      isStructuredSuccessResult: () => false,
-    } as unknown as RuntimeSpawnerContext,
-    started = { type: "item.started", item: { id: "item_1", type: "command_execution", status: "in_progress" } },
-    completed = { type: "item.completed", item: { id: "item_1", type: "command_execution", status: "completed" } };
-
-  await consumeProviderLine(context, runtime, JSON.stringify(started), false, false);
-  assert.equal(runtime.inFlightToolCalls.has("item_1"), true);
-  await consumeProviderLine(context, runtime, JSON.stringify(completed), false, false);
-  assert.equal(runtime.inFlightToolCalls.has("item_1"), false);
 });

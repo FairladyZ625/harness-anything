@@ -121,16 +121,11 @@ export type DispatchStreamActivity = {
 };
 
 /** Why the watchdog judged an attempt stalled, written before anything is terminated so the
- *  stream can answer "last progress, in-flight calls, live processes" after the fact. */
+ *  stream can answer "last progress and live processes" after the fact. */
 export type DispatchStallEvidence = {
   readonly lastProgressAt: string;
   readonly stallTimeoutMs: number;
   readonly idleMs: number;
-  readonly inFlightToolCalls: readonly {
-    readonly toolCallId: string;
-    readonly startedAt: string;
-    readonly timeoutMs: number | null;
-  }[];
   /** Child pids alive at judgment; null when the process table could not be read. */
   readonly liveProcessPids: readonly number[] | null;
 };
