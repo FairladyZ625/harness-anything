@@ -69,7 +69,7 @@ test("cold rebuild reads a real ledger containing all four retired event shapes"
     const eventStore = makeTaskEventStore({ repoId: "retired-shapes-cold-rebuild", rootDir }),
       task = lifecycleFixture().events[0]!,
       retiredSettingsBody = readFileSync(
-        new URL("../../fixtures/settings-migration/retired-settings-before.yaml", import.meta.url),
+        new URL("../../../kernel/fixtures/settings-migration/retired-settings-before.yaml", import.meta.url),
         "utf8",
       ),
       retiredSettingsHash = sha256Text(retiredSettingsBody);
@@ -117,7 +117,10 @@ test("cold rebuild reads a real ledger containing all four retired event shapes"
 
     const verticalDefinition = decodeVerticalDefinition(
         JSON.parse(
-          readFileSync(new URL("../../fixtures/schemas/vertical-definition/valid.json", import.meta.url), "utf8"),
+          readFileSync(
+            new URL("../../../kernel/fixtures/schemas/vertical-definition/valid.json", import.meta.url),
+            "utf8",
+          ),
         ),
       ),
       retiredVerticalDefinition = {

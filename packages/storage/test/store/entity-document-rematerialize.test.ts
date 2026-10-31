@@ -57,7 +57,10 @@ test("rematerialized document claims land on disk, project, and survive cold rep
       JSON.parse(serializePersistedCanonicalEvent(compiled!.event)),
       JSON.parse(
         readFileSync(
-          path.join(import.meta.dirname, "../../fixtures/canonical-events/entity-document-event-v1/accepted.json"),
+          path.join(
+            import.meta.dirname,
+            "../../../kernel/fixtures/canonical-events/entity-document-event-v1/accepted.json",
+          ),
           "utf8",
         ),
       ),
