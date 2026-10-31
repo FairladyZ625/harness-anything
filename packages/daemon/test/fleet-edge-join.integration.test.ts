@@ -95,6 +95,10 @@ test(
       loginUrl = `https://localhost:${loginPort}`;
     // Stands in for the center's Keycloak check: the edge fixture's device token names person-one.
     const center = await f.openCenter(f.host, undefined, {
+      invitationClientForNode: (nodeId) => {
+        const invite = invites.records().find((record) => record.nodeId === nodeId && record.consumedAt);
+        return invite ? { clientId: invite.loginClientId, personId: invite.personId } : undefined;
+      },
       edgeJoin: ({ joinId, inviteToken, accessToken }) => {
         const invite = invites.assertConsumable(joinId, inviteToken);
         const personId = accessToken?.startsWith("device-token-") ? "person-one" : "unknown";
