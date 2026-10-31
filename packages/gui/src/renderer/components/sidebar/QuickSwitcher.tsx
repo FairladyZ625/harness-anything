@@ -246,6 +246,7 @@ export function QuickSwitcher({
       </div>
       <div className="mt-2 grid shrink-0 grid-cols-2 gap-1.5 border-t border-border pt-2">
         <button
+          data-testid="quick-switcher-manage-all"
           onClick={onOpenProjectManager}
           className={`glass-sub rounded-md px-2 py-1.5 text-left ui-meta font-medium
             text-text-muted hover:border-border-strong hover:text-text`}

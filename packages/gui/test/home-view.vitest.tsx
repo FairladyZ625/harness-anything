@@ -8,6 +8,8 @@ import { HomeView } from "../src/renderer/views/HomeView.tsx";
 import { harnessClient, type SystemRepoRow } from "../src/renderer/api-client.ts";
 import { agentRuntimeClient, runtimeQueryKeys } from "../src/renderer/agent-runtime-client.ts";
 import { workspaceSummaryQueryKeys } from "../src/renderer/workspace-summary-data.ts";
+import { projectOverviewQueryKeys } from "../src/renderer/views/home/project-overview-data.ts";
+import type { DaemonHomeOverviewResult } from "@harness-anything/daemon/protocol";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import {
   groupProjects,
@@ -23,6 +25,12 @@ import {
 
 const mounted: Root[] = [];
 const host = window as unknown as { harness?: unknown };
+const EMPTY_HOME_OVERVIEW = {
+  schema: "daemon.gui.home-overview/v1",
+  ok: true,
+  observedAt: "2026-10-31T00:00:00.000Z",
+  repos: [],
+} as DaemonHomeOverviewResult;
 
 beforeAll(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -76,6 +84,7 @@ async function mountHome(
   currentRepoId: string | null,
   seed: Readonly<Record<string, { readonly summary: unknown; readonly runtime: unknown }>> = {},
   onJoinCenter: () => void = () => undefined,
+  crossRepoOverview: DaemonHomeOverviewResult = EMPTY_HOME_OVERVIEW,
 ): Promise<{
   readonly container: HTMLElement;
   readonly opened: readonly string[];
@@ -86,6 +95,7 @@ async function mountHome(
   const targets: (string | undefined)[] = [];
   const pinned: string[] = [];
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client.setQueryData(projectOverviewQueryKeys.all(), crossRepoOverview);
   for (const [repoId, data] of Object.entries(seed)) {
     client.setQueryData(workspaceSummaryQueryKeys.read(repoId), data.summary);
     client.setQueryData(runtimeQueryKeys.overviewAll(repoId), data.runtime);
@@ -216,6 +226,47 @@ describe("项目分组与状态(model/repo-state)", () => {
 });
 
 describe("HomeView 项目管理页", () => {
+  it("跨仓运行与待办计数保留在项目管理页并按仓展示", async () => {
+    const overview = {
+      ...EMPTY_HOME_OVERVIEW,
+      repos: [
+        {
+          repoId: "alpha",
+          registrationState: "enabled",
+          waitingCount: 2,
+          runningCount: 3,
+          deliveredCount: 1,
+          isQuiet: false,
+        },
+        {
+          repoId: "beta",
+          registrationState: "enabled",
+          waitingCount: 4,
+          runningCount: 0,
+          deliveredCount: 2,
+          isQuiet: true,
+        },
+      ],
+    } as unknown as DaemonHomeOverviewResult;
+    const { container } = await mountHome(
+      [repo({ repoId: "alpha", displayName: "Alpha" }), repo({ repoId: "beta", displayName: "Beta" })],
+      null,
+      {},
+      () => undefined,
+      overview,
+    );
+
+    expect(container.querySelector('[data-testid="home-cross-repo-metrics"]')?.textContent).toBe(
+      "跨项目 · 活跃 1 · 等你处理 6 · 正在跑 3 · 刚交付 3",
+    );
+    expect(container.querySelector('[data-testid="home-repo-alpha"]')?.textContent).toContain(
+      "等你处理 2 · 正在跑 3 · 刚交付 1",
+    );
+    expect(container.querySelector('[data-testid="home-repo-beta"]')?.textContent).toContain(
+      "等你处理 4 · 正在跑 0 · 刚交付 2",
+    );
+  });
+
   it("已挂载项目第二行是真实数字;等人处理的排最前并带数量;当前项目有标记;点行进入", async () => {
     const { container, opened } = await mountHome(
       [repo({ repoId: "aa-current", displayName: "Current" }), repo({ repoId: "zz-awaits", displayName: "Awaits" })],

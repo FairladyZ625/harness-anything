@@ -6,7 +6,7 @@
  * 1. 任务评审派工(reviewTarget=task):评审 read 面登记的 verdict + reason——评审的职责就是
  *    判定这次交付成不成立,它的一句话理由就是结论本身。
  * 2. 本次执行的提交 claim(execution.submission.completionClaim):worker 自己写的"做成了
- *    什么",是交付摘要的权威文本(`views/today/today-data.ts` 同一个字段)。
+ *    什么",是交付摘要的权威文本(与总览工作简报使用同一字段)。
  * 3. 失败/停手的裁决理由(settlement.reason):没成时 daemon 给的故障原文才是结论。
  * 4. 以上都没有才退回 `result.text` 原文,但要剔除过程叙述(见 NARRATION)。
  *

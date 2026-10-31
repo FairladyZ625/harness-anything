@@ -15,7 +15,7 @@ import type { AgendaAwaitsRow } from "../../api/renderer-dto.ts";
 import type { StatusTone } from "../components/primitives/StatusTag.tsx";
 
 /**
- * 议程行派生(dec_C612E69B7C7E3480A5F9D2CAD3 起由议程页与「重构 › 今天」页共用):
+ * 议程行派生(dec_C612E69B7C7E3480A5F9D2CAD3 起由议程页与总览共用):
  * 从同一条 repo.agenda.read 切面推出全部分组行,两页 import 同一函数,行集与
  * 「需要关注 / 待跟进」桶计数结构性相等——两页数字不一致即缺陷。纯函数、不碰 React。
  */

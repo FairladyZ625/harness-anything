@@ -111,7 +111,6 @@ function sidebarMarkup() {
         activeRepoId: "repo",
         view: "overview",
         hasSelection: false,
-        redesignView: null,
         inboxCount: 0,
         projectSwitcherOpen: false,
         onProjectSwitcherToggle: () => undefined,
@@ -153,8 +152,7 @@ describe("sidebar scrolling structure (short-window overlap fix)", () => {
 
     const scrollStart = markupText.indexOf('data-testid="app-sidebar-scroll"');
     const navs = [...markupText.matchAll(/<nav[\s>]/gu)].map((found) => found.index ?? -1);
-    // 每个分组各渲染一个 nav(旧四组 + 重构区组,dec_C612E69B7C7E3480A5F9D2CAD3 CH1;
-    // 重构区组在 NAV_GROUPS 内,组头带「试用」小标),
+    // 每个导航组各渲染一个 nav,且全部开在滚动容器之内。
     // 且全部开在滚动容器之内 → 都能被滚到,而不是固定溢出。
     expect(navs).toHaveLength(NAV_GROUPS.length);
     for (const at of navs) expect(at).toBeGreaterThan(scrollStart);
@@ -276,7 +274,6 @@ describe("current repository mode badge and endpoint (PLT-EdgeGUI-W3)", () => {
           activeRepoId: "repo",
           view: "overview",
           hasSelection: false,
-          redesignView: null,
           inboxCount: 0,
           projectSwitcherOpen: false,
           onProjectSwitcherToggle: () => undefined,
@@ -320,7 +317,6 @@ describe("quick switcher overflow regression", () => {
           activeRepoId: "repo",
           view: "overview",
           hasSelection: false,
-          redesignView: null,
           inboxCount: 0,
           projectSwitcherOpen: true,
           onProjectSwitcherToggle: () => undefined,
@@ -390,7 +386,6 @@ describe("quick switcher overflow regression", () => {
           activeRepoId: "repo",
           view: "overview",
           hasSelection: false,
-          redesignView: null,
           inboxCount: 0,
           projectSwitcherOpen: true,
           onProjectSwitcherToggle: () => undefined,

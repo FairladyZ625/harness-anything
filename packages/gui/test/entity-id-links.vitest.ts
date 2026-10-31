@@ -6,9 +6,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { HomeView } from "../src/renderer/views/HomeView.tsx";
 import { OverviewView } from "../src/renderer/views/OverviewView.tsx";
+import { LiveFloorView } from "../src/renderer/views/LiveFloorView.tsx";
 import { AgendaView } from "../src/renderer/views/AgendaView.tsx";
 import { WorkView } from "../src/renderer/views/WorkView.tsx";
 import { deriveRuntimeHealth } from "../src/renderer/model/runtime-health.ts";
+import { workIndexOf } from "../src/renderer/model/work-collections.ts";
 import { BoardView } from "../src/renderer/views/BoardView.tsx";
 import { CollaborationView } from "../src/renderer/views/CollaborationView.tsx";
 import { AttestationPoolView } from "../src/renderer/views/AttestationPoolView.tsx";
@@ -48,7 +50,7 @@ import { harnessClient } from "../src/renderer/api-client.ts";
 import { squadRunsClient } from "../src/renderer/squad-run-client.ts";
 import { DEFAULT_TASK_FILTERS } from "../src/renderer/model/taskFilters.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
-import { NAV_GROUPS, isRedesignViewId } from "../src/renderer/navigation/navConfig.tsx";
+import { NAV_GROUPS } from "../src/renderer/navigation/navConfig.tsx";
 import type { ViewId } from "../src/renderer/navigation/viewHistory.ts";
 import type { SystemRepoRow } from "../src/renderer/api-client.ts";
 import {
@@ -652,6 +654,14 @@ const VIEW_RENDERERS = {
       onUnpin: noop,
       onUnpinEntity: noop,
     }),
+  liveFloor: () =>
+    createElement(LiveFloorView, {
+      repoId: REPO_ID,
+      tasks: FIXTURE_TASKS,
+      works: workIndexOf(FIXTURE_WORK_INDEX),
+      onOpenTask: noop,
+      onNavigateEntity: noop,
+    }),
   agenda: () =>
     createElement(AgendaView, { repoId: REPO_ID, agenda: FIXTURE_AGENDA, agendaError: null, onNavigateEntity: noop }),
   work: () =>
@@ -859,12 +869,7 @@ const VIEW_RENDERERS = {
   todos: () => createElement(TodosView, { repoId: REPO_ID, onNavigateEntity: noop }),
 } satisfies Record<ViewId, () => ReturnType<typeof createElement>>;
 
-const navViewIds = NAV_GROUPS.flatMap((group: { items: readonly { id: ViewId | "homeOverview" }[] }) =>
-  group.items.map((item) => item.id),
-);
-// dec_C612E69B7C7E3480A5F9D2CAD3:重构区页面(homeOverview)挂独立「重构」组,由 App 级
-// 状态承载,不在 ViewId 渲染映射内;覆盖断言只约束旧 ViewId 导航面。
-const navClassicViewIds: readonly ViewId[] = navViewIds.filter((id): id is ViewId => !isRedesignViewId(id));
+const navViewIds: readonly ViewId[] = NAV_GROUPS.flatMap((group) => group.items.map((item) => item.id));
 
 /**
  * 风化视图的 coverage 夹具(freshnessCoverage / FRESHNESS_COVERAGE_ROWS)与 Token
@@ -873,14 +878,19 @@ const navClassicViewIds: readonly ViewId[] = navViewIds.filter((id): id is ViewI
  */
 
 describe("G10 entity-id-links 行为判据:视图渲染出的实体 ID 必须可激活", () => {
+  it("侧栏保留四个原分组,试用分组和页面不再注册", () => {
+    expect(NAV_GROUPS.map(({ id }) => id)).toEqual(["workspace", "governance", "runtime", "system"]);
+    expect(navViewIds.map(String)).not.toEqual(expect.arrayContaining(["homeOverview", "today", "myAsks"]));
+  });
+
   it("ViewId 全集都有渲染入口,且与导航面一致(覆盖完备性)", () => {
     // 渲染面直接取 VIEW_RENDERERS 的键全集:映射里有的每个视图都必须真的被渲染,
     // 「在映射里但没渲染」的键在这里被导航面一致性断言拦下。
     const declared = new Set(Object.keys(VIEW_RENDERERS));
     expect([...declared].sort()).toEqual(
-      [...navClassicViewIds, "home", "decisionDetail", "factDetail", "daemonObserve", "browser"].sort(),
+      [...navViewIds, "home", "decisionDetail", "factDetail", "daemonObserve", "browser"].sort(),
     );
-    for (const id of navClassicViewIds) expect(declared.has(id), `导航面 view ${id} 缺渲染入口`).toBe(true);
+    for (const id of navViewIds) expect(declared.has(id), `导航面 view ${id} 缺渲染入口`).toBe(true);
   });
 
   it.each(Object.keys(VIEW_RENDERERS))("视图 %s:fixture 实体宇宙渲染后无死 ID", async (viewId) => {

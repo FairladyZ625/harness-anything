@@ -4,11 +4,11 @@ import { PushPinSlash } from "@phosphor-icons/react";
 import type { AwaitsPanelSubject } from "../awaits-answer.ts";
 import { AWAITS_KIND_LABEL } from "../awaits-answer.ts";
 import { STATUS_META } from "../components/badges";
-import { DenseRow } from "../components/primitives/DenseRow";
+import { DenseRow, RowTime } from "../components/primitives/DenseRow";
 import { Empty } from "../components/primitives/Empty";
 import { Notice } from "../components/primitives/Notice";
 import { SegBar } from "../components/primitives/SegBar";
-import { StatusTag } from "../components/primitives/StatusTag";
+import { StatusTag, type StatusTone } from "../components/primitives/StatusTag";
 import { t } from "../i18n/index.tsx";
 import type { MessageKey } from "../i18n/core.ts";
 import type { SnapshotStatus } from "../model/types.ts";
@@ -24,12 +24,13 @@ import type {
   WatchedWork,
   WorkRecentPath,
 } from "./overview-model.ts";
+import type { WorkBrief, WorkBriefSentencePart } from "../../api/renderer-dto.ts";
 
 /**
- * 总览四块的展示层(2026-10-21 业主 13:50 定案,泳道移出总览后的任务列表形态):
+ * 总览区域展示层(2026-10-21 业主 13:50 定案,泳道移出总览后的任务列表形态):
  * 左上「在跑的任务」是窄行高密度名单(任务人话标题、谁在跑、跑了多久、现在哪一步),
  * 右上「置顶与议程」把被重构撤下的 pin/agenda 拿回来(不管 pin 什么都在这可见),
- * 左下「关注的工作」只留标题、进度与负责人,右下「等你处理的事」取待办签发前几条。
+ * 左下「关注的工作」只留标题、进度与负责人,工作简报显示每个工作根的状态,「等你处理」取待办签发前几条。
  * 动作全部接现有真实动作:答复走 AwaitsAnswerPanel、裁决落决策详情、任务/工作走实体
  * 导航、取消置顶走 pin 写通道。没有的字段如实写「未提供」,不生成假推荐。
  */
@@ -51,6 +52,111 @@ export interface OverviewBoardDeps {
   readonly onUnpin: (taskId: string) => void;
   /** 置顶区非任务实体的取消置顶(实体级 entity-unpin 写通道)。 */
   readonly onUnpinEntity: (entityRef: string) => void;
+}
+
+const BRIEF_BUCKET_LABEL: Readonly<Record<WorkBrief["bucket"], MessageKey>> = {
+  waiting: "views.overviewView.briefsWaiting",
+  stuck: "views.overviewView.briefsStuck",
+  running: "views.overviewView.briefsRunning",
+  unclear: "views.overviewView.briefsUnclear",
+  done: "views.overviewView.briefsDone",
+};
+
+const BRIEF_BUCKET_TONE: Readonly<Record<WorkBrief["bucket"], StatusTone>> = {
+  waiting: "wait",
+  stuck: "bad",
+  running: "active",
+  unclear: "neutral",
+  done: "done",
+};
+
+const BRIEF_ASK_VERB: Readonly<Record<"question" | "acceptance" | "consent" | "reopen", MessageKey>> = {
+  question: "views.overviewView.briefAskQuestion",
+  acceptance: "views.overviewView.briefAskAcceptance",
+  consent: "views.overviewView.briefAskConsent",
+  reopen: "views.overviewView.briefAskReopen",
+};
+
+function briefSentence(parts: readonly WorkBriefSentencePart[]): string {
+  const clauses = parts.map((part) => {
+    switch (part.kind) {
+      case "ask":
+        return t("views.overviewView.briefPartAsk", {
+          title: part.title,
+          verb: t(BRIEF_ASK_VERB[part.askKind]),
+        });
+      case "blocked":
+        return t("views.overviewView.briefPartBlocked", { title: part.title });
+      case "executing":
+        return t("views.overviewView.briefPartExecuting", { title: part.title });
+      case "review":
+        return t("views.overviewView.briefPartReview", { title: part.title });
+      case "planned":
+        return t("views.overviewView.briefPartPlanned");
+      case "delivered":
+        return t("views.overviewView.briefPartDelivered", { title: part.title });
+      case "retired":
+        return t("views.overviewView.briefPartRetired");
+    }
+  });
+  return clauses.length > 0
+    ? clauses.join(t("views.overviewView.briefPartJoin"))
+    : t("views.overviewView.briefSentenceUnknown");
+}
+
+export function OverviewBriefsBody({
+  briefs,
+  loading,
+  error,
+  deps,
+}: {
+  readonly briefs: readonly WorkBrief[];
+  readonly loading: boolean;
+  readonly error: string | null;
+  readonly deps: OverviewBoardDeps;
+}) {
+  if (error !== null) {
+    return (
+      <Notice tone="bad" variant="strip" testId="overview-briefs-error">
+        {t("views.overviewView.briefsError", { message: error })}
+      </Notice>
+    );
+  }
+  if (briefs.length === 0) {
+    return (
+      <div data-testid="overview-briefs-empty" className="px-3.5 py-2">
+        <Empty>{loading ? t("views.overviewView.briefsLoading") : t("views.overviewView.briefsEmpty")}</Empty>
+      </div>
+    );
+  }
+  return (
+    <div data-testid="overview-briefs">
+      {briefs.map((brief) => {
+        const sentence = briefSentence(brief.sentenceParts),
+          ask = brief.asks[0],
+          answer = ask === undefined ? undefined : () => deps.onAnswer({ mode: "answer", row: ask });
+        return (
+          <div key={brief.taskId} data-brief-row={brief.taskId}>
+            <DenseRow
+              tag={<StatusTag tone={BRIEF_BUCKET_TONE[brief.bucket]} label={t(BRIEF_BUCKET_LABEL[brief.bucket])} />}
+              title={brief.title}
+              reason={sentence}
+              hoverTitle={sentence}
+              time={<RowTime at={brief.deliveredAt ?? brief.lastActivityAt} />}
+              action={
+                answer === undefined ? undefined : (
+                  <OverviewActionButton primary onClick={answer}>
+                    {t("views.overviewView.briefAnswer")}
+                  </OverviewActionButton>
+                )
+              }
+              onClick={() => deps.onOpenTask(brief.taskId)}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 /* ------------------------------------------------------------------ 右下:等你处理的事 */
@@ -88,7 +194,7 @@ function decisionAction(
     };
   // 裁决请求的答复面是那条派工的任务详情(ruling 产物随归档发布在任务包里),不另造新页。
   if (source?.kind === "ruling")
-    return { label: t("views.myAsks.actionOpenTask"), run: () => deps.onOpenTask(source.row.taskId) };
+    return { label: t("views.overviewView.actionOpenTask"), run: () => deps.onOpenTask(source.row.taskId) };
   // 接不回源行(读面切面前进中的瞬态):动作如实缺省,行不给假入口。
   return null;
 }

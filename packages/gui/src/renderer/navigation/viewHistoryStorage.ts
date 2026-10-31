@@ -44,6 +44,7 @@ export interface ViewHistorySessionStorage extends ViewHistoryStorage {
 const VIEW_ID_LIST = [
   "home",
   "overview",
+  "liveFloor",
   "work",
   "agenda",
   "todos",

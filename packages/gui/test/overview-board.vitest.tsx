@@ -14,6 +14,7 @@ import {
 } from "../src/renderer/views/overview-model.ts";
 import type { AgentRuntimeOverviewResult, AgentRuntimeSessionGroupDto } from "@harness-anything/daemon/protocol";
 import type { TaskDispatchProjectionRow } from "../src/api/renderer-dto.ts";
+import { harnessClient } from "../src/renderer/api-client.ts";
 import {
   AT,
   HEALTH,
@@ -30,7 +31,7 @@ import {
 import { projectedTaskFields } from "./task-projection-fields.ts";
 
 /**
- * 总览(2026-10-21 四块定案:任务列表为主,泳道移出总览)的行为面:左上「在跑的任务」
+ * 总览(2026-10-21 任务列表为主,泳道移出总览)的行为面:左上「在跑的任务」
  * 窄行名单(标题、谁在跑、跑了多久、现在哪一步;卡点行的问句进悬停与答复动作),右上
  * 「置顶与议程」把 pin 拿回总览,左下「关注的工作」只留标题、进度、负责人,右下
  * 「等你处理的事」取待办签发前几条(Needs you 绝对顶置、橙色提问档)。置顶区的行为面
@@ -1822,5 +1823,77 @@ describe("总览紧凑协作入口(task_1bafbf09 返工)", () => {
     const local = mount({ collaboration: null });
     expect(local.querySelector('[data-testid="overview-collaboration-entry"]')).toBeNull();
     unmount();
+  });
+});
+
+describe("总览工作简报", () => {
+  it("显示工作状态与近期交付,并保留答复和任务下钻入口", async () => {
+    vi.spyOn(harnessClient, "getWorkBriefs").mockResolvedValue({
+      schema: "daemon.work-briefs/v1",
+      ok: true,
+      status: "ready",
+      watermark: 7,
+      sourceRevision: 7,
+      warnings: [],
+      briefs: [
+        {
+          taskId: "task_w1",
+          title: "代码质量长期检验",
+          bucket: "waiting",
+          lastActivityAt: AT,
+          deliveredAt: null,
+          sentenceParts: [{ kind: "ask", title: "接口兼容方案", askKind: "question" }],
+          asks: [
+            {
+              relationId: "rel_brief",
+              relationRevision: 1,
+              sourceRef: "task/task_w1",
+              title: "接口兼容方案",
+              status: "active",
+              personId: "person_me",
+              askKind: "question",
+              question: "是否保留旧字段？",
+              askedAt: AT,
+              askedBy: "person_worker",
+            },
+          ],
+          openTasks: [],
+          deliveredTasks: [],
+          pullRequests: [],
+        },
+        {
+          taskId: "task_delivered",
+          title: "接口读取器优化",
+          bucket: "done",
+          lastActivityAt: AT,
+          deliveredAt: AT,
+          sentenceParts: [{ kind: "delivered", title: "读取器" }],
+          asks: [],
+          openTasks: [],
+          deliveredTasks: [],
+          pullRequests: [],
+        },
+      ],
+    } as never);
+    const onOpenTask = vi.fn(),
+      container = mount({ onOpenTask });
+    try {
+      await flushUntil(() => container.querySelector("[data-brief-row='task_delivered']") !== null);
+      const briefs = container.querySelector('[data-testid="overview-region-briefs"]')!;
+      expect(textOf(briefs)).toContain("工作简报");
+      expect(textOf(briefs)).toContain("等你处理");
+      expect(textOf(briefs)).toContain("在等你答复");
+      expect(textOf(briefs)).toContain("接口读取器优化");
+      expect(textOf(briefs)).toContain("已交付");
+
+      const waitingRow = container.querySelector<HTMLElement>("[data-brief-row='task_w1']")!;
+      const answer = [...waitingRow.querySelectorAll("button")].find((button) => button.textContent === "答复")!;
+      await act(async () => answer.click());
+      expect(document.body.querySelector('[data-testid="awaits-answer-panel"]')).not.toBeNull();
+      await act(async () => waitingRow.querySelector("button")!.click());
+      expect(onOpenTask).toHaveBeenCalledWith("task_w1");
+    } finally {
+      unmount();
+    }
   });
 });
