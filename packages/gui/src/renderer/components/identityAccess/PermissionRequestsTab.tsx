@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { AccessAdminApi, PermissionRequest } from "../../../api/access-admin-contract.ts";
+import type { AccessAdminApi, PermissionRequest } from "@harness-anything/authorization-gui/access-admin-contract";
 import { Button } from "../primitives/Button.tsx";
 import { Region } from "../primitives/Region.tsx";
 import { Modal } from "../primitives/Modal.tsx";
@@ -94,7 +94,7 @@ export function PermissionRequestsTab({
       </form>
       {failure !== null && (
         <AccessNotice
-          rejection={failure as import("../../../api/access-admin-contract.ts").AccessRejection}
+          rejection={failure as import("@harness-anything/authorization-gui/access-admin-contract").AccessRejection}
           origin="write"
         />
       )}

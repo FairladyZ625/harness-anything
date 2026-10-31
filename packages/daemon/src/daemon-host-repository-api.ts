@@ -49,7 +49,7 @@ import { entityActionCommandTopology } from "./repo-mode.ts";
 import { resolveVerticalKindCommandAction } from "./vertical-kind-command-action.ts";
 import { cachePurgePreservedPaths, purgeRepoCache } from "./repo-cache-purge.ts";
 import { backupReceipt } from "./offline-storage.ts";
-import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
+import { createAuthorizationProvider } from "./authorization-provider.ts";
 import {
   backupRepo,
   drillRepoBackup,
@@ -79,7 +79,7 @@ async function bindAgendaTeams(binding: import("./repo-cell-types.ts").RepoCellB
   const credential = binding.keycloakAuthorization;
   if (!credential?.center) return binding;
   const center = await credential.center(),
-    adapter = new KeycloakPolicyAdapter({
+    adapter = createAuthorizationProvider({
       url: center.url,
       realm: center.realm,
       resourceServerClientId: center.clientId,
@@ -151,7 +151,7 @@ export function createDaemonHostRepositoryApi(
       if (!request.configureOnly) {
         if (context.oidc.centerConfigured()) {
           const center = await context.keycloakCenter();
-          await new KeycloakPolicyAdapter({
+          await createAuthorizationProvider({
             url: center.url,
             realm: center.realm,
             resourceServerClientId: center.clientId,

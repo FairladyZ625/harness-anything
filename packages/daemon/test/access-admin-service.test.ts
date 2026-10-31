@@ -9,7 +9,7 @@ import test, { type TestContext } from "node:test";
 import { actionDeclarations, disableDaemonRepo, unbindDaemonRepo } from "@harness-anything/kernel";
 import { AccessAdminService, type AccessAdminRequest } from "../src/access-admin-service.ts";
 import { requireAuthorizedFleetAction } from "../src/host-action-authorization.ts";
-import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
 import { alignSessionLifetime, sessionLifetimeBounds } from "../src/keycloak-session-lifetime.ts";
 import { managedRbacReceiptJournal } from "../src/managed-rbac-service.ts";
 import { OidcSessionService } from "../src/oidc-session-service.ts";

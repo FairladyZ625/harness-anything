@@ -5,7 +5,7 @@ import { createSecureContext } from "node:tls";
 import { readDaemonRegistry } from "@harness-anything/kernel";
 import { listenFleetTls, type FleetTlsCenter } from "./fleet/center.ts";
 import type { EdgeJoinAdmission, FleetCenterOptions } from "./fleet/center-types.ts";
-import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
+import { createAuthorizationProvider } from "./authorization-provider.ts";
 import type { KeycloakCenterAuthority } from "./transport/auth-context.ts";
 import { readReplicaGeneration, revokeReplicaView } from "./fleet/replica-generation.ts";
 import { FleetRemoteError, readFleetRepositoryMetadataClient } from "./fleet/peer.ts";
@@ -26,7 +26,7 @@ export function keycloakNodeRegistry(
     const authority = await center();
     return {
       token: authority.accessToken,
-      adapter: new KeycloakPolicyAdapter(
+      adapter: createAuthorizationProvider(
         { url: authority.url, realm: authority.realm, resourceServerClientId: authority.clientId },
         fetchPort,
       ),

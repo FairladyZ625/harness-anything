@@ -4,7 +4,7 @@ import test from "node:test";
 import { binding as bindDaemonPrincipal, localSystemBinding } from "../src/daemon-host-binding.ts";
 import { evaluateFleetAction } from "../src/host-action-authorization.ts";
 import { evaluateRepoCellAction } from "../src/repo-cell-authorization.ts";
-import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
 import { fatalCellError } from "../src/repo-cell-errors.ts";
 import { causeClassOf } from "../src/repo-cell-lock.ts";
 import type { RepoCellBinding } from "../src/repo-cell-types.ts";

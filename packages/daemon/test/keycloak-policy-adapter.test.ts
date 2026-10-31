@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { actionDeclarations, deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
-import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
 import {
   authorizeRepoCellAction,
   evaluateRepoCellAction,

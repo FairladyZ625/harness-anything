@@ -113,12 +113,20 @@ function authorizationAuthority(rootDir, analysis) {
           ts.isCallExpression(node) &&
           ts.isPropertyAccessExpression(node.expression) &&
           node.expression.name.text === method &&
-          ts.isNewExpression(node.expression.expression) &&
-          ts.isIdentifier(node.expression.expression.expression) &&
-          node.expression.expression.expression.text === "KeycloakPolicyAdapter",
+          providerConstruction(node.expression.expression),
       ),
     );
   return { ok: typedPort && callsPort, keycloak };
+}
+
+function providerConstruction(expression) {
+  if (ts.isNewExpression(expression))
+    return ts.isIdentifier(expression.expression) && expression.expression.text === "KeycloakPolicyAdapter";
+  return (
+    ts.isCallExpression(expression) &&
+    ts.isIdentifier(expression.expression) &&
+    expression.expression.text === "createAuthorizationProvider"
+  );
 }
 
 function someNode(node, predicate) {

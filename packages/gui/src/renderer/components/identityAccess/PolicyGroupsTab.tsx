@@ -4,7 +4,7 @@ import type {
   AccessGroupsReply,
   AccessPolicyGroup,
   AccessRejection,
-} from "../../../api/access-admin-contract.ts";
+} from "@harness-anything/authorization-gui/access-admin-contract";
 import { inheritedScopes, isRejection, roleLabel } from "../../access-model.ts";
 import { t, type MessageKey } from "../../i18n/index.tsx";
 import { DenseRow } from "../primitives/DenseRow.tsx";

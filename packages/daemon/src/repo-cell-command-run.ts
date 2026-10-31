@@ -35,7 +35,7 @@ import { deriveActionResult } from "./entity-action-catalog-executor.ts";
 import { executeVerticalScriptAction, publishExecutedVerticalScript } from "./vertical-script-actions.ts";
 import { readBeforeWriteQueue } from "./write-queue-external-reads.ts";
 import { inspectScheduleProjection } from "./schedule-projection.ts";
-import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
+import { createAuthorizationProvider } from "./authorization-provider.ts";
 import { resolveDecisionReviewAction } from "./repo-cell-action-parse.ts";
 import { candidateSample, resolveUniquePrefix } from "./unique-id-prefix.ts";
 
@@ -522,7 +522,7 @@ async function bindCurrentPersonIdentityWitnesses(
         code: "authentication_required",
       });
     const center = await credential.center(),
-      adapter = new KeycloakPolicyAdapter({
+      adapter = createAuthorizationProvider({
         url: center.url,
         realm: center.realm,
         resourceServerClientId: center.clientId,
@@ -542,7 +542,7 @@ async function bindCurrentPersonIdentityWitnesses(
     throw Object.assign(new Error("Person identity references require Keycloak."), { code: "authentication_required" });
   const center = credential.center ? await credential.center() : undefined,
     adapter = center
-      ? new KeycloakPolicyAdapter({ url: center.url, realm: center.realm, resourceServerClientId: center.clientId })
+      ? createAuthorizationProvider({ url: center.url, realm: center.realm, resourceServerClientId: center.clientId })
       : null,
     witnesses = new Map(binding.personIdentityWitnesses ?? []);
   for (const personId of ids) {

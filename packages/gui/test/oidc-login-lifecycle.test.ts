@@ -9,7 +9,7 @@ import test from "node:test";
 import type { IpcMainInvokeEvent } from "electron";
 import { OidcSessionService, type OidcSessionPorts } from "../../daemon/src/oidc-session-service.ts";
 import { registerOidcAuthIpc } from "../src/main/oidc-auth-ipc.ts";
-import { OIDC_LOGIN_CHANNEL, OIDC_CANCEL_LOGIN_CHANNEL } from "../src/api/oidc-auth-contract.ts";
+import { OIDC_LOGIN_CHANNEL, OIDC_CANCEL_LOGIN_CHANNEL } from "@harness-anything/authorization-gui/oidc-auth-contract";
 
 const authority = { url: "https://center.example.test", realm: "harness", clientId: "harness-node-fixture" };
 

@@ -22,9 +22,12 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { consumeKnownError } from "@harness-anything/kernel";
 import { runProcessExitAsync, runProcessText } from "./process-port.ts";
 import type { AccessAdminOperation, AccessAdminRequest } from "./access-admin-service.ts";
-import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
+import {
+  createAuthorizationProvider,
+  keycloakLoginAttributes,
+  keycloakLoginMappers,
+} from "./authorization-provider.ts";
 import { transientTransportFailure } from "./oidc-session-helpers.ts";
-import { keycloakLoginAttributes, keycloakLoginMappers } from "./keycloak-login-client.ts";
 import {
   alignSessionLifetime,
   sessionLifetimeBounds,
@@ -772,7 +775,7 @@ export class ManagedRbacService {
     const payload = (await tokenResponse.json()) as { readonly access_token?: unknown };
     if (typeof payload.access_token !== "string" || !payload.access_token)
       throw managedRbacError("rbac_policy_sync_failed", "Keycloak center token response omitted access_token.");
-    const adapter = new KeycloakPolicyAdapter(
+    const adapter = createAuthorizationProvider(
       { url: config.url, realm: config.realm, resourceServerClientId: config.clientId },
       this.#ports.fetch,
     );

@@ -30,6 +30,24 @@ test("G33 measures additions and deletions in tool source", () => {
   ]);
 });
 
+test("G33 classifies replaceable authorization packages into governed production modules", () => {
+  const { rootDir, base } = makeRepo({
+    "packages/authorization-keycloak/src/provider.ts": "old\n",
+    "packages/authorization-gui/src/contract.ts": "old\n",
+  });
+  writeRepoFile(rootDir, "packages/authorization-keycloak/src/provider.ts", "new\n");
+  writeRepoFile(rootDir, "packages/authorization-gui/src/contract.ts", "new\n");
+  const result = computeProductionDelta({ rootDir, base });
+  assert.deepEqual(result.unclassified, []);
+  assert.deepEqual(
+    result.changed.map(({ filePath, module }) => ({ filePath, module })),
+    [
+      { filePath: "packages/authorization-gui/src/contract.ts", module: "gui" },
+      { filePath: "packages/authorization-keycloak/src/provider.ts", module: "identity-rbac" },
+    ],
+  );
+});
+
 test("G33 ignores tool tests and fixtures in both delta directions", () => {
   const files = {
     "tools/gates/example.test.mjs": "old test\n",

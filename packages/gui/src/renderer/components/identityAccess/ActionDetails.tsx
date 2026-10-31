@@ -1,4 +1,4 @@
-import type { AccessAction } from "../../../api/access-admin-contract.ts";
+import type { AccessAction } from "@harness-anything/authorization-gui/access-admin-contract";
 import { currentLocale } from "../../i18n/core.ts";
 import { t, type MessageKey } from "../../i18n/index.tsx";
 import { BoundedContent } from "../primitives/BoundedContent.tsx";

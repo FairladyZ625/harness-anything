@@ -10,7 +10,7 @@ import {
   revokeEdgeJoin,
   type EdgeInvitePerson,
 } from "../../edge-invite-client.ts";
-import type { EdgeJoinIssued } from "../../../api/access-admin-contract.ts";
+import type { EdgeJoinIssued } from "@harness-anything/authorization-gui/access-admin-contract";
 import type { SystemRepoRow } from "../../api-client.ts";
 import { roleLabel } from "../../access-model.ts";
 import { CopyContextButton } from "../../components/CopyContextButton.tsx";

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { AccessReceipt, AccessRejection } from "../../../api/access-admin-contract.ts";
+import type { AccessReceipt, AccessRejection } from "@harness-anything/authorization-gui/access-admin-contract";
 import { isPermissionRefusal, isRejection, receiptTitle, rejectionText } from "../../access-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";

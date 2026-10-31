@@ -21,7 +21,7 @@ import {
 } from "./oidc-session-helpers.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import { managedRbacListenerUrl, managedRbacSessionStore, type ManagedRbacListener } from "./managed-rbac-service.ts";
-import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
+import { createAuthorizationProvider } from "./authorization-provider.ts";
 import { verifyFleetHuman } from "./oidc-fleet-principal.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import type { FleetDeviceLoginNotice } from "./fleet/command-protocol.ts";
@@ -273,7 +273,7 @@ export class OidcSessionService {
   revokeDeviceSessions(nodeId: string): Promise<void> {
     return this.serialize(async () => {
       const center = await this.center();
-      await new KeycloakPolicyAdapter(
+      await createAuthorizationProvider(
         { ...center, resourceServerClientId: "harness-center" },
         this.#ports.fetch,
       ).revokeNodeConsent(center.accessToken, nodeId);
@@ -599,7 +599,7 @@ export class OidcSessionService {
           now: this.#ports.now(),
         });
         if (bound.nodePrincipal!.personId === auth.nodePrincipal!.personId) return bound;
-        const adapter = new KeycloakPolicyAdapter(
+        const adapter = createAuthorizationProvider(
             { ...config, resourceServerClientId: "harness-center" },
             this.#ports.fetch,
           ),

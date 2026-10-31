@@ -1,6 +1,5 @@
-import type { EdgeJoinPlatform } from "@harness-anything/daemon/protocol";
-
-export type { EdgeJoinPlatform };
+/** Operating systems supported by the replaceable authorization UI's edge join form. */
+export type EdgeJoinPlatform = "darwin" | "linux" | "win32";
 
 export const ACCESS_ADMIN_CHANNEL = "harness:access:admin";
 
@@ -60,7 +59,7 @@ export interface AccessReceipt {
     | { readonly kind: "session-lifetime"; readonly seconds: number };
 }
 
-/** A daemon refusal. `version_conflict` carries the version the caller read and the one Keycloak holds now. */
+/** A daemon refusal. `version_conflict` carries the version the caller read and the provider holds now. */
 export interface AccessRejection {
   readonly ok: false;
   readonly code: string;
@@ -201,7 +200,7 @@ export type AccessAdminRequest = { readonly repoId?: string } & (
     }
   | {
       /**
-       * Creates the invited Keycloak user, multi-repository grants and one-time pinned link on the daemon
+       * Creates the invited provider user, multi-repository grants and one-time pinned link on the daemon
        * writer. Username, email, and displayName create a new member; an existing person is invited without them.
        */
       readonly operation: "edge-join-create";

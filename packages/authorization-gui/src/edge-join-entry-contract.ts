@@ -2,7 +2,7 @@ export const EDGE_JOIN_ENTRY_CHANNEL = "harness:edge:join";
 /** Main → renderer: the OS handed the app a harness-edge:// join link (protocol activation). */
 export const EDGE_JOIN_LINK_CHANNEL = "harness:edge:join-link";
 
-/** Keycloak device login the daemon's first edge-join call returns while nobody is signed in. */
+/** Provider device login the daemon's first edge-join call returns while nobody is signed in. */
 export interface EdgeJoinDeviceLogin {
   readonly pending: true;
   readonly verificationUri: string;

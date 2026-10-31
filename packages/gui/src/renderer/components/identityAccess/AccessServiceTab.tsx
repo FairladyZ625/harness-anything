@@ -3,8 +3,8 @@ import type {
   AccessAdminApi,
   AccessRejection,
   AccessSessionLifetimeReply,
-} from "../../../api/access-admin-contract.ts";
-import type { EmbeddedLoginPage, OidcAuthApi } from "../../../api/oidc-auth-contract.ts";
+} from "@harness-anything/authorization-gui/access-admin-contract";
+import type { EmbeddedLoginPage, OidcAuthApi } from "@harness-anything/authorization-gui/oidc-auth-contract";
 import { isRejection, sessionDuration } from "../../access-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { BrowserView } from "../../views/BrowserView.tsx";

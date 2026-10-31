@@ -57,6 +57,9 @@ export function classifyModule(filePath: string): string | null {
   if (isTestPath(normalized) || /^(?:\.github|scripts)\//u.test(normalized)) return null;
   if (normalized.startsWith("tools/")) return "tooling";
 
+  if (/^packages\/authorization-keycloak\//u.test(normalized)) return "identity-rbac";
+  if (/^packages\/authorization-gui\//u.test(normalized)) return "gui";
+
   if (normalized === "packages/kernel/src/domain/write-chain.contract.ts") return "write-contract";
   const conceptModule = CONCEPT_MODULE.exec(normalized)?.slice(1).find(Boolean);
   if (conceptModule !== undefined) return conceptModule;

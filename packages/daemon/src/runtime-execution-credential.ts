@@ -1,4 +1,4 @@
-import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
+import { createAuthorizationProvider } from "./authorization-provider.ts";
 import { stableStringify, type WriteSource } from "@harness-anything/kernel";
 import { randomBytes } from "node:crypto";
 import type { KeycloakCenterCredential } from "./transport/auth-context.ts";
@@ -137,7 +137,7 @@ export async function readRuntimeExecutionPrincipal(
     throw executionCredentialRejected();
   if (Date.parse(principal.expiresAt) <= Date.now()) throw executionCredentialRejected("expired");
   if (typeof principal.source === "object" && principal.source.kind === "node") {
-    const node = await new KeycloakPolicyAdapter(
+    const node = await createAuthorizationProvider(
       { url: center.url, realm: center.realm, resourceServerClientId: center.clientId },
       fetchPort,
     ).readNode(center.accessToken, principal.source.nodeId);

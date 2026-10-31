@@ -3,6 +3,8 @@
   "references": [
     { "path": "./packages/kernel" },
     { "path": "./packages/application" },
+    { "path": "./packages/authorization-keycloak" },
+    { "path": "./packages/authorization-gui" },
     { "path": "./packages/preset" },
     { "path": "./packages/daemon" },
     { "path": "./packages/cli" },
