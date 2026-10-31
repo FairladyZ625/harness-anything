@@ -17,10 +17,10 @@ Put every claim on a permanent record, gate the exits, and make a false `done`
 impossible to sustain. In our own self-involving use, every ungated path was
 bypassed; no gate means 100% bypass.
 
-## See the 30-second proof first
+## Try the source checkout demo
 
-The 0.0.1 CLI candidate is installable from a local npm package archive. The fastest
-path today is the source checkout smoke demo:
+The 0.0.1 CLI candidate is not yet published to the public npm registry. The
+source checkout smoke demo is the current way to build and run it:
 
 ```bash
 git clone https://github.com/FairladyZ625/harness-anything
@@ -33,8 +33,13 @@ That run builds the CLI, initializes a throwaway git workspace, creates a task,
 records a queryable fact, and renders a relation graph. A load-bearing step that
 cannot produce evidence fails closed instead of quietly passing.
 
+The demo is not a first-run authority wizard. It requires a configured
+authorization authority, a signed-in human session, and admin policy access to
+the `quickstart` repository. See [Server Daemon Operations](../../operations-server-daemon.md)
+for authority setup and login before running it.
+
 After a registry publication, install the scoped package and run `ha init` with
-no arguments. Until then, use the local package archive or source checkout path above.
+no arguments. Until then, use the source checkout path above.
 
 ## What lands on disk
 

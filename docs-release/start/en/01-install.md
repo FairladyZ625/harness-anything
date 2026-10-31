@@ -1,19 +1,10 @@
 # Install
 
-The CLI and daemon are published npm packages for Node.js 24 or newer. The desktop App is downloaded from the [GitHub Releases page](https://github.com/FairladyZ625/harness-anything/releases).
+The CLI and daemon require Node.js 24 or newer. They are not currently published to the public npm registry; use the [source checkout smoke demo](00-what-is-this.md) until publication. The desktop App is downloaded from the [GitHub Releases page](https://github.com/FairladyZ625/harness-anything/releases).
 
-## Install CLI and daemon
+## CLI and daemon
 
-```bash
-npm install --global @harness-anything/cli@latest @harness-anything/daemon@latest
-ha --version
-```
-
-Preview releases use the `next` channel:
-
-```bash
-npm install --global @harness-anything/cli@next @harness-anything/daemon@next
-```
+The source checkout path builds the CLI locally and runs it from that checkout. It does not install a global `ha` command.
 
 ## Install the desktop App
 
@@ -26,6 +17,7 @@ AppImage receives automatic updates; deb users update manually.
 - Node.js 24 or newer and npm.
 - `git`.
 - An existing git repository you can initialize or one already registered with the local daemon.
+- A configured authorization authority and signed-in user before repository initialization; see [Server Daemon Operations](../../operations-server-daemon.md).
 
 ## Complete first run
 
@@ -34,4 +26,4 @@ Harness Anything writes daemon state under `~/.harness` by default and keeps rep
 
 ## Uninstall
 
-Run `npm uninstall --global @harness-anything/cli @harness-anything/daemon`. Remove `~/.harness` only if you intentionally want to delete daemon registry and cache state.
+Remove the source checkout when you no longer need it. Daemon state under `~/.harness` is separate; remove it only if you intentionally want to delete the registry and cache.
