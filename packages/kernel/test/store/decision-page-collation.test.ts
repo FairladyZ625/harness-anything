@@ -1,6 +1,8 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { DecisionEventDraftV1 } from "../../src/domain/decision-event-types.ts";
+import { readDecisionDocumentState } from "../../src/projection/decision-projection-documents.ts";
 import { compileDecisionWrite } from "../../src/index.ts";
 import { listDecisionRowsPage, reduceDecisionEvent } from "../../src/projection/decision-event-projection.ts";
 import { encodePageCursor } from "../../src/projection/task-query-projection.ts";
@@ -56,6 +58,77 @@ test("decision pages preserve localeCompare order for mixed ids across cursor bo
         expected.slice(offset + 1, offset + 4),
       );
     }
+  } finally {
+    db.close();
+  }
+});
+
+test("historical Decision amendments replay when a legacy appended claim carries fulfillment", () => {
+  const db = decisionProjectionDatabase(),
+    decisionId = "dec_LEGACY_AMENDMENT";
+  try {
+    const proposalDraft = {
+        ...proposal(1, decisionId),
+        payload: {
+          ...proposal(1, decisionId).payload,
+          claims: [{ id: "C1", text: "The original claim remains valid.", loadBearing: true }],
+        },
+      },
+      compiledProposal = compileDecisionWrite({
+        decisionReviewRequirement: "off",
+        event: proposalDraft,
+        currentDecision: null,
+        currentRelations: [],
+        currentDocument: null,
+      }),
+      proposalEvent = compiledProposal.event;
+    reduceDecisionEvent(db, proposalEvent);
+    const current = readDecisionDocumentState(db, decisionId);
+    assert.ok(current);
+    const legacyAmendment = {
+      schema: "decision-event/v1" as const,
+      eventId: "event-2",
+      workspaceRevision: 2,
+      opId: "op-2",
+      decisionId,
+      type: "decision_amended" as const,
+      actor: proposalEvent.actor,
+      source: "local" as const,
+      occurredAt: "2026-08-13T00:00:02.000Z",
+      payload: {
+        next: {
+          title: current.title,
+          decisionClass: current.decisionClass,
+          chosen: current.chosen,
+          rejected: current.rejected,
+          claims: [
+            ...current.claims,
+            {
+              id: "C2",
+              text: "The historical amendment carried fulfillment.",
+              loadBearing: false,
+              fulfillment: "standing_policy",
+            },
+          ],
+        },
+        fields: ["claims"],
+        body: null,
+      },
+    } as unknown as DecisionEventDraftV1;
+    const compiledAmendment = compileDecisionWrite({
+      decisionReviewRequirement: "off",
+      event: legacyAmendment,
+      currentDecision: current,
+      currentRelations: [],
+      currentDocument: { blobSha256: proposalEvent.payload.decisionDocumentClaim.sha256, body: compiledProposal.body },
+    });
+    assert.doesNotThrow(() => reduceDecisionEvent(db, compiledAmendment.event));
+    assert.deepEqual(readDecisionDocumentState(db, decisionId)?.claims.at(-1), {
+      id: "C2",
+      text: "The historical amendment carried fulfillment.",
+      loadBearing: false,
+      fulfillment: "standing_policy",
+    });
   } finally {
     db.close();
   }

@@ -141,6 +141,7 @@ function assertAmendment(
   const next = event.payload.next,
     fields = new Set(event.payload.fields),
     changed = new Set<string>(),
+    auditedAmendment = event.payload.reason !== undefined,
     beforeAnchors = [...current.chosen, ...current.rejected, ...current.claims].map(({ id }) => id),
     afterAnchors = new Set([...next.chosen, ...next.rejected, ...next.claims].map(({ id }) => id));
   if (next.title !== current.title) changed.add("title");
@@ -149,16 +150,19 @@ function assertAmendment(
   if (stableStringify(next.rejected) !== stableStringify(current.rejected)) changed.add("rejected");
   for (const claim of next.claims) {
     const previous = current.claims.find(({ id }) => id === claim.id);
-    if (previous && previous.text === claim.text && previous.fulfillment !== claim.fulfillment)
+    if (auditedAmendment && previous && previous.text === claim.text && previous.fulfillment !== claim.fulfillment)
       fail("invalid_transition", `Amendment cannot change fulfillment for unchanged claim ${claim.id}.`);
-    if (previous && previous.text !== claim.text && claim.fulfillment !== null)
+    if (auditedAmendment && previous && previous.text !== claim.text && claim.fulfillment !== null)
       fail("invalid_transition", `Amendment must clear fulfillment when rewriting claim ${claim.id}.`);
-    if (!previous && claim.fulfillment !== null)
+    if (auditedAmendment && !previous && claim.fulfillment !== null)
       fail("invalid_transition", `New claim ${claim.id} cannot carry a fulfillment.`);
   }
   if (stableStringify(next.claims) !== stableStringify(current.claims)) changed.add("claims");
   if (event.payload.body !== null) changed.add("body");
-  assertNoRemovedActiveRelationAnchors(db, event.decisionId, beforeAnchors, afterAnchors);
+  // `reason` was added with audited replacement. Historical amendments predate the
+  // replacement contract and were admitted under append-only rules, so replay must
+  // preserve that envelope's original admission semantics.
+  if (auditedAmendment) assertNoRemovedActiveRelationAnchors(db, event.decisionId, beforeAnchors, afterAnchors);
   if (
     [...fields].some((field) => !["title", "decisionClass", "chosen", "rejected", "claims", "body"].includes(field)) ||
     [...fields].sort().join("\0") !== [...changed].sort().join("\0")
