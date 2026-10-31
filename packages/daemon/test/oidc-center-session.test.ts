@@ -107,7 +107,7 @@ test("a token issued by another center is rejected without writing a center sess
   assert.equal(managedRbacSessionStore(active.userRoot, active.edgeIssuer, "harness").read(), undefined);
 });
 
-test("changing edge quota does not select a different OIDC center", (t) => {
+test("edge connection changes do not select a different OIDC center", (t) => {
   const active = fixture(t),
     selection = oidcCenterSelections(active.userRoot),
     authority = { url: "https://login.example", realm: "harness", clientId: "harness-gui" },
@@ -116,18 +116,53 @@ test("changing edge quota does not select a different OIDC center", (t) => {
       host: "center",
       port: 7443,
       caPath: "/tmp/center-ca.pem",
+      servername: "center.internal",
       nodeId: "edge-node",
       credential: "machine-credential",
       viewRoot: "/tmp/view",
       quotaBytes: 100,
       loginUrl: authority.url,
+      loginServername: "login.internal",
+      loginBrowserUrl: "https://login-browser.example",
+      loginCertificate: "test-certificate",
     };
   writeFleetEdgeConfig(active.edgeRoot, edgeConfig);
   selection.write(active.edgeRoot, { issuer: active.edgeIssuer, authority }, true);
-  writeFleetEdgeConfig(active.edgeRoot, { ...edgeConfig, quotaBytes: 200 });
+  writeFleetEdgeConfig(active.edgeRoot, {
+    ...edgeConfig,
+    viewRoot: "/tmp/new-view",
+    quotaBytes: 200,
+    loginUrl: "https://new-login.example",
+    loginServername: "new-login.internal",
+    loginBrowserUrl: "https://new-login-browser.example",
+    loginCertificate: "new-test-certificate",
+  });
   assert.deepEqual(selection.read(active.edgeRoot), { issuer: active.edgeIssuer, authority });
-  writeFleetEdgeConfig(active.edgeRoot, { ...edgeConfig, loginUrl: "https://other-center.example" });
-  assert.equal(selection.read(active.edgeRoot), undefined, "changing the login authority selects a new center");
+  writeFleetEdgeConfig(active.edgeRoot, { ...edgeConfig, repoId: "another-edge-repo" });
+  assert.equal(selection.read(active.edgeRoot), undefined, "a different repository target selects a new session");
+});
+
+test("local repository selection retains its configured OIDC identity", (t) => {
+  const active = fixture(t),
+    selection = oidcCenterSelections(active.userRoot),
+    configFile = path.join(active.userRoot, "rbac", "config.json"),
+    config = { url: "https://local-center.example", realm: "harness", clientId: "harness-gui" };
+  writeFileSync(configFile, JSON.stringify(config));
+  selection.write(
+    active.localRoot,
+    {
+      issuer: active.localIssuer,
+      authority: { url: config.url, realm: config.realm, clientId: config.clientId },
+    },
+    true,
+  );
+  writeFileSync(configFile, JSON.stringify({ ...config, lastCheckedAt: "2026-10-31T00:00:00Z" }));
+  assert.deepEqual(selection.read(active.localRoot), {
+    issuer: active.localIssuer,
+    authority: { url: config.url, realm: config.realm, clientId: config.clientId },
+  });
+  writeFileSync(configFile, JSON.stringify({ ...config, url: "https://different-center.example" }));
+  assert.equal(selection.read(active.localRoot), undefined, "changing the configured center invalidates its selection");
 });
 
 test("an old single-session file is deleted and does not block the first center login", async (t) => {

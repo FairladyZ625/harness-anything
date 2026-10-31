@@ -24,14 +24,8 @@ export function oidcCenterSelections(userRoot: string) {
             port: edge.port,
             caPath: edge.caPath,
             ...(edge.servername ? { servername: edge.servername } : {}),
-            ...(edge.loginUrl ? { loginUrl: edge.loginUrl } : {}),
-            ...(edge.loginServername ? { loginServername: edge.loginServername } : {}),
-            ...(edge.loginBrowserUrl ? { loginBrowserUrl: edge.loginBrowserUrl } : {}),
-            ...(edge.loginCertificate ? { loginCertificate: edge.loginCertificate } : {}),
           }
-        : target
-          ? { target }
-          : null;
+        : null;
     const identity =
       targetIdentity ??
       (config && typeof config === "object"
