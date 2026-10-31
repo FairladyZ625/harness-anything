@@ -984,7 +984,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         ...(config.servername ? { servername: config.servername } : {}),
         nodeId: config.nodeId,
         credential: config.credential,
-        ...(config.humanClientId ? { humanClientId: config.humanClientId } : {}),
         repoId: config.repoId,
         viewRoot,
         diskQuotaBytes: config.quotaBytes,
@@ -1044,6 +1043,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           payload: config,
           nodes: {
             ...keycloakNodeRegistry(hostContext.keycloakCenter),
+            invitationClientForNode: (nodeId) => accessAdmin.invitationClientForNode(nodeId),
             loginAuthority: (nodeId) => oidc.discovery(nodeId),
             revokeDeviceSessions: (nodeId) => oidc.revokeDeviceSessions(nodeId),
             deviceLoginNotice: (nodeId, personId, notice) => oidc.receiveDeviceNotice(nodeId, personId, notice),

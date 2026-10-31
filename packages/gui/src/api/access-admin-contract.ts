@@ -121,6 +121,7 @@ export interface AccessSessionLifetimeReply {
   readonly version: string;
   readonly minimumSeconds: number;
   readonly maximumSeconds: number;
+  readonly authority: { readonly url: string; readonly realm: string };
 }
 
 /** One signed edge invitation. The daemon returns the pasteable link as a harness-edge URI string. */

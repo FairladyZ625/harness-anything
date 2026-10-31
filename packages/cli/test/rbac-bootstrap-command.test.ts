@@ -331,6 +331,12 @@ test("ha bootstrap reads and sets the session lifetime through the same daemon m
     parseThinCommand(["bootstrap", "--operation", "session-lifetime-set", "--seconds", "soon"], "/repo").ok,
     false,
   );
+  const missingVersion = parseThinCommand(
+    ["bootstrap", "--operation", "session-lifetime-set", "--seconds", "3600"],
+    "/repo",
+  );
+  assert.equal(missingVersion.ok, false);
+  if (!missingVersion.ok) assert.match(missingVersion.nextAction, /session-lifetime/u);
 });
 
 test("ha bootstrap reads and sets the listener edge nodes sign in through", () => {

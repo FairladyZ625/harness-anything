@@ -89,11 +89,11 @@ describe("会话页:工作层派生", () => {
     expect(buckets[3]!.taskGroups.map((group) => group.key)).toEqual(["task-loose"]);
   });
 
-  it("没有工作索引时任务组全部落散件,decision 组仍单独成桶", () => {
+  it("没有工作索引时任务组进入待归类桶,decision 组仍单独成桶", () => {
     const buckets = sessionWorkGroups([taskGroup("task-a"), taskGroup("task-b"), decisionGroup], NO_WORK_INDEX);
-    expect(buckets.map((bucket) => bucket.kind)).toEqual(["decision", "loose"]);
-    expect(buckets[1]!.taskGroups.map((group) => group.key)).toEqual(["task-a", "task-b"]);
-    expect(buckets[1]!.workTaskId).toBeNull();
+    expect(buckets.map((bucket) => bucket.kind)).toEqual(["pending", "decision"]);
+    expect(buckets[0]!.taskGroups.map((group) => group.key)).toEqual(["task-a", "task-b"]);
+    expect(buckets[0]!.workTaskId).toBeNull();
   });
 
   it("同一任务组只归一个桶:工作索引命中就不再进散件", () => {

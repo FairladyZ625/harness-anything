@@ -130,6 +130,12 @@ function parseRbacBootstrap(
     return rejected("missing_field", "External configuration requires --client-secret-stdin.", json);
   if (f.booleans.has("--client-secret-stdin") && f.one.get("--mode") !== "external")
     return rejected("invalid_field", "--client-secret-stdin requires --mode external.", json);
+  if (f.one.get("--operation") === "session-lifetime-set" && !f.one.get("--expected-version"))
+    return rejected(
+      "missing_field",
+      "session-lifetime-set needs --expected-version. Run ha bootstrap --operation session-lifetime first and pass its version.",
+      json,
+    );
   const administratorFields = ["--username", "--email", "--display-name", "--person-id", "--password-file"];
   if (f.one.get("--operation") === "bootstrap-admin" && administratorFields.some((flag) => !f.one.get(flag)))
     return rejected("missing_field", `First administrator creation requires ${administratorFields.join(", ")}.`, json);

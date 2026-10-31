@@ -1010,6 +1010,7 @@ function AppShell() {
                   onFocusMember={(ref) => navigate({ focusedEntityRef: ref })}
                   onSelectEntity={selectRuntimeEntity}
                   onOpenTask={openTaskDetail}
+                  remoteEdge={activeRepo?.mode === "remote-edge"}
                 />
               ) : view === "terminal" ? (
                 <TerminalRoute
@@ -1072,7 +1073,7 @@ function AppShell() {
         !triadicQuery.graphAvailable &&
         (activeEdges.hasNextPage || activeEdges.relationState === "error") ? (
           <aside className="glass glass-overlay fixed bottom-4 left-4 z-50 rounded p-3" role="status">
-            <span>{activeEdges.relationState === "error" ? "关系读取失败。" : "当前关系尚未全部加载。"}</span>
+            <span>{activeEdges.relationState === "error" ? "关系读取失败。" : "还有关系分页待加载。"}</span>
             {activeEdges.hasNextPage ? (
               <button disabled={activeEdges.isFetching} onClick={() => void activeEdges.fetchNextPage()}>
                 加载更多关系

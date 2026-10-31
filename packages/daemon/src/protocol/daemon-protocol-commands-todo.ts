@@ -3,7 +3,7 @@ import type { EntityActionInputField } from "@harness-anything/kernel";
 import {
   cliInput,
   defineCenterForwardWriteCommand,
-  defineRepoReadCommand,
+  defineEdgeReplicaQueryOnlyReadCommand,
 } from "@harness-anything/preset/internal/preset-command-contract";
 
 export const todoProtocolCommands = todoActionDefinitions.map(({ id, read, summary, fields }) => {
@@ -27,5 +27,5 @@ export const todoProtocolCommands = todoActionDefinitions.map(({ id, read, summa
     ),
     payloadFields: (fields as readonly EntityActionInputField[]).filter((field) => !field.cli),
   };
-  return read ? defineRepoReadCommand(command) : defineCenterForwardWriteCommand(command);
+  return read ? defineEdgeReplicaQueryOnlyReadCommand(command) : defineCenterForwardWriteCommand(command);
 });

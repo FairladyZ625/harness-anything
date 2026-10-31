@@ -80,7 +80,11 @@ export function CollaborationView({
       <PageHeader
         title={t("collaboration.title")}
         note={t("collaboration.fleetNote")}
-        meta={t("collaboration.fleetSummary", { nodes: nodes.length, executing, events: events.length })}
+        meta={
+          mode === "remote-edge"
+            ? undefined
+            : t("collaboration.fleetSummary", { nodes: nodes.length, executing, events: events.length })
+        }
         actions={<RepoModeBadge mode={mode} />}
       />
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-5 py-4">

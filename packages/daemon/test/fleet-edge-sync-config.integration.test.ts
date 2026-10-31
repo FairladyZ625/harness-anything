@@ -3,7 +3,7 @@
 // fleet-edge.json and the resident replica stream starts on it; a sync with a changed connection
 // rewrites the file and restarts the stream on the new settings.
 import assert from "node:assert/strict";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
@@ -47,14 +47,13 @@ test(
       ...connection,
       loginUrl: f.owners.url,
       loginBrowserUrl: f.owners.url,
-      humanClientId: "harness-gui",
     });
     f.owners.keycloak.interactiveSession(
       "person-one",
       "node-one",
       f.owners.url,
       "device-token-node-one",
-      "harness-gui",
+      "harness-node-node-one",
     );
 
     // A changed connection is rewritten and the stream restarts on it; sync waits on the new stream.
@@ -71,13 +70,11 @@ test(
       loginServername: _loginServername,
       loginBrowserUrl: _loginBrowserUrl,
       loginCertificate: _loginCertificate,
-      humanClientId: _humanClientId,
       ...persistedConnection
     } = persisted;
     assert.deepEqual(persistedConnection, changed);
     assert.equal(persisted?.loginUrl, f.owners.url);
     assert.equal(persisted?.loginBrowserUrl, f.owners.url);
-    assert.equal(persisted?.humanClientId, "harness-gui");
     const listed = await e.command({ kind: "task-list" });
     const rows = listed.rows as Array<{ readonly taskId?: string }>;
     assert.deepEqual(
@@ -90,78 +87,48 @@ test(
   },
 );
 
-test(
-  "a manual edge sync presents the invitation's interactive client, not the node client",
-  { timeout: 180_000 },
-  async (t) => {
-    // #4019's field report: the edge is signed in through the invitation's interactive client
-    // (`harness-gui` on the CEO's Ubuntu node) while the center audits `azp`. A manual sync that
-    // omits humanClientId made the center assert the node client instead, so every retry failed with
-    // human_confirmation_required while the session was live. The invitation's client is already
-    // persisted by join; a manual sync must relay that value instead of letting the center guess.
-    const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, true);
-    const e = await fleetEdgeHostFixture(t, f);
-    // Keycloak minted this device session under the invitation's interactive client, as a real join does.
-    f.owners.keycloak.interactiveSession(
-      "person-one",
-      "node-one",
-      f.owners.url,
-      "device-token-node-one",
-      "harness-gui",
-    );
-    // The RPC payload is the closed connection shape; the freshness tuning in fleet-edge.json is not one.
-    const observedAzp: unknown[] = [],
-      keycloakFetch = f.owners.keycloak.fetch;
-    f.owners.keycloak.fetch = (async (input, init) => {
-      const response = await keycloakFetch(input, init);
-      if (String(input).endsWith("/protocol/openid-connect/token/introspect")) {
-        const claims = (await response.clone().json()) as { readonly azp?: unknown };
-        observedAzp.push(claims.azp);
-      }
-      return response;
-    }) as typeof fetch;
-    const { waitTimeoutMs: _wait, ...connection } = readFleetEdgeConfig(e.edgeRoot)!,
-      sync = async () => {
-        const response = await e.rpc.handle({
-          jsonrpc: "2.0",
-          id: 200,
-          method: "daemon.fleet.edge.sync",
-          params: { payload: { ...connection, workspaceRoot: e.edgeRoot, timeoutMs: 30_000 } },
-        });
-        assert.ok(response && !Array.isArray(response), JSON.stringify(response));
-        return "result" in response ? (response.result as Record<string, unknown>) : {};
-      };
-    // The live token's actual azp is safe diagnostic data. With humanClientId absent, center verification
-    // defaults to the node client and rejects this same otherwise-valid request.
-    const missingClient = await sync(),
-      fallbackAzp = `harness-node-${connection.nodeId}`;
-    assert.equal(observedAzp[0], "harness-gui");
-    assert.notEqual(observedAzp[0], fallbackAzp);
-    assert.equal(missingClient.code, "human_confirmation_required");
-    t.diagnostic(
-      JSON.stringify({
-        field: "azp",
-        observedAzp: observedAzp[0],
-        expectedAzpWithoutHumanClientId: fallbackAzp,
-        result: missingClient.code,
-        tokenLogged: false,
-      }),
-    );
-    // Join persists the interactive client beside the machine credential; the manual sync reads it.
-    writeFleetEdgeConfig(e.edgeRoot, { ...connection, humanClientId: "harness-gui" });
-    const synced = await sync();
-    assert.equal(observedAzp[1], "harness-gui");
-    assert.equal(synced.ok, true, JSON.stringify(synced));
-    assert.equal(synced.outcome, "applied", JSON.stringify(synced));
-    assert.equal(readFleetEdgeConfig(e.edgeRoot)?.humanClientId, "harness-gui", "the sync keeps the invitation client");
-    t.diagnostic(
-      JSON.stringify({
-        field: "azp",
-        observedAzp: observedAzp[1],
-        expectedAzpWithHumanClientId: "harness-gui",
-        result: synced.outcome,
-        tokenLogged: false,
-      }),
-    );
-  },
-);
+test("a stale humanClientId cannot override the node-derived azp during edge sync", { timeout: 180_000 }, async (t) => {
+  const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, true);
+  const e = await fleetEdgeHostFixture(t, f);
+  f.owners.keycloak.interactiveSession(
+    "person-one",
+    "node-one",
+    f.owners.url,
+    "device-token-node-one",
+    "harness-node-node-one",
+  );
+  const observedAzp: unknown[] = [],
+    keycloakFetch = f.owners.keycloak.fetch;
+  f.owners.keycloak.fetch = (async (input, init) => {
+    const response = await keycloakFetch(input, init);
+    if (String(input).endsWith("/protocol/openid-connect/token/introspect")) {
+      const claims = (await response.clone().json()) as { readonly azp?: unknown };
+      observedAzp.push(claims.azp);
+    }
+    return response;
+  }) as typeof fetch;
+  const { waitTimeoutMs: _wait, ...connection } = readFleetEdgeConfig(e.edgeRoot)!,
+    sync = async () => {
+      const response = await e.rpc.handle({
+        jsonrpc: "2.0",
+        id: 200,
+        method: "daemon.fleet.edge.sync",
+        params: { payload: { ...connection, workspaceRoot: e.edgeRoot, timeoutMs: 30_000 } },
+      });
+      assert.ok(response && !Array.isArray(response), JSON.stringify(response));
+      return "result" in response ? (response.result as Record<string, unknown>) : {};
+    };
+  writeFileSync(
+    path.join(e.edgeRoot, "fleet-edge.json"),
+    JSON.stringify({ schema: "fleet-edge-config/v1", ...connection, humanClientId: "harness-gui" }),
+  );
+  const synced = await sync();
+  assert.equal(observedAzp[0], "harness-node-node-one");
+  assert.equal(synced.ok, true, JSON.stringify(synced));
+  assert.equal(synced.outcome, "applied", JSON.stringify(synced));
+  const persisted = JSON.parse(readFileSync(path.join(e.edgeRoot, "fleet-edge.json"), "utf8")) as Record<
+    string,
+    unknown
+  >;
+  assert.equal(Object.hasOwn(persisted, "humanClientId"), false);
+});

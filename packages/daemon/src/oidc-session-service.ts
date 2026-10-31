@@ -554,11 +554,11 @@ export class OidcSessionService {
           issuerUrl: config.listener ? managedRbacListenerUrl(config.listener) : config.url,
           realm: config.realm,
           clientId: "harness-center",
+          expectedAzps: [{ clientId: `harness-node-${auth.nodePrincipal!.nodeId}` }, ...(auth.fleetExpectedAzps ?? [])],
           clientSecret: readFileSync(path.join(this.#rbacRoot, "center-client-secret"), "utf8").trim(),
           adminAccessToken,
           fetch: this.#ports.fetch,
           now: this.#ports.now(),
-          ...(auth.humanClientId ? { expectedAzp: auth.humanClientId } : {}),
         });
         if (bound.nodePrincipal!.personId === auth.nodePrincipal!.personId) return bound;
         const adapter = new KeycloakPolicyAdapter(

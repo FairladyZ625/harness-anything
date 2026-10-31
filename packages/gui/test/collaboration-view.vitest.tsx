@@ -417,6 +417,7 @@ describe("协作页舰队拓扑契约", () => {
     );
     expect(edge.host.querySelector('[data-testid="collaboration-topology"]')).toBeNull();
     expect(edge.host.querySelector('[data-testid="collaboration-read-error"]')).toBeNull();
+    expect(edge.host.querySelector('[data-testid="collaboration-view"] header')?.textContent).not.toContain("0 节点");
   });
 
   it("授权类读拒绝显示人话原因,机器码只进 data-reason/title;未识别码原样保留", () => {

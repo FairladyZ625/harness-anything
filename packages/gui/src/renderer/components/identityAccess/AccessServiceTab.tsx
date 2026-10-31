@@ -362,6 +362,9 @@ function SessionLifetime({ access }: { readonly access: AccessAdminApi }) {
         <AccessNotice rejection={rejection} origin="read" testId="access-lifetime-unavailable" />
       ) : data ? (
         <div className="flex flex-col gap-2">
+          <p data-testid="access-lifetime-authority" className="text-text-muted ui-meta">
+            {t("accessControl.lifetime.authority", { url: data.authority.url, realm: data.authority.realm })}
+          </p>
           {refusal && <AccessNotice rejection={refusal} origin="write" testId="access-lifetime-refusal" />}
           <label className="flex flex-col gap-1 ui-meta text-text-muted">
             {t("accessControl.lifetime.label")}
@@ -415,6 +418,9 @@ function SessionLifetime({ access }: { readonly access: AccessAdminApi }) {
               minimum: Math.ceil(data.minimumSeconds / 60),
               maximum: Math.floor(data.maximumSeconds / 60),
             })}
+          </p>
+          <p className="text-text-faint ui-meta">
+            {t("accessControl.lifetime.versionHint", { version: data.version })}
           </p>
         </div>
       ) : (

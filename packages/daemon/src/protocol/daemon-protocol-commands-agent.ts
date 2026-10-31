@@ -699,7 +699,7 @@ export const agentProtocolCommands = Object.freeze([
     phase: "W3",
     path: ["bootstrap"],
     summary:
-      "Sign in without a local browser (--operation login), inspect session, or logout; install/configure Keycloak, manage its HTTPS listener, session lifetime and fleet node registrations. Configure external harness-center credentials with --client-secret-stdin (redirected input only). Create the first administrator with --operation bootstrap-admin and --password-file; credentials never belong in argv. A first node registration requires --credential-file for the machine credential it mints.",
+      "Sign in without a local browser (--operation login), inspect session, or logout; install/configure Keycloak, manage its HTTPS listener, session lifetime and fleet node registrations. `session-lifetime` reports the Keycloak URL and realm it reads. To set the lifetime, first read its version and pass it with --expected-version. Configure external harness-center credentials with --client-secret-stdin (redirected input only). Create the first administrator with --operation bootstrap-admin and --password-file; credentials never belong in argv. A first node registration requires --credential-file for the machine credential it mints.",
     method: "daemon.rbac.manage",
     inputs: [
       cliInput(
@@ -764,7 +764,16 @@ export const agentProtocolCommands = Object.freeze([
         { code: "invalid_field" },
         { field: "sessionLifetimeSeconds", regex: "^[1-9][0-9]*$", projection: "number" },
       ),
-      cliInput("--expected-version", "single", false, { code: "invalid_field" }, { field: "expectedVersion" }),
+      cliInput(
+        "--expected-version",
+        "single",
+        false,
+        { code: "invalid_field" },
+        {
+          field: "expectedVersion",
+          description: "for session-lifetime-set, use the version returned by --operation session-lifetime",
+        },
+      ),
       cliInput(
         "--operation-id",
         "single",

@@ -233,8 +233,10 @@ test("admission binds the invited person, validates the snapshot, and serializes
     registered = 0,
     validated = 0;
   const oidc = {
-    bind: async (auth: { readonly humanClientId?: string }) => {
-      assert.equal(auth.humanClientId, "edge-client");
+    bind: async (auth: {
+      readonly fleetExpectedAzps?: readonly { readonly clientId: string; readonly personId?: string }[];
+    }) => {
+      assert.deepEqual(auth.fleetExpectedAzps, [{ clientId: "edge-client", personId: "person-a" }]);
       return { oidcPrincipal: { personId: "person-a" } };
     },
     serialize: <T>(operation: () => Promise<T>) => {

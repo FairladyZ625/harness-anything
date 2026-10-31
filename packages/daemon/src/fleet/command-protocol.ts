@@ -53,7 +53,7 @@ export interface FleetRuntimeDispatchContext {
   readonly executionId: string | null;
 }
 type Msg<S extends string, P extends object = object> = S extends string
-  ? Readonly<{ schema: S; messageId: string; accessToken?: string; humanClientId?: string }> & Readonly<P>
+  ? Readonly<{ schema: S; messageId: string; accessToken?: string }> & Readonly<P>
   : never;
 export interface FleetDeviceLoginNotice {
   readonly userCode: string;

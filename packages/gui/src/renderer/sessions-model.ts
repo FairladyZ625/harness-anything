@@ -48,7 +48,7 @@ export function sessionDrillTarget(group: SessionGroup): SessionDrillTarget | nu
 export type SessionWorkGroup = {
   /** `work:<taskId>` / `loose` / `decision-review`. */
   readonly key: string;
-  readonly kind: "work" | "loose" | "decision";
+  readonly kind: "work" | "loose" | "decision" | "pending";
   /** 工作标题;`loose` 与 `decision` 桶留给视图按 i18n 命名。 */
   readonly label: string;
   readonly workTaskId: string | null;
@@ -132,6 +132,13 @@ export function sessionWorkGroups(groups: readonly SessionGroup[], works: WorkIn
         right.latestActivityAt.localeCompare(left.latestActivityAt) ||
         left.key.localeCompare(right.key),
     );
+  if (!works.ready) {
+    const taskGroups = groups.filter((group) => group.kind !== "decision");
+    return [
+      ...(taskGroups.length > 0 ? [summarize("pending", "pending", "", null, taskGroups)] : []),
+      ...(decisions.length > 0 ? [summarize(DECISION_WORK_KEY, "decision", "", null, decisions)] : []),
+    ];
+  }
   return [
     ...workBuckets,
     ...(decisions.length > 0 ? [summarize(DECISION_WORK_KEY, "decision", "", null, decisions)] : []),

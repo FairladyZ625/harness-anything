@@ -107,7 +107,7 @@ test(
           issuedNodeId,
           loginUrl,
           `device-token-${issuedNodeId}`,
-          "harness-gui",
+          invite.loginClientId,
         );
         return {
           joinId: invite.joinId,
@@ -195,7 +195,13 @@ test(
         assert.ok(sshArgs[0]!.includes(`127.0.0.1:0:10.211.55.2:${center.port}`));
         assert.ok(sshArgs[0]!.includes(`127.0.0.1:0:localhost:${loginPort}`));
       }
-      f.owners.keycloak.interactiveSession("person-one", nodeName, loginUrl, `device-token-${nodeName}`, "harness-gui");
+      f.owners.keycloak.interactiveSession(
+        "person-one",
+        nodeName,
+        loginUrl,
+        `device-token-${nodeName}`,
+        decodeEdgeJoinLink(invitation.link).loginClientId,
+      );
       const { response, workspaceRoot } = await join(nodeName, invitation.link, nodeName === "node-one"),
         result = response.result as Record<string, unknown>;
       assert.equal(result?.ok, true, JSON.stringify(response));
@@ -211,7 +217,6 @@ test(
         config = readFleetEdgeConfig(repoWorkspace);
       assert.equal(config?.nodeId, issuedNodeId);
       assert.equal(config?.credential, `secret-${issuedNodeId}`);
-      assert.equal(config?.humanClientId, "harness-gui");
       if (nodeName === "node-one") {
         assert.equal(config?.host, "127.0.0.1");
         assert.equal(config?.servername, "localhost");

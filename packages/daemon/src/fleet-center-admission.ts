@@ -48,7 +48,13 @@ export interface FleetCenterAdmissionRequest {
   readonly userRoot: string;
   readonly nodes: Pick<
     FleetCenterOptions,
-    "authenticate" | "nodeOwner" | "loginAuthority" | "verifyHuman" | "deviceLoginNotice" | "revokeDeviceSessions"
+    | "authenticate"
+    | "nodeOwner"
+    | "invitationClientForNode"
+    | "loginAuthority"
+    | "verifyHuman"
+    | "deviceLoginNotice"
+    | "revokeDeviceSessions"
   > & {
     readonly edgeJoin?: (
       input: Parameters<NonNullable<FleetCenterOptions["edgeJoin"]>>[0],
@@ -167,7 +173,6 @@ export interface FleetEdgeSyncRequest {
     readonly servername?: string;
     readonly nodeId: string;
     readonly credential: string;
-    readonly humanClientId?: string;
     readonly repoId: string;
     readonly viewRoot: string;
     readonly quotaBytes: number;
@@ -183,17 +188,8 @@ export async function syncFleetEdgeMirror(
   // Sync means "caught up with the center now": ask for its replication head and whether the node's
   // owner may read the repository (the replica's own admission), then let the resident stream reach
   // the head. There is no second pull path; a stopped or failing stream fails the sync.
-  // The workspace's fleet-edge.json already records the interactive client the invitation signed
-  // this device under; join writes it and the resident stream relays it. The manual RPC payload has
-  // no field for it (a closed shape), so a sync that only carries connection fields must read the
-  // one persisted value instead of letting the center fall back to the node client (azp mismatch).
-  const persisted = readFleetEdgeConfig(input.payload.workspaceRoot),
-    request: FleetEdgeSyncRequest["payload"] = {
-      ...input.payload,
-      ...(input.payload.humanClientId === undefined && persisted?.humanClientId
-        ? { humanClientId: persisted.humanClientId }
-        : {}),
-    },
+  // The center derives the required token client from the authenticated node identity.
+  const request: FleetEdgeSyncRequest["payload"] = { ...input.payload },
     advise = (code: string, message: string): never => {
       // A sync the center denies withholds the rows already delivered: the view stops answering, and
       // the resident stream installs a fresh one once the center admits the replica again.
@@ -217,7 +213,6 @@ export async function syncFleetEdgeMirror(
     },
     head = await readFleetRepositoryMetadataClient({
       ...(readAccessToken ? { readAccessToken } : {}),
-      ...(request.humanClientId ? { humanClientId: request.humanClientId } : {}),
       hostname: request.host,
       port: request.port,
       ca: material(request.caPath, "--ca"),
@@ -301,11 +296,6 @@ function persistEdgeConnection(request: FleetEdgeSyncRequest["payload"]): void {
     ...(request.servername ? { servername: request.servername } : {}),
     nodeId: request.nodeId,
     credential: request.credential,
-    ...(request.humanClientId
-      ? { humanClientId: request.humanClientId }
-      : previous?.humanClientId
-        ? { humanClientId: previous.humanClientId }
-        : {}),
     ...(previous?.loginUrl ? { loginUrl: previous.loginUrl } : {}),
     ...(previous?.loginServername ? { loginServername: previous.loginServername } : {}),
     ...(previous?.loginBrowserUrl ? { loginBrowserUrl: previous.loginBrowserUrl } : {}),

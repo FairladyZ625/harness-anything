@@ -28,6 +28,7 @@ const verify = (updates: Record<string, unknown> = {}, userUpdates: Record<strin
     issuerUrl: "https://center.test",
     realm: "harness",
     clientId: "harness-center",
+    expectedAzps: [{ clientId: "harness-node-a" }],
     clientSecret: "center-secret",
     adminAccessToken: "admin-token",
     now: 10_000,

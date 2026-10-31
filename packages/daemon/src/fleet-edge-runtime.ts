@@ -184,9 +184,6 @@ export function openFleetEdgeRuntime(input: {
       nodeId: request.nodeId,
       credential,
       repoId: request.repoId,
-      ...(readFleetEdgeConfig(request.workspaceRoot)?.humanClientId
-        ? { humanClientId: readFleetEdgeConfig(request.workspaceRoot)!.humanClientId }
-        : {}),
     },
     runtimeReadTimeoutMs = readFleetEdgeConfig(request.workspaceRoot)?.waitTimeoutMs,
     runtimeReadPeer: FleetPeerOptions = {

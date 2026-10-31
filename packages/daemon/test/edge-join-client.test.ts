@@ -309,7 +309,6 @@ test("ssh-reverse writes the login authority before the first sync", async (t) =
   );
   assert.equal(result.ok, true);
   assert.equal(configAtSync?.loginUrl, "https://127.0.0.1:9443");
-  assert.equal(configAtSync?.humanClientId, "harness-gui");
 });
 
 test("both external addresses are probed before login, and each failure names its address", async () => {

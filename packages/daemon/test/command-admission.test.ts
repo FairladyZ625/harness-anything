@@ -210,6 +210,16 @@ test("Settings CLI read uses the common read topology while update forwards from
   assert.equal(byId.get("settings-update")?.commandClass, "repo-write");
 });
 
+test("todo reads use the edge replica like other repository query-only reads", () => {
+  const byId = new Map(daemonProtocolCommands.map((command) => [command.id, command]));
+  for (const id of ["todo-list", "todo-show"]) {
+    const command = byId.get(id);
+    assert.equal(command?.commandClass, "repo-read", id);
+    assert.equal(command?.admission["remote-edge"], "edge-replica", id);
+    assert.equal(command?.repoCellExecution, "query-only", id);
+  }
+});
+
 test("Artifact import forwards edge observations into the center single-writer queue", () => {
   const command = daemonProtocolCommands.find(({ id }) => id === "entity-import");
   assert.deepEqual(command?.admission, {
