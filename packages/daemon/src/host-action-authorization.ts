@@ -38,11 +38,16 @@ export async function evaluateFleetAction(input: {
     credential = input.binding.keycloakAuthorization;
   if (!credential) {
     const declaration = actionDeclarations.find((candidate) => candidate.kind === input.kind);
+    // dec_2446BC2F8C68630F71AE3E3BD7/CH4 reclassified daemon controls as host-local, but the
+    // declaration records that the acting person's session is still required: only the one-time
+    // rbac-bootstrap exception keeps socket-owner authority. A host-local label must not widen
+    // who may purge, bootstrap, or control a repository.
     if (
       input.binding.source === "local" &&
       input.binding.daemonSocketOwner === true &&
       declaration &&
-      declaration.residency.scope !== "canonical"
+      declaration.residency.scope !== "canonical" &&
+      declaration.socketOwnerAuthority !== false
     )
       return {
         ...keycloakDecision(envelope, input.evaluatedAtCut, "allowed", "daemon_socket_owner"),

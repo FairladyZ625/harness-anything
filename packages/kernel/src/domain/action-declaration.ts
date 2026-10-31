@@ -234,6 +234,8 @@ export interface ActionDeclaration {
   readonly residency: ActionResidency;
   readonly receiptSettlement: ReceiptSettlementClass;
   readonly writeRoad?: "lifecycle.event-publication" | "workspace.bootstrap" | "daemon.runtime-control";
+  /** Host-local writers that still need the acting person's session; socket ownership alone is not authority. */
+  readonly socketOwnerAuthority?: boolean;
 }
 
 const canonicalResidency = Object.freeze({ scope: "canonical" as const, writer: "center-repo-cell" as const }),
@@ -293,6 +295,7 @@ const local = (
 const hostAdmin = (
   kind: keyof typeof actionPresentation,
   writeRoad?: ActionDeclaration["writeRoad"],
+  socketOwnerAuthority = true,
 ): ActionDeclaration =>
   Object.freeze({
     kind,
@@ -303,6 +306,7 @@ const hostAdmin = (
     residency: hostResidency,
     receiptSettlement: "none",
     ...(writeRoad === undefined ? {} : { writeRoad }),
+    ...(socketOwnerAuthority ? {} : { socketOwnerAuthority: false }),
   });
 
 const runtimeAdmin = (kind: keyof typeof actionPresentation): ActionDeclaration =>
@@ -335,9 +339,9 @@ export const actionDeclarations = Object.freeze([
   hostAdmin("daemon-connection-update"),
   hostAdmin("ledger-backup", "workspace.bootstrap"),
   hostAdmin("ledger-restore-drill", "workspace.bootstrap"),
-  hostAdmin("daemon-control-request"),
-  hostAdmin("daemon-fleet-center-start"),
-  hostAdmin("daemon-fleet-edge-sync"),
+  hostAdmin("daemon-control-request", undefined, false),
+  hostAdmin("daemon-fleet-center-start", undefined, false),
+  hostAdmin("daemon-fleet-edge-sync", undefined, false),
   hostAdmin("permission-request-create"),
   hostAdmin("permission-request-decide"),
   hostAdmin("permission-request-withdraw"),
@@ -347,8 +351,8 @@ export const actionDeclarations = Object.freeze([
   hostAdmin("daemon-repo-update"),
   hostAdmin("daemon-service-install"),
   hostAdmin("daemon-service-uninstall"),
-  hostAdmin("daemon-start", "daemon.runtime-control"),
-  hostAdmin("daemon-stop", "daemon.runtime-control"),
+  hostAdmin("daemon-start", "daemon.runtime-control", false),
+  hostAdmin("daemon-stop", "daemon.runtime-control", false),
   canonical("decision-accept", "decision/accept", "repo-write"),
   canonical("decision-amend", "decision/amend", "repo-write"),
   canonical("decision-assign", "decision/assign", "repo-write"),
@@ -408,7 +412,7 @@ export const actionDeclarations = Object.freeze([
   canonical("relation-reconfirm", "relation/reconfirm", "repo-write"),
   canonical("relation-relate", "relation/relate", "repo-write"),
   canonical("relation-unrelate", "relation/unrelate", "repo-write"),
-  hostAdmin("repo-bootstrap", "workspace.bootstrap"),
+  hostAdmin("repo-bootstrap", "workspace.bootstrap", false),
   canonical("runtime-batch", null, "repo-write"),
   canonical("runtime-cancel", null, "repo-write"),
   canonical("runtime-steer", null, "repo-write"),
