@@ -197,6 +197,68 @@ test("a disconnected SSH tunnel reconnects with its allocated ports and can be r
   await manager.close();
 });
 
+test("an unreachable SSH target backs off while retaining automatic reconnect", async () => {
+  let nowMs = 0,
+    targetReachable = false;
+  const scheduled: { callback: () => void; cancelled: boolean; dueMs: number; delayMs: number }[] = [],
+    restartDelays: number[] = [],
+    schedule = (callback: () => void, delayMs: number) => {
+      const timer = { callback, cancelled: false, dueMs: nowMs + delayMs, delayMs };
+      scheduled.push(timer);
+      if (delayMs !== 15_000 && delayMs !== 45_000) restartDelays.push(delayMs);
+      return () => {
+        timer.cancelled = true;
+      };
+    },
+    children: FakeProcess[] = [],
+    manager = new EdgeJoinSshTunnelManager({
+      spawn: (() => {
+        const child = fakeProcess();
+        children.push(child);
+        if (!targetReachable) schedule(() => child.exit(255), 15_000);
+        return child.process;
+      }) as never,
+      schedule,
+    }),
+    pending = manager.start({
+      target: "operator@unreachable.example",
+      fleetServicePort: 7545,
+      fleetServiceHost: "127.0.0.1",
+      loginServicePort: 18544,
+      loginServiceHost: "127.0.0.1",
+    });
+  void pending.catch(() => undefined);
+
+  const advanceTo = async (targetMs: number) => {
+    while (true) {
+      const next = scheduled
+        .filter((timer) => !timer.cancelled && timer.dueMs <= targetMs)
+        .sort((left, right) => left.dueMs - right.dueMs)[0];
+      if (!next) break;
+      next.cancelled = true;
+      nowMs = next.dueMs;
+      next.callback();
+      await Promise.resolve();
+    }
+    nowMs = targetMs;
+  };
+
+  await advanceTo(10 * 60_000);
+  assert.equal(children.length, 7);
+  assert.deepEqual(restartDelays, [5_000, 10_000, 20_000, 40_000, 80_000, 160_000, 300_000]);
+  assert.equal(manager.state("operator@unreachable.example"), "reconnecting");
+  targetReachable = true;
+  await advanceTo(12 * 60_000);
+  assert.equal(children.length, 8);
+  children[7]!.data("Allocated port 41231 for remote forward to 127.0.0.1:7545\r\n");
+  children[7]!.data("Allocated port 41232 for remote forward to 127.0.0.1:18544\r\n");
+  assert.equal(manager.state("operator@unreachable.example"), "connected");
+  children[7]!.exit(255);
+  assert.equal(restartDelays.at(-1), 5_000);
+  assert.equal(manager.state("operator@unreachable.example"), "reconnecting");
+  await manager.close();
+});
+
 test("a startup timeout waits for the SSH child to exit before scheduling a replacement", async () => {
   const children: FakeProcess[] = [],
     scheduled: { callback: () => void; cancelled: boolean; delayMs: number }[] = [],
