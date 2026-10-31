@@ -290,6 +290,97 @@ test("a changes_requested verdict below the budget reopens rework in the same wr
   }
 });
 
+test("automatic rework settles the submitting worker before launching its continuation", async () => {
+  const f = await fixture(false, true, false, false, false, { autoSubmit: false, autoProviderSession: true });
+  try {
+    await f.install();
+    const worker = await f.cell().spawnRuntime(
+      {
+        agentId: "closeout-reviewer",
+        role: "worker",
+        taskId,
+        dispatchKey: "task-rework-live-submitter-worker",
+        prompt: "Implement the first cut, submit it, then continue the current turn.",
+      },
+      owner,
+    );
+    assert.equal(worker.outcome, "applied", JSON.stringify(worker));
+    const source = f
+      .events()
+      .find(
+        (event) =>
+          event.type === "runtime_dispatch_requested" &&
+          event.payload.dispatchKey === "task-rework-live-submitter-worker",
+      );
+    assert.ok(source?.type === "runtime_dispatch_requested");
+    await f.waitForProviderBinding(source.payload.dispatchId, "review-provider-session");
+
+    const workerBinding = withPolicyGroup(
+      withPolicyGroup(
+        {
+          actor: {
+            principal: owner.actor.principal,
+            executor: { kind: "agent" as const, id: `runtime-session:${source.payload.runtimeSessionId}` },
+          },
+          source: "local" as const,
+        },
+        "contributor",
+      ),
+      "maintainer",
+    );
+    const submitted = await f.submit(executionId, workerBinding);
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    assert.equal(
+      f
+        .events()
+        .some(
+          (event) =>
+            event.type === "runtime_session_outcome_observed" &&
+            event.payload.runtimeSessionId === source.payload.runtimeSessionId,
+        ),
+      false,
+      "the submitting worker is still active after submit",
+    );
+
+    const reviewer = f
+      .events()
+      .find((event) => event.type === "runtime_dispatch_requested" && event.payload.role === "reviewer");
+    assert.ok(reviewer?.type === "runtime_dispatch_requested");
+    const reviewed = await recordReview(
+      f,
+      reviewer.payload.runtimeSessionId,
+      "review-live-submitter-changes",
+      "changes_requested",
+    );
+    assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+
+    const events = f.events(),
+      sourceOutcomeIndex = events.findIndex(
+        (event) =>
+          event.type === "runtime_session_outcome_observed" &&
+          event.payload.runtimeSessionId === source.payload.runtimeSessionId,
+      ),
+      continuationIndex = events.findIndex(
+        (event) =>
+          event.type === "runtime_dispatch_requested" &&
+          event.payload.taskId === taskId &&
+          event.payload.role !== "reviewer" &&
+          event.payload.runtimeSessionId !== source.payload.runtimeSessionId,
+      );
+    assert.ok(continuationIndex >= 0, "the review must dispatch the rework continuation");
+    assert.ok(sourceOutcomeIndex >= 0, "the old worker must be settled before rework starts");
+    assert.ok(continuationIndex > sourceOutcomeIndex, "the continuation must launch after old-worker settlement");
+    assert.equal(
+      events[sourceOutcomeIndex]?.type === "runtime_session_outcome_observed"
+        ? events[sourceOutcomeIndex].payload.outcome
+        : undefined,
+      "cancelled",
+    );
+  } finally {
+    await f.close();
+  }
+});
+
 test("the rework budget stops the loop and leaves the cut to the owner", async () => {
   const f = await fixture(false, true, false, false, false, { autoSubmit: false });
   try {
@@ -685,6 +776,10 @@ test("an owner rework with no provider session falls back to a fresh worker disp
     assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
     await settleReviewerDispatch(f);
     assert.equal((await f.consent("review-missing-provider-session-approved")).outcome, "applied");
+    // End the fake provider while its no-op terminate handle is still registered. After reopen,
+    // adoption sees the test process PID as the runtime root and would inspect the whole test
+    // process tree instead of modeling a worker-owned provider process.
+    assert.equal((await f.cancel(source.payload.runtimeSessionId)).outcome, "applied");
     await f.reopen();
     const sourceStreamPath = dispatchStreamPath(f.root, source.payload.dispatchId),
       sourceStream = readFileSync(sourceStreamPath, "utf8")
