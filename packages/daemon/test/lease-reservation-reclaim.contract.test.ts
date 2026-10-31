@@ -239,6 +239,16 @@ test("the task owner reclaims a held lease from an exited holder across executio
     terminalSnapshot = { ...snapshot(), task: ownedTask, executions: [execution], lease: heldLease },
     taskOwnerBinding = authorized({ principal: taskOwner.principal, executor: null });
   try {
+    const proofDispatchId = "dispatch_" + "d".repeat(24);
+    openDispatchStream(rootDir, {
+      dispatchId: proofDispatchId,
+      taskId: heldLease.taskId,
+      executionId: heldLease.executionId,
+      runtimeSessionId,
+      instanceId: "codex-test",
+      startedAt: now,
+    });
+    appendRuntimeWorkerRecord(rootDir, proofDispatchId, { kind: "process_started", pid: 2_147_483_647 });
     const mutation = taskMutation(
       terminalCell,
       { kind: "task-release", taskId: task.taskId, reason: "The bound worker exited." },
@@ -329,14 +339,16 @@ test("the same principal recovers an exited holder after settlement removes its 
     }),
     dispatchId = "dispatch_cccccccccccccccccccccccc";
   try {
-    openDispatchStream(rootDir, {
+    const stream = openDispatchStream(rootDir, {
       dispatchId,
       taskId: heldLease.taskId,
       executionId: heldLease.executionId,
       runtimeSessionId,
       instanceId: "codex-test",
       startedAt: now,
-    }).appendAttemptOutcome(
+    });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: 2_147_483_647 });
+    stream.appendAttemptOutcome(
       {
         classification: "worker_stop",
         reason: "Worker reached a normal attempt boundary.",
@@ -455,6 +467,53 @@ test("the same principal reclaims a live-projected RuntimeSession only after its
     );
     assert.equal(mutation.type, "lease_released");
     assert.equal(mutation.releasedLease, heldLease);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("terminal runtime lease release requires a process-group stop proof", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-terminal-process-group-proof-")),
+    runtimeSessionId = "runtime-terminal-proof",
+    dispatchId = "dispatch_cccccccccccccccccccccccc",
+    orphanedLease = { ...lease, phase: "orphaned" as const },
+    terminalCell = { ...cell, rootDir },
+    terminalAction = {
+      kind: "task-release" as const,
+      taskId: task.taskId,
+      terminalExecutionId: lease.executionId,
+      terminalRuntimeSessionId: runtimeSessionId,
+    };
+  try {
+    assert.throws(
+      () =>
+        taskMutation(
+          terminalCell,
+          terminalAction,
+          task,
+          { ...snapshot(), lease: orphanedLease },
+          authorized(owner("replacement-worker")),
+        ),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
+    );
+
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: task.taskId,
+      executionId: lease.executionId,
+      runtimeSessionId,
+      instanceId: "codex-test",
+      startedAt: now,
+    });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: 2_147_483_647 });
+    const mutation = taskMutation(
+      terminalCell,
+      terminalAction,
+      task,
+      { ...snapshot(), lease: orphanedLease },
+      authorized(owner("replacement-worker")),
+    );
+    assert.equal(mutation.type, "lease_released");
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

@@ -552,6 +552,7 @@ export function openFleetEdgeRuntime(input: {
                   taskId,
                   terminalExecutionId: executionId,
                   terminalRuntimeSessionId: terminal.runtimeSessionId,
+                  terminalProcessGroupPid: terminal.processGroupPid,
                   reason: `Runtime session ${terminal.runtimeSessionId} reached a terminal dispatch state.`,
                 },
               }),

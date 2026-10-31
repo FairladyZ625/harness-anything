@@ -232,9 +232,3 @@ export function formatHandoffPacket(packet: HandoffPacketV1): string {
     ...(packet.taskContext ? ["", packet.taskContext] : []),
   ].join("\n");
 }
-
-/** Names retained for callers migrating from the Studio implementation. */
-export const buildPacket = buildHandoffPacket;
-export const packetText = formatHandoffPacket;
-export type HandoffPacket = HandoffPacketV1;
-export type PacketInput = HandoffPacketInput;

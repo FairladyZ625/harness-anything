@@ -1,10 +1,16 @@
 import path from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import {
+  buildHandoffPacket,
   resolveHarnessLayout,
   runtimeSessionMissingOutcomeEvidence,
   sha256Bytes,
+  sha256Text,
   stableStringify,
+  verifyHandoffPacketDigest,
+  type HandoffPacketV1,
+  type RuntimeSession,
+  type TaskV2,
   type WriteReceiptDraft,
   type WriteSource,
 } from "@harness-anything/kernel";
@@ -14,6 +20,7 @@ import { validateHandoffRollout } from "./runtime-handoff-native.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { FLEET_CHUNK_BYTES, type FleetDescriptor } from "./fleet/command-protocol.ts";
+import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";
 
 export interface RuntimeHandoffCheckpoint {
   readonly dispatchId: string;
@@ -30,6 +37,8 @@ export interface RuntimeHandoffCheckpoint {
   readonly blob: Pick<FleetDescriptor, "sha256" | "size" | "mediaType">;
   readonly exportedAt: string;
   readonly revokedAt: string | null;
+  readonly handoffPacket?: HandoffPacketV1;
+  readonly handoffPacketDigest?: string;
 }
 
 function directory(rootDir: string, dispatchId: string): string {
@@ -108,6 +117,17 @@ export function runRuntimeHandoffAction(
     if (body.byteLength !== descriptor.size || sha256Bytes(body) !== descriptor.sha256)
       throw runtimeSpawnError("content_claim_mismatch", "The private rollout differs from its upload descriptor.");
     const version = validateHandoffRollout(body, session.providerSessionId);
+    const task = snapshot.task;
+    if (!task) throw runtimeSpawnError("runtime_handoff_payload_invalid", "The source task is no longer projected.");
+    const handoffPacket = buildRuntimeHandoffPacket({
+      dispatchId,
+      task,
+      taskContext: assembleTaskCausalContext({ projection: cell.projection, taskId: payload.taskId }),
+      sourceEmployeeId: source.actor.principal.personId,
+      session,
+      payload,
+      exportedAt: cell.now(),
+    });
     const checkpoint: RuntimeHandoffCheckpoint = {
       dispatchId,
       taskId: payload.taskId,
@@ -123,6 +143,8 @@ export function runRuntimeHandoffAction(
       blob: { sha256: descriptor.sha256, size: descriptor.size, mediaType: descriptor.mediaType },
       exportedAt: cell.now(),
       revokedAt: null,
+      handoffPacket: handoffPacket.packet,
+      handoffPacketDigest: handoffPacket.digest,
     };
     writeFileDurably(path.join(location, "rollout.jsonl"), body, 0o600);
     writeFileDurably(path.join(location, "checkpoint.json"), JSON.stringify(checkpoint), 0o600);
@@ -173,6 +195,25 @@ export function assertHandoffClaim(
   checkpoint: RuntimeHandoffCheckpoint,
   binding: RepoCellBinding,
 ): void {
+  if (
+    checkpoint.handoffPacket !== undefined &&
+    (checkpoint.handoffPacketDigest === undefined ||
+      !verifyHandoffPacketDigest(checkpoint.handoffPacket, checkpoint.handoffPacketDigest))
+  )
+    throw runtimeSpawnError("runtime_handoff_payload_invalid", "The handoff packet digest does not match its content.");
+  const packet = checkpoint.handoffPacket;
+  if (
+    packet &&
+    (packet.handoffId !== checkpoint.dispatchId ||
+      packet.goal.workItemId !== checkpoint.taskId ||
+      packet.source.attemptId !== checkpoint.runtimeSessionId ||
+      packet.source.sessionId !== checkpoint.runtimeSessionId ||
+      packet.source.employeeId !== checkpoint.ownerPersonId)
+  )
+    throw runtimeSpawnError(
+      "runtime_handoff_payload_invalid",
+      "The handoff packet is bound to a different dispatch, task, runtime session, or owner.",
+    );
   if (!cell.store.readEvent(`runtime-handoff-export-${checkpoint.dispatchId}`))
     throw runtimeSpawnError(
       "runtime_handoff_pending",
@@ -199,6 +240,43 @@ export function assertHandoffClaim(
   const status = cell.projection.read(checkpoint.taskId).snapshot.task?.status;
   if (status !== "active")
     throw runtimeSpawnError("runtime_task_execution_frozen", "Handoff requires an active execution.");
+}
+
+function buildRuntimeHandoffPacket(input: {
+  readonly dispatchId: string;
+  readonly task: TaskV2;
+  readonly taskContext: string | null;
+  readonly sourceEmployeeId: string;
+  readonly session: RuntimeSession;
+  readonly payload: Readonly<Record<string, unknown>>;
+  readonly exportedAt: string;
+}) {
+  const goalDigest = input.task.presetSnapshotDigest ?? `sha256:${sha256Text(stableStringify(input.task))}`;
+  return buildHandoffPacket({
+    handoffId: input.dispatchId,
+    revision: 1,
+    mode: "transfer",
+    expiresAt: new Date(Date.parse(input.exportedAt) + 86_400_000).toISOString(),
+    work: {
+      id: input.task.taskId,
+      title: input.task.title,
+      description: input.task.title,
+      specRevision: input.task.contractVersion ?? 1,
+      specDigest: goalDigest,
+    },
+    attempt: {
+      id: input.session.runtimeSessionId,
+      status: input.session.outcome ?? "stopped",
+      sessionId: input.session.runtimeSessionId,
+      runtime: String(input.payload.kindId ?? "codex"),
+      artifactId: input.session.resultRef ?? null,
+      artifactDigest: input.session.resultRef?.split("/sha256/")[1] ?? null,
+    },
+    sourceEmployeeId: input.sourceEmployeeId,
+    sideEffects: "Provider session and private rollout are transferred to the next worker.",
+    target: { employeeId: "pending", name: "Next worker" },
+    taskContext: input.taskContext,
+  });
 }
 
 export function admitHandoffDispatch(

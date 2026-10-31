@@ -515,11 +515,31 @@ function validateRuntimeHandoffCheckpoint(value: unknown): readonly string[] {
       entityId,
       value,
       runtimeHandoffCheckpointFields,
-      runtimeHandoffCheckpointFields,
+      [...runtimeHandoffCheckpointFields, "handoffPacket", "handoffPacketDigest"],
       "checkpoint",
     );
   if (shapeError) return [shapeError];
   if (!isJsonObject(value)) return [];
+  if ((value.handoffPacket === undefined) !== (value.handoffPacketDigest === undefined))
+    return [
+      validationError(
+        entityId,
+        "checkpoint.handoffPacket",
+        value.handoffPacket,
+        "packet and digest must travel together",
+      ),
+    ];
+  if (value.handoffPacketDigest !== undefined && !/^\S{64}$/u.test(String(value.handoffPacketDigest)))
+    return [
+      validationError(
+        entityId,
+        "checkpoint.handoffPacketDigest",
+        value.handoffPacketDigest,
+        "must be a SHA-256 digest",
+      ),
+    ];
+  if (value.handoffPacket !== undefined && !isJsonObject(value.handoffPacket))
+    return [validationError(entityId, "checkpoint.handoffPacket", value.handoffPacket, "must be an object")];
   const blobShapeError = recordShapeError(
     entityId,
     value.blob,

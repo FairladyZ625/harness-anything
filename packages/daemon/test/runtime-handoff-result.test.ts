@@ -6,8 +6,13 @@ import path from "node:path";
 import test from "node:test";
 import { parseDaemonGuiActionResult } from "../src/protocol/gui-result-validation.ts";
 import { runRuntimeHandoff } from "../src/runtime-handoff.ts";
-import { runRuntimeHandoffAction, type RuntimeHandoffCheckpoint } from "../src/runtime-handoff-store.ts";
+import {
+  assertHandoffClaim,
+  runRuntimeHandoffAction,
+  type RuntimeHandoffCheckpoint,
+} from "../src/runtime-handoff-store.ts";
 import type { RepoCellActionContext } from "../src/repo-cell-action-context.ts";
+import { buildHandoffPacket } from "@harness-anything/kernel";
 
 const dispatchId = `dispatch_${"a".repeat(24)}`;
 
@@ -102,4 +107,88 @@ test("handoff facade returns a declared command and the real rejected receipt co
   assert.equal(receipt.ok, false);
   assert.deepEqual(receipt.error, { code });
   assert.equal(parseDaemonGuiActionResult("repo.agentRuntime.handoff", receipt).code, code);
+});
+
+test("handoff claim rejects a packet whose causal content changed after export", () => {
+  const built = buildHandoffPacket({
+      handoffId: dispatchId,
+      revision: 1,
+      mode: "transfer",
+      expiresAt: "2026-10-28T00:00:00.000Z",
+      work: {
+        id: "task-handoff",
+        title: "Handoff",
+        description: "Handoff",
+        specRevision: 1,
+        specDigest: "sha256:" + "a".repeat(64),
+      },
+      target: { employeeId: "next", name: "Next" },
+    }),
+    checkpoint: RuntimeHandoffCheckpoint = {
+      dispatchId,
+      taskId: "task-handoff",
+      executionId: "execution-handoff",
+      runtimeSessionId: "runtime_handoff",
+      ownerPersonId: "person-owner",
+      source: { kind: "local" },
+      providerSessionId: "provider-session",
+      commit: "a".repeat(40),
+      version: "0.159.1",
+      agentId: "handoff-agent",
+      model: "gpt-5.6-sol",
+      blob: { sha256: "b".repeat(64), size: 1, mediaType: "application/x-ndjson" },
+      exportedAt: "2026-10-27T00:00:00.000Z",
+      revokedAt: null,
+      handoffPacket: { ...built.packet, goal: { ...built.packet.goal, title: "Changed" } },
+      handoffPacketDigest: built.digest,
+    };
+  assert.throws(
+    () => assertHandoffClaim({} as RepoCellActionContext, checkpoint, {} as never),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_handoff_payload_invalid",
+  );
+});
+
+test("handoff claim rejects a self-consistent packet bound to another runtime", () => {
+  const built = buildHandoffPacket({
+      handoffId: "dispatch_" + "b".repeat(24),
+      revision: 1,
+      mode: "transfer",
+      expiresAt: "2026-10-28T00:00:00.000Z",
+      work: {
+        id: "task-handoff",
+        title: "Handoff",
+        description: "Handoff",
+        specRevision: 1,
+        specDigest: "sha256:" + "a".repeat(64),
+      },
+      attempt: {
+        id: "runtime-other",
+        sessionId: "runtime-other",
+        status: "succeeded",
+      },
+      sourceEmployeeId: "person-owner",
+      target: { employeeId: "next", name: "Next" },
+    }),
+    checkpoint: RuntimeHandoffCheckpoint = {
+      dispatchId,
+      taskId: "task-handoff",
+      executionId: "execution-handoff",
+      runtimeSessionId: "runtime_handoff",
+      ownerPersonId: "person-owner",
+      source: { kind: "local" },
+      providerSessionId: "provider-session",
+      commit: "a".repeat(40),
+      version: "0.159.1",
+      agentId: "handoff-agent",
+      model: "gpt-5.6-sol",
+      blob: { sha256: "b".repeat(64), size: 1, mediaType: "application/x-ndjson" },
+      exportedAt: "2026-10-27T00:00:00.000Z",
+      revokedAt: null,
+      handoffPacket: built.packet,
+      handoffPacketDigest: built.digest,
+    };
+  assert.throws(
+    () => assertHandoffClaim({} as RepoCellActionContext, checkpoint, {} as never),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_handoff_payload_invalid",
+  );
 });

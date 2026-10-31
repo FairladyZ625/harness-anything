@@ -458,6 +458,7 @@ export async function publishExit(
         // dispatches store the handed-off RuntimeSession binding, while Schedule and squad paths
         // retain their coordinator binding.
         binding: active.binding,
+        processGroupPid: active.process.pid,
       })
       .catch((error: unknown) => {
         // A Schedule's claim settlement is the occurrence's single-flight witness, so its terminal

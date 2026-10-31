@@ -14,9 +14,10 @@ import {
   type TaskEventV1,
   type TaskV2,
 } from "@harness-anything/kernel";
-import { readDispatchLiveIndex, readDispatchStreamSummary } from "./dispatch-stream.ts";
+import { readDispatchLiveIndex, readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
 import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
 import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
+import { reconcileProcessGroup } from "./runtime/process-group-reconciler.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 
@@ -105,6 +106,26 @@ export function taskMutation(
             "a live runtime holder must stop before recovery.",
         ].join(""),
       );
+    const proofRuntimeSessionId =
+      terminalRuntimeSessionId ??
+      (terminalRuntimeBinding !== null ? runtimeSessionIdFromActor(activeLease.actor) : null);
+    if (proofRuntimeSessionId !== null) {
+      const suppliedPid = action.terminalProcessGroupPid;
+      const verdict =
+        Number.isSafeInteger(suppliedPid) && Number(suppliedPid) > 1
+          ? reconcileProcessGroup(Number(suppliedPid))
+          : terminalRuntimeStopProof(
+              cell.rootDir,
+              task.taskId,
+              terminalExecutionId ?? activeLease.executionId,
+              proofRuntimeSessionId,
+            );
+      if (verdict !== "proven_stopped")
+        throw cell.cellCodedError(
+          "runtime_process_group_unproven",
+          `Runtime process group for ${proofRuntimeSessionId} is ${verdict}; lease release waits for a stop proof.`,
+        );
+    }
     return {
       type: "lease_released",
       task,
@@ -346,6 +367,23 @@ export function taskMutation(
     };
   }
   throw cell.cellCodedError("unsupported_command", `No task mutation contract exists for ${action.kind}.`);
+}
+
+function terminalRuntimeStopProof(
+  rootDir: string,
+  taskId: string,
+  executionId: string,
+  runtimeSessionId: string,
+): ReturnType<typeof reconcileProcessGroup> {
+  const header = readDispatchStreamHeaders(rootDir, true).find(
+    (candidate) =>
+      candidate.taskId === taskId &&
+      candidate.executionId === executionId &&
+      candidate.runtimeSessionId === runtimeSessionId,
+  );
+  const process = header ? readDispatchStreamSummary(rootDir, header.dispatchId)?.process : null;
+  if (!process) return "unknown_unreachable";
+  return reconcileProcessGroup({ pid: process.pid, pgid: process.pid });
 }
 
 function optionalReleaseText(value: unknown): string | null {
