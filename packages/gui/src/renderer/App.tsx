@@ -7,12 +7,9 @@ import type { DecisionState, TaskRow } from "./model/types.ts";
 import type { WorkspaceSummaryRead } from "../api/renderer-dto.ts";
 import { ThemeProvider } from "./theme.tsx";
 import { HomeView } from "./views/HomeView.tsx";
-import { HomeOverviewPanel } from "./views/home/HomeOverviewPanel.tsx";
 import { LiveFloorView } from "./views/LiveFloorView.tsx";
-import { myAsksViewEntry } from "./views/my-asks/my-asks-view-entry.tsx";
 import { OverviewView } from "./views/OverviewView.tsx";
 import { AgendaView } from "./views/AgendaView.tsx";
-import { todayViewEntry } from "./views/today/today-view-entry.tsx";
 import { BoardView } from "./views/BoardView.tsx";
 import { AttestationPoolView } from "./views/AttestationPoolView.tsx";
 import { FactDetailView } from "./views/EntityDetailView.tsx";
@@ -79,7 +76,6 @@ import type { TerminalLaunchTask } from "./views/TerminalView.tsx";
 import { BrowserView } from "./views/BrowserView.tsx";
 import { NavigationHistoryBar } from "./components/NavigationHistoryBar.tsx";
 import { useAppLocation } from "./navigation/useAppLocation.ts";
-import { useRedesignNavigation } from "./navigation/useRedesignNavigation.ts";
 import { useProjectSwitch } from "./navigation/useProjectSwitch.ts";
 import { navLabel } from "./navigation/navConfig.tsx";
 import { useWorkspaceSummaryQuery } from "./workspace-summary-data.ts";
@@ -424,10 +420,6 @@ function AppShell() {
     onProjectOpened: () => setProjectSwitcherOpen(false),
   });
   const edgeJoin = useEdgeJoinEntry(openProject);
-  // 重构区路由(dec_C612E69B):重构页(今天/你交代的事)暂由 App 级状态承载,不进
-  // 全局历史栈;从重构页跳走(位置变更)即离页,回重构页走侧栏再进。
-  const { redesignView, gotoNav } = useRedesignNavigation(location, goto);
-
   // 实体导航出口(可寻址路由 + 最近访问)集中在此 hook;跨仓跳转先切仓再续导航。
   const {
     recentRefs,
@@ -555,7 +547,6 @@ function AppShell() {
           repos={systemQuery.data?.repos ?? []}
           activeRepoId={activeRepoId}
           view={view}
-          redesignView={redesignView}
           hasSelection={selected !== null}
           poolBadgeCount={poolBadgeCount}
           projectSwitcherOpen={projectSwitcherOpen}
@@ -574,7 +565,7 @@ function AppShell() {
           }}
           pinnedRepoIds={pinnedRepoIds}
           onToggleProjectPin={toggleProjectPin}
-          onNavigate={gotoNav}
+          onNavigate={goto}
           pinnedWork={(agendaQuery.data?.pinnedEntities ?? []).flatMap((item) =>
             item.kind === "task" ? [{ taskId: item.ref.replace(/^task\//u, ""), title: item.title }] : [],
           )}
@@ -597,7 +588,6 @@ function AppShell() {
           <NavigationHistoryBar canBack={canBack} canForward={canForward} onBack={back} onForward={forward} />
           <RepositoryReadNotice repoId={activeRepoId} />
           {activeRepoId &&
-            !redesignView &&
             (selected ||
               (view === "workspace" && location.scopeRootTaskId) ||
               ([
@@ -629,22 +619,7 @@ function AppShell() {
             className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden"
           >
             <div className="content-viewport flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-              {redesignView === "homeOverview" ? (
-                <HomeOverviewPanel
-                  currentRepoId={activeRepoId}
-                  openProject={openProject}
-                  navigateToEntity={navigateToEntity}
-                  openProjectInNewWindow={openProjectInNewWindow}
-                />
-              ) : redesignView === "liveFloor" ? (
-                <LiveFloorView
-                  repoId={projectId}
-                  tasks={tasks}
-                  works={works}
-                  onOpenTask={openTaskDetail}
-                  onNavigateEntity={navigateToEntity}
-                />
-              ) : ledgerUnavailable ? (
+              {ledgerUnavailable ? (
                 <WorkspaceSummaryPending error={ledgerReadError} />
               ) : selected && selectedWorkRootId === null ? (
                 renderTaskDetail(selected, {
@@ -655,21 +630,14 @@ function AppShell() {
                 })
               ) : decisionReadError ? (
                 <WorkspaceSummaryPending error={decisionReadError} />
-              ) : redesignView !== null ? (
-                redesignView === "myAsks" ? (
-                  myAsksViewEntry(projectId, openTaskDetail, navigateToEntity)
-                ) : (
-                  todayViewEntry(
-                    projectId,
-                    agendaQuery.data,
-                    agendaQuery.error instanceof Error ? agendaQuery.error.message : null,
-                    taskTitles,
-                    tasksQuery.data?.rows ?? [],
-                    navigateToEntity,
-                    openTaskDetail,
-                    gotoNav,
-                  )
-                )
+              ) : view === "liveFloor" ? (
+                <LiveFloorView
+                  repoId={projectId}
+                  tasks={tasks}
+                  works={works}
+                  onOpenTask={openTaskDetail}
+                  onNavigateEntity={navigateToEntity}
+                />
               ) : view === "home" ? (
                 <HomeView
                   repos={systemQuery.data?.repos ?? []}

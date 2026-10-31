@@ -15,6 +15,7 @@ import {
 } from "../overview-data.ts";
 import { useSettingsQuery } from "../settings-data.ts";
 import { useTaskWipQuery } from "../task-data.ts";
+import { useOverviewBriefsQuery } from "./overview/overview-briefs-data.ts";
 import { runtimeHealthAssessment, type RuntimeHealth } from "../model/runtime-health.ts";
 import type { TaskRow } from "../model/types.ts";
 import { runtimeModelShortLabel } from "../model/runtime-models.ts";
@@ -38,6 +39,7 @@ import {
 } from "./overview-model.ts";
 import {
   OverviewAwaitsBody,
+  OverviewBriefsBody,
   OverviewPinsBody,
   OverviewRunningBody,
   OverviewWorksBody,
@@ -113,6 +115,7 @@ export function OverviewView({
   const [panel, setPanel] = useState<AwaitsPanelSubject | null>(null);
   const runtimeQuery = useOverviewRuntime(repoId);
   const eventsQuery = useOverviewRecentEvents(repoId);
+  const briefsQuery = useOverviewBriefsQuery(repoId);
   // WIP 与看板共用同一条 repo.tasks.wip 读面(同一 query key,一处缓存):总览挂载期间
   // 本实例是观察者,台账切面前进由既有失效扇出更新,不建第二份快照。
   const wipQuery = useTaskWipQuery(repoId, true);
@@ -288,8 +291,7 @@ export function OverviewView({
         </button>
       </header>
 
-      {/* 四块(2026-10-21 定案):左列上「在跑的任务」下「关注的工作」,右列上「置顶与
-          议程」下「等你处理的事」;计数并进区域头小字,区域头不再放孤立的大号数字。 */}
+      {/* 左列加入工作简报；既有在跑、关注工作、置顶与议程、等你处理区域维持原布局与样式。 */}
       <div className="flex min-h-0 flex-1 flex-col gap-1 p-1" data-testid="overview-scroll">
         <PageRegions
           connectionId={connectionId}
@@ -305,10 +307,11 @@ export function OverviewView({
             !runtimeQuery.isPending &&
             !eventsQuery.isPending &&
             !wipQuery.isPending &&
-            !agentGroupsQuery.isPending
+            !agentGroupsQuery.isPending &&
+            !briefsQuery.isPending
           }
           columns={[
-            ["running", "works"],
+            ["running", "works", "briefs"],
             ["pins", "awaits"],
           ]}
           regions={[
@@ -414,6 +417,35 @@ export function OverviewView({
                       activityDays={activityDays}
                       handlersOf={(entry) => workHandlers(runtimeQuery.data, entry.work.taskId, entry.memberTaskIds)}
                       recentOf={(workTaskId) => recentByWork.get(workTaskId) ?? null}
+                      deps={deps}
+                    />
+                  </Region>
+                </div>
+              ),
+            },
+            {
+              id: "briefs",
+              title: t("views.overviewView.regionBriefs"),
+              weight: 3,
+              testId: "overview-region-briefs",
+              content: (
+                <div className="grid min-h-0 min-w-0">
+                  <Region
+                    title={t("views.overviewView.regionBriefs")}
+                    tag={
+                      <span className="font-mono tabular-nums text-text-faint ui-meta">
+                        {briefsQuery.isPending
+                          ? "…"
+                          : briefsQuery.isError
+                            ? "—"
+                            : String(briefsQuery.data?.briefs.length ?? 0)}
+                      </span>
+                    }
+                  >
+                    <OverviewBriefsBody
+                      briefs={briefsQuery.data?.briefs ?? []}
+                      loading={briefsQuery.isPending}
+                      error={briefsQuery.error instanceof Error ? briefsQuery.error.message : null}
                       deps={deps}
                     />
                   </Region>

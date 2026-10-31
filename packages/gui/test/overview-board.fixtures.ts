@@ -293,7 +293,7 @@ export function mountOverview(props: Partial<Parameters<typeof OverviewView>[0]>
 }
 
 /**
- * 与 App.tsx 同一接线的导航 harness:真实 useViewHistory(总览四块重构后不再持有页内
+ * 与 App.tsx 同一接线的导航 harness:真实 useViewHistory(总览区域不持有页内
  * 层字段,这里只保留挂载手柄供后续用例扩展)。
  */
 function OverviewHistoryHarness(props: Partial<Parameters<typeof OverviewView>[0]> = {}) {

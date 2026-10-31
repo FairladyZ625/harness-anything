@@ -2,6 +2,7 @@ import { useMutation } from "@tanstack/react-query";
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { DotsThree } from "@phosphor-icons/react";
 import type { SystemRepoRow } from "../../api-client.ts";
+import type { DaemonHomeRepoOverview } from "@harness-anything/daemon/protocol";
 import { Popover } from "../../components/Popover.tsx";
 import { DenseRow } from "../../components/primitives/DenseRow.tsx";
 import { StatusTag, TONE_COLOR } from "../../components/primitives/StatusTag.tsx";
@@ -32,6 +33,7 @@ export function ProjectEntry({
   onTogglePin,
   canManage,
   onOpen,
+  overview,
 }: {
   readonly repo: SystemRepoRow;
   readonly read: ProjectActivityRead;
@@ -41,6 +43,8 @@ export function ProjectEntry({
   readonly onTogglePin: () => void;
   readonly canManage: boolean;
   readonly onOpen: (repoId: string, targetView?: "agenda" | "work") => void;
+  /** Cross-repository daemon summary, when the aggregate read is available. */
+  readonly overview?: DaemonHomeRepoOverview;
 }) {
   const directory = guiHostBridge()?.projects,
     canOpenDirectory = directory !== undefined && repo.canonicalRoot !== null && repo.mode !== "remote-proxy",
@@ -193,6 +197,15 @@ export function ProjectEntry({
           </Popover>
         </div>
       </div>
+      {overview !== undefined ? (
+        <div className="px-3.5 pb-1.5 font-mono ui-micro text-text-faint" data-testid="home-entry-cross-repo-metrics">
+          {t("views.homeView.crossRepoRepoMetrics", {
+            waiting: overview.waitingCount ?? "—",
+            running: overview.runningCount ?? "—",
+            delivered: overview.deliveredCount ?? "—",
+          })}
+        </div>
+      ) : null}
       {feedback === null ? null : (
         <p className="px-3.5 pb-1.5 ui-meta text-status-blocked" data-testid="home-entry-feedback">
           {feedback}

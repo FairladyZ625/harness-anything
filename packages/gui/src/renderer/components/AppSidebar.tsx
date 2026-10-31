@@ -5,13 +5,7 @@ import type { SystemRepoRow } from "../api-client.ts";
 import type { Project } from "../model/types.ts";
 import type { RuntimeHealth } from "../model/runtime-health.ts";
 import type { ViewId } from "../navigation/viewHistory.ts";
-import {
-  NAV_GROUPS,
-  isRedesignViewId,
-  navLabelOf,
-  type NavViewId,
-  type RedesignViewId,
-} from "../navigation/navConfig.tsx";
+import { NAV_GROUPS, navLabelOf, type NavViewId } from "../navigation/navConfig.tsx";
 import { NavButton, ThemeToggle } from "./shell-chrome.tsx";
 import { QuickSwitcher } from "./sidebar/QuickSwitcher.tsx";
 import { SystemStatusPanel, type LedgerStatusBarInput } from "./sidebar/SystemStatusPanel.tsx";
@@ -30,8 +24,6 @@ export interface AppSidebarProps {
   readonly repos: readonly SystemRepoRow[];
   readonly activeRepoId: string | null;
   readonly view: ViewId;
-  /** 重构区当前打开的页面(dec_C612E69B7C7E3480A5F9D2CAD3);null = 重构区未开。 */
-  readonly redesignView: RedesignViewId | null;
   /** 任务详情占用主区时导航不点亮任何一项(与旧 App.tsx 判定一致)。 */
   readonly hasSelection: boolean;
   /** 待办签发总池的待办角标(决策待裁 + 门禁待签 + 收口待同意 + 阻断待特批)。 */
@@ -77,7 +69,6 @@ export function AppSidebar({
   repos,
   activeRepoId,
   view,
-  redesignView,
   hasSelection,
   poolBadgeCount,
   projectSwitcherOpen,
@@ -339,7 +330,7 @@ export function AppSidebar({
       {/* 导航滚动区:侧栏唯一纵向滚动容器;窗口够高时不出现滚动条。 */}
       <div data-testid="app-sidebar-scroll" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {navGroups.map((group, groupIndex) => (
-          <div key={group.id} data-testid={group.id === "redesign" ? "sidebar-redesign-group" : undefined}>
+          <div key={group.id}>
             <div
               className={`px-3 font-mono ui-meta uppercase tracking-wide text-text-faint
                 ${groupIndex === 0 ? "pt-1 pb-1" : "pt-3 pb-1"}`}
@@ -350,11 +341,7 @@ export function AppSidebar({
               {group.items.map((item) => (
                 <NavButton
                   key={item.id}
-                  active={
-                    isRedesignViewId(item.id)
-                      ? redesignView === item.id
-                      : view === item.id && !hasSelection && redesignView === null
-                  }
+                  active={view === item.id && !hasSelection}
                   onClick={() => onNavigate(item.id)}
                   icon={item.icon}
                   label={navLabelOf(item.id)}

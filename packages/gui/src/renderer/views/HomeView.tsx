@@ -9,6 +9,7 @@ import { orderProjects } from "../project-order-preferences.ts";
 import { canManageProjects, useAddProject } from "./home/add-project.ts";
 import { ProjectEntry } from "./home/ProjectEntry.tsx";
 import { useProjectActivity } from "./home/project-activity.ts";
+import { useProjectOverviewQuery } from "./home/project-overview-data.ts";
 
 const GROUP_TITLE = {
   attention: "views.homeView.groupAttention",
@@ -40,6 +41,9 @@ export function HomeView({
   readonly onJoinCenter: () => void;
 }) {
   const readOf = useProjectActivity(repos),
+    overviewQuery = useProjectOverviewQuery(),
+    overviewRepos = overviewQuery.data?.repos ?? [],
+    overviewByRepo = new Map(overviewRepos.map((repo) => [repo.repoId, repo] as const)),
     groups = groupProjects(repos, currentRepoId, readOf),
     addProject = useAddProject(),
     canManage = canManageProjects(),
@@ -66,6 +70,24 @@ export function HomeView({
             </span>
           </div>
           <p className="mt-1 ui-meta text-text-faint">{t("views.homeView.summary")}</p>
+          {overviewQuery.error instanceof Error ? (
+            <p className="mt-1 ui-micro text-status-blocked" data-testid="home-cross-repo-error">
+              {t("views.homeView.crossRepoReadError", { message: overviewQuery.error.message })}
+            </p>
+          ) : overviewQuery.isPending ? (
+            <p className="mt-1 ui-micro text-text-faint" data-testid="home-cross-repo-loading">
+              {t("views.homeView.crossRepoLoading")}
+            </p>
+          ) : overviewQuery.data !== undefined ? (
+            <p className="mt-1 font-mono ui-micro text-text-muted" data-testid="home-cross-repo-metrics">
+              {t("views.homeView.crossRepoMetrics", {
+                active: overviewRepos.filter((repo) => !repo.isQuiet && repo.registrationState !== "disabled").length,
+                waiting: overviewRepos.reduce((sum, repo) => sum + (repo.waitingCount ?? 0), 0),
+                running: overviewRepos.reduce((sum, repo) => sum + (repo.runningCount ?? 0), 0),
+                delivered: overviewRepos.reduce((sum, repo) => sum + (repo.deliveredCount ?? 0), 0),
+              })}
+            </p>
+          ) : null}
         </div>
         {addProject.available ? (
           <Button testId="home-add-project" disabled={addProject.busy} onClick={addProject.add}>
@@ -113,6 +135,7 @@ export function HomeView({
                         onTogglePin={() => onToggleProjectPin(repo.repoId)}
                         canManage={canManage}
                         onOpen={onOpenProject}
+                        overview={overviewByRepo.get(repo.repoId)}
                       />
                     ))}
                   </div>

@@ -636,10 +636,10 @@ const ASK_TONE: Readonly<Record<LiveFloorAskKind, StatusTone>> = {
 };
 
 const ASK_VERB: Readonly<Record<string, MessageKey>> = {
-  question: "views.myAsks.askQuestion",
-  acceptance: "views.myAsks.askAcceptance",
-  consent: "views.myAsks.askConsent",
-  reopen: "views.myAsks.askReopen",
+  question: "views.overviewView.briefAskQuestion",
+  acceptance: "views.overviewView.briefAskAcceptance",
+  consent: "views.overviewView.briefAskConsent",
+  reopen: "views.overviewView.briefAskReopen",
 };
 
 function AskApprovalCard({
@@ -657,7 +657,7 @@ function AskApprovalCard({
     <div className="rounded-xl border border-agent-question-border bg-agent-question-surface/40 p-2.5">
       <ApprovalCard
         title={ask.title}
-        summary={t(ASK_VERB[row.askKind] ?? "views.myAsks.askQuestion")}
+        summary={t(ASK_VERB[row.askKind] ?? "views.overviewView.briefAskQuestion")}
         risk={risk}
         previewLines={[row.question]}
         previewKind="changes"
@@ -673,7 +673,7 @@ function AskApprovalCard({
             </button>
           ) : undefined
         }
-        approveLabel={t("views.myAsks.actionAnswer")}
+        approveLabel={t("views.overviewView.briefAnswer")}
         approveTestId={`live-floor-answer-${row.relationId}`}
         onDecide={onAnswer}
       />
