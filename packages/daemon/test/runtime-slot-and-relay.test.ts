@@ -178,7 +178,7 @@ test("relay price table conversion and usage parser preserve micro-dollar arithm
     ),
     { input: 1_000, cachedInput: 400, output: 500 },
   );
-  assert.equal(usageOf("not json", "application/json"), null);
+  assert.throws(() => usageOf("not json", "application/json"), /provider returned invalid JSON/u);
   assert.equal(
     mask("key=abcdefgh123 Bearer provider-secret", ["abcdefgh123", "provider-secret"]),
     "key=[REDACTED] Bearer [REDACTED]",

@@ -9,7 +9,6 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { request as httpsRequest } from "node:https";
-import { consumeKnownError } from "@harness-anything/kernel";
 import { modelPriceOf } from "../agent-runtime-model-pricing.ts";
 import { RuntimeBoundaryError } from "./model-slot-queue.ts";
 
@@ -91,6 +90,18 @@ export class CloudDispatchRelayError extends RuntimeBoundaryError {
   }
 }
 
+class RelayRequestError extends Error {
+  readonly status: number;
+  readonly code: string;
+
+  constructor(code: string, status: number, message: string) {
+    super(message);
+    this.name = "RelayRequestError";
+    this.code = code;
+    this.status = status;
+  }
+}
+
 interface Flight {
   readonly hold: number;
   readonly inputEstimate: number;
@@ -143,9 +154,8 @@ export function usageOf(text: string, contentType: string): TokenCounts | null {
             ? (event.response as Record<string, unknown>).usage
             : event.usage,
         );
-      } catch (error) {
-        consumeKnownError(error);
-        // An event stream can include comments and provider-specific non-JSON frames.
+      } catch {
+        throw new RelayRequestError("relay_invalid_provider_response", 502, "provider returned invalid event data");
       }
     }
   } else {
@@ -157,9 +167,8 @@ export function usageOf(text: string, contentType: string): TokenCounts | null {
             ? (body.response as Record<string, unknown>).usage
             : undefined),
       );
-    } catch (error) {
-      consumeKnownError(error);
-      return null;
+    } catch {
+      throw new RelayRequestError("relay_invalid_provider_response", 502, "provider returned invalid JSON");
     }
   }
   for (const usage of candidates.reverse()) {
@@ -357,7 +366,7 @@ export class CloudDispatchRelay {
 
   async start(): Promise<void> {
     if (this.server) return;
-    const server = createServer((request, response) => void this.handle(request, response));
+    const server = createServer((request, response) => void this.handle(request, response).catch(() => undefined));
     server.requestTimeout = 125_000;
     server.headersTimeout = 10_000;
     server.on("connect", (_request, socket) => socket.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n"));
@@ -516,9 +525,8 @@ export class CloudDispatchRelay {
       let payload: unknown;
       try {
         payload = JSON.parse(body.toString("utf8"));
-      } catch (error) {
-        consumeKnownError(error);
-        payload = null;
+      } catch {
+        throw new RelayRequestError("relay_invalid_json", 400, "request is not valid JSON");
       }
       if (payload === null) return deny(400, "relay_invalid_json", "request is not valid JSON");
       if (!payload || typeof payload !== "object" || (payload as { model?: unknown }).model !== entry.model)
@@ -541,19 +549,17 @@ export class CloudDispatchRelay {
       entry.usage.generations++;
       generationReserved = true;
       let key: string | null = null;
-      let keyUnavailable = false;
       try {
         key = await entry.keyFor();
-      } catch (error) {
-        consumeKnownError(error);
-        keyUnavailable = true;
-      }
-      if (keyUnavailable) {
+      } catch {
         entry.usage.generations--;
         generationReserved = false;
-        if (flight && entry.ledger) entry.ledger.refund(flight);
+        if (flight && entry.ledger) {
+          entry.ledger.refund(flight);
+          flight = null;
+        }
         entry.usage.failures.push("key-unavailable");
-        return deny(502, "provider_key_unavailable", "provider key unavailable");
+        throw new RelayRequestError("provider_key_unavailable", 502, "provider key unavailable");
       }
       if (typeof key !== "string" || key.length < 8 || key.length > 4096) {
         entry.usage.generations--;
@@ -598,14 +604,20 @@ export class CloudDispatchRelay {
       });
       response.end(mask(raw, [key, presented]));
     } catch (error) {
-      consumeKnownError(error);
       if (flight && entry?.ledger) {
         if (gone.signal.aborted) entry.ledger.abort(flight);
         else entry.ledger.keep(flight);
       }
       if (entry && generationReserved && !generationSent) entry.usage.generations--;
-      if (!response.destroyed && !response.writableEnded)
-        deny(502, "relay_upstream_failed", "provider request failed; provider details are withheld by the relay");
+      if (!response.destroyed && !response.writableEnded) {
+        const failure = error instanceof RelayRequestError ? error : null;
+        deny(
+          failure?.status ?? 502,
+          failure?.code ?? "relay_upstream_failed",
+          failure?.message ?? "provider request failed; provider details are withheld by the relay",
+        );
+      }
+      throw error;
     }
   }
 }
