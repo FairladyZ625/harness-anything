@@ -15,8 +15,10 @@ import {
   validateLedgerLayoutMigrationEvent,
 } from "./ledger-layout-migration-event.ts";
 import {
+  retiredCloseoutOverrideKeys,
   validateCurrentEventShapeMigrationEvent,
   validateEventShapeMigrationEvent,
+  withoutRetiredCloseoutOverrides,
 } from "./event-shape-migration-event.ts";
 import { validateCurrentMigrationImportEvent, validateMigrationImportEvent } from "./migration-import-event.ts";
 import {
@@ -226,8 +228,17 @@ function normalizePersistedValue(value: unknown, field = ""): unknown {
     return normalized ?? value;
   }
   const normalized = Object.fromEntries(
-    Object.entries(value).map(([key, nested]) => [key, normalizePersistedValue(nested, key)]),
+    Object.entries(value).flatMap(([key, nested]) => {
+      const entry = normalizePersistedValue(nested, key);
+      return key === "closeoutOverrides" && entry === undefined ? [] : [[key, entry]];
+    }),
   );
+  // Frozen historical overrides remain readable; current event writers still use strict validators.
+  if (
+    field === "closeoutOverrides" &&
+    retiredCloseoutOverrideKeys.every((key) => !Object.hasOwn(normalized, key) || typeof normalized[key] === "boolean")
+  )
+    return withoutRetiredCloseoutOverrides(normalized);
   return normalized.schema === "task/v1"
     ? {
         ...normalized,
