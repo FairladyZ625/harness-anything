@@ -767,70 +767,103 @@ const documentKindSchema: EntityDocumentJsonSchema = {
 const documentIdentity = requireEntityTypeContract("document").id,
   migrationIdentity = requireEntityTypeContract("migration").id,
   scriptExecutionIdentity = requireEntityTypeContract("script-execution").id,
-  verticalDeclarationIdentity = requireEntityTypeContract("vertical-declaration").id;
+  verticalDeclarationIdentity = requireEntityTypeContract("vertical-declaration").id,
+  // The daemon executes these roads directly; the catalog entry names the stream and the ingress only.
+  declaredStreamAction = (
+    kind: string,
+    identity: EntityKindContract["id"],
+    id: string,
+    ingress: string,
+    explain: string,
+  ) => Object.freeze({ ...executableAction(kind, identity, id, ingress, null, noSdkExposure), explain });
 
 const documentActionCatalog = Object.freeze({
     ref: "kernel/doc-event/v1",
     actions: Object.freeze([
-      executableAction("document", documentIdentity, "submit", "doc-submit", null, noSdkExposure),
-      executableAction("document", documentIdentity, "retire", "doc-retire", null, noSdkExposure),
-      executableAction("document", documentIdentity, "conflict-resolve", "doc-conflict-resolve", null, noSdkExposure),
-      executableAction(
+      declaredStreamAction(
+        "document",
+        documentIdentity,
+        "submit",
+        "doc-submit",
+        "Publish authored document bytes as one canonical doc-event/v1 write.",
+      ),
+      declaredStreamAction(
+        "document",
+        documentIdentity,
+        "retire",
+        "doc-retire",
+        "Retire a canonical document by appending a document deletion with a reason.",
+      ),
+      declaredStreamAction(
+        "document",
+        documentIdentity,
+        "conflict-resolve",
+        "doc-conflict-resolve",
+        "Resolve a local doc conflict by publishing the merged canonical document.",
+      ),
+      declaredStreamAction(
         "document",
         documentIdentity,
         "conflict-overwrite-center",
         "doc-conflict-overwrite-center",
-        null,
-        noSdkExposure,
+        "Resolve a local doc conflict by publishing the local scratch copy over the center document.",
       ),
     ]),
   }),
   migrationActionCatalog = Object.freeze({
     ref: "kernel/migration-import-event/v1",
     actions: Object.freeze([
-      executableAction("migration", migrationIdentity, "import", "migrate-import", null, noSdkExposure),
+      declaredStreamAction(
+        "migration",
+        migrationIdentity,
+        "import",
+        "migrate-import",
+        "Import v0 ledger entities as migration-import-event/v1 records.",
+      ),
     ]),
   }),
   scriptExecutionActionCatalog = Object.freeze({
     ref: "kernel/vertical-script-action/v1",
     actions: Object.freeze([
-      executableAction("script-execution", scriptExecutionIdentity, "run", "script-run", null, noSdkExposure),
+      declaredStreamAction(
+        "script-execution",
+        scriptExecutionIdentity,
+        "run",
+        "script-run",
+        "Run one vertical script; its document changes publish as canonical doc events.",
+      ),
     ]),
   }),
   verticalDeclarationActionCatalog = Object.freeze({
     ref: "kernel/vertical-declaration-event/v1",
     actions: Object.freeze([
-      executableAction(
+      declaredStreamAction(
         "vertical-declaration",
         verticalDeclarationIdentity,
         "migrate",
         "vertical-declaration-migrate",
-        null,
-        noSdkExposure,
+        "Seed the canonical vertical declaration from the bundled default.",
       ),
-      executableAction(
+      declaredStreamAction(
         "vertical-declaration",
         verticalDeclarationIdentity,
         "upsert-kind",
         "vertical-kind-upsert",
-        null,
-        noSdkExposure,
+        "Create or update one Artifact kind inside the canonical vertical declaration.",
       ),
-      executableAction(
+      declaredStreamAction(
         "vertical-declaration",
         verticalDeclarationIdentity,
         "publish-kind-schema",
         "vertical-kind-publish-schema",
-        null,
-        noSdkExposure,
+        "Append a schema version to one Artifact kind in the canonical vertical declaration.",
       ),
-      executableAction(
+      declaredStreamAction(
         "vertical-declaration",
         verticalDeclarationIdentity,
         "retire-kind",
         "vertical-kind-retire",
-        null,
-        noSdkExposure,
+        "Retire one Artifact kind in the canonical vertical declaration.",
       ),
     ]),
   });
@@ -840,26 +873,49 @@ const documentActionCatalog = Object.freeze({
  * dispatch or appends a RuntimeSession transition (dec_2446BC2F8C68630F71AE3E3BD7/CH4). They are
  * separate Actions from the seven session-event Actions above, so their ingresses never move.
  */
-const runtimeSessionControlAction = (id: string, ingress: string) =>
-    catalogRuntimeAction(
-      "runtime-session",
-      runtimeSessionIdentity,
-      id,
-      ingress,
-      noSdkExposure,
-      "center-forward-write",
-      "via-center-forward",
-    ),
+const runtimeSessionControlAction = (id: string, ingress: string, explain: string) =>
+    Object.freeze({
+      ...catalogRuntimeAction(
+        "runtime-session",
+        runtimeSessionIdentity,
+        id,
+        ingress,
+        noSdkExposure,
+        "center-forward-write",
+        "via-center-forward",
+      ),
+      explain,
+    }),
   runtimeSessionControlCatalog = Object.freeze({
     ref: "daemon/runtime-session-control/v1",
     actions: Object.freeze([
-      runtimeSessionControlAction("run", "runtime-run"),
-      runtimeSessionControlAction("batch", "runtime-batch"),
-      runtimeSessionControlAction("spawn", "runtime-spawn"),
-      runtimeSessionControlAction("cancel", "runtime-cancel"),
-      runtimeSessionControlAction("handoff-export", "runtime-handoff-export"),
-      runtimeSessionControlAction("handoff-claim", "runtime-handoff-claim"),
-      runtimeSessionControlAction("handoff-revoke", "runtime-handoff-revoke"),
+      runtimeSessionControlAction(
+        "run",
+        "runtime-run",
+        "Request one runtime dispatch and its canonical RuntimeSession.",
+      ),
+      runtimeSessionControlAction("batch", "runtime-batch", "Request a bounded batch of runtime dispatches."),
+      runtimeSessionControlAction("spawn", "runtime-spawn", "Spawn the provider process for one runtime dispatch."),
+      runtimeSessionControlAction(
+        "cancel",
+        "runtime-cancel",
+        "Cancel one RuntimeSession and append its canonical cancelled/exited transitions.",
+      ),
+      runtimeSessionControlAction(
+        "handoff-export",
+        "runtime-handoff-export",
+        "Export a settled dispatch as a handoff checkpoint and record the canonical export audit event.",
+      ),
+      runtimeSessionControlAction(
+        "handoff-claim",
+        "runtime-handoff-claim",
+        "Claim a handoff checkpoint and resume it as a canonical runtime dispatch.",
+      ),
+      runtimeSessionControlAction(
+        "handoff-revoke",
+        "runtime-handoff-revoke",
+        "Revoke a handoff checkpoint and record the canonical revoke audit event.",
+      ),
     ]),
   });
 
