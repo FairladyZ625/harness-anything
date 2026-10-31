@@ -386,6 +386,22 @@ export { currentGateRun, claimGateRun, settleGateRun, validCompletionWitnessResu
 export type { GateRun, CompletionWitnessResult } from "./domain/gate-run.ts";
 export { completionPredicateIssues } from "./schemas/completion-predicate.ts";
 
+export {
+  SKILL_EVAL_GATE,
+  SKILL_EVAL_SOURCE,
+  SKILL_EVAL_PREDICATE,
+  evaluateSkillCase,
+  judgeSkillEvaluation,
+} from "./skill-eval-gate.ts";
+export type {
+  SkillEvalCaseExpectation,
+  SkillEvalCaseInput,
+  SkillEvalCaseResult,
+  SkillEvalDraftContract,
+  SkillEvalOutcome,
+  SkillEvalJudgment,
+} from "./skill-eval-gate.ts";
+
 export { compileGateRunChange } from "./domain/gate-run-publication.ts";
 
 export { todoIsOpen, changeTodo, type Todo } from "./domain/todo.ts";
