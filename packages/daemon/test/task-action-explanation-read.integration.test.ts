@@ -87,7 +87,8 @@ test("typed Entity Action read preserves one cut for 1..500 refs and has no writ
     // Owner 2026-10-21 B3 deletes task-code-doc-reconcile and task-code-doc-repoint with the mechanism.
     // dec_E369B8616F50A6208B293997E7/CH5 (W2-2) deletes task-adjudicate with the manual corridor.
     // dec_4352DFAC7C16D1624944D780D7/CH1 adds task-respond-review.
-    assert.equal(one.subjects[0]!.actions.length, 22);
+    // The catalog-runtime mutation set contributes ten invocation-validated Task actions.
+    assert.equal(one.subjects[0]!.actions.length, 32);
     assert.equal(
       one.subjects[0]!.actions.some(({ action }) => action.kind.startsWith("task-code-doc-")),
       false,
