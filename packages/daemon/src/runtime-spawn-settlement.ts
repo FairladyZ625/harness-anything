@@ -155,7 +155,11 @@ export async function publishExit(
         ? context
             .requiredRuntimeProjection(context.input)
             .read(active.task.taskId)
-            .snapshot.reviews.some((review) => review.reviewId === reviewId)
+            .snapshot.reviews.some(
+              (review) =>
+                review.reviewId === reviewId ||
+                review.actor.executor?.id === `runtime-session:${active.runtimeSessionId}`,
+            )
         : active.decisionReviewTarget !== null &&
           decisionReviewRegistered(context, active.decisionReviewTarget, active.dispatchId))
     ) {
@@ -390,7 +394,11 @@ export async function publishExit(
             ? context
                 .requiredRuntimeProjection(context.input)
                 .read(active.task.taskId)
-                .snapshot.reviews.some((review) => review.reviewId === `review-${active.dispatchId}`)
+                .snapshot.reviews.some(
+                  (review) =>
+                    review.reviewId === `review-${active.dispatchId}` ||
+                    review.actor.executor?.id === `runtime-session:${active.runtimeSessionId}`,
+                )
             : active.decisionReviewTarget !== null &&
               decisionReviewRegistered(context, active.decisionReviewTarget, active.dispatchId));
         if (!reviewRegistered && !reviewSuperseded.superseded) {
@@ -526,7 +534,10 @@ async function publishTerminalOutcome(
     active.role === "reviewer" &&
     active.task &&
     payload.outcome === "failed" &&
-    payload.attempt?.classification === "dispatch_stalled"
+    (payload.attempt?.classification === "dispatch_stalled" ||
+      (payload.reasonCode === "review_result_missing" &&
+        (payload.attempt?.classification === "worker_stop" ||
+          payload.attempt?.classification === "completed_without_final_text")))
   )
     context.input.onStalledReviewer?.({
       dispatchId: active.dispatchId,
@@ -710,7 +721,11 @@ async function runtimeDeliveryWitness(context: RuntimeSpawnerContext, active: Ac
       ? context
           .requiredRuntimeProjection(context.input)
           .read(active.task.taskId)
-          .snapshot.reviews.some((review) => review.reviewId === `review-${active.dispatchId}`)
+          .snapshot.reviews.some(
+            (review) =>
+              review.reviewId === `review-${active.dispatchId}` ||
+              review.actor.executor?.id === `runtime-session:${active.runtimeSessionId}`,
+          )
       : false;
   // A squad leader turn owes no repository artifacts: children deliver the commits and the leader's
   // delivery is its decision, carried in the provider's structured result and re-verified by the
