@@ -54,7 +54,12 @@ export async function launchRuntimeProcess(
   let process: RuntimeProcess | undefined;
   try {
     process = launch(prepared, persistence);
-    if (readDispatchStreamSummary(persistence.rootDir, persistence.dispatchId)?.process === null)
+    if (
+      Number.isSafeInteger(process.pid) &&
+      process.pid > 1 &&
+      process.pid !== globalThis.process.pid &&
+      readDispatchStreamSummary(persistence.rootDir, persistence.dispatchId)?.process === null
+    )
       appendRuntimeWorkerRecord(persistence.rootDir, persistence.dispatchId, {
         kind: "process_started",
         occurredAt: new Date().toISOString(),
@@ -69,8 +74,12 @@ export async function launchRuntimeProcess(
     await resumeObservation.ready;
     return { process, resumeObservation };
   } catch (error) {
-    process?.terminate();
-    process?.release?.();
+    try {
+      if (process?.terminateTree) await process.terminateTree();
+      else process?.terminate();
+    } finally {
+      process?.release?.();
+    }
     if (!providerSessionId || runtimeErrorCode(error) === "runtime_resume_failed") throw error;
     throw runtimeSpawnError(
       "runtime_resume_failed",
@@ -101,7 +110,7 @@ export function observeResumeProcess(
       rejectReady = reject;
     }),
     timer = setTimeout(
-      () => rejectResume(`provider did not confirm the session within ${resumeAdmissionTimeoutMs}ms`, true),
+      () => rejectResume(`provider did not confirm the session within ${resumeAdmissionTimeoutMs}ms`),
       resumeAdmissionTimeoutMs,
     );
   timer.unref();
@@ -109,11 +118,10 @@ export function observeResumeProcess(
     if (sink) sink(event);
     else events.push(event);
   };
-  const rejectResume = (reason: string, terminate: boolean): void => {
+  const rejectResume = (reason: string): void => {
     if (settled) return;
     settled = true;
     clearTimeout(timer);
-    if (terminate) process.terminate();
     rejectReady(
       runtimeSpawnError(
         "runtime_resume_failed",
@@ -126,7 +134,7 @@ export function observeResumeProcess(
     if (settled) return;
     buffer += chunk;
     if (Buffer.byteLength(buffer) > providerErrorLimit) {
-      rejectResume("provider emitted too much output before confirming the session", true);
+      rejectResume("provider emitted too much output before confirming the session");
       return;
     }
     const lines = buffer.split(/\r?\n/u);
@@ -138,7 +146,7 @@ export function observeResumeProcess(
         if (frame.failureText) failureText = frame.failureText;
         if (!frame.sessionIdentity?.sessionId) continue;
         if (frame.sessionIdentity.sessionId !== expectedProviderSessionId) {
-          rejectResume(`provider bound unexpected session ${frame.sessionIdentity.sessionId}`, true);
+          rejectResume(`provider bound unexpected session ${frame.sessionIdentity.sessionId}`);
           return;
         }
         settled = true;
@@ -163,7 +171,7 @@ export function observeResumeProcess(
         detail = diagnostic
           ? (scrubProviderValue(diagnostic) as string)
           : "provider exited before confirming the session";
-      rejectResume(`${detail} (exit ${code === null ? "unknown" : String(code)})`, false);
+      rejectResume(`${detail} (exit ${code === null ? "unknown" : String(code)})`);
     }
   });
   return {

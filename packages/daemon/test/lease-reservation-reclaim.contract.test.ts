@@ -584,6 +584,18 @@ test("terminal runtime lease release requires a process-group stop proof", () =>
       authorized(owner("replacement-worker")),
     );
     assert.equal(exitedMutation.type, "lease_released", "an exited session with no recorded PID is terminal evidence");
+    assert.throws(
+      () =>
+        taskMutation(
+          terminalCell,
+          { ...terminalAction, terminalProcessGroupPid: 2_147_483_647 },
+          task,
+          { ...snapshot(), lease: orphanedLease },
+          authorized(owner("replacement-worker")),
+        ),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
+      "an unrelated supplied PID cannot replace the exited session's missing process-group witness",
+    );
 
     runtimeEvents = [
       sessionStarted(edgeSource),
