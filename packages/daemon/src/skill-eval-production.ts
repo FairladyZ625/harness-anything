@@ -61,12 +61,16 @@ export function openSkillEvalCatalogStore(userRoot: string): SkillEvalStore {
       throw error;
     }
   };
-  const persist = (catalog: CatalogDocument): Promise<void> => {
+  const persist = async (catalog: CatalogDocument): Promise<void> => {
+    await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
+    const temporary = `${target}.${process.pid}.tmp`;
+    await writeFile(temporary, `${JSON.stringify(catalog)}\n`, { encoding: "utf8", mode: 0o600 });
+    await rename(temporary, target);
+  };
+  const updateCatalog = (update: (catalog: CatalogDocument) => CatalogDocument): Promise<void> => {
     const operation = writes.then(async () => {
-      await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
-      const temporary = `${target}.${process.pid}.tmp`;
-      await writeFile(temporary, `${JSON.stringify(catalog)}\n`, { encoding: "utf8", mode: 0o600 });
-      await rename(temporary, target);
+      const catalog = await readCatalog();
+      await persist(update(catalog));
     });
     writes = operation.catch(() => undefined);
     return operation;
@@ -79,18 +83,16 @@ export function openSkillEvalCatalogStore(userRoot: string): SkillEvalStore {
       return skills.at(-1) ?? null;
     },
     listCases: async (skillId) => (await readCatalog()).cases[skillId] ?? [],
-    appendCase: async (skillId, item) => {
-      const catalog = await readCatalog();
-      const cases = [...(catalog.cases[skillId] ?? [])];
-      if (cases.some((candidate) => candidate.id === item.id))
-        throw Object.assign(new Error(`evaluation case ${item.id} already exists`), { code: "CONFLICT" });
-      cases.push(item);
-      await persist({ ...catalog, cases: { ...catalog.cases, [skillId]: cases } });
-    },
-    recordEvaluation: async (evaluation) => {
-      const catalog = await readCatalog();
-      await persist({ ...catalog, evaluations: [...catalog.evaluations, evaluation] });
-    },
+    appendCase: (skillId, item) =>
+      updateCatalog((catalog) => {
+        const cases = [...(catalog.cases[skillId] ?? [])];
+        if (cases.some((candidate) => candidate.id === item.id))
+          throw Object.assign(new Error(`evaluation case ${item.id} already exists`), { code: "CONFLICT" });
+        cases.push(item);
+        return { ...catalog, cases: { ...catalog.cases, [skillId]: cases } };
+      }),
+    recordEvaluation: (evaluation) =>
+      updateCatalog((catalog) => ({ ...catalog, evaluations: [...catalog.evaluations, evaluation] })),
   };
 }
 

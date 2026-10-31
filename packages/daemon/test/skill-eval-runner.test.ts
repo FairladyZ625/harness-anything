@@ -1,17 +1,20 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
   openDaemonHost,
+  openSkillEvalCatalogStore,
   SkillEvalRunner,
   type SkillEvalCase,
+  type SkillEvalRecord,
   type SkillEvalRuntimePort,
   type SkillEvalSkill,
   type SkillEvalStore,
 } from "../src/index.ts";
+import { judgeSkillEvaluation } from "@harness-anything/kernel";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 
@@ -187,6 +190,71 @@ test("keeps case creation append-only and rejects duplicate ids", async () => {
     });
     assert.equal(added.input, "new");
     assert.equal(f.cases.length, 3);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("serializes concurrent catalog appends and evaluation records", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "skill-eval-catalog-"));
+  try {
+    const store = openSkillEvalCatalogStore(root);
+    const judgment = judgeSkillEvaluation({
+      skillId: "report",
+      version: "1.0.0",
+      versionDigest: "a".repeat(64),
+      evaluationId: "evaluation-1",
+      outputs: [{ caseId: "case-1", output: "ok" }],
+      passed: 1,
+      total: 1,
+      threshold: 1,
+      occurredAt: "2026-10-31T00:00:00.000Z",
+    });
+    const evaluation = (id: string): SkillEvalRecord => ({
+      id,
+      skillId: "report",
+      version: "1.0.0",
+      versionDigest: "a".repeat(64),
+      result: "pass",
+      passed: 1,
+      total: 1,
+      threshold: 1,
+      cases: [],
+      execution: judgment.execution,
+      witness: judgment.witness,
+      gateStatus: judgment.status,
+      gateId: "skill-eval",
+      source: "ha-skill-platform-run",
+      predicateType: "ha.skill-eval/v1",
+      createdBy: "operator",
+      createdAt: "2026-10-31T00:00:00.000Z",
+    });
+    const item = (id: string): SkillEvalCase => ({
+      id,
+      input: id,
+      hidden: false,
+      expect: null,
+      createdBy: "operator",
+      createdAt: "2026-10-31T00:00:00.000Z",
+    });
+    await Promise.all([
+      store.appendCase("report", item("case-1")),
+      store.appendCase("report", item("case-2")),
+      store.recordEvaluation?.(evaluation("evaluation-1")),
+      store.recordEvaluation?.(evaluation("evaluation-2")),
+    ]);
+    const catalog = JSON.parse(await readFile(path.join(root, "skill-eval", "catalog.json"), "utf8")) as {
+      cases: Record<string, SkillEvalCase[]>;
+      evaluations: SkillEvalRecord[];
+    };
+    assert.deepEqual(
+      catalog.cases.report?.map(({ id }) => id),
+      ["case-1", "case-2"],
+    );
+    assert.deepEqual(
+      catalog.evaluations.map(({ id }) => id),
+      ["evaluation-1", "evaluation-2"],
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }
