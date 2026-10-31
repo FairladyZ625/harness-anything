@@ -171,15 +171,15 @@ test("edge terminal task settlement rejects a changed node owner", { timeout: 60
   assert.equal(await eventually(async () => outcomes().length > 0), true);
   // dec_614F7BBB18C8687E7EFC72173D: no recorded process means no exit evidence, so outcome stays unknown.
   assert.equal(outcomes()[0]?.outcome, "unknown", JSON.stringify(outcomes()));
-  // Ownership is rejected before archive publication. This injected process has no
-  // worker-host record, so restored ownership recovers an explicit lost-session result.
+  // Ownership is rejected before archive publication. The injected PID is recorded in
+  // the dispatch witness, then recovery reports that it is no longer alive.
   await syncReplica();
   const recovered = await runtime.run("repo.agentRuntime.sessions.read", {
     runtimeSessionId: launched.runtimeSessionId,
   });
   assert.deepEqual(recovered.result, {
     ref: outcomes()[0]?.resultRef,
-    text: "Runtime session lost: runtime process was never recorded before daemon restart.",
+    text: "Runtime session lost: runtime process 2147483647 is no longer alive after daemon restart.",
   });
 });
 for (const restart of [false, true])
