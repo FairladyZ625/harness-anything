@@ -83,6 +83,8 @@ import { daemonCliBinDirectory, prepareBoundRuntimeLaunch } from "./runtime-spaw
 import type { RuntimeEventOf, RuntimeEventType, RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { assertReviewerTarget, selectReadOnlyAttachTarget, selectReviewTarget } from "./review-dispatch-admission.ts";
+import { ModelSlotQueue } from "./runtime/model-slot-queue.ts";
+import { relayBudgetMicrosOf } from "./runtime/cloud-dispatch-relay.ts";
 import { initialFallbackAttempt, reconcileFallback, requiredRuntimeFast } from "./runtime-spawn-fallback.ts";
 import {
   resolveRuntimeResume,
@@ -111,6 +113,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     prepareDaemonGitEnvironment = (instanceId: string, provider: "github" | "gitlab" = "github") =>
       input.prepareDaemonGitEnvironment?.(instanceId, provider).then((value) => value ?? undefined) ??
       Promise.resolve(undefined);
+  const modelSlotQueue = input.modelSlotQueue ?? new ModelSlotQueue();
+  const ownsModelSlotQueue = input.modelSlotQueue === undefined;
   let fallbackClosed = false;
   const preflightRuntimeSelection = async (payload: JsonObject): Promise<void> => {
     // A resumed dispatch carries its own model and instance in the recorded stream header; do not
@@ -212,7 +216,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     onDispatched?: (dispatchId: string, runtimeSessionId: string) => void,
     onPrepared?: (dispatchId: string, runtimeSessionId: string) => void,
   ): Promise<JsonObject> => {
-    const dryRun = payload.dryRun === true;
+    const dryRun = payload.dryRun === true,
+      dispatchUsageLimit = input.readSettings?.().runtime.dispatchUsageLimit ?? 0;
     const { requestedDispatchId, resumed, inherited, handoffEnabled } = resolveRuntimeResume(input, payload, handoff);
     const explicitRuntimeInstanceId =
         payload.runtimeInstanceId === undefined
@@ -415,7 +420,22 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         reviewerBinding: Boolean(reviewerBinding),
       }),
       fallbackMission = dispatchPromptTemplate(mission, newDispatchId);
-    const selection = await prepareRuntimeInstance(
+    let modelSlotHeld = false;
+    const releaseModelSlot = (): void => {
+      if (!modelSlotHeld) return;
+      modelSlotHeld = false;
+      modelSlotQueue.release(runtimeSessionId);
+    };
+    if (!dryRun) {
+      await modelSlotQueue.acquire({
+        attemptId: runtimeSessionId,
+        ownerKey: binding.actor.principal.personId,
+        flowKey: taskId ?? dispatchKey,
+      });
+      modelSlotHeld = true;
+    }
+    const selectRuntime = () =>
+      prepareRuntimeInstance(
         {
           requested: requestedRuntimeInstanceId,
           providerSessionId: providerSessionId ?? undefined,
@@ -592,47 +612,72 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 mission,
               }
             : null;
-          const prepared = dryRun
-              ? null
-              : await input.prepareLaunch(runtimeInstanceId, {
-                  cwd,
-                  prompt,
-                  ...(selectedModel ? { model: selectedModel } : {}),
-                  ...(selectedEffort ? { effort: selectedEffort } : {}),
-                  ...(fast === undefined ? {} : { fast }),
-                  ...(declaredPermissionMode ? { permissionMode: declaredPermissionMode } : {}),
-                  ...(callbackRelay ? { callbackRelayPath: callbackRelay.path } : {}),
-                  ...(providerSessionId ? { providerSessionId } : {}),
-                  runtimeSessionId,
-                  handshakeTimeoutMs: input.readSettings?.().runtime.providerHandshakeTimeoutMs,
-                }),
-            result = {
-              fallbackAttempt: fallbackAttemptForDispatch,
-              runtimeInstance,
-              effectivePermissionMode,
-              callbackRelay,
-              readOnlyDispatch,
-              prompt,
-              prepared,
-              preview,
-            };
+          let cloudRelay: Awaited<ReturnType<NonNullable<RuntimeSpawnerInput["prepareCloudRelay"]>>> | null = null;
+          let prepared: Awaited<ReturnType<RuntimeSpawnerInput["prepareLaunch"]>> | null = null;
+          if (!dryRun) {
+            const budgetMicros = selectedModel ? relayBudgetMicrosOf(selectedModel, dispatchUsageLimit) : null;
+            try {
+              cloudRelay =
+                input.prepareCloudRelay && budgetMicros !== null && selectedModel
+                  ? await input.prepareCloudRelay({
+                      instanceId: runtimeInstanceId,
+                      attemptId: runtimeSessionId,
+                      model: selectedModel,
+                      budgetMicros,
+                    })
+                  : null;
+              prepared = await input.prepareLaunch(runtimeInstanceId, {
+                cwd,
+                prompt,
+                ...(selectedModel ? { model: selectedModel } : {}),
+                ...(selectedEffort ? { effort: selectedEffort } : {}),
+                ...(fast === undefined ? {} : { fast }),
+                ...(declaredPermissionMode ? { permissionMode: declaredPermissionMode } : {}),
+                ...(callbackRelay ? { callbackRelayPath: callbackRelay.path } : {}),
+                ...(providerSessionId ? { providerSessionId } : {}),
+                ...(cloudRelay ? { cloudRelay: { baseUrl: cloudRelay.baseUrl, token: cloudRelay.token } } : {}),
+                runtimeSessionId,
+                handshakeTimeoutMs: input.readSettings?.().runtime.providerHandshakeTimeoutMs,
+              });
+            } catch (error) {
+              await cloudRelay?.close();
+              throw error;
+            }
+          }
+          const result = {
+            fallbackAttempt: fallbackAttemptForDispatch,
+            runtimeInstance,
+            effectivePermissionMode,
+            callbackRelay,
+            readOnlyDispatch,
+            prompt,
+            prepared,
+            cloudRelay,
+            preview,
+          };
           return result;
         },
-      ),
-      runtimeInstanceId = selection.instanceId,
-      { runtimeInstance, effectivePermissionMode, callbackRelay, readOnlyDispatch, prompt, preview } = selection.launch,
-      // The rule that decided this instance, computed from the same inputs dispatch used. It rides
-      // the receipt so an operator reads why a same-kind sibling was skipped instead of guessing.
-      runtimeSelection = selectedRuntimeInstance({
+      );
+    let selection: Awaited<ReturnType<typeof selectRuntime>>;
+    try {
+      selection = await selectRuntime();
+    } catch (error) {
+      releaseModelSlot();
+      throw error;
+    }
+    const runtimeInstanceId = selection.instanceId,
+      { runtimeInstance, effectivePermissionMode, callbackRelay, readOnlyDispatch, prompt, preview, cloudRelay } =
+        selection.launch;
+    if (preview) return preview;
+    const runtimeSelection = selectedRuntimeInstance({
         agent,
         ...(model === undefined ? {} : { model }),
         instances: runtimeInstances,
         selected: runtimeInstanceId,
         ...(explicitRuntimeInstanceId === undefined ? {} : { explicitlyRequested: true }),
         ...(providerSessionId === null || providerSessionId === undefined ? {} : { resumedSession: true }),
-      });
-    if (preview) return preview;
-    const prepared = selection.launch.prepared!,
+      }),
+      prepared = selection.launch.prepared!,
       fallbackAttempt = selection.launch.fallbackAttempt,
       definition = prepared.definition,
       installation = prepared.installation,
@@ -779,6 +824,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     const cleanupFailedLaunch = async (error: unknown): Promise<void> => {
       process?.terminate();
       process?.release?.();
+      releaseModelSlot();
+      await cloudRelay?.close();
       cleanupCallbackRelay();
       if (stream) removeDispatchStream(input.rootDir, newDispatchId);
       reclaimFailedLaunchTempDirectory(input, runtimeInstanceId, runtimeSessionId);
@@ -983,6 +1030,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     }
     // The center queue owns the claim: another edge can win after our initial receipt read.
     if (requested.receipt?.reused === true) {
+      releaseModelSlot();
+      await cloudRelay?.close();
       cleanupCallbackRelay();
       // The id is deterministic from dispatchKey and may already be the winning stream after a
       // restart race. Removing it here can delete the winner's Squad state journal, leaving a
@@ -1032,8 +1081,16 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         throw error;
       }
     const runtimeProcess = process;
+    const releasedRuntimeProcess: RuntimeProcess = {
+      ...runtimeProcess,
+      release: () => {
+        runtimeProcess.release?.();
+        releaseModelSlot();
+        void cloudRelay?.close();
+      },
+    };
     const active = createActiveRuntime({
-      process: runtimeProcess,
+      process: releasedRuntimeProcess,
       dispatchId: newDispatchId,
       runtimeSessionId,
       dispatchOpId,
@@ -1242,6 +1299,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     steer: (payload: JsonObject, binding: RuntimeBinding) => steerRuntime(extracted, payload, binding),
     close: () => {
       fallbackClosed = true;
+      if (ownsModelSlotQueue) modelSlotQueue.close();
       closeRuntimes(extracted);
     },
   };

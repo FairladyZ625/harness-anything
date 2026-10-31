@@ -289,7 +289,12 @@ export function runtimeBaseUrl(config: RuntimeInstanceConfig): string | undefine
   return runtimeProviderConfig(config).baseUrl;
 }
 
-export function writeCodexConfig(target: string, config: RuntimeInstanceConfig, bearerToken?: string): void {
+export function writeCodexConfig(
+  target: string,
+  config: RuntimeInstanceConfig,
+  bearerToken?: string,
+  baseUrlOverride?: string,
+): void {
   const provider = runtimeProviderConfig(config),
     effort = provider.reasoningEffort,
     headers =
@@ -306,7 +311,9 @@ export function writeCodexConfig(target: string, config: RuntimeInstanceConfig, 
       "",
       `[model_providers.${tomlString(config.providerId)}]`,
       `name = ${tomlString(config.providerId)}`,
-      ...(provider.baseUrl ? [`base_url = ${tomlString(provider.baseUrl)}`] : []),
+      ...(baseUrlOverride || provider.baseUrl
+        ? [`base_url = ${tomlString(baseUrlOverride ?? provider.baseUrl!)}`]
+        : []),
       ...(provider.wireApi ? [`wire_api = ${tomlString(provider.wireApi)}`] : []),
       ...(provider.requiresOpenAiAuth === undefined && config.providerId !== "openai"
         ? ["requires_openai_auth = false"]

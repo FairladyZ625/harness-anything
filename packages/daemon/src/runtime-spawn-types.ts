@@ -36,6 +36,7 @@ import { type RuntimePermissionMode } from "./runtime-permissions.ts";
 import type { RuntimeFallbackAttempt, RuntimeProviderFault } from "./runtime-fallback-contract.ts";
 import type { RuntimeProviderHealthStore } from "./runtime-provider-health.ts";
 import type { RuntimeContinuationSeed } from "./runtime-continuation-context.ts";
+import type { ModelSlotQueue } from "./runtime/model-slot-queue.ts";
 
 export interface RuntimeProcess {
   readonly pid: number;
@@ -375,6 +376,20 @@ export interface RuntimeSpawnerInput {
   readonly now: () => string;
   readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
   readonly runtimeProviderHealth?: RuntimeProviderHealthStore;
+  /** Shared admission queue for model-backed runtime attempts. */
+  readonly modelSlotQueue?: ModelSlotQueue;
+  /** Creates an attempt-scoped cloud relay when the selected instance supports it. */
+  readonly prepareCloudRelay?: (input: {
+    readonly instanceId: string;
+    readonly attemptId: string;
+    readonly model: string;
+    readonly budgetMicros: number;
+    readonly maxGenerations?: number;
+  }) => Promise<{
+    readonly baseUrl: string;
+    readonly token: string;
+    readonly close: () => Promise<void>;
+  } | null>;
   readonly prepareLaunch: (instanceId: string, request: RuntimeLaunchRequest) => Promise<PreparedRuntimeLaunch>;
   /** Reclaims one runtime session's per-run temp directory under its instance state root;
    *  a no-op for instances without enforced isolation. Returns the filesystem failure (if

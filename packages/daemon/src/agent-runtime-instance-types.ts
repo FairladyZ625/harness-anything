@@ -118,6 +118,11 @@ export interface RuntimeLaunchRequest {
    * host, whose process does not share the daemon's settings reader.
    */
   readonly handshakeTimeoutMs?: number;
+  /** Attempt-scoped loopback relay credentials; the worker receives only this token. */
+  readonly cloudRelay?: {
+    readonly baseUrl: string;
+    readonly token: string;
+  };
 }
 
 export interface PreparedRuntimeLaunch {

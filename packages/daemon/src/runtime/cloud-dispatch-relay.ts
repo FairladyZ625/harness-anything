@@ -272,6 +272,14 @@ export function relayPriceOf(model: string): RelayPrice {
   };
 }
 
+/** Worst-case micro-USD budget used by the daemon launch boundary. */
+export function relayBudgetMicrosOf(model: string, inputTokens: number, outputCap = OUTPUT_CAP_TOKENS): number | null {
+  if (!Number.isSafeInteger(inputTokens) || inputTokens < 1) return null;
+  const standIn = model === "grok-4.6" ? "gpt-6.1-sol" : model;
+  if (!modelPriceOf(standIn)) return null;
+  return costMicros(relayPriceOf(model), { input: inputTokens, cachedInput: 0, output: outputCap });
+}
+
 export function mask(text: string, secrets: readonly string[]): string {
   let masked = text;
   for (const secret of secrets) if (secret.length >= 8) masked = masked.split(secret).join("[REDACTED]");

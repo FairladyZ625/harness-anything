@@ -80,6 +80,7 @@ export interface FleetEdgeRuntimeRequest {
 type RuntimePorts = {
   readonly runtimeInstances: () => readonly RuntimeInstanceSummary[];
   readonly prepareRuntimeLaunch: (instanceId: string, request: RuntimeLaunchRequest) => Promise<PreparedRuntimeLaunch>;
+  readonly prepareCloudRelay: NonNullable<Parameters<typeof makeRuntimeSpawner>[0]["prepareCloudRelay"]>;
   readonly reclaimRuntimeTempDirectory: (instanceId: string, runtimeSessionId: string) => Error | null;
   readonly reclaimSettledRuntimeTempDirectories: (
     settledRuntimeSessionIds: readonly string[],
@@ -509,6 +510,7 @@ export function openFleetEdgeRuntime(input: {
     readSettings,
     runtimeInstances: input.ports.runtimeInstances,
     prepareLaunch: input.ports.prepareRuntimeLaunch,
+    prepareCloudRelay: input.ports.prepareCloudRelay,
     reclaimRuntimeTempDirectory: input.ports.reclaimRuntimeTempDirectory,
     reclaimSettledRuntimeTempDirectories: input.ports.reclaimSettledRuntimeTempDirectories,
     prepareDaemonGitEnvironment: input.ports.prepareDaemonGitEnvironment,
