@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { openSqliteEventStore, resolveActiveGeneration } from "../../packages/kernel/src/index.ts";
+import { openSqliteEventStore, resolveActiveGeneration } from "../../packages/storage/src/index.ts";
 import { readDispatchStreamSummary } from "../../packages/daemon/src/dispatch-stream.ts";
 import { createSoakEvents, initializeFixture } from "./daemon-soak.mjs";
 

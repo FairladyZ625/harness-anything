@@ -4,14 +4,13 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { INITIAL_SETTINGS_V1, type TaskEventV1 } from "@harness-anything/kernel";
 import {
-  INITIAL_SETTINGS_V1,
   openSqliteEventStore,
   activateEmptyCanonicalGeneration,
   makeTaskEventStore,
   makeTaskProjection,
-  type TaskEventV1,
-} from "@harness-anything/kernel";
+} from "@harness-anything/storage";
 import { migrateEventsToSqlite } from "../../storage/test/store/canonical-generation.fixtures.ts";
 import {
   compilePresetSnapshotUpgrade,

@@ -9,7 +9,8 @@ import { requestLocalDaemonJsonRpc } from "@harness-anything/daemon/internal/cli
 import { daemonStoppedMarkerPath } from "@harness-anything/daemon/internal/client/daemon-autostart";
 import { localUserDaemonEndpoint } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import { readDaemonPid } from "@harness-anything/daemon/internal/runtime";
-import { deriveRelationId, makeTaskEventReader } from "@harness-anything/kernel";
+import { deriveRelationId } from "@harness-anything/kernel";
+import { makeTaskEventReader } from "@harness-anything/storage";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 
 // Windows teardown: rmSync below cannot remove a ledger file while one of this process's readers

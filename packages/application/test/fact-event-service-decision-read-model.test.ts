@@ -4,12 +4,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import {
-  deriveRelationId,
-  makeTaskEventStore,
-  makeTaskProjection,
-  type DecisionEventDraftV1,
-} from "@harness-anything/kernel";
+import { deriveRelationId, type DecisionEventDraftV1 } from "@harness-anything/kernel";
+import { makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { makeDecisionService, makeFactService } from "../src/index.ts";
 import { realizedDecisionBody } from "../../../tools/fixtures/task-plan.mjs";

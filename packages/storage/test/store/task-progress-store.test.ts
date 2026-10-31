@@ -5,21 +5,19 @@ import { mkdtempSync, readFileSync, rmSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { makeTaskEventStore, makeTaskProjection } from "../../src/index.ts";
 import {
-  REPLAY_TASK_GRAPH,
   applyTransition,
   compileTaskProgress,
-  makeTaskEventStore,
-  makeTaskProjection,
   normalizeTaskLifecycleCommand,
-  sha256Text,
-  stableStringify,
+  REPLAY_TASK_GRAPH,
   taskBootstrapWritePlan,
   taskLifecycleWritePlan,
   type TaskBootstrapBlob,
   type TaskBootstrapEventV1,
   type TaskEventV1,
-} from "../../src/index.ts";
+} from "@harness-anything/kernel";
+import { sha256Text, stableStringify } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { emptyTaskLifecycleSnapshot } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract.ts";
 import { validateTaskProgressEvent } from "@harness-anything/kernel/internal/domain/task-progress-event.ts";
 import type { CanonicalWriteBundle } from "../../src/store/task-event-store.ts";

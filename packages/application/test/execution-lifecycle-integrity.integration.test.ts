@@ -11,9 +11,9 @@ import {
   currentActionEnvelopeVersion,
   isIndependentFrom,
   normalizeTaskLifecycleCommand,
-  openSqliteEventStore,
   submissionDigest,
 } from "@harness-anything/kernel";
+import { openSqliteEventStore } from "@harness-anything/storage";
 import { makeTaskEventStore, makeTaskProjection } from "../../storage/test/store/task-lifecycle-runtime.ts";
 import { commitSha, lifecycleHarness, owner, reviewer } from "./task-lifecycle-test-harness.ts";
 

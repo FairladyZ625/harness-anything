@@ -7,7 +7,8 @@ import path from "node:path";
 import test, { after } from "node:test";
 import { spawnKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
-import { makeTaskEventReader, makeTaskProjection, sha256Text, stableStringify } from "@harness-anything/kernel";
+import { sha256Text, stableStringify } from "@harness-anything/kernel";
+import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
 import { localUserDaemonEndpoint } from "../src/daemon/client.ts";
 
 const realm = await spawnKeycloak();

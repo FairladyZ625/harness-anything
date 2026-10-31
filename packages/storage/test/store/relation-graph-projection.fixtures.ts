@@ -5,20 +5,20 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { makeTaskProjection } from "../../src/index.ts";
 import {
-  MIGRATION_DOCUMENT_POLICY_ID,
-  REPLAY_TASK_GRAPH,
   compileDecisionWrite,
   compileFactWrite,
   deriveRelationId,
-  makeTaskProjection,
+  MIGRATION_DOCUMENT_POLICY_ID,
+  REPLAY_TASK_GRAPH,
   serializeCanonicalEvent,
   serializePersistedCanonicalEvent,
-  sha256Text,
   type CanonicalEventV1,
   type MigrationImportEventV1,
   type TaskEventV1,
-} from "../../src/index.ts";
+} from "@harness-anything/kernel";
+import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import type { EntityRelationRecord } from "@harness-anything/kernel/internal/domain/entity-relation.ts";
 import { createDecisionProjectionTables } from "../../src/projection/decision-event-projection.ts";
 import { createFactProjectionTables } from "../../src/projection/fact-event-projection.ts";

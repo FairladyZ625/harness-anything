@@ -50,15 +50,14 @@ import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 
 import {
   canonicalEventWritePlan,
-  makeTaskEventStore,
-  activateEmptyCanonicalGeneration,
   REPLAY_TASK_GRAPH,
   taskLifecycleWritePlan,
   type AgentDefinitionSnapshot,
   type AgentRuntimeEventV1,
   type TaskEventV1,
 } from "@harness-anything/kernel";
-import { registerDaemonRepo } from "@harness-anything/kernel";
+import { makeTaskEventStore, activateEmptyCanonicalGeneration } from "@harness-anything/storage";
+import { registerDaemonRepo } from "@harness-anything/storage";
 
 import { WRITE_RECEIPT_SCHEMA } from "@harness-anything/kernel/internal/domain/receipt-domain-registry";
 

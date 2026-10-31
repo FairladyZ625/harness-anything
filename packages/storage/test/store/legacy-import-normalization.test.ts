@@ -2,14 +2,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  MIGRATION_DOCUMENT_POLICY_ID,
-  REPLAY_TASK_GRAPH,
-  sha256Text,
   validateCurrentCanonicalEvent,
   validateTaskV2,
   type CanonicalEventV1,
   type TaskV2,
-} from "../../src/index.ts";
+} from "@harness-anything/kernel";
+import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
+import { MIGRATION_DOCUMENT_POLICY_ID, REPLAY_TASK_GRAPH } from "@harness-anything/kernel";
 import { OPAQUE_TEXTUAL_POLICY_ID } from "@harness-anything/kernel/internal/domain/artifact-text-classification.ts";
 import { DECISION_DOCUMENT_POLICY_ID } from "@harness-anything/kernel/internal/domain/decision-event-types.ts";
 import { eventShapeMigrations, type EventShapeCut } from "../../src/store/event-shape-migration.ts";

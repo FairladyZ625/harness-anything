@@ -11,7 +11,7 @@ import {
   type MigrationImportEventV1,
 } from "@harness-anything/kernel/internal/domain/migration-import-event.ts";
 import type { DocumentState } from "@harness-anything/kernel/internal/domain/doc-sync-types.ts";
-import { compileDecisionWrite } from "../../src/index.ts";
+import { compileDecisionWrite } from "@harness-anything/kernel";
 import { decisionIdSortKey, reduceDecisionEvent } from "../../src/projection/decision-event-projection.ts";
 import { refreshDecisionDocumentSearch } from "../../src/projection/decision-projection-reducer.ts";
 import { projectMigration } from "../../src/projection/rebuildable-task-projection-write-model.ts";

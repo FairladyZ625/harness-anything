@@ -9,7 +9,7 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { requestLocalDaemonJsonRpc } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
 import { openPersistentWriterEpoch } from "@harness-anything/storage";
-import { HARNESS_LEDGER_WRITER_ENV } from "@harness-anything/kernel";
+import { HARNESS_LEDGER_WRITER_ENV } from "@harness-anything/storage";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 
 export const cli = path.resolve("packages/cli/src/index.ts");

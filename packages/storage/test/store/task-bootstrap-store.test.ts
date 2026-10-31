@@ -6,16 +6,14 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
+import { makeTaskEventStore, makeTaskProjection } from "../../src/index.ts";
 import {
   REPLAY_TASK_GRAPH,
-  makeTaskEventStore,
-  makeTaskProjection,
-  sha256Text,
-  stableStringify,
   taskBootstrapWritePlan,
   type TaskBootstrapBlob,
   type TaskBootstrapEventV1,
-} from "../../src/index.ts";
+} from "@harness-anything/kernel";
+import { sha256Text, stableStringify } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 
 test("task bootstrap publishes and rebuilds one exact Task, snapshot, and document cut", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-bootstrap-"));

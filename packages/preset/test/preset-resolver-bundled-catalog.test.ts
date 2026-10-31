@@ -4,7 +4,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, sha256Text, transitionDocumentContract } from "@harness-anything/kernel";
+import { sha256Text, transitionDocumentContract } from "@harness-anything/kernel";
+import { makeTaskEventStore } from "@harness-anything/storage";
 import { compileTaskBootstrap, readBundledAgentDeclaration } from "../src/index.ts";
 import { createRuntime, presetDocumentBody } from "../src/preset-resolver.ts";
 import { loadCanonicalAssets } from "../src/preset-assets.ts";
