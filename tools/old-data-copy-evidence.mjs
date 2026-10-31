@@ -725,6 +725,7 @@ const record = (step, value) => {
 let projection = null;
 try {
   const kernel = await import(toUrl(path.join(BUILD_ROOT, "packages/kernel/src/index.ts")));
+  const storage = await import(toUrl(path.join(BUILD_ROOT, "packages/storage/src/index.ts")));
   const { readTaskDispatches } = await import(toUrl(path.join(BUILD_ROOT, "packages/daemon/src/dispatch-read.ts")));
   // Record the root the build itself resolves, so the receipt shows the data it read is the data
   // the copy actually holds — not an empty default directory next to it.
@@ -735,9 +736,9 @@ try {
     configPath: layout.configPath ?? null,
     taskProjectionPath: layout.taskProjectionPath,
   });
-  const store = kernel.makeTaskEventReader({ repoId: REPO_ID, rootDir: WORKSPACE });
+  const store = storage.makeTaskEventReader({ repoId: REPO_ID, rootDir: WORKSPACE });
   record("store-head", store.readHead() ?? null);
-  projection = kernel.makeTaskProjection({ rootDir: WORKSPACE, eventStore: store, catchUpLimit: 32 });
+  projection = storage.makeTaskProjection({ rootDir: WORKSPACE, eventStore: store, catchUpLimit: 32 });
   record("attach-catch-up", projection.catchUp?.() ?? "async-only");
   const index = projection.readTaskIndex({ limit: 5 });
   const rows = index.rows ?? [];

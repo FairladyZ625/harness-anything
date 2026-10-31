@@ -1,4 +1,4 @@
 [
-  { "path": "packages/storage/src/projection/cold-rebuild-source.ts", "module": "kernel" },
-  { "path": "packages/storage/src/projection/rebuildable-task-projection.ts", "module": "kernel" }
+  { "path": "packages/storage/src/projection/cold-rebuild-source.ts", "module": "storage" },
+  { "path": "packages/storage/src/projection/rebuildable-task-projection.ts", "module": "storage" }
 ]

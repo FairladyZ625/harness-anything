@@ -17,6 +17,7 @@ export const BUDGETED_MODULES = Object.freeze([
   "cli",
   "gui",
   "daemon",
+  "storage",
   "fleet",
   "authority-write-path",
   "identity-rbac",
