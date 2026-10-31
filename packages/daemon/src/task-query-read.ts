@@ -622,7 +622,7 @@ export function makeTaskQueryReadModel(input: {
             projection
               .readRuntimeDispatchesByAttemptGroup(dispatch.payload.attemptGroupId ?? dispatch.payload.dispatchId)
               .some(({ event }) => (event.payload.attemptIndex ?? 0) > (dispatch.payload.attemptIndex ?? 0));
-        for (const row of leaseReturnedRows(active?.rows ?? []).filter(({ taskId }) =>
+        for (const row of leaseReturnedRows([...(active?.rows ?? []), ...(blocked?.rows ?? [])]).filter(({ taskId }) =>
           assignmentFor(`task/${taskId}`),
         )) {
           const packagePath = row.packagePath;
@@ -1217,9 +1217,9 @@ function agendaTaskRow(row: AgendaSourceRow): AgendaTaskRow {
 }
 
 /**
- * 「租约已交回」的 active 行:结算在发布终态前释放执行租约,所以没有 lease 就是「那个 runtime
- * 已经说话并退场」。评审打回、长时停滞、等裁决都是这一形状,各自再按自己的证据收窄;还在跑的
- * 行(lease 仍被持有)一律不在此列。
+ * 「租约已交回」的 active/blocked 行:结算在发布终态前释放执行租约,所以没有 lease 就是「那个
+ * runtime 已经说话并退场」。评审打回、长时停滞、等裁决都是这一形状,各自再按自己的证据收窄;还在
+ * 跑的行(lease 仍被持有)一律不在此列。
  */
 function leaseReturnedRows(rows: readonly AgendaSourceRow[]): readonly AgendaSourceRow[] {
   return rows.filter((row) => row.snapshot.lease === null);

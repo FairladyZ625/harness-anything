@@ -126,6 +126,8 @@ export interface RuntimeAttemptTerminal {
   readonly outcome: ScheduleRunOutcome | "superseded";
   readonly reason: string | null;
   readonly endedAt: string;
+  /** A worker ruling is an intentional owner wait; terminal settlement parks its task. */
+  readonly waitingOnOwner?: boolean;
   readonly binding: RuntimeBinding;
 }
 

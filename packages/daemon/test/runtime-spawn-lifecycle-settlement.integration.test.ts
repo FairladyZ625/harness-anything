@@ -1363,6 +1363,7 @@ test("a real dispatch that stops for an owner ruling settles awaiting_ruling and
       const dispatches = await cell.read("repo.task.dispatches", { taskId }, binding),
         row = dispatches.dispatches.find(({ dispatchId }) => dispatchId === String(receipt.dispatchId));
       assert.equal(row?.classification, "awaiting_ruling", JSON.stringify(dispatches));
+      assert.equal(dispatches.dispatches.length, 1, "an owner ruling must not trigger incident redispatch");
       assert.deepEqual(row?.ruling, {
         question,
         options,
@@ -1386,6 +1387,31 @@ test("a real dispatch that stops for an owner ruling settles awaiting_ruling and
       );
       assert.match(agenda.summary, /待你处理 \(1\)/u);
       assert.match(agenda.summary, new RegExp(question, "u"));
+      const settledProjection = makeTaskProjection({
+        rootDir: root,
+        projectionPath: path.join(root, ".harness/cache/runtime-ruling-observer.sqlite"),
+        eventStore: makeTaskEventReader({ repoId: "runtime-ruling-dispatch", rootDir: root }),
+      });
+      try {
+        settledProjection.catchUp();
+        const settledTask = settledProjection.read(taskId).snapshot;
+        assert.equal(settledTask.task?.status, "blocked", "owner ruling must park the task visibly");
+        assert.equal(settledTask.lease, null, "owner ruling must release the runtime lease before blocking");
+      } finally {
+        settledProjection.close();
+      }
+      const resumed = await cell.run(
+        { kind: "task-transition", taskId, status: "active", reason: "Owner completed the ruling." },
+        binding,
+      );
+      assert.equal(resumed.outcome, "applied", JSON.stringify(resumed));
+      const continued = await cell.run({ kind: "task-start", taskId, executionId: row?.executionId }, binding);
+      assert.equal(continued.outcome, "applied", JSON.stringify(continued));
+      assert.equal(
+        (await cell.run({ kind: "task-release", taskId }, binding)).outcome,
+        "applied",
+        "CEO must be able to release the resumed execution",
+      );
       const published = readFileSync(
         path.join(root, "harness", packagePath, "artifacts", "rulings", `${String(receipt.dispatchId)}.md`),
         "utf8",

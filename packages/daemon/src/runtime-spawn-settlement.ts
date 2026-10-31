@@ -91,6 +91,7 @@ export async function publishExit(
               : "failed",
           reason: persistedTerminal.payload.outcome === "succeeded" ? null : persistedTerminal.reason,
           endedAt: persistedTerminal.payload.endedAt ?? context.input.now(),
+          ...(persistedTerminal.payload.attempt?.classification === "awaiting_ruling" ? { waitingOnOwner: true } : {}),
           binding: active.binding,
         });
       await publishTerminalOutcome(context, active, terminalBinding, persistedTerminal);
@@ -452,6 +453,7 @@ export async function publishExit(
               : "failed",
         reason: outcome === "succeeded" ? null : attemptOutcome.reason,
         endedAt,
+        ...(ruling === null ? {} : { waitingOnOwner: true }),
         // active.binding is the actor that owns this dispatch's settlement fence: direct task
         // dispatches store the handed-off RuntimeSession binding, while Schedule and squad paths
         // retain their coordinator binding.
