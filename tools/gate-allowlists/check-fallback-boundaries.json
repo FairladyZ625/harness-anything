@@ -189,8 +189,6 @@
    "packages/daemon/src/request-log.ts#writeRequestLogLine",
    "packages/daemon/src/runtime-orchestration.ts#orchestrateRuntimeBatch",
    "packages/daemon/src/runtime-orchestration.ts#worker",
-   "packages/daemon/src/runtime/cloud-dispatch-relay.ts#handle",
-   "packages/daemon/src/runtime/cloud-dispatch-relay.ts#usageOf",
    "packages/daemon/src/runtime-ruling.ts#readDispatchRuling",
    "packages/daemon/src/runtime-ruling.ts#readFileIfPresent",
    "packages/daemon/src/runtime-spawn-fallback.ts#scheduleFallbackContinuation",
