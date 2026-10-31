@@ -114,6 +114,31 @@ test("a managed worktree holds only its own task package link, and out-of-packag
   assert.equal(workerLedgerPath(root, worktree.cwd, path.join(root, "README.md")), path.join(root, "README.md"));
 });
 
+test("an executable ledger entry is copied with the sibling modules it imports", async (t) => {
+  const root = repositoryFixture(t),
+    worktree = { cwd: path.join(root, ".worktrees", taskId), branch: taskId, baseRef: "origin/main" },
+    entryDirectory = path.join(root, "harness", "skills", "scripted"),
+    canonicalEntry = path.join(entryDirectory, "run.mjs"),
+    sibling = path.join(entryDirectory, "helper.mjs");
+  await addManagedWorktree(root, worktree);
+  await runWorktreeSetup({ rootDir: root, cwd: worktree.cwd, taskId, steps: [] });
+  mkdirSync(entryDirectory, { recursive: true });
+  writeFileSync(canonicalEntry, 'import "./helper.mjs";\n');
+  writeFileSync(sibling, "export const helper = true;\n");
+
+  // A script is executed from its directory: `./helper.mjs` is part of the entry, so a copy that
+  // takes only run.mjs is not a runnable entry. This is the isolated-test dispatcher's failure
+  // shape (dispatch-isolated-test.mjs next to test-resources.mjs and the queue/server files).
+  const workerEntry = workerLedgerPath(root, worktree.cwd, canonicalEntry);
+  assert.notEqual(workerEntry, canonicalEntry);
+  assert.equal(readFileSync(workerEntry, "utf8"), 'import "./helper.mjs";\n');
+  assert.equal(
+    readFileSync(path.join(path.dirname(workerEntry), "helper.mjs"), "utf8"),
+    "export const helper = true;\n",
+  );
+  assert.equal(readFileSync(sibling, "utf8"), "export const helper = true;\n", "the canonical sibling is only read");
+});
+
 test("a worktree materialized by the all-links layout is swept to the own-package link at the next setup", async (t) => {
   const root = repositoryFixture(t),
     worktree = { cwd: path.join(root, ".worktrees", taskId), branch: taskId, baseRef: "origin/main" },

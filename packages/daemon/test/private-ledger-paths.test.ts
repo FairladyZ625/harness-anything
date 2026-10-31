@@ -20,7 +20,8 @@ const planBody = "# Plan\n",
   contract = path.join(standards, "implementation-contract-standard.md"),
   devSkill = path.join("harness", "skills", "agent-dev-standards", "SKILL.md"),
   // As written in a prompt: forward slashes, exactly what the reference extractor records.
-  isolatedEntry = "harness/skills/test-isolation/dispatch-isolated-test.mjs";
+  isolatedEntry = "harness/skills/test-isolation/dispatch-isolated-test.mjs",
+  isolatedSibling = "harness/skills/test-isolation/test-resources.mjs";
 
 test("every declared read-set file keeps an openable path when the mission also names globs", async (t) => {
   const root = fixture(t),
@@ -166,6 +167,13 @@ test("an implementation dispatch carries the isolated-test entry without naming 
   assert.ok(entry, "the fixed entry must be listed for a coding dispatch");
   assert.equal(entry.directory, false);
   assert.equal(existsSync(entry.readable), true, `${isolatedEntry} must be openable at ${entry.readable}`);
+  // The entry is executed, not read like a standard: its copied directory has to carry the modules
+  // it imports. A file-only copy fails at the first `./test-resources.mjs` import.
+  assert.equal(
+    existsSync(path.join(path.dirname(entry.readable), path.basename(isolatedSibling))),
+    true,
+    `${isolatedSibling} must sit next to the copied entry ${entry.readable}`,
+  );
   assert.match(privateLedgerReadSection(reads)!, new RegExp(`- ${isolatedEntry.replaceAll("/", "\\/")} -> .+`, "u"));
 });
 
@@ -220,6 +228,7 @@ function fixture(t: TestContext): string {
     path.join("harness", "skills", "alpha", "SKILL.md"),
     path.join("harness", "skills", "zeta", "SKILL.md"),
     path.join("harness", "skills", "test-isolation", "dispatch-isolated-test.mjs"),
+    isolatedSibling,
     ...Array.from({ length: 38 }, (_, index) => path.join(standards, `standard-${String(index).padStart(2, "0")}.md`)),
   ]) {
     mkdirSync(path.dirname(path.join(root, relative)), { recursive: true });
