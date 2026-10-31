@@ -5,26 +5,6 @@
   "entries": {
     "catalogNulls": [
       {
-        "value": "doc-conflict-overwrite-center",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "doc-conflict-resolve",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "doc-retire",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "doc-submit",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
         "value": "entity-archive",
         "ref": "dec_2BF45FF7E52020380F5F35CE2D",
         "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
@@ -55,87 +35,12 @@
         "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
       },
       {
-        "value": "migrate-import",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "runtime-batch",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "runtime-cancel",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "runtime-handoff-claim",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "runtime-handoff-export",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "runtime-handoff-revoke",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "runtime-incident-dismiss",
-        "ref": "task_90599b2e80d7db778e96419a2f",
-        "reason": "Added to main by task_90599b2e after the gate cut and measured into this freeze by dec_2BF45FF7 CH3 (64th row) so the gate can land without blocking main. It is not bound; a convergence task must bind it or justify a non-canonical residency."
-      },
-      {
-        "value": "runtime-run",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "runtime-spawn",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "runtime-steer",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "script-run",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
         "value": "task-pin",
         "ref": "dec_2BF45FF7E52020380F5F35CE2D",
         "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
       },
       {
         "value": "task-unpin",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "vertical-declaration-migrate",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "vertical-kind-publish-schema",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "vertical-kind-retire",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "vertical-kind-upsert",
         "ref": "dec_2BF45FF7E52020380F5F35CE2D",
         "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
       }

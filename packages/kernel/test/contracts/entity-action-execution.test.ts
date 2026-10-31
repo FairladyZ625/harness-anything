@@ -99,6 +99,49 @@ test("Decision and Fact catalog-runtime writes retain their declared ingress and
   }
 });
 
+test("canonical-stream kind bindings resolve to declared Actions on their stream owner", () => {
+  // dec_2446BC2F8C68630F71AE3E3BD7/CH4: the doc, migration, script and vertical write roads name the
+  // stream kind that owns them; the binding rewrites each Action's ingress to its declaration kind.
+  for (const [ingress, kind, id] of [
+    ["doc-submit", "document", "submit"],
+    ["doc-retire", "document", "retire"],
+    ["doc-conflict-resolve", "document", "conflict-resolve"],
+    ["doc-conflict-overwrite-center", "document", "conflict-overwrite-center"],
+    ["migrate-import", "migration", "import"],
+    ["script-run", "script-execution", "run"],
+    ["vertical-declaration-migrate", "vertical-declaration", "migrate"],
+    ["vertical-kind-upsert", "vertical-declaration", "upsert-kind"],
+    ["vertical-kind-publish-schema", "vertical-declaration", "publish-kind-schema"],
+    ["vertical-kind-retire", "vertical-declaration", "retire-kind"],
+  ] as const) {
+    const action = getExecutableEntityAction(ingress);
+    assert.equal(action?.id, id, ingress);
+    assert.equal(action?.target.kind, kind, ingress);
+    assert.equal(action?.execution?.ingress, ingress);
+    assert.equal(action?.execution?.implementation, "declared-only");
+    assert.equal(action?.execution?.read, false);
+  }
+  for (const [ingress, id] of [
+    ["runtime-run", "run"],
+    ["runtime-batch", "batch"],
+    ["runtime-spawn", "spawn"],
+    ["runtime-cancel", "cancel"],
+    ["runtime-handoff-export", "handoff-export"],
+    ["runtime-handoff-claim", "handoff-claim"],
+    ["runtime-handoff-revoke", "handoff-revoke"],
+  ] as const) {
+    const action = getExecutableEntityAction(ingress);
+    assert.equal(action?.id, id, ingress);
+    assert.equal(action?.target.kind, "runtime-session", ingress);
+    assert.equal(action?.execution?.ingress, ingress);
+    assert.equal(action?.execution?.implementation, "catalog-runtime");
+    assert.equal(action?.execution?.read, false);
+  }
+  // The two reclassified writers must not resolve through a canonical catalog Action at all.
+  assert.equal(getExecutableEntityAction("runtime-steer"), undefined);
+  assert.equal(getExecutableEntityAction("runtime-incident-dismiss"), undefined);
+});
+
 test("entity explanations expose action identity but keep runtime compile hooks private", () => {
   for (const kind of ["agent", "decision", "fact", "schedule", "settings"] as const) {
     const explanation = explainEntityKind(kind);
@@ -225,6 +268,13 @@ test("RuntimeSession explains adoption, operation replay, center arbitration, an
     "runtime_session_cancelled",
     "runtime_session_exited",
     "runtime_session_outcome_observed",
+    "run",
+    "batch",
+    "spawn",
+    "cancel",
+    "handoff-export",
+    "handoff-claim",
+    "handoff-revoke",
   ]);
   assert.deepEqual(explanation.canonicalProjection, {
     embeddedEvents: [],

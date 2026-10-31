@@ -164,6 +164,30 @@ const relationIdentity = Object.freeze({
   pattern: "^rel_[0-9a-f]{16}$",
   refTemplate: "relation/{id}" as const,
 });
+// Canonical-stream kinds (dec_2446BC2F8C68630F71AE3E3BD7/CH4). These streams already exist in the
+// ledger; the kind rows exist so their write roads can bind <kind>/<action> instead of staying null.
+const documentIdentity = Object.freeze({
+  field: "path",
+  pattern: "^[A-Za-z0-9._-]+(?:/[A-Za-z0-9._-]+)*$",
+  refTemplate: "document/{id}" as const,
+});
+/** Repository-scoped migration state; the import event carries no single entity identity. */
+const migrationIdentity = Object.freeze({
+  field: "repositoryId",
+  pattern: "^repository$",
+  refTemplate: "migration/{id}" as const,
+});
+const scriptExecutionIdentity = Object.freeze({
+  field: "scriptId",
+  pattern: "^vertical:[a-z0-9][a-z0-9-]*:[a-z0-9][a-z0-9-]*$",
+  refTemplate: "script-execution/{id}" as const,
+});
+/** The event envelope already names this entity (`vertical-declaration/default`). */
+const verticalDeclarationIdentity = Object.freeze({
+  field: "declarationId",
+  pattern: "^default$",
+  refTemplate: "vertical-declaration/{id}" as const,
+});
 
 export const entityTypeContracts = Object.freeze([
   {
@@ -201,6 +225,10 @@ export const entityTypeContracts = Object.freeze([
       Object.freeze({ history: "ledger" as const, graph: "projection" as const }),
     ),
   },
+  { kind: "document", ...baseEntityTypeContract(documentIdentity, authoredResidency) },
+  { kind: "migration", ...baseEntityTypeContract(migrationIdentity, authoredResidency) },
+  { kind: "script-execution", ...baseEntityTypeContract(scriptExecutionIdentity, authoredResidency) },
+  { kind: "vertical-declaration", ...baseEntityTypeContract(verticalDeclarationIdentity, authoredResidency) },
 ] as const satisfies readonly EntityTypeContract[]);
 
 export type RegisteredEntity = EntityFromTypeContract<(typeof entityTypeContracts)[number]>;

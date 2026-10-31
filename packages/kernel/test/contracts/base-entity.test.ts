@@ -29,6 +29,10 @@ const identityByKind: Readonly<Record<EntityKind, string>> = {
   settings: "repository",
   person: "person_baseentity",
   relation: "rel_b75516c583945a52",
+  document: "tasks/task_example/closeout.md",
+  migration: "repository",
+  "script-execution": "vertical:software:catalog",
+  "vertical-declaration": "default",
 };
 
 test("all registered kinds are referenceable relation endpoints from one type contract", () => {
@@ -48,7 +52,7 @@ test("all registered kinds are referenceable relation endpoints from one type co
     if (isRelationEndpointKind(contract.kind)) endpointKinds.push(contract.kind);
   }
 
-  assert.equal(registeredKinds.length, 14);
+  assert.equal(registeredKinds.length, 18);
   assert.deepEqual(referenceableKinds.sort(), registeredKinds);
   assert.deepEqual(endpointKinds.sort(), registeredKinds);
   assert.deepEqual(parseEntityRef("relation/rel_b75516c583945a52"), {

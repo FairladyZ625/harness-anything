@@ -704,6 +704,165 @@ const relationActionCatalog = Object.freeze({
   ]),
 });
 
+/**
+ * Canonical-stream kinds (dec_2446BC2F8C68630F71AE3E3BD7/CH4). Each row owns one ledger stream that
+ * had no registered kind, so its write roads could only declare a null catalogId. The rows carry no
+ * entity store and no projection: they name the stream, its identity and the executable Actions the
+ * daemon already implements (the same declared-only shape as relation/migrate-assignment).
+ */
+const documentKindSchema: EntityDocumentJsonSchema = {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    $id: "document/v1",
+    type: "object",
+    additionalProperties: false,
+    required: ["path", "policyId"],
+    properties: {
+      path: { type: "string", minLength: 1 },
+      policyId: { type: "string", minLength: 1 },
+      blobSha256: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      size: { type: "number" },
+      retirementReason: { type: "string", minLength: 1 },
+    },
+  },
+  migrationKindSchema: EntityDocumentJsonSchema = {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    $id: "migration/v1",
+    type: "object",
+    additionalProperties: false,
+    required: ["repositoryId", "migratedFrom"],
+    properties: {
+      repositoryId: { type: "string", const: "repository" },
+      migratedFrom: { type: "string", minLength: 1 },
+      generation: { type: "string", enum: ["v0"] },
+      entityKind: { type: "string", minLength: 1 },
+    },
+  },
+  scriptExecutionKindSchema: EntityDocumentJsonSchema = {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    $id: "script-execution/v1",
+    type: "object",
+    additionalProperties: false,
+    required: ["scriptId", "mode"],
+    properties: {
+      scriptId: { type: "string", minLength: 1 },
+      mode: { type: "string", enum: ["dry-run", "apply"] },
+      status: { type: "string", minLength: 1 },
+      planDigest: { type: "string", "x-nullable": true },
+    },
+  },
+  verticalDeclarationKindSchema: EntityDocumentJsonSchema = {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    $id: "vertical-declaration/v1",
+    type: "object",
+    additionalProperties: false,
+    required: ["declarationId", "revision"],
+    properties: {
+      declarationId: { type: "string", const: "default" },
+      revision: { type: "number" },
+      verticalId: { type: "string", minLength: 1 },
+      kindId: { type: "string", pattern: "^KND-[0-9a-f]{32}$" },
+    },
+  };
+
+const documentIdentity = requireEntityTypeContract("document").id,
+  migrationIdentity = requireEntityTypeContract("migration").id,
+  scriptExecutionIdentity = requireEntityTypeContract("script-execution").id,
+  verticalDeclarationIdentity = requireEntityTypeContract("vertical-declaration").id;
+
+const documentActionCatalog = Object.freeze({
+    ref: "kernel/doc-event/v1",
+    actions: Object.freeze([
+      executableAction("document", documentIdentity, "submit", "doc-submit", null, noSdkExposure),
+      executableAction("document", documentIdentity, "retire", "doc-retire", null, noSdkExposure),
+      executableAction("document", documentIdentity, "conflict-resolve", "doc-conflict-resolve", null, noSdkExposure),
+      executableAction(
+        "document",
+        documentIdentity,
+        "conflict-overwrite-center",
+        "doc-conflict-overwrite-center",
+        null,
+        noSdkExposure,
+      ),
+    ]),
+  }),
+  migrationActionCatalog = Object.freeze({
+    ref: "kernel/migration-import-event/v1",
+    actions: Object.freeze([
+      executableAction("migration", migrationIdentity, "import", "migrate-import", null, noSdkExposure),
+    ]),
+  }),
+  scriptExecutionActionCatalog = Object.freeze({
+    ref: "kernel/vertical-script-action/v1",
+    actions: Object.freeze([
+      executableAction("script-execution", scriptExecutionIdentity, "run", "script-run", null, noSdkExposure),
+    ]),
+  }),
+  verticalDeclarationActionCatalog = Object.freeze({
+    ref: "kernel/vertical-declaration-event/v1",
+    actions: Object.freeze([
+      executableAction(
+        "vertical-declaration",
+        verticalDeclarationIdentity,
+        "migrate",
+        "vertical-declaration-migrate",
+        null,
+        noSdkExposure,
+      ),
+      executableAction(
+        "vertical-declaration",
+        verticalDeclarationIdentity,
+        "upsert-kind",
+        "vertical-kind-upsert",
+        null,
+        noSdkExposure,
+      ),
+      executableAction(
+        "vertical-declaration",
+        verticalDeclarationIdentity,
+        "publish-kind-schema",
+        "vertical-kind-publish-schema",
+        null,
+        noSdkExposure,
+      ),
+      executableAction(
+        "vertical-declaration",
+        verticalDeclarationIdentity,
+        "retire-kind",
+        "vertical-kind-retire",
+        null,
+        noSdkExposure,
+      ),
+    ]),
+  });
+
+/**
+ * Runtime control rides the RuntimeSession stream: every one of these commands either requests a
+ * dispatch or appends a RuntimeSession transition (dec_2446BC2F8C68630F71AE3E3BD7/CH4). They are
+ * separate Actions from the seven session-event Actions above, so their ingresses never move.
+ */
+const runtimeSessionControlAction = (id: string, ingress: string) =>
+    catalogRuntimeAction(
+      "runtime-session",
+      runtimeSessionIdentity,
+      id,
+      ingress,
+      noSdkExposure,
+      "center-forward-write",
+      "via-center-forward",
+    ),
+  runtimeSessionControlCatalog = Object.freeze({
+    ref: "daemon/runtime-session-control/v1",
+    actions: Object.freeze([
+      runtimeSessionControlAction("run", "runtime-run"),
+      runtimeSessionControlAction("batch", "runtime-batch"),
+      runtimeSessionControlAction("spawn", "runtime-spawn"),
+      runtimeSessionControlAction("cancel", "runtime-cancel"),
+      runtimeSessionControlAction("handoff-export", "runtime-handoff-export"),
+      runtimeSessionControlAction("handoff-claim", "runtime-handoff-claim"),
+      runtimeSessionControlAction("handoff-revoke", "runtime-handoff-revoke"),
+    ]),
+  });
+
 export const entityKindContracts = withDeclaredEntityActions([
   {
     kind: "task",
@@ -943,7 +1102,10 @@ export const entityKindContracts = withDeclaredEntityActions([
         words: ["running", "succeeded", "failed", "cancelled", "stopped", "ended-indeterminate", "unavailable"],
       },
     ],
-    actionCatalog: runtimeSessionActionCatalog,
+    actionCatalog: Object.freeze({
+      ...runtimeSessionActionCatalog,
+      actions: Object.freeze([...runtimeSessionActionCatalog.actions, ...runtimeSessionControlCatalog.actions]),
+    }),
     entityStore: null,
     authoring: { kind: "agent-runtime-event", contractRef: "agent-runtime-event/v1" },
     sdkExposure: noSdkExposure,
@@ -1004,6 +1166,50 @@ export const entityKindContracts = withDeclaredEntityActions([
     relations: { directions: [], edges: [] },
     canonicalProjection: null,
     actionCatalog: personActionCatalog,
+    entityStore: null,
+    authoring: null,
+    sdkExposure: noSdkExposure,
+  },
+  {
+    kind: "document",
+    ...entityTypeContractFields("document"),
+    schema: documentKindSchema,
+    relations: { directions: [], edges: [] },
+    canonicalProjection: null,
+    actionCatalog: documentActionCatalog,
+    entityStore: null,
+    authoring: null,
+    sdkExposure: noSdkExposure,
+  },
+  {
+    kind: "migration",
+    ...entityTypeContractFields("migration"),
+    schema: migrationKindSchema,
+    relations: { directions: [], edges: [] },
+    canonicalProjection: null,
+    actionCatalog: migrationActionCatalog,
+    entityStore: null,
+    authoring: null,
+    sdkExposure: noSdkExposure,
+  },
+  {
+    kind: "script-execution",
+    ...entityTypeContractFields("script-execution"),
+    schema: scriptExecutionKindSchema,
+    relations: { directions: [], edges: [] },
+    canonicalProjection: null,
+    actionCatalog: scriptExecutionActionCatalog,
+    entityStore: null,
+    authoring: null,
+    sdkExposure: noSdkExposure,
+  },
+  {
+    kind: "vertical-declaration",
+    ...entityTypeContractFields("vertical-declaration"),
+    schema: verticalDeclarationKindSchema,
+    relations: { directions: [], edges: [] },
+    canonicalProjection: null,
+    actionCatalog: verticalDeclarationActionCatalog,
     entityStore: null,
     authoring: null,
     sdkExposure: noSdkExposure,

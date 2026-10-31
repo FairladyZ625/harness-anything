@@ -126,6 +126,12 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
       "unassign",
     ],
   },
+  document: {
+    schemaId: "document/v1",
+    refTemplate: "document/{id}",
+    statuses: [],
+    actions: ["submit", "retire", "conflict-resolve", "conflict-overwrite-center"],
+  },
   execution: {
     schemaId: "Execution/v1",
     refTemplate: "execution/{id}",
@@ -159,6 +165,12 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
       "assign",
       "unassign",
     ],
+  },
+  migration: {
+    schemaId: "migration/v1",
+    refTemplate: "migration/{id}",
+    statuses: [],
+    actions: ["import"],
   },
   person: {
     schemaId: "person/v1",
@@ -251,6 +263,13 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
       "runtime_session_cancelled",
       "runtime_session_exited",
       "runtime_session_outcome_observed",
+      "run",
+      "batch",
+      "spawn",
+      "cancel",
+      "handoff-export",
+      "handoff-claim",
+      "handoff-revoke",
     ],
   },
   schedule: {
@@ -284,6 +303,12 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
       "assign",
       "unassign",
     ],
+  },
+  "script-execution": {
+    schemaId: "script-execution/v1",
+    refTemplate: "script-execution/{id}",
+    statuses: [],
+    actions: ["run"],
   },
   settings: {
     schemaId: "SettingsRepository/v1",
@@ -346,6 +371,12 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
     refTemplate: "todo/{id}",
     statuses: [],
     actions: ["add", "list", "show", "done", "reopen", "archive", "relate", "promote"],
+  },
+  "vertical-declaration": {
+    schemaId: "vertical-declaration/v1",
+    refTemplate: "vertical-declaration/{id}",
+    statuses: [],
+    actions: ["migrate", "upsert-kind", "publish-kind-schema", "retire-kind"],
   },
 } as const satisfies Readonly<Record<string, EntityKernelContract>>);
 
@@ -827,6 +858,82 @@ const personDoc: EntityKindDoc = {
 };
 
 /**
+ * 账本流 kind(dec_2446BC2F8C68630F71AE3E3BD7/CH4):doc sync、migration、vertical script 与 vertical
+ * 声明本来就是 canonical 流,只是此前没有登记成 kind,写路只能留空。这里只写它们真实收口的流。
+ */
+const documentDoc: EntityKindDoc = {
+  kind: "document",
+  ...kernelContract("document"),
+  storage: "doc-event/v1(工作区文档流;正文是 content-addressed blob)",
+  definition:
+    "台账里的一份受管文档:doc sync 把工作区文件按区域策略写进中心,提交、退役、解决冲突都落一条 documents_written 事件。",
+  fields: [
+    field("path", true, "string", "台账内的可移植相对路径。"),
+    field("policyId", true, "string", "写入策略(body-replaceable 或 opaque-textual-whole-file)。"),
+    field("blobSha256", false, "string", "当前正文的 content-addressed sha256。"),
+    field("size", false, "number", "正文字节数。"),
+    field("retirementReason", false, "string", "退役文档时记录的理由。"),
+  ],
+  nestedFields: noNested,
+  edges: [],
+  guiEntry: null,
+  liveCount: null,
+};
+
+const migrationDoc: EntityKindDoc = {
+  kind: "migration",
+  ...kernelContract("migration"),
+  storage: "migration-import-event/v1(仓级迁移流)",
+  definition: "仓库级数据迁移的落点:把 v0 的任务、决策、事实、执行与文档按条导入,每条迁移事件记录来源与代际。",
+  fields: [
+    field("repositoryId", true, "const", "固定为 repository(每仓一份迁移状态)。"),
+    field("migratedFrom", true, "string", "迁移来源标识。"),
+    field("generation", false, "enum", "来源代际;当前为 v0。"),
+    field("entityKind", false, "string", "本条迁移记录的实体种类。"),
+  ],
+  nestedFields: noNested,
+  edges: [],
+  guiEntry: null,
+  liveCount: null,
+};
+
+const scriptExecutionDoc: EntityKindDoc = {
+  kind: "script-execution",
+  ...kernelContract("script-execution"),
+  storage: "vertical script 运行结果(正文变化仍走 doc-event/v1)",
+  definition:
+    "vertical 声明的脚本的一次执行:按 scriptId 运行,把计划里的文档变化发布成 canonical doc 事件;dry-run 只回计划。",
+  fields: [
+    field("scriptId", true, "string", "vertical:<vertical>:<script> 形式的脚本 ID。"),
+    field("mode", true, "enum", "dry-run / apply。"),
+    field("status", false, "string", "脚本自报的状态。"),
+    field("planDigest", false, "string", "计划摘要;dry-run 下可能为 null。"),
+  ],
+  nestedFields: noNested,
+  edges: [],
+  guiEntry: null,
+  liveCount: null,
+};
+
+const verticalDeclarationDoc: EntityKindDoc = {
+  kind: "vertical-declaration",
+  ...kernelContract("vertical-declaration"),
+  storage: "vertical-declaration-event/v1(声明文档 harness/vertical.json)",
+  definition:
+    "本仓接受的 vertical 声明单例:登记 Artifact kind、schema 版本、关系与脚本。事件信封本身就写 vertical-declaration/default。",
+  fields: [
+    field("declarationId", true, "const", "固定为 default。"),
+    field("revision", true, "number", "声明修订号。"),
+    field("verticalId", false, "string", "vertical 标识。"),
+    field("kindId", false, "string", "本次变更的 Artifact kind 的稳定 KND 身份。"),
+  ],
+  nestedFields: noNested,
+  edges: [],
+  guiEntry: null,
+  liveCount: null,
+};
+
+/**
  * 声明实体的说明条目:**由声明派生**,不手写。内建 kind 的「它是什么」那一半是人写的
  * 策展文案(代码拥有语义,文档写不出来);vertical 声明出来的 kind 没有这样的作者——
  * 它的语义就是声明本身,所以这里逐字从读面的 declaration / explanation 取,一个字不编。
@@ -905,8 +1012,8 @@ export const CURATED_ENTITY_DOC_GROUPS: readonly EntityDocGroup[] = [
   {
     id: "catalog",
     title: "目录与配置",
-    summary: "脚手架、默认值与人员。",
-    docs: [presetDoc, settingsDoc, personDoc],
+    summary: "脚手架、默认值、人员,以及承载它们的账本流:文档、迁移、脚本执行与 vertical 声明。",
+    docs: [presetDoc, settingsDoc, personDoc, documentDoc, migrationDoc, scriptExecutionDoc, verticalDeclarationDoc],
   },
 ];
 
