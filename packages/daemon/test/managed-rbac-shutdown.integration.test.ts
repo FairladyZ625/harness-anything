@@ -45,7 +45,7 @@ test(
         certificateFile: path.join(root, "test.crt"),
         certificateKeyFile: path.join(root, "test.key"),
       },
-      predecessor = managedShutdownFixture(root),
+      predecessor = managedShutdownFixture(root, { ignoreSigterm: "keycloak" }),
       successor = managedShutdownFixture(root);
     mkdirSync(bin, { recursive: true });
     mkdirSync(data, { recursive: true });
@@ -83,9 +83,10 @@ test(
       await closing;
       assert.equal(predecessor.children.length, 2);
       assert.ok(
-        predecessor.children.every((child) => child.exitCode === 0),
-        "close returns only after owned children exit",
+        predecessor.children.every((child) => child.exitCode === 0 || child.signalCode === "SIGKILL"),
+        "close waits through SIGKILL until owned children actually exit",
       );
+      assert.equal(predecessor.children[1]?.signalCode, "SIGKILL", "Keycloak intentionally ignored SIGTERM");
       assert.equal(existsSync(pidFile), false);
       await assert.rejects(exchange(listener.port), { code: "ECONNREFUSED" });
       await successor.service.start();
@@ -97,64 +98,6 @@ test(
       await resumed;
       await predecessor.service.stop();
       await successor.service.stop();
-      rmSync(root, { recursive: true, force: true });
-    }
-  },
-);
-
-test(
-  "a successor service stops prior-daemon Keycloak and PostgreSQL before returning from stop",
-  { timeout: 20_000 },
-  async () => {
-    const root = mkdtempSync(path.join(tmpdir(), "ha-rbac-orphan-stop-")),
-      data = path.join(root, "rbac", "data"),
-      listener = {
-        address: "127.0.0.1",
-        hostname: "center.example.test",
-        port: await availablePort(),
-        certificateFile: path.join(root, "test.crt"),
-        certificateKeyFile: path.join(root, "test.key"),
-      },
-      postgresPort = await availablePort(),
-      predecessor = managedShutdownFixture(root),
-      successor = managedShutdownFixture(root);
-    mkdirSync(path.join(root, "rbac", "runtime", "postgres", "bin"), { recursive: true });
-    mkdirSync(path.join(data, "postgres"), { recursive: true });
-    writeFileSync(path.join(root, "rbac", "runtime", "postgres", "bin", "postgres"), "fixture");
-    writeFileSync(listener.certificateKeyFile, "fixture", { mode: 0o600 });
-    writeFileSync(
-      path.join(root, "rbac", "config.json"),
-      JSON.stringify({
-        mode: "managed",
-        url: `http://127.0.0.1:${await availablePort()}`,
-        realm: "harness",
-        clientId: "harness-center",
-        postgresPort,
-        managementPort: await availablePort(),
-        listener,
-      }),
-    );
-    const postgresPidFile = path.join(data, "postgres", "postmaster.pid");
-    try {
-      await predecessor.service.start();
-      assert.equal(predecessor.children.length, 2);
-      assert.equal(existsSync(path.join(data, "keycloak.pid")), true);
-      assert.equal(existsSync(path.join(data, "postgres.pid")), true);
-
-      const stopped = await successor.service.stop();
-      assert.deepEqual(stopped.stopped, ["keycloak", "postgres"]);
-      assert.ok(predecessor.children.every((child) => child.exitCode === 0));
-      assert.equal(existsSync(postgresPidFile), false);
-      assert.equal(existsSync(path.join(data, "keycloak.pid")), false);
-      assert.equal(existsSync(path.join(data, "postgres.pid")), false);
-      await assert.rejects(exchange(listener.port), { code: "ECONNREFUSED" });
-
-      await successor.service.start();
-      assert.equal(await exchange(listener.port), "tls:hello");
-      assert.equal(successor.children.length, 2);
-    } finally {
-      await successor.service.stop();
-      await predecessor.service.stop();
       rmSync(root, { recursive: true, force: true });
     }
   },

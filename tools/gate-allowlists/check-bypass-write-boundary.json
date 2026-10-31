@@ -272,24 +272,6 @@
         "api": "sqlite.exec",
         "ref": "task_01KZQ944F7RH6E0153Q3Q86Y63",
         "reason": "Rolls back a query transaction over the disposable projection cache."
-      },
-      {
-        "value": "bypass-write-139",
-        "api": "sqlite.exec",
-        "ref": "task_e3c7430dc53af2666edf1b868b",
-        "reason": "Begins a bounded runtime-session binding backfill batch in the disposable projection cache."
-      },
-      {
-        "value": "bypass-write-140",
-        "api": "sqlite.exec",
-        "ref": "task_e3c7430dc53af2666edf1b868b",
-        "reason": "Commits a bounded runtime-session binding backfill batch in the disposable projection cache."
-      },
-      {
-        "value": "bypass-write-141",
-        "api": "sqlite.exec",
-        "ref": "task_e3c7430dc53af2666edf1b868b",
-        "reason": "Rolls back a failed runtime-session binding backfill batch in the disposable projection cache."
       }
     ],
     "coordinatedCore": [

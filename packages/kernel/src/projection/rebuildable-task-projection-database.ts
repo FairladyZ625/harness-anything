@@ -10,7 +10,7 @@ import { taskProjectionSchemaVersion } from "./projection-schema.ts";
 import { createTaskRelationProjectionTable } from "./task-query-projection.ts";
 import { REPOSITORY_READ_TABLES_SQL, TASK_INDEX_TABLES_SQL } from "./projection-tables.ts";
 import type { EventStreamPort } from "./rebuildable-task-projection-types.ts";
-import { prepareQuery, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
+import { prepareQuery, queryRows, runSql, transaction } from "./rebuildable-task-projection-sql.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
 
@@ -568,9 +568,7 @@ function backfillRuntimeSessionBindings(db: DatabaseSync, onProgress?: Projectio
       runtimeBindingBatchSize,
     );
     if (rows.length === 0) break;
-    /* @gate-identity check-bypass-write-boundary/bypass-write-139 */
-    db.exec("BEGIN");
-    try {
+    transaction(db, () => {
       for (const row of rows) {
         const session = JSON.parse(row.value_json) as {
           readonly taskBindings?: readonly {
@@ -594,17 +592,7 @@ function backfillRuntimeSessionBindings(db: DatabaseSync, onProgress?: Projectio
               binding.boundAt,
             );
       }
-      /* @gate-identity check-bypass-write-boundary/bypass-write-140 */
-      db.exec("COMMIT");
-    } catch (error) {
-      try {
-        /* @gate-identity check-bypass-write-boundary/bypass-write-141 */
-        db.exec("ROLLBACK");
-      } catch (rollbackError) {
-        consumeKnownError(rollbackError);
-      }
-      throw error;
-    }
+    });
     applied += rows.length;
     cursor = rows.at(-1)!.rowid;
     onProgress?.({ applied, total });
