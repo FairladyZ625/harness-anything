@@ -121,16 +121,16 @@ npm run -w @harness-anything/gui build
 ### GUI 分发与更新边界
 
 Harness Anything GUI 0.0.1 仍保留手动、未签名的 macOS arm64 packaging
-candidate，但 source installation 的 `ha gui` 是唯一受支持的启动入口。直接启动
+candidate；GUI workspace 也已进入 lockstep npm artifact 的 public-ready 集合。
+Source installation 的 `ha gui` 和 platform installer 是支持的 GUI 入口。直接启动
 DMG application、签名、notarization、其他操作系统和 update feed 属于后续发布任务。
 
 ### 运行时发布边界
 
 当前发布边界刻意保守：
 
-- root product、GUI 与可发布的 `@harness-anything/cli` 使用 version `0.1.0`；
-  本任务中 CLI 仅执行 npm publish dry-run。
-- 内部 workspace package 仍为 private，版本仍为 `0.1.0`。
+- root product、六个 workspace 与 GUI 使用 lockstep version `0.0.1`；
+  所有 workspace 都已满足 npm publish dry-run 的 public-ready 合同。
 - 不声明真实 npm package release。
 - signed installers、notarized builds、auto-update、release feeds、published artifacts 都未 ship。
 - Desktop 和 daemon 分发策略由本页治理。
@@ -166,13 +166,15 @@ SBOM 检查要求 dependency component 带 package URL、hash 和 license metada
 
 ### npm publish dry-run
 
-当前阶段唯一允许的 npm publish preflight 命令是：
+当前阶段唯一允许的 npm publish preflight 是对全部 public-ready workspace 做 dry-run：
 
 ```bash
-npm publish --dry-run --workspace @harness-anything/cli --access public
+for workspace in @harness-anything/kernel @harness-anything/application @harness-anything/preset @harness-anything/cli @harness-anything/daemon @harness-anything/gui; do
+  npm publish --dry-run --workspace "$workspace" --access public --tag latest
+done
 ```
 
-这条命令只能 dry-run。它可以构建并检查 CLI package artifact，但在这个任务阶段不能替换成真实 `npm publish`。
+这些命令只能 dry-run；本任务阶段不能替换成真实 `npm publish`。
 
 ### OSV readiness
 

@@ -4,7 +4,14 @@ CLI 与 daemon 需要 Node.js 24 或更新版本，目前尚未发布到公开 n
 
 ## CLI 与 daemon
 
-源码 checkout 路径会在本地构建 CLI，并从该 checkout 运行；它不会安装全局 `ha` 命令。
+0.0.1 正式发布到 registry 后，可以全局安装面向用户的 package：
+
+```bash
+npm install --global @harness-anything/cli@0.0.1 @harness-anything/daemon@0.0.1
+ha init
+```
+
+发布前继续使用源码 checkout 路径：它会在本地构建 CLI 并从该 checkout 运行，不会安装全局 `ha` 命令。
 
 ## 安装桌面 App
 
