@@ -20,7 +20,6 @@ import {
   deriveRelationId,
   docSyncWritePlan,
   DOC_POLICY_ID,
-  makeTaskEventStore,
   REPLAY_TASK_GRAPH,
   sha256Text,
   taskLifecycleWritePlan,
