@@ -343,7 +343,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         if (!schedule || validateScheduleV1(schedule).length)
           throw hostCodedError("invalid_schedule", "Schedule execution requires its canonical creator identity.");
         const current = await hostBinding(rootDir, { transportKind: "unix-socket" });
-        if (current.actor.principal.personId !== schedule.createdBy.principal.personId)
+        if (
+          schedule.spec.target.kind !== "builtin" &&
+          current.actor.principal.personId !== schedule.createdBy.principal.personId
+        )
           throw hostCodedError("authentication_required", "The schedule creator must sign in on this device.");
         return daemonWriterBinding(repoId, current);
       },
