@@ -64,7 +64,21 @@ export async function publishExit(
     // A non-failed terminal snapshot follows successful lease settlement and can replay
     // while the replica still shows an earlier liveness. Failed snapshots can include a
     // rejected lease settlement, so retain their recovery path until exit was published.
-    if (persistedTerminal && (resumePublishedExit || persistedTerminal.payload.outcome !== "failed")) {
+    const replaySettlement =
+      persistedTerminal &&
+      (resumePublishedExit ||
+        persistedTerminal.payload.outcome !== "failed" ||
+        persistedTerminal.payload.reasonCode === "runtime_archive_failed" ||
+        persistedTerminal.payload.reasonCode === "runtime_lease_release_failed" ||
+        persistedTerminal.payload.reasonCode === "runtime_settlement_failed");
+    if (
+      replaySettlement &&
+      !(
+        active.lossReason !== null &&
+        persistedTerminal.payload.outcome === "unknown" &&
+        persistedTerminal.payload.reasonCode === "lease_conflict"
+      )
+    ) {
       context.processes.delete(active.runtimeSessionId);
       active.process.release?.();
       // The stream's terminal append and its ledger settlement are separate steps: a daemon
@@ -91,6 +105,9 @@ export async function publishExit(
               : "failed",
           reason: persistedTerminal.payload.outcome === "succeeded" ? null : persistedTerminal.reason,
           endedAt: persistedTerminal.payload.endedAt ?? context.input.now(),
+          ...(persistedTerminal.processGroupPid === undefined
+            ? {}
+            : { processGroupPid: persistedTerminal.processGroupPid }),
           ...(persistedTerminal.payload.attempt?.classification === "awaiting_ruling" ? { waitingOnOwner: true } : {}),
           binding: active.binding,
         });
@@ -472,12 +489,29 @@ export async function publishExit(
         if (active.schedule && (error as { readonly retryable?: unknown }).retryable !== false) throw error;
         consumeKnownError(error);
         const settlementCode = runtimeErrorCode(error) || "runtime_settlement_failed";
-        reasonCode = settlementCode;
-        outcome = "failed";
-        body = `${body}\n\nRuntime terminal settlement failed (${settlementCode}): ${runtimeErrorMessage(error)}`;
-        sha256 = createHash("sha256").update(body).digest("hex");
-        result = { sha256, size: Buffer.byteLength(body), mediaType: context.resultMediaType };
-        resultRef = `artifact:runtime-result/sha256/${sha256}`;
+        // A remote owner rejection is an authorization boundary, not a worker failure. Leave the
+        // dispatch unresolved so recovery can re-adopt it under the original owner. Likewise, an
+        // unproven process group must stay unknown: publishing a failed outcome would make the
+        // lease appear safely settled while the writer may still be alive.
+        if (context.input.remote && active.task) {
+          // A Fleet Edge cannot prove a terminal lease settlement from the center-side stream while
+          // the owner, credential, transport, or process proof is unresolved. Keep the worker's
+          // terminal result unknown so replay can retry the authoritative release after recovery.
+          outcome = "unknown";
+          if (
+            ["lease_conflict", "runtime_process_group_unproven", "runtime_lease_release_failed"].includes(
+              settlementCode,
+            )
+          )
+            reasonCode = settlementCode;
+        } else {
+          reasonCode = settlementCode;
+          outcome = "failed";
+          body = `${body}\n\nRuntime terminal settlement failed (${settlementCode}): ${runtimeErrorMessage(error)}`;
+          sha256 = createHash("sha256").update(body).digest("hex");
+          result = { sha256, size: Buffer.byteLength(body), mediaType: context.resultMediaType };
+          resultRef = `artifact:runtime-result/sha256/${sha256}`;
+        }
       });
     const terminalOutcome: DispatchTerminalOutcome = {
       payload: {
@@ -503,6 +537,7 @@ export async function publishExit(
       },
       body,
       reason: attemptOutcome.reason,
+      ...(active.process.pid > 1 ? { processGroupPid: active.process.pid } : {}),
     };
     active.stream.appendTerminalOutcome(terminalOutcome, endedAt);
     await publishTerminalOutcome(context, active, terminalBinding, terminalOutcome);

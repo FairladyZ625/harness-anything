@@ -6,6 +6,7 @@ import {
   resolveTaskBoundRuntimeBinding,
   runtimeSessionSemanticState,
   runtimeSessionIdFromActor,
+  sameWriteSource,
   taskClasses,
   type AuthorizationDecision,
   type LeaseV1,
@@ -111,11 +112,12 @@ export function taskMutation(
       (terminalRuntimeBinding !== null ? runtimeSessionIdFromActor(activeLease.actor) : null);
     if (proofRuntimeSessionId !== null) {
       const verdict = terminalRuntimeStopProof(
-        cell.rootDir,
+        cell,
         task.taskId,
         terminalExecutionId ?? activeLease.executionId,
         proofRuntimeSessionId,
         action.terminalProcessGroupPid,
+        binding.source,
       );
       if (verdict !== "proven_stopped")
         throw cell.cellCodedError(
@@ -367,25 +369,69 @@ export function taskMutation(
 }
 
 function terminalRuntimeStopProof(
-  rootDir: string,
+  cell: Pick<RepoCellActionContext, "rootDir" | "projection">,
   taskId: string,
   executionId: string,
   runtimeSessionId: string,
   suppliedPid: unknown,
+  source: RepoCellBinding["source"],
 ): ReturnType<typeof reconcileProcessGroup> {
-  const matchingHeaders = readDispatchStreamHeaders(rootDir, true).filter(
+  const matchingHeaders = readDispatchStreamHeaders(cell.rootDir, true).filter(
     (candidate) => candidate.taskId === taskId && candidate.runtimeSessionId === runtimeSessionId,
   );
   // Terminal settlement may release a newer lease generation than the dispatch that reached its
   // terminal state. Prefer the exact execution when retained, then fall back to this runtime
   // session's historical dispatch; the session identity remains the proof binding.
   const candidates = matchingHeaders
-    .map((header) => ({ header, process: readDispatchStreamSummary(rootDir, header.dispatchId)?.process }))
+    .map((header) => ({ header, process: readDispatchStreamSummary(cell.rootDir, header.dispatchId)?.process }))
     .filter(
       (candidate): candidate is typeof candidate & { readonly process: NonNullable<typeof candidate.process> } =>
         candidate.process !== null && candidate.process !== undefined,
     );
-  if (!candidates.length) return "unknown_unreachable";
+  if (!candidates.length) {
+    const events = cell.projection.readRuntimeSessionEvents(runtimeSessionId, 0, Number.MAX_SAFE_INTEGER),
+      started = events.find(
+        (event) =>
+          event.type === "runtime_session_started" &&
+          event.payload.runtimeSessionId === runtimeSessionId &&
+          (event.payload.taskBinding === undefined ||
+            (event.payload.taskBinding.taskId === taskId && event.payload.taskBinding.executionId === executionId)) &&
+          sameWriteSource(event.source, source),
+      ),
+      pids = [
+        ...new Set(
+          events.flatMap((event) =>
+            event.type === "runtime_session_liveness_changed" &&
+            sameWriteSource(event.source, source) &&
+            Number.isSafeInteger(event.payload.processGroupPid) &&
+            Number(event.payload.processGroupPid) > 1
+              ? [Number(event.payload.processGroupPid)]
+              : [],
+          ),
+        ),
+      ],
+      suppliedProcessGroupPid =
+        Number.isSafeInteger(suppliedPid) && Number(suppliedPid) > 1 ? Number(suppliedPid) : null,
+      ended = events.some(
+        (event) =>
+          event.type === "runtime_session_exited" &&
+          event.payload.runtimeSessionId === runtimeSessionId &&
+          sameWriteSource(event.source, source),
+      ),
+      edgeProcessGroup = typeof source === "object" && source.kind === "node";
+    if (suppliedPid !== undefined && suppliedProcessGroupPid === null) return "unknown_unreachable";
+    if (pids.length > 1) return "unknown_unreachable";
+    if (pids.length === 0 && ended) return "proven_stopped";
+    if (!started) return "unknown_unreachable";
+    if (pids.length === 1) {
+      if (suppliedProcessGroupPid !== null && suppliedProcessGroupPid !== pids[0]) return "unknown_unreachable";
+      if (edgeProcessGroup) return suppliedProcessGroupPid !== null ? "proven_stopped" : "unknown_unreachable";
+      return reconcileProcessGroup({ pid: pids[0]!, pgid: pids[0]! });
+    }
+    if (edgeProcessGroup && suppliedProcessGroupPid !== null) return "proven_stopped";
+    if (ended) return "proven_stopped";
+    return "unknown_unreachable";
+  }
   const exact = candidates.filter((candidate) => candidate.header.executionId === executionId),
     eligible = exact.length ? exact : candidates,
     matched =
@@ -397,6 +443,7 @@ function terminalRuntimeStopProof(
             ? eligible[0]
             : null;
   if (!matched) return "unknown_unreachable";
+  if (suppliedPid !== undefined && Number(suppliedPid) !== matched.process.pid) return "unknown_unreachable";
   return reconcileProcessGroup({ pid: matched.process.pid, pgid: matched.process.pid });
 }
 

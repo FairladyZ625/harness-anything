@@ -51,6 +51,7 @@ import { runFleetEdgeWrite, transientFleetReceipt } from "./fleet-edge-write.ts"
 import { readScheduleAction, dispatchClaimedSchedule } from "./schedule-action-runtime.ts";
 import { prepareScheduleOccurrenceWorkspace, scheduleSettlementDetail } from "./schedule-occurrence-workspace.ts";
 import { taskMissionSections, taskPlanSection, runtimeMissionName } from "./runtime-spawn-mission.ts";
+import { reconcileProcessGroup } from "./runtime/process-group-reconciler.ts";
 
 export interface FleetEdgeRuntimeRequest {
   readonly payload: {
@@ -535,35 +536,53 @@ export function openFleetEdgeRuntime(input: {
     onAttemptTerminal: async (terminal) => {
       if (terminal.task) {
         const { taskId, executionId } = terminal.task,
-          settled = await runFleetEdgeWrite({
-            viewRoot: request.viewRoot,
-            repoId: request.repoId,
-            nodeId: request.nodeId,
-            timeoutMs: centerWriteWaitMs,
-            write: () =>
-              runFleetTaskCommandClient({
-                ...writePeer,
-                repoId: request.repoId,
+          processGroupPid = terminal.processGroupPid;
+        if (
+          Number.isSafeInteger(processGroupPid) &&
+          Number(processGroupPid) > 1 &&
+          reconcileProcessGroup({ pid: Number(processGroupPid), pgid: Number(processGroupPid) }) !== "proven_stopped"
+        )
+          throw edgeRuntimeError(
+            "runtime_lease_release_failed",
+            `Runtime process group ${String(processGroupPid)} was not proven stopped on the edge.`,
+          );
+        const settled = await runFleetEdgeWrite({
+          viewRoot: request.viewRoot,
+          repoId: request.repoId,
+          nodeId: request.nodeId,
+          timeoutMs: centerWriteWaitMs,
+          write: () =>
+            runFleetTaskCommandClient({
+              ...writePeer,
+              repoId: request.repoId,
+              taskId,
+              opId: `runtime-terminal-${terminal.runtimeSessionId}`,
+              waitMs: centerWriteWaitMs,
+              action: {
+                kind: "task-release",
                 taskId,
-                opId: `runtime-terminal-${terminal.runtimeSessionId}`,
-                waitMs: centerWriteWaitMs,
-                action: {
-                  kind: "task-release",
-                  taskId,
-                  terminalExecutionId: executionId,
-                  terminalRuntimeSessionId: terminal.runtimeSessionId,
-                  terminalProcessGroupPid: terminal.processGroupPid,
-                  reason: `Runtime session ${terminal.runtimeSessionId} reached a terminal dispatch state.`,
-                },
-              }),
-          });
+                terminalExecutionId: executionId,
+                terminalRuntimeSessionId: terminal.runtimeSessionId,
+                ...(Number.isSafeInteger(processGroupPid) && Number(processGroupPid) > 1
+                  ? { terminalProcessGroupPid: Number(processGroupPid) }
+                  : {}),
+                reason: `Runtime session ${terminal.runtimeSessionId} reached a terminal dispatch state.`,
+              },
+            }),
+        });
         if (
           settled.outcome !== "applied" &&
           settled.code !== "lease_not_found" &&
           settled.code !== "runtime_terminal_superseded"
         )
           throw edgeRuntimeError(
-            "runtime_lease_release_failed",
+            settled.code === "lease_conflict"
+              ? "lease_conflict"
+              : settled.code === "runtime_process_group_unproven"
+                ? "runtime_process_group_unproven"
+                : settled.code === "execution_credential_rejected"
+                  ? "execution_credential_rejected"
+                  : "runtime_lease_release_failed",
             `Center rejected Runtime terminal lease settlement: ${String(settled.code ?? settled.outcome)}.`,
           );
       }

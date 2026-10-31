@@ -13,7 +13,6 @@ import { runtimeKindForId } from "./runtime-inventory.ts";
 import {
   appendRuntimeWorkerRecord,
   dispatchStreamPath,
-  readDispatchStreamSummary,
   readRuntimeWorkerChunk,
   scrubProviderValue,
   type DispatchStreamWriter,
@@ -54,12 +53,6 @@ export async function launchRuntimeProcess(
   let process: RuntimeProcess | undefined;
   try {
     process = launch(prepared, persistence);
-    if (readDispatchStreamSummary(persistence.rootDir, persistence.dispatchId)?.process === null)
-      appendRuntimeWorkerRecord(persistence.rootDir, persistence.dispatchId, {
-        kind: "process_started",
-        occurredAt: new Date().toISOString(),
-        pid: process.pid,
-      });
     if (!providerSessionId) return { process };
     const resumeObservation = observeResumeProcess(
       process,

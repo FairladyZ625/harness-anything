@@ -107,6 +107,8 @@ export type DispatchTerminalOutcome = {
   readonly payload: Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_outcome_observed" }>["payload"];
   readonly body: string;
   readonly reason: string;
+  /** PID captured at terminal observation for a later lease-settlement replay. */
+  readonly processGroupPid?: number;
 };
 export type { RuntimeMetrics };
 export type DispatchProcessState = {
@@ -808,7 +810,14 @@ function summarizeDispatch(
       };
     if (record.kind === "attempt_outcome" && isRuntimeAttemptOutcome(record)) attemptOutcome = record;
     if (record.kind === "terminal_outcome" && isDispatchTerminalOutcome(record, header.runtimeSessionId))
-      terminalOutcome = { payload: record.payload, body: record.body, reason: record.reason };
+      terminalOutcome = {
+        payload: record.payload,
+        body: record.body,
+        reason: record.reason,
+        ...(Number.isSafeInteger(record.processGroupPid) && Number(record.processGroupPid) > 1
+          ? { processGroupPid: Number(record.processGroupPid) }
+          : {}),
+      };
     if (record.kind === "fallback_state" && ["scheduled", "dispatched", "exhausted"].includes(String(record.state))) {
       fallbackState = record.state as typeof fallbackState;
       fallbackSchedule =

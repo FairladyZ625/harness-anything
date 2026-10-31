@@ -477,13 +477,27 @@ test("terminal runtime lease release requires a process-group stop proof", () =>
     runtimeSessionId = "runtime-terminal-proof",
     dispatchId = "dispatch_cccccccccccccccccccccccc",
     orphanedLease = { ...lease, phase: "orphaned" as const },
-    terminalCell = { ...cell, rootDir },
+    edgeSource = { kind: "node" as const, nodeId: "edge-terminal-proof" };
+  let runtimeEvents: Array<{ type: string; source: unknown; payload: Record<string, unknown> }> = [];
+  const terminalCell = {
+      ...cell,
+      rootDir,
+      projection: { readRuntimeSessionEvents: () => runtimeEvents },
+    },
     terminalAction = {
       kind: "task-release" as const,
       taskId: task.taskId,
       terminalExecutionId: lease.executionId,
       terminalRuntimeSessionId: runtimeSessionId,
-    };
+    },
+    sessionStarted = (source: unknown = "local", bindTask = true) => ({
+      type: "runtime_session_started",
+      source,
+      payload: {
+        runtimeSessionId,
+        ...(bindTask ? { taskBinding: { taskId: task.taskId, executionId: lease.executionId } } : {}),
+      },
+    });
   try {
     assert.throws(
       () =>
@@ -496,6 +510,103 @@ test("terminal runtime lease release requires a process-group stop proof", () =>
         ),
       (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
     );
+    assert.throws(
+      () =>
+        taskMutation(
+          terminalCell,
+          { ...terminalAction, terminalProcessGroupPid: 2_147_483_647 },
+          task,
+          { ...snapshot(), lease: orphanedLease },
+          authorized(owner("replacement-worker")),
+        ),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
+      "an unrelated stopped pid without a matching RuntimeSession start cannot prove this runtime stopped",
+    );
+
+    runtimeEvents = [sessionStarted()];
+    assert.throws(
+      () =>
+        taskMutation(
+          terminalCell,
+          { ...terminalAction, terminalProcessGroupPid: 2_147_483_647 },
+          task,
+          { ...snapshot(), lease: orphanedLease },
+          authorized(owner("replacement-worker")),
+        ),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
+      "a local caller cannot substitute an unrecorded process group",
+    );
+
+    runtimeEvents = [sessionStarted({ kind: "node", nodeId: "another-edge" })];
+    assert.throws(
+      () =>
+        taskMutation(
+          terminalCell,
+          { ...terminalAction, terminalProcessGroupPid: 2_147_483_647 },
+          task,
+          { ...snapshot(), lease: orphanedLease },
+          { ...authorized(owner("replacement-worker")), source: edgeSource },
+        ),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
+      "an Edge PID is bound to the node that published the matching RuntimeSession start",
+    );
+
+    runtimeEvents = [sessionStarted(edgeSource)];
+    const edgeMutation = taskMutation(
+      terminalCell,
+      { ...terminalAction, terminalProcessGroupPid: 2_147_483_647 },
+      task,
+      { ...snapshot(), lease: orphanedLease },
+      { ...authorized(owner("replacement-worker")), source: edgeSource },
+    );
+    assert.equal(edgeMutation.type, "lease_released", "a matching Edge start binds its locally proven PID");
+
+    runtimeEvents = [sessionStarted(edgeSource, false)];
+    const unboundEdgeMutation = taskMutation(
+      terminalCell,
+      { ...terminalAction, terminalProcessGroupPid: 2_147_483_647 },
+      task,
+      { ...snapshot(), lease: orphanedLease },
+      { ...authorized(owner("replacement-worker")), source: edgeSource },
+    );
+    assert.equal(
+      unboundEdgeMutation.type,
+      "lease_released",
+      "a matching RuntimeSession start with no taskBinding still binds the lease's supplied Edge proof",
+    );
+
+    runtimeEvents = [{ type: "runtime_session_exited", source: "local", payload: { runtimeSessionId } }];
+    const exitedMutation = taskMutation(
+      terminalCell,
+      terminalAction,
+      task,
+      { ...snapshot(), lease: orphanedLease },
+      authorized(owner("replacement-worker")),
+    );
+    assert.equal(exitedMutation.type, "lease_released", "an exited session with no recorded PID is terminal evidence");
+
+    runtimeEvents = [
+      sessionStarted(edgeSource),
+      {
+        type: "runtime_session_liveness_changed",
+        source: edgeSource,
+        payload: { runtimeSessionId, liveness: "live", processGroupPid: 12345 },
+      },
+    ];
+    assert.throws(
+      () =>
+        taskMutation(
+          terminalCell,
+          { ...terminalAction, terminalProcessGroupPid: 2_147_483_647 },
+          task,
+          { ...snapshot(), lease: orphanedLease },
+          { ...authorized(owner("replacement-worker")), source: edgeSource },
+        ),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
+      "a supplied Edge PID cannot contradict a PID recorded by the matching RuntimeSession",
+    );
+
+    runtimeEvents = [];
 
     openDispatchStream(rootDir, {
       dispatchId,

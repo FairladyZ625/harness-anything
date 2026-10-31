@@ -1142,7 +1142,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     input.schedule(async () => {
       await publishRuntimeEvent(
         "runtime_session_liveness_changed",
-        { runtimeSessionId, liveness: "live" },
+        { runtimeSessionId, liveness: "live", processGroupPid: runtimeProcess.pid },
         randomUUID(),
         binding,
       );

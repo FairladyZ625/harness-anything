@@ -73,7 +73,7 @@ test("edge terminal task settlement rejects a changed node owner", { timeout: 60
     launch: () => {
       let output: ((chunk: string) => void) | undefined;
       return {
-        pid: 81234,
+        pid: 2_147_483_647,
         onOutput: (listener) => {
           output = listener;
         },
@@ -249,7 +249,7 @@ for (const restart of [false, true])
           launch: () => {
             let output: ((chunk: string) => void) | undefined;
             return {
-              pid: 81234,
+              pid: 2_147_483_647,
               onOutput: (listener) => {
                 output = listener;
               },
