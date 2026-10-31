@@ -105,7 +105,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           transportKind: "fleet-tls",
           nodePrincipal: { nodeId: node.nodeId, personId },
           humanAccessToken: node.accessToken,
-          ...(invitation
+          ...(invitation && invitation.personId === person
             ? { fleetExpectedAzps: [{ clientId: invitation.clientId, personId: invitation.personId }] }
             : {}),
         });
