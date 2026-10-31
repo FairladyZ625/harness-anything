@@ -8,7 +8,7 @@ import {
 } from "../domain/decision-event.ts";
 import { decisionClaimsOpen } from "../domain/decision-board-projection.ts";
 import { consumeKnownError } from "../error-consumption.ts";
-import { stableStringify } from "../integrity/stable-hash.ts";
+import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { readDecisionDocumentState } from "./decision-projection-documents.ts";
 import { FactProjectionError } from "./fact-event-projection.ts";
 import { prepareQuery } from "./rebuildable-task-projection-sql.ts";
@@ -141,27 +141,24 @@ function assertAmendment(
   const next = event.payload.next,
     fields = new Set(event.payload.fields),
     changed = new Set<string>(),
-    prefix = <T>(before: readonly T[], after: readonly T[]) =>
-      after.length >= before.length &&
-      before.every((value, index) => stableStringify(value) === stableStringify(after[index]));
+    beforeAnchors = [...current.chosen, ...current.rejected, ...current.claims].map(({ id }) => id),
+    afterAnchors = new Set([...next.chosen, ...next.rejected, ...next.claims].map(({ id }) => id));
   if (next.title !== current.title) changed.add("title");
   if (next.decisionClass !== current.decisionClass) changed.add("decisionClass");
-  if (!prefix(current.chosen, next.chosen))
-    fail("invalid_transition", "Amendment may append chosen options but cannot rewrite or remove them.");
-  if (next.chosen.length !== current.chosen.length) changed.add("chosen");
-  if (!prefix(current.rejected, next.rejected))
-    fail("invalid_transition", "Amendment may append rejected options but cannot rewrite or remove them.");
-  if (next.rejected.length !== current.rejected.length) changed.add("rejected");
-  if (next.claims.length < current.claims.length) fail("invalid_transition", "Amendment cannot remove claims.");
-  for (const [index, claim] of current.claims.entries()) {
-    const replacement = next.claims[index];
-    if (!replacement || replacement.id !== claim.id || replacement.text !== claim.text)
-      fail("invalid_transition", "Amendment may append claims but cannot rewrite their identities or text.");
-    if (claim.fulfillment !== null && replacement.fulfillment !== claim.fulfillment)
-      fail("invalid_transition", "Amendment cannot change an existing claim fulfillment.");
+  if (stableStringify(next.chosen) !== stableStringify(current.chosen)) changed.add("chosen");
+  if (stableStringify(next.rejected) !== stableStringify(current.rejected)) changed.add("rejected");
+  for (const claim of next.claims) {
+    const previous = current.claims.find(({ id }) => id === claim.id);
+    if (previous && previous.text === claim.text && previous.fulfillment !== claim.fulfillment)
+      fail("invalid_transition", `Amendment cannot change fulfillment for unchanged claim ${claim.id}.`);
+    if (previous && previous.text !== claim.text && claim.fulfillment !== null)
+      fail("invalid_transition", `Amendment must clear fulfillment when rewriting claim ${claim.id}.`);
+    if (!previous && claim.fulfillment !== null)
+      fail("invalid_transition", `New claim ${claim.id} cannot carry a fulfillment.`);
   }
   if (stableStringify(next.claims) !== stableStringify(current.claims)) changed.add("claims");
   if (event.payload.body !== null) changed.add("body");
+  assertNoRemovedActiveRelationAnchors(db, event.decisionId, beforeAnchors, afterAnchors);
   if (
     [...fields].some((field) => !["title", "decisionClass", "chosen", "rejected", "claims", "body"].includes(field)) ||
     [...fields].sort().join("\0") !== [...changed].sort().join("\0")
@@ -173,6 +170,77 @@ function assertAmendment(
     );
   if (JSON.stringify(event.payload.amendment.fields) !== JSON.stringify(event.payload.fields))
     fail("invalid_transition", "Amendment history does not match the declared field set.");
+  if (event.payload.reason !== undefined) {
+    const prior = event.payload.previous,
+      expectedPrevious = {
+        title: current.title,
+        decisionClass: current.decisionClass,
+        chosen: current.chosen,
+        rejected: current.rejected,
+        claims: current.claims,
+      },
+      before = current as unknown as Readonly<Record<string, unknown>>,
+      after = next as unknown as Readonly<Record<string, unknown>>,
+      changes = event.payload.amendment.changes;
+    if (!prior || stableStringify(prior) !== stableStringify(expectedPrevious))
+      fail("invalid_transition", "Amendment previous snapshot does not match the current Decision.");
+    if (!changes || changes.length !== event.payload.fields.length)
+      fail("invalid_transition", "Amendment history must summarize every changed field.");
+    for (const change of changes) {
+      const afterValue = change.field === "body" ? event.payload.body : after[change.field],
+        beforeValue = before[change.field];
+      if (`sha256:${sha256Text(stableStringify(afterValue))}` !== change.afterDigest)
+        fail("invalid_transition", `Amendment after digest does not match the ${change.field} value.`);
+      if (change.field !== "body" && `sha256:${sha256Text(stableStringify(beforeValue))}` !== change.beforeDigest)
+        fail("invalid_transition", `Amendment before digest does not match the prior ${change.field} value.`);
+    }
+  }
+  if (event.payload.reason !== undefined && event.payload.amendment.reason !== event.payload.reason)
+    fail("invalid_transition", "Amendment history reason does not match the event reason.");
+  if (current.state === "in_effect" && event.payload.reason !== undefined) {
+    const consent = event.payload.amendment.ownerConsent;
+    if (!consent) fail("invalid_transition", "Amending an in_effect Decision requires recorded owner consent.");
+    if (
+      consent.consentBy !== current.proposer.principal.personId ||
+      consent.consentBy !== event.actor.principal.personId
+    )
+      fail(
+        "invalid_transition",
+        "Amending an in_effect Decision requires consent from its authenticated proposal owner.",
+      );
+  }
+  if (
+    event.payload.ownerConsent &&
+    stableStringify(event.payload.ownerConsent) !== stableStringify(event.payload.amendment.ownerConsent)
+  )
+    fail("invalid_transition", "Amendment event and history owner consent do not match.");
+}
+
+function assertNoRemovedActiveRelationAnchors(
+  db: DatabaseSync,
+  decisionId: string,
+  before: readonly string[],
+  after: ReadonlySet<string>,
+): void {
+  const removed = new Set(before.filter((id) => !after.has(id)));
+  if (!removed.size) return;
+  const references = prepareQuery(
+      db,
+      "SELECT relation_id, source_ref, target_ref FROM relation_edge WHERE state='active' AND (source_ref GLOB ? OR target_ref GLOB ?) ORDER BY relation_id",
+    ).all(`decision/${decisionId}/*`, `decision/${decisionId}/*`) as unknown as readonly {
+      readonly relation_id: string;
+      readonly source_ref: string;
+      readonly target_ref: string;
+    }[],
+    prefix = `decision/${decisionId}/`,
+    blocking = references.filter(({ source_ref, target_ref }) =>
+      [source_ref, target_ref].some((ref) => removed.has(ref.slice(prefix.length)) && ref.startsWith(prefix)),
+    );
+  if (blocking.length)
+    fail(
+      "invalid_transition",
+      `Cannot remove Decision anchors referenced by active Relations: ${blocking.map(({ relation_id }) => relation_id).join(", ")}. Retire or replace those Relations first.`,
+    );
 }
 
 function hasActiveSupersedesRelation(db: DatabaseSync, decisionId: string): boolean {

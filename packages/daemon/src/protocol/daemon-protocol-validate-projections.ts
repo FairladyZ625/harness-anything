@@ -5,6 +5,7 @@ import {
 } from "./daemon-protocol-schema-ids.ts";
 import {
   exactRecord,
+  digest,
   integer,
   nonEmpty,
   recordWith,
@@ -691,12 +692,35 @@ export function validateDaemonDecisionList(value: unknown): readonly string[] {
         (!Array.isArray(row.amendments) ||
           row.amendments.some(
             (entry) =>
-              !exactRecord(entry, ["schema", "amendmentId", "fields", "actor", "amendedAt"]) ||
+              !recordWith(entry, ["schema", "amendmentId", "fields", "actor", "amendedAt"]) ||
+              !Object.keys(entry).every((field) =>
+                ["schema", "amendmentId", "fields", "actor", "amendedAt", "reason", "changes", "ownerConsent"].includes(
+                  field,
+                ),
+              ) ||
               entry.schema !== "decision-amendment/v1" ||
               !/^dam_[0-9a-f]{26}$/u.test(String(entry.amendmentId)) ||
               !stringArray(entry.fields) ||
               !isJsonObject(entry.actor) ||
-              !nonEmpty(entry.amendedAt),
+              !nonEmpty(entry.amendedAt) ||
+              (entry.reason !== undefined && !nonEmpty(entry.reason)) ||
+              (entry.changes !== undefined &&
+                (!Array.isArray(entry.changes) ||
+                  entry.changes.length !== entry.fields.length ||
+                  entry.changes.some(
+                    (change, index) =>
+                      !exactRecord(change, ["field", "beforeDigest", "afterDigest"]) ||
+                      change.field !== (entry.fields as readonly string[])[index] ||
+                      !digest(change.beforeDigest) ||
+                      !digest(change.afterDigest) ||
+                      change.beforeDigest === change.afterDigest,
+                  ))) ||
+              (entry.ownerConsent !== undefined &&
+                (!exactRecord(entry.ownerConsent, ["consentBy", "consentAt", "consentChannel", "recordedBy"]) ||
+                  !nonEmpty(entry.ownerConsent.consentBy) ||
+                  !nonEmpty(entry.ownerConsent.consentAt) ||
+                  !["chat", "cli", "gui"].includes(String(entry.ownerConsent.consentChannel)) ||
+                  !isJsonObject(entry.ownerConsent.recordedBy))),
           ))) ||
       (row.contentPins !== undefined &&
         (!Array.isArray(row.contentPins) ||

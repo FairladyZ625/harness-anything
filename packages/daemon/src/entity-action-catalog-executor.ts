@@ -314,10 +314,14 @@ export function makeEntityActionCatalogExecutor(input: {
     const authorizationDecision = decisionAuthorization(rawAction, binding, opId, input),
       action = (
         contract.id === "amend"
-          ? prepareDecisionAmend(
-              rawAction,
-              decisions.show(requiredCommandText(rawAction.decisionId, "decisionId")).decision,
-            )
+          ? (() => {
+              const current = decisions.show(requiredCommandText(rawAction.decisionId, "decisionId")).decision,
+                consent = decisionAmendmentConsent(rawAction, current, binding);
+              return prepareDecisionAmend(
+                { ...rawAction, ...(consent === undefined ? {} : { ownerConsent: consent }) },
+                current,
+              );
+            })()
           : contract.id === "reclassify"
             ? reclassificationAction(rawAction, input.projection)
             : rawAction.kind === "fact-archive" || rawAction.kind === "fact-unarchive"
@@ -877,6 +881,7 @@ function decisionApproval(
   action: Readonly<Record<string, unknown>>,
   binding: RepoCellBinding,
 ): Parameters<typeof compileDecisionWrite>[0]["approval"] {
+  if (action.kind === "decision-amend") return undefined;
   if ([action.consentBy, action.consentAt, action.consentChannel].every((value) => value === undefined))
     return undefined;
   if (
@@ -902,6 +907,40 @@ function decisionApproval(
     approvedBy: binding.actor.principal.personId,
     at: action.consentAt,
     channel: action.consentChannel as "chat" | "cli" | "gui",
+  };
+}
+
+function decisionAmendmentConsent(
+  action: Readonly<Record<string, unknown>>,
+  decision: ReturnType<ReturnType<typeof makeDecisionService>["show"]>["decision"],
+  binding: RepoCellBinding,
+) {
+  const values = [action.consentBy, action.consentAt, action.consentChannel],
+    supplied = values.some((value) => value !== undefined),
+    required = decision.state === "in_effect";
+  if (!supplied && !required) return undefined;
+  if (values.some((value) => value === undefined))
+    reject("invalid_command", "Decision amendment consent requires --consent-by, --consent-at, and --consent-channel.");
+  if (
+    action.consentBy !== binding.actor.principal.personId ||
+    action.consentBy !== decision.proposer.principal.personId
+  )
+    reject("actor_unauthorized", "Decision amendment consent must come from the authenticated proposal owner.");
+  if (
+    typeof action.consentAt !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/u.test(action.consentAt) ||
+    !timestamp(action.consentAt) ||
+    !["chat", "cli", "gui"].includes(String(action.consentChannel))
+  )
+    reject(
+      "invalid_command",
+      "Decision amendment consent requires an ISO UTC consentAt and a chat, cli, or gui consentChannel.",
+    );
+  return {
+    consentBy: action.consentBy,
+    consentAt: action.consentAt,
+    consentChannel: action.consentChannel as "chat" | "cli" | "gui",
+    recordedBy: binding.actor,
   };
 }
 

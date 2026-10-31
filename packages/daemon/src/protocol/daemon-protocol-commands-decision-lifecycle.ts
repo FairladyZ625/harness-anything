@@ -438,9 +438,10 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
     id: "decision-amend",
     phase: "DecisionFact-B",
     path: ["decision", "amend", "<id>"],
-    summary: "Amend declared machine fields or replace Markdown prose without changing lifecycle state.",
+    summary: "Replace or append declared Decision content with an audit reason; in_effect requires owner consent.",
     method: "repo.task.run",
     inputs: [
+      cliInput("--reason", "single", true, { code: "invalid_field" }, { regex: "^[\\s\\S]{1,199}$" }),
       cliInput("--title", "single", false, {
         code: "invalid_field",
       }),
@@ -479,6 +480,21 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
           code: "invalid_field",
         },
         { format: workspacePathFormat },
+      ),
+      cliInput(
+        "--consent-by",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { requires: ["--consent-at", "--consent-channel"] },
+      ),
+      cliInput("--consent-at", "single", false, { code: "invalid_field" }, { requires: ["--consent-by"] }),
+      cliInput(
+        "--consent-channel",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { requires: ["--consent-by"], regex: "^(chat|cli|gui)$" },
       ),
       cliInput("--dry-run", "boolean", false, {
         code: "invalid_field",

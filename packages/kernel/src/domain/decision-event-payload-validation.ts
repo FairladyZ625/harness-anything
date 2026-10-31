@@ -6,6 +6,7 @@ import {
   decisionFulfillmentModes,
   decisionStates,
   type DecisionAmendableSnapshot,
+  type DecisionAmendmentOwnerConsentV1,
   type DecisionAmendmentV1,
   type DecisionContentPinV1,
   type DecisionJudgmentConsentV1,
@@ -302,14 +303,55 @@ export function amendment(
 ): value is DecisionAmendmentV1 {
   return (
     isRecord(value) &&
-    matchesFields(value, ["schema", "amendmentId", "fields", "actor", "amendedAt"], allowUnknownFields) &&
+    requiredWithOptional(
+      value,
+      ["schema", "amendmentId", "fields", "actor", "amendedAt"],
+      ["reason", "changes", "ownerConsent"],
+      allowUnknownFields,
+    ) &&
     value.schema === "decision-amendment/v1" &&
     /^dam_[0-9a-f]{26}$/u.test(String(value.amendmentId)) &&
     uniqueFactStrings(value.fields) &&
     value.fields.length > 0 &&
+    (value.reason === undefined ||
+      (codePoints(value.reason, 1, 199) && isRecord(event.payload) && event.payload.reason === value.reason)) &&
+    (value.changes === undefined || amendmentChanges(value.changes, value.fields)) &&
+    (value.ownerConsent === undefined || amendmentOwnerConsent(value.ownerConsent, event)) &&
     validateActorIdentity(value.actor, allowUnknownFields).length === 0 &&
     sameActorIdentity(value.actor, event.actor) &&
     value.amendedAt === event.occurredAt
+  );
+}
+
+function amendmentChanges(value: unknown, fields: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    Array.isArray(fields) &&
+    value.length === fields.length &&
+    value.every(
+      (change, index) =>
+        isRecord(change) &&
+        matchesFields(change, ["field", "beforeDigest", "afterDigest"], false) &&
+        change.field === fields[index] &&
+        /^sha256:[0-9a-f]{64}$/u.test(String(change.beforeDigest)) &&
+        /^sha256:[0-9a-f]{64}$/u.test(String(change.afterDigest)) &&
+        change.beforeDigest !== change.afterDigest,
+    )
+  );
+}
+
+function amendmentOwnerConsent(
+  value: unknown,
+  event: Readonly<Record<string, unknown>>,
+): value is DecisionAmendmentOwnerConsentV1 {
+  return (
+    isRecord(value) &&
+    matchesFields(value, ["consentBy", "consentAt", "consentChannel", "recordedBy"], false) &&
+    isNonEmptyString(value.consentBy) &&
+    timestamp(value.consentAt) &&
+    ["chat", "cli", "gui"].includes(String(value.consentChannel)) &&
+    validateActorIdentity(value.recordedBy, false).length === 0 &&
+    sameActorIdentity(value.recordedBy, event.actor)
   );
 }
 

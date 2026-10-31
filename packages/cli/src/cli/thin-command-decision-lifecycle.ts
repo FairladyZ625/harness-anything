@@ -79,7 +79,7 @@ export function parseDecisionAmend(
   json: boolean,
   inputs: ThinCliInputDirectory,
 ): ThinParseResult {
-  const f = readFlags("decision-amend", args.slice(3), inputs);
+  const f = readFlags("decision-amend", withDefaultConsent(args.slice(3)), inputs);
   if (!f.ok) return rejected(f.code, f.nextAction, json);
   const body = f.one.get("--body"),
     bodyFile = f.one.get("--body-file"),
@@ -90,6 +90,7 @@ export function parseDecisionAmend(
   const action = {
     kind: "decision-amend",
     decisionId,
+    reason: f.one.get("--reason"),
     ...(f.one.get("--title") ? { title: f.one.get("--title") } : {}),
     standingPolicy: f.booleans.has("--standing-policy"),
     fulfillments: parseFulfillments(f.many.get("--fulfillment") ?? []),
@@ -100,6 +101,9 @@ export function parseDecisionAmend(
         : {}),
     sets: f.many.get("--set") ?? [],
     appends: f.many.get("--append") ?? [],
+    ...(f.one.get("--consent-by") ? { consentBy: f.one.get("--consent-by") } : {}),
+    ...(f.one.get("--consent-at") ? { consentAt: f.one.get("--consent-at") } : {}),
+    ...(f.one.get("--consent-channel") ? { consentChannel: f.one.get("--consent-channel") } : {}),
     ...(body !== undefined ? { body } : bodyFile ? { bodyFile } : {}),
     dryRun: f.booleans.has("--dry-run"),
   };

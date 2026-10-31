@@ -58,6 +58,29 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
       },
       oldRelationId = deriveRelationId(oldIdentity);
     assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
+    const policyDenied = await cell.run(
+      {
+        kind: "decision-amend",
+        decisionId,
+        reason: "Verify that Decision amendment still requires Policy authorization.",
+        title: "Unauthorized correction",
+        standingPolicy: false,
+        fulfillments: [],
+        sets: [],
+        appends: [],
+      },
+      withPolicyGroup(
+        {
+          actor: { principal: { personId: "person-decision-viewer" }, executor: null },
+          source: "local" as const,
+        },
+        "viewer",
+      ),
+    );
+    assert.deepEqual(
+      { outcome: policyDenied.outcome, code: policyDenied.code },
+      { outcome: "op_rejected", code: "authorization_denied" },
+    );
     const related = await cell.run(
       {
         kind: "relation-relate",
@@ -98,10 +121,15 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
       {
         kind: "decision-amend",
         decisionId,
+        reason: "Correct the proposal wording while preserving its existing relation anchor.",
         title: "Lifecycle surface amended",
         standingPolicy: false,
         fulfillments: [],
-        sets: [],
+        sets: [
+          'chosen:[{"id":"CH1","text":"Preserve correction history"}]',
+          'rejected:[{"id":"RJ1","text":"Rewrite in place","whyNot":"It loses history"}]',
+          'claims:[{"id":"C1","text":"The task provides evidence.","loadBearing":false}]',
+        ],
         appends: [
           'chosen:{"id":"CH2","text":"Preserve correction history"}',
           'rejected:{"id":"RJ2","text":"Rewrite in place","whyNot":"It loses history"}',
@@ -113,10 +141,28 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
       proposer,
     );
     assert.equal(amended.outcome, "applied", JSON.stringify(amended));
+    const anchoredChoiceRemoval = await cell.run(
+      {
+        kind: "decision-amend",
+        decisionId,
+        reason: "Remove the obsolete choice after checking its references.",
+        standingPolicy: false,
+        fulfillments: [],
+        sets: ['chosen:[{"id":"CH2","text":"Preserve correction history"}]'],
+        appends: [],
+      },
+      proposer,
+    );
+    assert.deepEqual(
+      { outcome: anchoredChoiceRemoval.outcome, code: anchoredChoiceRemoval.code },
+      { outcome: "op_rejected", code: "invalid_transition" },
+    );
+    assert.match(String(anchoredChoiceRemoval.rejectionExplanation), /active Relations/u);
     const bodyAmended = await cell.run(
       {
         kind: "decision-amend",
         decisionId,
+        reason: "Clarify the proposal prose without changing its option ids.",
         standingPolicy: false,
         fulfillments: [],
         sets: [],
@@ -139,6 +185,7 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
         {
           kind: "decision-amend",
           decisionId,
+          reason: "Preview a title correction.",
           title: "Preview only",
           standingPolicy: false,
           fulfillments: [],
@@ -176,6 +223,65 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
     );
     assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
     assert.equal(receiptJson(accepted).state, "in_effect");
+    const consentRequiredAmend = await cell.run(
+        {
+          kind: "decision-amend",
+          decisionId,
+          reason: "Correct the owner-approved title.",
+          title: "Owner-approved title correction",
+          standingPolicy: false,
+          fulfillments: [],
+          sets: [],
+          appends: [],
+        },
+        proposer,
+      ),
+      consentsBeforeAmend = (
+        receiptJson(await cell.run({ kind: "decision-show", decisionId }, proposer)).decision as {
+          readonly judgmentConsents: readonly unknown[];
+        }
+      ).judgmentConsents;
+    assert.deepEqual(
+      { outcome: consentRequiredAmend.outcome, code: consentRequiredAmend.code },
+      { outcome: "op_rejected", code: "invalid_command" },
+    );
+    assert.match(String(consentRequiredAmend.rejectionExplanation), /amendment consent requires/u);
+    const consentedAmend = await cell.run(
+      {
+        kind: "decision-amend",
+        decisionId,
+        reason: "Correct the owner-approved title.",
+        title: "Owner-approved title correction",
+        standingPolicy: false,
+        fulfillments: [],
+        sets: [],
+        appends: [],
+        consentBy: "person-proposer",
+        consentAt: "2026-08-15T00:10:00.000Z",
+        consentChannel: "chat",
+      },
+      proposer,
+    );
+    assert.equal(consentedAmend.outcome, "applied", JSON.stringify(consentedAmend));
+    const consentedDecision = receiptJson(await cell.run({ kind: "decision-show", decisionId }, proposer)).decision as {
+      readonly judgmentConsents: readonly unknown[];
+      readonly amendments: readonly {
+        readonly ownerConsent?: {
+          readonly consentBy: string;
+          readonly consentAt: string;
+          readonly consentChannel: string;
+        };
+      }[];
+      readonly title: string;
+    };
+    assert.equal(consentedDecision.title, "Owner-approved title correction");
+    assert.deepEqual(consentedDecision.judgmentConsents, consentsBeforeAmend);
+    assert.deepEqual(consentedDecision.amendments.at(-1)?.ownerConsent, {
+      consentBy: "person-proposer",
+      consentAt: "2026-08-15T00:10:00.000Z",
+      consentChannel: "chat",
+      recordedBy: proposer.actor,
+    });
     assert.match(
       dispatchContext() ?? "",
       new RegExp(`来源 / Source: decision/${decisionId}/CH1; state=in_effect`, "u"),
@@ -302,7 +408,27 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
     const events = makeTaskEventReader({ repoId: "decision-surface", rootDir }).read().events,
       decisionEvents = events.filter((event) => event.schema === "decision-event/v1"),
       relationEvents = events.filter((event) => event.schema === "relation-event/v1");
-    assert.equal(decisionEvents.filter((event) => event.type === "decision_amended").length, 2);
+    const amendments = decisionEvents.filter((event) => event.type === "decision_amended");
+    assert.equal(amendments.length, 3);
+    const firstAmendment = decisionEvents.find((event) => event.type === "decision_amended");
+    assert.equal(
+      firstAmendment?.payload.reason,
+      "Correct the proposal wording while preserving its existing relation anchor.",
+    );
+    assert.deepEqual(firstAmendment?.payload.previous.chosen, [{ id: "CH1", text: "Use immutable events" }]);
+    assert.deepEqual(firstAmendment?.payload.next.chosen, [
+      { id: "CH1", text: "Preserve correction history" },
+      { id: "CH2", text: "Preserve correction history" },
+    ]);
+    assert.equal(firstAmendment?.payload.amendment.reason, firstAmendment?.payload.reason);
+    assert.deepEqual(
+      firstAmendment?.payload.amendment.changes.map(({ field }) => field),
+      ["title", "chosen", "rejected", "claims", "body"],
+    );
+    assert.ok(
+      firstAmendment?.payload.amendment.changes.every(({ beforeDigest, afterDigest }) => beforeDigest !== afterDigest),
+    );
+    assert.equal(amendments.at(-1)?.payload.ownerConsent?.consentBy, "person-proposer");
     assert.deepEqual(
       relationEvents.map((event) => event.type),
       ["relation_created", "relation_created", "relation_retired", "relation_created"],
@@ -392,6 +518,31 @@ test("decision accept preserves the proposal fulfillments and dry-run uses admis
       readFileSync(path.join(rootDir, "harness", `decisions/decision-${decisionId}/decision.md`), "utf8"),
       /"fulfillment":"evidenced"/u,
     );
+    const correctedClaim = await cell.run(
+      {
+        kind: "decision-amend",
+        decisionId,
+        reason: "Correct the fulfilled claim wording and require fresh evidence.",
+        standingPolicy: false,
+        fulfillments: [],
+        sets: [
+          'claims:[{"id":"C1","text":"The corrected first claim needs fresh evidence.","loadBearing":true},{"id":"C2","text":"The second claim is evidenced.","loadBearing":true}]',
+        ],
+        appends: [],
+        consentBy: "person-proposer",
+        consentAt: "2026-10-31T00:00:00.000Z",
+        consentChannel: "cli",
+      },
+      proposer,
+    );
+    assert.equal(correctedClaim.outcome, "applied", JSON.stringify(correctedClaim));
+    const correctedClaims = (
+      receiptJson(await cell.run({ kind: "decision-show", decisionId }, proposer)).decision as {
+        readonly claims: readonly { readonly id: string; readonly fulfillment: string | null }[];
+      }
+    ).claims;
+    assert.equal(correctedClaims.find(({ id }) => id === "C1")?.fulfillment, null);
+    assert.equal(correctedClaims.find(({ id }) => id === "C2")?.fulfillment, "evidenced");
 
     const unevidenced = await cell.run(
         { ...proposal("Unevidenced preview"), body: "# Unevidenced preview\n\nComplete prose without evidence.\n" },

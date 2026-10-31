@@ -518,6 +518,8 @@ test("Decision F06 and distill leaf commands preserve their complete structured 
       "decision",
       "amend",
       "dec_1",
+      "--reason",
+      "Correct a decision field after review.",
       "--title",
       "Corrected",
       "--non-load-bearing",
@@ -592,6 +594,7 @@ test("Decision F06 and distill leaf commands preserve their complete structured 
     assert.deepEqual(amend.command.action, {
       kind: "decision-amend",
       decisionId: "dec_1",
+      reason: "Correct a decision field after review.",
       title: "Corrected",
       standingPolicy: false,
       fulfillments: [],
@@ -601,7 +604,16 @@ test("Decision F06 and distill leaf commands preserve their complete structured 
       bodyFile: "body.md",
       dryRun: false,
     });
-  const preview = parseThinCommand(["decision", "amend", "dec_1", "--title", "Preview", "--dry-run"]);
+  const preview = parseThinCommand([
+    "decision",
+    "amend",
+    "dec_1",
+    "--reason",
+    "Preview an amendment.",
+    "--title",
+    "Preview",
+    "--dry-run",
+  ]);
   assert.equal(preview.ok, true);
   if (preview.ok) assert.equal(preview.command.action.dryRun, true);
   if (candidate.ok)

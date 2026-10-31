@@ -46,7 +46,7 @@ export const decisionFieldContracts = {
     projection("decisionId", true),
     show("decision.decisionId"),
   ),
-  title: immutable("proposal fields are immutable", projection("title", true), show("decision.title")),
+  title: amendable([amendWrite("replace")], projection("title", true), show("decision.title")),
   state: lifecycle(
     "Decision events own state",
     [lifecycleWrite("decision-accept/reject/defer/retire")],
@@ -63,7 +63,7 @@ export const decisionFieldContracts = {
     projection("appliesTo", false),
     show("decision.appliesTo"),
   ),
-  decisionClass: immutable("classification never grants consent", show("decision.decisionClass")),
+  decisionClass: amendable([amendWrite("metadata")], show("decision.decisionClass")),
   proposer: immutable("proposal actor is canonical event provenance", show("decision.proposer")),
   arbiter: lifecycle(
     "outcome events bind a transport arbiter; agents cannot judge their own proposal",
@@ -75,16 +75,24 @@ export const decisionFieldContracts = {
     projection("question", true),
     show("decision.question"),
   ),
-  chosen: immutable("proposal choices do not change", projection("chosen", false), show("decision.chosen")),
-  rejected: immutable("proposal rejections do not change", projection("rejected", false), show("decision.rejected")),
-  claims: amendable([amendWrite("append"), amendWrite("metadata")], show("decision.claims")),
+  chosen: amendable(
+    [amendWrite("replace"), amendWrite("append")],
+    projection("chosen", false),
+    show("decision.chosen"),
+  ),
+  rejected: amendable(
+    [amendWrite("replace"), amendWrite("append")],
+    projection("rejected", false),
+    show("decision.rejected"),
+  ),
+  claims: amendable([amendWrite("replace"), amendWrite("append"), amendWrite("metadata")], show("decision.claims")),
   relations: amendable([amendWrite("append"), amendWrite("metadata")], show("decision.relations")),
   judgmentConsents: lifecycle(
     "outcome events append content-pinned consent",
     [lifecycleWrite("decision-accept/reject/defer")],
     show("decision.judgmentConsents"),
   ),
-  body: amendable([amendWrite("append")], show("decision.body")),
+  body: amendable([amendWrite("replace")], show("decision.body")),
 } satisfies Record<DecisionFieldKey, EntityFieldContract>;
 
 export const taskFieldContracts = {
@@ -238,6 +246,10 @@ export const entityFieldContracts = {
 } as const;
 
 export const decisionAmendableFields = [
+  "title",
+  "decisionClass",
+  "chosen",
+  "rejected",
   "claims",
   "relations",
   "body",

@@ -5,6 +5,7 @@ import type { ActorIdentity } from "./actor-identity.ts";
 import {
   decisionTransitionDefinitions,
   type DecisionAmendableSnapshot,
+  type DecisionAmendmentOwnerConsentV1,
   type DecisionEventDraftV1,
   type DecisionReviewFindingV1,
   type DecisionReviewResponseV1,
@@ -453,9 +454,20 @@ function decisionEvent(id: DecisionActionCompilerId, input: EntityActionCompileI
       ...base,
       type: "decision_amended",
       payload: {
+        previous: object(input, action.previous, "previous") as unknown as DecisionAmendableSnapshot,
         next: object(input, action.next, "next") as unknown as DecisionAmendableSnapshot,
         fields: stringList(action.fields),
         body: typeof action.body === "string" ? action.body : null,
+        reason: short(input, action.reason, "reason"),
+        ...(action.ownerConsent === undefined
+          ? {}
+          : {
+              ownerConsent: object(
+                input,
+                action.ownerConsent,
+                "ownerConsent",
+              ) as unknown as DecisionAmendmentOwnerConsentV1,
+            }),
       },
     };
   }

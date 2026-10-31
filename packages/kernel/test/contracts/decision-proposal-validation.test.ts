@@ -2,8 +2,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { getExecutableEntityAction } from "../../src/domain/index.ts";
+import { decisionFieldContracts } from "../../src/domain/entity-field-contracts.ts";
 
 const compile = getExecutableEntityAction("decision-propose")?.execution?.compile;
+
+test("Decision amendment field contracts declare replacement for mutable content", () => {
+  for (const field of ["title", "chosen", "rejected", "claims", "body"] as const)
+    assert.ok(
+      decisionFieldContracts[field].write.some(({ kind, operation }) => kind === "amend" && operation === "replace"),
+      `${field} must declare the Decision amendment replace action`,
+    );
+});
 
 test("Decision proposal requires authored prose at admission", () => {
   assert.ok(compile);
