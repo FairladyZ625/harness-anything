@@ -13,12 +13,31 @@ export function preparePackageExports(packageRoot, ownerPid = process.ppid) {
   writeFileSync(paths.owner, `${ownerPid}\n`, { flag: "wx" });
 
   const packageJson = readJson(paths.manifest);
-  if (packageJson.publishConfig?.exports === undefined) {
+  const exports = packageJson.publishConfig?.exports ?? privateSourceExports(packageJson);
+  if (exports === undefined) {
     restorePackageExports(packageRoot);
     throw new Error(`${paths.manifest} must define publishConfig.exports before packing`);
   }
-  packageJson.exports = packageJson.publishConfig.exports;
+  packageJson.exports = exports;
   writeJsonAtomically(paths.manifest, packageJson);
+}
+
+function privateSourceExports(packageJson) {
+  if (packageJson.private !== true || packageJson.exports === undefined) return undefined;
+  return rewriteExportTargets(packageJson.exports);
+}
+
+function rewriteExportTargets(value) {
+  if (typeof value === "string") {
+    return value.startsWith("./src/") && value.endsWith(".ts")
+      ? value.replace(/^\.\/src\/(.+)\.ts$/u, "./dist/$1.js")
+      : value;
+  }
+  if (Array.isArray(value)) return value.map(rewriteExportTargets);
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, target]) => [key, rewriteExportTargets(target)]));
+  }
+  return value;
 }
 
 export function restorePackageExports(packageRoot) {

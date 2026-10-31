@@ -21,18 +21,6 @@
     "./oidc-session-helpers": "./src/oidc-session-helpers.ts",
     "./oidc-fleet-principal": "./src/oidc-fleet-principal.ts"
   },
-  "publishConfig": {
-    "exports": {
-      ".": "./dist/index.js",
-      "./internal/keycloak-policy-adapter": "./dist/keycloak-policy-adapter.js",
-      "./internal/keycloak-login-client": "./dist/keycloak-login-client.js",
-      "./managed-rbac-service": "./dist/managed-rbac-service.js",
-      "./managed-rbac-listener-certificate": "./dist/managed-rbac-listener-certificate.js",
-      "./keycloak-session-lifetime": "./dist/keycloak-session-lifetime.js",
-      "./oidc-session-helpers": "./dist/oidc-session-helpers.js",
-      "./oidc-fleet-principal": "./dist/oidc-fleet-principal.js"
-    }
-  },
   "scripts": {
     "build:publish": "tsc -p tsconfig.publish.json",
     "prepack": "npm run build:publish && node ../../tools/package-exports-lifecycle.mjs prepare",

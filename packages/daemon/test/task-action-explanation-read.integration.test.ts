@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/kernel";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
 import { canonicalRoot, validateDaemonRpcCall, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
@@ -21,11 +22,16 @@ test("typed Entity Action read preserves one cut for 1..500 refs and has no writ
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-action-explain-")),
     repoId = workspaceId("action-explain"),
     realm = await serveKeycloak(),
+    provider = new KeycloakPolicyAdapter(
+      { url: realm.url, realm: "harness", resourceServerClientId: "harness-center" },
+      realm.fetch,
+    ),
     binding = {
       actor,
       source: "local" as const,
       keycloakAuthorization: {
         session: {
+          provider,
           personId: actor.principal.personId,
           accessToken: realm.keycloak.account(actor.principal.personId),
           url: realm.url,

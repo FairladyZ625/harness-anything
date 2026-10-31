@@ -89,7 +89,10 @@ test("real runtime metrics twice preserves request retention, denominator and P9
     signOutAt(userRoot);
     await assert.rejects(
       runDaemonMetrics(["daemon", "metrics", "--root", rootDir, "--repo", repoId], userRoot, daemonId),
-      { code: "authentication_required", message: "Sign in with Keycloak before performing this action." },
+      {
+        code: "authentication_required",
+        message: "Sign in with the configured identity provider before performing this action.",
+      },
     );
     // Runtime shutdown drains the real async recordRequest and recordTraffic sinks, without sleeps.
     await daemon.stop();
@@ -242,7 +245,10 @@ test("native metrics reads real rotated logs over one socket and rejects an actu
       1,
     );
     assert.equal(receipt.code, "authentication_required");
-    assert.equal((receipt.error as { hint: string }).hint, "Sign in with Keycloak before performing this action.");
+    assert.equal(
+      (receipt.error as { hint: string }).hint,
+      "Sign in with the configured identity provider before performing this action.",
+    );
   } finally {
     await transport?.stop();
     await host?.close();
