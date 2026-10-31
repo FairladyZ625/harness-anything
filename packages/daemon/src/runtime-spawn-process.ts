@@ -79,15 +79,11 @@ export async function launchRuntimeProcess(
     }
     const processIsChild =
       Number.isSafeInteger(process.pid) && process.pid > 1 && process.pid !== globalThis.process.pid;
-    const processIsCurrent = process.pid === globalThis.process.pid;
-    if (
-      readDispatchStreamSummary(persistence.rootDir, persistence.dispatchId)?.process === null &&
-      (processIsChild || processIsCurrent)
-    ) {
+    if (readDispatchStreamSummary(persistence.rootDir, persistence.dispatchId)?.process === null && processIsChild) {
       appendRuntimeWorkerRecord(persistence.rootDir, persistence.dispatchId, {
-        kind: processIsChild ? "process_started" : "process_start_rejected",
+        kind: "process_started",
         occurredAt: new Date().toISOString(),
-        ...(processIsChild ? { pid: process.pid } : { errorCode: "same_process" }),
+        pid: process.pid,
       });
     }
     if (!providerSessionId) return { process };

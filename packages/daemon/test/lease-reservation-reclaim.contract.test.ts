@@ -570,6 +570,30 @@ test("terminal runtime lease release requires a process-group stop proof", () =>
     );
     removeDispatchStream(rootDir, dispatchId);
 
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: task.taskId,
+      executionId: lease.executionId,
+      runtimeSessionId,
+      instanceId: "codex-test",
+      startedAt: now,
+    });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_start_rejected", errorCode: "fixture_refused" });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_exit", exitCode: 1, signal: null });
+    assert.throws(
+      () =>
+        taskMutation(
+          terminalCell,
+          terminalAction,
+          task,
+          { ...snapshot(), lease: orphanedLease },
+          authorized(owner("replacement-worker")),
+        ),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
+      "a process_start_rejected record followed by process_exit is not proof that no process group existed",
+    );
+    removeDispatchStream(rootDir, dispatchId);
+
     runtimeEvents = [sessionStarted()];
     assert.throws(
       () =>
