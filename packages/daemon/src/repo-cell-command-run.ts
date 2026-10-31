@@ -39,6 +39,8 @@ import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 import { resolveDecisionReviewAction } from "./repo-cell-action-parse.ts";
 import { candidateSample, resolveUniquePrefix } from "./unique-id-prefix.ts";
 
+const taskWritesWithProjectionSpecificNotFound = new Set(["task-annotate", "task-attest", "task-declare-executor"]);
+
 function targetsBuiltinSchedule(context: RepoCellApiContext, action: RepoTaskAction): boolean {
   if (context.state !== "attached" || getExecutableEntityAction(action.kind)?.target.kind !== "schedule") return false;
   const row =
@@ -109,6 +111,7 @@ function resolveTaskWriteTarget(
       `Task id ${requested} is a prefix of ${String(prefixed.candidates.length)} task ids ` +
         `(${candidateSample(prefixed.candidates)}). Use a longer prefix or the full id.`,
     );
+  if (taskWritesWithProjectionSpecificNotFound.has(action.kind)) return { action, resolved: false };
   throw context.cellCodedError("entity_not_found", `Task ${requested} does not exist.`);
 }
 
