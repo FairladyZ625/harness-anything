@@ -5,7 +5,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { daemonGuiActionMethods } from "@harness-anything/daemon/protocol";
-import { presetCommands } from "../../preset/src/preset-command-contract.ts";
+import { presetCommands, presetMethods } from "../../preset/src/preset-command-contract.ts";
 import { WorkView } from "../src/renderer/views/WorkView.tsx";
 import { harnessClient } from "../src/renderer/api-client.ts";
 import type { CatalogPresetSuccess, CatalogSnapshotSuccess } from "../src/renderer/api-client-catalog.ts";
@@ -15,19 +15,14 @@ import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import {
   START_WORK_TASK_CLASSES,
   START_WORK_WORK_KINDS,
-  startWorkCommand,
   startWorkIdempotencyKey,
+  startWorkPlan,
   type StartWorkDraft,
 } from "../src/renderer/start-work-flow.ts";
 
 /**
- * 「开始一项工作」(S5,task_654349ce;dec_DC3A1BB9 CH3 迁到工作页顶部)的判据:
- *  - 入口在工作页顶部,走到真实 `ha task create` 命令。
- *  - 「不画没有接线的按钮」有对照:命令里出现的每个 flag 都在 task-create 契约里声明过,
- *    两个取值面与 kernel 的真实词表逐词相等;GUI 写面里确实没有 task 创建 ingress
- *    (所以这一步只能是 CLI 指引,这是事实不是偷懒)。
- *  - 重复执行不重复创建:命令自带由表单内容派生的幂等键,同一份表单键不变、字段一改键就变。
- *  - 创建后核对按真实任务投影判定:没找到就说没找到,不假成功。
+ * 「开始一项工作」(S5,task_654349ce;dec_DC3A1BB9 CH3 迁到工作页顶部)经 GUI action
+ * 直接提交 canonical `repo.task.create`,用真实 receipt 展示 taskId/packagePath/opId。
  */
 
 const REPO_ID = "work-start-probe",
@@ -135,7 +130,32 @@ const PRESET_DETAIL: CatalogPresetSuccess = {
   resolved: {
     profile: { completionGateIds: ["ci", "manual-attest"] },
     templates: [],
-    documents: [],
+    documents: [
+      {
+        slot: "task.plan",
+        path: "task_plan.md",
+        body: [
+          "# {{title}}",
+          "",
+          "Task Contract: harness-task v1",
+          "",
+          "## Brief",
+          "",
+          "One-line statement of the task objective and scope.",
+          "",
+          "## Context",
+          "",
+          "Record the input context and established facts.",
+          "",
+          "## Verification",
+          "",
+          "Write every acceptance item as command plus expected result.",
+        ].join("\n"),
+        mediaType: "text/markdown",
+        owner: "machine",
+        templateRef: "template://task.plan@1.0.0",
+      },
+    ],
     entrypoints: [],
     provenance: {},
     digest: "sha256:probe",
@@ -176,6 +196,7 @@ interface Mounted {
   readonly refreshLedger: ReturnType<typeof vi.fn>;
   readonly openTask: ReturnType<typeof vi.fn>;
   readonly presetReads: ReturnType<typeof vi.fn>;
+  readonly createTask: ReturnType<typeof vi.fn>;
   rerender: (tasks: readonly TaskRow[]) => Promise<void>;
 }
 
@@ -184,8 +205,18 @@ async function mountWorkView(
 ): Promise<Mounted> {
   const refreshLedger = vi.fn(),
     openTask = vi.fn(),
-    presetReads = vi.fn(async () => PRESET_DETAIL);
+    presetReads = vi.fn(async () => PRESET_DETAIL),
+    createTask = vi.fn(async () => ({
+      schema: "command-receipt/v2" as const,
+      ok: true,
+      command: "task-create",
+      outcome: "applied" as const,
+      opId: "op-start-work",
+      taskId: "task_new",
+      packagePath: "tasks/task_new-start-work",
+    }));
   vi.spyOn(harnessClient, "getCatalogPreset").mockImplementation(presetReads);
+  vi.spyOn(harnessClient, "createTask").mockImplementation(createTask as never);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const container = document.createElement("div");
   document.body.append(container);
@@ -213,7 +244,7 @@ async function mountWorkView(
     });
   };
   await render(options.tasks ?? TASKS);
-  return { container, refreshLedger, openTask, presetReads, rerender: render };
+  return { container, refreshLedger, openTask, presetReads, createTask, rerender: render };
 }
 
 function byTestId(container: HTMLElement, testId: string): HTMLElement {
@@ -269,60 +300,48 @@ async function until(predicate: () => boolean, label: string): Promise<void> {
   }
 }
 
-describe("G1 开始一项工作:命令面与真实契约对齐", () => {
+describe("G1 开始一项工作:GUI Action 与真实契约对齐", () => {
   const declared = presetCommands.find((command) => command.id === "task-create");
+  const guiCreate = daemonGuiActionMethods.find(({ method }) => method === "repo.task.create");
 
-  it("task-create 命令在契约里存在,且走中心单写路", () => {
+  it("task-create GUI Action 复用 CLI 方法的中心单写 payload 与 Action kind", () => {
     expect(declared, "task-create command declaration").toBeTruthy();
     expect([...declared!.path]).toEqual(["task", "create"]);
     expect(declared!.method).toBe("repo.task.create");
+    expect(guiCreate?.actionKind).toBe("task-create");
+    const presetMethod = presetMethods.find((candidate) => candidate.method === declared!.method);
+    expect(guiCreate?.params.fields.payload).toEqual(presetMethod?.params.fields.payload);
   });
 
-  it("生成的命令只用契约声明过的 flag", () => {
-    const declaredFlags = new Set(declared!.inputs.map((input) => input.name));
-    const emitted = startWorkCommand(DRAFT).argv.filter((token) => token.startsWith("--"));
-    expect(emitted.length).toBeGreaterThan(0);
-    for (const flag of emitted) expect(declaredFlags, `${flag} not declared by task-create`).toContain(flag);
-    expect(emitted).toEqual([
-      "--title",
-      "--preset",
-      "--risk-tier",
-      "--task-class",
-      "--kind",
-      "--work",
-      "--idempotency-key",
-    ]);
-  });
-
-  // 契约的 enum 就是 kernel 词表的投影(生成器从 kernel 声明产出 task-create 投影,
-  // `preset-system.ts` 也是拿 `taskCreateEnum` 当取值面),所以这里对着契约核对即可 ——
-  // 渲染层的字面镜像与 `ha task create` 真正接受的取值一字不差,顺序也一样。
+  // 契约的 enum 是 kernel 词表的投影,渲染层镜像必须逐词相等。
   it("两个取值面与 task-create 契约声明的 enum 逐词相等(含顺序)", () => {
     const enumOf = (name: string) => [...(declared!.inputs.find((input) => input.name === name)?.enum ?? [])];
     expect(enumOf("--task-class")).toEqual([...START_WORK_TASK_CLASSES]);
     expect(enumOf("--kind")).toEqual([...START_WORK_WORK_KINDS]);
   });
 
-  it("GUI 写面里确实没有任务创建 ingress —— 这一步只能给 CLI 指引", () => {
-    const guiWriteMethods = daemonGuiActionMethods.map((action) => action.method);
-    expect(guiWriteMethods).not.toContain("repo.task.create");
-    expect(guiWriteMethods).toContain("repo.task.start");
+  it("把 brief 放进预置 task.plan scaffold 并保留每个 section", () => {
+    const scaffold = PRESET_DETAIL.resolved.documents[0]!.body,
+      plan = startWorkPlan(scaffold, DRAFT.title, DRAFT.intent, "See the Brief before work begins.");
+    expect(plan).not.toBeNull();
+    if (plan === null) throw new Error("the valid fixture scaffold should produce a task plan");
+    expect(plan).toContain(`# ${DRAFT.title}`);
+    expect(plan).toContain(`> ${DRAFT.intent}`);
+    expect(plan).toContain("## Brief");
+    expect(plan).toContain("## Context");
+    expect(plan).toContain("## Verification");
+    expect(plan).toContain("See the Brief before work begins.");
+    expect(plan).not.toContain("One-line statement of the task objective and scope.");
   });
 
-  it("标题里的空格与引号不会把命令拆开", () => {
-    const text = startWorkCommand({ ...DRAFT, title: `把 "开始" 接上` }).text;
-    expect(text).toContain(`--title '把 "开始" 接上'`);
-    expect(text.startsWith("ha task create ")).toBe(true);
+  it("does not submit an unusable scaffold without a section heading", () => {
+    expect(startWorkPlan("A template without task.plan sections.", DRAFT.title, DRAFT.intent, "Review.")).toBeNull();
   });
 });
 
 describe("G1 开始一项工作:幂等键", () => {
-  it("同一份表单重复生成命令完全一致,不会建出第二条", () => {
-    const first = startWorkCommand(DRAFT),
-      second = startWorkCommand({ ...DRAFT });
-    expect(second.text).toBe(first.text);
-    expect(second.idempotencyKey).toBe(first.idempotencyKey);
-    expect(first.text).toContain(`--idempotency-key ${first.idempotencyKey}`);
+  it("同一份表单重复提交使用相同键,不会建出第二条", () => {
+    expect(startWorkIdempotencyKey({ ...DRAFT })).toBe(startWorkIdempotencyKey(DRAFT));
   });
 
   it("表单任一字段改动,幂等键随之改变", () => {
@@ -353,7 +372,7 @@ describe("工作页顶部:开始一项工作(dec_DC3A1BB9 CH3)", () => {
   });
 });
 
-describe("G1 开始一项工作:向导走到真实创建命令", () => {
+describe("G1 开始一项工作:向导经真实 GUI Action 创建", () => {
   async function openWizard(tasks?: readonly TaskRow[]) {
     const view = await mountWorkView(tasks ? { tasks } : {});
     await click(byTestId(view.container, "work-start-work"));
@@ -370,7 +389,7 @@ describe("G1 开始一项工作:向导走到真实创建命令", () => {
     expect(view.presetReads).not.toHaveBeenCalled();
   });
 
-  it("填完三步后给出真实 ha task create 命令与必要条件", async () => {
+  it("填完三步后直接提交 scaffold plan 并展示 daemon 回执", async () => {
     const view = await openWizard();
     await choose(dialogTestId("start-work-task-class"), "standard");
     await choose(dialogTestId("start-work-parent"), "task_root");
@@ -380,11 +399,8 @@ describe("G1 开始一项工作:向导走到真实创建命令", () => {
     await click(dialogTestId("start-work-next"));
     // 已解析 profile 只在第 3 步读:前两步一条请求都不发。
     expect(view.presetReads).toHaveBeenCalledTimes(1);
-    const command = dialogTestId("start-work-command").textContent ?? "";
-    expect(command).toContain("ha task create");
-    expect(command).toContain(`--title '${DRAFT.title}'`);
-    expect(command).toContain("--preset standard-task");
-    expect(command).toContain("--work task_root");
+    expect(queryTestId(document.body, "start-work-command")).toBeNull();
+    expect(queryTestId(document.body, "start-work-publish-command")).toBeNull();
     expect(dialogTestId("start-work-idempotency").textContent).toContain("gui-start-work-");
     await until(
       () => (dialogTestId("start-work-preconditions").textContent ?? "").includes("manual-attest"),
@@ -394,32 +410,60 @@ describe("G1 开始一项工作:向导走到真实创建命令", () => {
     expect(preconditions).toContain("responsive");
     expect(preconditions).toContain("valid");
     expect(dialogTestId("start-work-executors").textContent).toContain("codex-worker");
-    expect(dialogTestId("start-work-plan-body").textContent).toBe(DRAFT.intent);
+    const plan = dialogTestId("start-work-plan-body").textContent ?? "";
+    expect(plan).toContain(DRAFT.intent);
+    expect(plan).toContain("## Verification");
+    await until(() => queryTestId(document.body, "start-work-create") !== null, "create action never became ready");
+    await click(dialogTestId("start-work-create"));
+    expect(view.createTask).toHaveBeenCalledTimes(1);
+    expect(view.createTask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repoId: REPO_ID,
+        title: DRAFT.title,
+        presetId: DRAFT.presetId,
+        riskTier: DRAFT.riskTier,
+        taskClass: DRAFT.taskClass,
+        workKind: DRAFT.workKind,
+        parentTaskId: DRAFT.parentTaskId,
+        idempotencyKey: startWorkIdempotencyKey(DRAFT),
+        plan,
+      }),
+    );
+    expect(view.refreshLedger).toHaveBeenCalledTimes(1);
+    expect(dialogTestId("start-work-receipt").textContent).toContain("task_new");
+    expect(dialogTestId("start-work-receipt").textContent).toContain("tasks/task_new-start-work");
+    await click(dialogTestId("start-work-open"));
+    expect(view.openTask).toHaveBeenCalledWith("task_new");
   });
 
-  it("缺标题或缺目标时不画命令,只说还差什么", async () => {
+  it("缺标题或缺目标时不显示创建动作,只说还差什么", async () => {
     await openWizard();
     await click(dialogTestId("start-work-next"));
     await click(dialogTestId("start-work-next"));
-    expect(queryTestId(document.body, "start-work-command")).toBeNull();
+    expect(queryTestId(document.body, "start-work-create")).toBeNull();
     expect(dialogTestId("start-work-dialog").textContent).toContain("还差:");
   });
 
-  it("创建后核对:刷新台账并按标题找到真任务才算数,找不到就说找不到", async () => {
+  it("创建拒绝时透传 daemon 的错误,不伪造成功", async () => {
     const view = await openWizard();
     await click(dialogTestId("start-work-next"));
     await type(dialogTestId("start-work-title"), "新建的工作");
     await type(dialogTestId("start-work-intent"), DRAFT.intent);
     await click(dialogTestId("start-work-next"));
-    await click(dialogTestId("start-work-verify"));
-    expect(view.refreshLedger).toHaveBeenCalledTimes(1);
-    expect(dialogTestId("start-work-dialog").textContent).toContain("还没有「新建的工作」");
-    expect(queryTestId(document.body, "start-work-open")).toBeNull();
-    // 台账下一切面带回这条任务:核对转为找到,并能直达任务。
-    await view.rerender([...TASKS, taskRow({ taskId: "task_new", title: "新建的工作", workId: "task_new" })]);
-    expect(dialogTestId("start-work-dialog").textContent).toContain("task_new");
-    await click(dialogTestId("start-work-open"));
-    expect(view.openTask).toHaveBeenCalledWith("task_new");
+    view.createTask.mockResolvedValueOnce({
+      schema: "command-receipt/v2",
+      ok: false,
+      command: "task-create",
+      outcome: "op_rejected",
+      opId: "N/A",
+      code: "task_create_denied",
+      rejectionExplanation: "task-create is not authorized",
+    });
+    await until(() => queryTestId(document.body, "start-work-create") !== null, "create action never became ready");
+    await click(dialogTestId("start-work-create"));
+    expect(dialogTestId("start-work-dialog").textContent).toContain("task-create is not authorized");
+    expect(queryTestId(document.body, "start-work-receipt")).toBeNull();
+    expect(view.refreshLedger).not.toHaveBeenCalled();
   });
 
   it("目录快照还没到时不画选型面,如实说在读", async () => {

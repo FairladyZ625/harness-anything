@@ -2,23 +2,22 @@ import { Notice } from "./primitives/Notice";
 import { useLayoutEffect, useMemo, useState } from "react";
 import { CheckCircle, Question, WarningCircle } from "@phosphor-icons/react";
 import type { CatalogSnapshotSuccess } from "../api-client-catalog.ts";
+import { harnessClient } from "../api-client.ts";
 import { useCatalogPreset } from "../catalog-data.ts";
 import { t } from "../i18n/index.tsx";
 import type { TaskRow } from "../model/types.ts";
 import {
-  locateCreatedTask,
   START_WORK_RISK_TIERS,
   START_WORK_TASK_CLASSES,
   START_WORK_WORK_KINDS,
   startWorkBlockers,
-  startWorkCommand,
+  startWorkIdempotencyKey,
+  startWorkPlan,
   startWorkPreconditions,
-  startWorkPublishCommand,
   type StartWorkDraft,
   type StartWorkPrecondition,
 } from "../start-work-flow.ts";
-import { CopyContextButton } from "./CopyContextButton.tsx";
-import { CfgRow, Hint, PlannedBox, Sect } from "./runtime/parts.tsx";
+import { CfgRow, PlannedBox, Sect } from "./runtime/parts.tsx";
 import { Modal } from "./primitives/Modal.tsx";
 import { TextInput } from "./primitives/TextInput.tsx";
 import { Button } from "./primitives/Button.tsx";
@@ -26,11 +25,8 @@ import { Button } from "./primitives/Button.tsx";
 /**
  * G1「开始一项工作」(S5):选目标类型 → 写目标与交付要求 → 确认执行资源与必要条件。
  *
- * 前两步与必要条件读的都是现有读面(目录快照已随 App 挂载;已解析 profile 只在走到
- * 第 3 步时才读,不进首屏预算)。**创建那一次写没有 GUI 通道** —— `daemonGuiActionMethods`
- * 里没有 task 创建,唯一单写命令是 `ha task create`。所以第 3 步交付的是那条真实命令
- * 本身(可复制、带表单派生的幂等键),而不是一个点了什么也不发生的按钮。
- * 执行完回来点「已执行,刷新并查找」:按标题去真实任务投影里核对,找不到就说找不到。
+ * 前两步使用目录快照;第 3 步读取已解析 preset scaffold,再经 `repo.task.create`
+ * 提交完整 plan。任务身份和幂等键由既有 center-forward-write 写路分配。
  */
 const STEPS = ["type", "intent", "resources"] as const;
 type Step = (typeof STEPS)[number];
@@ -85,7 +81,14 @@ export function StartWorkDialog({
     workKind: START_WORK_WORK_KINDS[0],
     parentTaskId: null,
   });
-  const [lookupRequested, setLookupRequested] = useState(false);
+  const [creationReceipt, setCreationReceipt] = useState<{
+    readonly taskId: string;
+    readonly packagePath: string;
+    readonly opId: string;
+    readonly outcome: string;
+  } | null>(null);
+  const [creationError, setCreationError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
   // 组件随退场动画常驻,重新打开时回到第一步的空白草稿——与旧的条件挂载逐次新建等价。
   useLayoutEffect(() => {
     if (!open) return;
@@ -99,7 +102,9 @@ export function StartWorkDialog({
       workKind: START_WORK_WORK_KINDS[0],
       parentTaskId: null,
     });
-    setLookupRequested(false);
+    setCreationReceipt(null);
+    setCreationError(null);
+    setCreating(false);
   }, [open]);
   // 目录快照到达前 presetId 为空;到达后落到仓库默认值一次,之后由用户接管。
   const defaultPresetId = catalog?.defaults.presetId ?? "";
@@ -108,8 +113,52 @@ export function StartWorkDialog({
   const presetRow = catalog?.presets.find((preset) => preset.id === effectiveDraft.presetId) ?? null;
   // 已解析 profile 只在第 3 步读:表单前两步不发任何请求。
   const blockers = startWorkBlockers(effectiveDraft);
-  const command = startWorkCommand(effectiveDraft);
-  const created = lookupRequested ? locateCreatedTask(tasks, effectiveDraft.title) : null;
+  const updateDraft = (next: StartWorkDraft) => {
+    setDraft(next);
+    setCreationReceipt(null);
+    setCreationError(null);
+  };
+  const submitTask = (plan: string, locale: string, verticalId: string) => {
+    setCreating(true);
+    setCreationError(null);
+    return harnessClient
+      .createTask({
+        repoId,
+        title: effectiveDraft.title.trim(),
+        presetId: effectiveDraft.presetId,
+        verticalId,
+        locale,
+        riskTier: effectiveDraft.riskTier,
+        taskClass: effectiveDraft.taskClass,
+        workKind: effectiveDraft.workKind,
+        ...(effectiveDraft.parentTaskId === null ? {} : { parentTaskId: effectiveDraft.parentTaskId }),
+        idempotencyKey: startWorkIdempotencyKey(effectiveDraft),
+        plan,
+      })
+      .then((receipt) => {
+        if (!receipt.ok) {
+          setCreationError(
+            typeof receipt.rejectionExplanation === "string"
+              ? receipt.rejectionExplanation
+              : typeof receipt.code === "string"
+                ? receipt.code
+                : t("views.work.startWork.createFailed"),
+          );
+          return;
+        }
+        setCreationReceipt({
+          taskId: receipt.taskId,
+          packagePath: receipt.packagePath,
+          opId: receipt.opId,
+          outcome: receipt.outcome,
+        });
+        onRefreshLedger();
+      })
+      .then(undefined, (error: unknown) => {
+        setCreationError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => setCreating(false));
+  };
   // 工作候选 = 工作根与尚不属于任何工作的任务(`--work <id>`);归入工作是可选项,不归入就是独立任务。
   const groupOptions = tasks.filter((task) => (task.workId ?? task.taskId) === task.taskId);
   const stepIndex = STEPS.indexOf(step);
@@ -164,10 +213,10 @@ export function StartWorkDialog({
           draft={effectiveDraft}
           presetRow={presetRow}
           groupOptions={groupOptions}
-          onChange={setDraft}
+          onChange={updateDraft}
         />
       ) : step === "intent" ? (
-        <IntentStep draft={effectiveDraft} onChange={setDraft} />
+        <IntentStep draft={effectiveDraft} onChange={updateDraft} />
       ) : (
         <ResourcesStep
           repoId={repoId}
@@ -178,13 +227,10 @@ export function StartWorkDialog({
           catalog={catalog}
           draft={effectiveDraft}
           blockers={blockers}
-          command={command}
-          created={created}
-          lookupRequested={lookupRequested}
-          onVerify={() => {
-            onRefreshLedger();
-            setLookupRequested(true);
-          }}
+          creationReceipt={creationReceipt}
+          creationError={creationError}
+          creating={creating}
+          onCreate={submitTask}
           onOpenTask={onOpenTask}
         />
       )}
@@ -347,10 +393,10 @@ function ResourcesStep({
   catalog,
   draft,
   blockers,
-  command,
-  created,
-  lookupRequested,
-  onVerify,
+  creationReceipt,
+  creationError,
+  creating,
+  onCreate,
   onOpenTask,
 }: {
   readonly repoId: string;
@@ -361,18 +407,30 @@ function ResourcesStep({
   readonly catalog: CatalogSnapshotSuccess;
   readonly draft: StartWorkDraft;
   readonly blockers: readonly ("title" | "intent" | "preset")[];
-  readonly command: ReturnType<typeof startWorkCommand>;
-  readonly created: TaskRow | null;
-  readonly lookupRequested: boolean;
-  readonly onVerify: () => void;
+  readonly creationReceipt: {
+    readonly taskId: string;
+    readonly packagePath: string;
+    readonly opId: string;
+    readonly outcome: string;
+  } | null;
+  readonly creationError: string | null;
+  readonly creating: boolean;
+  readonly onCreate: (plan: string, locale: string, verticalId: string) => Promise<void>;
   readonly onOpenTask: (taskId: string) => void;
 }) {
   const presetDetail = useCatalogPreset(repoId, presetId !== "" ? presetId : null, locale);
+  const presetRow = catalog.presets.find((preset) => preset.id === presetId) ?? null;
   const completionGateIds = useMemo(() => {
     const profile = presetDetail.data?.resolved.profile;
     if (!profile || !Array.isArray(profile.completionGateIds)) return null;
     return profile.completionGateIds.filter((gate): gate is string => typeof gate === "string");
   }, [presetDetail.data]);
+  const plan = useMemo(() => {
+    const scaffold = presetDetail.data?.resolved.documents.find((document) => document.slot === "task.plan")?.body;
+    if (typeof scaffold !== "string") return null;
+    return startWorkPlan(scaffold, draft.title, draft.intent, t("views.work.startWork.planSectionNote"));
+  }, [draft.intent, draft.title, presetDetail.data]);
+  const planTooLong = plan !== null && plan.length > 32 * 1024;
   const gatesPending = presetDetail.isPending && completionGateIds === null;
   const preconditions = startWorkPreconditions({ daemonState, presetValidity, completionGateIds });
   return (
@@ -404,64 +462,84 @@ function ResourcesStep({
         )}
         <Notice>{t("views.work.startWork.executorNote")}</Notice>
       </Sect>
-      <Sect
-        title={t("views.work.startWork.commandTitle")}
-        desc={t("views.work.startWork.commandDesc")}
-        right={
-          blockers.length === 0 ? (
-            <CopyContextButton compact label={t("views.work.startWork.commandCopy")} buildText={() => command.text} />
-          ) : null
-        }
-      >
+      <Sect title={t("views.work.startWork.createTitle")} desc={t("views.work.startWork.createDesc")}>
         {blockers.length > 0 ? (
           <Notice>
-            {t("views.work.startWork.commandBlocked", {
+            {t("views.work.startWork.createBlocked", {
               fields: blockers.map((blocker) => BLOCKER_LABEL[blocker]()).join(" / "),
             })}
           </Notice>
+        ) : presetDetail.isPending ? (
+          <PlannedBox>{t("views.work.startWork.planLoading")}</PlannedBox>
+        ) : plan === null ? (
+          <Notice tone="bad">
+            {presetDetail.isError
+              ? t("views.work.startWork.planReadFailed", {
+                  error: presetDetail.error instanceof Error ? presetDetail.error.message : String(presetDetail.error),
+                })
+              : t("views.work.startWork.planUnavailable")}
+          </Notice>
         ) : (
           <>
-            <pre
-              data-testid="start-work-command"
-              className="rounded border border-border bg-surface px-2.5 py-2 font-mono ui-micro break-all whitespace-pre-wrap text-text"
-            >
-              {command.text}
-            </pre>
             <p className="mt-1.5 ui-micro text-text-faint" data-testid="start-work-idempotency">
-              {t("views.work.startWork.idempotencyNote", { key: command.idempotencyKey })}
+              {t("views.work.startWork.idempotencyNote", { key: startWorkIdempotencyKey(draft) })}
             </p>
-            <p className="mt-2 ui-micro text-text-muted">{t("views.work.startWork.planLabel")}</p>
             <pre
               data-testid="start-work-plan-body"
               className="mt-1 rounded border border-border bg-surface px-2.5 py-2 ui-micro whitespace-pre-wrap text-text-muted"
             >
-              {draft.intent}
+              {plan}
             </pre>
-            <pre
-              data-testid="start-work-publish-command"
-              className="mt-1.5 overflow-x-auto rounded border border-border bg-surface px-2.5 py-2 font-mono ui-micro text-text-muted"
+            {planTooLong ? <Notice tone="bad">{t("views.work.startWork.planTooLong")}</Notice> : null}
+            <Button
+              size="sm"
+              variant="primary"
+              disabled={
+                creating ||
+                creationReceipt !== null ||
+                planTooLong ||
+                daemonState !== "responsive" ||
+                presetValidity !== "valid"
+              }
+              onClick={() => void onCreate(plan, locale, presetRow?.verticalId ?? catalog.defaults.verticalId)}
+              testId="start-work-create"
             >
-              {startWorkPublishCommand(created?.taskId ?? "<task-id>")}
-            </pre>
+              {creating ? t("views.work.startWork.creating") : t("views.work.startWork.create")}
+            </Button>
           </>
         )}
-      </Sect>
-      <Sect title={t("views.work.startWork.verifyTitle")} desc={t("views.work.startWork.verifyDesc")}>
-        <span className="flex flex-wrap items-center gap-2">
-          <Button size="sm" onClick={onVerify} testId="start-work-verify">
-            {t("views.work.startWork.verify")}
-          </Button>
-          {created ? (
-            <>
-              <Hint>{t("views.work.startWork.verifyFound", { taskId: created.taskId })}</Hint>
-              <Button size="sm" variant="primary" onClick={() => onOpenTask(created.taskId)} testId="start-work-open">
-                {t("views.work.startWork.verifyOpen")}
-              </Button>
-            </>
-          ) : lookupRequested ? (
-            <Hint>{t("views.work.startWork.verifyMissing", { title: draft.title })}</Hint>
-          ) : null}
-        </span>
+        {creationError !== null ? <Notice tone="bad">{creationError}</Notice> : null}
+        {creationReceipt !== null ? (
+          <div data-testid="start-work-receipt">
+            <Notice tone={creationReceipt.outcome === "pending" ? "wait" : "neutral"}>
+              {creationReceipt.outcome === "pending"
+                ? t("views.work.startWork.createdPending")
+                : t("views.work.startWork.created")}
+            </Notice>
+            <dl className="grid gap-1 ui-micro text-text-muted">
+              <div>
+                <dt className="inline">taskId: </dt>
+                <dd className="inline font-mono">{creationReceipt.taskId}</dd>
+              </div>
+              <div>
+                <dt className="inline">packagePath: </dt>
+                <dd className="inline font-mono">{creationReceipt.packagePath}</dd>
+              </div>
+              <div>
+                <dt className="inline">opId: </dt>
+                <dd className="inline font-mono">{creationReceipt.opId}</dd>
+              </div>
+            </dl>
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={() => onOpenTask(creationReceipt.taskId)}
+              testId="start-work-open"
+            >
+              {t("views.work.startWork.verifyOpen")}
+            </Button>
+          </div>
+        ) : null}
       </Sect>
     </>
   );

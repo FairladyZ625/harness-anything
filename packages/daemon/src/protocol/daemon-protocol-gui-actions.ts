@@ -1,5 +1,6 @@
 import {
   generatedSettingsFieldProtocolProjection,
+  presetMethods,
   type GeneratedSettingsActionInputField,
 } from "@harness-anything/preset/internal/preset-command-contract";
 import { optionalEnum, shape, type RpcShape } from "./daemon-protocol-gui-types.ts";
@@ -24,6 +25,10 @@ import {
 const settingsUpdateRpcFields = Object.fromEntries(
   generatedSettingsFieldProtocolProjection.actionInputs.map((field) => [field.field, settingsActionRpcRule(field)]),
 ) as RpcShape["fields"];
+
+const taskCreatePayload = presetMethods.find(({ method }) => method === "repo.task.create")?.params.fields.payload;
+if (!taskCreatePayload || typeof taskCreatePayload === "string")
+  throw new Error("repo.task.create payload projection is missing.");
 
 function settingsActionRpcRule(field: GeneratedSettingsActionInputField): RpcShape["fields"][string] {
   if (field.field === "idempotencyKey") return "string";
@@ -84,6 +89,15 @@ export const daemonGuiActionMethods = Object.freeze([
     auth: "local-session-token",
     commandClass: "admin",
   },
+  guiAction(
+    "task.create",
+    "repo.task.create",
+    "task-create",
+    taskCreatePayload as RpcShape,
+    "createTask",
+    "/api/tasks",
+    "repo-write",
+  ),
   guiAction(
     "task.start",
     "repo.task.start",
