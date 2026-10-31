@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import { binding as deriveBinding } from "../src/daemon-host-binding.ts";
-import { openSqliteEventStore } from "@harness-anything/kernel";
+import { openSqliteEventStore } from "@harness-anything/storage";
 import type { DaemonHost } from "../src/daemon-host.ts";
 import { openPersistentWriterEpoch } from "@harness-anything/storage";
 import { serveKeycloak, signInAt, OidcSessionService } from "./keycloak.fixtures.ts";

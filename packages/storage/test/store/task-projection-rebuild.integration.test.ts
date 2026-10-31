@@ -7,6 +7,13 @@ import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { compileSettingsChangedEvent } from "@harness-anything/kernel/internal/domain/settings-event.ts";
 import {
+  emptyTaskLifecycleSnapshot,
+  lifecycleDocumentPaths,
+  reduceTaskEvent,
+  slugifyTaskTitle,
+  validateTaskEvent,
+} from "@harness-anything/kernel";
+import {
   readSettingsFacet,
   repositorySettings,
   writeRepositorySettingsFacet,
@@ -28,13 +35,6 @@ import { makeTaskEventReader } from "../../src/store/task-event-store-factory.ts
 import { openReplicaStore } from "../../src/store/replica-store.ts";
 import { localGitObjectRefStore } from "../../src/store/local-version-control-system.ts";
 import { freezeDeclaredWritePlan } from "@harness-anything/kernel/internal/domain/write-chain.contract.ts";
-import {
-  emptyTaskLifecycleSnapshot,
-  lifecycleDocumentPaths,
-  reduceTaskEvent,
-  slugifyTaskTitle,
-  validateTaskEvent,
-} from "../../src/index.ts";
 import { validateCurrentTaskEvent } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract.ts";
 import { taskLifecycleWritePlan } from "@harness-anything/kernel/internal/domain/task-lifecycle-publication.ts";
 import type { TaskEventV1 } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract.ts";
