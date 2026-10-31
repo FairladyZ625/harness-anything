@@ -152,6 +152,7 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
       "type-register",
       "archive",
       "unarchive",
+      "promote",
       "rematerialize",
       "type-list",
       "show",
@@ -174,7 +175,7 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
         words: ["active", "retired"],
       },
     ],
-    actions: ["relate", "unrelate", "reconfirm"],
+    actions: ["migrate-assignment", "relate", "unrelate", "reconfirm"],
   },
   review: {
     schemaId: "Review/v1",
