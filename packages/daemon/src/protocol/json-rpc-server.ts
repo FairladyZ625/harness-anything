@@ -11,7 +11,7 @@ import {
   commandIdForDaemonMethod,
   daemonProtocolError,
   invalidParamsReceipt,
-  isDaemonGuiActionMethod,
+  isDaemonGuiOnlyActionMethod,
   jsonRpcMethodContracts,
   makeDaemonCommandReceipt,
   parseDaemonRpcParams,
@@ -887,7 +887,7 @@ export function createJsonRpcProtocolServer(options: {
       const result = makeDaemonCommandReceipt(action.kind, receipt);
       return reply(
         commandMethod,
-        isDaemonGuiActionMethod(commandMethod) ? parseDaemonGuiActionResult(commandMethod, result) : result,
+        isDaemonGuiOnlyActionMethod(commandMethod) ? parseDaemonGuiActionResult(commandMethod, result) : result,
       );
     } catch (error) {
       return reply(

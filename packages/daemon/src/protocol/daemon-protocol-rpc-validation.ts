@@ -45,6 +45,11 @@ export function isDaemonGuiActionMethod(method: string): method is DaemonGuiActi
   return daemonMethodNameSets.guiAction.has(method);
 }
 
+/** Shared preset RPCs keep their existing validation contract when also exposed to the GUI. */
+export function isDaemonGuiOnlyActionMethod(method: string): method is DaemonGuiActionMethod {
+  return daemonMethodNameSets.guiAction.has(method) && !daemonMethodNameSets.preset.has(method);
+}
+
 export function isDaemonStreamMethod(method: string): method is DaemonStreamMethod {
   return daemonMethodNameSets.stream.has(method);
 }
@@ -112,7 +117,7 @@ export function validateDaemonRpcCall(value: unknown): readonly string[] {
       );
     }
   }
-  if (!errors.length && isDaemonGuiActionMethod(value.method))
+  if (!errors.length && isDaemonGuiOnlyActionMethod(value.method))
     errors.push(...validateGuiActionPayload(value.method, (value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.terminal.attach") {
     const afterSeq = ((value.params as JsonObject).payload as JsonObject).afterSeq;

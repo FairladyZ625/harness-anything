@@ -1,18 +1,6 @@
-import type { TaskRow } from "./model/types.ts";
-
 /**
- * 「开始一项工作」的纯派生层(S5,task_654349ce)。
- *
- * 这里只做派生,不发任何请求:GUI 的写面是闭合 allowlist(`daemonGuiActionMethods`),
- * 里面**没有** task 创建 —— 唯一创建单写命令是 `ha task create`
- * (RPC `repo.task.create`,center-forward-write,commandType `CreateReplayTask`)。
- * 所以创建那一步由本模块拼出可复制的真实命令,而不是在界面上画一个没有接线的按钮。
- * 选型/必要条件/创建后核对三步接的都是现有读面,见任务包 progress.md 的映射表。
- *
- * 幂等:taskId 由中心按 opId(意图的内容寻址摘要)分配,两个边缘节点同时建同名任务得到
- * 两条独立任务;同一份意图重放则 opId 命中回放同一回执。命令另带 `--idempotency-key`,
- * 键由表单内容纯函数派生 —— 同一份表单重复执行命中中心的 `readTaskByIdempotencyKey`,
- * 复用同一条任务;表单改了键就变,不会把两件不同的工作并成一条。
+ * 「开始一项工作」向导的纯派生层。创建使用 GUI Action allowlist 中的
+ * `repo.task.create`；任务与幂等键仍由 daemon 的中心转发写路分配。
  */
 
 /** 幂等键原文的字段分隔符,避免跨字段拼出相同原文。 */
@@ -27,27 +15,15 @@ export const START_WORK_TASK_CLASSES = Object.freeze(["standard", "work", "long_
 export const START_WORK_WORK_KINDS = Object.freeze(["feat", "fix", "refactor", "docs", "test", "chore"]);
 export const START_WORK_RISK_TIERS = Object.freeze(["low", "medium", "high"]);
 
-/** 「开始一项工作」表单的全部可写字段;命令是它的纯函数。 */
+/** 「开始一项工作」表单的全部可写字段。 */
 export interface StartWorkDraft {
   readonly title: string;
-  /** 目标与交付要求正文。它不是 `task create` 的字段,创建后写进 task_plan.md。 */
   readonly intent: string;
   readonly presetId: string;
   readonly riskTier: string;
   readonly taskClass: string;
   readonly workKind: string;
   readonly parentTaskId: string | null;
-}
-
-export interface StartWorkCommand {
-  readonly argv: readonly string[];
-  readonly text: string;
-  readonly idempotencyKey: string;
-}
-
-/** POSIX shell 单引号转义:标题里的空格与引号不会把命令拆开。 */
-function shellArgument(value: string): string {
-  return /^[\w./:@=-]+$/u.test(value) ? value : `'${value.replaceAll("'", String.raw`'\''`)}'`;
 }
 
 /** FNV-1a(32 位),两轮不同种子拼成 16 位十六进制。纯函数、无随机源。 */
@@ -63,10 +39,7 @@ function contentHash(parts: readonly string[]): string {
   return `${round(0x811c9dc5)}${round(0x7fffffff)}`;
 }
 
-/**
- * 幂等键由表单内容派生:同一份表单反复执行只会得到同一条任务(中心
- * `readTaskByIdempotencyKey` 命中即复用),任一字段改动则键改变。
- */
+/** 幂等键由完整表单内容派生,重复提交同一份意图复用中心回执。 */
 export function startWorkIdempotencyKey(draft: StartWorkDraft): string {
   return `gui-start-work-${contentHash([
     draft.title.trim(),
@@ -80,39 +53,45 @@ export function startWorkIdempotencyKey(draft: StartWorkDraft): string {
 }
 
 /**
- * 拼出真实的 `ha task create` 调用。只用 task-create 契约声明过的 flag
- * (`--title` / `--preset` / `--risk-tier` / `--task-class` / `--kind` / `--work` /
- * `--idempotency-key`),测试对着契约逐个核对,拼不出契约里没有的开关。
+ * 将用户 brief 写入 preset 的真实 task.plan scaffold。其它 section 保留模板正文,
+ * 并标明它们需要按 Brief 校验;这样提交的是 daemon 可读取、可评估的 plan,而不是
+ * 一份绕过 preset readiness contract 的自由文本。
  */
-export function startWorkCommand(draft: StartWorkDraft): StartWorkCommand {
-  const idempotencyKey = startWorkIdempotencyKey(draft);
-  const argv = [
-    "ha",
-    "task",
-    "create",
-    "--title",
-    draft.title.trim(),
-    "--preset",
-    draft.presetId,
-    "--risk-tier",
-    draft.riskTier,
-    "--task-class",
-    draft.taskClass,
-    "--kind",
-    draft.workKind,
-    ...(draft.parentTaskId === null ? [] : ["--work", draft.parentTaskId]),
-    "--idempotency-key",
-    idempotencyKey,
-  ];
-  return { argv, text: argv.map(shellArgument).join(" "), idempotencyKey };
+export function startWorkPlan(scaffold: string, title: string, intent: string, sectionNote: string): string | null {
+  const lines = scaffold.replaceAll("{{title}}", title.trim()).split(/\r?\n/u),
+    sections: { readonly start: number; readonly end: number; readonly heading: string }[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const heading = /^##[ \t]+(.+?)\s*$/u.exec(lines[index] ?? "");
+    if (!heading) continue;
+    const previous = sections.at(-1);
+    if (previous) sections[sections.length - 1] = { ...previous, end: index };
+    sections.push({ start: index, end: lines.length, heading: heading[1]!.trim() });
+  }
+  if (sections.length === 0) return null;
+
+  const briefIndex = sections.findIndex(({ heading }) => heading.toLocaleLowerCase("en-US") === "brief"),
+    primaryIndex = briefIndex < 0 ? 0 : briefIndex,
+    authoredIntent = intent
+      .trim()
+      .split(/\r?\n/u)
+      .map((line) => (line.length === 0 ? ">" : `> ${line}`))
+      .join("\n");
+  for (let sectionIndex = sections.length - 1; sectionIndex >= 0; sectionIndex -= 1) {
+    const section = sections[sectionIndex]!,
+      contentStart = section.start + 1,
+      content = lines.slice(contentStart, section.end);
+    if (sectionIndex === primaryIndex) {
+      lines.splice(contentStart, section.end - contentStart, "", authoredIntent, "");
+      continue;
+    }
+    while (content.at(-1) === "") content.pop();
+    content.push("", sectionNote);
+    lines.splice(contentStart, section.end - contentStart, ...content);
+  }
+  return lines.join("\n").trimEnd() + "\n";
 }
 
-/** 创建之后把目标与交付要求写实的那一步:回执给出 packagePath,写完再发布。 */
-export function startWorkPublishCommand(taskId: string): string {
-  return `ha doc sync --submit --task ${taskId}`;
-}
-
-/** 表单能不能生成命令:缺什么就说缺什么,不在界面上先画一个按不动的按钮。 */
+/** 表单能不能提交:缺什么就说缺什么,不在界面上先画一个按不动的按钮。 */
 export function startWorkBlockers(draft: StartWorkDraft): readonly ("title" | "intent" | "preset")[] {
   return [
     ...(draft.title.trim().length === 0 ? (["title"] as const) : []),
@@ -120,7 +99,6 @@ export function startWorkBlockers(draft: StartWorkDraft): readonly ("title" | "i
     ...(draft.presetId.length === 0 ? (["preset"] as const) : []),
   ];
 }
-
 export type StartWorkPreconditionId = "daemon" | "preset" | "completionGates";
 
 /** 必要条件一行:状态 + 原始取值。措辞归视图,这里不评价。 */
@@ -130,10 +108,7 @@ export interface StartWorkPrecondition {
   readonly value: string;
 }
 
-/**
- * 必要条件取自真实读面:daemon 健康、目录里这个 preset 的有效性、已解析 profile 的收口门。
- * 读不到就是 unknown —— 空清单不冒充「没有门」。
- */
+/** 必要条件取自真实读面:daemon 健康、目录里这个 preset 的有效性、已解析 profile 的收口门。 */
 export function startWorkPreconditions(input: {
   readonly daemonState: string;
   readonly presetValidity: string | null;
@@ -156,19 +131,4 @@ export function startWorkPreconditions(input: {
       value: input.completionGateIds === null ? "" : input.completionGateIds.join(" · "),
     },
   ];
-}
-
-/**
- * 创建后核对:在当前任务投影里按标题找这次创建的任务。找不到就是找不到
- * (还没落定 / 还没刷新),不假装成功。同名多条时取最近创建的一条。
- */
-export function locateCreatedTask(tasks: readonly TaskRow[], title: string): TaskRow | null {
-  const needle = title.trim();
-  if (needle.length === 0) return null;
-  let found: TaskRow | null = null;
-  for (const task of tasks) {
-    if (task.title.trim() !== needle) continue;
-    if (found === null || (task.createdAt ?? "") > (found.createdAt ?? "")) found = task;
-  }
-  return found;
 }

@@ -99,6 +99,63 @@ describe("renderer invoke assembles wire params per protocol declaration", () =>
     const system = await browserInvoke("daemon.gui.system.read", {}, "getSystemStatus");
     expect(system.params).toEqual({});
   });
+
+  it("sends task creation through the canonical repo.task.create envelope and preserves its receipt", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            schema: "command-receipt/v2",
+            ok: true,
+            command: "task-create",
+            outcome: "applied",
+            opId: "op-gui-task-create",
+            taskId: "task_created",
+            packagePath: "tasks/task_created-example",
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    window.sessionStorage.setItem("harness.browser.access-token", "secret");
+    const receipt = await harnessClient.createTask({
+      repoId: "repo-a",
+      title: "Create through GUI",
+      presetId: "standard-task",
+      verticalId: "software/coding",
+      locale: "zh-CN",
+      riskTier: "medium",
+      taskClass: "standard",
+      workKind: "feat",
+      idempotencyKey: "gui-task-create-idempotency",
+      plan: "# Create through GUI\n\n## Brief\n\nCreate the task through the daemon.",
+    });
+    const body = JSON.parse(String((fetchMock.mock.calls.at(-1)?.[1] as RequestInit).body));
+    expect(body).toEqual({
+      method: "repo.task.create",
+      params: {
+        repo: { repoId: "repo-a" },
+        payload: {
+          title: "Create through GUI",
+          presetId: "standard-task",
+          verticalId: "software/coding",
+          locale: "zh-CN",
+          riskTier: "medium",
+          taskClass: "standard",
+          workKind: "feat",
+          idempotencyKey: "gui-task-create-idempotency",
+          plan: "# Create through GUI\n\n## Brief\n\nCreate the task through the daemon.",
+        },
+      },
+    });
+    expect(receipt).toMatchObject({
+      command: "task-create",
+      outcome: "applied",
+      opId: "op-gui-task-create",
+      taskId: "task_created",
+      packagePath: "tasks/task_created-example",
+    });
+  });
 });
 
 describe("renderer rejection explanation", () => {

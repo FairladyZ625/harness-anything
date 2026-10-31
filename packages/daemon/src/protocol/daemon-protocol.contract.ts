@@ -912,6 +912,7 @@ export {
   daemonMethodAcceptsPayloadExecutor,
   DaemonProtocolContractError,
   isDaemonGuiActionMethod,
+  isDaemonGuiOnlyActionMethod,
   isDaemonGuiReadMethod,
   isDaemonStreamMethod,
   parseDaemonRpcParams,

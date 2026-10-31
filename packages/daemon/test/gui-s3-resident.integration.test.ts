@@ -146,6 +146,32 @@ test("GUI S3 resident daemon bridge serves two RepoCells, catalog/runtime/contro
   const rpc = (method: string, params: Record<string, unknown>) =>
     requestDaemonJsonRpcAt(endpoint, method, params, 2_000);
   try {
+    await t.test("the GUI repository list is refused outside the local session transport", async () => {
+      const remoteServer = createJsonRpcProtocolServer({
+        host,
+        build: { commit: null },
+        authContext: { transportKind: "fleet-tls" },
+        emit: async () => undefined,
+      });
+      try {
+        await remoteServer.handle({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "protocol.hello",
+          params: { protocolVersion: currentDaemonProtocolVersion },
+        });
+        const denied = await remoteServer.handle({
+          jsonrpc: "2.0",
+          id: 2,
+          method: "daemon.gui.system.read",
+          params: {},
+        });
+        assert.ok(denied && !Array.isArray(denied) && "result" in denied);
+        assert.equal((denied.result as Record<string, unknown>).code, "local_transport_required");
+      } finally {
+        remoteServer.close();
+      }
+    });
     const initial = await rpc("daemon.gui.system.read", {}),
       rows = initial.repos as Array<Record<string, unknown>>,
       attached = rows.find((row) => row.repoId === "alpha");

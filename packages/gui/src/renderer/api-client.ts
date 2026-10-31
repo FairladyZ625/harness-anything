@@ -87,6 +87,10 @@ export interface TaskListSuccess extends Partial<RepositoryReadFrame> {
   readonly page?: QueryPage;
 }
 
+export type TaskCreateGuiReceipt =
+  | (GuiActionResult & { readonly ok: true; readonly taskId: string; readonly packagePath: string })
+  | (GuiActionResult & { readonly ok: false });
+
 export interface RelationGraphSuccess {
   readonly ok: true;
   readonly edges: ReadonlyArray<ServedRelationEdgeRow>;
@@ -307,6 +311,26 @@ export const harnessClient = {
   },
   async getTasks(payload: RepoScope & TaskQueryFacets): Promise<TaskListSuccess> {
     return readTaskListResult(await invoke("repo.tasks.list", payload, "getTasks"));
+  },
+  /** `repo.task.create` shares the CLI task-create Action and center-forward write receipt. */
+  async createTask(
+    payload: RepoScope & {
+      readonly title: string;
+      readonly presetId: string;
+      readonly verticalId: string;
+      readonly locale: string;
+      readonly riskTier: string;
+      readonly taskClass: string;
+      readonly workKind: string;
+      readonly parentTaskId?: string;
+      readonly idempotencyKey: string;
+      readonly plan: string;
+    },
+  ): Promise<TaskCreateGuiReceipt> {
+    const result = readGuiActionResult(await invoke("repo.task.create", payload, "createTask"));
+    if (result.ok && (typeof result.taskId !== "string" || typeof result.packagePath !== "string"))
+      throw new Error("Task create receipt omitted taskId or packagePath.");
+    return result as TaskCreateGuiReceipt;
   },
   async getTaskWip(payload: RepoScope): Promise<TaskWipRead> {
     return readTaskWipResult(await invoke("repo.tasks.wip", payload, "getTaskWip"));
