@@ -199,23 +199,27 @@ function readTaskReviewConsent(taskId, root) {
 // owes no consent ever and would otherwise deadlock. Tasks without such a lift are held to the
 // consent requirement even if repository settings relaxed it: settings are not part of the
 // task-show receipt, so assuming them would fail open.
-function reviewChainClosed(taskId, evidence) {
+function reviewChainClosed(evidence, cut) {
   const task = evidence.task,
     dispositions = Array.isArray(evidence.reviewDispositions) ? evidence.reviewDispositions : [];
   if (task.closeoutOverrides?.review === false && task.closeoutOverrides?.consent === false) return true;
+  if (cut === undefined || cut.state !== "submitted") return false;
+  return consentedApprovedReviewForExecution(evidence.reviews, evidence.consents, cut, dispositions) !== undefined;
+}
+
+// One fail-closed read of the current execution cuts, shared by the head check and the review
+// judgment. currentExecutionCuts keeps the kernel's ambiguity rule: two cuts are never an implicit
+// first choice, so only a single cut can be judged.
+function currentTaskCuts(taskId, evidence) {
   try {
-    const cuts = currentExecutionCuts({
-      task,
+    return currentExecutionCuts({
+      task: evidence.task,
       executions: evidence.executions,
       reviews: evidence.reviews,
       consents: evidence.consents,
-      reviewDispositions: dispositions,
+      reviewDispositions: Array.isArray(evidence.reviewDispositions) ? evidence.reviewDispositions : [],
       gateWitnesses: evidence.gateWitnesses,
     });
-    if (cuts.length !== 1 || cuts[0].state !== "submitted") return false;
-    return (
-      consentedApprovedReviewForExecution(evidence.reviews, evidence.consents, cuts[0], dispositions) !== undefined
-    );
   } catch (error) {
     throw new Error(
       `Judging the review-consent chain of harness task ${taskId} failed ` +
@@ -224,33 +228,53 @@ function reviewChainClosed(taskId, evidence) {
   }
 }
 
+// `gh pr merge --merge` makes the PR head the merge commit's second parent, so completion's
+// deliveryContainment() proves the submitted delivery from that ancestry only when the head *is*
+// the frozen delivery commit. The reviewer discipline already requires the reviewed head to equal
+// the pinned delivery commit (agent-role-prompts.ts); this is the same invariant at the last gate.
+// A rebase or follow-up push after submit moves the head past the reviewed cut; merging then leaves
+// `ha task complete` reporting delivery_missing after the merge is irreversible (#4127). The remedy
+// stays the existing one: amend the cut to the head, which stales the review and the owner's
+// consent, then review and consent the amended cut again — never an in-place re-anchor that keeps
+// the old consent (dec_D5D48E0 RJ2).
+function requireMergedHeadIsFrozenCut(taskId, cut, pr) {
+  const frozen = cut?.submission?.commitSha;
+  if (frozen === null || frozen === undefined || frozen === pr.headRefOid) return;
+  throw new Error(
+    `Task ${taskId} froze its delivery at ${frozen}, but PR #${pr.number} head is ${pr.headRefOid}; ` +
+      "merging this head would leave the frozen cut out of the merge commit and ha task complete " +
+      "would then refuse the delivery as delivery_missing. Re-freeze the cut at the PR head so the " +
+      `delivery and its review pin name that commit: ha task submit ${taskId} --amend ` +
+      "(--as-owner when the task owner amends a worker's cut), then merge again once the amended " +
+      "cut meets its review and consent requirements. Refusing to merge.",
+  );
+}
+
 function requireReviewConsent(pr, root) {
   if (!TASK_BRANCH_PATTERN.test(pr.headRefName)) {
     console.log(`Branch ${pr.headRefName} is not a task branch; merging without a review-consent check.`);
     return null;
   }
   const taskId = pr.headRefName,
-    evidence = readTaskReviewConsent(taskId, root);
-  if (!reviewChainClosed(taskId, evidence)) {
-    // reviewChainClosed already ran the same judgment, so re-deriving the cut here cannot throw.
-    const dispositions = Array.isArray(evidence.reviewDispositions) ? evidence.reviewDispositions : [],
-      cut = currentExecutionCuts({
-        task: evidence.task,
-        executions: evidence.executions,
-        reviews: evidence.reviews,
-        consents: evidence.consents,
-        reviewDispositions: dispositions,
-        gateWitnesses: evidence.gateWitnesses,
-      }).find(({ state }) => state === "submitted"),
+    evidence = readTaskReviewConsent(taskId, root),
+    cuts = currentTaskCuts(taskId, evidence),
+    cut = cuts.length === 1 ? cuts[0] : undefined;
+  // A moved head makes the frozen cut, its review and its consent moot; name that single remedy
+  // instead of asking for a consent the merge could never use.
+  requireMergedHeadIsFrozenCut(taskId, cut, pr);
+  if (!reviewChainClosed(evidence, cut)) {
+    // The consent judgment already ran on the same snapshot, so re-deriving the submitted cut here
+    // cannot throw; it only names the ids the printed command must carry.
+    const submitted = cuts.find(({ state }) => state === "submitted"),
       // Consent states both ids explicitly; the printed command must work as printed.
       next =
-        cut === undefined
+        submitted === undefined
           ? `ha task show ${taskId} for the current execution, then ha task review-consent ${taskId} ` +
             "--execution-id <execution-id> --review-id <review-id>"
-          : approvedReviewHistoryForExecution(evidence.reviews, cut)
+          : approvedReviewHistoryForExecution(evidence.reviews, submitted)
               .map(
                 ({ reviewId }) =>
-                  `ha task review-consent ${taskId} --execution-id ${cut.executionId} --review-id ${reviewId}`,
+                  `ha task review-consent ${taskId} --execution-id ${submitted.executionId} --review-id ${reviewId}`,
               )
               .join(" or ");
     throw new Error(
@@ -375,7 +399,9 @@ function printHelp() {
       "origin branch, remove its clean local worktree/branch, and fast-forward local main.",
       "A PR whose head branch is a task id must first have the owner-consented review of its",
       "current execution recorded in the harness ledger (ha task show); the check fails closed",
-      "when the ledger is unreachable or its judgment cannot be read.",
+      "when the ledger is unreachable or its judgment cannot be read. Its head must also be the",
+      "execution's frozen delivery commit: a branch that moved after submit (rebase or follow-up",
+      "push) is refused before the merge, because the merge commit would not contain that delivery.",
       "After a merge every cleanup step runs; any unfinished step is reported with the command that",
       "finishes it, and the exit status is then non-zero.",
       "This helper never pulls the private harness ledger repository.",
