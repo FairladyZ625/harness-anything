@@ -10,15 +10,15 @@ Git 发布、撰写工作树和读取投影都从这份记录派生。
 一个 `BEGIN IMMEDIATE` 事务校验 writer epoch fence 与操作身份，并原子提交完整事件区间与 command outcome。
 Git commit 不是接受边界。
 
-`packages/kernel/src/store/sqlite-event-store.ts` 实现接受事务；
-`packages/kernel/src/store/task-event-store-factory.ts` 为读写双方解析 active generation；
+`packages/storage/src/store/sqlite-event-store.ts` 实现接受事务；
+`packages/storage/src/store/task-event-store-factory.ts` 为读写双方解析 active generation；
 `sqlite-task-event-store.ts` 实现 canonical store 端口，并把已接受事件派生的文档和
 `events/segments/manifest.json` 发布到 Git。每次只把 Git manifest 所指 cut 之后新接受的事件
 提交在该 commit 之上，撰写 worktree 结算同一批事件。有并发修改的文件保留用户字节并报告为冲突；
 worktree facet 保持 pending，直到后续事件或 `ha doc materialize` 结算该文件。
 
 SQLite 使用 `journal_mode=WAL` 与 `synchronous=FULL`；
-实现见 `packages/kernel/src/store/sqlite-event-store.ts`。
+实现见 `packages/storage/src/store/sqlite-event-store.ts`。
 
 ## 命令与回执
 
@@ -41,7 +41,7 @@ application 与 domain handler 在接受前校验权限、实体转换和冻结�
 
 投影可以重建，`ledger.sqlite` 及必需对象不能随意删除。Git clone 无法恢复尚未发布的已接受命令。
 切换 daemon 前，用 `ha backup` 产出的 SQLite 一致性副本和匹配的 objects 备份 canonical 数据
-（`packages/kernel/src/store/ledger-backup.ts`）。
+（`packages/storage/src/store/ledger-backup.ts`）。
 
 新仓库原生使用 generation 2，并写入 `generation-activation/v2` 激活证书。存量 generation-1
 仓库经离线、已验证的备份转换进入 generation 2：`legacy-generation-conversion.ts` 在停止写入后

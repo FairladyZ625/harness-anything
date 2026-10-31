@@ -5,7 +5,7 @@
 落成真实文件时的样子:目录、每个文件必须携带的契约,以及模式所强制的 ID 形状。
 
 撰写 Markdown 是已接受实体的发布文档面。
-`packages/kernel/src/store/sqlite-task-event-store.ts` 从 canonical SQLite
+`packages/storage/src/store/sqlite-task-event-store.ts` 从 canonical SQLite
 事件与必需对象派生文档。
 下列目录说明撰写面；接受边界见[唯一写路径](02-write-path.md)。
 
@@ -49,7 +49,7 @@
 `task/<id> -> fact/F-<id>` `produces` 边;独立 fact 则没有这条边。
 
 canonical 内容对象位于 active local `store/generations/<generation>/objects/sha256/`，
-与 `ledger.sqlite` 配套保存。`packages/kernel/src/store/sqlite-event-store.ts`
+与 `ledger.sqlite` 配套保存。`packages/storage/src/store/sqlite-event-store.ts`
 校验必需内容声明，先同步对象字节与目录链接，再接受引用它们的事件。撰写树的对象副本属于发布产物。
 
 ## 执行链
@@ -105,7 +105,7 @@ arbiter 角色:agent 不能裁决自己的提议
 而是由 `decision-judgment-consent/v1` 记录钉在具体 `decision-content-pin/v1` 上的同意。
 
 接受操作由 SQLite command outcome 与事件区间定位；见
-`packages/kernel/src/store/sqlite-event-store.ts` 和[唯一写路径](02-write-path.md)。
+`packages/storage/src/store/sqlite-event-store.ts` 和[唯一写路径](02-write-path.md)。
 
 ## task 包
 
@@ -131,7 +131,7 @@ task 的 `status` 活在它的 `lifecycle` 绑定里,而它是一台真实的状
 (`machine` 或 `doc-sync`)。`INDEX.md` 的 `## Documents` 节逐份列出这些属主:
 机器文件由 daemon 重写,`doc-sync` 属主的叙述文档(`task_plan.md`、`closeout.md` 等)
 经 `ha doc status` / `ha doc sync --submit` 流转。task 状态来自 canonical 事件；
-`packages/kernel/src/store/sqlite-task-event-store.ts` 将其文档视图发布到 `INDEX.md`。
+`packages/storage/src/store/sqlite-task-event-store.ts` 将其文档视图发布到 `INDEX.md`。
 
 ## Fact 文档
 

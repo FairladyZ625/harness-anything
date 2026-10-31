@@ -18,7 +18,7 @@ To make that enforceable, load-bearing writes don't go straight to disk. They go
 through the daemon’s **RepoCell single-writer queue**. Validated events and
 command outcomes commit in SQLite before Git publication. The acceptance
 boundary
-is implemented in `packages/kernel/src/store/sqlite-event-store.ts`.
+is implemented in `packages/storage/src/store/sqlite-event-store.ts`.
 
 ## Three gates
 

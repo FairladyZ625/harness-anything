@@ -821,8 +821,8 @@
           <span class="sec-no">02</span>
           <h3><span lang="en">The bet: make these first-class, in git</span><span lang="zh">我们的赌注：把它们做成一等公民，存进 git</span></h3>
           <p class="lead">
-            <span lang="en">The fix isn't better note-taking. It's promoting that trail into <strong>structured entities that live in git</strong> — SQLite as the accepted record, with readable Markdown published to Git (<code>packages/kernel/src/store/sqlite-task-event-store.ts</code>).</span>
-            <span lang="zh">解法不是"做更好的笔记"，而是把那条轨迹提升为<strong>活在 git 里的结构化实体</strong>——SQLite 保存接受记录，Git 发布可读 Markdown（<code>packages/kernel/src/store/sqlite-task-event-store.ts</code>）。</span>
+            <span lang="en">The fix isn't better note-taking. It's promoting that trail into <strong>structured entities that live in git</strong> — SQLite as the accepted record, with readable Markdown published to Git (<code>packages/storage/src/store/sqlite-task-event-store.ts</code>).</span>
+            <span lang="zh">解法不是"做更好的笔记"，而是把那条轨迹提升为<strong>活在 git 里的结构化实体</strong>——SQLite 保存接受记录，Git 发布可读 Markdown（<code>packages/storage/src/store/sqlite-task-event-store.ts</code>）。</span>
           </p>
           <p>
             <span lang="en">Not a scratchpad — entities with lifecycles, state machines, and typed relations between them. A choice becomes a decision that can be proposed, accepted, and later overturned, with a paper trail. Progress becomes a task that moves through defined states. An observation becomes a fact that is immutable and carries its own provenance. Because they're plain files under version control, they're diffable, reviewable, and permanent, and any agent can pick them up without a warm conversation to inherit.</span>
@@ -1053,8 +1053,8 @@
           <span lang="zh">撑起这个赌注的那台机器的形状。</span>
         </h2>
         <p class="lede">
-          <span lang="en">The Why tab made a bet: promote the agent's trail into structured entities in git, with SQLite acceptance and Markdown publication (<code>packages/kernel/src/store/sqlite-task-event-store.ts</code>). This tab shows the machine — what the layers are, where the truth actually sits, and the single door every durable write goes through. Each section opens with a back-link to the claim it proves.</span>
-          <span lang="zh">"为什么"标签页押下了一个赌注：把代理的轨迹提升为 git 里的结构化实体，SQLite 接受后发布 Markdown（<code>packages/kernel/src/store/sqlite-task-event-store.ts</code>）。这个标签页展示那台机器——有哪些层、真相到底落在哪里、以及每一次持久写入都要经过的那扇唯一的门。每一节开头都带一个回链，指向它所证明的那个主张。</span>
+          <span lang="en">The Why tab made a bet: promote the agent's trail into structured entities in git, with SQLite acceptance and Markdown publication (<code>packages/storage/src/store/sqlite-task-event-store.ts</code>). This tab shows the machine — what the layers are, where the truth actually sits, and the single door every durable write goes through. Each section opens with a back-link to the claim it proves.</span>
+          <span lang="zh">"为什么"标签页押下了一个赌注：把代理的轨迹提升为 git 里的结构化实体，SQLite 接受后发布 Markdown（<code>packages/storage/src/store/sqlite-task-event-store.ts</code>）。这个标签页展示那台机器——有哪些层、真相到底落在哪里、以及每一次持久写入都要经过的那扇唯一的门。每一节开头都带一个回链，指向它所证明的那个主张。</span>
         </p>
       </div>
 
@@ -1072,8 +1072,8 @@
             <span lang="zh">canonical SQLite 数据库与必需内容对象保存已接受命令。Git 发布可读文档；独立的读取投影可以重建。</span>
           </p>
           <p>
-            <span lang="en">The daemon serializes writes through RepoCell. <code>packages/kernel/src/store/sqlite-event-store.ts</code> commits events and command outcomes together. <code>packages/kernel/src/store/sqlite-task-event-store.ts</code> publishes accepted events to Git and the authored worktree.</span>
-            <span lang="zh">daemon 经 RepoCell 串行化写入。<code>packages/kernel/src/store/sqlite-event-store.ts</code> 一起提交事件与 command outcome；<code>packages/kernel/src/store/sqlite-task-event-store.ts</code> 把已接受事件发布到 Git 与撰写工作区。</span>
+            <span lang="en">The daemon serializes writes through RepoCell. <code>packages/storage/src/store/sqlite-event-store.ts</code> commits events and command outcomes together. <code>packages/storage/src/store/sqlite-task-event-store.ts</code> publishes accepted events to Git and the authored worktree.</span>
+            <span lang="zh">daemon 经 RepoCell 串行化写入。<code>packages/storage/src/store/sqlite-event-store.ts</code> 一起提交事件与 command outcome；<code>packages/storage/src/store/sqlite-task-event-store.ts</code> 把已接受事件发布到 Git 与撰写工作区。</span>
           </p>
         </section>
 
@@ -1085,8 +1085,8 @@
           </button>
           <h3><span lang="en">How the three entities live on disk</span><span lang="zh">三个实体在磁盘上怎么住</span></h3>
           <p>
-            <span lang="en">Accepted entities publish authored Markdown with YAML frontmatter through <code>packages/kernel/src/store/sqlite-task-event-store.ts</code>. The frontmatter isn't decoration — it's validated against a schema in <code>packages/kernel/src/schemas/</code> before the file is accepted, so the fields are contracts, not conventions. Decisions are centralized, Tasks are packages, and Facts are independent immutable records connected by typed relations.</span>
-            <span lang="zh">已接受实体经 <code>packages/kernel/src/store/sqlite-task-event-store.ts</code> 发布带 YAML frontmatter 的撰写 Markdown。frontmatter 不是装饰——在文件被接受之前，它要经 <code>packages/kernel/src/schemas/</code> 里的 schema 校验，所以这些字段是合同，不是约定。Decision 集中存放，Task 是文档包，Fact 是由类型化关系连接的独立不可变记录。</span>
+            <span lang="en">Accepted entities publish authored Markdown with YAML frontmatter through <code>packages/storage/src/store/sqlite-task-event-store.ts</code>. The frontmatter isn't decoration — it's validated against a schema in <code>packages/kernel/src/schemas/</code> before the file is accepted, so the fields are contracts, not conventions. Decisions are centralized, Tasks are packages, and Facts are independent immutable records connected by typed relations.</span>
+            <span lang="zh">已接受实体经 <code>packages/storage/src/store/sqlite-task-event-store.ts</code> 发布带 YAML frontmatter 的撰写 Markdown。frontmatter 不是装饰——在文件被接受之前，它要经 <code>packages/kernel/src/schemas/</code> 里的 schema 校验，所以这些字段是合同，不是约定。Decision 集中存放，Task 是文档包，Fact 是由类型化关系连接的独立不可变记录。</span>
           </p>
           <p>
             <span lang="en">The IDs are shaped and enforced. A decision id matches <span class="idchip">dec_…</span>. A task id is <span class="idchip">task_&lt;ULID&gt;-&lt;slug&gt;</span> — the ULID is sortable and unique, the slug is human-readable. A fact id is <span class="idchip">F-</span> plus exactly eight Crockford base32 characters (digits and uppercase, excluding <code>I L O U</code>), e.g. <span class="idchip">F-3DQ0KZRV</span>.</span>
@@ -1126,8 +1126,8 @@
             <span lang="zh">CLI 与 GUI 向 daemon 提交 typed command。<code>packages/daemon/src/repo-cell.ts</code> 提供 writer epoch fence；必需内容对象同步完成后，SQLite 事务接受事件区间与 command outcome。</span>
           </p>
           <p>
-            <span lang="en">SQLite uses its native transaction journal and <code>synchronous=FULL</code>. Acceptance is recorded before Git publication; Git or worktree progress can remain pending. See <code>packages/kernel/src/store/sqlite-event-store.ts</code> and <code>packages/kernel/src/store/sqlite-task-event-store.ts</code>.</span>
-            <span lang="zh">SQLite 使用自身的事务日志与 <code>synchronous=FULL</code>。接受先于 Git 发布；Git 或工作区进度可以保持 pending。实现见 <code>packages/kernel/src/store/sqlite-event-store.ts</code> 与 <code>packages/kernel/src/store/sqlite-task-event-store.ts</code>。</span>
+            <span lang="en">SQLite uses its native transaction journal and <code>synchronous=FULL</code>. Acceptance is recorded before Git publication; Git or worktree progress can remain pending. See <code>packages/storage/src/store/sqlite-event-store.ts</code> and <code>packages/storage/src/store/sqlite-task-event-store.ts</code>.</span>
+            <span lang="zh">SQLite 使用自身的事务日志与 <code>synchronous=FULL</code>。接受先于 Git 发布；Git 或工作区进度可以保持 pending。实现见 <code>packages/storage/src/store/sqlite-event-store.ts</code> 与 <code>packages/storage/src/store/sqlite-task-event-store.ts</code>。</span>
           </p>
           <p>
             <span lang="en">Use <code>ha receipt show &lt;op-id&gt; --wait git_verified</code> to wait for the Git facet. Concurrent worktree edits are preserved and reported as conflicts.</span>
@@ -1168,8 +1168,8 @@
           </button>
           <h3><span lang="en">The read projection follows canonical events</span><span lang="zh">读取投影追随 canonical 事件</span></h3>
           <p>
-            <span lang="en">The read projection catches up or rebuilds from canonical SQLite events and their required content objects. See <code>packages/kernel/src/projection/rebuildable-task-projection-reads.ts</code> and <code>packages/kernel/src/projection/rebuildable-task-projection.ts</code>.</span>
-            <span lang="zh">读取投影从 canonical SQLite 事件及其必需对象追赶或重建。实现见 <code>packages/kernel/src/projection/rebuildable-task-projection-reads.ts</code> 与 <code>packages/kernel/src/projection/rebuildable-task-projection.ts</code>。</span>
+            <span lang="en">The read projection catches up or rebuilds from canonical SQLite events and their required content objects. See <code>packages/storage/src/projection/rebuildable-task-projection-reads.ts</code> and <code>packages/storage/src/projection/rebuildable-task-projection.ts</code>.</span>
+            <span lang="zh">读取投影从 canonical SQLite 事件及其必需对象追赶或重建。实现见 <code>packages/storage/src/projection/rebuildable-task-projection-reads.ts</code> 与 <code>packages/storage/src/projection/rebuildable-task-projection.ts</code>。</span>
           </p>
           <p>
             <span lang="en">Only the read projection is disposable. Preserve <code>store/generations/&lt;generation&gt;/ledger.sqlite</code> and its matching <code>objects/sha256/</code> under the resolved local root. A Git clone may lack accepted commands that have not yet been published.</span>
@@ -1291,8 +1291,8 @@
       </a>
     </div>
     <p style="margin-top:20px">
-      <span lang="en">The <code>ha</code> CLI submits commands to the daemon; SQLite accepts them, Git publishes Markdown, and a separate projection serves queries. See <code>packages/kernel/src/store/sqlite-task-event-store.ts</code>.</span>
-      <span lang="zh"><code>ha</code> CLI 向 daemon 提交命令；SQLite 接受记录，Git 发布 Markdown，独立投影提供查询。实现见 <code>packages/kernel/src/store/sqlite-task-event-store.ts</code>。</span>
+      <span lang="en">The <code>ha</code> CLI submits commands to the daemon; SQLite accepts them, Git publishes Markdown, and a separate projection serves queries. See <code>packages/storage/src/store/sqlite-task-event-store.ts</code>.</span>
+      <span lang="zh"><code>ha</code> CLI 向 daemon 提交命令；SQLite 接受记录，Git 发布 Markdown，独立投影提供查询。实现见 <code>packages/storage/src/store/sqlite-task-event-store.ts</code>。</span>
     </p>
   </div>
 </footer>

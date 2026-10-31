@@ -9,12 +9,11 @@ import {
   createImmutableLegacyGenerationSnapshot,
   createScheduleV1,
   deriveRelationId,
-  makeTaskProjection,
-  openSqliteEventStore,
   readSettingsFacet,
   sha256Text,
   validateScheduleV1,
 } from "../../../packages/kernel/src/index.ts";
+import { makeTaskProjection, openSqliteEventStore } from "../../../packages/storage/src/index.ts";
 import { actor, initRepo } from "../../../packages/daemon/test/migration-import.fixtures.ts";
 
 const fixture = path.resolve("packages/daemon/test/stress/recovery/mixed-history-migration.fixture.mjs");

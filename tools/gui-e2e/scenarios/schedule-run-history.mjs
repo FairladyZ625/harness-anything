@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { compileEntityUpsert, makeTaskEventStore } from "../../../packages/kernel/src/index.ts";
+import { compileEntityUpsert } from "../../../packages/kernel/src/index.ts";
+import { makeTaskEventStore } from "../../../packages/storage/src/index.ts";
 import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
 import { waitForEntrySettled } from "./helpers.mjs";
 

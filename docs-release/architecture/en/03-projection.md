@@ -7,7 +7,7 @@ read cache. Only the cache can be discarded and rebuilt without losing accepted
 commands.
 
 `makeTaskProjection`
-(`packages/kernel/src/projection/rebuildable-task-projection-factory.ts`)
+(`packages/storage/src/projection/rebuildable-task-projection-factory.ts`)
 consumes the canonical store's bounded event batches and required content
 objects. A catch-up advances a complete projection watermark; a cold rebuild
 replays the same accepted history. Readers observe an installed projection cut
@@ -34,5 +34,5 @@ required objects, and actual Git follower read-back. Comparing two readers of
 the same database is not a proof that the import preserved its source.
 
 Implementation:
-`packages/kernel/src/projection/rebuildable-task-projection-factory.ts` and
-`packages/kernel/src/projection/rebuildable-task-projection-reads.ts`.
+`packages/storage/src/projection/rebuildable-task-projection-factory.ts` and
+`packages/storage/src/projection/rebuildable-task-projection-reads.ts`.

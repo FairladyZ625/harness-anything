@@ -13,8 +13,8 @@ command. One `BEGIN IMMEDIATE` transaction checks the writer epoch fence and
 operation identity, and commits the complete event interval and command outcome
 atomically. A Git commit is not an acceptance boundary.
 
-`packages/kernel/src/store/sqlite-event-store.ts` implements that transaction.
-`packages/kernel/src/store/task-event-store-factory.ts` resolves the active
+`packages/storage/src/store/sqlite-event-store.ts` implements that transaction.
+`packages/storage/src/store/task-event-store-factory.ts` resolves the active
 generation for readers and writers. `sqlite-task-event-store.ts` adapts the
 canonical event-store port and publishes accepted events' authored documents
 and `events/segments/manifest.json` to Git. Each run publishes only the events
@@ -24,7 +24,7 @@ the user's bytes and is reported as a conflict; the worktree facet stays
 pending until a later event or `ha doc materialize` settles that file.
 
 SQLite uses `journal_mode=WAL` with `synchronous=FULL`; see
-`packages/kernel/src/store/sqlite-event-store.ts`.
+`packages/storage/src/store/sqlite-event-store.ts`.
 
 ## Request path
 
@@ -54,7 +54,7 @@ unconfigured replica is reported explicitly.
 The projection is disposable; `ledger.sqlite` and its required objects are not.
 A Git clone alone cannot recover accepted commands that were never published.
 Back up the canonical database with a consistent SQLite copy and its matching
-objects produced by `ha backup` (`packages/kernel/src/store/ledger-backup.ts`)
+objects produced by `ha backup` (`packages/storage/src/store/ledger-backup.ts`)
 before changing the daemon build.
 
 New repositories run natively on generation 2 and carry a

@@ -161,21 +161,21 @@
           <code>repo-writer-worker.ts</code>，由 <code>writer-supervisor.ts</code> 监管、
           <code>writer-epoch.ts</code> 持久 fence。</li>
         <li>
-          <code>packages/kernel/src/store/sqlite-event-store.ts</code>：事务、事件、command outcome、
+          <code>packages/storage/src/store/sqlite-event-store.ts</code>：事务、事件、command outcome、
           generation 激活证书与 writer fence。
         </li>
         <li>
-          <code>packages/kernel/src/store/task-event-store-factory.ts</code>：为读写解析 active canonical
+          <code>packages/storage/src/store/task-event-store-factory.ts</code>：为读写解析 active canonical
           generation。
         </li>
         <li>
-          <code>packages/kernel/src/store/sqlite-task-event-store.ts</code>：事件驱动的 Git 和工作树消费者、独立回读。
+          <code>packages/storage/src/store/sqlite-task-event-store.ts</code>：事件驱动的 Git 和工作树消费者、独立回读。
         </li>
         <li>
           <code>packages/kernel/src/composition/receipt-acceptance.ts</code>：从持久结果与独立消费者组装回执。
         </li>
         <li>
-          <code>packages/kernel/src/store/generation-two-conversion.ts</code> 与
+          <code>packages/storage/src/store/generation-two-conversion.ts</code> 与
           <code>legacy-generation-conversion.ts</code>：generation-1 到 generation-2 的离线转换与激活
           preflight。
         </li>

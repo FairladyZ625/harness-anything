@@ -10,11 +10,11 @@ application 与 domain handler 在接受前校验权限、实体转换和冻结�
 
 ## SQLite 接受命令
 
-`packages/kernel/src/store/task-event-store-factory.ts` 为读写选择同一个 active
+`packages/storage/src/store/task-event-store-factory.ts` 为读写选择同一个 active
 canonical generation。
 本地存储为 `store/generations/<generation>/ledger.sqlite` 与匹配的 `objects/sha256/`。
 
-`packages/kernel/src/store/sqlite-event-store.ts` 先同步必需内容对象，再进入
+`packages/storage/src/store/sqlite-event-store.ts` 先同步必需内容对象，再进入
 `BEGIN IMMEDIATE`。
 事务校验 writer fence 与操作身份，分配连续事件区间，并一起提交事件和 command outcome。
 SQLite 使用 `journal_mode=WAL` 与 `synchronous=FULL`；同一 opId 携带不同意图会被拒绝。
@@ -34,7 +34,7 @@ CLI / GUI → daemon → RepoCell + writer-worker + writer-epoch fence
 已提交的 command outcome 确立 `accepted_durable`；Git、worktree、projection 和 replica
 分别报告进度。Git pending 不会撤销已接受命令。
 
-`packages/kernel/src/store/sqlite-task-event-store.ts` 在接受之后调度 Git 发布，
+`packages/storage/src/store/sqlite-task-event-store.ts` 在接受之后调度 Git 发布，
 从已认证 Git cut 之后的事件生成发布内容，并结算撰写工作区。工作区并发编辑保留为冲突，不会被覆盖。
 `ha receipt show <op-id> --wait git_verified` 等待 Git 发布；`ha doc materialize` 从
 canonical 内容结算文档。

@@ -5,7 +5,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { Worker } from "node:worker_threads";
-import { makeTaskEventReader, makeTaskProjection } from "../../packages/kernel/src/index.ts";
+import { makeTaskEventReader, makeTaskProjection } from "../../packages/storage/src/index.ts";
 import { main as cliMain } from "../../packages/cli/src/index.ts";
 import { realizedTaskPlan } from "../fixtures/task-plan.mjs";
 import {

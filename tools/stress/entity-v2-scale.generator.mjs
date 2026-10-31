@@ -6,14 +6,13 @@ import {
   compileDecisionWrite,
   compileFactWrite,
   deriveRelationId,
-  makeTaskEventStore,
   normalizeTaskLifecycleCommand,
-  openSqliteEventStore,
   relationEventWritePlan,
   sessionProvenance,
   taskLifecycleWritePlan,
   unavailableSessionIdentity,
 } from "../../packages/kernel/src/index.ts";
+import { makeTaskEventStore, openSqliteEventStore } from "../../packages/storage/src/index.ts";
 import { compileRelationCreatedEvent } from "../../packages/kernel/src/domain/relation-event.ts";
 import { emptyTaskLifecycleSnapshot } from "../../packages/kernel/src/domain/task-lifecycle-contract-support.ts";
 import { compileTaskBootstrap } from "../../packages/preset/src/preset-bootstrap.ts";

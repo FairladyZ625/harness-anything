@@ -3,7 +3,8 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { canonicalEventWritePlan, makeTaskEventStore, makeTaskProjection } from "../../../packages/kernel/src/index.ts";
+import { canonicalEventWritePlan } from "../../../packages/kernel/src/index.ts";
+import { makeTaskEventStore, makeTaskProjection } from "../../../packages/storage/src/index.ts";
 import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
 
 /**

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader } from "../../packages/kernel/src/index.ts";
+import { makeTaskEventReader } from "../../packages/storage/src/index.ts";
 import { realizedTaskPlan } from "../fixtures/task-plan.mjs";
 import {
   assertBytes,

@@ -5,10 +5,9 @@ import path from "node:path";
 import {
   canonicalEventWritePlan,
   compileEntityDocumentRematerialization,
-  makeTaskEventStore,
-  makeTaskProjection,
   OPAQUE_TEXTUAL_POLICY_ID,
 } from "../../../packages/kernel/src/index.ts";
+import { makeTaskEventStore, makeTaskProjection } from "../../../packages/storage/src/index.ts";
 import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../../../packages/daemon/src/dispatch-stream.ts";
 import { assertUnscrolledLayout, nav } from "./helpers.mjs";

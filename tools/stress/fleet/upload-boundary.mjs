@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { makeTaskEventReader, sha256Bytes } from "../../../packages/kernel/src/index.ts";
+import { sha256Bytes } from "../../../packages/kernel/src/index.ts";
+import { makeTaskEventReader } from "../../../packages/storage/src/index.ts";
 import {
   readFleetRepositoryMetadataClient,
   runFleetTaskCommandClient,
