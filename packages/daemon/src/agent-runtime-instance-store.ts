@@ -79,6 +79,7 @@ import {
   type RuntimeProviderDeclaration,
 } from "./runtime-inventory.ts";
 import { runtimeVersionGate } from "./runtime-version.ts";
+import { CloudDispatchRelay, relayPriceOf } from "./runtime/cloud-dispatch-relay.ts";
 
 /** Runtime session ids the spawner mints (`runtime_<24 hex>`). The per-run temp directory joins
  *  this id into a filesystem path that settlement recursively deletes, so the shape is pinned
@@ -387,6 +388,31 @@ export function openRuntimeInstanceStore(input: {
         ...acpLaunch,
       };
     }
+    if (request.cloudRelay) {
+      if (config.kindId !== "codex" || config.auth.mode !== "api-key")
+        throw runtimeInstanceError(
+          "invalid_runtime_launch",
+          "Cloud relay launches require a Codex API-key runtime instance.",
+        );
+      const configPath = path.join(env.CODEX_HOME!, "config.toml");
+      writeCodexConfig(configPath, config, request.cloudRelay.token, request.cloudRelay.baseUrl);
+      rememberAuthReadiness(config.instanceId, available());
+      if (launchTempDirectory) mkdirSync(launchTempDirectory, { recursive: true, mode: 0o700 });
+      return {
+        definition,
+        installation,
+        protocolFamily,
+        executablePath: installation.executablePath,
+        args,
+        env,
+        cwd: request.cwd,
+        prompt: request.prompt,
+        ...(request.providerSessionId ? { providerSessionId: request.providerSessionId } : {}),
+        ...(permissionMode ? { permissionMode } : {}),
+        ...(githubCredentialNotice ? { githubCredentialNotice } : {}),
+        ...acpLaunch,
+      };
+    }
     let secret: string;
     try {
       secret = await resolveCredential(config.auth.credentialRef);
@@ -432,6 +458,40 @@ export function openRuntimeInstanceStore(input: {
       ...(protocolFamily === "acp" && config.kindId !== "deepseek-harness" ? { acpApiKey: secret } : {}),
       ...acpLaunch,
     };
+  }
+
+  async function prepareCloudRelay(request: {
+    readonly instanceId: string;
+    readonly attemptId: string;
+    readonly model: string;
+    readonly budgetMicros: number;
+    readonly maxGenerations?: number;
+  }): Promise<{
+    readonly baseUrl: string;
+    readonly token: string;
+    readonly close: () => Promise<void>;
+  } | null> {
+    const config = readOne(request.instanceId);
+    if (!config || config.kindId !== "codex" || config.auth.mode !== "api-key") return null;
+    const targetBaseUrl = runtimeBaseUrl(config);
+    if (!targetBaseUrl) return null;
+    const target = new URL(targetBaseUrl);
+    if (target.protocol !== "https:" || target.pathname.replace(/\/$/u, "") !== "/v1") return null;
+    if (!/^[A-Za-z0-9._:-]{1,120}$/u.test(request.model)) return null;
+    const credentialRef = config.auth.credentialRef;
+    const price = relayPriceOf(request.model);
+    const relay = new CloudDispatchRelay({ allowedHosts: [target.hostname] });
+    await relay.start();
+    const registration = relay.register({
+      attemptId: request.attemptId,
+      targetBaseUrl,
+      model: request.model,
+      keyFor: () => resolveCredential(credentialRef),
+      price,
+      budgetMicros: request.budgetMicros,
+      ...(request.maxGenerations === undefined ? {} : { maxGenerations: request.maxGenerations }),
+    });
+    return { ...registration, close: () => relay.close() };
   }
   async function prepareDaemonGitEnvironment(
     instanceId: string,
@@ -792,6 +852,7 @@ export function openRuntimeInstanceStore(input: {
     authStatus,
     prepareAuthCommand,
     prepareLaunch,
+    prepareCloudRelay,
     reclaimRuntimeTempDirectory,
     reclaimSettledRuntimeTempDirectories,
     prepareDaemonGitEnvironment,

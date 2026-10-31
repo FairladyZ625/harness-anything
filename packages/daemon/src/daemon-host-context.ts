@@ -33,6 +33,7 @@ export interface DaemonRuntimePorts {
   readonly runtimeInstances: () => readonly RuntimeInstanceSummary[];
   readonly runtimeProviderHealth: RuntimeProviderHealthStore;
   readonly prepareRuntimeLaunch: ReturnType<typeof openRuntimeInstanceStore>["prepareLaunch"];
+  readonly prepareCloudRelay: ReturnType<typeof openRuntimeInstanceStore>["prepareCloudRelay"];
   readonly reclaimRuntimeTempDirectory: ReturnType<typeof openRuntimeInstanceStore>["reclaimRuntimeTempDirectory"];
   readonly reclaimSettledRuntimeTempDirectories: ReturnType<
     typeof openRuntimeInstanceStore

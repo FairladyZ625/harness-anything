@@ -6,6 +6,7 @@ type RuntimeInstances = Pick<
   ReturnType<typeof openRuntimeInstanceStore>,
   | "listPublic"
   | "prepareLaunch"
+  | "prepareCloudRelay"
   | "reclaimRuntimeTempDirectory"
   | "reclaimSettledRuntimeTempDirectories"
   | "prepareDaemonGitEnvironment"
@@ -19,6 +20,7 @@ export function openDaemonRuntimePorts(input: {
     runtimeInstances: input.instances.listPublic,
     runtimeProviderHealth: openRuntimeProviderHealthStore(input.userRoot),
     prepareRuntimeLaunch: input.instances.prepareLaunch,
+    prepareCloudRelay: input.instances.prepareCloudRelay,
     reclaimRuntimeTempDirectory: input.instances.reclaimRuntimeTempDirectory,
     reclaimSettledRuntimeTempDirectories: input.instances.reclaimSettledRuntimeTempDirectories,
     prepareDaemonGitEnvironment: input.instances.prepareDaemonGitEnvironment,
