@@ -373,17 +373,31 @@ function terminalRuntimeStopProof(
   runtimeSessionId: string,
   suppliedPid: unknown,
 ): ReturnType<typeof reconcileProcessGroup> {
-  const header = readDispatchStreamHeaders(rootDir, true).find(
-    (candidate) =>
-      candidate.taskId === taskId &&
-      candidate.executionId === executionId &&
-      candidate.runtimeSessionId === runtimeSessionId,
+  const matchingHeaders = readDispatchStreamHeaders(rootDir, true).filter(
+    (candidate) => candidate.taskId === taskId && candidate.runtimeSessionId === runtimeSessionId,
   );
-  const process = header ? readDispatchStreamSummary(rootDir, header.dispatchId)?.process : null;
-  if (!process) return "unknown_unreachable";
-  if (suppliedPid !== undefined && (!Number.isSafeInteger(suppliedPid) || Number(suppliedPid) !== process.pid))
-    return "unknown_unreachable";
-  return reconcileProcessGroup({ pid: process.pid, pgid: process.pid });
+  // Terminal settlement may release a newer lease generation than the dispatch that reached its
+  // terminal state. Prefer the exact execution when retained, then fall back to this runtime
+  // session's historical dispatch; the session identity remains the proof binding.
+  const candidates = matchingHeaders
+    .map((header) => ({ header, process: readDispatchStreamSummary(rootDir, header.dispatchId)?.process }))
+    .filter(
+      (candidate): candidate is typeof candidate & { readonly process: NonNullable<typeof candidate.process> } =>
+        candidate.process !== null && candidate.process !== undefined,
+    );
+  if (!candidates.length) return "unknown_unreachable";
+  const exact = candidates.filter((candidate) => candidate.header.executionId === executionId),
+    eligible = exact.length ? exact : candidates,
+    matched =
+      suppliedPid === undefined
+        ? eligible.length === 1
+          ? eligible[0]
+          : null
+        : Number.isSafeInteger(suppliedPid)
+          ? (eligible.find((candidate) => candidate.process.pid === Number(suppliedPid)) ?? null)
+          : null;
+  if (!matched) return "unknown_unreachable";
+  return reconcileProcessGroup({ pid: matched.process.pid, pgid: matched.process.pid });
 }
 
 function optionalReleaseText(value: unknown): string | null {
