@@ -119,7 +119,7 @@ export const daemonProtocolMethods = Object.freeze([
   },
   {
     id: "daemon.skillEval.case.add",
-    phase: "Skill-Eval-S1",
+    phase: "W3",
     method: "daemon.skillEval.case.add",
     requiresRepo: false,
     params: shape({
@@ -132,14 +132,14 @@ export const daemonProtocolMethods = Object.freeze([
   },
   {
     id: "daemon.skillEval.cases.list",
-    phase: "Skill-Eval-S1",
+    phase: "W3",
     method: "daemon.skillEval.cases.list",
     requiresRepo: false,
     params: shape({ skillId: "string" }),
   },
   {
     id: "daemon.skillEval.run",
-    phase: "Skill-Eval-S1",
+    phase: "W3",
     method: "daemon.skillEval.run",
     requiresRepo: false,
     params: shape({ skillId: "string", version: "string", threshold: "number?" }),
