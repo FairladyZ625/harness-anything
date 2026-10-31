@@ -9,7 +9,8 @@ import path from "node:path";
 import { createInterface } from "node:readline";
 import test from "node:test";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
-import { ManagedRbacService, managedRbacVersions } from "../src/managed-rbac-service.ts";
+import { createIdentityManagement } from "../src/authorization-provider.ts";
+import { managedRbacVersions } from "@harness-anything/authorization-keycloak/managed-rbac-service";
 
 for (const mode of ["managed", "external"] as const) {
   for (const status of [200, 503, "rpc-error"] as const) {
@@ -31,7 +32,7 @@ for (const mode of ["managed", "external"] as const) {
           versions: managedRbacVersions,
         }),
       );
-      const service = new ManagedRbacService(userRoot, {
+      const service = createIdentityManagement(userRoot, {
         fetch: async () => new Response(null, { status: typeof status === "number" ? status : 200 }),
       });
       const receipt = await service.run({ operation: "health" });

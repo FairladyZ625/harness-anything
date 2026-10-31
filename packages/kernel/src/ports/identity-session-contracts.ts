@@ -1,5 +1,10 @@
 import type { randomBytes } from "node:crypto";
-import type { FleetDeviceLoginNotice } from "./fleet/command-protocol.ts";
+export interface FleetDeviceLoginNotice {
+  readonly userCode: string;
+  readonly createdAt: number;
+  readonly expiresAt: number;
+  readonly pending: boolean;
+}
 
 export interface OidcLoginAuthority {
   readonly url: string;

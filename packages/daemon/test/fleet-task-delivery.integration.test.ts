@@ -10,7 +10,7 @@ import type { DaemonTaskRuntimeContextResult } from "../src/protocol/daemon-prot
 import { readEdgeRuntimeRepository } from "../src/fleet-edge-runtime-read.ts";
 import { runFleetTaskCommandClient } from "../src/fleet/peer.ts";
 import { dualSyncFixture, ledgerRevision } from "./fleet-dual-sync.fixture.ts";
-import { OidcSessionService } from "../src/oidc-session-service.ts";
+import { createIdentitySession } from "../src/authorization-provider.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
@@ -113,7 +113,7 @@ for (const explicit of [false, true])
       // resident stream must stop first, or the two keep fencing each other for the slot and every
       // replica-dependent wait below races a stream that is repeatedly reset mid-batch.
       await fixture.stopResidentSync("node-one");
-      const oidc = new OidcSessionService(edgeUser, { fetch: fixture.owners.keycloak.fetch });
+      const oidc = createIdentitySession(edgeUser, { fetch: fixture.owners.keycloak.fetch });
       const edge = await openDaemonHost({
         daemonId: "delivery-edge",
         userRoot: edgeUser,

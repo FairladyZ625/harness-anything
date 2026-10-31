@@ -34,18 +34,30 @@ test("G33 classifies replaceable authorization packages into governed production
   const { rootDir, base } = makeRepo({
     "packages/authorization-keycloak/src/provider.ts": "old\n",
     "packages/authorization-gui/src/contract.ts": "old\n",
+    "packages/authorization-keycloak-gui/src/access-control.tsx": "old\n",
   });
   writeRepoFile(rootDir, "packages/authorization-keycloak/src/provider.ts", "new\n");
   writeRepoFile(rootDir, "packages/authorization-gui/src/contract.ts", "new\n");
+  writeRepoFile(rootDir, "packages/authorization-keycloak-gui/src/access-control.tsx", "new\n");
   const result = computeProductionDelta({ rootDir, base });
   assert.deepEqual(result.unclassified, []);
   assert.deepEqual(
     result.changed.map(({ filePath, module }) => ({ filePath, module })),
     [
       { filePath: "packages/authorization-gui/src/contract.ts", module: "gui" },
+      { filePath: "packages/authorization-keycloak-gui/src/access-control.tsx", module: "gui" },
       { filePath: "packages/authorization-keycloak/src/provider.ts", module: "identity-rbac" },
     ],
   );
+});
+
+test("G33 keeps an unregistered authorization implementation package unclassified", () => {
+  const { rootDir, base } = makeRepo({
+    "packages/authorization-custom/src/provider.ts": "old\n",
+  });
+  writeRepoFile(rootDir, "packages/authorization-custom/src/provider.ts", "new\n");
+  const result = computeProductionDelta({ rootDir, base });
+  assert.deepEqual(result.unclassified, ["packages/authorization-custom/src/provider.ts"]);
 });
 
 test("G33 ignores tool tests and fixtures in both delta directions", () => {

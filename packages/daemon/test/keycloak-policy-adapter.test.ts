@@ -184,19 +184,6 @@ test("online evaluation returns explicit allow and denies unknown, negative, and
 
 test("RepoCell online evaluation uses the authenticated token and asks for the repository before the exact entity", async () => {
   const permissions: string[] = [],
-    binding = {
-      actor: { principal: { personId: "person-a" }, executor: null },
-      source: "local" as const,
-      keycloakAuthorization: {
-        session: {
-          personId: "person-a",
-          accessToken: "user-token",
-          url: config.url,
-          realm: config.realm,
-          clientId: config.resourceServerClientId,
-        },
-      },
-    },
     fetchPort = async (_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
       assert.equal(new Headers(init?.headers).get("authorization"), "Bearer user-token");
       const permission = new URLSearchParams(String(init?.body)).get("permission") ?? "";
@@ -205,6 +192,21 @@ test("RepoCell online evaluation uses the authenticated token and asks for the r
       return permission === "repo-b#task-start"
         ? Response.json({ error: "access_denied" }, { status: 403 })
         : Response.json({ result: true });
+    },
+    provider = new KeycloakPolicyAdapter(config, fetchPort),
+    binding = {
+      actor: { principal: { personId: "person-a" }, executor: null },
+      source: "local" as const,
+      keycloakAuthorization: {
+        session: {
+          provider,
+          personId: "person-a",
+          accessToken: "user-token",
+          url: config.url,
+          realm: config.realm,
+          clientId: config.resourceServerClientId,
+        },
+      },
     };
   const repository = await evaluateRepoCellAction({
       action: { kind: "repo-bootstrap" },
@@ -394,15 +396,6 @@ test("center policy evaluates the matching live session once and can still deny 
     adminReads = 0,
     centerPermits = true,
     centerFails = false;
-  const center = async () => {
-    centerCalls += 1;
-    return {
-      url: config.url,
-      realm: config.realm,
-      clientId: config.resourceServerClientId,
-      accessToken: "admin-token",
-    };
-  };
   const fetchPort: typeof fetch = async (url, init) => {
       if (String(url).includes("/admin/realms/") && !String(url).endsWith("/policy/evaluate")) adminReads += 1;
       if (String(url).endsWith("/policy/evaluate")) {
@@ -412,28 +405,41 @@ test("center policy evaluates the matching live session once and can still deny 
       }
       return keycloak.fetch(url, init);
     },
+    provider = new KeycloakPolicyAdapter(config, fetchPort),
+    center = async () => {
+      centerCalls += 1;
+      return {
+        url: config.url,
+        realm: config.realm,
+        clientId: config.resourceServerClientId,
+        accessToken: "admin-token",
+        provider,
+      };
+    },
+    authenticatedSession = { ...session, provider },
     evaluate = (credential: Parameters<typeof evaluateKeycloakPerson>[0]["credential"]) =>
       evaluateKeycloakPerson({
         credential,
         personId: "person-center",
         action: "task-create",
         resource: { kind: "repository", repoId: "repo-center" },
+        policyRef: "keycloak-policy@1",
         fetchPort,
       });
   assert.equal((await evaluate({ center })).outcome, "denied");
   assert.equal((await evaluate({ center, session: { ...session, personId: "other-person" } })).outcome, "denied");
   assert.equal(centerCalls, 0);
-  assert.equal((await evaluate({ center, session })).outcome, "allowed");
+  assert.equal((await evaluate({ center, session: authenticatedSession })).outcome, "allowed");
   assert.equal(policyCalls, 1);
   centerPermits = false;
-  assert.equal((await evaluate({ center, session })).outcome, "denied");
+  assert.equal((await evaluate({ center, session: authenticatedSession })).outcome, "denied");
   assert.equal(policyCalls, 2);
   centerPermits = true;
-  assert.equal((await evaluate({ center, session })).outcome, "allowed");
+  assert.equal((await evaluate({ center, session: authenticatedSession })).outcome, "allowed");
   assert.equal(centerCalls, 3);
   assert.equal(adminReads, 3, "center ids are retained in process memory");
   centerFails = true;
-  await assert.rejects(evaluate({ center, session }), { code: "keycloak_admin_rejected" });
+  await assert.rejects(evaluate({ center, session: authenticatedSession }), { code: "keycloak_admin_rejected" });
 });
 
 test("center policy rejects a session after its current user token is rejected", async () => {
@@ -452,15 +458,17 @@ test("center policy rejects a session after its current user token is rejected",
       if (route.endsWith("/policy/evaluate")) policyCalls += 1;
       return keycloak.fetch(url, init);
     },
+    provider = new KeycloakPolicyAdapter(config, fetchPort),
     credential = {
       session: {
+        provider,
         personId: "person-live-token",
         accessToken: token,
         url: config.url,
         realm: config.realm,
         clientId: config.resourceServerClientId,
       },
-      center: async () => ({ ...config, accessToken: "admin-token" }),
+      center: async () => ({ ...config, accessToken: "admin-token", provider }),
     },
     evaluate = () =>
       evaluateKeycloakPerson({
@@ -472,7 +480,12 @@ test("center policy rejects a session after its current user token is rejected",
       });
   assert.equal((await evaluate()).outcome, "allowed");
   revoked = true;
-  assert.deepEqual(await evaluate(), { outcome: "denied", reasonCode: "keycloak_denied" });
+  assert.deepEqual(await evaluate(), {
+    outcome: "denied",
+    reasonCode: "keycloak_denied",
+    policyRef: "keycloak-policy@1",
+    authority: "keycloak",
+  });
   assert.equal(userinfoCalls, 2);
   assert.equal(policyCalls, 1, "a rejected user token must stop before center policy evaluation");
 });
@@ -494,15 +507,17 @@ test("center policy reuses a valid JWT user token check", async () => {
       }
       return keycloak.fetch(url, init);
     },
+    provider = new KeycloakPolicyAdapter(config, fetchPort),
     credential = {
       session: {
+        provider,
         personId: "person-jwt-token",
         accessToken: token,
         url: config.url,
         realm: config.realm,
         clientId: config.resourceServerClientId,
       },
-      center: async () => ({ ...config, accessToken: "admin-token" }),
+      center: async () => ({ ...config, accessToken: "admin-token", provider }),
     },
     evaluate = () =>
       evaluateKeycloakPerson({
@@ -530,23 +545,30 @@ test("center policy rejects an expired JWT before center evaluation", async () =
       requests.push(String(url));
       return keycloak.fetch(url, init);
     },
+    provider = new KeycloakPolicyAdapter(config, fetchPort),
     decision = await evaluateKeycloakPerson({
       credential: {
         session: {
+          provider,
           personId: "person-expired-jwt",
           accessToken: token,
           url: config.url,
           realm: config.realm,
           clientId: config.resourceServerClientId,
         },
-        center: async () => ({ ...config, accessToken: "admin-token" }),
+        center: async () => ({ ...config, accessToken: "admin-token", provider }),
       },
       personId: "person-expired-jwt",
       action: "task-create",
       resource: { kind: "repository", repoId: "repo-expired-jwt" },
       fetchPort,
     });
-  assert.deepEqual(decision, { outcome: "denied", reasonCode: "keycloak_denied" });
+  assert.deepEqual(decision, {
+    outcome: "denied",
+    reasonCode: "keycloak_denied",
+    policyRef: "keycloak-policy@1",
+    authority: "keycloak",
+  });
   assert.equal(
     requests.some((url) => url.endsWith("/policy/evaluate")),
     false,

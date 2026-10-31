@@ -4,7 +4,7 @@ import test from "node:test";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { signInAt } from "../../daemon/test/keycloak.fixtures.ts";
 import { AccessAdminService } from "../../daemon/src/access-admin-service.ts";
-import { OidcSessionService } from "../../daemon/src/oidc-session-service.ts";
+import { createIdentitySession } from "../../daemon/src/authorization-provider.ts";
 import { parseDaemonGuiActionResponse, parseDaemonGuiReadResult } from "@harness-anything/daemon/client";
 import { createLocalGuiServiceBridge } from "../src/index.ts";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
@@ -53,7 +53,7 @@ test("GUI assignment carries the read version and preserves assignment through a
     assert.deepEqual(recipients.nodes, [{ nodeId: "node-assignment", personId: "person-gui" }]);
     assert.ok(recipients.people.some((person) => person.personId === "person-gui"));
     await assert.rejects(
-      new AccessAdminService(new OidcSessionService(fixture.userRoot), fixture.userRoot).run({
+      new AccessAdminService(createIdentitySession(fixture.userRoot), fixture.userRoot).run({
         operation: "node-list",
       }),
       /access-admin/,

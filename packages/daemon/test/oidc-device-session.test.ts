@@ -4,8 +4,8 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
-import { OidcSessionService } from "../src/oidc-session-service.ts";
+import { managedRbacSessionStore } from "@harness-anything/authorization-keycloak/managed-rbac-service";
+import { createIdentitySession } from "../src/authorization-provider.ts";
 
 test("Device login without verification_uri_complete keeps secrets private and binds the person after pending/slow-down", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-device-session-"));
@@ -19,7 +19,7 @@ test("Device login without verification_uri_complete keeps secrets private and b
   let now = 0,
     polls = 0;
   const notices: unknown[] = [];
-  const service = new OidcSessionService(root, {
+  const service = createIdentitySession(root, {
     loginAuthority: async () => ({ url: "http://127.0.0.1:8080", realm: "harness", clientId: "harness-node-one" }),
     reportDevice: async (_target, notice) => {
       notices.push(notice);
@@ -101,7 +101,7 @@ test("invited login authority supplies a request-scoped TLS CA", async (t) => {
     clientId: "harness-node-one",
     certificate,
   };
-  const service = new OidcSessionService(root, {
+  const service = createIdentitySession(root, {
     now: () => now,
     loginAuthority: async () => authority,
     fetch: (async (input, init) => {
@@ -163,7 +163,7 @@ test("SSH device authorization uses the loopback login endpoint and hands the br
   let now = 0;
   const requests: string[] = [],
     dispatchers: unknown[] = [],
-    service = new OidcSessionService(root, {
+    service = createIdentitySession(root, {
       now: () => now,
       fetch: (async (input, init) => {
         requests.push(String(input));
@@ -217,7 +217,7 @@ test("device login survives transient transport loss and replaces a code invalid
     tokenRequests = 0;
   const notices: unknown[] = [],
     cause = Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }),
-    service = new OidcSessionService(root, {
+    service = createIdentitySession(root, {
       now: () => now,
       loginAuthority: async () => ({
         url: "https://identity.example.test",
@@ -296,7 +296,7 @@ test("device authorization signs in as harness-gui even when the rbac config nam
     JSON.stringify({ url: "http://127.0.0.1:8080", realm: "harness", clientId: "harness-center" }),
   );
   let deviceRequest: URLSearchParams | undefined;
-  const service = new OidcSessionService(root, {
+  const service = createIdentitySession(root, {
     now: () => 0,
     fetch: (async (input, init) => {
       if (String(input).endsWith("/.well-known/openid-configuration"))
@@ -322,7 +322,7 @@ test("first device authorization reports an unreachable authority with the same 
   const root = mkdtempSync(path.join(tmpdir(), "ha-device-begin-transport-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const cause = Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:8443"), { code: "ECONNREFUSED" });
-  const service = new OidcSessionService(root, {
+  const service = createIdentitySession(root, {
     now: () => 0,
     fetch: (async () => {
       throw new TypeError("fetch failed", { cause });

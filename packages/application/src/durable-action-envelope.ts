@@ -12,6 +12,7 @@ export function composeDurableActionEnvelope(input: {
   readonly kind: string;
   readonly target: EntityRef;
   readonly actor: ActorIdentity;
+  readonly authorizationRef: string;
   readonly idempotencyKey?: string;
 }): ActionEnvelope {
   const envelope: ActionEnvelope = {
@@ -20,7 +21,7 @@ export function composeDurableActionEnvelope(input: {
     kind: input.kind,
     target: input.target,
     actor: input.actor,
-    authorizationRef: "keycloak-policy@1",
+    authorizationRef: input.authorizationRef,
     idempotencyKey: input.idempotencyKey ?? input.actionId,
   };
   const errors = validateActionEnvelope(envelope);

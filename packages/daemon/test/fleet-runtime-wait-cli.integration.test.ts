@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
-import { OidcSessionService } from "../src/oidc-session-service.ts";
-import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
+import { createIdentitySession } from "../src/authorization-provider.ts";
+import { managedRbacSessionStore } from "@harness-anything/authorization-keycloak/managed-rbac-service";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
@@ -161,7 +161,7 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
         authority: { url: fixture.owners.url, realm: "harness" },
       }),
     );
-    await new OidcSessionService(edgeUserRoot, {
+    await createIdentitySession(edgeUserRoot, {
       fetch: fixture.owners.keycloak.fetch,
       loginAuthority: async () => ({
         url: fixture.owners.url,
@@ -174,7 +174,7 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
       edgeHost = await openDaemonHost({
         daemonId: "fleet-worker-edge",
         userRoot: edgeUserRoot,
-        oidc: new OidcSessionService(edgeUserRoot, { fetch: fixture.owners.keycloak.fetch }),
+        oidc: createIdentitySession(edgeUserRoot, { fetch: fixture.owners.keycloak.fetch }),
         runtimeDiscover: () => [installation],
         runtimeLaunch: (prepared) => {
           launchedIn.push(prepared.cwd);

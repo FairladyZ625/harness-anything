@@ -104,7 +104,7 @@ export type RepoWriterMessageV1 =
 
 type KeycloakAuthorization = NonNullable<RepoCellBinding["keycloakAuthorization"]>;
 export type SerializableKeycloakAuthorization = Omit<KeycloakAuthorization, "session" | "center"> & {
-  readonly session?: Omit<NonNullable<KeycloakAuthorization["session"]>, "currentAccessToken"> & {
+  readonly session?: Omit<NonNullable<KeycloakAuthorization["session"]>, "currentAccessToken" | "provider"> & {
     readonly currentAccessToken?: true;
   };
   readonly center?: true;
@@ -119,7 +119,7 @@ export function serializableKeycloakAuthorization(
   const { session, center } = credential;
   const marker = center ? { center: true as const } : {};
   if (!session) return marker;
-  const { currentAccessToken, ...data } = session;
+  const { currentAccessToken, provider: _provider, ...data } = session;
   return { ...marker, session: { ...data, ...(currentAccessToken ? { currentAccessToken: true as const } : {}) } };
 }
 

@@ -3,9 +3,9 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs"
 import { isIP } from "node:net";
 import { networkInterfaces } from "node:os";
 import path from "node:path";
-import { runProcessTextAsync } from "./process-port.ts";
-import { validateCertificateNames } from "./tls-listener-admission.ts";
-import type { CertificateMode, ManagedRbacListener, ManagedRbacRequest } from "./managed-rbac-service.ts";
+import type { ManagedRbacHost } from "./managed-host.ts";
+
+import type { CertificateMode, ManagedRbacListener, ManagedRbacRequest } from "@harness-anything/kernel";
 
 function selfSignedCertificatePaths(root: string): {
   readonly certificateFile: string;
@@ -18,7 +18,11 @@ function selfSignedCertificatePaths(root: string): {
   };
 }
 
-function existingCertificateIsCurrent(certificateFile: string, names: readonly string[]): boolean {
+function existingCertificateIsCurrent(
+  certificateFile: string,
+  names: readonly string[],
+  validateCertificateNames: ManagedRbacHost["validateCertificateNames"],
+): boolean {
   const certificatePem = readFileSync(certificateFile),
     certificate = new X509Certificate(certificatePem),
     now = Date.now();
@@ -42,11 +46,12 @@ export async function ensureSelfSignedCertificate(
   root: string,
   hostname: string,
   address: string,
+  host: ManagedRbacHost,
 ): Promise<{ readonly certificateFile: string; readonly certificateKeyFile: string }> {
   const { certificateFile, certificateKeyFile } = selfSignedCertificatePaths(root),
     names = [address, hostname];
   if (existsSync(certificateFile) && existsSync(certificateKeyFile)) {
-    if (existingCertificateIsCurrent(certificateFile, names)) {
+    if (existingCertificateIsCurrent(certificateFile, names, host.validateCertificateNames)) {
       chmodSync(certificateKeyFile, 0o600);
       return { certificateFile, certificateKeyFile };
     }
@@ -57,7 +62,7 @@ export async function ensureSelfSignedCertificate(
   const san = isIP(hostname) !== 0 ? `IP:${hostname}` : `DNS:${hostname}`;
   const addressSan = address === hostname ? "" : isIP(address) !== 0 ? `,IP:${address}` : `,DNS:${address}`;
   try {
-    await runProcessTextAsync("openssl", [
+    await host.runProcessTextAsync("openssl", [
       "req",
       "-x509",
       "-newkey",
@@ -76,7 +81,7 @@ export async function ensureSelfSignedCertificate(
     ]);
     chmodSync(certificateKeyFile, 0o600);
     chmodSync(certificateFile, 0o644);
-    validateCertificateNames(readFileSync(certificateFile), names);
+    host.validateCertificateNames(readFileSync(certificateFile), names);
     return { certificateFile, certificateKeyFile };
   } catch (error) {
     rmSync(certificateFile, { force: true });

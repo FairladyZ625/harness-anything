@@ -55,12 +55,8 @@ export interface FleetRuntimeDispatchContext {
 type Msg<S extends string, P extends object = object> = S extends string
   ? Readonly<{ schema: S; messageId: string; accessToken?: string }> & Readonly<P>
   : never;
-export interface FleetDeviceLoginNotice {
-  readonly userCode: string;
-  readonly createdAt: number;
-  readonly expiresAt: number;
-  readonly pending: boolean;
-}
+export type { FleetDeviceLoginNotice } from "@harness-anything/kernel";
+import type { FleetDeviceLoginNotice } from "@harness-anything/kernel";
 
 export type FleetFrameV1 =
   | Msg<"fleet.edge.join/v1", { joinId: string; inviteToken: string }>

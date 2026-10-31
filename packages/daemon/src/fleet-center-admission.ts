@@ -5,7 +5,6 @@ import { createSecureContext } from "node:tls";
 import { readDaemonRegistry } from "@harness-anything/kernel";
 import { listenFleetTls, type FleetTlsCenter } from "./fleet/center.ts";
 import type { EdgeJoinAdmission, FleetCenterOptions } from "./fleet/center-types.ts";
-import { createAuthorizationProvider } from "./authorization-provider.ts";
 import type { KeycloakCenterAuthority } from "./transport/auth-context.ts";
 import { readReplicaGeneration, revokeReplicaView } from "./fleet/replica-generation.ts";
 import { FleetRemoteError, readFleetRepositoryMetadataClient } from "./fleet/peer.ts";
@@ -20,16 +19,12 @@ import { mapListenerBindError, validateCertificateNames } from "./tls-listener-a
 /** The center's node registry: Keycloak verifies the machine credential and names the node's owner. */
 export function keycloakNodeRegistry(
   center: KeycloakCenterAuthority,
-  fetchPort?: typeof fetch,
 ): Pick<FleetCenterOptions, "authenticate" | "nodeOwner"> {
   const open = async () => {
     const authority = await center();
     return {
       token: authority.accessToken,
-      adapter: createAuthorizationProvider(
-        { url: authority.url, realm: authority.realm, resourceServerClientId: authority.clientId },
-        fetchPort,
-      ),
+      adapter: authority.provider,
     };
   };
   return {

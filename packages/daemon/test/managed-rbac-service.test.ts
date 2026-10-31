@@ -7,7 +7,8 @@ import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { artifactManifest, ManagedRbacService, managedRbacVersions } from "../src/managed-rbac-service.ts";
+import { artifactManifest, managedRbacVersions } from "@harness-anything/authorization-keycloak/managed-rbac-service";
+import { createIdentityManagement } from "../src/authorization-provider.ts";
 import { validateCertificateNames } from "../src/tls-listener-admission.ts";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
 
@@ -36,7 +37,7 @@ test("external Keycloak writes the connection contract only after probing the re
   const root = mkdtempSync(path.join(tmpdir(), "ha-rbac-external-"));
   let fetches = 0;
   try {
-    const service = new ManagedRbacService(root, {
+    const service = createIdentityManagement(root, {
       fetch: (() => {
         fetches += 1;
         return Promise.resolve(Response.json({ access_token: "test-token" }));
@@ -66,7 +67,7 @@ for (const failure of ["token", "malformed", "missing", "admin"] as const) {
   test(`external ${failure} refusal preserves the configured credentials without response disclosure`, async () => {
     const root = mkdtempSync(path.join(tmpdir(), "ha-external-refusal-"));
     let reject = false;
-    const service = new ManagedRbacService(root, {
+    const service = createIdentityManagement(root, {
       fetch: async (url) => {
         if (String(url).endsWith("/token")) {
           if (reject && failure === "token") return new Response(null, { status: 401 });
@@ -115,7 +116,7 @@ test("health propagates a realm transport failure", async () => {
       }),
     );
     const failure = new Error("fixture realm transport failure");
-    const service = new ManagedRbacService(root, {
+    const service = createIdentityManagement(root, {
       fetch: async () => {
         throw failure;
       },
@@ -129,7 +130,7 @@ test("health propagates a realm transport failure", async () => {
 test("failed external Keycloak probe does not replace the active configuration", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-rbac-external-probe-"));
   try {
-    const service = new ManagedRbacService(root, {
+    const service = createIdentityManagement(root, {
       fetch: (() => Promise.resolve(new Response(null, { status: 503 }))) as typeof fetch,
     });
     await assert.rejects(
@@ -151,7 +152,7 @@ test("failed external Keycloak probe does not replace the active configuration",
 test("external Keycloak rejects a non-loopback cleartext authority", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-rbac-external-invalid-"));
   try {
-    const service = new ManagedRbacService(root);
+    const service = createIdentityManagement(root);
     await assert.rejects(
       service.run({
         mode: "external",
@@ -170,7 +171,7 @@ test("external Keycloak rejects a non-loopback cleartext authority", async () =>
 test("managed bootstrap rejects a changed archive before extraction", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-rbac-checksum-"));
   try {
-    const service = new ManagedRbacService(root, {
+    const service = createIdentityManagement(root, {
       platform: "darwin",
       arch: "arm64",
       fetch: ((url: string | URL | Request) =>
@@ -205,7 +206,7 @@ test("a daemon start resumes the managed services unless an operator stopped the
     spawned: string[] = [],
     // Each start reaches PostgreSQL's launch, which is where this fixture ends it.
     service = () =>
-      new ManagedRbacService(root, {
+      createIdentityManagement(root, {
         spawn: ((command: string) => {
           spawned.push(path.basename(command));
           const child = new EventEmitter();
@@ -310,7 +311,7 @@ function managedFixture(
       2,
     )}\n`,
   );
-  const service = new ManagedRbacService(root, {
+  const service = createIdentityManagement(root, {
     fetch: fetchPort,
     platform,
     arch: platform === "win32" ? "x64" : "arm64",
@@ -814,7 +815,7 @@ test("managed bootstrap keeps Keycloak on loopback until a listener is explicitl
   const root = mkdtempSync(path.join(tmpdir(), "ha-rbac-default-listener-"));
   try {
     const rbac = installedManagedRoot(root),
-      service = new ManagedRbacService(root, { platform: "darwin", arch: "arm64" });
+      service = createIdentityManagement(root, { platform: "darwin", arch: "arm64" });
     // The data directory is present, so install reaches the config write; start then refuses because
     // the postgres binary is absent. The configuration written before that is what this test reads.
     await assert.rejects(service.run({ operation: "bootstrap" }), { code: "rbac_not_installed" });
@@ -843,7 +844,7 @@ test("managed bootstrap keys PostgreSQL with a daemon-generated scram password",
       "initdb",
       `printf '%s\\n' "$@" > '${record}'\nprintf '18\\n' > '${path.join(data, "PG_VERSION")}'\n`,
     );
-    const service = new ManagedRbacService(root, { platform: "darwin", arch: "arm64" });
+    const service = createIdentityManagement(root, { platform: "darwin", arch: "arm64" });
     await assert.rejects(service.run({ operation: "bootstrap" }), { code: "rbac_not_installed" });
     const args = readFileSync(record, "utf8").split("\n").filter(Boolean),
       passwordFile = path.join(rbac, "postgres-password"),

@@ -23,7 +23,6 @@ import {
   type TaskProjection,
 } from "@harness-anything/kernel";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
-import { createAuthorizationProvider } from "./authorization-provider.ts";
 import { taskActionCommandUsage } from "./protocol/daemon-protocol-commands.ts";
 import { compiledArtifactKinds } from "./artifact-entity-action.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
@@ -308,12 +307,7 @@ export async function preparePersonActionExplanationBinding(
       const center = credential.center ? await credential.center() : undefined;
       const exists =
         credential.session?.personId === entity.id ||
-        (center !== undefined &&
-          (await createAuthorizationProvider({
-            url: center.url,
-            realm: center.realm,
-            resourceServerClientId: center.clientId,
-          }).findUserId(center.accessToken, entity.id)) !== undefined);
+        (center !== undefined && (await center.provider.findUserId(center.accessToken, entity.id)) !== undefined);
       if (exists) personExistsIds.add(entity.id);
       if (!exists) continue;
     }

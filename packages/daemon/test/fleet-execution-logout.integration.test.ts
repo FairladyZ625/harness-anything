@@ -11,7 +11,7 @@ import { startDaemon } from "../src/runtime.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { runFleetTaskCommandClient, runFleetRuntimeEventClient } from "../src/fleet/peer.ts";
-import { OidcSessionService, keycloakSessionStore, signInAt } from "./keycloak.fixtures.ts";
+import { IdentitySessionPort, keycloakSessionStore, signInAt } from "./keycloak.fixtures.ts";
 import { fleetFixture, git, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { eventuallyValue, spawnCli } from "./fixtures/runtime-ingress.ts";
@@ -58,7 +58,7 @@ test(
         : networkFetch(input, init);
     });
     const center = await f.center(undefined, loginAuthorityUrl, (auth) =>
-        new OidcSessionService(path.join(f.root, "user")).bind(auth),
+        IdentitySessionPort(path.join(f.root, "user")).bind(auth),
       ),
       repoId = f.subject.repoId,
       taskId = f.subject.taskId;
@@ -146,7 +146,7 @@ test(
         loginTarget: edgeRoot,
       }),
     );
-    await new OidcSessionService(userRoot).status(edgeRoot);
+    await IdentitySessionPort(userRoot).status(edgeRoot);
     const daemonOptions = {
       userRoot,
       daemonId: "edge-execution",
@@ -276,7 +276,7 @@ test(
     const initialDeviceSession = keycloakSessionStore(userRoot, loginIssuer).read()!;
     const edgeLogout = await rpc("daemon.rbac.manage", { operation: "logout", rootDir: edgeRoot });
     assert.equal(edgeLogout.ok, true, JSON.stringify(edgeLogout));
-    const logout = await new OidcSessionService(path.join(f.root, "user")).logout();
+    const logout = await IdentitySessionPort(path.join(f.root, "user")).logout();
     assert.equal(logout.ok, true, JSON.stringify(logout));
     await daemon.stop();
     daemon = await startDaemon(daemonOptions);
@@ -570,7 +570,7 @@ test(
     assert.equal(existsSync(path.join(reviewUser, "rbac/config.json")), false);
     const savedReviewSession = keycloakSessionStore(reviewUser, loginIssuer).read()!;
     assert.equal((await reviewRpc("daemon.rbac.manage", { operation: "logout", rootDir: reviewRoot })).ok, true);
-    await new OidcSessionService(path.join(f.root, "user")).logout();
+    await IdentitySessionPort(path.join(f.root, "user")).logout();
     const reviewCli = async (args: string[]) => {
       const result = await spawnCli(["--root", reviewRoot, "--json", ...args], { ...process.env, ...reviewEnv });
       assert.ok(result.stdout.trim(), result.stderr);
@@ -855,7 +855,7 @@ test(
     assert.notEqual(reviewEnv.HARNESS_EXECUTION_CREDENTIAL, oldSecret);
     const s2DeviceSession = keycloakSessionStore(reviewUser, loginIssuer).read()!;
     assert.equal((await reviewRpc("daemon.rbac.manage", { operation: "logout", rootDir: reviewRoot })).ok, true);
-    await new OidcSessionService(path.join(f.root, "user")).logout();
+    await IdentitySessionPort(path.join(f.root, "user")).logout();
     assert.equal((await reviewCli(["task", "show", taskId])).code, "authentication_required");
     approveDeviceAgain(reviewUser, "node-slow", s2DeviceSession);
     assert.equal((await reviewCli(["task", "show", taskId])).outcome, "applied");

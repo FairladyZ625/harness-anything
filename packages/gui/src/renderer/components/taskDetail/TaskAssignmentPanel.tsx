@@ -7,7 +7,7 @@ import { formatTime } from "../../model/time.ts";
 import { leaseNodeIdOf, leaseRuntimeSessionIdOf } from "../../model/collaboration.ts";
 import { settleTaskReceipt } from "../../task-actions.ts";
 import { taskQueryKeys } from "../../task-data.ts";
-import { INPUT } from "../identityAccess/AccessParts.tsx";
+import { INPUT } from "../../authorization-ui.tsx";
 import { Button } from "../primitives/Button.tsx";
 import { IdText } from "../IdText.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";

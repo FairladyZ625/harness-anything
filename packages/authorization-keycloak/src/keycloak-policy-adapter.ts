@@ -1,3 +1,4 @@
+import { sessionLifetimeBounds, readSessionLifetime, writeSessionLifetime } from "./keycloak-session-lifetime.ts";
 import {
   actionDeclarations,
   assertAcyclicPolicyGroups,
@@ -6,6 +7,10 @@ import {
   effectivePolicyGroupScopes,
   encodeAuthorizationResource,
   type AuthorizationResource,
+  type AuthorizationDecisionPort,
+  type AuthorizationIdentityDirectoryPort,
+  type AuthorizationNodeCredentialPort,
+  type AuthorizationPolicyAdministrationPort,
   type PolicyGroup,
 } from "@harness-anything/kernel";
 import { keycloakLoginAttributes, keycloakLoginMappers } from "./keycloak-login-client.ts";
@@ -90,7 +95,26 @@ interface PolicyReadCache {
 
 const policyReadCaches = new WeakMap<FetchPort, Map<string, PolicyReadCache>>();
 
-export class KeycloakPolicyAdapter {
+export class KeycloakPolicyAdapter
+  implements
+    AuthorizationPolicyAdministrationPort,
+    AuthorizationIdentityDirectoryPort,
+    AuthorizationNodeCredentialPort,
+    AuthorizationDecisionPort
+{
+  readonly sessionLifetimeBounds = sessionLifetimeBounds;
+  readSessionLifetime(token: string): Promise<number> {
+    return readSessionLifetime({ ...this.#config, accessToken: token }, this.#fetch);
+  }
+  writeSessionLifetime(token: string, seconds: number): Promise<void> {
+    return writeSessionLifetime({ ...this.#config, accessToken: token }, seconds, this.#fetch);
+  }
+  readonly policyRef = "keycloak-policy@1";
+  readonly authority = "keycloak";
+  readonly deniedReasonCode = "keycloak_denied";
+  withFetchPort(fetchPort: FetchPort): KeycloakPolicyAdapter {
+    return new KeycloakPolicyAdapter(this.#config, fetchPort, this.#refreshAdminAccessToken);
+  }
   readonly #config: KeycloakPolicyAdapterConfig;
   readonly #fetch: FetchPort;
   readonly #knownScopes = new Set(actionDeclarations.map((item) => item.policyAction));

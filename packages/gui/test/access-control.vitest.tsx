@@ -7,8 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AccessAdminService } from "../../daemon/src/access-admin-service.ts";
 import type { DaemonHost } from "../../daemon/src/daemon-host-types.ts";
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
-import { managedRbacReceiptJournal } from "../../daemon/src/managed-rbac-service.ts";
-import { OidcSessionService } from "../../daemon/src/oidc-session-service.ts";
+import { managedRbacReceiptJournal } from "../../daemon/src/access-admin-state.ts";
+import { createIdentitySession } from "../../daemon/src/authorization-provider.ts";
 import { createJsonRpcProtocolServer } from "../../daemon/src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../../daemon/src/protocol/version.ts";
 import { evaluateRepoCellAction } from "../../daemon/src/repo-cell-authorization.ts";
@@ -67,8 +67,12 @@ async function stack() {
   const keycloak = fakeKeycloak(),
     user = keycloakUserRoot(),
     userCleanup = user.cleanup,
-    oidc = new OidcSessionService(user.root, { fetch: keycloak.fetch }),
+    oidc = createIdentitySession(user.root, { fetch: keycloak.fetch }),
     admin = new AccessAdminService(oidc, user.root, { fetch: keycloak.fetch }),
+    provider = new KeycloakPolicyAdapter(
+      { url: keycloakUrl, realm: keycloakRealm, resourceServerClientId: "harness-center" },
+      keycloak.fetch,
+    ),
     server = createJsonRpcProtocolServer({
       host: { manageRbac: (request: never) => admin.run(request) } as unknown as DaemonHost,
       build: { buildId: "test", commit: null } as never,
@@ -76,10 +80,7 @@ async function stack() {
       emit: async () => undefined,
     });
   fixtureCleanups.push(userCleanup);
-  await new KeycloakPolicyAdapter(
-    { url: keycloakUrl, realm: keycloakRealm, resourceServerClientId: "harness-center" },
-    keycloak.fetch,
-  ).syncBasePolicy("center-token");
+  await provider.syncBasePolicy("center-token");
   keycloak.writes.length = 0;
   let requestId = 1;
   await server.handle({
@@ -118,6 +119,7 @@ async function stack() {
             source: "local",
             keycloakAuthorization: {
               session: {
+                provider,
                 personId,
                 accessToken: `token-${personId}`,
                 url: keycloakUrl,

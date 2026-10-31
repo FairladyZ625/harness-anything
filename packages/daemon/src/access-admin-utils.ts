@@ -1,4 +1,4 @@
-import type { AuthorizationProvider } from "./authorization-provider.ts";
+import type { AuthorizationProvider } from "@harness-anything/kernel";
 
 export function coded(code: string, message: string): Error {
   return Object.assign(new Error(message), { code });

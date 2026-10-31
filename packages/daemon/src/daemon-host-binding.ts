@@ -96,6 +96,7 @@ function withSessionEnvironment(binding: RepoCellBinding, auth: DaemonAuthentica
       : {
           keycloakAuthorization: {
             session: {
+              provider: auth.oidcPrincipal.provider,
               personId: auth.oidcPrincipal.personId,
               accessToken: auth.oidcPrincipal.accessToken,
               ...(auth.localSessionAccessToken ? { currentAccessToken: auth.localSessionAccessToken } : {}),
@@ -126,6 +127,7 @@ async function nodeOwnerBinding(auth: DaemonAuthenticationContext): Promise<Repo
     source: { kind: "node", nodeId: owner.nodeId },
     keycloakAuthorization: {
       session: {
+        provider: auth.oidcPrincipal.provider,
         personId: owner.personId,
         accessToken: auth.oidcPrincipal.accessToken,
         ...(auth.localSessionAccessToken ? { currentAccessToken: auth.localSessionAccessToken } : {}),

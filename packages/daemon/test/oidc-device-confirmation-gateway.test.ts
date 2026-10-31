@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { openDeviceConfirmationGateway } from "../src/oidc-device-confirmation-gateway.ts";
+import { openDeviceConfirmationGateway } from "@harness-anything/authorization-keycloak";
 
 test("device confirmation gateway keeps the browser on a managed loopback origin", async (t) => {
   const calls: { url: string; headers: Headers; body?: BodyInit | null }[] = [],
@@ -28,6 +28,10 @@ test("device confirmation gateway keeps the browser on a managed loopback origin
           },
         });
       }) as typeof fetch,
+      {
+        systemCaCertificates: () => [],
+        fetchWithTlsCa: (fetcher, _ca, input, init) => fetcher(input, init),
+      },
     );
   t.after(() => gateway.close());
   const page = new URL(gateway.verificationUri),

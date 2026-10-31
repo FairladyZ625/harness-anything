@@ -1,3 +1,4 @@
+import type { ManagedRbacListener } from "@harness-anything/kernel";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -8,7 +9,7 @@ import type {
   OidcSessionPorts,
   OidcSessionStorePort,
   StoredSession,
-} from "./oidc-session-contracts.ts";
+} from "@harness-anything/kernel";
 import {
   clientFields,
   coded,
@@ -19,24 +20,15 @@ import {
   transientTransportFailure,
   unavailable,
 } from "./oidc-session-helpers.ts";
-import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
-import { managedRbacListenerUrl, managedRbacSessionStore, type ManagedRbacListener } from "./managed-rbac-service.ts";
-import { createAuthorizationProvider } from "./authorization-provider.ts";
+import type { IdentityAuthenticationContext } from "@harness-anything/kernel";
+import type { KeycloakSessionHost } from "./session-host.ts";
+import { managedRbacListenerUrl, managedRbacSessionStore } from "./managed-rbac-service.ts";
+import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 import { verifyFleetHuman } from "./oidc-fleet-principal.ts";
-import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
-import type { FleetDeviceLoginNotice } from "./fleet/command-protocol.ts";
-import { reportFleetDeviceLogin, readFleetLoginAuthorityClient } from "./fleet/peer.ts";
-import { errorMessageWithCause } from "./error-cause.ts";
-import { oidcCenterSelections } from "./oidc-center-selection.ts";
+import type { FleetDeviceLoginNotice } from "@harness-anything/kernel";
 import { openDeviceConfirmationGateway, type DeviceConfirmationGateway } from "./oidc-device-confirmation-gateway.ts";
-import {
-  fetchWithTlsCa,
-  probeSystemCaTrust,
-  rootCaFromCertificateChain,
-  systemCaCertificates,
-} from "./tls-ca-certificate.ts";
 
-export type { DeviceLoginRequest, OidcLoginAuthority, OidcSessionPorts } from "./oidc-session-contracts.ts";
+export type { DeviceLoginRequest, OidcLoginAuthority, OidcSessionPorts } from "@harness-anything/kernel";
 
 interface RbacConfig {
   readonly url: string;
@@ -95,8 +87,9 @@ const renewalMarginMs = 30_000;
  */
 export class OidcSessionService {
   readonly #rbacRoot: string;
+  readonly #host: KeycloakSessionHost;
   readonly #ports: OidcSessionPorts;
-  readonly #centers: ReturnType<typeof oidcCenterSelections>;
+  readonly #centers: KeycloakSessionHost["centers"];
   #pending: PendingLogin | undefined;
   #centerTokenCache: CenterToken | undefined;
   #loginGeneration = 0;
@@ -105,9 +98,10 @@ export class OidcSessionService {
   readonly #deviceRequests = new Map<string, DeviceLoginRequest>();
   #writes: Promise<unknown> = Promise.resolve();
 
-  constructor(userRoot: string, ports: Partial<OidcSessionPorts> = {}) {
+  constructor(userRoot: string, host: KeycloakSessionHost, ports: Partial<OidcSessionPorts> = {}) {
+    this.#host = host;
     this.#rbacRoot = path.join(userRoot, "rbac");
-    this.#centers = oidcCenterSelections(userRoot);
+    this.#centers = host.centers;
     this.#ports = {
       fetch,
       now: Date.now,
@@ -273,7 +267,7 @@ export class OidcSessionService {
   revokeDeviceSessions(nodeId: string): Promise<void> {
     return this.serialize(async () => {
       const center = await this.center();
-      await createAuthorizationProvider(
+      await new KeycloakPolicyAdapter(
         { ...center, resourceServerClientId: "harness-center" },
         this.#ports.fetch,
       ).revokeNodeConsent(center.accessToken, nodeId);
@@ -313,9 +307,9 @@ export class OidcSessionService {
     if (!pending.loginTarget) return;
     const notice = { ...pending.notice, pending: active };
     if (this.#ports.reportDevice) return this.#ports.reportDevice(pending.loginTarget, notice);
-    const edge = readFleetEdgeConfig(pending.loginTarget);
+    const edge = this.#host.readFleetEdgeConfig(pending.loginTarget);
     if (!edge) return;
-    await reportFleetDeviceLogin(
+    await this.#host.reportFleetDeviceLogin(
       {
         hostname: edge.host,
         port: edge.port,
@@ -366,7 +360,7 @@ export class OidcSessionService {
         );
       } catch (error) {
         if (!tagDeviceTransportFailure(error)) throw error;
-        const transportError = errorMessageWithCause(error);
+        const transportError = this.#host.errorMessageWithCause(error);
         pending.lastTransportError = transportError;
         pending.nextPollAt = this.#ports.now() + pending.interval * 1_000;
         throw error;
@@ -407,7 +401,7 @@ export class OidcSessionService {
     const endpoint = new URL(authority.url);
     if (!(endpoint.hostname === "127.0.0.1" || endpoint.hostname === "localhost" || endpoint.hostname === "[::1]"))
       return undefined;
-    return openDeviceConfirmationGateway(authority, verificationUri, expiresInMs, this.#ports.fetch);
+    return openDeviceConfirmationGateway(authority, verificationUri, expiresInMs, this.#ports.fetch, this.#host);
   }
 
   async #closeDeviceGateway(pending: PendingDeviceLogin): Promise<void> {
@@ -544,7 +538,7 @@ export class OidcSessionService {
     const authority = await this.#loginAuthority(),
       url = authority.browserUrl ?? authority.url;
     const systemTrusted = await this.#probeSystemTrust(url),
-      certificate = systemTrusted ? undefined : rootCaFromCertificateChain(authority.certificate ?? "");
+      certificate = systemTrusted ? undefined : this.#host.rootCaFromCertificateChain(authority.certificate ?? "");
     if (!systemTrusted && !certificate)
       throw coded(
         "oidc_login_trust_unavailable",
@@ -573,11 +567,11 @@ export class OidcSessionService {
    * only a server-selected edge replica read may retain its unexpired session identity.
    * Every online caller still requires a usable access token.
    */
-  async bind(
-    auth: DaemonAuthenticationContext,
+  async bind<T extends IdentityAuthenticationContext>(
+    auth: T,
     loginTarget?: string,
     replicaRead = false,
-  ): Promise<DaemonAuthenticationContext> {
+  ): Promise<T & IdentityAuthenticationContext> {
     if (auth.transportKind === "fleet-tls") {
       if (!auth.humanAccessToken)
         throw Object.assign(new Error("Sign in on this device before using Fleet."), {
@@ -599,7 +593,7 @@ export class OidcSessionService {
           now: this.#ports.now(),
         });
         if (bound.nodePrincipal!.personId === auth.nodePrincipal!.personId) return bound;
-        const adapter = createAuthorizationProvider(
+        const adapter = new KeycloakPolicyAdapter(
             { ...config, resourceServerClientId: "harness-center" },
             this.#ports.fetch,
           ),
@@ -643,6 +637,10 @@ export class OidcSessionService {
         return current.accessToken;
       },
       oidcPrincipal: {
+        provider: new KeycloakPolicyAdapter(
+          { ...authority, resourceServerClientId: "harness-center" },
+          this.#ports.fetch,
+        ),
         personId: session.personId,
         subject: session.subject,
         expiresAt: session.expiresAt,
@@ -743,10 +741,22 @@ export class OidcSessionService {
     return members.length === 0;
   }
 
-  async center(
-    rejectedAccessToken?: string,
-  ): Promise<{ readonly url: string; readonly realm: string; readonly accessToken: string }> {
-    return { ...this.#config(), accessToken: await this.#centerToken(rejectedAccessToken) };
+  async center(rejectedAccessToken?: string): Promise<{
+    readonly url: string;
+    readonly realm: string;
+    readonly accessToken: string;
+    readonly provider: import("@harness-anything/kernel").AuthorizationProvider;
+  }> {
+    const config = this.#config();
+    return {
+      ...config,
+      accessToken: await this.#centerToken(rejectedAccessToken),
+      provider: new KeycloakPolicyAdapter(
+        { ...config, resourceServerClientId: "harness-center" },
+        this.#ports.fetch,
+        (rejected) => this.#centerToken(rejected),
+      ),
+    };
   }
 
   bootstrapAdmin(input: {
@@ -934,9 +944,9 @@ export class OidcSessionService {
 
   async #loginAuthority(target?: string, resetSession = false): Promise<OidcLoginAuthority> {
     if (target && this.#ports.loginAuthority) return this.#ports.loginAuthority(target);
-    const edge = target ? readFleetEdgeConfig(target) : null;
+    const edge = target ? this.#host.readFleetEdgeConfig(target) : null;
     if (edge) {
-      const authority = await readFleetLoginAuthorityClient({
+      const authority = await this.#host.readFleetLoginAuthorityClient({
         resetSession,
         hostname: edge.host,
         port: edge.port,
@@ -1004,11 +1014,11 @@ export class OidcSessionService {
   }
 
   #defaultCaCertificates(): readonly string[] {
-    return this.#ports.defaultCaCertificates?.() ?? systemCaCertificates();
+    return this.#ports.defaultCaCertificates?.() ?? this.#host.systemCaCertificates();
   }
 
   async #probeSystemTrust(url: string): Promise<boolean> {
-    return probeSystemCaTrust(this.#ports.fetch, this.#defaultCaCertificates(), url);
+    return this.#host.probeSystemCaTrust(this.#ports.fetch, this.#defaultCaCertificates(), url);
   }
 
   #fetchWithCa(
@@ -1017,7 +1027,7 @@ export class OidcSessionService {
     init?: RequestInit,
     servername?: string,
   ): Promise<Response> {
-    return fetchWithTlsCa(this.#ports.fetch, ca, input, init, servername);
+    return this.#host.fetchWithTlsCa(this.#ports.fetch, ca, input, init, servername);
   }
 
   /** The signed-in session holding a usable access token; fails when Keycloak could not be asked to renew it. */
@@ -1049,7 +1059,7 @@ export class OidcSessionService {
   /** One refresh grant per use: Keycloak refusing it ends the session here, and nothing retries. */
   async #renew(session: StoredSession, sessionStore: OidcSessionStorePort): Promise<SessionUse> {
     const generation = this.#sessionGeneration,
-      edge = session.loginTarget ? readFleetEdgeConfig(session.loginTarget) : null,
+      edge = session.loginTarget ? this.#host.readFleetEdgeConfig(session.loginTarget) : null,
       authority =
         edge && session.authority
           ? { ...session.authority, clientId: `harness-node-${edge.nodeId}`, clientSecret: edge.credential }

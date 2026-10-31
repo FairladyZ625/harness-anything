@@ -16,7 +16,7 @@ import { createUnixSocketTransportServer } from "./transport/unix-socket.ts";
 import type { DaemonHostOpenInput } from "./daemon-host-open.ts";
 import type { DaemonLifecycleEntry, DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import type { DaemonBuildDrainStatus } from "./protocol/daemon-protocol.contract.ts";
-import { OidcSessionService } from "./oidc-session-service.ts";
+import { createIdentitySession } from "./authorization-provider.ts";
 import { readRuntimeExecutionPrincipal } from "./runtime-execution-principal-store.ts";
 
 export interface RunningDaemon {
@@ -173,7 +173,7 @@ export async function startDaemon(input: {
     if (entry.event === "runtime_exit" || entry.event === "attachments_settled") requestDrainCheck();
   };
   try {
-    const oidc = new OidcSessionService(input.userRoot);
+    const oidc = createIdentitySession(input.userRoot);
     host = await openDaemonHost({
       ...input,
       endpoint,
