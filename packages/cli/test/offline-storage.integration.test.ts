@@ -12,7 +12,7 @@ import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 import { event } from "../../storage/test/store/task-event-store.fixtures.ts";
 import { activateEmptyCanonicalGeneration, makeTaskEventStore, taskLifecycleWritePlan } from "@harness-anything/kernel";
 import { registerDaemonRepo } from "@harness-anything/kernel";
-import { openPersistentWriterEpoch, readLedgerWriterEpoch } from "@harness-anything/daemon/internal/writer-epoch";
+import { openPersistentWriterEpoch, readLedgerWriterEpoch } from "@harness-anything/storage";
 
 const realm = await spawnKeycloak();
 after(() => realm.close());

@@ -1,5 +1,14 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync } from "node:fs";
+import {
+  existsSync,
+  globSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  symlinkSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -72,6 +81,10 @@ function manifestTargets(manifest) {
   ];
 }
 
+function targetExists(target) {
+  return target.includes("*") ? globSync(target, { nodir: true }).length > 0 : existsSync(target);
+}
+
 function inspectTargets(rootDir, manifests, stage) {
   const errors = [];
   for (const manifestPath of manifests) {
@@ -87,7 +100,7 @@ function inspectTargets(rootDir, manifests, stage) {
       if (stage === "before" && GENERATED_SEGMENT.test(normalized) && existsSync(absoluteTarget)) {
         errors.push(`${manifestPath}: generated target is present before the clean build: ${target}`);
       }
-      if (stage === "after" && !existsSync(absoluteTarget))
+      if (stage === "after" && !targetExists(absoluteTarget))
         errors.push(`${manifestPath}: unresolved export/bin target after build: ${target}`);
     }
   }

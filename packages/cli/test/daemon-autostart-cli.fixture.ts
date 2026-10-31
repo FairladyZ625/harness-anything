@@ -42,7 +42,7 @@ import { currentDaemonProtocolVersion } from "@harness-anything/daemon/internal/
 
 import { readDaemonPid } from "@harness-anything/daemon/internal/runtime";
 
-import { openPersistentWriterEpoch } from "@harness-anything/daemon/internal/writer-epoch";
+import { openPersistentWriterEpoch } from "@harness-anything/storage";
 
 import { cliDaemonServeLaunch } from "../src/daemon/client.ts";
 
