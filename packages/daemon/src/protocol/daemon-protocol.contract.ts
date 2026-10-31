@@ -118,6 +118,33 @@ export const daemonProtocolMethods = Object.freeze([
     params: shape({}),
   },
   {
+    id: "daemon.skillEval.case.add",
+    phase: "W3",
+    method: "daemon.skillEval.case.add",
+    requiresRepo: false,
+    params: shape({
+      skillId: "string",
+      id: "string",
+      input: "string",
+      hidden: "boolean?",
+      expect: "json?",
+    }),
+  },
+  {
+    id: "daemon.skillEval.cases.list",
+    phase: "W3",
+    method: "daemon.skillEval.cases.list",
+    requiresRepo: false,
+    params: shape({ skillId: "string" }),
+  },
+  {
+    id: "daemon.skillEval.run",
+    phase: "W3",
+    method: "daemon.skillEval.run",
+    requiresRepo: false,
+    params: shape({ skillId: "string", version: "string", threshold: "number?" }),
+  },
+  {
     id: "daemon.stop",
     phase: "W3",
     method: "daemon.stop",

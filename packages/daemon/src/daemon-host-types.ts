@@ -21,8 +21,25 @@ import { type RepoCell, type RepoCellStatus, type RepoTaskAction, type RuntimeIn
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import type { RemoteProxyManager } from "./remote-proxy.ts";
 import type { ManagedRbacRequest } from "./managed-rbac-service.ts";
+import type { SkillEvalCaseDraft, SkillEvalCaseView, SkillEvalRecord, SkillEvalRunner } from "./skill-eval-runner.ts";
 
 export interface DaemonHost {
+  /** Platform skill-evaluation capability composed from daemon-owned policy and ports. */
+  readonly skillEvalRunner: SkillEvalRunner;
+  readonly skillEval: {
+    readonly addCase: (
+      auth: DaemonAuthenticationContext,
+      skillId: string,
+      draft: SkillEvalCaseDraft,
+    ) => Promise<SkillEvalCaseView>;
+    readonly listCases: (auth: DaemonAuthenticationContext, skillId: string) => Promise<readonly SkillEvalCaseView[]>;
+    readonly run: (
+      auth: DaemonAuthenticationContext,
+      skillId: string,
+      version: string,
+      options: { readonly threshold?: number },
+    ) => Promise<SkillEvalRecord & { readonly runtime: unknown }>;
+  };
   readonly remoteProxy: RemoteProxyManager;
   readonly keycloakCenter: import("./transport/auth-context.ts").KeycloakCenterAuthority;
   readonly sessionPrincipal: (

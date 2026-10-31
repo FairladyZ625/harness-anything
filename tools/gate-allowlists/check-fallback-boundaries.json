@@ -41,6 +41,7 @@
  },
  "entries": {
   "consumeKnownError": [
+   "packages/daemon/src/skill-eval-runner.ts#runCase",
    "packages/application/src/task-lifecycle-service.ts#releaseReservation",
    "packages/cli/src/cli-render.ts#contractMigrationDryRunSummary",
    "packages/cli/src/cli-runtime-batch.ts#runRuntimeBatch",
@@ -312,6 +313,7 @@
    "packages/kernel/src/projection/rebuildable-task-projection-sql.ts#queryTransaction",
    "packages/kernel/src/projection/rebuildable-task-projection-sql.ts#transaction",
    "packages/kernel/src/projection/sqlite-task-source.ts#readTaskProjectionSource",
+   "packages/kernel/src/skill-eval-gate.ts#firstJsonObject",
    "packages/kernel/src/store/generation-two-conversion.ts#historicalContentClaims",
    "packages/kernel/src/store/generation-two-conversion.ts#planConversion",
    "packages/kernel/src/store/ledger-backup.ts#drillLedgerBackup",

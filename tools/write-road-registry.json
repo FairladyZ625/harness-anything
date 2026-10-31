@@ -122,6 +122,7 @@
     "packages/daemon/src/runtime-callback-relay.ts",
     "packages/daemon/src/runtime-provider-health.ts",
     "packages/daemon/src/runtime.ts",
+    "packages/daemon/src/skill-eval-production.ts",
     "packages/daemon/src/schedule-builtin-executor.ts",
     "packages/daemon/src/worktree-node-modules-mirror.ts",
     "packages/daemon/src/worktree-setup-node-modules.ts",
