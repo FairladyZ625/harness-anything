@@ -45,8 +45,9 @@ test("every production local binding is covered by a request or cell-default wri
     source("daemon-host-writer-epoch.ts"),
     /return withDaemonWriterEpochFence\(base, writerEpochFence\(repoId\)\)/u,
   );
-  // Schedule reads use system authority; occurrence writes use the canonical creator
-  // and Keycloak authorization, with a request fence for that repository.
+  // Schedule reads use system authority; non-builtin occurrence writes use the canonical creator
+  // and Keycloak authorization, with a request fence for that repository. Builtin occurrences
+  // are daemon-owned and do not depend on the creator's historical person id.
   assert.match(host, /if \(action\.kind === "schedule-list"\) return system/u);
   assert.match(host, /cell\.run\(\{ kind: "schedule-show", scheduleId: action\.scheduleId \}, system\)/u);
   assert.match(host, /if \(!schedule \|\| validateScheduleV1\(schedule\)\.length\)\s*throw hostCodedError/u);

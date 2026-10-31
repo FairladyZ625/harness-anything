@@ -57,7 +57,7 @@ async function scheduleEvents(repoId: string, rootDir: string) {
  * One daemon host owning one repository in the given mode. Both seeded Schedules and the agent
  * Schedule created at 03:12:00.100 fall due inside the admission window once the clock reads 03:17.
  */
-async function fireDueOccurrences(mode: DaemonRepoMode) {
+async function fireDueOccurrences(mode: DaemonRepoMode, identityDrift = false) {
   const parent = mkdtempSync(path.join(tmpdir(), `ha-center-builtin-${mode}-`)),
     rootDir = path.join(parent, "repo"),
     clock = { value: "2026-10-02T03:12:00.100Z" };
@@ -89,6 +89,7 @@ async function fireDueOccurrences(mode: DaemonRepoMode) {
     });
     const seeded = await list();
     assert.equal((await run(agentSchedule("agent-probe"))).outcome, "applied");
+    if (identityDrift) signInPolicyTestUser(path.join(parent, "user"), "current-owner", ["repo"], "admin");
     clock.value = "2026-10-02T03:17:00.500Z";
     // A Schedule write refreshes the scheduler; reads do not re-arm timers.
     assert.equal(
@@ -171,6 +172,22 @@ test("a local daemon still claims both its builtin and its agent occurrences", {
   );
   assert.equal(local.manual.outcome, "applied", JSON.stringify(local.manual));
 });
+
+test(
+  "a builtin Schedule survives creator identity drift while a user Schedule stays creator-bound",
+  { timeout: 120_000 },
+  async () => {
+    const migrated = await fireDueOccurrences("local", true);
+    assert.equal(migrated.rows.get(builtinLedgerBackupScheduleId)?.status.lastRun?.outcome, "succeeded");
+    assert.equal(migrated.rows.get(builtinLedgerBackupScheduleId)?.status.activeRun, null);
+    assert.equal(migrated.rows.get("agent-probe")?.status.lastRun, null);
+    assert.equal(migrated.rows.get("agent-probe")?.status.activeRun, null);
+    assert.deepEqual(
+      migrated.events.filter(([, scheduleId]) => scheduleId === "agent-probe").map(([type]) => type),
+      ["schedule_created"],
+    );
+  },
+);
 
 test("a remote-center cell admits the daemon scheduler only on builtin occurrences", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-center-builtin-cell-"));
