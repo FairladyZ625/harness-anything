@@ -43,7 +43,10 @@ export async function adoptRuntimes(
   );
   const failures: unknown[] = sessionRead.status === "rejected" ? [sessionRead.reason] : [];
   let completed = 0;
-  for (const header of readDispatchStreamHeaders(context.input.rootDir)) {
+  // A terminal stream can be archived before its canonical outcome reaches the projection. Keep
+  // archived streams in the adoption census so a daemon restart replays that terminal and releases
+  // the dispatch/review lane; the session outcome guard below makes settled archives idempotent.
+  for (const header of readDispatchStreamHeaders(context.input.rootDir, true)) {
     if (context.processes.has(header.runtimeSessionId) || context.exiting.has(header.runtimeSessionId)) continue;
     const metadata = adoptableMetadata(header);
     if (!metadata || !ownedByRuntimeSpawner(metadata.binding, context.input.runtimeNode)) continue;

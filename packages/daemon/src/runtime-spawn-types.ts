@@ -399,9 +399,9 @@ export interface RuntimeSpawnerInput {
    *  any) so terminal settlement can record it honestly instead of swallowing it. */
   readonly reclaimRuntimeTempDirectory?: (instanceId: string, runtimeSessionId: string) => Error | null;
   /** Startup-only sweep: reclaims every per-run temp directory named in the caller's
-   *  repository-scoped terminal session set. This — not the dispatch-stream-driven adoption branch —
-   *  is the retry path for a reclaim that failed at settlement, because settlement archives
-   *  the stream and archived streams do not drive adoption. */
+   *  repository-scoped terminal session set. This is the retry path for a reclaim that failed at
+   *  settlement; dispatch adoption also examines archived streams when a terminal projection is
+   *  missing. */
   readonly reclaimSettledRuntimeTempDirectories?: (
     settledRuntimeSessionIds: readonly string[],
   ) => { readonly instanceId: string; readonly runtimeSessionId: string; readonly error: Error }[];

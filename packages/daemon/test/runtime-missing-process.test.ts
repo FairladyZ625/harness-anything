@@ -5,7 +5,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { openDispatchStream, readDispatchStream } from "../src/dispatch-stream.ts";
+import {
+  appendRuntimeWorkerRecord,
+  archiveDispatchStream,
+  openDispatchStream,
+  readDispatchStream,
+} from "../src/dispatch-stream.ts";
 import { attachReceiptAcceptance } from "@harness-anything/kernel";
 import { validateDaemonGuiCommandReceipt } from "../src/protocol/daemon-protocol.contract.ts";
 import { adoptRuntimes } from "../src/runtime-spawn-adoption.ts";
@@ -36,6 +41,36 @@ test("adoption settles an owned live session whose dispatch never recorded a pro
     assert.deepEqual(settled, [
       { runtimeSessionId, reason: "runtime process was never recorded before daemon restart" },
     ]);
+    assert.equal(context.processes.size, 0);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("adoption replays an archived dead dispatch whose canonical outcome was not projected", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-archived-dead-process-"));
+  try {
+    const dispatchId = "dispatch_acacacacacacacacacacacac",
+      runtimeSessionId = "runtime_acacacacacacacacacacacac";
+    openMissingProcessStream(rootDir, dispatchId, runtimeSessionId, "dispatch-op-archived-dead-process");
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: 2_147_483_646 });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_exit", exitCode: 1, signal: null });
+    archiveDispatchStream(rootDir, dispatchId);
+    const settled: Array<{ readonly runtimeSessionId: string; readonly lossReason: string | null }> = [],
+      context = {
+        input: { rootDir, repoId: "archived-dead-process", now: () => "2026-10-31T04:00:00.000Z" },
+        requiredRuntimeProjection: () => ({ readRuntimeSessions: () => [liveSession(runtimeSessionId)] }),
+        processes: new Map(),
+        exiting: new Set<string>(),
+        reconcileFallback: () => undefined,
+        consumeLine: async () => undefined,
+        publishExit: async (active: { runtimeSessionId: string; lossReason: string | null }) => {
+          settled.push({ runtimeSessionId: active.runtimeSessionId, lossReason: active.lossReason });
+          context.processes.delete(active.runtimeSessionId);
+        },
+      };
+    await adoptRuntimes(context as never);
+    assert.deepEqual(settled, [{ runtimeSessionId, lossReason: null }]);
     assert.equal(context.processes.size, 0);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
