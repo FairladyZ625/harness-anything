@@ -33,12 +33,19 @@ import {
 import { assertDecisionWritePlan } from "../domain/decision-event.ts";
 import { assertFactWritePlan } from "../domain/fact-event.ts";
 import { assertTaskLifecycleWritePlan } from "../domain/task-lifecycle-publication.ts";
-import type { TaskProjection, TaskProjectionQueries, TaskProjectionReader } from "./task-projection-port.ts";
+import type {
+  TaskProjection,
+  TaskProjectionPort,
+  TaskProjectionQueries,
+  TaskProjectionReader,
+  TaskProjectionReaderPort,
+} from "./task-projection-port.ts";
 import type {
   EventStreamPort,
   ProjectionContext,
   TaskProjectionCatchUpProgress,
 } from "./rebuildable-task-projection-types.ts";
+import type { LedgerEventStorePort } from "../composition/index.ts";
 import {
   closeDatabase,
   discardDatabase,
@@ -55,18 +62,20 @@ import { entityQueryApi } from "./rebuildable-task-projection-entity-api.ts";
 import { runtimeLeaseApi } from "./rebuildable-task-projection-runtime-api.ts";
 import { taskQueryApi } from "./rebuildable-task-projection-task-queries.ts";
 import { readStateDigest, readProjectionCut, watermark } from "./rebuildable-task-projection-sql.ts";
+import {
+  resolveStorageBackend,
+  unsupportedStorageBackendError,
+  type PostgresStorageBackendConfig,
+  type SqliteStorageBackendConfig,
+  type StorageBackendOptions,
+} from "../composition/storage-backend.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
 
 export type { TaskProjectionCatchUpProgress } from "./rebuildable-task-projection-types.ts";
 
-// Public projection construction and local source-head handling.
-// The cache location is never a literal: it is whatever layout.localRoot says, so a repository that
-// renamed its local root keeps the default `.harness` directory free of projection state.
-export function defaultLifecycleTaskProjectionPath(rootDir: string): string {
-  return resolveHarnessLayout(rootDir).taskProjectionPath;
-}
-export function makeTaskProjection(options: {
+export interface TaskProjectionFactoryOptions {
+  readonly storage?: SqliteStorageBackendConfig;
   readonly rootDir: string;
   readonly eventStore: EventStreamPort;
   readonly projectionPath?: string;
@@ -74,7 +83,32 @@ export function makeTaskProjection(options: {
   readonly now?: () => string;
   readonly onValidationProgress?: (progress: { readonly applied: number; readonly total: number }) => void;
   readonly onProgress?: (progress: TaskProjectionCatchUpProgress) => void;
-}): TaskProjection {
+}
+export interface PostgresTaskProjectionFactoryOptions
+  extends Omit<TaskProjectionFactoryOptions, "eventStore" | "storage"> {
+  readonly storage: PostgresStorageBackendConfig;
+  readonly eventStore: LedgerEventStorePort;
+}
+
+function requireSqliteBackend<Options extends StorageBackendOptions>(
+  options: Options,
+): asserts options is Options & { readonly storage?: SqliteStorageBackendConfig } {
+  const backend = resolveStorageBackend(options);
+  if (backend.backend === "postgres") throw unsupportedStorageBackendError(backend.backend);
+}
+
+// Public projection construction and local source-head handling.
+// The cache location is never a literal: it is whatever layout.localRoot says, so a repository that
+// renamed its local root keeps the default `.harness` directory free of projection state.
+export function defaultLifecycleTaskProjectionPath(rootDir: string): string {
+  return resolveHarnessLayout(rootDir).taskProjectionPath;
+}
+export function makeTaskProjection(options: PostgresTaskProjectionFactoryOptions): TaskProjectionPort;
+export function makeTaskProjection(options: TaskProjectionFactoryOptions): TaskProjection;
+export function makeTaskProjection(
+  options: TaskProjectionFactoryOptions | PostgresTaskProjectionFactoryOptions,
+): TaskProjection | TaskProjectionPort {
+  requireSqliteBackend(options);
   const projectionPath = options.projectionPath ?? defaultLifecycleTaskProjectionPath(options.rootDir);
   const limit = options.catchUpLimit ?? 4096,
     now = options.now ?? (() => new Date().toISOString()),
@@ -215,12 +249,25 @@ export function makeTaskProjection(options: {
   };
 }
 
-export function makeTaskProjectionReader(options: {
+export interface TaskProjectionReaderFactoryOptions {
+  readonly storage?: SqliteStorageBackendConfig;
   readonly rootDir: string;
   readonly projectionPath?: string;
   readonly now?: () => string;
-}): TaskProjectionReader {
-  const projectionPath = options.projectionPath ?? defaultLifecycleTaskProjectionPath(options.rootDir),
+}
+export interface PostgresTaskProjectionReaderFactoryOptions
+  extends Omit<TaskProjectionReaderFactoryOptions, "rootDir" | "storage"> {
+  readonly storage: PostgresStorageBackendConfig;
+  readonly rootDir?: string;
+}
+
+export function makeTaskProjectionReader(options: PostgresTaskProjectionReaderFactoryOptions): TaskProjectionReaderPort;
+export function makeTaskProjectionReader(options: TaskProjectionReaderFactoryOptions): TaskProjectionReader;
+export function makeTaskProjectionReader(
+  options: TaskProjectionReaderFactoryOptions | PostgresTaskProjectionReaderFactoryOptions,
+): TaskProjectionReader | TaskProjectionReaderPort {
+  requireSqliteBackend(options);
+  const projectionPath = options.projectionPath ?? defaultLifecycleTaskProjectionPath(options.rootDir ?? ""),
     now = options.now ?? (() => new Date().toISOString());
   let publishedHead: ReturnType<EventStreamPort["readHead"]> = null;
   const readHead = () => publishedHead,

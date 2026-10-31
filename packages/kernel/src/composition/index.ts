@@ -17,6 +17,16 @@ export {
   canonicalEventWritePlan,
   TaskEventStoreError,
 } from "../store/task-event-store.ts";
+export { resolveStorageBackend, unsupportedStorageBackendError } from "./storage-backend.ts";
+export type {
+  PostgresStorageBackendConfig,
+  ResolvedStorageBackend,
+  SqliteStorageBackendConfig,
+  StorageBackend,
+  StorageBackendConfig,
+  StorageBackendOptions,
+  StorageScope,
+} from "./storage-backend.ts";
 export { makeTaskEventReader, makeTaskEventStore } from "../store/task-event-store-factory.ts";
 export { readCertifiedGitFollower } from "../store/task-event-store-factory.ts";
 export type {
@@ -63,6 +73,8 @@ export type {
   MaterializationHealth,
   MaterializationState,
   PublicationFile,
+  LedgerEventStorePort,
+  PostgresTaskEventStoreOptions,
 } from "../store/task-event-store.ts";
 export {
   makeTaskProjection,
@@ -75,8 +87,15 @@ export type {
   TaskIndexProjectionRow,
   TaskProjection,
   TaskProjectionQueries,
+  TaskProjectionQueriesPort,
   TaskProjectionReader,
+  TaskProjectionReaderPort,
   TaskProjectionWriter,
+  TaskProjectionPort,
+  TaskProjectionFactoryOptions,
+  PostgresTaskProjectionFactoryOptions,
+  TaskProjectionReaderFactoryOptions,
+  PostgresTaskProjectionReaderFactoryOptions,
   TaskProjectionListQuery,
   TaskRelationProjectionRead,
   TaskRelationQuery,
@@ -107,7 +126,11 @@ export function registerDaemonRepo(input: DaemonRegistryRegisterInput) {
   return writeDaemonRegistryRepo({ ...input, canonicalRoot, authoredBranch: branch });
 }
 export { createEntityStore, openEntityStore } from "../store/entity-store.ts";
-export type { EntityStore } from "../store/entity-store.ts";
+export type {
+  EntityDeclarationStorePort,
+  EntityStore,
+  PostgresEntityDeclarationStoreOptions,
+} from "../store/entity-store.ts";
 
 export {
   convertLegacyGeneration,

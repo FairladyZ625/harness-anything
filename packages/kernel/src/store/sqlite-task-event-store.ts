@@ -21,6 +21,7 @@ import type {
   PublicationWrite,
   PublicationDelete,
 } from "./task-event-store-types.ts";
+import type { SqliteStorageBackendConfig } from "../composition/storage-backend.ts";
 import { TaskEventStoreError } from "./task-event-store-types.ts";
 import { assertAuthorizedReplacements } from "./task-event-store-replacement-authorization.ts";
 import { finalizeRefs, prepareCommit } from "./task-event-store-git-refs.ts";
@@ -68,6 +69,7 @@ export interface SqliteCanonicalEventStore extends CanonicalEventStore {
 }
 
 export interface SqliteTaskEventStoreOptions {
+  readonly storage?: SqliteStorageBackendConfig;
   readonly repoId: string;
   readonly rootInput?: HarnessLayoutInput;
   readonly rootDir?: string;
