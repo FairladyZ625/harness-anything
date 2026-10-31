@@ -130,6 +130,21 @@ const taskCapabilityEvaluators = Object.freeze(
     [key("delete", "repo-cell-task-mutation/delete"), activeDispositionInvocation],
     [key("reopen", "repo-cell-task-mutation/reopen"), reopenInvocation],
     [key("contract-migrate", "repo-cell-task-mutation/contract-migrate"), mutationInvocation],
+    ...[
+      "annotate",
+      "artifact-add",
+      "attest",
+      "declare-executor",
+      "dispatch-review",
+      "progress-append",
+      "push",
+      "rematerialize",
+      "settle",
+      "preset-upgrade",
+    ].map((actionId): [string, Evaluation] => [
+      key(actionId, `repo-cell-task-mutation/${actionId}`),
+      mutationInvocation,
+    ]),
   ]),
 );
 
@@ -329,7 +344,7 @@ function reviewCommand(taskId: string, executionId: string, reviewId: string): s
 
 export function taskActionUsage(action: EntityActionContract, taskId = "<task-id>"): string {
   const ingress = action.execution?.ingress;
-  if (ingress === undefined || !ingress.startsWith("task-"))
+  if (ingress === undefined || (!ingress.startsWith("task-") && action.id !== "preset-upgrade"))
     throw new Error(`Task Action ${action.id} has no Task command ingress.`);
   const flags = action.input.fields.flatMap((field) => {
     if (!field.cli) return [];
@@ -337,11 +352,13 @@ export function taskActionUsage(action: EntityActionContract, taskId = "<task-id
     return [field.required ? `${field.cli.name}${value}` : `[${field.cli.name}${value}]`];
   });
   const path =
-    action.id === "create"
-      ? ["ha", "task", "create"]
-      : action.id === "transition"
-        ? ["ha", "task", "transition", taskId, "<planned|active|blocked|in_review|done|cancelled>"]
-        : ["ha", "task", ingress.slice("task-".length), taskId];
+    action.id === "preset-upgrade"
+      ? ["ha", "preset", "upgrade", taskId]
+      : action.id === "create"
+        ? ["ha", "task", "create"]
+        : action.id === "transition"
+          ? ["ha", "task", "transition", taskId, "<planned|active|blocked|in_review|done|cancelled>"]
+          : ["ha", "task", ingress.slice("task-".length), taskId];
   return [...path, ...flags].join(" ");
 }
 

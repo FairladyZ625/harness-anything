@@ -17,10 +17,11 @@ test("help, explain, and the router describe one Task Action catalog", () => {
       usage: taskActionCommandUsage,
     }).catalog(),
     helpRows = new Set(
-      renderThinHelp([], "task")
+      [renderThinHelp([], "task"), renderThinHelp([], "preset")]
+        .join("\n")
         .split("\n")
         .map((line) => line.trim())
-        .filter((line) => line.startsWith("ha task ")),
+        .filter((line) => line.startsWith("ha task ") || line.startsWith("ha preset ")),
     );
   assert.ok(explain.subjects[0]!.actions.length > 0);
   for (const row of explain.subjects[0]!.actions) {
@@ -29,6 +30,6 @@ test("help, explain, and the router describe one Task Action catalog", () => {
       thinCliCommands.some((command) => command.usage === usage),
       `${row.action.id}: explain usage "${usage}" matches no router command declaration`,
     );
-    assert.ok(helpRows.has(usage), `${row.action.id}: ha task --help must list "${usage}" verbatim`);
+    assert.ok(helpRows.has(usage), `${row.action.id}: ha ${usage.split(" ")[1]} --help must list "${usage}" verbatim`);
   }
 });

@@ -98,9 +98,9 @@ test("B13 accepts the action-catalog null allowlist and its decision citations r
     source: `action-catalog-null.json:entries.catalogNulls[${index}].ref`,
     ref: entry.ref,
   }));
-  // dec_2BF45FF7 CH1 keeps repo-read out of the gate set, so the frozen list is the 63 canonical
-  // write roads; the read-only repository-read admission is not a row.
-  assert.equal(refs.length, 63);
+  // dec_2446BC2F8C68630F71AE3E3BD7 CH3 authorizes the first convergence batch: 63 → 27.
+  // dec_2BF45FF7 CH1 keeps repo-read out of the gate set because it is a read-only admission.
+  assert.equal(refs.length, 27);
   assert.equal(
     allowlist.entries.catalogNulls.some(({ value }) => value === "repository-read"),
     false,
