@@ -10,7 +10,10 @@ import { makeTaskProjection } from "../../src/projection/rebuildable-task-projec
 import { withTempStore } from "./helpers.ts";
 
 const historical = parseCanonicalEvent(
-  readFileSync(new URL("../../fixtures/canonical-events/people-event-v1/accepted.json", import.meta.url), "utf8"),
+  readFileSync(
+    new URL("../../../kernel/fixtures/canonical-events/people-event-v1/accepted.json", import.meta.url),
+    "utf8",
+  ),
 );
 assert.ok(isRetiredPeopleEvent(historical));
 const event = { ...historical, workspaceRevision: 1 },

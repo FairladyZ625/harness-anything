@@ -26,7 +26,10 @@ import { withTempStore } from "./helpers.ts";
 // The frozen sample is a real `settings-initialize` event from the canonical ledger (ORIGINS.md);
 // its snapshot carries all four retired walFlush fields.
 const frozen = JSON.parse(
-  readFileSync(new URL("../../fixtures/canonical-events/settings-event-v1/accepted.json", import.meta.url), "utf8"),
+  readFileSync(
+    new URL("../../../kernel/fixtures/canonical-events/settings-event-v1/accepted.json", import.meta.url),
+    "utf8",
+  ),
 ) as SettingsEventV1 & { readonly payload: { readonly settings: { readonly walFlush: unknown } } };
 // The harness.yaml that init wrote alongside such an event; the frozen sample's own blob is not retained.
 const historicalBody = [

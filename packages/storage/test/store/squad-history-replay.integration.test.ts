@@ -19,7 +19,7 @@ import { withTempStoreAsync } from "./helpers.ts";
 // Identity, mission, provider configuration, cwd and artifact refs are redacted; the flat schema is unchanged.
 // Exact original bytes and full-ledger copy evidence belong to the private task's migration report.
 const events = JSON.parse(
-  readFileSync(new URL("../../fixtures/squad-history/flat-task-identity.json", import.meta.url), "utf8"),
+  readFileSync(new URL("../../../kernel/fixtures/squad-history/flat-task-identity.json", import.meta.url), "utf8"),
 ) as PersistedCanonicalEventV1[];
 
 for (const event of events) {

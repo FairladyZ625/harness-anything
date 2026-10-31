@@ -20,7 +20,7 @@ import { initRepo } from "./task-event-store.fixtures.ts";
 
 function fixture(schema: string, name = "accepted.json") {
   return JSON.parse(
-    readFileSync(new URL(`../../fixtures/canonical-events/${schema}/${name}`, import.meta.url), "utf8"),
+    readFileSync(new URL(`../../../kernel/fixtures/canonical-events/${schema}/${name}`, import.meta.url), "utf8"),
   );
 }
 

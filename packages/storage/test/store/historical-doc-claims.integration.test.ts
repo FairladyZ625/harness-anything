@@ -32,7 +32,7 @@ import {
 } from "@harness-anything/kernel/internal/domain/artifact-text-classification.ts";
 import { sha256Bytes } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 
-const fixtureRoot = path.resolve(import.meta.dirname, "../../fixtures/historical-doc-claims"),
+const fixtureRoot = path.resolve(import.meta.dirname, "../../../kernel/fixtures/historical-doc-claims"),
   pdfPath =
     "tasks/task_b13be1ea63c151501a626eaa24-document-viewer-scroll-and-formats/artifacts/ceo-format-preview/test.pdf",
   pdfSha256 = "a581e4b6ba94d86374be3e295be7b718e732d958575dd4264b9378af7f1cd0a1";
