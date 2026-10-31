@@ -1,4 +1,4 @@
-import type { SquadDispatchContext } from "@harness-anything/kernel";
+import { consumeKnownError, type SquadDispatchContext } from "@harness-anything/kernel";
 import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS } from "@harness-anything/kernel";
 import type { RuntimeHandoffCheckpoint } from "./runtime-handoff-store.ts";
 import { createHash, randomUUID } from "node:crypto";
@@ -31,6 +31,7 @@ import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active
 import { adoptRuntimes, reclaimFailedLaunchTempDirectory } from "./runtime-spawn-adoption.ts";
 import {
   requiredRuntimeSpawnText,
+  runtimeErrorCode,
   runtimeErrorMessage,
   runtimeSpawnError,
   runtimeTaskExecutionFrozenError,
@@ -834,16 +835,32 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         if (stream) removeDispatchStream(input.rootDir, newDispatchId);
         return;
       }
-      await input.onAttemptTerminal?.({
-        runtimeSessionId,
-        dispatchId: newDispatchId,
-        task: taskBinding,
-        schedule: trustedSchedule ?? null,
-        outcome: "failed",
-        reason: `Runtime dispatch failed before provider registration: ${runtimeErrorMessage(error)}`,
-        endedAt: input.now(),
-        binding: activeBinding,
-      });
+      try {
+        await input.onAttemptTerminal?.({
+          runtimeSessionId,
+          dispatchId: newDispatchId,
+          task: taskBinding,
+          schedule: trustedSchedule ?? null,
+          outcome: "failed",
+          reason: `Runtime dispatch failed before provider registration: ${runtimeErrorMessage(error)}`,
+          endedAt: input.now(),
+          binding: activeBinding,
+        });
+      } catch (cleanupError) {
+        // A rejected resume has a known provider admission failure. If its newly handed-off lease
+        // cannot yet be released because A6 lacks a stop proof, retain that primary error and the
+        // stream for later reconciliation; replacing it with the cleanup boundary misreports the
+        // provider's refusal and invites an unsafe retry.
+        if (
+          runtimeErrorCode(error) !== "runtime_resume_failed" ||
+          runtimeErrorCode(cleanupError) !== "runtime_process_group_unproven"
+        ) {
+          throw cleanupError;
+        }
+        consumeKnownError(cleanupError);
+        return;
+      }
+      if (stream) removeDispatchStream(input.rootDir, newDispatchId);
       if (stream) removeDispatchStream(input.rootDir, newDispatchId);
     };
     try {
