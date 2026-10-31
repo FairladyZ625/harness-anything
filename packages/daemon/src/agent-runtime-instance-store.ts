@@ -71,6 +71,7 @@ import {
 import { runtimePermissionMode, type RuntimeIsolationState } from "./runtime-permissions.ts";
 import { applyGithubLaunchCredential } from "./runtime-github-credentials.ts";
 import {
+  runtimeAuthArgs,
   runtimeEffortField,
   runtimeEffortRidesProviderConfig,
   runtimeKindForId,
@@ -282,7 +283,7 @@ export function openRuntimeInstanceStore(input: {
       config.instanceId,
       unavailable("runtime_auth_in_progress", `Provider-native ${action} is running in this instance terminal.`),
     );
-    const args = config.kindId === "codex" ? [action] : ["auth", action];
+    const args = runtimeAuthArgs(config.kindId, action);
     return {
       instanceId: config.instanceId,
       name: config.name,

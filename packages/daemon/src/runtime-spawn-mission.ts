@@ -392,6 +392,7 @@ export async function prepareRuntimeInstance<T>(
           "runtime_installation_not_found",
           "runtime_credential_unavailable",
           "runtime_subscription_required",
+          "runtime_subscription_expired",
           "runtime_auth_in_progress",
           "runtime_auth_probe_failed",
           "invalid_runtime_model",

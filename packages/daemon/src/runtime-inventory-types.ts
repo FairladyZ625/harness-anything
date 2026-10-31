@@ -18,6 +18,8 @@ export interface RuntimeProviderDeclaration {
     readonly command: string;
     readonly configDirectory: string;
     readonly configHomeEnvironment: string | null;
+    /** Credential path relative to `configDirectory`; a directory is allowed when the
+     *  provider keeps its login state across several sibling files (mcode's `auth/`). */
     readonly authFile: string | null;
     /** null means the provider exposes no model catalog; discovery leaves catalog fields unavailable. */
     readonly modelProbe: readonly string[] | null;
@@ -45,9 +47,27 @@ export interface RuntimeProviderDeclaration {
     /** Command probes run the argv and judge by exit code. A file-key probe checks
      * that the declared `authFile` exists under the provider's config directory and
      * that the `acpCredentialKey` entry is non-empty — for CLIs whose status command
-     * exits 0 whether or not credentials exist. */
-    readonly subscriptionProbe: readonly string[] | { readonly kind: "file-key" };
+     * exits 0 whether or not credentials exist. A json-auth-state probe reads the
+     * provider's own login-state document and requires its status field to equal
+     * `readyStatus` while its expiry field is still in the future: an exit-0 command
+     * cannot tell "signed out" from "signed in" (mcode's `provider list` says
+     * `managed login` in an empty HOME too). */
+    readonly subscriptionProbe:
+      | readonly string[]
+      | { readonly kind: "file-key" }
+      | {
+          readonly kind: "json-auth-state";
+          /** Path relative to the provider's config directory. */
+          readonly file: string;
+          readonly statusField: string;
+          readonly readyStatus: string;
+          readonly expiresAtField: string;
+        };
     readonly subscriptionProbeTimeoutMs: number;
+    /** The provider's own sign-in argv per action, for kinds whose CLI exposes a
+     * top-level `login`/`logout` rather than `auth login`. Absent keeps the
+     * `auth <action>` default. */
+    readonly commands?: Readonly<Record<"login" | "logout", readonly string[]>>;
     /** ACP agents delegate authentication to the host: the client sends the key in
      * `authenticate`'s `_meta.api_key`. API-key instances carry the resolved secret on
      * the launch manifest; subscription instances read this TOML key inside the

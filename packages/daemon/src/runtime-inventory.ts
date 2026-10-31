@@ -42,8 +42,9 @@ function acpKind<K extends RuntimeKindId>(
   auth: {
     shape: "subscription-only" | "separate";
     modes: readonly RuntimeAuthMode[];
-    subscriptionProbe: readonly string[];
+    subscriptionProbe: RuntimeProviderDeclaration["auth"]["subscriptionProbe"];
     subscriptionProbeTimeoutMs: number;
+    commands?: Readonly<Record<"login" | "logout", readonly string[]>>;
     acpAuthMethod?: string;
     acpCredentialKey?: string;
     endpoints?: { baseUrl: RuntimeEndpointAvailability };
@@ -72,6 +73,7 @@ function acpKind<K extends RuntimeKindId>(
       subscriptionProbe: auth.subscriptionProbe,
       subscriptionProbeTimeoutMs: auth.subscriptionProbeTimeoutMs,
       endpoints: auth.endpoints ?? { baseUrl: "none" },
+      ...(auth.commands ? { commands: auth.commands } : {}),
       ...(auth.acpAuthMethod ? { acpAuthMethod: auth.acpAuthMethod } : {}),
       ...(auth.acpCredentialKey ? { acpCredentialKey: auth.acpCredentialKey } : {}),
     },
@@ -289,6 +291,8 @@ export const runtimeKinds = [
       apiKeyIsolation: "enforced",
       subscriptionProbe: ["login", "status"],
       subscriptionProbeTimeoutMs: 5_000,
+      // Codex signs in through `codex login`/`codex logout`, not `codex auth <action>`.
+      commands: { login: ["login"], logout: ["logout"] },
       // API-key instances write model_providers.<id>.base_url into the generated
       // config.toml; absent means the provider's built-in endpoint.
       endpoints: { baseUrl: "optional" },
@@ -829,12 +833,33 @@ export const runtimeKinds = [
     acpAuthMethod: "openai",
     acpCredentialKey: "openai_api_key",
   }),
-  acpKind("minimax-code", "MiniMax Code", "mcode", ["acp"], ".minimax-code", {
-    shape: "subscription-only",
-    modes: ["subscription"],
-    subscriptionProbe: ["--version"],
-    subscriptionProbeTimeoutMs: 10_000,
-  }),
+  // `mcode` stores its data in `~/.minimax` (the package's `.minimax-code` string is an npm
+  // install-path heuristic), signs in with top-level `login`/`logout`, and `--version` exits 0
+  // signed out. Its own auth-state.json carries both the status and the expiry the probe needs.
+  // The bundled native addon's ABI is the installation's concern: rebuild it under the runtime
+  // you launch with; a mismatch surfaces through the provider's own stderr, not a catalog guess.
+  acpKind(
+    "minimax-code",
+    "MiniMax Code",
+    "mcode",
+    ["acp"],
+    ".minimax",
+    {
+      shape: "subscription-only",
+      modes: ["subscription"],
+      subscriptionProbe: {
+        kind: "json-auth-state",
+        file: "auth/prod/cn/mcode-public/auth-state.json",
+        statusField: "status",
+        readyStatus: "authenticated",
+        expiresAtField: "expiresAtMs",
+      },
+      subscriptionProbeTimeoutMs: 10_000,
+      commands: { login: ["login"], logout: ["logout"] },
+    },
+    "open",
+    "auth",
+  ),
   acpKind("mistral-vibe", "Mistral Vibe", "vibe-acp", [], ".vibe", {
     shape: "subscription-only",
     modes: ["subscription"],
@@ -1028,6 +1053,7 @@ export const runtimeKinds = [
 
 export type RuntimeProtocolFamily = (typeof runtimeKinds)[number]["protocolFamily"];
 export type RuntimeKindInventory = (typeof runtimeKinds)[number] &
+  RuntimeProviderDeclaration &
   RuntimeKind & {
     readonly steer?: RuntimeProviderDeclaration["steer"];
   };
@@ -1086,6 +1112,12 @@ export function runtimeKindForId(kindId: string): RuntimeKindInventory {
   const found = runtimeKinds.find((kind) => kind.kindId === kindId);
   if (!found) throw new Error(`Unknown runtime kind: ${kindId}`);
   return found;
+}
+
+/** The provider's own sign-in argv for one action. A kind whose CLI exposes a top-level
+ * `login`/`logout` declares it; every other kind keeps the `auth <action>` form. */
+export function runtimeAuthArgs(kindId: string, action: "login" | "logout"): readonly string[] {
+  return runtimeKindForId(kindId).auth.commands?.[action] ?? ["auth", action];
 }
 
 /** The configuration key that stores this kind's reasoning effort ("effort" or

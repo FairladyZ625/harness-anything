@@ -1,7 +1,17 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -707,6 +717,98 @@ test("devin subscription readiness follows the credential file key, not a comman
       code: null,
       hint: null,
     });
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+// mcode's `--version` exits 0 signed out and `provider list` prints `managed login` in an
+// empty HOME, so readiness comes from the provider's own auth-state document: status plus
+// expiry. Three states must stay distinguishable: never signed in / expired / ready.
+test("minimax-code readiness follows auth-state status and expiry, and its login argv is native", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-minimax-authstate-")),
+    home = path.join(userRoot, "home"),
+    state = path.join(home, ".minimax/auth/prod/cn/mcode-public/auth-state.json"),
+    mcode: RuntimeInstallationWitness = {
+      installationId: "minimax-installation-test",
+      kindId: "minimax-code",
+      executablePath: "/opt/runtime-test/mcode",
+      version: "0.4.6",
+      observedAt: "2026-10-29T00:00:00.000Z",
+    },
+    hint = "Provider subscription authentication is unavailable in the operator environment.";
+  try {
+    const store = openRuntimeInstanceStore({
+      userRoot,
+      env: { HOME: home, PATH: "/bin" },
+      discover: () => [mcode],
+    });
+    store.create({
+      schemaVersion: 2,
+      instanceId: "minimax-subscription",
+      name: "MiniMax Subscription",
+      kindId: "minimax-code",
+      installationId: mcode.installationId,
+      providerId: "minimax-code",
+      models: ["minimax/MiniMax-M3"],
+      defaultModel: "minimax/MiniMax-M3",
+      enabled: true,
+      isolationState: "operator-environment",
+      auth: { mode: "subscription" },
+    });
+    // Defect C: mcode accepts `login`/`logout`, not `auth login` / `auth logout`.
+    assert.deepEqual(store.prepareAuthCommand("minimax-subscription", "login").args, ["login"]);
+    assert.deepEqual(store.prepareAuthCommand("minimax-subscription", "logout").args, ["logout"]);
+
+    // No credential file at all → not ready, and not the "expired" verdict.
+    assert.deepEqual(await store.authStatus("minimax-subscription"), {
+      status: "not-ready",
+      code: "runtime_subscription_required",
+      hint,
+    });
+    mkdirSync(path.dirname(state), { recursive: true });
+    writeFileSync(
+      state,
+      JSON.stringify({ schemaVersion: 2, status: "authenticated", expiresAtMs: Date.now() - 60_000 }),
+    );
+    assert.deepEqual(await store.authStatus("minimax-subscription"), {
+      status: "not-ready",
+      code: "runtime_subscription_expired",
+      hint: "Provider subscription sign-in has expired; run the instance login to sign in again.",
+    });
+    writeFileSync(
+      state,
+      JSON.stringify({ schemaVersion: 2, status: "authenticated", expiresAtMs: Date.now() + 60_000 }),
+    );
+    assert.deepEqual(await store.authStatus("minimax-subscription"), { status: "ready", code: null, hint: null });
+    // An interrupted sign-in leaves `authorizing`; it is not a credential verdict.
+    writeFileSync(state, JSON.stringify({ schemaVersion: 2, status: "authorizing", expiresAtMs: Date.now() + 60_000 }));
+    assert.equal((await store.authStatus("minimax-subscription")).code, "runtime_subscription_required");
+
+    // Defect B: enforced isolation resolves ~/.minimax and links the operator's whole auth
+    // directory (state + tokens) into the instance, so a refreshed login stays visible.
+    writeFileSync(
+      state,
+      JSON.stringify({ schemaVersion: 2, status: "authenticated", expiresAtMs: Date.now() + 60_000 }),
+    );
+    store.create({
+      schemaVersion: 2,
+      instanceId: "minimax-enforced",
+      name: "MiniMax Enforced",
+      kindId: "minimax-code",
+      installationId: mcode.installationId,
+      providerId: "minimax-code",
+      models: ["minimax/MiniMax-M3"],
+      defaultModel: "minimax/MiniMax-M3",
+      enabled: true,
+      isolationState: "enforced",
+      auth: { mode: "subscription" },
+    });
+    const linked = path.join(userRoot, "runtime-instances/minimax-enforced/home/.minimax/auth"),
+      operatorAuth = path.join(home, ".minimax/auth");
+    assert.equal(lstatSync(linked).isSymbolicLink(), true);
+    assert.equal(readlinkSync(linked), operatorAuth);
+    assert.deepEqual(await store.authStatus("minimax-enforced"), { status: "ready", code: null, hint: null });
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
   }

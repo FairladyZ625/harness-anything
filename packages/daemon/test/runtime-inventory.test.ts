@@ -6,7 +6,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { launchArgs } from "../src/agent-runtime-launch-config.ts";
-import { runtimeKinds } from "../src/runtime-inventory.ts";
+import { providerConfigDirectory } from "../src/agent-runtime-instance-storage.ts";
+import { runtimeAuthArgs, runtimeKinds } from "../src/runtime-inventory.ts";
 
 /**
  * Launch-config bearing assertions for the 12 ACP providers introduced in PR #2779.
@@ -39,7 +40,13 @@ const acpLaunchContracts = [
     acpAuthMethod: "openai",
     acpCredentialKey: "openai_api_key",
   },
-  { kindId: "minimax-code", command: "mcode", argumentTemplate: ["acp"] },
+  {
+    kindId: "minimax-code",
+    command: "mcode",
+    argumentTemplate: ["acp"],
+    configDirectory: ".minimax",
+    authCommands: { login: ["login"], logout: ["logout"] },
+  },
   { kindId: "mistral-vibe", command: "vibe-acp", argumentTemplate: [], acpAuthMethod: "browser-auth" },
   { kindId: "junie", command: "junie", argumentTemplate: ["--acp=true"] },
   { kindId: "codebuddy", command: "codebuddy", argumentTemplate: ["--acp"] },
@@ -58,7 +65,48 @@ test("the 12 ACP provider launch contracts stay pinned", () => {
     assert.deepEqual(kind.launch.argumentTemplate, expected.argumentTemplate, `${expected.kindId} argumentTemplate`);
     assert.equal(kind.auth.acpAuthMethod, expected.acpAuthMethod, `${expected.kindId} acpAuthMethod`);
     assert.equal(kind.auth.acpCredentialKey, expected.acpCredentialKey, `${expected.kindId} acpCredentialKey`);
+    // A kind's data directory is part of its launch contract too: mcode reads `~/.minimax`,
+    // and a wrong cell makes every enforced instance read an empty login store.
+    if ("configDirectory" in expected)
+      assert.equal(kind.executable.configDirectory, expected.configDirectory, `${expected.kindId} configDirectory`);
+    if ("authCommands" in expected)
+      assert.deepEqual(kind.auth.commands, expected.authCommands, `${expected.kindId} auth commands`);
   }
+});
+
+test("minimax-code declares the data directory, sign-in argv and login-state probe its CLI actually uses", () => {
+  const kind = runtimeKinds.find((entry) => entry.kindId === "minimax-code")!,
+    home = mkdtempSync(path.join(tmpdir(), "ha-minimax-declaration-"));
+  try {
+    // `mcode provider list` creates ~/.minimax in an empty HOME; `.minimax-code` is an
+    // npm install-path heuristic inside the package, not the data directory.
+    assert.equal(providerConfigDirectory(home, "minimax-code"), path.join(home, ".minimax"));
+    assert.equal(kind.executable.authFile, "auth");
+    // A command probe that exits 0 signed out cannot report readiness; the provider's own
+    // auth-state document carries both status and expiry.
+    assert.deepEqual(kind.auth.subscriptionProbe, {
+      kind: "json-auth-state",
+      file: "auth/prod/cn/mcode-public/auth-state.json",
+      statusField: "status",
+      readyStatus: "authenticated",
+      expiresAtField: "expiresAtMs",
+    });
+    assert.notDeepEqual(kind.auth.subscriptionProbe, ["--version"]);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("sign-in argv is generated from each kind's declaration", () => {
+  // The store used to special-case codex and send every other kind `auth <action>`;
+  // mcode has no `auth` subcommand, so the declaration is now the only source.
+  assert.deepEqual(runtimeAuthArgs("minimax-code", "login"), ["login"]);
+  assert.deepEqual(runtimeAuthArgs("minimax-code", "logout"), ["logout"]);
+  assert.deepEqual(runtimeAuthArgs("codex", "login"), ["login"]);
+  assert.deepEqual(runtimeAuthArgs("codex", "logout"), ["logout"]);
+  // A kind that declares no top-level command keeps the existing form.
+  assert.deepEqual(runtimeAuthArgs("claude", "login"), ["auth", "login"]);
+  assert.deepEqual(runtimeAuthArgs("copilot", "logout"), ["auth", "logout"]);
 });
 
 test("Codex and Claude declare steer resume, every ACP kind steers in place, others declare nothing", () => {
