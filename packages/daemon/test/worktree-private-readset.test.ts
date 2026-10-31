@@ -7,7 +7,7 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -44,6 +44,7 @@ const binding: RepoCellBinding = withPolicyGroup({ actor, source: "local" as con
   },
   standard = path.join("harness", "governance", "standards", "testing-standard.md"),
   skill = path.join("harness", "skills", "agent-dev-standards", "SKILL.md"),
+  skillScript = path.join("harness", "skills", "agent-dev-standards", "scripts", "census.mjs"),
   // As written in a prompt: forward slashes, exactly what the reference extractor records.
   entry = "harness/skills/test-isolation/dispatch-isolated-test.mjs";
 
@@ -152,6 +153,22 @@ test("a real worktree dispatch hands the worker an openable path for every priva
       `${reference} must be answered by the same path Required Skills uses`,
     );
   }
+  // Required Skills names the skill's manifest, but a skill is consumed as its directory: the
+  // scripts beside SKILL.md are part of it. A manifest-only copy made reviewers report the tools as
+  // missing; the manifest must stay at the one path the read-set appendix also prints.
+  const requiredSkill = /(?:^|\n)- agent-dev-standards: (.+)(?:\n|$)/u.exec(prompt)?.[1];
+  assert.ok(requiredSkill, "Required Skills must name the selected skill");
+  assert.equal(existsSync(requiredSkill), true, `the skill manifest must exist at ${requiredSkill}`);
+  const copiedSkillScript = path.join(path.dirname(requiredSkill), "scripts", "census.mjs");
+  assert.equal(
+    existsSync(copiedSkillScript),
+    true,
+    `a script beside SKILL.md must be copied with the skill: ${copiedSkillScript}`,
+  );
+  const canonicalSkillScript = path.join(root, skillScript);
+  assert.equal(readFileSync(copiedSkillScript, "utf8"), readFileSync(canonicalSkillScript, "utf8"));
+  writeFileSync(copiedSkillScript, "worker mutation\n");
+  assert.equal(readFileSync(canonicalSkillScript, "utf8"), "# census.mjs\n", "the canonical script is only read");
   assert.match(prompt, /Never copy one into this repository, never write through one/u);
   assert.match(prompt, /ha doc show --path <ledger path> --raw/u, "read-set locators name their opening command");
   // The isolated-test entry rides every coding dispatch whether or not anything names it —
@@ -196,7 +213,7 @@ function repositoryWithPrivateLedger(root: string): void {
   git(root, "add", "README.md", ".gitignore");
   git(root, "commit", "-qm", "base");
   git(root, "branch", "origin/main");
-  for (const relative of [standard, skill, entry]) {
+  for (const relative of [standard, skill, skillScript, entry]) {
     mkdirSync(path.dirname(path.join(root, relative)), { recursive: true });
     writeFileSync(path.join(root, relative), `# ${path.basename(relative)}\n`);
   }
