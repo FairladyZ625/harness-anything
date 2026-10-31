@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { sha256Text } from "../../packages/kernel/src/integrity/stable-hash.ts";
 import { reviewDigest } from "../../packages/kernel/src/domain/review.ts";
-import { decodeLegacyEventBytes } from "../../packages/kernel/src/store/legacy-generation-source.ts";
-import { makeOfflineCompletionChain } from "../../packages/kernel/src/store/offline-completion-chain.ts";
+import { decodeLegacyEventBytes } from "../../packages/storage/src/store/legacy-generation-source.ts";
+import { makeOfflineCompletionChain } from "../../packages/storage/src/store/offline-completion-chain.ts";
 import {
   parseCanonicalEvent,
   serializePersistedCanonicalEvent,

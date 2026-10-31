@@ -21,7 +21,7 @@ import { readOfflineLedgerEvents, readVerifiedLedgerBackup, type ScheduleV1 } fr
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoWriterCell } from "../src/repo-cell-open.ts";
 import { acquireWorkspaceLock } from "../src/repo-cell-lock.ts";
-import { openPersistentWriterEpoch, readLedgerWriterEpoch } from "../src/writer-epoch.ts";
+import { openPersistentWriterEpoch, readLedgerWriterEpoch } from "@harness-anything/storage";
 import { seedSettingsEvent } from "./repo-settings.fixture.ts";
 import { initHarnessRepo } from "./schedule-actions.fixtures.ts";
 import { provisionPolicyTestRepository, withPolicyGroup } from "./keycloak-policy.fixtures.ts";

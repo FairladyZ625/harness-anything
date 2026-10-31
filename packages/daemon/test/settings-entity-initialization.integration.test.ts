@@ -10,7 +10,7 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openFencedRepoCell } from "./repo-settings.fixture.ts";
 import { resolveRepoBootstrap } from "../src/repo-bootstrap.ts";
-import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
+import { openPersistentWriterEpoch } from "@harness-anything/storage";
 import type { DaemonAuthenticationContext } from "../src/transport/auth-context.ts";
 
 // Typed through the sanctioned fixture, never through packages/daemon/src/repo-cell directly:

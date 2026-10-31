@@ -1,7 +1,7 @@
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { resolveHarnessLayout, sqliteLedgerPath } from "@harness-anything/kernel";
-import { startBaseBackup } from "../src/fleet/basebackup.ts";
+import { startBaseBackup } from "@harness-anything/storage";
 import { installReplicaGeneration, readReplicaGeneration } from "../src/fleet/replica-generation.ts";
 
 /**

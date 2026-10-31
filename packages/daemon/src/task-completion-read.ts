@@ -1,11 +1,11 @@
 import type { DaemonTaskCompletionResult } from "./protocol/daemon-protocol-task-completion.ts";
+import { localGitObjectRefStore } from "@harness-anything/storage";
 import {
   assessFactRetirement,
   consumeKnownError,
   currentExecutionCuts,
   deliveryTargetRef,
   INITIAL_SETTINGS_V1,
-  localGitObjectRefStore,
   type CloseoutSnapshot,
   type CompletionDeliveryStatus,
   taskCompletionNext,

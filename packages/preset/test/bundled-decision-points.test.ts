@@ -9,7 +9,7 @@ import {
   decisionWhenMatches,
   type DecisionPointDeclaration,
 } from "@harness-anything/kernel";
-import { normalizeHistoricalPresetSnapshot } from "@harness-anything/kernel/internal/projection/historical-event-normalization";
+import { normalizeHistoricalPresetSnapshot } from "@harness-anything/kernel/internal/domain/historical-event-normalization.ts";
 import { validatePresetSnapshotV1, type PresetSnapshotV1 } from "../src/preset.contract.ts";
 import { loadCanonicalAssets } from "../src/preset-assets.ts";
 import { createCanonicalPresetResolver } from "../src/preset-resolver.ts";

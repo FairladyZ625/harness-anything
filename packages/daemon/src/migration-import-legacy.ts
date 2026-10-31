@@ -2,13 +2,8 @@ import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readlinkSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError, type ArchivedExecutionV0 } from "@harness-anything/kernel";
-import {
-  hasExactMigrationFields,
-  hasNonEmptyMigrationStrings,
-  isMigrationImportRecord,
-  nonEmpty,
-  timestamp,
-} from "./migration-import-report.ts";
+import { hasExactMigrationFields, hasNonEmptyMigrationStrings, timestamp } from "./migration-import-report.ts";
+import { isMigrationImportRecord, nonEmpty } from "@harness-anything/storage";
 import type { AuthoredNode, DestinationNode } from "./migration-import-types.ts";
 
 export type LegacyLocator =

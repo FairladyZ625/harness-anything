@@ -3,11 +3,11 @@ import { requireSquadRunSubjectCurrent, squadRunSubjectCurrent } from "./squad-r
 import { squadRunObservation } from "./squad-observation.ts";
 import type { SquadRunObservation, SquadRunSubjectV1 } from "@harness-anything/kernel";
 import { randomUUID } from "node:crypto";
+import { localGitObjectRefStore } from "@harness-anything/storage";
 import {
   consumeKnownError,
   isSameExecution,
   isTerminalStatus,
-  localGitObjectRefStore,
   parseSquadDeclarationV1,
   type AgentRuntimeEventV1,
   type TaskProjection,

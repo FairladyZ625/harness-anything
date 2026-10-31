@@ -27,7 +27,7 @@ import {
   openPersistentWriterEpoch,
   readLedgerWriterEpoch,
   withWriterEpochFenceDescriptor,
-} from "../src/writer-epoch.ts";
+} from "@harness-anything/storage";
 
 function probeGit(repo: string, ...args: string[]): string {
   return execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
@@ -456,7 +456,7 @@ test("SQLite acceptance verifies the writer epoch before committing events and o
 test("two concurrent processes take over monotonically after a prior holder exits", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-writer-epoch-race-"));
   try {
-    const source = path.resolve("packages/daemon/src/writer-epoch.ts"),
+    const source = path.resolve("packages/storage/src/writer-epoch.ts"),
       prior = await childEpoch(source, root, "dead-holder"),
       results = await Promise.all(
         Array.from({ length: 2 }, (_value, index) => childEpoch(source, root, `takeover-${index}`)),
@@ -553,7 +553,7 @@ test("append fences for distinct repositories do not contend on one shared write
   // The holder child parks inside repo-a's fence section; repo-b's fence must still enter.
   const root = mkdtempSync(path.join(tmpdir(), "ha-writer-epoch-perrepo-")),
     stateRoot = path.join(root, "state");
-  const source = path.resolve("packages/daemon/src/writer-epoch.ts"),
+  const source = path.resolve("packages/storage/src/writer-epoch.ts"),
     holderSource = `
       import { readSync, writeSync } from "node:fs";
       import { openPersistentWriterEpoch } from ${JSON.stringify(pathToFileURL(source).href)};
@@ -611,7 +611,7 @@ test("append transaction serializes takeover before rejecting the next stale wri
   try {
     const oldAuthority = openPersistentWriterEpoch({ stateRoot, holderId: "old-center" }),
       oldLease = oldAuthority.acquire("probe-repo"),
-      source = path.resolve("packages/daemon/src/writer-epoch.ts");
+      source = path.resolve("packages/storage/src/writer-epoch.ts");
     let successor: ReturnType<typeof childEpoch> | null = null,
       triggered = false;
     cell = await openRepoCell({
@@ -698,7 +698,7 @@ test("remote-center takeover preserves the committed SQLite outcome without prep
       },
       mode: "remote-center",
       killpoint: (point) => {
-        if (point === "after_sqlite_commit" && !triggered) {
+        if (point === "after_store_commit" && !triggered) {
           triggered = true;
           throw new Error("simulated process death after prepared event");
         }

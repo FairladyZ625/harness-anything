@@ -4,10 +4,10 @@ import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import * as tar from "tar";
-import { makeTaskProjectionReader, openSqliteEventStore } from "@harness-anything/kernel";
-import { syncDirectory, syncFile, writeFileDurably } from "../durable-file.ts";
-import type { BaseBackupMetadata } from "./basebackup.ts";
-import { BASE_BACKUP_ARCHIVE_ROOT } from "./basebackup-layout.ts";
+import { makeTaskProjectionReader, openSqliteEventStore } from "@harness-anything/storage";
+import { syncDirectory, syncFile, writeFileDurably } from "@harness-anything/storage";
+import type { BaseBackupMetadata } from "@harness-anything/storage";
+import { BASE_BACKUP_ARCHIVE_ROOT } from "@harness-anything/storage";
 
 export interface ReplicaGeneration {
   readonly id: string;

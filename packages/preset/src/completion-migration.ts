@@ -1,7 +1,7 @@
+import { normalizeHistoricalVerticalDocument } from "@harness-anything/kernel";
 import {
   decodeVerticalDefinition,
   isRetiredCodeDocRequirement,
-  normalizeHistoricalVerticalDocument,
   parseVerticalDeclarationDocument,
 } from "@harness-anything/kernel";
 import { isPresetResolutionRecord as record } from "./preset-resolver-common.ts";

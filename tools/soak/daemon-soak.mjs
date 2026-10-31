@@ -25,7 +25,7 @@ import {
   createImmutableLegacyGenerationSnapshotFromStoppedRepository,
   legacyGenerationSnapshotPath,
   preflightConvertedGenerationActivation,
-} from "../../packages/kernel/src/store/legacy-generation-conversion.ts";
+} from "../../packages/storage/src/store/legacy-generation-conversion.ts";
 import {
   JsonRpcLineClient,
   connectSocket,

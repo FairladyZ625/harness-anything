@@ -13,7 +13,7 @@ import {
   parseDocWriteIntent,
   sha256Text,
 } from "@harness-anything/kernel";
-import { OPAQUE_TEXTUAL_POLICY_ID } from "../../kernel/test/store/canonical-generation.fixtures.ts";
+import { OPAQUE_TEXTUAL_POLICY_ID } from "../../storage/test/store/canonical-generation.fixtures.ts";
 import { readDocReceipt } from "../src/doc-sync-actions.ts";
 import { adjudicateDocIntent } from "../src/doc-sync-adjudication.ts";
 import { detail, touch } from "../src/doc-sync-details.ts";

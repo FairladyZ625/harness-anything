@@ -13,11 +13,11 @@ import { doctorBuildDrift, type DoctorCheck } from "./repo-cell-doctor.ts";
 import { hostedCredentialDoctorCheck } from "./hosting-credential-readiness.ts";
 import { existsSync, realpathSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { registerDaemonRepo } from "@harness-anything/storage";
 import {
   readDaemonRegistry,
   getExecutableEntityAction,
   registerDaemonConnection,
-  registerDaemonRepo,
   removeDaemonConnection,
   resolveHarnessLayout,
   unbindDaemonRepo,
@@ -57,7 +57,7 @@ import {
   validateBackupDestination,
   validateRepoAllPurge,
 } from "./repo-all-purge.ts";
-import { removeFileDurably } from "./durable-file.ts";
+import { removeFileDurably } from "../../storage/src/durable-file.ts";
 
 function isRepoCellReadMethod(method: DaemonGuiRpcReadMethod): method is RepoCellReadMethod {
   return (

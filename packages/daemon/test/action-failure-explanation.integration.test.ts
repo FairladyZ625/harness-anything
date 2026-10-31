@@ -409,7 +409,7 @@ test("post-accept response loss remains operational and never invents an Action 
       rootDir: canonicalRoot(rootDir),
       ownerId: "action-failure-operational",
       killpoint: (point) => {
-        if (armed && point === "after_sqlite_commit")
+        if (armed && point === "after_store_commit")
           throw Object.assign(new Error("Query the stable receipt before retrying."), {
             code: "publication_indeterminate",
           });

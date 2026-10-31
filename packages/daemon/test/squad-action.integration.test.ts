@@ -296,7 +296,7 @@ test("Squad control failure after a committed child never borrows that child's a
       rootDir: canonicalRoot(rootDir),
       ownerId: "squad-control-failure",
       killpoint: (point) => {
-        if (armed && point === "after_sqlite_commit") {
+        if (armed && point === "after_store_commit") {
           armed = false;
           injected = true;
           throw new Error("injected failure after the Squad child committed");

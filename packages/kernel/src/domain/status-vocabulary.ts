@@ -582,7 +582,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     id: "materialization.state",
     entity: "Materialization",
     field: "state",
-    module: "packages/kernel/src/store/task-event-store-types.ts",
+    module: "packages/kernel/src/ports/task-event-store.ts",
     anchor: "materializationStates",
     words: ["ok", "retrying", "failed"],
     note: "Health of the WAL-to-Git checkpoint path; failed is a write-admission latch until explicit recovery.",

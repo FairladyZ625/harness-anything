@@ -3,7 +3,7 @@ import { actionDeclarations } from "@harness-anything/kernel";
 import { hostCodedError } from "./daemon-host-errors.ts";
 import { type RepoCellBinding } from "./repo-cell.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
-import { withWriterEpochFenceDescriptor, type WriterEpochFenceDescriptor } from "./writer-epoch.ts";
+import { withWriterEpochFenceDescriptor, type WriterEpochFenceDescriptor } from "@harness-anything/storage";
 
 export function localSystemBinding(
   _rootDir: string,

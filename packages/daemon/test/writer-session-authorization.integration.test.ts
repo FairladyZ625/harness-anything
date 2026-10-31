@@ -10,7 +10,7 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { localDefaultBinding } from "../src/daemon-host-binding.ts";
 import { resolveRepoBootstrap } from "../src/repo-bootstrap.ts";
 import { openWriterSupervisor } from "../src/writer-supervisor.ts";
-import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
+import { openPersistentWriterEpoch } from "@harness-anything/storage";
 import { initRepo } from "./task-surface.fixtures.ts";
 import type { DaemonAuthenticationContext } from "../src/transport/auth-context.ts";
 

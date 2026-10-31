@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { makeOfflineCompletionChain } from "../src/store/offline-completion-chain.ts";
+import { makeOfflineCompletionChain } from "../../storage/src/store/offline-completion-chain.ts";
 import {
   serializePersistedCanonicalEvent,
   parseCanonicalEvent,
@@ -18,7 +18,7 @@ import { validateSubmissionV1 } from "../src/domain/execution.ts";
 import type { CanonicalEventV1 } from "../src/domain/doc-sync-types.ts";
 import type { TaskEventV1 } from "../src/domain/task-lifecycle-event.ts";
 
-import { digest, actor, stamp, history } from "./store/completion-history.fixtures.ts";
+import { digest, actor, stamp, history } from "../../storage/test/store/completion-history.fixtures.ts";
 
 function convert() {
   const mapper = makeOfflineCompletionChain({

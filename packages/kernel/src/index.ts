@@ -1,14 +1,6 @@
 export { consumeKnownError } from "./error-consumption.ts";
 export * from "./domain/index.ts";
 export {
-  activateEmptyCanonicalGeneration,
-  convertLegacyGeneration,
-  createImmutableLegacyGenerationSnapshot,
-  legacyGenerationSnapshotPath,
-  canonicalDocumentClaims,
-  canonicalDocumentRetirements,
-} from "./composition/index.ts";
-export {
   compareRuntimeActivity,
   latestRuntimeActivityAt,
   runtimeArchiveText,
@@ -238,31 +230,8 @@ export {
 } from "./layout/index.ts";
 export type { HarnessLayoutOverrides } from "./layout/index.ts";
 export * from "./ports/index.ts";
-export type {
-  FactAnchorRow,
-  RelationCoverageRow,
-  RelationFactRow,
-  RelationGraphEdgeRow,
-} from "./projection/relation-graph-projection.ts";
-export { projectDecisionReadiness } from "./projection/decision-readiness-projection.ts";
-export type { DecisionListFilters, DecisionProjectionRow } from "./projection/decision-event-projection.ts";
-export type { FactProjectionRow, FactSearchFilters } from "./projection/fact-event-projection.ts";
-export { readLegacyMigrationSource } from "./projection/cold-rebuild-source.ts";
-export { normalizeHistoricalVerticalDocument } from "./projection/historical-event-normalization.ts";
-export type {
-  ColdDecisionProjectionRow,
-  ColdRebuildIssue,
-  ColdRebuildSource,
-} from "./projection/cold-rebuild-source.ts";
-export {
-  legacyRelationManualReason,
-  normalizeLegacyRelationMigrationEvent,
-} from "./projection/relation-migration-normalization.ts";
-export { readMarkdownSource, taskEntryToRow } from "./projection/sqlite-task-source.ts";
-export type { TaskSourceEntry } from "./projection/sqlite-task-source.ts";
 export { renderDecisionDocument } from "./domain/decision-event.ts";
 export { renderFactsDocument } from "./domain/fact-event.ts";
-export type { ProjectionWarning, TaskProjectionRow } from "./projection/types.ts";
 export { emptyTaskLifecycleSnapshot } from "./domain/task-lifecycle.contract.ts";
 export { schemaRegistry, TemplateCatalogSchema } from "./schemas/registry.ts";
 export type { VerticalCompletionDeclaration } from "./domain/completion-source.ts";
@@ -274,64 +243,6 @@ export {
   validateVerticalDeclarationRead,
 } from "./schemas/vertical-definition.ts";
 export {
-  canonicalEventCut,
-  canonicalEventWritePlan,
-  cmdShellInvocation,
-  createLedgerBackup,
-  drillLedgerBackup,
-  restoreLedgerBackup,
-  configureLedgerMaintenance,
-  HARNESS_LEDGER_WRITER_ENV,
-  installLedgerCommitGuard,
-  localGitWorktreeSettlement,
-  localGitObjectRefStore,
-  createEntityStore,
-  ledgerGitPath,
-  makeTaskEventReader,
-  openEntityStore,
-  resolveLedgerGitLayout,
-  eventShapeMigrations,
-  applyAttachMigrations,
-  makeTaskEventStore,
-  makeTaskProjection,
-  ProjectionIdentityMismatchError,
-  openSqliteEventStore,
-  openReplicaStore,
-  replicationContentClaims,
-  readOfflineLedgerEvents,
-  resolveActiveGeneration,
-  restoreDrillRetentionFor,
-  runCompletionGenerationConversion,
-  readCertifiedGitFollower,
-  sqliteLedgerPath,
-  reconcileSqliteEvents,
-  makeTaskProjectionReader,
-  applyLedgerBackupRetention,
-  readVerifiedLedgerBackup,
-} from "./composition/index.ts";
-export type { LedgerBackupRetentionPolicyV1 } from "./composition/index.ts";
-export type { ReplicationPosition, ReplicationCommit } from "./composition/index.ts";
-export type {
-  CanonicalContentBlob,
-  CanonicalEventAppendReceipt,
-  CanonicalEventCut,
-  CanonicalEventStore,
-  CanonicalWriteBundle,
-  DispatchRecordLeaseSettlement,
-  EntityStore,
-  EventPublicationKillpoint,
-  MaterializationHealth,
-  MaterializationState,
-  ProjectionPage,
-  TaskIndexProjectionRow,
-  TaskProjection,
-  TaskProjectionQueries,
-  TaskProjectionListQuery,
-  TaskRelationProjectionRead,
-  TaskRelationNeighborhoodQuery,
-  TaskRelationQuery,
-} from "./composition/index.ts";
-export {
   readDaemonRegistry,
   registerDaemonConnection,
   removeDaemonConnection,
@@ -340,7 +251,6 @@ export {
   updateDaemonConnection,
   updateDaemonRepo,
 } from "./daemon/registry.ts";
-export { registerDaemonRepo } from "./composition/index.ts";
 export type {
   DaemonRegistry,
   DaemonRegistryConnection,
@@ -407,3 +317,5 @@ export { compileGateRunChange } from "./domain/gate-run-publication.ts";
 export { todoIsOpen, changeTodo, type Todo } from "./domain/todo.ts";
 
 export { compileRelationCreatedEvent } from "./domain/relation-event.ts";
+
+export { normalizeHistoricalVerticalDocument } from "./domain/historical-event-normalization.ts";

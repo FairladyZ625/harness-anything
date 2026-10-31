@@ -29,8 +29,9 @@ import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { type TerminalHost, type TrustedTerminalLaunch } from "./terminal-host.ts";
 import type { KeycloakCenterAuthority } from "./transport/auth-context.ts";
-import type { WriterEpochFenceDescriptor } from "./writer-epoch.ts";
-import { createLedgerBackup, type DaemonRegistryRepo } from "@harness-anything/kernel";
+import type { WriterEpochFenceDescriptor } from "@harness-anything/storage";
+import { createLedgerBackup } from "@harness-anything/storage";
+import { type DaemonRegistryRepo } from "@harness-anything/kernel";
 
 export type RepoTaskAction = Readonly<Record<string, unknown>> & {
   readonly kind: string;

@@ -3,7 +3,7 @@ import path from "node:path";
 import { binding as deriveBinding } from "../src/daemon-host-binding.ts";
 import { openSqliteEventStore } from "@harness-anything/kernel";
 import type { DaemonHost } from "../src/daemon-host.ts";
-import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
+import { openPersistentWriterEpoch } from "@harness-anything/storage";
 import { serveKeycloak, signInAt, OidcSessionService } from "./keycloak.fixtures.ts";
 import { actionDeclarations, deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 

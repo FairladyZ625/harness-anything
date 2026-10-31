@@ -1,3 +1,4 @@
+import { type ColdRebuildSource } from "@harness-anything/storage";
 import {
   consumeKnownError,
   deriveRelationId,
@@ -8,7 +9,6 @@ import {
   sha256Text,
   type ActorIdentity,
   type CanonicalEventStore,
-  type ColdRebuildSource,
   type MigrationImportEventV1,
   type RelationGraphEdgeRow,
   type TaskProjection,
@@ -22,7 +22,7 @@ import type {
   Skip,
   SourceGitIdentity,
 } from "./migration-import-types.ts";
-import type { MigrationProjectionOracle } from "./migration-import-oracle.ts";
+import type { MigrationProjectionOracle } from "@harness-anything/storage";
 
 export interface ReboundRelation {
   readonly oldId: string;

@@ -8,8 +8,8 @@ import {
   createFactProjectionTables,
   readFactGraphRows,
   reduceFactEvent,
-} from "../../src/projection/fact-event-projection.ts";
-import { createRelationGraphProjectionTables } from "../../src/projection/relation-graph-projection.ts";
+} from "../../../storage/src/projection/fact-event-projection.ts";
+import { createRelationGraphProjectionTables } from "../../../storage/src/projection/relation-graph-projection.ts";
 
 const actor = { principal: { personId: "person-fact-contract" }, executor: null } as const;
 const payload = {

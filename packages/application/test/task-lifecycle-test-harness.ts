@@ -11,7 +11,7 @@ import {
   type FrozenGateRequirement,
 } from "@harness-anything/kernel";
 import { reviewDigest } from "@harness-anything/kernel";
-import { makeTaskEventStore, makeTaskProjection } from "../../kernel/test/store/task-lifecycle-runtime.ts";
+import { makeTaskEventStore, makeTaskProjection } from "../../storage/test/store/task-lifecycle-runtime.ts";
 import { makeTaskLifecycleService } from "../src/task-lifecycle-service.ts";
 
 export const owner = { principal: { personId: "person-owner" }, executor: { kind: "agent" as const, id: "codex" } };

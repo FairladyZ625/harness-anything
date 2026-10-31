@@ -12,7 +12,7 @@ test(
   (context) => {
     const root = mkdtempSync(path.join(tmpdir(), "ha-writer-epoch-sigkill-")),
       fixture = path.resolve("packages/daemon/test/writer-epoch-process.fixture.mjs"),
-      source = path.resolve("packages/daemon/src/writer-epoch.ts"),
+      source = path.resolve("packages/storage/src/writer-epoch.ts"),
       run = (arm: string) =>
         spawnSync(process.execPath, [fixture, source, root, arm], {
           encoding: "utf8",

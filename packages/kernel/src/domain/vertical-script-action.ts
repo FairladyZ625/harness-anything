@@ -159,3 +159,4 @@ function safeVerticalScriptPath(value: unknown): value is string {
     value.split("/").every((part) => part.length > 0 && part !== "." && part !== "..")
   );
 }
+/** @slice-activation kernel vertical-script action contract is consumed by preset and daemon action paths. */

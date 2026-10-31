@@ -1,5 +1,5 @@
 import type { MigrationImportContext } from "./migration-import-run.ts";
-import { migrationOracleKinds, type MigrationOracleKind } from "./migration-import-oracle.ts";
+import { migrationOracleKinds, type MigrationOracleKind } from "./migration-import-types.ts";
 import type { MigrationKindReconciliation } from "./migration-import-types.ts";
 
 export function reconcileProjectionOracle(

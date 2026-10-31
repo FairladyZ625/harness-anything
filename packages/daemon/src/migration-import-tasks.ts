@@ -1,21 +1,20 @@
 import { lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { taskEntryToRow, type TaskSourceEntry } from "@harness-anything/storage";
 import {
   REPLAY_TASK_GRAPH,
   consumeKnownError,
   readScalar,
   sha256Text,
   slugifyTaskTitle,
-  taskEntryToRow,
   validateTaskIdSyntax,
   validateTaskV2,
   type CanonicalContentBlob,
-  type TaskSourceEntry,
 } from "@harness-anything/kernel";
-import type { ProjectionOracleTask } from "./migration-import-oracle.ts";
+import type { ProjectionOracleTask } from "@harness-anything/storage";
 import { scheduleArchivedEntity } from "./migration-import-dispositions.ts";
 import { portableMigrationPath } from "./migration-import-conflicts.ts";
-import { isMigrationImportRecord } from "./migration-import-report.ts";
+import { isMigrationImportRecord } from "@harness-anything/storage";
 import { restateTaskContract } from "./migration-import-task-restatement.ts";
 import type { ImportedTask } from "./migration-import-types.ts";
 import type { MigrationImportContext } from "./migration-import-run.ts";

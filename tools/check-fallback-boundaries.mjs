@@ -21,12 +21,12 @@ const consume = new Set();
 const scans = new Set();
 const substitutions = new Set();
 const offlineMaintenanceFullHistoryReaders = new Set([
-  "packages/kernel/src/projection/rebuildable-task-projection-event-application.ts#catchUpRound",
-  "packages/kernel/src/store/ledger-backup.ts#readSqliteEvents",
-  "packages/kernel/src/store/sqlite-event-store.ts#migrateEventsToSqlite",
-  "packages/kernel/src/store/sqlite-task-event-publication.ts#publishConvertedGeneration",
-  "packages/kernel/src/store/sqlite-task-event-publication.ts#readCertifiedGitFollower",
-  "packages/kernel/src/store/sqlite-task-event-publication.ts#ledgerWorktreeBaseline",
+  "packages/storage/src/projection/rebuildable-task-projection-event-application.ts#catchUpRound",
+  "packages/storage/src/store/ledger-backup.ts#readSqliteEvents",
+  "packages/storage/src/store/sqlite-event-store.ts#migrateEventsToSqlite",
+  "packages/storage/src/store/sqlite-task-event-publication.ts#publishConvertedGeneration",
+  "packages/storage/src/store/sqlite-task-event-publication.ts#readCertifiedGitFollower",
+  "packages/storage/src/store/sqlite-task-event-publication.ts#ledgerWorktreeBaseline",
 ]);
 
 function isStartArgument(node) {

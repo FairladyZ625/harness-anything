@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { localDaemonTargetKey } from "./client/local-daemon-target.ts";
-import { writeFileDurably } from "./durable-file.ts";
+import { writeFileDurably } from "../../storage/src/durable-file.ts";
 import type { FleetCenterAdmissionRequest } from "./fleet-center-admission.ts";
 
 export function parseFleetCenterExternalUrl(value: string): string {

@@ -1,8 +1,8 @@
 import { writeSync } from "node:fs";
 import { serializePersistedCanonicalEvent } from "../../../packages/kernel/src/domain/doc-sync.contract.ts";
 import { sha256Text } from "../../../packages/kernel/src/integrity/stable-hash.ts";
-import { openSqliteEventStore } from "../../../packages/kernel/src/store/sqlite-event-store.ts";
-import { eventAt } from "../../../packages/kernel/test/store/task-event-store.fixtures.ts";
+import { openSqliteEventStore } from "../../../packages/storage/src/store/sqlite-event-store.ts";
+import { eventAt } from "../../../packages/storage/test/store/task-event-store.fixtures.ts";
 
 const [databasePath, boundary] = process.argv.slice(2);
 if (!databasePath || !["before-outcome", "after-commit", "after-receipt"].includes(boundary))

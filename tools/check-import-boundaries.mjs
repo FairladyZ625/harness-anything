@@ -69,11 +69,31 @@ function resolveWorkspacePackageImport(specifier) {
   if (!workspacePackage) return null;
   const packageSubpath = segments.slice(packageSegmentCount).join("/"),
     exportKey = packageSubpath ? `./${packageSubpath}` : ".";
-  const target = exportTarget(
-    workspacePackage.exports?.[exportKey] ??
-      (exportKey === "." && typeof workspacePackage.exports === "string" ? workspacePackage.exports : undefined),
-  );
+  const exports = workspacePackage.exports ?? {};
+  let entry = exports[exportKey];
+  if (entry === undefined) {
+    const pattern = Object.keys(exports)
+      .filter((key) => key.includes("*") && wildcardMatch(exportKey, key) !== null)
+      .sort((left, right) => right.indexOf("*") - left.indexOf("*") || left.length - right.length)[0];
+    if (pattern) {
+      const captured = wildcardMatch(exportKey, pattern);
+      entry = mapExportTarget(exports[pattern], (target) => target.replaceAll("*", captured));
+    }
+  }
+  const target = exportTarget(entry ?? (exportKey === "." && typeof exports === "string" ? exports : undefined));
   return target?.startsWith("./") ? relative(path.normalize(path.join(workspacePackage.root, target))) : null;
+}
+
+function wildcardMatch(value, pattern) {
+  const [prefix, suffix] = pattern.split("*");
+  if (!suffix || !value.startsWith(prefix) || !value.endsWith(suffix)) return null;
+  return value.slice(prefix.length, value.length - suffix.length);
+}
+
+function mapExportTarget(entry, mapper) {
+  if (typeof entry === "string") return mapper(entry);
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return entry;
+  return Object.fromEntries(Object.entries(entry).map(([key, value]) => [key, mapExportTarget(value, mapper)]));
 }
 
 function exportTarget(entry) {
@@ -202,7 +222,7 @@ function isTestOrFixturePath(rel) {
 // the classification is documented in the task package and kept explicit so a new direct import
 // fails closed.
 const repoFixtureBoundaryExceptions = new Set([
-  "packages/kernel/test/store/daemon-registry.test.ts",
+  "packages/storage/test/store/daemon-registry.test.ts",
   "packages/daemon/test/repo-settings.fixture.ts",
   "packages/daemon/test/repo-bootstrap-configure-only.test.ts",
   "packages/daemon/test/json-rpc-task-settlement.integration.test.ts",
@@ -321,6 +341,26 @@ for (const file of packageSourceFiles) {
   }
 
   const imports = [...text.matchAll(importPattern)].map((match) => match[1] ?? match[2] ?? match[3]);
+  if (rel.startsWith("packages/kernel/src/")) {
+    for (const specifier of imports) {
+      if (importedPathViolates(file, specifier, (target) => /packages\/storage\//.test(target))) {
+        record(file, `kernel must not depend on storage via ${specifier}`);
+      }
+    }
+  }
+
+  if (rel.startsWith("packages/storage/")) {
+    for (const specifier of imports) {
+      if (
+        importedPathViolates(file, specifier, (target) =>
+          /packages\/(?:application|cli|daemon|gui|preset)\//.test(target),
+        )
+      ) {
+        record(file, `storage must depend inward on kernel only, not delivery packages via ${specifier}`);
+      }
+    }
+  }
+
   if (rel.startsWith("packages/kernel/src/domain/")) {
     for (const specifier of imports) {
       if (/^(?:node:)?(?:fs|process|child_process|path|os|crypto|sqlite|better-sqlite3)$/.test(specifier)) {
@@ -354,7 +394,7 @@ for (const file of packageSourceFiles) {
   }
 
   const isKernelStoreCompositionRoot = kernelStoreCompositionRoots.has(rel);
-  if (!isTestOrFixture && !isKernelStoreCompositionRoot && !rel.startsWith("packages/kernel/src/store/")) {
+  if (!isTestOrFixture && !isKernelStoreCompositionRoot && !rel.startsWith("packages/storage/src/store/")) {
     for (const specifier of imports) {
       if (importedPathViolates(file, specifier, (target) => /packages\/kernel\/src\/store\//.test(target))) {
         record(

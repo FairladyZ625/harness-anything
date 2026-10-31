@@ -12,7 +12,7 @@ import {
   resolveHarnessLayout,
 } from "../../../packages/kernel/src/index.ts";
 import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
-import { startBaseBackup } from "../../../packages/daemon/src/fleet/basebackup.ts";
+import { startBaseBackup } from "../../../packages/storage/src/fleet-basebackup.ts";
 import { installReplicaGeneration } from "../../../packages/daemon/src/fleet/replica-generation.ts";
 import { guiE2eRuntimeSessionId } from "./sessions-grouping.mjs";
 import { bridgeReady, nav } from "./helpers.mjs";

@@ -4,7 +4,7 @@ import { emptyCompletionContract, retiredHostedCiSource } from "../../kernel/tes
 import {
   makeOfflineCompletionChain,
   makeSqliteTaskEventStore,
-} from "../../kernel/test/store/canonical-generation.fixtures.ts";
+} from "../../storage/test/store/canonical-generation.fixtures.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -42,16 +42,16 @@ import {
   type CanonicalEventStore,
   type TaskEventV1,
 } from "@harness-anything/kernel";
-import { preflightCanonicalGeneration } from "../../kernel/test/store/canonical-generation.fixtures.ts";
+import { preflightCanonicalGeneration } from "../../storage/test/store/canonical-generation.fixtures.ts";
 import {
   assertNoPendingHistoricalRewrites,
   planLegacyGenerationConversion,
-} from "../../kernel/test/store/canonical-generation.fixtures.ts";
+} from "../../storage/test/store/canonical-generation.fixtures.ts";
 import {
   createImmutableLegacyGenerationSnapshotFromStoppedRepository,
   preflightConvertedGenerationActivation,
-} from "../../kernel/test/store/canonical-generation.fixtures.ts";
-import { sqliteContentObjectPath } from "../../kernel/test/store/canonical-generation.fixtures.ts";
+} from "../../storage/test/store/canonical-generation.fixtures.ts";
+import { sqliteContentObjectPath } from "../../storage/test/store/canonical-generation.fixtures.ts";
 import { lifecycleFixture, twoRoundLifecycleEvents } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { actor, initRepo } from "./migration-import.fixtures.ts";
 

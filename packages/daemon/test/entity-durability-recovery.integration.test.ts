@@ -11,7 +11,7 @@ import { makeTaskEventReader } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
-import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
+import { openPersistentWriterEpoch } from "@harness-anything/storage";
 import { git, initRepo } from "./task-surface.fixtures.ts";
 
 /**
@@ -72,9 +72,9 @@ test("An entity accepted into SQLite recovers its bytes after its publication is
       ownerId: "entity-interrupted-generation-one",
       now: () => "2026-09-09T20:00:00.000Z",
       killpoint: (point) => {
-        if (armed && point === "after_sqlite_commit") {
+        if (armed && point === "after_store_commit") {
           armed = false;
-          throw new Error("crash:after_sqlite_commit");
+          throw new Error("crash:after_store_commit");
         }
       },
     });
@@ -681,7 +681,7 @@ if (arm === "accept-and-hang") {
     ownerId: "entity-sigkill-doomed",
     now: () => "2026-09-09T20:00:00.000Z",
     killpoint: (point) => {
-      if (point !== "after_sqlite_commit" || signalled) return;
+      if (point !== "after_store_commit" || signalled) return;
       signalled = true;
       let named = { opId: null, entityId: null, revision: null, readerError: null };
       try {
@@ -695,7 +695,7 @@ if (arm === "accept-and-hang") {
       } catch (error) {
         named = { ...named, readerError: String(error) };
       }
-      emit({ signal: "after_sqlite_commit", ...named });
+      emit({ signal: "after_store_commit", ...named });
       // Blocks the only thread there is, without burning it. Nothing below runs again in this process.
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
     },
@@ -849,7 +849,7 @@ test(
       const doomedMarker = path.join(parent, "doomed-orderly-exit.marker");
       doomed = spawnArm("accept-and-hang", doomedMarker);
       const doomedOutput = childRecords(doomed),
-        boundary = await doomedOutput.record("after_sqlite_commit"),
+        boundary = await doomedOutput.record("after_store_commit"),
         doomedPid = doomed.pid!;
       assert.equal(boundary.readerError, null, JSON.stringify(boundary));
       assert.equal(boundary.pid, doomedPid, JSON.stringify(boundary));

@@ -2,7 +2,7 @@ import { mkdirSync, readdirSync, readSync, renameSync, statSync, unlinkSync } fr
 import path from "node:path";
 import { resolveHarnessLayout, type TaskProjectionQueries } from "@harness-anything/kernel";
 import { compactDispatchStreamArchive } from "./dispatch-stream-compaction.ts";
-import { withReadOnlyFile } from "./durable-file.ts";
+import { withReadOnlyFile } from "../../storage/src/durable-file.ts";
 
 type Schedule = (work: () => void | Promise<void>) => void;
 

@@ -26,7 +26,7 @@ import {
   type SettingsV1,
   type TaskProjectionQueries,
 } from "@harness-anything/kernel";
-import { writeFileDurably } from "./durable-file.ts";
+import { writeFileDurably } from "../../storage/src/durable-file.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import type { DispatchArchiveRetention } from "./dispatch-stream-archive.ts";
 import type {

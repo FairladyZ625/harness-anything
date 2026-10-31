@@ -8,7 +8,7 @@ import {
   type PersistentWriterEpoch,
   type WriterEpochFenceDescriptor,
   type WriterEpochLease,
-} from "./writer-epoch.ts";
+} from "@harness-anything/storage";
 
 export interface DaemonWriterEpochs {
   readonly writerEpochLease: (repoId: string, rootDir?: string) => WriterEpochLease;

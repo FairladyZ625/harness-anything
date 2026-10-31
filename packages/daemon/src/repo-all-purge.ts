@@ -6,10 +6,9 @@ import {
   makeTaskEventReader,
   makeTaskProjection,
   openSqliteEventStore,
-  resolveHarnessLayout,
   restoreDrillRetentionFor,
-  type DaemonRegistryRepo,
-} from "@harness-anything/kernel";
+} from "@harness-anything/storage";
+import { resolveHarnessLayout, type DaemonRegistryRepo } from "@harness-anything/kernel";
 import { removeHarnessIgnoreRules } from "./repo-bootstrap.ts";
 import { removeRepoHarnessRoots } from "./repo-cache-purge.ts";
 

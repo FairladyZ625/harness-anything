@@ -4,7 +4,7 @@ import { X509Certificate } from "node:crypto";
 import { existsSync, statfsSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
-import { writeFileDurably } from "../durable-file.ts";
+import { writeFileDurably } from "@harness-anything/storage";
 import { readFleetEdgeConfig, writeFleetEdgeConfig } from "../client/fleet-edge-config.ts";
 import { runProcessTextAsync } from "../process-port.ts";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";

@@ -33,7 +33,7 @@ import {
   validateEntityEvent,
 } from "../../src/domain/entity-event.ts";
 import { compileEntityUpdated } from "../../src/domain/entity-event-compile.ts";
-import { assertContentInputs } from "../../src/store/task-event-store-validation.ts";
+import { assertContentInputs } from "../../src/ports/canonical-event-validation.ts";
 
 const vertical = JSON.parse(
   readFileSync(new URL("../../fixtures/schemas/vertical-definition/valid.json", import.meta.url), "utf8"),

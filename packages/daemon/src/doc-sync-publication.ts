@@ -467,7 +467,7 @@ export function publishDocIntent(
     blobs: adjudication.decision.blobs,
   });
   input.projection.apply(adjudication.decision.event, adjudication.decision.plan);
-  postCommit(input, "after_sqlite_commit", opId);
+  postCommit(input, "after_store_commit", opId);
   postCommit(input, "before_response_write", opId);
   const applied = readDocReceipt(input, adjudication.decision.event);
   postCommit(input, "after_response_write", opId);

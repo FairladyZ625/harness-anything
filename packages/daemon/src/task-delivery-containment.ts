@@ -1,4 +1,4 @@
-import { localGitObjectRefStore } from "@harness-anything/kernel";
+import { localGitObjectRefStore } from "@harness-anything/storage";
 import { runProcessText } from "./process-port.ts";
 
 export const EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";

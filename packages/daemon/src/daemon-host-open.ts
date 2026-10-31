@@ -13,11 +13,11 @@ import {
 /** @daemon-transport-authority Host composition and RepoCell ownership. */
 import path from "node:path";
 import { readFileSync } from "node:fs";
+import { registerDaemonRepo } from "@harness-anything/storage";
 import {
   consumeKnownError,
   validateScheduleV1,
   readDaemonRegistry,
-  registerDaemonRepo,
   type DaemonRepoMode,
 } from "@harness-anything/kernel";
 import type { CommandTopology } from "@harness-anything/preset/internal/preset-command-contract";
