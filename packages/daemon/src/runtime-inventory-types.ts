@@ -21,12 +21,6 @@ export interface RuntimeProviderDeclaration {
     /** Credential path relative to `configDirectory`; a directory is allowed when the
      *  provider keeps its login state across several sibling files (mcode's `auth/`). */
     readonly authFile: string | null;
-    /** The Node ABI (`process.versions.modules`) the provider's bundled native addon was
-     *  built for, when its entry is a `#!/usr/bin/env node` script. A launch resolves a
-     *  matching node from PATH and puts it first; the PATH node that happens to run the
-     *  daemon must not decide the provider's ABI. Absent means the entry runs under the
-     *  caller's PATH node unchanged. */
-    readonly nodeAbi?: number;
     /** null means the provider exposes no model catalog; discovery leaves catalog fields unavailable. */
     readonly modelProbe: readonly string[] | null;
     readonly modelProbeFormat: "aliases-from-help" | "json-models" | "json-families" | "tabular-models";

@@ -2,7 +2,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import {
-  chmodSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -650,7 +649,7 @@ test("agy uses the operator environment, OAuth-only auth, and a closed effort en
         }),
       (error: unknown) => codedAs(error, "invalid_runtime_auth"),
     );
-    await assert.rejects(
+    assert.throws(
       () => store.prepareAuthCommand("agy-review", "login"),
       (error: unknown) => codedAs(error, "runtime_auth_interactive_only"),
     );
@@ -729,7 +728,6 @@ test("devin subscription readiness follows the credential file key, not a comman
 test("minimax-code readiness follows auth-state status and expiry, and its login argv is native", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-minimax-authstate-")),
     home = path.join(userRoot, "home"),
-    fakeBin = path.join(userRoot, "bin-137"),
     state = path.join(home, ".minimax/auth/prod/cn/mcode-public/auth-state.json"),
     mcode: RuntimeInstallationWitness = {
       installationId: "minimax-installation-test",
@@ -740,15 +738,9 @@ test("minimax-code readiness follows auth-state status and expiry, and its login
     },
     hint = "Provider subscription authentication is unavailable in the operator environment.";
   try {
-    // The auth-command path resolves a Node ABI 137 interpreter. Pin one in the test PATH so
-    // this case exercises the argv, not whichever node the test host happens to run.
-    mkdirSync(fakeBin, { recursive: true });
-    const fakeNode = path.join(fakeBin, "node");
-    writeFileSync(fakeNode, "#!/bin/sh\nprintf '%s' '137'\n");
-    chmodSync(fakeNode, 0o755);
     const store = openRuntimeInstanceStore({
       userRoot,
-      env: { HOME: home, PATH: [fakeBin, "/bin"].join(path.delimiter) },
+      env: { HOME: home, PATH: "/bin" },
       discover: () => [mcode],
     });
     store.create({
@@ -765,8 +757,8 @@ test("minimax-code readiness follows auth-state status and expiry, and its login
       auth: { mode: "subscription" },
     });
     // Defect C: mcode accepts `login`/`logout`, not `auth login` / `auth logout`.
-    assert.deepEqual((await store.prepareAuthCommand("minimax-subscription", "login")).args, ["login"]);
-    assert.deepEqual((await store.prepareAuthCommand("minimax-subscription", "logout")).args, ["logout"]);
+    assert.deepEqual(store.prepareAuthCommand("minimax-subscription", "login").args, ["login"]);
+    assert.deepEqual(store.prepareAuthCommand("minimax-subscription", "logout").args, ["logout"]);
 
     // No credential file at all → not ready, and not the "expired" verdict.
     assert.deepEqual(await store.authStatus("minimax-subscription"), {

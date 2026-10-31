@@ -78,7 +78,6 @@ import {
   runtimeKindIds,
   type RuntimeProviderDeclaration,
 } from "./runtime-inventory.ts";
-import { withNodeAbiEnvironment } from "./runtime-node-abi.ts";
 import { runtimeVersionGate } from "./runtime-version.ts";
 
 /** Runtime session ids the spawner mints (`runtime_<24 hex>`). The per-run temp directory joins
@@ -254,10 +253,7 @@ export function openRuntimeInstanceStore(input: {
       );
     }
   }
-  async function prepareAuthCommand(
-    instanceId: string,
-    action: "login" | "logout",
-  ): Promise<PreparedRuntimeAuthCommand> {
+  function prepareAuthCommand(instanceId: string, action: "login" | "logout"): PreparedRuntimeAuthCommand {
     const config = readOne(instanceId);
     if (!config)
       throw runtimeInstanceError("runtime_instance_not_found", `Runtime instance ${instanceId} does not exist.`);
@@ -293,7 +289,7 @@ export function openRuntimeInstanceStore(input: {
       name: config.name,
       executablePath: installation.executablePath,
       args,
-      env: await withNodeAbiEnvironment(authEnvironment(config), config.kindId, platform),
+      env: authEnvironment(config),
       cwd: path.join(instancesRoot, config.instanceId),
     };
   }
@@ -340,11 +336,7 @@ export function openRuntimeInstanceStore(input: {
           ? runtimeTempDirectory(instancesRoot, config.instanceId, request.runtimeSessionId)
           : null,
       env = {
-        ...(await withNodeAbiEnvironment(
-          authEnvironment(config, launchTempDirectory ?? undefined),
-          config.kindId,
-          platform,
-        )),
+        ...authEnvironment(config, launchTempDirectory ?? undefined),
         ...(permissionMode ? launch.permissionEnvironment?.[permissionMode] : undefined),
       },
       args = launchArgs(

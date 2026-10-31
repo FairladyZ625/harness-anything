@@ -49,11 +49,8 @@ function acpKind<K extends RuntimeKindId>(
     acpCredentialKey?: string;
     endpoints?: { baseUrl: RuntimeEndpointAvailability };
   },
-  options: {
-    readonly modelFamily?: "open" | "codex-only" | "gemini-only";
-    readonly authFile?: string | null;
-    readonly nodeAbi?: number;
-  } = {},
+  modelFamily: "open" | "codex-only" | "gemini-only" = "open",
+  authFile: string | null = null,
 ): RuntimeProviderDeclaration & { readonly kindId: K } {
   return {
     kindId,
@@ -64,8 +61,7 @@ function acpKind<K extends RuntimeKindId>(
       command,
       configDirectory,
       configHomeEnvironment: null,
-      authFile: options.authFile ?? null,
-      ...(options.nodeAbi === undefined ? {} : { nodeAbi: options.nodeAbi }),
+      authFile,
       modelProbe: null,
       modelProbeFormat: "json-models",
     },
@@ -97,7 +93,7 @@ function acpKind<K extends RuntimeKindId>(
       transcriptReachability: "dispatch_stream_only",
       everyFrame: true,
     },
-    gui: { modelFamily: options.modelFamily ?? "open", effort: "none", effortValues: [] },
+    gui: { modelFamily, effort: "none", effortValues: [] },
     capabilities: {
       ...sharedCapabilities,
       sessionIdEveryFrame: "supported",
@@ -837,12 +833,11 @@ export const runtimeKinds = [
     acpAuthMethod: "openai",
     acpCredentialKey: "openai_api_key",
   }),
-  // `mcode` is a `#!/usr/bin/env node` entry whose bundled better-sqlite3 prebuild is
-  // built for Node 24 (ABI 137); a PATH node 26 (ABI 147) dies in NODE_MODULE_VERSION
-  // before ACP initialize. The data directory is `~/.minimax` (the package's
-  // `.minimax-code` string is an npm install-path heuristic), the CLI signs in with
-  // top-level `login`/`logout`, and `--version` exits 0 signed out — its own
-  // auth-state.json carries both the status and the expiry the probe needs.
+  // `mcode` stores its data in `~/.minimax` (the package's `.minimax-code` string is an npm
+  // install-path heuristic), signs in with top-level `login`/`logout`, and `--version` exits 0
+  // signed out. Its own auth-state.json carries both the status and the expiry the probe needs.
+  // The bundled native addon's ABI is the installation's concern: rebuild it under the runtime
+  // you launch with; a mismatch surfaces through the provider's own stderr, not a catalog guess.
   acpKind(
     "minimax-code",
     "MiniMax Code",
@@ -862,7 +857,8 @@ export const runtimeKinds = [
       subscriptionProbeTimeoutMs: 10_000,
       commands: { login: ["login"], logout: ["logout"] },
     },
-    { authFile: "auth", nodeAbi: 137 },
+    "open",
+    "auth",
   ),
   acpKind("mistral-vibe", "Mistral Vibe", "vibe-acp", [], ".vibe", {
     shape: "subscription-only",
