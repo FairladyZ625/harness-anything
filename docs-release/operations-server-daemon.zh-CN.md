@@ -262,6 +262,9 @@ ha daemon repo register --repo-id <id> --root /path/to/workspace --mode local
 
 bootstrap 不会发布登录服务：没有执行 `listener-set` 时，Keycloak 只在 loopback 提供 HTTP。升级会保留已有 listener，但不会新建。托管 PostgreSQL 用 daemon 生成的密码认证 Keycloak，密码保存在 user root 的 `0600` 文件中，无需手工配置数据库凭据。旧的 `trust` 数据目录由随包的 `postgres` 在单用户模式下完成迁移，不需要另装 `psql` 或 libpq。
 
+Windows 11 x64 与 arm64 支持本机托管 authority。arm64 使用 Windows amd64 PostgreSQL 包并依赖系统 x64 仿真；Java 同样使用 Windows x64 运行时。daemon 在 Windows 启动 PostgreSQL 的 `.exe`，并通过 `kc.bat` 启动 Keycloak，不需要 POSIX shell，也不需要另外安装 PostgreSQL 或 Java。首次登录仍是普通浏览器批准流程；SSH session 不能代替浏览器批准，请在 Windows 浏览器（或能访问 loopback/listener 地址的其他设备）打开命令输出的 URL。
+首次 Windows bootstrap 可能需要几分钟；Keycloak 会先构建本机运行时并导入 Harness realm。
+
 登录服务的绑定地址必须是中心主机上的 IP，`--hostname` 必须出现在证书 SAN 中。私钥保持 owner-only（权限 `0600`）：
 
 ```bash

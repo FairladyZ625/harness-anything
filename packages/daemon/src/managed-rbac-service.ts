@@ -47,7 +47,7 @@ export const managedRbacVersions = Object.freeze({
   postgres: "18.3.0",
 });
 
-type SupportedPlatform = "darwin-arm64" | "darwin-x64" | "linux-x64";
+type SupportedPlatform = "darwin-arm64" | "darwin-x64" | "linux-x64" | "win32-arm64" | "win32-x64";
 type ManagedRbacOperation =
   | "bootstrap"
   | "health"
@@ -143,7 +143,7 @@ interface Artifact {
   readonly checksumUrl: string;
   readonly algorithm: "sha1" | "sha256";
   readonly checksumFormat: "raw" | "github-release";
-  readonly archive: "tar.gz" | "jar-txz";
+  readonly archive: "tar.gz" | "jar-txz" | "zip";
 }
 
 export interface ManagedRbacPorts {
@@ -244,7 +244,7 @@ export class ManagedRbacService {
   async start(): Promise<void> {
     const config = this.#readConfig();
     if (config.mode === "external") return;
-    if (!existsSync(path.join(this.#root, "runtime", "postgres", "bin", "postgres")))
+    if (!existsSync(managedExecutable(this.#root, "runtime/postgres/bin/postgres", this.#ports.platform)))
       throw managedRbacError("rbac_not_installed", "Run ha bootstrap before starting managed RBAC services.");
     if (config.stopped) this.#writeConfig({ ...config, stopped: false });
     await this.#startPostgres();
@@ -404,7 +404,10 @@ export class ManagedRbacService {
     if (existsSync(marker) && readFileSync(marker, "utf8").startsWith(`${artifact.url}\n`)) return;
     const downloads = path.join(this.#root, "downloads");
     mkdirSync(downloads, { recursive: true, mode: 0o700 });
-    const archive = path.join(downloads, `${artifact.name}.${artifact.archive === "jar-txz" ? "jar" : "tar.gz"}`),
+    const archive = path.join(
+        downloads,
+        `${artifact.name}.${artifact.archive === "jar-txz" ? "jar" : artifact.archive === "zip" ? "zip" : "tar.gz"}`,
+      ),
       temporary = `${archive}.partial`;
     const [payload, publishedChecksum] = await Promise.all([
       this.#ports.fetch(artifact.url),
@@ -428,7 +431,7 @@ export class ManagedRbacService {
     renameSync(temporary, archive);
     rmSync(destination, { recursive: true, force: true });
     mkdirSync(destination, { recursive: true, mode: 0o700 });
-    extractArtifact(archive, destination, artifact.archive);
+    extractArtifact(archive, destination, artifact.archive, this.#ports.platform);
     flattenSingleDirectory(destination);
     writeFileSync(marker, `${artifact.url}\n${actual}\n`, { mode: 0o600 });
   }
@@ -444,7 +447,7 @@ export class ManagedRbacService {
   #initializeDatabase(): void {
     const data = path.join(this.#root, "data", "postgres"),
       passwordFile = this.#postgresPasswordFile(),
-      initdb = path.join(this.#root, "runtime", "postgres", "bin", "initdb");
+      initdb = managedExecutable(this.#root, "runtime/postgres/bin/initdb", this.#ports.platform);
     if (existsSync(path.join(data, "PG_VERSION"))) return;
     mkdirSync(data, { recursive: true, mode: 0o700 });
     this.#postgresPassword();
@@ -517,7 +520,7 @@ export class ManagedRbacService {
     const active = this.#readiness.get("postgres");
     if (active) return active;
     const config = this.#readManagedConfig(),
-      binary = path.join(this.#root, "runtime", "postgres", "bin", "postgres"),
+      binary = managedExecutable(this.#root, "runtime/postgres/bin/postgres", this.#ports.platform),
       data = path.join(this.#root, "data", "postgres"),
       logs = path.join(this.#root, "logs");
     await this.#hardenPostgresAuthentication(binary, data);
@@ -598,7 +601,7 @@ export class ManagedRbacService {
       { listener } = config,
       httpPort = new URL(config.url).port,
       javaHome = javaHomePath(this.#root, this.#ports.platform),
-      kc = path.join(this.#root, "runtime", "keycloak", "bin", "kc.sh");
+      kc = managedExecutable(this.#root, "runtime/keycloak/bin/kc.sh", this.#ports.platform);
     if (listener) requirePrivateKeyFile(listener.certificateKeyFile);
     const httpsPort = listener ? (await availableLoopbackPorts())[0] : undefined,
       passthrough = listener ? await listenPassthrough(listener, httpsPort!) : undefined;
@@ -637,6 +640,7 @@ export class ManagedRbacService {
       },
       /Keycloak .* started in/u,
       60_000,
+      path.join(this.#root, "runtime", "keycloak"),
     );
     if (passthrough) this.#children.get("keycloak")!.once("exit", () => passthrough.close());
     return ready;
@@ -657,6 +661,7 @@ export class ManagedRbacService {
     env: NodeJS.ProcessEnv,
     readyPattern: RegExp,
     timeoutMs: number,
+    cwd?: string,
   ): Promise<void> {
     const logs = path.join(this.#root, "logs");
     mkdirSync(logs, { recursive: true, mode: 0o700 });
@@ -671,10 +676,12 @@ export class ManagedRbacService {
         settleReady = resolve;
         settleError = reject;
       }),
-      child = this.#ports.spawn(command, [...args], {
+      [launchCommand, launchArgs] = windowsBatchLaunch(command, args, this.#ports.platform),
+      child = this.#ports.spawn(launchCommand, launchArgs, {
         env: { ...process.env, ...env },
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
+        ...(cwd ? { cwd } : {}),
       }),
       timer = setTimeout(() => {
         child.kill("SIGTERM");
@@ -707,7 +714,8 @@ export class ManagedRbacService {
   async #waitUntilReady(): Promise<Record<string, unknown>> {
     let result: Record<string, unknown> = { status: "not_checked" },
       transportFailure: unknown = null;
-    for (let attempt = 0; attempt < 120; attempt += 1) {
+    const attempts = this.#ports.platform === "win32" ? 720 : 120;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
       const healthAttempt = await healthReadinessAttempt(() => this.health());
       if ("transportFailure" in healthAttempt) {
         transportFailure = healthAttempt.transportFailure;
@@ -725,7 +733,10 @@ export class ManagedRbacService {
         }),
         { code: "rbac_health_failed" },
       );
-    throw managedRbacError("rbac_health_failed", `Keycloak realm health returned HTTP ${String(result.status)}.`);
+    throw managedRbacError(
+      "rbac_health_failed",
+      `Keycloak realm health returned HTTP ${String(result.status)} after ${String(attempts * 250)}ms.`,
+    );
   }
 
   /**
@@ -1050,22 +1061,24 @@ function listenPassthrough(listener: ManagedRbacListener, httpsPort: number): Pr
 }
 
 export function artifactManifest(platform: SupportedPlatform): readonly Artifact[] {
-  const [os, arch] = platform.split("-") as ["darwin" | "linux", "arm64" | "x64"],
-    adoptiumOs = os === "darwin" ? "mac" : "linux",
-    adoptiumArch = arch === "arm64" ? "aarch64" : "x64",
-    zonkyPlatform = os === "darwin" ? "darwin" : "linux",
-    zonkyArch = arch === "arm64" ? "arm64v8" : "amd64",
+  const [os, arch] = platform.split("-") as ["darwin" | "linux" | "win32", "arm64" | "x64"],
+    windows = os === "win32",
+    adoptiumOs = windows ? "windows" : os === "darwin" ? "mac" : "linux",
+    // Zonky does not publish Windows arm64. Windows arm64 runs the amd64 bundle under system emulation.
+    adoptiumArch = windows ? "x64" : arch === "arm64" ? "aarch64" : "x64",
+    zonkyPlatform = windows ? "windows" : os === "darwin" ? "darwin" : "linux",
+    zonkyArch = windows ? "amd64" : arch === "arm64" ? "arm64v8" : "amd64",
     zonkyArtifact = `embedded-postgres-binaries-${zonkyPlatform}-${zonkyArch}`,
     zonkyBase = `https://repo1.maven.org/maven2/io/zonky/test/postgres/${zonkyArtifact}/${managedRbacVersions.postgres}/${zonkyArtifact}-${managedRbacVersions.postgres}.jar`,
     temurinBase = `https://api.adoptium.net/v3/binary/version/jdk-${encodeURIComponent(managedRbacVersions.java)}/${adoptiumOs}/${adoptiumArch}/jre/hotspot/normal/eclipse`;
   return [
     {
       name: "keycloak",
-      url: `https://github.com/keycloak/keycloak/releases/download/${managedRbacVersions.keycloak}/keycloak-${managedRbacVersions.keycloak}.tar.gz`,
+      url: `https://github.com/keycloak/keycloak/releases/download/${managedRbacVersions.keycloak}/keycloak-${managedRbacVersions.keycloak}.${windows ? "zip" : "tar.gz"}`,
       checksumUrl: `https://api.github.com/repos/keycloak/keycloak/releases/tags/${managedRbacVersions.keycloak}`,
       algorithm: "sha256",
       checksumFormat: "github-release",
-      archive: "tar.gz",
+      archive: windows ? "zip" : "tar.gz",
     },
     {
       name: "java",
@@ -1073,7 +1086,7 @@ export function artifactManifest(platform: SupportedPlatform): readonly Artifact
       checksumUrl: temurinBase.replace("/binary/", "/checksum/"),
       algorithm: "sha256",
       checksumFormat: "raw",
-      archive: "tar.gz",
+      archive: windows ? "zip" : "tar.gz",
     },
     {
       name: "postgres",
@@ -1100,11 +1113,35 @@ function publishedDigest(artifact: Artifact, body: string): string | undefined {
 
 function supportedPlatform(platform: NodeJS.Platform, arch: string): SupportedPlatform {
   const key = `${platform}-${arch}`;
-  if (key === "darwin-arm64" || key === "darwin-x64" || key === "linux-x64") return key;
+  if (
+    key === "darwin-arm64" ||
+    key === "darwin-x64" ||
+    key === "linux-x64" ||
+    key === "win32-arm64" ||
+    key === "win32-x64"
+  )
+    return key;
   throw managedRbacError(
     "rbac_platform_unsupported",
-    `Managed RBAC supports macOS arm64/x64 and Linux x64; received ${key}.`,
+    `Managed RBAC supports macOS arm64/x64, Linux x64, and Windows x64/arm64 (x64 runtime on arm64); received ${key}.`,
   );
+}
+
+function managedExecutable(root: string, relative: string, platform: NodeJS.Platform): string {
+  const windowsRelative = relative.endsWith(".sh") ? relative.slice(0, -3) + ".bat" : `${relative}.exe`;
+  return path.join(root, platform === "win32" ? windowsRelative : relative);
+}
+
+function windowsBatchLaunch(
+  command: string,
+  args: readonly string[],
+  platform: NodeJS.Platform,
+): readonly [string, readonly string[]] {
+  if (platform !== "win32" || !command.toLowerCase().endsWith(".bat")) return [command, [...args]];
+  const quote = (value: string) => `'${value.replaceAll("'", "''")}'`,
+    commandLine = `& ${quote(command)} ${args.map(quote).join(" ")}`,
+    encoded = Buffer.from(commandLine, "utf16le").toString("base64");
+  return ["powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded]];
 }
 
 async function availableLoopbackPorts(): Promise<readonly [number, number, number]> {
@@ -1143,11 +1180,20 @@ async function digestFile(file: string, algorithm: "sha1" | "sha256"): Promise<s
   return digest.digest("hex");
 }
 
-function extractArtifact(archive: string, destination: string, format: Artifact["archive"]): void {
+function extractArtifact(
+  archive: string,
+  destination: string,
+  format: Artifact["archive"],
+  platform: NodeJS.Platform,
+): void {
   if (format === "tar.gz") return run("tar", ["-xzf", archive, "-C", destination]);
+  if (format === "zip") return run("tar", ["-xf", archive, "-C", destination]);
   const unpacked = path.join(destination, "jar");
   mkdirSync(unpacked, { recursive: true });
-  run("unzip", ["-q", archive, "-d", unpacked]);
+  run(
+    platform === "win32" ? "tar" : "unzip",
+    platform === "win32" ? ["-xf", archive, "-C", unpacked] : ["-q", archive, "-d", unpacked],
+  );
   const txz = findFile(unpacked, ".txz");
   if (!txz) throw managedRbacError("rbac_archive_invalid", "PostgreSQL bundle does not contain a .txz archive.");
   run("tar", ["-xJf", txz, "-C", destination]);

@@ -23,6 +23,16 @@ ha bootstrap --operation node-register --operation-id <unique-id> --node-id <nod
 create a network listener. The `listener-set` line above is the explicit opt-in
 that exposes Keycloak to other machines.
 
+Windows 11 is supported for a local managed authority on x64 and arm64. On arm64,
+the managed PostgreSQL runtime uses the published Windows amd64 bundle through the
+OS's x64 emulation; Java uses the Windows x64 runtime as well. The daemon starts
+PostgreSQL executables with `.exe` and Keycloak through `kc.bat`, so no POSIX shell
+or separately installed PostgreSQL/Java is required. The first login still opens
+the normal browser approval flow; an SSH session cannot supply the browser approval
+itself, so open the printed URL in a Windows browser (or another device that can
+reach the loopback/listener URL). The first Windows bootstrap may take several
+minutes while Keycloak builds its local runtime and imports the Harness realm.
+
 Access-administration writes such as `grant` and `revoke` generate an `operation-id`
 when it is omitted and record it in the receipt; pass `--operation-id <id>`
 explicitly to retry or reconcile the same operation.
