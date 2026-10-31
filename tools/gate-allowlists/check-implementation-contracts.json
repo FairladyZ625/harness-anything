@@ -144,7 +144,7 @@
       },
       {
         "value": "packages/storage/tsconfig.json",
-        "ref": "dec_D90F19C8AAAF39747F8F0D6698#CH8",
+        "ref": "dec_D90F19C8AAAF39747F8F0D6698",
         "reason": "Storage implementation is a governed workspace package."
       }
     ],
