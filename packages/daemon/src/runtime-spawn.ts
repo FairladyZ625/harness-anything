@@ -4,6 +4,7 @@ export type {
   RemoteRuntimePersistence,
   RuntimeDaemonRoute,
   RuntimeAttemptTerminal,
+  RuntimeLeaseReleasePending,
   RuntimeLauncher,
   RuntimeProcess,
   TrustedScheduleRuntime,

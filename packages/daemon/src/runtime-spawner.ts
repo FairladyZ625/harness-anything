@@ -31,6 +31,7 @@ import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active
 import { adoptRuntimes, reclaimFailedLaunchTempDirectory } from "./runtime-spawn-adoption.ts";
 import {
   requiredRuntimeSpawnText,
+  runtimeErrorCode,
   runtimeErrorMessage,
   runtimeSpawnError,
   runtimeTaskExecutionFrozenError,
@@ -834,16 +835,21 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         if (stream) removeDispatchStream(input.rootDir, newDispatchId);
         return;
       }
-      await input.onAttemptTerminal?.({
-        runtimeSessionId,
-        dispatchId: newDispatchId,
-        task: taskBinding,
-        schedule: trustedSchedule ?? null,
-        outcome: "failed",
-        reason: `Runtime dispatch failed before provider registration: ${runtimeErrorMessage(error)}`,
-        endedAt: input.now(),
-        binding: activeBinding,
-      });
+      const preservePrimaryError = runtimeErrorCode(error) === "runtime_resume_failed",
+        settlement = await input.onAttemptTerminal?.({
+          runtimeSessionId,
+          dispatchId: newDispatchId,
+          task: taskBinding,
+          schedule: trustedSchedule ?? null,
+          outcome: "failed",
+          reason: `Runtime dispatch failed before provider registration: ${runtimeErrorMessage(error)}`,
+          endedAt: input.now(),
+          binding: activeBinding,
+          ...(preservePrimaryError ? { preservePrimaryError: true } : {}),
+        });
+      if (settlement?.outcome === "lease_unproven") {
+        return;
+      }
       if (stream) removeDispatchStream(input.rootDir, newDispatchId);
     };
     try {
