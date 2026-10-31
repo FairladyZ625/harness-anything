@@ -44,6 +44,19 @@ export function requiredRuntimeProjection(input: { readonly projection?: () => T
   return input.projection();
 }
 
+/** A launcher may use this only when it can establish that it created no OS process. */
+export class RuntimeProcessStartRejected extends Error {
+  readonly code?: string;
+  readonly data = { runtimeProcessStartRejected: true } as const;
+
+  constructor(error: unknown) {
+    super(runtimeErrorMessage(error), { cause: error });
+    this.name = "RuntimeProcessStartRejected";
+    const code = runtimeErrorCode(error);
+    if (code !== null) this.code = code;
+  }
+}
+
 /** Launch once, and for a resume retain the buffered witness until the session is registered. */
 export async function launchRuntimeProcess(
   launch: RuntimeLauncher,
@@ -53,7 +66,17 @@ export async function launchRuntimeProcess(
 ): Promise<{ process: RuntimeProcess; resumeObservation?: ResumeProcessObservation }> {
   let process: RuntimeProcess | undefined;
   try {
-    process = launch(prepared, persistence);
+    try {
+      process = launch(prepared, persistence);
+    } catch (error) {
+      if (isRuntimeProcessStartRejected(error))
+        appendRuntimeWorkerRecord(persistence.rootDir, persistence.dispatchId, {
+          kind: "process_start_rejected",
+          occurredAt: new Date().toISOString(),
+          ...(error.code ? { errorCode: error.code } : {}),
+        });
+      throw error;
+    }
     if (
       Number.isSafeInteger(process.pid) &&
       process.pid > 1 &&
@@ -86,6 +109,17 @@ export async function launchRuntimeProcess(
       `${prepared.definition.kindId} session ${providerSessionId} could not be resumed: ${runtimeErrorMessage(error)}`,
     );
   }
+}
+
+function isRuntimeProcessStartRejected(error: unknown): error is RuntimeProcessStartRejected {
+  const data = error instanceof Error && "data" in error ? error.data : null;
+  return (
+    error instanceof RuntimeProcessStartRejected ||
+    (typeof data === "object" &&
+      data !== null &&
+      "runtimeProcessStartRejected" in data &&
+      data.runtimeProcessStartRejected === true)
+  );
 }
 
 // A resume receipt is an admission claim: the provider has accepted the old
@@ -495,15 +529,20 @@ export function launchNative(
     readonly callbackRelay?: { readonly endpoint: string; readonly path: string };
   },
 ): RuntimeProcess {
-  const command = nativeCommand(input);
-  const workerHost = import.meta.url.endsWith(".js") ? "./bin.js" : "./bin.ts";
-  const entry = fileURLToPath(new URL(workerHost, import.meta.url));
-  const child = spawn(process.execPath, [entry, "--runtime-worker-host"], {
-    detached: true,
-    stdio: ["pipe", "ignore", "ignore"],
-    windowsHide: true,
-    env: process.env,
-  });
+  let command: ReturnType<typeof nativeCommand>, child: ReturnType<typeof spawn>;
+  try {
+    command = nativeCommand(input);
+    const workerHost = import.meta.url.endsWith(".js") ? "./bin.js" : "./bin.ts",
+      entry = fileURLToPath(new URL(workerHost, import.meta.url));
+    child = spawn(process.execPath, [entry, "--runtime-worker-host"], {
+      detached: true,
+      stdio: ["pipe", "ignore", "ignore"],
+      windowsHide: true,
+      env: process.env,
+    });
+  } catch (error) {
+    throw new RuntimeProcessStartRejected(error);
+  }
   const pid = child.pid ?? 0;
   const observed = observeDispatchProcess(persistence.rootDir, persistence.dispatchId, pid);
   appendRuntimeWorkerRecord(persistence.rootDir, persistence.dispatchId, {

@@ -201,6 +201,7 @@ const readLimitWarnings = new Set<string>();
 const writeLimitWarnings = new Set<string>();
 const summaryKinds = new Set([
   "provider_binding",
+  "process_start_rejected",
   "process_started",
   "process_exit",
   "process_lost",

@@ -391,12 +391,15 @@ function terminalRuntimeStopProof(
   if (!candidates.length) {
     const exactHeaders = matchingHeaders.filter((header) => header.executionId === executionId),
       eligibleHeaders = exactHeaders.length ? exactHeaders : matchingHeaders,
-      dispatchExited =
+      processStartRejected =
         eligibleHeaders.length === 1 &&
-        (readDispatchStreamSummary(cell.rootDir, eligibleHeaders[0]!.dispatchId)?.records.some(
-          (record) => record.kind === "process_exit",
-        ) ??
-          false);
+        (() => {
+          const records = readDispatchStreamSummary(cell.rootDir, eligibleHeaders[0]!.dispatchId)?.records ?? [];
+          return (
+            records.some((record) => record.kind === "process_start_rejected") &&
+            !records.some((record) => ["process_started", "process_exit", "process_lost"].includes(String(record.kind)))
+          );
+        })();
     const events = cell.projection.readRuntimeSessionEvents(runtimeSessionId, 0, Number.MAX_SAFE_INTEGER),
       started = events.find(
         (event) =>
@@ -429,7 +432,7 @@ function terminalRuntimeStopProof(
       edgeProcessGroup = typeof source === "object" && source.kind === "node";
     if (suppliedPid !== undefined && suppliedProcessGroupPid === null) return "unknown_unreachable";
     if (pids.length > 1) return "unknown_unreachable";
-    if (pids.length === 0 && suppliedPid === undefined && (ended || dispatchExited)) return "proven_stopped";
+    if (pids.length === 0 && suppliedPid === undefined && (ended || processStartRejected)) return "proven_stopped";
     if (!started) return "unknown_unreachable";
     if (pids.length === 1) {
       if (suppliedProcessGroupPid !== null && suppliedProcessGroupPid !== pids[0]) return "unknown_unreachable";

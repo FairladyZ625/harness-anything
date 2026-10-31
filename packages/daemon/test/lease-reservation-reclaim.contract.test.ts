@@ -11,6 +11,7 @@ import {
   appendRuntimeWorkerRecord,
   openDispatchStream,
   removeDispatchLiveIndexEntries,
+  removeDispatchStream,
 } from "../src/dispatch-stream.ts";
 
 const now = "2026-08-25T03:15:20.000Z";
@@ -522,6 +523,52 @@ test("terminal runtime lease release requires a process-group stop proof", () =>
       (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
       "an unrelated stopped pid without a matching RuntimeSession start cannot prove this runtime stopped",
     );
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: task.taskId,
+      executionId: lease.executionId,
+      runtimeSessionId,
+      instanceId: "codex-test",
+      startedAt: now,
+    });
+    runtimeEvents = [sessionStarted()];
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_exit", exitCode: 1, signal: null });
+    assert.throws(
+      () =>
+        taskMutation(
+          terminalCell,
+          terminalAction,
+          task,
+          { ...snapshot(), lease: orphanedLease },
+          authorized(owner("replacement-worker")),
+        ),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
+      "process_exit without a process-group witness only proves the worker host closed",
+    );
+    removeDispatchStream(rootDir, dispatchId);
+
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: task.taskId,
+      executionId: lease.executionId,
+      runtimeSessionId,
+      instanceId: "codex-test",
+      startedAt: now,
+    });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_start_rejected", errorCode: "fixture_refused" });
+    const rejectedLaunchMutation = taskMutation(
+      terminalCell,
+      terminalAction,
+      task,
+      { ...snapshot(), lease: orphanedLease },
+      authorized(owner("replacement-worker")),
+    );
+    assert.equal(
+      rejectedLaunchMutation.type,
+      "lease_released",
+      "explicit pre-spawn rejection proves no process group was created",
+    );
+    removeDispatchStream(rootDir, dispatchId);
 
     runtimeEvents = [sessionStarted()];
     assert.throws(
