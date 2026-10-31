@@ -83,6 +83,22 @@ test("Agent, Decision, Fact, Relation, RuntimeSession, Schedule, and Settings in
   assert.equal(getExecutableEntityAction("schedule-fire"), undefined);
 });
 
+test("Decision and Fact catalog-runtime writes retain their declared ingress and target", () => {
+  for (const [ingress, kind, id] of [
+    ["decision-dispatch-review", "decision", "dispatch-review"],
+    ["decision-rematerialize", "decision", "rematerialize"],
+    ["fact-rematerialize", "fact", "rematerialize"],
+  ] as const) {
+    const action = getExecutableEntityAction(ingress);
+    assert.equal(action?.id, id, ingress);
+    assert.equal(action?.target.kind, kind, ingress);
+    assert.equal(action?.execution?.ingress, ingress);
+    assert.equal(action?.execution?.implementation, "catalog-runtime");
+    assert.equal(action?.execution?.compile, null);
+    assert.equal(action?.execution?.read, false);
+  }
+});
+
 test("entity explanations expose action identity but keep runtime compile hooks private", () => {
   for (const kind of ["agent", "decision", "fact", "schedule", "settings"] as const) {
     const explanation = explainEntityKind(kind);

@@ -396,15 +396,9 @@ test("G0-2 requires task push's durable repo-write declaration", (t) => {
   const root = taskSnapshot(t),
     file = "packages/kernel/src/domain/action-declaration.ts",
     source = readFileSync(path.join(root, file), "utf8");
-  assert.ok(source.includes('canonical("task-push", null, "repo-write", "none")'));
-  writeRepoFile(
-    root,
-    file,
-    source.replace(
-      'canonical("task-push", null, "repo-write", "none")',
-      'canonical("task-push", null, "repo-read", "none")',
-    ),
-  );
+  const binding = 'canonical("task-push", "task/push", "repo-write", "none")';
+  assert.ok(source.includes(binding));
+  writeRepoFile(root, file, source.replace(binding, 'canonical("task-push", "task/push", "repo-read", "none")'));
   const result = auditDurableActionAuthorization(root, ["task-push"]);
   assert.equal(result.rows[0].authorizationPort, false);
   assert.equal(result.findings.length, 1);

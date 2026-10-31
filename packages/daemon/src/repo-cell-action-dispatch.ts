@@ -175,6 +175,12 @@ export function executeRepoAction(
   if (action.kind === "task-review") return cell.reviewTask(action, binding);
   if (action.kind === "task-dispatch-review") return dispatchTaskReview(cell, action, binding);
   if (action.kind === "decision-dispatch-review") return dispatchDecisionReview(cell, action, binding);
+  if (
+    action.kind === "decision-rematerialize" ||
+    action.kind === "fact-rematerialize" ||
+    action.kind === "task-rematerialize"
+  )
+    return runEntityDocumentRematerialize(cell, action, binding);
   if (action.kind === "distill-candidate") {
     const taskId = cell.requiredCellText(action.taskId, "taskId");
     if (!cell.projection.read(taskId).snapshot.task)
@@ -215,6 +221,12 @@ export function executeRepoAction(
         Number(action.expectedVersion ?? cell.store.readHead()?.revision ?? 0),
       ),
     );
+  // Progress has a legacy writer that owns its operation id and document adjudication. Keep that
+  // single route when the declaration is catalog-bound so catalog admission does not hash twice or
+  // bypass carried document claims.
+  if (Array.isArray(action.docChanges))
+    return cell.runTaskCommandWithDocs(action as TaskCommandWithDocsAction, binding);
+  if (action.kind === "task-progress-append") return cell.appendProgress(action, binding);
   const actionContract = getExecutableEntityAction(action.kind);
   if (actionContract?.target.kind === "todo" && actionContract.execution) {
     const sourceRevision = actionContract.execution.read
@@ -254,6 +266,24 @@ export function executeRepoAction(
           if (catalogAction.kind === "task-submit") return submitTask(cell, catalogAction, catalogBinding);
           if (Array.isArray(catalogAction.docChanges))
             return cell.runTaskCommandWithDocs(catalogAction as TaskCommandWithDocsAction, catalogBinding);
+          if (catalogAction.kind === "preset-upgrade") return cell.upgradePresetSnapshot(catalogAction, catalogBinding);
+          if (catalogAction.kind === "task-artifact-add")
+            return runArtifactAdd({
+              action: catalogAction,
+              binding: catalogBinding,
+              workspaceId: cell.input.repoId,
+              rootDir: cell.rootDir,
+              store: cell.store,
+              projection: cell.projection,
+              now: cell.now,
+              killpoint: cell.input.killpoint,
+            });
+          if (catalogAction.kind === "task-settle") return settleTask(cell, catalogAction, catalogBinding);
+          if (catalogAction.kind === "task-progress-append") return cell.appendProgress(catalogAction, catalogBinding);
+          if (catalogAction.kind === "task-annotate") return cell.annotateExecution(catalogAction, catalogBinding);
+          if (catalogAction.kind === "task-attest") return attestGateWitness(cell, catalogAction, catalogBinding);
+          if (catalogAction.kind === "task-declare-executor")
+            return cell.declareExecutionExecutor(catalogAction, catalogBinding);
           if (contract.execution?.implementation === "catalog-runtime") {
             if (catalogAction.kind.startsWith("task-witness-"))
               return runTaskWitnessAction(cell, catalogAction, catalogBinding);
@@ -281,12 +311,6 @@ export function executeRepoAction(
       binding,
       cell.operationId(action, binding, cell.input.repoId, Number(action.expectedVersion ?? 0)),
     );
-  if (
-    action.kind === "decision-rematerialize" ||
-    action.kind === "fact-rematerialize" ||
-    action.kind === "task-rematerialize"
-  )
-    return runEntityDocumentRematerialize(cell, action, binding);
   if (action.kind.startsWith("fact-")) return runFactAction(cell, action, binding);
   if (action.kind.startsWith("decision-")) {
     const resolved = cell.decisionProposalAction(cell.rootDir, action, () => cell.settings.read());

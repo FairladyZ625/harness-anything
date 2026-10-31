@@ -37,11 +37,21 @@ test("all public Task writes are complete executable Action contracts", () => {
       "complete",
       "release",
       "amend",
+      "annotate",
+      "artifact-add",
+      "attest",
+      "declare-executor",
+      "dispatch-review",
+      "progress-append",
+      "push",
+      "rematerialize",
+      "settle",
       "archive",
       "supersede",
       "delete",
       "reopen",
       "contract-migrate",
+      "preset-upgrade",
       "assign",
       "unassign",
     ],
@@ -70,6 +80,22 @@ test("all public Task writes are complete executable Action contracts", () => {
     assert.deepEqual(validateEntityActionDescriptor(action), [], action.id);
     assert.ok(action.explain.length > 0);
   }
+  for (const [id, ingress] of [
+    ["annotate", "task-annotate"],
+    ["artifact-add", "task-artifact-add"],
+    ["attest", "task-attest"],
+    ["declare-executor", "task-declare-executor"],
+    ["dispatch-review", "task-dispatch-review"],
+    ["progress-append", "task-progress-append"],
+    ["push", "task-push"],
+    ["rematerialize", "task-rematerialize"],
+    ["settle", "task-settle"],
+    ["preset-upgrade", "preset-upgrade"],
+  ] as const) {
+    const action = actions.find((candidate) => candidate.id === id);
+    assert.equal(action?.execution?.ingress, ingress);
+    assert.equal(action?.policy.action, ingress);
+  }
   assert.deepEqual(explainEntityKind("task").transitions.available, [
     "witness-claim",
     "witness-settle",
@@ -86,11 +112,21 @@ test("all public Task writes are complete executable Action contracts", () => {
     "complete",
     "release",
     "amend",
+    "annotate",
+    "artifact-add",
+    "attest",
+    "declare-executor",
+    "dispatch-review",
+    "progress-append",
+    "push",
+    "rematerialize",
+    "settle",
     "archive",
     "supersede",
     "delete",
     "reopen",
     "contract-migrate",
+    "preset-upgrade",
     "assign",
     "unassign",
   ]);

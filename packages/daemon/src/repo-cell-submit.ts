@@ -855,13 +855,18 @@ export async function settleTask(
     if (!["applied", "no_changes"].includes(started.outcome))
       return {
         ...started,
+        // A nested start/submit receipt names the criteria of its own contract. The settle catalog
+        // contract cannot resolve those refs, so keep the nested code and guidance but report no
+        // settle criteria; the step receipt in `steps` carries the nested explanation.
+        unmetCriteria: [],
         opId: cell.operationId(action, binding, cell.input.repoId, current.snapshot.revision),
         steps,
       } as WriteReceiptDraft;
   }
   const submitted = await submitTask(cell, { ...action, kind: "task-submit", taskId }, binding),
     mergedSteps = [...steps, ...((submitted as { readonly steps?: readonly WriteReceiptDraft[] }).steps ?? [])];
-  if (submitted.outcome !== "applied") return { ...submitted, steps: mergedSteps } as WriteReceiptDraft;
+  if (submitted.outcome !== "applied")
+    return { ...submitted, unmetCriteria: [], steps: mergedSteps } as WriteReceiptDraft;
   return { ...submitted, steps: mergedSteps } as WriteReceiptDraft;
 }
 
