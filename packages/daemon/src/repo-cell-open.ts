@@ -863,6 +863,32 @@ export async function openRepoWriterCell(
       now(),
       terminal.binding,
     );
+    if (!terminal.waitingOnOwner) return;
+    // The release above is deliberately a separate canonical event: task-transition's domain
+    // invariant rejects blocked tasks that still carry a lease. A newer dispatch may have claimed
+    // the task while this terminal was being replayed; in that case this stale wait must not park
+    // the newer execution.
+    const current = projection.read(terminal.task.taskId).snapshot;
+    if (current.task?.status !== "active" || current.lease !== null) return;
+    const action = {
+        kind: "task-transition" as const,
+        taskId: terminal.task.taskId,
+        status: "blocked" as const,
+        reason: terminal.reason
+          ? `Worker is waiting for owner ruling: ${terminal.reason}`
+          : `Worker is waiting for owner ruling (${terminal.runtimeSessionId}).`,
+      },
+      binding = await authorizeRuntimeAction(
+        action,
+        terminal.binding,
+        `runtime-task-awaiting-owner:${terminal.runtimeSessionId}`,
+      ),
+      parked = await extracted.lifecycleAction(action, binding);
+    if (parked.outcome !== "applied")
+      throw cellCodedError(
+        "runtime_waiting_task_block_failed",
+        `Runtime terminal waiting settlement was ${parked.outcome}.`,
+      );
   };
   await runtimeSpawner.adopt((completed) =>
     input.onOpenProgress?.({ phase: "restoring-runtimes", applied: completed, total: null, watermark: null }),
