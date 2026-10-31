@@ -921,13 +921,13 @@ export async function main(argv, session = {}) {
     // no matter how the dist was provisioned. (Both are null/absent only in a tree with no git,
     // where there is nothing to compare.)
     if (
-      typeof receipt.build.commit === "string" &&
+      typeof receipt.build.headCommit === "string" &&
       typeof receipt.build.loadedBuildId === "string" &&
-      receipt.build.commit !== receipt.build.loadedBuildId
+      receipt.build.headCommit !== receipt.build.loadedBuildId
     )
       receipt.failures.push({
         phase: "build-identity",
-        message: `daemon ran commit ${receipt.build.commit} but the loaded dist is ${receipt.build.loadedBuildId}`,
+        message: `selected build commit ${receipt.build.headCommit} but the loaded dist is ${receipt.build.loadedBuildId}`,
       });
     const pid = started.receipt.pid;
     daemonHandle = { pid, userRoot, daemonId, buildRoot: build.root, workspace };
