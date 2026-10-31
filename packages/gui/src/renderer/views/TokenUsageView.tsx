@@ -53,6 +53,7 @@ export function TokenUsageView({
   onFocusMember,
   onSelectEntity,
   onOpenTask,
+  remoteEdge = false,
 }: {
   readonly repoId: string;
   /** `tokenAgent/<id>` / `tokenSquad/<id>`:详情落点,空 = 总览。 */
@@ -60,6 +61,8 @@ export function TokenUsageView({
   readonly onFocusMember: (ref: string | null) => void;
   readonly onSelectEntity: (ref: string) => void;
   readonly onOpenTask: (taskId: string) => void;
+  /** Edge mirrors contain local runtime projections; they are not the center's fleet total. */
+  readonly remoteEdge?: boolean;
 }) {
   const [range, setRange] = useState<TokenUsageRange>("today"),
     member = tokenUsageMemberFromRef(focusedEntityRef),
@@ -91,6 +94,11 @@ export function TokenUsageView({
           {t("agentRuntime.readFailed", {
             error: usage.error instanceof Error ? usage.error.message : String(usage.error),
           })}
+        </Notice>
+      ) : null}
+      {remoteEdge ? (
+        <Notice tone="wait" variant="strip" testId="token-usage-edge-scope">
+          {t("agentRuntime.tokenUsageEdgeScope")}
         </Notice>
       ) : null}
       {member !== null ? (

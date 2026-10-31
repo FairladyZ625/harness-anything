@@ -94,17 +94,20 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     },
     currentEpochFor = (repoId: string) => writerEpoch.current(repoId) ?? ownedEpochFor(repoId),
     // dec_F01770FD0DCF72683B7C4C7A47: each request presents this device owner's user session.
-    readerAuth = async (node: { nodeId: string; repoId: string; accessToken?: string; humanClientId?: string }) => {
+    readerAuth = async (node: { nodeId: string; repoId: string; accessToken?: string }) => {
       const personId = await options.nodeOwner(node.nodeId);
       if (!personId) throw new FleetFault("node_owner_unregistered", `Node ${node.nodeId} has no registered owner.`);
       if (!node.accessToken || !options.verifyHuman)
         throw new FleetFault("authentication_required", "Sign in on this device before using Fleet.");
       try {
+        const invitation = options.invitationClientForNode?.(node.nodeId);
         return await options.verifyHuman({
           transportKind: "fleet-tls",
           nodePrincipal: { nodeId: node.nodeId, personId },
           humanAccessToken: node.accessToken,
-          ...(node.humanClientId ? { humanClientId: node.humanClientId } : {}),
+          ...(invitation && invitation.personId === personId
+            ? { fleetExpectedAzps: [{ clientId: invitation.clientId, personId: invitation.personId }] }
+            : {}),
         });
       } catch (error) {
         if (typeof error === "object" && error !== null && "code" in error && typeof error.code === "string")
@@ -144,12 +147,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   // The one repository admission port: reader identity plus the node owner's grant on this
   // repository (dec_66CE6F92 — a cross-cutting responsibility has a single implementation that
   // callers reuse instead of copying).
-  const repoAdmission = async (node: {
-    nodeId: string;
-    repoId: string;
-    accessToken?: string;
-    humanClientId?: string;
-  }) => {
+  const repoAdmission = async (node: { nodeId: string; repoId: string; accessToken?: string }) => {
     const principal = await readerAuth(node),
       decision = await options.host.authorize(node.repoId, "repository-read", principal);
     if (decision.outcome !== "allowed")
@@ -250,11 +248,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     frame: import("./protocol.ts").ReplicationFrame & { readonly type: "replica.start" },
     peer: import("./protocol.ts").ReplicationPeer,
     signal: AbortSignal,
-    humanClientId?: string,
   ) => {
     let readerProfile: { personId: string; nodeId: string };
     try {
-      ({ readerProfile } = await admitReplica(nodeId, frame.repoId, accessToken, humanClientId));
+      ({ readerProfile } = await admitReplica(nodeId, frame.repoId, accessToken));
     } catch (error) {
       if (error instanceof FleetFault && error.code === "authorization_denied") {
         await peer.send({ type: "replica.resync", reason: "authorization_denied" });
@@ -429,8 +426,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   // Every frame after the hello belongs to one TLS session, and that session's hello named the
   // interactive client Keycloak minted its human token under. Carrying it here means each branch
   // inherits the session's client instead of re-deriving one per frame (the center audits `azp`).
-  const nodeContext = async (nodeId: string, repoId: string, accessToken?: string, humanClientId?: string) => {
-    const node = { nodeId, repoId, accessToken, ...(humanClientId ? { humanClientId } : {}) };
+  const nodeContext = async (nodeId: string, repoId: string, accessToken?: string) => {
+    const node = { nodeId, repoId, accessToken };
     repoRoot(repoId);
     return node;
   };
@@ -469,13 +466,13 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       if (!upload) throw new FleetFault("upload_unknown", "Upload metadata is missing.");
       return path.join(safeLocal(upload.repoId, "fleet-uploads"), `${uploadId}.part`);
     };
-  const admitReplica = async (nodeId: string, repoId: string, accessToken?: string, humanClientId?: string) => {
+  const admitReplica = async (nodeId: string, repoId: string, accessToken?: string) => {
     if (!Number.isSafeInteger(options.replicaDiskQuotaBytes) || options.replicaDiskQuotaBytes! <= 0)
       throw new FleetFault("replica_quota_required", "Replica admission requires an explicit persistent disk quota.");
     const a = await nodeContext(nodeId, repoId, accessToken);
     // The node owner's repository-read authority admits the replica
     // (dec_B6AC9F76D9D6591A3F54802BF3, refining dec_D8497012 CH4).
-    await repoAdmission({ ...a, humanClientId });
+    await repoAdmission(a);
     const owner = await options.nodeOwner(nodeId);
     if (!owner) throw new FleetFault("node_owner_unregistered", `Node ${nodeId} has no registered owner.`);
     const replica = options.host.replica(a.repoId);
@@ -488,7 +485,6 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     _clientGone: () => boolean = () => false,
     connectionSignal: AbortSignal,
     _progress: (frame: FleetFrameV1) => Promise<void>,
-    humanClientId?: string,
   ): Promise<Delivery> => {
     if (frame.schema === "fleet.device.sessions.revoke/v1") {
       if (!(await options.nodeOwner(nodeId)))
@@ -515,8 +511,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       });
     }
     if (frame.schema === "fleet.repo.metadata.get/v1") {
-      const a = await nodeContext(nodeId, frame.repoId, frame.accessToken, humanClientId),
-        principal = await readerAuth({ ...a, humanClientId }),
+      const a = await nodeContext(nodeId, frame.repoId, frame.accessToken),
+        principal = await readerAuth(a),
         baseLedgerSha = options.host.replica(a.repoId).ledgerCut(),
         actionAllowed =
           frame.actionKind === undefined
@@ -546,7 +542,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       });
     }
     if (frame.schema === "fleet.receipt.get/v1") {
-      const a = await nodeContext(nodeId, frame.repoId, frame.accessToken, humanClientId),
+      const a = await nodeContext(nodeId, frame.repoId, frame.accessToken),
         receipt = await runCenterWriter(a.repoId, { kind: "receipt-show", opId: frame.opId }, await readerAuth(a));
       return immediate({
         schema: "fleet.receipt.result/v1",
@@ -558,7 +554,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
     if (frame.schema === "fleet.upload.begin/v1") {
       return runFleetCenterWrite(frame, async () => {
-        const a = await nodeContext(nodeId, frame.repoId, frame.accessToken, humanClientId),
+        const a = await nodeContext(nodeId, frame.repoId, frame.accessToken),
           uploadId = digestId(
             nodeId,
             a.repoId,
@@ -618,7 +614,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     if (frame.schema === "fleet.upload.chunk/v1") {
       return runFleetCenterWrite(frame, async () => {
         const upload = ownedUpload(state, nodeId, frame.uploadId);
-        await repoAdmission({ nodeId, repoId: upload.repoId, accessToken: frame.accessToken, humanClientId });
+        await repoAdmission({ nodeId, repoId: upload.repoId, accessToken: frame.accessToken });
         const file = uploadPath(frame.uploadId),
           bytes = Buffer.from(frame.dataBase64, "base64");
         if (frame.offset + bytes.length > upload.content.size)
@@ -656,10 +652,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         const upload = state.uploads[frame.uploadId];
         if (!upload || upload.nodeId !== nodeId)
           throw new FleetFault("upload_unknown", "Upload is unknown or belongs to another node.");
-        await readerAuth({ nodeId, repoId: upload.repoId, accessToken: frame.accessToken, humanClientId });
+        await readerAuth({ nodeId, repoId: upload.repoId, accessToken: frame.accessToken });
         const wasStaged = upload.descriptor !== null,
           file = uploadPath(frame.uploadId, upload),
-          a = await nodeContext(nodeId, upload.repoId, frame.accessToken, humanClientId),
+          a = await nodeContext(nodeId, upload.repoId, frame.accessToken),
           descriptor = upload.descriptor ?? {
             ref: `doc-sync-claims/${frame.uploadId}`,
             ...upload.content,
@@ -698,7 +694,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
     if (frame.schema === "fleet.doc.submit/v1") {
       return runFleetCenterWrite(frame, async () => {
-        const a = await nodeContext(nodeId, frame.repoId, frame.accessToken, humanClientId);
+        const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
         assertFrameEpoch(a.repoId, frame.writerEpoch);
         const completed: string[] = [];
         for (const change of frame.changes) {
@@ -760,7 +756,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
     if (frame.schema === "fleet.task.command/v1") {
       return runFleetCenterWrite(frame, async () => {
-        const a = await nodeContext(nodeId, frame.repoId, frame.accessToken, humanClientId);
+        const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
         try {
           assertFrameEpoch(a.repoId, frame.writerEpoch);
         } catch (error) {
@@ -896,7 +892,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
     if (frame.schema === "fleet.schedule.command/v1") {
       return runFleetCenterWrite(frame, async () => {
-        const a = await nodeContext(nodeId, frame.repoId, frame.accessToken, humanClientId);
+        const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
         if (frame.scheduleId !== frame.action.scheduleId)
           throw new FleetFault("schedule_scope_mismatch", "Schedule command IDs must match.");
         assertFrameEpoch(a.repoId, frame.writerEpoch);
@@ -922,7 +918,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
     if (frame.schema === "fleet.runtime.event/v1") {
       return runFleetCenterWrite(frame, async () => {
-        const a = await nodeContext(nodeId, frame.repoId, frame.accessToken, humanClientId);
+        const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
         if (frame.repoId !== a.repoId)
           throw new FleetFault(
             "execution_scope_mismatch",
@@ -996,7 +992,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
     if (frame.schema === "fleet.runtime.archive/v1") {
       return runFleetCenterWrite(frame, async () => {
-        const a = await nodeContext(nodeId, frame.repoId, frame.accessToken, humanClientId);
+        const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
         if (frame.repoId !== a.repoId)
           throw new FleetFault(
             "execution_scope_mismatch",
@@ -1028,7 +1024,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       });
     }
     if (frame.schema === "fleet.operational.read/v1") {
-      const a = await nodeContext(nodeId, frame.repoId, frame.accessToken, humanClientId);
+      const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
       if (frame.repoId !== a.repoId)
         throw new FleetFault(
           "execution_scope_mismatch",

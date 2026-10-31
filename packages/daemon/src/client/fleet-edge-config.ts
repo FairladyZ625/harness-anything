@@ -18,7 +18,6 @@ export interface FleetEdgeConfig {
   readonly loginCertificate?: string;
   readonly nodeId: string;
   readonly credential: string;
-  readonly humanClientId?: string;
   readonly viewRoot: string;
   readonly quotaBytes: number;
   readonly waitTimeoutMs?: number;
@@ -85,7 +84,6 @@ export function readFleetEdgeConfig(rootDir: string): FleetEdgeConfig | null {
     ...(text("loginCertificate") ? { loginCertificate: text("loginCertificate") } : {}),
     nodeId: text("nodeId")!,
     credential: text("credential")!,
-    ...(text("humanClientId") ? { humanClientId: text("humanClientId") } : {}),
     viewRoot: text("viewRoot")!,
     quotaBytes,
     ...(waitTimeoutMs !== undefined ? { waitTimeoutMs } : {}),

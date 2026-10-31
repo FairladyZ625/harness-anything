@@ -262,7 +262,9 @@ function WorkSection({
       ? work.label
       : work.kind === "decision"
         ? t("agentRuntime.sessionsWorkDecision")
-        : t("agentRuntime.sessionsWorkLoose");
+        : work.kind === "pending"
+          ? t("agentRuntime.sessionsWorkPending")
+          : t("agentRuntime.sessionsWorkLoose");
   return (
     <section data-testid={`session-work-${work.key}`}>
       <button

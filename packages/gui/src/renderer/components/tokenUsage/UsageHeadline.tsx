@@ -229,12 +229,16 @@ export function UsageHeadline({ data }: { readonly data: AgentRuntimeTokenUsageR
           label={t("agentRuntime.tokenUsageTotalsUnreported")}
           value={String(totals.usageUnavailableDispatches)}
           tone={totals.usageUnavailableDispatches > 0 ? "var(--color-status-submitted)" : undefined}
-          note={t(
-            totals.usageUnavailableDispatches > 0
-              ? "agentRuntime.tokenUsageFigureUnreportedNote"
-              : "agentRuntime.tokenUsageFigureUnreportedNone",
-            { reported: String(totals.usageReportedDispatches) },
-          )}
+          note={
+            data.status === "pending" || data.sessions.reportedSessions < totals.sessionCount
+              ? t("agentRuntime.tokenUsageFigureUsageIncomplete")
+              : t(
+                  totals.usageUnavailableDispatches > 0
+                    ? "agentRuntime.tokenUsageFigureUnreportedNote"
+                    : "agentRuntime.tokenUsageFigureUnreportedNone",
+                  { reported: String(totals.usageReportedDispatches) },
+                )
+          }
         />
       </div>
     </Region>

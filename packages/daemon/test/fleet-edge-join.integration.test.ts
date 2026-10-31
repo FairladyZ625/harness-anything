@@ -95,6 +95,10 @@ test(
       loginUrl = `https://localhost:${loginPort}`;
     // Stands in for the center's Keycloak check: the edge fixture's device token names person-one.
     const center = await f.openCenter(f.host, undefined, {
+      invitationClientForNode: (nodeId) => {
+        const invite = invites.records().find((record) => record.nodeId === nodeId && record.consumedAt);
+        return invite ? { clientId: invite.loginClientId, personId: invite.personId } : undefined;
+      },
       edgeJoin: ({ joinId, inviteToken, accessToken }) => {
         const invite = invites.assertConsumable(joinId, inviteToken);
         const personId = accessToken?.startsWith("device-token-") ? "person-one" : "unknown";
@@ -107,7 +111,7 @@ test(
           issuedNodeId,
           loginUrl,
           `device-token-${issuedNodeId}`,
-          "harness-gui",
+          invite.loginClientId,
         );
         return {
           joinId: invite.joinId,
@@ -186,17 +190,24 @@ test(
         method: "daemon.rbac.manage",
         params: { operation: "edge-join", link: invitation, workspaceRoot },
       });
-      return { response: response as Record<string, unknown>, workspaceRoot };
+      return { edge, response: response as Record<string, unknown>, workspaceRoot };
     };
 
+    const joinedEdges = new Map<string, Awaited<ReturnType<typeof fleetEdgeHostFixture>>>();
     for (const nodeName of ["node-one", "node-two"]) {
       const invitation = await link("person-one", spkiSha256, nodeName === "node-one");
       if (nodeName === "node-one") {
         assert.ok(sshArgs[0]!.includes(`127.0.0.1:0:10.211.55.2:${center.port}`));
         assert.ok(sshArgs[0]!.includes(`127.0.0.1:0:localhost:${loginPort}`));
       }
-      f.owners.keycloak.interactiveSession("person-one", nodeName, loginUrl, `device-token-${nodeName}`, "harness-gui");
-      const { response, workspaceRoot } = await join(nodeName, invitation.link, nodeName === "node-one"),
+      f.owners.keycloak.interactiveSession(
+        "person-one",
+        nodeName,
+        loginUrl,
+        `device-token-${nodeName}`,
+        decodeEdgeJoinLink(invitation.link).loginClientId,
+      );
+      const { edge, response, workspaceRoot } = await join(nodeName, invitation.link, nodeName === "node-one"),
         result = response.result as Record<string, unknown>;
       assert.equal(result?.ok, true, JSON.stringify(response));
       assert.equal(result.joinId, invitation.joinId);
@@ -211,7 +222,7 @@ test(
         config = readFleetEdgeConfig(repoWorkspace);
       assert.equal(config?.nodeId, issuedNodeId);
       assert.equal(config?.credential, `secret-${issuedNodeId}`);
-      assert.equal(config?.humanClientId, "harness-gui");
+      joinedEdges.set(issuedNodeId, edge);
       if (nodeName === "node-one") {
         assert.equal(config?.host, "127.0.0.1");
         assert.equal(config?.servername, "localhost");
@@ -251,5 +262,16 @@ test(
     assert.equal("result" in refused.response && (refused.response.result as { ok?: unknown }).ok === true, false);
     assert.match(JSON.stringify(refused.response), /person_mismatch|another person/u);
     assert.equal(existsSync(path.join(refused.workspaceRoot, "fleet-edge.json")), false);
+    const formerOwnerNodeId = [...joinedEdges.keys()][0]!,
+      formerOwnerEdge = joinedEdges.get(formerOwnerNodeId)!;
+    f.owners.reassign(formerOwnerNodeId, "person-two");
+    assert.equal(f.owners.nodeOwner(formerOwnerNodeId), "person-two");
+    const formerOwnerWrite = await formerOwnerEdge.command({
+      kind: "task-create",
+      taskId: "former-owner-write",
+      title: "Former owner write",
+    });
+    assert.equal(formerOwnerWrite.code, "human_confirmation_required", JSON.stringify(formerOwnerWrite));
+    assert.equal(f.owners.nodeOwner(formerOwnerNodeId), "person-two");
   },
 );

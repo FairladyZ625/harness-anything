@@ -48,7 +48,7 @@ export async function admitEdgeJoin(input: {
     auth = await input.oidc.bind({
       transportKind: "fleet-tls",
       humanAccessToken: input.accessToken,
-      humanClientId: initial.loginClientId,
+      fleetExpectedAzps: [{ clientId: initial.loginClientId, personId: initial.personId }],
       nodePrincipal: { nodeId, personId: initial.personId },
     });
   if (auth.oidcPrincipal?.personId !== initial.personId)

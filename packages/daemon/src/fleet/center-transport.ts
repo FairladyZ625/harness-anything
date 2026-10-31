@@ -50,7 +50,6 @@ export async function serve(
     clientGone: () => boolean,
     connectionSignal: AbortSignal,
     progress: (frame: FleetFrameV1) => Promise<void>,
-    humanClientId?: string,
   ) => Promise<Delivery>,
   sessions: Map<string, Set<TLSSocket>>,
   replicationOwners: Map<string, TLSSocket>,
@@ -73,7 +72,6 @@ export async function serve(
   });
   let nodeId: string | null = null,
     accessToken: string | undefined,
-    humanClientId: string | undefined,
     pumping = false;
   let pendingReplicationStart: Extract<ReplicationFrame, { readonly type: "replica.start" }> | null = null;
   let replicationMode = false;
@@ -171,7 +169,6 @@ export async function serve(
   const startReplication = (
     node: string,
     frame: Extract<ReplicationFrame, { readonly type: "replica.start" }>,
-    humanClientId?: string,
   ): void => {
     const key = replicationSlotKey({ nodeId: node, repoId: frame.repoId }),
       previous = replicationOwners.get(key);
@@ -186,18 +183,16 @@ export async function serve(
       socket.destroy(new FleetFault("replication_unavailable", "Replication is unavailable."));
       return;
     }
-    void options
-      .onReplicationStart(node, accessToken, frame, replicationPeer, disconnected.signal, humanClientId)
-      .catch((error) => {
-        // A peer that went away aborts its stream; any other end is a center failure worth reporting.
-        if (!disconnected.signal.aborted && !peerDisconnected(socket, error))
-          (options.onError ?? ((entry) => console.error("[fleet-center] replication failed", entry)))({
-            nodeId: node,
-            messageId: null,
-            error,
-          });
-        socket.destroy(error instanceof Error ? error : new Error(String(error)));
-      });
+    void options.onReplicationStart(node, accessToken, frame, replicationPeer, disconnected.signal).catch((error) => {
+      // A peer that went away aborts its stream; any other end is a center failure worth reporting.
+      if (!disconnected.signal.aborted && !peerDisconnected(socket, error))
+        (options.onError ?? ((entry) => console.error("[fleet-center] replication failed", entry)))({
+          nodeId: node,
+          messageId: null,
+          error,
+        });
+      socket.destroy(error instanceof Error ? error : new Error(String(error)));
+    });
   };
   socket.on("data", (chunk) => {
     // A cut session stops processing: lines still buffered on it never reach a handler.
@@ -224,7 +219,7 @@ export async function serve(
               pendingReplicationStart = frame;
               return;
             }
-            startReplication(nodeId, frame, humanClientId);
+            startReplication(nodeId, frame);
           } else if (replicationMode) {
             const waiter = replicationWaiters.shift();
             if (waiter) waiter(frame);
@@ -294,11 +289,10 @@ export async function serve(
         helloAdmitted();
         nodeId = frame.nodeId;
         accessToken = frame.accessToken;
-        humanClientId = frame.humanClientId;
         if (pendingReplicationStart) {
           const start = pendingReplicationStart;
           pendingReplicationStart = null;
-          startReplication(nodeId, start, humanClientId);
+          startReplication(nodeId, start);
         }
         return enqueue(
           immediate({
@@ -322,7 +316,6 @@ export async function serve(
           () => socket.destroyed,
           disconnected.signal,
           (progress) => enqueue(immediate(progress)),
-          humanClientId,
         ),
       );
     } catch (error) {

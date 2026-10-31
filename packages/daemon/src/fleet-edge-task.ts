@@ -49,7 +49,6 @@ import { runFleetEdgeTaskCommand, runFleetEdgeWrite } from "./fleet-edge-write.t
 
 import { prepareEdgeTaskDelivery, type FleetDeliveryTask } from "./fleet-task-delivery.ts";
 import { readEdgeRepository } from "./fleet-edge-task-read.ts";
-import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 
 export interface FleetEdgeTaskRequest {
   readonly payload: {
@@ -180,10 +179,6 @@ export async function runFleetEdgeTask(
       ? payload.waitTimeoutMs
       : 60_000;
   const opId = randomUUID(),
-    // The center audits the human token's `azp` on every frame. The interactive client this device
-    // signed in under lives in fleet-edge.json (join wrote it, the resident stream relays it), so the
-    // task channel relays the same value instead of leaving the center to assume the node client.
-    humanClientId = payload.workspaceRoot ? readFleetEdgeConfig(payload.workspaceRoot)?.humanClientId : undefined,
     peer = {
       readAccessToken,
       hostname: payload.host,
@@ -192,7 +187,6 @@ export async function runFleetEdgeTask(
       servername: payload.servername,
       nodeId: payload.nodeId,
       credential,
-      ...(humanClientId ? { humanClientId } : {}),
       ...(payload.executionCredential ? { executionCredential: payload.executionCredential } : {}),
       repoId: payload.repoId,
     };

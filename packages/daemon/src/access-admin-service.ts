@@ -124,6 +124,10 @@ export class AccessAdminService {
     return this.#edgeJoinAdmin.admit(input);
   }
 
+  invitationClientForNode(nodeId: string): { readonly clientId: string; readonly personId: string } | undefined {
+    return this.#edgeJoinAdmin.invitationClientForNode(nodeId);
+  }
+
   resumeEdgeJoinTunnels(fleetServicePort: number): Promise<void> {
     return this.#edgeJoinAdmin.resumeSshTunnels(fleetServicePort);
   }
@@ -404,8 +408,15 @@ export class AccessAdminService {
   }
 
   async #sessionLifetime(): Promise<Record<string, unknown>> {
-    const seconds = await readSessionLifetime((await this.#session()).realmAdmin, this.#ports.fetch);
-    return { ok: true, seconds, version: String(seconds), ...sessionLifetimeBounds };
+    const session = await this.#session(),
+      seconds = await readSessionLifetime(session.realmAdmin, this.#ports.fetch);
+    return {
+      ok: true,
+      seconds,
+      version: String(seconds),
+      authority: { url: session.realmAdmin.url, realm: session.realmAdmin.realm },
+      ...sessionLifetimeBounds,
+    };
   }
 
   async #listTeams(): Promise<Record<string, unknown>> {
@@ -756,6 +767,11 @@ export class AccessAdminService {
       throw coded(
         "session_lifetime_invalid",
         `The session lifetime is a whole number of seconds from ${minimumSeconds} to ${maximumSeconds}.`,
+      );
+    if (typeof request.expectedVersion !== "string" || request.expectedVersion.trim() === "")
+      throw coded(
+        "access_request_invalid",
+        "Access administration requires expectedVersion. Run `ha bootstrap --operation session-lifetime` and pass its version as --expected-version.",
       );
     const expectedVersion = text(request.expectedVersion, "expectedVersion"),
       currentVersion = String(await readSessionLifetime(session.realmAdmin, this.#ports.fetch));

@@ -26,8 +26,8 @@ export function runTodoAction(
   binding: RepoCellBinding,
   opId: string,
 ): WriteReceiptDraft {
-  const head = cell.store.readHead()?.revision ?? 0;
   if (action.kind === "todo-list") {
+    const head = cell.projection.readCut().sourceRevision;
     const flags = [action.open, action.done, action.archived, action.all].filter((value) => value === true);
     if (flags.length > 1) reject("invalid_field", "Choose one of --open, --done, --archived or --all.");
     const attached =
@@ -43,6 +43,8 @@ export function runTodoAction(
     return cell.readResult(opId, { todos }, head, null);
   }
   const adding = action.kind === "todo-add",
+    head =
+      action.kind === "todo-show" ? cell.projection.readCut().sourceRevision : (cell.store.readHead()?.revision ?? 0),
     todoId = adding
       ? `todo_${typeof action.idempotencyKey === "string" ? createHash("sha256").update(`${cell.input.repoId}:${binding.actor.principal.personId}:${action.idempotencyKey}`).digest("hex").slice(0, 24) : randomBytes(12).toString("hex")}`
       : String(action.todoId ?? ""),

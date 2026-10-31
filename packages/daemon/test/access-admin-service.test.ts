@@ -703,6 +703,7 @@ test("the session lifetime is read from and written to the realm, within bounds,
     ok: true,
     seconds: 21_600,
     version: "21600",
+    authority: { url: keycloakUrl, realm: keycloakRealm },
     defaultSeconds: 21_600,
     minimumSeconds: 300,
     maximumSeconds: 31_536_000,
@@ -737,6 +738,7 @@ test("the session lifetime is read from and written to the realm, within bounds,
     );
   await assert.rejects(run({ operation: "session-lifetime-set", sessionLifetimeSeconds: 900 }), {
     code: "access_request_invalid",
+    message: /ha bootstrap --operation session-lifetime/u,
   });
   assert.equal(keycloak.realm.ssoSessionIdleTimeout, 7_200);
   assert.deepEqual(

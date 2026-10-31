@@ -221,6 +221,11 @@ export class EdgeJoinAdminService {
     return result;
   }
 
+  invitationClientForNode(nodeId: string): { readonly clientId: string; readonly personId: string } | undefined {
+    const record = this.#joins.records().find((candidate) => candidate.nodeId === nodeId && candidate.consumedAt);
+    return record ? { clientId: record.loginClientId, personId: record.personId } : undefined;
+  }
+
   status(joinId: string) {
     const record = this.#joins.get(joinId),
       status = this.#joins.status(joinId);

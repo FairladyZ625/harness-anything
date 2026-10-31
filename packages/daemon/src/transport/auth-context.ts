@@ -54,8 +54,8 @@ export interface DaemonAuthenticationContext {
   readonly nodePrincipal?: { readonly nodeId: string; readonly personId: string };
   /** Transient fleet credential, consumed by the center's online introspection, never action data. */
   readonly humanAccessToken?: string;
-  /** Public interactive client selected by an invitation for pre-session join. */
-  readonly humanClientId?: string;
+  /** Center-selected clients for invitation-bound sessions; never accepted from a fleet payload. */
+  readonly fleetExpectedAzps?: readonly { readonly clientId: string; readonly personId?: string }[];
   /** Center-only admission context; never accepted from a client payload. */
   readonly writerEpoch?: number;
   readonly withWriterEpochFence?: <T>(operation: () => T) => T;

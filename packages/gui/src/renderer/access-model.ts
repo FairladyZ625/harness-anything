@@ -55,6 +55,7 @@ const REJECTION_KEYS: Readonly<Record<string, MessageKey>> = {
   access_resource_invalid: "accessControl.error.resourceInvalid",
   access_receipt_unsettled: "accessControl.error.receiptUnsettled",
   session_lifetime_invalid: "accessControl.error.sessionLifetimeInvalid",
+  access_request_invalid: "accessControl.error.accessRequestInvalid",
   rbac_not_configured: "accessControl.error.notConfigured",
   rbac_admin_unavailable: "accessControl.error.serviceUnavailable",
   daemon_unavailable: "accessControl.error.daemonUnavailable",

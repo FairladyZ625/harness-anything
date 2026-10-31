@@ -44,6 +44,10 @@ export interface FleetCenterOptions {
   readonly authenticate: (nodeId: string, credential: string, source: string) => boolean | Promise<boolean>;
   /** The person a node acts for, re-read for every frame so a re-registration applies to the next one. */
   readonly nodeOwner: (nodeId: string) => string | null | Promise<string | null>;
+  /** Center-owned invitation client for a node admitted through an invitation. */
+  readonly invitationClientForNode?: (
+    nodeId: string,
+  ) => { readonly clientId: string; readonly personId: string } | undefined;
   readonly loginAuthority?: (nodeId: string) => FleetLoginAuthority | null | Promise<FleetLoginAuthority | null>;
   /**
    * One unauthenticated admission frame used only by edge join; the callback validates the human token and
@@ -70,7 +74,6 @@ export interface FleetCenterOptions {
     frame: Extract<ReplicationFrame, { readonly type: "replica.start" }>,
     peer: ReplicationPeer,
     signal: AbortSignal,
-    humanClientId?: string,
   ) => Promise<void>;
 }
 

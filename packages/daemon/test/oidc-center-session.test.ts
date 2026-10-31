@@ -107,6 +107,45 @@ test("a token issued by another center is rejected without writing a center sess
   assert.equal(managedRbacSessionStore(active.userRoot, active.edgeIssuer, "harness").read(), undefined);
 });
 
+test("Fleet identity validation derives the authorized client from the authenticated node", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-human-azp-")),
+    rbac = path.join(root, "rbac");
+  mkdirSync(rbac, { recursive: true });
+  writeFileSync(
+    path.join(rbac, "config.json"),
+    JSON.stringify({ url: "https://center.example.test", realm: "harness" }),
+  );
+  writeFileSync(path.join(rbac, "center-client-secret"), "fixture-center-secret");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const service = new OidcSessionService(root, {
+    now: () => 10_000,
+    fetch: (async (input) => {
+      const url = String(input);
+      if (url.endsWith("/protocol/openid-connect/token"))
+        return Response.json({ access_token: "fixture-admin-token", expires_in: 300 });
+      if (url.endsWith("/protocol/openid-connect/token/introspect"))
+        return Response.json({
+          active: true,
+          exp: 100,
+          iss: "https://center.example.test/realms/harness",
+          azp: "harness-node-edge-node",
+          aud: ["harness-center"],
+          sub: "user-a",
+          harness_person_id: "person-a",
+        });
+      if (url.endsWith("/admin/realms/harness/users/user-a"))
+        return Response.json({ enabled: true, attributes: { harness_person_id: ["person-a"] } });
+      throw new Error(`Unexpected Fleet identity request ${url}.`);
+    }) as typeof fetch,
+  });
+  const bound = await service.bind({
+    transportKind: "fleet-tls",
+    humanAccessToken: "fixture-human-token",
+    nodePrincipal: { nodeId: "edge-node", personId: "person-a" },
+  });
+  assert.equal(bound.oidcPrincipal?.personId, "person-a");
+});
+
 test("edge connection changes do not select a different OIDC center", (t) => {
   const active = fixture(t),
     selection = oidcCenterSelections(active.userRoot),

@@ -387,7 +387,7 @@ afterEach(() => {
   onOpenTask.mockReset();
 });
 
-async function renderView(): Promise<HTMLDivElement> {
+async function renderView(options: { readonly remoteEdge?: boolean } = {}): Promise<HTMLDivElement> {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
     container = document.createElement("div"),
     root = createRoot(container);
@@ -406,6 +406,7 @@ async function renderView(): Promise<HTMLDivElement> {
           },
           onSelectEntity,
           onOpenTask,
+          remoteEdge: options.remoteEdge,
         }),
       ),
     );
@@ -481,6 +482,37 @@ describe("TokenUsageView", () => {
     expect(view).toContain("2 sessions, 2.1K tokens");
     // 每一条文案的插值都被填上。
     expect(view).not.toMatch(/\{[a-zA-Z]+\}/u);
+  });
+
+  it("does not claim pending sessions reported usage and marks edge totals as local-only", async () => {
+    vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue({
+      ...usage,
+      totals: {
+        ...usage.totals,
+        sessionCount: 25,
+        inputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        toolCallCount: 0,
+        usageReportedDispatches: 0,
+        usageUnavailableDispatches: 0,
+      },
+      sessions: {
+        ...usage.sessions,
+        reportedSessions: 0,
+        averageTokens: 0,
+        medianTokens: 0,
+        p90Tokens: 0,
+        maxTokens: 0,
+      },
+    });
+    const container = await renderView({ remoteEdge: true });
+    expect(byTestId(container, "token-usage-edge-scope").textContent).toContain("local runtime usage only");
+    const headline = byTestId(container, "token-usage-figures").textContent ?? "";
+    expect(headline).toContain("Some sessions have no usage record yet");
+    expect(headline).not.toContain("All 0 dispatches reported usage");
   });
 
   it("renders the two headline metrics as equal columns of one grid row with identical type", async () => {

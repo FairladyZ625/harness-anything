@@ -448,6 +448,9 @@ describe("账号与访问控制页", () => {
     const card = byTestId("access-service-card").textContent ?? "";
     for (const shown of ["授权服务 · Keycloak", "Harness 托管", keycloakUrl, keycloakRealm, "正常"])
       expect(card).toContain(shown);
+    expect(byTestId("access-lifetime-authority").textContent).toContain(keycloakUrl);
+    expect(byTestId("access-lifetime-authority").textContent).toContain(keycloakRealm);
+    expect(byTestId("access-session-lifetime").textContent).toContain("ha bootstrap --operation session-lifetime");
     await click(byTestId("access-open-console"));
     expect(auth.openConsole).toHaveBeenCalledTimes(1);
     expect(container.querySelector("iframe, webview")).toBeNull();

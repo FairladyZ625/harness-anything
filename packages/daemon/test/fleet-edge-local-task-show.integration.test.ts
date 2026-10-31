@@ -151,6 +151,42 @@ test(
   },
 );
 
+test(
+  "edge todo list and show read the replicated center view while the center is offline",
+  { timeout: 180_000 },
+  async (t) => {
+    const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, true);
+    const added = await f.command("center-node", { kind: "todo-add", text: "Replicated edge todo" });
+    assert.equal(added.outcome, "applied", JSON.stringify(added));
+    const e = await fleetEdgeHostFixture(t, f);
+    await catchUpReplica({ ...f.peer("node-one"), viewRoot: e.viewRoot, diskQuotaBytes: quota });
+    const centerList = await f.host.run("lease-repo", { kind: "todo-list" } as never, localAuthFixture()),
+      todoId = (
+        JSON.parse(String(centerList.evidence)) as {
+          readonly todos: readonly { readonly id: string; readonly text: string }[];
+        }
+      ).todos.find((todo) => todo.text === "Replicated edge todo")?.id;
+    assert.equal(typeof todoId, "string", JSON.stringify(centerList));
+    const centerTodoId = todoId as string,
+      centerShow = await f.host.run(
+        "lease-repo",
+        { kind: "todo-show", todoId: centerTodoId } as never,
+        localAuthFixture(),
+      );
+
+    await f.center.close();
+    const edgeList = await e.command({ kind: "todo-list" }),
+      edgeShow = await e.command({ kind: "todo-show", todoId: centerTodoId });
+    assert.equal(edgeList.outcome, "applied", JSON.stringify(edgeList));
+    assert.deepEqual(JSON.parse(String(edgeList.evidence)), JSON.parse(String(centerList.evidence)));
+    assert.equal(edgeShow.outcome, "applied", JSON.stringify(edgeShow));
+    assert.deepEqual(JSON.parse(String(edgeShow.evidence)), JSON.parse(String(centerShow.evidence)));
+
+    const empty = await fleetEdgeHostFixture(t, f, { name: "edge-empty" });
+    assert.equal((await empty.command({ kind: "todo-list" })).code, "replica_unavailable");
+  },
+);
+
 test("an edge read that cannot reach its own write cut in time says so without reading", async (t) => {
   const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, true);
   const e = await fleetEdgeHostFixture(t, f);

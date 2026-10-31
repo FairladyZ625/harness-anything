@@ -42,7 +42,6 @@ export interface FleetEdgeChange {
 }
 export interface FleetPeerOptions {
   readonly readAccessToken?: () => Promise<string | undefined>;
-  readonly humanClientId?: string;
   readonly executionCredential?: string;
   readonly hostname?: string;
   readonly port: number;
@@ -196,7 +195,6 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
           nodeId: options.nodeId,
           credential: options.credential,
           ...(accessToken ? { accessToken } : {}),
-          ...(options.humanClientId ? { humanClientId: options.humanClientId } : {}),
         }),
       );
     });
@@ -707,7 +705,6 @@ export async function openPeer(options: Omit<FleetPeerOptions, "repoId">) {
         serializeFleetFrame({
           ...frame,
           ...(token ? { accessToken: token } : {}),
-          ...(options.humanClientId ? { humanClientId: options.humanClientId } : {}),
         }),
       );
     },
