@@ -11,15 +11,27 @@ import { runCommandThroughDaemon } from "../src/daemon/client.ts";
 
 test("device polling follows pending replies and ends at the device deadline", async () => {
   let polls = 0;
+  const phases: string[] = [];
   const request = async () =>
     ++polls === 1 ? { ok: true, pending: true, interval: 0.001 } : { ok: true, authenticated: true, personId: "alice" };
   const signed = await awaitDeviceLogin(
-    { ok: true, pending: true, interval: 0.001, expiresAt: Date.now() + 1_000 },
+    {
+      ok: true,
+      command: "edge-join",
+      pending: true,
+      interval: 0.001,
+      expiresAt: Date.now() + 1_000,
+      verificationUri: "https://center.example:8443/realms/harness/device?user_code=CODE",
+      managedVerificationUri: "http://127.0.0.1:49152/realms/harness/device?user_code=CODE&harness_gateway=one-shot",
+      userCode: "CODE",
+    },
     request,
-    () => undefined,
+    (receipt) => phases.push(renderCliReceipt(receipt).text),
   );
   assert.equal(signed.personId, "alice");
   assert.equal(polls, 2);
+  assert.match(phases[0] ?? "", /Open http:\/\/127\.0\.0\.1:49152\/realms\/harness\/device/u);
+  assert.doesNotMatch(phases[0] ?? "", /center\.example:8443/u);
   const expired = await awaitDeviceLogin(
     { ok: true, pending: true, interval: 600, expiresAt: Date.now() - 1 },
     request,
@@ -27,6 +39,19 @@ test("device polling follows pending replies and ends at the device deadline", a
   );
   assert.equal(expired.code, "oidc_device_expired");
   assert.equal(polls, 2, "an expired device code never starts a token request");
+});
+
+test("CLI device receipts prefer the Harness-managed confirmation page", () => {
+  const rendered = renderCliReceipt({
+    ok: true,
+    pending: true,
+    verificationUri: "https://center.example:8443/realms/harness/device?user_code=CODE",
+    managedVerificationUri: "http://127.0.0.1:49152/realms/harness/device?user_code=CODE&harness_gateway=one-shot",
+    userCode: "CODE",
+    expiresAt: Date.now() + 60_000,
+  });
+  assert.match(rendered.text, /Open http:\/\/127\.0\.0\.1:49152\/realms\/harness\/device/u);
+  assert.doesNotMatch(rendered.text, /center\.example:8443/u);
 });
 
 test("device polling re-announces a replacement code and preserves the last transport cause at expiry", async () => {

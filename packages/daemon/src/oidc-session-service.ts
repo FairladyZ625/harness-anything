@@ -28,6 +28,7 @@ import type { FleetDeviceLoginNotice } from "./fleet/command-protocol.ts";
 import { reportFleetDeviceLogin, readFleetLoginAuthorityClient } from "./fleet/peer.ts";
 import { errorMessageWithCause } from "./error-cause.ts";
 import { oidcCenterSelections } from "./oidc-center-selection.ts";
+import { openDeviceConfirmationGateway, type DeviceConfirmationGateway } from "./oidc-device-confirmation-gateway.ts";
 import {
   fetchWithTlsCa,
   probeSystemCaTrust,
@@ -66,6 +67,7 @@ interface PendingDeviceLogin {
   interval: number;
   nextPollAt: number;
   lastTransportError?: string;
+  gateway?: DeviceConfirmationGateway;
 }
 
 /** What one use of the session finds. `unavailable` is set when Keycloak could not be asked to renew it. */
@@ -194,6 +196,12 @@ export class OidcSessionService {
     authorityOverride?: OidcLoginAuthority,
     expiresAtLimit?: number,
   ): Promise<Record<string, unknown>> {
+    if (this.#device) {
+      const previous = this.#device;
+      this.#device = undefined;
+      await this.#closeDeviceGateway(previous);
+      await this.#reportDevice(previous, false);
+    }
     const authority = authorityOverride ?? (await this.#loginAuthority(loginTarget, true)),
       verifier = this.#ports.randomBytes(32).toString("base64url");
     let issuer: string;
@@ -236,6 +244,7 @@ export class OidcSessionService {
         userCode,
       ),
       notice = { userCode, createdAt, expiresAt, pending: true };
+    const gateway = await this.#managedDeviceGateway(authority, verificationUri, expiresAt - createdAt);
     this.#device = {
       notice,
       authority,
@@ -246,6 +255,7 @@ export class OidcSessionService {
       expiresAt,
       nextPollAt: this.#ports.now() + interval * 1_000,
       ...(loginTarget ? { loginTarget } : {}),
+      ...(gateway ? { gateway } : {}),
     };
     this.#centers.write(loginTarget, { authority, issuer });
     await this.#reportDevice(this.#device, true);
@@ -253,6 +263,7 @@ export class OidcSessionService {
       ok: true,
       pending: true,
       verificationUri,
+      ...(gateway ? { managedVerificationUri: gateway.verificationUri } : {}),
       userCode,
       interval,
       expiresAt,
@@ -323,6 +334,7 @@ export class OidcSessionService {
       if (!pending) throw coded("oidc_device_missing", "Start device login first.");
       if (this.#ports.now() >= pending.expiresAt) {
         this.#device = undefined;
+        await this.#closeDeviceGateway(pending);
         await this.#reportDevice(pending, false);
         throw coded(
           "oidc_device_expired",
@@ -363,6 +375,8 @@ export class OidcSessionService {
       delete pending.lastTransportError;
       if (!response.ok) {
         if (result.error === "invalid_grant") {
+          this.#device = undefined;
+          await this.#closeDeviceGateway(pending);
           await this.#reportDevice(pending, false);
           return this.beginDevice(pending.loginTarget, pending.authority, pending.expiresAt);
         }
@@ -372,14 +386,32 @@ export class OidcSessionService {
           return { ok: true, pending: true, interval: pending.interval };
         }
         this.#device = undefined;
+        await this.#closeDeviceGateway(pending);
         await this.#reportDevice(pending, false);
         throw coded("oidc_device_rejected", `Device authorization ended: ${String(result.error)}.`);
       }
       this.#device = undefined;
       const accepted = await this.#acceptTokens(result, pending.authority, pending.issuer, pending.loginTarget);
+      await this.#closeDeviceGateway(pending);
       await this.#reportDevice(pending, false);
       return accepted;
     });
+  }
+
+  async #managedDeviceGateway(
+    authority: OidcLoginAuthority,
+    verificationUri: string,
+    expiresInMs: number,
+  ): Promise<DeviceConfirmationGateway | undefined> {
+    if (!authority.browserUrl || !authority.url.startsWith("https://")) return undefined;
+    const endpoint = new URL(authority.url);
+    if (!(endpoint.hostname === "127.0.0.1" || endpoint.hostname === "localhost" || endpoint.hostname === "[::1]"))
+      return undefined;
+    return openDeviceConfirmationGateway(authority, verificationUri, expiresInMs, this.#ports.fetch);
+  }
+
+  async #closeDeviceGateway(pending: PendingDeviceLogin): Promise<void> {
+    await pending.gateway?.close();
   }
 
   async #acceptTokens(
@@ -469,6 +501,7 @@ export class OidcSessionService {
     const device = this.#device;
     this.#device = undefined;
     return this.serialize(async () => {
+      if (device) await this.#closeDeviceGateway(device);
       const { authority: targetAuthority, sessionStore } = await this.#centerIdentity(loginTarget),
         session = this.#session(sessionStore);
       sessionStore.delete();
