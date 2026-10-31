@@ -98,8 +98,11 @@ export function providerFaultFromFrame(
   }
   // ACP-family kinds share the canonical frame vocabulary; the error frame's
   // message is the only diagnostic surface.
-  if (value.type === "acp.error")
-    return providerFaultFromDiagnostic(null, null, diagnosticText(value.message), undefined);
+  if (value.type === "acp.error") {
+    const diagnostic = diagnosticText(value.message);
+    if (diagnostic?.trim().toLowerCase() === "internal error") return fault("server_error", diagnostic.trim());
+    return providerFaultFromDiagnostic(null, null, diagnostic, undefined);
+  }
   return null;
 }
 

@@ -70,6 +70,30 @@ test("transient busy model service errors remain retryable provider faults", () 
   assert.equal(result.classification, "provider_fault");
 });
 
+test("a bare ACP Internal error is a provider fault while a detailed refusal stays a task failure", () => {
+  const providerFault = providerFaultFromFrame("deepseek-harness", { type: "acp.error", message: "Internal error" }),
+    genericAcpFault = providerFaultFromFrame("devin", { type: "acp.error", message: "Internal error" }),
+    result = classifyRuntimeExit(
+      active({
+        kindId: "deepseek-harness",
+        providerOutcome: "failed",
+        failureText: "Internal error",
+        providerFault,
+      }),
+      0,
+    ),
+    detailedRefusal = providerFaultFromFrame("deepseek-harness", {
+      type: "acp.error",
+      message: "Internal error: turn failed: DeepSeek Messages expected a JSON object",
+    });
+
+  assert.equal(providerFault?.code, "server_error");
+  assert.equal(genericAcpFault?.code, "server_error");
+  assert.equal(result.outcome, "failed");
+  assert.equal(result.classification, "provider_fault");
+  assert.equal(detailedRefusal, null);
+});
+
 test("text-only provider transport failures classify for fallback without promoting malformed requests", () => {
   const deepseekDiagnostics = [
       "Internal error: turn failed: Upstream service temporarily unavailable",

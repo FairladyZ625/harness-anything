@@ -660,7 +660,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     assert.equal(new Set(soloExhausted.map(({ attemptGroupId }) => attemptGroupId)).size, 1);
     assert.match(soloExhausted[1]?.reason ?? "", /exhausted after 2 attempt\(s\) and 1 retry round/u);
 
-    // An ACP provider's in-turn stream error is its own failure, not the task's: the attempt
+    // A bare ACP Internal error belongs to the provider, not the task: the attempt
     // retries on the next declared row instead of settling gate_red.
     availableInstances = instances.filter((instance) =>
       ["provider-acp-error-first", "provider-acp-success-second"].includes(instance.instanceId),
@@ -694,7 +694,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     });
     assert.equal(acpStream.length, 2, JSON.stringify(acpStream));
     assert.equal(acpStream[0]?.classification, "provider_fault");
-    assert.match(acpStream[0]?.reason ?? "", /temporarily unavailable/u);
+    assert.match(acpStream[0]?.reason ?? "", /Internal error/u);
     assertAttemptChain(acpStream, ["provider-acp-error-first", "provider-acp-success-second"]);
     assert.match(prompts.get("provider-acp-success-second")?.[0] ?? "", /# Provider fallback continuation/u);
 
@@ -1164,7 +1164,7 @@ function fakeProcess(pid: number, behavior: Behavior): RuntimeProcess {
                       sessionId,
                       message:
                         behavior === "acp_stream_error"
-                          ? "Internal error: turn failed: DeepSeek service temporarily unavailable"
+                          ? "Internal error"
                           : behavior === "acp_model_error"
                             ? "ACP session does not offer model provider-success-model; offered: other-model"
                             : "Invalid params: cwd is required",

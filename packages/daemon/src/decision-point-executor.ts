@@ -140,18 +140,27 @@ export function openDecisionPointExecutor(input: {
         decisions = settingsRead.settings.decisions,
         providerId = decisions?.provider,
         enabledPoints = decisions?.enabledPoints ?? [];
-      if (!vertical.decisions || !providerId || enabledPoints.length === 0) return;
+      const decisionContract = vertical.decisions;
+      if (!decisionContract || !providerId || enabledPoints.length === 0) return;
       const provider = input.providers.list().find((candidate) => candidate.providerId === providerId);
 
       const eventFields = {
           outcome: event.payload.outcome,
           classification: event.payload.attempt?.classification ?? null,
         } as const,
-        points = Object.entries(vertical.decisions.points).filter(([, point]) =>
-          decisionWhenMatches(point.when, eventFields),
-        );
+        points = Object.entries(decisionContract.points).filter(([, point]) => {
+          const question = decisionContract.questions[point.question];
+          if (decisionWhenMatches(point.when, eventFields)) return true;
+          // The executable incident contract also owns a terminal provider fault with no fallback
+          // successor, even when an installed filter only names the older worker_stop case.
+          return (
+            question?.version === incidentDispositionQuestionVersion &&
+            eventFields.outcome === "failed" &&
+            eventFields.classification === "provider_fault"
+          );
+        });
       for (const [pointId, point] of points) {
-        const question = vertical.decisions.questions[point.question];
+        const question = decisionContract.questions[point.question];
         if (!question) continue;
         // A successful terminal outcome is delivered work (including registered review work), so
         // the incident action must not reopen it even when an older frozen filter still matches.

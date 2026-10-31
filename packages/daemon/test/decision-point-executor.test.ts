@@ -460,12 +460,14 @@ const choiceAnswer = (selected: string): AdvisoryDecision =>
   }) as AdvisoryDecision;
 
 function incidentOutcomeEvent(
-  outcome: "stopped" | "succeeded" = "stopped",
+  outcome: "stopped" | "failed" | "succeeded" = "stopped",
+  classification = "worker_stop",
 ): Extract<AgentRuntimeEventV1, { type: "runtime_session_outcome_observed" }> {
+  const settledEvent = outcomeEvent(null, classification);
   return {
-    ...outcomeEvent(),
+    ...settledEvent,
     payload: {
-      ...outcomeEvent().payload,
+      ...settledEvent.payload,
       outcome,
       runtimeMetrics: {
         inputTokens: 10,
@@ -749,6 +751,33 @@ test("an admissible resume choice launches one successor through the existing sp
   assert.match(requests[0]!, /rounds_used: 1/u);
 });
 
+test("a provider fault uses the existing incident continuation and its shared budget", async (t) => {
+  const rootDir = isolatedRoot();
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  seedIncidentStream(rootDir);
+  const executor = openTestExecutor({
+      rootDir,
+      providers: {
+        list: () => [provider],
+        port: { decide: async () => Promise.reject(new Error("decision service unavailable")) },
+      },
+      now: () => "2026-10-19T00:00:01.000Z",
+    }),
+    { cell, spawns } = fakeIncidentCell({ rootDir, agentId: "terra" });
+
+  await executor.settle(cell, incidentOutcomeEvent("failed", "gate_red"));
+  assert.equal(spawns.length, 0, "gate_red does not receive the provider-fault incident trigger");
+
+  await executor.settle(cell, incidentOutcomeEvent("failed", "provider_fault"));
+
+  assert.equal(spawns.length, 1);
+  assert.equal(spawns[0]?.payload.agentId, "terra");
+  assert.equal(spawns[0]?.payload.taskId, "task-1");
+  const receipt = readIncidentActionReceipt(rootDir, dispatchId);
+  assert.equal(receipt?.action, "rerun");
+  assert.deepEqual(receipt?.budget, { used: 1, limit: 3, source: "daemon" });
+});
+
 test("an automatic resume refuses a local session owned by a different person", async (t) => {
   const rootDir = isolatedRoot();
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
@@ -998,7 +1027,7 @@ test("two concurrent outcome callbacks reserve once, ask once and launch once", 
   assert.equal(stored.length, 1);
 });
 
-test("an exhausted automatic-disposition budget escalates instead of launching", async (t) => {
+test("an exhausted provider-fault incident budget escalates instead of launching", async (t) => {
   const rootDir = isolatedRoot();
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   seedIncidentStream(rootDir);
@@ -1028,7 +1057,7 @@ test("an exhausted automatic-disposition budget escalates instead of launching",
       reviewReturnBudget: 1,
       priorDispatches: [{ dispatchId: priorDispatchId, receipt: readIncidentActionReceipt(rootDir, priorDispatchId) }],
     });
-  await executor.settle(cell, incidentOutcomeEvent());
+  await executor.settle(cell, incidentOutcomeEvent("failed", "provider_fault"));
   assert.equal(spawns.length, 0);
   assert.equal(relates.length, 0);
   const stored = await openDecisionAnnotationStore(rootDir).export();
