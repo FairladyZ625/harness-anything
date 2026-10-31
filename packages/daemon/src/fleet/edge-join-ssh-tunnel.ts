@@ -34,6 +34,7 @@ interface TunnelEntry extends Omit<EdgeJoinSshTunnelInput, "remotePorts"> {
   };
   cancelRestart?: () => void;
   cancelStartupTimeout?: () => void;
+  restartDelayMs: number;
   stopping: boolean;
 }
 
@@ -43,7 +44,8 @@ interface TunnelManagerPorts {
   readonly onState?: (target: string, state: EdgeJoinTunnelState) => void;
 }
 
-const restartDelayMs = 5_000;
+const initialRestartDelayMs = 5_000;
+const maxRestartDelayMs = 5 * 60_000;
 const startupTimeoutMs = 45_000;
 
 export class EdgeJoinSshTunnelManager {
@@ -83,6 +85,7 @@ export class EdgeJoinSshTunnelManager {
       output: "",
       readyServices: new Set(),
       allocatedPorts: {},
+      restartDelayMs: initialRestartDelayMs,
       stopping: false,
     };
     this.#entries.set(target, entry);
@@ -213,6 +216,7 @@ export class EdgeJoinSshTunnelManager {
     }
     if (entry.remotePorts && entry.readyServices.has("fleet") && entry.readyServices.has("login")) {
       entry.state = "connected";
+      entry.restartDelayMs = initialRestartDelayMs;
       entry.cancelStartupTimeout?.();
       entry.cancelStartupTimeout = undefined;
       this.#onState(entry.target, entry.state);
@@ -243,12 +247,15 @@ export class EdgeJoinSshTunnelManager {
     }
     entry.state = "reconnecting";
     this.#onState(entry.target, entry.state);
-    if (!entry.cancelRestart)
+    if (!entry.cancelRestart) {
+      const delayMs = entry.restartDelayMs;
+      entry.restartDelayMs = Math.min(delayMs * 2, maxRestartDelayMs);
       entry.cancelRestart = this.#schedule(() => {
         entry.cancelRestart = undefined;
         if (this.#entries.get(entry.target) === entry && !entry.stopping && !this.#closed)
           void this.#launch(entry).catch(() => undefined);
-      }, restartDelayMs);
+      }, delayMs);
+    }
   }
 
   async #stopEntry(entry: TunnelEntry): Promise<void> {
