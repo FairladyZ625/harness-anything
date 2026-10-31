@@ -221,6 +221,12 @@ export function executeRepoAction(
         Number(action.expectedVersion ?? cell.store.readHead()?.revision ?? 0),
       ),
     );
+  // Progress has a legacy writer that owns its operation id and document adjudication. Keep that
+  // single route when the declaration is catalog-bound so catalog admission does not hash twice or
+  // bypass carried document claims.
+  if (Array.isArray(action.docChanges))
+    return cell.runTaskCommandWithDocs(action as TaskCommandWithDocsAction, binding);
+  if (action.kind === "task-progress-append") return cell.appendProgress(action, binding);
   const actionContract = getExecutableEntityAction(action.kind);
   if (actionContract?.target.kind === "todo" && actionContract.execution) {
     const sourceRevision = actionContract.execution.read
@@ -258,6 +264,8 @@ export function executeRepoAction(
         ...cell.entityActionRuntimes,
         task: async (contract, catalogAction, catalogBinding) => {
           if (catalogAction.kind === "task-submit") return submitTask(cell, catalogAction, catalogBinding);
+          if (Array.isArray(catalogAction.docChanges))
+            return cell.runTaskCommandWithDocs(catalogAction as TaskCommandWithDocsAction, catalogBinding);
           if (catalogAction.kind === "preset-upgrade") return cell.upgradePresetSnapshot(catalogAction, catalogBinding);
           if (catalogAction.kind === "task-artifact-add")
             return runArtifactAdd({
@@ -276,8 +284,6 @@ export function executeRepoAction(
           if (catalogAction.kind === "task-attest") return attestGateWitness(cell, catalogAction, catalogBinding);
           if (catalogAction.kind === "task-declare-executor")
             return cell.declareExecutionExecutor(catalogAction, catalogBinding);
-          if (Array.isArray(catalogAction.docChanges))
-            return cell.runTaskCommandWithDocs(catalogAction as TaskCommandWithDocsAction, catalogBinding);
           if (contract.execution?.implementation === "catalog-runtime") {
             if (catalogAction.kind.startsWith("task-witness-"))
               return runTaskWitnessAction(cell, catalogAction, catalogBinding);
