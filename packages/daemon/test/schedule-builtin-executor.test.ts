@@ -5,12 +5,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { Worker, type WorkerOptions } from "node:worker_threads";
-import {
-  createScheduleV1,
-  makeTaskEventReader,
-  readVerifiedLedgerBackup,
-  type ScheduleV1,
-} from "@harness-anything/kernel";
+import { makeTaskEventReader, readVerifiedLedgerBackup } from "@harness-anything/storage";
+import { createScheduleV1, type ScheduleV1 } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import {
   openBootstrappedRepoCell as openRepoCell,

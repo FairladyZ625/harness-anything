@@ -6,10 +6,10 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { makeTaskEventReader } from "@harness-anything/storage";
 import {
   decisionReviewContentDigest,
   deriveRelationId,
-  makeTaskEventReader,
   serializeCanonicalEvent,
   type DecisionDocumentState,
 } from "@harness-anything/kernel";

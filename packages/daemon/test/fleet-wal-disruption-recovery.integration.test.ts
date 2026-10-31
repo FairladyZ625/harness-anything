@@ -16,7 +16,8 @@ import { connect, createServer, type TLSSocket } from "node:tls";
 import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
-import { makeTaskProjectionReader } from "@harness-anything/kernel";
+import { makeTaskProjectionReader } from "@harness-anything/storage";
+
 import {
   fleetReplicationFixture,
   seedCenterData,

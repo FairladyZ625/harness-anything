@@ -9,7 +9,7 @@ import { syncBuiltinESMExports } from "node:module";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 import { daemonMethodAcceptsPayload } from "../src/protocol/daemon-protocol-rpc-validation.ts";
-import { makeTaskEventReader, sha256Text } from "@harness-anything/kernel";
+import { sha256Text } from "@harness-anything/kernel";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
@@ -24,7 +24,7 @@ import { openDaemonHost } from "../src/daemon-host.ts";
 import { latestSquadStates } from "../src/squad-run-state.ts";
 import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
 import { squadRunObservation } from "../src/squad-observation.ts";
-import { openPersistentWriterEpoch } from "@harness-anything/storage";
+import { makeTaskEventReader, openPersistentWriterEpoch } from "@harness-anything/storage";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 import { waitForState } from "./fleet-replication.fixture.ts";
 

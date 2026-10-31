@@ -6,12 +6,8 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import {
-  deriveBasePolicyGroups,
-  effectivePolicyGroupScopes,
-  makeTaskEventReader,
-  makeTaskProjection,
-} from "@harness-anything/kernel";
+import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
+import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { startDaemon } from "../src/runtime.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import { commandDescriptorForAction } from "../src/protocol/daemon-protocol.contract.ts";

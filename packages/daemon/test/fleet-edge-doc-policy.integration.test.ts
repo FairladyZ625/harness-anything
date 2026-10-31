@@ -9,12 +9,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import {
-  makeTaskEventReader,
-  OPAQUE_TEXTUAL_POLICY_ID,
-  RAW_ARTIFACT_POLICY_ID,
-  sha256Bytes,
-} from "@harness-anything/kernel";
+import { makeTaskEventReader } from "@harness-anything/storage";
+import { OPAQUE_TEXTUAL_POLICY_ID, RAW_ARTIFACT_POLICY_ID, sha256Bytes } from "@harness-anything/kernel";
 import { readEdgeDocWorkspace } from "../src/fleet-edge-doc-read.ts";
 import { locateFleetMirrorView, scanFleetMirrorWorktree, type FleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { dualSyncFixture } from "./fleet-dual-sync.fixture.ts";

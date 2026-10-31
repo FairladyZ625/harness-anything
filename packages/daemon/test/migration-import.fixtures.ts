@@ -2,15 +2,13 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
+import { readLegacyMigrationSource, readMarkdownSource, taskEntryToRow } from "@harness-anything/storage";
 import {
   REPLAY_TASK_GRAPH,
   deriveRelationId,
-  readLegacyMigrationSource,
-  readMarkdownSource,
   readScalar,
   resolveHarnessLayout,
   sha256Text,
-  taskEntryToRow,
 } from "@harness-anything/kernel";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 

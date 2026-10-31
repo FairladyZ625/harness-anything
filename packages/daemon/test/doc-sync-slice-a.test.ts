@@ -5,14 +5,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import {
-  DOC_SYNC_INLINE_MAX_BYTES,
-  DOC_POLICY_ID,
-  makeTaskEventReader,
-  makeTaskProjection,
-  parseDocWriteIntent,
-  sha256Text,
-} from "@harness-anything/kernel";
+import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
+import { DOC_SYNC_INLINE_MAX_BYTES, DOC_POLICY_ID, parseDocWriteIntent, sha256Text } from "@harness-anything/kernel";
 import { OPAQUE_TEXTUAL_POLICY_ID } from "../../storage/test/store/canonical-generation.fixtures.ts";
 import { readDocReceipt } from "../src/doc-sync-actions.ts";
 import { adjudicateDocIntent } from "../src/doc-sync-adjudication.ts";

@@ -5,9 +5,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
+import { makeTaskProjection, openSqliteEventStore } from "@harness-anything/storage";
 import {
-  makeTaskProjection,
-  openSqliteEventStore,
   serializePersistedCanonicalEvent,
   sha256Text,
   validateCurrentCanonicalEvent,

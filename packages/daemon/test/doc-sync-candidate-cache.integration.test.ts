@@ -6,13 +6,8 @@ import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import {
-  localGitWorktreeSettlement,
-  makeTaskEventReader,
-  makeTaskProjection,
-  resolveHarnessLayout,
-  sha256Text,
-} from "@harness-anything/kernel";
+import { localGitWorktreeSettlement, makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
+import { resolveHarnessLayout, sha256Text } from "@harness-anything/kernel";
 import { runDocAction } from "../src/doc-sync-command-actions.ts";
 import { scanDocCandidates } from "../src/doc-sync-candidate-scanner.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";

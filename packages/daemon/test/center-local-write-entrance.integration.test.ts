@@ -4,7 +4,8 @@ import { readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader, readSettingsFacet, writeRepositorySettingsFacet } from "@harness-anything/kernel";
+import { makeTaskEventReader } from "@harness-anything/storage";
+import { readSettingsFacet, writeRepositorySettingsFacet } from "@harness-anything/kernel";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";

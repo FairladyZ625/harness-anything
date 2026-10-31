@@ -5,7 +5,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { deriveRelationId, makeTaskEventReader, makeTaskProjectionReader } from "@harness-anything/kernel";
+import { makeTaskEventReader, makeTaskProjectionReader } from "@harness-anything/storage";
+import { deriveRelationId } from "@harness-anything/kernel";
 import { assembleTaskCausalContext } from "../src/dispatch-causal-context.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";

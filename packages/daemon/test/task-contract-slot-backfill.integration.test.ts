@@ -5,14 +5,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import {
-  makeTaskEventReader,
-  makeTaskEventStore,
-  makeTaskProjection,
-  readSettingsFacet,
-  sha256Text,
-  taskBootstrapWritePlan,
-} from "@harness-anything/kernel";
+import { makeTaskEventReader, makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
+import { readSettingsFacet, sha256Text, taskBootstrapWritePlan } from "@harness-anything/kernel";
 import { compileRepoTaskBootstrap } from "@harness-anything/preset";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { locateTaskTransitionDocument } from "../src/transition-document-access.ts";

@@ -16,7 +16,8 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { makeTaskEventReader, type TaskV2, type WriteReceiptDraft } from "@harness-anything/kernel";
+import { makeTaskEventReader } from "@harness-anything/storage";
+import { type TaskV2, type WriteReceiptDraft } from "@harness-anything/kernel";
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import {

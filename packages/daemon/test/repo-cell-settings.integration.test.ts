@@ -6,13 +6,9 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import {
-  makeTaskEventReader,
-  makeTaskEventStore,
-  makeTaskProjection,
-  validateReceiptAcceptance,
-} from "@harness-anything/kernel";
-import { WRITE_RECEIPT_SCHEMA } from "@harness-anything/kernel/internal/domain/receipt-domain-registry";
+import { makeTaskEventReader, makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
+import { validateReceiptAcceptance } from "@harness-anything/kernel";
+import { WRITE_RECEIPT_SCHEMA } from "@harness-anything/kernel";
 import { validateWriteReceipt } from "../../storage/test/store/canonical-generation.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { settingsLastChanged } from "../src/repo-cell-settings-state.ts";

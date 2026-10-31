@@ -5,13 +5,8 @@ import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import {
-  activateEmptyCanonicalGeneration,
-  canonicalEventWritePlan,
-  makeTaskEventReader,
-  makeTaskEventStore,
-  type AgentRuntimeEventV1,
-} from "@harness-anything/kernel";
+import { activateEmptyCanonicalGeneration, makeTaskEventReader, makeTaskEventStore } from "@harness-anything/storage";
+import { canonicalEventWritePlan, type AgentRuntimeEventV1 } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { serveKeycloak } from "./keycloak.fixtures.ts";

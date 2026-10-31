@@ -8,13 +8,13 @@ import path from "node:path";
 import test from "node:test";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
-import { classifyTextualArtifactPath, documentPath, makeTaskEventReader } from "@harness-anything/kernel";
+import { classifyTextualArtifactPath, documentPath } from "@harness-anything/kernel";
 import { OPAQUE_TEXTUAL_POLICY_ID } from "../../storage/test/store/canonical-generation.fixtures.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { DOC_COMMAND_FRAME_MAX_BYTES } from "../src/doc-sync-actions.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { type RepoCellBinding } from "../src/repo-cell.ts";
-import { openPersistentWriterEpoch } from "@harness-anything/storage";
+import { makeTaskEventReader, openPersistentWriterEpoch } from "@harness-anything/storage";
 import {
   openBootstrappedRepoCell as openRepoCell,
   seedSettingsEvent,
