@@ -57,6 +57,7 @@ export async function startDaemon(input: {
   readonly runtimeCredentialPort?: DaemonHostOpenInput["runtimeCredentialPort"];
   readonly managedRbac?: DaemonHostOpenInput["managedRbac"];
   /** Optional platform skill evaluation capability supplied by the daemon composition root. */
+  readonly skillEval?: DaemonHostOpenInput["skillEval"];
   readonly skillEvalRunner?: DaemonHostOpenInput["skillEvalRunner"];
   /** Called after a build-superseded exit released everything, so the resident entry can hand the
    * slot to the disk build. */

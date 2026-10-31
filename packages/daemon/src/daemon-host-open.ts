@@ -105,7 +105,8 @@ import type { createEdgeJoinStore } from "./fleet/edge-join.ts";
 import { accessAdminOperations } from "./protocol/daemon-protocol.contract.ts";
 import { ManagedRbacService } from "./managed-rbac-service.ts";
 import { OidcSessionService } from "./oidc-session-service.ts";
-import type { SkillEvalRunner } from "./skill-eval-runner.ts";
+import type { SkillEvalCaseDraft, SkillEvalCaseView, SkillEvalRecord, SkillEvalRunner } from "./skill-eval-runner.ts";
+import { openSkillEvalProduction, type SkillEvalProductionInput } from "./skill-eval-production.ts";
 import { runFleetReplicaSync, waitForFleetReplicaReady } from "./fleet/replica-sync.ts";
 export interface DaemonHostOpenInput {
   readonly daemonId: string;
@@ -136,11 +137,18 @@ export interface DaemonHostOpenInput {
   ) => Promise<RepoCell>;
   readonly sshTunnels?: EdgeJoinSshTunnelManager;
   readonly edgeJoins?: ReturnType<typeof createEdgeJoinStore>;
-  /** Platform skill evaluation is wired by the composition root with policy, storage, runtime, and queue ports. */
+  /** Optional deployment overrides; the daemon composes the default catalog, policy, runtime and slot queue. */
+  readonly skillEval?: Omit<SkillEvalProductionInput, "userRoot" | "runner">;
+  /** Test/deployment replacement for the composed runner. */
   readonly skillEvalRunner?: SkillEvalRunner;
 }
 
 export async function openDaemonHost(input: DaemonHostOpenInput): Promise<DaemonHost> {
+  const skillEvalProduction = openSkillEvalProduction({
+    userRoot: input.userRoot,
+    ...input.skillEval,
+    ...(input.skillEvalRunner ? { runner: input.skillEvalRunner } : {}),
+  });
   const cells = new Map<string, RepoCell>(),
     warming = new Map<string, RepoCellStatus>(),
     warmingSettlements = new Map<string, ReturnType<typeof makeWarmingSettlement>>(),
@@ -740,7 +748,15 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   const parkedWaitController = new AbortController(),
     edgeJoinProgress = createEdgeJoinProgressTap();
   const host: DaemonHost = {
-    ...(input.skillEvalRunner ? { skillEvalRunner: input.skillEvalRunner } : {}),
+    skillEvalRunner: skillEvalProduction.runner,
+    skillEval: {
+      addCase: async (auth, skillId, draft): Promise<SkillEvalCaseView> =>
+        skillEvalProduction.runner.addCase(await skillEvalProduction.policy.scope(auth), skillId, draft),
+      listCases: async (auth, skillId): Promise<readonly SkillEvalCaseView[]> =>
+        skillEvalProduction.runner.listCases(await skillEvalProduction.policy.scope(auth), skillId),
+      run: async (auth, skillId, version, options): Promise<SkillEvalRecord & { readonly runtime: unknown }> =>
+        skillEvalProduction.runner.run(await skillEvalProduction.policy.scope(auth), skillId, version, options),
+    },
     remoteProxy,
     home,
     keycloakCenter,

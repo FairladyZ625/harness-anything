@@ -12,6 +12,8 @@ import {
   type SkillEvalSkill,
   type SkillEvalStore,
 } from "../src/index.ts";
+import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
+import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 
 function fixture() {
   const skill: SkillEvalSkill = {
@@ -104,6 +106,59 @@ test("keeps the runner injectable through the resident daemon start composition"
     const host = await openDaemonHost({ daemonId: "skill-eval", userRoot, skillEvalRunner: runner });
     try {
       assert.equal(host.skillEvalRunner, runner);
+    } finally {
+      await host.close();
+    }
+  } finally {
+    await rm(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("routes the resident daemon skill-evaluation protocol through composed policy, storage, runtime, and slots", async () => {
+  const userRoot = await mkdtemp(path.join(tmpdir(), "skill-eval-production-"));
+  try {
+    const f = fixture();
+    const host = await openDaemonHost({
+      daemonId: "skill-eval-production",
+      userRoot,
+      skillEval: {
+        store: f.store,
+        runtime: f.runtime,
+        binding: { runtime: "admitted-test" },
+      },
+    });
+    try {
+      const server = createJsonRpcProtocolServer({
+        host,
+        build: { commit: null },
+        authContext: { transportKind: "unix-socket" },
+        sessionPrincipal: async () => ({
+          personId: "drafter",
+          subject: "subject-drafter",
+          expiresAt: Date.now() + 60_000,
+          accessToken: "test-token",
+          authority: { url: "https://issuer.test", realm: "harness", clientId: "harness-center" },
+        }),
+        emit: async () => undefined,
+      });
+      const request = (id: number, method: string, params: Record<string, unknown>) =>
+        server.handle({ jsonrpc: "2.0", id, method, params });
+      const hello = await request(1, "protocol.hello", { protocolVersion: currentDaemonProtocolVersion });
+      assert.equal((hello as { result?: { ok?: boolean } }).result?.ok, true);
+      const added = await request(2, "daemon.skillEval.case.add", {
+        skillId: "report",
+        id: "production-case",
+        input: "production input",
+        hidden: true,
+      });
+      assert.equal((added as { result?: { ok?: boolean } }).result?.ok, true);
+      const listed = await request(3, "daemon.skillEval.cases.list", { skillId: "report" });
+      const rows = (listed as { result?: { cases?: readonly { id: string; input: string | null }[] } }).result?.cases;
+      assert.equal(rows?.find((row) => row.id === "production-case")?.input, null);
+      const run = await request(4, "daemon.skillEval.run", { skillId: "report", version: "1.0.0" });
+      assert.equal((run as { result?: { ok?: boolean } }).result?.ok, true);
+      assert.equal(f.calls.length, 3);
+      server.close();
     } finally {
       await host.close();
     }

@@ -32,6 +32,14 @@ export {
   type SkillEvalStore,
   type SkillEvalRunnerOptions,
 } from "./skill-eval-runner.ts";
+export {
+  openSkillEvalCatalogStore,
+  openSkillEvalModelSlotQueue,
+  openSkillEvalProduction,
+  type SkillEvalPolicy,
+  type SkillEvalProduction,
+  type SkillEvalProductionInput,
+} from "./skill-eval-production.ts";
 export { listenFleetTls, type FleetCenterOptions, type FleetTlsCenter } from "./fleet/center.ts";
 export {
   FleetRemoteError,
