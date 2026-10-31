@@ -153,6 +153,11 @@ test("attached task runtime settlement releases its execution lease before publi
         },
         binding,
       );
+      assert.match(
+        dispatchText(root, String(receipt.dispatchId)),
+        /"kind":"process_start_rejected"/u,
+        "the in-process test launcher must record that it created no OS child process group",
+      );
       // A task-bound dispatch without an agent declaration is worker work and carries the shared discipline.
       assert.match(launchedPrompt ?? "", /^# Harness Execution Discipline/u);
       assert.match(launchedPrompt ?? "", /must not operate host virtualization, networking, or system services/u);

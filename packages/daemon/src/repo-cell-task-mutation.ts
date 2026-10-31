@@ -397,7 +397,7 @@ function terminalRuntimeStopProof(
           const records = readDispatchStreamSummary(cell.rootDir, eligibleHeaders[0]!.dispatchId)?.records ?? [];
           return (
             records.some((record) => record.kind === "process_start_rejected") &&
-            !records.some((record) => ["process_started", "process_exit", "process_lost"].includes(String(record.kind)))
+            !records.some((record) => ["process_started", "process_lost"].includes(String(record.kind)))
           );
         })();
     const events = cell.projection.readRuntimeSessionEvents(runtimeSessionId, 0, Number.MAX_SAFE_INTEGER),

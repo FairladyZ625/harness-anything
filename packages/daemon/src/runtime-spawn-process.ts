@@ -77,17 +77,19 @@ export async function launchRuntimeProcess(
         });
       throw error;
     }
+    const processIsChild =
+      Number.isSafeInteger(process.pid) && process.pid > 1 && process.pid !== globalThis.process.pid;
+    const processIsCurrent = process.pid === globalThis.process.pid;
     if (
-      Number.isSafeInteger(process.pid) &&
-      process.pid > 1 &&
-      process.pid !== globalThis.process.pid &&
-      readDispatchStreamSummary(persistence.rootDir, persistence.dispatchId)?.process === null
-    )
+      readDispatchStreamSummary(persistence.rootDir, persistence.dispatchId)?.process === null &&
+      (processIsChild || processIsCurrent)
+    ) {
       appendRuntimeWorkerRecord(persistence.rootDir, persistence.dispatchId, {
-        kind: "process_started",
+        kind: processIsChild ? "process_started" : "process_start_rejected",
         occurredAt: new Date().toISOString(),
-        pid: process.pid,
+        ...(processIsChild ? { pid: process.pid } : { errorCode: "same_process" }),
       });
+    }
     if (!providerSessionId) return { process };
     const resumeObservation = observeResumeProcess(
       process,
