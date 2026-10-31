@@ -110,6 +110,16 @@ test(
       "harness-gui",
     );
     // The RPC payload is the closed connection shape; the freshness tuning in fleet-edge.json is not one.
+    const observedAzp: unknown[] = [],
+      keycloakFetch = f.owners.keycloak.fetch;
+    f.owners.keycloak.fetch = (async (input, init) => {
+      const response = await keycloakFetch(input, init);
+      if (String(input).endsWith("/protocol/openid-connect/token/introspect")) {
+        const claims = (await response.clone().json()) as { readonly azp?: unknown };
+        observedAzp.push(claims.azp);
+      }
+      return response;
+    }) as typeof fetch;
     const { waitTimeoutMs: _wait, ...connection } = readFleetEdgeConfig(e.edgeRoot)!,
       sync = async () => {
         const response = await e.rpc.handle({
@@ -121,14 +131,37 @@ test(
         assert.ok(response && !Array.isArray(response), JSON.stringify(response));
         return "result" in response ? (response.result as Record<string, unknown>) : {};
       };
-    // Negative control: without the persisted invitation client the same request is refused, so this
-    // test fails for the mechanism it names rather than for an unrelated transport problem.
-    assert.equal((await sync()).code, "human_confirmation_required");
+    // The live token's actual azp is safe diagnostic data. With humanClientId absent, center verification
+    // defaults to the node client and rejects this same otherwise-valid request.
+    const missingClient = await sync(),
+      fallbackAzp = `harness-node-${connection.nodeId}`;
+    assert.equal(observedAzp[0], "harness-gui");
+    assert.notEqual(observedAzp[0], fallbackAzp);
+    assert.equal(missingClient.code, "human_confirmation_required");
+    t.diagnostic(
+      JSON.stringify({
+        field: "azp",
+        observedAzp: observedAzp[0],
+        expectedAzpWithoutHumanClientId: fallbackAzp,
+        result: missingClient.code,
+        tokenLogged: false,
+      }),
+    );
     // Join persists the interactive client beside the machine credential; the manual sync reads it.
     writeFleetEdgeConfig(e.edgeRoot, { ...connection, humanClientId: "harness-gui" });
     const synced = await sync();
+    assert.equal(observedAzp[1], "harness-gui");
     assert.equal(synced.ok, true, JSON.stringify(synced));
     assert.equal(synced.outcome, "applied", JSON.stringify(synced));
     assert.equal(readFleetEdgeConfig(e.edgeRoot)?.humanClientId, "harness-gui", "the sync keeps the invitation client");
+    t.diagnostic(
+      JSON.stringify({
+        field: "azp",
+        observedAzp: observedAzp[1],
+        expectedAzpWithHumanClientId: "harness-gui",
+        result: synced.outcome,
+        tokenLogged: false,
+      }),
+    );
   },
 );
