@@ -30,7 +30,7 @@ import { readTaskTransitionDocument } from "./transition-document-access.ts";
 import { dispatchInReviewCutReview } from "./task-review-dispatch.ts";
 import { presetSnapshotReader, taskOutputShape, taskWorktreeBinding } from "./task-worktree.ts";
 import { taskWorktreeCandidateInventory, taskWorktreeRoot } from "./task-worktree-candidates.ts";
-import { readTaskLineageDispatches } from "./dispatch-read.ts";
+import { isReviewerDispatch, readTaskLineageDispatches } from "./dispatch-read.ts";
 import { assessTaskRiskTier, type TaskRiskTierScriptInput } from "./task-risk-tier.ts";
 
 /** Git resolves the empty-tree object id virtually; it exists in every repository. */
@@ -431,7 +431,7 @@ function autoDeclareSubmittedExecutor(
   )
     return null;
   const rows = readTaskLineageDispatches({ projection: cell.projection, taskId }).filter(
-      (dispatch) => dispatch.role !== "reviewer",
+      (dispatch) => !isReviewerDispatch(cell.projection, dispatch.dispatchId),
     ),
     exact = rows.filter((dispatch) => dispatch.executionId === executionId),
     candidates = new Map(

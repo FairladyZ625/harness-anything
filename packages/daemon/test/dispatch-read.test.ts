@@ -12,6 +12,7 @@ import {
   type TaskProjection,
 } from "@harness-anything/kernel";
 import {
+  isReviewerDispatch,
   readRuntimeAttemptChain,
   readSessionGroupDispatches,
   readTaskDispatches,
@@ -181,6 +182,25 @@ test("dispatch rows expose their source role, last observed activity, and daemon
   assert.equal(validTaskDispatchRow({ ...row, activityObservedAt: "not-a-utc-timestamp" }), false);
   assert.equal(validTaskDispatchRow({ ...row, activityIdleMinutes: 1.5 }), false);
   assert.equal(validTaskDispatchRow({ ...row, activityIdleMinutes: -1 }), false);
+});
+
+test("reviewer classification uses canonical reviewTarget when the dispatch row has no role", () => {
+  const legacyEvent = {
+      payload: {
+        dispatchId,
+        taskId,
+        runtimeSessionId,
+        executionId: "execution-1",
+        reviewTarget: { kind: "decision", decisionId: "decision-1", digest: "a".repeat(64) },
+      },
+    },
+    projection = {
+      readRuntimeDispatchById: (id: string) => (id === dispatchId ? { event: legacyEvent } : null),
+    } as unknown as Pick<TaskProjectionQueries, "readRuntimeDispatchById">;
+
+  assert.equal("role" in legacyEvent.payload, false);
+  assert.equal(isReviewerDispatch(projection, dispatchId), true);
+  assert.equal(isReviewerDispatch(projection, "dispatch_missing"), false);
 });
 
 // The live floor groups its rows by the daemon work index but used to label them from
