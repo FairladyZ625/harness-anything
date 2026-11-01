@@ -672,19 +672,20 @@ export function openFleetEdgeRuntime(input: {
     return ready;
   };
   return {
-    reconcile: () =>
-      schedule(async () => {
-        if (readDispatchStreamHeaders(request.workspaceRoot).length === 0) return;
-        await ensureReady();
-        // Explicit runtime reconciliation is a dependent action: report its recovery
-        // failures after attempting every sibling, without making repository reads wait.
-        const recovered = await spawner.adopt();
-        const failed = recovered.find((result) => result.outcome === "failed");
-        if (failed) throw failed.error;
+    reconcile: async () => {
+      if (readDispatchStreamHeaders(request.workspaceRoot).length === 0) return;
+      await ensureReady();
+      // Recovery performs external work outside the queue, so one pending runtime
+      // cannot stop a sibling's terminal publication. Only this dependent action waits.
+      const recovered = await spawner.adopt();
+      await schedule(async () => {
         await squad.reconcile();
         await squad.flushPublications();
         await pullRuntimeReplica();
-      }),
+      });
+      const failed = recovered.find((result) => result.outcome === "failed");
+      if (failed) throw failed.error;
+    },
     run: async (
       method: FleetEdgeRuntimeRequest["payload"]["method"],
       action: JsonObject,
