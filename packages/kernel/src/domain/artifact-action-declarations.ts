@@ -69,17 +69,23 @@ export function registeredArtifactActionPolicyActions(): readonly string[] {
  * runs in a different process from the writer that compiled the runtime registry, so it reads the
  * canonical declaration itself instead of relying on module state.
  */
+export function artifactActionPoliciesByKind(
+  definition: Pick<VerticalDefinition, "entityKinds">,
+): ReadonlyMap<string, readonly string[]> {
+  const byKind = new Map<string, readonly string[]>();
+  for (const entity of definition.entityKinds) {
+    if (entity.entityType !== "artifact") continue;
+    const kind = `entity-kind/${entity.kindId}`,
+      actions = entity.retired
+        ? (["update", "archive", "delete"] as const)
+        : (["import", "update", "archive", "delete"] as const);
+    byKind.set(kind, Object.freeze(actions.map((action) => `${kind}/${action}`)));
+  }
+  return byKind;
+}
+
 export function artifactActionPolicyActionsForDefinition(
   definition: Pick<VerticalDefinition, "entityKinds">,
 ): readonly string[] {
-  return Object.freeze(
-    definition.entityKinds.flatMap((entity) => {
-      if (entity.entityType !== "artifact") return [];
-      const kind = `entity-kind/${entity.kindId}`,
-        actions = entity.retired
-          ? (["update", "archive", "delete"] as const)
-          : (["import", "update", "archive", "delete"] as const);
-      return actions.map((action) => `${kind}/${action}`);
-    }),
-  );
+  return Object.freeze([...artifactActionPoliciesByKind(definition).values()].flat());
 }

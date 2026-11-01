@@ -100,6 +100,11 @@ const policyReadCaches = new WeakMap<FetchPort, Map<string, PolicyReadCache>>();
 /** The scope grammar every compiled Artifact kind projects (the registry may be process-local). */
 const artifactActionScopePattern = /^entity-kind\/KND-[0-9a-f]{32}\/(?:import|update|archive|delete)$/u;
 
+/** Accepted Artifact scope inventory per fetch authority, shared by every adapter for that authority. */
+const artifactScopesByFetch = new WeakMap<object, Map<string, readonly string[]>>();
+const artifactScopeKey = (config: KeycloakPolicyAdapterConfig): string =>
+  `${config.url}\0${config.realm}\0${config.resourceServerClientId}`;
+
 export class KeycloakPolicyAdapter
   implements
     AuthorizationPolicyAdministrationPort,
@@ -128,7 +133,7 @@ export class KeycloakPolicyAdapter
       ...actionDeclarations.map((item) => item.policyAction),
       ...baseEntityPolicyActions,
       ...registeredArtifactActionPolicyActions(),
-      ...this.#extraScopes,
+      ...this.#artifactScopes(),
     ]);
   }
 
@@ -141,13 +146,17 @@ export class KeycloakPolicyAdapter
     return this.#knownScopes.has(scope) || artifactActionScopePattern.test(scope);
   }
 
+  #artifactScopes(): readonly string[] {
+    return artifactScopesByFetch.get(this.#fetchOwner as object)?.get(artifactScopeKey(this.#config)) ?? [];
+  }
+
   #baseGroups(): ReturnType<typeof deriveBasePolicyGroups> {
-    return deriveBasePolicyGroups(undefined, this.#extraScopes);
+    return deriveBasePolicyGroups(undefined, this.#artifactScopes());
   }
   readonly #readCache: PolicyReadCache;
   readonly #refreshAdminAccessToken?: (rejectedAccessToken: string) => Promise<string>;
   #refreshedAdminAccessToken: string | undefined;
-  #extraScopes: readonly string[] = [];
+  readonly #fetchOwner: FetchPort;
 
   constructor(
     config: KeycloakPolicyAdapterConfig,
@@ -156,6 +165,7 @@ export class KeycloakPolicyAdapter
   ) {
     this.#refreshAdminAccessToken = refreshAdminAccessToken;
     this.#config = config;
+    this.#fetchOwner = fetchPort;
     const cacheOwner = fetchPort ?? fetch,
       caches = policyReadCaches.get(cacheOwner) ?? new Map<string, PolicyReadCache>(),
       cacheKey = `${config.url}\0${config.realm}\0${config.resourceServerClientId}`;
@@ -184,7 +194,9 @@ export class KeycloakPolicyAdapter
     adminAccessToken: string,
     extraScopes: readonly string[] = [],
   ): Promise<KeycloakPolicySyncReceipt> {
-    this.#extraScopes = extraScopes;
+    const inventories = artifactScopesByFetch.get(this.#fetchOwner as object) ?? new Map<string, readonly string[]>();
+    inventories.set(artifactScopeKey(this.#config), Object.freeze([...extraScopes].sort()));
+    artifactScopesByFetch.set(this.#fetchOwner as object, inventories);
     const groups = this.#baseGroups();
     assertAcyclicPolicyGroups(groups);
     const clientUuid = await this.#clientUuid(adminAccessToken),

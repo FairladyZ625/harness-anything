@@ -8,10 +8,10 @@ import {
   baseEntityPolicyActions,
   deriveBasePolicyGroups,
   effectivePolicyGroupScopes,
-  artifactActionPolicyActionsForDefinition,
   decodeVerticalDefinition,
   registeredArtifactActionPolicyActions,
 } from "@harness-anything/kernel";
+import { artifactActionPolicyActionsForDefinition } from "@harness-anything/kernel/internal/domain/artifact-action-declarations.ts";
 import { artifactEntityActionCatalog } from "@harness-anything/kernel/internal/domain/artifact-entity-actions.ts";
 import { registerArtifactActionDeclarations } from "@harness-anything/kernel/internal/domain/artifact-action-declarations.ts";
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
@@ -843,6 +843,31 @@ test("a process that did not compile the registry syncs canonical Artifact scope
     });
     assert.equal(decision.outcome, "allowed", scope);
   }
+
+  // A later adapter instance for the same authority must see the synchronized inventory, or
+  // materializeGrants would silently drop the scope from existing grants (F6).
+  const fresh = adapter.withFetchPort(keycloak.fetch);
+  const contributor = (await fresh.readPolicyGroups("admin-token")).find(({ id }) => id === "contributor");
+  assert.ok(contributor?.scopes.includes(customScope), "fresh adapter reads the synchronized scope");
+  await fresh.materializeGrants("admin-token");
+  assert.equal(
+    [...keycloak.permissions.values()].some((permission) => permission.scopes.includes(customScope)),
+    true,
+    "materializeGrants keeps the synchronized scope",
+  );
+  keycloak.account("person-after-instance");
+  await fresh.claimRepositoryOwner("admin-token", "repo-after-instance", "person-after-instance");
+  assert.equal(
+    (
+      await fresh.authorizePerson({
+        adminAccessToken: "admin-token",
+        personId: "person-after-instance",
+        action: customScope,
+        resource: { kind: "repository", repoId: "repo-after-instance" },
+      })
+    ).outcome,
+    "allowed",
+  );
 
   // Negative control: the same accepted declaration without the sync input leaves the realm and
   // the owner grant without the scope; the request reaches Keycloak and is denied.

@@ -8,7 +8,8 @@ import {
   type KeycloakPolicyAdapterConfig,
 } from "@harness-anything/authorization-keycloak";
 import {
-  artifactActionPolicyActionsForDefinition,
+  artifactActionPoliciesByKind,
+  decodeVerticalDefinition,
   readDaemonRegistry,
   type AuthorizationProvider,
 } from "@harness-anything/kernel";
@@ -70,16 +71,26 @@ export function createIdentityManagement(userRoot: string, ports: Partial<Manage
 export function readArtifactActionScopes(userRoot: string): () => Promise<readonly string[]> {
   return async () => {
     const files = new Set<string>([path.join(defaultAssets, "vertical.json")]),
-      scopes = new Set<string>();
+      byKind = new Map<string, readonly string[]>();
     for (const repo of readDaemonRegistry({ userRoot }).repos)
       if (repo.canonicalRoot !== null) {
         files.add(path.join(repo.canonicalRoot, "vertical.json"));
         files.add(path.join(repo.canonicalRoot, "harness", "vertical.json"));
       }
     for (const file of files)
-      if (existsSync(file))
-        for (const scope of artifactActionPolicyActionsForDefinition(JSON.parse(readFileSync(file, "utf8"))))
-          scopes.add(scope);
-    return [...scopes].sort();
+      if (existsSync(file)) {
+        const raw = JSON.parse(readFileSync(file, "utf8")) as unknown,
+          envelope =
+            raw !== null && typeof raw === "object" && "schema" in raw && "definition" in raw
+              ? (raw as { readonly schema?: unknown; readonly definition?: unknown })
+              : null,
+          definition = decodeVerticalDefinition(
+            envelope?.schema === "repository-vertical-declaration/v1" ? envelope.definition : raw,
+          );
+        // A repository's accepted declaration replaces the bundled seed for the kinds it names;
+        // a retired kind must not regain `import` from the seed union (F7).
+        for (const [kind, scopes] of artifactActionPoliciesByKind(definition)) byKind.set(kind, scopes);
+      }
+    return [...byKind.values()].flat().sort();
   };
 }
