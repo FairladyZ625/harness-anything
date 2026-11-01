@@ -550,7 +550,7 @@ describe("artifacts client pagination", () => {
       page: { limit: 100, cursor: "second", nextCursor: null },
     });
     const listArtifacts = vi.fn().mockResolvedValueOnce(first).mockResolvedValueOnce(last);
-    vi.stubGlobal("harness", { listArtifacts });
+    vi.stubGlobal("window", { harness: { listArtifacts } });
     try {
       const result = await artifactsClient.list("repo-a", "html");
       expect(result.artifacts.map(({ path }) => path)).toEqual([
@@ -569,7 +569,7 @@ describe("artifacts client pagination", () => {
   it("rejects repeated cursors and a later-page failure without returning a partial collection", async () => {
     const first = dto({ page: { limit: 100, cursor: null, nextCursor: "same" } });
     const listArtifacts = vi.fn().mockResolvedValue(first);
-    vi.stubGlobal("harness", { listArtifacts });
+    vi.stubGlobal("window", { harness: { listArtifacts } });
     try {
       await expect(artifactsClient.list("repo-a", "html")).rejects.toThrow(/cursor did not advance/);
       expect(listArtifacts).toHaveBeenCalledTimes(2);
