@@ -33,6 +33,8 @@ import { parseEntityRef } from "@harness-anything/kernel/internal/domain/entity-
 import { factInvalidated, factLiveness } from "@harness-anything/kernel/internal/domain/fact-liveness.ts";
 import { relationOwnerRef } from "@harness-anything/kernel/internal/domain/entity-relation.ts";
 import { readPgDecisionRows } from "./pg-decision-reads.ts";
+import { filterLiteralTextRows } from "./pg-text-search.ts";
+import { effectiveLeaseValue } from "../projection/rebuildable-task-projection-runtime.ts";
 import { compareDecisionIds, decisionLegacyId, decisionLegacyNumber } from "../projection/decision-projection-reads.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 import { withPostgresTransaction, type PostgresScopeClaims } from "../postgres/transaction.ts";
@@ -389,12 +391,6 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
             "policy_epoch = $3",
             "(cardinality($4::text[]) = 0 OR readers && $4::text[])",
           ];
-        if (filters.query?.trim()) {
-          values.push(`%${filters.query.trim()}%`);
-          where.push(
-            `(value->>'statement' ILIKE $${values.length} OR value->>'evidenceSource' ILIKE $${values.length})`,
-          );
-        }
         for (const [field, value] of [
           ["value->>'taskId'", filters.taskId],
           ["value->>'confidence'", filters.confidence],
@@ -428,13 +424,18 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           );
         }
         const paged = filters.limit !== undefined || filters.cursor !== undefined,
-          limit = filters.limit === undefined ? (paged ? 100 : null) : checkedPageLimit(filters.limit, 500);
-        if (limit !== null) values.push(limit + 1);
+          limit = filters.limit === undefined ? (paged ? 100 : null) : checkedPageLimit(filters.limit, 500),
+          search = filters.query?.trim(),
+          sqlLimit = search ? null : limit;
+        if (sqlLimit !== null) values.push(sqlLimit + 1);
         const result = await client.query<{ value: FactProjectionRow }>(
-          `SELECT value FROM ha_facts WHERE ${where.join(" AND ")} ORDER BY (value->>'observedAt') DESC, fact_id${limit === null ? "" : ` LIMIT $${values.length}`}`,
+          `SELECT value FROM ha_facts WHERE ${where.join(" AND ")} ORDER BY (value->>'observedAt') DESC, fact_id${sqlLimit === null ? "" : ` LIMIT $${values.length}`}`,
           values,
         );
-        const selected = limit === null ? result.rows : result.rows.slice(0, limit),
+        const matched = search
+            ? filterLiteralTextRows(result.rows, search, ({ value }) => [value.statement, value.evidenceSource])
+            : result.rows,
+          selected = limit === null ? matched : matched.slice(0, limit),
           rows = selected.map(({ value }) => value),
           relationResult =
             rows.length === 0
@@ -464,7 +465,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
                   limit,
                   cursor: filters.cursor ?? null,
                   nextCursor:
-                    result.rows.length > limit && facts.at(-1)
+                    matched.length > limit && facts.at(-1)
                       ? encodeFactCursor([facts.at(-1)!.observedAt, facts.at(-1)!.factId])
                       : null,
                 },
@@ -550,17 +551,16 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
       options.pool,
       async (client) => {
         const cut = await readCutInTransaction(client, claims, readers, repoId),
-          limit = checkedPageLimit(query.limit ?? 100, 100),
-          values: unknown[] = [claims.tenantId, claims.projectId, claims.policyEpoch, readers, query.state],
-          cursor = query.cursor === undefined ? null : (decodeTaskListCursor(query.cursor, 1)[0] ?? null);
+          cursor = query.cursor === undefined ? null : (decodeTaskListCursor(query.cursor, 1)[0] ?? null),
+          limit = checkedPageLimit(query.limit ?? 100),
+          values: unknown[] = [claims.tenantId, claims.projectId, claims.policyEpoch, readers, query.state];
+        if (cursor !== null) values.push(cursor);
+        values.push(limit + 1);
         const rows = await client.query<{ decision_id: string; value: DecisionDocumentShape }>(
-          `SELECT decision_id, value FROM ha_decisions WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND (cardinality($4::text[])=0 OR readers && $4::text[]) AND value->>'state'=$5`,
+          `SELECT decision_id, value FROM ha_decisions WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND (cardinality($4::text[])=0 OR readers && $4::text[]) AND value->>'state'=$5${cursor === null ? "" : ' AND decision_id COLLATE "C" > $6'} ORDER BY decision_id COLLATE "C" LIMIT $${values.length}`,
           values,
         );
-        const ordered = rows.rows
-            .filter(({ decision_id }) => cursor === null || compareDecisionIds(decision_id, cursor) > 0)
-            .sort((left, right) => compareDecisionIds(left.decision_id, right.decision_id)),
-          visible = ordered.slice(0, limit),
+        const visible = rows.rows.slice(0, limit),
           decisions = visible.map(({ decision_id, value }) => ({
             decisionId: decision_id,
             title: String(value.title ?? ""),
@@ -575,7 +575,9 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
             limit,
             cursor: query.cursor ?? null,
             nextCursor:
-              ordered.length > limit && decisions.at(-1) ? encodeTaskListCursor([decisions.at(-1)!.decisionId]) : null,
+              rows.rows.length > limit && decisions.at(-1)
+                ? encodeTaskListCursor([decisions.at(-1)!.decisionId])
+                : null,
           },
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
@@ -584,29 +586,25 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
       claims,
       { isolationLevel: "repeatable read" },
     );
-  const currentLease = async (taskId: string, now = new Date().toISOString()): Promise<LeaseV1 | null> => {
-    const result = await readSnapshot(taskId);
-    const lease = result?.lease;
-    return lease && lease.phase === "held" && lease.expiresAt > now ? lease : null;
-  };
-  const currentLeaseForExecution = (executionId: string, now = new Date().toISOString()) =>
+  const readLease = (column: "task_id" | "snapshot #>> '{lease,executionId}'", id: string, now: string) =>
     withPostgresTransaction(
       options.pool,
       async (client) => {
-        const result = await client.query<{ lease: LeaseV1 }>(
+        const result = await client.query<{ lease: LeaseV1 | null }>(
           `SELECT snapshot->'lease' AS lease FROM ha_task_snapshots
-           WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
-             AND snapshot #>> '{lease,executionId}'=$4
+           WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND ${column}=$4
              AND (cardinality($5::text[])=0 OR readers && $5::text[])
            ORDER BY task_id LIMIT 1`,
-          [claims.tenantId, claims.projectId, claims.policyEpoch, executionId, readers],
+          [claims.tenantId, claims.projectId, claims.policyEpoch, id, readers],
         );
-        const lease = result.rows[0]?.lease;
-        return lease && lease.phase === "held" && lease.expiresAt > now ? lease : null;
+        return effectiveLeaseValue(result.rows[0]?.lease ?? null, now);
       },
       claims,
       { isolationLevel: "repeatable read" },
     );
+  const currentLease = (taskId: string, now = new Date().toISOString()) => readLease("task_id", taskId, now);
+  const currentLeaseForExecution = (executionId: string, now = new Date().toISOString()) =>
+    readLease("snapshot #>> '{lease,executionId}'", executionId, now);
   const listDecisions = (filters: DecisionListFilters): Promise<DecisionProjectionListRead> =>
     withPostgresTransaction(
       options.pool,
@@ -619,7 +617,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
              ORDER BY decision_id`,
             [claims.tenantId, claims.projectId, claims.policyEpoch, readers],
           ),
-          search = filters.search?.trim().toLocaleLowerCase(),
+          search = filters.search?.trim(),
           rows = result.rows
             .filter(({ decision_id, value }) => {
               const legacy = decisionLegacyId(decision_id),
@@ -627,10 +625,6 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
                   | { modules?: readonly string[]; productLines?: readonly string[] }
                   | undefined;
               return (
-                (!search ||
-                  `${decision_id} ${String(value.title ?? "")} ${String(value.question ?? "")}`
-                    .toLocaleLowerCase()
-                    .includes(search)) &&
                 (!filters.state || value.state === filters.state) &&
                 (!filters.module || applies?.modules?.includes(filters.module)) &&
                 (!filters.productLine || applies?.productLines?.includes(filters.productLine)) &&
@@ -642,14 +636,37 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
               );
             })
             .sort((left, right) => compareDecisionIds(left.decision_id, right.decision_id)),
+          searchRows = search
+            ? filterLiteralTextRows(
+                await readPgDecisionRows(client, options.scope, repoId, rows, true),
+                search,
+                (row) => [
+                  row.title,
+                  row.question,
+                  [...row.chosen, ...row.rejected].map((option) => option.text).join(" "),
+                  row.claims.map((claim) => claim.text).join(" "),
+                  row.body?.body ?? "",
+                ],
+              )
+            : null,
+          searchById = searchRows === null ? null : new Map(searchRows.map((row) => [row.decisionId, row])),
+          matched = searchById === null ? rows : rows.filter(({ decision_id }) => searchById.has(decision_id)),
           paged = filters.limit !== undefined || filters.cursor !== undefined,
           limit = filters.limit === undefined ? (paged ? 100 : null) : checkedPageLimit(filters.limit),
           cursor = filters.cursor === undefined ? null : decodeTaskListCursor(filters.cursor, 1)[0]!;
         const afterCursor =
-            cursor === null ? rows : rows.filter(({ decision_id }) => compareDecisionIds(decision_id, cursor) > 0),
+            cursor === null
+              ? matched
+              : matched.filter(({ decision_id }) => compareDecisionIds(decision_id, cursor) > 0),
           selected = limit === null ? afterCursor : afterCursor.slice(0, limit),
           hasMore = limit !== null && afterCursor.length > limit,
-          decisions = await readPgDecisionRows(client, options.scope, repoId, selected, filters.withBody === true);
+          decisions =
+            searchById === null
+              ? await readPgDecisionRows(client, options.scope, repoId, selected, filters.withBody === true)
+              : selected.map(({ decision_id }) => {
+                  const row = searchById.get(decision_id)!;
+                  return filters.withBody === true ? row : { ...row, body: null };
+                });
         return {
           status: cut.status,
           decisions,
@@ -954,15 +971,8 @@ async function hydrateSnapshots(
   });
   const now = new Date().toISOString();
   return snapshots.map((snapshot) => {
-    const stored = snapshot.lease,
-      lease =
-        stored === null || stored.phase === "released"
-          ? null
-          : stored.expiresAt > now
-            ? stored
-            : stored.phase === "reserving"
-              ? null
-              : { ...stored, phase: "orphaned" as const };
+    const effective = effectiveLeaseValue(snapshot.lease, now),
+      lease = effective?.phase === "released" ? null : effective;
     return {
       ...snapshot,
       executions: [...snapshot.executions].sort(

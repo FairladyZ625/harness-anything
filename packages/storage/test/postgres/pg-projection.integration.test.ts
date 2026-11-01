@@ -73,13 +73,19 @@ import {
   taskCreated,
 } from "../store/relation-graph-projection.fixtures.ts";
 import { withTempStoreAsync } from "../store/helpers.ts";
+import {
+  appendQueryParityFixtures,
+  assertAgendaQueryParity,
+  assertLeaseQueryParity,
+  assertTextQueryParity,
+} from "./pg-query-parity.fixture.ts";
 
 function relationFacet(record: EntityRelationRecord & RelationEventRecord): RelationEventRecord {
   const { strength: _strength, ...facet } = record;
   return facet;
 }
 
-test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, cut and replay", async () => {
+test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, cut and replay", async (t) => {
   const fixture = await startManagedPostgresFixture();
   const pools: Pool[] = [];
   try {
@@ -763,6 +769,7 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
     assert.equal(visibleAfterInterleave.rows[0]?.taskId, "task-cut-interleave");
     await interleavingSource.close();
 
+    await appendQueryParityFixtures(appendCanonical, () => expectedRevision);
     const entities = createPgEntityStore({ pool: runtimePool, scope: projectionScope });
     assert.equal((await entities.get("agent", "replay-agent"))?.id, "replay-agent");
     assert.equal(await entities.get("agent", "deleted-agent"), null);
@@ -888,6 +895,13 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
       assert.throws(() => sqliteProjection.list({ limit: 1.5 }), /query page limit must be an integer/u);
       process.stdout.write(
         "PG_SQLITE_PARITY snapshots gateWitnesses reviews consents closeoutReadiness taskBoardPlacement blockingOf equal\n",
+      );
+      await t.test("R10 lease phases and explicit time agree", () =>
+        assertLeaseQueryParity(source, sqliteProjection, runtimePool, projectionScope),
+      );
+      await t.test("R11 literal Unicode text search agrees", () => assertTextQueryParity(source, sqliteProjection));
+      await t.test("R12 agenda ordering, cursors and limits agree", () =>
+        assertAgendaQueryParity(source, sqliteProjection),
       );
       sqliteProjection.close();
     });

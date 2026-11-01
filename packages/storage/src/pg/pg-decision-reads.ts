@@ -8,6 +8,7 @@ import {
   decisionClaimsOpen,
 } from "@harness-anything/kernel/internal/domain/decision-board-projection.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
+import { decisionLegacyId } from "../projection/decision-projection-reads.ts";
 
 /** Batch body and relation metadata at the caller's transaction cut. */
 export async function readPgDecisionRows(
@@ -92,9 +93,11 @@ type DecisionDocumentShape = Record<string, unknown>;
 
 function decisionProjectionRow(decisionId: string, raw: Record<string, unknown>): DecisionProjectionRow {
   const value = raw as Partial<DecisionDocumentShape>;
+  const legacyId = decisionLegacyId(decisionId);
   return {
     schema: "decision-row/v1",
     decisionId,
+    ...(legacyId ? { legacyId } : {}),
     path: `decisions/decision-${decisionId}/decision.md`,
     state: String(value.state ?? "proposed") as DecisionProjectionRow["state"],
     title: String(value.title ?? ""),
