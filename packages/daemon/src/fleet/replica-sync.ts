@@ -7,6 +7,7 @@ const isDeterministicReplicaFailure = (error: unknown): boolean => {
   const observed = error as { readonly code?: unknown; readonly name?: unknown } | null;
   return (
     observed?.code === "edge_upgrade_required" ||
+    observed?.code === "replica_duplicate_connection" ||
     (error instanceof Error && observed?.name === "TaskLifecycleContractError")
   );
 };
