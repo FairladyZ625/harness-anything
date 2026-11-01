@@ -178,6 +178,22 @@ it("a later dispatch page failure rejects the whole refresh", async () => {
   );
 });
 
+it("complete histories retain chronological order across task batches", async () => {
+  const rows = dispatches();
+  vi.spyOn(harnessClient, "getTaskDispatches")
+    .mockResolvedValueOnce(
+      page([{ ...rows[0]!, dispatchId: "later", startedAt: "2026-11-01T01:00:00.000Z" }], null, null),
+    )
+    .mockResolvedValueOnce(
+      page([{ ...rows[1]!, dispatchId: "earlier", startedAt: "2026-11-01T00:00:00.000Z" }], null, null),
+    );
+  const result = await readAllTaskDispatches({
+    repoId: "repo-one",
+    taskIds: Array.from({ length: 17 }, (_, index) => `task-${index}`),
+  });
+  expect(result.dispatches.map((row) => row.dispatchId)).toEqual(["earlier", "later"]);
+});
+
 it("member windows expose truncation without offering a load-more request past the byte bound", async () => {
   vi.spyOn(harnessClient, "getTaskDispatches").mockResolvedValue({
     ok: true,

@@ -31,5 +31,9 @@ export async function readAllTaskDispatches(payload: TaskDispatchSelection): Pro
     );
     for (const page of pages) for (const row of page.dispatches) rows.set(row.dispatchId, row);
   }
-  return { dispatches: [...rows.values()] };
+  return {
+    dispatches: [...rows.values()].sort(
+      (left, right) => left.startedAt.localeCompare(right.startedAt) || left.dispatchId.localeCompare(right.dispatchId),
+    ),
+  };
 }
