@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -299,7 +299,6 @@ test(
         name: "auto-claim-active-node",
         nodeId: "node-two",
         personId: "person-two",
-        centerUserRoot: fixture.userRoot,
         runtimeDiscover: () => [installation],
         runtimeLaunch,
         beforeOpen: setupEdgeGit,
@@ -323,11 +322,14 @@ test(
       name: "auto-claim-node-one",
       nodeId: "node-one",
       now: () => edgeNow,
-      centerUserRoot: fixture.userRoot,
       runtimeDiscover: () => [installation],
       runtimeLaunch,
       beforeOpen: setupEdgeGit,
     });
+    assert.equal(existsSync(path.join(edge.edgeUser, "rbac/config.json")), false);
+    assert.equal(existsSync(path.join(edge.edgeUser, "rbac/center-client-secret")), false);
+    assert.equal(existsSync(path.join(activeEdge.edgeUser, "rbac/config.json")), false);
+    assert.equal(existsSync(path.join(activeEdge.edgeUser, "rbac/center-client-secret")), false);
     await registerFixtureRuntimeInstance(edge.host, "lease-repo", localAuth, runtime, { allowHost: fixture.host });
     await catchUpEdge(edge, "node-one");
     const configure = (allowedPersonIds: readonly string[], maxConcurrent = 1) =>

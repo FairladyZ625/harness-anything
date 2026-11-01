@@ -30,12 +30,11 @@ import {
 } from "./agent-runtime-instances.ts";
 import { daemonBuildStamp, observeDaemonBuild } from "./build-identity.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
-import { parseAssignmentExpiry } from "@harness-anything/kernel";
-import { readClaimableTasks } from "./task-claimable-read.ts";
 import {
   openNodeAutoClaimLoop,
   nodeAutoClaimLeaseKey,
-  type NodeAutoClaimAssignment,
+  type NodeAutoClaimCandidate,
+  parseNodeAutoClaimCandidates,
   type NodeAutoClaimDiagnosticRow,
 } from "./node-auto-claim.ts";
 import {
@@ -361,36 +360,15 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     if (repo.mode !== "remote-edge") return null;
     const config = readFleetEdgeConfig(repo.rootDir);
     if (!config || config.repoId !== repo.repoId) return null;
-    const binding = await hostBinding(repo.rootDir, { transportKind: "unix-socket" }),
-      center = await keycloakCenter(),
-      node = await center.provider.readNode(center.accessToken, config.nodeId);
-    if (!node || node.state !== "active" || node.personId !== binding.actor.principal.personId)
-      throw hostCodedError("authentication_required", "The signed-in person is not the registered node owner.");
-    return {
-      ...binding,
-      source: { kind: "node", nodeId: config.nodeId },
-      keycloakAuthorization: {
-        ...(binding.keycloakAuthorization ?? {}),
-        center: keycloakCenter,
-      },
+    const binding = {
+      ...(await hostBinding(repo.rootDir, { transportKind: "unix-socket" })),
+      source: { kind: "node", nodeId: config.nodeId } as const,
     };
+    // edgeReplicaRead validates this signed-in person against the center-admitted readerProfile.
+    await repo.cell.readNodeAutoClaimAssignments(binding);
+    return binding;
   };
-  const autoClaimLoop = openNodeAutoClaimLoop<
-    AutoClaimRepo,
-    {
-      readonly taskId: string;
-      readonly assignment: {
-        readonly assignee: {
-          readonly kind: string;
-          readonly personId?: string;
-          readonly nodeId?: string;
-          readonly teamId?: string;
-        };
-        readonly expiresAt: string;
-      } | null;
-      readonly autoAssignment: NodeAutoClaimAssignment | null;
-    }
-  >({
+  const autoClaimLoop = openNodeAutoClaimLoop<AutoClaimRepo, NodeAutoClaimCandidate>({
     userRoot: input.userRoot,
     now,
     repos: () =>
@@ -402,46 +380,19 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     candidates: async (repo) => {
       const binding = await autoClaimBinding(repo);
       if (!binding) return [];
-      const settings = await repo.cell.read("repo.settings.read", {}, binding),
-        assignments = await repo.cell.readNodeAutoClaimAssignments(binding),
-        result = await readClaimableTasks({
-          repoId: repo.repoId,
-          binding,
-          settings: settings.settings,
-          now: now(),
-          page: (cursor) => repo.cell.read("repo.tasks.list", { limit: 500, ...(cursor ? { cursor } : {}) }, binding),
-          readTask: async (taskId) =>
-            (await repo.cell.read("repo.tasks.runtimeContext.read", { taskId }, binding)).snapshot.task,
-          readAssignments: async () => assignments.map(({ relation }) => relation),
-        });
-      const relations = new Map(assignments.map((row) => [row.relation.sourceRef, row] as const));
-      const center = await keycloakCenter();
-      return Promise.all(
-        result.tasks
-          .filter((task) => relations.has(`task/${task.taskId}`))
-          .map(async (task) => {
-            const row = relations.get(`task/${task.taskId}`),
-              relation = row?.relation,
-              assignedByPersonId = row?.assignedByPersonId ?? null,
-              assignedByTeamIds = assignedByPersonId
-                ? await center.provider.readPersonTeams(center.accessToken, assignedByPersonId)
-                : [];
-            const expiresAt = relation ? parseAssignmentExpiry(relation.rationale) : null;
-            return {
-              taskId: task.taskId,
-              assignment: task.assignment,
-              autoAssignment: relation
-                ? {
-                    taskId: task.taskId,
-                    workspaceRevision: relation.workspaceRevision,
-                    expiresAt: expiresAt ?? "",
-                    assignedByPersonId,
-                    assignedByTeamIds,
-                  }
-                : null,
-            };
-          }),
+      const edge = readFleetEdgeConfig(repo.rootDir);
+      if (!edge || edge.repoId !== repo.repoId) return [];
+      const centerCandidates = parseNodeAutoClaimCandidates(
+        await edgeRuntimeFor({
+          ...edge,
+          caPath: path.isAbsolute(edge.caPath) ? edge.caPath : path.resolve(repo.rootDir, edge.caPath),
+          viewRoot: path.isAbsolute(edge.viewRoot) ? edge.viewRoot : path.resolve(repo.rootDir, edge.viewRoot),
+          workspaceRoot: repo.rootDir,
+          method: "repo.tasks.autoClaimCandidates",
+          action: {},
+        }).run("repo.tasks.autoClaimCandidates", {}, undefined),
       );
+      return centerCandidates;
     },
     taskIdOf: (candidate) => candidate.taskId,
     assignmentOf: async (candidate) => {

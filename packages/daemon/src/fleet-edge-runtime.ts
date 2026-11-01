@@ -78,6 +78,7 @@ export interface FleetEdgeRuntimeRequest {
       | "repo.agentRuntime.sessions.await"
       | "repo.agentRuntime.sessions.read"
       | "repo.task.dispatches"
+      | "repo.tasks.autoClaimCandidates"
       | "repo.schedule.run"
       | "repo.squad.control";
     readonly action: JsonObject;
@@ -781,6 +782,18 @@ export function openFleetEdgeRuntime(input: {
       let handoffControlBinding: import("./repo-cell-types.ts").RepoCellBinding | undefined;
       if (method === "repo.agentRuntime.sessions.await" && readBinding.keycloakAuthorization === undefined)
         return awaitLocalRuntimeSessions(action, readReplica, connectionSignal);
+      if (method === "repo.tasks.autoClaimCandidates")
+        return (await readFleetOperationalClient({
+          ...runtimeReadPeer,
+          // Candidate generation joins the center projection, assignment witness and directory
+          // team facts; it is a bounded control read but can exceed the short interactive read
+          // budget used for local runtime status snapshots.
+          timeoutMs: centerWriteWaitMs,
+          repoId: request.repoId,
+          method,
+          payload: action,
+          connectionSignal,
+        })) as JsonObject;
       if (
         method === "repo.schedule.run" &&
         ["schedule-list", "schedule-show", "schedule-runs", "schedule-reckon"].includes(String(action.kind))

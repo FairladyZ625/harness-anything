@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { TestContext } from "node:test";
@@ -40,7 +40,6 @@ export async function fleetEdgeHostFixture(
     readonly registerBeforeOpen?: boolean;
     readonly credential?: string;
     readonly repoId?: string;
-    readonly centerUserRoot?: string;
     readonly now?: () => string;
     /** false leaves fleet-edge.json for the first `daemon.fleet.edge.sync` to write. */
     readonly writeEdgeConfig?: boolean;
@@ -76,12 +75,6 @@ export async function fleetEdgeHostFixture(
       mode: "remote-edge",
       createConvenienceLinks: false,
     });
-  if (options.centerUserRoot) {
-    const edgeRbac = path.join(edgeUser, "rbac");
-    mkdirSync(edgeRbac, { recursive: true });
-    for (const file of ["config.json", "center-client-secret"])
-      copyFileSync(path.join(options.centerUserRoot, "rbac", file), path.join(edgeRbac, file));
-  }
   const authority = options.oidcPorts?.loginAuthority
       ? await options.oidcPorts.loginAuthority(edgeRoot)
       : { url: f.owners.url, realm: "harness" },
