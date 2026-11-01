@@ -60,6 +60,10 @@ export function projectionDdl(): readonly string[] {
       task_id text NOT NULL,
       workspace_revision bigint NOT NULL,
       snapshot jsonb NOT NULL,
+      package_path text,
+      generation text NOT NULL DEFAULT 'v1',
+      created_at timestamptz,
+      completed_at timestamptz,
       updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
       PRIMARY KEY (tenant_id, project_id, policy_epoch, task_id)
     )`,
@@ -132,6 +136,10 @@ export function projectionDdl(): readonly string[] {
     ...PG_PROJECTION_TABLES.map(
       (table) => `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS readers text[] NOT NULL DEFAULT '{}'`,
     ),
+    "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS package_path text",
+    "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS generation text NOT NULL DEFAULT 'v1'",
+    "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS created_at timestamptz",
+    "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS completed_at timestamptz",
     "CREATE INDEX IF NOT EXISTS ha_task_snapshots_scope_revision ON ha_task_snapshots (tenant_id, project_id, workspace_revision DESC)",
     ...PG_PROJECTION_TABLES.map(
       (table) => `CREATE INDEX IF NOT EXISTS ${table}_readers_gin ON ${table} USING gin (readers)`,
