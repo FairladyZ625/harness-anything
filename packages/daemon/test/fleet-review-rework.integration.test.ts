@@ -215,6 +215,9 @@ test(
           dispatchKey: `derived-mission-${iteration}`,
         });
         assert.equal(derived.outcome, "applied", JSON.stringify(derived));
+        // The derived dispatch is a third spawn in this iteration whose liveness append is
+        // still queued behind the two explicit reviewer receipts; wait for it too.
+        reviewers.push(String(derived.runtimeSessionId));
         const mission = launchedPrompts.at(-1)!;
         assert.doesNotMatch(mission, /# Owner rework instruction/u);
         assert.doesNotMatch(mission, /# Owner return for iteration 0/u);
