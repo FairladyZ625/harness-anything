@@ -24,7 +24,7 @@ import { seedScheduleRuntimeOrder } from "./scenarios/schedule-run-history.mjs";
 import { seedGuiE2eRuntimeSessions, seedGuiE2eSessionTasks } from "./scenarios/sessions-grouping.mjs";
 import { seedGuiE2eDeliverySessions, seedGuiE2eDeliveryTasks } from "./scenarios/sessions-delivery-status.support.mjs";
 import { seedGuiE2eCollaborationTasks, seedGuiE2eCollaborationLeases } from "./scenarios/collaboration-view.mjs";
-import { warmDaemonProjection } from "../e2e-probe.mjs";
+import { warmDaemonProjection } from "../e2e-probe-support.mjs";
 
 // Long script-free HTML report: tall enough that a 150px-default webview clips after
 // the first section, so the preview-height scenario measures real guest-side scrolling.

@@ -2,7 +2,7 @@ import type { IpcMainEvent } from "electron";
 import { daemonGuiStreamFacets, type DaemonStreamPayloadMap } from "@harness-anything/daemon/protocol";
 import type { GuiServiceBridge } from "../api/service-bridge.ts";
 import { assertPreloadPayload } from "../preload/allowlist.ts";
-import { assertTrustedIpcSender } from "./ipc-handlers.ts";
+import { assertTrustedIpcSender } from "./ipc-trust.ts";
 import type { IpcWebContentsTrustPolicy } from "./security-policy.ts";
 import { isMainProcessRecord } from "./value-validation.ts";
 export interface AgentRuntimeIpcRegistrar {

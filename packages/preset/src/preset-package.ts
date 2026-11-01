@@ -1,8 +1,8 @@
 import { decodeCatalog } from "./preset-assets.ts";
+import { parsePresetJson } from "./preset-json.ts";
 import { safeTemplatePath } from "./preset-materialization.ts";
-import { presetFailure, resolverContentHash } from "./preset-resolver-common.ts";
+import { isPresetResolutionRecord, presetFailure, resolverContentHash } from "./preset-resolver-common.ts";
 import type { DecodedPresetPackageV3, PresetPackageScript } from "./preset-resolver-types.ts";
-import { validatePackagePolicy } from "./preset-validation.ts";
 import { canonicalPresetBytes, parsePresetManifestV3, validatePresetDocumentV1 } from "./preset.contract.ts";
 import type { PresetDocumentV1 } from "./preset.contract.ts";
 import { createHash } from "node:crypto";
@@ -130,16 +130,21 @@ export function presetDocumentValue(body: string): Record<string, unknown> | nul
   };
 }
 
+export function validatePackagePolicy(body: string): void {
+  const value = parsePresetJson(body, "invalid_policy");
+  if (
+    !isPresetResolutionRecord(value) ||
+    Object.keys(value).some((key) => !["schema", "requires"].includes(key)) ||
+    value.schema !== "preset-policy/v1" ||
+    !Array.isArray(value.requires) ||
+    value.requires.some((item) => typeof item !== "string" || !item.trim()) ||
+    new Set(value.requires).size !== value.requires.length
+  )
+    throw presetFailure("invalid_policy", "Preset package policy is invalid.");
+}
+
 export function file(files: Map<string, string>, name: string, code: string): string {
   const body = files.get(name);
   if (body === undefined) throw presetFailure(code, `Preset package is missing ${name}.`);
   return body;
-}
-
-export function parsePresetJson(body: string, code: string): unknown {
-  try {
-    return JSON.parse(body);
-  } catch {
-    throw presetFailure(code, "JSON input is invalid.");
-  }
 }

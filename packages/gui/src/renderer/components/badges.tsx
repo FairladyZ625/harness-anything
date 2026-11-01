@@ -1,10 +1,7 @@
-import type { SnapshotStatus, CloseoutReadiness, Freshness, DecisionState, RiskTier, Urgency } from "../model/types";
+import type { CloseoutReadiness, Freshness, DecisionState, RiskTier, Urgency } from "../model/types";
 import {
-  Circle,
-  CircleHalf,
   CircleNotch,
   PauseCircle,
-  CheckCircle,
   XCircle,
   Question,
   ClockCounterClockwise,
@@ -18,65 +15,14 @@ import {
   ChatCircleDots,
   Archive,
   ArrowArcRight,
-  PaperPlaneTilt,
 } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
-import { t, type MessageKey } from "../i18n/index.tsx";
+import { t } from "../i18n/index.tsx";
+import { localizedLabel } from "./primitives/status-meta.tsx";
 import { formatTime } from "../model/time.ts";
 import { StatusTag, type StatusTone } from "./primitives/StatusTag.tsx";
 
-/**
- * 标签文案必须是读取时求值的 getter:spread 会把 getter 在模块导入那一刻固化成
- * 当期 locale 的字符串,运行时切换语言后所有标签仍显示导入时的语言(F-D3DBB3FB)。
- * 这里把 key 与静态字段合并成带活 getter 的条目,调用方不再自行 spread。
- */
-function localizedLabel<T extends object>(key: MessageKey, rest: T): T & { readonly label: string } {
-  return {
-    get label() {
-      return t(key);
-    },
-    ...rest,
-  };
-}
-
-export const STATUS_META: Record<SnapshotStatus, { label: string; color: string; icon: ReactNode }> = {
-  planned: localizedLabel("components.badges.planned", {
-    color: "var(--color-status-planned)",
-    icon: <Circle weight="duotone" />,
-  }),
-  active: localizedLabel("components.badges.active", {
-    color: "var(--color-status-active)",
-    icon: <CircleNotch weight="bold" />,
-  }),
-  submitted: localizedLabel("components.badges.submitted", {
-    color: "var(--color-status-submitted)",
-    icon: <PaperPlaneTilt weight="duotone" />,
-  }),
-  blocked: localizedLabel("components.badges.blocked", {
-    color: "var(--color-status-blocked)",
-    icon: <PauseCircle weight="duotone" />,
-  }),
-  in_review: localizedLabel("components.badges.inReview", {
-    color: "var(--color-status-in-review)",
-    icon: <CircleHalf weight="duotone" />,
-  }),
-  done: localizedLabel("components.badges.done", {
-    color: "var(--color-status-done)",
-    icon: <CheckCircle weight="duotone" />,
-  }),
-  cancelled: localizedLabel("components.badges.cancelled", {
-    color: "var(--color-status-cancelled)",
-    icon: <XCircle weight="duotone" />,
-  }),
-  unknown: localizedLabel("components.badges.unknown", {
-    color: "var(--color-status-unknown)",
-    icon: <Question weight="bold" />,
-  }),
-  archived: localizedLabel("components.badges.archived", {
-    color: "var(--color-status-archived)",
-    icon: <Archive weight="duotone" />,
-  }),
-};
+export { STATUS_META } from "./primitives/status-meta.tsx";
 
 // 徽章的渲染形状已收敛到 primitives/StatusTag(C8,视觉基线 v2):本文件只保留
 // 状态→{label,icon,tone} 的词表职责;STATUS_META 仍供图例、画布与筛选面板取色。
