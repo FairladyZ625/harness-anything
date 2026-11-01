@@ -8,6 +8,7 @@ import {
   RAW_ARTIFACT_MEDIA_TYPE,
   resolveHarnessLayout,
 } from "@harness-anything/kernel";
+import { paginateRows } from "./task-index-query.ts";
 import { statFileSync, statLinkSync } from "./doc-sync-reads.ts";
 import type { ArtifactGuiKind, ArtifactGuiRowDto, ArtifactsListResult } from "./protocol/artifacts-gui-contract.ts";
 
@@ -210,7 +211,7 @@ export function readArtifactsGui(
       candidateTaskIds.length >= neededPackageDirs.size ? candidateTaskIds : cut.rows.map(({ taskId }) => taskId),
     tasksByPackage = taskIndexByPackage(context.projection, targetTaskIds),
     eventTimes = new Map<number, string>(),
-    artifacts: readonly ArtifactGuiRowDto[] = files
+    entries = files
       .map((row) => {
         const packagePath = `tasks/${row.packageDir}`,
           task = tasksByPackage.get(packagePath) ?? null,
@@ -219,7 +220,7 @@ export function readArtifactsGui(
             normalizeRelativeDocumentPath(`${packagePath}/${row.relative}`),
             eventTimes,
           );
-        return {
+        const artifact: ArtifactGuiRowDto = {
           taskId: task?.taskId ?? null,
           taskTitle: task?.title ?? null,
           packagePath: task === null ? null : packagePath,
@@ -228,18 +229,37 @@ export function readArtifactsGui(
           mediaType: row.mediaType,
           sizeBytes: row.sizeBytes,
           time: time ?? new Date(row.mtimeMs).toISOString(),
-          timeSource: time === null ? ("mtime" as const) : ("ledger" as const),
+          timeSource: time === null ? "mtime" : "ledger",
         };
+        return { artifact, key: [artifact.time, row.relative, row.packageDir] };
       })
-      .sort((left, right) => right.time.localeCompare(left.time) || left.path.localeCompare(right.path));
+      .sort((left, right) => compareArtifactKeys(left.key, right.key)),
+    selected = paginateRows(
+      entries,
+      typeof payload.limit === "number" ? payload.limit : 100,
+      typeof payload.cursor === "string" ? payload.cursor : undefined,
+      {
+        key: (row) => row.key,
+        keySize: 3,
+        compare: compareArtifactKeys,
+        invalidCursor: Object.assign(new Error("Artifact list cursor is invalid; restart the query."), {
+          code: "invalid_command",
+        }),
+      },
+    );
   return {
     ok: true,
     status: cut.status,
     repoId: context.input.repoId,
     kind,
-    artifacts,
+    artifacts: selected.rows.map(({ artifact }) => artifact),
+    page: selected.page!,
     counts,
     watermark: cut.watermark,
     sourceRevision: cut.sourceRevision,
   };
+}
+
+function compareArtifactKeys(left: readonly string[], right: readonly string[]): number {
+  return right[0]!.localeCompare(left[0]!) || left[1]!.localeCompare(right[1]!) || left[2]!.localeCompare(right[2]!);
 }

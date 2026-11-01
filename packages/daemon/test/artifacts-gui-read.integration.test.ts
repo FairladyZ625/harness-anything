@@ -107,6 +107,25 @@ test("repo.artifacts.list joins the ledger timeline across task packages", { tim
     // 非 artifacts/ 目录的 html 不得混入时间线。
     assert.ok(!htmlPaths.some((value) => value.includes("docs/")));
 
+    // Follow the actual RepoCell read contract to its authoritative terminal receipt.
+    const pagedPaths: string[] = [];
+    let cursor: string | undefined;
+    for (let index = 0; index < html.artifacts.length; index += 1) {
+      const page = await list({ limit: 1, ...(cursor ? { cursor } : {}) });
+      assert.equal(page.artifacts.length, 1);
+      assert.deepEqual(page.counts, html.counts);
+      assert.equal(page.page.cursor, cursor ?? null);
+      pagedPaths.push(page.artifacts[0]!.path);
+      if (index === html.artifacts.length - 1) assert.equal(page.page.nextCursor, null);
+      else assert.equal(typeof page.page.nextCursor, "string");
+      cursor = page.page.nextCursor ?? undefined;
+    }
+    assert.deepEqual(
+      pagedPaths,
+      html.artifacts.map(({ path }) => path),
+    );
+    await assert.rejects(list({ cursor: "not-a-cursor" }), { code: "invalid_command" });
+
     const markdown = await list({ kind: "md" });
     assert.equal(markdown.kind, "md");
     assert.deepEqual(

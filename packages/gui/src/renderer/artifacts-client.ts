@@ -1,12 +1,18 @@
 import type { ArtifactGuiKind, ArtifactsListResult } from "@harness-anything/daemon/protocol";
+import { drainCursorPages } from "./paginated-read.ts";
 import { isRendererRecord, rendererReadError } from "./result-validation.ts";
 import { guiHostBridge } from "./gui-transport.ts";
 
-// Renderer client for the artifacts timeline: one `repo.artifacts.list` read returns
+// Renderer client for the artifacts timeline: paged `repo.artifacts.list` reads return
 // the complete joined DTO — file inventory, task attribution and the time source are
 // daemon facts; this file never scans, recomputes times, or re-derives kinds.
 type ArtifactsBridge = {
-  readonly listArtifacts: (payload: { repoId: string; kind?: ArtifactGuiKind }) => Promise<unknown>;
+  readonly listArtifacts: (payload: {
+    repoId: string;
+    kind?: ArtifactGuiKind;
+    limit?: number;
+    cursor?: string;
+  }) => Promise<unknown>;
 };
 
 const bridge = (): ArtifactsBridge => {
@@ -22,17 +28,25 @@ export const artifactsQueryKeys = {
 
 export const artifactsClient = {
   list: async (repoId: string, kind: ArtifactGuiKind): Promise<ArtifactsListResult> => {
-    const value = await bridge().listArtifacts({ repoId, kind });
-    if (
-      !isRendererRecord(value) ||
-      value.ok !== true ||
-      !Array.isArray(value.artifacts) ||
-      !isRendererRecord(value.counts) ||
-      typeof value.watermark !== "number" ||
-      typeof value.sourceRevision !== "number"
-    )
-      throw rendererReadError(value, "Artifacts list bridge returned an invalid result.");
-    return value as unknown as ArtifactsListResult;
+    const pages = await drainCursorPages(async (facets) => {
+      const value = await bridge().listArtifacts({ repoId, kind, limit: 100, ...facets });
+      if (
+        !isRendererRecord(value) ||
+        value.ok !== true ||
+        !Array.isArray(value.artifacts) ||
+        !isRendererRecord(value.counts) ||
+        !isRendererRecord(value.page) ||
+        !(
+          value.page.nextCursor === null ||
+          (typeof value.page.nextCursor === "string" && value.page.nextCursor.length > 0)
+        ) ||
+        typeof value.watermark !== "number" ||
+        typeof value.sourceRevision !== "number"
+      )
+        throw rendererReadError(value, "Artifacts list bridge returned an invalid result.");
+      return value as unknown as ArtifactsListResult;
+    }, "artifacts list");
+    return { ...pages[0], artifacts: pages.flatMap((page) => page.artifacts) };
   },
 };
 
