@@ -681,7 +681,6 @@ test(
     git(fixture.repo, "remote", "add", "origin", remote);
     git(fixture.repo, "fetch", "-q", "origin");
     git(fixture.repo, "remote", "set-head", "origin", git(edgeRoot, "branch", "--show-current"));
-    let base = git(edgeRoot, "rev-parse", "HEAD");
     await catchUpReplica({
       readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
       port: center.port,
@@ -779,7 +778,7 @@ test(
     await assert.rejects(claimUnknownHandoff(), { code: "edge_default_branch_behind" });
     git(edgeRoot, "fetch", "-q", "origin");
     git(edgeRoot, "merge", "--ff-only", `origin/${branch}`);
-    base = git(edgeRoot, "rev-parse", "HEAD");
+    const base = git(edgeRoot, "rev-parse", "HEAD");
     await assert.rejects(claimUnknownHandoff(), { code: "runtime_handoff_owner_mismatch" });
     git(edgeRoot, "remote", "set-url", "--push", "origin", path.join(fixture.root, "wrong-push.git"));
     await assert.rejects(claimUnknownHandoff(), { code: "edge_push_url_mismatch" });
