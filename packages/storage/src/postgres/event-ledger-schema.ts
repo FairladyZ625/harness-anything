@@ -5,6 +5,7 @@ export const POSTGRES_EVENT_LEDGER_TABLES = Object.freeze([
   "ha_events",
   "ha_command_outcomes",
   "ha_content_blobs",
+  "ha_document_heads",
   "ha_replication_positions",
 ] as const);
 
@@ -85,6 +86,22 @@ export const POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS: readonly string[] = Object
     created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     PRIMARY KEY (tenant_id, project_id, sha256),
     CHECK (octet_length(body) = size)
+  )`,
+  `CREATE TABLE IF NOT EXISTS ha_document_heads (
+    tenant_id text NOT NULL,
+    project_id text NOT NULL,
+    repo_id text NOT NULL,
+    path text NOT NULL,
+    sha256 text,
+    size bigint,
+    node_kind text,
+    revision bigint NOT NULL CHECK (revision > 0),
+    ${scopeColumns()},
+    PRIMARY KEY (tenant_id, project_id, repo_id, path),
+    FOREIGN KEY (tenant_id, project_id, repo_id)
+      REFERENCES ha_repo_heads (tenant_id, project_id, repo_id),
+    CHECK ((sha256 IS NULL AND size IS NULL AND node_kind IS NULL)
+        OR (sha256 IS NOT NULL AND size IS NOT NULL AND size >= 0 AND node_kind IS NOT NULL AND node_kind IN ('file', 'symbolic-link')))
   )`,
   `CREATE TABLE IF NOT EXISTS ha_replication_positions (
     tenant_id text NOT NULL,

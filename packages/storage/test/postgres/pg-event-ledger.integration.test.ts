@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -20,6 +20,8 @@ import {
 } from "../../src/index.ts";
 import { startManagedPostgresFixture } from "./managed-postgres.fixture.ts";
 import { bundle, docBundle, eventAt, initRepo } from "../store/task-event-store.fixtures.ts";
+import { assertDocumentAdmission, admissionSettingsBase } from "../store/document-admission.contract.ts";
+import { localGitWorktreeSettlement } from "../../src/store/local-version-control-system.ts";
 
 const scope: PostgresEventStoreScope = {
   tenantId: "tenant-a",
@@ -33,6 +35,8 @@ test("real PG ledger: SQLite byte parity, scoped locks, outcomes, rollback and p
     database = `ha_ledger_${randomUUID().replaceAll("-", "")}`,
     rootDir = mkdtempSync(path.join(tmpdir(), "ha-pg-ledger-sqlite-"));
   let admin: Pool | undefined, runtime: Pool | undefined, sqlite: ReturnType<typeof makeTaskEventStore> | undefined;
+  let terminatedClient: unknown;
+  const poolErrors: { readonly message: string; readonly client: unknown }[] = [];
   try {
     const version = (await fixture.adminPool.query("SELECT version() AS version")).rows[0]!.version;
     assert.match(version, /^PostgreSQL 18\.3(?:\s|$)/u);
@@ -50,6 +54,9 @@ test("real PG ledger: SQLite byte parity, scoped locks, outcomes, rollback and p
     for (const table of POSTGRES_EVENT_LEDGER_TABLES)
       await admin.query(`GRANT SELECT, INSERT, UPDATE ON ${table} TO ${runtimeRole}`);
     runtime = new Pool({ connectionString: `postgres://${runtimeRole}@127.0.0.1:${fixture.port}/${database}`, max: 2 });
+    // This host owns the test pool. The intentional backend termination can also report an idle-client
+    // error after its query rejects; record it and verify its exact backend instead of leaking an event.
+    runtime.on("error", (error, client) => poolErrors.push({ message: error.message, client }));
     const identity = (
       await runtime.query(
         "SELECT current_user AS role, rolsuper, rolbypassrls FROM pg_roles WHERE rolname=current_user",
@@ -63,6 +70,48 @@ test("real PG ledger: SQLite byte parity, scoped locks, outcomes, rollback and p
       pg = make("parity-repo");
     initRepo(rootDir);
     sqlite = makeTaskEventStore({ repoId: "parity-repo", rootDir });
+
+    await t.test(
+      "document admission matches SQLite for stateful replacement, preceding heads, rollback and replay",
+      async () => {
+        const documentRoot = mkdtempSync(path.join(tmpdir(), "ha-pg-document-admission-"));
+        initRepo(documentRoot);
+        writeFileSync(path.join(documentRoot, "harness/harness.yaml"), admissionSettingsBase);
+        const repoId = "document-admission",
+          store = make(repoId, scope, {
+            readAuthoredDocument: (target) => {
+              const node = localGitWorktreeSettlement.readNode(path.join(documentRoot, "harness", target));
+              return node && { ...node, nodeKind: node.mode === "120000" ? "symbolic-link" : "file" };
+            },
+          });
+        try {
+          await assertDocumentAdmission({
+            rootDir: documentRoot,
+            docStore: sqlite!,
+            append: async (candidate) =>
+              store.append(candidate, (await store.readHead())?.revision ?? 0, fence(repoId)),
+            snapshot: async () => {
+              const tables = POSTGRES_EVENT_LEDGER_TABLES;
+              const rows = [];
+              for (const table of tables)
+                rows.push(
+                  (
+                    await admin!.query(
+                      `SELECT * FROM ${table} WHERE tenant_id=$1 AND project_id=$2${table === "ha_content_blobs" ? "" : " AND repo_id=$3"} ORDER BY 1,2,3`,
+                      table === "ha_content_blobs"
+                        ? [scope.tenantId, scope.projectId]
+                        : [scope.tenantId, scope.projectId, repoId],
+                    )
+                  ).rows,
+                );
+              return rows;
+            },
+          });
+        } finally {
+          rmSync(documentRoot, { recursive: true, force: true });
+        }
+      },
+    );
 
     await t.test("sequential append preserves persisted bytes, digest and cut at each revision", async () => {
       const latency: number[] = [];
@@ -253,6 +302,7 @@ test("real PG ledger: SQLite byte parity, scoped locks, outcomes, rollback and p
       }
       const disconnected = make("disconnect-repo", scope, {
         project: async (client) => {
+          terminatedClient = client;
           await client.query("SELECT pg_terminate_backend(pg_backend_pid())");
         },
       });
@@ -351,6 +401,14 @@ test("real PG ledger: SQLite byte parity, scoped locks, outcomes, rollback and p
         "PG_EVENT_LEDGER_RLS non-owner runtime; tenant/project/epoch isolation; claims clear after rollback\n",
       );
     });
+    await runtime.end();
+    runtime = undefined;
+    assert.ok(poolErrors.length <= 1, "only the deliberately terminated backend may emit one pool error");
+    for (const error of poolErrors) {
+      assert.equal(error.client, terminatedClient);
+      assert.equal(error.message, "Connection terminated unexpectedly");
+    }
+    process.stdout.write(`PG_EVENT_LEDGER_POOL_ERRORS expected_disconnect_events=${poolErrors.length}\n`);
   } finally {
     await sqlite?.drain();
     await runtime?.end();

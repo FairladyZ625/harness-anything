@@ -17,11 +17,24 @@ import {
   validateCanonicalWriteBundle,
 } from "@harness-anything/kernel/internal/ports/canonical-event-store.ts";
 import { withPostgresTransaction, type PostgresScopeClaims } from "./transaction.ts";
+import {
+  assertAuthorizedReplacements,
+  requiresReplacementAuthorization,
+  type DocumentHead,
+  type DocumentNode,
+} from "../store/task-event-store-replacement-authorization.ts";
+import {
+  canonicalDocumentClaims,
+  canonicalDocumentMode,
+  canonicalDocumentRetirements,
+} from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
 
 export interface PostgresEventStoreScope extends PostgresScopeClaims {
   readonly readers: readonly string[];
 }
 export interface PostgresAppendHooks {
+  /** A4 may supply live authored bytes. Without a worktree, only canonical document bases are available. */
+  readonly readAuthoredDocument?: (path: string) => DocumentNode | null | Promise<DocumentNode | null>;
   /** A3 updates its projection and watermark using this same transaction/client. Never commit here. */
   readonly project?: (
     client: PoolClient,
@@ -185,6 +198,9 @@ export async function executePostgresAppend(
             `workspace revision ${event.revision} must equal allocated revision ${headRevision + offset + 1}`,
           );
 
+      const members = input.bundle ? [...(input.bundle.preceding ?? []), input.bundle] : [];
+      await authorizeReplacements(client, scope, repoId, members, hooks);
+
       for (const blob of blobs) {
         const bytes = Buffer.from(blob.bodyBase64, "base64");
         await client.query(
@@ -208,7 +224,7 @@ export async function executePostgresAppend(
       }
 
       const recordedAt = new Date().toISOString();
-      for (const event of events)
+      for (const event of events) {
         await client.query(
           `INSERT INTO ha_events
               (tenant_id,project_id,repo_id,revision,op_id,event_id,event_type,event_json,event_digest,occurred_at,
@@ -232,6 +248,8 @@ export async function executePostgresAppend(
             recordedAt,
           ],
         );
+        await updateDocumentHeads(client, scope, repoId, JSON.parse(event.eventJson) as CanonicalEventV1);
+      }
 
       const finalEvent = events.at(-1),
         revision = finalEvent?.revision ?? headRevision,
@@ -353,6 +371,108 @@ export async function executePostgresAppend(
       );
     throw error;
   });
+}
+
+/** Read the admission state on the locked transaction, then run the same rules as SQLite. */
+async function authorizeReplacements(
+  client: PoolClient,
+  scope: PostgresEventStoreScope,
+  repoId: string,
+  members: readonly CanonicalWriteBundle[],
+  hooks: PostgresAppendHooks,
+): Promise<void> {
+  if (!members.some(({ event }) => requiresReplacementAuthorization(event))) return;
+  const paths = [
+    ...new Set(
+      members.flatMap(({ event }) => [
+        ...canonicalDocumentClaims(event).map((claim) => claim.path),
+        ...canonicalDocumentRetirements(event).map((claim) => claim.path),
+      ]),
+    ),
+  ];
+  const rows = (
+    await client.query<{
+      path: string;
+      sha256: string | null;
+      size: string | null;
+      node_kind: DocumentHead["nodeKind"] | null;
+      body: Buffer | null;
+    }>(
+      `SELECT head.path,head.sha256,head.size,head.node_kind,blob.body FROM ha_document_heads head
+       LEFT JOIN ha_content_blobs blob ON blob.tenant_id=head.tenant_id AND blob.project_id=head.project_id AND blob.sha256=head.sha256
+     WHERE head.tenant_id=$1 AND head.project_id=$2 AND head.repo_id=$3 AND head.path=ANY($4::text[])`,
+      [scope.tenantId, scope.projectId, repoId, paths],
+    )
+  ).rows;
+  const heads = new Map<string, DocumentHead | "retired">(),
+    bodies = new Map<string, Uint8Array>(),
+    local = new Map<string, DocumentNode | null>();
+  for (const row of rows) {
+    heads.set(
+      row.path,
+      row.sha256 === null ? "retired" : { sha256: row.sha256, size: Number(row.size), nodeKind: row.node_kind! },
+    );
+    if (row.sha256 !== null && row.body !== null) bodies.set(row.sha256, row.body);
+  }
+  for (const target of paths) local.set(target, (await hooks.readAuthoredDocument?.(target)) ?? null);
+  const existing = new Set(
+    (
+      await client.query<{ op_id: string }>(
+        "SELECT op_id FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND op_id=ANY($4::text[])",
+        [scope.tenantId, scope.projectId, repoId, members.map(({ event }) => event.opId)],
+      )
+    ).rows.map((row) => row.op_id),
+  );
+  assertAuthorizedReplacements(
+    {
+      eventExists: (opId) => existing.has(opId),
+      documentHead: (target) => heads.get(target),
+      readContentObject: (sha256) => bodies.get(sha256) ?? null,
+      local: (target) => local.get(target) ?? null,
+    },
+    members,
+  );
+}
+
+async function updateDocumentHeads(
+  client: PoolClient,
+  scope: PostgresEventStoreScope,
+  repoId: string,
+  event: CanonicalEventV1,
+): Promise<void> {
+  const changes = [
+    ...canonicalDocumentClaims(event).map((claim) => ({
+      path: claim.path,
+      sha256: claim.sha256,
+      size: claim.size,
+      nodeKind: canonicalDocumentMode(event, claim.path) === "120000" ? "symbolic-link" : "file",
+    })),
+    ...canonicalDocumentRetirements(event).map((claim) => ({
+      path: claim.path,
+      sha256: null,
+      size: null,
+      nodeKind: null,
+    })),
+  ];
+  for (const change of changes)
+    await client.query(
+      `INSERT INTO ha_document_heads (tenant_id,project_id,repo_id,path,sha256,size,node_kind,revision,readers,policy_epoch)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       ON CONFLICT (tenant_id,project_id,repo_id,path) DO UPDATE SET sha256=EXCLUDED.sha256,size=EXCLUDED.size,
+         node_kind=EXCLUDED.node_kind,revision=EXCLUDED.revision,readers=EXCLUDED.readers,policy_epoch=EXCLUDED.policy_epoch`,
+      [
+        scope.tenantId,
+        scope.projectId,
+        repoId,
+        change.path,
+        change.sha256,
+        change.size,
+        change.nodeKind,
+        event.workspaceRevision,
+        scope.readers,
+        scope.policyEpoch,
+      ],
+    );
 }
 
 export interface HeadRow {

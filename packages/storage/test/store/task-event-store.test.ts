@@ -20,7 +20,7 @@ import { serializePersistedCanonicalEvent } from "@harness-anything/kernel/inter
 import { taskLifecycleWritePlan } from "@harness-anything/kernel/internal/domain/task-lifecycle-publication.ts";
 import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { localContentObjectFileSystem } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
-import { localGitObjectRefStore } from "../../src/store/local-version-control-system.ts";
+import { localGitObjectRefStore, localGitWorktreeSettlement } from "../../src/store/local-version-control-system.ts";
 import { captureGitBaseline } from "../../src/store/sqlite-task-event-publication.ts";
 import {
   activateEmptyCanonicalGeneration,
@@ -664,15 +664,24 @@ test("a decision write on a still-unclaimed path uses the durable document-head 
   initRepo(rootDir);
   activateEmptyCanonicalGeneration({ repoId: replacementRepoId, rootInput: rootDir });
   const store = openSqliteEventStore({ repoId: replacementRepoId, rootInput: rootDir });
+  const state = {
+    eventExists: (opId: string) => store.event(opId) !== null,
+    documentHead: (target: string) => store.documentHead(target),
+    readContentObject: store.readContentObject,
+    local: (target: string) => {
+      const node = localGitWorktreeSettlement.readNode(path.join(rootDir, "harness", target));
+      return node && { ...node, nodeKind: node.mode === "120000" ? ("symbolic-link" as const) : ("file" as const) };
+    },
+  };
   try {
     store.claimWriter(replacementFence);
     for (let revision = 1; revision <= 2_000; revision += 1) store.appendCommand(replacementCommand(revision));
-    assertAuthorizedReplacements(store, rootDir, [decisionBundle("op-decision-a")]);
+    assertAuthorizedReplacements(state, [decisionBundle("op-decision-a")]);
     for (let revision = 2_001; revision <= 2_050; revision += 1) store.appendCommand(replacementCommand(revision));
 
     const eventsAfter = t.mock.method(store, "eventsAfter"),
       documentHead = t.mock.method(store, "documentHead");
-    assertAuthorizedReplacements(store, rootDir, [decisionBundle("op-decision-b")]);
+    assertAuthorizedReplacements(state, [decisionBundle("op-decision-b")]);
     assert.equal(eventsAfter.mock.calls.length, 0);
     assert.equal(documentHead.mock.calls.length, 1);
   } finally {

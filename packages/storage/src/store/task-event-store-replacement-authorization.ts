@@ -5,9 +5,6 @@ import {
 } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import { isSettingsEvent } from "@harness-anything/kernel/internal/domain/settings-event.ts";
 import { writeRepositorySettingsFacet } from "@harness-anything/kernel/internal/domain/settings.ts";
-import { localGitWorktreeSettlement } from "./local-version-control-system.ts";
-import { resolveHarnessLayout, type HarnessLayoutInput } from "@harness-anything/kernel/internal/layout/index.ts";
-import type { SqliteEventStore } from "./sqlite-event-store.ts";
 import {
   canonicalDocumentClaims,
   canonicalDocumentMode,
@@ -18,33 +15,39 @@ import {
   type CanonicalWriteBundle,
 } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 
-type DocumentNode = {
+export type DocumentNode = {
   readonly body: string | Uint8Array;
   readonly sha256: string;
   readonly size: number;
   readonly nodeKind: "file" | "symbolic-link";
 };
-type DocumentHead = Omit<DocumentNode, "body">;
+export type DocumentHead = Omit<DocumentNode, "body">;
 
-export function assertAuthorizedReplacements(
-  store: SqliteEventStore,
-  input: HarnessLayoutInput,
-  members: readonly CanonicalWriteBundle[],
-): void {
-  const requiresAuthorization = (event: CanonicalEventV1) =>
+export interface DocumentReplacementState {
+  readonly eventExists: (opId: string) => boolean;
+  readonly documentHead: (target: string) => DocumentHead | "retired" | undefined;
+  readonly readContentObject: (sha256: string) => Uint8Array | null;
+  readonly local: (target: string) => DocumentNode | null;
+}
+
+export function requiresReplacementAuthorization(event: CanonicalEventV1): boolean {
+  return (
     isDecisionEvent(event) ||
     isSettingsEvent(event) ||
     canonicalDocumentRetirements(event).length > 0 ||
     (isMigrationImportEvent(event) &&
       event.payload.entity.kind === "repo-document" &&
-      event.payload.entity.destinationPreimage !== undefined);
-  if (!members.some(({ event }) => requiresAuthorization(event))) return;
-  const authoredRoot = resolveHarnessLayout(input).authoredRoot,
-    pending = new Map<string, DocumentNode | null>(),
-    local = (target: string): DocumentNode | null => {
-      const node = localGitWorktreeSettlement.readNode(`${authoredRoot}/${target}`);
-      return node && { ...node, nodeKind: node.mode === "120000" ? "symbolic-link" : "file" };
-    },
+      event.payload.entity.destinationPreimage !== undefined)
+  );
+}
+
+export function assertAuthorizedReplacements(
+  store: DocumentReplacementState,
+  members: readonly CanonicalWriteBundle[],
+): void {
+  if (!members.some(({ event }) => requiresReplacementAuthorization(event))) return;
+  const pending = new Map<string, DocumentNode | null>(),
+    local = store.local,
     current = (target: string): DocumentHead | null => {
       if (pending.has(target)) return pending.get(target)!;
       const head = store.documentHead(target);
@@ -54,7 +57,7 @@ export function assertAuthorizedReplacements(
       return head;
     };
   for (const member of members) {
-    if (store.event(member.event.opId)) continue; // SQLite still verifies the replay's exact intent digest.
+    if (store.eventExists(member.event.opId)) continue; // The ledger still verifies the replay's exact intent digest.
     authorize(member, current, local, (target) => {
       if (pending.has(target)) return pending.get(target)?.body ?? null;
       const head = store.documentHead(target);

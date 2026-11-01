@@ -144,7 +144,18 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       authoredRoot = appendLayout.authoredRoot,
       acceptedBaseline = new Map<string, { fingerprint: string; preserve: boolean }>();
     latestAppendLayout = appendLayout;
-    assertAuthorizedReplacements(sqlite, input, members);
+    assertAuthorizedReplacements(
+      {
+        eventExists: (opId) => sqlite.event(opId) !== null,
+        documentHead: sqlite.documentHead,
+        readContentObject: sqlite.readContentObject,
+        local: (target) => {
+          const node = localGitWorktreeSettlement.readNode(`${authoredRoot}/${target}`);
+          return node && { ...node, nodeKind: node.mode === "120000" ? "symbolic-link" : "file" };
+        },
+      },
+      members,
+    );
     for (const event of appended) {
       const task = isTaskEvent(event),
         settings = isSettingsEvent(event);
