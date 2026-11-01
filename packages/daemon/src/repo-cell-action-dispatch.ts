@@ -522,10 +522,21 @@ async function runTaskEscalation(
     now: cell.now,
     killpoint: cell.input.killpoint,
   });
-  const cancel = await cell.runtimeSpawner.cancel({ runtimeSessionId: principal.runtimeSessionId }, binding);
+  // A center-forwarded edge action cannot cancel through the center's local spawner: the runtime
+  // owner is the edge node. The edge RPC route performs the owner-local cancel after this artifact
+  // is durably accepted. Local dispatches still stop through their resident spawner here.
+  const remoteOwner = typeof binding.source === "object" && binding.source !== null && binding.source.kind === "node",
+    cancel = remoteOwner
+      ? null
+      : await cell.runtimeSpawner.cancel({ runtimeSessionId: principal.runtimeSessionId, escalation: true }, binding);
   return {
     ...artifact,
-    evidence: JSON.stringify({ escalation: JSON.parse(body), artifact: artifact.evidence ?? null, cancel }),
+    evidence: JSON.stringify({
+      escalation: JSON.parse(body),
+      artifact: artifact.evidence ?? null,
+      cancel,
+      ...(remoteOwner ? { cancelOwner: "edge" } : {}),
+    }),
   };
 }
 

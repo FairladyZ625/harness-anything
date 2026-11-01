@@ -222,7 +222,7 @@ function rulingFromWorkerInternal(input: {
   readonly dispatchId: string;
 }): (RuntimeRulingRequest & { readonly body: string; readonly malformedReason?: string }) | null {
   const relative = runtimeRulingPath(input.dispatchId),
-    logicalPath = `${input.packagePath}/${relative}`,
+    logicalPath = input.packagePath === "" ? relative : `${input.packagePath}/${relative}`,
     candidates = [
       // A task worktree reaches its package through the ledger mirror.
       path.join(input.cwd, "harness", ...input.packagePath.split("/"), ...relative.split("/")),
