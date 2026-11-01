@@ -21,7 +21,10 @@ with no settlement action in the stream, the runtime settles it as `worker_stop`
 1. Write the progress or checkpoint conclusion into the task report or `ha task progress append`,
    then make the next tool call. Never end a turn on a status message.
 2. Keep working until one settlement action has actually run: `ha task submit <task-id>` for a
-   delivery, `ha task review-execution <task-id>` for a review, or the ruling artifact
-   `artifacts/rulings/<dispatch-id>.md` for a stop.
+   delivery, `ha task review-execution <task-id>` for a review, or `ha task escalate <task-id>
+   --question "<question>" --option "<option>" --recommend "<recommendation>" --reason "<why
+   blocked>"` when an owner ruling blocks the dispatch. Repeat `--option` for each choice.
+   A file under `artifacts/rulings/<dispatch-id>.md` may carry supporting detail, but writing a
+   file alone does not report the blocker.
 3. Run that action before the closing message. The closing message is evidence for the owner, not
    the delivery.
