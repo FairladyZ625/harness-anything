@@ -472,11 +472,11 @@ export function executeRepoAction(
   return cell.lifecycleAction(action, binding);
 }
 
-function runTaskEscalation(
+async function runTaskEscalation(
   cell: RepoCellOperationalContext,
   action: RepoTaskAction,
   binding: RepoCellBinding,
-): WriteReceipt {
+): Promise<WriteReceipt> {
   const principal = binding.executionPrincipal,
     taskId = cell.requiredCellText(action.taskId, "taskId"),
     dispatchId = principal?.dispatchId,
@@ -522,9 +522,10 @@ function runTaskEscalation(
     now: cell.now,
     killpoint: cell.input.killpoint,
   });
+  const cancel = await cell.runtimeSpawner.cancel({ runtimeSessionId: principal.runtimeSessionId }, binding);
   return {
     ...artifact,
-    evidence: JSON.stringify({ escalation: JSON.parse(body), artifact: artifact.evidence ?? null }),
+    evidence: JSON.stringify({ escalation: JSON.parse(body), artifact: artifact.evidence ?? null, cancel }),
   };
 }
 
@@ -548,15 +549,16 @@ async function resolveTaskEscalation(
   if (task.snapshot.task?.status !== "blocked" || task.snapshot.lease !== null)
     throw cell.cellCodedError("invalid_escalation_resolution", `Task ${taskId} is not waiting for an owner ruling.`);
   const path = `${packagePath}/${runtimeRulingPath(dispatchId)}`,
-    existing = cell.projection.readDocument(path).document?.body ?? null;
-  if (!existing)
+    rulingDocument = cell.projection.readDocument(path).document,
+    existing = rulingDocument?.body ?? null;
+  if (rulingDocument === undefined || rulingDocument === null)
     throw cell.cellCodedError("entity_not_found", `Escalation ${dispatchId} was not found for Task ${taskId}.`);
-  const ruling = parseRulingArtifact(existing, path),
+  const ruling = parseRulingArtifact(existing ?? "", path),
     resolutionPath = `${packagePath}/${runtimeRulingResolutionPath(dispatchId)}`;
   if (ruling?.kind === "valid" && ruling.dispatchId !== undefined) {
     let parsed: Record<string, unknown>;
     try {
-      parsed = JSON.parse(existing) as Record<string, unknown>;
+      parsed = JSON.parse(existing ?? "") as Record<string, unknown>;
     } catch {
       throw cell.cellCodedError("invalid_escalation_resolution", `Escalation ${dispatchId} is not structured.`);
     }
@@ -566,14 +568,32 @@ async function resolveTaskEscalation(
         `Escalation ${dispatchId} is not awaiting for Task ${taskId}.`,
       );
   }
-  const existingResolution = cell.projection.readDocument(resolutionPath).document;
-  if (existingResolution !== undefined && existingResolution !== null)
-    throw cell.cellCodedError("invalid_escalation_resolution", `Escalation ${dispatchId} has already been answered.`);
-  const updated = JSON.stringify(
+  const existingResolution = cell.projection.readDocument(resolutionPath).document,
+    existingResolutionBody = existingResolution?.body ?? null;
+  let artifact: WriteReceipt | null = null;
+  if (existingResolution !== undefined && existingResolution !== null) {
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(existingResolutionBody ?? "") as Record<string, unknown>;
+    } catch {
+      throw cell.cellCodedError(
+        "invalid_escalation_resolution",
+        `Escalation ${dispatchId} has an invalid answer record.`,
+      );
+    }
+    if (
+      parsed.schema !== "worker-escalation-resolution/v1" ||
+      parsed.dispatchId !== dispatchId ||
+      parsed.taskId !== taskId ||
+      parsed.answer !== answer
+    )
+      throw cell.cellCodedError("invalid_escalation_resolution", `Escalation ${dispatchId} has already been answered.`);
+  } else {
+    const updated = JSON.stringify(
       { schema: "worker-escalation-resolution/v1", dispatchId, taskId, answer, answeredAt: cell.now() },
       null,
       2,
-    ),
+    );
     artifact = runArtifactAdd({
       action: {
         kind: "task-artifact-add",
@@ -588,12 +608,16 @@ async function resolveTaskEscalation(
       projection: cell.projection,
       now: cell.now,
       killpoint: cell.input.killpoint,
-    }),
-    transitioned = await cell.lifecycleAction(
-      { kind: "task-transition", taskId, status: "planned", reason: `Owner answered escalation ${dispatchId}.` },
-      binding,
-    );
-  return { ...transitioned, evidence: JSON.stringify({ answer, dispatchId, artifact: artifact.evidence ?? null }) };
+    });
+  }
+  const transitioned = await cell.lifecycleAction(
+    { kind: "task-transition", taskId, status: "planned", reason: `Owner answered escalation ${dispatchId}.` },
+    binding,
+  );
+  return {
+    ...transitioned,
+    evidence: JSON.stringify({ answer, dispatchId, artifact: artifact?.evidence ?? null, retried: artifact === null }),
+  };
 }
 
 export function executeRepoReadAction(

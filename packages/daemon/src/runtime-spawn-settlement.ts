@@ -128,7 +128,7 @@ export async function publishExit(
     // One read of the worker's own ruling artifact feeds both the settlement classification and
     // the receipt body: the file is worktree-local at exit time, so settlement must not re-read it
     // from the projection.
-    const ruling = runtimeRulingRequest(context, active),
+    const ruling = await runtimeRulingRequest(context, active),
       reviewReport = runtimeReviewReport(context, active),
       { outcome: initialOutcome, ...classifiedAttempt } = classifyRuntimeExit(active, code, ruling);
     let outcome = initialOutcome,
@@ -686,8 +686,21 @@ function runtimeSessionBinding(binding: ActiveRuntime["binding"], runtimeSession
  * fallback below can only serve an artifact the worker itself published. An edge settles by the
  * same ordinary classification it always had.
  */
-function runtimeRulingRequest(context: RuntimeSpawnerContext, active: ActiveRuntime) {
-  if (!active.task || !context.input.projection) return null;
+async function runtimeRulingRequest(context: RuntimeSpawnerContext, active: ActiveRuntime) {
+  if (!active.task) return null;
+  if (context.input.remote) {
+    // The execution credential writes the escalation at the center. Pull the serving cut before
+    // edge settlement reads the mirrored package, otherwise the edge would archive an ordinary
+    // stop and the center could not distinguish a waiting worker from a failed one.
+    const remoteTask = await context.input.remote.taskContext(active.task.taskId);
+    return readDispatchRulingFromWorker({
+      cwd: remoteTask.packageRoot,
+      rootDir: context.input.rootDir,
+      packagePath: "",
+      dispatchId: active.dispatchId,
+    });
+  }
+  if (!context.input.projection) return null;
   const projection = context.requiredRuntimeProjection(context.input),
     packagePath = projection.read(active.task.taskId).packagePath;
   if (typeof packagePath !== "string") return null;

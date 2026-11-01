@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
@@ -146,6 +146,49 @@ test("task mission includes the previous conclusion and compares it with current
   assert.match(resolved.mission, /Current worktree HEAD: [a-f0-9]{40}/u);
   assert.match(resolved.mission, /HEAD comparison: changed/u);
   assert.doesNotMatch(resolved.mission, /full terminal result/iu);
+});
+
+test("a remote mission carries an escalation answer from the mirrored ruling package", async () => {
+  const packageRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-escalation-mirror-"));
+  try {
+    mkdirSync(path.join(packageRoot, "artifacts", "rulings"), { recursive: true });
+    writeFileSync(
+      path.join(packageRoot, "artifacts", "rulings", "dispatch_0123456789abcdef01234567.resolution.md"),
+      JSON.stringify({
+        schema: "worker-escalation-resolution/v1",
+        dispatchId: "dispatch_0123456789abcdef01234567",
+        taskId: "task_x",
+        answer: "Keep the boundary.",
+        answeredAt: "2026-11-02T00:00:00.000Z",
+      }),
+    );
+    const resolved = await resolveRuntimeMission({
+      rootDir: process.cwd(),
+      cwd: process.cwd(),
+      taskId: "task_x",
+      projection: null,
+      remoteTask: {
+        packageRoot,
+        mission: () => "Continue the task.",
+        continuationContext: null,
+        causalContext: null,
+        profileId: null,
+        taskClass: "standard",
+        planBody: null,
+        ownerReturnBody: null,
+      } as never,
+      taskSnapshot: null,
+      missionName: undefined,
+      explicitMission: undefined,
+      reviewerBinding: false,
+    });
+    assert.match(
+      resolved.mission,
+      /Owner answer to worker escalation dispatch_0123456789abcdef01234567: Keep the boundary\./u,
+    );
+  } finally {
+    rmSync(packageRoot, { recursive: true, force: true });
+  }
 });
 
 test("task-bound explicit prompts carry the lookup guidance, living protocol and PR note", () => {

@@ -239,8 +239,8 @@ test("the receipt text carries the question, every option in order, and the reso
   );
 });
 
-test("a cancellation still outranks a written ruling: the operator stopped the run", () => {
+test("a cancellation after escalation preserves the owner-ruling classification", () => {
   const cancelled = classifyRuntimeExit(active({ cancelRequested: true }), 2, { question, options });
-  assert.equal(cancelled.classification, "worker_stop");
-  assert.equal(cancelled.outcome, "cancelled");
+  assert.equal(cancelled.classification, "awaiting_ruling");
+  assert.equal(cancelled.outcome, "stopped");
 });
