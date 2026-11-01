@@ -36,6 +36,7 @@ test("first-run identity is required, then the complete real CLI smoke succeeds"
     });
   const identity = await smokeIdentity(root, "different-repository");
   try {
+    identity.configure(path.join(root, "daemon"));
     const unsigned = cli(["init", "--repo-id", "unsigned", "--person-id", "owner", "--display-name", "Owner"]);
     assert.notEqual(unsigned.status, 0, unsigned.stdout);
     assert.equal(lastReceipt(unsigned.stdout).code, "rbac_not_configured");

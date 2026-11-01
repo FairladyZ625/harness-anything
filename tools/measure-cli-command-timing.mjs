@@ -347,6 +347,7 @@ export function buildMeasurement({ sha, sourceStatus, options, measured, roundRa
 export async function prepareFixtureIdentity(fixture, run = invoke) {
   const identity = await smokeIdentity(fixture.repo, "alpha");
   try {
+    identity.configure(fixture.userRoot);
     identity.prepare((args, input) => withReceipt(run(fixture, ["--json", ...args], { timing: false, input })));
   } catch (error) {
     await identity.close();
@@ -365,11 +366,8 @@ export async function main(argv = process.argv.slice(2)) {
     fixture = makeFixture(rootDir, sha);
   let identity;
   try {
-    // The product has no anonymous first run: `ha init` refuses with rbac_not_configured until this
-    // machine has a Keycloak authority (dec_D60FAA451F24160E970323B6F3). The fixture therefore
-    // installs one through the same CLI bootstrap every user takes, against the shared
-    // external-provider identity fixture the other no-Keycloak integration tests use; there is no
-    // timing-specific identity path and no daemon file is written by hand.
+    // This workload uses an explicit synthetic external provider, so choose it before the daemon
+    // constructs its identity ports. Bootstrap-admin and login still run through the real CLI.
     identity = await prepareFixtureIdentity(fixture);
     const initialized = invoke(
       fixture,
