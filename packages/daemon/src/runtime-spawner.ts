@@ -381,7 +381,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         taskPackageRoot,
       );
     const runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
-      [localRuntimeSessions, runtimeInstances, allowedInstanceIds, providerHealth] =
+      [localRuntimeSessions, runtimeInstances, allowedInstanceIds, providerHealth, canonicalRuntimeSessions] =
         await resolveRuntimeDispatchResources(input, input.remote, projection!, processes),
       { squad, delegatedBy, agent, resolvedSkills, preset } = resolveDispatchAgent(
         input,
@@ -463,7 +463,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         },
         async (runtimeInstanceId) => {
           if (!dryRun)
-            for (const session of localRuntimeSessions) {
+            for (const session of canonicalRuntimeSessions) {
               if (session.outcome !== null || session.instanceId !== runtimeInstanceId) continue;
               // A session can arrive after the startup census. Its canonical node owner,
               // not absence from this node's process map, determines who must recover it.

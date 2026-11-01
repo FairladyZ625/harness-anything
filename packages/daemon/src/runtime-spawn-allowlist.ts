@@ -14,6 +14,7 @@ export async function resolveRuntimeDispatchResources(
     readonly RuntimeInstanceSummary[],
     readonly string[] | undefined,
     readonly import("./runtime-provider-health.ts").RuntimeProviderHealth[],
+    readonly RuntimeSessionSelection[],
   ]
 > {
   const runtimeSessions = remote ? await remote.readRuntimeSessions() : projection!.readRuntimeSessions(),
@@ -24,7 +25,7 @@ export async function resolveRuntimeDispatchResources(
       : (projection!.getEntity("settings", "repository")?.value as RepositorySettingsV1 | undefined),
     allowedInstanceIds = settings?.runtime?.allowedInstances,
     health = input.runtimeProviderHealth?.list() ?? [];
-  return [localRuntimeSessions, runtimeInstances, allowedInstanceIds, health];
+  return [localRuntimeSessions, runtimeInstances, allowedInstanceIds, health, runtimeSessions];
 }
 
 /** ha init captures machine availability during the operator's repository setup. */

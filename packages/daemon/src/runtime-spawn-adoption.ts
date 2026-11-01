@@ -482,7 +482,7 @@ function isBinding(value: unknown): value is RuntimeBinding {
   );
 }
 
-/** Local PID evidence can refine a live report, but cannot erase a canonical exit observation. */
+/** Instance load follows a live local PID; canonical liveness remains available to recovery admission. */
 export function locallyObservedRuntimeSessions(
   sessions: readonly RuntimeSessionSelection[],
   processes: ReadonlyMap<string, Pick<ActiveRuntime, "process">>,
@@ -492,11 +492,7 @@ export function locallyObservedRuntimeSessions(
     return {
       ...session,
       liveness:
-        session.outcome !== null || session.liveness === "exited"
-          ? session.liveness
-          : process && runtimePidIsAlive(process.pid)
-            ? "live"
-            : "unknown",
+        session.outcome !== null ? session.liveness : process && runtimePidIsAlive(process.pid) ? "live" : "unknown",
     };
   });
 }
