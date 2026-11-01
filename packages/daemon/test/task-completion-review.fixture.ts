@@ -11,6 +11,7 @@ import { makeTaskEventReader, openSqliteEventStore } from "@harness-anything/sto
 import {
   requireEntityStoreKindContract,
   sha256Text,
+  type AgentRuntimeEventV1,
   type AgentDefinitionSnapshot,
   type EntityUpsertEventV1,
   type EntityOwnedContentV1,
@@ -212,6 +213,13 @@ export async function fixture(
         userRoot: path.join(root, "user"),
         daemonId: "fixture",
         endpoint: path.join(root, "user.sock"),
+      },
+      reclaimRuntimeTempDirectory: (instanceId, runtimeSessionId) => {
+        rmSync(path.join(root, "user", "runtime-instances", instanceId, "tmp", runtimeSessionId), {
+          recursive: true,
+          force: true,
+        });
+        return null;
       },
       runtimeInstances: () =>
         noInstances
@@ -466,6 +474,19 @@ export async function fixture(
   // tree on Windows). close() drains it before the tree goes away.
   let eventsReader: ReturnType<typeof makeTaskEventReader> | null = null;
   const events = () => (eventsReader ??= makeTaskEventReader({ repoId, rootDir: root })).read().events;
+  const awaitRuntimeLiveness = async (runtimeSessionId?: string) => {
+    // Runtime liveness is queued behind the submit that launched the worker. Drain that
+    // writer tail as the synchronization point, then read the canonical event once.
+    await cell.settlePendingMaterialization("runtime liveness assertion");
+    const event = events().find(
+      (candidate): candidate is Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_liveness_changed" }> =>
+        candidate.type === "runtime_session_liveness_changed" &&
+        (runtimeSessionId === undefined || candidate.payload.runtimeSessionId === runtimeSessionId),
+    );
+    if (!event)
+      throw new Error(`runtime liveness event was not published for ${runtimeSessionId ?? "the next session"}`);
+    return event;
+  };
   const awaitOutcome = async (runtimeSessionId: string) => {
     // Bind the wait to the canonical outcome event. The settle predicate becomes true when the
     // dispatch stream records the terminal outcome, one queued write before the daemon publishes
@@ -496,6 +517,7 @@ export async function fixture(
     run,
     runPrincipal: (action: Parameters<typeof cell.run>[0]) => cell.run(action, principal),
     events,
+    awaitRuntimeLiveness,
     cell: () => cell,
     submit,
     consent,

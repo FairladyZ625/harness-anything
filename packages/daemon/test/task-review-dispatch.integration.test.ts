@@ -19,7 +19,14 @@ import {
 } from "@harness-anything/kernel";
 import { dispatchStreamPath, readDispatchStream } from "../src/dispatch-stream.ts";
 import { realizedDecisionBody, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { executionId, fixture, owner, reviewerExecutionBinding, taskId } from "./task-completion-review.fixture.ts";
+import {
+  executionId,
+  fixture,
+  owner,
+  principal,
+  reviewerExecutionBinding,
+  taskId,
+} from "./task-completion-review.fixture.ts";
 import { makeDaemonCommandReceipt } from "../src/protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiActionResult } from "../src/protocol/gui-result-validation.ts";
 import { activeCutReviewDispatches } from "../src/task-review-dispatch.ts";
@@ -193,26 +200,25 @@ test(
         .findLast((event) => event.type === "runtime_dispatch_requested" && event.payload.role === "reviewer");
       assert.ok(dispatch?.type === "runtime_dispatch_requested", "submission dispatched no reviewer");
       const { dispatchId, runtimeSessionId } = dispatch.payload,
-        streamPath = dispatchStreamPath(f.root, dispatchId);
+        streamPath = dispatchStreamPath(f.root, dispatchId),
+        runtimeTempDirectory = path.join(f.root, "user", "runtime-instances", "review-first", "tmp", runtimeSessionId);
       assert.equal(existsSync(streamPath), true, "review dispatch stream was not written");
-      assert.ok(
-        f
-          .events()
-          .some(
-            (event) =>
-              event.type === "runtime_session_liveness_changed" &&
-              event.payload.runtimeSessionId === runtimeSessionId &&
-              event.payload.processGroupPid === 2_147_483_646,
-          ),
-        "canonical owner process-group evidence was not written",
-      );
+      const liveness = await f.awaitRuntimeLiveness(runtimeSessionId);
+      assert.equal(liveness.payload.runtimeSessionId, runtimeSessionId, "reviewer liveness belongs to another session");
+      assert.equal(liveness.payload.processGroupPid, 2_147_483_646, "canonical owner process-group evidence differs");
 
+      mkdirSync(runtimeTempDirectory, { recursive: true });
+      writeFileSync(path.join(runtimeTempDirectory, "provider-temp"), "orphaned provider scratch");
       rmSync(streamPath, { force: true });
+      assert.equal(
+        existsSync(runtimeTempDirectory),
+        true,
+        "fixture did not create the orphaned runtime temp directory",
+      );
       await f.reopen();
-      const cancelled = await f
-        .cell()
-        .cancelRuntime({ runtimeSessionId }, reviewerExecutionBinding(runtimeSessionId, dispatchId));
+      const cancelled = await f.cell().cancelRuntime({ runtimeSessionId }, principal);
       assert.equal(cancelled.detail, "cancelled", JSON.stringify(cancelled));
+      assert.equal(existsSync(runtimeTempDirectory), false, "ghost runtime temp directory was not reclaimed");
       assert.ok(
         f
           .events()

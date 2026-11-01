@@ -16,7 +16,11 @@ import {
   type RuntimeSession,
 } from "@harness-anything/kernel";
 import { makeAgentRuntimeReadModel, sessionWithActivityEvidence } from "../src/agent-runtime-read.ts";
-import { readSessionGroupDispatches, readTaskDispatches } from "../src/dispatch-read.ts";
+import {
+  readRuntimeSessionActivityEvidence,
+  readSessionGroupDispatches,
+  readTaskDispatches,
+} from "../src/dispatch-read.ts";
 import { validateAgentRuntimeOverview } from "../src/agent-runtime-contract.ts";
 import { makeAgentRuntimeStreamHub } from "../src/agent-runtime-stream.ts";
 import { readFleetRuntimeSessionsPaged } from "../src/fleet-edge-runtime.ts";
@@ -140,17 +144,24 @@ test("runtime status reports unknown without local process evidence, for local a
       projectionForDispatch = (source?: { readonly kind: "node"; readonly nodeId: string }) =>
         new Proxy(projection, {
           get: (target, property, receiver) => {
+            const rewriteDispatch = (
+              dispatch: Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>,
+            ) =>
+              dispatch.payload.runtimeSessionId === "runtime-session"
+                ? {
+                    ...dispatch,
+                    source: source ?? dispatch.source,
+                    payload: { ...dispatch.payload, dispatchId },
+                  }
+                : dispatch;
             if (property === "readRuntimeDispatch")
               return (runtimeSessionId: string, snapshotRef?: string) => {
                 const dispatch = target.readRuntimeDispatch(runtimeSessionId, snapshotRef);
-                return dispatch
-                  ? {
-                      ...dispatch,
-                      source: source ?? dispatch.source,
-                      payload: { ...dispatch.payload, dispatchId },
-                    }
-                  : null;
+                return dispatch ? rewriteDispatch(dispatch) : null;
               };
+            if (property === "readRuntimeDispatches")
+              return (...args: Parameters<typeof target.readRuntimeDispatches>) =>
+                target.readRuntimeDispatches(...args).map(rewriteDispatch);
             const value = Reflect.get(target, property, receiver);
             return typeof value === "function" ? value.bind(target) : value;
           },
@@ -170,8 +181,14 @@ test("runtime status reports unknown without local process evidence, for local a
       executionId: null,
       runtimeSessionId: "runtime-session",
       instanceId: "instance-runtime",
+      startedAt: new Date().toISOString(),
     });
     appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: process.pid });
+    assert.equal(
+      readRuntimeSessionActivityEvidence(rootDir, dispatchId)?.workerHostAlive,
+      true,
+      "the fixture must contain live process evidence",
+    );
     assert.equal(localReads.overview({}).sessions[0]?.liveness, "live");
   }));
 

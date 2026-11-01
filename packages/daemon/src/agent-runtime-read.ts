@@ -69,8 +69,8 @@ export function makeAgentRuntimeReadModel(input: {
     session: RuntimeSession,
     installation: RuntimeInstallation | null | undefined,
     definition: { readonly snapshot: AgentDefinitionSnapshot | null; readonly persisted: boolean },
-    detail: { readonly attemptChain?: boolean; readonly context?: boolean } = {},
-    dispatch = input.projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef),
+    detail: { readonly attemptChain?: boolean; readonly context?: boolean },
+    dispatch: Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> | null,
   ): AgentRuntimeSessionDto => {
     const observedSession = publicRuntimeSession(
         input.rootDir === undefined
@@ -141,13 +141,11 @@ export function makeAgentRuntimeReadModel(input: {
     };
   };
   const definitionFor = (
-    session: RuntimeSession,
-    dispatch?: Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>,
-  ): { readonly snapshot: AgentDefinitionSnapshot | null; readonly persisted: boolean } => {
-    const event =
-      dispatch ?? input.projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef);
-    return { snapshot: event?.payload.definitionSnapshot ?? null, persisted: event !== null && event !== undefined };
-  };
+    dispatch: Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> | null | undefined,
+  ): { readonly snapshot: AgentDefinitionSnapshot | null; readonly persisted: boolean } => ({
+    snapshot: dispatch?.payload.definitionSnapshot ?? null,
+    persisted: dispatch !== null && dispatch !== undefined,
+  });
   // Git-style short-id resolution for `ha runtime status <id>`: an exact id reads directly; a
   // unique prefix reads that session; ambiguity lists the candidates instead of guessing.
   const readRuntimeSessionById = (runtimeSessionId: string | null): RuntimeSession | null => {
@@ -209,13 +207,16 @@ export function makeAgentRuntimeReadModel(input: {
           .filter((installation) => !query.taskId || installationIds.has(installation.installationId))
           .map(installationDto),
         instances: [],
-        sessions: sessions.map((session) =>
-          sessionDto(
+        sessions: sessions.map((session) => {
+          const dispatch = dispatchEventFor(session) ?? null;
+          return sessionDto(
             session,
             installationsById.get(session.installationId),
-            definitionFor(session, dispatchEventFor(session)),
-          ),
-        ),
+            definitionFor(dispatch),
+            {},
+            dispatch,
+          );
+        }),
         ...(paged === null
           ? {}
           : {
@@ -285,11 +286,13 @@ export function makeAgentRuntimeReadModel(input: {
             ? `Runtime dispatch ${target.dispatchId} for task ${target.taskId} has no projected session.`
             : `Runtime session ${runtimeSessionIdValue} was not found.`,
         );
-      const dto = sessionDto(
+      const dispatch = input.projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef),
+        dto = sessionDto(
           session,
           input.projection.readRuntimeInstallation(session.installationId),
-          definitionFor(session),
+          definitionFor(dispatch),
           { attemptChain: true, context: true },
+          dispatch,
         ),
         result = resultFor(session);
       return {
