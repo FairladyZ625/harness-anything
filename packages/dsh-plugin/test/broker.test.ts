@@ -60,6 +60,78 @@ function child(): Child {
   return { stdout, stderr, handle, resolve: resolveDone, terminated };
 }
 
+interface ClientRegistration {
+  readonly options: Record<string, unknown>;
+  readonly component: (props: never) => unknown;
+  disposed: boolean;
+}
+
+interface ClientInjection {
+  readonly name: string;
+  readonly dispose: () => void;
+}
+
+function clientHarness(): {
+  readonly ctx: Record<string, unknown>;
+  readonly registrations: ClientRegistration[];
+  readonly injections: ClientInjection[];
+  readonly selectedPanels: Array<string | null>;
+  readonly cleanupEffects: () => void;
+} {
+  const registrations: ClientRegistration[] = [];
+  const injections: ClientInjection[] = [];
+  const selectedPanels: Array<string | null> = [];
+  const cleanups: Array<() => void> = [];
+  let insideInjection = false;
+  const register = (options: Record<string, unknown>, component: (props: never) => unknown): (() => void) => {
+    assert.equal(insideInjection, true, "slot registrations must be owned by slots.inject");
+    const entry: ClientRegistration = { options, component, disposed: false };
+    registrations.push(entry);
+    return () => {
+      entry.disposed = true;
+    };
+  };
+  const ctx = {
+    locale: {
+      register: () => () => {},
+      bind: () => (key: string) => key,
+    },
+    effect: (factory: () => unknown) => {
+      const cleanup = factory();
+      if (typeof cleanup === "function") cleanups.push(cleanup as () => void);
+      return cleanup;
+    },
+    slots: {
+      inject: (name: string, factory: () => (() => void) | void) => {
+        insideInjection = true;
+        const disposeRegistration = factory();
+        insideInjection = false;
+        const injection: ClientInjection = {
+          name,
+          dispose: () => {
+            disposeRegistration?.();
+          },
+        };
+        injections.push(injection);
+        return injection.dispose;
+      },
+      register,
+    },
+    sidebarRight: { openTab() {} },
+    layout: { selectPanel: (panelId: string | null) => selectedPanels.push(panelId) },
+    logger: { info() {}, warn() {} },
+  } as Record<string, unknown>;
+  return {
+    ctx,
+    registrations,
+    injections,
+    selectedPanels,
+    cleanupEffects: () => {
+      for (const cleanup of cleanups.splice(0)) cleanup();
+    },
+  };
+}
+
 test("broker launches ha gui with the workspace and reuses the URL", async () => {
   let workspace = "/repo";
   const children: Child[] = [];
@@ -126,99 +198,86 @@ test("disposing while ha is starting terminates the pending child", async () => 
 });
 
 test("client registration opens the built-in browser with the broker URL", async () => {
-  const registrations: Array<{
-    readonly options: Record<string, unknown>;
-    readonly component: (props: never) => unknown;
-  }> = [];
+  const harness = clientHarness();
+  const { registrations, selectedPanels } = harness;
   const clicks: Array<{ readonly kind: string; readonly url: string }> = [];
   const ctx = {
-    locale: {
-      register: () => () => {},
-      bind: () => (key: string) => key,
-    },
-    effect: (factory: () => unknown) => factory(),
-    slots: {
-      inject: (_name: string, factory: () => () => void) => factory(),
-      register: (options: Record<string, unknown>, component: (props: never) => unknown) => {
-        registrations.push({ options, component });
-        return () => {};
-      },
-    },
+    ...harness.ctx,
     sidebarRight: {
       openTab: (kind: string, options: { readonly params: { readonly url: string } }) =>
         clicks.push({ kind, url: options.params.url }),
     },
-    logger: { info() {}, warn() {} },
   } as never;
   applyClient(ctx);
   const iconRegistration = registrations.find((entry) => entry.options.name === "sidebar.panellist");
   assert.ok(iconRegistration);
   const fetcher: typeof fetch = async () =>
     new Response(JSON.stringify({ ok: true, url: "http://127.0.0.1:4321/" }), { status: 200 });
+  const icon = iconRegistration.component({ size: 16, active: false } as never) as {
+    readonly props: { readonly onClick?: () => Promise<void> };
+  };
+  assert.equal(icon.props.onClick, undefined, "the sidebar entry only selects the tutorial panel");
   await openHarnessBrowser(ctx, fetcher);
-  const previousFetch = globalThis.fetch;
-  globalThis.fetch = fetcher;
-  try {
-    const icon = iconRegistration.component({ size: 16, active: false } as never) as {
-      readonly props: { readonly onClick: () => Promise<void> };
-    };
-    await icon.props.onClick();
-  } finally {
-    globalThis.fetch = previousFetch;
-  }
-  assert.deepEqual(clicks, [
-    { kind: "browser", url: "http://127.0.0.1:4321/" },
-    { kind: "browser", url: "http://127.0.0.1:4321/" },
-  ]);
+  assert.deepEqual(selectedPanels, [null]);
+  assert.deepEqual(clicks, [{ kind: "browser", url: "http://127.0.0.1:4321/" }]);
 });
 
 test("client displays broker code and hint in the shell overlay on failure", async () => {
-  const registrations: Array<{
-    readonly options: Record<string, unknown>;
-    readonly component: (props: never) => unknown;
-  }> = [];
-  const ctx = {
-    locale: {
-      register: () => () => {},
-      bind: () => (key: string) => key,
-    },
-    effect: (factory: () => unknown) => factory(),
-    slots: {
-      inject: (_name: string, factory: () => () => void) => factory(),
-      register: (options: Record<string, unknown>, component: (props: never) => unknown) => {
-        registrations.push({ options, component });
-        return () => {};
-      },
-    },
-    sidebarRight: { openTab() {} },
-    logger: { info() {}, warn() {} },
-  } as never;
-  applyClient(ctx);
-  const iconRegistration = registrations.find((entry) => entry.options.name === "sidebar.panellist");
-  assert.ok(iconRegistration);
+  const harness = clientHarness();
+  const { ctx, registrations, injections } = harness;
+  applyClient(ctx as never);
+  const mainRegistration = registrations.find((entry) => entry.options.name === "main");
+  assert.ok(mainRegistration);
+  const tutorial = mainRegistration.component({} as never) as {
+    readonly props: { readonly children: readonly unknown[] };
+  };
+  const openButton = tutorial.props.children[3] as { readonly props: { readonly onClick: () => void } };
   const previousFetch = globalThis.fetch;
-  globalThis.fetch = async () =>
-    new Response(
-      JSON.stringify({
-        ok: false,
-        error: { code: "ha_unavailable", hint: "Install ha CLI and retry." },
-      }),
-      { status: 503 },
-    );
+  const receipts = [
+    { code: "ha_unavailable", hint: "Install ha CLI and retry." },
+    { code: "daemon_start_failed", hint: "Start the local daemon, then retry." },
+  ];
+  globalThis.fetch = async () => {
+    const error = receipts.shift();
+    assert.ok(error);
+    return new Response(JSON.stringify({ ok: false, error }), { status: 503 });
+  };
   try {
-    const icon = iconRegistration.component({ size: 16, active: false } as never) as {
-      readonly props: { readonly onClick: () => Promise<void> };
-    };
-    await icon.props.onClick();
+    openButton.props.onClick();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    openButton.props.onClick();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
   } finally {
     globalThis.fetch = previousFetch;
   }
-  const notice = registrations.find((entry) => entry.options.name === "shell.overlay");
+  const notice = registrations.find((entry) => entry.options.id === "harness-anything.broker-error");
   assert.ok(notice);
-  const rendered = notice.component({} as never) as {
-    readonly props: { readonly role: string; readonly children: unknown };
+  const inject = notice.options.inject;
+  assert.equal(typeof inject, "function");
+  const face = (
+    inject as () => {
+      readonly hooks: {
+        readonly failure: { readonly getSnapshot: () => { readonly code: string; readonly hint: string } | null };
+      };
+      readonly dismiss: () => void;
+    }
+  )();
+  const rendered = notice.component({
+    useFailure: (selector: (value: { readonly code: string; readonly hint: string } | null) => unknown) =>
+      selector(face.hooks.failure.getSnapshot()),
+    dismiss: face.dismiss,
+  } as never) as {
+    readonly props: { readonly role: string; readonly children: readonly unknown[] };
   };
   assert.equal(rendered.props.role, "alert");
-  assert.match(JSON.stringify(rendered), /ha_unavailable/);
-  assert.match(JSON.stringify(rendered), /Install ha CLI and retry/);
+  assert.match(JSON.stringify(rendered), /daemon_start_failed/);
+  assert.match(JSON.stringify(rendered), /Start the local daemon, then retry/);
+  assert.doesNotMatch(JSON.stringify(rendered), /ha_unavailable/);
+  const dismiss = rendered.props.children[2] as { readonly props: { readonly onClick: () => void } };
+  dismiss.props.onClick();
+  assert.equal(face.hooks.failure.getSnapshot(), null);
+  const overlayInjection = injections.find((entry) => entry.name === "shell.overlay");
+  assert.ok(overlayInjection);
+  overlayInjection.dispose();
+  assert.equal(notice.disposed, true, "injection disposal removes the overlay registration");
 });

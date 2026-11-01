@@ -16,18 +16,22 @@
       "types": "./dist/client.d.ts",
       "default": "./dist/client.js"
     },
+    "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
   "files": [
     "dist",
     "cordis.patch.yml",
+    "locale/*.json",
     "skills",
     "package.json"
   ],
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml",
-      "platforms": ["darwin"]
+      "platforms": [
+        "darwin"
+      ]
     },
     "client": {
       "platform": "web",
@@ -48,8 +52,9 @@
     "dsh": ">=0.2.0-alpha.0"
   },
   "scripts": {
-    "build": "npm run build:skills && tsc -p tsconfig.build.json",
+    "build": "npm run build:skills && tsc -p tsconfig.build.json && npm run build:client",
     "build:skills": "node scripts/copy-skills.mjs",
+    "build:client": "tsdown --config tsdown.config.ts",
     "typecheck": "tsc -p tsconfig.json --pretty false",
     "test": "node --test"
   },
@@ -60,9 +65,20 @@
     "react": ">=18"
   },
   "peerDependenciesMeta": {
-    "@deepseek-ai/cordis": { "optional": true },
-    "@deepseek-ai/dsh-subprocess": { "optional": true },
-    "@deepseek-ai/dsh-tools": { "optional": true },
-    "react": { "optional": true }
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-subprocess": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-tools": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "tsdown": "^0.22.14"
   }
 }

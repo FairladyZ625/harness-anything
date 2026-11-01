@@ -1,25 +1,11 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { BROKER_ROUTE, type BrokerFailure, type BrokerResponse } from "./shared.ts";
+
+export { BROKER_ROUTE } from "./shared.ts";
+export type { BrokerFailure, BrokerResponse, BrokerSuccess } from "./shared.ts";
 
 const OUTPUT_LIMIT_BYTES = 1_000_000;
 const BROKER_GRACE_MS = 5_000;
-
-export const BROKER_ROUTE = "/__harness_anything/broker";
-
-export interface BrokerSuccess {
-  readonly ok: true;
-  readonly url: string;
-  readonly summary?: string;
-}
-
-export interface BrokerFailure {
-  readonly ok: false;
-  readonly error: {
-    readonly code: string;
-    readonly hint: string;
-  };
-}
-
-export type BrokerResponse = BrokerSuccess | BrokerFailure;
 
 interface BrokerStream {
   on(event: "data" | "end" | "error", listener: (...args: readonly unknown[]) => void): unknown;

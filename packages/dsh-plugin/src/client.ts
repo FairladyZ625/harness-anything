@@ -2,8 +2,8 @@ import { createElement, type ReactNode } from "react";
 import type { Context } from "@deepseek-ai/cordis";
 import type { PropsRuntime } from "@deepseek-ai/dsh-client-ui-slots";
 import type { SidebarPanelIconOwnerProps } from "@deepseek-ai/dsh-client-ui-sidebar/client";
-import type { BrokerFailure, BrokerResponse } from "./broker.ts";
-import { BROKER_ROUTE } from "./broker.ts";
+import type { BrokerFailure, BrokerResponse } from "./shared.ts";
+import { BROKER_ROUTE } from "./shared.ts";
 
 const PANEL_ID = "harness-anything";
 const LOCALE_NAMESPACE = "harnessAnything";
@@ -21,10 +21,23 @@ interface ClientContext extends Context {
   readonly sidebarRight: {
     openTab(kind: string, options: { readonly params: { readonly url: string } }): void;
   };
+  readonly layout: {
+    selectPanel(panelId: string | null): void;
+  };
   readonly logger: {
     info(message: string, ...args: readonly unknown[]): void;
     warn(message: string, ...args: readonly unknown[]): void;
   };
+}
+
+function waitForSessionMount(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof globalThis.requestAnimationFrame === "function") {
+      globalThis.requestAnimationFrame(() => resolve());
+      return;
+    }
+    queueMicrotask(resolve);
+  });
 }
 
 export class BrokerClientError extends Error {
@@ -39,11 +52,31 @@ export class BrokerClientError extends Error {
   }
 }
 
-interface NoticeState {
-  dispose?: () => void;
+interface ObservableSnapshot<T> {
+  readonly getSnapshot: () => T;
+  readonly subscribe: (listener: () => void) => () => void;
 }
 
-const noticeStates = new WeakMap<ClientContext, NoticeState>();
+interface SnapshotStore<T> extends ObservableSnapshot<T> {
+  readonly set: (next: T) => void;
+}
+
+/** Small browser-safe store matching DSH's ObservableSnapshot contract. */
+function createSnapshotStore<T>(initial: T): SnapshotStore<T> {
+  let snapshot = initial;
+  const listeners = new Set<() => void>();
+  return {
+    getSnapshot: () => snapshot,
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    set: (next) => {
+      snapshot = next;
+      for (const listener of [...listeners]) listener();
+    },
+  };
+}
 
 const messages = {
   en: {
@@ -78,6 +111,10 @@ export async function openHarnessBrowser(ctx: ClientContext, fetcher: typeof fet
   const value: unknown = await response.json();
   if (!isBrokerResponse(value)) throw new Error("Harness Anything broker returned an invalid response.");
   if (!value.ok) throw new BrokerClientError(value);
+  // Sidebar-right is session-scoped. Returning from this plugin's global main
+  // panel needs one browser turn for the session seat to mount before opening.
+  ctx.layout.selectPanel(null);
+  await waitForSessionMount();
   ctx.sidebarRight.openTab("browser", { params: { url: value.url } });
   return value;
 }
@@ -88,15 +125,24 @@ function failureDetails(error: unknown): { readonly code: string; readonly hint:
   return { code: "broker_unavailable", hint: String(error) };
 }
 
-function BrokerFailureNotice({
-  code,
-  hint,
-  onDismiss,
-}: {
+interface BrokerFailureDetails {
   readonly code: string;
   readonly hint: string;
-  readonly onDismiss: () => void;
-}): ReactNode {
+}
+
+interface BrokerFailureNoticeInjected {
+  readonly hooks: { readonly failure: ObservableSnapshot<BrokerFailureDetails | null> };
+  readonly dismiss: () => void;
+}
+
+interface BrokerFailureNoticeProps {
+  readonly useFailure: <T>(selector: (value: BrokerFailureDetails | null) => T) => T;
+  readonly dismiss: () => void;
+}
+
+function BrokerFailureNotice({ useFailure, dismiss }: BrokerFailureNoticeProps): ReactNode {
+  const failure = useFailure((value) => value);
+  if (failure === null) return null;
   return createElement(
     "div",
     {
@@ -113,32 +159,22 @@ function BrokerFailureNotice({
       },
     },
     createElement("strong", null, "Harness panel unavailable / Harness 面板不可用"),
-    createElement("p", { style: { margin: "6px 0" } }, `${code}: ${hint}`),
-    createElement("button", { type: "button", onClick: onDismiss }, "Dismiss / 关闭"),
+    createElement("p", { style: { margin: "6px 0" } }, `${failure.code}: ${failure.hint}`),
+    createElement("button", { type: "button", onClick: dismiss }, "Dismiss / 关闭"),
   );
 }
 
-function reportOpenFailure(ctx: ClientContext, error: unknown): void {
-  const failure = failureDetails(error);
-  ctx.logger.warn("harness-anything: broker unavailable (%s)", `${failure.code}: ${failure.hint}`);
-  const state = noticeStates.get(ctx) ?? {};
-  state.dispose?.();
-  const dispose = ctx.slots.register({ name: "shell.overlay", id: "harness-anything.broker-error", order: 100 }, (() =>
-    BrokerFailureNotice({
-      ...failure,
-      onDismiss: () => {
-        dispose?.();
-        if (state.dispose === dispose) state.dispose = undefined;
-      },
-    })) as (props: never) => ReactNode);
-  state.dispose = dispose;
-  noticeStates.set(ctx, state);
+function reportOpenFailure(
+  ctx: ClientContext,
+  store: SnapshotStore<BrokerFailureDetails | null>,
+  error: unknown,
+): void {
+  const details = failureDetails(error);
+  ctx.logger.warn("harness-anything: broker unavailable (%s)", `${details.code}: ${details.hint}`);
+  store.set(details);
 }
 
-function HarnessIcon(
-  { size }: PropsRuntime<"sidebar.panellist"> & SidebarPanelIconOwnerProps,
-  ctx: ClientContext,
-): ReactNode {
+function HarnessIcon({ size }: PropsRuntime<"sidebar.panellist"> & SidebarPanelIconOwnerProps): ReactNode {
   return createElement(
     "span",
     {
@@ -152,17 +188,21 @@ function HarnessIcon(
         fontSize: Math.max(9, size - 6),
         fontWeight: 700,
       },
-      onClick: () =>
-        openHarnessBrowser(ctx).catch((error) => {
-          reportOpenFailure(ctx, error);
-        }),
       "aria-hidden": true,
     },
     "HA",
   );
 }
 
-function Tutorial({ ctx, t }: { readonly ctx: ClientContext; readonly t: (key: string) => string }): ReactNode {
+function Tutorial({
+  ctx,
+  t,
+  reportFailure,
+}: {
+  readonly ctx: ClientContext;
+  readonly t: (key: string) => string;
+  readonly reportFailure: (error: unknown) => void;
+}): ReactNode {
   return createElement(
     "article",
     { style: { maxWidth: 720, padding: 32, lineHeight: 1.6 } },
@@ -197,7 +237,7 @@ function Tutorial({ ctx, t }: { readonly ctx: ClientContext; readonly t: (key: s
       {
         type: "button",
         onClick: () => {
-          void openHarnessBrowser(ctx).catch((error) => reportOpenFailure(ctx, error));
+          void openHarnessBrowser(ctx).catch(reportFailure);
         },
       },
       t("open"),
@@ -210,27 +250,33 @@ function Tutorial({ ctx, t }: { readonly ctx: ClientContext; readonly t: (key: s
   );
 }
 
-export const inject = ["slots", "locale", "sidebarRight"];
+export const inject = ["slots", "locale", "sidebarRight", "layout"];
 
 export function apply(ctx: ClientContext): void {
+  const failure = createSnapshotStore<BrokerFailureDetails | null>(null);
+  const reportFailure = (error: unknown): void => reportOpenFailure(ctx, failure, error);
   ctx.effect(() => ctx.locale.register(LOCALE_NAMESPACE, messages), "harness-anything: dictionaries");
-  ctx.effect(
-    () => () => {
-      noticeStates.get(ctx)?.dispose?.();
-      noticeStates.delete(ctx);
-    },
-    "harness-anything: broker error notice",
-  );
+  ctx.effect(() => () => failure.set(null), "harness-anything: broker error notice");
   const t = ctx.locale.bind(LOCALE_NAMESPACE);
+  ctx.slots.inject("shell.overlay", () =>
+    ctx.slots.register(
+      {
+        name: "shell.overlay",
+        id: "harness-anything.broker-error",
+        order: 100,
+        inject: (): BrokerFailureNoticeInjected => ({ hooks: { failure }, dismiss: () => failure.set(null) }),
+      },
+      BrokerFailureNotice as (props: never) => ReactNode,
+    ),
+  );
   ctx.slots.inject("main", () =>
-    ctx.slots.register({ name: "main", key: PANEL_ID, locale: LOCALE_NAMESPACE }, (() => Tutorial({ ctx, t })) as (
-      props: never,
-    ) => ReactNode),
+    ctx.slots.register({ name: "main", key: PANEL_ID, locale: LOCALE_NAMESPACE }, (() =>
+      Tutorial({ ctx, t, reportFailure })) as (props: never) => ReactNode),
   );
   ctx.slots.inject("sidebar.panellist", () =>
     ctx.slots.register(
       { name: "sidebar.panellist", id: PANEL_ID, order: 25, label: () => t("panel"), locale: LOCALE_NAMESPACE },
-      ((props: PropsRuntime<"sidebar.panellist">) => HarnessIcon(props, ctx)) as (props: never) => ReactNode,
+      ((props: PropsRuntime<"sidebar.panellist">) => HarnessIcon(props)) as (props: never) => ReactNode,
     ),
   );
 }
