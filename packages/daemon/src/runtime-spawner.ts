@@ -1167,7 +1167,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         binding,
       );
     }, activeBinding);
-    // Attachment can refuse: a workspace the liveness watcher cannot open is a real fault, not a
+    // Attachment can refuse: a present workspace the liveness watcher cannot open is a real fault, not a
     // reason to run unwatched. The process is already launched, so the failed-launch path retires
     // it — terminate, release, and drop the stream — instead of leaving a live worker owned by a
     // dispatch this call is about to report as failed.
