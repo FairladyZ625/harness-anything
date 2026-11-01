@@ -161,3 +161,54 @@ test("client registration opens the built-in browser with the broker URL", async
     { kind: "browser", url: "http://127.0.0.1:4321/" },
   ]);
 });
+
+test("client displays broker code and hint in the shell overlay on failure", async () => {
+  const registrations: Array<{
+    readonly options: Record<string, unknown>;
+    readonly component: (props: never) => unknown;
+  }> = [];
+  const ctx = {
+    locale: {
+      register: () => () => {},
+      bind: () => (key: string) => key,
+    },
+    effect: (factory: () => unknown) => factory(),
+    slots: {
+      inject: (_name: string, factory: () => () => void) => factory(),
+      register: (options: Record<string, unknown>, component: (props: never) => unknown) => {
+        registrations.push({ options, component });
+        return () => {};
+      },
+    },
+    sidebarRight: { openTab() {} },
+    logger: { info() {}, warn() {} },
+  } as never;
+  applyClient(ctx);
+  const iconRegistration = registrations.find((entry) => entry.options.name === "sidebar.panellist");
+  assert.ok(iconRegistration);
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(
+      JSON.stringify({
+        ok: false,
+        error: { code: "ha_unavailable", hint: "Install ha CLI and retry." },
+      }),
+      { status: 503 },
+    );
+  try {
+    const icon = iconRegistration.component({ size: 16, active: false } as never) as {
+      readonly props: { readonly onClick: () => Promise<void> };
+    };
+    await icon.props.onClick();
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+  const notice = registrations.find((entry) => entry.options.name === "shell.overlay");
+  assert.ok(notice);
+  const rendered = notice.component({} as never) as {
+    readonly props: { readonly role: string; readonly children: unknown };
+  };
+  assert.equal(rendered.props.role, "alert");
+  assert.match(JSON.stringify(rendered), /ha_unavailable/);
+  assert.match(JSON.stringify(rendered), /Install ha CLI and retry/);
+});

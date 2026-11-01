@@ -2,7 +2,7 @@ import { createElement, type ReactNode } from "react";
 import type { Context } from "@deepseek-ai/cordis";
 import type { PropsRuntime } from "@deepseek-ai/dsh-client-ui-slots";
 import type { SidebarPanelIconOwnerProps } from "@deepseek-ai/dsh-client-ui-sidebar/client";
-import type { BrokerResponse } from "./broker.ts";
+import type { BrokerFailure, BrokerResponse } from "./broker.ts";
 import { BROKER_ROUTE } from "./broker.ts";
 
 const PANEL_ID = "harness-anything";
@@ -26,6 +26,24 @@ interface ClientContext extends Context {
     warn(message: string, ...args: readonly unknown[]): void;
   };
 }
+
+export class BrokerClientError extends Error {
+  readonly code: string;
+  readonly hint: string;
+
+  constructor(failure: BrokerFailure) {
+    super(`${failure.error.code}: ${failure.error.hint}`);
+    this.name = "BrokerClientError";
+    this.code = failure.error.code;
+    this.hint = failure.error.hint;
+  }
+}
+
+interface NoticeState {
+  dispose?: () => void;
+}
+
+const noticeStates = new WeakMap<ClientContext, NoticeState>();
 
 const messages = {
   en: {
@@ -59,13 +77,62 @@ export async function openHarnessBrowser(ctx: ClientContext, fetcher: typeof fet
   const response = await fetcher(BROKER_ROUTE, { headers: { accept: "application/json" } });
   const value: unknown = await response.json();
   if (!isBrokerResponse(value)) throw new Error("Harness Anything broker returned an invalid response.");
-  if (!value.ok) throw new Error(`${value.error.code}: ${value.error.hint}`);
+  if (!value.ok) throw new BrokerClientError(value);
   ctx.sidebarRight.openTab("browser", { params: { url: value.url } });
   return value;
 }
 
+function failureDetails(error: unknown): { readonly code: string; readonly hint: string } {
+  if (error instanceof BrokerClientError) return { code: error.code, hint: error.hint };
+  if (error instanceof Error) return { code: "broker_unavailable", hint: error.message };
+  return { code: "broker_unavailable", hint: String(error) };
+}
+
+function BrokerFailureNotice({
+  code,
+  hint,
+  onDismiss,
+}: {
+  readonly code: string;
+  readonly hint: string;
+  readonly onDismiss: () => void;
+}): ReactNode {
+  return createElement(
+    "div",
+    {
+      role: "alert",
+      style: {
+        pointerEvents: "auto",
+        margin: 16,
+        maxWidth: 560,
+        padding: "12px 16px",
+        border: "1px solid #a05252",
+        background: "#f1dddd",
+        color: "#5a2929",
+        boxShadow: "0 4px 16px rgba(61, 56, 51, .18)",
+      },
+    },
+    createElement("strong", null, "Harness panel unavailable / Harness 面板不可用"),
+    createElement("p", { style: { margin: "6px 0" } }, `${code}: ${hint}`),
+    createElement("button", { type: "button", onClick: onDismiss }, "Dismiss / 关闭"),
+  );
+}
+
 function reportOpenFailure(ctx: ClientContext, error: unknown): void {
-  ctx.logger.warn("harness-anything: broker unavailable (%s)", error instanceof Error ? error.message : String(error));
+  const failure = failureDetails(error);
+  ctx.logger.warn("harness-anything: broker unavailable (%s)", `${failure.code}: ${failure.hint}`);
+  const state = noticeStates.get(ctx) ?? {};
+  state.dispose?.();
+  const dispose = ctx.slots.register({ name: "shell.overlay", id: "harness-anything.broker-error", order: 100 }, (() =>
+    BrokerFailureNotice({
+      ...failure,
+      onDismiss: () => {
+        dispose?.();
+        if (state.dispose === dispose) state.dispose = undefined;
+      },
+    })) as (props: never) => ReactNode);
+  state.dispose = dispose;
+  noticeStates.set(ctx, state);
 }
 
 function HarnessIcon(
@@ -147,6 +214,13 @@ export const inject = ["slots", "locale", "sidebarRight"];
 
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(LOCALE_NAMESPACE, messages), "harness-anything: dictionaries");
+  ctx.effect(
+    () => () => {
+      noticeStates.get(ctx)?.dispose?.();
+      noticeStates.delete(ctx);
+    },
+    "harness-anything: broker error notice",
+  );
   const t = ctx.locale.bind(LOCALE_NAMESPACE);
   ctx.slots.inject("main", () =>
     ctx.slots.register({ name: "main", key: PANEL_ID, locale: LOCALE_NAMESPACE }, (() => Tutorial({ ctx, t })) as (
