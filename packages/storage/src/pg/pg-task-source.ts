@@ -133,8 +133,11 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           where.push(`snapshot #>> '{task,status}' = $${values.length}`);
         }
         if (query.search !== undefined) {
-          values.push(`%${query.search}%`);
-          where.push(`snapshot #>> '{task,title}' ILIKE $${values.length}`);
+          const search = query.search.replace(/[\\%_]/gu, "\\$&");
+          values.push(`${search}%`, `%${search}%`);
+          where.push(
+            `(task_id ILIKE $${values.length - 1} ESCAPE '\\' OR snapshot #>> '{task,title}' ILIKE $${values.length} ESCAPE '\\')`,
+          );
         }
         if (query.taskIds !== undefined) {
           values.push(query.taskIds);
@@ -146,11 +149,11 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
         }
         if (query.updatedAfter !== undefined) {
           values.push(query.updatedAfter);
-          where.push(`updated_at > $${values.length}::timestamptz`);
+          where.push(`updated_at >= $${values.length}::timestamptz`);
         }
         if (query.updatedBefore !== undefined) {
           values.push(query.updatedBefore);
-          where.push(`updated_at < $${values.length}::timestamptz`);
+          where.push(`updated_at <= $${values.length}::timestamptz`);
         }
         if (query.parentTaskId !== undefined) {
           values.push(query.parentTaskId);
@@ -169,9 +172,33 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
         if (query.openOnly === true) where.push(`snapshot #>> '{task,status}' NOT IN ('done', 'cancelled')`);
         if (query.activePackagesOnly === true)
           where.push(`COALESCE(snapshot #>> '{task,packageDisposition}', 'active') = 'active'`);
+        if (query.workRootsOnly === true)
+          where.push(
+            `(snapshot #>> '{task,taskClass}' = 'work' OR (
+               snapshot #>> '{task,metadata,parentTaskId}' IS NULL AND EXISTS (
+                 SELECT 1 FROM ha_task_snapshots AS child
+                 WHERE child.tenant_id = ha_task_snapshots.tenant_id
+                   AND child.project_id = ha_task_snapshots.project_id
+                   AND child.policy_epoch = ha_task_snapshots.policy_epoch
+                   AND (cardinality($4::text[]) = 0 OR child.readers && $4::text[])
+                   AND child.snapshot #>> '{task,metadata,parentTaskId}' = ha_task_snapshots.task_id
+               )
+             ))`,
+          );
         if (query.cursor !== undefined) {
-          values.push(query.cursor);
-          where.push(`task_id > $${values.length}`);
+          const cursor = decodeTaskListCursor(query.cursor, query.pinnedFirst === true ? 2 : 1);
+          if (query.pinnedFirst === true) {
+            const cursorPinned = cursor[0]!;
+            if (cursorPinned !== "0" && cursorPinned !== "1") throw new Error("query cursor is invalid");
+            values.push(cursorPinned === "1", cursorPinned === "1", cursor[1]!);
+            const pinnedExpression = "COALESCE((snapshot #>> '{task,pinned}')::boolean, false)";
+            where.push(
+              `(${pinnedExpression} < $${values.length - 2} OR (${pinnedExpression} = $${values.length - 1} AND task_id > $${values.length}))`,
+            );
+          } else {
+            values.push(cursor[0]);
+            where.push(`task_id > $${values.length}`);
+          }
         }
         const limit = Math.min(Math.max(query.limit ?? maxItems, 1), maxItems);
         values.push(limit + 1);
@@ -203,7 +230,20 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           sourceRevision: cut.sourceRevision,
           warnings: [],
           ...(truncated
-            ? { page: { limit, cursor: query.cursor ?? null, nextCursor: rows.at(-1)?.taskId ?? null } }
+            ? {
+                page: {
+                  limit,
+                  cursor: query.cursor ?? null,
+                  nextCursor:
+                    rows.at(-1) === undefined
+                      ? null
+                      : encodeTaskListCursor(
+                          query.pinnedFirst === true
+                            ? [rows.at(-1)!.snapshot.task?.pinned === true ? "1" : "0", rows.at(-1)!.taskId]
+                            : [rows.at(-1)!.taskId],
+                        ),
+                },
+              }
             : {}),
         };
       },
@@ -390,4 +430,24 @@ async function readCutInTransaction(
 
 function emptySnapshot(): TaskLifecycleSnapshot {
   return emptyTaskLifecycleSnapshot(0);
+}
+
+function encodeTaskListCursor(parts: readonly string[]): string {
+  return Buffer.from(JSON.stringify(parts), "utf8").toString("base64url");
+}
+
+function decodeTaskListCursor(value: string, expected: number): readonly string[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+  } catch {
+    throw new Error("query cursor is invalid");
+  }
+  if (
+    !Array.isArray(parsed) ||
+    parsed.length !== expected ||
+    parsed.some((part) => typeof part !== "string" || part.length === 0)
+  )
+    throw new Error("query cursor is invalid");
+  return parsed;
 }
