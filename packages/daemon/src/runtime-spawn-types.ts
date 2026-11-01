@@ -83,6 +83,16 @@ export type RuntimeBinding = {
   readonly authorizationDecision?: AuthorizationDecision;
 };
 
+export interface ReviewerReviewRecoveryInput {
+  readonly taskId: string;
+  readonly executionId: string;
+  readonly dispatchId: string;
+  readonly runtimeSessionId: string;
+  readonly binding: RuntimeBinding;
+  readonly packet: { readonly path: string; readonly body: string };
+  readonly report: { readonly path: string; readonly body: string };
+}
+
 /** Persist only the runtime binding contract; RepoCell transport fences never cross a daemon restart. */
 export function runtimeBindingForDispatch(binding: RuntimeBinding): RuntimeBinding {
   return {
@@ -478,5 +488,9 @@ export interface RuntimeSpawnerInput {
     archive: RuntimeDispatchArchive,
     binding: RuntimeBinding,
   ) => RuntimeBinding | Promise<RuntimeBinding>;
+  /** Replays a reviewer-authored packet/report through the canonical Review Action before exit
+   * settlement. The callback owns authorization and the single-writer queue; settlement only
+   * supplies bytes read from the dispatch's worktree and rechecks the resulting projection. */
+  readonly recoverReviewerReview?: (input: ReviewerReviewRecoveryInput) => Promise<void>;
   readonly recordLifecycle?: DaemonLifecycleRecorder;
 }

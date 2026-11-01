@@ -160,7 +160,14 @@ export async function runTaskActionCatalogRuntime(
       cell.rootDir,
       current.snapshot,
       current.packagePath,
-      carriedReview ? { path: carriedReview.changes[0]!.path, body: carriedReview.blobs[0]!.body } : undefined,
+      carriedReview
+        ? (() => {
+            const index = carriedReview.changes.findIndex((change) => change.path.endsWith(".md")),
+              change = index >= 0 ? carriedReview.changes[index]! : carriedReview.changes[0]!,
+              blob = index >= 0 ? carriedReview.blobs[index]! : carriedReview.blobs[0]!;
+            return { path: change.path, body: blob.body };
+          })()
+        : undefined,
     );
   } catch (error) {
     const rejection = taskActionFailure(

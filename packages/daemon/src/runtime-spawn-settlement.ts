@@ -130,6 +130,7 @@ export async function publishExit(
     // from the projection.
     const ruling = runtimeRulingRequest(context, active),
       reviewReport = runtimeReviewReport(context, active),
+      reviewPacket = runtimeReviewPacket(context, active),
       { outcome: initialOutcome, ...classifiedAttempt } = classifyRuntimeExit(active, code, ruling);
     let outcome = initialOutcome,
       reviewResultMissing = false;
@@ -162,6 +163,7 @@ export async function publishExit(
     // A reviewer owes a registered review, not merely a report or a clean provider exit. Check
     // the event on the node that owns the projection so normal exit without registration cannot
     // look complete. Remote edges have no local projection and keep their existing unknown path.
+    let reviewRegistered = reviewerReviewRegistered(context, active, reviewId);
     if (
       !cancelled &&
       ruling === null &&
@@ -170,20 +172,41 @@ export async function publishExit(
         (active.decisionReviewTarget !== null && active.decisionReviewTarget !== undefined)) &&
       context.input.projection &&
       (active.task !== null || (active.decisionReviewTarget !== null && active.decisionReviewTarget !== undefined)) &&
-      !(active.task
-        ? context
-            .requiredRuntimeProjection(context.input)
-            .read(active.task.taskId)
-            .snapshot.reviews.some(
-              (review) =>
-                review.reviewId === reviewId ||
-                review.actor.executor?.id === `runtime-session:${active.runtimeSessionId}`,
-            )
-        : active.decisionReviewTarget !== null &&
-          decisionReviewRegistered(context, active.decisionReviewTarget, active.dispatchId))
+      !reviewRegistered
     ) {
-      if (!providerAlreadyFailed) outcome = "failed";
-      reviewResultMissing = true;
+      if (
+        !providerAlreadyFailed &&
+        active.task !== null &&
+        reviewReport !== null &&
+        reviewPacket !== null &&
+        context.input.recoverReviewerReview
+      ) {
+        try {
+          await context.input.recoverReviewerReview({
+            taskId: active.task.taskId,
+            executionId: active.task.executionId,
+            dispatchId: active.dispatchId,
+            runtimeSessionId: active.runtimeSessionId,
+            binding: active.binding,
+            packet: reviewPacket,
+            report: reviewReport,
+          });
+          reviewRegistered = reviewerReviewRegistered(context, active, reviewId);
+        } catch (error) {
+          consumeKnownError(error);
+          const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512);
+          console.error(`[review-recovery] ${active.dispatchId} could not register carried review: ${detail}`);
+        }
+      }
+      if (reviewRegistered) {
+        // The carried Review Action is the terminal witness. Keep the provider's successful
+        // outcome and continue through the ordinary archive/terminal path.
+        if (!providerAlreadyFailed) outcome = "succeeded";
+        reviewResultMissing = false;
+      } else {
+        if (!providerAlreadyFailed) outcome = "failed";
+        reviewResultMissing = true;
+      }
     }
     const attemptOutcome = {
       ...classifiedAttempt,
@@ -728,6 +751,41 @@ function runtimeReviewReport(context: RuntimeSpawnerContext, active: ActiveRunti
     if (body !== null && body.trim() !== "") return { path: reportPath, body };
   }
   return null;
+}
+
+function runtimeReviewPacket(context: RuntimeSpawnerContext, active: ActiveRuntime) {
+  if (active.role !== "reviewer" || active.task === null || context.input.remote) return null;
+  const packagePath = context.requiredRuntimeProjection(context.input).read(active.task.taskId).packagePath;
+  if (typeof packagePath !== "string") return null;
+  const packetPath = `${packagePath}/artifacts/reports/${active.dispatchId}.json`,
+    packageRelative = packetPath.split("/"),
+    candidates = [
+      path.join(active.cwd, "harness", ...packageRelative),
+      path.join(active.cwd, ...packageRelative),
+      path.join(active.cwd, "artifacts", "reports", `${active.dispatchId}.json`),
+      path.join(context.input.rootDir, "harness", ...packageRelative),
+    ];
+  for (const candidate of new Set(candidates)) {
+    const body = readFileIfPresent(candidate, 2 * 1024 * 1024);
+    if (body !== null && body.trim() !== "") return { path: packetPath, body };
+  }
+  return null;
+}
+
+function reviewerReviewRegistered(context: RuntimeSpawnerContext, active: ActiveRuntime, reviewId: string): boolean {
+  if (active.task !== null)
+    return (
+      context.input.projection !== undefined &&
+      context
+        .requiredRuntimeProjection(context.input)
+        .read(active.task.taskId)
+        .snapshot.reviews.some(
+          (review) => review.reviewId === reviewId || review.actor.executor?.id === `runtime-session:${active.runtimeSessionId}`,
+        )
+    );
+  return active.decisionReviewTarget !== null && active.decisionReviewTarget !== undefined
+    ? decisionReviewRegistered(context, active.decisionReviewTarget, active.dispatchId)
+    : false;
 }
 
 /** The registration witness for a dispatched Decision review: the Decision carries a review by
