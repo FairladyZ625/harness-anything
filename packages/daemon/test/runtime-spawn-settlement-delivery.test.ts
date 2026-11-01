@@ -587,12 +587,12 @@ test("reviewer settlement registers a valid dispatch report left before registra
       fixture.worker,
       "harness/tasks/task_0123456789abcdef01234567-fixture/artifacts/reports",
     ),
-    outcomes: Record<string, unknown>[] = [],
-    recovered = false,
-    settleContext = workerSettlementContext(fixture, async (type, payload = {}) => {
-      if (type === "runtime_session_outcome_observed") outcomes.push(payload);
-      return {};
-    });
+    outcomes: Record<string, unknown>[] = [];
+  let recovered = false;
+  const settleContext = workerSettlementContext(fixture, async (type, payload = {}) => {
+    if (type === "runtime_session_outcome_observed") outcomes.push(payload);
+    return {};
+  });
   mkdirSync(reportDirectory, { recursive: true });
   writeFileSync(path.join(reportDirectory, `${runtime.dispatchId}.md`), "# Review\n\nVerified the submitted cut.\n");
   writeFileSync(
@@ -615,8 +615,14 @@ test("reviewer settlement registers a valid dispatch report left before registra
           assert.equal(input.taskId, fixtureTaskId);
           assert.equal(input.executionId, "execution-owner");
           assert.equal(input.binding.actor.executor?.id, `runtime-session:${runtime.runtimeSessionId}`);
-          assert.equal(input.packet.path, `tasks/task_0123456789abcdef01234567-fixture/artifacts/reports/${runtime.dispatchId}.json`);
-          assert.equal(input.report.path, `tasks/task_0123456789abcdef01234567-fixture/artifacts/reports/${runtime.dispatchId}.md`);
+          assert.equal(
+            input.packet.path,
+            `tasks/task_0123456789abcdef01234567-fixture/artifacts/reports/${runtime.dispatchId}.json`,
+          );
+          assert.equal(
+            input.report.path,
+            `tasks/task_0123456789abcdef01234567-fixture/artifacts/reports/${runtime.dispatchId}.md`,
+          );
         },
       },
       requiredRuntimeProjection: () =>

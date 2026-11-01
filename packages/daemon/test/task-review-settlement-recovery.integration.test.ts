@@ -36,7 +36,6 @@ for (const registeredByWorker of [true, false]) {
             reason: "Verified the submitted execution and its frozen evidence.",
             evidenceChecked: ["submitted execution", "closeout.md"],
             findings: [],
-            resolutions: [],
           }),
         );
         if (registeredByWorker) {
