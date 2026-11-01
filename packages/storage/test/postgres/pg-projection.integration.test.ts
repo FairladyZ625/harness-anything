@@ -1,5 +1,9 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { appendTaskEventQueryFixtures, assertTaskEventQueryParity } from "./pg-task-event-parity.fixture.ts";
+import { assertRelationQueryParity } from "./pg-relation-query-parity.fixture.ts";
+import { assertTaskIndexQueryParity } from "./pg-task-index-parity.fixture.ts";
+import { appendRuntimeQueryFixtures, assertRuntimeQueryParity } from "./pg-runtime-query-parity.fixture.ts";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
 import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixture.ts";
@@ -711,6 +715,8 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
     await interleavingSource.close();
 
     await appendQueryParityFixtures(appendCanonical, () => expectedRevision);
+    await appendRuntimeQueryFixtures(appendCanonical, () => expectedRevision);
+    await appendTaskEventQueryFixtures(appendCanonical, () => expectedRevision);
     const leaseCases = await appendLeaseReplayFixtures(appendCanonical, () => expectedRevision);
     let releasedLeases: readonly import("@harness-anything/kernel").LeaseV1[] = [];
     const entities = createPgEntityStore({ pool: runtimePool, scope: projectionScope });
@@ -742,7 +748,16 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
         scope: projectionScope,
         repoId,
       });
+      const allQueries = createPgTaskQueryReader({
+        connectionString: runtimeConnectionString,
+        scope: { ...projectionScope, readers: [] },
+        repoId,
+      });
       try {
+        queryReader.withSession((queries) => assertRuntimeQueryParity(queries, sqliteProjection));
+        allQueries.withSession((queries) => assertTaskIndexQueryParity(queries, sqliteProjection));
+        allQueries.withSession((queries) => assertRelationQueryParity(queries, sqliteProjection));
+        allQueries.withSession((queries) => assertTaskEventQueryParity(queries, sqliteProjection));
         const leaseCase = leaseCases[0]!;
         const pgRead = queryReader.withSession((queries) => ({
           cut: queries.readCut(),
@@ -838,6 +853,7 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
         assert.deepEqual(pgRead.operation, sqliteProjection.readOperation(event.opId));
         assert.deepEqual(pgRead.taskOperation, sqliteProjection.readTaskOperation(event.opId));
       } finally {
+        allQueries.close();
         queryReader.close();
       }
       const sqliteEntities = createEntityStore(sqliteEvents),

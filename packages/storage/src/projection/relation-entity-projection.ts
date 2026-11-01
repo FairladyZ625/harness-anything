@@ -323,16 +323,27 @@ export function relationProjectionRow(
   targetWitness?: EntityVersionWitness,
   sourceWitness?: EntityVersionWitness,
 ): VersionedRelationProjectionRow {
+  return relationProjectionRowFromWitnesses(
+    entity,
+    sourcePath,
+    targetWitness ?? readEntityVersionWitness(db, entity.target),
+    relationFreshnessAnchorForType(entity.type) === "source"
+      ? (sourceWitness ?? readEntityVersionWitness(db, entity.source))
+      : undefined,
+  );
+}
+
+/** One relation row interpretation shared by the native SQLite and PostgreSQL readers. */
+export function relationProjectionRowFromWitnesses(
+  entity: RelationEntity,
+  sourcePath: string,
+  projectedTarget: EntityVersionWitness,
+  sourceWitness?: EntityVersionWitness,
+): VersionedRelationProjectionRow {
   const anchor = relationFreshnessAnchorForType(entity.type),
-    projectedTarget = targetWitness ?? readEntityVersionWitness(db, entity.target),
     target = keycloakPersonIdentityWitness(entity.target, entity.targetObservedVersion) ?? projectedTarget,
-    source = anchor === "source" ? (sourceWitness ?? readEntityVersionWitness(db, entity.source)) : undefined,
-    freshness = relationFreshnessAtCut({
-      anchor,
-      target,
-      targetObservedVersion: entity.targetObservedVersion,
-      source,
-    });
+    source = anchor === "source" ? sourceWitness : undefined,
+    freshness = relationFreshnessAtCut({ anchor, target, targetObservedVersion: entity.targetObservedVersion, source });
   return Object.freeze({
     schema: RELATION_PROJECTION_VERSION,
     entity,
