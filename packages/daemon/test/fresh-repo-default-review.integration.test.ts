@@ -10,7 +10,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader, openPersistentWriterEpoch } from "@harness-anything/storage";
+import { makeTaskEventReader } from "@harness-anything/storage";
 import type { AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -99,9 +99,6 @@ test(
   async () => {
     const rootDir = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-fresh-default-review-"))),
       repoId = workspaceId("fresh-default-review"),
-      stateRoot = path.join(rootDir, "writer-epochs"),
-      authority = openPersistentWriterEpoch({ stateRoot, holderId: "fresh-default-review-test" }),
-      lease = authority.acquire(repoId),
       launches: { prompt: string; dispatchId: string }[] = [];
     let cell: Awaited<ReturnType<typeof openFencedRepoCell>> | undefined;
     try {
@@ -284,7 +281,6 @@ test(
       assert.equal(shown.reviews[0]!.executionId, executionId, "the report is bound to the submitted cut");
     } finally {
       await cell?.close();
-      authority.close();
       rmSync(rootDir, { recursive: true, force: true });
     }
   },
