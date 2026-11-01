@@ -31,7 +31,12 @@ import {
 } from "./doc-sync-files.ts";
 import { scanReceipt, scopeTouches } from "./doc-sync-settlement.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
-import { readSubmissionArtifact, readSubmissionArtifactRange, submissionArtifactPath } from "./submission-artifacts.ts";
+import {
+  readSubmissionArtifact,
+  readSubmissionArtifactRange,
+  submissionArtifactPath,
+  verifyAcceptedContent,
+} from "./submission-artifacts.ts";
 import { renderWorkExplainer } from "./work-read.ts";
 
 export function readAction(input: Input): WriteReceipt {
@@ -40,11 +45,20 @@ export function readAction(input: Input): WriteReceipt {
   const ranged =
     input.action.kind === "doc-show" &&
     (Object.hasOwn(input.action, "offset") || Object.hasOwn(input.action, "length"));
+  const pinned =
+    ranged && Object.hasOwn(input.action, "contentSha256") && Object.hasOwn(input.action, "contentRevision");
+  const hasPartialPin = Object.hasOwn(input.action, "contentSha256") !== Object.hasOwn(input.action, "contentRevision");
   if (
     !hasExactDocSyncActionFields(
       input.action,
       input.action.kind === "doc-show"
-        ? ["kind", "path", ...(input.action.raw === true ? ["raw"] : []), ...(ranged ? ["offset", "length"] : [])]
+        ? [
+            "kind",
+            "path",
+            ...(input.action.raw === true ? ["raw"] : []),
+            ...(ranged ? ["offset", "length"] : []),
+            ...(pinned ? ["contentSha256", "contentRevision"] : []),
+          ]
         : ["kind", "paths"],
     ) ||
     !Array.isArray(rawPaths) ||
@@ -52,6 +66,11 @@ export function readAction(input: Input): WriteReceipt {
     rawPaths.some((item) => typeof item !== "string")
   )
     throw docSyncError("invalid_command", `${input.action.kind} requires valid doc-sync paths`);
+  if (
+    hasPartialPin ||
+    (!ranged && (Object.hasOwn(input.action, "contentSha256") || Object.hasOwn(input.action, "contentRevision")))
+  )
+    throw docSyncError("invalid_command", "doc-show content identity requires a range offset and length");
   let paths;
   try {
     paths = rawPaths.map((item) => documentPath(String(item)));
@@ -80,6 +99,12 @@ export function readAction(input: Input): WriteReceipt {
             offset,
             length,
           );
+        if (
+          pinned &&
+          (String(input.action.contentSha256) !== artifact.anchor.blobSha256 ||
+            Number(input.action.contentRevision) !== anchor.revision)
+        )
+          throw docSyncError("content_changed", "Frozen artifact content identity changed during range read");
         return {
           outcome: "applied",
           opId: artifact.acceptance,
@@ -89,6 +114,9 @@ export function readAction(input: Input): WriteReceipt {
           evidenceOffset: offset,
           evidenceSize: artifact.size,
           evidenceDone: offset + artifact.bytes.byteLength >= artifact.size,
+          evidenceBlobSha256: artifact.anchor.blobSha256,
+          evidenceSourceRevision: anchor.revision,
+          evidenceContentEncoding: artifact.encoding,
           visibility: "center",
           proof: proof(anchor.revision, anchor.revision, true, false),
         } as unknown as WriteReceipt;
@@ -100,8 +128,15 @@ export function readAction(input: Input): WriteReceipt {
         anchor.revision,
         anchor.blobSha256,
       );
+      if (
+        pinned &&
+        (String(input.action.contentSha256) !== artifact.anchor.blobSha256 ||
+          Number(input.action.contentRevision) !== anchor.revision)
+      )
+        throw docSyncError("content_changed", "Frozen artifact content identity changed during range read");
       if (ranged) {
-        const bytes = Buffer.from(artifact.body),
+        const bytes =
+            artifact.encoding === "base64" ? Buffer.from(artifact.body, "base64") : Buffer.from(artifact.body),
           offset = Number(input.action.offset),
           length = Number(input.action.length),
           chunk = bytes.subarray(offset, Math.min(bytes.byteLength, offset + length));
@@ -112,6 +147,9 @@ export function readAction(input: Input): WriteReceipt {
           evidenceOffset: offset,
           evidenceSize: bytes.byteLength,
           evidenceDone: offset + chunk.byteLength >= bytes.byteLength,
+          evidenceBlobSha256: artifact.anchor.blobSha256,
+          evidenceSourceRevision: anchor.revision,
+          evidenceContentEncoding: artifact.encoding,
         } as unknown as WriteReceipt;
       }
       return {
@@ -172,8 +210,27 @@ export function readAction(input: Input): WriteReceipt {
         : null;
   if ((rangeOffset === null) !== (rangeLength === null))
     throw docSyncError("invalid_command", "doc-show range requires both offset and length");
+  if (
+    pinned &&
+    (!reads[0]?.document ||
+      String(input.action.contentSha256) !== reads[0].document.blobSha256 ||
+      Number(input.action.contentRevision) !== reads[0].sourceRevision)
+  )
+    throw docSyncError("content_changed", "Document content identity changed during range read");
   if (rangeOffset !== null && rangeLength !== null && input.store.readContentBlobRange && reads[0]?.document) {
     const document = reads[0].document,
+      sourceRevision = reads[0].sourceRevision;
+    if (
+      pinned &&
+      (String(input.action.contentSha256) !== document.blobSha256 ||
+        Number(input.action.contentRevision) !== sourceRevision)
+    )
+      throw docSyncError("content_changed", "Document content identity changed during range read");
+    const encoding = verifyAcceptedContent(
+        { store: input.store, cellCodedError: docSyncError },
+        document.blobSha256,
+        document.size,
+      ),
       bytes = input.store.readContentBlobRange(document.blobSha256, rangeOffset, rangeLength);
     if (bytes === null) throw docSyncError("document_not_found", "document content is unavailable");
     const rangeReceipt = (
@@ -202,6 +259,9 @@ export function readAction(input: Input): WriteReceipt {
       evidenceOffset: rangeOffset,
       evidenceSize: document.size,
       evidenceDone: rangeOffset + bytes.byteLength >= document.size,
+      evidenceBlobSha256: document.blobSha256,
+      evidenceSourceRevision: sourceRevision,
+      evidenceContentEncoding: encoding,
     } as unknown as WriteReceipt;
   }
   const evidence =
@@ -239,6 +299,9 @@ export function readAction(input: Input): WriteReceipt {
     evidenceOffset: rangeOffset,
     evidenceSize: bytes.byteLength,
     evidenceDone: rangeOffset + chunk.byteLength >= bytes.byteLength,
+    evidenceBlobSha256: reads[0]?.document?.blobSha256 ?? null,
+    evidenceSourceRevision: reads[0]?.sourceRevision ?? revision,
+    evidenceContentEncoding: "utf8",
   } as WriteReceipt;
 }
 

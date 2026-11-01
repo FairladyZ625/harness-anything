@@ -19,6 +19,7 @@ import { reviewReportRelativePath } from "./reviewer-artifact-publication.ts";
 import { readFileSync, statSync } from "node:fs";
 import { isUtf8 } from "node:buffer";
 import path from "node:path";
+import { tmpdir } from "node:os";
 import {
   consumeKnownError,
   RAW_ARTIFACT_MAX_BYTES,
@@ -35,6 +36,12 @@ import {
 export { fleetEdgeBackoffMs } from "./fleet-edge-write.ts";
 import type { FleetDescriptor } from "./fleet/command-protocol.ts";
 import type { FleetTaskAction } from "./fleet/command-protocol.ts";
+import { createResourceBudget, DOC_SHOW_BUDGET_LIMITS } from "./fleet/resource-budget.ts";
+import {
+  openFleetDocContentSink,
+  readFleetDocContentMetadata,
+  type FleetDocContentMetadata,
+} from "./fleet-edge-content.ts";
 import {
   applyFleetMirrorCut,
   cacheFleetMirrorDirtyBases,
@@ -81,51 +88,117 @@ export class FleetEdgeTaskError extends Error {
 
 type EdgeWriteCut = { readonly revision: number; readonly headDigest: string };
 const DOC_SHOW_RANGE_BYTES = 48 * 1024;
+const edgeDocShowBudget = createResourceBudget(DOC_SHOW_BUDGET_LIMITS);
 
 async function runFleetDocShowRange(options: {
   readonly peer: Parameters<typeof runFleetTaskCommandClient>[0];
   readonly action: FleetTaskAction;
   readonly opId: string;
+  readonly workspaceRoot: string | null;
+  readonly nodeId: string;
+  readonly repoId: string;
 }): Promise<Awaited<ReturnType<typeof runFleetTaskCommandClient>>> {
-  let offset = 0;
-  let totalSize: number | null = null;
-  const chunks: Buffer[] = [];
+  const transferRoot = options.workspaceRoot
+      ? path.join(resolveHarnessLayout(options.workspaceRoot).localRoot, "fleet-transfers")
+      : path.join(tmpdir(), "harness-fleet-transfers"),
+    transferKey = `doc-${options.opId}`;
+  let metadata = readFleetDocContentMetadata(transferRoot, transferKey),
+    sinkHandle = metadata
+      ? openFleetDocContentSink({
+          rootDir: transferRoot,
+          key: transferKey,
+          metadata,
+          nodeId: options.nodeId,
+          repoId: options.repoId,
+          opId: options.opId,
+        })
+      : null,
+    reservation: ReturnType<typeof edgeDocShowBudget.reserve> | null = null,
+    completed = false;
   let last: Awaited<ReturnType<typeof runFleetTaskCommandClient>> | null = null;
-  for (;;) {
-    const result = await runFleetTaskCommandClient({
-      ...options.peer,
-      opId: `${options.opId}:range:${offset}`,
-      action: { ...options.action, offset, length: DOC_SHOW_RANGE_BYTES },
-    });
-    last = result;
-    if (result.outcome !== "applied") return result;
-    const receipt = result.receipt as Readonly<Record<string, unknown>> | null;
-    if (
-      receipt?.evidenceEncoding !== "base64" ||
-      typeof receipt.evidence !== "string" ||
-      !Number.isSafeInteger(receipt.evidenceOffset) ||
-      receipt.evidenceOffset !== offset ||
-      !Number.isSafeInteger(receipt.evidenceSize) ||
-      typeof receipt.evidenceDone !== "boolean"
-    )
-      throw new Error("Fleet doc-show range response is malformed");
-    totalSize ??= Number(receipt.evidenceSize);
-    if (Number(receipt.evidenceSize) !== totalSize) throw new Error("Fleet doc-show range size changed during read");
-    const chunk = Buffer.from(String(receipt.evidence), "base64");
-    chunks.push(chunk);
-    offset += chunk.byteLength;
-    if (receipt.evidenceDone) break;
-    if (chunk.byteLength === 0 || totalSize === null || offset >= totalSize)
-      throw new Error("Fleet doc-show range did not advance");
+  try {
+    for (;;) {
+      const offset = sinkHandle ? (await sinkHandle.sink.status(new AbortController().signal)).durableOffset : 0,
+        result = await runFleetTaskCommandClient({
+          ...options.peer,
+          opId: `${options.opId}:range:${offset}`,
+          action: {
+            ...options.action,
+            offset,
+            length: DOC_SHOW_RANGE_BYTES,
+            ...(metadata ? { contentSha256: metadata.sha256, contentRevision: metadata.sourceRevision } : {}),
+          },
+        });
+      last = result;
+      if (result.outcome !== "applied") return result;
+      const receipt = result.receipt as Readonly<Record<string, unknown>> | null,
+        encoding = receipt?.evidenceContentEncoding;
+      if (
+        receipt?.evidenceEncoding !== "base64" ||
+        typeof receipt.evidence !== "string" ||
+        !Number.isSafeInteger(receipt.evidenceOffset) ||
+        receipt.evidenceOffset !== offset ||
+        typeof receipt.evidenceSize !== "number" ||
+        !Number.isSafeInteger(receipt.evidenceSize) ||
+        receipt.evidenceSize < 0 ||
+        !Number.isSafeInteger(receipt.evidenceSourceRevision) ||
+        typeof receipt.evidenceBlobSha256 !== "string" ||
+        (encoding !== "utf8" && encoding !== "base64") ||
+        typeof receipt.evidenceDone !== "boolean"
+      )
+        throw new Error("Fleet doc-show range response is malformed");
+      const nextMetadata: FleetDocContentMetadata = {
+        path: String(options.action.path),
+        sha256: String(receipt.evidenceBlobSha256),
+        size: Number(receipt.evidenceSize),
+        sourceRevision: Number(receipt.evidenceSourceRevision),
+        encoding,
+      };
+      if (metadata && JSON.stringify(metadata) !== JSON.stringify(nextMetadata))
+        throw new Error("Fleet doc-show range content identity changed during read");
+      metadata ??= nextMetadata;
+      sinkHandle ??= openFleetDocContentSink({
+        rootDir: transferRoot,
+        key: transferKey,
+        metadata,
+        nodeId: options.nodeId,
+        repoId: options.repoId,
+        opId: options.opId,
+      });
+      reservation ??= edgeDocShowBudget.reserve(
+        { nodeId: options.nodeId, repoId: options.repoId, sessionId: options.opId },
+        { bulkTransfers: 1, memoryBytes: metadata.size },
+      );
+      const chunk = Buffer.from(String(receipt.evidence), "base64");
+      await sinkHandle.sink.write(offset, chunk, new AbortController().signal);
+      await sinkHandle.sink.flush(new AbortController().signal);
+      if (!receipt.evidenceDone) {
+        const durable = (await sinkHandle.sink.status(new AbortController().signal)).durableOffset;
+        if (chunk.byteLength === 0 || durable <= offset || durable >= metadata.size)
+          throw new Error("Fleet doc-show range did not advance");
+        continue;
+      }
+      await sinkHandle.sink.seal(new AbortController().signal);
+      const bytes = sinkHandle.readSealed(),
+        evidence = metadata.encoding === "base64" ? bytes.toString("base64") : bytes.toString("utf8"),
+        cleanReceipt = { ...(last.receipt ?? {}), evidence } as Record<string, unknown>;
+      for (const field of [
+        "evidenceEncoding",
+        "evidenceOffset",
+        "evidenceSize",
+        "evidenceDone",
+        "evidenceBlobSha256",
+        "evidenceSourceRevision",
+        "evidenceContentEncoding",
+      ])
+        delete cleanReceipt[field];
+      completed = true;
+      return { ...last, receipt: cleanReceipt };
+    }
+  } finally {
+    reservation?.release();
+    if (completed) sinkHandle?.cleanup();
   }
-  if (!last) throw new Error("Fleet doc-show range returned no response");
-  return {
-    ...last,
-    receipt: {
-      ...(last.receipt ?? {}),
-      evidence: Buffer.concat(chunks).toString("utf8"),
-    },
-  };
 }
 const recentAppliedCuts = new Map<string, EdgeWriteCut>();
 
@@ -400,7 +473,14 @@ export async function runFleetEdgeTask(
             mirrorBaseCut: bundle === null ? undefined : bundle.mirrorBaseCut,
           } as Parameters<typeof runFleetTaskCommandClient>[0];
           return action.kind === "doc-show"
-            ? runFleetDocShowRange({ peer: commandPeer, action, opId })
+            ? runFleetDocShowRange({
+                peer: commandPeer,
+                action,
+                opId,
+                workspaceRoot,
+                nodeId: payload.nodeId,
+                repoId: payload.repoId,
+              })
             : runFleetTaskCommandClient({ ...commandPeer, opId, action });
         },
         settle: async () => {

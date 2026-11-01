@@ -549,14 +549,22 @@ const taskAction: Check = (value) => {
   const fields = declaredActionFields(value.kind);
   const { kind: _kind, ...payload } = value;
   if (value.kind === "doc-show") {
-    const { offset, length, ...base } = payload;
+    const { offset, length, contentSha256, contentRevision, ...base } = payload;
     if (
       (offset !== undefined && (!Number.isSafeInteger(offset) || Number(offset) < 0)) ||
       (length !== undefined &&
         (!Number.isSafeInteger(length) || Number(length) <= 0 || Number(length) > FLEET_CHUNK_BYTES))
     )
       return false;
-    return fields !== null && checkFields(fields, base);
+    const hasContentSha256 = contentSha256 !== undefined,
+      hasContentRevision = contentRevision !== undefined;
+    return (
+      fields !== null &&
+      checkFields(fields, base) &&
+      hasContentSha256 === hasContentRevision &&
+      (!hasContentSha256 ||
+        (offset !== undefined && length !== undefined && sha64(contentSha256) && uint(contentRevision)))
+    );
   }
   return fields !== null && checkFields(fields, payload);
 };

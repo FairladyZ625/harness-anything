@@ -1,4 +1,5 @@
 import { isUtf8 } from "node:buffer";
+import { createHash } from "node:crypto";
 import {
   isDocEvent,
   isTaskBootstrapEvent,
@@ -58,6 +59,7 @@ export function readSubmissionArtifactRange(
   readonly anchor: ArtifactDelivery;
   readonly bytes: Uint8Array;
   readonly size: number;
+  readonly encoding: "utf8" | "base64";
   readonly acceptance: string;
 } {
   const resolved = resolveSubmissionArtifact(cell, packagePath, path, revision, expectedBlob);
@@ -69,6 +71,7 @@ export function readSubmissionArtifactRange(
     maxBytes > 64 * 1024
   )
     throw cell.cellCodedError("invalid_submission", `Artifact ${path}@${revision}: invalid range.`);
+  const encoding = verifyAcceptedContent(cell, resolved.blobSha256, resolved.size);
   const bytes = cell.store.readContentBlobRange?.(resolved.blobSha256, offset, maxBytes);
   if (!bytes)
     throw cell.cellCodedError(
@@ -80,8 +83,71 @@ export function readSubmissionArtifactRange(
     anchor: { path: resolved.artifact, revision, blobSha256: resolved.blobSha256 },
     bytes,
     size: resolved.size,
+    encoding,
     acceptance: resolved.acceptance,
   };
+}
+
+const verifiedContent = new Map<string, "utf8" | "base64">();
+
+/** Verify a frozen claim without allocating the complete object when positioned reads exist. */
+export function verifyAcceptedContent(
+  cell: Pick<RepoCellOperationalContext, "store" | "cellCodedError">,
+  blobSha256: string,
+  size: number,
+): "utf8" | "base64" {
+  const key = `${blobSha256}:${size}`;
+  const cached = verifiedContent.get(key);
+  if (cached) return cached;
+  const hash = createHash("sha256");
+  let offset = 0;
+  let utf8 = true;
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  const range = cell.store.readContentBlobRange;
+  if (range) {
+    while (offset < size) {
+      const bytes = range(blobSha256, offset, Math.min(64 * 1024, size - offset));
+      if (!bytes || bytes.byteLength === 0 || bytes.byteLength > size - offset)
+        throw cell.cellCodedError(
+          "content_claim_mismatch",
+          `Content object ${blobSha256} is shorter than its accepted size.`,
+        );
+      hash.update(bytes);
+      if (utf8) {
+        try {
+          decoder.decode(bytes, { stream: true });
+        } catch {
+          utf8 = false;
+        }
+      }
+      offset += bytes.byteLength;
+    }
+  } else {
+    const bytes = cell.store.readContentBlob(blobSha256);
+    if (!bytes || bytes.byteLength !== size)
+      throw cell.cellCodedError(
+        "content_claim_mismatch",
+        `Content object ${blobSha256} is unavailable or has the wrong size.`,
+      );
+    hash.update(bytes);
+    utf8 = isUtf8(bytes);
+    offset = bytes.byteLength;
+  }
+  if (utf8) {
+    try {
+      decoder.decode();
+    } catch {
+      utf8 = false;
+    }
+  }
+  if (offset !== size || hash.digest("hex") !== blobSha256)
+    throw cell.cellCodedError(
+      "content_claim_mismatch",
+      `Content object ${blobSha256} does not match its accepted digest.`,
+    );
+  const encoding = utf8 ? "utf8" : "base64";
+  verifiedContent.set(key, encoding);
+  return encoding;
 }
 
 function resolveSubmissionArtifact(
