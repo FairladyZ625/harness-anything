@@ -9,6 +9,8 @@ import {
   compileRelationCreatedEvent,
   relationEventWritePlan,
 } from "@harness-anything/kernel/internal/domain/relation-event.ts";
+import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixture.ts";
+import { taskLifecycleWritePlan } from "@harness-anything/kernel/internal/domain/task-lifecycle-publication.ts";
 import { localGitWorktreeSettlement } from "../../src/store/local-version-control-system.ts";
 import { createEntityStore } from "../../src/store/entity-store.ts";
 import { createPGliteStorageBackend } from "../../src/pglite/storage-backend.ts";
@@ -189,6 +191,16 @@ test("PGlite runs shared lifecycle replay, entity, graph and query parity assert
       });
     await append(createdAgent);
     await append(createdSquad);
+
+    for (const value of lifecycleFixture({ taskId: "task-work-root", executionId: "execution-work-root" }).events) {
+      const event = {
+        ...value,
+        eventId: `pglite-work-root-${nextRevision}`,
+        opId: `pglite-work-root-${nextRevision}`,
+        workspaceRevision: nextRevision,
+      };
+      await append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
+    }
 
     const taskCreatedEvent = sqliteEvents
         .read()
