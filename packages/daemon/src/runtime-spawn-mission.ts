@@ -456,7 +456,7 @@ export const unattendedRulingContract = [
 const unattendedReviewContract = [
   "# 无人值守会话：不能提问",
   "- 本会话没有应答方。不要调用任何提问/等待用户输入的 provider 工具。",
-  "- 本次是只读评审派工，没有 worker 上报凭据；把发现和无法完成评审的原因写入本次 review report，并通过评审命令收口。",
+  "- 本次是只读评审派工，没有 worker 上报凭据；把进度、发现和无法完成评审的原因写入本次 review report，并通过评审命令收口。",
 ].join("\n");
 
 /**

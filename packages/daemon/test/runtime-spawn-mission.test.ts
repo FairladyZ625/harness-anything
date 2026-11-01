@@ -471,7 +471,7 @@ test("every task-bound mission sends progress to a file and keeps the rule model
   // Reviewers write one report and cannot run worker publication commands; the shared line must
   // still hold for them without advertising a write their boundary rejects.
   const review = explicitPromptMission("task_x", null, "Review.", "medium", undefined, null, true);
-  assert.match(review, /进度写进本次派工要求你写的报告/u);
+  assert.match(review, /把进度、发现和无法完成评审的原因写入本次 review report/u);
   assert.doesNotMatch(review, /ha task progress append|ha task submit|ha task push/u);
   // The assembled prompt (role baseline + mission) still carries the rule exactly once.
   const assembled = assembleUnboundPrompt(explicitPromptMission("task_x", null, "Go.", "medium"), "worker");
