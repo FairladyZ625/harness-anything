@@ -161,6 +161,30 @@ test(
       assert.doesNotMatch(config, /^  roles:/mu, "init must leave the reviewer seat at the product default");
       const agents = (await cell.read("repo.agent.entities.list")) as { agents: readonly unknown[] };
       assert.deepEqual(agents.agents, [], "init must not install an Agent override");
+      const rejected = await cell
+        .run(
+          {
+            kind: "agent-install",
+            declaration: {
+              schema: "agent-declaration/v1",
+              id: "copied-reviewer",
+              name: "Copied reviewer",
+              instructions: "Review the cut.",
+              runtimes: [{ type: "codex", model: "review-model" }],
+              skills: [{ id: "self-iteration", path: "skills/self-iteration" }],
+            },
+          },
+          owner,
+        )
+        .then(
+          (receipt) => receipt,
+          (error: unknown) => error,
+        );
+      assert.equal(
+        (rejected as { error?: { code?: string }; code?: string }).error?.code ?? (rejected as { code?: string }).code,
+        "agent_skill_not_found",
+        JSON.stringify(rejected),
+      );
       // The controlled runtime is infrastructure, not a reviewer override: enable the one stub
       // instance the fixture launches, exactly as an operator enables a runtime after init.
       const settings = (await cell.read("repo.settings.read")) as { revision: number },
