@@ -6,7 +6,12 @@ import {
   parseNodeAutoClaimPolicy,
   writeNodeAutoClaimPolicy,
 } from "../src/node-auto-claim-config.ts";
-import { decideNodeAutoClaim, nodeAutoClaimLeaseKey, openNodeAutoClaimLoop } from "../src/node-auto-claim.ts";
+import {
+  decideNodeAutoClaim,
+  nodeAutoClaimLeaseKey,
+  openNodeAutoClaimLoop,
+  parseNodeAutoClaimCandidates,
+} from "../src/node-auto-claim.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -24,6 +29,56 @@ const policy = {
   allowedAgentIds: ["sol"],
   maxConcurrent: 2,
 } as const;
+
+test("Fleet auto-claim candidate witnesses must match their task and assignment revision", () => {
+  const candidate = {
+    schema: "node-auto-claim-candidates/v1",
+    candidates: [
+      {
+        taskId: "task-a",
+        autoAssignment: {
+          ...assignment,
+          workspaceRevision: 5,
+        },
+      },
+    ],
+  };
+  assert.equal(parseNodeAutoClaimCandidates(candidate)[0]?.autoAssignment?.taskId, "task-a");
+  assert.throws(
+    () =>
+      parseNodeAutoClaimCandidates({
+        ...candidate,
+        candidates: [
+          {
+            ...candidate.candidates[0],
+            autoAssignment: { ...candidate.candidates[0].autoAssignment, taskId: "task-b" },
+          },
+        ],
+      }),
+    /assignment witness is invalid/u,
+  );
+  assert.throws(
+    () =>
+      parseNodeAutoClaimCandidates({
+        ...candidate,
+        candidates: [
+          {
+            ...candidate.candidates[0],
+            autoAssignment: { ...candidate.candidates[0].autoAssignment, workspaceRevision: 1.5 },
+          },
+        ],
+      }),
+    /assignment witness is invalid/u,
+  );
+  assert.throws(
+    () =>
+      parseNodeAutoClaimCandidates({
+        ...candidate,
+        candidates: [{ taskId: "task-a", autoAssignment: undefined }],
+      }),
+    /assignment witness is invalid/u,
+  );
+});
 
 test("same owner is allowed while another person is denied", () => {
   assert.deepEqual(
@@ -274,6 +329,61 @@ test("concurrency slots include local runs missing from the runtime projection",
     assert.equal(loop.diagnostics().filter((row) => row.reason === "concurrency_limit").length, 2);
     release();
     await loop.close();
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("a failed candidate is suppressed during refill while a later candidate proceeds", async () => {
+  const userRoot = mkdtempSync(path.join(os.tmpdir(), "ha-node-auto-claim-failure-"));
+  try {
+    writeNodeAutoClaimPolicy(userRoot, { ...policy, maxConcurrent: 1 });
+    const failed = { id: "task-fails-before-start" },
+      next = { id: "task-next" };
+    const attempts = new Map<string, number>();
+    let nextStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      nextStarted = resolve;
+    });
+    let finishNext!: () => void;
+    const nextGate = new Promise<void>((resolve) => {
+      finishNext = resolve;
+    });
+    const loop = openNodeAutoClaimLoop({
+      userRoot,
+      now: () => "2026-11-02T00:00:00.000Z",
+      ownerPersonIdFor: async () => "owner",
+      repos: () => ["repo-a"],
+      repoIdOf: (repo) => repo,
+      candidates: async () => [failed, next],
+      taskIdOf: (candidate) => candidate.id,
+      assignmentOf: async (candidate) => ({
+        taskId: candidate.id,
+        workspaceRevision: candidate.id === failed.id ? 10 : 11,
+        expiresAt: assignment.expiresAt,
+        assignedByPersonId: "owner",
+        assignedByTeamIds: [],
+      }),
+      activeTaskKeys: async () => [],
+      agentIds: () => ["sol"],
+      claimAndRun: async (_repo, candidate) => {
+        attempts.set(candidate.id, (attempts.get(candidate.id) ?? 0) + 1);
+        if (candidate.id === failed.id) throw new Error("git preflight rejected");
+        nextStarted();
+        await nextGate;
+      },
+    });
+    await loop.trigger("replica-confirmed");
+    await started;
+    assert.equal(attempts.get(failed.id), 1);
+    assert.equal(attempts.get(next.id), 1);
+    assert.equal(
+      loop.diagnostics().some((row) => row.taskId === failed.id && row.reason === "claim_failed"),
+      true,
+    );
+    finishNext();
+    await loop.close();
+    assert.equal(attempts.get(failed.id), 1, "runtime settlement does not recursively retry the failed assignment");
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
   }

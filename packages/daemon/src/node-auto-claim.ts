@@ -18,6 +18,61 @@ export interface NodeAutoClaimAssignment {
   readonly assignedByTeamIds: readonly string[];
 }
 
+export interface NodeAutoClaimCandidate {
+  readonly taskId: string;
+  readonly autoAssignment: NodeAutoClaimAssignment | null;
+}
+
+export function parseNodeAutoClaimCandidates(value: unknown): readonly NodeAutoClaimCandidate[] {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    (value as { readonly schema?: unknown }).schema !== "node-auto-claim-candidates/v1" ||
+    !Array.isArray((value as { readonly candidates?: unknown }).candidates)
+  )
+    throw new Error("Fleet auto-claim candidate response is invalid.");
+  return (value as { readonly candidates: unknown[] }).candidates.map((candidate) => {
+    if (
+      candidate === null ||
+      typeof candidate !== "object" ||
+      Array.isArray(candidate) ||
+      typeof (candidate as { readonly taskId?: unknown }).taskId !== "string" ||
+      (candidate as { readonly taskId: string }).taskId.length === 0 ||
+      !("autoAssignment" in candidate)
+    )
+      throw new Error("Fleet auto-claim candidate row is invalid.");
+    const candidateRecord = candidate as unknown as { readonly taskId: string; readonly autoAssignment: unknown },
+      assignment = candidateRecord.autoAssignment;
+    if (assignment === null) return { taskId: candidateRecord.taskId, autoAssignment: null };
+    if (typeof assignment !== "object" || Array.isArray(assignment))
+      throw new Error("Fleet auto-claim assignment witness is invalid.");
+    const assignmentRecord = assignment as { readonly taskId?: unknown; readonly workspaceRevision?: unknown };
+    if (
+      typeof assignmentRecord.taskId !== "string" ||
+      assignmentRecord.taskId !== candidateRecord.taskId ||
+      !(
+        (typeof assignmentRecord.workspaceRevision === "number" &&
+          Number.isSafeInteger(assignmentRecord.workspaceRevision) &&
+          assignmentRecord.workspaceRevision >= 0) ||
+        assignmentRecord.workspaceRevision === null
+      ) ||
+      typeof (assignment as { readonly expiresAt?: unknown }).expiresAt !== "string" ||
+      (typeof (assignment as { readonly assignedByPersonId?: unknown }).assignedByPersonId !== "string" &&
+        (assignment as { readonly assignedByPersonId?: unknown }).assignedByPersonId !== null) ||
+      !Array.isArray((assignment as { readonly assignedByTeamIds?: unknown }).assignedByTeamIds) ||
+      !(assignment as { readonly assignedByTeamIds: unknown[] }).assignedByTeamIds.every(
+        (teamId) => typeof teamId === "string",
+      )
+    )
+      throw new Error("Fleet auto-claim assignment witness is invalid.");
+    return {
+      taskId: candidateRecord.taskId,
+      autoAssignment: assignment as NodeAutoClaimAssignment,
+    };
+  });
+}
+
 export interface NodeAutoClaimDecision {
   readonly accepted: boolean;
   readonly reason: NodeAutoClaimReason;
@@ -106,7 +161,8 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
     controllers = new Set<AbortController>(),
     runs = new Set<Promise<void>>(),
     inFlight = new Set<string>(),
-    settled = new Map<string, number | null>();
+    settled = new Map<string, number | null>(),
+    failed = new Map<string, number | null>();
   let closed = false,
     pending: Promise<void> | null = null,
     queuedReason: string | null = null;
@@ -189,6 +245,7 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
       const candidateKeys = new Set(candidates.map((candidate) => `${repoId}:${input.taskIdOf(candidate)}`));
       for (const key of settled.keys())
         if (key.startsWith(`${repoId}:`) && !candidateKeys.has(key)) settled.delete(key);
+      for (const key of failed.keys()) if (key.startsWith(`${repoId}:`) && !candidateKeys.has(key)) failed.delete(key);
       const agents = input.agentIds(repo, policy);
       for (const candidate of candidates) {
         const taskId = input.taskIdOf(candidate),
@@ -218,6 +275,8 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
           throw error;
         }
         if (assignment && settled.get(activeTaskKey) === assignment.workspaceRevision) continue;
+        if (failed.has(activeTaskKey) && failed.get(activeTaskKey) === (assignment?.workspaceRevision ?? null))
+          continue;
         if (!agentId) {
           record({
             repoId,
@@ -290,6 +349,7 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
             inFlight.delete(activeTaskKey);
             runs.delete(run);
             if (completed) settled.set(activeTaskKey, settlementRevision);
+            else if (!controller.signal.aborted) failed.set(activeTaskKey, settlementRevision);
             void trigger("runtime-settled").catch((error: unknown) => {
               record({
                 repoId,
@@ -306,6 +366,7 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
   };
   const trigger = (reason: string): Promise<void> => {
     if (closed) return Promise.resolve();
+    if (reason !== "runtime-settled") failed.clear();
     if (pending) {
       queuedReason = reason;
       return pending;

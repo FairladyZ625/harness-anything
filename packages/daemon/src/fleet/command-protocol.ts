@@ -259,7 +259,8 @@ export type FleetFrameV1 =
           | "repo.agentRuntime.sessions.await"
           | "repo.task.dispatches"
           | "repo.fleet.overview.read"
-          | "repo.policy.metadata.read";
+          | "repo.policy.metadata.read"
+          | "repo.tasks.autoClaimCandidates";
         payload: Readonly<Record<string, unknown>>;
       }
     >
@@ -845,6 +846,7 @@ const schemas: Readonly<Record<string, Check>> = {
       "repo.task.dispatches",
       "repo.fleet.overview.read",
       "repo.policy.metadata.read",
+      "repo.tasks.autoClaimCandidates",
     ),
     payload: record,
   }),

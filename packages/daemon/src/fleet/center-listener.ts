@@ -1095,6 +1095,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           const errors = validateTaskDispatchesPayload(frame.payload);
           if (errors.length) throw new FleetFault("invalid_field", errors.join("; "));
           result = await options.host.read(a.repoId, frame.method, frame.payload as JsonObject, binding);
+        } else if (frame.method === "repo.tasks.autoClaimCandidates") {
+          result = await options.host.readNodeAutoClaimCandidates(a.repoId, binding);
         } else result = await options.host.awaitRuntimeSessions(a.repoId, frame.payload as JsonObject, binding);
       } catch (error) {
         const code = runtimeErrorCode(error);
