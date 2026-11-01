@@ -137,7 +137,10 @@ test("decision review registers the finding category required by its dispatch mi
         reportRef,
       }),
     );
-    const reviewed = await cell.run({ kind: "decision-review", decisionId, fromFile: packetRef }, reviewer);
+    const reviewed = await cell.run(
+      { kind: "decision-review", decisionId, fromFile: `harness/${packetRef}` },
+      reviewer,
+    );
     assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
     const readback = receiptJson(await cell.run({ kind: "decision-show", decisionId }, owner)).decision as {
       readonly reviews: readonly { readonly findings: readonly unknown[] }[];
