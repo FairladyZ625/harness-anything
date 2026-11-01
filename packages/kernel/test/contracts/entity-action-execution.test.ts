@@ -155,11 +155,11 @@ test("canonical-stream kind bindings resolve to declared Actions on their stream
       "runtime_session_cancelled",
       "runtime_session_exited",
       "runtime_session_outcome_observed",
-      "run",
       "pin",
       "unpin",
     ],
   );
+  assert.equal(explainEntityKind("runtime-session").transitions.actions.filter(({ id }) => id === "run").length, 1);
 });
 
 test("entity explanations expose action identity but keep runtime compile hooks private", () => {
@@ -295,10 +295,10 @@ test("RuntimeSession explains adoption, operation replay, center arbitration, an
     "runtime_session_cancelled",
     "runtime_session_exited",
     "runtime_session_outcome_observed",
-    "run",
     "pin",
     "unpin",
   ]);
+  assert.equal(explanation.transitions.available.filter((id) => id === "run").length, 1);
   assert.deepEqual(explanation.canonicalProjection, {
     embeddedEvents: [],
     row: { idField: "runtimeSessionId", ownerField: null },

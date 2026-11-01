@@ -578,30 +578,10 @@ const agentActionCatalog = createAgentActionCatalog(
   DEFAULT_ENTITY_ACTION_RETURNS_CONTRACT,
 );
 
-const runtimeSessionActionCatalog = createRuntimeSessionActionCatalog(
-    (id) => entityAction("runtime-session", runtimeSessionIdentity, id),
-    DEFAULT_ENTITY_ACTION_RETURNS_CONTRACT,
-  ),
-  // dec_6C9E3399972A2F06C046BA89DC/CH3: the shared canonical target for `ha runtime run` and
-  // `ha agent run`. The command's dispatch still goes through the runtime publication queue; this
-  // catalog action names the new RuntimeSession the ingress creates, with Policy action runtime-run.
-  runtimeSessionRunAction = Object.freeze({
-    ...catalogRuntimeAction(
-      "runtime-session",
-      runtimeSessionIdentity,
-      "run",
-      "runtime-run",
-      noSdkExposure,
-      "center-forward-write",
-      "via-center-forward",
-    ),
-    explain:
-      "Request one runtime dispatch and its canonical RuntimeSession (shared by ha runtime run and ha agent run).",
-  }),
-  runtimeSessionCatalog = Object.freeze({
-    ...runtimeSessionActionCatalog,
-    actions: Object.freeze([...runtimeSessionActionCatalog.actions, runtimeSessionRunAction]),
-  });
+const runtimeSessionCatalog = createRuntimeSessionActionCatalog(
+  (id) => entityAction("runtime-session", runtimeSessionIdentity, id),
+  DEFAULT_ENTITY_ACTION_RETURNS_CONTRACT,
+);
 
 const settingsActionCatalog = createSettingsActionCatalog(
   (id) => entityAction("settings", settingsIdentity, id),

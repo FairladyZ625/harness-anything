@@ -268,7 +268,6 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
       "runtime_session_cancelled",
       "runtime_session_exited",
       "runtime_session_outcome_observed",
-      "run",
       "pin",
       "unpin",
     ],
