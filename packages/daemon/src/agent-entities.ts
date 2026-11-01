@@ -164,7 +164,7 @@ export function validateAgentEntityAction(input: {
     throw entityError("invalid_command", "Only an Agent or Squad validate action can use this reader.");
   return validateEntityDeclarationSource({
     rootDir: input.rootDir,
-    source: declarationSource(action),
+    source: readAgentEntityDeclarationSource(action),
     kind,
     runtimeInstances: input.runtimeInstances,
   });
@@ -571,7 +571,7 @@ export function prepareAgentEntityInstall(input: {
     hasPackageSource = Object.hasOwn(input.action, "packageSource");
   if (hasDeclaration === hasPackageSource)
     throw entityError("invalid_command", `${kind} install requires exactly one declaration or packageSource.`);
-  const decoded = declarationSource(input.action),
+  const decoded = readAgentEntityDeclarationSource(input.action),
     source = decoded.source ?? "runtime-result";
   if ("issues" in decoded)
     throw agentInstallError(
@@ -799,7 +799,7 @@ function repairableStoredDeclaration(
     return { value: null, workspaceRevision: null };
   }
 }
-function declarationSource(
+export function readAgentEntityDeclarationSource(
   action: Readonly<Record<string, unknown>>,
 ):
   | { readonly declaration: AgentDeclarationV1 & SquadDeclarationV1; readonly source?: string }

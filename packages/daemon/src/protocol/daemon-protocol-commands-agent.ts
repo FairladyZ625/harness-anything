@@ -535,8 +535,10 @@ export const agentProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "agent-install",
+    // Source paths belong to the edge; only the resolved declaration crosses the fleet wire.
+    payloadFields: [{ field: "packageSource", type: "string", required: false, wire: { omit: true } }],
     phase: "Runtime-B",
     path: ["agent", "install"],
     summary:
@@ -554,7 +556,7 @@ export const agentProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "agent-delete",
     phase: "Runtime-B",
     path: ["agent", "delete", "<id>"],
@@ -596,7 +598,7 @@ export const agentProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "agent-retire",
     phase: "Runtime-B",
     path: ["agent", "retire", "<id>"],
@@ -680,8 +682,10 @@ export const agentProtocolCommands = Object.freeze([
     method: "repo.task.read",
     inputs: [cliInput("--source", "single", true, { code: "missing_field" }, { field: "packageSource" })],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "squad-install",
+    // Source paths belong to the edge; only the resolved declaration crosses the fleet wire.
+    payloadFields: [{ field: "packageSource", type: "string", required: false, wire: { omit: true } }],
     phase: "Runtime-B",
     path: ["squad", "install"],
     summary:
@@ -693,7 +697,7 @@ export const agentProtocolCommands = Object.freeze([
       cliInput("--expected-version", "single", false, { code: "invalid_field" }, { projection: "number" }),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "squad-delete",
     phase: "Runtime-B",
     path: ["squad", "delete", "<id>"],

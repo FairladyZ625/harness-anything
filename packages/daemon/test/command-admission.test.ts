@@ -1,6 +1,8 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
+import { getExecutableEntityAction } from "@harness-anything/kernel";
+import { isFleetTaskAction } from "../src/fleet/command-protocol.ts";
 import { daemonProtocolCommands, repoCellExecutionForAction } from "../src/protocol/daemon-protocol-commands.ts";
 import { observeTailReadMethod } from "../src/protocol/daemon-protocol-observe-tail-read.ts";
 import { daemonRepoModeWords } from "../src/protocol/daemon-protocol-vocabulary.ts";
@@ -10,10 +12,45 @@ const localSource = "local" as const;
 const nodeSource = { kind: "node", nodeId: "edge-one" } as const;
 const admissionRoutes = new Set(["direct", "via-node", "via-center-forward", "edge-replica", "rejected"]);
 
+function assertAdmissionDeclared(command: { readonly id: string; readonly admission: object }) {
+  assert.deepEqual(Object.keys(command.admission).sort(), [...daemonRepoModeWords].sort(), command.id);
+}
+
+test("admission coverage rejects a new write command missing its edge decision", () => {
+  const command = {
+    id: "new-write",
+    admission: { local: "direct", "remote-proxy": "rejected", "remote-center": "direct" },
+  };
+  assert.throws(() => assertAdmissionDeclared(command), assert.AssertionError);
+  assertAdmissionDeclared({ ...command, admission: { ...command.admission, "remote-edge": "rejected" } });
+});
+
+test("fleet declaration writes carry values and cannot ask the center to read a source path", () => {
+  for (const kind of ["agent-install", "squad-install"]) {
+    const action = { kind, declaration: { schema: `${kind.split("-")[0]}-declaration/v1` } };
+    assert.equal(isFleetTaskAction(action), true, kind);
+    assert.equal(isFleetTaskAction({ kind, packageSource: "/center/private.json" }), false, kind);
+    assert.equal(isFleetTaskAction({ ...action, packageSource: "/center/private.json" }), false, kind);
+    assert.equal(isFleetTaskAction({ ...action, actor: { personId: "spoofed" } }), false, kind);
+  }
+});
+
+test("compiled entity writes retain the edge route declared by their canonical action", () => {
+  let checked = 0;
+  for (const command of daemonProtocolCommands) {
+    const action = getExecutableEntityAction("actionKind" in command ? command.actionKind : command.id);
+    if (action?.execution?.implementation !== "compiled-event" || action.execution.topology !== "center-forward-write")
+      continue;
+    checked += 1;
+    assert.equal(command.admission["remote-edge"], "via-center-forward", command.id);
+  }
+  assert.ok(checked > 0);
+});
+
 test("all daemon commands close every repo-mode admission cell", () => {
   let cells = 0;
   for (const command of daemonProtocolCommands) {
-    assert.deepEqual(Object.keys(command.admission).sort(), [...daemonRepoModeWords].sort(), command.id);
+    assertAdmissionDeclared(command);
     for (const mode of daemonRepoModeWords) {
       cells += 1;
       const route = command.admission[mode];

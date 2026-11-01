@@ -70,6 +70,10 @@ test("fleet task routing requires both edge config and remote-edge registry mode
     "a remote-edge registration for another root cannot authorize this workspace",
   );
   registry("remote-edge");
+  for (const kind of ["agent-install", "agent-delete", "agent-retire", "squad-install", "squad-delete"]) {
+    const action = { kind, expectedVersion: 0 };
+    assert.deepEqual((await fleetTaskRoute(command("repo.task.run", action), env))?.action, action, kind);
+  }
   for (const kind of ["schedule-list", "schedule-show", "schedule-runs"]) {
     const read = command("repo.task.read", { kind, scheduleId: "edge-schedule" });
     assert.equal(await fleetScheduleRoute(read, env), null, `${kind} must avoid the network runtime route`);
