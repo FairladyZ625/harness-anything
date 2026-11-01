@@ -19,7 +19,6 @@ import {
   type DateFormatPref,
   type TimeDisplayPrefs,
 } from "../model/time.ts";
-import { useSettingsMutation } from "../settings-data.ts";
 import type { SystemRepoRow } from "../api-client.ts";
 import { RepositoriesAndConnectionsView } from "./settings/RepositoriesAndConnectionsView.tsx";
 import { RepositorySettingsPanel } from "./settings/RepositorySettingsPanel.tsx";
@@ -124,7 +123,6 @@ export function SettingsView({
     writeTimeDisplayPrefs(next);
     setTimePrefs(next);
   };
-  const settingsMutation = useSettingsMutation(repoId);
   const renderActivePanel = () => {
     switch (activeTab) {
       case "repositories":
@@ -137,7 +135,7 @@ export function SettingsView({
           />
         );
       case "repository":
-        return <RepositorySettingsPanel repoId={repoId} onLocaleLoaded={setLocale} />;
+        return <RepositorySettingsPanel repoId={repoId} />;
       case "appearance":
         return (
           <Section variant="panel" title={t("views.settingsView.sectionAppearance")}>
@@ -270,16 +268,12 @@ export function SettingsView({
                 onChange={(event) => {
                   const next = event.currentTarget.value as "zh-CN" | "en-US";
                   setLocale(next);
-                  settingsMutation.mutate({ locale: next });
                 }}
               >
                 <option value="zh-CN">{t("views.settingsView.chinese")}</option>
                 <option value="en-US">{t("views.settingsView.english")}</option>
               </select>
             </Row>
-            {settingsMutation.error ? (
-              <div className="px-3 py-2 ui-meta text-danger">{String(settingsMutation.error)}</div>
-            ) : null}
           </Section>
         );
       case "shortcuts":

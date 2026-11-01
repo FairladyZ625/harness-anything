@@ -40,13 +40,7 @@ const RESTORE_ACTION = "px-1 py-0.5 ui-meta text-text-faint underline-offset-2 h
 
 /** 仓库设置面板:字段面、分组与逐项解释全部由 settings 动作契约 + 声明元数据派生,
  * 本文件只承担渲染、目录联动与提交。 */
-export function RepositorySettingsPanel({
-  repoId,
-  onLocaleLoaded,
-}: {
-  readonly repoId: string | null;
-  readonly onLocaleLoaded: (locale: "zh-CN" | "en-US") => void;
-}) {
+export function RepositorySettingsPanel({ repoId }: { readonly repoId: string | null }) {
   const settingsQuery = useSettingsQuery(repoId);
   const settingsMutation = useSettingsMutation(repoId);
   const catalogQuery = useCatalogSnapshot(repoId);
@@ -69,14 +63,12 @@ export function RepositorySettingsPanel({
   // 回填依赖的是三个被消费的切片,不是整个 read:mutation 层在回执落地时会只顶新令牌
   // (revision)并保留这三个引用,表单不因令牌前进而被服务端旧值重置;值真的变化时照常回填。
   const loadedValues = settingsQuery.data?.values,
-    loadedGates = settingsQuery.data?.settings.gates,
-    loadedLocale = settingsQuery.data?.settings.locale;
+    loadedGates = settingsQuery.data?.settings.gates;
   useEffect(() => {
     if (loadedValues === undefined) return;
     setDraft(loadedValues);
     setGateDrafts(gateMappingDrafts(loadedGates ?? []));
-    onLocaleLoaded(loadedLocale!);
-  }, [loadedValues, loadedGates, loadedLocale, onLocaleLoaded]);
+  }, [loadedValues, loadedGates]);
 
   // 仓库设置的字段面来自 settings 动作契约(目录快照的 settingsFields,daemon 与动作目录
   // 同一单源);分组与逐项解释(effect/默认值)同样由声明源投影进快照。目录选择器
