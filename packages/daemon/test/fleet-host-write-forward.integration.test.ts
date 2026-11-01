@@ -124,10 +124,18 @@ test("edge repository and GUI write RPCs reach the same center command port", { 
   assert.equal(scheduled.outcome, "applied", JSON.stringify(scheduled));
   const runtimeSchedule = await edge.host.run(
     "lease-repo",
-    { kind: "schedule-pause", scheduleId: "gui-forward-schedule", reason: "Runtime cannot borrow a person session" },
+    { kind: "schedule-disable", scheduleId: "gui-forward-schedule", idempotencyKey: "runtime-cannot-borrow-session" },
     { ...auth, executionCredential: "unverified-runtime-secret" },
   );
   assert.equal(runtimeSchedule.code, "execution_credential_rejected", JSON.stringify(runtimeSchedule));
+  const beforeDoc = f.eventCount();
+  const docWrite = await edge.host.run(
+    "lease-repo",
+    { kind: "doc-submit", taskId: "task-without-document-mirror" },
+    localAuthFixture(),
+  );
+  assert.equal(docWrite.code, "repo_mode_read_only", "document writes retain their dedicated admission path");
+  assert.equal(f.eventCount(), beforeDoc, "the common RPC must not write the document center");
   const unconfigured = await fleetEdgeHostFixture(t, f, { name: "unconfigured", writeEdgeConfig: false });
   const beforeUnconfigured = f.eventCount();
   const unconfiguredWrite = () =>
