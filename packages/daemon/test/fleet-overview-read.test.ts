@@ -291,10 +291,22 @@ test("the validator accepts a real overview and rejects each pinned negative fix
       leaseReads: { ok: true, leases: [lease("task_1", FLEET_CENTER_NODE_ID)], dispatches: [] },
       events: [event("evt-1", { taskId: "task_1" })],
       nodeOwners: new Map([["cc90-ubuntu", { kind: "unavailable", reason: "keycloak-unreachable" }]]),
+      versionWarning: {
+        centerBuildCommit: "a".repeat(40),
+        localBuildCommit: "b".repeat(40),
+        upgradeCommand: "ha update",
+      },
     }),
   );
   assert.deepEqual(validateFleetOverview(good), []);
+  assert.deepEqual(good.versionWarning, {
+    centerBuildCommit: "a".repeat(40),
+    localBuildCommit: "b".repeat(40),
+    upgradeCommand: "ha update",
+  });
   assert.ok(good.warnings.length === 1);
+  const invalidWarning = { ...good, versionWarning: { ...good.versionWarning, upgradeCommand: "ha daemon update" } };
+  assert.deepEqual(validateFleetOverview(invalidWarning), ["versionWarning.upgradeCommand must be ha update"]);
   const negative = JSON.parse(
     readFileSync(new URL("../fixtures/contracts/daemon-fleet-overview-invalid.json", import.meta.url), "utf8"),
   );

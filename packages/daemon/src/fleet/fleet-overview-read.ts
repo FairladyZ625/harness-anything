@@ -97,6 +97,7 @@ export interface FleetOverviewInput {
   readonly nodeOwners: ReadonlyMap<string, FleetFieldState>;
   /** projection sourceRevision;读面拿不到时为 null(事件尾部仍带自己的 revision)。 */
   readonly centerRevision: number | null;
+  readonly versionWarning?: FleetOverviewResult["versionWarning"];
 }
 
 export interface FleetTaskLeaseRow {
@@ -182,6 +183,11 @@ export interface FleetOverviewResult {
   readonly nodes: readonly FleetNodeRow[];
   readonly links: readonly FleetLinkRow[];
   readonly events: readonly FleetEventRow[];
+  readonly versionWarning?: {
+    readonly centerBuildCommit: string;
+    readonly localBuildCommit: string;
+    readonly upgradeCommand: "ha update";
+  };
   /** 事件归属语义与读面限制的显式声明(渲染时如实展示,不隐含)。 */
   readonly notes: readonly string[];
   readonly warnings: readonly string[];
@@ -320,6 +326,7 @@ export function buildFleetOverview(input: FleetOverviewInput): FleetOverviewResu
     nodes,
     links,
     events: fleetEventRows(input.events, leasesByNode, dispatchByTask),
+    ...(input.versionWarning === undefined ? {} : { versionWarning: input.versionWarning }),
     // notes 是稳定机器码(key=value),人话解释归 GUI i18n;daemon 不内嵌单语言文案。
     notes: ["events-attribution=current-lease", "edge-online=unavailable", "sync-internals=unavailable"],
     warnings: [
@@ -456,6 +463,17 @@ export function validateFleetOverview(value: unknown): readonly string[] {
   }
   if (row.centerRevision !== null && typeof row.centerRevision !== "number")
     errors.push("centerRevision must be a number or null");
+  if (row.versionWarning !== undefined) {
+    if (row.versionWarning === null || typeof row.versionWarning !== "object" || Array.isArray(row.versionWarning))
+      errors.push("versionWarning must be an object when present");
+    else {
+      const warning = row.versionWarning as Record<string, unknown>;
+      if (typeof warning.centerBuildCommit !== "string")
+        errors.push("versionWarning.centerBuildCommit must be a string");
+      if (typeof warning.localBuildCommit !== "string") errors.push("versionWarning.localBuildCommit must be a string");
+      if (warning.upgradeCommand !== "ha update") errors.push("versionWarning.upgradeCommand must be ha update");
+    }
+  }
   for (const field of ["nodes", "links", "events", "notes", "warnings"] as const) {
     if (!Array.isArray(row[field])) errors.push(`${field} must be an array`);
   }
@@ -548,6 +566,7 @@ export async function readFleetOverviewFromHost(input: {
   readonly now: string;
   readonly userRoot: string;
   readonly daemon: { readonly daemonId: string; readonly startedAt: string };
+  readonly versionWarning?: FleetOverviewResult["versionWarning"];
 }): Promise<FleetOverviewResult> {
   const leaseFacts = await authorizedOrThrow(async () => {
     const rows: DaemonTaskSnapshotListResult["rows"][number][] = [];
@@ -678,6 +697,7 @@ export async function readFleetOverviewFromHost(input: {
         }
       : { ok: false, code: leaseFacts.code },
     events: eventFacts.slice(0, EVENT_PAGE_LIMIT),
+    ...(input.versionWarning === undefined ? {} : { versionWarning: input.versionWarning }),
     nodeOwners,
     centerRevision: input.cell.statusCuts()?.ledgerRevision ?? null,
   });

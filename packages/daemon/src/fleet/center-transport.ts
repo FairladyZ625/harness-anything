@@ -344,7 +344,10 @@ export async function serve(
           try {
             frame = transfers.push(parsed);
           } catch (error) {
-            if (!(error instanceof FleetTransferError)) throw error;
+            if (!(error instanceof FleetTransferError)) {
+              consumeKnownError(error);
+              throw error;
+            }
             void enqueue(
               immediate({
                 schema: "fleet.error/v1",
@@ -431,6 +434,7 @@ export async function serve(
             frame.buildCommit !== centerBuildCommit
               ? `Fleet build differs (center=${centerBuildCommit.slice(0, 12)}, edge=${frame.buildCommit.slice(0, 12)}); upgrade with ha update.`
               : undefined;
+        options.onVersionWarning?.(nodeId, versionWarning ?? null);
         return enqueue(
           immediate({
             schema: "fleet.session.ready/v1",

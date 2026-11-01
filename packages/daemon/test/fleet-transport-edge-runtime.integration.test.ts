@@ -85,7 +85,7 @@ test(
         fixture.track,
         center.port,
         fixture.cert,
-        fixture.peerSubject.nodeId,
+        fixture.slowSubject.nodeId,
         "machine-secret",
       ),
       totalBytes = 40 * 1024 * 1024,

@@ -138,6 +138,7 @@ import { createIdentitySession } from "./authorization-provider.ts";
 import type { SkillEvalRunner } from "./skill-eval-runner.ts";
 import { openSkillEvalProduction, type SkillEvalProductionInput } from "./skill-eval-production.ts";
 import { runFleetReplicaSync, waitForFleetReplicaReady } from "./fleet/replica-sync.ts";
+import type { FleetVersionWarning } from "./fleet/peer.ts";
 export interface DaemonHostOpenInput {
   readonly daemonId: string;
   readonly userRoot: string;
@@ -245,7 +246,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     now = input.now ?? (() => new Date().toISOString()),
     initialRegistry = readDaemonRegistry({ userRoot: input.userRoot }),
     buildObserver = observeDaemonBuild(input.runtimeFile),
-    fleetEdgeRuntimes = new Map<string, ReturnType<typeof openFleetEdgeRuntime>>();
+    fleetEdgeRuntimes = new Map<string, ReturnType<typeof openFleetEdgeRuntime>>(),
+    fleetVersionWarnings = new Map<string, FleetVersionWarning>();
   const oidc = input.oidc ?? createIdentitySession(input.userRoot),
     {
       writerEpochLease,
@@ -849,6 +851,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       fleetCenter = value;
     },
     fleetEdgeRuntimes,
+    fleetVersionWarnings,
     runtimeDaemonRoute,
     scheduleScheduler,
     edgeRuntimeFor,
@@ -1178,12 +1181,16 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       if (repo.state !== "enabled" || repo.mode !== "remote-edge" || repo.canonicalRoot === null) continue;
       const rootDir = repo.canonicalRoot,
         config = readFleetEdgeConfig(rootDir);
-      if (!config || config.repoId !== repo.repoId) continue;
+      if (!config || config.repoId !== repo.repoId) {
+        fleetVersionWarnings.delete(repo.repoId);
+        continue;
+      }
       activeRemoteEdges.add(repo.repoId);
       // A stream follows its fleet-edge.json: an edge sync that changed the connection restarts it.
       const running = replicaSyncControllers.get(repo.repoId),
         connection = JSON.stringify(config);
       if (running?.config === connection) continue;
+      fleetVersionWarnings.delete(repo.repoId);
       running?.controller.abort();
       const controller = new AbortController();
       replicaSyncControllers.set(repo.repoId, { controller, config: connection });
@@ -1205,6 +1212,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         viewRoot,
         diskQuotaBytes: config.quotaBytes,
         signal: controller.signal,
+        onVersionWarning: (warning) => {
+          if (warning === null) fleetVersionWarnings.delete(repo.repoId);
+          else fleetVersionWarnings.set(repo.repoId, warning);
+        },
         onConfirmed: async (changedPaths) => {
           applyFleetMirrorCut(viewRoot, config.repoId, rootDir, "pull", { changedPaths });
           await edgeRuntimeFor({
@@ -1240,6 +1251,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       if (activeRemoteEdges.has(repoId)) continue;
       controller.abort();
       replicaSyncControllers.delete(repoId);
+      fleetVersionWarnings.delete(repoId);
     }
   };
   // Restore only a previously authorized successful start, after every callback's captured

@@ -11,7 +11,7 @@ import { readClaimableTasks } from "./task-claimable-read.ts";
 import { nodeAutoClaimLeaseKey } from "./node-auto-claim.ts";
 import { readEntityAssignmentDirectory } from "./entity-assignment-directory.ts";
 import { parseAssignmentExpiry } from "@harness-anything/kernel";
-import { doctorBuildDrift, type DoctorCheck } from "./repo-cell-doctor.ts";
+import { doctorBuildDrift, fleetVersionDoctorCheck, type DoctorCheck } from "./repo-cell-doctor.ts";
 import { decisionProviderDoctorCheck } from "./decision-provider-doctor.ts";
 import { hostedCredentialDoctorCheck } from "./hosting-credential-readiness.ts";
 import { existsSync, realpathSync, readFileSync } from "node:fs";
@@ -731,7 +731,18 @@ export function createDaemonHostRepositoryApi(
         const edge = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
           (repo) => repo.repoId === repoId && repo.mode === "remote-edge",
         );
-        if (edge?.canonicalRoot) return edgeReplicaDoctor(edge.canonicalRoot, repoId);
+        if (edge?.canonicalRoot) {
+          const receipt = edgeReplicaDoctor(edge.canonicalRoot, repoId);
+          return {
+            ...receipt,
+            checks: [
+              ...receipt.checks,
+              fleetVersionDoctorCheck(
+                context.fleetVersionWarnings.has(repoId) ? [context.fleetVersionWarnings.get(repoId)!.message] : [],
+              ),
+            ],
+          };
+        }
       }
       await context.attemptHostRecovery(repoId);
       const cell = context.cells.get(repoId);
@@ -812,6 +823,10 @@ export function createDaemonHostRepositoryApi(
               listProviders: () => context.decisionProviders.list(),
             }),
             await hostedCredentialDoctorCheck(cell.status().rootDir, { instances: context.instances.list() }),
+            fleetVersionDoctorCheck([
+              ...(context.fleetCenter?.status().versionWarnings ?? []),
+              ...[...context.fleetVersionWarnings.values()].map((warning) => warning.message),
+            ]),
           ];
           return { ...health, checks, evidence: JSON.stringify({ ...JSON.parse(health.evidence!), checks }) };
         }
@@ -1048,7 +1063,8 @@ export function createDaemonHostRepositoryApi(
           throw context.hostCodedError("invalid_request", "Catalog preset payload must be JSON.");
         result = await cell.catalog.preset(payload);
       } else if (method === "repo.terminal.sessions.list") result = cell.terminal.list();
-      else if (method === "repo.fleet.overview.read")
+      else if (method === "repo.fleet.overview.read") {
+        const warning = context.fleetVersionWarnings.get(repoId);
         result = await readFleetOverviewFromHost({
           repoId,
           mode:
@@ -1061,8 +1077,17 @@ export function createDaemonHostRepositoryApi(
           now: context.now(),
           userRoot: context.input.userRoot,
           daemon: context.point(),
+          ...(warning
+            ? {
+                versionWarning: {
+                  centerBuildCommit: warning.centerBuildCommit,
+                  localBuildCommit: warning.localBuildCommit,
+                  upgradeCommand: warning.upgradeCommand,
+                },
+              }
+            : {}),
         });
-      else {
+      } else {
         if (!isRepoCellReadMethod(method))
           throw context.hostCodedError("invalid_request", `${method} is not a repository read method.`);
         result = await cell.read(
