@@ -137,11 +137,14 @@ test("a task's worktree is bound at create, checked out on start or dispatch, an
   // The restarted daemon attaches the repository and runs the same reconciliation a close runs; poll the disk.
   // The reconciliation removes the worktree before it deletes the branch, so wait for both.
   const gone = () => !existsSync(missedTree.cwd) && git(root, "branch", "--list", missedTree.branch) === "";
+  // The sweep is the last job attach queues, behind runtime adoption and archive upkeep, so a loaded runner takes longer.
+  const reclaimStartedAt = Date.now();
   let reclaimed = gone();
-  for (let attempt = 0; !reclaimed && attempt < 300; attempt += 1) {
+  while (!reclaimed && Date.now() - reclaimStartedAt < 60_000) {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
     reclaimed = gone();
   }
+  context.diagnostic(`startup-reclaim-ms=${Date.now() - reclaimStartedAt}`);
   assert.equal(reclaimed, true, "the daemon start reclaimed the worktree and branch the failed close left behind");
   assert.equal(worktreeOf(missed.taskId).state, "reclaimed");
 
