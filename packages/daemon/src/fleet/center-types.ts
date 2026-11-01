@@ -56,7 +56,7 @@ export interface FleetCenterOptions {
   readonly edgeJoin?: (input: {
     readonly joinId: string;
     readonly inviteToken: string;
-    readonly accessToken?: string;
+    readonly accessToken: string;
   }) => EdgeJoinAdmission | Promise<EdgeJoinAdmission>;
   readonly revokeDeviceSessions?: (nodeId: string) => Promise<void>;
   readonly deviceLoginNotice?: (nodeId: string, personId: string, notice: FleetDeviceLoginNotice) => void;
