@@ -133,6 +133,7 @@ export interface SqliteEventStore {
     readonly done: boolean;
   };
   readonly readContentObject: (sha256: string) => Uint8Array | null;
+  readonly readContentObjectRange: (sha256: string, offset: number, maxBytes: number) => Uint8Array | null;
   readonly contentObjectDigests: () => readonly string[];
   readonly revision: () => number;
   readonly events: () => readonly CanonicalEventV1[];

@@ -548,6 +548,16 @@ const taskAction: Check = (value) => {
   if (!record(value) || typeof value.kind !== "string") return false;
   const fields = declaredActionFields(value.kind);
   const { kind: _kind, ...payload } = value;
+  if (value.kind === "doc-show") {
+    const { offset, length, ...base } = payload;
+    if (
+      (offset !== undefined && (!Number.isSafeInteger(offset) || Number(offset) < 0)) ||
+      (length !== undefined &&
+        (!Number.isSafeInteger(length) || Number(length) <= 0 || Number(length) > FLEET_CHUNK_BYTES))
+    )
+      return false;
+    return fields !== null && checkFields(fields, base);
+  }
   return fields !== null && checkFields(fields, payload);
 };
 export const isFleetTaskAction = taskAction;

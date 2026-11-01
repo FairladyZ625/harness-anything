@@ -500,6 +500,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     },
     readBatch: (cursor, maxItems) => sqliteBatch(sqlite, cursor, maxItems, readContent),
     readContentBlob: readContent,
+    readContentBlobRange: (sha256, offset, maxBytes) => sqlite.readContentObjectRange(sha256, offset, maxBytes),
     readAttachMigrationScanWatermarks: sqlite.attachMigrationScanWatermarks,
     recordAttachMigrationScanWatermarks: (watermarks) => {
       if (options.mutable === false) throw new TaskEventStoreError("invalid_write_plan", "event reader is read-only");

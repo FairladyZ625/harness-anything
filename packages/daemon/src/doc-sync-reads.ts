@@ -37,13 +37,14 @@ import { renderWorkExplainer } from "./work-read.ts";
 export function readAction(input: Input): WriteReceipt {
   if (input.action.kind !== "doc-show") return scanReceipt(input, scannerRead(input));
   const rawPaths = input.action.kind === "doc-show" ? [input.action.path] : input.action.paths;
+  const ranged =
+    input.action.kind === "doc-show" &&
+    (Object.hasOwn(input.action, "offset") || Object.hasOwn(input.action, "length"));
   if (
     !hasExactDocSyncActionFields(
       input.action,
       input.action.kind === "doc-show"
-        ? input.action.raw === true
-          ? ["kind", "path", "raw"]
-          : ["kind", "path"]
+        ? ["kind", "path", ...(input.action.raw === true ? ["raw"] : []), ...(ranged ? ["offset", "length"] : [])]
         : ["kind", "paths"],
     ) ||
     !Array.isArray(rawPaths) ||
@@ -74,6 +75,20 @@ export function readAction(input: Input): WriteReceipt {
         anchor.revision,
         anchor.blobSha256,
       );
+      if (ranged) {
+        const bytes = Buffer.from(artifact.body),
+          offset = Number(input.action.offset),
+          length = Number(input.action.length),
+          chunk = bytes.subarray(offset, Math.min(bytes.byteLength, offset + length));
+        return {
+          ...artifact,
+          evidence: chunk.toString("base64"),
+          evidenceEncoding: "base64",
+          evidenceOffset: offset,
+          evidenceSize: bytes.byteLength,
+          evidenceDone: offset + chunk.byteLength >= bytes.byteLength,
+        } as unknown as WriteReceipt;
+      }
       return {
         outcome: "applied",
         opId: artifact.acceptance,
@@ -123,25 +138,51 @@ export function readAction(input: Input): WriteReceipt {
     input.action.kind === "doc-show"
       ? (reads[0]?.document?.body ?? "document:not-found")
       : `document-cut:${current.headDigest}`;
-  return ready
-    ? {
-        outcome: "applied",
-        opId: `read:${input.action.kind}:${current.headDigest}`,
-        revision,
-        evidence,
-        visibility: "center",
-        proof: proof(revision, revision, true, worktreeVisible),
-        detail: receiptDetail,
-      }
-    : {
-        outcome: "pending",
-        opId: `read:${input.action.kind}:${current.headDigest}`,
-        revision,
-        evidence,
-        visibility: "center",
-        proof: proof(revision, Math.min(...reads.map((read) => read.watermark)), false, worktreeVisible),
-        detail: receiptDetail,
-      };
+  const rangeOffset =
+      input.action.kind === "doc-show" && Number.isSafeInteger(input.action.offset) && Number(input.action.offset) >= 0
+        ? Number(input.action.offset)
+        : null,
+    rangeLength =
+      input.action.kind === "doc-show" &&
+      Number.isSafeInteger(input.action.length) &&
+      Number(input.action.length) > 0 &&
+      Number(input.action.length) <= 64 * 1024
+        ? Number(input.action.length)
+        : null;
+  if ((rangeOffset === null) !== (rangeLength === null))
+    throw docSyncError("invalid_command", "doc-show range requires both offset and length");
+  const baseReceipt = (
+    ready
+      ? {
+          outcome: "applied",
+          opId: `read:${input.action.kind}:${current.headDigest}`,
+          revision,
+          evidence,
+          visibility: "center",
+          proof: proof(revision, revision, true, worktreeVisible),
+          detail: receiptDetail,
+        }
+      : {
+          outcome: "pending",
+          opId: `read:${input.action.kind}:${current.headDigest}`,
+          revision,
+          evidence,
+          visibility: "center",
+          proof: proof(revision, Math.min(...reads.map((read) => read.watermark)), false, worktreeVisible),
+          detail: receiptDetail,
+        }
+  ) as WriteReceipt;
+  if (rangeOffset === null || rangeLength === null) return baseReceipt;
+  const bytes = Buffer.from(evidence),
+    chunk = bytes.subarray(rangeOffset, Math.min(bytes.byteLength, rangeOffset + rangeLength));
+  return {
+    ...baseReceipt,
+    evidence: chunk.toString("base64"),
+    evidenceEncoding: "base64",
+    evidenceOffset: rangeOffset,
+    evidenceSize: bytes.byteLength,
+    evidenceDone: rangeOffset + chunk.byteLength >= bytes.byteLength,
+  } as WriteReceipt;
 }
 
 export function readDocReceipt(input: Omit<Input, "action">, event: DocEventV1): DocSettlementReceipt {

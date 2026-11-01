@@ -36,6 +36,10 @@ test("Fleet accepts the declared doc-show fields for center-owned frozen reads",
   assert.equal(isFleetTaskAction({ kind: "doc-show", path: "tasks/task-one/artifacts/report.md", raw: true }), true);
   assert.equal(isFleetTaskAction({ kind: "doc-show", path: "tasks/task-one/artifacts/report.md" }), true);
   assert.equal(
+    isFleetTaskAction({ kind: "doc-show", path: "tasks/task-one/artifacts/report.md", offset: 0, length: 1024 }),
+    true,
+  );
+  assert.equal(
     isFleetTaskAction({ kind: "doc-show", path: "tasks/task-one/artifacts/report.md", revision: 99 }),
     false,
   );
@@ -118,6 +122,15 @@ test("reviewer doc-show preserves frozen submitted artifacts and permits other r
       assert.equal(receipt.outcome, "applied");
       assert.equal(receipt.revision, 7);
       assert.equal(receipt.evidence, bytes.toString(path.endsWith(".png") ? "base64" : "utf8"));
+      if (path.endsWith("report.md")) {
+        const ranged = runDocAction({
+          ...input,
+          binding: { ...input.binding, source },
+          action: { kind: "doc-show", path, offset: 2, length: 5 },
+        }) as { readonly evidence: string; readonly evidenceEncoding?: string };
+        assert.equal(ranged.evidenceEncoding, "base64");
+        assert.deepEqual(Buffer.from(ranged.evidence, "base64"), bytes.subarray(2, 7));
+      }
     }
   }
   const otherTask = runDocAction({

@@ -80,6 +80,53 @@ export class FleetEdgeTaskError extends Error {
 }
 
 type EdgeWriteCut = { readonly revision: number; readonly headDigest: string };
+const DOC_SHOW_RANGE_BYTES = 48 * 1024;
+
+async function runFleetDocShowRange(options: {
+  readonly peer: Parameters<typeof runFleetTaskCommandClient>[0];
+  readonly action: FleetTaskAction;
+  readonly opId: string;
+}): Promise<Awaited<ReturnType<typeof runFleetTaskCommandClient>>> {
+  let offset = 0;
+  let totalSize: number | null = null;
+  const chunks: Buffer[] = [];
+  let last: Awaited<ReturnType<typeof runFleetTaskCommandClient>> | null = null;
+  for (;;) {
+    const result = await runFleetTaskCommandClient({
+      ...options.peer,
+      opId: `${options.opId}:range:${offset}`,
+      action: { ...options.action, offset, length: DOC_SHOW_RANGE_BYTES },
+    });
+    last = result;
+    if (result.outcome !== "applied") return result;
+    const receipt = result.receipt as Readonly<Record<string, unknown>> | null;
+    if (
+      receipt?.evidenceEncoding !== "base64" ||
+      typeof receipt.evidence !== "string" ||
+      !Number.isSafeInteger(receipt.evidenceOffset) ||
+      receipt.evidenceOffset !== offset ||
+      !Number.isSafeInteger(receipt.evidenceSize) ||
+      typeof receipt.evidenceDone !== "boolean"
+    )
+      throw new Error("Fleet doc-show range response is malformed");
+    totalSize ??= Number(receipt.evidenceSize);
+    if (Number(receipt.evidenceSize) !== totalSize) throw new Error("Fleet doc-show range size changed during read");
+    const chunk = Buffer.from(String(receipt.evidence), "base64");
+    chunks.push(chunk);
+    offset += chunk.byteLength;
+    if (receipt.evidenceDone) break;
+    if (chunk.byteLength === 0 || totalSize === null || offset >= totalSize)
+      throw new Error("Fleet doc-show range did not advance");
+  }
+  if (!last) throw new Error("Fleet doc-show range returned no response");
+  return {
+    ...last,
+    receipt: {
+      ...(last.receipt ?? {}),
+      evidence: Buffer.concat(chunks).toString("utf8"),
+    },
+  };
+}
 const recentAppliedCuts = new Map<string, EdgeWriteCut>();
 
 function edgeReadStateKey(viewRoot: string, repoId: string, nodeId: string): string {
@@ -342,18 +389,19 @@ export async function runFleetEdgeTask(
         readOnly,
         write: async () => {
           const remaining = Math.max(1, deadline - Date.now());
-          return runFleetTaskCommandClient({
+          const commandPeer = {
             ...peer,
-            opId,
             repoId: payload.repoId,
             taskId,
-            action,
             ...(artifact ? { artifact } : {}),
             waitMs,
             timeoutMs: remaining + 10_000,
             docChanges: bundle === null ? undefined : bundle.docChanges,
             mirrorBaseCut: bundle === null ? undefined : bundle.mirrorBaseCut,
-          });
+          } as Parameters<typeof runFleetTaskCommandClient>[0];
+          return action.kind === "doc-show"
+            ? runFleetDocShowRange({ peer: commandPeer, action, opId })
+            : runFleetTaskCommandClient({ ...commandPeer, opId, action });
         },
         settle: async () => {
           const remaining = Math.max(1, deadline - Date.now());
