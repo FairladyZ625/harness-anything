@@ -15,6 +15,7 @@ import { localGitWorktreeSettlement } from "../../src/store/local-version-contro
 import { createEntityStore } from "../../src/store/entity-store.ts";
 import { rebuildPgProjection } from "../../src/pg/pg-task-event-materialize.ts";
 import { createPGliteStorageBackend } from "../../src/pglite/storage-backend.ts";
+import type { PostgresAppendHooks, PostgresEventStoreScope } from "../../src/postgres/pg-event-store.ts";
 import { makePostgresTaskEventStore } from "../../src/postgres/pg-task-event-store.ts";
 import { withPostgresTransaction } from "../../src/postgres/transaction.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
@@ -32,10 +33,17 @@ import {
   assertTextQueryParity,
 } from "../postgres/pg-query-parity.fixture.ts";
 import { assertDocumentAdmission, admissionSettingsBase } from "../store/document-admission.assertions.ts";
+import { appendGatedLifecycleFixture, assertLifecycleParity } from "../postgres/pg-lifecycle.assertions.ts";
+import { assertSingleSessionLedger, assertWriterFencing } from "../postgres/pg-ledger.assertions.ts";
 import { bundle, eventAt, initRepo } from "../store/task-event-store.fixtures.ts";
 import { relation } from "../store/relation-graph-projection.fixtures.ts";
 
-const scope = { tenantId: "tenant-pglite", projectId: "project-pglite", policyEpoch: 1, readers: ["reader-a"] };
+const scope: PostgresEventStoreScope = {
+  tenantId: "tenant-pglite",
+  projectId: "project-pglite",
+  policyEpoch: 1,
+  readers: ["reader-a"],
+};
 
 test("PGlite runs the shared PostgreSQL ledger admission and transaction contracts", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-pglite-ledger-contract-")),
@@ -51,7 +59,7 @@ test("PGlite runs the shared PostgreSQL ledger admission and transaction contrac
       return node && { ...node, nodeKind: node.mode === "120000" ? "symbolic-link" : "file" };
     },
   });
-  const sqlite = makeTaskEventStore({ repoId, rootDir }),
+  const sqlite = makeTaskEventStore({ repoId: "parity-repo", rootDir }),
     fence = (epoch: number, holderId = "pglite-writer") => ({ repoId, holderId, epoch });
   try {
     await t.test(
@@ -93,41 +101,14 @@ test("PGlite runs the shared PostgreSQL ledger admission and transaction contrac
       },
     );
 
-    await t.test("epoch changes fence stale writers and a projection failure rolls back ledger rows", async () => {
-      const next = eventAt(10);
-      await backend.eventStore.append(bundle(next), 9, fence(2));
-      await assert.rejects(backend.eventStore.append(bundle(eventAt(11)), 10, fence(1)), {
-        code: "revision_conflict",
-      });
-      await assert.rejects(backend.eventStore.append(bundle(eventAt(11)), 10, fence(2, "stale-holder")), {
-        code: "revision_conflict",
-      });
-      await assert.rejects(backend.eventStore.append(bundle(eventAt(11)), 9, fence(2)), {
-        code: "revision_conflict",
-      });
-      assert.equal((await backend.eventStore.readHead())?.revision, 10);
-
-      const rollbackRepoId = "pglite-rollback-contract",
-        failing = makePostgresTaskEventStore({
-          pool: backend.pool,
-          repoId: rollbackRepoId,
-          scope,
-          project: async () => {
-            throw new Error("projection failed");
-          },
-        });
-      await assert.rejects(
-        failing.append(bundle(eventAt(1)), 0, { repoId: rollbackRepoId, holderId: "rollback-writer", epoch: 1 }),
-        /projection failed/u,
-      );
-      assert.equal(await failing.readHead(), null);
-      assert.deepEqual(await failing.execute({ operation: "events" }), []);
-      assert.equal(await failing.execute({ operation: "outcome", opId: eventAt(1).opId }), null);
-      const rollbackRows = await backend.db.query<{ count: string }>(
-        "SELECT count(*)::text AS count FROM ha_replication_positions WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3",
-        [scope.tenantId, scope.projectId, rollbackRepoId],
-      );
-      assert.equal(rollbackRows.rows[0]?.count, "0");
+    const make = (repoId: string, otherScope = scope, hooks: PostgresAppendHooks = {}) =>
+      makePostgresTaskEventStore({ pool: backend.pool, repoId, scope: otherScope, ...hooks });
+    await assertSingleSessionLedger(t, { make, sqlite, inspect: backend.pool });
+    await t.test("shared writer epoch, holder, revision and repository fencing", async () => {
+      const repoId = "race-repo",
+        store = make(repoId);
+      await store.append(bundle(eventAt(1)), 0, { repoId, holderId: "center-writer", epoch: 1 });
+      await assertWriterFencing(store, repoId);
     });
   } finally {
     await backend.close();
@@ -204,6 +185,8 @@ test("PGlite runs shared lifecycle replay, entity, graph and query parity assert
       await append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
     }
 
+    await appendGatedLifecycleFixture(append, () => nextRevision, backend.projection);
+
     const taskCreatedEvent = sqliteEvents
         .read()
         .events.find((value) => value.schema === "task-event/v1" && value.taskId === "task-lease-submit"),
@@ -227,6 +210,9 @@ test("PGlite runs shared lifecycle replay, entity, graph and query parity assert
     await append({ event: related, plan: relationEventWritePlan(related), blobs: [] });
 
     sqliteProjection.catchUp();
+    await assertLifecycleParity(backend.projection, sqliteProjection, "task-work-root");
+    await assertLifecycleParity(backend.projection, sqliteProjection, "task-gated-parity");
+    assert.equal((await backend.projection.readSnapshot("task-gated-parity"))!.gateWitnesses.length, 1);
     const canonicalLeases = canonicalLeaseOracle(sqliteProjection, leaseCases);
     await assertCanonicalLeaseReads(backend.projection, canonicalLeases);
     await assertLeaseQueryParity(backend.projection, sqliteProjection, backend.pool, scope);
@@ -284,6 +270,9 @@ test("PGlite runs shared lifecycle replay, entity, graph and query parity assert
       watermark: sourceRevision,
       sourceRevision,
     });
+    await assertLifecycleParity(backend.projection, sqliteProjection, "task-work-root");
+    await assertLifecycleParity(backend.projection, sqliteProjection, "task-gated-parity");
+    await assertCanonicalLeaseReads(backend.projection, canonicalLeases);
     assert.equal((await backend.entities.get("agent", "pglite-agent"))?.id, "pglite-agent");
   } finally {
     sqliteProjection.close();
