@@ -79,9 +79,8 @@ test("quotes byte input and applies the fixed code-run floor", () => {
 });
 
 test("unknown models fail closed instead of producing a zero-price quote", () => {
-  assert.throws(() => quoteAgentRuntimeBudget({ model: "model-without-a-public-price", inputTokens: 1 }), {
-    code: "MODEL_UNPRICED",
-  });
+  for (const model of ["model-without-a-public-price", "toString", "constructor", "__proto__"])
+    assert.throws(() => quoteAgentRuntimeBudget({ model, inputTokens: 1 }), { code: "MODEL_UNPRICED" }, model);
 });
 
 test("quote input validation requires exactly one estimate and bounds output", () => {
@@ -155,6 +154,32 @@ test("quote rejects fleet TLS callers at the daemon ACL boundary", async () => {
     const result = responseResult(response);
     assert.equal(result.ok, false);
     assert.equal(result.code, "local_transport_required");
+  } finally {
+    server.close();
+  }
+});
+
+test("quote RPC treats prototype property names as unpriced models", async () => {
+  const server = quoteServer({ transportKind: "unix-socket" });
+  try {
+    await server.handle({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "protocol.hello",
+      params: { protocolVersion: currentDaemonProtocolVersion },
+    });
+    for (const model of ["toString", "constructor", "__proto__"]) {
+      const response = await server.handle({
+        jsonrpc: "2.0",
+        id: model,
+        method: "repo.agentRuntime.quote",
+        params: { model, inputTokens: 1 },
+      });
+      assert.ok(response && !Array.isArray(response));
+      const result = responseResult(response);
+      assert.equal(result.ok, false, model);
+      assert.equal(result.code, "MODEL_UNPRICED", model);
+    }
   } finally {
     server.close();
   }
