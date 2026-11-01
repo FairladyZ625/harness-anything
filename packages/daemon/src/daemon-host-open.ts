@@ -404,6 +404,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     initialAttachmentsSettled = false,
     replicaSyncStartQueued = false,
     closing = false;
+  const replicaSyncTasks = new Set<Promise<void>>();
   // An unavailable row reports no writer generation or queue: the cell that would own them
   // never opened, so a zero would be a fabricated measurement rather than an unknown.
   const unavailableStatus = (
@@ -724,6 +725,9 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       latestControl = value;
     },
     refreshRegistry,
+    openings,
+    replicaSyncTasks,
+    replicaSyncControllers,
     // Declared below; resolved when an edge sync calls it.
     startReplicaSyncs: () => startReplicaSyncs(),
     settleControl,
@@ -989,6 +993,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     },
   };
   const startReplicaSyncs = (): void => {
+    if (closing) return;
     // A registry refresh can arrive while the initial attach fan-out is still opening cells. Starting
     // a remote-edge stream here races the cell's publication boundary and exposes sync failures
     // before the host reports attachment. Defer that refresh until the same initial barrier used by
@@ -998,6 +1003,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         replicaSyncStartQueued = true;
         void initialAttachments.then(() => {
           replicaSyncStartQueued = false;
+          if (closing) return;
           startReplicaSyncs();
         });
       }
@@ -1020,7 +1026,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       replicaSyncControllers.set(repo.repoId, { controller, config: connection });
       const viewRoot = path.isAbsolute(config.viewRoot) ? config.viewRoot : path.resolve(rootDir, config.viewRoot);
       const caPath = path.isAbsolute(config.caPath) ? config.caPath : path.resolve(rootDir, config.caPath);
-      void runFleetReplicaSync({
+      const task = runFleetReplicaSync({
         readAccessToken: async () => {
           const auth = await oidc.bind({ transportKind: "unix-socket" }, rootDir);
           // Resolve the current session token at request time so refreshes are observed.
@@ -1060,6 +1066,11 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             error: error instanceof Error ? error.message : String(error),
           }),
       });
+      replicaSyncTasks.add(task);
+      void task.then(
+        () => replicaSyncTasks.delete(task),
+        () => replicaSyncTasks.delete(task),
+      );
     }
     for (const [repoId, { controller }] of replicaSyncControllers) {
       if (activeRemoteEdges.has(repoId)) continue;
@@ -1158,7 +1169,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   }
   async function refreshRegistry(): Promise<void> {
     await refreshRegistryImpl(extracted);
-    startReplicaSyncs();
+    if (!closing) startReplicaSyncs();
   }
   async function attemptHostRecovery(repoId: string): Promise<void> {
     return attemptHostRecoveryImpl(extracted, repoId);
@@ -1169,6 +1180,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   function startInitialAttachments(): Promise<void> {
     return startInitialAttachmentsImpl(extracted).then(() => {
       initialAttachmentsSettled = true;
+      if (closing) return;
       startReplicaSyncs();
       return scheduleScheduler.start();
     });
