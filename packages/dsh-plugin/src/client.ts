@@ -26,6 +26,15 @@ interface ClientContext extends Context {
   readonly layout: {
     selectPanel(panelId: string | null): void;
   };
+  readonly sessions: {
+    readonly list: {
+      getSnapshot(): {
+        readonly byId: Readonly<
+          Record<string, { readonly cwd?: string; readonly retainedBy: Readonly<Record<string, number | undefined>> }>
+        >;
+      };
+    };
+  };
   readonly logger: {
     info(message: string, ...args: readonly unknown[]): void;
     warn(message: string, ...args: readonly unknown[]): void;
@@ -125,9 +134,21 @@ function isBrokerResponse(value: unknown): value is BrokerResponse {
   );
 }
 
-/** Fetch the Host-owned broker URL and open DSH's built-in browser tab. */
-async function fetchHarnessBroker(fetcher: typeof fetch = fetch): Promise<Extract<BrokerResponse, { ok: true }>> {
-  const response = await fetcher(BROKER_ROUTE, { headers: { accept: "application/json" } });
+/**
+ * The Workspace of the Session the main view keeps, as DSH's own sidebar finds
+ * it; the retention survives while a global panel such as this one is shown.
+ */
+export function selectedWorkspace(ctx: Pick<ClientContext, "sessions">): string | undefined {
+  return Object.values(ctx.sessions.list.getSnapshot().byId).find((row) => (row.retainedBy.mainView ?? 0) > 0)?.cwd;
+}
+
+/** Fetch the Host-owned broker URL for the selected Workspace. */
+async function fetchHarnessBroker(
+  workspace: string | undefined,
+  fetcher: typeof fetch = fetch,
+): Promise<Extract<BrokerResponse, { ok: true }>> {
+  const route = workspace === undefined ? BROKER_ROUTE : `${BROKER_ROUTE}?workspace=${encodeURIComponent(workspace)}`;
+  const response = await fetcher(route, { headers: { accept: "application/json" } });
   const value: unknown = await response.json();
   if (!isBrokerResponse(value)) throw new Error("Harness Anything broker returned an invalid response.");
   if (!value.ok) throw new BrokerClientError(value);
@@ -135,7 +156,7 @@ async function fetchHarnessBroker(fetcher: typeof fetch = fetch): Promise<Extrac
 }
 
 export async function openHarnessBrowser(ctx: ClientContext, fetcher: typeof fetch = fetch): Promise<BrokerResponse> {
-  const value = await fetchHarnessBroker(fetcher);
+  const value = await fetchHarnessBroker(selectedWorkspace(ctx), fetcher);
   ctx.layout.selectPanel(null);
   await openTabWhenSessionMounts(ctx, value.url);
   return value;
@@ -228,9 +249,11 @@ function writeDefaultView(view: PanelView): void {
 /** The Host owns the broker process; leaving the board keeps its iframe and in-frame state alive. */
 export function HarnessPanel({
   copy,
+  getWorkspace,
   onOpenBeside,
 }: {
   readonly copy: TutorialCopy;
+  readonly getWorkspace: () => string | undefined;
   readonly onOpenBeside: () => void;
 }): ReactNode {
   const [preference, setPreference] = useState<PanelView | null>(readDefaultView);
@@ -240,12 +263,14 @@ export function HarnessPanel({
     url: "",
     error: null,
   });
+  // Every entry to the board asks the Host again: the selected Workspace may have
+  // changed, and an unchanged one returns the running broker without a restart.
   useEffect(() => {
-    if (view !== "harness" || broker.url) return;
+    if (view !== "harness") return;
     let current = true;
-    void fetchHarnessBroker().then(
+    void fetchHarnessBroker(getWorkspace()).then(
       (value) => {
-        if (current) setBroker({ url: value.url, error: null });
+        if (current) setBroker((previous) => (previous.url === value.url ? previous : { url: value.url, error: null }));
       },
       (error: unknown) => {
         if (current) setBroker({ url: "", error: failureDetails(error) });
@@ -254,7 +279,7 @@ export function HarnessPanel({
     return () => {
       current = false;
     };
-  }, [view, retry, broker.url]);
+  }, [view, retry, getWorkspace]);
   const choose = (next: PanelView): void => {
     writeDefaultView(next);
     setPreference(next);
@@ -338,7 +363,7 @@ function HarnessIcon({ size }: PropsRuntime<"sidebar.panellist"> & SidebarPanelI
   );
 }
 
-export const inject = ["slots", "locale", "sidebarRight", "layout"];
+export const inject = ["slots", "locale", "sidebarRight", "layout", "sessions"];
 
 export function apply(ctx: ClientContext): void {
   const failure = createSnapshotStore<BrokerFailureDetails | null>(null);
@@ -346,6 +371,8 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(LOCALE_NAMESPACE, messages), "harness-anything: dictionaries");
   ctx.effect(() => () => failure.set(null), "harness-anything: broker error notice");
   const t = ctx.locale.bind(LOCALE_NAMESPACE);
+  // One stable reader, so the panel's fetch effect runs on view changes only.
+  const getWorkspace = (): string | undefined => selectedWorkspace(ctx);
   ctx.slots.inject("shell.overlay", () =>
     ctx.slots.register(
       {
@@ -361,6 +388,7 @@ export function apply(ctx: ClientContext): void {
     ctx.slots.register({ name: "main", key: PANEL_ID, locale: LOCALE_NAMESPACE }, (() =>
       createElement(HarnessPanel, {
         copy: t("language") === "zh" ? tutorialCopy.zh : tutorialCopy.en,
+        getWorkspace,
         onOpenBeside: () => {
           void openHarnessBrowser(ctx).catch(reportFailure);
         },

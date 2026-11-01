@@ -40,7 +40,7 @@ test("open here asks once for the default view, keeps the board alive, and share
         return { stdout, done, terminate: () => finish({ exitCode: 0, signal: null }) };
       },
     },
-    { getWorkspace: () => "/fixture", getParentOrigin: () => origin },
+    { resolveWorkspace: async () => "/fixture", getParentOrigin: () => origin },
   );
   const server = createServer((request, response) => {
     if (request.url === BROKER_ROUTE) {
@@ -77,9 +77,10 @@ test("open here asks once for the default view, keeps the board alive, and share
     const ctx = {
       layout: { selectPanel: value => { document.body.dataset.selectedPanel = String(value); } },
       sidebarRight: { openTab: () => { document.body.dataset.browserOpened = 'true'; } },
+      sessions: { list: { getSnapshot: () => ({ byId: {} }) } },
     };
     createRoot(document.getElementById('root')).render(createElement(HarnessPanel, {
-      copy: tutorialCopy.zh, onOpenBeside: () => void openHarnessBrowser(ctx),
+      copy: tutorialCopy.zh, getWorkspace: () => undefined, onOpenBeside: () => void openHarnessBrowser(ctx),
     }));
   `,
   );
@@ -110,9 +111,10 @@ test("open here asks once for the default view, keeps the board alive, and share
   await frame.getByRole("textbox", { name: "Frame state" }).fill("retained");
   const ask = board.getByRole("group", { name: "以后点开插件，直接显示看板？" });
   await ask.getByRole("button", { name: "是，默认看板", exact: true }).click();
+  await ask.waitFor({ state: "detached" });
   assert.equal(await ask.count(), 0, "the default-view question is asked once");
   await board.getByRole("button", { name: "← 教程", exact: true }).click();
-  assert.equal(await tutorial.isVisible(), true);
+  await tutorial.waitFor();
   await tutorial.getByRole("button", { name: "在这里打开", exact: true }).click();
   assert.equal(await frame.getByRole("textbox", { name: "Frame state" }).inputValue(), "retained");
   assert.equal(launches, 1);

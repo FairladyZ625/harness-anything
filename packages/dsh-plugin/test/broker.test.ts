@@ -2,7 +2,13 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { createBrokerManager, type BrokerSubprocessHandle, type BrokerSubprocessRuntime } from "../src/broker.ts";
+import {
+  chooseWorkspace,
+  createBrokerManager,
+  readRegisteredRepos,
+  type BrokerSubprocessHandle,
+  type BrokerSubprocessRuntime,
+} from "../src/broker.ts";
 import { apply as applyHost } from "../src/index.ts";
 import { apply as applyClient, openHarnessBrowser } from "../src/client.ts";
 
@@ -20,6 +26,9 @@ interface FakeStream {
   on(event: "data" | "end" | "error", listener: (...args: readonly unknown[]) => void): void;
   emit(value: unknown): void;
 }
+
+/** Let the manager's asynchronous Workspace resolution reach its spawn. */
+const settle = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 
 function stream(): FakeStream {
   const listeners: Array<(value: unknown) => void> = [];
@@ -120,6 +129,16 @@ function clientHarness(): {
     },
     sidebarRight: { openTab() {} },
     layout: { selectPanel: (panelId: string | null) => selectedPanels.push(panelId) },
+    sessions: {
+      list: {
+        getSnapshot: () => ({
+          byId: {
+            other: { cwd: "/elsewhere", retainedBy: {} },
+            main: { cwd: "/selected", retainedBy: { mainView: 1 } },
+          },
+        }),
+      },
+    },
     logger: { info() {}, warn() {} },
   } as Record<string, unknown>;
   return {
@@ -134,7 +153,6 @@ function clientHarness(): {
 }
 
 test("broker launches ha gui with the workspace and reuses the URL", async () => {
-  let workspace = "/repo";
   const children: Child[] = [];
   const subprocess: BrokerSubprocessRuntime = {
     spawn(spec) {
@@ -154,15 +172,20 @@ test("broker launches ha gui with the workspace and reuses the URL", async () =>
       return current.handle;
     },
   };
+  const resolved: Array<string | undefined> = [];
   const manager = createBrokerManager(subprocess, {
     getParentOrigin: () => "dsh-app://app",
-    getWorkspace: () => workspace,
+    resolveWorkspace: async (requested) => {
+      resolved.push(requested);
+      return requested ?? "/repo";
+    },
   });
   assert.deepEqual(await manager.ensure(), { ok: true, url: "http://127.0.0.1:4040/#token", summary: "ready" });
   assert.deepEqual(await manager.ensure(), { ok: true, url: "http://127.0.0.1:4040/#token" });
-  assert.equal(children.length, 1);
-  workspace = "/other";
-  assert.deepEqual(await manager.ensure(), { ok: true, url: "http://127.0.0.1:4040/#token", summary: "ready" });
+  assert.deepEqual(await manager.ensure("/repo"), { ok: true, url: "http://127.0.0.1:4040/#token" });
+  assert.equal(children.length, 1, "a request resolving to the running root reuses its broker");
+  assert.deepEqual(resolved, [undefined, "/repo"], "a repeated request skips resolution");
+  assert.deepEqual(await manager.ensure("/other"), { ok: true, url: "http://127.0.0.1:4040/#token", summary: "ready" });
   assert.equal(children.length, 2);
   assert.equal(children[0]?.terminated.value, true);
   await manager.dispose();
@@ -176,10 +199,14 @@ test("broker forwards missing CLI and uninitialized repository code and hint", a
   ]) {
     const current = child();
     const manager = createBrokerManager(
-      { spawn: () => current.handle },
-      { getParentOrigin: () => "dsh-app://app", getWorkspace: () => "/repo" },
+      {
+        spawn: () => {
+          queueMicrotask(() => current.stdout.emit(receipt));
+          return current.handle;
+        },
+      },
+      { getParentOrigin: () => "dsh-app://app", resolveWorkspace: async () => "/repo" },
     );
-    queueMicrotask(() => current.stdout.emit(receipt));
     const result = await manager.ensure();
     assert.deepEqual(result, JSON.parse(receipt));
     assert.equal(current.terminated.value, true);
@@ -189,13 +216,17 @@ test("broker forwards missing CLI and uninitialized repository code and hint", a
 test("broker preserves the CLI top-level daemon failure code and diagnostic hint", async () => {
   const current = child();
   const manager = createBrokerManager(
-    { spawn: () => current.handle },
-    { getParentOrigin: () => "dsh-app://app", getWorkspace: () => "/repo" },
-  );
-  queueMicrotask(() =>
-    current.stdout.emit(
-      '{"ok":false,"code":"daemon_start_failed","diagnostic":{"expectation":"Start the local daemon, then retry ha gui."}}\n',
-    ),
+    {
+      spawn: () => {
+        queueMicrotask(() =>
+          current.stdout.emit(
+            '{"ok":false,"code":"daemon_start_failed","diagnostic":{"expectation":"Start the local daemon, then retry ha gui."}}\n',
+          ),
+        );
+        return current.handle;
+      },
+    },
+    { getParentOrigin: () => "dsh-app://app", resolveWorkspace: async () => "/repo" },
   );
   assert.deepEqual(await manager.ensure(), {
     ok: false,
@@ -208,9 +239,10 @@ test("disposing while ha is starting terminates the pending child", async () => 
   const current = child();
   const manager = createBrokerManager(
     { spawn: () => current.handle },
-    { getParentOrigin: () => "dsh-app://app", getWorkspace: () => "/repo" },
+    { getParentOrigin: () => "dsh-app://app", resolveWorkspace: async () => "/repo" },
   );
   const pending = manager.ensure();
+  await settle();
   await manager.dispose();
   assert.equal(current.terminated.value, true);
   assert.deepEqual(await pending, {
@@ -233,8 +265,11 @@ test("client registration opens the built-in browser with the broker URL", async
   applyClient(ctx);
   const iconRegistration = registrations.find((entry) => entry.options.name === "sidebar.panellist");
   assert.ok(iconRegistration);
-  const fetcher: typeof fetch = async () =>
-    new Response(JSON.stringify({ ok: true, url: "http://127.0.0.1:4321/" }), { status: 200 });
+  const routes: string[] = [];
+  const fetcher: typeof fetch = async (input) => {
+    routes.push(String(input));
+    return new Response(JSON.stringify({ ok: true, url: "http://127.0.0.1:4321/" }), { status: 200 });
+  };
   const icon = iconRegistration.component({ size: 16, active: false } as never) as {
     readonly props: { readonly onClick?: () => Promise<void> };
   };
@@ -242,6 +277,7 @@ test("client registration opens the built-in browser with the broker URL", async
   await openHarnessBrowser(ctx, fetcher);
   assert.deepEqual(selectedPanels, [null]);
   assert.deepEqual(clicks, [{ kind: "browser", url: "http://127.0.0.1:4321/" }]);
+  assert.deepEqual(routes, ["/__harness_anything/broker?workspace=%2Fselected"], "the main view's Workspace is sent");
 });
 
 test("client displays broker code and hint in the shell overlay on failure", async () => {
@@ -355,22 +391,25 @@ test("broker coalesces concurrent requests, retries failures, and replaces an ex
       },
     },
     {
-      getWorkspace: () => "/repo",
+      resolveWorkspace: async () => "/repo",
       getParentOrigin: () => "http://127.0.0.1:4000",
     },
   );
   const first = manager.ensure();
   const concurrent = manager.ensure();
+  await settle();
   assert.equal(children.length, 1);
   children[0]!.stdout.emit(JSON.stringify({ ok: false, error: { code: "invalid_field", hint: "Upgrade CLI." } }));
   assert.deepEqual(await first, await concurrent);
   const retry = manager.ensure();
+  await settle();
   assert.equal(children.length, 2);
   children[1]!.stdout.emit(JSON.stringify({ ok: true, url: "http://127.0.0.1:4001/" }));
   assert.equal((await retry).ok, true);
   children[1]!.resolve({ exitCode: 0, signal: null });
   await children[1]!.handle.done;
   const replacement = manager.ensure();
+  await settle();
   assert.equal(children.length, 3);
   children[2]!.stdout.emit(JSON.stringify({ ok: true, url: "http://127.0.0.1:4002/" }));
   assert.deepEqual(await replacement, { ok: true, url: "http://127.0.0.1:4002/" });
@@ -378,23 +417,98 @@ test("broker coalesces concurrent requests, retries failures, and replaces an ex
 });
 
 test("broker never returns a stale workspace URL to an in-flight request", async () => {
-  let workspace = "/first";
-  const current = child();
+  const children: Child[] = [];
   const manager = createBrokerManager(
-    { spawn: () => current.handle },
     {
-      getWorkspace: () => workspace,
+      spawn() {
+        const next = child();
+        children.push(next);
+        return next.handle;
+      },
+    },
+    {
+      resolveWorkspace: async (requested) => requested ?? "/first",
       getParentOrigin: () => "dsh-app://app",
     },
   );
-  const pending = manager.ensure();
-  workspace = "/second";
-  current.stdout.emit(JSON.stringify({ ok: true, url: "http://127.0.0.1:4001/" }));
+  const pending = manager.ensure("/first");
+  await settle();
+  const replacement = manager.ensure("/second");
+  await settle();
+  children[0]!.stdout.emit(JSON.stringify({ ok: true, url: "http://127.0.0.1:4001/" }));
   const result = await pending;
   assert.equal(result.ok, false);
   if (!result.ok) assert.equal(result.error.code, "broker_superseded");
-  assert.equal(current.terminated.value, true);
+  assert.equal(children[0]!.terminated.value, true);
+  children[1]!.stdout.emit(JSON.stringify({ ok: true, url: "http://127.0.0.1:4002/" }));
+  assert.deepEqual(await replacement, { ok: true, url: "http://127.0.0.1:4002/" });
   await manager.dispose();
+});
+
+test("board follows the selected Workspace, then any served Workspace, then the daemon's latest repository", () => {
+  const repos = [{ rootDir: "/latest" }, { rootDir: "/repo" }];
+  const choose = (requested: string | undefined, workspaces: readonly string[], served = repos) =>
+    chooseWorkspace({ requested, workspaces, repos: served, separator: "/", fallback: "/cwd" });
+  assert.equal(choose("/repo/sub", ["/skills", "/repo/sub"]), "/repo/sub", "a selected served Workspace wins");
+  assert.equal(choose("/skills", ["/skills", "/repo"]), "/repo", "an unserved selection yields to a served Workspace");
+  assert.equal(choose("/skills", ["/skills"]), "/latest", "then the daemon's most recent repository");
+  assert.equal(
+    choose("/skills", ["/skills"], []),
+    "/skills",
+    "with nothing served the selection shows ha gui guidance",
+  );
+  assert.equal(choose("/unlisted", ["/skills"], []), "/skills", "an unlisted request is never used as a root");
+  assert.equal(choose(undefined, [], []), "/cwd");
+  assert.equal(choose("/repository", ["/repository"]), "/latest", "a sibling path prefix is not inside a repository");
+});
+
+test("registered repositories come from ha daemon status, attached and most recent first", async () => {
+  const current = child();
+  const argv: string[][] = [];
+  const pending = readRegisteredRepos(
+    {
+      spawn(spec) {
+        argv.push([...spec.argv]);
+        return current.handle;
+      },
+    },
+    "ha",
+    "/home",
+  );
+  current.stdout.emit(
+    `${JSON.stringify({
+      ok: true,
+      repos: [
+        { rootDir: "/closed-new", state: "closed", materialization: { lastCheckpointAt: "2026-11-01T10:00:00Z" } },
+        { rootDir: "/attached-old", state: "attached", materialization: { lastCheckpointAt: "2026-10-01T00:00:00Z" } },
+        { rootDir: "/attached-new", state: "attached", materialization: { lastCheckpointAt: "2026-11-01T09:00:00Z" } },
+        { state: "attached" },
+      ],
+    })}\n`,
+  );
+  current.resolve({ exitCode: 0, signal: null });
+  assert.deepEqual(await pending, [
+    { rootDir: "/attached-new" },
+    { rootDir: "/attached-old" },
+    { rootDir: "/closed-new" },
+  ]);
+  assert.deepEqual(argv, [["ha", "daemon", "status", "--json"]]);
+  const silent = child();
+  const none = readRegisteredRepos({ spawn: () => silent.handle }, "ha", "/home");
+  silent.resolve({ exitCode: 1, signal: null });
+  assert.deepEqual(await none, [], "an unreachable daemon serves nothing");
+  assert.deepEqual(
+    await readRegisteredRepos(
+      {
+        spawn() {
+          throw new Error("spawn ha ENOENT");
+        },
+      },
+      "ha",
+      "/home",
+    ),
+    [],
+  );
 });
 
 test("Host obtains embedding origin from its profile and webServer, never request headers", async () => {
@@ -408,12 +522,22 @@ test("Host obtains embedding origin from its profile and webServer, never reques
         spawn(spec: { argv: string[] }) {
           argv.push(spec.argv);
           const next = child();
-          queueMicrotask(() => next.stdout.emit(JSON.stringify({ ok: true, url: "http://127.0.0.1:4001/" })));
+          const status = spec.argv[1] === "daemon";
+          queueMicrotask(() => {
+            next.stdout.emit(
+              JSON.stringify(
+                status
+                  ? { ok: true, repos: [{ rootDir: "/repo", state: "attached" }] }
+                  : { ok: true, url: "http://127.0.0.1:4001/" },
+              ),
+            );
+            if (status) next.resolve({ exitCode: 0, signal: null });
+          });
           return next.handle;
         },
       },
       get: () => ({ name: profile }),
-      workspaceRegistry: { list: () => [{ path: "/repo" }] },
+      workspaceRegistry: { list: () => [{ path: "/skills" }, { path: "/repo" }] },
       webServer: {
         getOrigin: () => {
           originReads += 1;
@@ -431,10 +555,15 @@ test("Host obtains embedding origin from its profile and webServer, never reques
     } as never);
     assert.equal(originReads, 0, "origin is read only after the Host listener is ready");
     await handler(
-      { method: "GET", headers: { origin: "https://untrusted.example" } } as never,
+      {
+        method: "GET",
+        url: "/__harness_anything/broker?workspace=%2Fskills",
+        headers: { origin: "https://untrusted.example" },
+      } as never,
       { setHeader() {}, end() {} } as never,
     );
-    assert.deepEqual(argv[0], [
+    assert.deepEqual(argv[0], ["ha", "daemon", "status", "--json"]);
+    assert.deepEqual(argv[1], [
       "ha",
       "gui",
       "--browser",

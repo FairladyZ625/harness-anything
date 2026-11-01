@@ -1,5 +1,12 @@
 import type { Context } from "@deepseek-ai/cordis";
-import { BROKER_ROUTE, createBrokerManager, type BrokerSubprocessRuntime } from "./broker.ts";
+import path from "node:path";
+import {
+  BROKER_ROUTE,
+  chooseWorkspace,
+  createBrokerManager,
+  readRegisteredRepos,
+  type BrokerSubprocessRuntime,
+} from "./broker.ts";
 
 export const name = "harness-anything-dsh-plugin";
 export const inject = ["subprocess", "webServer", "workspaceRegistry"];
@@ -34,20 +41,29 @@ interface HostContext extends Context {
   };
 }
 
-function currentWorkspace(ctx: HostContext, config: Config): string {
-  if (config.cwd !== undefined && config.cwd.length > 0) return config.cwd;
+function listWorkspaces(ctx: HostContext): readonly string[] {
   try {
-    return ctx.workspaceRegistry.list()[0]?.path ?? process.cwd();
+    return ctx.workspaceRegistry.list().map((workspace) => workspace.path);
   } catch {
-    return process.cwd();
+    return [];
   }
 }
 
 /** Register the lazy Host broker route; all Harness state remains behind the `ha` CLI. */
 export function apply(ctx: HostContext, config: Config = {}): void {
+  const executable = config.executable ?? "ha";
   const manager = createBrokerManager(ctx.subprocess, {
-    executable: config.executable,
-    getWorkspace: () => currentWorkspace(ctx, config),
+    executable,
+    resolveWorkspace: async (requested) =>
+      config.cwd !== undefined && config.cwd.length > 0
+        ? config.cwd
+        : chooseWorkspace({
+            requested,
+            workspaces: listWorkspaces(ctx),
+            repos: await readRegisteredRepos(ctx.subprocess, executable, process.cwd()),
+            separator: path.sep,
+            fallback: process.cwd(),
+          }),
     getParentOrigin: () =>
       ctx.get("profileContext")?.name === "desktop" ? "dsh-app://app" : ctx.webServer.getOrigin(),
   });

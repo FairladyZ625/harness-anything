@@ -33,11 +33,13 @@ export interface BrokerSubprocessRuntime {
 
 export interface BrokerManagerOptions {
   readonly executable?: string;
-  readonly getWorkspace: () => string;
+  /** Map the Client's selected Workspace (if any) to the root `ha gui` serves. */
+  readonly resolveWorkspace: (requested: string | undefined) => Promise<string>;
   readonly getParentOrigin: () => string;
 }
 
 interface ActiveBroker {
+  readonly requested: string | undefined;
   readonly workspace: string;
   readonly url: string;
   readonly handle: BrokerSubprocessHandle;
@@ -75,33 +77,62 @@ function errorReceipt(record: Record<string, unknown>): BrokerFailure | undefine
   return failure(code, hint);
 }
 
-function jsonReceipt(text: string): BrokerResponse | undefined {
+/** JSON objects among the CLI's output lines; progress lines may precede a receipt. */
+function jsonLines(text: string): readonly Record<string, unknown>[] {
+  const records: Record<string, unknown>[] = [];
   for (const line of text.split(/\r?\n/u)) {
     const start = line.indexOf("{");
     if (start === -1) continue;
     try {
       const value: unknown = JSON.parse(line.slice(start));
-      if (!value || typeof value !== "object") continue;
-      const record = value as Record<string, unknown>;
-      if (record.ok === true && typeof record.url === "string" && record.url.length > 0) {
-        return {
-          ok: true,
-          url: record.url,
-          ...(typeof record.summary === "string" ? { summary: record.summary } : {}),
-        };
-      }
-      const error = errorReceipt(record);
-      if (error !== undefined) return error;
+      if (value && typeof value === "object") records.push(value as Record<string, unknown>);
     } catch (error) {
       consumeKnownError(error);
-      // The CLI may write a progress line before its one JSON receipt.
     }
+  }
+  return records;
+}
+
+function jsonReceipt(text: string): BrokerResponse | undefined {
+  for (const record of jsonLines(text)) {
+    if (record.ok === true && typeof record.url === "string" && record.url.length > 0) {
+      return {
+        ok: true,
+        url: record.url,
+        ...(typeof record.summary === "string" ? { summary: record.summary } : {}),
+      };
+    }
+    const error = errorReceipt(record);
+    if (error !== undefined) return error;
   }
   return undefined;
 }
 
 function failure(code: string, hint: string): BrokerFailure {
   return { ok: false, error: { code, hint } };
+}
+
+/** Spawn `ha`; a spawn error becomes an exited child whose stderr carries the reason. */
+function spawnCli(subprocess: BrokerSubprocessRuntime, argv: readonly string[], cwd: string): BrokerSubprocessHandle {
+  try {
+    return subprocess.spawn({
+      argv,
+      cwd,
+      stdio: { stdin: "ignore", stdout: "pipe", stderr: "pipe" },
+      graceMs: BROKER_GRACE_MS,
+    });
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return {
+      stderr: {
+        on: (event, listener) => {
+          if (event === "data") listener(reason);
+        },
+      },
+      done: Promise.resolve({ exitCode: null, signal: null }),
+      terminate() {},
+    };
+  }
 }
 
 function launchBroker(
@@ -111,20 +142,11 @@ function launchBroker(
   parentOrigin: string,
   onSpawn: (handle: BrokerSubprocessHandle) => void,
 ): Promise<{ readonly response: BrokerResponse; readonly handle: BrokerSubprocessHandle }> {
-  let handle: BrokerSubprocessHandle;
-  try {
-    handle = subprocess.spawn({
-      argv: [executable, "gui", "--browser", "--parent-origin", parentOrigin, "--root", workspace, "--json"],
-      cwd: workspace,
-      stdio: { stdin: "ignore", stdout: "pipe", stderr: "pipe" },
-      graceMs: BROKER_GRACE_MS,
-    });
-  } catch (error) {
-    return Promise.resolve({
-      response: failure("ha_unavailable", error instanceof Error ? error.message : String(error)),
-      handle: { done: Promise.resolve({ exitCode: null, signal: null }), terminate() {} },
-    });
-  }
+  const handle = spawnCli(
+    subprocess,
+    [executable, "gui", "--browser", "--parent-origin", parentOrigin, "--root", workspace, "--json"],
+    workspace,
+  );
   onSpawn(handle);
 
   return new Promise((resolve) => {
@@ -166,8 +188,75 @@ function launchBroker(
   });
 }
 
+export interface RegisteredRepo {
+  readonly rootDir: string;
+}
+
+function registeredRepos(text: string): readonly RegisteredRepo[] {
+  const record = jsonLines(text).find((value) => Array.isArray(value.repos));
+  if (record === undefined) return [];
+  const rows = (record.repos as readonly unknown[]).filter(
+    (row): row is { rootDir: string; state?: unknown; materialization?: { lastCheckpointAt?: unknown } } =>
+      !!row && typeof row === "object" && typeof (row as { rootDir?: unknown }).rootDir === "string",
+  );
+  const checkpoint = (row: (typeof rows)[number]): string =>
+    typeof row.materialization?.lastCheckpointAt === "string" ? row.materialization.lastCheckpointAt : "";
+  // Attached repositories first, then the most recently written ledger.
+  return rows
+    .sort(
+      (left, right) =>
+        Number(right.state === "attached") - Number(left.state === "attached") ||
+        checkpoint(right).localeCompare(checkpoint(left)),
+    )
+    .map((row) => ({ rootDir: row.rootDir }));
+}
+
+/** Repositories the local daemon serves, ordered by recency; none when the daemon cannot answer. */
+export function readRegisteredRepos(
+  subprocess: BrokerSubprocessRuntime,
+  executable: string,
+  cwd: string,
+): Promise<readonly RegisteredRepo[]> {
+  const handle = spawnCli(subprocess, [executable, "daemon", "status", "--json"], cwd);
+  let stdout = "";
+  handle.stdout?.on("data", (value: unknown) => {
+    stdout = `${stdout}${textChunk(value)}`.slice(-OUTPUT_LIMIT_BYTES);
+  });
+  // An unreachable daemon serves no repository; the board then shows `ha gui`'s own guidance.
+  return handle.done.then(
+    () => registeredRepos(stdout),
+    () => [],
+  );
+}
+
+/**
+ * Pick the root the board serves: the selected Workspace, then any DSH
+ * Workspace, when the daemon serves it; otherwise the daemon's most recent
+ * repository; with none registered, the selected Workspace shows `ha gui`'s
+ * own guidance.
+ */
+export function chooseWorkspace(input: {
+  readonly requested: string | undefined;
+  readonly workspaces: readonly string[];
+  readonly repos: readonly RegisteredRepo[];
+  readonly separator: string;
+  readonly fallback: string;
+}): string {
+  const selected =
+    input.requested !== undefined && input.workspaces.includes(input.requested) ? input.requested : undefined;
+  const served = (dir: string): boolean =>
+    input.repos.some((repo) => dir === repo.rootDir || dir.startsWith(`${repo.rootDir}${input.separator}`));
+  return (
+    [selected, ...input.workspaces].find((dir): dir is string => dir !== undefined && served(dir)) ??
+    input.repos[0]?.rootDir ??
+    selected ??
+    input.workspaces[0] ??
+    input.fallback
+  );
+}
+
 export interface BrokerManager {
-  ensure(): Promise<BrokerResponse>;
+  ensure(requested?: string): Promise<BrokerResponse>;
   dispose(): Promise<void>;
   handle(request: IncomingMessage, response: ServerResponse): Promise<void>;
 }
@@ -177,6 +266,7 @@ export function createBrokerManager(subprocess: BrokerSubprocessRuntime, options
   const executable = options.executable ?? "ha";
   let active: ActiveBroker | undefined;
   let pending: Promise<BrokerResponse> | undefined;
+  let pendingRequested: string | undefined;
   let pendingWorkspace: string | undefined;
   let pendingHandle: BrokerSubprocessHandle | undefined;
   let generation = 0;
@@ -185,6 +275,7 @@ export function createBrokerManager(subprocess: BrokerSubprocessRuntime, options
     const current = active;
     active = undefined;
     pending = undefined;
+    pendingRequested = undefined;
     pendingWorkspace = undefined;
     const starting = pendingHandle;
     pendingHandle = undefined;
@@ -193,11 +284,17 @@ export function createBrokerManager(subprocess: BrokerSubprocessRuntime, options
     starting?.terminate();
   };
 
-  const ensure = async (): Promise<BrokerResponse> => {
-    const workspace = options.getWorkspace();
-    if (active?.workspace === workspace) return { ok: true, url: active.url };
+  const ensure = async (requested?: string): Promise<BrokerResponse> => {
+    if (active !== undefined && active.requested === requested) return { ok: true, url: active.url };
+    if (pending !== undefined && pendingRequested === requested) return pending;
+    const workspace = await options.resolveWorkspace(requested);
+    if (active?.workspace === workspace) {
+      active = { ...active, requested };
+      return { ok: true, url: active.url };
+    }
     if (pending !== undefined && pendingWorkspace === workspace) return pending;
     stop();
+    pendingRequested = requested;
     pendingWorkspace = workspace;
     const requestGeneration = generation;
     const request = launchBroker(subprocess, workspace, executable, options.getParentOrigin(), (handle) => {
@@ -205,15 +302,16 @@ export function createBrokerManager(subprocess: BrokerSubprocessRuntime, options
     }).then(({ response, handle }) => {
       if (requestGeneration === generation) {
         pending = undefined;
+        pendingRequested = undefined;
         pendingWorkspace = undefined;
       }
       if (pendingHandle === handle) pendingHandle = undefined;
-      if (requestGeneration !== generation || options.getWorkspace() !== workspace) {
+      if (requestGeneration !== generation) {
         handle.terminate();
         return failure("broker_superseded", "The workspace changed or the plugin stopped. Open Harness again.");
       }
       if (response.ok) {
-        active = { workspace, url: response.url, handle };
+        active = { requested, workspace, url: response.url, handle };
         const clearExitedBroker = (): void => {
           if (active?.handle === handle) active = undefined;
         };
@@ -239,7 +337,8 @@ export function createBrokerManager(subprocess: BrokerSubprocessRuntime, options
         response.end(JSON.stringify(failure("method_not_allowed", "Use GET for the Harness Anything broker route.")));
         return;
       }
-      const result = await ensure();
+      const requested = new URL(request.url ?? "/", "http://host").searchParams.get("workspace") ?? undefined;
+      const result = await ensure(requested);
       response.statusCode = result.ok ? 200 : 503;
       response.setHeader("Content-Type", "application/json");
       response.end(JSON.stringify(result));
