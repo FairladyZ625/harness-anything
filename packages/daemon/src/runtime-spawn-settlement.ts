@@ -187,14 +187,19 @@ export async function publishExit(
             executionId: active.task.executionId,
             dispatchId: active.dispatchId,
             runtimeSessionId: active.runtimeSessionId,
-            binding: active.binding,
+            // Recovery is a durable Review Action and must carry the terminal runtime
+            // identity, even when the dispatch was admitted from a principal-only binding.
+            binding: terminalBinding,
             packet: reviewPacket,
             report: reviewReport,
           });
           reviewRegistered = reviewerReviewRegistered(context, active, reviewId);
         } catch (error) {
           consumeKnownError(error);
-          const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512);
+          const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(
+            0,
+            512,
+          );
           console.error(`[review-recovery] ${active.dispatchId} could not register carried review: ${detail}`);
         }
       }
@@ -780,7 +785,8 @@ function reviewerReviewRegistered(context: RuntimeSpawnerContext, active: Active
         .requiredRuntimeProjection(context.input)
         .read(active.task.taskId)
         .snapshot.reviews.some(
-          (review) => review.reviewId === reviewId || review.actor.executor?.id === `runtime-session:${active.runtimeSessionId}`,
+          (review) =>
+            review.reviewId === reviewId || review.actor.executor?.id === `runtime-session:${active.runtimeSessionId}`,
         )
     );
   return active.decisionReviewTarget !== null && active.decisionReviewTarget !== undefined

@@ -630,10 +630,7 @@ export async function openRepoWriterCell(
           `runtime-review-recovery:${runtimeSessionId}`,
         ),
         carried = reviewerArtifactsFromCarriedReview(operationalContext, action, { packet, report }),
-        receipt = await recoveryWork.write(
-          () => extracted.lifecycleAction(action, authorized, carried),
-          authorized,
-        );
+        receipt = await recoveryWork.write(() => extracted.lifecycleAction(action, authorized, carried), authorized);
       if (receipt.outcome !== "applied" && receipt.outcome !== "no_changes")
         throw cellCodedError(
           "review_result_missing",
