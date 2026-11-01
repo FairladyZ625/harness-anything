@@ -765,6 +765,19 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
           }),
           scheduleOutputEvents: queries.readScheduleOutputEvents(["missing-runtime-session"]),
           runtimeSessionEvents: queries.readRuntimeSessionEvents("missing-runtime-session", 0, 50),
+          eventList: queries.readEventList({
+            type: event.type,
+            actor: event.actor.principal.personId,
+            after: event.occurredAt,
+            limit: 10,
+          }),
+          eventListByExecutor: queries.readEventList({ actor: event.actor.executor!.id, limit: 10 }),
+          eventListByFullEntityRef: queries.readEventList({ entity: `task/${event.taskId}`, limit: 10 }),
+          eventListByEntityId: queries.readEventList({ entity: event.taskId, limit: 10 }),
+          eventWitness: queries.readEventWitness(event.workspaceRevision),
+          eventSummaries: queries.readEventSummaries(0, expectedRevision),
+          operation: queries.readOperation(event.opId),
+          taskOperation: queries.readTaskOperation(event.opId),
         }));
         assert.deepEqual(pgRead.cut, sqliteProjection.readCut());
         assert.deepEqual(pgRead.snapshot, sqliteProjection.read("task-parity").snapshot);
@@ -798,6 +811,31 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
           pgRead.runtimeSessionEvents,
           sqliteProjection.readRuntimeSessionEvents("missing-runtime-session", 0, 50),
         );
+        assert.deepEqual(
+          pgRead.eventList,
+          sqliteProjection.readEventList({
+            type: event.type,
+            actor: event.actor.principal.personId,
+            after: event.occurredAt,
+            limit: 10,
+          }),
+        );
+        assert.deepEqual(
+          pgRead.eventListByExecutor,
+          sqliteProjection.readEventList({ actor: event.actor.executor!.id, limit: 10 }),
+        );
+        assert.deepEqual(
+          pgRead.eventListByFullEntityRef,
+          sqliteProjection.readEventList({ entity: `task/${event.taskId}`, limit: 10 }),
+        );
+        assert.deepEqual(
+          pgRead.eventListByEntityId,
+          sqliteProjection.readEventList({ entity: event.taskId, limit: 10 }),
+        );
+        assert.deepEqual(pgRead.eventWitness, sqliteProjection.readEventWitness(event.workspaceRevision));
+        assert.deepEqual(pgRead.eventSummaries, sqliteProjection.readEventSummaries(0, expectedRevision));
+        assert.deepEqual(pgRead.operation, sqliteProjection.readOperation(event.opId));
+        assert.deepEqual(pgRead.taskOperation, sqliteProjection.readTaskOperation(event.opId));
       } finally {
         queryReader.close();
       }

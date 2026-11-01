@@ -14,6 +14,7 @@ import type {
   TaskProjectionRead,
   TaskRelationProjectionRead,
 } from "@harness-anything/kernel";
+import { canonicalEventEntityRefs } from "@harness-anything/kernel";
 import type {
   DecisionListFilters,
   DecisionPageQuery,
@@ -31,6 +32,14 @@ import type {
   TaskRelationProjectionRow,
 } from "@harness-anything/kernel/internal/ports/projection-contracts.ts";
 import type { EntityVersionWitness } from "@harness-anything/kernel/internal/domain/entity-freshness.ts";
+import type {
+  EventListPage,
+  EventListQuery,
+  EventListRow,
+} from "@harness-anything/kernel/internal/domain/event-list.ts";
+import type { CanonicalEventSummary } from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";
+import { canonicalEventSummary } from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";
+import { isTaskEvent } from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events.ts";
 import {
   relationFreshnessAnchorForType,
   type RelationType,
@@ -133,6 +142,13 @@ export interface PgTaskProjectionSource {
   readonly readRuntimeSessionEvents: (
     ...args: Parameters<TaskProjectionQueries["readRuntimeSessionEvents"]>
   ) => Promise<ReturnType<TaskProjectionQueries["readRuntimeSessionEvents"]>>;
+  readonly readEventList: (query: EventListQuery) => Promise<EventListPage>;
+  readonly readEventWitness: (revision: number) => Promise<ReturnType<TaskProjectionQueries["readEventWitness"]>>;
+  readonly readEventSummaries: (
+    ...args: Parameters<TaskProjectionQueries["readEventSummaries"]>
+  ) => Promise<ReturnType<TaskProjectionQueries["readEventSummaries"]>>;
+  readonly readOperation: (opId: string) => Promise<ReturnType<TaskProjectionQueries["readOperation"]>>;
+  readonly readTaskOperation: (opId: string) => Promise<ReturnType<TaskProjectionQueries["readTaskOperation"]>>;
   readonly close: () => Promise<void>;
 }
 
@@ -738,6 +754,148 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
       claims,
       { isolationLevel: "repeatable read" },
     );
+  const readEventList: PgTaskProjectionSource["readEventList"] = (query) =>
+    withPostgresTransaction(
+      options.pool,
+      async (client) => {
+        if (!Number.isSafeInteger(query.limit) || query.limit < 1 || query.limit > 500)
+          throw new Error("event list limit must be between 1 and 500");
+        const cut = await readCutInTransaction(client, claims, readers, repoId),
+          values: unknown[] = [cut.watermark],
+          where = ["revision <= $6"],
+          add = (predicate: (parameter: number) => string, value: unknown) => {
+            values.push(value);
+            where.push(predicate(values.length + 5));
+          };
+        if (query.revisionBound !== undefined) add((parameter) => `revision < $${parameter}`, query.revisionBound);
+        if (query.type !== undefined) add((parameter) => `event_type = $${parameter}`, query.type);
+        if (query.after !== undefined) add((parameter) => `occurred_at >= $${parameter}`, query.after);
+        if (query.before !== undefined) add((parameter) => `occurred_at <= $${parameter}`, query.before);
+        if (query.actor !== undefined) add((parameter) => `actor_refs @> ARRAY[$${parameter}]::text[]`, query.actor);
+        if (query.entity !== undefined)
+          add(
+            (parameter) =>
+              `EXISTS (SELECT 1 FROM unnest(entity_refs) ref WHERE ref = $${parameter} OR right(ref, char_length($${parameter}) + 1) = '/' || $${parameter})`,
+            query.entity,
+          );
+        const rows = await readEventRowsInTransaction(
+          client,
+          claims,
+          readers,
+          repoId,
+          where.join(" AND "),
+          values,
+          "DESC",
+          query.limit + 1,
+        );
+        const selected = rows.map(({ revision, event_json }) => {
+          const event = JSON.parse(event_json) as CanonicalEventV1;
+          return {
+            revision: Number(revision),
+            opId: event.opId,
+            eventId: event.eventId,
+            schema: event.schema,
+            type: event.type,
+            occurredAt: event.occurredAt,
+            actor: {
+              personId: event.actor.principal.personId,
+              executorId: event.actor.executor?.id ?? null,
+            },
+            entityRefs: canonicalEventEntityRefs(event),
+          } satisfies EventListRow;
+        });
+        const result = selected.slice(0, query.limit),
+          hasMore = selected.length > query.limit;
+        return { rows: result, hasMore, nextCursor: hasMore && result.length ? String(result.at(-1)!.revision) : null };
+      },
+      claims,
+      { isolationLevel: "repeatable read" },
+    );
+  const readEventWitness: PgTaskProjectionSource["readEventWitness"] = (revision) =>
+    withPostgresTransaction(
+      options.pool,
+      async (client) => {
+        const cut = await readCutInTransaction(client, claims, readers, repoId),
+          rows = await readEventRowsInTransaction(client, claims, readers, repoId, "revision = $6 AND revision <= $7", [
+            revision,
+            cut.watermark,
+          ]);
+        if (!rows[0]) return null;
+        const event = JSON.parse(rows[0].event_json) as CanonicalEventV1;
+        return {
+          workspaceRevision: event.workspaceRevision,
+          occurredAt: event.occurredAt,
+          actor: event.actor,
+          source: event.source,
+        };
+      },
+      claims,
+      { isolationLevel: "repeatable read" },
+    );
+  const readEventSummaries: PgTaskProjectionSource["readEventSummaries"] = (afterRevision, limit) =>
+    withPostgresTransaction(
+      options.pool,
+      async (client) => {
+        if (
+          !Number.isSafeInteger(afterRevision) ||
+          afterRevision < 0 ||
+          !Number.isSafeInteger(limit) ||
+          limit < 1 ||
+          limit > 2048
+        )
+          throw new Error("event summary page requires a non-negative revision and a limit from 1 to 2048");
+        const cut = await readCutInTransaction(client, claims, readers, repoId),
+          rows = await readEventRowsInTransaction(
+            client,
+            claims,
+            readers,
+            repoId,
+            "revision > $6 AND revision <= $7",
+            [afterRevision, cut.watermark],
+            "ASC",
+            limit,
+          );
+        return {
+          ...cut,
+          events: rows.map(
+            ({ event_json }) =>
+              canonicalEventSummary(JSON.parse(event_json) as CanonicalEventV1) as CanonicalEventSummary,
+          ),
+        };
+      },
+      claims,
+      { isolationLevel: "repeatable read" },
+    );
+  const readOperation: PgTaskProjectionSource["readOperation"] = (opId) =>
+    withPostgresTransaction(
+      options.pool,
+      async (client) => {
+        const cut = await readCutInTransaction(client, claims, readers, repoId),
+          rows = await readEventRowsInTransaction(client, claims, readers, repoId, "op_id = $6 AND revision <= $7", [
+            opId,
+            cut.watermark,
+          ]);
+        return rows[0] ? { event: JSON.parse(rows[0].event_json) as CanonicalEventV1, watermark: cut.watermark } : null;
+      },
+      claims,
+      { isolationLevel: "repeatable read" },
+    );
+  const readTaskOperation: PgTaskProjectionSource["readTaskOperation"] = (opId) =>
+    withPostgresTransaction(
+      options.pool,
+      async (client) => {
+        const cut = await readCutInTransaction(client, claims, readers, repoId),
+          rows = await readEventRowsInTransaction(client, claims, readers, repoId, "op_id = $6 AND revision <= $7", [
+            opId,
+            cut.watermark,
+          ]);
+        if (!rows[0]) return null;
+        const event = JSON.parse(rows[0].event_json) as CanonicalEventV1;
+        return isTaskEvent(event) ? { event, watermark: cut.watermark } : null;
+      },
+      claims,
+      { isolationLevel: "repeatable read" },
+    );
   const listDecisions = (filters: DecisionListFilters): Promise<DecisionProjectionListRead> =>
     withPostgresTransaction(
       options.pool,
@@ -840,6 +998,11 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
     readReckoningEvents,
     readScheduleOutputEvents,
     readRuntimeSessionEvents,
+    readEventList,
+    readEventWitness,
+    readEventSummaries,
+    readOperation,
+    readTaskOperation,
     close: async () => {
       if (options.ownsPool === true) await options.pool.end();
     },
@@ -856,14 +1019,53 @@ async function readEventsInTransaction(
   suffix = "",
   suffixValues: readonly unknown[] = [],
 ): Promise<CanonicalEventV1[]> {
-  const result = await client.query<{ event_json: string }>(
-    `SELECT event_json FROM ha_events
-     WHERE tenant_id = $1 AND project_id = $2 AND repo_id = $3 AND policy_epoch = $4
-       AND (cardinality($5::text[]) = 0 OR readers && $5::text[]) AND ${predicate}
-     ORDER BY revision ${suffix}`,
-    [claims.tenantId, claims.projectId, repoId, claims.policyEpoch, readers, ...predicateValues, ...suffixValues],
-  );
-  return result.rows.map(({ event_json }) => JSON.parse(event_json) as CanonicalEventV1);
+  return (
+    await readEventRowsInTransaction(
+      client,
+      claims,
+      readers,
+      repoId,
+      predicate,
+      predicateValues,
+      "ASC",
+      undefined,
+      suffix,
+      suffixValues,
+    )
+  ).map(({ event_json }) => JSON.parse(event_json) as CanonicalEventV1);
+}
+
+interface PgEventRow {
+  readonly revision: string;
+  readonly op_id: string;
+  readonly event_json: string;
+}
+
+async function readEventRowsInTransaction(
+  client: import("pg").PoolClient,
+  claims: PostgresScopeClaims,
+  readers: readonly string[],
+  repoId: string,
+  predicate: string,
+  predicateValues: readonly unknown[] = [],
+  order: "ASC" | "DESC" = "ASC",
+  limit?: number,
+  suffix = "",
+  suffixValues: readonly unknown[] = [],
+): Promise<PgEventRow[]> {
+  const parameters = [claims.tenantId, claims.projectId, repoId, claims.policyEpoch, readers, ...predicateValues];
+  if (limit !== undefined) parameters.push(limit);
+  parameters.push(...suffixValues);
+  const limitClause = limit === undefined ? "" : `LIMIT $${6 + predicateValues.length}`;
+  return (
+    await client.query<PgEventRow>(
+      `SELECT revision::text, op_id, event_json FROM ha_events
+       WHERE tenant_id = $1 AND project_id = $2 AND repo_id = $3 AND policy_epoch = $4
+         AND (cardinality($5::text[]) = 0 OR readers && $5::text[]) AND ${predicate}
+       ORDER BY revision ${order} ${suffix} ${limitClause}`,
+      parameters,
+    )
+  ).rows;
 }
 
 async function readCutInTransaction(

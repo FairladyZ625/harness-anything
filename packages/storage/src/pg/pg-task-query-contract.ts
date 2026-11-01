@@ -18,6 +18,11 @@ export const PG_TASK_QUERY_METHODS = [
   "readReckoningEvents",
   "readScheduleOutputEvents",
   "readRuntimeSessionEvents",
+  "readEventList",
+  "readEventWitness",
+  "readEventSummaries",
+  "readOperation",
+  "readTaskOperation",
 ] as const satisfies readonly (keyof TaskProjectionQueries)[];
 
 export type PgTaskQueryMethod = (typeof PG_TASK_QUERY_METHODS)[number];
