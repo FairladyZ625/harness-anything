@@ -201,9 +201,6 @@ export class EdgeJoinAdminService {
       ...input,
       oidc: this.#oidc,
       edgeJoins: this.#joins,
-      ...(this.#oidc.issueInvitationSession
-        ? { issueInvitationSession: (personId: string) => this.#oidc.issueInvitationSession!(personId) }
-        : {}),
       validateSnapshot: (record) => this.#validateSnapshot(record),
       registerNode: async (record, nodeId) => {
         const session = await this.#session(),

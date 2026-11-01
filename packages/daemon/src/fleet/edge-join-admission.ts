@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { coded } from "../agent-runtime-contract.ts";
-import type { IdentitySessionPort, StoredSession } from "@harness-anything/kernel";
+import type { IdentitySessionPort } from "@harness-anything/kernel";
 import { createEdgeJoinStore, type EdgeJoinRecord } from "./edge-join.ts";
 
 export function restoreEdgeJoinStore(
@@ -36,24 +36,17 @@ export async function admitEdgeJoin(input: {
   readonly edgeJoins: ReturnType<typeof createEdgeJoinStore>;
   readonly validateSnapshot: (record: EdgeJoinRecord) => Promise<void>;
   readonly registerNode: (record: EdgeJoinRecord, nodeId: string) => Promise<string>;
-  readonly issueInvitationSession?: (personId: string) => Promise<StoredSession>;
 }): Promise<{
   readonly joinId: string;
   readonly nodeId: string;
   readonly personId: string;
   readonly credential: string;
   readonly repoIds: readonly string[];
-  readonly accessToken?: string;
-  readonly sessionExpiresAt?: number;
 }> {
   input.oidc.requireCollaboration();
   const initial = input.edgeJoins.assertConsumable(input.joinId, input.inviteToken),
     nodeId = randomUUID(),
-    invitationSession =
-      input.accessToken === undefined && input.issueInvitationSession
-        ? await input.issueInvitationSession(initial.personId)
-        : undefined,
-    accessToken = input.accessToken ?? invitationSession?.accessToken;
+    accessToken = input.accessToken;
   if (!accessToken) throw coded("authentication_required", "Sign in on this device before using Fleet.");
   const auth = await input.oidc.bind({
     transportKind: "fleet-tls",
@@ -79,12 +72,6 @@ export async function admitEdgeJoin(input: {
       personId: record.personId,
       credential,
       repoIds: record.repoIds,
-      ...(invitationSession
-        ? {
-            accessToken: invitationSession.accessToken,
-            sessionExpiresAt: invitationSession.sessionExpiresAt ?? undefined,
-          }
-        : {}),
     };
   });
 }

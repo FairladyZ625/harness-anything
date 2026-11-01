@@ -863,7 +863,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             {
               session: async (rootDir) => (await oidc.bind(auth, rootDir)).oidcPrincipal,
               beginLogin: (authority, rootDir) => oidc.beginDevice(rootDir, authority),
-              ...(oidc.importSession ? { importSession: (session) => oidc.importSession!(session) } : {}),
               register: (rootDir, repoId) =>
                 host.admin({ kind: "register", rootDir, repoId, mode: "remote-edge" }, auth),
               sync: (payload) => host.fleet.edgeSync(payload, auth),
