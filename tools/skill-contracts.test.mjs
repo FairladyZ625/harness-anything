@@ -10,6 +10,7 @@ import {
   readlinkSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   symlinkSync,
 } from "node:fs";
@@ -83,7 +84,7 @@ test("runtime skill sync links every repository skill into project runtime dirs"
       for (const skillName of skillNames) {
         const link = path.join(tempRoot, targetDir, skillName);
         assert.equal(lstatSync(link).isSymbolicLink(), true, `${targetDir}/${skillName}`);
-        assert.equal(path.resolve(path.dirname(link), readlinkSync(link)), path.join(tempRoot, "skills", skillName));
+        assert.equal(realpathSync(link), realpathSync(path.join(tempRoot, "skills", skillName)));
       }
     }
   } finally {
@@ -238,7 +239,7 @@ test("missing-only installation fills gaps while preserving customized and retir
 test("missing-only CLI installs the complete discovered set into an empty HOME and is repeatable", () => {
   const tempRoot = mkdtempSync(path.join(os.tmpdir(), "ha-dsh-skills-home-"));
   try {
-    const targetDir = path.join(tempRoot, ".dsh", "skills");
+    const targetDir = path.join(tempRoot, ".agents", "skills");
     const args = [path.join(repoRoot, "tools", "sync-runtime-skills.mjs"), "--missing-only", "--target-dir", targetDir];
     const run = () =>
       JSON.parse(

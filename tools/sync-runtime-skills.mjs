@@ -1,5 +1,14 @@
 #!/usr/bin/env node
-import { existsSync, lstatSync, mkdirSync, readdirSync, readlinkSync, rmSync, symlinkSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readlinkSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+} from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -57,8 +66,7 @@ export function syncRuntimeSkills(options = {}) {
     for (const entry of readdirSync(targetDir, { withFileTypes: true })) {
       if (!entry.isSymbolicLink() || skillNames.includes(entry.name)) continue;
       const link = path.join(targetDir, entry.name);
-      const resolved = path.resolve(targetDir, readlinkSync(link));
-      if (isInside(skillsRoot, resolved)) {
+      if (isInside(realpathSync(skillsRoot), linkTarget(link))) {
         rmSync(link);
         pruned.push(path.relative(repoRoot, link).split(path.sep).join("/"));
       }
@@ -71,15 +79,21 @@ export function syncRuntimeSkills(options = {}) {
 function assertSkillTarget(link, source) {
   const stat = lstatSync(link, { throwIfNoEntry: false });
   if (!stat) return;
-  if (!stat.isSymbolicLink() || path.resolve(path.dirname(link), readlinkSync(link)) !== source) {
+  if (!stat.isSymbolicLink() || linkTarget(link) !== realpathSync(source)) {
     throw new Error(`技能目标已存在且不属于本源码链接，请先核对并保留用户内容：${link}`);
   }
+}
+
+/** Where a link points, resolved the way the OS does: from its folder's real path. */
+function linkTarget(link) {
+  return path.resolve(realpathSync(path.dirname(link)), readlinkSync(link));
 }
 
 function ensureSkillSymlink(link, source, targetDir) {
   assertSkillTarget(link, source);
   if (lstatSync(link, { throwIfNoEntry: false })) return;
-  const relativeSource = path.relative(targetDir, source).split(path.sep).join("/");
+  // Relative to the resolved folders: a symlinked ancestor (macOS /var, a linked home) changes the depth.
+  const relativeSource = path.relative(realpathSync(targetDir), realpathSync(source)).split(path.sep).join("/");
   symlinkSync(relativeSource, link, "dir");
 }
 

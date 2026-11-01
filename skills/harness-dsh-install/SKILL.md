@@ -22,6 +22,7 @@ description: 在 macOS 的 DeepSeek Harness 桌面端安装 Harness Anything、�
    ```
 
    匹配时输出该版本并成功退出；不匹配时停止安装，列出实际版本与所需范围，请用户升级。若 npm 未能取得工具，保留原始错误并停在环境检查，不把获取失败说成版本过旧；不改 engines、不添加版本豁免。
+
 4. 列出实际 DSH home 下的 profile **名称**，不打印配置正文或凭据。默认 home 是 `~/.dsh`，设置了 `DSH_HOME` 时尊重它：
 
    ```bash
@@ -34,18 +35,18 @@ description: 在 macOS 的 DeepSeek Harness 桌面端安装 Harness Anything、�
 
 ## 2. 复用或准备 Harness，再补齐技能
 
-有可用 Harness 时回读 `ha --version`、`ha gui --help`、`ha daemon status`，保留其 CLI 路径、源码和服务，不重装、不强制升级或重启。失败要区分「没有工具」和「已有服务暂不可用」；后者报告实际错误，不用重新安装解决。
+有可用 Harness 时回读 `ha --version`、`ha gui --help`、`ha daemon status`，保留其 CLI 路径、源码和服务，不重装、不强制升级或重启。插件需要 `ha gui --browser --parent-origin`；`ha gui --help` 里没有 `--parent-origin` 说明 CLI 太旧，按版本不兼容处理。失败要区分「没有工具」和「已有服务暂不可用」；后者报告实际错误，不用重新安装解决。
 
 没有 Harness 时，连续执行同一包内 harness-download 的工具准备阶段；暂不替用户选择项目或初始化台账。复用它的持久源码、构建后 CLI、daemon 与 GUI 验证。若已有 CLI 来自其他安装，仍需获取插件的持久源码，但只准备插件所需依赖与构建，不重新 link、覆盖已有 CLI 或重建全部 Harness。版本不兼容时报告冲突，先给出具体升级方案。
 
-技能清单唯一来源是 `tools/sync-runtime-skills.mjs` 扫描的源码 `skills/`；**整套安装，不维护 DSH 专属名单**。它包含日常编排、项目接入、定制技能、定制 Agent 与 GUI 开发等所需技能。执行前确认 DSH 使用的真实 home（包括自定义 `DSH_HOME`），然后：
+技能清单唯一来源是 `tools/sync-runtime-skills.mjs` 扫描的源码 `skills/`；**整套安装，不维护 DSH 专属名单**，插件本身不携带技能。DSH 按「项目 `.dsh/skills` → 项目 `.agents/skills` → 插件 `customSkillDirs` → `<DSH home>/skills` → `<agents home>/skills`」的顺序读取，前者优先（`@deepseek-ai/dsh-skill-filesystem` README「Roots and priority」）。因此只补到优先级最低的 `<agents home>/skills`：用户在任何一层改过的同名技能都继续生效，不会被补装的版本遮住。agents home 取 `DSH_AGENTS_HOME`，未设置时为 `~/.agents`：
 
 ```bash
 node "<持久源码>/tools/sync-runtime-skills.mjs" --missing-only \
-  --target-dir "<实际 DSH home>/skills"
+  --target-dir "<实际 agents home>/skills"
 ```
 
-只补缺失目录：已有定制目录、其他来源链接和失效链接都保留，结果中的 `preserved` 要逐项回读，失效链接或缺 `SKILL.md` 必须列为未就绪，不能因“保留”就宣称安装成功。同源链接指向持久源码；源码更新会影响它们，更新前另行审阅。不得删除用户版本或 Skills CLI 共享存储来消除冲突。项目级同名技能或插件自带的 customSkillDirs 可能优先于用户级版本，最终用 DSH 技能列表及实际加载内容核对，不只检查磁盘。
+只补缺失目录：已有定制目录、其他来源链接和失效链接都保留，结果中的 `preserved` 要逐项回读，失效链接或缺 `SKILL.md` 必须列为未就绪，不能因“保留”就宣称安装成功。同源链接指向持久源码；源码更新会影响它们，更新前另行审阅。不得删除用户版本或 Skills CLI 共享存储来消除冲突。同名技能若在更高优先级目录已有用户版本，以用户版本为准并在交付记录列出；最终用 DSH 技能列表及实际加载内容核对，不只检查磁盘。
 
 其他 Agent 只在用户也选用了它们时添加对应 `--target-dir`；目录解析沿用 harness-download，不给所有产品写配置。回读链接目标及技能参考资料，并请 DSH 刷新技能列表/新开会话确认发现。已有自定义技能如不满足所需能力，展示差异，由用户决定如何保留和合并。
 
@@ -76,7 +77,7 @@ npm run build -w @harness-anything/dsh-plugin
 
 - 在 DSH 的 bash 工具中执行 `ha --version` 与 `ha --root "<目标仓库>" --json daemon status`，确认它调用的是已核实的 CLI。若 GUI 启动的 App 没继承终端 PATH，先用绝对 CLI 路径验证，再给出持久 PATH 配置方案；不要仅在安装 shell `export PATH` 后宣称 DSH 也可调用。
 - 在会话权限中开启完全权限，选择 `ha-ceo`，让 Agent 加载 `harness-ceo`；确认技能可发现且内容来自本次所选来源。`ha-worker` 用于已分配任务中的实现与验证。缺少技能时回到第 2 节；无权执行 ha 时先检查权限与 PATH。
-- 侧栏出现 Harness Anything 入口，教程能打开；点击教程中的打开面板按钮能看到真实看板。打开前插件会返回会话视图，再在右侧 browser tab 展示；需要更大空间可用右上角全屏。实时流、终端和原生文件需要原生 `ha gui`。
+- 侧栏出现 Harness Anything 入口，点开是教程。右上角「在这里打开」在插件页内嵌看板，首次会询问以后是否默认显示看板；「在会话旁打开」回到会话并在右侧 browser tab 打开看板。看板跟随当前选中会话所在的工作区；该工作区不是已登记的 Harness 仓库时，依次改用 DSH 中其他已登记的工作区、daemon 最近活跃的仓库，都没有才显示 `ha gui` 的引导页。两处看到的都应是真实台账数据，不是「Daemon 尚未就绪」。实时流、终端和原生文件需要原生 `ha gui`。
 - 用户给了目标仓库且尚未接入时，继续同一包的 harness-install，再进入 harness-ceo 做首个真实任务；已有当前台账复用。旧代迁移走 harness-migration，保持其中数据与身份审批。没有身份服务/登录时如实报告 `configure_verify_failed`，不承诺能从空身份状态初始化。
 
 自动化验收使用空 HOME、独立 `DSH_HOME`、`--no-open` 和 headless 浏览器。不要为验证弹窗、获取焦点、操作系统输入或更改用户剪贴板。桌面侧栏、真实模型执行和重启后发现若无法实测，标为 unverified 并给出上述具体检查步骤。
