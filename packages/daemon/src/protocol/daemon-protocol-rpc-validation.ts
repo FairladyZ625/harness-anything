@@ -78,6 +78,11 @@ export function validateDaemonRpcCall(value: unknown): readonly string[] {
     errors.push(...validateSessionEnvironment((value.params as JsonObject).sessionEnvironment));
   if (
     !errors.length &&
+    value.method === "repo.agentRuntime.quote"
+  )
+    errors.push(...validateAgentRuntimeQuoteParams(value.params));
+  if (
+    !errors.length &&
     (value.method === "repo.tasks.list" ||
       value.method === "repo.triadic.relationGraph" ||
       value.method === "repo.artifacts.list")
@@ -124,6 +129,25 @@ export function validateDaemonRpcCall(value: unknown): readonly string[] {
     const afterSeq = ((value.params as JsonObject).payload as JsonObject).afterSeq;
     if (!integer(afterSeq) || Number(afterSeq) < 0) errors.push("terminal attach sequence is invalid");
   }
+  return errors;
+}
+
+function validateAgentRuntimeQuoteParams(value: unknown): string[] {
+  if (!isJsonObject(value)) return ["runtime quote params must be an object"];
+  const hasTokens = value.inputTokens !== undefined,
+    hasBytes = value.inputBytes !== undefined,
+    errors: string[] = [];
+  if (hasTokens === hasBytes) errors.push("runtime quote requires exactly one of inputTokens or inputBytes");
+  const estimate = hasTokens ? value.inputTokens : value.inputBytes;
+  if (estimate !== undefined && (!Number.isSafeInteger(estimate) || Number(estimate) < 0))
+    errors.push("runtime quote input estimate must be a non-negative safe integer");
+  if (
+    value.outputCapTokens !== undefined &&
+    (!Number.isSafeInteger(value.outputCapTokens) ||
+      Number(value.outputCapTokens) < 1 ||
+      Number(value.outputCapTokens) > 32_768)
+  )
+    errors.push("runtime quote outputCapTokens must be an integer from 1 to 32768");
   return errors;
 }
 
