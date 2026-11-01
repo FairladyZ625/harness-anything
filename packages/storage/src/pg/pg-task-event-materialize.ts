@@ -205,18 +205,34 @@ async function reduceAndStoreTaskSnapshot(
   event: Extract<PersistedCanonicalEventV1, { readonly schema: "task-event/v1" }>,
   tables: Set<string>,
 ): Promise<TaskLifecycleSnapshot> {
-  const existing = await client.query<{ readonly snapshot: TaskLifecycleSnapshot }>(
-    `SELECT snapshot FROM ha_task_snapshots
+  const existing = await client.query<{
+    readonly snapshot: TaskLifecycleSnapshot;
+    readonly raw_lease: TaskLifecycleSnapshot["lease"];
+  }>(
+    `SELECT snapshot, raw_lease FROM ha_task_snapshots
      WHERE tenant_id = $1 AND project_id = $2 AND policy_epoch = $3 AND task_id = $4`,
     [scope.tenantId, scope.projectId, scope.policyEpoch, event.taskId],
   );
   const previous = existing.rows[0]?.snapshot ?? emptyTaskLifecycleSnapshot(0),
     snapshot = reduceTaskEvent(previous, event);
+  // The domain snapshot clears released leases; the raw query projection retains their CAS version.
+  let rawLease = existing.rows[0]?.raw_lease ?? null;
+  if (event.type === "execution_started") rawLease = { ...event.payload.lease, phase: "held" };
+  else if (event.type === "lease_renewed") rawLease = event.payload.lease;
+  else if (
+    ((event.type === "execution_submitted" && event.payload.supersedesSubmissionId === undefined) ||
+      event.type === "lease_released" ||
+      event.type === "task_completion_generation_retired") &&
+    rawLease !== null &&
+    rawLease.executionId === event.payload.execution.executionId
+  )
+    rawLease = { ...rawLease, phase: "released", version: rawLease.version + 1 };
+
   await client.query(
     `INSERT INTO ha_task_snapshots
-       (tenant_id, project_id, policy_epoch, readers, task_id, workspace_revision, snapshot,
+       (tenant_id, project_id, policy_epoch, readers, task_id, workspace_revision, snapshot, raw_lease,
         package_path, generation, created_at, completed_at, updated_at)
-     VALUES ($1, $2, $3, $4::text[], $5, $6, $7::jsonb, $8, 'v1',
+     VALUES ($1, $2, $3, $4::text[], $5, $6, $7::jsonb, $11::jsonb, $8, 'v1',
              COALESCE((SELECT created_at FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND task_id=$5), $9::timestamptz),
        COALESCE((SELECT completed_at FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND task_id=$5), CASE WHEN $10::text = 'task_completed' THEN $9::timestamptz END),
              $9::timestamptz)
@@ -225,6 +241,7 @@ async function reduceAndStoreTaskSnapshot(
        readers = excluded.readers,
        workspace_revision = excluded.workspace_revision,
        snapshot = excluded.snapshot,
+       raw_lease = excluded.raw_lease,
        package_path = COALESCE(excluded.package_path, ha_task_snapshots.package_path),
        generation = excluded.generation,
        created_at = COALESCE(ha_task_snapshots.created_at, excluded.created_at),
@@ -242,6 +259,7 @@ async function reduceAndStoreTaskSnapshot(
       event.type === "task_created" ? `tasks/${event.taskId}-${slugifyTaskTitle(event.payload.task.title)}` : null,
       event.occurredAt,
       event.type,
+      JSON.stringify(rawLease),
     ],
   );
   tables.add("ha_task_snapshots");

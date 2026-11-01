@@ -586,12 +586,12 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
       claims,
       { isolationLevel: "repeatable read" },
     );
-  const readLease = (column: "task_id" | "snapshot #>> '{lease,executionId}'", id: string, now: string) =>
+  const readLease = (column: "task_id" | "raw_lease->>'executionId'", id: string, now: string) =>
     withPostgresTransaction(
       options.pool,
       async (client) => {
         const result = await client.query<{ lease: LeaseV1 | null }>(
-          `SELECT snapshot->'lease' AS lease FROM ha_task_snapshots
+          `SELECT raw_lease AS lease FROM ha_task_snapshots
            WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND ${column}=$4
              AND (cardinality($5::text[])=0 OR readers && $5::text[])
            ORDER BY task_id LIMIT 1`,
@@ -604,7 +604,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
     );
   const currentLease = (taskId: string, now = new Date().toISOString()) => readLease("task_id", taskId, now);
   const currentLeaseForExecution = (executionId: string, now = new Date().toISOString()) =>
-    readLease("snapshot #>> '{lease,executionId}'", executionId, now);
+    readLease("raw_lease->>'executionId'", executionId, now);
   const listDecisions = (filters: DecisionListFilters): Promise<DecisionProjectionListRead> =>
     withPostgresTransaction(
       options.pool,

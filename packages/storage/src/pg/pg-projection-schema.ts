@@ -60,6 +60,7 @@ export function projectionDdl(): readonly string[] {
       task_id text NOT NULL,
       workspace_revision bigint NOT NULL,
       snapshot jsonb NOT NULL,
+      raw_lease jsonb,
       package_path text,
       generation text NOT NULL DEFAULT 'v1',
       created_at timestamptz,
@@ -139,6 +140,7 @@ export function projectionDdl(): readonly string[] {
     ...PG_PROJECTION_TABLES.map(
       (table) => `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS readers text[] NOT NULL DEFAULT '{}'`,
     ),
+    "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS raw_lease jsonb",
     "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS package_path text",
     "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS generation text NOT NULL DEFAULT 'v1'",
     "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS created_at timestamptz",

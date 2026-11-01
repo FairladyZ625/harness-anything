@@ -201,7 +201,7 @@ export async function assertLeaseQueryParity(
         pool,
         async (client) => {
           await client.query(
-            "UPDATE ha_task_snapshots SET snapshot=jsonb_set(snapshot, '{lease}', $1::jsonb) WHERE tenant_id=$2 AND project_id=$3 AND policy_epoch=$4 AND task_id=$5",
+            "UPDATE ha_task_snapshots SET raw_lease=$1::jsonb WHERE tenant_id=$2 AND project_id=$3 AND policy_epoch=$4 AND task_id=$5",
             [JSON.stringify(lease), scope.tenantId, scope.projectId, scope.policyEpoch, taskId],
           );
         },
@@ -225,7 +225,7 @@ export async function assertLeaseQueryParity(
       pool,
       async (client) => {
         await client.query(
-          "UPDATE ha_task_snapshots SET snapshot=jsonb_set(snapshot, '{lease}', 'null'::jsonb) WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND task_id=$4",
+          "UPDATE ha_task_snapshots SET raw_lease=NULL WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND task_id=$4",
           [scope.tenantId, scope.projectId, scope.policyEpoch, taskId],
         );
       },

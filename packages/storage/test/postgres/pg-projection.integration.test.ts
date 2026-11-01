@@ -80,6 +80,12 @@ import {
   assertTextQueryParity,
 } from "./pg-query-parity.fixture.ts";
 
+import {
+  appendLeaseReplayFixtures,
+  canonicalLeaseOracle,
+  assertCanonicalLeaseReads,
+} from "./pg-lease-replay.fixture.ts";
+
 function relationFacet(record: EntityRelationRecord & RelationEventRecord): RelationEventRecord {
   const { strength: _strength, ...facet } = record;
   return facet;
@@ -689,6 +695,8 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
     });
     assert.equal((await source.read("task-reader-a")).snapshot.task?.taskId, "task-reader-a");
     assert.equal((await source.read("task-reader-b")).snapshot.task, null);
+    assert.equal(await source.currentLease("task-reader-b", "2026-08-11T00:30:00.000Z"), null);
+    assert.equal(await source.currentLeaseForExecution("execution-reader-b", "2026-08-11T00:30:00.000Z"), null);
     assert.equal((await readerBSource.read("task-reader-b")).snapshot.task?.taskId, "task-reader-b");
     assert.equal((await readerBSource.read("task-reader-a")).snapshot.task, null);
     assert.deepEqual(await source.readCut(), {
@@ -770,6 +778,8 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
     await interleavingSource.close();
 
     await appendQueryParityFixtures(appendCanonical, () => expectedRevision);
+    const leaseCases = await appendLeaseReplayFixtures(appendCanonical, () => expectedRevision);
+    let releasedLeases: readonly import("@harness-anything/kernel").LeaseV1[] = [];
     const entities = createPgEntityStore({ pool: runtimePool, scope: projectionScope });
     assert.equal((await entities.get("agent", "replay-agent"))?.id, "replay-agent");
     assert.equal(await entities.get("agent", "deleted-agent"), null);
@@ -896,6 +906,10 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
       process.stdout.write(
         "PG_SQLITE_PARITY snapshots gateWitnesses reviews consents closeoutReadiness taskBoardPlacement blockingOf equal\n",
       );
+      releasedLeases = canonicalLeaseOracle(sqliteProjection, leaseCases);
+      await t.test("R10 canonical submit, release, renewal, amendment and retirement agree", () =>
+        assertCanonicalLeaseReads(source, releasedLeases),
+      );
       await t.test("R10 lease phases and explicit time agree", () =>
         assertLeaseQueryParity(source, sqliteProjection, runtimePool, projectionScope),
       );
@@ -950,6 +964,9 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
           },
         }),
       projectionScope,
+    );
+    await t.test("R10 canonical released leases survive cold replay", () =>
+      assertCanonicalLeaseReads(source, releasedLeases),
     );
     assert.deepEqual(await source.list(), postgresSnapshotsBeforeRebuild);
     assert.deepEqual(await source.readSnapshot("task-parity"), postgresSnapshot);
