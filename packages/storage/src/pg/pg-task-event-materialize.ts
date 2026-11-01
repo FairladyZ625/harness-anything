@@ -57,7 +57,7 @@ export interface PgProjectionEventInput {
   /** Durable ledger head observed by A2 for this commit cut. */
   readonly sourceHeadRevision?: number;
   /** Canonical content objects are read by A2 and supplied to replay; declarations are never trusted from event metadata. */
-  readonly readContentBlob?: (sha256: string) => Uint8Array | null;
+  readonly readContentBlob?: (sha256: string) => Uint8Array | null | Promise<Uint8Array | null>;
 }
 
 export interface PgProjectionMaterializationReceipt {
@@ -72,7 +72,9 @@ export interface PgProjectionRebuildInput {
   readonly sourceRevision?: number;
   readonly sourceHeadRevision?: number;
   readonly stateDigest?: `sha256:${string}`;
-  readonly readContentBlob?: (sha256: string) => Uint8Array | null;
+  readonly readContentBlob?: (sha256: string) => Uint8Array | null | Promise<Uint8Array | null>;
+  /** Restore each event's authorization metadata from the replay source when the scope contains several reader sets. */
+  readonly readEventReaders?: (event: PersistedCanonicalEventV1) => readonly string[];
 }
 
 /** Materialize one canonical event in the caller's existing transaction; schema setup is a migration concern. */
@@ -119,6 +121,35 @@ export async function materializePgProjectionEvent(
   return { revision, taskId, snapshot, tables: [...tables].sort() };
 }
 
+/** A2's append hook calls this with the committed batch while still inside the ledger transaction. */
+export async function materializePgProjectionEvents(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  input: { readonly revision: number; readonly events: readonly PersistedCanonicalEventV1[] },
+): Promise<void> {
+  if (!Number.isSafeInteger(input.revision) || input.revision < 0)
+    throw new TypeError("projection source head must be a non-negative safe integer");
+  const last = input.events.at(-1);
+  if (last && last.workspaceRevision !== input.revision)
+    throw new Error("projection event batch does not end at its declared ledger head");
+  const readContentBlob = async (sha256: string): Promise<Uint8Array | null> => {
+    const result = await client.query<{ readonly body: Buffer }>(
+      `SELECT body FROM ha_content_blobs
+       WHERE tenant_id = $1 AND project_id = $2 AND sha256 = $3`,
+      [scope.tenantId, scope.projectId, sha256],
+    );
+    const body = result.rows[0]?.body;
+    return body === undefined ? null : Uint8Array.from(body);
+  };
+  for (const event of input.events)
+    await materializePgProjectionEvent(client, scope, {
+      event,
+      sourceRevision: event.workspaceRevision,
+      sourceHeadRevision: input.revision,
+      readContentBlob,
+    });
+}
+
 /** Rebuild the projection from an ordered canonical event stream. Existing projection rows are discarded. */
 export async function rebuildPgProjection(
   client: PoolClient,
@@ -146,11 +177,15 @@ export async function rebuildPgProjection(
     tables: [],
   };
   for (const event of [...input.events].sort((left, right) => left.workspaceRevision - right.workspaceRevision))
-    receipt = await materializePgProjectionEvent(client, scope, {
-      event,
-      sourceHeadRevision: input.sourceHeadRevision ?? input.sourceRevision,
-      readContentBlob: input.readContentBlob,
-    });
+    receipt = await materializePgProjectionEvent(
+      client,
+      input.readEventReaders ? { ...scope, readers: input.readEventReaders(event) } : scope,
+      {
+        event,
+        sourceHeadRevision: input.sourceHeadRevision ?? input.sourceRevision,
+        readContentBlob: input.readContentBlob,
+      },
+    );
   const sourceHeadRevision = input.sourceHeadRevision ?? input.sourceRevision ?? receipt.revision,
     snapshots = await client.query<{ readonly snapshot: TaskLifecycleSnapshot }>(
       `SELECT snapshot FROM ha_task_snapshots
@@ -538,7 +573,7 @@ async function storeEntityEvent(
   scope: PgProjectionScope,
   event: Extract<PersistedCanonicalEventV1, { readonly schema: "entity-event/v1" | "agent-entity-event/v1" }>,
   tables: Set<string>,
-  readContentBlob?: (sha256: string) => Uint8Array | null,
+  readContentBlob?: (sha256: string) => Uint8Array | null | Promise<Uint8Array | null>,
 ): Promise<void> {
   const payload = event.payload as unknown as Record<string, unknown>;
   const kind = String(payload.entityKind ?? "");
@@ -583,7 +618,7 @@ async function storeEntityEvent(
     raw = event.payload.descriptor;
   } else if (isEntityDeclarationEvent(event)) {
     const claim = event.payload.declarationDocumentClaim,
-      bytes = readContentBlob?.(claim.sha256);
+      bytes = await readContentBlob?.(claim.sha256);
     if (!bytes || bytes.byteLength !== claim.size)
       throw new Error(`entity declaration blob ${claim.sha256} is unavailable`);
     let body: string;

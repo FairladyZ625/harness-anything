@@ -14,7 +14,6 @@ import type {
 import type {
   DecisionListFilters,
   DecisionPageQuery,
-  DecisionProjectionRow,
 } from "@harness-anything/kernel/internal/ports/decision-projection-model.ts";
 import type { FactSearchFilters } from "@harness-anything/kernel/internal/ports/projection-contracts.ts";
 import type { TaskLifecycleSnapshot } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract.ts";
@@ -30,12 +29,10 @@ import {
 } from "@harness-anything/kernel/internal/domain/entity-relation.ts";
 import { relationFreshnessAtCut } from "@harness-anything/kernel/internal/domain/entity-freshness.ts";
 import { keycloakPersonIdentityWitness } from "@harness-anything/kernel/internal/domain/entity-freshness.ts";
-import {
-  decisionCapabilities,
-  decisionClaimsOpen,
-} from "@harness-anything/kernel/internal/domain/decision-board-projection.ts";
+import { parseEntityRef } from "@harness-anything/kernel/internal/domain/entity-ref.ts";
 import { factInvalidated, factLiveness } from "@harness-anything/kernel/internal/domain/fact-liveness.ts";
 import { relationOwnerRef } from "@harness-anything/kernel/internal/domain/entity-relation.ts";
+import { readPgDecisionRows } from "./pg-decision-reads.ts";
 import { compareDecisionIds, decisionLegacyId, decisionLegacyNumber } from "../projection/decision-projection-reads.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 import { withPostgresTransaction, type PostgresScopeClaims } from "../postgres/transaction.ts";
@@ -266,7 +263,8 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
             where.push(`task_id > $${values.length}`);
           }
         }
-        const limit = checkedPageLimit(query.limit ?? maxItems, maxItems);
+        const paged = query.limit !== undefined || query.cursor !== undefined,
+          limit = paged ? checkedPageLimit(query.limit ?? 100) : maxItems;
         values.push(limit + 1);
         const result = await client.query<{
           task_id: string;
@@ -300,13 +298,13 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
           warnings: [],
-          ...(truncated
+          ...(query.limit !== undefined || query.cursor !== undefined || truncated
             ? {
                 page: {
                   limit,
                   cursor: query.cursor ?? null,
                   nextCursor:
-                    rows.at(-1) === undefined
+                    !truncated || rows.at(-1) === undefined
                       ? null
                       : encodeTaskListCursor(
                           query.pinnedFirst === true
@@ -559,6 +557,8 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
     withPostgresTransaction(
       options.pool,
       async (client) => {
+        if (!Array.isArray(decisionIds) || decisionIds.some((id) => typeof id !== "string" || id.length === 0))
+          throw new Error("decision collection read requires non-empty string ids");
         const cut = await readCutInTransaction(client, claims, readers, repoId);
         const values: unknown[] = [claims.tenantId, claims.projectId, claims.policyEpoch, readers],
           where = [
@@ -572,12 +572,12 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           where.push(`decision_id = ANY($${values.length}::text[])`);
         }
         const result = await client.query<{ decision_id: string; value: Record<string, unknown> }>(
-          `SELECT decision_id, value FROM ha_decisions WHERE ${where.join(" AND ")} ORDER BY decision_id`,
+          `SELECT decision_id, value FROM ha_decisions WHERE ${where.join(" AND ")} ORDER BY array_position($5::text[], decision_id)`,
           values,
         );
         return {
           status: cut.status,
-          decisions: result.rows.map((row) => decisionProjectionRow(row.decision_id, row.value)),
+          decisions: await readPgDecisionRows(client, options.scope, repoId, result.rows, true),
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
         };
@@ -707,7 +707,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
             cursor === null ? rows : rows.filter(({ decision_id }) => compareDecisionIds(decision_id, cursor) > 0),
           selected = limit === null ? afterCursor : afterCursor.slice(0, limit),
           hasMore = limit !== null && afterCursor.length > limit,
-          decisions = selected.map(({ decision_id, value }) => decisionProjectionRow(decision_id, value));
+          decisions = await readPgDecisionRows(client, options.scope, repoId, selected, filters.withBody === true);
         return {
           status: cut.status,
           decisions,
@@ -781,41 +781,6 @@ function toIsoTimestamp(value: string): string {
 
 type DecisionDocumentShape = Record<string, unknown>;
 
-function decisionProjectionRow(decisionId: string, raw: Record<string, unknown>): DecisionProjectionRow {
-  const value = raw as Partial<DecisionDocumentShape>;
-  return {
-    schema: "decision-row/v1",
-    decisionId,
-    path: `decisions/decision-${decisionId}/decision.md`,
-    state: String(value.state ?? "proposed") as DecisionProjectionRow["state"],
-    title: String(value.title ?? ""),
-    question: String(value.question ?? ""),
-    riskTier: String(value.riskTier ?? "medium") as DecisionProjectionRow["riskTier"],
-    urgency: String(value.urgency ?? "medium") as DecisionProjectionRow["urgency"],
-    vertical: String(value.vertical ?? ""),
-    preset: String(value.preset ?? ""),
-    decisionClass: String(value.decisionClass ?? "ordinary") as DecisionProjectionRow["decisionClass"],
-    appliesTo: (value.appliesTo as DecisionProjectionRow["appliesTo"]) ?? { modules: [], productLines: [] },
-    proposer: value.proposer as DecisionProjectionRow["proposer"],
-    arbiter: (value.arbiter as DecisionProjectionRow["arbiter"]) ?? null,
-    proposedAt: String(value.proposedAt ?? ""),
-    decidedAt: (value.decidedAt as string | null) ?? null,
-    workspaceRevision: Number(value.workspaceRevision ?? 0),
-    chosen: (value.chosen as DecisionProjectionRow["chosen"]) ?? [],
-    rejected: (value.rejected as DecisionProjectionRow["rejected"]) ?? [],
-    claims: (value.claims as DecisionProjectionRow["claims"]) ?? [],
-    provenance: (value.provenance as DecisionProjectionRow["provenance"]) ?? [],
-    judgmentConsents: (value.judgmentConsents as DecisionProjectionRow["judgmentConsents"]) ?? [],
-    reviews: (value.reviews as DecisionProjectionRow["reviews"]) ?? [],
-    reviewResponses: (value.reviewResponses as DecisionProjectionRow["reviewResponses"]) ?? [],
-    reviewOverrides: (value.reviewOverrides as DecisionProjectionRow["reviewOverrides"]) ?? [],
-    relations: [],
-    body: null,
-    capabilities: decisionCapabilities(String(value.state ?? "proposed") as never),
-    claimsOpen: decisionClaimsOpen(String(value.state ?? "proposed") as never),
-  };
-}
-
 function encodeFactCursor(parts: readonly string[]): string {
   return Buffer.from(JSON.stringify(parts), "utf8").toString("base64url");
 }
@@ -844,13 +809,12 @@ async function readEntityVersionWitnesses(
 ): Promise<ReadonlyMap<string, EntityVersionWitness>> {
   const result = new Map<string, EntityVersionWitness>();
   for (const ref of refs) {
-    const slash = ref.indexOf("/");
-    if (slash < 1) {
+    const parsed = parseEntityRef(ref);
+    if (parsed === null || parsed.externalHarness) {
       result.set(ref, { entityRef: ref, freshness: "unknown", currentVersion: null });
       continue;
     }
-    const kind = ref.slice(0, slash),
-      id = ref.slice(slash + 1);
+    const { kind, id } = parsed;
     const table =
       kind === "task"
         ? "ha_task_snapshots"
@@ -884,7 +848,7 @@ async function readEntityVersionWitnesses(
       value?: Record<string, unknown>;
       snapshot?: TaskLifecycleSnapshot;
     }>(
-      `SELECT workspace_revision::text, value, snapshot FROM ${table} WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND ${idColumn}=$4 AND (cardinality($5::text[])=0 OR readers && $5::text[])`,
+      `SELECT workspace_revision::text, ${kind === "decision" || kind === "fact" ? "value" : kind === "task" ? "snapshot" : "declaration AS value"} FROM ${table} WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND ${idColumn}=$4 AND (cardinality($5::text[])=0 OR readers && $5::text[])`,
       [claims.tenantId, claims.projectId, claims.policyEpoch, id, readers],
     );
     if (!row.rows[0]) result.set(ref, { entityRef: ref, freshness: "orphaned", currentVersion: null });

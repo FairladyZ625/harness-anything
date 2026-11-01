@@ -7,6 +7,7 @@ export {
 } from "./pg-projection-schema.ts";
 export {
   materializePgProjectionEvent,
+  materializePgProjectionEvents,
   projectionStateDigest,
   rebuildPgProjection,
 } from "./pg-task-event-materialize.ts";
