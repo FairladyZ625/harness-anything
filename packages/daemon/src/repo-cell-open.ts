@@ -19,7 +19,7 @@ import {
   type WriterGeneration,
 } from "@harness-anything/kernel";
 import { createPresetProcessService, presetUserRoot } from "@harness-anything/preset";
-import { ledgerWriteCommandTopology } from "@harness-anything/preset/internal/preset-command-contract";
+import { nodeLocalWriteCommandTopology } from "@harness-anything/preset/internal/preset-command-contract";
 import {
   prepareAgentEntityDelete,
   prepareAgentEntityInstall,
@@ -626,7 +626,7 @@ export async function openRepoWriterCell(
       now,
     });
   const admitTerminalWrite = (binding: RepoCellBinding): void => {
-    const admission = admitRepoMode(mode, ledgerWriteCommandTopology, binding.source);
+    const admission = admitRepoMode(mode, nodeLocalWriteCommandTopology, binding.source);
     if (!admission.ok) throw cellCodedError(admission.code, admission.nextAction);
     if (state !== "attached") throw cellCodedError("repo_unavailable", latched());
   };

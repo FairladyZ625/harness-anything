@@ -1,6 +1,8 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
+import { allDaemonProtocolMethods } from "../src/protocol/daemon-protocol-commands.ts";
+import { assertDaemonRpcRouting, daemonRpcRoutingDeclarations } from "../src/rpc-command-routing.ts";
 import { getExecutableEntityAction } from "@harness-anything/kernel";
 import { isFleetTaskAction } from "../src/fleet/command-protocol.ts";
 import { daemonProtocolCommands, repoCellExecutionForAction } from "../src/protocol/daemon-protocol-commands.ts";
@@ -351,4 +353,62 @@ test("Person delegation Actions are admin Actions and forward from an edge", () 
     });
     assert.equal(byId.get(id)?.commandClass, "admin");
   }
+});
+
+test("all GUI and host RPC declarations have an explicit repository/node route", () => {
+  const routes = daemonRpcRoutingDeclarations();
+  assertDaemonRpcRouting(routes);
+  assert.deepEqual(
+    new Set(routes.map((route) => route.method)),
+    new Set(allDaemonProtocolMethods.map((method) => method.method)),
+  );
+});
+
+test("the full RPC route gate rejects a missing GUI edge route and an undeclared host method", () => {
+  const routes = daemonRpcRoutingDeclarations();
+  const missingEdge = routes.map((route) => {
+    if (route.method !== "repo.terminal.spawn") return route;
+    const { "remote-edge": _edge, ...admission } = route.topology.admission;
+    return { ...route, topology: { ...route.topology, admission } };
+  });
+  assert.throws(() => assertDaemonRpcRouting(missingEdge as typeof routes), /repo\.terminal\.spawn has no declared/u);
+  assert.throws(
+    () =>
+      daemonRpcRoutingDeclarations([
+        ...allDaemonProtocolMethods,
+        { id: "new-host-write", method: "daemon.new.write", commandClass: "admin" },
+      ]),
+    /daemon\.new\.write has no declared/u,
+  );
+});
+
+test("RPC coverage retains every generic action and rejects conflicting aliases", () => {
+  const routes = daemonRpcRoutingDeclarations();
+  assert.throws(
+    () =>
+      assertDaemonRpcRouting(
+        routes.filter((route) => !(route.method === "repo.task.run" && route.actionKind === "agent-install")),
+      ),
+    /repo\.task\.run has no declared/u,
+  );
+  const conflict = routes.map((route) =>
+    route.method === "repo.agentRuntime.steer"
+      ? {
+          ...route,
+          topology: {
+            ...route.topology,
+            admission: { ...route.topology.admission, "remote-edge": "rejected" as const },
+          },
+        }
+      : route,
+  );
+  assert.throws(() => assertDaemonRpcRouting(conflict), /repo\.agentRuntime\.steer has no declared/u);
+  assert.throws(
+    () =>
+      daemonRpcRoutingDeclarations([
+        ...allDaemonProtocolMethods,
+        { id: "new-read", method: "daemon.new.read", commandClass: "repo-read" },
+      ]),
+    /daemon\.new\.read has no declared/u,
+  );
 });

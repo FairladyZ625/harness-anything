@@ -158,3 +158,98 @@ test("edge repository and GUI write RPCs reach the same center command port", { 
   assert.equal((await unconfiguredWrite()).code, "repo_mode_read_only", "config cannot forward another namespace");
   assert.equal(f.eventCount(), beforeUnconfigured);
 });
+
+test(
+  "terminals stay on the addressed edge or center daemon and preserve authorization",
+  { timeout: 90_000 },
+  async (t) => {
+    const f = await fleetNodeClaimFixture(t);
+    const edge = await fleetEdgeHostFixture(t, f);
+    const payload = {
+      idempotencyKey: "node-terminal",
+      backend: "direct-pty",
+      cwd: { scope: "repo-root" },
+      shellProfileId: "default",
+    };
+    const before = f.eventCount();
+    const spawned = await edge.host.terminalAction("lease-repo", "repo.terminal.spawn", payload, localAuthFixture());
+    assert.equal(spawned.ok, true, JSON.stringify(spawned));
+    const sessionId = String(spawned.sessionId);
+    assert.equal(
+      (
+        await edge.host.terminalAction(
+          "lease-repo",
+          "repo.terminal.input",
+          { sessionId, clientSeq: 1, utf8: "echo __EDGE_TERMINAL__\r" },
+          localAuthFixture(),
+        )
+      ).acceptedThrough,
+      1,
+    );
+    assert.equal(
+      (
+        await edge.host.terminalAction(
+          "lease-repo",
+          "repo.terminal.resize",
+          { sessionId, cols: 100, rows: 31 },
+          localAuthFixture(),
+        )
+      ).state,
+      "running",
+    );
+    assert.equal(
+      (
+        await edge.host.terminalAction(
+          "lease-repo",
+          "repo.terminal.terminate",
+          { sessionId, confirmed: true },
+          localAuthFixture(),
+        )
+      ).state,
+      "exited",
+    );
+    assert.equal(f.eventCount(), before, "PTY control never writes the center ledger");
+    await assert.rejects(
+      edge.host.terminalAction(
+        "lease-repo",
+        "repo.terminal.spawn",
+        { ...payload, idempotencyKey: "node-denied" },
+        { transportKind: "fleet-tls", nodePrincipal: { nodeId: "node-one", personId: "person-one" } },
+      ),
+      { code: "repo_mode_read_only" },
+    );
+    f.owners.keycloak.revoke("person-one", "lease-repo", ["terminal-spawn"]);
+    await assert.rejects(
+      edge.host.terminalAction(
+        "lease-repo",
+        "repo.terminal.spawn",
+        { ...payload, idempotencyKey: "permission-denied" },
+        localAuthFixture(),
+      ),
+      { code: "authorization_denied" },
+    );
+    for (const mode of ["local", "remote-center"] as const) {
+      if (mode === "remote-center")
+        await f.host.admin({ kind: "update", repoId: "lease-repo", mode }, localAuthFixture());
+      assert.equal(f.host.status().repos.find((repo) => repo.repoId === "lease-repo")?.mode, mode);
+      const center = await f.host.terminalAction(
+        "lease-repo",
+        "repo.terminal.spawn",
+        { ...payload, idempotencyKey: mode },
+        localAuthFixture(),
+      );
+      assert.equal(center.ok, true, JSON.stringify(center));
+      assert.equal(
+        (
+          await f.host.terminalAction(
+            "lease-repo",
+            "repo.terminal.terminate",
+            { sessionId: center.sessionId, confirmed: true },
+            localAuthFixture(),
+          )
+        ).state,
+        "exited",
+      );
+    }
+  },
+);
