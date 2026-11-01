@@ -12,18 +12,20 @@ record, gate the exits, and make a false "done" impossible to sustain. In our
 own self-involving use, every ungated path was bypassed; no gate means 100%
 bypass.
 
+## Choose your installation
+
+- **Harness Anything only:** copy the [Harness setup prompt](../README.md#harness-anything-only).
+- **Harness + DeepSeek Harness plugin:** copy the [DSH setup prompt](../README.md#harness-anything--deepseek-harness-plugin-macos). It requires an installed macOS DSH desktop App, reuses an existing Harness installation, and preserves customized skills.
+
 ## Install the 0.1.0 source candidate
 
 The supported GUI path is the source-installed `ha gui` command. The unsigned
 DMG remains a packaging candidate, not a production launch entry. Complete CLI,
 GUI, and uninstall steps are in the [install guide](start/en/01-install.md).
 
-To run the source proof:
+After installation, run the source proof from the persistent checkout:
 
 ```bash
-git clone https://github.com/FairladyZ625/harness-anything
-cd harness-anything
-npm ci
 npm run quickstart:demo
 ```
 

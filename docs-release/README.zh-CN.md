@@ -11,18 +11,20 @@ Harness Anything 是 AI agent 的问责层（accountability layer）：agent 产
 让虚假的“完成”无法维持。我们在自用（self-involving）中看到的是：没有门禁
 的路径会被 100% 旁路。没有 gate，就等于一定被绕过。
 
+## 选择安装入口
+
+- **只装 Harness Anything：** 复制 [Harness 安装提示词](../README.zh-CN.md#快速开始)。
+- **同时装 Harness 与 DeepSeek Harness 插件：** 复制 [DSH 安装提示词](../README.zh-CN.md#同时装-harness-anything-与-deepseek-harness-插件macos)。需要已安装的 macOS DSH 桌面 App，会复用已有 Harness 并保留定制技能。
+
 ## 安装 0.1.0 源码候选版
 
 受支持的 GUI 路径是源码安装的 `ha gui` 命令。未签名 DMG 仍是 packaging
 candidate，不是生产启动入口。CLI、GUI 与卸载步骤见
 [install guide](start/zh/01-install.md)。
 
-运行源码 proof：
+安装完成后，在持久源码目录运行 proof：
 
 ```bash
-git clone https://github.com/FairladyZ625/harness-anything
-cd harness-anything
-npm ci
 npm run quickstart:demo
 ```
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Harness + DeepSeek Harness 安装"
+  short_description: "在 macOS DSH 桌面端一次准备 Harness、使用技能与插件，保留已有安装"
+  default_prompt: "使用 $harness-dsh-install 为我的 macOS DeepSeek Harness 桌面端安装 Harness Anything、全部使用技能与插件；复用已有安装，列出 profile 让我确认，并验证 ha、预设与教程入口。"

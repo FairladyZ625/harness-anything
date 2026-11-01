@@ -2,6 +2,11 @@
 
 CLI 与 daemon 需要 Node.js 24 或更新版本，目前尚未发布到公开 npm registry；发布前请使用[源码安装技能](../../../skills/harness-download/SKILL.md)。桌面 App 从 [GitHub Releases](https://github.com/FairladyZ625/harness-anything/releases) 下载。
 
+## 选择安装入口
+
+- **只装 Harness Anything：** 让 Agent 使用 [harness-download](../../../skills/harness-download/SKILL.md)。
+- **同时装 Harness 与 DeepSeek Harness 插件：** 复制 [README 中的 DSH 安装提示词](../../../README.zh-CN.md#同时装-harness-anything-与-deepseek-harness-插件macos)。[harness-dsh-install](../../../skills/harness-dsh-install/SKILL.md) 会复用已有 Harness、补齐缺失技能并保留定制版本，再把从源码构建的 private 插件装到你确认的桌面 profile。需要 macOS 和已安装的 DSH 桌面 App；源码中须已有 `packages/dsh-plugin`。Agent 准备完成后，首选「插件 → 添加插件」填写它给出的绝对 `link:` 路径，CLI 是备选。
+
 ## CLI 与 daemon
 
 0.1.0 正式发布到 registry 后，可以全局安装面向用户的 package：
