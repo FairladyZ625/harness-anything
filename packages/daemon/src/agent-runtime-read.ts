@@ -50,6 +50,8 @@ export function makeAgentRuntimeReadModel(input: {
   readonly store: Pick<CanonicalEventStore, "readContentBlob">;
   /** Harness root holding dispatch streams; without it no session reports context occupancy. */
   readonly rootDir?: string;
+  /** Local public reads retain the center observation; edge reads may opt into process evidence. */
+  readonly activityEvidence?: boolean;
   readonly now?: () => string;
 }) {
   const installationDto = (raw: RuntimeInstallation): AgentRuntimeInstallationDto => {
@@ -73,7 +75,7 @@ export function makeAgentRuntimeReadModel(input: {
     dispatch: Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> | null,
   ): AgentRuntimeSessionDto => {
     const observedSession = publicRuntimeSession(
-        input.rootDir === undefined
+        input.rootDir === undefined || input.activityEvidence === false
           ? session
           : sessionWithActivityEvidence(
               session,

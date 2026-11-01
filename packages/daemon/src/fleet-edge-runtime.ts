@@ -495,9 +495,14 @@ export function openFleetEdgeRuntime(input: {
             (projection, frame, view) => ({
               // Recovery needs the center's published outcome. Local terminal evidence is
               // for public reads; treating it as publication would skip replay after a lost write.
-              ...repositoryRuntimeReads(projection as TaskProjection, {
-                readContentBlob: (sha256) => readEdgeViewBlob(view, sha256),
-              }).overview(payload),
+              ...repositoryRuntimeReads(
+                projection as TaskProjection,
+                {
+                  readContentBlob: (sha256) => readEdgeViewBlob(view, sha256),
+                },
+                undefined,
+                request.viewRoot,
+              ).overview(payload),
               ...frame,
             }),
           ),
