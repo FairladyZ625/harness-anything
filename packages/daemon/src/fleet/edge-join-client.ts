@@ -8,7 +8,7 @@ import { writeFileDurably } from "@harness-anything/storage";
 import { readFleetEdgeConfig, writeFleetEdgeConfig } from "../client/fleet-edge-config.ts";
 import { runProcessTextAsync } from "../process-port.ts";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
-import type { OidcLoginAuthority } from "@harness-anything/kernel";
+import type { OidcLoginAuthority, StoredSession } from "@harness-anything/kernel";
 import { decodeEdgeJoinLink } from "./edge-join.ts";
 import { probeFleetEdgeCenterAddress, requestFleetEdgeJoinPinned } from "./peer.ts";
 import { fetchWithTlsCa, systemCaCertificates } from "../tls-ca-certificate.ts";
@@ -64,6 +64,7 @@ export interface EdgeJoinClientPorts {
     | undefined
   >;
   readonly beginLogin: (authority: OidcLoginAuthority, loginTarget: string) => Promise<Record<string, unknown>>;
+  readonly importSession?: (session: StoredSession) => Promise<void>;
   readonly register: (rootDir: string, repoId: string) => Promise<unknown>;
   readonly sync: (payload: JsonObject) => Promise<Record<string, unknown>>;
   readonly join?: typeof requestFleetEdgeJoinPinned;
@@ -109,7 +110,9 @@ export async function joinFleetEdge(
         spkiSha256: link.spkiSha256,
       }),
     ),
-    loginProbe = Promise.resolve().then(() => (ports.probeLogin ?? probeLoginAddress)(authority)),
+    loginProbe = Promise.resolve().then(() =>
+      isBuiltinAuthority(authority) ? undefined : (ports.probeLogin ?? probeLoginAddress)(authority),
+    ),
     [centerResult, loginResult] = await Promise.allSettled([centerProbe, loginProbe]),
     failedAddresses = [
       ...(centerResult.status === "rejected" ? [{ address: "Center service", error: centerResult.reason }] : []),
@@ -137,11 +140,12 @@ export async function joinFleetEdge(
   const session = await ports.session(loginTarget);
   // An invitation CA is authoritative when present; public-trust invitations leave CA rotation unpinned.
   if (
-    !session ||
-    session.authority.url !== authority.url ||
-    session.authority.realm !== authority.realm ||
-    session.authority.servername !== authority.servername ||
-    (link.loginCertificate !== undefined && session.authority.certificate !== link.loginCertificate)
+    !isBuiltinAuthority(authority) &&
+    (!session ||
+      session.authority.url !== authority.url ||
+      session.authority.realm !== authority.realm ||
+      session.authority.servername !== authority.servername ||
+      (link.loginCertificate !== undefined && session.authority.certificate !== link.loginCertificate))
   )
     return {
       ...(await ports.beginLogin(authority, loginTarget)),
@@ -155,7 +159,7 @@ export async function joinFleetEdge(
       servername: centerServername,
       joinId: link.joinId,
       inviteToken: link.token,
-      accessToken: session.accessToken,
+      ...(session?.accessToken ? { accessToken: session.accessToken } : {}),
       spkiSha256: link.spkiSha256,
     }),
     certificate = new X509Certificate(Buffer.from(admitted.certificate, "base64")).toString(),
@@ -168,6 +172,21 @@ export async function joinFleetEdge(
       readonly code?: unknown;
       readonly error?: unknown;
     }[];
+
+  if (admitted.accessToken && ports.importSession) {
+    await ports.importSession({
+      schema: "harness-oidc-session/v3",
+      issuer: authority.url,
+      accessToken: admitted.accessToken,
+      refreshToken: "builtin-edge-session",
+      subject: `builtin-subject-${admitted.personId}`,
+      personId: admitted.personId,
+      expiresAt: admitted.sessionExpiresAt ?? Date.now() + 15 * 60_000,
+      sessionExpiresAt: admitted.sessionExpiresAt ?? null,
+      roles: [],
+      authority,
+    });
+  }
 
   for (const repository of admitted.repositories) {
     const root = edgeWorkspaceRoot(repository.repoId, request.workspaceRoot, ports.homeDir ?? homedir()),
@@ -312,6 +331,10 @@ export function deriveEdgeJoinQuotaBytes(rootDir: string, availableBytes: (rootD
 function availableFilesystemBytes(rootDir: string): number {
   const stats = statfsSync(rootDir);
   return stats.bavail * stats.bsize;
+}
+
+function isBuiltinAuthority(authority: OidcLoginAuthority): boolean {
+  return authority.url === "builtin://local" && authority.realm === "local";
 }
 
 async function probeLoginAddress(authority: OidcLoginAuthority): Promise<void> {

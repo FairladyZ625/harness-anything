@@ -127,7 +127,7 @@ export class AccessAdminService {
 
   /** Pre-session admission used only by the fleet edge.join frame. The whole invite/node write is
    * serialized by the OIDC writer, and the machine credential is returned only to this caller. */
-  async admitEdgeJoin(input: { readonly joinId: string; readonly inviteToken: string; readonly accessToken: string }) {
+  async admitEdgeJoin(input: { readonly joinId: string; readonly inviteToken: string; readonly accessToken?: string }) {
     return this.#edgeJoinAdmin.admit(input);
   }
 

@@ -861,6 +861,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             {
               session: async (rootDir) => (await oidc.bind(auth, rootDir)).oidcPrincipal,
               beginLogin: (authority, rootDir) => oidc.beginDevice(rootDir, authority),
+              ...(oidc.importSession ? { importSession: (session) => oidc.importSession!(session) } : {}),
               register: (rootDir, repoId) =>
                 host.admin({ kind: "register", rootDir, repoId, mode: "remote-edge" }, auth),
               sync: (payload) => host.fleet.edgeSync(payload, auth),
@@ -1111,7 +1112,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
               accessAdmin.admitEdgeJoin({
                 joinId: input.joinId,
                 inviteToken: input.inviteToken,
-                accessToken: input.accessToken ?? "",
+                ...(input.accessToken === undefined ? {} : { accessToken: input.accessToken }),
               }),
           },
         }),

@@ -169,7 +169,8 @@ export function decodeEdgeJoinLink(value: string): EdgeJoinLink {
           !browser ||
           !isLoopback(center.hostname) ||
           !isLoopback(login.hostname))) ||
-      login.protocol !== "https:" ||
+      (login.protocol !== "https:" && login.toString() !== "builtin://local") ||
+      (login.toString() === "builtin://local" && browser !== undefined) ||
       login.username !== "" ||
       login.password !== "" ||
       (browser !== undefined && (browser.protocol !== "https:" || browser.username !== "" || browser.password !== ""))
