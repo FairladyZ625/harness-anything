@@ -17,7 +17,7 @@ import {
   fleetProtocolMethods,
   type DaemonRpcDescriptor,
   type DaemonRpcMethod,
-} from "./daemon-protocol-methods.ts";
+} from "./daemon-protocol-commands.ts";
 export {
   accessAdminOperations,
   allDaemonProtocolMethods,
@@ -29,7 +29,7 @@ export {
   runtimeInstanceMethods,
   type DaemonRpcDescriptor,
   type DaemonRpcMethod,
-} from "./daemon-protocol-methods.ts";
+} from "./daemon-protocol-commands.ts";
 import type { RpcEnumRule, RpcShape } from "./daemon-protocol-gui-types.ts";
 import type { JsonObject, JsonValue } from "./json-rpc-types.ts";
 import { daemonGuiActionSchemas, daemonGuiReadSchemas } from "./daemon-protocol-schema-registry.ts";

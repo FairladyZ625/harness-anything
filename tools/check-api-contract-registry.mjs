@@ -56,7 +56,7 @@ const transportAuthorityMarker = "@daemon-transport-authority";
 
 export function evaluateApiContractRegistry(root = process.cwd()) {
   const violations = [];
-  const registryPath = "packages/daemon/src/protocol/daemon-protocol-methods.ts";
+  const registryPath = "packages/daemon/src/protocol/daemon-protocol-commands.ts";
   const runtimeActionsPath = "packages/daemon/src/protocol/daemon-protocol-gui-actions.ts";
   const serverPath = "packages/daemon/src/protocol/json-rpc-server.ts";
   const hostPath = "packages/daemon/src/daemon-host.ts";

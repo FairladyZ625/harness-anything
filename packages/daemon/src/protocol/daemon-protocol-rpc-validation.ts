@@ -19,7 +19,7 @@ import {
 import { validateCatalogActionPayload, validateSessionEnvironment } from "./daemon-protocol-validate-task.ts";
 import { validateDaemonQueryPayload } from "./daemon-protocol-validate-relation-query.ts";
 import { type DaemonRpcCall, type DaemonRpcMethod, type DaemonRpcWireParams } from "./daemon-protocol.contract.ts";
-import { allDaemonProtocolMethods } from "./daemon-protocol-methods.ts";
+import { allDaemonProtocolMethods } from "./daemon-protocol-commands.ts";
 import { decisionStateWords } from "./daemon-protocol-vocabulary.ts";
 import { DaemonProtocolContractError, isJsonObject, rejectSecretKeys, type JsonObject } from "./json-rpc-types.ts";
 
