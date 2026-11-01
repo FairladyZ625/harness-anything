@@ -15,7 +15,6 @@ ha bootstrap --operation login-poll
 
 ## Keycloak 插件
 
-需要协作能力时，安装并配置 Keycloak provider。daemon、GUI 和授权端口保持不变，只切换身份 provider：
 需要组织级身份时，显式切换到已有 Keycloak：
 
 ```bash

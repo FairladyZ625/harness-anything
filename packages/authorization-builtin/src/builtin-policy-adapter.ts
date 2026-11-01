@@ -73,10 +73,8 @@ export class BuiltinPolicyAdapter
     return Object.freeze({ scopeCount: this.#knownScopes.size, groupCount: base.length });
   }
   validatePolicyGroups(groups: readonly PolicyGroup[]): void {
-    assertAcyclicPolicyGroups(groups);
-    for (const group of groups)
-      for (const scope of group.scopes)
-        if (!this.#knownScopes.has(scope)) throw new Error(`Unknown built-in action scope ${scope}.`);
+    void groups;
+    throw identityPluginRequired();
   }
   syncLoginClients(token: string): Promise<void> {
     this.#assertCenter(token);
@@ -84,13 +82,7 @@ export class BuiltinPolicyAdapter
   }
   async readPolicyGroups(token: string): Promise<readonly BuiltinPolicyGroup[]> {
     this.#assertCenter(token);
-    const state = readState(this.#root);
-    return Object.freeze(
-      [
-        ...deriveBasePolicyGroups().map((group) => Object.freeze({ ...group, displayName: group.id })),
-        ...state.groups,
-      ].sort((a, b) => a.id.localeCompare(b.id)),
-    );
+    throw identityPluginRequired();
   }
   async writePolicyGroup(
     token: string,
@@ -98,51 +90,24 @@ export class BuiltinPolicyAdapter
     current: BuiltinPolicyGroup | undefined,
   ): Promise<void> {
     this.#assertCenter(token);
-    this.validatePolicyGroups([group]);
-    await this.#write(token, (state) => {
-      const groups = state.groups.filter((item) => item.id !== group.id);
-      if (current && current.id !== group.id)
-        throw new Error(`Built-in policy group ${group.id} changed concurrently.`);
-      return {
-        ...state,
-        groups: [
-          ...groups,
-          Object.freeze({
-            id: group.id,
-            base: false,
-            displayName: group.displayName,
-            scopes: [...group.scopes],
-            composites: [...group.composites],
-          }),
-        ],
-      };
-    });
+    void group;
+    void current;
+    throw identityPluginRequired();
   }
   async deletePolicyGroup(token: string, groupId: string): Promise<void> {
     this.#assertCenter(token);
-    await this.#write(token, (state) => ({
-      ...state,
-      groups: state.groups.filter((group) => group.id !== groupId),
-      grants: state.grants.filter((grant) => grant.groupId !== groupId),
-    }));
+    void groupId;
+    throw identityPluginRequired();
   }
   async readGrants(token: string): Promise<readonly BuiltinGrant[]> {
     this.#assertCenter(token);
-    return Object.freeze(
-      readState(this.#root).grants.map((grant) => Object.freeze({ ...grant, userIds: [...grant.userIds].sort() })),
-    );
+    throw identityPluginRequired();
   }
   async writeGrant(token: string, grant: BuiltinGrant, scopes: readonly string[]): Promise<void> {
     this.#assertCenter(token);
-    for (const scope of scopes)
-      if (!this.#knownScopes.has(scope)) throw new Error(`Unknown built-in action scope ${scope}.`);
-    await this.#write(token, (state) => ({
-      ...state,
-      grants: [
-        ...state.grants.filter((item) => !(item.groupId === grant.groupId && item.resource === grant.resource)),
-        { groupId: grant.groupId, resource: grant.resource, userIds: [...new Set(grant.userIds)] },
-      ],
-    }));
+    void grant;
+    void scopes;
+    throw identityPluginRequired();
   }
   async claimRepositoryOwner(token: string, repoId: string, personId: string): Promise<void> {
     this.#assertCenter(token);
@@ -168,21 +133,14 @@ export class BuiltinPolicyAdapter
   }
   async materializeGrants(token: string, groupIds?: ReadonlySet<string>): Promise<void> {
     this.#assertCenter(token);
-    const state = readState(this.#root),
-      groups = [...deriveBasePolicyGroups().map((group) => ({ ...group, displayName: group.id })), ...state.groups];
-    for (const grant of state.grants)
-      if (!groupIds || groupIds.has(grant.groupId))
-        await this.writeGrant(token, grant, effectivePolicyGroupScopes(groups, grant.groupId));
+    void groupIds;
+    throw identityPluginRequired();
   }
   async readPeople(
     token: string,
   ): Promise<readonly { readonly userId: string; readonly personId: string; readonly username: string }[]> {
     this.#assertCenter(token);
-    return Object.freeze(
-      readState(this.#root)
-        .users.map(({ userId, personId, username }) => ({ userId, personId, username }))
-        .sort((a, b) => a.personId.localeCompare(b.personId)),
-    );
+    throw identityPluginRequired();
   }
   async findUserId(token: string, personId: string): Promise<string | undefined> {
     this.#assertCenter(token);
@@ -191,7 +149,7 @@ export class BuiltinPolicyAdapter
   async readPersonTeams(token: string, personId: string): Promise<readonly string[]> {
     this.#assertCenter(token);
     this.#user(personId);
-    return Object.freeze([]);
+    throw identityPluginRequired();
   }
   async readTeam(token: string, teamId: string): Promise<{ readonly id: string; readonly name: string }> {
     this.#assertCenter(token);
@@ -392,7 +350,7 @@ export class BuiltinPolicyAdapter
     const state = readState(this.#root),
       user = state.users.find((item) => item.personId === personId);
     if (!user) return denied(this.deniedReasonCode);
-    const groups = [...deriveBasePolicyGroups().map((group) => ({ ...group, displayName: group.id })), ...state.groups],
+    const groups = deriveBasePolicyGroups().map((group) => ({ ...group, displayName: group.id })),
       covered = coveringResources(resourceValue, ancestors);
     for (const grant of state.grants)
       if (
