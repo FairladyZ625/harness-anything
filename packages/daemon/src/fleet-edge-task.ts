@@ -126,7 +126,6 @@ export async function runFleetDocShowRange(options: {
     metadata = null;
     sinkHandle = null;
   }
-  let last: Awaited<ReturnType<typeof runFleetTaskCommandClient>> | null = null;
   const request = options.request ?? runFleetTaskCommandClient;
   try {
     for (;;) {
@@ -141,7 +140,6 @@ export async function runFleetDocShowRange(options: {
             ...(metadata ? { contentSha256: metadata.sha256, contentRevision: metadata.sourceRevision } : {}),
           },
         });
-      last = result;
       if (result.outcome !== "applied") return result;
       const receipt = result.receipt as Readonly<Record<string, unknown>> | null,
         encoding = receipt?.evidenceContentEncoding;
@@ -193,7 +191,7 @@ export async function runFleetDocShowRange(options: {
       await sinkHandle.sink.seal(new AbortController().signal);
       const bytes = sinkHandle.readSealed(),
         evidence = metadata.encoding === "base64" ? bytes.toString("base64") : bytes.toString("utf8"),
-        cleanReceipt = { ...(last.receipt ?? {}), evidence } as Record<string, unknown>;
+        cleanReceipt = { ...(result.receipt ?? {}), evidence } as Record<string, unknown>;
       for (const field of [
         "evidenceEncoding",
         "evidenceOffset",
@@ -205,7 +203,7 @@ export async function runFleetDocShowRange(options: {
       ])
         delete cleanReceipt[field];
       completed = true;
-      return { ...last, receipt: cleanReceipt };
+      return { ...result, receipt: cleanReceipt };
     }
   } finally {
     reservation?.release();

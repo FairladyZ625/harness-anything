@@ -106,6 +106,7 @@
     "packages/daemon/src/doc-sync-candidate-scanner.ts",
     "packages/daemon/src/doc-sync-details.ts",
     "packages/daemon/src/doc-sync-files.ts",
+    "packages/daemon/src/fleet-edge-content.ts",
     "packages/storage/src/durable-file.ts",
     "packages/daemon/src/fleet-edge-mirror.ts",
     "packages/daemon/src/fleet/center-lease-claims.ts",

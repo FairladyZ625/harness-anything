@@ -1,5 +1,6 @@
 import { isUtf8 } from "node:buffer";
 import { createHash } from "node:crypto";
+import { consumeKnownError } from "@harness-anything/kernel";
 import {
   isDocEvent,
   isTaskBootstrapEvent,
@@ -116,7 +117,8 @@ export function verifyAcceptedContent(
       if (utf8) {
         try {
           decoder.decode(bytes, { stream: true });
-        } catch {
+        } catch (error) {
+          consumeKnownError(error);
           utf8 = false;
         }
       }
@@ -136,7 +138,8 @@ export function verifyAcceptedContent(
   if (utf8) {
     try {
       decoder.decode();
-    } catch {
+    } catch (error) {
+      consumeKnownError(error);
       utf8 = false;
     }
   }

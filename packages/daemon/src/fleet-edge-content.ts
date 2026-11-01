@@ -1,7 +1,6 @@
 import {
   closeSync,
   existsSync,
-  fstatSync,
   fsyncSync,
   mkdirSync,
   openSync,
@@ -155,7 +154,6 @@ export function openFleetDocContentSink(options: {
         if (!existingBytes.equals(Buffer.from(bytes).subarray(0, overlap)))
           throw error("upload_replay_mismatch", `Fleet content replay differs at offset ${offset}`);
         if (overlap === bytes.byteLength) return status();
-        offset += overlap;
         bytes = bytes.subarray(overlap);
       }
       const fd = openSync(target.part, "a");

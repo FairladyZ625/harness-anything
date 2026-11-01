@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { emit } from "../src/index.ts";
-import { runFleetTaskCommandClient } from "../../daemon/src/fleet/peer.ts";
+import { runFleetTaskCommandClient } from "@harness-anything/daemon";
 import { fleetFixture } from "../../daemon/test/fleet-tls-session.fixture.ts";
 
 test("a successful Fleet task carries the handshake warning into CLI output", { timeout: 30_000 }, async (t) => {
