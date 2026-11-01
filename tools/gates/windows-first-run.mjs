@@ -72,6 +72,7 @@ export async function evaluateWindowsFirstRun(rootDir, { stopSettleMs = STOP_SET
   const identity = await smokeIdentity(root, "firstrun");
 
   try {
+    identity.configure(path.join(root, "daemon"));
     git(repo, "init", "-q");
     git(repo, "config", "user.email", "first-run@harness.invalid");
     git(repo, "config", "user.name", "First Run");
@@ -169,7 +170,7 @@ export async function evaluateWindowsFirstRun(rootDir, { stopSettleMs = STOP_SET
   } finally {
     harness(entry, repo, env, ["daemon", "stop"]);
     await identity.close();
-    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
   }
   return { ok: errors.length === 0, errors, checks };
 }

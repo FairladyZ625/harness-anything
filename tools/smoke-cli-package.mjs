@@ -132,6 +132,8 @@ export async function runCliPackageSmoke(root = process.cwd()) {
         "CLI package smoke: skipping unstartable-daemon fail-closed check (requires POSIX non-root permission semantics).",
       );
     }
+    identity = await smokeIdentity(tempRoot, "smoke");
+    identity.configure(userRoot);
     const daemonStart = runJson(
       binPath,
       ["--root", projectDir, "--json", "daemon", "start", "--service"],
@@ -139,8 +141,11 @@ export async function runCliPackageSmoke(root = process.cwd()) {
       env(userRoot, home),
     );
     started = daemonStart.status === 0 && daemonStart.receipt?.ok === true;
+    if (!started) {
+      const logFile = path.join(userRoot, "logs", "daemon-default.log");
+      if (existsSync(logFile)) process.stderr.write(`${readFileSync(logFile, "utf8")}\n`);
+    }
     expectOk(daemonStart, "daemon start");
-    identity = await smokeIdentity(tempRoot, "smoke");
     identity.prepare((args, input) =>
       runJson(binPath, ["--root", projectDir, "--json", ...args], projectDir, env(userRoot, home), input),
     );
@@ -323,7 +328,7 @@ export async function runCliPackageSmoke(root = process.cwd()) {
     if (started && binPath)
       run(binPath, ["--root", projectDir, "--json", "daemon", "stop"], projectDir, env(userRoot, home));
     await identity?.close();
-    rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    rmSync(tempRoot, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
   }
 }
 
