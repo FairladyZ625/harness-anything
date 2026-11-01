@@ -41,7 +41,7 @@ git clone --depth 1 --branch main https://github.com/FairladyZ625/harness-anythi
 
 源码不能放临时目录：技能链接和守护进程随后都依赖这个持久位置。
 
-开始装依赖前先把等待成本告诉用户，不要等命令跑起来才说。`npm ci` 只负责 JS 依赖；Electron 二进制由它自带的安装器单独下载。当前锁文件里的 `electron@42.11.16` 已经没有 `postinstall`，npm 的 install-scripts 列表里也没有它，所以 `allowScripts` 放行不了不存在的脚本，必须显式跑 `node node_modules/electron/install.js`。本机 macOS arm64 两次干净 clone 实测（2026-11-01，Node 26.8.2 / npm 11.19.1，干净 npm 与 Electron 缓存）：`npm ci` 45–53 秒，Electron 下载 98–149 秒，三包构建 53–57 秒（daemon 23–26 秒、CLI 27–28 秒、GUI 3 秒），从 `npm ci` 到构建完成 3 分 24 秒–4 分 11 秒；npm 缓存约 149 MiB，Electron 下载缓存约 128 MiB（合计约 277 MiB），装完 `node_modules` 约 993 MiB，其中 Electron 约 295 MiB。用户机器和网络会不同，按同一数量级预告即可。等待期间可以继续读第 2 节的技能目标目录、确认要接入的 Agent，但不要重复开第二个安装、不要删除 `node_modules`。进度直接看命令输出；Electron 下载阶段可以另开终端跑 `du -sh node_modules/electron/dist` 看增长。安装失败时读真实构建错误，不用 `--ignore-scripts` 把失败掩盖到守护进程启动阶段。
+开始装依赖前先把等待成本告诉用户，不要等命令跑起来才说。`npm ci` 只负责 JS 依赖；Electron 二进制由它自带的安装器单独下载。当前锁文件里的 `electron@42.11.16` 已经没有 `postinstall`，npm 的 install-scripts 列表里也没有它，所以 `allowScripts` 放行不了不存在的脚本，必须显式跑 `node node_modules/electron/install.js`。本机 macOS arm64 三次干净 clone 实测（2026-11-01，Node 26.8.2 / npm 11.19.1，干净 npm 与 Electron 缓存）：`npm ci` 45–80 秒，Electron 下载 98–149 秒，三包构建 53–57 秒（daemon 23–26 秒、CLI 25–28 秒、GUI 3–4 秒），从 `npm ci` 到构建完成 3 分 24 秒–4 分 39 秒；npm 缓存约 149 MiB，Electron 下载缓存约 128 MiB（合计约 277 MiB），装完 `node_modules` 约 993 MiB，其中 Electron 约 295 MiB。用户机器和网络会不同，按同一数量级预告即可。等待期间可以继续读第 2 节的技能目标目录、确认要接入的 Agent，但不要重复开第二个安装、不要删除 `node_modules`。进度直接看命令输出；Electron 下载阶段可以另开终端跑 `du -sh node_modules/electron/dist` 看增长。安装失败时读真实构建错误，不用 `--ignore-scripts` 把失败掩盖到守护进程启动阶段。
 
 在源码目录执行（一次装齐 CLI、daemon、GUI）：
 
