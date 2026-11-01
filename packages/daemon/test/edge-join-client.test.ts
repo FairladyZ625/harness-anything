@@ -204,6 +204,11 @@ test("one invitation creates and syncs an independent workspace for every reposi
   assert.equal(mismatch.ok, false);
   assert.equal((mismatch.repositories as Array<{ code?: string }>)[0]?.code, "edge_origin_mismatch");
   assert.equal(mismatchRegistered, false, "a mismatched workspace must not register with the edge daemon");
+  assert.deepEqual(
+    progress.slice(8).map(({ repository }) => `${repository.repoId}:${repository.phase}`),
+    ["repo-a:workspace", "repo-a:failed"],
+    "a mismatched workspace reports the preflight failure before registration",
+  );
 
   let loginAuthority: Record<string, unknown> | undefined, loginTarget: string | undefined;
   const mismatchedSessionPorts: EdgeJoinClientPorts = {
@@ -259,7 +264,7 @@ test("one invitation creates and syncs an independent workspace for every reposi
     "an invitation without CA reuses the same authority session without comparing its CA",
   );
   assert.deepEqual(
-    progress.map(({ repository }) => `${repository.repoId}:${repository.phase}`),
+    progress.slice(0, 8).map(({ repository }) => `${repository.repoId}:${repository.phase}`),
     [
       "repo-a:workspace",
       "repo-a:register",
