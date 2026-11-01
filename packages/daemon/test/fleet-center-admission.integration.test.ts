@@ -127,12 +127,12 @@ async function admissionFixture(t: TestContext, initialState: "warming" | "unava
   );
   const key = readFileSync(keyFile),
     cert = readFileSync(certFile),
-    opened = await openDaemonHost({ daemonId: "fleet-admission", userRoot }),
     owners = await fleetNodeOwners({
       userRoot,
       owners: { "node-one": "admission-owner" },
       repoIds: ["admission-repo"],
-    });
+    }),
+    opened = await openDaemonHost({ daemonId: "fleet-admission", userRoot });
   let repoState = initialState;
   const host = {
     ...opened,

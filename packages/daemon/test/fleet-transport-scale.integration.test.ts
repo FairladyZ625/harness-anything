@@ -224,13 +224,13 @@ async function scaleFixture(t: TestContext) {
     ],
     { stdio: "ignore" },
   );
-  const host = await openDaemonHost({ daemonId: "fleet-scale", userRoot, openCell: openRepoCell }),
-    clients: ScaleClient[] = [],
-    owners = await fleetNodeOwners({
+  const owners = await fleetNodeOwners({
       userRoot,
       owners: Object.fromEntries(Array.from({ length: 45 }, (_, index) => [`node-${index}`, "fleet-owner"])),
       repoIds: repos.map((repo) => repo.repoId),
-    });
+    }),
+    host = await openDaemonHost({ daemonId: "fleet-scale", userRoot, openCell: openRepoCell }),
+    clients: ScaleClient[] = [];
   t.after(async () => {
     try {
       await owned.reclaim();

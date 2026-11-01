@@ -173,15 +173,15 @@ async function claimRaceFixture(t: TestContext) {
     models: [definition.model],
     authMode: "subscription",
   });
-  const host = await openDaemonHost({
-      daemonId: "schedule-claim-race",
-      userRoot,
-      runtimeDiscover: () => [installation],
-    }),
-    owners = await fleetNodeOwners({
+  const owners = await fleetNodeOwners({
       userRoot,
       owners: { "edge-alpha": "person-alpha", "edge-beta": "person-beta" },
       repoIds: [repoId],
+    }),
+    host = await openDaemonHost({
+      daemonId: "schedule-claim-race",
+      userRoot,
+      runtimeDiscover: () => [installation],
     }),
     certificate = readFileSync(certFile);
   let center: FleetTlsCenter | null = null;
