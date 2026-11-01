@@ -88,7 +88,7 @@ test("a worker escalation blocks its task until the owner answers and resumes wi
   run(root, env, ["task", "escalation", "resolve", task.taskId, "--dispatch-id", dispatchId, "--answer", answer]);
   const shownAfterResolution = run(root, env, ["task", "show", task.taskId]);
   assert.equal(JSON.parse(String(shownAfterResolution.evidence)).task.status, "planned");
-  run(root, env, ["task", "start", task.taskId, "--execution-id", task.executionId]);
+  run(root, env, ["task", "start", task.taskId]);
   const next = runMaybe(root, env, [
     "agent",
     "run",
