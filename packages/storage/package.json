@@ -1,6 +1,6 @@
 {
   "name": "@harness-anything/storage",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "homepage": "https://github.com/FairladyZ625/harness-anything#readme",
@@ -41,12 +41,12 @@
     }
   },
   "dependencies": {
-    "@harness-anything/kernel": "0.0.1",
+    "@harness-anything/kernel": "0.1.0",
     "pg": "^8.23.1",
     "tar": "7.5.22"
   },
   "devDependencies": {
-    "@harness-anything/authorization-keycloak": "0.0.1",
+    "@harness-anything/authorization-keycloak": "0.1.0",
     "@types/pg": "^8.15.5"
   }
 }

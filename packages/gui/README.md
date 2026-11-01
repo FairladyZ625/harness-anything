@@ -25,7 +25,7 @@ does not fast-forward Git and is not a production entry.
 
 ## Distribution Status
 
-Version 0.0.1 retains packaging checks for the macOS Local candidate, but the
+Version 0.1.0 retains packaging checks for the macOS Local candidate, but the
 unsigned DMG is not a supported launch surface. Signing, notarization,
 auto-update, and direct packaged-app launch remain unshipped capabilities.
 
