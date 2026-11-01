@@ -203,6 +203,18 @@ test(
     });
     t.after(() => edgeHost.close());
     await edgeHost.attachmentsSettled();
+    await assert.rejects(
+      edgeHost.spawnRuntime(
+        fixture.subject.repoId,
+        {
+          runtimeInstanceId: runtimeDefinition.instanceId,
+          cwd: { scope: "repo-root" },
+          prompt: "Do not accept a remote caller.",
+        },
+        { transportKind: "tcp" } as never,
+      ),
+      { code: "local_transport_required" },
+    );
     for (const [instanceId, name] of [
       [runtimeDefinition.instanceId, "Edge Codex"],
       [alternateInstanceId, "Alternate Codex"],
@@ -234,25 +246,14 @@ test(
       viewRoot,
       diskQuotaBytes: replicaQuota,
     });
-    const receipt = await edgeHost.fleet.edgeRuntime(
+    const receipt = await edgeHost.spawnRuntime(
+      fixture.subject.repoId,
       {
-        host: "127.0.0.1",
-        port: center.port,
-        caPath: fixture.certFile,
-        nodeId: fixture.subject.nodeId,
-        credential: "machine-secret",
-        repoId: fixture.subject.repoId,
-        viewRoot,
-        quotaBytes: replicaQuota,
-        workspaceRoot: edgeRoot,
-        method: "repo.agentRuntime.spawn",
-        action: {
-          runtimeInstanceId: runtimeDefinition.instanceId,
-          cwd: { scope: "repo-root" },
-          prompt: "Append one progress checkpoint.",
-          taskId: fixture.subject.taskId,
-          dispatchKey: "remote-edge-runtime",
-        },
+        runtimeInstanceId: runtimeDefinition.instanceId,
+        cwd: { scope: "repo-root" },
+        prompt: "Append one progress checkpoint.",
+        taskId: fixture.subject.taskId,
+        dispatchKey: "remote-edge-runtime",
       },
       localAuth,
     );
@@ -336,6 +337,20 @@ test(
     );
     const after = await fixture.host.read(fixture.subject.repoId, "repo.tasks.list", {}, fixture.auth);
     assert.ok(after.sourceRevision > before.sourceRevision);
+    const cancelled = await edgeHost.cancelRuntime(
+      fixture.subject.repoId,
+      { runtimeSessionId: String(receipt.runtimeSessionId) },
+      localAuth,
+    );
+    assert.equal(cancelled.detail, "already-exited", JSON.stringify(cancelled));
+    await assert.rejects(
+      edgeHost.handoffRuntime(
+        fixture.subject.repoId,
+        { operation: "export", dispatchId: String(receipt.dispatchId) },
+        localAuth,
+      ),
+      { code: "runtime_handoff_ineligible" },
+    );
     await t.test("provider resume recovers when the center loses the outcome publication", async () => {
       // A retained provider session does not retain the terminal attempt's released task lease;
       // dispatch itself must rejoin the still-active execution through the center.
