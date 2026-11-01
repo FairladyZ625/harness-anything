@@ -5,12 +5,15 @@ import {
   harnessSupplyChainReleaseReadiness,
   validateSupplyChainReleaseReadiness,
 } from "../packages/gui/src/distribution/supply-chain-release-readiness.ts";
-import { publicReadyPackagesByPath } from "./public-ready-packages.mjs";
 import { selectManifestGateIds } from "./run-manifest-gates.mjs";
 
 const root = process.cwd();
 const errors = [];
 const policy = harnessSupplyChainReleaseReadiness;
+const requiredBins = new Map([
+  ["@harness-anything/cli", { "harness-anything": "dist/cli/src/index.js", ha: "dist/cli/src/index.js" }],
+  ["@harness-anything/daemon", { "harness-anything-daemon": "dist/index.js" }],
+]);
 const manifestGateRunner = "node tools/run-manifest-gates.mjs";
 const gateManifest = existsSync(path.join(root, "tools/gate-manifest.json"))
   ? readJson("tools/gate-manifest.json")
@@ -137,15 +140,12 @@ function validatePackageMetadata() {
     if (packageJson.license !== policy.licensePolicy.projectLicense) {
       record(`${packagePath} must declare license ${policy.licensePolicy.projectLicense}`);
     }
-    const publicContract = publicReadyPackagesByPath.get(packagePath);
-    if (publicContract && (publicContract.required || packageJson.private !== true)) {
-      validatePublicReadyPackageMetadata(packagePath, packageJson, publicContract);
+    const isPublic = packageJson.private !== true;
+    if (isPublic) {
+      validatePublicReadyPackageMetadata(packagePath, packageJson);
     } else {
-      if (packageJson.private !== true) {
-        record(`${packagePath} is not in the approved npm publish set and must stay private`);
-      }
       const expectedVersion =
-        packagePath === "package.json" || packagePath === "packages/gui/package.json"
+        packagePath === "package.json"
           ? policy.releaseBoundary.productVersion
           : policy.releaseBoundary.internalWorkspaceVersion;
       if (packageJson.version !== expectedVersion) {
@@ -168,26 +168,26 @@ function validatePackageMetadata() {
   }
 }
 
-function validatePublicReadyPackageMetadata(packagePath, packageJson, publicContract) {
-  if (packageJson.name !== publicContract.packageName) {
-    record(`${packagePath} must be the public-ready package ${publicContract.packageName}`);
-  }
+function validatePublicReadyPackageMetadata(packagePath, packageJson) {
+  const directory = path.posix.dirname(packagePath);
   if (packageJson.private === true) {
     record(`${packagePath} must not be private for npm publish --dry-run preflight`);
   }
-  if (packageJson.version !== publicContract.version) {
-    record(`${packagePath} must use version ${publicContract.version} for npm publish --dry-run preflight`);
+  if (packageJson.version !== policy.releaseBoundary.publicReadyPackageVersion) {
+    record(
+      `${packagePath} must use version ${policy.releaseBoundary.publicReadyPackageVersion} for npm publish --dry-run preflight`,
+    );
   }
   if (packageJson.publishConfig?.access !== "public") {
     record(`${packagePath} must define publishConfig.access public for the scoped CLI package`);
   }
-  if (packageJson.repository?.directory !== publicContract.repositoryDirectory) {
-    record(`${packagePath} must declare repository.directory ${publicContract.repositoryDirectory}`);
+  if (packageJson.repository?.directory !== directory) {
+    record(`${packagePath} must declare repository.directory ${directory}`);
   }
   if (packageJson.engines?.node !== ">=24") {
     record(`${packagePath} must declare Node >=24 runtime support`);
   }
-  for (const [name, target] of Object.entries(publicContract.bins))
+  for (const [name, target] of Object.entries(requiredBins.get(packageJson.name) ?? {}))
     if (packageJson.bin?.[name] !== target) record(`${packagePath} must declare bin ${name} as ${target}`);
   if (
     !Array.isArray(packageJson.files) ||

@@ -11,7 +11,7 @@ Harness Anything 是 AI agent 的问责层（accountability layer）：agent 产
 让虚假的“完成”无法维持。我们在自用（self-involving）中看到的是：没有门禁
 的路径会被 100% 旁路。没有 gate，就等于一定被绕过。
 
-## 安装 0.0.1 源码候选版
+## 安装 0.1.0 源码候选版
 
 受支持的 GUI 路径是源码安装的 `ha gui` 命令。未签名 DMG 仍是 packaging
 candidate，不是生产启动入口。CLI、GUI 与卸载步骤见
@@ -59,7 +59,7 @@ error code=terminal_status_requires_task_complete
 本地 ref 校验记录的合入提交。该设置必须显式声明，因此有远端仓库仍保持
 origin/main 的交付门。
 
-从 checkout 安装 0.0.1 CLI 候选版：
+从 checkout 安装 0.1.0 CLI 候选版：
 
 ```bash
 npm install --global @harness-anything/cli@latest @harness-anything/daemon@latest

@@ -4,7 +4,9 @@
   "private": true,
   "license": "AGPL-3.0-or-later",
   "type": "module",
-  "engines": { "node": ">=24" },
+  "engines": {
+    "node": ">=24"
+  },
   "exports": {
     ".": "./src/index.ts",
     "./access-admin-contract": "./src/access-admin-contract.ts",
@@ -12,5 +14,7 @@
     "./oidc-auth-contract": "./src/oidc-auth-contract.ts",
     "./ui-component-contract": "./src/ui-component-contract.ts"
   },
-  "peerDependencies": { "react": "^19.0.0" }
+  "peerDependencies": {
+    "react": "^19.0.0"
+  }
 }

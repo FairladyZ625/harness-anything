@@ -4,10 +4,10 @@ The CLI and daemon require Node.js 24 or newer. They are not currently published
 
 ## CLI and daemon
 
-After the 0.0.1 registry publication, install the user-facing packages globally:
+After the 0.1.0 registry publication, install the user-facing packages globally:
 
 ```bash
-npm install --global @harness-anything/cli@0.0.1 @harness-anything/daemon@0.0.1
+npm install --global @harness-anything/cli@0.1.0 @harness-anything/daemon@0.1.0
 ha init
 ```
 

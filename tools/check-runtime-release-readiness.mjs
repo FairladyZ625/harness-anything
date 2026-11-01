@@ -5,7 +5,7 @@ import {
   harnessRuntimeReleaseReadiness,
   validateRuntimeReleaseReadiness,
 } from "../packages/gui/src/distribution/runtime-release-readiness.ts";
-import { publicReadyPackagesByPath } from "./public-ready-packages.mjs";
+import { publicWorkspaceNamesTopologically, readWorkspacePackages } from "./public-workspaces.mjs";
 import { selectManifestGateIds } from "./run-manifest-gates.mjs";
 
 const root = process.cwd();
@@ -78,25 +78,28 @@ for (const [scriptName, requiredCommand] of [
   }
 }
 
-for (const workspace of [
-  "packages/kernel/package.json",
-  "packages/application/package.json",
-  "packages/daemon/package.json",
-  "packages/cli/package.json",
-  "packages/gui/package.json",
-]) {
-  const packageJson = readJson(workspace);
-  const publicContract = publicReadyPackagesByPath.get(workspace);
-  if (publicContract && (publicContract.required || packageJson.private !== true)) {
+const requiredBins = new Map([
+  [
+    "@harness-anything/cli",
+    Object.freeze({ "harness-anything": "dist/cli/src/index.js", ha: "dist/cli/src/index.js" }),
+  ],
+  ["@harness-anything/daemon", Object.freeze({ "harness-anything-daemon": "dist/index.js" })],
+]);
+const publicNames = new Set(publicWorkspaceNamesTopologically(root));
+for (const entry of readWorkspacePackages(root)) {
+  const { manifest: packageJson, packagePath: workspace, directory } = entry;
+  if (publicNames.has(packageJson.name)) {
     if (packageJson.private === true) record(`${workspace} must be public-ready for npm publish --dry-run preflight`);
-    if (packageJson.version !== publicContract.version) {
-      record(`${workspace} must be ${publicContract.version} for npm publish --dry-run preflight`);
+    if (packageJson.version !== harnessRuntimeReleaseReadiness.releaseBoundary.productVersion) {
+      record(
+        `${workspace} must be ${harnessRuntimeReleaseReadiness.releaseBoundary.productVersion} for npm publish --dry-run preflight`,
+      );
     }
     if (packageJson.publishConfig?.access !== "public")
       record(`${workspace} must define publishConfig.access public for scoped npm dry-run preflight`);
-    if (packageJson.repository?.directory !== publicContract.repositoryDirectory)
-      record(`${workspace} must declare repository.directory ${publicContract.repositoryDirectory}`);
-    for (const [name, target] of Object.entries(publicContract.bins))
+    if (packageJson.repository?.directory !== directory)
+      record(`${workspace} must declare repository.directory ${directory}`);
+    for (const [name, target] of Object.entries(requiredBins.get(packageJson.name) ?? {}))
       if (packageJson.bin?.[name] !== target) record(`${workspace} must declare bin ${name} as ${target}`);
   } else {
     if (packageJson.private !== true) record(`${workspace} must remain private before an explicit release task`);

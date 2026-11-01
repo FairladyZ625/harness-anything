@@ -19,7 +19,7 @@
 | 本地 daemon，包括单机多仓 | Shipped    | `ha daemon start --service`、workspace bootstrap、repo registration、每仓 RepoCell 隔离与按 repo 路由都可用。CLI 命令（包括 `ha gui`）使用 canonical-only autostart；Electron GUI 进程只 attach，永不 start、restart 或 stop daemon。证据：`packages/daemon/src/client/daemon-autostart.ts` 与 `packages/gui/src/main/local-composition-root.ts`。                      |
 | 桌面 GUI 本地界面         | Foundation | `ha gui [--root <path>]` 是受支持的 source-checkout Electron 入口：它重建 file-backed renderer/preload，经 CLI 取得 daemon，再 detached 启动 Electron。未签名的 Apple-silicon DMG 仍是 packaging candidate，不是受支持的启动入口。多个产品视图仍是只读、deferred 或 mock-backed。                                                                                       |
 | 远端纯展示 daemon 模式    | Shipped    | `remote-proxy` 让本机 GUI 通过用户管理的本地 endpoint tunnel 显示服务器仓库；本机没有工作区，开发必须 SSH 到服务器。使用 `ha daemon connection add` / `probe` 后，以 `ha daemon repo register --mode remote-proxy --connection <connection>` 注册。证据：`docs-release/operations-server-daemon.zh-CN.md`。                                                             |
-| 运行时与发布就绪          | Foundation | 源码 checkout、Node 24 和 Node 26 CI、CLI package smoke 与精确的 arm64 DMG build 都有可执行检查。0.0.1 产物已在本地准备，但本次改动不发布它们。                                                                                                                                                                                                                         |
+| 运行时与发布就绪          | Foundation | 源码 checkout、Node 24 和 Node 26 CI、CLI package smoke 与精确的 arm64 DMG build 都有可执行检查。0.1.0 产物已在本地准备，但本次改动不发布它们。                                                                                                                                                                                                                         |
 | 供应链与许可证 gate       | Foundation | npm audit、SBOM 校验、OSV 证据路径检查、许可证策略、Dependabot 覆盖、AGPL 网络服务发布说明 checklist，都是 gate 或任务包可检查的策略。发布产物仍未 ship。证据：`package.json:71` 与 `tools/check-supply-chain.mjs:51-74`。                                                                                                                                              |
 | M3-M7 backlog             | Planned    | 外部 adapter 实现、完整 GUI 产品行为与发布硬化都尚未 ship。占位 adapter package 已退役移除；仅页面级 GUI 代码、未签名产物、纯发布策略 prose，都不能被继承为已 ship 产品状态。                                                                                                                                                                                                      |
 
@@ -72,7 +72,7 @@ GUI/daemon 方向有真实的 foundation 切片：
 ## 运行时与发布就绪
 
 状态：macOS Local v1 发布候选版。运行时与 package 检查可执行；
-未签名的 0.0.1 arm64 产物已准备好发布。
+未签名的 0.1.0 arm64 产物已准备好发布。
 
 ### 运行时合同
 
@@ -120,7 +120,7 @@ npm run -w @harness-anything/gui build
 
 ### GUI 分发与更新边界
 
-Harness Anything GUI 0.0.1 仍保留手动、未签名的 macOS arm64 packaging
+Harness Anything GUI 0.1.0 仍保留手动、未签名的 macOS arm64 packaging
 candidate；GUI workspace 也已进入 lockstep npm artifact 的 public-ready 集合。
 Source installation 的 `ha gui` 和 platform installer 是支持的 GUI 入口。直接启动
 DMG application、签名、notarization、其他操作系统和 update feed 属于后续发布任务。
@@ -129,8 +129,13 @@ DMG application、签名、notarization、其他操作系统和 update feed 属�
 
 当前发布边界刻意保守：
 
-- root product、六个 workspace 与 GUI 使用 lockstep version `0.0.1`；
-  所有 workspace 都已满足 npm publish dry-run 的 public-ready 合同。
+- public-ready npm 集合由 workspace 元数据派生：所有未标 `private` 的
+  workspace（kernel、storage、application、preset、authorization-keycloak、
+  cli、daemon、gui）按依赖顺序发布；`authorization-gui` 与
+  `authorization-keycloak-gui` 是 GUI 的 private 构建期依赖，不进入发布面。
+  发布清单在发现 public 包依赖 private workspace 时直接失败。
+- public 包使用 lockstep version `0.1.0`；两个 private GUI 构建期包维持
+  `0.0.1`。
 - 不声明真实 npm package release。
 - signed installers、notarized builds、auto-update、release feeds、published artifacts 都未 ship。
 - Desktop 和 daemon 分发策略由本页治理。
@@ -169,7 +174,7 @@ SBOM 检查要求 dependency component 带 package URL、hash 和 license metada
 当前阶段唯一允许的 npm publish preflight 是对全部 public-ready workspace 做 dry-run：
 
 ```bash
-for workspace in @harness-anything/kernel @harness-anything/application @harness-anything/preset @harness-anything/cli @harness-anything/daemon @harness-anything/gui; do
+for workspace in $(node tools/public-workspaces.mjs); do
   npm publish --dry-run --workspace "$workspace" --access public --tag latest
 done
 ```

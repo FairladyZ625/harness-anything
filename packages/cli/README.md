@@ -7,14 +7,14 @@ The canonical CLI command is `harness-anything`. `ha` is a short alias with the
 same behavior for interactive use. Public examples prefer `harness-anything`
 unless they are documenting the alias itself.
 
-## Install the 0.0.1 candidate
+## Install the 0.1.0 candidate
 
 Build and install the scoped CLI from this checkout. The package is a release
 candidate and is not claimed as published to npm:
 
 ```bash
 npm pack --workspace @harness-anything/cli
-npm install --global ./harness-anything-cli-0.0.1.tgz
+npm install --global ./harness-anything-cli-0.1.0.tgz
 ha init
 ```
 

@@ -4,10 +4,10 @@ CLI 与 daemon 需要 Node.js 24 或更新版本，目前尚未发布到公开 n
 
 ## CLI 与 daemon
 
-0.0.1 正式发布到 registry 后，可以全局安装面向用户的 package：
+0.1.0 正式发布到 registry 后，可以全局安装面向用户的 package：
 
 ```bash
-npm install --global @harness-anything/cli@0.0.1 @harness-anything/daemon@0.0.1
+npm install --global @harness-anything/cli@0.1.0 @harness-anything/daemon@0.1.0
 ha init
 ```
 

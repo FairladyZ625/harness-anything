@@ -2938,7 +2938,7 @@
         ".github/workflows/**",
         "tools/gate-manifest.json",
         "tools/check-runtime-release-readiness.mjs",
-        "tools/public-ready-packages.mjs",
+        "tools/public-workspaces.mjs",
         "tools/run-manifest-gates.mjs"
       ],
       "githubContext": {
@@ -2994,7 +2994,7 @@
         "package.json",
         "packages/**/package.json",
         "tools/check-package-policy.mjs",
-        "tools/public-ready-packages.mjs",
+        "tools/public-workspaces.mjs",
         "tools/package-exports-lifecycle.mjs"
       ],
       "authoritySource": [

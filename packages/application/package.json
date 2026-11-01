@@ -1,6 +1,6 @@
 {
   "name": "@harness-anything/application",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "homepage": "https://github.com/FairladyZ625/harness-anything#readme",
@@ -35,6 +35,6 @@
     "./internal/task-lifecycle-service": "./src/task-lifecycle-service.ts"
   },
   "dependencies": {
-    "@harness-anything/kernel": "0.0.1"
+    "@harness-anything/kernel": "0.1.0"
   }
 }

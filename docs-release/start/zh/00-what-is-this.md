@@ -17,7 +17,7 @@ gate，就等于一定被绕过。
 
 ## 试运行源码 checkout demo
 
-0.0.1 CLI 候选版尚未发布到公开 npm registry。源码 checkout 统一按
+0.1.0 CLI 候选版尚未发布到公开 npm registry。源码 checkout 统一按
 [harness-download](../../../skills/harness-download/SKILL.md) 第 1 节安装一次：它构建 CLI、daemon 与 GUI，
 在装依赖前说明 Electron 下载的耗时和体积，并把构建后的 `ha` 放进当前 shell 的 PATH。
 本文不另列一套源码安装命令。
