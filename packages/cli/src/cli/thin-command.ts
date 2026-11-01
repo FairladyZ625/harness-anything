@@ -13,6 +13,10 @@ export const thinCliLocalErrorCodes = Object.freeze([
   "invalid_field",
   "invalid_runtime_fast",
   "missing_field",
+  // The CLI reads a caller's outside-repository --source itself; a missing, unreadable or binary
+  // file is refused before the daemon sees the command.
+  "artifact_source_missing",
+  "artifact_source_invalid",
   "materialization_failed",
   "unknown_field",
   "unsupported_command",

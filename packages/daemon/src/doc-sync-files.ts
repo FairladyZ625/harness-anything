@@ -54,7 +54,11 @@ export function artifactSource(
   try {
     absolute = realpathSync.native(candidate);
   } catch {
-    throw docSyncError("artifact_source_missing", "artifact source must be an existing untracked regular file");
+    throw docSyncError(
+      "artifact_source_missing",
+      `artifact source must be an existing untracked regular file: ${value}; ` +
+        "the ha CLI sends a UTF-8 file outside the repository as inline content",
+    );
   }
   if (
     !absolute.startsWith(`${root}${path.sep}`) ||
@@ -63,7 +67,8 @@ export function artifactSource(
   )
     throw docSyncError(
       "artifact_source_invalid",
-      "artifact source must be a direct regular file inside the repository",
+      "artifact source must be a direct regular file inside the repository; " +
+        "the ha CLI sends a UTF-8 file outside it as inline content",
     );
   const relative = path.relative(root, absolute).split(path.sep).join("/"),
     authoredRoot = realpathSync.native(resolveHarnessLayout(input.rootDir).authoredRoot),
