@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { SnapshotStatus } from "../../model/types";
-import { STATUS_META } from "../badges";
+import { STATUS_META } from "./status-meta.tsx";
 
 /**
  * 视觉基线 v1 的状态呈现档(gui-visual-language-standard §3):

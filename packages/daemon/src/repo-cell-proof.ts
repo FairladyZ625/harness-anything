@@ -34,7 +34,7 @@ import { makeGitReadinessSource } from "./process-port.ts";
 import { remoteDefaultBranch, repositoryBaseRef } from "./schedule-occurrence-workspace.ts";
 import { readDispatchStreamHeader } from "./dispatch-stream.ts";
 import { readTaskLineageDispatches, unsettledCutReviewDispatches } from "./dispatch-read.ts";
-import { reviewDispatchKey } from "./task-review-dispatch.ts";
+import { reviewDispatchKey } from "./review-dispatch-key.ts";
 import { presetSnapshotReader, taskWorktreeBinding } from "./task-worktree.ts";
 import type { PublicPublication, RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { leaseTtlMs } from "./repo-cell-types.ts";

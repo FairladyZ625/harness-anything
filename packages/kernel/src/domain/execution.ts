@@ -5,7 +5,8 @@ import type { TaskNodeId } from "./task-graph.ts";
 import { timestamp } from "./timestamp.ts";
 import { hasRequiredFields, validateWriteSource } from "./write-chain.contract.ts";
 import type { WriteSource } from "./write-chain.contract.ts";
-import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
+import { submissionDigest, isNativeCommitSha, type SubmissionDigest } from "./submission-digest.ts";
+export { submissionDigest, isNativeCommitSha, type SubmissionDigest } from "./submission-digest.ts";
 import { validateFrozenCompletionContract, type FrozenCompletionContract } from "./completion-contract.ts";
 import type { ProductionDeltaCounts } from "./production-delta.ts";
 import { validateTaskReviewResponseV1 } from "./review.ts";
@@ -80,12 +81,7 @@ export const SUBMISSION_V1_SCHEMA = Object.freeze({
     "completionContract",
   ] as const),
 });
-export type SubmissionDigest = `sha256:${string}`;
 export type SubmissionId = `submission:${SubmissionDigest}`;
-
-export function submissionDigest(value: SubmissionV1): SubmissionDigest {
-  return `sha256:${sha256Text(stableStringify(value))}`;
-}
 
 export function submissionId(value: SubmissionV1): SubmissionId {
   return `submission:${submissionDigest(value)}`;
@@ -202,9 +198,6 @@ export const LEASE_V1_SCHEMA = Object.freeze({
   ]),
 });
 const LEASE_HOLDER_FIELDS = ["taskId", "executionId", "actor", "source"] as const;
-export function isNativeCommitSha(value: unknown): value is string {
-  return typeof value === "string" && /^[0-9a-f]{40}$/u.test(value);
-}
 
 function stringArray(value: unknown): boolean {
   return Array.isArray(value) && value.every(isNonEmptyString);

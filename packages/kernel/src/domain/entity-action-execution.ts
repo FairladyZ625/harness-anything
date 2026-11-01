@@ -1,4 +1,9 @@
 import { sha256Text } from "../integrity/stable-hash.ts";
+export {
+  attributeEntityActionCriterion,
+  entityActionCriterionFailure,
+  type EntityActionCriterionFailure,
+} from "./entity-action-criterion.ts";
 import type { SessionIdentity } from "./agent-runtime.ts";
 import { sessionProvenance } from "./agent-runtime.ts";
 import type { ActorIdentity } from "./actor-identity.ts";
@@ -69,37 +74,6 @@ export interface EntityActionExecutionContract {
      */
     readonly validatorCriterionRef: string | null;
   };
-}
-
-const ENTITY_ACTION_CRITERION_FAILURE = Symbol("entity-action-criterion-failure");
-
-export interface EntityActionCriterionFailure {
-  readonly actionId: string;
-  readonly criterionRef: string;
-  readonly nextActions: readonly string[];
-}
-
-type CriterionError = Error & {
-  readonly [ENTITY_ACTION_CRITERION_FAILURE]?: EntityActionCriterionFailure;
-};
-
-export function attributeEntityActionCriterion(
-  error: Error,
-  actionId: string,
-  criterionRef: string,
-  nextActions: readonly string[] = [],
-): Error {
-  Object.defineProperty(error as CriterionError, ENTITY_ACTION_CRITERION_FAILURE, {
-    configurable: false,
-    enumerable: false,
-    value: Object.freeze({ actionId, criterionRef, nextActions: Object.freeze([...nextActions]) }),
-  });
-  return error;
-}
-
-export function entityActionCriterionFailure(error: unknown): EntityActionCriterionFailure | null {
-  if (!(error instanceof Error)) return null;
-  return (error as CriterionError)[ENTITY_ACTION_CRITERION_FAILURE] ?? null;
 }
 
 export interface EntityActionCompileInput {

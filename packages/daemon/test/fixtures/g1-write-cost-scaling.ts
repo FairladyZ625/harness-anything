@@ -38,7 +38,7 @@ import {
   type WriterEpochFenceDescriptor,
 } from "@harness-anything/storage";
 import { openWriterSupervisor } from "../../src/writer-supervisor.ts";
-import { openRepoCell } from "../../src/repo-cell.ts";
+import { openRepoCell } from "../../src/repo-cell-open.ts";
 import { openBootstrappedRepoCell } from "../repo-settings.fixture.ts";
 import { serveKeycloak } from "../keycloak.fixtures.ts";
 import { git, initRepo } from "../task-surface.fixtures.ts";

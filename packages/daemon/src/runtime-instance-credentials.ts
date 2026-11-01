@@ -1,5 +1,5 @@
 import type { CredentialPort } from "./agent-runtime-credential-port.ts";
-import { runtimeInstanceError } from "./agent-runtime-instance-config.ts";
+import { runtimeInstanceError } from "./agent-runtime-instance-values.ts";
 import type { openRuntimeInstanceStore } from "./agent-runtime-instance-store.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 

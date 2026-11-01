@@ -30,7 +30,7 @@ import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { serveKeycloak, signInAt, signOutAt } from "./keycloak.fixtures.ts";
 import { realizedDecisionBody, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { openRepoCell as openProductRepoCell } from "../src/repo-cell.ts";
+import { openRepoCell as openProductRepoCell } from "../src/repo-cell-open.ts";
 import { openBootstrappedRepoCell as openRepoCell, seedSettingsEvent } from "./repo-settings.fixture.ts";
 import { seedBuiltinSchedules } from "../src/schedule-builtin-executor.ts";
 function assertValidWriteReceipt(value: unknown): void {

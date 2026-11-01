@@ -2,7 +2,9 @@ import type { IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import { daemonGuiStreamFacets } from "@harness-anything/daemon/protocol";
 import { assertPreloadPayload, preloadAllowlist } from "../preload/allowlist.ts";
 import type { GuiServiceBridge } from "../api/service-bridge.ts";
-import { evaluateIpcSender, type IpcSenderIdentity, type IpcWebContentsTrustPolicy } from "./security-policy.ts";
+import { assertTrustedIpcSender } from "./ipc-trust.ts";
+export { assertTrustedIpcSender } from "./ipc-trust.ts";
+import type { IpcWebContentsTrustPolicy } from "./security-policy.ts";
 import { registerAgentRuntimeIpc } from "./agent-runtime-ipc.ts";
 export interface HarnessIpcRegistrar {
   readonly handle: (
@@ -35,13 +37,6 @@ export function assertUniqueHarnessIpcChannels(methods: ReadonlyArray<string>): 
       throw new Error(`Duplicate Harness IPC handler channel: ${channel}`);
     }
     channels.add(channel);
-  }
-  return true;
-}
-export function assertTrustedIpcSender(event: IpcSenderIdentity, trustPolicy: IpcWebContentsTrustPolicy): true {
-  const decision = evaluateIpcSender(event, trustPolicy);
-  if (decision.action === "deny") {
-    throw new Error(`Rejected IPC message: ${decision.reason}.`);
   }
   return true;
 }

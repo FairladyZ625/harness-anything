@@ -2,7 +2,7 @@ import { validateActorAxes, type ActorAxes } from "./task.ts";
 import { timestamp } from "./timestamp.ts";
 import { isNonEmptyString, isRecord, hasOnlyFields } from "./contract-validation.ts";
 import type { ArtifactDelivery, ExecutionV1 } from "./execution.ts";
-import { submissionDigest } from "./execution.ts";
+import { submissionDigest } from "./submission-digest.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";
 import type { FrozenGateRequirement } from "./completion-contract.ts";
 import { gateAppliesToSubmission } from "./completion-contract.ts";

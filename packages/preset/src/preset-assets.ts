@@ -7,7 +7,7 @@ import {
 import { compileVerticalContract, decodeVerticalDefinition, TemplateCatalogSchema } from "@harness-anything/kernel";
 import type { CompiledVerticalContract, TemplateCatalog } from "@harness-anything/kernel";
 import { requiredRegularFile, safeTemplatePath } from "./preset-materialization.ts";
-import { parsePresetJson } from "./preset-package.ts";
+import { parsePresetJson } from "./preset-json.ts";
 import {
   defaultAssets,
   isPresetResolutionRecord,

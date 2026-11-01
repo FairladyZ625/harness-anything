@@ -1,4 +1,5 @@
-import { decodePresetPackageV3, parsePresetJson, scan } from "./preset-package.ts";
+import { decodePresetPackageV3, scan } from "./preset-package.ts";
+import { parsePresetJson } from "./preset-json.ts";
 import { defaultBundled, isPresetResolutionRecord, presetFailure } from "./preset-resolver-common.ts";
 import type { DecodedPresetPackageV3 } from "./preset-resolver-types.ts";
 import { consumeKnownError } from "./preset.contract.ts";

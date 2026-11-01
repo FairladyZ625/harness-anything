@@ -27,7 +27,7 @@ import {
 } from "./keycloak-policy.fixtures.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { openRepoCell as openProductRepoCell } from "../src/repo-cell.ts";
+import { openRepoCell as openProductRepoCell } from "../src/repo-cell-open.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 const DOC_POLICY_ID = "markdown-body-replaceable/v1";
 function assertValidWriteReceipt(value: unknown): void {

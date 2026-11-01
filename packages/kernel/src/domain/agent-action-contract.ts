@@ -4,7 +4,8 @@ import type {
   EntityActionInputContract,
   EntityActionInputField,
 } from "./entity-kind-registry.ts";
-import { attributeEntityActionCriterion, type EntityActionCompileHook } from "./entity-action-execution.ts";
+import { attributeEntityActionCriterion } from "./entity-action-criterion.ts";
+import type { EntityActionCompileHook } from "./entity-action-execution.ts";
 import { assertTransitionDocumentReady, requireTransitionDocumentKind } from "./transition-document-readiness.ts";
 
 export type AgentActionDraft =

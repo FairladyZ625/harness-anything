@@ -1,7 +1,7 @@
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
-import { attributeEntityActionCriterion } from "./entity-action-execution.ts";
+import { attributeEntityActionCriterion } from "./entity-action-criterion.ts";
 import {
   DECISION_ACCEPT_REVIEW_CRITERION_REF,
   DECISION_DOCUMENT_POLICY_ID,

@@ -1,7 +1,13 @@
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { entryValues, loadGateAllowlist } from "./gate-allowlists/load-gate-allowlist.mjs";
 import { listWorktreeFiles } from "./gates/git.mjs";
+import {
+  analyzeRuntimeImportCycles,
+  formatCycleWitness,
+  stronglyConnectedComponents,
+} from "./gates/import-cycle-graph.mjs";
 
 const root = process.cwd();
 const sourceFile = /\.(?:ts|tsx|mts|js|jsx|mjs)$/;
@@ -213,7 +219,7 @@ function extractLocalExportNames(text) {
 }
 
 function isTestOrFixturePath(rel) {
-  return /(?:^|\/)(?:__fixtures__|fixtures|test|tests)\//.test(rel) || /\.test\.[cm]?[jt]s$/.test(rel);
+  return /(?:^|\/)(?:__fixtures__|fixtures|test|tests|test-support)\//.test(rel) || /\.test\.[cm]?[jt]s$/.test(rel);
 }
 
 // Repository setup in tests is intentionally funneled through the daemon fixture. These
@@ -322,6 +328,20 @@ const toolSourceFiles = listWorktreeFiles(root, ["tools"])
 const knownImportFiles = new Set([...packageSourceFiles, ...toolSourceFiles].map(relative));
 const importEdges = await collectImportEdges([...packageSourceFiles, ...toolSourceFiles], knownImportFiles);
 
+// dec_D90F19C8AAAF39747F8F0D6698/CH8 C4: persistence belongs to packages/storage. The
+// backend discriminant, SQL text and database drivers must not appear in the ledger runtime
+// packages; authorization adapters manage an external IdP and are outside that list.
+const ledgerRuntimeSource = /^packages\/(?:kernel|application|cli|daemon|gui|preset)\/src\//u;
+const databaseDriverPattern =
+  /^(?:node:sqlite|better-sqlite3|sqlite3|pg|postgres|mysql2?|mongodb|@effect\/sql(?:\/|$)|@electric-sql\/|drizzle-orm(?:\/|$)|kysely(?:\/|$)|prisma(?:\/|$))/u;
+const rawSqlPattern =
+  /\b(?:SELECT\s+[\s\S]{1,240}?\s+FROM|INSERT\s+INTO|UPDATE\s+[A-Za-z_][\w.]*\s+SET|DELETE\s+FROM|CREATE\s+(?:UNIQUE\s+)?(?:TABLE|INDEX|TRIGGER|VIEW)|ALTER\s+TABLE|DROP\s+(?:TABLE|INDEX|TRIGGER|VIEW)|PRAGMA\s+[A-Za-z_])/u;
+const backendBranchPattern =
+  /\b(?:backend|storageBackend|storage\.backend)\s*[!=]==?\s*["'](?:sqlite|postgres)["']|["'](?:sqlite|postgres)["']\s*[!=]==?\s*[^\n;]{0,48}?(?:backend|storageBackend)\b/u;
+function stripComments(text) {
+  return text.replace(/\/\*[\s\S]*?\*\//gu, "").replace(/(^|[^:"'])\/\/.*$/gmu, "$1");
+}
+
 for (const file of packageSourceFiles) {
   const text = await readFile(file, "utf8");
   const rel = relative(file);
@@ -341,6 +361,20 @@ for (const file of packageSourceFiles) {
   }
 
   const imports = [...text.matchAll(importPattern)].map((match) => match[1] ?? match[2] ?? match[3]);
+
+  if (!rel.startsWith("packages/storage/src/") && !isTestOrFixture) {
+    for (const specifier of imports) {
+      if (databaseDriverPattern.test(specifier))
+        record(file, `database driver ${specifier} belongs to packages/storage, not ${rel}`);
+    }
+  }
+  if (ledgerRuntimeSource.test(rel) && !isTestOrFixture) {
+    const code = stripComments(text);
+    if (rawSqlPattern.test(code)) record(file, "raw SQL belongs to packages/storage, not ledger runtime code");
+    if (backendBranchPattern.test(code))
+      record(file, "storage backend branch belongs to packages/storage, not ledger runtime code");
+  }
+
   if (rel.startsWith("packages/kernel/src/")) {
     for (const specifier of imports) {
       if (importedPathViolates(file, specifier, (target) => /packages\/storage\//.test(target))) {
@@ -506,6 +540,75 @@ for (const file of packageSourceFiles) {
 }
 
 await checkOrphanPackageModules(packageSourceFiles, importEdges);
+
+const cycleGraph = analyzeRuntimeImportCycles({
+  files: [...packageSourceFiles, ...toolSourceFiles].map(relative),
+  readSource: (file) => readFileSync(path.join(root, file), "utf8"),
+  resolveImport: (importer, specifier) => resolveImportFile(path.join(root, importer), specifier, knownImportFiles),
+});
+for (const cycle of cycleGraph.cycles) {
+  record(
+    path.join(root, cycle.files[0]),
+    `runtime import cycle (${cycle.files.length} files): ${formatCycleWitness(cycle.witness)}; members: ${cycle.files.join(", ")}`,
+  );
+}
+
+// dec_D90F19C8AAAF39747F8F0D6698/CH8 C4: the workspace package graph is a DAG, and only the
+// two frontends may depend on the daemon composition root. Declared dependencies and observed
+// imports are unioned so a declaration-only reversal fails as well.
+const workspacePackageByRoot = new Map(
+  workspacePackages.map((workspacePackage) => [workspacePackage.root, workspacePackage]),
+);
+const workspacePackageByName = new Map(
+  workspacePackages.map((workspacePackage) => [workspacePackage.name, workspacePackage]),
+);
+function workspacePackageForFile(rel) {
+  const match = /^(packages\/[^/]+)\//u.exec(rel);
+  return match ? workspacePackageByRoot.get(path.join(root, match[1])) : undefined;
+}
+const packageDirectoryName = (workspacePackage) => path.posix.basename(workspacePackage.root);
+const packageGraph = new Map(workspacePackages.map((workspacePackage) => [workspacePackage.name, new Set()]));
+for (const workspacePackage of workspacePackages) {
+  const declared =
+    JSON.parse(readFileSync(path.join(workspacePackage.root, "package.json"), "utf8")).dependencies ?? {};
+  for (const dependency of Object.keys(declared))
+    if (workspacePackageByName.has(dependency) && dependency !== workspacePackage.name)
+      packageGraph.get(workspacePackage.name).add(dependency);
+}
+for (const edge of importEdges) {
+  if (isTestOrFixturePath(edge.importer) || isTestOrFixturePath(edge.target)) continue;
+  const importer = workspacePackageForFile(edge.importer),
+    target = workspacePackageForFile(edge.target);
+  if (!importer || !target || importer.name === target.name) continue;
+  packageGraph.get(importer.name).add(target.name);
+}
+const packageNames = [...packageGraph.keys()];
+const packageAdjacency = new Map(packageNames.map((name) => [name, [...packageGraph.get(name)]]));
+for (const component of stronglyConnectedComponents(packageNames, packageAdjacency)) {
+  if (component.length < 2) continue;
+  record(
+    path.join(root, workspacePackageByName.get(component[0]).root),
+    `workspace package dependency cycle: ${component.sort().join(" -> ")} -> ${component.sort()[0]}`,
+  );
+}
+const deliveryLeaves = new Set(["cli", "gui"]);
+const daemonPackage = "daemon";
+for (const [importer, targets] of packageGraph) {
+  for (const target of targets) {
+    const importerDirectory = packageDirectoryName(workspacePackageByName.get(importer)),
+      targetDirectory = packageDirectoryName(workspacePackageByName.get(target));
+    if (deliveryLeaves.has(targetDirectory))
+      record(
+        path.join(root, workspacePackageByName.get(importer).root),
+        `workspace package ${importerDirectory} must not depend on delivery package ${targetDirectory}`,
+      );
+    if (targetDirectory === daemonPackage && !deliveryLeaves.has(importerDirectory))
+      record(
+        path.join(root, workspacePackageByName.get(importer).root),
+        `workspace package ${importerDirectory} must not depend on the daemon composition root ${targetDirectory}`,
+      );
+  }
+}
 
 if (violations.length > 0) {
   console.error("Import boundary violations:");

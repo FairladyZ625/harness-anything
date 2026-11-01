@@ -796,3 +796,134 @@ for (const empty of [false, true]) {
     }
   });
 }
+
+test("import boundary rejects a runtime import cycle and accepts a type-only cycle", () => {
+  const root = makeFixtureRoot();
+  try {
+    const kernel = path.join(root, "packages/kernel/src");
+    writeFileSync(
+      path.join(kernel, "a.ts"),
+      'import { bValue } from "./b.ts";\nexport const aValue = () => bValue();\n',
+      "utf8",
+    );
+    writeFileSync(
+      path.join(kernel, "b.ts"),
+      'import { aValue } from "./a.ts";\nexport const bValue = () => aValue();\n',
+      "utf8",
+    );
+    const cycle = runChecker(root);
+    assert.notEqual(cycle.status, 0);
+    assert.match(cycle.stderr, /runtime import cycle \(2 files\)/u);
+    assert.match(cycle.stderr, /packages\/kernel\/src\/a\.ts/u);
+
+    writeFileSync(path.join(kernel, "a.ts"), 'import type { B } from "./b.ts";\nexport type A = B;\n', "utf8");
+    writeFileSync(path.join(kernel, "b.ts"), 'import type { A } from "./a.ts";\nexport type B = A;\n', "utf8");
+    const typeOnly = runChecker(root);
+    assert.equal(typeOnly.status, 0, typeOnly.stderr);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("import boundary rejects a value re-export cycle", () => {
+  const root = makeFixtureRoot();
+  try {
+    const kernel = path.join(root, "packages/kernel/src");
+    writeFileSync(path.join(kernel, "a.ts"), 'export { bValue } from "./b.ts";\nexport const aValue = 1;\n', "utf8");
+    writeFileSync(
+      path.join(kernel, "b.ts"),
+      'import { aValue } from "./a.ts";\nexport const bValue = () => aValue;\n',
+      "utf8",
+    );
+    const result = runChecker(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /runtime import cycle/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("import boundary rejects workspace package dependency cycles and reverse delivery dependencies", () => {
+  const root = makeFixtureRoot();
+  try {
+    writeFileSync(
+      path.join(root, "packages/kernel/src/index.ts"),
+      'import { appValue } from "@harness-anything/application";\nexport const kernelValue = appValue;\n',
+      "utf8",
+    );
+    writeFileSync(
+      path.join(root, "packages/application/src/index.ts"),
+      'import { kernelValue } from "@harness-anything/kernel";\nexport const appValue = kernelValue;\n',
+      "utf8",
+    );
+    const cycle = runChecker(root);
+    assert.notEqual(cycle.status, 0);
+    assert.match(cycle.stderr, /workspace package dependency cycle/u);
+
+    writeFileSync(
+      path.join(root, "packages/application/src/index.ts"),
+      'export const appValue = "standalone";\n',
+      "utf8",
+    );
+    writeFileSync(
+      path.join(root, "packages/application/src/index.ts"),
+      'import { daemonValue } from "@harness-anything/daemon";\nexport const appValue = daemonValue;\n',
+      "utf8",
+    );
+    writeFileSync(path.join(root, "packages/daemon/src/index.ts"), 'export const daemonValue = "daemon";\n', "utf8");
+    const reverse = runChecker(root);
+    assert.notEqual(reverse.status, 0);
+    assert.match(reverse.stderr, /must not depend on the daemon composition root/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("import boundary keeps SQL and database drivers inside storage", () => {
+  const root = makeFixtureRoot();
+  try {
+    writeFileSync(
+      path.join(root, "packages/daemon/src/query.ts"),
+      "export const query = \"SELECT id FROM tasks WHERE status = 'active'\";\n",
+      "utf8",
+    );
+    const sql = runChecker(root);
+    assert.notEqual(sql.status, 0);
+    assert.match(sql.stderr, /raw SQL belongs to packages\/storage/u);
+
+    writeFileSync(
+      path.join(root, "packages/daemon/src/query.ts"),
+      'import Database from "better-sqlite3";\nexport const handle = Database;\n',
+      "utf8",
+    );
+    const driver = runChecker(root);
+    assert.notEqual(driver.status, 0);
+    assert.match(driver.stderr, /database driver better-sqlite3 belongs to packages\/storage/u);
+
+    writeFileSync(
+      path.join(root, "packages/daemon/src/query.ts"),
+      'export const pick = (backend: string) => (backend === "postgres" ? 1 : 2);\n',
+      "utf8",
+    );
+    const branch = runChecker(root);
+    assert.notEqual(branch.status, 0);
+    assert.match(branch.stderr, /storage backend branch belongs to packages\/storage/u);
+
+    writeFileSync(
+      path.join(root, "packages/storage/src/query.ts"),
+      'export const query = "SELECT id FROM tasks";\nimport Database from "better-sqlite3";\nexport const handle = Database;\n',
+      "utf8",
+    );
+    writeFileSync(path.join(root, "packages/daemon/src/query.ts"), "export const clean = 1;\n", "utf8");
+    mkdirSync(path.join(root, "packages/daemon/test"), { recursive: true });
+    writeFileSync(
+      path.join(root, "packages/daemon/test/sql.test.ts"),
+      'export const query = "SELECT id FROM tasks";\nexport const backend = "postgres";\n',
+      "utf8",
+    );
+    const owned = runChecker(root);
+    assert.equal(owned.status, 0, owned.stderr);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

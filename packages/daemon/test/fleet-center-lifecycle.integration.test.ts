@@ -9,7 +9,7 @@ import { connect } from "node:tls";
 import test, { type TestContext } from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import type { DaemonHostOpenInput } from "../src/daemon-host-open.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openRepoCell } from "../src/repo-cell-open.ts";
 import {
   fleetCenterConfigPath,
   parseFleetCenterExternalUrl,

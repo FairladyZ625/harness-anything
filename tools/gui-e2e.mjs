@@ -6,7 +6,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { catalog, selectScenarios } from "./gui-e2e/catalog.mjs";
 import { withStdoutReservedForJson } from "./gui-e2e/emit-json.mjs";
-import { buildProbeFailureBundle, prepareE2EProbeGui, recordE2EProbeFailure } from "./e2e-probe.mjs";
+import { buildProbeFailureBundle, prepareE2EProbeGui, recordE2EProbeFailure } from "./e2e-probe-support.mjs";
 
 const workspaceRoot = path.resolve(import.meta.dirname, "..");
 

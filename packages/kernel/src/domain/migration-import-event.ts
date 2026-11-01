@@ -1,3 +1,4 @@
+import { MIGRATION_DOCUMENT_POLICY_ID } from "./document-policy-ids.ts";
 import {
   assertGovernedRelationRecord,
   deriveRelationId,
@@ -41,7 +42,7 @@ import { validateArchivedExecutionV0, type ArchivedExecutionV0 } from "./executi
 import { timestamp } from "./timestamp.ts";
 
 export const MIGRATION_IMPORT_SOURCE = "migration-import/v1" as const;
-export const MIGRATION_DOCUMENT_POLICY_ID = "typed-migration-import/v1" as const;
+export { MIGRATION_DOCUMENT_POLICY_ID } from "./document-policy-ids.ts";
 export interface MigrationDocumentClaim {
   readonly path: string;
   readonly sha256: string;

@@ -1,8 +1,8 @@
 import { existsSync } from "node:fs";
 import { createRuntime } from "./preset-runtime.ts";
 import { loadCanonicalAssets, resolveVerticalAssetsRoot } from "./preset-assets.ts";
-import { decodePackage, parsePresetJson, presetDocumentValue, scan } from "./preset-package.ts";
-import { asFailure, isPresetResolutionRecord, presetFailure } from "./preset-resolver-common.ts";
+import { decodePackage, presetDocumentValue, scan } from "./preset-package.ts";
+import { asFailure, presetFailure } from "./preset-resolver-common.ts";
 import type { PresetFailure } from "./preset-resolver-types.ts";
 import { consumeKnownError, validatePresetDocumentV1, validatePresetManifestV3 } from "./preset.contract.ts";
 import path from "node:path";
@@ -155,17 +155,4 @@ export function validateVerticalSource(
       issues: [asFailure(error)],
     };
   }
-}
-
-export function validatePackagePolicy(body: string): void {
-  const value = parsePresetJson(body, "invalid_policy");
-  if (
-    !isPresetResolutionRecord(value) ||
-    Object.keys(value).some((key) => !["schema", "requires"].includes(key)) ||
-    value.schema !== "preset-policy/v1" ||
-    !Array.isArray(value.requires) ||
-    value.requires.some((item) => typeof item !== "string" || !item.trim()) ||
-    new Set(value.requires).size !== value.requires.length
-  )
-    throw presetFailure("invalid_policy", "Preset package policy is invalid.");
 }

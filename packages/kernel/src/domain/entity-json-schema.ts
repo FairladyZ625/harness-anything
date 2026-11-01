@@ -1,3 +1,4 @@
+import { compiledPattern } from "./compiled-pattern.ts";
 export type EntityJsonSchemaNode = (
   | {
       readonly type: "string";
@@ -104,15 +105,7 @@ export function explainEntityJsonSchema(schema: EntityDocumentJsonSchema): reado
 
 // One compiled RegExp per distinct pattern string, bounded by the schemas and kind contracts the
 // process has validated; shared by every identity/pattern check in the domain.
-const compiledPatterns = new Map<string, RegExp>();
-
-export function compiledPattern(pattern: string): RegExp {
-  const cached = compiledPatterns.get(pattern);
-  if (cached) return cached;
-  const compiled = new RegExp(pattern, "u");
-  compiledPatterns.set(pattern, compiled);
-  return compiled;
-}
+export { compiledPattern } from "./compiled-pattern.ts";
 
 function validateNode(schema: EntityJsonSchemaNode, value: unknown, path: string, errors: string[]): void {
   if (value === null && schema["x-nullable"] === true) return;
@@ -220,4 +213,4 @@ function stableJson(value: unknown): string {
   );
 }
 import { isRecord } from "./write-chain.contract.ts";
-export { ENTITY_ID_PATTERN } from "./base-entity.ts";
+export { ENTITY_ID_PATTERN } from "./entity-id-pattern.ts";

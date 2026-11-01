@@ -13,7 +13,7 @@ test("W3 API registry accepts the exact transport-bound daemon catalog", () =>
 
 test("W3 API registry contracts one owner-targeted steer method through exactly one GUI facet", () =>
   withFixture((root) => {
-    const file = path.join(root, "packages/daemon/src/protocol/daemon-protocol.contract.ts");
+    const file = path.join(root, "packages/daemon/src/protocol/daemon-protocol-commands.ts");
     assert.deepEqual(evaluateApiContractRegistry(root), []);
     writeFileSync(file, validRegistry().replace('dispatchId: "string?", ', ""));
     assert.match(evaluateApiContractRegistry(root).join("\\n"), /runtime steer contract must bind one owner target/u);
@@ -35,7 +35,7 @@ test("W3 API registry contracts one owner-targeted steer method through exactly 
 
 test("W3 API registry rejects an unregistered compatibility method", () =>
   withFixture((root) => {
-    const file = path.join(root, "packages/daemon/src/protocol/daemon-protocol.contract.ts");
+    const file = path.join(root, "packages/daemon/src/protocol/daemon-protocol-commands.ts");
     writeFileSync(
       file,
       validRegistry().replace(
@@ -48,7 +48,7 @@ test("W3 API registry rejects an unregistered compatibility method", () =>
 
 test("W3 API registry rejects repo routing that is not repo-scoped", () =>
   withFixture((root) => {
-    const file = path.join(root, "packages/daemon/src/protocol/daemon-protocol.contract.ts");
+    const file = path.join(root, "packages/daemon/src/protocol/daemon-protocol-commands.ts");
     writeFileSync(
       file,
       validRegistry().replace(
@@ -61,7 +61,7 @@ test("W3 API registry rejects repo routing that is not repo-scoped", () =>
 
 test("W3 API registry rejects an undeclared fleet RPC method", () =>
   withFixture((root) => {
-    const file = path.join(root, "packages/daemon/src/protocol/daemon-protocol.contract.ts");
+    const file = path.join(root, "packages/daemon/src/protocol/daemon-protocol-commands.ts");
     writeFileSync(
       file,
       validRegistry().replace(
@@ -74,7 +74,7 @@ test("W3 API registry rejects an undeclared fleet RPC method", () =>
 
 test("W3 API registry rejects a fleet method without a validated params shape", () =>
   withFixture((root) => {
-    const file = path.join(root, "packages/daemon/src/protocol/daemon-protocol.contract.ts");
+    const file = path.join(root, "packages/daemon/src/protocol/daemon-protocol-commands.ts");
     writeFileSync(file, validRegistry().replace(', params: shape({ payload: shape({ conflictId: "string" }) })', ""));
     assert.match(
       evaluateApiContractRegistry(root).join("\n"),
@@ -202,7 +202,7 @@ function withFixture(run) {
         exports: { "./internal/unsafe-authority": "./src/unsafe-authority.ts" },
       }),
     );
-    write(root, "packages/daemon/src/protocol/daemon-protocol.contract.ts", validRegistry());
+    write(root, "packages/daemon/src/protocol/daemon-protocol-commands.ts", validRegistry());
     write(root, "packages/daemon/src/protocol/daemon-protocol-gui-actions.ts", validRuntimeActions());
     write(root, "packages/daemon/src/protocol/json-rpc-server.ts", validServer());
     write(root, "packages/daemon/src/daemon-host.ts", 'export { openDaemonHost } from "./transport-composition.ts";\n');

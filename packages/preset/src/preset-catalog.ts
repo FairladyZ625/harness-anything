@@ -1,5 +1,6 @@
 import { listCatalogWithResolution, type PresetResolutionAttempt } from "./preset-discovery.ts";
-import { decodePackage, parsePresetJson } from "./preset-package.ts";
+import { decodePackage } from "./preset-package.ts";
+import { parsePresetJson } from "./preset-json.ts";
 import { asFailure, defaultBundled, key, presetFailure } from "./preset-resolver-common.ts";
 import type { Candidate, PresetFailure } from "./preset-resolver-types.ts";
 import type { PresetLayer } from "./preset.contract.ts";
