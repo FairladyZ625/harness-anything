@@ -6,6 +6,7 @@ import {
   stableStringify,
   durableActionKinds,
   getExecutableEntityAction,
+  isArtifactActionIngressKind,
   parseEntityRef,
   normalizeCommandEnvelope,
   type AuthorizationDecision,
@@ -144,7 +145,7 @@ export function makeRepoCellCommandRunner(
     const artifactKindResolver = (kind: string): string | null =>
       findArtifactKindContract(kind, compiledArtifactKinds(context.projection, context.input.repoId))?.typeIdentity ??
       null;
-    binding = { ...binding, artifactKindResolver };
+    if (isArtifactActionIngressKind(action.kind)) binding = { ...binding, artifactKindResolver };
     const requested = { action, binding },
       durable = (durableActionKinds as readonly string[]).includes(action.kind),
       // A durable executor claim is verified in the publication turn that authorizes and executes it.
