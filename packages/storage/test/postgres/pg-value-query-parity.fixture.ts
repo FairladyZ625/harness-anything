@@ -45,7 +45,7 @@ function valueContract(queries: ValueQueries) {
   const pinned = queries.listPinnedEntities();
   assert.deepEqual(
     pinned.map(({ entityRef }) => entityRef),
-    ["fact/F-11111111", "task/task-parity"],
+    ["fact/F-11111111", "task/task-parity", "task/task-bootstrap-projection"],
   );
   const entities = ["agent", "squad", "execution", "review", "runtime-session", "settings", "missing"].map((kind) => ({
     kind,
