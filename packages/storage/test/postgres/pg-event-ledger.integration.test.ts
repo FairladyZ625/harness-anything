@@ -20,7 +20,7 @@ import {
 } from "../../src/index.ts";
 import { startManagedPostgresFixture } from "./managed-postgres.fixture.ts";
 import { bundle, docBundle, eventAt, initRepo } from "../store/task-event-store.fixtures.ts";
-import { assertDocumentAdmission, admissionSettingsBase } from "../store/document-admission.contract.ts";
+import { assertDocumentAdmission, admissionSettingsBase } from "../store/document-admission.assertions.ts";
 import { localGitWorktreeSettlement } from "../../src/store/local-version-control-system.ts";
 
 const scope: PostgresEventStoreScope = {

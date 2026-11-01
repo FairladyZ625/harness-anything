@@ -9,7 +9,7 @@ import {
 } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store-factory.ts";
 import { openSqliteEventStore } from "../../src/store/sqlite-event-store.ts";
-import { assertDocumentAdmission, admissionSettingsBase } from "./document-admission.contract.ts";
+import { assertDocumentAdmission, admissionSettingsBase } from "./document-admission.assertions.ts";
 import { initRepo } from "./task-event-store.fixtures.ts";
 
 test("SQLite document admission: stateful replacement, preceding heads, rollback and exact replay", async () => {
