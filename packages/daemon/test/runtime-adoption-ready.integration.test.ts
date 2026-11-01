@@ -21,6 +21,7 @@ import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 test("the real writer relays completed runtime restorations before ready without relaunching models", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-adoption-ready-")),
     statuses: RepoCellStatus[] = [],
+    restoredRuntimeHeartbeat = deferred<void>(),
     definition: AgentDefinitionSnapshot = {
       schema: "agent-definition-snapshot/v1",
       configVersion: 1,
@@ -41,6 +42,8 @@ test("the real writer relays completed runtime restorations before ready without
       observedAt: "2026-09-13T00:00:00.000Z",
     };
   let launches = 0,
+    firstRestoringStatusAt: number | null = null,
+    adoptionGate: Promise<void> | null = null,
     cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     mkdirSync(path.join(rootDir, "harness"));
@@ -64,8 +67,20 @@ test("the real writer relays completed runtime restorations before ready without
       repoId: workspaceId("adoption-ready"),
       rootDir: canonicalRoot(rootDir),
       ownerId: "adoption-ready-test",
-      keycloakSession: async () => binding.keycloakAuthorization.session,
-      onStatus: (status: RepoCellStatus) => statuses.push(status),
+      keycloakSession: async () => {
+        if (adoptionGate) await adoptionGate;
+        return binding.keycloakAuthorization.session;
+      },
+      onStatus: (status: RepoCellStatus) => {
+        statuses.push(status);
+        if (status.attach?.phase === "restoring-runtimes" && status.attach.applied === 0) {
+          firstRestoringStatusAt ??= Date.now();
+          if (Date.now() - firstRestoringStatusAt >= 3_500) restoredRuntimeHeartbeat.resolve();
+        } else if (firstRestoringStatusAt !== null && Date.now() - firstRestoringStatusAt >= 3_500)
+          // Let the negative control reach the phase-order assertion instead of waiting for
+          // the full watchdog window when a heartbeat regresses to opening.
+          restoredRuntimeHeartbeat.resolve();
+      },
       runtimeInstances: () => [
         {
           schemaVersion: 2 as const,
@@ -123,7 +138,23 @@ test("the real writer relays completed runtime restorations before ready without
     await cell.close();
     cell = undefined;
     statuses.length = 0;
-    cell = await openRepoCell(input);
+    const releaseAdoption = deferred<void>();
+    adoptionGate = releaseAdoption.promise;
+    const opening = openRepoCell(input).then(
+      (opened) => ({ opened }),
+      (error: unknown) => ({ error }),
+    );
+    try {
+      // The first runtime publication waits on a real worker capability. The worker's four-second
+      // status heartbeat must remain in the same monotonic attach phase until that call settles.
+      await restoredRuntimeHeartbeat.promise;
+    } finally {
+      adoptionGate = null;
+      releaseAdoption.resolve();
+    }
+    const result = await opening;
+    if ("error" in result) throw result.error;
+    cell = result.opened;
     assert.deepEqual(
       [
         ...new Set(
@@ -132,7 +163,21 @@ test("the real writer relays completed runtime restorations before ready without
             .map((status) => status.attach?.applied),
         ),
       ],
-      [1, 2],
+      [0, 1, 2],
+    );
+    const attachPhases = statuses.filter((status) => status.attach !== undefined).map((status) => status.attach!.phase),
+      runtimeRestorationIndex = attachPhases.indexOf("restoring-runtimes");
+    assert.ok(runtimeRestorationIndex >= 0);
+    assert.ok(attachPhases.indexOf("opening") < attachPhases.indexOf("recovering"));
+    assert.equal(
+      attachPhases.slice(attachPhases.indexOf("recovering")).includes("opening"),
+      false,
+      "the real projection-complete transition must not regress to opening",
+    );
+    assert.equal(
+      attachPhases.slice(runtimeRestorationIndex).includes("opening"),
+      false,
+      "projection completion must enter runtime restoration without a phase rollback",
     );
     assert.equal(cell.status().state, "attached");
     assert.equal(cell.status().attach, undefined);
@@ -147,7 +192,7 @@ test("the real writer relays completed runtime restorations before ready without
     statuses.length = 0;
     cell = await openRepoCell(input);
     assert.equal(
-      statuses.some((status) => status.attach?.phase === "restoring-runtimes"),
+      statuses.some((status) => status.attach?.phase === "restoring-runtimes" && (status.attach.applied ?? 0) > 0),
       false,
       "terminal sessions do not settle twice",
     );
@@ -157,6 +202,11 @@ test("the real writer relays completed runtime restorations before ready without
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+function deferred<T>(): { readonly promise: Promise<T>; readonly resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  return { promise: new Promise<T>((settle) => (resolve = settle)), resolve };
+}
 
 test("owner adoption checks dead PID before publishing live and preserves live control when publication is offline", async () => {
   for (const alive of [false, true]) {
