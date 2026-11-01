@@ -92,6 +92,53 @@ test("bootstrap CLI sends the password file contents only in transient local RPC
       personId: "person-owner",
       password,
     });
+    const retirement = spawn(
+      process.execPath,
+      [
+        path.resolve("packages/cli/src/index.ts"),
+        "--root",
+        root,
+        "--json",
+        "access",
+        "node",
+        "unregister",
+        "--node-id",
+        "retired-node",
+        "--confirm",
+        "--force",
+        "--expected-version",
+        "1",
+      ],
+      {
+        env: { ...process.env, HOME: path.join(root, "home"), HARNESS_DAEMON_USER_ROOT: userRoot },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    let retirementOutput = "";
+    retirement.stdout.on("data", (chunk: Buffer) => {
+      retirementOutput += String(chunk);
+    });
+    retirement.stderr.on("data", (chunk: Buffer) => {
+      retirementOutput += String(chunk);
+    });
+    try {
+      const [status] = await once(retirement, "close", { signal: AbortSignal.timeout(10_000) });
+      assert.equal(status, 0, retirementOutput);
+    } finally {
+      if (retirement.exitCode === null && retirement.signalCode === null) {
+        const closed = once(retirement, "close", { signal: AbortSignal.timeout(5_000) });
+        retirement.kill("SIGKILL");
+        await closed;
+      }
+    }
+    assert.equal(requests.at(-1)?.method, "daemon.rbac.manage");
+    assert.deepEqual(requests.at(-1)?.params, {
+      operation: "node-unregister",
+      nodeId: "retired-node",
+      expectedVersion: "1",
+      confirm: true,
+      force: true,
+    });
     assert.equal(argv.includes(password), false, "credentials stay off argv");
     assert.equal(output.includes(password), false, "credentials stay out of CLI receipts and diagnostics");
     assert.equal(output.includes(passwordFile), false, "the file path is local input, not a receipt field");

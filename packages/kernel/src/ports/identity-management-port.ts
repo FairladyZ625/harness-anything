@@ -2,6 +2,8 @@ export interface AccessAdminRequest {
   readonly operation?: string;
   readonly rootDir?: string;
   readonly operationId?: string;
+  readonly confirm?: boolean;
+  readonly force?: boolean;
   readonly groupId?: string;
   readonly displayName?: string;
   readonly scopes?: readonly unknown[];

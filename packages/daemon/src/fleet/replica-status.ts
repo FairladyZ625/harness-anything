@@ -22,6 +22,9 @@ export function createReplicaStatusTracker(input: {
     clearFailure(key: ReplicationSlotKey): void {
       failures.delete(replicationSlotKey(key));
     },
+    removeNode(nodeId: string): void {
+      for (const [key, record] of failures) if (record.nodeId === nodeId) failures.delete(key);
+    },
     snapshot(): FleetReplicaStatus[] {
       const attached = input.attachedRepositories(),
         heads = new Map<string, ReplicationPosition>(),
