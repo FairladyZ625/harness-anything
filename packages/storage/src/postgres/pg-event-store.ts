@@ -50,7 +50,7 @@ export async function executePostgresRead(
           return (
             (
               await client.query<HeadRow>(
-                "SELECT revision, head_op_id, head_event_digest, head_digest, writer_holder_id, writer_epoch FROM ha_repo_heads WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3",
+                "SELECT revision, head_op_id, head_event_digest, head_digest, writer_holder_id, writer_epoch, replication_history FROM ha_repo_heads WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3",
                 [scope.tenantId, scope.projectId, (payload as { repoId: string }).repoId],
               )
             ).rows[0] ?? null
@@ -129,7 +129,7 @@ export async function executePostgresAppend(
       );
       const locked = (
         await client.query<HeadRow>(
-          `SELECT revision, head_op_id, head_event_digest, head_digest, writer_holder_id, writer_epoch
+          `SELECT revision, head_op_id, head_event_digest, head_digest, writer_holder_id, writer_epoch, replication_history
            FROM ha_repo_heads WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 FOR UPDATE`,
           [scope.tenantId, scope.projectId, repoId],
         )
@@ -297,13 +297,9 @@ export async function executePostgresAppend(
       const position = (
         await client.query<{ readonly sequence: string }>(
           `INSERT INTO ha_replication_positions
-            (tenant_id,project_id,repo_id,sequence,revision,last_op_id,head_digest,writer_holder_id,writer_epoch,readers,policy_epoch)
-           VALUES ($1,$2,$3,1,$4,$5,$6,$7,$8,$9,$10)
-           ON CONFLICT (tenant_id,project_id,repo_id) DO UPDATE SET
-             sequence=ha_replication_positions.sequence+1, revision=EXCLUDED.revision, last_op_id=EXCLUDED.last_op_id,
-             head_digest=EXCLUDED.head_digest, writer_holder_id=EXCLUDED.writer_holder_id,
-             writer_epoch=EXCLUDED.writer_epoch, readers=EXCLUDED.readers, policy_epoch=EXCLUDED.policy_epoch,
-             updated_at=clock_timestamp()
+            (tenant_id,project_id,repo_id,sequence,revision,last_op_id,head_digest,writer_holder_id,writer_epoch,readers,policy_epoch,history)
+           SELECT $1,$2,$3,COALESCE(MAX(sequence),0)+1,$4,$5,$6,$7,$8,$9,$10,$11
+           FROM ha_replication_positions WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3
            RETURNING sequence`,
           [
             scope.tenantId,
@@ -316,6 +312,7 @@ export async function executePostgresAppend(
             fence.epoch,
             scope.readers,
             scope.policyEpoch,
+            locked.replication_history,
           ],
         )
       ).rows[0]!;
@@ -324,6 +321,7 @@ export async function executePostgresAppend(
           tenantId: scope.tenantId,
           projectId: scope.projectId,
           repoId,
+          history: locked.replication_history,
           sequence: position.sequence,
           revision,
           headDigest,
@@ -340,6 +338,7 @@ export async function executePostgresAppend(
           head_digest: headDigest,
           writer_holder_id: fence.holderId,
           writer_epoch: fence.epoch,
+          replication_history: locked.replication_history,
         },
         replicationSequence: position.sequence,
         replayed: false,
@@ -363,6 +362,7 @@ export interface HeadRow {
   readonly head_digest: string | null;
   readonly writer_holder_id: string | null;
   readonly writer_epoch: string | number;
+  readonly replication_history: string;
 }
 export interface OutcomeRow {
   readonly op_id: string;

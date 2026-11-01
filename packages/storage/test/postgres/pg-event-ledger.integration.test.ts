@@ -92,6 +92,19 @@ test("real PG ledger: SQLite byte parity, scoped locks, outcomes, rollback and p
           );
         process.stdout.write(`PG_EVENT_LEDGER_PARITY revision=${revision} headDigest=${pgReceipt.cut.headDigest}\n`);
       }
+      const positions = (
+        await admin!.query(
+          "SELECT history,sequence,revision,head_digest FROM ha_replication_positions WHERE repo_id='parity-repo' ORDER BY sequence",
+        )
+      ).rows;
+      assert.equal(positions.length, 12, "every commit has a durable position even if NOTIFY is lost");
+      assert.equal(new Set(positions.map((position) => position.history)).size, 1);
+      assert.match(positions[0]!.history, /^[0-9a-f-]{36}$/u);
+      assert.deepEqual(
+        positions.map((position) => Number(position.sequence)),
+        Array.from({ length: 12 }, (_, index) => index + 1),
+      );
+      assert.equal(positions.at(-1)!.head_digest, (await pg.currentCut()).headDigest);
       assert.deepEqual(await pg.execute({ operation: "events" }), sqlite!.read().events);
       assert.deepEqual(
         await pg.execute({

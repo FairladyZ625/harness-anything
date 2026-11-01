@@ -15,6 +15,7 @@ export const POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS: readonly string[] = Object
     project_id text NOT NULL,
     repo_id text NOT NULL,
     revision bigint NOT NULL DEFAULT 0 CHECK (revision >= 0),
+    replication_history text NOT NULL DEFAULT gen_random_uuid()::text,
     head_op_id text,
     head_event_digest text,
     head_digest text,
@@ -89,7 +90,8 @@ export const POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS: readonly string[] = Object
     tenant_id text NOT NULL,
     project_id text NOT NULL,
     repo_id text NOT NULL,
-    sequence bigint NOT NULL CHECK (sequence >= 0),
+    history text NOT NULL,
+    sequence bigint NOT NULL CHECK (sequence > 0),
     revision bigint NOT NULL CHECK (revision >= 0),
     last_op_id text,
     head_digest text NOT NULL,
@@ -97,7 +99,7 @@ export const POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS: readonly string[] = Object
     writer_epoch bigint NOT NULL CHECK (writer_epoch >= 0),
     ${scopeColumns()},
     updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
-    PRIMARY KEY (tenant_id, project_id, repo_id),
+    PRIMARY KEY (tenant_id, project_id, repo_id, sequence),
     FOREIGN KEY (tenant_id, project_id, repo_id)
       REFERENCES ha_repo_heads (tenant_id, project_id, repo_id)
   )`,
