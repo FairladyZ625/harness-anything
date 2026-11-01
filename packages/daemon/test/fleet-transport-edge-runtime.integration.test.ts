@@ -665,22 +665,14 @@ test(
       viewRoot = path.join(fixture.root, "worker-edge-view"),
       remote = path.join(fixture.root, "worker-remote.git"),
       localAuth = localAuthFixture();
-    mkdirSync(path.join(edgeRoot, "harness"), { recursive: true });
-    initRepo(edgeRoot);
-    writeFileSync(
-      path.join(edgeRoot, "harness/harness.yaml"),
-      "schema: harness-anything/v1\nname: worker-edge\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
-    );
-    git(edgeRoot, "add", "harness");
-    git(edgeRoot, "commit", "-qm", "edge harness");
-    fixture.owners.signIn(edgeUserRoot, fixture.subject.nodeId, edgeRoot);
-    git(fixture.root, "clone", "--bare", "-q", edgeRoot, remote);
-    git(edgeRoot, "remote", "add", "origin", remote);
-    git(edgeRoot, "fetch", "-q", "origin");
-    git(edgeRoot, "branch", `--set-upstream-to=origin/${git(edgeRoot, "branch", "--show-current")}`);
+    git(fixture.root, "clone", "--bare", "-q", fixture.repo, remote);
     git(fixture.repo, "remote", "add", "origin", remote);
     git(fixture.repo, "fetch", "-q", "origin");
-    git(fixture.repo, "remote", "set-head", "origin", git(edgeRoot, "branch", "--show-current"));
+    const branch = git(fixture.repo, "branch", "--show-current");
+    git(fixture.repo, "remote", "set-head", "origin", branch);
+    git(fixture.root, "clone", "-q", remote, edgeRoot);
+    fixture.owners.signIn(edgeUserRoot, fixture.subject.nodeId, edgeRoot);
+    git(edgeRoot, "branch", `--set-upstream-to=origin/${branch}`);
     await catchUpReplica({
       readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
       port: center.port,
@@ -761,7 +753,6 @@ test(
         },
         localAuth,
       );
-    const branch = git(edgeRoot, "branch", "--show-current");
     git(
       fixture.repo,
       "-c",
