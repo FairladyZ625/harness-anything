@@ -54,8 +54,6 @@ test("real PG ledger: SQLite byte parity, scoped locks, outcomes, rollback and p
     for (const table of POSTGRES_EVENT_LEDGER_TABLES)
       await admin.query(`GRANT SELECT, INSERT, UPDATE ON ${table} TO ${runtimeRole}`);
     runtime = new Pool({ connectionString: `postgres://${runtimeRole}@127.0.0.1:${fixture.port}/${database}`, max: 2 });
-    // This host owns the test pool. The intentional backend termination can also report an idle-client
-    // error after its query rejects; record it and verify its exact backend instead of leaking an event.
     runtime.on("error", (error, client) => poolErrors.push({ message: error.message, client }));
     const identity = (
       await runtime.query(
@@ -312,8 +310,29 @@ test("real PG ledger: SQLite byte parity, scoped locks, outcomes, rollback and p
         return true;
       });
       assert.equal(await disconnected.readHead(), null);
+      const disconnectedBetweenQueries = make("idle-disconnect-repo", scope, {
+        project: async (client) => {
+          const pid = (await client.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")).rows[0]!.pid;
+          const ended = new Promise<void>((resolve) => client.once("end", resolve));
+          await admin!.query("SELECT pg_terminate_backend($1)", [pid]);
+          await ended;
+        },
+      });
+      await assert.rejects(
+        disconnectedBetweenQueries.append(bundle(eventAt(1)), 0, fence("idle-disconnect-repo")),
+        (error: unknown) => {
+          assert.ok(error instanceof AggregateError);
+          const original = error.errors[0] as Error & { readonly code?: string };
+          // PostgreSQL may deliver its fatal response before closing the idle socket, or the driver
+          // may observe the transport close first. Preserve either native error without inventing a code.
+          if (original.code === undefined) assert.equal(original.message, "Connection terminated unexpectedly");
+          else assert.equal(original.code, "57P01");
+          return true;
+        },
+      );
+      assert.equal(await disconnectedBetweenQueries.readHead(), null);
       process.stdout.write(
-        "PG_EVENT_LEDGER_FAILURES pool exhaustion surfaced; SQLSTATE 57P01 preserved after disconnect; next connection clean\n",
+        "PG_EVENT_LEDGER_FAILURES pool exhaustion surfaced; SQLSTATE 57P01 preserved during query; between-query transport close surfaced unchanged; next connection clean\n",
       );
     });
 
@@ -408,6 +427,7 @@ test("real PG ledger: SQLite byte parity, scoped locks, outcomes, rollback and p
       assert.equal(error.client, terminatedClient);
       assert.equal(error.message, "Connection terminated unexpectedly");
     }
+    assert.equal(poolErrors.length, 0, "transaction-owned disconnects must not leak to the idle pool");
     process.stdout.write(`PG_EVENT_LEDGER_POOL_ERRORS expected_disconnect_events=${poolErrors.length}\n`);
   } finally {
     await sqlite?.drain();
