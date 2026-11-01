@@ -393,12 +393,20 @@ export function openFleetEdgeRuntime(input: {
       ],
     });
     if (!candidate) throw edgeRuntimeError("review_report_missing", "Review report upload returned no content claim.");
+    let packet: unknown;
+    try {
+      packet = JSON.parse(review.packet.body);
+    } catch {
+      throw edgeRuntimeError("review_report_invalid", "Review recovery packet is not valid JSON.");
+    }
+    if (typeof packet !== "object" || packet === null || Array.isArray(packet))
+      throw edgeRuntimeError("review_report_invalid", "Review recovery packet must be a JSON object.");
     const action = {
+        ...packet,
         kind: "task-review-execution",
         taskId: review.taskId,
         executionId: review.executionId,
         reviewId: `review-${review.dispatchId}`,
-        jsonInput: review.packet.body,
       } as const,
       taskCommand = () =>
         runFleetTaskCommandClient({
