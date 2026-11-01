@@ -3,13 +3,14 @@ import type {
   AgentRuntimeEventV1,
   RuntimeDispatchProjectionRow,
   TaskProjectionQueries,
+  RuntimeSession,
 } from "@harness-anything/kernel";
 import { publicRuntimeDispatch } from "@harness-anything/kernel/internal/domain/runtime-public-query.ts";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
 import type { PgTaskProjectionSourceOptions } from "./pg-task-source.ts";
 
 export type AsyncQueries<Keys extends keyof TaskProjectionQueries> = {
-  readonly [Key in Keys]: TaskProjectionQueries[Key] extends (...args: infer Args) => infer Result
+  readonly [Key in Keys]-?: NonNullable<TaskProjectionQueries[Key]> extends (...args: infer Args) => infer Result
     ? (...args: Args) => Promise<Result>
     : never;
 };
@@ -25,6 +26,7 @@ export type PgRuntimeDispatchQueries = AsyncQueries<
   | "readRuntimeDispatchesByAttemptGroup"
   | "readRuntimeDispatchesByDecision"
   | "readRuntimeDispatchPage"
+  | "readRuntimeDispatchesByMember"
 >;
 
 /** Runtime dispatches are canonical-event queries; no second runtime state reducer is needed. */
@@ -113,6 +115,46 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
           [taskId, executionId],
         );
         return Promise.all(rows.map((event) => projected(client, event)));
+      }),
+    readRuntimeDispatchesByMember: ({ agentId, squadId, limit }) =>
+      transaction(async (client) => {
+        if ((agentId === undefined) === (squadId === undefined))
+          throw new Error("runtime dispatch member page requires exactly one of agentId or squadId");
+        if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500)
+          throw new Error("runtime dispatch member page requires a limit from 1 to 500");
+        const field = agentId === undefined ? "squadId" : "agentId",
+          value = agentId ?? squadId!,
+          raw = await readDispatchRows(
+            client,
+            `event_json::jsonb#>>'{payload,${field}}'=$6`,
+            [value],
+            "COALESCE(event_json::jsonb#>>'{payload,startedAt}',event_json::jsonb->>'occurredAt') DESC,event_json::jsonb#>>'{payload,dispatchId}' DESC",
+            limit + 1,
+          ),
+          sessions = await client.query<{ event_json: string; session: RuntimeSession }>(
+            `SELECT DISTINCT ON (d.event_json::jsonb#>>'{payload,runtimeSessionId}') d.event_json, p.value AS session
+           FROM ha_events d JOIN ha_projection_values p ON p.tenant_id=d.tenant_id AND p.project_id=d.project_id AND p.policy_epoch=d.policy_epoch
+             AND p.model='runtime-session' AND p.entity_id=d.event_json::jsonb#>>'{payload,runtimeSessionId}'
+           WHERE d.tenant_id=$1 AND d.project_id=$2 AND d.repo_id=$3 AND d.policy_epoch=$4
+             AND d.revision <= (SELECT watermark FROM ha_projection_meta WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$4 AND projection_name='task/v1')
+             AND (cardinality($5::text[])=0 OR (d.readers && $5::text[] AND p.readers && $5::text[]))
+             AND d.event_type='runtime_dispatch_requested' AND d.event_json::jsonb#>>'{payload,${field}}'=$6
+           ORDER BY d.event_json::jsonb#>>'{payload,runtimeSessionId}',COALESCE(d.event_json::jsonb#>>'{payload,startedAt}',d.event_json::jsonb->>'occurredAt') DESC,d.event_json::jsonb#>>'{payload,dispatchId}' DESC`,
+            [scope.tenantId, scope.projectId, repoId, scope.policyEpoch, readers, value],
+          );
+        return {
+          rows: raw.slice(0, limit).map(publicRuntimeDispatch),
+          truncated: raw.length > limit,
+          sessions: sessions.rows.map(({ event_json, session }) => {
+            const event = JSON.parse(event_json) as Dispatch;
+            return {
+              runtimeSessionId: session.runtimeSessionId,
+              taskIds: [...new Set(session.taskBindings.map(({ taskId }) => taskId))].sort(),
+              latestDecisionId:
+                event.payload.reviewTarget?.kind === "decision" ? event.payload.reviewTarget.decisionId! : null,
+            };
+          }),
+        };
       }),
     readRuntimeDispatchPage: ({ startedAtGte, cursor, limit }) =>
       transaction(async (client) => {

@@ -1,6 +1,15 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { appendTaskEventQueryFixtures, assertTaskEventQueryParity } from "./pg-task-event-parity.fixture.ts";
+import { assertPgReaderBridge } from "./pg-reader-bridge.fixture.ts";
+import { appendGraphQueryFixtures, assertCompleteQueryParity } from "./pg-complete-query-parity.fixture.ts";
+import { assertValueQueryParity } from "./pg-value-query-parity.fixture.ts";
+import { existsSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import {
+  appendTaskEventQueryFixtures,
+  assertTaskEventQueryParity,
+  QUERY_SETTINGS_BASE,
+} from "./pg-task-event-parity.fixture.ts";
 import { assertRelationQueryParity } from "./pg-relation-query-parity.fixture.ts";
 import { assertTaskIndexQueryParity } from "./pg-task-index-parity.fixture.ts";
 import { appendRuntimeQueryFixtures, assertRuntimeQueryParity } from "./pg-runtime-query-parity.fixture.ts";
@@ -47,7 +56,6 @@ import { Pool } from "pg";
 import {
   createPgEntityStore,
   createPgTaskProjectionSource,
-  createPgTaskQueryReader,
   ensurePgProjectionSchema,
   grantPgProjectionRuntimeAccess,
   materializePgProjectionEvents,
@@ -61,7 +69,7 @@ import {
   makePostgresTaskEventStore,
   withPostgresTransaction,
 } from "../../src/postgres/index.ts";
-import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
+import { makeTaskProjection, makeTaskProjectionReader } from "../../src/projection/rebuildable-task-projection.ts";
 import { createEntityStore } from "../../src/store/entity-store.ts";
 import { makeTaskEventStore, type CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
 import { POSTGRES_SCOPE_SCHEMA_CONTRACT } from "../../src/postgres/scope-schema.ts";
@@ -150,6 +158,15 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
         repoId,
         scope: ledgerScope,
         project: projectEvent,
+        readAuthoredDocument: (path) =>
+          path === "harness.yaml"
+            ? {
+                body: QUERY_SETTINGS_BASE,
+                sha256: sha256Text(QUERY_SETTINGS_BASE),
+                size: Buffer.byteLength(QUERY_SETTINGS_BASE),
+                nodeKind: "file",
+              }
+            : null,
       });
     await eventStore.append(bundle(event), 0, { repoId, holderId: "projection-test", epoch: 1 });
     const appendCanonical = async (value: CanonicalWriteBundle) => {
@@ -717,6 +734,7 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
     await appendQueryParityFixtures(appendCanonical, () => expectedRevision);
     await appendRuntimeQueryFixtures(appendCanonical, () => expectedRevision);
     await appendTaskEventQueryFixtures(appendCanonical, () => expectedRevision);
+    await appendGraphQueryFixtures(appendCanonical, () => expectedRevision);
     const leaseCases = await appendLeaseReplayFixtures(appendCanonical, () => expectedRevision);
     let releasedLeases: readonly import("@harness-anything/kernel").LeaseV1[] = [];
     const entities = createPgEntityStore({ pool: runtimePool, scope: projectionScope });
@@ -727,6 +745,7 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
     const postgresSnapshotsBeforeRebuild = await source.list(),
       postgresSnapshot = await source.readSnapshot("task-parity");
     assert.ok(postgresSnapshot);
+    const nativeDigestBeforeRebuild = await source.readStateDigest();
     const beforeRebuildDigest = await withPostgresTransaction(
       runtimePool,
       async (client) => {
@@ -739,25 +758,41 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
     );
     await withTempStoreAsync(async (rootDir) => {
       initRepo(rootDir);
+      writeFileSync(join(rootDir, "harness", "harness.yaml"), QUERY_SETTINGS_BASE);
       const sqliteEvents = makeTaskEventStore({ repoId: "projection-parity", rootDir });
       for (const value of canonicalBundles) sqliteEvents.append(value);
       const sqliteProjection = makeTaskProjection({ rootDir, eventStore: sqliteEvents });
       sqliteProjection.catchUp();
-      const queryReader = createPgTaskQueryReader({
-        connectionString: runtimeConnectionString,
-        scope: projectionScope,
+      const pgRoot = join(rootDir, "postgres-only");
+      const queryReader = makeTaskProjectionReader({
+        rootDir: pgRoot,
         repoId,
+        storage: { backend: "postgres", connectionString: runtimeConnectionString, scope: projectionScope },
       });
-      const allQueries = createPgTaskQueryReader({
-        connectionString: runtimeConnectionString,
-        scope: { ...projectionScope, readers: [] },
+      const allQueries = makeTaskProjectionReader({
         repoId,
+        storage: {
+          backend: "postgres",
+          connectionString: runtimeConnectionString,
+          scope: { ...projectionScope, readers: [] },
+        },
       });
       try {
         queryReader.withSession((queries) => assertRuntimeQueryParity(queries, sqliteProjection));
         allQueries.withSession((queries) => assertTaskIndexQueryParity(queries, sqliteProjection));
         allQueries.withSession((queries) => assertRelationQueryParity(queries, sqliteProjection));
         allQueries.withSession((queries) => assertTaskEventQueryParity(queries, sqliteProjection));
+        allQueries.withSession((queries) => assertValueQueryParity(queries, sqliteProjection));
+        allQueries.withSession((queries) => assertCompleteQueryParity(queries, sqliteProjection));
+        await assertPgReaderBridge(
+          queryReader,
+          sqliteProjection,
+          runtimePool,
+          runtimeConnectionString,
+          projectionScope,
+          repoId,
+        );
+        assert.equal(existsSync(pgRoot), false);
         const leaseCase = leaseCases[0]!;
         const pgRead = queryReader.withSession((queries) => ({
           cut: queries.readCut(),
@@ -1021,6 +1056,7 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
       projectionScope,
     );
     assert.equal(rebuiltMeta.rows[0]?.state_digest, beforeRebuildDigest);
+    assert.equal(await source.readStateDigest(), nativeDigestBeforeRebuild);
     await withPostgresTransaction(
       runtimePool,
       (client) =>

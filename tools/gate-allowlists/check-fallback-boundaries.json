@@ -41,8 +41,8 @@
   },
   "entries": {
     "consumeKnownError": [
-        "packages/storage/src/pg/pg-task-query-worker.ts#handle",
-        "packages/storage/src/pg/pg-task-query-worker.ts#startWorker",
+      "packages/storage/src/pg/pg-task-query-worker.ts#handle",
+      "packages/storage/src/pg/pg-task-query-worker.ts#startWorker",
       "packages/dsh-plugin/src/client.ts#openTabWhenSessionMounts",
       "packages/dsh-plugin/src/tutorial.ts#writeClipboard",
       "packages/daemon/src/skill-eval-runner.ts#runCase",

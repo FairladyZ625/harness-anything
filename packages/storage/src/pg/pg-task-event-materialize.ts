@@ -1,3 +1,7 @@
+import { readVersionedRelationsInTransaction } from "./pg-relation-queries.ts";
+import { putPgProjectionValue } from "./pg-projection-values.ts";
+import { derivedRelationRecordsForReplay } from "../projection/relation-entity-projection.ts";
+import { materializePgQueryModels } from "./pg-query-model-materialize.ts";
 import type { PoolClient } from "pg";
 import {
   emptyTaskLifecycleSnapshot,
@@ -24,7 +28,11 @@ import {
   type DecisionDocumentState,
 } from "@harness-anything/kernel/internal/domain/decision-event.ts";
 import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
-import { PG_PROJECTION_SCHEMA_VERSION } from "./pg-projection-schema.ts";
+import {
+  PG_PROJECTION_SCHEMA_VERSION,
+  PG_PROJECTION_TABLES,
+  assertPgProjectionSchemaVersion,
+} from "./pg-projection-schema.ts";
 import { slugifyTaskTitle } from "@harness-anything/kernel/internal/layout/index.ts";
 import {
   isTaskBootstrapEvent,
@@ -36,9 +44,6 @@ import {
   parseAgentDeclarationV1,
   parseSquadDeclarationV1,
 } from "@harness-anything/kernel/internal/domain/agent-squad-schema.ts";
-import { entityKindContracts } from "@harness-anything/kernel/internal/domain/entity-kind-registry.ts";
-import { interpretEmbeddedEntityProjections } from "@harness-anything/kernel/internal/domain/entity-kind-projection.ts";
-import type { EntityRelationRecord } from "@harness-anything/kernel/internal/domain/entity-relation.ts";
 
 export interface PgProjectionScope {
   readonly tenantId: string;
@@ -80,6 +85,23 @@ export async function materializePgProjectionEvent(
   scope: PgProjectionScope,
   input: PgProjectionEventInput,
 ): Promise<PgProjectionMaterializationReceipt> {
+  await admitProjectionGeneration(client, scope);
+  return materializeProjectionEvent(client, scope, input);
+}
+
+async function admitProjectionGeneration(client: PoolClient, scope: PgProjectionScope): Promise<void> {
+  const result = await client.query<{ schema_version: number }>(
+    "SELECT schema_version FROM ha_projection_meta WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND projection_name='task/v1'",
+    [scope.tenantId, scope.projectId, scope.policyEpoch],
+  );
+  assertPgProjectionSchemaVersion(result.rows[0]?.schema_version);
+}
+
+async function materializeProjectionEvent(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  input: PgProjectionEventInput,
+): Promise<PgProjectionMaterializationReceipt> {
   const event = input.event,
     revision = input.sourceRevision ?? event.workspaceRevision,
     tables = new Set<string>();
@@ -114,6 +136,8 @@ export async function materializePgProjectionEvent(
     await storeEntityEvent(client, scope, event, tables, input.readContentBlob);
   }
   await storeEmbeddedRelations(client, scope, event, tables);
+  await materializePgQueryModels(client, scope, input, snapshot);
+  tables.add("ha_projection_values");
   await updateProjectionMeta(client, scope, revision, input.sourceHeadRevision ?? input.sourceRevision ?? revision);
   return { revision, taskId, snapshot, tables: [...tables].sort() };
 }
@@ -138,8 +162,9 @@ export async function materializePgProjectionEvents(
     const body = result.rows[0]?.body;
     return body === undefined ? null : Uint8Array.from(body);
   };
+  await admitProjectionGeneration(client, scope);
   for (const event of input.events)
-    await materializePgProjectionEvent(client, scope, {
+    await materializeProjectionEvent(client, scope, {
       event,
       sourceRevision: event.workspaceRevision,
       sourceHeadRevision: input.revision,
@@ -154,15 +179,7 @@ export async function rebuildPgProjection(
   input: PgProjectionRebuildInput,
 ): Promise<PgProjectionMaterializationReceipt> {
   const scopeValues = [scope.tenantId, scope.projectId, scope.policyEpoch];
-  for (const table of [
-    "ha_task_snapshots",
-    "ha_decisions",
-    "ha_facts",
-    "ha_relations",
-    "ha_agents",
-    "ha_squads",
-    "ha_projection_meta",
-  ])
+  for (const table of PG_PROJECTION_TABLES)
     await client.query(
       `DELETE FROM ${table} WHERE tenant_id = $1 AND project_id = $2 AND policy_epoch = $3`,
       scopeValues,
@@ -174,7 +191,7 @@ export async function rebuildPgProjection(
     tables: [],
   };
   for (const event of [...input.events].sort((left, right) => left.workspaceRevision - right.workspaceRevision))
-    receipt = await materializePgProjectionEvent(
+    receipt = await materializeProjectionEvent(
       client,
       input.readEventReaders ? { ...scope, readers: input.readEventReaders(event) } : scope,
       {
@@ -427,6 +444,10 @@ async function storeRelation(
       event.occurredAt,
     ],
   );
+  const projected = (
+    await readVersionedRelationsInTransaction(client, scope, [...(scope.readers ?? [])], { relationId })
+  )[0]!;
+  await putPgProjectionValue(client, scope, "relation-write", relationId, "", workspaceRevision, projected);
   tables.add("ha_relations");
 }
 
@@ -673,70 +694,44 @@ async function storeEmbeddedRelations(
   tables: Set<string>,
 ): Promise<void> {
   const executionSourceVersions: { readonly relationId: string; readonly workspaceRevision: number }[] = [];
-  for (const contract of entityKindContracts) {
-    if (
-      !contract.canonicalProjection?.embeddedEvents.some(
-        (source) => source.schema === event.schema && source.types.includes(event.type),
+  for (const record of derivedRelationRecordsForReplay(event)) {
+    const relationId = record.relation_id;
+    const previous = await client.query<{ readonly value: Record<string, unknown> }>(
+      `SELECT value FROM ha_relations WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND relation_id=$4`,
+      [scope.tenantId, scope.projectId, scope.policyEpoch, relationId],
+    );
+    if (previous.rows[0]) {
+      const value = previous.rows[0].value;
+      if (
+        value.source !== record.source ||
+        value.target !== record.target ||
+        value.type !== record.type ||
+        value.direction !== record.direction ||
+        value.origin !== record.origin ||
+        value.state !== record.state ||
+        value.rationale !== record.rationale
       )
-    )
-      continue;
-    for (const projection of interpretEmbeddedEntityProjections(contract, event))
-      for (const relation of projection.relations) {
-        const previous = await client.query<{ readonly value: Record<string, unknown> }>(
-          `SELECT value FROM ha_relations WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND relation_id=$4`,
-          [scope.tenantId, scope.projectId, scope.policyEpoch, relation.relationId],
-        );
-        if (previous.rows[0]) {
-          const value = previous.rows[0].value;
-          if (
-            value.source !== relation.sourceRef ||
-            value.target !== relation.targetRef ||
-            value.type !== relation.relationType ||
-            value.direction !== relation.direction ||
-            value.origin !== relation.origin ||
-            value.state !== relation.state ||
-            value.rationale !== relation.rationale
-          )
-            throw new Error(`Embedded relation ${relation.relationId} changed identity`);
-          if (projection.kind === "execution")
-            executionSourceVersions.push({
-              relationId: relation.relationId,
-              workspaceRevision: projection.workspaceRevision,
-            });
-          continue;
-        }
-        const observedVersion = await relationTargetVersion(client, scope, relation.targetRef),
-          derived: RelationEventV1 = {
-            schema: "relation-event/v1",
-            eventId: event.eventId,
-            workspaceRevision: event.workspaceRevision,
-            opId: event.opId,
-            relationId: relation.relationId as RelationEventV1["relationId"],
-            type: "relation_created",
-            actor: event.actor as RelationEventV1["actor"],
-            source: event.source,
-            occurredAt: event.occurredAt,
-            payload: {
-              relation: {
-                relation_id: relation.relationId as RelationEventV1["relationId"],
-                source: relation.sourceRef,
-                target: relation.targetRef,
-                type: relation.relationType as EntityRelationRecord["type"],
-                direction: relation.direction,
-                origin: relation.origin,
-                state: relation.state,
-                rationale: relation.rationale,
-                targetObservedVersion: observedVersion,
-              },
-            },
-          };
-        await storeRelation(client, scope, derived, tables);
-        if (projection.kind === "execution")
-          executionSourceVersions.push({
-            relationId: relation.relationId,
-            workspaceRevision: projection.workspaceRevision,
-          });
-      }
+        throw new Error(`Embedded relation ${relationId} changed identity`);
+    } else {
+      const { strength: _strength, ...relation } = record;
+      const derived: RelationEventV1 = {
+        schema: "relation-event/v1",
+        eventId: event.eventId,
+        workspaceRevision: event.workspaceRevision,
+        opId: event.opId,
+        relationId,
+        type: "relation_created",
+        actor: event.actor,
+        source: event.source,
+        occurredAt: event.occurredAt,
+        payload: {
+          relation: { ...relation, targetObservedVersion: await relationTargetVersion(client, scope, record.target) },
+        },
+      };
+      await storeRelation(client, scope, derived, tables);
+    }
+    if (record.source.startsWith("execution/"))
+      executionSourceVersions.push({ relationId, workspaceRevision: event.workspaceRevision });
   }
   for (const { relationId, workspaceRevision } of executionSourceVersions)
     await recordExecutionRelationSourceVersion(client, scope, relationId, workspaceRevision);

@@ -1,3 +1,5 @@
+import type { EntityProjectionRow, VersionedRelationProjectionRow } from "@harness-anything/kernel";
+import { getPgProjectionValue } from "./pg-projection-values.ts";
 import { relationProjectionRowFromWitnesses } from "../projection/relation-entity-projection.ts";
 import type { RelationEntity } from "@harness-anything/kernel/internal/domain/relation-event.ts";
 import type { EntityVersionWitness } from "@harness-anything/kernel/internal/domain/entity-freshness.ts";
@@ -21,6 +23,18 @@ export async function readEntityVersionWitnesses(
       continue;
     }
     const { kind, id } = parsed;
+    if (ref === `${kind}/${id}`) {
+      const projected = await getPgProjectionValue<EntityProjectionRow>(
+        client,
+        { ...claims, readers },
+        `entity:${kind}`,
+        id,
+      );
+      if (projected) {
+        result.set(ref, { entityRef: ref, freshness: projected.freshness, currentVersion: projected.currentVersion });
+        continue;
+      }
+    }
     if (kind === "execution") {
       const executions = await client.query<{ source_version: string }>(
         `SELECT value->>'sourceObservedVersion' AS source_version FROM ha_relations
@@ -43,29 +57,33 @@ export async function readEntityVersionWitnesses(
       continue;
     }
     const table =
-      kind === "task"
-        ? "ha_task_snapshots"
-        : kind === "decision"
-          ? "ha_decisions"
-          : kind === "fact"
-            ? "ha_facts"
-            : kind === "agent"
-              ? "ha_agents"
-              : kind === "squad"
-                ? "ha_squads"
-                : null;
+      kind === "relation"
+        ? "ha_relations"
+        : kind === "task"
+          ? "ha_task_snapshots"
+          : kind === "decision"
+            ? "ha_decisions"
+            : kind === "fact"
+              ? "ha_facts"
+              : kind === "agent"
+                ? "ha_agents"
+                : kind === "squad"
+                  ? "ha_squads"
+                  : null;
     const idColumn =
-      kind === "task"
-        ? "task_id"
-        : kind === "decision"
-          ? "decision_id"
-          : kind === "fact"
-            ? "fact_id"
-            : kind === "agent"
-              ? "agent_id"
-              : kind === "squad"
-                ? "squad_id"
-                : null;
+      kind === "relation"
+        ? "relation_id"
+        : kind === "task"
+          ? "task_id"
+          : kind === "decision"
+            ? "decision_id"
+            : kind === "fact"
+              ? "fact_id"
+              : kind === "agent"
+                ? "agent_id"
+                : kind === "squad"
+                  ? "squad_id"
+                  : null;
     if (!table || !idColumn) {
       result.set(ref, { entityRef: ref, freshness: "unknown", currentVersion: null });
       continue;
@@ -75,7 +93,7 @@ export async function readEntityVersionWitnesses(
       value?: Record<string, unknown>;
       snapshot?: TaskLifecycleSnapshot;
     }>(
-      `SELECT workspace_revision::text, ${kind === "decision" || kind === "fact" ? "value" : kind === "task" ? "snapshot" : "declaration AS value"} FROM ${table} WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND ${idColumn}=$4 AND (cardinality($5::text[])=0 OR readers && $5::text[])`,
+      `SELECT workspace_revision::text, ${kind === "decision" || kind === "fact" || kind === "relation" ? "value" : kind === "task" ? "snapshot" : "declaration AS value"} FROM ${table} WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND ${idColumn}=$4 AND (cardinality($5::text[])=0 OR readers && $5::text[])`,
       [claims.tenantId, claims.projectId, claims.policyEpoch, id, readers],
     );
     if (!row.rows[0]) result.set(ref, { entityRef: ref, freshness: "unknown", currentVersion: null });
@@ -99,6 +117,7 @@ export interface PgRelationQuery {
   readonly targets?: readonly string[];
   readonly sources?: readonly string[];
   readonly relationId?: string;
+  readonly relationIds?: readonly string[];
   readonly entity?: string;
   readonly state?: string;
   readonly direction?: string;
@@ -110,12 +129,12 @@ export interface PgRelationQuery {
   readonly limit?: number;
 }
 
-export async function readRelationsInTransaction(
+export async function readVersionedRelationsInTransaction(
   client: import("pg").PoolClient,
   claims: PgProjectionScope,
   readers: readonly string[],
   query: PgRelationQuery,
-): Promise<readonly TaskRelationProjectionRow[]> {
+): Promise<readonly VersionedRelationProjectionRow[]> {
   const values: unknown[] = [claims.tenantId, claims.projectId, claims.policyEpoch, readers],
     where = [
       "tenant_id = $1",
@@ -139,6 +158,10 @@ export async function readRelationsInTransaction(
   if (query.relationType !== undefined) {
     values.push(query.relationType);
     where.push(`relation_type = $${values.length}`);
+  }
+  if (query.relationIds !== undefined) {
+    values.push(query.relationIds);
+    where.push(`relation_id=ANY($${values.length}::text[])`);
   }
   if (query.sources !== undefined) {
     values.push(query.sources);
@@ -195,7 +218,17 @@ export async function readRelationsInTransaction(
       witnesses.get(row.target_ref)!,
       witnesses.get(row.source_ref)!,
     );
-    const { schema: _schema, entity: _entity, ...taskRow } = projected;
-    return taskRow;
+    return projected;
   });
+}
+
+export async function readRelationsInTransaction(
+  client: import("pg").PoolClient,
+  scope: PgProjectionScope,
+  readers: readonly string[],
+  query: PgRelationQuery,
+): Promise<readonly TaskRelationProjectionRow[]> {
+  return (await readVersionedRelationsInTransaction(client, scope, readers, query)).map(
+    ({ schema: _schema, entity: _entity, ...row }) => row,
+  );
 }

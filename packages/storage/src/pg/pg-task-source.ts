@@ -1,3 +1,7 @@
+import { pgGraphQueries, type PgGraphQueries } from "./pg-graph-queries.ts";
+import { pgKnowledgeQueries, type PgKnowledgeQueries } from "./pg-knowledge-queries.ts";
+import { pgAggregateQueries, type PgAggregateQueries } from "./pg-aggregate-queries.ts";
+import { pgValueQueries, type PgValueQueries } from "./pg-value-queries.ts";
 import { pgTaskEventQueries, type PgTaskEventQueries } from "./pg-task-event-queries.ts";
 import { pgRelationPortQueries, type PgRelationPortQueries } from "./pg-relation-port-queries.ts";
 import { pgTaskIndexQueries, type PgTaskIndexQueries } from "./pg-task-index-queries.ts";
@@ -44,6 +48,7 @@ export interface PgTaskProjectionSourceOptions {
   readonly path?: string;
   readonly maxItems?: number;
   readonly ownsPool?: boolean;
+  readonly now?: () => string;
 }
 
 export interface PgProjectionCut {
@@ -73,14 +78,18 @@ function presentSnapshot(snapshot: TaskLifecycleSnapshot, status: string): TaskL
 }
 
 /**
- * Async PG projection primitives. Full synchronous `TaskProjectionQueries` composition and
- * RepoWriter session bridging belong to the subsequent query-port delivery.
+ * Native asynchronous PG queries. The synchronous reader worker composes these methods
+ * inside one pinned transaction without changing the public TaskProjectionQueries port.
  */
 export interface PgTaskProjectionSource
   extends PgRuntimeDispatchQueries,
     PgTaskIndexQueries,
     PgRelationPortQueries,
-    PgTaskEventQueries {
+    PgTaskEventQueries,
+    PgValueQueries,
+    PgAggregateQueries,
+    PgKnowledgeQueries,
+    PgGraphQueries {
   readonly path: string;
   readonly readCut: () => Promise<PgProjectionCut>;
   readonly read: (taskId: string, presentationStatus?: boolean) => Promise<TaskProjectionRead>;
@@ -131,7 +140,8 @@ export interface PgTaskProjectionSource
 }
 
 export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOptions): PgTaskProjectionSource {
-  const maxItems = options.maxItems ?? 4096;
+  const maxItems = options.maxItems ?? 4096,
+    now = options.now ?? (() => new Date().toISOString());
   if (!Number.isSafeInteger(maxItems) || maxItems < 1 || maxItems > 4096)
     throw new Error("postgres task projection maxItems must be between 1 and 4096");
   const claims: PostgresScopeClaims = options.scope,
@@ -159,7 +169,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           [claims.tenantId, claims.projectId, claims.policyEpoch, taskId, readers],
         );
         const snapshot = result.rows[0]?.snapshot;
-        return snapshot ? (await hydrateSnapshots(client, options.scope, [snapshot]))[0]! : null;
+        return snapshot ? (await hydrateSnapshots(client, options.scope, [snapshot], now()))[0]! : null;
       },
       claims,
       { isolationLevel: "repeatable read" },
@@ -180,7 +190,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
             [claims.tenantId, claims.projectId, claims.policyEpoch, taskId, readers],
           ),
           snapshot = result.rows[0]?.snapshot
-            ? (await hydrateSnapshots(client, options.scope, [result.rows[0].snapshot]))[0]!
+            ? (await hydrateSnapshots(client, options.scope, [result.rows[0].snapshot], now()))[0]!
             : null;
         return {
           status: cut.status,
@@ -309,6 +319,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
             client,
             options.scope,
             result.rows.map((row) => row.snapshot),
+            now(),
           ),
           rows = (truncated ? result.rows.slice(0, limit) : result.rows).map((row, index) => ({
             taskId: row.task_id,
@@ -619,9 +630,9 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
       claims,
       { isolationLevel: "repeatable read" },
     );
-  const currentLease = (taskId: string, now = new Date().toISOString()) => readLease("task_id", taskId, now);
-  const currentLeaseForExecution = (executionId: string, now = new Date().toISOString()) =>
-    readLease("raw_lease->>'executionId'", executionId, now);
+  const currentLease = (taskId: string, at = now()) => readLease("task_id", taskId, at);
+  const currentLeaseForExecution = (executionId: string, at = now()) =>
+    readLease("raw_lease->>'executionId'", executionId, at);
   const listDecisions = (filters: DecisionListFilters): Promise<DecisionProjectionListRead> =>
     withPostgresTransaction(
       options.pool,
@@ -710,6 +721,10 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
     ...pgTaskIndexQueries(options, { read, list }),
     ...pgRelationPortQueries(options),
     ...pgTaskEventQueries(options),
+    ...pgValueQueries(options),
+    ...pgAggregateQueries(options),
+    ...pgKnowledgeQueries(options, { readDecision, searchFacts }),
+    ...pgGraphQueries(options),
     readCut,
     read,
     list,
@@ -786,12 +801,12 @@ async function hydrateSnapshots(
   client: import("pg").PoolClient,
   scope: PgProjectionScope,
   snapshots: readonly TaskLifecycleSnapshot[],
+  now: string,
 ): Promise<readonly TaskLifecycleSnapshot[]> {
   if (!snapshots.length) return [];
   const relations = await readRelationsInTransaction(client, scope, [...(scope.readers ?? [])], {
     targets: snapshots.flatMap(({ task }) => (task ? [`task/${task.taskId}`] : [])),
   });
-  const now = new Date().toISOString();
   return snapshots.map((snapshot) => {
     const effective = effectiveLeaseValue(snapshot.lease, now),
       lease = effective?.phase === "released" ? null : effective;

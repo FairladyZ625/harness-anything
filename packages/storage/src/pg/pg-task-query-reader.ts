@@ -10,6 +10,7 @@ export interface PgTaskQueryReaderOptions {
   readonly path?: string;
   readonly startupTimeoutMs?: number;
   readonly queryTimeoutMs?: number;
+  readonly now?: () => string;
 }
 
 export interface PgTaskQueryReader {
@@ -58,14 +59,13 @@ export function createPgTaskQueryReader(options: PgTaskQueryReaderOptions): PgTa
       ),
     });
   worker.unref();
-  const startup = waitForWorker(
-    ready,
-    port1,
-    0,
-    startupTimeoutMs,
-    worker,
-    "PostgreSQL task query worker failed to start",
-  );
+  let startup: WorkerResponse;
+  try {
+    startup = waitForWorker(ready, port1, 0, startupTimeoutMs, worker, "PostgreSQL task query worker failed to start");
+  } catch (error) {
+    port1.close();
+    throw error;
+  }
   if (startup.error) {
     port1.close();
     throw restoreError(startup.error);
@@ -83,7 +83,13 @@ export function createPgTaskQueryReader(options: PgTaskQueryReaderOptions): PgTa
     if (op === "query" && !activeSession) throw new Error("PostgreSQL query methods require an active reader session");
     const id = ++requestId;
     Atomics.store(state, 0, 0);
-    worker.postMessage({ id, op, ...(method ? { method } : {}), ...(args ? { args } : {}) });
+    worker.postMessage({
+      id,
+      op,
+      ...(method ? { method } : {}),
+      ...(args ? { args } : {}),
+      ...(op === "query" && options.now ? { now: options.now() } : {}),
+    });
     let response: WorkerResponse;
     try {
       response = waitForWorker(state, port1, id, queryTimeoutMs, worker, "PostgreSQL task query worker timed out");
@@ -118,7 +124,7 @@ export function createPgTaskQueryReader(options: PgTaskQueryReaderOptions): PgTa
         return read(queries);
       } finally {
         activeSession = false;
-        request("end");
+        if (!closed) request("end");
       }
     },
     close: () => {

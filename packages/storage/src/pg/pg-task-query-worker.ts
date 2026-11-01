@@ -1,3 +1,4 @@
+import { readCutInTransaction } from "./pg-event-queries.ts";
 import { isMainThread, parentPort, workerData, type MessagePort } from "node:worker_threads";
 import { Pool, type PoolClient, type QueryResult } from "pg";
 import { consumeKnownError } from "@harness-anything/kernel";
@@ -21,6 +22,7 @@ interface PgQueryWorkerRequest {
   readonly op: "begin" | "query" | "end" | "close";
   readonly method?: string;
   readonly args?: readonly unknown[];
+  readonly now?: string;
 }
 
 const data = workerData as PgQueryWorkerData | undefined;
@@ -31,6 +33,7 @@ function startWorker(input: PgQueryWorkerData): void {
   let source: ReturnType<typeof createPgTaskProjectionSource> | null = null,
     sessionClient: PoolClient | null = null,
     savepoint = 0;
+  let queryNow: string | undefined;
 
   const respond = (id: number, target: Int32Array, result?: unknown, error?: unknown) => {
     input.responsePort.postMessage({ id, ...(error === undefined ? { result } : { error: serializeError(error) }) });
@@ -47,6 +50,7 @@ function startWorker(input: PgQueryWorkerData): void {
       repoId: input.repoId,
       path: input.path,
       ownsPool: false,
+      now: () => queryNow ?? new Date().toISOString(),
     });
   };
 
@@ -76,6 +80,19 @@ function startWorker(input: PgQueryWorkerData): void {
       },
     }) as unknown as Pool;
 
+  const finishSession = async (command: "COMMIT" | "ROLLBACK") => {
+    if (!sessionClient) return;
+    const client = sessionClient;
+    sessionClient = null;
+    try {
+      await client.query(command);
+    } catch (error) {
+      client.release(error instanceof Error ? error : new Error(String(error)));
+      throw error;
+    }
+    client.release();
+  };
+
   const handle = async (request: PgQueryWorkerRequest) => {
     try {
       if (request.op === "begin") {
@@ -94,10 +111,12 @@ function startWorker(input: PgQueryWorkerData): void {
             String(input.scope.policyEpoch),
           ],
         );
+        await readCutInTransaction(sessionClient, input.scope, [...(input.scope.readers ?? [])], input.repoId);
         respond(request.id, input.state, null);
         return;
       }
       if (request.op === "query") {
+        queryNow = request.now;
         if (!sessionClient || !source) throw new Error("PostgreSQL query requested outside a reader session");
         const method = request.method ? Reflect.get(source, request.method) : undefined;
         if (
@@ -114,22 +133,12 @@ function startWorker(input: PgQueryWorkerData): void {
         return;
       }
       if (request.op === "end") {
-        if (sessionClient) {
-          const client = sessionClient;
-          sessionClient = null;
-          await client.query("COMMIT");
-          client.release();
-        }
+        await finishSession("COMMIT");
         respond(request.id, input.state, null);
         return;
       }
       if (request.op === "close") {
-        if (sessionClient) {
-          const client = sessionClient;
-          sessionClient = null;
-          await client.query("ROLLBACK");
-          client.release();
-        }
+        await finishSession("ROLLBACK");
         await pool.end();
         respond(request.id, input.state, null);
         input.responsePort.close();

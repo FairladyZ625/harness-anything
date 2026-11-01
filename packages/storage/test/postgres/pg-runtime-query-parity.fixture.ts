@@ -7,6 +7,30 @@ export async function appendRuntimeQueryFixtures(
   append: (bundle: CanonicalWriteBundle) => Promise<void>,
   revision: () => number,
 ): Promise<void> {
+  const installation: AgentRuntimeEventV1 = {
+    schema: "agent-runtime-event/v1",
+    type: "runtime_installation_observed",
+    eventId: "event-runtime-query-installation",
+    opId: "operation-runtime-query-installation",
+    workspaceRevision: revision(),
+    occurredAt: "2026-08-30T00:00:00.000Z",
+    actor: { executor: null, principal: { personId: "person_runtime" } },
+    source: "local",
+    payload: {
+      installationId: "runtime-query-installation",
+      kindId: "codex",
+      protocolFamily: "codex-compatible",
+      version: "1.0.0",
+      discoverySource: "wrapper",
+      hostRef: "host:local",
+      capabilities: [],
+    },
+  };
+  await append({
+    event: installation,
+    plan: canonicalEventWritePlan(installation, "agent-runtime/v1", installation.opId),
+    blobs: [],
+  });
   const started: AgentRuntimeEventV1 = {
     schema: "agent-runtime-event/v1",
     type: "runtime_session_started",
@@ -22,6 +46,7 @@ export async function appendRuntimeQueryFixtures(
       installationId: "runtime-query-installation",
       kindId: "codex",
       definitionSnapshotRef: "artifact:runtime-definitions/codex/v1",
+      taskBinding: { taskId: "task-parity", executionId: "execution-parity" },
       launchGeneration: 1,
       attachable: false,
     },
@@ -68,6 +93,19 @@ export async function appendRuntimeQueryFixtures(
         startedAt,
         taskId: "task-parity",
         executionId: "execution-parity",
+        agentId: "parity-agent",
+        ...(id === "runtime-query-a"
+          ? {
+              squadId: "parity-squad",
+              squadRun: {
+                squadRunId: "squad_aaaaaaaaaaaaaaaaaaaaaaaa",
+                squadId: "parity-squad",
+                mission: "query contract",
+                leaderAgentId: "parity-agent",
+                subject: { kind: "task" as const, taskId: "task-parity", executionId: "execution-parity" },
+              },
+            }
+          : {}),
         attemptGroupId: "runtime-query-attempts",
         ...extra,
       },

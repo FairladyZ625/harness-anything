@@ -32,6 +32,36 @@ export const PG_TASK_QUERY_METHODS = [
   "readProgress",
   "readSettingsEvent",
   "listFactDomainTypes",
+  "listEntities",
+  "getEntity",
+  "listPinnedEntities",
+  "readRuntimeInstallation",
+  "readRuntimeInstallations",
+  "readRuntimeSession",
+  "readRuntimeSessions",
+  "readRuntimeSessionsForTask",
+  "readRuntimeSessionPage",
+  "readSquadRun",
+  "readSquadRuns",
+  "readLeaseIntervals",
+  "readDocument",
+  "readDocuments",
+  "readReplicaBasis",
+  "taskIdForDocumentPath",
+  "readArtifactEntityState",
+  "readPresetSnapshot",
+  "readWorkspaceSummary",
+  "readTaskRuntimeBatch",
+  "readStateDigest",
+  "readRuntimeDispatchesByMember",
+  "readDecisionDocumentState",
+  "readDecisionCoverage",
+  "readDecisionGraph",
+  "readDecisionIncomingRelations",
+  "readFactAnchors",
+  "readFactGraph",
+  "readTaskRelationNeighborhood",
+  "readTaskDependencyClosure",
   "readCut",
   "read",
   "list",
@@ -56,4 +86,8 @@ export const PG_TASK_QUERY_METHODS = [
 ] as const satisfies readonly (keyof TaskProjectionQueries)[];
 
 export type PgTaskQueryMethod = (typeof PG_TASK_QUERY_METHODS)[number];
-export type PgTaskQueryMethods = Pick<TaskProjectionQueries, PgTaskQueryMethod>;
+export type PgTaskQueryMethods = Required<TaskProjectionQueries>;
+// The worker method list must cover the whole public query port, including optional queries.
+const completeQueryPort: Exclude<keyof TaskProjectionQueries, "path" | PgTaskQueryMethod> extends never ? true : never =
+  true;
+void completeQueryPort;

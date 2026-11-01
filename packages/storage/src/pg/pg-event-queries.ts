@@ -1,3 +1,4 @@
+import { assertPgProjectionSchemaVersion } from "./pg-projection-schema.ts";
 import type { AgentRuntimeEventV1, CanonicalEventV1 } from "@harness-anything/kernel";
 import { canonicalEventEntityRefs } from "@harness-anything/kernel";
 import { isAgentRuntimeEvent } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
@@ -350,11 +351,12 @@ export async function readCutInTransaction(
   readers: readonly string[],
   repoId: string,
 ): Promise<PgProjectionCut> {
-  const result = await client.query<{ watermark: string }>(
-    `SELECT watermark::text FROM ha_projection_meta
+  const result = await client.query<{ watermark: string; schema_version: number }>(
+    `SELECT watermark::text,schema_version FROM ha_projection_meta
      WHERE tenant_id = $1 AND project_id = $2 AND policy_epoch = $3 AND projection_name = 'task/v1'`,
     [claims.tenantId, claims.projectId, claims.policyEpoch],
   );
+  assertPgProjectionSchemaVersion(result.rows[0]?.schema_version);
   const head = await client.query<{ readonly revision: string }>(
     `SELECT revision::text FROM ha_repo_heads
      WHERE tenant_id = $1 AND project_id = $2 AND repo_id = $3 AND policy_epoch = $4

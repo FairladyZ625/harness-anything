@@ -4,16 +4,37 @@ import { compileTaskProgress } from "@harness-anything/kernel";
 import { compileSettingsChangedEvent } from "@harness-anything/kernel/internal/domain/settings-event.ts";
 import { readSettingsFacet, writeRepositorySettingsFacet } from "@harness-anything/kernel/internal/domain/settings.ts";
 import { compileFactWrite } from "@harness-anything/kernel/internal/domain/fact-event.ts";
+import { compileEntityPinEvent } from "@harness-anything/kernel/internal/domain/entity-pin-event.ts";
 import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixture.ts";
 import { fact } from "../store/relation-graph-projection.fixtures.ts";
 import type { CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
 import type { PgTaskQueryMethods } from "../../src/pg/pg-task-query-contract.ts";
+
+export const QUERY_SETTINGS_BASE = "schema: harness-anything/v1\nname: parity\nsettings: {}\n";
 
 export async function appendTaskEventQueryFixtures(
   append: (bundle: CanonicalWriteBundle) => Promise<void>,
   revision: () => number,
 ): Promise<void> {
   const actor = lifecycleFixture({ taskId: "task-parity", executionId: "execution-parity" }).events[0]!.actor;
+  for (const [index, entityRef, pinned] of [
+    [0, "task/task-parity", true],
+    [1, "fact/F-11111111", true],
+    [2, "decision/dec_PG_PARITY", true],
+    [3, "decision/dec_PG_PARITY", false],
+  ] as const)
+    await append(
+      compileEntityPinEvent({
+        entityRef,
+        pinned,
+        eventId: `event-query-pin-${index}`,
+        opId: `operation-query-pin-${index}`,
+        workspaceRevision: revision(),
+        actor,
+        source: "local",
+        occurredAt: `2026-09-02T23:59:0${index}.000Z`,
+      }),
+    );
   const progress = compileTaskProgress({
     taskId: "task-parity",
     executionId: "execution-parity",
@@ -33,7 +54,7 @@ export async function appendTaskEventQueryFixtures(
     occurredAt: "2026-09-03T00:00:00.000Z",
   });
   await append(progress);
-  const base = "schema: harness-anything/v1\nname: parity\nsettings: {}\n",
+  const base = QUERY_SETTINGS_BASE,
     settings = { ...readSettingsFacet(base), locale: "zh-CN" as const };
   await append(
     compileSettingsChangedEvent({

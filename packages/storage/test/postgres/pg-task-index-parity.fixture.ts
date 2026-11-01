@@ -18,6 +18,8 @@ function taskIndexContract(queries: IndexQueries) {
   assert.deepEqual(queries.readTaskStatuses([]).rows, []);
   assert.deepEqual(queries.readTaskChildCounts([]), {});
   assert.equal(queries.readTaskByIdempotencyKey("missing"), null);
+  const idempotency = queries.readTaskByIdempotencyKey("query-idempotency-key");
+  assert.equal(idempotency?.taskId, "task-graph-a");
   const first = queries.readTaskIndex({ limit: 1 });
   assert.equal(first.rows.length, 1);
   assert.ok(first.page?.nextCursor);
@@ -30,6 +32,7 @@ function taskIndexContract(queries: IndexQueries) {
   return {
     first,
     next,
+    idempotency,
     empty: queries.readTaskIndex({ taskIds: [] }),
     filtered: queries.readTaskIndex({ taskIds: ["task-parity", "missing"], presentationStatus: true }),
     statuses: queries.readTaskStatuses(),
