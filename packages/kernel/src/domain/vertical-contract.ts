@@ -15,6 +15,7 @@ import {
   type EntityKindContract,
 } from "./entity-kind-registry.ts";
 import { artifactEntityActionCatalog } from "./artifact-entity-actions.ts";
+import { registerArtifactActionDeclarations } from "./artifact-action-declarations.ts";
 import {
   compileGovernedRelationDirections,
   type GovernedRelationCompilationAuthority,
@@ -164,6 +165,10 @@ export function compileVerticalContract(
     artifactKinds: compiledArtifacts,
   });
   compiledRelationDirections(compiled, authority);
+  // Runtime Artifact kinds have no static ActionDeclaration rows. Register their projected
+  // <kind>/<action> declarations here so Policy derivation and the Keycloak scope inventory read
+  // the same compiled declaration set (dec_2446BC2F8C68630F71AE3E3BD7/CH4).
+  registerArtifactActionDeclarations(compiledArtifacts.map(({ entityKindContract }) => entityKindContract));
   return compiled;
 }
 

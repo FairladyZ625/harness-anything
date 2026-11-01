@@ -78,6 +78,8 @@ export interface ManagedRbacPorts {
   readonly now: () => string;
   readonly platform: NodeJS.Platform;
   readonly arch: string;
+  /** Accepted repository declarations projected to Policy scopes; [] when no repo host is wired. */
+  readonly readArtifactActionScopes: () => Promise<readonly string[]>;
 }
 
 export interface ManagedPostgresBinaries {
@@ -92,6 +94,7 @@ const defaultPorts: ManagedRbacPorts = {
   now: () => new Date().toISOString(),
   platform: process.platform,
   arch: process.arch,
+  readArtifactActionScopes: async () => [],
 };
 
 export class ManagedRbacService {
@@ -735,7 +738,7 @@ export class ManagedRbacService {
       { url: config.url, realm: config.realm, resourceServerClientId: config.clientId },
       this.#ports.fetch,
     );
-    await adapter.syncBasePolicy(payload.access_token);
+    await adapter.syncBasePolicy(payload.access_token, await this.#ports.readArtifactActionScopes());
     await adapter.syncLoginClients(payload.access_token);
     await alignSessionLifetime(
       { url: config.url, realm: config.realm, accessToken: payload.access_token },

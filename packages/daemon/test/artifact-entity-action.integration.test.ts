@@ -14,7 +14,7 @@ import {
   requireEntityStoreKindContract,
 } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { grantArtifactKindScopes, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
 
@@ -595,6 +595,9 @@ test("URL source resolution does not block a concurrent repository write", async
     );
     assert.equal(created.outcome, "applied", JSON.stringify(created));
     const kindRef = (JSON.parse(String(created.evidence)) as { kindRef: string }).kindRef;
+    // Upsert compiled the new kind and registered its <kind>/<action> scopes; re-expand the
+    // repository grant the way syncBasePolicy/materializeGrants does in production.
+    grantArtifactKindScopes(repoId, kindRef);
     await new Promise<void>((resolve, reject) => {
       server.once("error", reject);
       server.listen(0, "127.0.0.1", () => resolve());
@@ -720,6 +723,9 @@ test("URL source resolution completes while seven writers keep the repository qu
       binding,
     );
     const kindRef = (JSON.parse(String(created.evidence)) as { kindRef: string }).kindRef;
+    // Upsert compiled the new kind and registered its <kind>/<action> scopes; re-expand the
+    // repository grant the way syncBasePolicy/materializeGrants does in production.
+    grantArtifactKindScopes(repoId, kindRef);
     await new Promise<void>((resolve, reject) => {
       server.once("error", reject);
       server.listen(0, "127.0.0.1", () => resolve());

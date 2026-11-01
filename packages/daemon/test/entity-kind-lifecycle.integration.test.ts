@@ -9,7 +9,7 @@ import { makeTaskEventReader } from "@harness-anything/storage";
 
 import { defaultAssets } from "@harness-anything/preset/internal/preset-resolver-common";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { grantArtifactKindScopes, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
 
@@ -90,6 +90,7 @@ test("a runtime-declared Kind keeps identity and instance pins across schema v2,
     assert.equal(created.outcome, "applied", JSON.stringify(created));
     const createdEvidence = JSON.parse(String(created.evidence)) as { kindRef: string; kindVersion: number },
       kindRef = createdEvidence.kindRef;
+    grantArtifactKindScopes(repoId, kindRef);
     assert.match(kindRef, /^entity-kind\/KND-[0-9a-f]{32}$/u, "creating a Kind mints a stable opaque identity");
     assert.equal(createdEvidence.kindVersion, 1);
 
@@ -379,7 +380,9 @@ test("Kind fences are per Kind, and an accepted Kind outlives its worktree mater
           binding,
         );
         assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-        return (JSON.parse(String(receipt.evidence)) as { kindRef: string }).kindRef;
+        const kindRef = (JSON.parse(String(receipt.evidence)) as { kindRef: string }).kindRef;
+        grantArtifactKindScopes(repoId, kindRef);
+        return kindRef;
       },
       rename = (kindRef: string, body: Record<string, unknown>, singular: string, expectedVersion: number) =>
         cell!.run(

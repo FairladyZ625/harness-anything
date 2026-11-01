@@ -98,10 +98,10 @@ test("B13 accepts the action-catalog null allowlist and its decision citations r
     source: `action-catalog-null.json:entries.catalogNulls[${index}].ref`,
     ref: entry.ref,
   }));
-  // dec_2446BC2F8C68630F71AE3E3BD7 CH6 and dec_6C9E3399972A2F06C046BA89DC CH1/CH3 remove the four
-  // remaining pin rows on this target branch (8 → 4); runtime-run was already bound on main.
-  // dec_2BF45FF7 CH1 keeps repo-read out of the gate set because it is a read-only admission.
-  assert.equal(refs.length, 4);
+  // dec_2446BC2F8C68630F71AE3E3BD7 CH4 binds the four dynamic artifact CRUD rows, so the
+  // allowlist is now empty. dec_2BF45FF7 CH1 keeps repo-read out of the gate set because it is a
+  // read-only admission; the remaining rows only ever leave.
+  assert.equal(refs.length, 0);
   assert.equal(
     allowlist.entries.catalogNulls.some(({ value }) => value === "repository-read"),
     false,

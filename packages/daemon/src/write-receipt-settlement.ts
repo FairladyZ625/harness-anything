@@ -1,6 +1,7 @@
 import {
   actionDeclarations,
   attachReceiptAcceptance,
+  isArtifactActionIngressKind,
   waitForReceiptAcceptance,
   type CanonicalEventStore,
   type TaskProjection,
@@ -34,7 +35,12 @@ export async function settleWriteReceipt(
     receipt.effects[0] === "settings-local/locale_changed";
   if (localSettingsOnly || ledgerFreeActions.has(action.kind))
     return receipt.outcome === "applied" ? { ...receipt, status: "settled_no_write" } : receipt;
-  if (!canonicalSettlementActions.has(action.kind) && action.kind !== "receipt-show") return receipt;
+  if (
+    !canonicalSettlementActions.has(action.kind) &&
+    !isArtifactActionIngressKind(action.kind) &&
+    action.kind !== "receipt-show"
+  )
+    return receipt;
   const read = () =>
     relationWorktreeSettlement(
       action,

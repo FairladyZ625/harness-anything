@@ -26,6 +26,8 @@ import {
   type TaskV2,
   isWorkRoot,
   baseEntityPolicyActions,
+  isArtifactActionIngressKind,
+  registeredArtifactActionPolicyActions,
 } from "@harness-anything/kernel";
 import type { ExecutionDelegationRecord } from "@harness-anything/kernel";
 import { authorizeAction } from "./authorization.ts";
@@ -46,15 +48,32 @@ export async function evaluateRepoCellAction(input: {
   readonly fetchPort?: typeof fetch;
 }): Promise<AuthorizationDecision> {
   const target = input.targetOverride ?? actionTarget(input.action),
-    policyAction = policyActionForTarget(input.action, target),
-    envelope = composeDurableActionEnvelope({
-      actionId: input.actionId,
-      kind: input.action.kind,
-      target,
-      actor: input.binding.actor,
-      authorizationRef: authorizationRefForBinding(input.binding),
-      idempotencyKey: typeof input.action.idempotencyKey === "string" ? input.action.idempotencyKey : input.actionId,
-    });
+    policyAction = policyActionForTarget(input.action, target, input.binding.artifactKindResolver);
+  const envelope = composeDurableActionEnvelope({
+    actionId: input.actionId,
+    kind: input.action.kind,
+    target,
+    actor: input.binding.actor,
+    authorizationRef: authorizationRefForBinding(input.binding),
+    idempotencyKey: typeof input.action.idempotencyKey === "string" ? input.action.idempotencyKey : input.actionId,
+  });
+  const resource: AuthorizationResource =
+    target === repositoryTarget
+      ? { kind: "repository", repoId: input.repoId }
+      : { kind: "entity", repoId: input.repoId, entityRef: target };
+  // A stated kind the runtime cannot resolve has no declared <kind>/<action> scope. Fail closed
+  // with the domain code so callers see the kind problem, not a generic policy denial.
+  if (isArtifactActionIngressKind(input.action.kind) && policyAction === input.action.kind)
+    return keycloakDecision(
+      envelope,
+      `canonical:${input.revision}`,
+      "denied",
+      "entity_kind_not_found",
+      resource,
+      authorizationRefForBinding(input.binding),
+      "authorization-provider",
+      policyAction,
+    );
   const credential = input.binding.keycloakAuthorization;
   if (!credential)
     return authorizeDurableRepoCellAction({
@@ -65,11 +84,7 @@ export async function evaluateRepoCellAction(input: {
     if (!credential.center) throw executionCredentialRejected();
     await verifyRuntimeExecutionPrincipal(await credential.center(), input.binding.executionPrincipal, input.fetchPort);
   }
-  const resource: AuthorizationResource =
-      target === repositoryTarget
-        ? { kind: "repository", repoId: input.repoId }
-        : { kind: "entity", repoId: input.repoId, entityRef: target },
-    resourceAncestors = await canonicalResourceAncestors(input.readTask, resource);
+  const resourceAncestors = await canonicalResourceAncestors(input.readTask, resource);
   const result = await evaluateKeycloakPerson({
     credential,
     personId: envelope.actor.principal.personId,
@@ -106,8 +121,16 @@ export async function evaluateRepoCellAction(input: {
     : decision;
 }
 
-/** Resolve the shared pin ingress to the base action scope of its actual EntityRef kind. */
-export function policyActionForTarget(action: RepoTaskAction, target: EntityRef): string {
+/**
+ * Resolve a shared ingress to the Policy action it actually exercises. Pin/unpin name the base
+ * Action of the target EntityRef's kind; the four artifact CRUD routes name the compiled Artifact
+ * kind's own `<kind>/<action>` scope, resolved from the runtime declaration.
+ */
+export function policyActionForTarget(
+  action: RepoTaskAction,
+  _target: EntityRef,
+  artifactKindResolver?: (kind: string) => string | null,
+): string {
   if (
     action.kind === "runtime-spawn" &&
     typeof action.executionRuntimeIngress === "object" &&
@@ -116,11 +139,26 @@ export function policyActionForTarget(action: RepoTaskAction, target: EntityRef)
     action.executionRuntimeIngress.kind === "runtime-run"
   )
     return "runtime-run";
+  if (
+    action.kind === "entity-import" ||
+    action.kind === "entity-update" ||
+    action.kind === "entity-archive" ||
+    action.kind === "entity-delete"
+  ) {
+    const requested = typeof action.entityKind === "string" ? action.entityKind : null,
+      kind = requested === null ? null : (artifactKindResolver?.(requested) ?? stableArtifactKind(requested));
+    // No stable identity means no declared <kind>/<action> scope: fail closed to the ingress kind,
+    // which no declaration or Policy group grants.
+    return kind === null ? action.kind : `${kind}/${action.kind.slice("entity-".length)}`;
+  }
   if (action.kind !== "entity-pin" && action.kind !== "entity-unpin") return action.kind;
-  const parsed = parseEntityRef(target);
+  const parsed = parseEntityRef(_target);
   if (!parsed) return action.kind;
   return `${parsed.kind}/${action.kind === "entity-pin" ? "pin" : "unpin"}`;
 }
+
+const stableArtifactKindPattern = /^entity-kind\/KND-[0-9a-f]{32}$/u;
+const stableArtifactKind = (kind: string): string | null => (stableArtifactKindPattern.test(kind) ? kind : null);
 
 /** Resolve Work ancestors from the current writer projection; caller payloads cannot supply them. */
 export async function canonicalResourceAncestors(
@@ -261,7 +299,9 @@ export function keycloakDecision(
 ): AuthorizationDecision {
   const groupId =
     actionDeclarations.find((declaration) => declaration.policyAction === policyAction)?.policyTier ??
-    (baseEntityPolicyActions.includes(policyAction) ? "contributor" : "admin");
+    (baseEntityPolicyActions.includes(policyAction) || registeredArtifactActionPolicyActions().includes(policyAction)
+      ? "contributor"
+      : "admin");
   return Object.freeze({
     policyRef,
     actor: action.actor,
@@ -651,7 +691,11 @@ export function bindVerifiedExecutorClaim(input: {
   }
   // Runtime identities are durable authority only when the action itself is durable. Reads may
   // reuse an already-running daemon but must not fail merely because no task binding is projected.
-  if (!(durableActionKinds as readonly string[]).includes(input.action.kind)) return { action, binding: input.binding };
+  if (
+    !(durableActionKinds as readonly string[]).includes(input.action.kind) &&
+    !isArtifactActionIngressKind(input.action.kind)
+  )
+    return { action, binding: input.binding };
   const match = /^runtime-session:([A-Za-z0-9][A-Za-z0-9._-]*)$/u.exec(raw.id);
   if (!match || Object.keys(raw).some((field) => field !== "kind" && field !== "id"))
     throw invalidExecutorBindingFor(input, raw, "Executor claims must use runtime-session:<runtime-id>.");

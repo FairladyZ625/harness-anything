@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { grantArtifactKindScopes, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { makeTaskEventReader, openPersistentWriterEpoch } from "@harness-anything/storage";
 import { git, initRepo } from "./task-surface.fixtures.ts";
@@ -537,18 +537,19 @@ test("An instance pinned to schema v1 reads back unchanged from a cold process a
       binding,
     );
     assert.equal(created.outcome, "applied", JSON.stringify(created));
-    const kindRef = (JSON.parse(String(created.evidence)) as { kindRef: string }).kindRef,
-      pinned = await declaring.run(
-        {
-          mode: "snapshot",
-          kind: "entity-import",
-          entityKind: kindRef,
-          locator: "notes/pinned.md",
-          expectedVersion: 0,
-          attributes: { summary: "pinned to v1" },
-        },
-        binding,
-      );
+    const kindRef = (JSON.parse(String(created.evidence)) as { kindRef: string }).kindRef;
+    grantArtifactKindScopes(repoId, kindRef);
+    const pinned = await declaring.run(
+      {
+        mode: "snapshot",
+        kind: "entity-import",
+        entityKind: kindRef,
+        locator: "notes/pinned.md",
+        expectedVersion: 0,
+        attributes: { summary: "pinned to v1" },
+      },
+      binding,
+    );
     assert.equal(pinned.outcome, "applied", JSON.stringify(pinned));
     const pinnedId = (JSON.parse(String(pinned.evidence)) as { preview: { entityId: string } }).preview.entityId,
       kindRow = (await declaring.read("repo.vertical.declaration.read", {}, binding)).declaration.entityKinds.find(

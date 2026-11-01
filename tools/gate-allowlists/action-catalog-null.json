@@ -1,29 +1,8 @@
 {
   "schema": "harness-anything/gate-allowlist/v1",
   "gateId": "action-catalog-null",
-  "baseline": "Canonical ActionDeclarations with a null catalogId, measured from main at f4efd09d and re-measured on the delivery tree. The gate set is canonical declarations that are not repo-read (dec_2BF45FF7 CH1): 63 kinds, equal to main's measured gate-set nulls at this landing cut; repository-read is a read-only admission and stays outside the gate. dec_2BF45FF7 CH3 freezes this set by name relative to the pull request's target branch: the closure gate in packages/daemon/test/local-json-rpc.test.ts requires every gate-set null declaration to appear here, every row here to still be a gate-set null, and this list to be a subset of the target branch's list (equal to the target branch's measured declarations on the landing cut). Rows only leave, together with the binding that empties them; adding a name is a ratchet change that needs an owner-approved decision.",
+  "baseline": "Canonical ActionDeclarations with a null catalogId, frozen by dec_2BF45FF7 CH3 relative to the pull request's target branch. The list is now empty: the four dynamic artifact CRUD rows (entity-archive, entity-delete, entity-import, entity-update) left with their per-runtime-kind binding (dec_2446BC2F8C68630F71AE3E3BD7 CH4). Each compiled Artifact kind projects its own entity-kind/KND-.../<action> declaration and Policy scope; the four ingress kinds keep no static declaration. Rows only leave; adding a name is a ratchet change that needs an owner-approved decision.",
   "entries": {
-    "catalogNulls": [
-      {
-        "value": "entity-archive",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "entity-delete",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "entity-import",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      },
-      {
-        "value": "entity-update",
-        "ref": "dec_2BF45FF7E52020380F5F35CE2D",
-        "reason": "Canonical write road whose catalogId was never bound, frozen by dec_2BF45FF7 CH3. Delete this row in the same commit that binds it to <kind>/<action>."
-      }
-    ]
+    "catalogNulls": []
   }
 }

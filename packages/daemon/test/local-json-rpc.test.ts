@@ -8,7 +8,14 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { PassThrough, Writable } from "node:stream";
-import { actionDeclarations, getEntityKindContract } from "@harness-anything/kernel";
+import {
+  actionDeclarations,
+  compileVerticalContract,
+  decodeVerticalDefinition,
+  getEntityKindContract,
+} from "@harness-anything/kernel";
+import { artifactActionIngressKinds } from "@harness-anything/kernel/internal/domain/action-declaration.ts";
+import { projectArtifactActionDeclarations } from "@harness-anything/kernel/internal/domain/artifact-action-declarations.ts";
 import { auditDurableActionAuthorization } from "../../../tools/gates/ontology-durable-action-authorization.mjs";
 import { walkTypeScriptFiles } from "../../../tools/gates/ontology-gate-lib.mjs";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
@@ -479,6 +486,17 @@ async function rpcServer(
 // action-declaration.ts, so the landing PR cannot freeze a null it introduces itself.
 const REPO_ROOT = path.resolve(import.meta.dirname, "../../..");
 const CATALOG_NULL_ALLOWLIST = "tools/gate-allowlists/action-catalog-null.json";
+// The runtime Artifact kinds are declared by the bundled vertical, not a source-time list. Compile
+// that real declaration here so the closure gate reads the same projected declarations the daemon
+// registers at load time (dec_2446BC2F8C68630F71AE3E3BD7/CH4).
+const DEFAULT_VERTICAL = compileVerticalContract(
+    decodeVerticalDefinition(
+      JSON.parse(readFileSync(path.join(REPO_ROOT, "packages/preset/assets/software-coding/vertical.json"), "utf8")),
+    ),
+  ),
+  PROJECTED_ARTIFACT_DECLARATIONS = projectArtifactActionDeclarations(
+    DEFAULT_VERTICAL.artifactKinds.map(({ entityKindContract }) => entityKindContract),
+  );
 
 function gitText(args: readonly string[]): string {
   return execFileSync("git", args, {
@@ -568,9 +586,10 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
         .filter(({ commandClass }) => commandClass !== "repo-read")
         .map((descriptor) => [descriptor.actionKind ?? descriptor.id, descriptor]),
     ),
-    declaredKinds = new Set(
-      actionDeclarations.filter(({ executionClass }) => executionClass !== "repo-read").map(({ kind }) => kind),
-    ),
+    declaredKinds = new Set([
+      ...actionDeclarations.filter(({ executionClass }) => executionClass !== "repo-read").map(({ kind }) => kind),
+      ...artifactActionIngressKinds,
+    ]),
     protocolKinds = new Set(protocol.keys());
   // 138 → 136: people-set-role and people-bind were deleted by RBAC v2 S4 (dec_D60FAA451F24160E970323B6F3).
   // 136 → 138: daemon-service-install and daemon-service-uninstall, the host-local half of the resident
@@ -592,7 +611,7 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
   // decision-supersede's deprecated Action declaration is removed with its CLI command, and
   // dec_E369B8616F50A6208B293997E7/CH5 (W2-2) deletes task-adjudicate with the manual
   // forward/return commands; CH1 adds task-respond-review.
-  assert.equal(actionDeclarations.length, 171);
+  assert.equal(actionDeclarations.length, 167);
   assert.equal(
     actionDeclarations.some(({ kind }) => kind === "task-code-doc-reconcile" || kind === "task-code-doc-repoint"),
     false,
@@ -603,7 +622,15 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
   );
   assert.deepEqual([...protocolKinds].sort(), [...declaredKinds].sort());
   for (const [kind, descriptor] of protocol) {
-    const declaration = actionDeclarations.find((candidate) => candidate.kind === kind);
+    // The four artifact CRUD routes are ingress aliases; their canonical declarations are the
+    // per-Kind projections, so bind the route to any projected row for the same Action id.
+    const declaration =
+      actionDeclarations.find((candidate) => candidate.kind === kind) ??
+      (artifactActionIngressKinds.includes(kind as never)
+        ? PROJECTED_ARTIFACT_DECLARATIONS.find(({ kind: projected }) =>
+            projected.endsWith(`/${kind.slice("entity-".length)}`),
+          )
+        : undefined);
     assert.ok(declaration, kind);
     assert.equal(descriptor.commandClass, declaration.executionClass, kind);
     assert.deepEqual(Object.keys(declaration).sort(), [
@@ -637,6 +664,41 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
       return action === undefined ? [] : ([[catalogId, action]] as const);
     }),
   );
+  // Every executable Artifact kind projects its own <kind>/<action> declaration and Policy scope;
+  // two different kinds must never collapse onto one shared scope.
+  assert.ok(PROJECTED_ARTIFACT_DECLARATIONS.length >= artifactActionIngressKinds.length);
+  const projectedPolicyActions = new Set(PROJECTED_ARTIFACT_DECLARATIONS.map(({ policyAction }) => policyAction));
+  assert.equal(projectedPolicyActions.size, PROJECTED_ARTIFACT_DECLARATIONS.length);
+  for (const { entityKindContract } of DEFAULT_VERTICAL.artifactKinds) {
+    for (const action of entityKindContract.actionCatalog?.actions ?? []) {
+      if (!artifactActionIngressKinds.includes(action.execution?.ingress as never) || action.execution === null)
+        continue;
+      assert.equal(action.policy.action, `${entityKindContract.kind}/${action.id}`);
+      assert.ok(projectedPolicyActions.has(action.policy.action!));
+    }
+  }
+  for (const kind of ["entity-import", "entity-update", "entity-archive", "entity-delete"]) {
+    assert.ok(
+      PROJECTED_ARTIFACT_DECLARATIONS.some(({ kind: projectedKind }) => projectedKind.endsWith(`/${kind.slice(7)}`)),
+      kind,
+    );
+    assert.equal(
+      actionDeclarations.some(({ kind: declared }) => declared === kind),
+      false,
+      kind,
+    );
+  }
+  const firstKinds = DEFAULT_VERTICAL.artifactKinds
+    .slice(0, 2)
+    .map(({ entityKindContract }) => entityKindContract.kind);
+  assert.notEqual(firstKinds[0], firstKinds[1]);
+  assert.notEqual(
+    DEFAULT_VERTICAL.artifactKinds[0]!.entityKindContract.actionCatalog!.actions.find(({ id }) => id === "import")!
+      .policy.action,
+    DEFAULT_VERTICAL.artifactKinds[1]!.entityKindContract.actionCatalog!.actions.find(({ id }) => id === "import")!
+      .policy.action,
+  );
+
   const declaredNullRows = catalogNullKinds(
     readFileSync(new URL("../../../tools/gate-allowlists/action-catalog-null.json", import.meta.url), "utf8"),
   );

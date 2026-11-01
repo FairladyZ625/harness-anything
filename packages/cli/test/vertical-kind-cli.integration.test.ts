@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { canonicalRoot, workspaceId } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { openBootstrappedRepoCell as openRepoCell } from "../../daemon/test/repo-settings.fixture.ts";
-import { withPolicyGroup } from "../../daemon/test/keycloak-policy.fixtures.ts";
+import { grantArtifactKindScopes, withPolicyGroup } from "../../daemon/test/keycloak-policy.fixtures.ts";
 import { initRepo } from "../../daemon/test/task-surface.fixtures.ts";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 
@@ -91,6 +91,7 @@ test("CLI declares external-document, publishes schema v2, imports an entity, re
     const createdEvidence = evidence(created) as { kindRef: string; kindVersion: number },
       kindRef = createdEvidence.kindRef,
       kindRevision = Number(created.revision);
+    grantArtifactKindScopes(repoId, kindRef);
     assert.match(kindRef, /^entity-kind\/KND-[0-9a-f]{32}$/u);
     assert.equal(createdEvidence.kindVersion, 1);
 
