@@ -54,7 +54,7 @@ test("build SHA uses a plain archive without changing the repository's worktree 
     assert.equal(build.resolvedSha, head);
     assert.equal(build.sourceArchive, true);
     assert.equal(existsSync(path.join(build.root, ".git")), false);
-    assert.equal(existsSync(path.join(build.root, "node_modules")), true);
+    assert.equal(existsSync(path.join(build.root, "node_modules")), false);
     assert.equal(readFileSync(path.join(build.root, "README.md"), "utf8"), "pinned archive\n");
     assert.equal(execFileSync("git", ["worktree", "list", "--porcelain"], { cwd: source, encoding: "utf8" }), registry);
     await assert.rejects(resolveBuild("missing-cut", path.join(parent, "missing"), source), /does not name a commit/);

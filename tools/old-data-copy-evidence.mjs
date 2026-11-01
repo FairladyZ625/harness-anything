@@ -442,7 +442,6 @@ export async function resolveBuild(buildArg, tempRoot, sourceRoot = repoRoot) {
     rootDir: sourceRoot,
     revision: buildArg,
     out: path.join(tempRoot, "build-checkout"),
-    deps: true,
   });
   if (!archived.ok) throw new Error(archived.detail);
   return { root: archived.destination, requested: buildArg, resolvedSha: archived.commit, sourceArchive: true };
