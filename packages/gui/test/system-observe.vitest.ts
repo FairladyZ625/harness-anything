@@ -84,6 +84,7 @@ function seedStatus(client: QueryClient, repos: readonly ReturnType<typeof repoR
           taskId: "task-auto",
           reason: "accepted",
           observedAt: AT,
+          assignedByPersonId: "person-assigner",
           agentId: "sol",
         },
       ],
@@ -175,7 +176,9 @@ describe("系统 tab 的常驻守护进程日志面板", () => {
     const container = await mountSystem([repoRow()]);
     expect(container.textContent).toContain("节点自动认领");
     expect(container.textContent).toContain("已启用");
-    expect(container.textContent).toContain("task-auto: accepted · sol");
+    expect(container.textContent).toContain("task-auto: accepted");
+    expect(container.textContent).toContain("指派人 person-assigner");
+    expect(container.textContent).toContain("sol");
   });
 
   it("挂载即在读 lifecycle,无需任何点击,并说明日志只属于本节点", async () => {

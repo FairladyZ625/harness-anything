@@ -1648,6 +1648,7 @@
   "views.systemView.autoClaimEnabled": "enabled",
   "views.systemView.autoClaimDisabled": "disabled",
   "views.systemView.autoClaimPolicy": "agents {agents} · max {max} · config {configuration}",
+  "views.systemView.autoClaimAssignedBy": "assigned by {personId}",
   "views.workspace.tasks.executor": "executor",
   "views.settingsView.decisionReviewRequirementLabel": "Decision review requirement",
   "views.settingsView.decisionReviewRequirementDescription": "Which decisions, by risk level, need an approved review before they can be accepted.",

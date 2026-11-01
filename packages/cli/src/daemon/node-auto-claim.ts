@@ -5,6 +5,7 @@ import {
   writeNodeAutoClaimPolicy,
   type NodeAutoClaimPolicy,
 } from "@harness-anything/daemon/internal/node-auto-claim-config";
+import { daemonProtocolCommands } from "@harness-anything/daemon/internal/protocol/daemon-protocol-commands";
 import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
 
 export type NodeAutoClaimControl =
@@ -19,10 +20,11 @@ export type NodeAutoClaimControl =
 
 export function parseNodeAutoClaimControl(args: readonly string[]): NodeAutoClaimControl | string {
   const [operation, ...tokens] = args;
+  const declaredInputs =
+    daemonProtocolCommands.find((command) => command.id === "daemon-node-auto-claim")?.inputs ?? [];
   if (operation !== "status" && operation !== "show" && operation !== "enable" && operation !== "disable")
     return "Use `ha daemon auto-claim status`, `enable`, or `disable`.";
-  const values = new Map<string, string[]>(),
-    flags = new Set(["--agent", "--allow-person", "--allow-team", "--max-concurrent"]);
+  const values = new Map<string, string[]>();
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index]!;
     if (token === "--json") continue;
@@ -31,7 +33,7 @@ export function parseNodeAutoClaimControl(args: readonly string[]): NodeAutoClai
       if (!tokens[index]) return `${token} requires a value.`;
       continue;
     }
-    if (!flags.has(token)) return `Unknown auto-claim option: ${token}.`;
+    if (!declaredInputs.some((input) => input.name === token)) return `Unknown auto-claim option: ${token}.`;
     const value = tokens[++index];
     if (!value || value.startsWith("--")) return `${token} requires a value.`;
     if (token === "--max-concurrent" && (values.has(token) || !/^[1-9][0-9]*$/u.test(value)))
@@ -64,7 +66,7 @@ export function parseNodeAutoClaimControl(args: readonly string[]): NodeAutoClai
 export async function applyNodeAutoClaimControl(
   control: NodeAutoClaimControl,
   userRoot: string,
-  wake: () => Promise<boolean> = async () => false,
+  configure: (policy: NodeAutoClaimPolicy) => Promise<JsonObject | null> = async () => null,
 ): Promise<JsonObject> {
   if (control.operation === "status") {
     const configured = readNodeAutoClaimPolicy(userRoot);
@@ -87,12 +89,13 @@ export async function applyNodeAutoClaimControl(
           allowedAgentIds: control.allowedAgentIds,
           maxConcurrent: control.maxConcurrent,
         };
+  const configured = await configure(policy);
+  if (configured) return configured;
   writeNodeAutoClaimPolicy(userRoot, policy);
-  const daemonAwake = await wake();
   return {
     ok: true,
     command: `daemon-auto-claim-${control.operation}`,
     policy: policy as unknown as JsonObject,
-    activation: daemonAwake ? "woken" : "next-attach",
+    activation: "next-attach",
   };
 }

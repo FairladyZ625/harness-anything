@@ -287,7 +287,7 @@ export function SystemView({
             <Field name={t("views.systemView.observed")} value={dateTime(status.data.observedAt)} />
           </dl>
           {autoClaim ? (
-            <div className="mt-4 border-t border-border pt-3">
+            <div className="mt-4 border-t border-border pt-3" data-testid="system-auto-claim">
               <div className="flex items-center justify-between gap-2">
                 <h2 className="ui-body font-semibold">{t("views.systemView.autoClaimTitle")}</h2>
                 <StatusTag
@@ -307,8 +307,11 @@ export function SystemView({
               {autoClaim.recent.length ? (
                 <ul className="mt-2 grid gap-1 font-mono ui-micro text-text-faint">
                   {autoClaim.recent.slice(-4).map((row, index) => (
-                    <li key={`${row.observedAt}-${row.taskId ?? "none"}-${index}`} title={row.assignedByPersonId}>
+                    <li key={`${row.observedAt}-${row.taskId ?? "none"}-${index}`} data-testid="system-auto-claim-row">
                       {row.taskId ?? row.repoId}: {row.reason}
+                      {row.assignedByPersonId
+                        ? ` · ${t("views.systemView.autoClaimAssignedBy", { personId: row.assignedByPersonId })}`
+                        : ""}
                       {row.agentId ? ` · ${row.agentId}` : ""}
                     </li>
                   ))}

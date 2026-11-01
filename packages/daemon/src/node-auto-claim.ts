@@ -47,7 +47,7 @@ export function decideNodeAutoClaim(input: {
   return sourceAllowed ? { accepted: true, reason: "accepted" } : { accepted: false, reason: "source_not_allowed" };
 }
 
-export interface NodeAutoClaimLoop<TRepo, TCandidate> {
+export interface NodeAutoClaimLoop {
   readonly trigger: (reason: string) => Promise<void>;
   readonly close: () => Promise<void>;
   readonly diagnostics: () => readonly NodeAutoClaimDiagnosticRow[];
@@ -86,26 +86,20 @@ export interface NodeAutoClaimLoopInput<TRepo, TCandidate> {
 
 export function openNodeAutoClaimLoop<TRepo, TCandidate>(
   input: NodeAutoClaimLoopInput<TRepo, TCandidate>,
-): NodeAutoClaimLoop<TRepo, TCandidate> {
+): NodeAutoClaimLoop {
   const rows: NodeAutoClaimDiagnosticRow[] = [],
     controllers = new Set<AbortController>(),
     runs = new Set<Promise<void>>(),
     inFlight = new Set<string>();
   let closed = false,
     pending: Promise<void> | null = null,
-    queuedReason: string | null = null,
-    backgroundFailure: unknown;
+    queuedReason: string | null = null;
   const record = (row: NodeAutoClaimDiagnosticRow): void => {
     rows.push(row);
     if (rows.length > 200) rows.splice(0, rows.length - 200);
     input.onDiagnostic?.(row);
   };
   const scan = async (_reason: string): Promise<void> => {
-    if (backgroundFailure !== undefined) {
-      const error = backgroundFailure;
-      backgroundFailure = undefined;
-      throw error;
-    }
     const configured = readNodeAutoClaimPolicy(input.userRoot);
     let slots: number;
     try {
@@ -118,7 +112,7 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
         detail: error instanceof Error ? error.message : String(error),
         observedAt: input.now(),
       });
-      return;
+      throw error;
     }
     for (const repo of input.repos()) {
       if (closed) return;
@@ -148,7 +142,7 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
           detail: error instanceof Error ? error.message : String(error),
           observedAt: input.now(),
         });
-        continue;
+        throw error;
       }
       if (!policy.enabled || ownerPersonId === null) {
         record({
@@ -174,7 +168,7 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
           detail: error instanceof Error ? error.message : String(error),
           observedAt: input.now(),
         });
-        continue;
+        throw error;
       }
       const agents = input.agentIds(repo, policy);
       for (const candidate of candidates) {
@@ -202,7 +196,7 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
             detail: error instanceof Error ? error.message : String(error),
             observedAt: input.now(),
           });
-          continue;
+          throw error;
         }
         if (!agentId) {
           record({
@@ -258,17 +252,13 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
             () => undefined,
             (error: unknown) => {
               if (controller.signal.aborted) return;
-              try {
-                record({
-                  repoId,
-                  taskId,
-                  reason: "claim_failed",
-                  detail: error instanceof Error ? error.message : String(error),
-                  observedAt: input.now(),
-                });
-              } catch (diagnosticError) {
-                backgroundFailure = diagnosticError;
-              }
+              record({
+                repoId,
+                taskId,
+                reason: "claim_failed",
+                detail: error instanceof Error ? error.message : String(error),
+                observedAt: input.now(),
+              });
             },
           )
           .finally(() => {
