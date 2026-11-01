@@ -21,16 +21,11 @@ test("typed Entity Action read preserves one cut for 1..500 refs and has no writ
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-action-explain-")),
     repoId = workspaceId("action-explain"),
     realm = await serveKeycloak(),
-    provider = new KeycloakPolicyAdapter(
-      { url: realm.url, realm: "harness", resourceServerClientId: "harness-center" },
-      realm.fetch,
-    ),
     binding = {
       actor,
       source: "local" as const,
       keycloakAuthorization: {
         session: {
-          provider,
           personId: actor.principal.personId,
           accessToken: realm.keycloak.account(actor.principal.personId),
           url: realm.url,
