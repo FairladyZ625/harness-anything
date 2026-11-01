@@ -36,6 +36,53 @@ import {
 import { rawPeer } from "./fleet-tls-session.fixture.ts";
 
 const seededTask = { taskId: "task_resident0000000000000000001", executionId: "exe_resident", title: "Resident" };
+
+test("duplicate connection rejection records its cause and avoids ordinary reconnect backoff", async (t) => {
+  const fixture = await fleetReplicationFixture(t);
+  const fake = await fakeReplicationCenter(t, fixture, (frame, send) => {
+    if (frame.type === "replica.start")
+      send({
+        type: "replica.reject",
+        code: "replica_duplicate_connection",
+        message: "replica_duplicate_connection: stop the other daemon before retrying.",
+        centerBuildCommit: null,
+        taskEventShapeVersion: TASK_EVENT_SHAPE_COMPAT_VERSION,
+      });
+  });
+  const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-replica-duplicate-")),
+    controller = new AbortController(),
+    failed = Promise.withResolvers<void>();
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const running = runFleetReplicaSync({
+    hostname: "127.0.0.1",
+    port: fake.port,
+    ca: fixture.cert,
+    servername: "localhost",
+    nodeId: "edge-one",
+    credential: "secret-edge-one",
+    repoId: replicationRepoId,
+    viewRoot,
+    diskQuotaBytes: 64 * 1024 * 1024,
+    signal: controller.signal,
+    onFailure: () => failed.resolve(),
+  });
+  try {
+    await failed.promise;
+    t.mock.timers.tick(30_000);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(fake.counts()["replica.start"], 1, "duplicate ownership is not retried on ordinary network backoff");
+    assert.equal(
+      readReplicaHealth(path.join(viewRoot, "repos", replicationRepoId, "views", "edge-one")).syncFailure?.code,
+      "replica_duplicate_connection",
+    );
+  } finally {
+    controller.abort();
+    await running;
+    t.mock.timers.reset();
+    rmSync(viewRoot, { recursive: true, force: true });
+  }
+});
+
 let pressureCounter = 0;
 const pressure = async (fixture: FleetReplicationFixture, count = 1) => {
   for (let index = 0; index < count; index += 1) {

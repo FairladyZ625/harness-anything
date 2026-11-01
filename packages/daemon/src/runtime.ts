@@ -113,12 +113,20 @@ export async function startDaemon(input: {
   const stop = (outcome: "stop_requested" | "build_superseded" = "stop_requested"): Promise<void> => {
     if (stopPromise) return stopPromise;
     stopping = true;
+    lifecycle.record({ event: "process_stopping", outcome });
     clearTimeout(fleetDrainDeadline);
     stopPromise = (async () => {
-      const deadline = setTimeout(
-        input.shutdownDeadlineExceeded ?? (() => process.abort()),
-        input.shutdownDeadlineMs ?? 30_000,
-      );
+      const shutdownDeadlineMs = input.shutdownDeadlineMs ?? 30_000;
+      const deadline = setTimeout(() => {
+        lifecycle.record({
+          event: "process_exit",
+          outcome: "shutdown_deadline_exceeded",
+          reason: outcome,
+          durationMs: shutdownDeadlineMs,
+          error: JSON.stringify({ ...buildDrainStatus(), activeResources: process.getActiveResourcesInfo() }),
+        });
+        (input.shutdownDeadlineExceeded ?? (() => process.exit(1)))();
+      }, shutdownDeadlineMs);
       deadline.unref();
       // Only the drain belongs in `try`; everything below it is teardown and the invariant above is
       // unconditional. These used to sit after the awaits, so any rejection on the way down — most

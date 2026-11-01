@@ -178,6 +178,11 @@ export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionConte
   readonly decisionProviders: ReturnType<typeof openDecisionProviderService>;
   readonly requiredText: typeof import("./daemon-host-status.ts").requiredText;
   readonly refreshRegistry: () => Promise<void>;
+  /** Raw repository opens remain owned until their underlying Cell settles, even after the attach budget. */
+  readonly openings: Map<string, Promise<void>>;
+  /** Every replica task stays owned until its abort path and confirmation tail have settled. */
+  readonly replicaSyncTasks: Set<Promise<void>>;
+  readonly replicaSyncControllers: Map<string, { readonly controller: AbortController; readonly config: string }>;
   /** Starts, restarts (changed fleet-edge.json) or stops each remote-edge replica stream. */
   readonly startReplicaSyncs: () => void;
   readonly settleControl: (pending: DaemonControlReceipt, ok: boolean, error?: unknown) => void;

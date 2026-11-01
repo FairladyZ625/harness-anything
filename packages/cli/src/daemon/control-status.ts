@@ -6,6 +6,7 @@ import {
 import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
 import { readDaemonStoppedAt } from "@harness-anything/daemon/internal/client/daemon-autostart";
 import { readDaemonLifecycleRecords } from "@harness-anything/daemon/internal/lifecycle-log";
+import { daemonProcessAlive } from "@harness-anything/daemon/internal/daemon-singleton";
 import { consumeKnownError } from "./client.ts";
 import { daemonFailure, daemonOption } from "./control-support.ts";
 
@@ -32,7 +33,11 @@ export async function status(
     result = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 75, undefined, undefined, true);
   } catch (error) {
     const stoppedAt = readDaemonStoppedAt(userRoot, daemonId);
-    if (stoppedAt) {
+    const shuttingDownProcesses = liveShutdownProcesses(userRoot, daemonId);
+    if (shuttingDownProcesses.length > 0) {
+      consumeKnownError(error);
+      result = { ...daemonFailure("daemon-status", "daemon_stopping", "Daemon shutdown is still in progress.") };
+    } else if (stoppedAt) {
       consumeKnownError(error);
       const summary = `daemon status: not running (stopped by operator at ${stoppedAt})`;
       result = { ...daemonFailure("daemon-status", "daemon_unavailable", summary), summary };
@@ -62,7 +67,33 @@ export async function status(
     detail =
       `target: endpoint=${endpoint} daemonId=${daemonId} userRoot=${userRoot} ` +
       `repoId=${target.repoId ?? "none"} canonicalRoot=${target.canonicalRoot ?? "none"}`;
-  return { ...result, target, summary: `${String(result.summary ?? "daemon status")}\n${detail}` };
+  const shuttingDownProcesses = liveShutdownProcesses(userRoot, daemonId),
+    shutdownDetail = shuttingDownProcesses
+      .map((entry) => `shutdown: pid=${entry.pid} state=${entry.state} outcome=${entry.outcome} since=${entry.since}`)
+      .join("\n");
+  return {
+    ...result,
+    target,
+    shuttingDownProcesses,
+    summary: [String(result.summary ?? "daemon status"), detail, shutdownDetail].filter(Boolean).join("\n"),
+  };
+}
+
+// Lifecycle records describe each generation's intent; liveness is the independent witness that
+// exposes an old process even after a successor has taken over the endpoint and pid file.
+function liveShutdownProcesses(userRoot: string, daemonId: string) {
+  const processes = new Map<number, { pid: number; state: string; outcome: string; since: string }>();
+  for (const record of readDaemonLifecycleRecords(userRoot, daemonId)) {
+    if (record.event === "process_start") processes.delete(record.pid);
+    if (record.event === "process_stopping" || record.event === "process_exit")
+      processes.set(record.pid, {
+        pid: record.pid,
+        state: record.event === "process_stopping" ? "stopping" : "exit_incomplete",
+        outcome: record.outcome ?? "unknown",
+        since: record.at,
+      });
+  }
+  return [...processes.values()].filter((entry) => daemonProcessAlive(entry.pid));
 }
 // A daemon that self-exited (build_superseded, a signalled stop, a failed startup) leaves no operator
 // stop marker, so its own account in the lifecycle log is the only record of why it is gone. Only the

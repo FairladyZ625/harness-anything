@@ -7,6 +7,7 @@ const isDeterministicReplicaFailure = (error: unknown): boolean => {
   const observed = error as { readonly code?: unknown; readonly name?: unknown } | null;
   return (
     observed?.code === "edge_upgrade_required" ||
+    observed?.code === "replica_duplicate_connection" ||
     (error instanceof Error && observed?.name === "TaskLifecycleContractError")
   );
 };
@@ -16,6 +17,7 @@ export interface ReplicaSyncOptions extends Omit<FleetReplicaStreamOptions, "onA
    * Runs after acknowledged positions, outside the receiver: confirmations coalesce into at most one
    * run in flight plus one queued. The receiver never waits for it, so work that itself waits for a
    * later replicated commit cannot block the stream that applies that commit.
+   * Stopping the sync joins the active confirmation after withdrawing its sequence waiters.
    */
   readonly onConfirmed?: (changedPaths?: readonly string[]) => void | Promise<void>;
   readonly onConfirmedFailure?: (error: unknown) => void;
@@ -160,17 +162,18 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
   let failures = 0,
     confirming = false,
     confirmAgain = false,
+    confirmation: Promise<void> | undefined,
     // null: the mirror must compare the whole cut. A new process cannot know what an earlier one
     // applied without materializing, and a failed or base-backup batch loses its path list.
     pendingChangedPaths: Set<string> | null = null;
   const confirm = (): void => {
-    if (!options.onConfirmed) return;
+    if (!options.onConfirmed || options.signal?.aborted) return;
     if (confirming) {
       confirmAgain = true;
       return;
     }
     confirming = true;
-    void (async () => {
+    confirmation = (async () => {
       do {
         confirmAgain = false;
         try {
@@ -239,6 +242,9 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
       settle(key, null, new FleetReplicaStreamDownError("replica stream stopped"));
       settleReady(key, false);
     }
+    // Confirmations may themselves await a later replicated sequence. Withdraw those waiters
+    // before joining the callback, and keep ownership until its writes/reconcile have finished.
+    await confirmation;
   }
 }
 

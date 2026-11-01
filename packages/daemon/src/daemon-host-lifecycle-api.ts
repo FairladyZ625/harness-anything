@@ -99,6 +99,18 @@ export function createDaemonHostLifecycleApi(
     attachmentsSettled: context.startInitialAttachments,
     close: async () => {
       context.closing = true;
+      for (const { controller } of context.replicaSyncControllers.values()) controller.abort();
+      context.replicaSyncControllers.clear();
+      // The attach budget only bounds the caller's wait; the raw opening still owns a possible
+      // writer worker and must settle before its singleton can be released. Replica tasks likewise
+      // own their confirmation tail, including streams replaced by a later registry refresh.
+      const settleBackground = async (): Promise<void> => {
+        let pending = [...context.openings.values(), ...context.replicaSyncTasks];
+        while (pending.length > 0) {
+          await Promise.allSettled(pending);
+          pending = [...context.openings.values(), ...context.replicaSyncTasks];
+        }
+      };
       // The cells close no matter what fails before them: they own the writer threads and Git follower drains
       // that the stop sequence releases the pid file and lock on top of. So the steps above them are
       // settled into a value instead of unwinding past the cell close.
@@ -106,6 +118,7 @@ export function createDaemonHostLifecycleApi(
         (async () => {
           context.scheduleScheduler.close();
           if (context.initialAttachments) await context.initialAttachments;
+          await settleBackground();
           for (const repoId of [...context.warming.keys()]) context.settleWarming(repoId);
           try {
             if (context.fleetCenter) await context.fleetCenter.close();

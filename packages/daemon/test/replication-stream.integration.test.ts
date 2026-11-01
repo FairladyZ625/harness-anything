@@ -2,7 +2,7 @@
 // dec_9284BD6119D453EEECEED62450 分片 C(测试先行): 连续复制流、ACK 与恢复。
 // 覆盖:无事件 rejected outcome 也复制且 sequence 前进而事件 revision 不动;ACK 丢失后重放不产生
 // 重复 canonical 事件;断线重连从持久游标续传(不重新整包);游标超出保留窗口后明确 resync 并整包
-// 重来;同一节点的第二个接收者把旧会话挤下线(单 owner fence);sequence 缺口被拒绝而不是跳号。
+// 重来;同一节点的第二个接收者被明确拒绝(单 owner fence);sequence 缺口被拒绝而不是跳号。
 // 待对齐: 见 fleet-replication.fixture.ts 文头;resync.reason 为自由文本(A 已落地),killpoint 阶段名见子进程 fixture。
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -266,13 +266,33 @@ test(
   },
 );
 
-test("a second receiver for one node takes over and the older session is cut", { timeout: 120_000 }, async (t) => {
+test("a duplicate receiver is rejected while its live owner keeps replicating", { timeout: 120_000 }, async (t) => {
   const fixture = await fleetReplicationFixture(t);
   await seedCenterData(fixture, seededTask);
   const center = await fixture.openCenter();
-  const stale = await replicationPeer(fixture.track, center.port, fixture.cert, "edge-three", "secret-edge-three");
-  // The stale session owns this node's replication for the repository once its start is served.
-  const accepted = await stale.request({
+  const owner = fixture.startEdge("edge-three");
+  const installed = await owner.waitForEvent("installed");
+  const duplicate = fixture.startEdge("edge-three");
+  const failure = await duplicate.waitForEvent("error");
+  assert.equal(failure.code, "replica_duplicate_connection");
+  assert.match(String(failure.message), /stop the other daemon/u);
+  assert.deepEqual(await duplicate.exited, { code: 1 });
+  await fixture.centerRun({ kind: "task-create", taskId: createPressure(), title: "Owner survives duplicate" });
+  await owner.waitForWhere(
+    () => mirrorHead(String(installed.ledgerPath)) === fixture.eventCount(),
+    "the original process to replicate after a duplicate was rejected",
+  );
+  owner.kill();
+  await owner.exited;
+  // A genuinely disconnected owner releases admission for a replacement.
+  const replacement = await replicationPeer(
+    fixture.track,
+    center.port,
+    fixture.cert,
+    "edge-three",
+    "secret-edge-three",
+  );
+  const accepted = await replacement.request({
     type: "replica.start",
     repoId: "replica-repo",
     position: null,
@@ -280,12 +300,8 @@ test("a second receiver for one node takes over and the older session is cut", {
     taskEventShapeVersion: TASK_EVENT_SHAPE_COMPAT_VERSION,
   });
   assert.equal(accepted.type, "replica.accept");
-  const first = await stale.receive();
+  const first = await replacement.receive();
   assert.equal(first.type, "replica.backup");
-  const edge = fixture.startEdge("edge-three");
-  await edge.waitForEvent("installed");
-  // Single replication owner per node and repository: the newer start displaces the older stream.
-  await stale.closed;
 });
 
 test("a sequence gap is rejected instead of skipped", { timeout: 180_000 }, async (t) => {

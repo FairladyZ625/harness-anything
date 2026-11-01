@@ -3,7 +3,12 @@ import { randomUUID } from "node:crypto";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { type TLSSocket } from "node:tls";
-import { consumeKnownError, isContractVersionCompatible } from "@harness-anything/kernel";
+import {
+  consumeKnownError,
+  isContractVersionCompatible,
+  TASK_EVENT_SHAPE_COMPAT_VERSION,
+} from "@harness-anything/kernel";
+import { daemonBuildStamp } from "../build-identity.ts";
 import { writeFileDurably } from "@harness-anything/storage";
 import type { Delivery, FleetCenterOptions, SessionWindow, State, Upload } from "./center-types.ts";
 import { FleetFault } from "./center-types.ts";
@@ -169,15 +174,28 @@ export async function serve(
       });
     },
   };
-  // One replication owner per node and repository (the slot fence): a newer start displaces only the
-  // older replication session for that pair, never the node's command sessions.
+  // Keep the live owner: replacing it on every start lets two resident reconnect loops endlessly
+  // evict each other. Command sessions and other node/repository pairs remain independent.
   const startReplication = (
     node: string,
     frame: Extract<ReplicationFrame, { readonly type: "replica.start" }>,
   ): void => {
     const key = replicationSlotKey({ nodeId: node, repoId: frame.repoId }),
       previous = replicationOwners.get(key);
-    if (previous && previous !== socket) previous.destroy();
+    if (previous && previous !== socket && !previous.destroyed) {
+      replicationMode = true;
+      socket.end(
+        serializeReplicationFrame({
+          type: "replica.reject",
+          code: "replica_duplicate_connection",
+          message:
+            "replica_duplicate_connection: This node already has a live replication connection for this repository; stop the other daemon before retrying.",
+          centerBuildCommit: daemonBuildStamp().commit,
+          taskEventShapeVersion: TASK_EVENT_SHAPE_COMPAT_VERSION,
+        }),
+      );
+      return;
+    }
     replicationOwners.set(key, socket);
     socket.once("close", () => {
       if (replicationOwners.get(key) === socket) replicationOwners.delete(key);

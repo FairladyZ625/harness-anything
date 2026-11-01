@@ -13,7 +13,7 @@
 // 自行组合 session hello(contract.ts)与复制流(protocol.ts);产品接线落地后,此处应改用
 // 产品的边缘入口,组合逻辑不进生产码。
 import { spawnSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { connect } from "node:tls";
 import { parseFleetFrame, serializeFleetFrame } from "../../src/fleet/command-protocol.ts";
 import { parseReplicationFrame, serializeReplicationFrame } from "../../src/fleet/protocol.ts";
@@ -22,6 +22,7 @@ import {
   installReplicaGeneration,
   readReplicaGeneration,
   replicaGenerationReaders,
+  updateReplicaGenerationPosition,
 } from "../../src/fleet/replica-generation.ts";
 
 const config = JSON.parse(readFileSync(process.argv[2], "utf8"));
@@ -222,14 +223,7 @@ async function runOneSession() {
     project: async () => {
       await opened.project();
     },
-    updatePosition: (position) => {
-      const current = readReplicaGeneration(mirrorRoot);
-      if (!current) throw new Error("replica generation is unavailable after apply");
-      writeFileSync(
-        `${mirrorRoot}/current.json`,
-        JSON.stringify({ id: current.id, metadata: { ...current.metadata, position } }),
-      );
-    },
+    updatePosition: (position) => updateReplicaGenerationPosition(mirrorRoot, position),
   };
 
   const signal = new AbortController().signal;
