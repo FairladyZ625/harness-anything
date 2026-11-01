@@ -276,3 +276,87 @@ test("the frozen vertical declaration supplies the source when the repository ha
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+test("attestation replays retain one durable witness across revisions, nodes and reopen", async () => {
+  const { rootDir, repoId, taskId, executionId, packagePath, cell } = await submittedTask(
+    "attest-replay",
+    localMapping,
+  );
+  const reader = makeTaskEventReader({ repoId, rootDir }),
+    witnesses = () => reader.read().events.filter((event) => event.type === "completion_gate_verified"),
+    action = { kind: "task-attest", taskId, gateId: "signoff", result: "pass" },
+    // Authorization and Git/worktree settlement refresh per request. The canonical acceptance
+    // and receipt identity must remain exactly the original durable result.
+    durableReceipt = (receipt: Awaited<ReturnType<Cell["run"]>>) => {
+      return {
+        outcome: receipt.outcome,
+        opId: receipt.opId,
+        revision: receipt.revision,
+        eventId: receipt.eventId,
+        evidence: receipt.evidence,
+        taskId: receipt.taskId,
+        executionId: receipt.executionId,
+        cut: receipt.cut,
+        acceptance: receipt.acceptance,
+        committedRevision: receipt.proof?.committedRevision,
+        durable: receipt.proof?.durable,
+        canonicalVisible: receipt.proof?.canonicalVisible,
+      };
+    };
+  let reopened: Cell | undefined;
+  try {
+    const submitted = await submitOverTransport(cell, repoId, { taskId, executionId });
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    const first = await cell.run(action, owner);
+    assert.equal(first.outcome, "applied", JSON.stringify(first));
+    assert.ok(first.revision! > submitted.revision!, "first attest advances the submitted revision");
+    const replay = await cell.run({ ...action, mode: "approve" }, owner);
+    assert.equal(witnesses().length, 1, "same semantic replay must not append after revision advances");
+    assert.deepEqual(durableReceipt(replay), durableReceipt(first));
+
+    const concurrent = await Promise.all(
+      ["edge-a", "edge-b"].map((nodeId) =>
+        cell.run({ ...action, note: "Replay via another node" }, { ...owner, source: { kind: "node", nodeId } }),
+      ),
+    );
+    assert.equal(witnesses().length, 1, "the center queue deduplicates simultaneous nodes");
+    for (const receipt of concurrent) assert.deepEqual(durableReceipt(receipt), durableReceipt(first));
+
+    await cell.close();
+    reopened = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "attest-replay" });
+    const afterReopen = await reopened.run(action, owner);
+    assert.equal(witnesses().length, 1, "replay uses durable state after reopening");
+    assert.deepEqual(durableReceipt(afterReopen), durableReceipt(first));
+
+    const failed = await reopened.run({ ...action, result: "fail" }, owner),
+      otherActor = await reopened.run(
+        action,
+        withPolicyGroup(
+          { actor: { principal: { personId: "another-attester" }, executor: null }, source: "local" },
+          "admin",
+        ),
+      );
+    assert.equal(failed.outcome, "applied", JSON.stringify(failed));
+    assert.equal(otherActor.outcome, "applied", JSON.stringify(otherActor));
+    assert.equal(witnesses().length, 3, "distinct result and authenticated actor each append");
+    assert.notEqual(failed.opId, first.opId);
+    assert.notEqual(otherActor.opId, first.opId);
+
+    await writeCloseout(reopened, rootDir, taskId, packagePath, "A new submitted cut.");
+    const amended = await submitOverTransport(reopened, repoId, { taskId, executionId, amend: true });
+    assert.equal(amended.outcome, "applied", JSON.stringify(amended));
+    const newCut = await reopened.run(action, owner);
+    assert.equal(newCut.outcome, "applied", JSON.stringify(newCut));
+    assert.equal(witnesses().length, 4, "a new cut within the same execution has its own witness");
+    assert.notEqual(newCut.opId, first.opId);
+    const events = witnesses();
+    assert.deepEqual(
+      events.map((event) => event.source),
+      ["local", "local", "local", "local"],
+    );
+  } finally {
+    await (reopened ?? cell).close();
+    await reader.drain();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});

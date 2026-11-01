@@ -16,6 +16,8 @@ import {
   normalizeCommandEnvelope,
   requiredGateWitnessCount,
   runtimeSessionIdFromActor,
+  sha256Text,
+  stableStringify,
   submissionDigest,
   TASK_LIFECYCLE_TRANSITIONS,
   type ActorIdentity,
@@ -662,6 +664,14 @@ export function operationId(
     expectedRevision,
     command: intent,
   }).opId;
+}
+
+export function witnessOperationId(
+  intent: Readonly<Record<string, unknown>>,
+  actor: ActorIdentity,
+  workspaceId: string,
+): string {
+  return `op_${sha256Text(stableStringify({ workspaceId, actor, command: intent }))}`;
 }
 
 export function actorHint(actor: ActorIdentity): string {

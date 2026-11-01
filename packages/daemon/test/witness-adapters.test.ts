@@ -14,6 +14,7 @@ import {
   waivableAutomatedFail,
   type CompletionEvidenceV1,
   type FrozenGateRequirement,
+  type TaskEventV1,
 } from "@harness-anything/kernel";
 import type { TaskLifecycleSnapshot } from "@harness-anything/kernel";
 import {
@@ -24,6 +25,8 @@ import {
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { gate as validateGateWitnessWire } from "../src/protocol/daemon-protocol-validate-entities.ts";
 import { attestGateWitness } from "../src/repo-cell-witness-adapters.ts";
+import { publishGateWitness } from "../src/repo-cell-completion.ts";
+import { operationId } from "../src/repo-cell-proof.ts";
 import { runProcessExitAsync } from "../src/process-port.ts";
 import type { RepoCellOperationalContext } from "../src/repo-cell-action-context.ts";
 import type { RepoCellBinding, Snapshot } from "../src/repo-cell-types.ts";
@@ -747,6 +750,100 @@ function attestCell(snapshot: TaskLifecycleSnapshot) {
     } as unknown as RepoCellOperationalContext,
   };
 }
+
+/** Exercise the real publisher and reducer; the integration suite covers durable storage. */
+function witnessWriter(initial: TaskLifecycleSnapshot) {
+  let snapshot = initial;
+  const events = new Map<string, TaskEventV1>(),
+    cell = {
+      ...cellStub("/fixture", initial.executions[0]!),
+      input: { repoId: "repo" },
+      now: () => "2026-09-17T00:02:00.000Z",
+      operationId,
+      projection: {
+        read: () => ({ snapshot, status: "ready", packagePath: null }),
+        readOperation: (opId: string) => events.get(opId),
+        apply: (event: TaskEventV1) => {
+          snapshot = reduceTaskEvent(snapshot, event);
+        },
+      },
+      store: {
+        readEvent: (opId: string) => events.get(opId),
+        readHead: () => ({ revision: snapshot.revision }),
+        append: ({ event }: { event: TaskEventV1 }) => {
+          events.set(event.opId, event);
+        },
+        publication: () => ({}),
+      },
+      publicPublication: () => ({}),
+      receiptProof: () => ({}),
+      completionKillpoint: () => undefined,
+      lifecycleReceipt: (event: TaskEventV1) => ({
+        outcome: "applied",
+        opId: event.opId,
+        revision: event.workspaceRevision,
+      }),
+      publishGateWitness: (...args: Parameters<RepoCellOperationalContext["publishGateWitness"]>) =>
+        publish(args[5], args[4]),
+    } as unknown as RepoCellOperationalContext;
+  const publish = (evidence: CompletionEvidenceV1, as = binding) =>
+    publishGateWitness(cell, "task", snapshot.executions[0]!.executionId, snapshot, null, as, evidence);
+  return {
+    cell,
+    events,
+    publish,
+    snapshot: () => snapshot,
+    replace: (next: TaskLifecycleSnapshot) => {
+      snapshot = next;
+    },
+  };
+}
+
+test("canonical witness identities distinguish attestation modes and automated runs", () => {
+  const f = governedFixture({ ...commandRequirement(), mandatorySignoff: true, allowOverride: true }),
+    writer = witnessWriter(f.snapshot),
+    owner = { ...binding, actor: { principal: f.snapshot.task!.createdBy.principal, executor: null } },
+    override = {
+      kind: "task-attest",
+      taskId: "task",
+      gateId: "lint",
+      result: "pass",
+      mode: "override",
+      rationale: "Runner host lost network mid-run",
+    },
+    waived = attestGateWitness(writer.cell, override, owner);
+  assert.deepEqual(attestGateWitness(writer.cell, override, owner), waived);
+  assert.equal(writer.events.size, 1);
+  const evidence = automatedEvidence(f.execution, "lint", "pass"),
+    automated = writer.publish(evidence);
+  assert.deepEqual(writer.publish(evidence), automated);
+  const approved = attestGateWitness(writer.cell, { ...override, mode: "approve", rationale: undefined }, owner);
+  assert.notEqual(approved.opId, waived.opId);
+  assert.equal(writer.events.size, 3);
+  writer.replace(rerun(writer.snapshot()));
+  const reran = writer.publish(automatedEvidence(f.execution, "lint", "pass", "local-run-2"));
+  assert.notEqual(reran.opId, automated.opId);
+  assert.equal(writer.events.size, 4);
+});
+
+test("artifact-only amended cuts in one execution have distinct canonical witness identities", () => {
+  const f = artifactOnlyFixture(artifactRequirement()),
+    writer = witnessWriter(f.snapshot),
+    first = writer.publish(humanEvidence(f.execution, "signoff", "manual-attest")),
+    snapshot = writer.snapshot(),
+    execution = snapshot.executions[0]!,
+    amended = { ...execution, submission: { ...execution.submission!, completionClaim: "Amended artifact delivery" } };
+  writer.replace({ ...snapshot, executions: [amended] });
+  const evidence = humanEvidence(amended, "signoff", "manual-attest"),
+    second = writer.publish(evidence);
+  assert.notEqual(
+    second.opId,
+    first.opId,
+    "null commitSha and unchanged artifact ledgerCut still bind the full submission",
+  );
+  assert.deepEqual(writer.publish(evidence), second);
+  assert.equal(writer.events.size, 2);
+});
 
 test("attest admission: human principal, closed fields, owner-only override over recorded evidence", () => {
   const overridable = governedFixture({ ...commandRequirement(), allowOverride: true }),
