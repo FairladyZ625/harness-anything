@@ -56,7 +56,7 @@ test("worker escalation has one discoverable CLI command with actionable guidanc
   assert.match(command.usage, /ha task escalate <task-id>.*--question/u);
   for (const text of [command.summary, help]) {
     assert.match(text, /forbidden boundaries/u);
-    assert.match(text, /precondition is false/u);
+    assert.match(text, /false preconditions/u);
     assert.match(text, /another task/u);
     assert.match(text, /do not use for choices you can decide yourself/u);
     assert.match(text, /Example: ha task escalate/u);
