@@ -13,8 +13,10 @@ import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixt
 import { taskLifecycleWritePlan } from "@harness-anything/kernel/internal/domain/task-lifecycle-publication.ts";
 import { localGitWorktreeSettlement } from "../../src/store/local-version-control-system.ts";
 import { createEntityStore } from "../../src/store/entity-store.ts";
+import { rebuildPgProjection } from "../../src/pg/pg-task-event-materialize.ts";
 import { createPGliteStorageBackend } from "../../src/pglite/storage-backend.ts";
 import { makePostgresTaskEventStore } from "../../src/postgres/pg-task-event-store.ts";
+import { withPostgresTransaction } from "../../src/postgres/transaction.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
 import type { CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
@@ -251,6 +253,31 @@ test("PGlite runs shared lifecycle replay, entity, graph and query parity assert
         pgValue,
       );
     }
+
+    const projectionEvents = (await backend.eventStore.execute({
+        operation: "events",
+      })) as readonly import("@harness-anything/kernel").CanonicalEventV1[],
+      beforeRebuild = await backend.projection.readSnapshot("task-lease-submit"),
+      sourceRevision = projectionEvents.at(-1)?.workspaceRevision ?? 0;
+    await withPostgresTransaction(
+      backend.pool,
+      (client) =>
+        rebuildPgProjection(client, scope, {
+          events: projectionEvents,
+          sourceRevision,
+          sourceHeadRevision: sourceRevision,
+          readContentBlob: async (sha256) =>
+            (await backend.eventStore.execute({ operation: "content", sha256 })) as Uint8Array | null,
+        }),
+      scope,
+    );
+    assert.deepEqual(await backend.projection.readSnapshot("task-lease-submit"), beforeRebuild);
+    assert.deepEqual(await backend.projection.readCut(), {
+      status: "ready",
+      watermark: sourceRevision,
+      sourceRevision,
+    });
+    assert.equal((await backend.entities.get("agent", "pglite-agent"))?.id, "pglite-agent");
   } finally {
     sqliteProjection.close();
     await backend.close();
