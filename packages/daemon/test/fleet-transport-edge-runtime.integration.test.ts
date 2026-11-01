@@ -50,7 +50,8 @@ test("Fleet operational replies transparently carry 1 MiB and 32 MiB results", {
   for (const size of sizes) {
     response.payload = "x".repeat(size);
     const peakBefore = process.resourceUsage().maxRSS,
-      rssBytes = (value: number) => (process.platform === "darwin" ? value : value * 1024);
+      // Node reports resourceUsage().maxRSS in KiB on every supported platform.
+      rssBytes = (value: number) => value * 1024;
     const result = await readFleetOperationalClient({
       hostname: "127.0.0.1",
       port: center.port,
