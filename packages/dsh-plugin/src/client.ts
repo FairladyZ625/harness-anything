@@ -103,8 +103,8 @@ function createSnapshotStore<T>(initial: T): SnapshotStore<T> {
 }
 
 const messages = {
-  en: { panel: "Harness Anything", language: "en" },
-  zh: { panel: "Harness Anything", language: "zh" },
+  en: { panel: "Harness Anything", language: "en", tutorialTab: "Tutorial" },
+  zh: { panel: "Harness Anything", language: "zh", tutorialTab: "教程" },
 };
 
 function isBrokerResponse(value: unknown): value is BrokerResponse {
@@ -207,9 +207,11 @@ const panelStyle = `
 
 /** The Host owns the process; hiding a tab keeps its iframe and in-frame state alive. */
 export function HarnessPanel({
+  tutorialTab,
   copy,
   onOpen,
 }: {
+  readonly tutorialTab: string;
   readonly copy: TutorialCopy;
   readonly onOpen: () => void;
 }): ReactNode {
@@ -272,7 +274,7 @@ export function HarnessPanel({
       createElement(
         "div",
         { role: "tablist", "aria-label": "Harness", className: "ha-panel-tabs" },
-        tabButton("tutorial", "教程"),
+        tabButton("tutorial", tutorialTab),
         tabButton("harness", "Harness"),
       ),
       createElement("button", { type: "button", onClick: onOpen }, "在内置浏览器打开"),
@@ -356,6 +358,7 @@ export function apply(ctx: ClientContext): void {
   ctx.slots.inject("main", () =>
     ctx.slots.register({ name: "main", key: PANEL_ID, locale: LOCALE_NAMESPACE }, (() =>
       createElement(HarnessPanel, {
+        tutorialTab: t("tutorialTab"),
         copy: t("language") === "zh" ? tutorialCopy.zh : tutorialCopy.en,
         onOpen: () => {
           void openHarnessBrowser(ctx).catch(reportFailure);

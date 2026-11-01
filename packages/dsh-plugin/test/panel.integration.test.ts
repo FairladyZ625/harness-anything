@@ -76,7 +76,7 @@ test("main tabs retain the iframe, share the Host process, and expose failure re
       sidebarRight: { openTab: () => { document.body.dataset.browserOpened = 'true'; } },
     };
     createRoot(document.getElementById('root')).render(createElement(HarnessPanel, {
-      copy: tutorialCopy.zh, onOpen: () => void openHarnessBrowser(ctx),
+      tutorialTab: "教程", copy: tutorialCopy.zh, onOpen: () => void openHarnessBrowser(ctx),
     }));
   `,
   );
