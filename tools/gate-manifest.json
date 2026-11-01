@@ -1571,10 +1571,16 @@
       "localPathGlobs": ["package.json", "packages/**", "tools/**"],
       "authoritySource": [
         "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d1",
+        "decision/dec_D90F19C8AAAF39747F8F0D6698#CH8",
         "package.json:workspaces",
         "packages/*/package.json"
       ],
-      "consumerScope": ["cross-package import statements under packages/**"],
+      "consumerScope": [
+        "cross-package import statements under packages/**",
+        "runtime import file graph under packages/** and tools/** (value imports, value re-exports, side-effect/dynamic imports)",
+        "workspace package dependency graph and delivery-package direction",
+        "SQL statements, database drivers, and storage backend branches outside packages/storage"
+      ],
       "githubContext": {
         "requiredContexts": ["boundaries"],
         "workflowJobs": ["boundaries"],
@@ -1584,7 +1590,7 @@
         "allowed": true,
         "location": "tools/gate-allowlists/check-import-boundaries.json",
         "adrOrDecisionRequired": true,
-        "notes": "Boundary composition roots and known-debt entries are externalized; each entry must carry ref+reason and the checker reports entry-count trend."
+        "notes": "Boundary composition roots and known-debt entries are externalized; each entry must carry ref+reason and the checker reports entry-count trend. Runtime import cycles, workspace package cycles, reverse delivery dependencies, SQL, database drivers, and storage backend branches are zero-tolerance and have no allowlist entries (dec_D90F19C8AAAF39747F8F0D6698/CH8 C4)."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
