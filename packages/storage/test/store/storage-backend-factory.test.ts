@@ -81,8 +81,12 @@ test("postgres is a typed route with an explicit Wave 1 implementation boundary"
     /storage backend "postgres" is not implemented by kernel Wave 1/u,
   );
   assert.throws(
-    () => makeTaskProjectionReader({ storage: { backend: "postgres", connectionString: "postgres://localhost/ha" } }),
-    /storage backend "postgres" is not implemented by kernel Wave 1/u,
+    () =>
+      makeTaskProjectionReader({
+        repoId: "scope-required",
+        storage: { backend: "postgres", connectionString: "postgres://localhost/ha" },
+      }),
+    /requires tenant, project, and a non-negative safe policy epoch/u,
   );
 });
 
@@ -113,7 +117,10 @@ function postgresProjectionRoute(): TaskProjectionPort {
   });
 }
 function postgresProjectionReaderRoute(): TaskProjectionReaderPort {
-  return makeTaskProjectionReader({ storage: { backend: "postgres", connectionString: "postgres://localhost/ha" } });
+  return makeTaskProjectionReader({
+    repoId: "typed-projection-reader",
+    storage: { backend: "postgres", connectionString: "postgres://localhost/ha", scope },
+  });
 }
 function postgresEntityStoreRoute(): EntityDeclarationStorePort {
   return createEntityStore(emptyEventSource, {

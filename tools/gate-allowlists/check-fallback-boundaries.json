@@ -41,6 +41,8 @@
   },
   "entries": {
     "consumeKnownError": [
+      "packages/storage/src/pg/pg-task-query-worker.ts#handle",
+      "packages/storage/src/pg/pg-task-query-worker.ts#startWorker",
       "packages/dsh-plugin/src/client.ts#openTabWhenSessionMounts",
       "packages/dsh-plugin/src/tutorial.ts#writeClipboard",
       "packages/daemon/src/skill-eval-runner.ts#runCase",
@@ -311,7 +313,7 @@
       "packages/storage/src/projection/cold-rebuild-source.ts#readAuthoredEvents",
       "packages/storage/src/projection/decision-projection-admission.ts#assertDecisionAdmission",
       "packages/storage/src/projection/rebuildable-task-projection-database.ts#withQueryOnlyDatabaseSession",
-      "packages/storage/src/projection/rebuildable-task-projection-event-application.ts#applyEvent",
+      "packages/storage/src/projection/entity-declaration-replay.ts#interpretReplayDeclaration",
       "packages/storage/src/projection/rebuildable-task-projection-factory.ts#makeTaskProjection",
       "packages/storage/src/projection/rebuildable-task-projection-sql.ts#queryTransaction",
       "packages/storage/src/projection/rebuildable-task-projection-sql.ts#transaction",

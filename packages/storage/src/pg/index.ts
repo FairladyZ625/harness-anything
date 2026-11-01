@@ -21,6 +21,8 @@ export type {
 } from "./pg-task-event-materialize.ts";
 export { createPgTaskProjectionSource } from "./pg-task-source.ts";
 export type { PgProjectionCut, PgTaskProjectionSource, PgTaskProjectionSourceOptions } from "./pg-task-source.ts";
+export { createPgTaskQueryReader } from "./pg-task-query-reader.ts";
+export type { PgTaskQueryMethods, PgTaskQueryReader, PgTaskQueryReaderOptions } from "./pg-task-query-reader.ts";
 export {
   createPgEntityStore,
   persistPgEntityDeclaration,

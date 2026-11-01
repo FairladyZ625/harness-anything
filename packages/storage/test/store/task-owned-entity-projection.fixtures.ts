@@ -3,7 +3,10 @@ import { serializeCanonicalEvent } from "@harness-anything/kernel/internal/domai
 import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixture.ts";
 
-export function memoryEventStore(events: readonly CanonicalEventV1[]) {
+export function memoryEventStore(
+  events: readonly CanonicalEventV1[],
+  blobs: ReadonlyMap<string, Uint8Array> = new Map(),
+) {
   return {
     readHead: () => ({
       revision: events.at(-1)?.workspaceRevision ?? 0,
@@ -18,10 +21,10 @@ export function memoryEventStore(events: readonly CanonicalEventV1[]) {
         cursor: start + slice.length >= events.length ? null : String(start + slice.length),
         done: start + slice.length >= events.length,
         accessedItems: slice.length,
-        prefetchContent: () => new Map<string, Uint8Array | null>(),
+        prefetchContent: () => new Map(blobs),
       };
     },
-    readContentBlob: () => null,
+    readContentBlob: (sha256: string) => blobs.get(sha256) ?? null,
   };
 }
 

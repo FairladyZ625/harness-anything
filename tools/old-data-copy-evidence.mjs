@@ -29,6 +29,7 @@ import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { resolveHarnessLayout } from "../packages/kernel/src/layout/index.ts";
+import { materialize } from "./readonly-checkout.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 // Derived dirs that attach and the cold rebuild never open; copying them is how earlier
@@ -434,15 +435,16 @@ async function sqliteBackup(from, to) {
   await runText(process.execPath, ["-e", code, from]);
 }
 
-async function resolveBuild(buildArg, tempRoot) {
-  if (!buildArg) return { root: repoRoot, requested: "<invoking checkout>", createdWorktree: false };
-  if (existsSync(buildArg)) return { root: path.resolve(buildArg), requested: buildArg, createdWorktree: false };
-  const sha = (
-    await runText("git", ["-C", repoRoot, "rev-parse", "--verify", `${buildArg}^{commit}`], repoRoot)
-  ).trim();
-  const checkout = path.join(tempRoot, "build-checkout");
-  await runText("git", ["-C", repoRoot, "worktree", "add", "--detach", "--quiet", checkout, sha], repoRoot);
-  return { root: checkout, requested: buildArg, resolvedSha: sha, createdWorktree: true };
+export async function resolveBuild(buildArg, tempRoot, sourceRoot = repoRoot) {
+  if (!buildArg) return { root: sourceRoot, requested: "<invoking checkout>", sourceArchive: false };
+  if (existsSync(buildArg)) return { root: path.resolve(buildArg), requested: buildArg, sourceArchive: false };
+  const archived = materialize({
+    rootDir: sourceRoot,
+    revision: buildArg,
+    out: path.join(tempRoot, "build-checkout"),
+  });
+  if (!archived.ok) throw new Error(archived.detail);
+  return { root: archived.destination, requested: buildArg, resolvedSha: archived.commit, sourceArchive: true };
 }
 
 function readMarkerOrNull(markerPath) {
@@ -471,15 +473,20 @@ export function planDaemonDistSteps({ nodeModules, distEntry, head, marker }) {
   return steps;
 }
 
-async function ensureDaemonDist(buildRoot) {
-  const head = headCommitOrNull(buildRoot);
+async function ensureDaemonDist(buildRoot, head = headCommitOrNull(buildRoot)) {
   const plan = planDaemonDistSteps({
     nodeModules: existsSync(path.join(buildRoot, "node_modules")),
     distEntry: existsSync(path.join(buildRoot, "packages", "daemon", "dist", "index.js")),
     head,
     marker: readMarkerOrNull(path.join(buildRoot, "packages", "daemon", "dist", "build-id.txt")),
   });
-  for (const step of plan) await runText(step.command, step.args, buildRoot);
+  for (const step of plan)
+    await runText(
+      step.command,
+      step.args,
+      buildRoot,
+      head ? { ...process.env, HARNESS_BUILD_COMMIT: head } : process.env,
+    );
   return { steps: plan.map((step) => [step.command, ...step.args].join(" ")), head };
 }
 
@@ -829,7 +836,6 @@ export async function main(argv, session = {}) {
     peakRss: null,
     failures: [],
   };
-  let createdWorktree = null;
   let daemonStopReceipt = null;
   let daemonHandle = null;
   const env = forensicEnv(process.env);
@@ -837,7 +843,6 @@ export async function main(argv, session = {}) {
   session.keep = args.keep;
   session.env = env;
   session.daemonHandle = null;
-  session.createdWorktree = null;
   // Any error between start and the in-flow stop must not leak a detached daemon holding a
   // socket inside the temp root we are about to delete.
   const stopDaemonBestEffort = async () => {
@@ -854,9 +859,8 @@ export async function main(argv, session = {}) {
     // 1. Build resolution and daemon dist. A stale dist (older HEAD than the checkout) is
     //    rebuilt here, before anything can run it.
     const build = await resolveBuild(args.build, tempRoot);
-    createdWorktree = build.createdWorktree ? { root: build.root, sha: build.resolvedSha } : null;
-    session.createdWorktree = createdWorktree;
-    const { steps: buildSteps, head } = await ensureDaemonDist(build.root);
+    const { steps: buildSteps, head } = await ensureDaemonDist(build.root, build.resolvedSha);
+    if (head) env.HARNESS_BUILD_COMMIT = head;
     // 2. Snapshot (or reuse a kept workspace for negative-control arms on the same copy). The
     //    copy keeps the ledger's own identity: registering it under a different id makes attach
     //    reject the copy's activation certificate, which would be a fact about the harness's
@@ -895,7 +899,7 @@ export async function main(argv, session = {}) {
     receipt.build = {
       requested: build.requested,
       root: build.root,
-      createdWorktree: build.createdWorktree,
+      sourceArchive: build.sourceArchive,
       headCommit: head,
       prepared: buildSteps,
     };
@@ -1044,17 +1048,6 @@ export async function main(argv, session = {}) {
     receipt.failures.push({ phase: "orchestrator", message: String(error instanceof Error ? error.message : error) });
   } finally {
     await stopDaemonBestEffort();
-    if (createdWorktree) {
-      try {
-        await runText("git", ["-C", repoRoot, "worktree", "remove", "--force", createdWorktree.root], repoRoot);
-        await runText("git", ["-C", repoRoot, "worktree", "prune"], repoRoot);
-      } catch (error) {
-        receipt.failures.push({
-          phase: "worktree-cleanup",
-          message: String(error instanceof Error ? error.message : error),
-        });
-      }
-    }
     receipt.cleanup = { kept: args.keep, tempRoot, daemonStopped: daemonStopReceipt?.ok === true };
   }
   // Raw evidence files move to --out before the temp root goes away; the receipt itself is
@@ -1084,7 +1077,7 @@ export async function main(argv, session = {}) {
 
 /** The interrupt path owns the same cleanup contract as the normal exit, executed
  *  synchronously from the signal handler: kill tracked child groups first (they write into
- *  the temp root), stop the isolated daemon, release a temporary build worktree, delete the
+ *  the temp root), stop the isolated daemon, delete the temporary build archive and
  *  temp root, exit non-zero without printing a receipt. A signal before the temp root exists
  *  finds the session empty and just exits. */
 function installInterruptHandlers(session) {
@@ -1103,14 +1096,6 @@ function installInterruptHandlers(session) {
         else notes.push(`daemon pid ${handle.pid} left to the owner-pid watchdog`);
       } catch {
         notes.push(`daemon pid ${handle.pid} left to the owner-pid watchdog`);
-      }
-    }
-    if (session.createdWorktree) {
-      try {
-        spawnSync("git", ["-C", repoRoot, "worktree", "remove", "--force", session.createdWorktree.root]);
-        spawnSync("git", ["-C", repoRoot, "worktree", "prune"]);
-      } catch {
-        notes.push(`build worktree left: ${session.createdWorktree.root}`);
       }
     }
     if (session.tempRoot) {

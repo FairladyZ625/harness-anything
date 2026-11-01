@@ -14,9 +14,21 @@ export const PG_PROJECTION_TABLES = Object.freeze([
   "ha_agents",
   "ha_squads",
   "ha_projection_meta",
+  "ha_projection_values",
 ] as const);
 
-export const PG_PROJECTION_SCHEMA_VERSION = 1;
+export const PG_PROJECTION_SCHEMA_VERSION = 4;
+
+/** Rebuildable cache generations are admitted before either reads or incremental writes. */
+export function assertPgProjectionSchemaVersion(version: number | undefined): void {
+  if (version !== undefined && version !== PG_PROJECTION_SCHEMA_VERSION)
+    throw Object.assign(
+      new Error(
+        `kernel projection schema ${version} does not match supported schema ${PG_PROJECTION_SCHEMA_VERSION}; writer recovery must publish a compatible generation`,
+      ),
+      { code: "kernel_schema_mismatch" },
+    );
+}
 
 /**
  * Create the projection tables as the shared schema owner. Runtime callers only need the grants and RLS
@@ -54,6 +66,14 @@ export async function grantPgProjectionRuntimeAccess(client: PoolClient): Promis
 
 export function projectionDdl(): readonly string[] {
   return [
+    `CREATE TABLE IF NOT EXISTS ha_projection_values (
+      ${POSTGRES_SCOPE_COLUMNS_SQL}, readers text[] NOT NULL DEFAULT '{}',
+      model text NOT NULL, entity_id text NOT NULL, owner_id text NOT NULL DEFAULT '',
+      workspace_revision bigint NOT NULL, value jsonb NOT NULL,
+      PRIMARY KEY (tenant_id,project_id,policy_epoch,model,owner_id,entity_id)
+    )`,
+    `CREATE INDEX IF NOT EXISTS ha_projection_values_lookup ON ha_projection_values (tenant_id,project_id,policy_epoch,model,entity_id)`,
+    `CREATE INDEX IF NOT EXISTS ha_projection_values_value_gin ON ha_projection_values USING gin(value)`,
     `CREATE TABLE IF NOT EXISTS ha_task_snapshots (
       ${POSTGRES_SCOPE_COLUMNS_SQL},
       readers text[] NOT NULL DEFAULT '{}',

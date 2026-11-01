@@ -71,7 +71,7 @@ export function readEntityVersionWitnesses(
                WHEN ${coreVersion} IS NOT NULL THEN 'current' ELSE 'unknown' END AS freshness,
           CASE WHEN ${projectedPresent} THEN ${projectedVersion} ELSE ${coreVersion} END AS current_version,
           ${decisionState} AS state
-        FROM requested ${joins.join(" ")} ORDER BY requested.position`,
+        FROM requested ${joins.join(" ")} ORDER BY requested.position${tables.has("entity_projection") ? ", projected.task_id" : ""}`,
     ).all(JSON.stringify(requests)) as unknown as readonly {
       readonly ref: string;
       readonly freshness: EntityFreshness;

@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
   realpathSync,
   rmSync,
   statSync,
@@ -29,11 +30,38 @@ import {
   parsePeakRssBytes,
   planDaemonDistSteps,
   resolveSourceRoot,
+  resolveBuild,
   snapshotRepository,
 } from "./old-data-copy-evidence.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const script = path.join(repoRoot, "tools/old-data-copy-evidence.mjs");
+
+test("build SHA uses a plain archive without changing the repository's worktree registry", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-oldcopy-build-")),
+    source = path.join(parent, "source");
+  try {
+    mkdirSync(path.join(source, "node_modules"), { recursive: true });
+    git(source, "init", "--quiet");
+    git(source, "config", "user.name", "Old Copy Fixture");
+    git(source, "config", "user.email", "oldcopy@example.test");
+    writeFileSync(path.join(source, "README.md"), "pinned archive\n");
+    git(source, "add", "README.md");
+    git(source, "commit", "--quiet", "-m", "fixture");
+    const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: source, encoding: "utf8" }).trim(),
+      registry = execFileSync("git", ["worktree", "list", "--porcelain"], { cwd: source, encoding: "utf8" }),
+      build = await resolveBuild(head, parent, source);
+    assert.equal(build.resolvedSha, head);
+    assert.equal(build.sourceArchive, true);
+    assert.equal(existsSync(path.join(build.root, ".git")), false);
+    assert.equal(existsSync(path.join(build.root, "node_modules")), false);
+    assert.equal(readFileSync(path.join(build.root, "README.md"), "utf8"), "pinned archive\n");
+    assert.equal(execFileSync("git", ["worktree", "list", "--porcelain"], { cwd: source, encoding: "utf8" }), registry);
+    await assert.rejects(resolveBuild("missing-cut", path.join(parent, "missing"), source), /does not name a commit/);
+  } finally {
+    rmSync(parent, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});
 
 test("pure helpers: receipt parsing strips injections, rss parsing, source derivation, tree-copy flags", () => {
   assert.deepEqual(

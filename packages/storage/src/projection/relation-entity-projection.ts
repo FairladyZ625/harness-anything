@@ -1,3 +1,4 @@
+import type { PersistedCanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 // @write-boundary-exemption rebuildable-projection
 import type { DatabaseSync } from "node:sqlite";
 import {
@@ -154,9 +155,7 @@ export function applyEmbeddedRelationProjectionEvents(
   for (const record of derivedRelationRecordsForReplay(event)) projectDerivedRelation(db, event, record);
 }
 
-function derivedRelationRecordsForReplay(
-  event: AgentRuntimeEventV1 | DecisionEventV1 | FactEventV1 | TaskEventV1,
-): readonly EntityRelationRecord[] {
+export function derivedRelationRecordsForReplay(event: PersistedCanonicalEventV1): readonly EntityRelationRecord[] {
   const records: EntityRelationRecord[] = [];
   if (event.schema === "agent-runtime-event/v1") {
     const binding = runtimeExecutionLinkForEvent(event);
@@ -323,16 +322,27 @@ export function relationProjectionRow(
   targetWitness?: EntityVersionWitness,
   sourceWitness?: EntityVersionWitness,
 ): VersionedRelationProjectionRow {
+  return relationProjectionRowFromWitnesses(
+    entity,
+    sourcePath,
+    targetWitness ?? readEntityVersionWitness(db, entity.target),
+    relationFreshnessAnchorForType(entity.type) === "source"
+      ? (sourceWitness ?? readEntityVersionWitness(db, entity.source))
+      : undefined,
+  );
+}
+
+/** One relation row interpretation shared by the native SQLite and PostgreSQL readers. */
+export function relationProjectionRowFromWitnesses(
+  entity: RelationEntity,
+  sourcePath: string,
+  projectedTarget: EntityVersionWitness,
+  sourceWitness?: EntityVersionWitness,
+): VersionedRelationProjectionRow {
   const anchor = relationFreshnessAnchorForType(entity.type),
-    projectedTarget = targetWitness ?? readEntityVersionWitness(db, entity.target),
     target = keycloakPersonIdentityWitness(entity.target, entity.targetObservedVersion) ?? projectedTarget,
-    source = anchor === "source" ? (sourceWitness ?? readEntityVersionWitness(db, entity.source)) : undefined,
-    freshness = relationFreshnessAtCut({
-      anchor,
-      target,
-      targetObservedVersion: entity.targetObservedVersion,
-      source,
-    });
+    source = anchor === "source" ? sourceWitness : undefined,
+    freshness = relationFreshnessAtCut({ anchor, target, targetObservedVersion: entity.targetObservedVersion, source });
   return Object.freeze({
     schema: RELATION_PROJECTION_VERSION,
     entity,

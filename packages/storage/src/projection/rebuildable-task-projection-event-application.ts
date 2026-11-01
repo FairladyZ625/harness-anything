@@ -60,12 +60,8 @@ import {
   entityOwnedDocumentClaims,
 } from "@harness-anything/kernel/internal/domain/entity-owned-content.ts";
 import { canonicalDocumentRetirements } from "@harness-anything/kernel";
-import {
-  interpretEntityValue,
-  type InterpretedEntityValue,
-} from "@harness-anything/kernel/internal/domain/entity-kind-projection.ts";
-import { EntitySchemaContractError } from "@harness-anything/kernel/internal/domain/entity-json-schema.ts";
-import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
+import { interpretEntityValue } from "@harness-anything/kernel/internal/domain/entity-kind-projection.ts";
+import { interpretReplayDeclaration } from "./entity-declaration-replay.ts";
 import {
   isTaskBootstrapEvent,
   taskBootstrapPackagePath,
@@ -349,17 +345,8 @@ export function applyEvent(
       workspaceRevision: event.workspaceRevision,
     };
     const contract = contractForDeclarationEvent(event);
-    let entity: InterpretedEntityValue;
-    try {
-      entity = interpretEntityValue(contract, value);
-    } catch (error) {
-      // A declaration the current schema rejects (a stored pre-runtimes Agent shape during the
-      // declaration-rewrite window) fails as one row, not as a rebuild: the event and its
-      // declaration document still land, the entity row is marked uninterpretable, and a newer
-      // current-shape event for the same entity overwrites the degraded row. Storage corruption
-      // (missing blob, non-UTF-8, non-JSON, identity mismatch) keeps failing the rebuild loudly.
-      if (!(error instanceof EntitySchemaContractError)) throw error;
-      consumeKnownError(error);
+    const entity = interpretReplayDeclaration(contract, value, event.payload.entityId);
+    if (entity === null) {
       runSql(
         db,
         "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
@@ -371,10 +358,6 @@ export function applyEvent(
       markEntityProjectionUninterpretable(db, contract.kind, event.payload.entityId, event.workspaceRevision, value);
       return;
     }
-    const contractErrors = contract.entityStore.validate?.(entity.value) ?? [];
-    if (contractErrors.length) throw new Error(contractErrors.join("; "));
-    if (entity.id !== event.payload.entityId)
-      throw new Error(`entity declaration blob ${claim.sha256} identity mismatch`);
     runSql(
       db,
       "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
