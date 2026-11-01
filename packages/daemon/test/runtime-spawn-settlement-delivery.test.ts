@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { openDispatchStream } from "../src/dispatch-stream.ts";
@@ -640,6 +640,82 @@ test("reviewer settlement registers a valid dispatch report left before registra
   );
   assert.equal(recovered, true);
   assert.equal(outcomes[0]?.outcome, "succeeded", "a valid review input must be registered before terminal settlement");
+  assert.notEqual(outcomes[0]?.reasonCode, "review_result_missing");
+});
+
+test("edge reviewer settlement recovers through its center action and releases its credential", async (context) => {
+  const fixture = workerGitFixture(context, "settle-edge-review-report-unregistered", { reachableRemote: true }),
+    runtime = workerSettlementRuntime(fixture, {
+      finalText: "edge review report written; center registration did not complete",
+      publicationOwner: "commander",
+      role: "reviewer",
+    }),
+    packagePath = "tasks/task_0123456789abcdef01234567-fixture",
+    reportPath = `${packagePath}/artifacts/reports/${runtime.dispatchId}.md`,
+    packetPath = `${packagePath}/artifacts/reports/${runtime.dispatchId}.json`,
+    reportFile = path.join(fixture.worker, "harness", ...reportPath.split("/")),
+    packetFile = path.join(fixture.worker, "harness", ...packetPath.split("/")),
+    outcomes: Record<string, unknown>[] = [];
+  mkdirSync(path.dirname(reportFile), { recursive: true });
+  writeFileSync(reportFile, "# Review\n\nVerified the submitted cut from the edge.\n");
+  writeFileSync(
+    packetFile,
+    JSON.stringify({
+      verdict: "approved",
+      reason: "Verified the submitted cut from the edge.",
+      evidenceChecked: ["The dispatch-bound execution submission."],
+      findings: [],
+    }),
+  );
+  let registered = false,
+    released = false,
+    recoveries = 0;
+  const settleContext = workerSettlementContext(fixture, async (type, payload = {}) => {
+    if (type === "runtime_session_outcome_observed") outcomes.push(payload);
+    return {};
+  });
+  await publishExit(
+    {
+      ...settleContext,
+      input: {
+        ...settleContext.input,
+        projection: undefined,
+        remote: {
+          ...settleContext.input.remote!,
+          readReviewerArtifacts: async ({ taskId, dispatchId }) => {
+            assert.equal(taskId, fixtureTaskId);
+            assert.equal(dispatchId, runtime.dispatchId);
+            return {
+              packet: { path: packetPath, body: readFileSync(packetFile, "utf8") },
+              report: { path: reportPath, body: readFileSync(reportFile, "utf8") },
+            };
+          },
+          recoverReviewerReview: async (input) => {
+            recoveries += 1;
+            assert.equal(input.taskId, fixtureTaskId);
+            assert.equal(input.executionId, "execution-owner");
+            assert.equal(input.binding.actor.executor?.id, `runtime-session:${runtime.runtimeSessionId}`);
+            assert.equal(input.packet.path, packetPath);
+            assert.equal(input.report.path, reportPath);
+            registered = true;
+          },
+          reviewerReviewRegistered: async () => registered,
+          releaseExecutionCredential: (runtimeSessionId) => {
+            assert.equal(runtimeSessionId, runtime.runtimeSessionId);
+            released = true;
+          },
+        },
+      },
+      requiredRuntimeProjection: () => {
+        throw new Error("An edge settlement must not read the center-only projection locally.");
+      },
+    },
+    runtime,
+    0,
+  );
+  assert.equal(recoveries, 1);
+  assert.equal(released, true);
+  assert.equal(outcomes[0]?.outcome, "succeeded");
   assert.notEqual(outcomes[0]?.reasonCode, "review_result_missing");
 });
 
