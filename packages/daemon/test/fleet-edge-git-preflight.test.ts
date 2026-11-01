@@ -132,7 +132,7 @@ test("center local-only Git mode is explicit and unreadable center facts fail cl
     await assert.rejects(
       assertFleetEdgeRepositoryGit({
         rootDir: edge,
-        center: { originUrl, originPushUrls: [origin] },
+        center: { originUrl: origin, originPushUrls: [origin] },
         operation: "runtime dispatch",
       }),
       { code: "center_git_metadata_unavailable" },

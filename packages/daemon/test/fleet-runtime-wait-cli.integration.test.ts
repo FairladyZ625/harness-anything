@@ -219,6 +219,7 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
     await edgeHost.runtimeInstance("daemon.runtimeInstance.create", codexInstance, localAuth);
     let edgeAwaitRouteCount = 0;
     const sessionPrincipalMethods: string[] = [];
+    const fleetRuntimeMethodsSeen: string[] = [];
     const edgeAwaitRouteWaiters = new Map<number, () => void>(),
       waitForEdgeAwaitRoute = (count: number) => {
         if (edgeAwaitRouteCount >= count) return Promise.resolve();
@@ -230,6 +231,7 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
             return {
               ...target.fleet,
               edgeRuntime: async (...args: Parameters<typeof target.fleet.edgeRuntime>) => {
+                fleetRuntimeMethodsSeen.push(`${args[0].method}:${String(args[0].action.kind)}`);
                 if (args[0].method === "repo.agentRuntime.sessions.await") {
                   edgeAwaitRouteCount += 1;
                   edgeAwaitRouteWaiters.get(edgeAwaitRouteCount)?.();
@@ -348,7 +350,13 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
         await Promise.race([
           waitForEdgeAwaitRoute(activeAwaitRouteCount),
           waiting.then((result) => {
-            throw new Error(`offline wait exited before reaching the edge await route: ${JSON.stringify(result)}`);
+            throw new Error(
+              `offline wait exited before reaching the edge await route: ${JSON.stringify({
+                result,
+                sessionPrincipalMethods,
+                fleetRuntimeMethodsSeen,
+              })}`,
+            );
           }),
         ]);
         assert.equal(
