@@ -266,8 +266,15 @@ test("PGlite runs shared lifecycle replay, entity, graph and query parity assert
           events: projectionEvents,
           sourceRevision,
           sourceHeadRevision: sourceRevision,
-          readContentBlob: async (sha256) =>
-            (await backend.eventStore.execute({ operation: "content", sha256 })) as Uint8Array | null,
+          readContentBlob: async (sha256) => {
+            const row = (
+              await client.query<{ readonly body: Buffer }>(
+                "SELECT body FROM ha_content_blobs WHERE tenant_id=$1 AND project_id=$2 AND sha256=$3",
+                [scope.tenantId, scope.projectId, sha256],
+              )
+            ).rows[0];
+            return row?.body === undefined ? null : Uint8Array.from(row.body);
+          },
         }),
       scope,
     );
