@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { renderDaemonFleetStatus, runDaemonFleetStatus } from "../src/daemon/fleet-status.ts";
+import { emit } from "../src/index.ts";
 import type { DaemonGuiReadResultMap } from "@harness-anything/daemon/internal/protocol/daemon-protocol-gui-types";
 
 type FleetOverview = DaemonGuiReadResultMap["repo.fleet.overview.read"];
@@ -220,6 +221,35 @@ test("fleet status prints the center and local build identities with the upgrade
   assert.match(
     text,
     /WARNING version mismatch center=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa local=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb; upgrade with ha update/u,
+  );
+});
+
+test("ordinary successful CLI receipts retain the Fleet build warning", () => {
+  const output: string[] = [],
+    originalLog = console.log;
+  console.log = (line?: unknown) => output.push(String(line ?? ""));
+  try {
+    emit(
+      {
+        schema: "command-receipt/v2",
+        command: "repo-read",
+        outcome: "applied",
+        ok: true,
+        summary: "read complete",
+        versionWarning: {
+          centerBuildCommit: "center-build",
+          localBuildCommit: "edge-build",
+          upgradeCommand: "ha update",
+        },
+      },
+      false,
+    );
+  } finally {
+    console.log = originalLog;
+  }
+  assert.match(
+    output.join("\n"),
+    /WARNING version mismatch center=center-build local=edge-build; upgrade with ha update/u,
   );
 });
 

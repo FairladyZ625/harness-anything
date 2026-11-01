@@ -181,6 +181,8 @@ export async function fleetFixture(
     repo,
     packagePath: String((created as Record<string, unknown>).packagePath),
     stateRoot,
+    key,
+    cert,
     writerOptions: fleetHostWriterOptions(userRoot, ["fleet-repo"]),
     path: subject.paths[0]!,
     subject,

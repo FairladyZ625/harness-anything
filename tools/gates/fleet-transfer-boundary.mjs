@@ -1,13 +1,15 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-const FLEET_SOURCES = [
-  "packages/daemon/src/fleet/peer.ts",
-  "packages/daemon/src/fleet/center-transport.ts",
-  "packages/daemon/src/fleet/center-listener.ts",
-  "packages/daemon/src/daemon-host-repository-api.ts",
-];
+const FLEET_ROOT = "packages/daemon/src/fleet";
+function fleetSources(rootDir) {
+  const root = path.join(rootDir, FLEET_ROOT);
+  return readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".ts"))
+    .map((entry) => path.join(FLEET_ROOT, entry.name))
+    .concat("packages/daemon/src/daemon-host-repository-api.ts");
+}
 
 /** Return structural violations that would let a new Fleet RPC bypass the transfer boundary. */
 export function findFleetTransferBypasses(sourceText, fileName = "inline.ts") {
@@ -22,6 +24,18 @@ export function findFleetTransferBypasses(sourceText, fileName = "inline.ts") {
       }
     };
   addMatches(/socket\s*\.\s*write\s*\(\s*JSON\s*\.\s*stringify\s*\(/gu, "direct JSON socket write");
+  // Catch the common wrapper form as well: `const line = JSON.stringify(reply); socket.write(line)`.
+  // Keep this deliberately lexical; the gate is a structural tripwire, not a TypeScript type checker.
+  const aliases = new Set();
+  for (const match of source.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*JSON\s*\.\s*stringify\s*\(/gu))
+    aliases.add(match[1]);
+  for (const match of source.matchAll(/\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$]*)\s*;/gu))
+    if (aliases.has(match[2])) aliases.add(match[1]);
+  for (const alias of aliases)
+    addMatches(
+      new RegExp(`socket\\s*\\.\\s*write\\s*\\(\\s*${alias}\\b`, "gu"),
+      "JSON payload reaches socket.write through a variable",
+    );
   addMatches(/fleet\.task\.evidence\/v1/gu, "retired per-read evidence transport");
   addMatches(/assertFleetReadFits\s*\(/gu, "read face owns the Fleet frame limit");
   return violations;
@@ -29,7 +43,7 @@ export function findFleetTransferBypasses(sourceText, fileName = "inline.ts") {
 
 export function checkFleetTransferBoundary(rootDir) {
   const errors = [];
-  for (const relative of FLEET_SOURCES) {
+  for (const relative of fleetSources(rootDir)) {
     const file = path.join(rootDir, relative);
     if (!existsSync(file)) {
       errors.push(`${relative}: Fleet transport source is missing`);

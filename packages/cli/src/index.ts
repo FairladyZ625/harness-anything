@@ -229,7 +229,19 @@ export function emit(receipt: Record<string, unknown>, json: boolean, explainRef
   if (json) console.log(JSON.stringify(receipt));
   else {
     const rendered = renderCliReceipt(receipt, explainRefs);
-    console[rendered.stream === "stderr" ? "error" : "log"](rendered.text);
+    const warning =
+      typeof receipt.versionWarning === "object" && receipt.versionWarning !== null
+        ? (receipt.versionWarning as {
+            readonly centerBuildCommit?: unknown;
+            readonly localBuildCommit?: unknown;
+            readonly upgradeCommand?: unknown;
+          })
+        : null;
+    const text =
+      warning && typeof warning.centerBuildCommit === "string" && typeof warning.localBuildCommit === "string"
+        ? `${rendered.text}\nWARNING version mismatch center=${warning.centerBuildCommit} local=${warning.localBuildCommit}; upgrade with ${String(warning.upgradeCommand ?? "ha update")}`
+        : rendered.text;
+    console[rendered.stream === "stderr" ? "error" : "log"](text);
   }
 }
 

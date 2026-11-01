@@ -3,6 +3,7 @@ import {
   FLEET_FRAME_BYTES,
   FLEET_TRANSFER_CHUNK_BYTES,
   FleetContractError,
+  measureFleetTransferPayload,
   parseFleetTransferPayload,
   serializeFleetTransferPayload,
   type FleetFrameV1,
@@ -14,15 +15,18 @@ export async function* encodeFleetFrames(
   repoId: string = "transport",
   reserve?: (repoId: string, bytes: number) => { readonly release: () => void },
 ): AsyncGenerator<FleetFrameV1> {
-  const logical = serializeFleetTransferPayload(value);
-  if (logical.byteLength <= FLEET_FRAME_BYTES) {
+  // Measure the validated JSON shape without materializing it; admission therefore precedes the
+  // complete string/buffer allocation used for a transfer payload.
+  const measuredBytes = measureFleetTransferPayload(value);
+  if (measuredBytes <= FLEET_FRAME_BYTES) {
     yield value;
     return;
   }
-  const transferId = randomUUID().replaceAll("-", ""),
-    sha256 = createHash("sha256").update(logical).digest("hex"),
-    reservation = reserve?.(repoId, logical.byteLength);
+  const reservation = reserve?.(repoId, measuredBytes);
   try {
+    const logical = serializeFleetTransferPayload(value),
+      transferId = randomUUID().replaceAll("-", ""),
+      sha256 = createHash("sha256").update(logical).digest("hex");
     yield {
       schema: "fleet.transfer.begin/v1",
       messageId: transferId,

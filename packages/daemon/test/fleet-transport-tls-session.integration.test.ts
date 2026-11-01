@@ -13,6 +13,7 @@ import { daemonBuildStamp } from "../src/build-identity.ts";
 import {
   readFleetRepositoryMetadataClient,
   runFleetWriteClient,
+  openPeer,
   type FleetWriteClientOptions,
 } from "../src/fleet/peer.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
@@ -46,6 +47,115 @@ test("Fleet sessions stay connected across build identities and return an upgrad
   assert.match(peer.versionWarning ?? "", /build differs/u);
   assert.match(peer.versionWarning ?? "", /ha update/u);
   assert.ok(center.status().versionWarnings.some((warning) => warning.includes("ha update")));
+});
+test("malformed transfer on a real TLS peer closes only that session", async (t) => {
+  const fixture = await fleetFixture(t),
+    sockets: import("node:tls").TLSSocket[] = [],
+    socketsByNode = new Map<string, import("node:tls").TLSSocket>();
+  const server = createServer({ key: fixture.key, cert: fixture.cert }, (socket) => {
+    sockets.push(socket);
+    let pending = "";
+    socket.on("data", (chunk) => {
+      pending += chunk.toString("utf8");
+      for (;;) {
+        const end = pending.indexOf("\n");
+        if (end < 0) break;
+        const frame = parseFleetFrame(pending.slice(0, end));
+        pending = pending.slice(end + 1);
+        if (frame.schema === "fleet.session.hello/v1") {
+          socketsByNode.set(frame.nodeId, socket);
+          socket.write(
+            serializeFleetFrame({
+              schema: "fleet.session.ready/v1",
+              messageId: `ready_${frame.messageId}`,
+              inReplyTo: frame.messageId,
+              sessionId: `session_${frame.nodeId}`,
+              maxFrameBytes: 98_304,
+              chunkBytes: 64 * 1024,
+              centerBuildCommit: daemonBuildStamp().commit,
+            }),
+          );
+          if (frame.nodeId === "edge-stall") socket.pause();
+        } else if (frame.schema === "fleet.operational.read/v1")
+          socket.write(
+            serializeFleetFrame({
+              schema: "fleet.operational.read.result/v1",
+              messageId: `result_${frame.messageId}`,
+              inReplyTo: frame.messageId,
+              result: { ok: true },
+            }),
+          );
+      }
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(async () => {
+    for (const socket of sockets) socket.destroy();
+    await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    await fixture.close();
+  });
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  const options = {
+    port: address.port,
+    ca: fixture.cert,
+    servername: "localhost",
+    credential: "test-credential",
+    nodeId: "edge-test",
+    timeoutMs: 2_000,
+  };
+  const [corruptPeer, healthyPeer, stalledPeer] = await Promise.all([
+    openPeer({ ...options, nodeId: "edge-corrupt" }),
+    openPeer({ ...options, nodeId: "edge-healthy" }),
+    openPeer({ ...options, nodeId: "edge-stall" }),
+  ]);
+  const corrupted = socketsByNode.get("edge-corrupt")!;
+  corrupted.write(
+    serializeFleetFrame({
+      schema: "fleet.transfer.begin/v1",
+      messageId: "corrupt-transfer",
+      correlationId: "request-corrupt",
+      direction: "response",
+      repoId: "repo",
+      totalBytes: 98_305,
+      sha256: "a".repeat(64),
+    }),
+  );
+  corrupted.write(
+    serializeFleetFrame({
+      schema: "fleet.transfer.chunk/v1",
+      messageId: "corrupt-transfer_1",
+      transferId: "corrupt-transfer",
+      sequence: 1,
+      offset: 0,
+      dataBase64: Buffer.from("x").toString("base64"),
+    }),
+  );
+  await assert.rejects(corruptPeer.next(2_000), /sequence or offset/u);
+  const healthy = await healthyPeer.request({
+    schema: "fleet.operational.read/v1",
+    messageId: healthyPeer.messageId(),
+    repoId: "repo",
+    method: "repo.task.dispatches",
+    payload: {},
+  });
+  assert.equal(healthy.schema, "fleet.operational.read.result/v1");
+  await assert.rejects(
+    stalledPeer.request(
+      {
+        schema: "fleet.operational.read/v1",
+        messageId: stalledPeer.messageId(),
+        repoId: "repo",
+        method: "repo.task.dispatches",
+        payload: { value: "x".repeat(8 * 1024 * 1024) },
+      },
+      100,
+    ),
+    /Fleet response timeout/u,
+  );
+  corruptPeer.close();
+  healthyPeer.close();
+  stalledPeer.close();
 });
 test(
   "fact record from the real CLI parser crosses TLS and reaches the canonical ledger",

@@ -16,7 +16,6 @@ import type { QueryClient } from "@tanstack/react-query";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 import { readUseCaseProjection } from "./use-case-projection-client.ts";
 import { invoke } from "./api-client-invoke.ts";
-import { drainCursorPages } from "./paginated-read.ts";
 import {
   applyLifecycleEventsToSession,
   applyLifecycleEventsToSessionGroups,
@@ -26,8 +25,6 @@ import {
 } from "./sessions-model.ts";
 
 type RepoScope = { readonly repoId: string };
-/** Keep each runtime overview reply below Fleet's single-frame budget. */
-const RUNTIME_OVERVIEW_PAGE_LIMIT = 16;
 /** The `runtime-session-groups` projection selector: grouping, range and text query are daemon-side. */
 export type SessionGroupsQuery = {
   readonly groupBy?: "task" | "squad" | "agent" | "day";
@@ -92,32 +89,7 @@ export const agentRuntimeClient = {
       ) as AgentRuntimeOverviewResult;
     if (page !== undefined) return readPage(page);
 
-    // Unpaged reads keep the daemon's historical default of live sessions only, but their single
-    // Fleet frame grows with every active session and eventually exceeds the protocol's 98,304 B
-    // limit. Drain the existing cursor API in bounded replies; scoped history reads keep all rows.
-    const [first, ...rest] = await drainCursorPages(
-        (facets) => readPage({ limit: RUNTIME_OVERVIEW_PAGE_LIMIT, ...facets }),
-        "agent runtime overview",
-      ),
-      pages = [first, ...rest],
-      sessions = new Map<string, AgentRuntimeOverviewResult["sessions"][number]>(),
-      installations = new Map<string, AgentRuntimeOverviewResult["installations"][number]>(),
-      instances = new Map<string, AgentRuntimeOverviewResult["instances"][number]>();
-    for (const result of pages) {
-      for (const session of result.sessions)
-        if (taskId !== undefined || session.liveness !== "exited") sessions.set(session.runtimeSessionId, session);
-      for (const installation of result.installations) installations.set(installation.installationId, installation);
-      for (const instance of result.instances) instances.set(instance.instanceId, instance);
-    }
-    return {
-      ok: true,
-      status: pages.some((result) => result.status === "pending") ? "pending" : "ready",
-      installations: [...installations.values()],
-      instances: [...instances.values()],
-      sessions: [...sessions.values()],
-      watermark: Math.min(...pages.map((result) => result.watermark)),
-      sourceRevision: Math.min(...pages.map((result) => result.sourceRevision)),
-    };
+    return readPage({});
   },
   sessionGroups: async (repoId: string, query: SessionGroupsQuery = {}): Promise<AgentRuntimeSessionGroupsResult> =>
     checkedSessionGroups(
