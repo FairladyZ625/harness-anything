@@ -926,7 +926,6 @@ const documentActionCatalog = Object.freeze({
       ),
     ]),
   });
-
 // prettier-ignore
 export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActions([
   {

@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { validateDaemonRpcCall } from "../src/protocol/daemon-protocol-rpc-validation.ts";
-import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { grantArtifactKindScopes, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
 
@@ -114,6 +114,7 @@ test("stated attributes are judged against the version the instance is pinned to
     );
     assert.equal(created.outcome, "applied", JSON.stringify(created));
     const surveyRef = (JSON.parse(String(created.evidence)) as { kindRef: string }).kindRef;
+    grantArtifactKindScopes(repoId, surveyRef);
 
     const imported = await cell.run(
       {
@@ -269,7 +270,9 @@ test("the same source imported into a second Kind is a separate import intent", 
         binding,
       );
       assert.equal(created.outcome, "applied", JSON.stringify(created));
-      return (JSON.parse(String(created.evidence)) as { kindRef: string }).kindRef;
+      const kindRef = (JSON.parse(String(created.evidence)) as { kindRef: string }).kindRef;
+      grantArtifactKindScopes(repoId, kindRef);
+      return kindRef;
     };
     const surveyRef = await declare(surveyKind),
       dossierRef = await declare(dossierKind);
@@ -397,6 +400,7 @@ test("owned content is readable by entity identity after the source is gone", as
     );
     assert.equal(created.outcome, "applied", JSON.stringify(created));
     const dossierRef = (JSON.parse(String(created.evidence)) as { kindRef: string }).kindRef;
+    grantArtifactKindScopes(repoId, dossierRef);
 
     const imported = await cell.run(
       { mode: "snapshot", kind: "entity-import", entityKind: dossierRef, locator: "shared", expectedVersion: 0 },

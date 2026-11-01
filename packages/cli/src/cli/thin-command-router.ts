@@ -158,6 +158,8 @@ function parseRbacBootstrap(
         ? { rootDir }
         : {}),
       ...(f.one.get("--operation") ? { operation: f.one.get("--operation") } : {}),
+      ...(f.booleans.has("--confirm") ? { confirm: true } : {}),
+      ...(f.booleans.has("--force") ? { force: true } : {}),
       ...(f.one.get("--mode") ? { mode: f.one.get("--mode") } : {}),
       ...(f.one.get("--url") ? { url: f.one.get("--url") } : {}),
       ...(f.one.get("--realm") ? { realm: f.one.get("--realm") } : {}),
@@ -231,7 +233,7 @@ export function parseRouted(
       // An alias command (settings-show) declares the Action kind it shares a handler with; the
       // wire Action must name that kind, not the command id.
       "actionKind" in route ? { kind: route.actionKind } : {},
-      {},
+      route.id === "node-unregister" ? { operation: "node-unregister" } : {},
       route.method,
     );
   if (rootCommand === "event") return parseEventRouted(route, args, rootDir, repoId, json, inputs);

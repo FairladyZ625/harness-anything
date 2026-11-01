@@ -126,7 +126,10 @@ jobs:
           NPM_TAG: ${{ needs.validate.outputs.npm_tag }}
         run: |
           set -euo pipefail
-          for workspace in @harness-anything/kernel @harness-anything/application @harness-anything/preset @harness-anything/cli @harness-anything/daemon @harness-anything/gui; do
+          workspaces="$(node tools/public-workspaces.mjs)"
+          [[ -n "$workspaces" ]] || { echo "no public workspaces to publish" >&2; exit 1; }
+          printf 'publishing public workspaces: %s\n' "$workspaces"
+          for workspace in $workspaces; do
             npm publish --workspace "$workspace" --access public --tag "$NPM_TAG" --provenance
           done
 
@@ -152,7 +155,10 @@ jobs:
           NPM_TAG: ${{ needs.validate.outputs.npm_tag || 'latest' }}
         run: |
           set -euo pipefail
-          for workspace in @harness-anything/kernel @harness-anything/application @harness-anything/preset @harness-anything/cli @harness-anything/daemon @harness-anything/gui; do
+          workspaces="$(node tools/public-workspaces.mjs)"
+          [[ -n "$workspaces" ]] || { echo "no public workspaces to dry-run" >&2; exit 1; }
+          printf 'dry-running public workspaces: %s\n' "$workspaces"
+          for workspace in $workspaces; do
             npm publish --dry-run --workspace "$workspace" --access public --tag "$NPM_TAG"
           done
 

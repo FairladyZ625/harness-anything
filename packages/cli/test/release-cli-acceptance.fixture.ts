@@ -50,6 +50,17 @@ for (const personId of ["owner", "reviewer"]) {
     });
 }
 
+/** Grant a runtime-created kind's four CRUD scopes to the fixture principals after acceptance. */
+export async function grantArtifactKindScopes(resource: string, kindRef: string): Promise<void> {
+  for (const personId of ["owner", "reviewer"])
+    await realm.control({
+      op: "permit",
+      personId,
+      resource,
+      actions: ["import", "update", "archive", "delete"].map((action) => `${kindRef}/${action}`),
+    });
+}
+
 const cli = path.resolve("packages/cli/src/index.ts"),
   daemonId = "release-acc-e2e";
 

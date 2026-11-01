@@ -32,12 +32,30 @@ test("package policy accepts a daemon that remains private", async () => {
   });
 });
 
-test("package policy keeps Keycloak GUI implementation private until an explicit publish decision", async () => {
+test("package policy derives a newly public workspace from its manifest instead of a second list", async () => {
+  await withFixtureRepo((root) => {
+    writeValidFixture(root);
+    writeJson(root, "packages/dsh-plugin/package.json", {
+      name: "@harness-anything/dsh-plugin",
+      version: "0.0.1",
+      publishConfig: { access: "public" },
+      repository: { directory: "packages/dsh-plugin" },
+      engines: { node: ">=24" },
+    });
+
+    const result = runCheck(root);
+
+    assert.equal(result.status, 0, result.stderr);
+  });
+});
+
+test("package policy keeps a private workspace out of the npm publish set", async () => {
   await withFixtureRepo((root) => {
     writeValidFixture(root);
     writeJson(root, "packages/authorization-keycloak-gui/package.json", {
       name: "@harness-anything/authorization-keycloak-gui",
       version: "0.0.1",
+      private: true,
       publishConfig: { access: "public" },
     });
 
@@ -46,7 +64,25 @@ test("package policy keeps Keycloak GUI implementation private until an explicit
     assert.notEqual(result.status, 0);
     assert.match(
       result.stderr,
-      /packages\/authorization-keycloak-gui\/package\.json is not in the approved npm publish set and must stay private/u,
+      /packages\/authorization-keycloak-gui\/package\.json must not define publishConfig before the npm publish decision/u,
+    );
+  });
+});
+
+test("package policy rejects a public workspace that depends on a private workspace", async () => {
+  await withFixtureRepo((root) => {
+    writeValidFixture(root);
+    makeDaemonPublicReady(root);
+    const daemon = JSON.parse(readFileSync(path.join(root, "packages/daemon/package.json"), "utf8"));
+    daemon.dependencies = { "@harness-anything/authorization-keycloak": "0.0.1" };
+    writeJson(root, "packages/daemon/package.json", daemon);
+
+    const result = runCheck(root);
+
+    assert.notEqual(result.status, 0);
+    assert.match(
+      result.stderr,
+      /public workspace @harness-anything\/daemon declares dependencies\.@harness-anything\/authorization-keycloak but @harness-anything\/authorization-keycloak is private/u,
     );
   });
 });
@@ -95,7 +131,7 @@ test("package policy rejects a public daemon without its independent bin", async
   });
 });
 
-test("package policy rejects an approved library without publish metadata", async () => {
+test("package policy rejects a public workspace without publish metadata", async () => {
   await withFixtureRepo((root) => {
     writeValidFixture(root);
     writeJson(root, "packages/kernel/package.json", {
@@ -107,6 +143,24 @@ test("package policy rejects an approved library without publish metadata", asyn
 
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /must define publishConfig\.access public/u);
+  });
+});
+
+test("package policy rejects a public storage workspace whose version drifts", async () => {
+  await withFixtureRepo((root) => {
+    writeValidFixture(root);
+    writeJson(root, "packages/storage/package.json", {
+      name: "@harness-anything/storage",
+      version: "0.0.2",
+      publishConfig: { access: "public" },
+      repository: { directory: "packages/storage" },
+      engines: { node: ">=24" },
+    });
+
+    const result = runCheck(root);
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /packages\/storage\/package\.json must use version 0\.0\.1 for npm publish/u);
   });
 });
 

@@ -11,6 +11,7 @@ import {
   fleetNodeOwners,
   waitForFleetPublication,
 } from "./fleet-store.fixture.ts";
+import { createNodeRetirement } from "../src/fleet/node-retirement.ts";
 import { AccessAdminService } from "../src/access-admin-service.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
@@ -215,7 +216,11 @@ export async function fleetFixture(
     /** The administrator composition root for node removal, wired to one center the way the daemon host is. */
     admin: (center: FleetTlsCenter) =>
       new AccessAdminService(createIdentitySession(userRoot), userRoot, {
-        onNodeRemoved: (nodeId) => center.disconnectNode(nodeId),
+        nodeRetirement: createNodeRetirement({
+          stateRoot,
+          center: () => center,
+          repositories: () => host.status().repos,
+        }),
       }),
     /** Parks the next hello inside `authenticate` until released, for handshake-race cases. */
     holdAuthenticate: () => {

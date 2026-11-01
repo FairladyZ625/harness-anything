@@ -31,6 +31,148 @@ import { projectedTaskNotFound } from "./projection-readiness.ts";
 import type { AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts";
 import { runtimeResumeAdmission } from "./runtime-resume-admission.ts";
 import { dispatchActivityIdleMinutes, dispatchActivityStatus } from "./dispatch-activity.ts";
+import { FLEET_FRAME_BYTES } from "./fleet/command-protocol.ts";
+import { FleetFault } from "./fleet/center-types.ts";
+import { cursorStep } from "./paginated-read.ts";
+
+// The operational-read envelope has two ASCII ids of at most 96 characters.
+const READ_REPLY_BYTES = FLEET_FRAME_BYTES - 1024;
+type DispatchBatchRead = Extract<DaemonTaskDispatchesResult, { readonly taskIds: readonly string[] }>;
+type DispatchCursor = { readonly taskCursor?: string; readonly after?: readonly [string, string] };
+
+/** Aggregation can exceed the transport even when every stored row is valid. */
+export function assertFleetReadFits(result: unknown, method: string): void {
+  const bytes = Buffer.byteLength(JSON.stringify(result));
+  if (bytes <= READ_REPLY_BYTES) return;
+  throw new FleetFault(
+    "fleet_read_too_large",
+    `${method} reply is ${bytes} bytes; Fleet frame limit is ${FLEET_FRAME_BYTES} bytes ` +
+      `(reply budget ${READ_REPLY_BYTES} bytes). ` +
+      (method === "repo.task.dispatches"
+        ? "Use taskIds:[taskId], limit:16 and cursor:page.nextCursor; reduce member limit. " +
+          "A single oversized dispatch needs its document read separately or sliced transport."
+        : "Use a narrower selector and limit/cursor where supported. " +
+          "Reads without pagination require sliced Fleet transport."),
+  );
+}
+
+function dispatchCursor(cursor: string | undefined): DispatchCursor {
+  if (cursor === undefined) return {};
+  if (!cursor.startsWith("dispatch-row:")) return { taskCursor: cursor };
+  let value: unknown;
+  try {
+    value = JSON.parse(Buffer.from(cursor.slice("dispatch-row:".length), "base64url").toString("utf8"));
+  } catch (error) {
+    throw new FleetFault(
+      "invalid_field",
+      `Invalid dispatch cursor JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  if (
+    !Array.isArray(value) ||
+    value.length !== 3 ||
+    (value[0] !== null && typeof value[0] !== "string") ||
+    typeof value[1] !== "string" ||
+    typeof value[2] !== "string"
+  )
+    throw new FleetFault("invalid_field", "Invalid dispatch cursor; restart with taskIds and limit:16.");
+  return { ...(value[0] === null ? {} : { taskCursor: value[0] }), after: [value[1], value[2]] };
+}
+
+function boundedDispatchPage(result: DispatchBatchRead, state: DispatchCursor, cursor?: string): DispatchBatchRead {
+  const rows = result.dispatches.filter(
+    (row) =>
+      state.after === undefined ||
+      row.startedAt.localeCompare(state.after[0]) > 0 ||
+      (row.startedAt === state.after[0] && row.dispatchId.localeCompare(state.after[1]) > 0),
+  );
+  const withRows = (dispatches: readonly TaskDispatchRow[]) => ({
+    ...result,
+    dispatches,
+    ...taskDispatchesOutcome(
+      dispatches,
+      new Map(dispatches.flatMap((row) => (row.nextDispatchId ? [[row.dispatchId, row.nextDispatchId]] : []))),
+    ),
+  });
+  const page = { ...withRows(rows), page: { ...result.page, cursor: cursor ?? null } };
+  if (Buffer.byteLength(JSON.stringify(page)) <= READ_REPLY_BYTES) return page;
+  const prefix = (count: number): DispatchBatchRead => {
+    const last = rows[count - 1]!;
+    return {
+      ...withRows(rows.slice(0, count)),
+      page: {
+        ...page.page,
+        nextCursor:
+          "dispatch-row:" +
+          Buffer.from(JSON.stringify([state.taskCursor ?? null, last.startedAt, last.dispatchId])).toString(
+            "base64url",
+          ),
+      },
+    };
+  };
+  // Largest complete prefix that fits. The row key advances within this task page;
+  // only after its last dispatch do we return the projection's next task cursor.
+  let low = 1,
+    high = rows.length - 1,
+    fitting: DispatchBatchRead | undefined;
+  while (low <= high) {
+    const count = Math.floor((low + high) / 2),
+      candidate = prefix(count);
+    if (Buffer.byteLength(JSON.stringify(candidate)) <= READ_REPLY_BYTES) {
+      fitting = candidate;
+      low = count + 1;
+    } else high = count - 1;
+  }
+  if (fitting) return fitting;
+  assertFleetReadFits(page, "repo.task.dispatches");
+  return page;
+}
+
+/** Internal consumers that need a complete verdict must drain the same public pages. */
+export async function readAllTaskDispatchPages(
+  readPage: (facets: { readonly cursor?: string }) => Promise<DaemonTaskDispatchesResult>,
+): Promise<DispatchBatchRead> {
+  const rows = new Map<string, TaskDispatchRow>(),
+    taskIds = new Set<string>(),
+    unavailable = new Set<string>();
+  const cursors = new Set<string>();
+  let cursor: string | undefined,
+    pending = false,
+    watermark = Infinity,
+    sourceRevision = 0;
+  while (true) {
+    const result = await readPage(cursor === undefined ? {} : { cursor });
+    if (!("page" in result)) throw new Error("Task dispatch batch read returned no page receipt.");
+    for (const row of result.dispatches) rows.set(row.dispatchId, row);
+    for (const taskId of result.taskIds) taskIds.add(taskId);
+    for (const taskId of result.unavailableTaskIds) unavailable.add(taskId);
+    pending ||= result.status === "pending";
+    watermark = Math.min(watermark, result.watermark);
+    sourceRevision = Math.max(sourceRevision, result.sourceRevision);
+    const next = cursorStep(result.page, cursors, "task dispatches");
+    if (next === undefined) {
+      const dispatches = [...rows.values()].sort(
+        (left, right) =>
+          left.startedAt.localeCompare(right.startedAt) || left.dispatchId.localeCompare(right.dispatchId),
+      );
+      return {
+        ...result,
+        dispatches,
+        taskIds: [...taskIds],
+        unavailableTaskIds: [...unavailable],
+        ...taskDispatchesOutcome(
+          dispatches,
+          new Map(dispatches.flatMap((row) => (row.nextDispatchId ? [[row.dispatchId, row.nextDispatchId]] : []))),
+        ),
+        status: pending ? "pending" : "ready",
+        watermark,
+        sourceRevision,
+        page: { ...result.page, cursor: null, nextCursor: null },
+      };
+    }
+    cursor = next;
+  }
+}
 
 type DispatchEvent = Extract<AgentRuntimeEventV1, { type: "runtime_dispatch_requested" }>;
 type DispatchQueries = Pick<
@@ -78,12 +220,14 @@ export function readTaskDispatches(
   const { projection, rootDir } = input;
   if (input.agentId !== undefined || input.squadId !== undefined) return readMemberTaskDispatches(input);
   const singleTaskId = input.taskId,
+    cursor = dispatchCursor(input.cursor),
+    paged = singleTaskId === undefined && (input.limit !== undefined || cursor.after !== undefined),
     batch = projection.readTaskRuntimeBatch(
       singleTaskId === undefined
         ? {
             taskIds: input.taskIds,
             ...(input.limit === undefined ? {} : { limit: input.limit }),
-            ...(input.cursor === undefined ? {} : { cursor: input.cursor }),
+            ...(cursor.taskCursor === undefined ? {} : { cursor: cursor.taskCursor }),
           }
         : { taskIds: [singleTaskId] },
     );
@@ -123,10 +267,13 @@ export function readTaskDispatches(
         annotations.get(event.payload.dispatchId) ?? [],
       ),
     );
-  const dispatches = [...rows.values()].sort((left, right) => left.startedAt.localeCompare(right.startedAt)),
+  const dispatches = [...rows.values()].sort(
+      (left, right) =>
+        left.startedAt.localeCompare(right.startedAt) || (paged ? left.dispatchId.localeCompare(right.dispatchId) : 0),
+    ),
     resumed = new Map(dispatches.flatMap((row) => (row.nextDispatchId ? [[row.dispatchId, row.nextDispatchId]] : []))),
     terminal = taskDispatchesOutcome(dispatches, resumed);
-  return {
+  const result: DaemonTaskDispatchesResult = {
     ok: true,
     status: batch.status,
     dispatches,
@@ -144,6 +291,9 @@ export function readTaskDispatches(
         }
       : { taskId: singleTaskId }),
   };
+  // Internal unpaged reads retain their complete local result. Explicit batch pages
+  // additionally honor bytes, because one task may contain arbitrarily many rounds.
+  return "page" in result && paged ? boundedDispatchPage(result, cursor, input.cursor) : result;
 }
 
 /** The member-scoped page of `repo.task.dispatches`: an executor's newest dispatch rows, one
@@ -202,7 +352,7 @@ function readMemberTaskDispatches(input: {
       dispatches.flatMap((row) => (row.nextDispatchId ? [[row.dispatchId, row.nextDispatchId]] : [])),
     ),
     terminal = taskDispatchesOutcome(dispatches, resumed);
-  return {
+  const result: DaemonTaskDispatchesResult = {
     ok: true,
     status: cut.status,
     dispatches,
@@ -216,6 +366,12 @@ function readMemberTaskDispatches(input: {
     totals: agentRuntimeSessionGroupTotals(member.sessions),
     truncated: member.truncated,
   };
+  // Member windows have no cursor. Rebuild a smaller newest-row window so groups,
+  // titles and full-history totals remain authoritative at the same reduced limit.
+  if (Buffer.byteLength(JSON.stringify(result)) > READ_REPLY_BYTES && input.limit > 1)
+    return readMemberTaskDispatches({ ...input, limit: Math.max(1, Math.floor(input.limit / 2)) });
+  assertFleetReadFits(result, "repo.task.dispatches");
+  return result;
 }
 
 /** The aggregate terminal verdict for a task's dispatch list, computed once beside the rows so

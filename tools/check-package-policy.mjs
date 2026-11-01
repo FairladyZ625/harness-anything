@@ -1,23 +1,20 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { publicReadyPackagesByPath } from "./public-ready-packages.mjs";
+import { assertPublicDependencyClosure, readWorkspacePackages } from "./public-workspaces.mjs";
 import { backupName, ownerName } from "./package-exports-lifecycle.mjs";
 
 const root = process.cwd();
-const expectedPackages = new Map([
-  ["packages/kernel/package.json", "@harness-anything/kernel"],
-  ["packages/storage/package.json", "@harness-anything/storage"],
-  ["packages/application/package.json", "@harness-anything/application"],
-  ["packages/authorization-keycloak/package.json", "@harness-anything/authorization-keycloak"],
-  ["packages/authorization-gui/package.json", "@harness-anything/authorization-gui"],
-  ["packages/authorization-keycloak-gui/package.json", "@harness-anything/authorization-keycloak-gui"],
-  ["packages/daemon/package.json", "@harness-anything/daemon"],
-  ["packages/cli/package.json", "@harness-anything/cli"],
-  ["packages/gui/package.json", "@harness-anything/gui"],
-  ["packages/dsh-plugin/package.json", "@harness-anything/dsh-plugin"],
-]);
-
 const violations = [];
+const requiredBins = new Map([
+  [
+    "@harness-anything/cli",
+    new Map([
+      ["harness-anything", "dist/cli/src/index.js"],
+      ["ha", "dist/cli/src/index.js"],
+    ]),
+  ],
+  ["@harness-anything/daemon", new Map([["harness-anything-daemon", "dist/index.js"]])],
+]);
 
 function readJson(relativePath) {
   return JSON.parse(readFileSync(path.join(root, relativePath), "utf8"));
@@ -34,45 +31,37 @@ if (!Array.isArray(rootPackage.workspaces) || !rootPackage.workspaces.includes("
   record("root workspaces must include packages/*");
 }
 
-for (const [relativePath, expectedName] of expectedPackages.entries()) {
-  const packageJson = readJson(relativePath);
-  if (packageJson.name !== expectedName)
-    record(`${relativePath} expected name ${expectedName}, got ${packageJson.name}`);
-  const publicContract = publicReadyPackagesByPath.get(relativePath);
-  if (publicContract && (publicContract.required || packageJson.private !== true)) {
-    const packageRoot = path.dirname(path.join(root, relativePath));
-    for (const lifecycleFile of [backupName, ownerName])
-      if (existsSync(path.join(packageRoot, lifecycleFile)))
-        record(`${relativePath} was left in package exports rewrite state (${lifecycleFile} exists)`);
-    if (packageJson.private === true) record(`${relativePath} must be public-ready for npm publish dry-run preflight`);
-    if (packageJson.version !== publicContract.version)
-      record(`${relativePath} must use version ${publicContract.version} for npm publish dry-run preflight`);
-    if (packageJson.publishConfig?.access !== "public")
-      record(`${relativePath} must define publishConfig.access public for the scoped npm package`);
-    if (packageJson.repository?.directory !== publicContract.repositoryDirectory)
-      record(`${relativePath} must declare repository.directory ${publicContract.repositoryDirectory}`);
-    if (packageJson.engines?.node !== ">=24") record(`${relativePath} must declare Node >=24 runtime support`);
-    for (const [name, target] of Object.entries(publicContract.bins))
-      if (packageJson.bin?.[name] !== target) record(`${relativePath} must declare bin ${name} as ${target}`);
-  } else {
-    if (packageJson.private !== true)
-      record(`${relativePath} is not in the approved npm publish set and must stay private`);
-    const expectedVersion = "0.0.1";
-    if (packageJson.version !== expectedVersion) record(`${relativePath} must use version ${expectedVersion}`);
-    if (packageJson.publishConfig)
-      record(`${relativePath} must not define publishConfig before the npm publish decision`);
+const packages = readWorkspacePackages(root);
+for (const entry of packages) {
+  const { manifest, packagePath, directory } = entry;
+  if (manifest.private === true) {
+    if (manifest.version !== "0.0.1") record(`${packagePath} is not in the npm publish set and must use version 0.0.1`);
+    if (manifest.publishConfig) record(`${packagePath} must not define publishConfig before the npm publish decision`);
+    continue;
   }
+  if (manifest.version !== rootPackage.version)
+    record(`${packagePath} must use version ${rootPackage.version} for npm publish`);
+  if (manifest.publishConfig?.access !== "public")
+    record(`${packagePath} must define publishConfig.access public for the scoped npm package`);
+  if (manifest.repository?.directory !== directory)
+    record(`${packagePath} must declare repository.directory ${directory}`);
+  if (manifest.engines?.node !== ">=24") record(`${packagePath} must declare Node >=24 runtime support`);
+  const bins = requiredBins.get(manifest.name);
+  for (const [name, target] of bins ?? [])
+    if (manifest.bin?.[name] !== target) record(`${packagePath} must declare bin ${name} as ${target}`);
+  for (const lifecycleFile of [backupName, ownerName])
+    if (existsSync(path.join(root, directory, lifecycleFile)))
+      record(`${packagePath} was left in package exports rewrite state (${lifecycleFile} exists)`);
 }
 
-for (const relativePath of [
-  "packages/kernel/.git",
-  "packages/storage/.git",
-  "packages/application/.git",
-  "packages/daemon/.git",
-  "packages/cli/.git",
-  "packages/gui/.git",
-]) {
-  if (existsSync(path.join(root, relativePath))) record(`package-level Git repository is forbidden: ${relativePath}`);
+for (const entry of packages)
+  if (existsSync(path.join(root, entry.directory, ".git")))
+    record(`package-level Git repository is forbidden: ${entry.packagePath}`);
+
+try {
+  assertPublicDependencyClosure(root);
+} catch (error) {
+  record(error instanceof Error ? error.message : String(error));
 }
 
 if (violations.length > 0) {

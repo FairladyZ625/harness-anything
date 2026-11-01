@@ -1,5 +1,5 @@
 import { useQueries } from "@tanstack/react-query";
-import { harnessClient } from "./api-client.ts";
+import { readAllTaskDispatches } from "./task-dispatch-client.ts";
 import type { TaskDispatchProjectionRow } from "../api/renderer-dto.ts";
 import type { AgendaRow } from "./model/agenda-rows.ts";
 
@@ -41,18 +41,5 @@ export async function readAgendaDispatches(
   repoId: string,
   taskIds: readonly string[],
 ): Promise<readonly TaskDispatchProjectionRow[]> {
-  const rows: TaskDispatchProjectionRow[] = [];
-  let cursor: string | null = null;
-  do {
-    const read = await harnessClient.getTaskDispatches({
-      repoId,
-      taskIds,
-      limit: 500,
-      advisorySurface: "agenda",
-      ...(cursor ? { cursor } : {}),
-    });
-    rows.push(...read.dispatches);
-    cursor = "page" in read ? read.page.nextCursor : null;
-  } while (cursor !== null);
-  return rows;
+  return (await readAllTaskDispatches({ repoId, taskIds, advisorySurface: "agenda" })).dispatches;
 }

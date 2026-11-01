@@ -12,7 +12,7 @@ record, gate the exits, and make a false "done" impossible to sustain. In our
 own self-involving use, every ungated path was bypassed; no gate means 100%
 bypass.
 
-## Install the 0.0.1 source candidate
+## Install the 0.1.0 source candidate
 
 The supported GUI path is the source-installed `ha gui` command. The unsigned
 DMG remains a packaging candidate, not a production launch entry. Complete CLI,
@@ -67,7 +67,7 @@ refs/heads/main`; completion then verifies the recorded merge commit against tha
 local ref. This setting is explicit so repositories with a remote keep the
 origin/main delivery gate.
 
-Install the 0.0.1 CLI candidate from a checkout with:
+Install the 0.1.0 CLI candidate from a checkout with:
 
 ```bash
 npm install --global @harness-anything/cli@latest @harness-anything/daemon@latest

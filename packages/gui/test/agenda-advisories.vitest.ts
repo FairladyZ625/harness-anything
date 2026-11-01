@@ -24,7 +24,7 @@ it("follows the authoritative dispatch page cursor through the last page", async
   expect(read).toHaveBeenNthCalledWith(2, {
     repoId: "repo-one",
     taskIds: ["task-one"],
-    limit: 500,
+    limit: 16,
     advisorySurface: "agenda",
     cursor: "last-page",
   });

@@ -996,6 +996,44 @@ test("a win32 invitation registers a win32 edge node, and an unknown platform is
     readonly platform: string;
   }[];
   assert.equal(listed.find((node) => node.nodeId === admitted.nodeId)?.platform, "win32");
+  const preview = await run({ operation: "node-unregister", nodeId: admitted.nodeId });
+  assert.equal(
+    (
+      await run({
+        operation: "node-unregister",
+        nodeId: admitted.nodeId,
+        expectedVersion: String(preview.expectedVersion),
+        confirm: true,
+      })
+    ).ok,
+    true,
+  );
+  await assert.rejects(
+    run({ operation: "node-register", nodeId: admitted.nodeId, personId: "person-invited", expectedVersion: "2" }),
+    { code: "device_removed" },
+  );
+  const reissued = await run({
+      operation: "edge-join-create",
+      personId: "person-invited",
+      repoIds: ["repo-a"],
+      groupIds: ["edge-selected"],
+    }),
+    rejoin = JSON.parse(
+      Buffer.from(String(reissued.link).slice("harness-edge://join/".length), "base64url").toString("utf8"),
+    ) as { joinId: string; token: string; loginClientId: string };
+  keycloak.interactiveSession("person-invited", "rejoined-device", keycloakUrl, "rejoined-token", rejoin.loginClientId);
+  const joinedAgain = await admin.admitEdgeJoin({
+    joinId: rejoin.joinId,
+    inviteToken: rejoin.token,
+    accessToken: "rejoined-token",
+  });
+  assert.notEqual(joinedAgain.nodeId, admitted.nodeId);
+  const adapter = new KeycloakPolicyAdapter(
+    { url: keycloakUrl, realm: keycloakRealm, resourceServerClientId: "harness-center" },
+    keycloak.fetch,
+  );
+  assert.equal(await adapter.authenticateNode(admitted.nodeId, admitted.credential), false);
+  assert.equal(await adapter.authenticateNode(joinedAgain.nodeId, joinedAgain.credential), true);
 });
 
 test("an existing member is invited without new-user fields; an unknown person still needs them", async (t) => {

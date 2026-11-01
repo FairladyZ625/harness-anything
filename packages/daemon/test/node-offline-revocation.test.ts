@@ -6,7 +6,8 @@ import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak"
 
 function fixture(options: { consent?: boolean; reject?: string; missingUser?: boolean; missingNode?: boolean } = {}) {
   const calls: string[] = [],
-    updates: Record<string, unknown>[] = [];
+    updates: Record<string, unknown>[] = [],
+    creations: Record<string, unknown>[] = [];
   const fetchPort: typeof fetch = async (input, init) => {
     const url = new URL(String(input)),
       route = url.pathname.replace("/admin/realms/test", ""),
@@ -14,7 +15,11 @@ function fixture(options: { consent?: boolean; reject?: string; missingUser?: bo
     calls.push(call);
     assert.equal(new Headers(init?.headers).get("authorization"), "Bearer admin");
     if (call === options.reject) return new Response(null, { status: 503 });
-    if (route === "/clients") {
+    if (call === "POST /clients") {
+      creations.push(JSON.parse(String(init!.body)));
+      return new Response(null, { status: 201 });
+    }
+    if (call === "GET /clients") {
       assert.equal(url.searchParams.get("clientId"), "harness-node-A");
       return Response.json(
         options.missingNode
@@ -58,6 +63,7 @@ function fixture(options: { consent?: boolean; reject?: string; missingUser?: bo
   return {
     calls,
     updates,
+    creations,
     adapter: new KeycloakPolicyAdapter(
       { url: "https://keycloak.invalid", realm: "test", resourceServerClientId: "center" },
       fetchPort,
@@ -113,14 +119,47 @@ for (const reject of ["GET /users/user-id/consents", "DELETE /users/user-id/cons
     assert.equal(calls.includes("DELETE /clients/uuid-A"), false);
   });
 
-test("an unresolved owner cannot be reported as successfully revoked", async () => {
-  const { adapter, calls } = fixture({ missingUser: true });
-  await assert.rejects(adapter.deleteNode("admin", "A"), { code: "access_person_unknown" });
-  assert.deepEqual(calls, ["GET /clients", "GET /clients", "PUT /clients/uuid-A", "GET /clients", "GET /users"]);
+test("a deleted owner has no remaining consent and removal completes its disabled tombstone", async () => {
+  const { adapter, calls, updates } = fixture({ missingUser: true });
+  await adapter.deleteNode("admin", "A");
+  assert.deepEqual(calls, [
+    "GET /clients",
+    "GET /clients",
+    "PUT /clients/uuid-A",
+    "GET /clients",
+    "GET /users",
+    "GET /clients",
+    "PUT /clients/uuid-A",
+  ]);
+  assert.deepEqual(
+    updates.map((entry) => {
+      const node = JSON.parse((entry.attributes as Record<string, string>).harness_device!);
+      return [entry.enabled, node.state, node.revision, node.revocation];
+    }),
+    [
+      [false, "removed", 2, "pending"],
+      [false, "removed", 2, "complete"],
+    ],
+  );
 });
 
-test("an already absent client does not revoke another device's consent", async () => {
-  const { adapter, calls } = fixture({ missingNode: true });
+test("an absent client receives a disabled tombstone without revoking another device's consent", async () => {
+  const { adapter, calls, creations } = fixture({ missingNode: true });
   await adapter.deleteNode("admin", "A");
-  assert.deepEqual(calls, ["GET /clients"]);
+  assert.deepEqual(calls, ["GET /clients", "POST /clients"]);
+  assert.equal(creations.length, 1);
+  const tombstone = creations[0]!,
+    node = JSON.parse((tombstone.attributes as Record<string, string>).harness_device!);
+  assert.deepEqual([tombstone.clientId, tombstone.enabled, tombstone.secret], ["harness-node-A", false, undefined]);
+  assert.deepEqual(
+    [node.nodeId, node.personId, node.state, node.revision, node.revocation],
+    ["A", "", "removed", 1, "complete"],
+  );
+});
+
+test("an absent client's tombstone persistence failure is surfaced without revoking another device's consent", async () => {
+  const { adapter, calls, creations } = fixture({ missingNode: true, reject: "POST /clients" });
+  await assert.rejects(adapter.deleteNode("admin", "A"), { code: "keycloak_admin_rejected" });
+  assert.deepEqual(calls, ["GET /clients", "POST /clients"]);
+  assert.deepEqual(creations, []);
 });

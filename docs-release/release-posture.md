@@ -29,7 +29,7 @@ docs should link here instead of restating status tables.
 | Local daemon, including single-machine multi-repo | Shipped    | `ha daemon start --service`, workspace bootstrap, repo registration, per-repository RepoCell isolation, and repo-scoped CLI routing are supported. CLI commands, including `ha gui`, use the canonical-only CLI autostart path. Electron GUI processes are attach-only and never start, restart, or stop the daemon. Evidence: `packages/daemon/src/client/daemon-autostart.ts` and `packages/gui/src/main/local-composition-root.ts`. |
 | Desktop GUI local surface                         | Foundation | `ha gui [--root <path>]` is the supported source-checkout Electron entry. It rebuilds file-backed renderer/preload assets, acquires the daemon through the CLI, and detaches Electron. The unsigned Apple-silicon DMG remains a packaging candidate rather than a supported launch entry. Several product views remain read-only, deferred, or mock-backed.                                                                            |
 | Remote/Fleet daemon mode                          | Planned    | W3 keeps only the transport-bound `source=assignment` seam. Fleet wire, SSH relay, tunnels, TCP, HTTP, WebSocket, and remote daemon products are not shipped.                                                                                                                                                                                                                                                                          |
-| Runtime/release readiness                         | Foundation | Source checkout, Node 24 and Node 26 CI, CLI package smoke, and the exact arm64 DMG build are executable checks. The 0.0.1 assets are prepared locally but are not published by this change. Evidence: `packages/gui/src/distribution/runtime-release-readiness.ts` and the task release evidence.                                                                                                                                     |
+| Runtime/release readiness                         | Foundation | Source checkout, Node 24 and Node 26 CI, CLI package smoke, and the exact arm64 DMG build are executable checks. The 0.1.0 assets are prepared locally but are not published by this change. Evidence: `packages/gui/src/distribution/runtime-release-readiness.ts` and the task release evidence.                                                                                                                                     |
 | Supply-chain/license gate                         | Foundation | npm audit, SBOM validation, OSV evidence path checks, license policy, Dependabot coverage, and AGPL network-service release-note checklist are gates or packet-checkable policy. Release artifacts remain unshipped. Evidence: `package.json:71` and `tools/check-supply-chain.mjs:51-74`.                                                                                                                                             |
 | M3-M7 backlog                                     | Planned    | External adapter implementations, full GUI product behavior, and release hardening are not shipped. Placeholder adapter packages have been retired and removed; page-only GUI code, unsigned artifacts, and release-policy prose must not be inherited as shipped product state.                                                                                                                                                                                     |
 
@@ -88,7 +88,7 @@ product.
 ## Runtime and release readiness
 
 Status: macOS Local v1 release candidate. Runtime and package checks are
-executable; the unsigned 0.0.1 arm64 artifact is prepared for publication.
+executable; the unsigned 0.1.0 arm64 artifact is prepared for publication.
 
 ### Runtime contract
 
@@ -143,7 +143,7 @@ This proves the renderer bundle compiles. The release build additionally runs
 The GUI is an Electron installer product. Its workspace is also public-ready for
 the lockstep npm artifact, while the supported GUI launch entries remain the
 source checkout and platform installers produced by electron-builder. Harness
-Anything GUI 0.0.1 retains a manual, unsigned macOS arm64 packaging candidate,
+Anything GUI 0.1.0 retains a manual, unsigned macOS arm64 packaging candidate,
 but `ha gui` from the source installation is the supported source launch entry.
 Direct DMG application launch, signing, notarization, other operating systems,
 and update feeds are future release tasks. Auto-update requires a later
@@ -154,19 +154,27 @@ tests.
 
 Current release boundaries are intentionally conservative:
 
-- The approved public-ready npm set is `@harness-anything/kernel`,
+- The approved public-ready npm set is every workspace whose manifest is not
+  `private`: `@harness-anything/kernel`, `@harness-anything/storage`,
   `@harness-anything/application`, `@harness-anything/preset`,
-  `@harness-anything/cli`, `@harness-anything/daemon`, and
-  `@harness-anything/gui`, all under the `@harness-anything` organization owned
-  by `lizeyu990625`. Public-ready means the package policy and dry-run contract
-  allow publication; it does not claim that any package has been published.
+  `@harness-anything/authorization-keycloak`, `@harness-anything/cli`,
+  `@harness-anything/daemon`, and `@harness-anything/gui`, all under the
+  `@harness-anything` organization owned by `lizeyu990625`. The release
+  workflow derives that set from workspace metadata, in dependency order, and
+  refuses a public package that depends on a private workspace.
+  `@harness-anything/authorization-gui` and
+  `@harness-anything/authorization-keycloak-gui` stay private build-only
+  dependencies of the GUI. Public-ready means the package policy and dry-run
+  contract allow publication; it does not claim that any package has been
+  published.
 - `@harness-anything/daemon` owns the resident server, service process, runtime
   worker host, and the `harness-anything-daemon` bin. The CLI owns the
   `ha daemon start --service` control UX and autostart orchestration, which must
   resolve and spawn that installed daemon executable instead of hosting the
   daemon itself.
-- The root product, all six workspaces, and the Electron GUI use one lockstep
-  version. The current candidate is `0.0.1`.
+- The root product and all ten workspace packages use one lockstep version for
+  public packages. The current public candidate is `0.1.0`; the two private GUI
+  build workspaces remain `0.0.1`.
 - Every client must complete `protocol.hello` with the daemon's exact protocol
   major and minor version before any other command. A mismatched edge CLI or GUI
   is rejected with `incompatible_protocol_version`; an edge must not replace or
@@ -217,7 +225,7 @@ components.
 The allowed npm publish preflight is a dry-run for every public-ready workspace:
 
 ```bash
-for workspace in @harness-anything/kernel @harness-anything/application @harness-anything/preset @harness-anything/cli @harness-anything/daemon @harness-anything/gui; do
+for workspace in $(node tools/public-workspaces.mjs); do
   npm publish --dry-run --workspace "$workspace" --access public --tag latest
 done
 ```

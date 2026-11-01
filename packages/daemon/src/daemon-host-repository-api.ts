@@ -57,6 +57,7 @@ import {
   validateRepoAllPurge,
 } from "./repo-all-purge.ts";
 import { removeFileDurably } from "../../storage/src/durable-file.ts";
+import { assertFleetReadFits } from "./dispatch-read.ts";
 
 function isRepoCellReadMethod(method: DaemonGuiRpcReadMethod): method is RepoCellReadMethod {
   return (
@@ -968,8 +969,15 @@ export function createDaemonHostRepositoryApi(
       else {
         if (!isRepoCellReadMethod(method))
           throw context.hostCodedError("invalid_request", `${method} is not a repository read method.`);
-        result = await cell.read(method, payload, readBinding);
+        result = await cell.read(
+          method,
+          method === "repo.task.dispatches" && Array.isArray(payload.taskIds)
+            ? { ...payload, limit: payload.limit ?? 500 }
+            : payload,
+          readBinding,
+        );
       }
+      if (auth.transportKind === "fleet-tls") assertFleetReadFits(result, method);
       return parseDaemonGuiReadResult(method, result);
     },
   };

@@ -131,6 +131,44 @@ test(
         center.dispatches,
       );
     }
+    // Valid stored prose can make even one dispatch too large. Verify the real
+    // center → TLS → edge → JSON-RPC path preserves the actionable error code.
+    await store.succeed(
+      "edge-advisory-gui.dispatch",
+      {
+        ...advisory,
+        options: advisory.options.map((option) => ({ ...option, text: "长评审依据".repeat(30_000) })),
+      },
+      "2026-10-19T00:00:02.000Z",
+    );
+    const oversized = await e.rpc.handle({
+      jsonrpc: "2.0",
+      id: "oversized",
+      method: "repo.task.dispatches",
+      params: {
+        repo: { repoId: "lease-repo" },
+        payload: { taskIds: ["advice-task"], limit: 500, advisorySurface: "gui.dispatch" },
+      },
+    });
+    assert.ok(oversized && "result" in oversized, JSON.stringify(oversized));
+    const failure = JSON.stringify(oversized.result);
+    assert.match(failure, /fleet_read_too_large/u);
+    assert.match(failure, /98304 bytes/u);
+    assert.match(failure, /limit:16.*cursor:page.nextCursor/u);
+    assert.doesNotMatch(failure, /invalid_frame/u);
+    console.log(`oversized edge dispatch: ${failure}`);
+    const unpaged = await e.rpc.handle({
+      jsonrpc: "2.0",
+      id: "oversized-single",
+      method: "repo.task.dispatches",
+      params: { repo: { repoId: "lease-repo" }, payload: { taskId: "advice-task", advisorySurface: "gui.dispatch" } },
+    });
+    assert.ok(unpaged && "result" in unpaged);
+    const guarded = JSON.stringify(unpaged.result);
+    assert.match(guarded, /fleet_read_too_large/u);
+    assert.match(guarded, /98304 bytes/u);
+    assert.doesNotMatch(guarded, /invalid_frame/u);
+    console.log(`oversized unpaged edge dispatch: ${guarded}`);
     await store.remove(dispatchId);
     assert.equal((await read()).dispatches[0]!.advisories, undefined);
     assert.equal(existsSync(path.join(e.edgeRoot, ".harness/decision-annotations.json")), false);

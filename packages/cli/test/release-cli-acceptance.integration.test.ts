@@ -739,6 +739,7 @@ test("release acceptance: a fresh custom Artifact kind runs its file/folder life
     // The write surface addresses a kind by its stable opaque ref; the read surface also accepts the id.
     const kindRef = (JSON.parse(String(upserted.evidence)) as { kindRef: string }).kindRef;
     assert.match(kindRef, /^entity-kind\/KND-[a-f0-9]{32}$/u, String(upserted.evidence));
+    await shared.grantArtifactKindScopes(repoId, kindRef);
     context.diagnostic(`release-acc-kind-upsert=${JSON.stringify(upserted)}`);
 
     const sourcePath = "release-acc-sources/deploy-guide",

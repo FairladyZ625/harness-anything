@@ -11,8 +11,8 @@ export interface RuntimeCommandContract {
 export interface ReleaseBoundaryContract {
   readonly packagesPrivateExceptPublicReady: true;
   readonly internalWorkspaceVersion: "0.0.1";
-  readonly productVersion: "0.0.1";
-  readonly publicReadyPackageVersion: "0.0.1";
+  readonly productVersion: "0.1.0";
+  readonly publicReadyPackageVersion: "0.1.0";
   readonly npmReleaseClaimed: false;
   readonly signedInstallersShipped: false;
   readonly notarizedBuildsShipped: false;
@@ -93,8 +93,8 @@ export const harnessRuntimeReleaseReadiness: RuntimeReleaseReadinessPolicy = {
   releaseBoundary: {
     packagesPrivateExceptPublicReady: true,
     internalWorkspaceVersion: "0.0.1",
-    productVersion: "0.0.1",
-    publicReadyPackageVersion: "0.0.1",
+    productVersion: "0.1.0",
+    publicReadyPackageVersion: "0.1.0",
     npmReleaseClaimed: false,
     signedInstallersShipped: false,
     notarizedBuildsShipped: false,
@@ -142,8 +142,8 @@ export function validateRuntimeReleaseReadiness(
   if (
     boundary.packagesPrivateExceptPublicReady !== true ||
     boundary.internalWorkspaceVersion !== "0.0.1" ||
-    boundary.productVersion !== "0.0.1" ||
-    boundary.publicReadyPackageVersion !== "0.0.1" ||
+    boundary.productVersion !== "0.1.0" ||
+    boundary.publicReadyPackageVersion !== "0.1.0" ||
     boundary.npmReleaseClaimed !== false ||
     boundary.signedInstallersShipped !== false ||
     boundary.notarizedBuildsShipped !== false ||

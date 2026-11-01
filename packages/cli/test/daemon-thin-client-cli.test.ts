@@ -458,10 +458,13 @@ test("ha gui --help documents repository context and attach-only daemon ownershi
     encoding: "utf8",
   });
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /ha gui \[--root <path>\]/u);
+  assert.match(result.stdout, /ha gui \[--browser \[--parent-origin <origin>\]\] \[--root <path>\]/u);
   assert.match(result.stdout, /optional @harness-anything\/gui package/u);
   assert.match(result.stdout, /older than the sources is rebuilt/u);
   assert.match(result.stdout, /never stops the daemon/u);
+  assert.match(result.stdout, /GUI never respawns a stopped daemon/u);
+  assert.match(result.stdout, /embedding is denied by default/u);
+  assert.match(result.stdout, /never RPC authentication/u);
 });
 
 function makeGuiFixture(): { root: string } {

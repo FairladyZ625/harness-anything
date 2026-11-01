@@ -19,7 +19,7 @@ bypassed; no gate means 100% bypass.
 
 ## Try the source checkout demo
 
-The 0.0.1 CLI candidate is not yet published to the public npm registry. Install the
+The 0.1.0 CLI candidate is not yet published to the public npm registry. Install the
 source checkout once with the [harness-download skill](../../../skills/harness-download/SKILL.md):
 it builds the CLI, daemon, and GUI, explains the Electron download cost before it starts,
 and puts the built `ha` on PATH for the current shell. This page does not keep a second

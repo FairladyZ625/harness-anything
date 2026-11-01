@@ -1,15 +1,38 @@
 {
   "name": "@harness-anything/authorization-keycloak",
-  "version": "0.0.1",
-  "private": true,
+  "version": "0.1.0",
+  "description": "Keycloak-backed authorization, RBAC and OIDC adapters for Harness Anything.",
   "license": "AGPL-3.0-or-later",
   "type": "module",
+  "homepage": "https://github.com/FairladyZ625/harness-anything#readme",
+  "bugs": {
+    "url": "https://github.com/FairladyZ625/harness-anything/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FairladyZ625/harness-anything.git",
+    "directory": "packages/authorization-keycloak"
+  },
   "files": [
     "dist",
+    "README.md",
     "package.json"
   ],
   "engines": {
     "node": ">=24"
+  },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": "./dist/index.js",
+      "./internal/keycloak-policy-adapter": "./dist/keycloak-policy-adapter.js",
+      "./internal/keycloak-login-client": "./dist/keycloak-login-client.js",
+      "./managed-rbac-service": "./dist/managed-rbac-service.js",
+      "./managed-rbac-listener-certificate": "./dist/managed-rbac-listener-certificate.js",
+      "./keycloak-session-lifetime": "./dist/keycloak-session-lifetime.js",
+      "./oidc-session-helpers": "./dist/oidc-session-helpers.js",
+      "./oidc-fleet-principal": "./dist/oidc-fleet-principal.js"
+    }
   },
   "exports": {
     ".": "./src/index.ts",
@@ -27,6 +50,6 @@
     "postpack": "node ../../tools/package-exports-lifecycle.mjs restore"
   },
   "dependencies": {
-    "@harness-anything/kernel": "0.0.1"
+    "@harness-anything/kernel": "0.1.0"
   }
 }

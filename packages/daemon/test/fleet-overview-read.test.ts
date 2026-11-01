@@ -15,6 +15,7 @@ import {
 } from "../src/fleet/fleet-overview-read.ts";
 import type { FleetReplicaStatus } from "../src/fleet/center-types.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
+import { assertFleetReadFits } from "../src/dispatch-read.ts";
 
 const CENTER = { daemonId: "default", startedAt: "2026-10-01T00:00:00.000Z", version: "0.0.0", commitSha: "bd2251a" };
 
@@ -336,12 +337,13 @@ test("the host assembly maps task snapshots, dispatch rows, the event tail and r
           },
         };
       }
-      return {
+      const result = {
         ok: true,
         status: "ready",
         dispatches: [
           {
             dispatchId: "dispatch_local",
+            reason: "r".repeat(100_000),
             taskId: "task_local",
             runtimeSessionId: "runtime_local",
             agentId: "agent_ceo",
@@ -351,6 +353,10 @@ test("the host assembly maps task snapshots, dispatch rows, the event tail and r
           },
         ],
       };
+      // A real explicit dispatch page rejects this prose. The overview projects
+      // only shallow facts, so its local intermediate read must not impose that cap.
+      if (payload?.limit !== undefined) assertFleetReadFits(result, "repo.task.dispatches");
+      return result;
     },
     observeTail: async () => ({
       schema: "daemon.observe-tail/v3",
@@ -471,3 +477,59 @@ function hostTaskRows() {
     },
   ];
 }
+
+test("the collaboration read omits a retired node even when force preserved its lease", async () => {
+  const cell = {
+    read: async (method: string) =>
+      method === "repo.tasks.list"
+        ? {
+            rows: [
+              {
+                taskId: "retired-task",
+                coordinationStatus: "active",
+                snapshot: {
+                  task: { title: "Retained work" },
+                  lease: {
+                    source: { kind: "node", nodeId: "retired-node" },
+                    actor: { principal: { personId: "old-owner" } },
+                    phase: "held",
+                    expiresAt: null,
+                  },
+                },
+              },
+            ],
+            page: { nextCursor: null },
+          }
+        : { dispatches: [] },
+    observeTail: async () => ({ status: "ready", items: [] }),
+    statusCuts: () => null,
+  };
+  const result = await readFleetOverviewFromHost({
+    repoId: "repo-test",
+    mode: "remote-center",
+    cell: cell as never,
+    binding: {} as never,
+    fleetReplicas: [replica("retired-node"), replica("healthy-node")],
+    keycloakCenter: (async () => ({
+      accessToken: "token",
+      provider: {
+        readNode: async (_token: string, nodeId: string) => ({
+          state: nodeId === "retired-node" ? "removed" : "active",
+          revocation: "complete",
+          personId: "owner",
+        }),
+      },
+    })) as never,
+    now: "2026-11-01T00:00:00Z",
+    userRoot: "/tmp/fleet-overview-test",
+    daemon: { daemonId: "default", startedAt: "2026-11-01T00:00:00Z" },
+  });
+  assert.deepEqual(
+    result.nodes.map((node) => node.nodeId),
+    ["center", "healthy-node"],
+  );
+  assert.deepEqual(
+    result.links.map((link) => link.nodeId),
+    ["healthy-node"],
+  );
+});

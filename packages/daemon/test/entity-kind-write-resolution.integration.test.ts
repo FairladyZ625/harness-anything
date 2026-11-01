@@ -8,7 +8,7 @@ import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
 
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { grantArtifactKindScopes, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
 
@@ -79,6 +79,7 @@ test("entity import/update/archive/delete resolve kind display ids to the same o
     );
     assert.equal(created.outcome, "applied", JSON.stringify(created));
     const kindRef = (JSON.parse(String(created.evidence)) as { kindRef: string }).kindRef;
+    grantArtifactKindScopes(repoId, kindRef);
     assert.match(kindRef, /^entity-kind\/KND-[0-9a-f]{32}$/u);
 
     // 2. Import by qualified name; the accepted event still speaks the stable ref, so reads by any

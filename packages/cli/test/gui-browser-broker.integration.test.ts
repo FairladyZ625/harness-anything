@@ -1,11 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { request } from "node:http";
+import { createServer, request } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { promisify } from "node:util";
 import { chromium } from "playwright-core";
 import { startBrowserGuiBroker } from "../src/cli/gui-browser-broker.ts";
 import {
@@ -91,13 +92,98 @@ test("browser GUI broker opens on exact loopback and rejects cross-origin RPC", 
   }
 });
 
-test("ordinary Chromium reaches the task shell through authenticated browser RPC", async () => {
+test("browser GUI embedding requires an explicit matching parent without changing RPC authentication", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-browser-parent-"));
+  mkdirSync(path.join(root, "dist"));
+  writeFileSync(path.join(root, "dist/index.html"), "<!doctype html><title>Embedded GUI</title><p>Embedded GUI</p>");
+  const parent = createServer((_request, response) => response.end("<!doctype html><title>Parent</title>"));
+  await new Promise<void>((resolve) => parent.listen(0, "127.0.0.1", resolve));
+  const address = parent.address();
+  assert.ok(address && typeof address !== "string");
+  const parentOrigin = `http://127.0.0.1:${address.port}`;
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  try {
+    browser = await chromium.launch({
+      executablePath: chromiumExecutable(root),
+      headless: true,
+      args: ["--no-sandbox"],
+    });
+    for (const allowedParent of [undefined, "https://different.example", parentOrigin, "dsh-app://app"]) {
+      const broker = await startBrowserGuiBroker(root, root, allowedParent);
+      const page = await browser.newPage();
+      try {
+        const url = new URL(broker.url);
+        const token = new URLSearchParams(url.hash.slice(1)).get("access_token")!;
+        const index = await call(url, "/");
+        assert.equal(
+          index.headers["content-security-policy"],
+          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+            `img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors ${allowedParent ?? "'none'"}`,
+        );
+        await page.goto(parentOrigin);
+        const errors: string[] = [];
+        page.on("console", (message) => {
+          if (message.type() === "error") errors.push(message.text());
+        });
+        const blocked =
+          allowedParent !== parentOrigin
+            ? page.waitForEvent("console", { predicate: (message) => message.text().includes("frame-ancestors") })
+            : undefined;
+        await page.evaluate((src) => {
+          const frame = document.createElement("iframe");
+          frame.src = src;
+          document.body.append(frame);
+        }, broker.url);
+        if (blocked) {
+          await blocked;
+          assert.equal(await page.frameLocator("iframe").getByText("Embedded GUI").count(), 0);
+        } else {
+          await page.frameLocator("iframe").getByText("Embedded GUI").waitFor();
+          assert.equal(errors.filter((error) => error.includes("frame-ancestors")).length, 0);
+        }
+        for (const auth of [undefined, "wrong"]) {
+          assert.equal((await call(url, "/rpc", { method: "POST", origin: url.origin, token: auth })).status, 403);
+        }
+        for (const origin of [parentOrigin, "null", "https://different.example"]) {
+          assert.equal((await call(url, "/rpc", { method: "POST", origin, token })).status, 403);
+        }
+        assert.equal(
+          (await call(url, "/rpc", { method: "POST", origin: url.origin, token })).status,
+          502,
+          "valid bearer still reaches the isolated missing-daemon boundary",
+        );
+      } finally {
+        await page.close();
+        await broker.close();
+      }
+    }
+    for (const invalid of ["*", "http://127.0.0.1:*", "https://example; frame-ancestors *", "null"]) {
+      await assert.rejects(startBrowserGuiBroker(root, root, invalid), /parent origin/i);
+    }
+  } finally {
+    await browser?.close();
+    await new Promise<void>((resolve, reject) => parent.close((error) => (error ? reject(error) : resolve())));
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("ordinary Chromium embeds real task data through authenticated browser RPC", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-browser-renderer-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
     previousUserRoot = process.env.HARNESS_DAEMON_USER_ROOT,
     previousDaemonId = process.env.HARNESS_DAEMON_ID;
   let broker: Awaited<ReturnType<typeof startBrowserGuiBroker>> | undefined;
+  const parentServer = createServer((_request, response) => {
+    response.setHeader("Content-Type", "text/html");
+    response.end(
+      `<!doctype html><title>Parent</title><body style="margin:0"><iframe style="display:block;width:100vw;height:100vh;border:0" src="${broker?.url ?? "about:blank"}"></iframe>`,
+    );
+  });
+  await new Promise<void>((resolve) => parentServer.listen(0, "127.0.0.1", resolve));
+  const address = parentServer.address();
+  assert.ok(address && typeof address !== "string");
+  const parentOrigin = `http://127.0.0.1:${address.port}`;
   try {
     initialize(root);
     seedSettingsEvent({ rootDir: root, repoId: "browser-e2e" });
@@ -111,7 +197,7 @@ test("ordinary Chromium reaches the task shell through authenticated browser RPC
     });
     process.env.HARNESS_DAEMON_USER_ROOT = userRoot;
     process.env.HARNESS_DAEMON_ID = daemonId;
-    broker = await startBrowserGuiBroker(path.resolve("packages/gui"), root);
+    broker = await startBrowserGuiBroker(path.resolve("packages/gui"), root, parentOrigin);
     const executablePath = chromiumExecutable(parent);
     const browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox"] });
     try {
@@ -120,36 +206,51 @@ test("ordinary Chromium reaches the task shell through authenticated browser RPC
       page.on("response", (response) => {
         if (new URL(response.url()).pathname === "/rpc") rpcStatuses.push(response.status());
       });
-      await page.goto(broker.url);
-      await page.getByTestId("app-sidebar").waitFor({ timeout: 30_000 });
-      await page.getByTestId("browser-capability-notice").waitFor();
+      const cspErrors: string[] = [];
+      page.on("console", (message) => {
+        if (message.type() === "error" && /content security policy|frame-ancestors/iu.test(message.text()))
+          cspErrors.push(message.text());
+      });
+      await page.goto(parentOrigin);
+      const gui = page.frameLocator("iframe");
+      await gui.getByTestId("app-sidebar").waitFor({ timeout: 30_000 });
+      await gui.getByTestId("browser-capability-notice").waitFor();
       await page.reload();
-      await page.getByTestId("app-sidebar").waitFor({ timeout: 30_000 });
-      await page
+      await gui.getByTestId("app-sidebar").waitFor({ timeout: 30_000 });
+      await gui
         .getByTestId("app-sidebar")
         .getByRole("button", { name: /^(?:看板|Board)$/u })
         .click();
-      const taskRow = page.getByTestId("board-task-card").filter({ hasText: "Browser E2E task" });
+      const taskRow = gui.getByTestId("board-task-card").filter({ hasText: "Browser E2E task" });
       await taskRow.waitFor();
       await taskRow.click();
-      await page.getByRole("dialog").locator("footer button").first().click();
-      await page.getByTestId("task-detail-view").waitFor();
+      await gui.getByRole("dialog").locator("footer button").first().click();
+      await gui.getByTestId("task-detail-view").waitFor();
       assert.ok(rpcStatuses.includes(200), `expected a 200 POST /rpc, saw ${rpcStatuses.join(",")}`);
 
-      const unavailableResponse = page.waitForResponse(
-        (response) => new URL(response.url()).pathname === "/rpc" && response.status() === 502,
-        { timeout: 30_000 },
-      );
-      run(root, userRoot, ["daemon", "stop"]);
-      const unavailableBody = (await unavailableResponse).json();
+      assert.deepEqual(cspErrors, []);
+
+      // This process also serves the broker: a synchronous stop blocks its
+      // in-flight RPC sockets from draining while the CLI waits for daemon exit.
+      const [unavailableResponse] = await Promise.all([
+        page.waitForResponse((response) => new URL(response.url()).pathname === "/rpc" && response.status() === 502, {
+          timeout: 30_000,
+        }),
+        promisify(execFile)(
+          process.execPath,
+          [path.resolve("packages/cli/src/index.ts"), "--root", root, "--json", "daemon", "stop"],
+          { env: environment(root, userRoot) },
+        ),
+      ]);
+      const unavailableBody = unavailableResponse.json();
       assert.equal((await unavailableBody).error.code, "daemon_unavailable");
+      startDaemon(root, userRoot);
       const recoveredResponse = page.waitForResponse(
         (response) => new URL(response.url()).pathname === "/rpc" && response.status() === 200,
         { timeout: 30_000 },
       );
-      startDaemon(root, userRoot);
       await recoveredResponse;
-      await page.getByTestId("app-sidebar").waitFor({ timeout: 30_000 });
+      await gui.getByTestId("app-sidebar").waitFor({ timeout: 30_000 });
     } finally {
       await browser.close();
     }
@@ -157,6 +258,7 @@ test("ordinary Chromium reaches the task shell through authenticated browser RPC
     assert.deepEqual(rendererSources, [path.resolve("packages/gui/src/renderer/gui-transport.ts")]);
   } finally {
     if (broker) await broker.close();
+    await new Promise<void>((resolve, reject) => parentServer.close((error) => (error ? reject(error) : resolve())));
     runMaybe(root, userRoot, ["daemon", "stop"]);
     if (previousUserRoot === undefined) delete process.env.HARNESS_DAEMON_USER_ROOT;
     else process.env.HARNESS_DAEMON_USER_ROOT = previousUserRoot;
@@ -285,12 +387,18 @@ async function settleBrowserWrite(url: URL, token: string, repoId: string, opId:
 }
 
 function chromiumExecutable(parent: string): string {
+  const browserName =
+    process.platform === "darwin"
+      ? "Google Chrome for Testing"
+      : process.platform === "win32"
+        ? "chrome.exe"
+        : "chrome";
   const configured = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
     candidates = [configured, "/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome"];
   const executable = candidates.find((candidate): candidate is string => Boolean(candidate && existsSync(candidate)));
   if (executable) return executable;
   if (process.env.PLAYWRIGHT_BROWSERS_PATH) {
-    const cached = findFile(process.env.PLAYWRIGHT_BROWSERS_PATH, "chrome");
+    const cached = findFile(process.env.PLAYWRIGHT_BROWSERS_PATH, browserName);
     assert.ok(cached, "isolated dependency preparation did not cache Playwright Chromium");
     return cached;
   }
@@ -298,7 +406,7 @@ function chromiumExecutable(parent: string): string {
   execFileSync(process.execPath, [path.resolve("node_modules/playwright-core/cli.js"), "install", "chromium"], {
     stdio: "pipe",
   });
-  const downloaded = findFile(process.env.PLAYWRIGHT_BROWSERS_PATH, "chrome");
+  const downloaded = findFile(process.env.PLAYWRIGHT_BROWSERS_PATH, browserName);
   assert.ok(downloaded, "Playwright installed Chromium without its browser executable");
   return downloaded;
 }

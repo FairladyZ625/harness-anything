@@ -48,6 +48,9 @@ export const artifactEntityImportActionInput = input([
 const action = (kind: string, identity: EntityKindContract["id"], id: string, ingress: string): EntityActionContract =>
   Object.freeze({
     ...entityAction(kind, identity, id, noSdkExposure, execution(ingress)),
+    // The runtime kind's own stable identity is the Policy unit; the projected declaration is
+    // `${kind}/${id}` (dec_2446BC2F8C68630F71AE3E3BD7/CH4).
+    policy: Object.freeze({ ref: "keycloak-policy@1", action: `${kind}/${id}` }),
     concurrency: Object.freeze({
       expectedVersion: Object.freeze({ authority: "entity-aggregate-revision", required: true }),
       leasePolicy: Object.freeze({ authority: "center-repo-cell-single-writer" }),

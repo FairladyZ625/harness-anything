@@ -11,7 +11,7 @@ import { cliErrorMessage } from "../cli-error.ts";
 import { cliFailure } from "../cli-meta.ts";
 import { consumeKnownError } from "../daemon/client.ts";
 import { ensureCliDaemonRunning } from "../daemon/autostart.ts";
-import { startBrowserGuiBroker, type BrowserGuiBroker } from "./gui-browser-broker.ts";
+import { isBrowserGuiParentOrigin, startBrowserGuiBroker, type BrowserGuiBroker } from "./gui-browser-broker.ts";
 
 type ReceiptEmitter = (receipt: Record<string, unknown>, json: boolean) => void;
 type LockfileEntry = { readonly optional?: boolean; readonly resolved?: string; readonly version?: string };
@@ -27,7 +27,7 @@ export interface GuiLaunchDependencies {
   readonly guiPackageRoot?: string;
   readonly sourceBuildId?: () => string | null;
   readonly rebuildGuiBundle?: (guiPackageRoot: string) => void;
-  readonly startBrowserBroker?: (guiPackageRoot: string, rootDir: string) => Promise<BrowserGuiBroker>;
+  readonly startBrowserBroker?: typeof startBrowserGuiBroker;
   readonly waitForBrowserClose?: (broker: BrowserGuiBroker) => Promise<void>;
 }
 
@@ -93,7 +93,11 @@ export async function runGuiLaunch(
         daemon.hint || "The default daemon could not be acquired through the CLI autostart path.",
       );
     if (browser) {
-      const broker = await (dependencies.startBrowserBroker ?? startBrowserGuiBroker)(guiPackageRoot, launch.rootDir);
+      const broker = await (dependencies.startBrowserBroker ?? startBrowserGuiBroker)(
+        guiPackageRoot,
+        launch.rootDir,
+        launch.parentOrigin,
+      );
       finish(
         {
           ok: true,
@@ -270,15 +274,30 @@ function resolveGuiPackageRoot(): string | undefined {
 function parseGuiLaunch(
   argv: readonly string[],
 ):
-  | { readonly ok: true; readonly rootDir: string; readonly browser: boolean }
+  | { readonly ok: true; readonly rootDir: string; readonly browser: boolean; readonly parentOrigin?: string }
   | { readonly ok: false; readonly code: string; readonly hint: string } {
   let root: string | undefined,
+    parentOrigin: string | undefined,
     browser = false;
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
     if (value === "gui" || value === "--json") continue;
     if (value === "--browser") {
       browser = true;
+      continue;
+    }
+    if (value === "--parent-origin") {
+      const supplied = argv[index + 1];
+      if (!supplied || supplied.startsWith("-"))
+        return { ok: false, code: "missing_field", hint: "Add one exact origin after --parent-origin." };
+      if (parentOrigin !== undefined || !isBrowserGuiParentOrigin(supplied))
+        return {
+          ok: false,
+          code: "invalid_field",
+          hint: "Pass --parent-origin once with one serialized HTTP(S) origin or dsh-app://app, without a path or wildcard.",
+        };
+      parentOrigin = supplied;
+      index += 1;
       continue;
     }
     if (value === "--root") {
@@ -293,10 +312,12 @@ function parseGuiLaunch(
     return {
       ok: false,
       code: "unsupported_command",
-      hint: "Use `ha gui [--browser] [--root <path>]`.",
+      hint: "Use `ha gui [--browser [--parent-origin <origin>]] [--root <path>]`.",
     };
   }
-  return { ok: true, rootDir: path.resolve(root ?? process.cwd()), browser };
+  if (parentOrigin !== undefined && !browser)
+    return { ok: false, code: "invalid_field", hint: "--parent-origin requires --browser." };
+  return { ok: true, rootDir: path.resolve(root ?? process.cwd()), browser, parentOrigin };
 }
 
 function waitForBrowserClose(broker: BrowserGuiBroker): Promise<void> {

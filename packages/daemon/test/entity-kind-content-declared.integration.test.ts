@@ -8,7 +8,7 @@ import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { MAX_ENTITY_CONTENT_OBJECT_BYTES } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { grantArtifactKindScopes, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
 
@@ -89,6 +89,7 @@ test("Two Kinds declared at runtime carry file and directory content through the
       );
       assert.equal(created.outcome, "applied", JSON.stringify(created));
       const kindRef = (JSON.parse(String(created.evidence)) as { kindRef: string }).kindRef;
+      grantArtifactKindScopes(repoId, kindRef);
       assert.match(kindRef, /^entity-kind\/KND-[0-9a-f]{32}$/u);
       return kindRef;
     };
