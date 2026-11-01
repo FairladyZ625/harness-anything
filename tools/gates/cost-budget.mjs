@@ -72,10 +72,10 @@ async function measureProjectionRebuild(fixture) {
     git(rootDir, "commit", "--allow-empty", "-qm", "fixture base");
     const [{ makeTaskEventStore }, { makeTaskProjection }, { taskLifecycleWritePlan }, { localGitObjectRefStore }] =
       await Promise.all([
-        import("../../packages/kernel/src/store/task-event-store.ts"),
-        import("../../packages/kernel/src/projection/rebuildable-task-projection.ts"),
+        import("../../packages/storage/src/store/task-event-store.ts"),
+        import("../../packages/storage/src/projection/rebuildable-task-projection.ts"),
         import("../../packages/kernel/src/domain/task-lifecycle-publication.ts"),
-        import("../../packages/kernel/src/store/local-version-control-system.ts"),
+        import("../../packages/storage/src/store/local-version-control-system.ts"),
       ]);
     writer = makeTaskEventStore({ repoId: fixture.repoId, rootDir });
     for (const event of fixture.events) writer.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });

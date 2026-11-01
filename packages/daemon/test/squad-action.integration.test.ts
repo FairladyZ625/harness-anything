@@ -6,7 +6,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { getEntityKindContract, makeTaskEventStore, openSqliteEventStore } from "@harness-anything/kernel";
+import { makeTaskEventStore, openSqliteEventStore } from "@harness-anything/storage";
+import { getEntityKindContract } from "@harness-anything/kernel";
 import {
   makeDaemonCommandReceipt,
   validateDaemonGuiCommandReceipt,
@@ -296,7 +297,7 @@ test("Squad control failure after a committed child never borrows that child's a
       rootDir: canonicalRoot(rootDir),
       ownerId: "squad-control-failure",
       killpoint: (point) => {
-        if (armed && point === "after_sqlite_commit") {
+        if (armed && point === "after_store_commit") {
           armed = false;
           injected = true;
           throw new Error("injected failure after the Squad child committed");

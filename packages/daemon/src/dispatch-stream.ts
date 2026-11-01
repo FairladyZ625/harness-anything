@@ -25,7 +25,7 @@ import type { RuntimeMetrics } from "./runtime-metrics.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 import type { RuntimeResumeHeader } from "./runtime-resume-contract.ts";
 import { readLatestLineInTail } from "./dispatch-stream-tail.ts";
-import { writeFileDurably } from "./durable-file.ts";
+import { writeFileDurably } from "../../storage/src/durable-file.ts";
 import { scrubProviderValue } from "./secret-scrub.ts";
 import { isFallbackProvider } from "./dispatch-stream-value.ts";
 import { dispatchProviderActivity, type DispatchProviderActivity } from "./dispatch-activity.ts";

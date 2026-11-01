@@ -2,6 +2,7 @@
   "files": [],
   "references": [
     { "path": "./packages/kernel" },
+    { "path": "./packages/storage" },
     { "path": "./packages/application" },
     { "path": "./packages/authorization-keycloak" },
     { "path": "./packages/authorization-gui" },

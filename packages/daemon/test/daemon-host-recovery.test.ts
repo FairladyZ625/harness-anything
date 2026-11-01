@@ -20,15 +20,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
-import {
-  makeTaskEventReader,
-  makeTaskEventStore,
-  makeTaskProjection,
-  readDaemonRegistry,
-  restoreLedgerBackup,
-  sqliteLedgerPath,
-  taskLifecycleWritePlan,
-} from "@harness-anything/kernel";
+import { readDaemonRegistry, taskLifecycleWritePlan } from "@harness-anything/kernel";
 import { WRITE_RECEIPT_SCHEMA } from "@harness-anything/kernel/internal/domain/receipt-domain-registry";
 import { validateWriteReceipt } from "../../kernel/test/contracts/receipt-acceptance.fixtures.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
@@ -37,7 +29,14 @@ import { openDispatchStream } from "../src/dispatch-stream.ts";
 import { backupRepo, drillRepoBackup } from "../src/repo-all-purge.ts";
 import { localUserDaemonEndpoint, perUserSocketRoot } from "../src/client/local-daemon-target.ts";
 import { runtimeCallbackRelaySpec } from "../src/runtime-callback-relay.ts";
-import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
+import {
+  makeTaskEventReader,
+  makeTaskEventStore,
+  makeTaskProjection,
+  openPersistentWriterEpoch,
+  restoreLedgerBackup,
+  sqliteLedgerPath,
+} from "@harness-anything/storage";
 import { localSystemBinding } from "../src/daemon-host-binding.ts";
 import { rejectHostAction, rejectPresetRun } from "../src/daemon-host-errors.ts";
 import type { DaemonHostOpenInput } from "../src/daemon-host-open.ts";
@@ -47,7 +46,7 @@ import {
   openBootstrappedRepoCell as openRepoCell,
   registerBootstrappedDaemonRepo as registerDaemonRepo,
 } from "./repo-settings.fixture.ts";
-import { registerDaemonRepo as registerProductDaemonRepo } from "@harness-anything/kernel";
+import { registerDaemonRepo as registerProductDaemonRepo } from "@harness-anything/storage";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
 
 function assertValidWriteReceipt(value: unknown): void {

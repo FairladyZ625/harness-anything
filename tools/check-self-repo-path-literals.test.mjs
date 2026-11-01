@@ -97,8 +97,8 @@ test("PR #3815 persisted-shape routing prefixes are rejected", () => {
     for (const prefix of [
       "packages/kernel/src/domain/",
       "packages/kernel/src/schemas/",
-      "packages/kernel/src/store/",
-      "packages/kernel/src/projection/",
+      "packages/storage/src/store/",
+      "packages/storage/src/projection/",
       "packages/preset/src/",
       "packages/preset/assets/",
     ]) {

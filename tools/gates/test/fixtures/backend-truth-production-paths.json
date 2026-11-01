@@ -8,10 +8,10 @@
   { "path": "packages/gui/src/renderer/model/types.ts", "module": "gui" },
   { "path": "packages/gui/src/renderer/triadic-data.ts", "module": "gui" },
   { "path": "packages/kernel/src/index.ts", "module": "kernel" },
-  { "path": "packages/kernel/src/projection/decision-readiness-projection.ts", "module": "kernel" },
-  { "path": "packages/kernel/src/projection/fact-event-projection.ts", "module": "fact" },
-  { "path": "packages/kernel/src/projection/rebuildable-task-projection.ts", "module": "kernel" },
-  { "path": "packages/kernel/src/projection/relation-graph-projection.ts", "module": "kernel" },
-  { "path": "packages/kernel/src/projection/types.ts", "module": "kernel" },
+  { "path": "packages/storage/src/projection/decision-readiness-projection.ts", "module": "storage" },
+  { "path": "packages/storage/src/projection/fact-event-projection.ts", "module": "storage" },
+  { "path": "packages/storage/src/projection/rebuildable-task-projection.ts", "module": "storage" },
+  { "path": "packages/storage/src/projection/relation-graph-projection.ts", "module": "storage" },
+  { "path": "packages/kernel/src/ports/projection-types.ts", "module": "kernel" },
   { "path": "packages/kernel/src/schemas/harness-check-report.ts", "module": "kernel" }
 ]

@@ -7,7 +7,7 @@
 *fail-closed* 的意思就是字面意思。证据不足,或某项检查没通过,写入就会被**拒绝**,而不是被放行。安全的默认值是"否",你必须自己赚得那个"是"。默认开放的系统,信任的前提是"什么都没出错";fail-closed 的系统则假设"可能出错了",要求你先证明没出错,记录才会改变。
 
 承重写入统一经过 daemon 的 **RepoCell 单写队列**。已校验事件与 command outcome 先在 SQLite 中提交，再发布到
-Git。接受边界实现见 `packages/kernel/src/store/sqlite-event-store.ts`。
+Git。接受边界实现见 `packages/storage/src/store/sqlite-event-store.ts`。
 
 ## 三扇门
 

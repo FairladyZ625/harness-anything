@@ -725,6 +725,7 @@ const record = (step, value) => {
 let projection = null;
 try {
   const kernel = await import(toUrl(path.join(BUILD_ROOT, "packages/kernel/src/index.ts")));
+  const storage = await import(toUrl(path.join(BUILD_ROOT, "packages/storage/src/index.ts")));
   const { readTaskDispatches } = await import(toUrl(path.join(BUILD_ROOT, "packages/daemon/src/dispatch-read.ts")));
   // Record the root the build itself resolves, so the receipt shows the data it read is the data
   // the copy actually holds — not an empty default directory next to it.
@@ -735,9 +736,9 @@ try {
     configPath: layout.configPath ?? null,
     taskProjectionPath: layout.taskProjectionPath,
   });
-  const store = kernel.makeTaskEventReader({ repoId: REPO_ID, rootDir: WORKSPACE });
+  const store = storage.makeTaskEventReader({ repoId: REPO_ID, rootDir: WORKSPACE });
   record("store-head", store.readHead() ?? null);
-  projection = kernel.makeTaskProjection({ rootDir: WORKSPACE, eventStore: store, catchUpLimit: 32 });
+  projection = storage.makeTaskProjection({ rootDir: WORKSPACE, eventStore: store, catchUpLimit: 32 });
   record("attach-catch-up", projection.catchUp?.() ?? "async-only");
   const index = projection.readTaskIndex({ limit: 5 });
   const rows = index.rows ?? [];
@@ -920,13 +921,13 @@ export async function main(argv, session = {}) {
     // no matter how the dist was provisioned. (Both are null/absent only in a tree with no git,
     // where there is nothing to compare.)
     if (
-      typeof receipt.build.commit === "string" &&
+      typeof receipt.build.headCommit === "string" &&
       typeof receipt.build.loadedBuildId === "string" &&
-      receipt.build.commit !== receipt.build.loadedBuildId
+      receipt.build.headCommit !== receipt.build.loadedBuildId
     )
       receipt.failures.push({
         phase: "build-identity",
-        message: `daemon ran commit ${receipt.build.commit} but the loaded dist is ${receipt.build.loadedBuildId}`,
+        message: `selected build commit ${receipt.build.headCommit} but the loaded dist is ${receipt.build.loadedBuildId}`,
       });
     const pid = started.receipt.pid;
     daemonHandle = { pid, userRoot, daemonId, buildRoot: build.root, workspace };

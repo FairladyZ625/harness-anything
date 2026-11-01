@@ -8,14 +8,8 @@ import { requestLocalDaemonJsonRpc } from "@harness-anything/daemon/internal/cli
 import { canonicalRoot, workspaceId } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { readDaemonPid } from "@harness-anything/daemon/internal/runtime";
 import { openBootstrappedRepoCell as openRepoCell } from "../../daemon/test/repo-settings.fixture.ts";
-import {
-  activateEmptyCanonicalGeneration,
-  compileSettingsChangedEvent,
-  makeTaskEventReader,
-  makeTaskEventStore,
-  readSettingsFacet,
-  repositorySettings,
-} from "@harness-anything/kernel";
+import { compileSettingsChangedEvent, readSettingsFacet, repositorySettings } from "@harness-anything/kernel";
+import { activateEmptyCanonicalGeneration, makeTaskEventReader, makeTaskEventStore } from "@harness-anything/storage";
 
 import {
   cli,

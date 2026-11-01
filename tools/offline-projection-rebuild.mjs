@@ -12,11 +12,11 @@ if (!repoRootArg) {
   process.exit(2);
 }
 const repoRoot = path.resolve(repoRootArg),
-  kernelRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), ".."),
-  kernel = await import(pathToFileURL(path.join(kernelRoot, "packages/kernel/src/index.ts")).href),
-  eventStore = kernel.makeTaskEventReader({ repoId, rootDir: repoRoot }),
+  repositoryRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), ".."),
+  storage = await import(pathToFileURL(path.join(repositoryRoot, "packages/storage/src/index.ts")).href),
+  eventStore = storage.makeTaskEventReader({ repoId, rootDir: repoRoot }),
   head = eventStore.readHead(),
-  projection = kernel.makeTaskProjection({ rootDir: repoRoot, eventStore });
+  projection = storage.makeTaskProjection({ rootDir: repoRoot, eventStore });
 try {
   const receipt = projection.rebuild();
   console.log(

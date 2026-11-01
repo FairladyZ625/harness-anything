@@ -7,7 +7,7 @@ import {
   runtimeStateDirectory,
 } from "./migration-import-authored-audit.ts";
 import { decodeLegacyExecution, destinationLinkConflict, symlinkTarget, utf8File } from "./migration-import-legacy.ts";
-import { isMigrationImportRecord, nonEmpty } from "./migration-import-report.ts";
+import { isMigrationImportRecord, nonEmpty } from "@harness-anything/storage";
 import type { AuthoredDisposition, Prepared } from "./migration-import-types.ts";
 
 export function classifyAuthored(

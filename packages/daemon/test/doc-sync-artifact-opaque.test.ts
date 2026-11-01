@@ -6,21 +6,18 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
-  decideDocWrite,
   createImmutableLegacyGenerationSnapshot,
   convertLegacyGeneration,
   createLedgerBackup,
   runCompletionGenerationConversion,
   legacyGenerationSnapshotPath,
-  docSyncWritePlan,
   makeTaskEventReader,
   makeTaskEventStore,
   makeTaskProjection,
-  parseDocWriteIntent,
-  sha256Bytes,
   sqliteLedgerPath,
-} from "@harness-anything/kernel";
-import { preflightConvertedGenerationActivation } from "../../kernel/test/store/canonical-generation.fixtures.ts";
+} from "@harness-anything/storage";
+import { decideDocWrite, docSyncWritePlan, parseDocWriteIntent, sha256Bytes } from "@harness-anything/kernel";
+import { preflightConvertedGenerationActivation } from "../../storage/test/store/canonical-generation.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";

@@ -6,10 +6,9 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
 import {
   consumeKnownError,
-  makeTaskEventReader,
-  makeTaskProjection,
   runtimeDefinitionSnapshotArtifact,
   type AgentDefinitionSnapshot,
 } from "@harness-anything/kernel";

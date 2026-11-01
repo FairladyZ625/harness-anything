@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
-import { cmdShellInvocation } from "@harness-anything/kernel";
+import { cmdShellInvocation } from "@harness-anything/storage";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 import { repositoryBaseRef } from "./schedule-occurrence-workspace.ts";
 

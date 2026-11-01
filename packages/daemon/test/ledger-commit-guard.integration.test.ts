@@ -9,7 +9,7 @@ import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { resolveRepoBootstrap, type RepoBootstrapRequest } from "../src/repo-bootstrap.ts";
 import { openFencedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
-import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
+import { openPersistentWriterEpoch } from "@harness-anything/storage";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import type { DaemonAuthenticationContext } from "../src/transport/auth-context.ts";
 

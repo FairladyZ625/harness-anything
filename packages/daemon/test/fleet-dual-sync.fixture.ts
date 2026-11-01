@@ -9,9 +9,9 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
-import { makeTaskEventReader } from "@harness-anything/kernel";
+import { makeTaskEventReader } from "@harness-anything/storage";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
+import { openPersistentWriterEpoch } from "@harness-anything/storage";
 import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
 import { applyFleetMirrorCut, locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";

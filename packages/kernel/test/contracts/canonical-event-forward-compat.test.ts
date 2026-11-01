@@ -15,7 +15,7 @@ import {
   parseCanonicalEvent,
   validateCurrentCanonicalEvent,
 } from "../../src/domain/doc-sync.contract.ts";
-import { eventShapeMigrations, type EventShapeCut } from "../../src/store/event-shape-migration.ts";
+import { eventShapeMigrations, type EventShapeCut } from "../../../storage/src/store/event-shape-migration.ts";
 import { ownedContentForDeclarationEvent, type EntityUpsertEventV1 } from "../../src/domain/entity-event.ts";
 import type { CanonicalEventV1 } from "../../src/domain/doc-sync-types.ts";
 import { validateTaskV2 } from "../../src/domain/task.ts";

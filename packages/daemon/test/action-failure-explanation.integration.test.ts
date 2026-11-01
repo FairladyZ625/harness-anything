@@ -4,7 +4,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { before, after } from "node:test";
-import { actionDeclarations, makeTaskEventReader } from "@harness-anything/kernel";
+import { makeTaskEventReader } from "@harness-anything/storage";
+import { actionDeclarations } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { keycloakRealm, serveKeycloak } from "./keycloak.fixtures.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
@@ -409,7 +410,7 @@ test("post-accept response loss remains operational and never invents an Action 
       rootDir: canonicalRoot(rootDir),
       ownerId: "action-failure-operational",
       killpoint: (point) => {
-        if (armed && point === "after_sqlite_commit")
+        if (armed && point === "after_store_commit")
           throw Object.assign(new Error("Query the stable receipt before retrying."), {
             code: "publication_indeterminate",
           });

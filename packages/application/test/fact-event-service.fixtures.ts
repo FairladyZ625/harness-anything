@@ -8,8 +8,6 @@ import {
   compileFactWrite,
   deriveRelationId,
   isTaskEvent,
-  makeTaskEventStore,
-  makeTaskProjection,
   taskLifecycleWritePlan,
   type CanonicalEventStore,
   type CanonicalEventV1,
@@ -19,6 +17,7 @@ import {
   type FactEventV1,
   type TaskProjection,
 } from "@harness-anything/kernel";
+import { makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
 import { makeDecisionService, makeFactService } from "../src/index.ts";
 import { realizedDecisionBody } from "../../../tools/fixtures/task-plan.mjs";
 

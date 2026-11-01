@@ -31,7 +31,7 @@ it gets — a pond that only takes inflow eventually turns green.
 Our bet is that the fix is not better note-taking. It's promoting that trail into
 **structured entities with a durable record** — SQLite accepts their events and
 required content; Git publishes readable Markdown. The implementation lives in
-`packages/kernel/src/store/sqlite-task-event-store.ts`.
+`packages/storage/src/store/sqlite-task-event-store.ts`.
 
 Not a scratchpad. Entities with lifecycles, state machines, and typed relations
 between them. A choice becomes a **decision** that can be proposed, accepted, and

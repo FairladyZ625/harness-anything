@@ -2,18 +2,16 @@ import { scheduleOccurrenceSettlementOwner } from "./schedule-runtime-outcome.ts
 import { dispatchTaskReview, reviewDispatchKey } from "./task-review-dispatch.ts";
 import { resolveAgentRuntimeDeclaration } from "./agent-declaration-resolution.ts";
 import { readObservedRuntimeSession } from "./agent-runtime-read.ts";
+import { createEntityStore, makeTaskEventStore, type DispatchRecordLeaseSettlement } from "@harness-anything/storage";
 import {
   bindWriterGenerationToken,
   consumeKnownError,
-  createEntityStore,
   isSameExecution,
   isSamePerson,
-  makeTaskEventStore,
   runtimeSessionActionIds,
   type AgentRuntimeEventV1,
   type CanonicalEventAppendReceipt,
   type DaemonRepoMode,
-  type DispatchRecordLeaseSettlement,
   type EventPublicationKillpoint,
   type SettingsV1,
   type WriterGeneration,
@@ -98,7 +96,7 @@ import { cancelRejectedSquadChildren } from "./squad-run-state.ts";
 import { reconcileAbandonedTaskWorktrees } from "./task-worktree.ts";
 import { makeAgentActionRuntime, makeSquadActionRuntime } from "./squad-action-runtime.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
-import { withWriterEpochFenceDescriptor } from "./writer-epoch.ts";
+import { withWriterEpochFenceDescriptor } from "@harness-anything/storage";
 import { repoCellLatchedMessage } from "./repo-cell-latched-message.ts";
 import { backupRepo, drillRepoBackup } from "./repo-all-purge.ts";
 

@@ -20,7 +20,6 @@ import {
   deriveRelationId,
   docSyncWritePlan,
   DOC_POLICY_ID,
-  makeTaskEventStore,
   REPLAY_TASK_GRAPH,
   sha256Text,
   taskLifecycleWritePlan,
@@ -33,7 +32,11 @@ import type { DecisionEventDraftV1 } from "@harness-anything/kernel/internal/dom
 import type { FactEventDraftV1 } from "@harness-anything/kernel/internal/domain/fact-event";
 import type { TaskCreatedEvent } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract";
 import { canonicalRoot, workspaceId } from "../../src/protocol/daemon-protocol.contract.ts";
-import { openPersistentWriterEpoch, type WriterEpochFenceDescriptor } from "../../src/writer-epoch.ts";
+import {
+  makeTaskEventStore,
+  openPersistentWriterEpoch,
+  type WriterEpochFenceDescriptor,
+} from "@harness-anything/storage";
 import { openWriterSupervisor } from "../../src/writer-supervisor.ts";
 import { openRepoCell } from "../../src/repo-cell.ts";
 import { openBootstrappedRepoCell } from "../repo-settings.fixture.ts";

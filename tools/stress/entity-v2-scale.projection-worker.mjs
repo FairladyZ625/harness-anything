@@ -1,5 +1,5 @@
 import { parentPort, workerData } from "node:worker_threads";
-import { makeTaskEventReader, makeTaskProjection } from "../../packages/kernel/src/index.ts";
+import { makeTaskEventReader, makeTaskProjection } from "../../packages/storage/src/index.ts";
 
 // Follows a ledger that another thread is appending to, the way a running daemon keeps its projection
 // current. The parent posts { revision, digest } once that revision is final; the follower stops there.

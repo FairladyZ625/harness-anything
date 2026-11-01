@@ -1,6 +1,7 @@
 import { locateFleetMirrorView, type FleetMirrorView } from "./fleet-edge-mirror.ts";
 import { withReplicaGeneration } from "./fleet/replica-generation.ts";
-import { openSqliteEventStore, sha256Bytes, type CanonicalEventStore } from "@harness-anything/kernel";
+import { openSqliteEventStore } from "@harness-anything/storage";
+import { sha256Bytes, type CanonicalEventStore } from "@harness-anything/kernel";
 
 export function readCanonicalRuntimeResult(store: Pick<CanonicalEventStore, "readContentBlob">, ref: string): string {
   const match = /^artifact:runtime-result\/sha256\/([a-f0-9]{64})$/u.exec(ref);

@@ -7,7 +7,8 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
-import { docSyncWritePlan, makeTaskEventReader, makeTaskEventStore } from "@harness-anything/kernel";
+import { docSyncWritePlan } from "@harness-anything/kernel";
+import { makeTaskEventReader, makeTaskEventStore } from "@harness-anything/storage";
 import {
   createLedgerBackup,
   openSqliteEventStore,
@@ -15,7 +16,7 @@ import {
   sqliteLedgerPath,
   sha256Bytes,
   type DocEventV1,
-} from "../../kernel/test/store/canonical-generation.fixtures.ts";
+} from "../../storage/test/store/canonical-generation.fixtures.ts";
 
 const cli = fileURLToPath(new URL("../src/index.ts", import.meta.url)),
   repoId = "activation-test";

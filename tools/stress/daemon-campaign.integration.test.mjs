@@ -146,9 +146,9 @@ async function daemonDenominators() {
   const all = await generateCoverageDenominators({ repoRoot }),
     sourceFiles = [
       "packages/kernel/src/daemon/registry.ts",
-      "packages/daemon/src/writer-epoch.ts",
-      "packages/kernel/src/projection/rebuildable-task-projection-database.ts",
-      "packages/kernel/src/store/event-shape-migration.ts",
+      "packages/storage/src/writer-epoch.ts",
+      "packages/storage/src/projection/rebuildable-task-projection-database.ts",
+      "packages/storage/src/store/event-shape-migration.ts",
       "packages/daemon/src/runtime-spawn-adoption.ts",
       "packages/daemon/src/runtime.ts",
     ],

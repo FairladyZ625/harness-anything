@@ -62,9 +62,9 @@ function runGate(root) {
 test("integrity single-source check rejects duplicate stable hash helpers", () => {
   const root = makeGateRoot("ha-integrity-single-source-");
   writeCanonicalStableHash(root);
-  mkdirSync(path.join(root, "packages/kernel/src/projection"), { recursive: true });
+  mkdirSync(path.join(root, "packages/storage/src/projection"), { recursive: true });
   writeFileSync(
-    path.join(root, "packages/kernel/src/projection/bad.ts"),
+    path.join(root, "packages/storage/src/projection/bad.ts"),
     "function stablePayloadHash(value) { return value; }\n",
     "utf8",
   );

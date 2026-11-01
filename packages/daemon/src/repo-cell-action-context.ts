@@ -1,10 +1,10 @@
 import type { RepoCellCore } from "./repo-cell.ts";
 import type { makeTaskLifecycleService } from "@harness-anything/application/internal/task-lifecycle-service";
+import type { DispatchRecordLeaseSettlement } from "@harness-anything/storage";
 import type {
   CanonicalEventAppendReceipt,
   CanonicalEventStore,
   DaemonRepoMode,
-  DispatchRecordLeaseSettlement,
   EventPublicationKillpoint,
   LocalSettingsV1,
   RepositorySettingsV1,

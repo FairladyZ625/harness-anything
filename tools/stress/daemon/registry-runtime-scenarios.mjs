@@ -4,7 +4,7 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { makeTaskEventReader } from "../../../packages/kernel/src/index.ts";
+import { makeTaskEventReader } from "../../../packages/storage/src/index.ts";
 import { localUserDaemonEndpoint } from "../../../packages/daemon/src/client/local-daemon-target.ts";
 import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
 import { daemonProcessAlive } from "../../../packages/daemon/src/daemon-singleton.ts";

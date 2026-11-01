@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
-import { makeTaskEventReader, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
+import { makeTaskEventReader } from "@harness-anything/storage";
+import { type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";

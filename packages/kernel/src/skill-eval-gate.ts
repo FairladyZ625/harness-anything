@@ -335,3 +335,4 @@ function firstJsonObject(text: string): Record<string, unknown> | null {
 function skillEvalError(code: string, message: string): Error & { readonly code: string } {
   return Object.assign(new Error(message), { code });
 }
+/** @slice-activation kernel skill evaluation gate is consumed by preset skill execution. */

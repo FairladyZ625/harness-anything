@@ -4,12 +4,8 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import {
-  actionDeclarations,
-  deriveBasePolicyGroups,
-  effectivePolicyGroupScopes,
-  makeTaskProjectionReader,
-} from "@harness-anything/kernel";
+import { makeTaskProjectionReader } from "@harness-anything/storage";
+import { actionDeclarations, deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";

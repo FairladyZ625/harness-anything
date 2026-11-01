@@ -7,11 +7,10 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
 import {
   entityContentPath,
   deriveArtifactContentVersion,
-  makeTaskEventReader,
-  makeTaskProjection,
   requireEntityStoreKindContract,
 } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";

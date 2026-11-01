@@ -29,6 +29,11 @@
         "reason": "Kernel product sources ship to users; a checkout path literal here cannot describe an installed layout."
       },
       {
+        "value": "packages/storage/src/",
+        "ref": "dec_D90F19C8AAAF39747F8F0D6698",
+        "reason": "Storage product sources ship to users; a checkout path literal here cannot describe an installed layout."
+      },
+      {
         "value": "packages/preset/assets/",
         "ref": "task_427b738002d4d6c9c42a4cf010",
         "reason": "Shipped preset and template assets: #3815 hardcoded this root as a delivery-routing prefix that never matches a consumer repository."

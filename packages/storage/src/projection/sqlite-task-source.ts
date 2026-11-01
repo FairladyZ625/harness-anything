@@ -1,0 +1,262 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
+import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
+import type { CloseoutReadiness } from "@harness-anything/kernel/internal/domain/closeout-readiness.ts";
+import { closeoutReadiness as domainCloseoutReadiness } from "@harness-anything/kernel/internal/domain/index.ts";
+import { isPriorityTier, isTaskWorkKind } from "@harness-anything/kernel/internal/domain/task-metadata.ts";
+import { isDomainStatus } from "@harness-anything/kernel/internal/domain/lifecycle-status.ts";
+import { taskBoardColumnOf } from "@harness-anything/kernel/internal/domain/task-board-projection.ts";
+import { isPackageDisposition } from "@harness-anything/kernel/internal/domain/package-disposition.ts";
+import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
+import type { HarnessLayout, HarnessLayoutInput } from "@harness-anything/kernel/internal/layout/index.ts";
+import { resolveHarnessLayout } from "@harness-anything/kernel/internal/layout/index.ts";
+import {
+  readFrontmatter,
+  readNestedScalar,
+  readScalar,
+} from "@harness-anything/kernel/internal/markdown/frontmatter.ts";
+import type {
+  ProjectionCanonicalStatus,
+  CoordinationStatus,
+  ProjectionWarning,
+  TaskFieldExtensionProjection,
+  TaskProjectionRow,
+} from "@harness-anything/kernel/internal/ports/projection-types.ts";
+import { readDirNamesIfPresent, readTextFileIfPresent, statPathIfPresent } from "./toctou-safe-fs.ts";
+
+export function readMarkdownSource(rootInput: HarnessLayoutInput): {
+  readonly entries: ReadonlyArray<TaskSourceEntry>;
+  readonly hash: string;
+  readonly warnings: ReadonlyArray<ProjectionWarning>;
+} {
+  const source = readTaskProjectionSource(rootInput);
+  return {
+    entries: source.entries,
+    hash: hashText(JSON.stringify(source.sourceInputs)),
+    warnings: source.warnings,
+  };
+}
+
+export function readTaskProjectionSourceHashInputs(
+  rootInput: HarnessLayoutInput,
+): ReadonlyArray<TaskProjectionSourceHashInput> {
+  return readTaskProjectionSource(rootInput).sourceInputs;
+}
+
+function readTaskProjectionSource(rootInput: HarnessLayoutInput): {
+  readonly entries: ReadonlyArray<TaskSourceEntry>;
+  readonly sourceInputs: ReadonlyArray<TaskProjectionSourceHashInput>;
+  readonly warnings: ReadonlyArray<ProjectionWarning>;
+} {
+  const layout = resolveHarnessLayout(rootInput);
+  const rootDir = layout.rootDir;
+  const tasksDir = layout.tasksRoot;
+  const warnings: ProjectionWarning[] = [];
+  const entries: TaskSourceEntry[] = [];
+  const taskEntries = existsSync(tasksDir) ? readDirNamesIfPresent(tasksDir) : [];
+  for (const name of (taskEntries ?? []).sort()) {
+    const indexPath = path.join(tasksDir, name, "INDEX.md");
+    if (!existsSync(indexPath)) continue;
+    const body = readTextFileIfPresent(indexPath);
+    if (body === null) continue;
+    try {
+      entries.push({
+        taskId: name,
+        indexPath,
+        body,
+        frontmatter: parseFrontmatter(body),
+      });
+    } catch (error) {
+      consumeKnownError(error);
+      warnings.push({
+        code: "source_malformed",
+        source: "source-package",
+        severity: "hard-fail",
+        message: error instanceof Error ? error.message : `Malformed task package: ${name}`,
+        repairHint: "Restore valid task-package/v2 frontmatter before running projection reads or post-merge checks.",
+      });
+    }
+  }
+
+  const taskIndexInputs = entries.map((entry) => ({
+      kind: "task-index",
+      sourcePath: sourcePath(rootDir, entry.indexPath),
+      body: entry.body,
+    })),
+    remainingSourceInputs = [...readTaskSupplementalSourceInputs(rootDir, entries)].sort((a, b) =>
+      a.sourcePath.localeCompare(b.sourcePath),
+    );
+  return {
+    entries,
+    sourceInputs: [...taskIndexInputs, ...remainingSourceInputs],
+    warnings,
+  };
+}
+
+export interface TaskSourceEntry {
+  readonly taskId: string;
+  readonly indexPath: string;
+  readonly body: string;
+  readonly frontmatter: string;
+}
+
+export interface TaskProjectionSourceHashInput {
+  readonly kind: string;
+  readonly sourcePath: string;
+  readonly body: string;
+}
+
+export function taskEntryToRow(
+  layout: HarnessLayout,
+  entry: TaskSourceEntry,
+  fieldExtensions: ReadonlyArray<TaskFieldExtensionProjection> = [],
+): TaskProjectionRow {
+  const rootDir = layout.rootDir;
+  const rawStatus = readScalar(entry.frontmatter, "  status") || "unknown";
+  const canonicalStatus = isDomainStatus(rawStatus) ? rawStatus : "unknown";
+  const rawDisposition = readScalar(entry.frontmatter, "packageDisposition") || "active";
+  const packageDisposition = isPackageDisposition(rawDisposition) ? rawDisposition : "active";
+  const lifecycleEngine = readScalar(entry.frontmatter, "  engine") || "local";
+  const source = sourcePath(rootDir, entry.indexPath);
+  const taskDir = path.dirname(entry.indexPath);
+  return {
+    schema: "sqlite-task-row/v1",
+    taskId: readScalar(entry.frontmatter, "task_id") || entry.taskId,
+    title: readTaskTitle(entry.frontmatter) || entry.taskId,
+    ...readParent(entry.frontmatter),
+    canonicalStatus,
+    coordinationStatus: coordinationStatus(canonicalStatus),
+    rawStatus,
+    packageDisposition,
+    closeoutReadiness: projectCloseoutReadiness(canonicalStatus),
+    lifecycleEngine,
+    freshness: canonicalStatus === "unknown" || !isPackageDisposition(rawDisposition) ? "stale-but-usable" : "fresh",
+    updatedAt: (statPathIfPresent(entry.indexPath)?.mtime ?? new Date(0)).toISOString(),
+    source: lifecycleEngine === "local" ? "local-document" : "external-engine",
+    sourcePath: source,
+    ...readExtensionMetadata(entry.frontmatter),
+    ...readFieldExtensions(entry.frontmatter, fieldExtensions),
+    ...readTaskMetadata(entry.frontmatter),
+    hasLessonCandidates: existsSync(path.join(taskDir, "lesson_candidates.md")),
+    ...readCreatedBy(entry.frontmatter),
+  };
+}
+
+function readTaskTitle(frontmatter: string): string {
+  const value = readScalar(frontmatter, "title");
+  if (!value.startsWith('"')) return value;
+  try {
+    const decoded = JSON.parse(value) as unknown;
+    return typeof decoded === "string" ? decoded : value;
+  } catch {
+    return value;
+  }
+}
+
+function parseFrontmatter(body: string): string {
+  const frontmatter = readFrontmatter(body);
+  if (!frontmatter) throw new Error("INDEX.md missing frontmatter");
+  return frontmatter;
+}
+
+function readCreatedBy(frontmatter: string): {
+  readonly createdBy?: { readonly name: string; readonly email: string };
+} {
+  const block = frontmatter.match(/^createdBy:\n((?:[ \t]+[^\n]*\n?)*)/mu)?.[1];
+  if (!block) return {};
+  const name = readNestedScalar(block, "name");
+  const email = readNestedScalar(block, "email");
+  return name && email ? { createdBy: { name, email } } : {};
+}
+
+function readParent(frontmatter: string): { readonly parentTaskId?: string } {
+  const parentTaskId = readScalar(frontmatter, "parent");
+  return parentTaskId ? { parentTaskId } : {};
+}
+
+function readExtensionMetadata(frontmatter: string): {
+  readonly vertical?: string;
+  readonly preset?: string;
+  readonly profile?: string;
+} {
+  const vertical = readScalar(frontmatter, "vertical");
+  const preset = readScalar(frontmatter, "preset");
+  const profile = readScalar(frontmatter, "profile");
+  return {
+    ...(vertical ? { vertical } : {}),
+    ...(preset ? { preset } : {}),
+    ...(profile ? { profile } : {}),
+  };
+}
+
+function readFieldExtensions(
+  frontmatter: string,
+  extensions: ReadonlyArray<TaskFieldExtensionProjection>,
+): { readonly fieldExtensions?: Readonly<Record<string, string | null>> } {
+  if (extensions.length === 0) return {};
+  const values = Object.fromEntries(
+    extensions.map((extension) => {
+      const rawValue = readScalar(frontmatter, extension.field);
+      return [extension.field, extension.values.includes(rawValue) ? rawValue : extension.default];
+    }),
+  );
+  return Object.values(values).some((value) => value !== null) ? { fieldExtensions: values } : {};
+}
+
+function readTaskMetadata(frontmatter: string): Pick<TaskProjectionRow, "workKind" | "riskTier" | "urgency"> {
+  const workKind = readScalar(frontmatter, "workKind");
+  const riskTier = readScalar(frontmatter, "riskTier");
+  const urgency = readScalar(frontmatter, "urgency");
+  return {
+    ...(isTaskWorkKind(workKind) ? { workKind } : {}),
+    ...(isPriorityTier(riskTier) ? { riskTier } : {}),
+    ...(isPriorityTier(urgency) ? { urgency } : {}),
+  };
+}
+
+function readTaskSupplementalSourceInputs(
+  rootDir: string,
+  entries: ReadonlyArray<TaskSourceEntry>,
+): ReadonlyArray<TaskProjectionSourceHashInput> {
+  return entries
+    .flatMap((entry) => [
+      { kind: "task-review", path: path.join(path.dirname(entry.indexPath), "review.md") },
+      { kind: "task-closeout", path: path.join(path.dirname(entry.indexPath), "closeout.md") },
+    ])
+    .filter((input) => existsSync(input.path))
+    .flatMap((input) => {
+      const body = readTextFileIfPresent(input.path);
+      return body === null
+        ? []
+        : [
+            {
+              kind: input.kind,
+              sourcePath: sourcePath(rootDir, input.path),
+              body,
+            },
+          ];
+    });
+}
+
+function coordinationStatus(status: ProjectionCanonicalStatus): CoordinationStatus {
+  return status === "unknown" ? "unknown" : (taskBoardColumnOf(status) ?? "unknown");
+}
+
+function projectCloseoutReadiness(status: ProjectionCanonicalStatus): CloseoutReadiness {
+  if (status === "unknown") return "missing";
+  return domainCloseoutReadiness({
+    task: { status, iteration: 0, completionGateIds: [] },
+    executions: [],
+    reviews: [],
+    consents: [],
+    gateWitnesses: [],
+  }).readiness;
+}
+
+export function sourcePath(rootDir: string, filePath: string): string {
+  return path.relative(rootDir, filePath).split(path.sep).join("/");
+}
+
+function hashText(text: string): string {
+  return `sha256:${sha256Text(text)}`;
+}

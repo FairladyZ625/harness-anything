@@ -103,7 +103,7 @@ function sourceDigest() {
   for (const file of [
     "tools/stress/fleet/scale-runner.mjs",
     "tools/stress/fleet/scale-report.mjs",
-    "packages/kernel/src/store/sqlite-event-store.ts",
+    "packages/storage/src/store/sqlite-event-store.ts",
     "packages/kernel/src/local/local-layout-file-system.ts",
     "tools/stress/core/controller.mjs",
     "tools/stress/core/receipt-log.mjs",

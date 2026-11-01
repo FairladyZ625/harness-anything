@@ -4,10 +4,10 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { type TLSSocket } from "node:tls";
 import { consumeKnownError, isContractVersionCompatible } from "@harness-anything/kernel";
-import { writeFileDurably } from "../durable-file.ts";
+import { writeFileDurably } from "@harness-anything/storage";
 import type { Delivery, FleetCenterOptions, SessionWindow, State, Upload } from "./center-types.ts";
 import { FleetFault } from "./center-types.ts";
-import { replicationSlotKey } from "./replication-slot.ts";
+import { replicationSlotKey } from "@harness-anything/storage";
 import {
   FLEET_CHUNK_BYTES,
   FLEET_FRAME_BYTES,

@@ -21,7 +21,7 @@ import {
   revokeReplicaView,
   updateReplicaGenerationPosition,
 } from "./replica-generation.ts";
-import type { BaseBackupMetadata } from "./basebackup.ts";
+import type { BaseBackupMetadata } from "@harness-anything/storage";
 import type { LedgerCutIdentity } from "@harness-anything/kernel";
 import {
   FleetUtf8LineDecoder,
@@ -93,7 +93,7 @@ export interface FleetReplicaStreamOptions extends FleetPeerOptions {
   readonly idleTimeoutMs?: number;
   /** Called with each position the replica acknowledged as durably applied and queryable. */
   readonly onApplied?: (
-    position: import("@harness-anything/kernel").ReplicationPosition,
+    position: import("@harness-anything/storage").ReplicationPosition,
     changedPaths?: readonly string[],
   ) => void | Promise<void>;
 }
@@ -222,7 +222,7 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
         // Superseded generations go now unless a read still pins one; its release collects it.
         await generations.collect();
       },
-      apply: (commit: import("@harness-anything/kernel").ReplicationCommit) => {
+      apply: (commit: import("@harness-anything/storage").ReplicationCommit) => {
         if (!opened) throw new Error("replica generation is unavailable");
         opened.apply(commit);
       },
@@ -230,11 +230,11 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
         if (!opened) throw new Error("replica generation is unavailable");
         await opened.installObject(sha256, file);
       },
-      project: async (_position: import("@harness-anything/kernel").ReplicationPosition) => {
+      project: async (_position: import("@harness-anything/storage").ReplicationPosition) => {
         if (!opened) throw new Error("replica generation is unavailable");
         await opened.project(_position);
       },
-      updatePosition: (position: import("@harness-anything/kernel").ReplicationPosition) =>
+      updatePosition: (position: import("@harness-anything/storage").ReplicationPosition) =>
         updateReplicaGenerationPosition(viewRoot, position),
       changedPaths: (paths: readonly string[]) => {
         if (pendingChangedPaths) for (const changed of paths) pendingChangedPaths.add(changed);

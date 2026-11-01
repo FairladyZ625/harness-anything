@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, renameSync, writeFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { completionGenerationFixtures, convertFrozenCompletionSample } from "../completion-generation-fixtures.mjs";
-import { makeOfflineCompletionChain } from "../../../packages/kernel/src/store/offline-completion-chain.ts";
+import { makeOfflineCompletionChain } from "../../../packages/storage/src/store/offline-completion-chain.ts";
 import { readOnlyGenerationOneFixtures } from "../canonical-event-generations.mjs";
 import {
   canonicalEventSchemas,

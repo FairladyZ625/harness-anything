@@ -13,9 +13,9 @@ import { withPolicyGroup } from "../../packages/daemon/test/keycloak-policy.fixt
 import { actor } from "../../packages/daemon/test/task-surface.fixtures.ts";
 import { serializePersistedCanonicalEvent } from "../../packages/kernel/src/domain/doc-sync.contract.ts";
 import { sha256Text } from "../../packages/kernel/src/integrity/stable-hash.ts";
-import { openSqliteEventStore } from "../../packages/kernel/src/store/sqlite-event-store.ts";
-import { canonicalEventContentClaims, makeTaskEventStore } from "../../packages/kernel/src/store/task-event-store.ts";
-import { docBundle, eventAt, initRepo } from "../../packages/kernel/test/store/task-event-store.fixtures.ts";
+import { openSqliteEventStore } from "../../packages/storage/src/store/sqlite-event-store.ts";
+import { canonicalEventContentClaims, makeTaskEventStore } from "../../packages/storage/src/store/task-event-store.ts";
+import { docBundle, eventAt, initRepo } from "../../packages/storage/test/store/task-event-store.fixtures.ts";
 import { generateCoverageDenominators } from "./core/denominators.mjs";
 import { oracleO2, oracleO3, oracleO8 } from "./core/oracles.mjs";
 import { buildStressReport, emitStressReport } from "./core/report.mjs";
@@ -25,13 +25,15 @@ const repoRoot = path.resolve(import.meta.dirname, "../..");
 const boundaryFixture = path.join(import.meta.dirname, "storage/storage-boundary-fixture.mjs");
 const shadowFixture = path.join(import.meta.dirname, "storage/repo-cell-shadow-fixture.mjs");
 const seed = "stress-s2-matrix-20260905";
+const straceAvailable =
+  process.platform === "linux" && spawnSync("strace", ["--version"], { stdio: "ignore" }).status === 0;
 
 test(
   "S2 F02/F03/F06/F07/F08 exercises storage candidates and rejects one red model per family",
   {
     concurrency: false,
     timeout: 180_000,
-    skip: process.platform !== "linux" ? "requires Linux strace and POSIX SIGKILL semantics" : false,
+    skip: !straceAvailable ? "requires Linux strace and POSIX SIGKILL semantics" : false,
   },
   async () => {
     const scratch = mkdtempSync(path.join(tmpdir(), "ha-stress-s2-matrix-"));
@@ -426,7 +428,7 @@ async function runPublicationBoundaries(root) {
   const killpoints = [
     "before_event_write",
     "after_event_write",
-    "after_sqlite_commit",
+    "after_store_commit",
     "before_response_write",
     "after_response_write",
     "after_git_commit",
@@ -491,8 +493,8 @@ async function storageDenominators() {
   const storage = all.required.filter(
     ({ source, kind }) =>
       [
-        "packages/kernel/src/store/sqlite-event-store.ts",
-        "packages/kernel/src/store/sqlite-task-event-store.ts",
+        "packages/storage/src/store/sqlite-event-store.ts",
+        "packages/storage/src/store/sqlite-task-event-store.ts",
         "packages/kernel/src/local/local-layout-file-system.ts",
         "packages/daemon/src/repo-cell.ts",
       ].some((file) => source.includes(file)) && ["claim-point", "durable-boundary"].includes(kind),

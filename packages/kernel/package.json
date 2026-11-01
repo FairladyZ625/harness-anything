@@ -15,9 +15,18 @@
   "publishConfig": {
     "access": "public",
     "exports": {
-      ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
-      "./browser": { "types": "./dist/browser.d.ts", "default": "./dist/browser.js" },
-      "./runtime-effort": { "types": "./dist/domain/runtime-effort.d.ts", "default": "./dist/domain/runtime-effort.js" },
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./browser": {
+        "types": "./dist/browser.d.ts",
+        "default": "./dist/browser.js"
+      },
+      "./runtime-effort": {
+        "types": "./dist/domain/runtime-effort.d.ts",
+        "default": "./dist/domain/runtime-effort.js"
+      },
       "./contract-version": "./dist/domain/contract-version.js",
       "./daemon-registry": "./dist/daemon/registry.js",
       "./internal/domain/closeout-readiness": "./dist/domain/closeout-readiness.js",
@@ -36,19 +45,60 @@
       "./internal/domain/task-lifecycle.contract": "./dist/domain/task-lifecycle.contract.js",
       "./internal/domain/task-wip-policy": "./dist/domain/task-wip-policy.js",
       "./internal/domain/workspace-summary": "./dist/domain/workspace-summary.js",
+      "./internal/domain/*.ts": {
+        "types": "./dist/domain/*.d.ts",
+        "default": "./dist/domain/*.js"
+      },
+      "./internal/integrity/*.ts": {
+        "types": "./dist/integrity/*.d.ts",
+        "default": "./dist/integrity/*.js"
+      },
+      "./internal/layout/*.ts": {
+        "types": "./dist/layout/*.d.ts",
+        "default": "./dist/layout/*.js"
+      },
+      "./internal/local/*.ts": {
+        "types": "./dist/local/*.d.ts",
+        "default": "./dist/local/*.js"
+      },
+      "./internal/markdown/*.ts": {
+        "types": "./dist/markdown/*.d.ts",
+        "default": "./dist/markdown/*.js"
+      },
+      "./internal/ports/*.ts": {
+        "types": "./dist/ports/*.d.ts",
+        "default": "./dist/ports/*.js"
+      },
       "./internal/error-consumption": "./dist/error-consumption.js",
       "./internal/integrity/stable-hash": "./dist/integrity/stable-hash.js",
-      "./internal/projection/cold-rebuild-source": "./dist/projection/cold-rebuild-source.js",
-      "./internal/projection/historical-event-normalization": "./dist/projection/historical-event-normalization.js"
+      "./internal/daemon/registry.ts": {
+        "types": "./dist/daemon/registry.d.ts",
+        "default": "./dist/daemon/registry.js"
+      },
+      "./internal/schemas/vertical-definition.ts": {
+        "types": "./dist/schemas/vertical-definition.d.ts",
+        "default": "./dist/schemas/vertical-definition.js"
+      },
+      "./internal/composition/receipt-acceptance.ts": {
+        "types": "./dist/composition/receipt-acceptance.d.ts",
+        "default": "./dist/composition/receipt-acceptance.js"
+      }
     }
   },
-  "engines": { "node": ">=24" },
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "build:publish": "tsc -p tsconfig.publish.json",
     "prepack": "npm run build:publish && node ../../tools/package-exports-lifecycle.mjs prepare",
     "postpack": "node ../../tools/package-exports-lifecycle.mjs restore"
   },
-  "files": ["dist", "schemas", "README.md", "package.json"],
+  "files": [
+    "dist",
+    "schemas",
+    "README.md",
+    "package.json"
+  ],
   "exports": {
     ".": {
       "types": "./src/index.ts",
@@ -80,10 +130,52 @@
     "./internal/domain/task-lifecycle.contract": "./src/domain/task-lifecycle.contract.ts",
     "./internal/domain/task-wip-policy": "./src/domain/task-wip-policy.ts",
     "./internal/domain/workspace-summary": "./src/domain/workspace-summary.ts",
+    "./internal/domain/*.ts": {
+      "types": "./src/domain/*.ts",
+      "default": "./src/domain/*.ts"
+    },
+    "./internal/integrity/*.ts": {
+      "types": "./src/integrity/*.ts",
+      "default": "./src/integrity/*.ts"
+    },
+    "./internal/layout/*.ts": {
+      "types": "./src/layout/*.ts",
+      "default": "./src/layout/*.ts"
+    },
+    "./internal/local/*.ts": {
+      "types": "./src/local/*.ts",
+      "default": "./src/local/*.ts"
+    },
+    "./internal/markdown/*.ts": {
+      "types": "./src/markdown/*.ts",
+      "default": "./src/markdown/*.ts"
+    },
+    "./internal/ports/*.ts": {
+      "types": "./src/ports/*.ts",
+      "default": "./src/ports/*.ts"
+    },
     "./internal/error-consumption": "./src/error-consumption.ts",
     "./internal/integrity/stable-hash": "./src/integrity/stable-hash.ts",
-    "./internal/projection/cold-rebuild-source": "./src/projection/cold-rebuild-source.ts",
-    "./internal/projection/historical-event-normalization": "./src/projection/historical-event-normalization.ts"
+    "./internal/composition/receipt-acceptance": {
+      "types": "./src/composition/receipt-acceptance.ts",
+      "default": "./src/composition/receipt-acceptance.ts"
+    },
+    "./internal/composition/receipt-acceptance.ts": {
+      "types": "./src/composition/receipt-acceptance.ts",
+      "default": "./src/composition/receipt-acceptance.ts"
+    },
+    "./internal/schemas/*.ts": {
+      "types": "./src/schemas/*.ts",
+      "default": "./src/schemas/*.ts"
+    },
+    "./internal/daemon/registry.ts": {
+      "types": "./src/daemon/registry.ts",
+      "default": "./src/daemon/registry.ts"
+    },
+    "./internal/schemas/vertical-definition.ts": {
+      "types": "./src/schemas/vertical-definition.ts",
+      "default": "./src/schemas/vertical-definition.ts"
+    }
   },
   "dependencies": {
     "ajv": "6.15.0",

@@ -14,8 +14,8 @@ import {
 import { freezeDeclaredWritePlan } from "../../../packages/kernel/src/domain/write-chain.contract.ts";
 import { sha256Text } from "../../../packages/kernel/src/integrity/stable-hash.ts";
 import { contentObjectRelativePath } from "../../../packages/kernel/src/layout/ledger-object-layout.ts";
-import { makeTaskProjection } from "../../../packages/kernel/src/projection/rebuildable-task-projection.ts";
-import { makeTaskEventStore } from "../../../packages/kernel/src/store/task-event-store.ts";
+import { makeTaskProjection } from "../../../packages/storage/src/projection/rebuildable-task-projection.ts";
+import { makeTaskEventStore } from "../../../packages/storage/src/store/task-event-store.ts";
 import { lifecycleHarness } from "../../../packages/application/test/task-lifecycle-test-harness.ts";
 import { assertWriteTargetDeclared } from "../../../packages/application/src/task-lifecycle-service.ts";
 import { removeTemporaryDirectory } from "../../temporary-directory-cleanup.mjs";
@@ -177,7 +177,7 @@ test("G29 doc publication rejects extra, missing, and late targets before Git or
     assert.deepEqual(store.currentCommit(), baseCommit);
     assert.deepEqual(store.currentCut(), base);
     const receipt = store.append({ event, plan, blobs: [blob] });
-    assert.deepEqual(projection.apply(event, plan).metrics, { sqliteTransactions: 1, reducedItems: 1 });
+    assert.deepEqual(projection.apply(event, plan).metrics, { storeTransactions: 1, reducedItems: 1 });
     assert.deepEqual(receipt.metrics.changedPaths, []); // Acceptance performs no Git publication.
     await store.settlePendingMaterialization();
     assert.equal(store.followerStatus().git.status, "verified");

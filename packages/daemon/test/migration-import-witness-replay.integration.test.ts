@@ -6,14 +6,8 @@ import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import test from "node:test";
-import {
-  REPLAY_TASK_GRAPH,
-  canonicalizeContractValue,
-  makeTaskEventReader,
-  makeTaskEventStore,
-  readSettingsFacet,
-  sha256Text,
-} from "@harness-anything/kernel";
+import { makeTaskEventReader, makeTaskEventStore } from "@harness-anything/storage";
+import { REPLAY_TASK_GRAPH, canonicalizeContractValue, readSettingsFacet, sha256Text } from "@harness-anything/kernel";
 import { compileRepoTaskPackage } from "@harness-anything/preset";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { blob, claim, prepare } from "../src/migration-import-events.ts";

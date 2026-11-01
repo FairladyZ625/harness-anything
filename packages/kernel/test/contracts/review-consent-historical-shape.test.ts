@@ -13,7 +13,7 @@ import {
   type TaskEventV1,
   type TaskLifecycleSnapshot,
 } from "../../src/domain/task-lifecycle.contract.ts";
-import { validateCanonicalWriteBundle } from "../../src/store/task-event-store-contract.ts";
+import { validateCanonicalWriteBundle } from "../../src/ports/canonical-event-store.ts";
 import { implementer, lifecycleFixture } from "../store/task-lifecycle-fixture.ts";
 
 // W8 (#4011) made `findings` and `resolutions` required on a newly written Review/v1. A consent

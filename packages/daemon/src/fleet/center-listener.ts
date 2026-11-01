@@ -21,8 +21,12 @@ import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import { createServer, type Server, type TLSSocket } from "node:tls";
 import { resolveHarnessLayout, sha256Bytes, TASK_EVENT_SHAPE_COMPAT_VERSION } from "@harness-anything/kernel";
 import { daemonBuildStamp } from "../build-identity.ts";
-import { readFileWindow, syncDirectory, syncFile } from "../durable-file.ts";
-import { openPersistentWriterEpoch, readLedgerWriterEpoch, type PersistentWriterEpoch } from "../writer-epoch.ts";
+import { readFileWindow, syncDirectory, syncFile } from "@harness-anything/storage";
+import {
+  openPersistentWriterEpoch,
+  readLedgerWriterEpoch,
+  type PersistentWriterEpoch,
+} from "@harness-anything/storage";
 import { runtimeErrorCode, runtimeErrorMessage } from "../runtime-spawn-errors.ts";
 import {
   discardOwnedClaims as discardOwnedClaimsImpl,
@@ -39,10 +43,10 @@ import {
   makeTaskProjection,
   openSqliteEventStore,
   sqliteLedgerPath,
-} from "@harness-anything/kernel";
+} from "@harness-anything/storage";
 import { runWalSender } from "./walsender.ts";
-import { createReplicationRetention, openReplicationSlots, replicationSlotKey } from "./replication-slot.ts";
-import { startBaseBackup } from "./basebackup.ts";
+import { createReplicationRetention, openReplicationSlots, replicationSlotKey } from "@harness-anything/storage";
+import { startBaseBackup } from "@harness-anything/storage";
 import { createReplicaStatusTracker } from "./replica-status.ts";
 /** The replication head poll interval: commit-to-edge latency floor versus idle reads. */
 const REPLICATION_HEAD_POLL_MS = 50;
@@ -222,7 +226,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   const projectionReady = new Map<string, Promise<void>>();
   const backupQueues = new Map<string, Promise<void>>();
   type CachedBackup = {
-    readonly archive: Promise<import("./basebackup.ts").BaseBackupArchive>;
+    readonly archive: Promise<import("@harness-anything/storage").BaseBackupArchive>;
     readonly directory: string;
     users: number;
     readonly releaseQueue: () => void;
@@ -314,7 +318,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     const lease = slots.claim({ repoId: frame.repoId, nodeId }, store.replicationPosition().history);
     const retention = retentionFor(frame.repoId);
     const source = {
-      read: (after: import("@harness-anything/kernel").ReplicationPosition) => {
+      read: (after: import("@harness-anything/storage").ReplicationPosition) => {
         const head = store.replicationPosition();
         // A slot beyond the retention cap has lost its suffix (max_slot_wal_keep_size): resync.
         if (head.sequence - after.sequence > retentionWindowCommits) return null;
@@ -324,7 +328,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       // Commits land in the repo writer process, so this process polls the head on a short timer; an
       // idle stream costs one indexed read per interval, never a spinning event loop.
       // Returning without a new commit makes the sender emit `replica.progress`: the idle keepalive.
-      wait: async (after: import("@harness-anything/kernel").ReplicationPosition, waitSignal: AbortSignal) => {
+      wait: async (after: import("@harness-anything/storage").ReplicationPosition, waitSignal: AbortSignal) => {
         const until = AbortSignal.any([
           waitSignal,
           AbortSignal.timeout(options.replicationKeepaliveMs ?? REPLICATION_KEEPALIVE_MS),

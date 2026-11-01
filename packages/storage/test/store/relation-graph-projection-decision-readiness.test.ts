@@ -1,0 +1,228 @@
+// harness-test-tier: integration
+import assert from "node:assert/strict";
+import { mkdirSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import test from "node:test";
+import { compileDecisionWrite, decisionWritePlan, renderDecisionDocument, sha256Text } from "@harness-anything/kernel";
+import { projectDecisionReadiness } from "../../src/projection/decision-readiness-projection.ts";
+import { readDecisionDocumentState, reduceDecisionEvent } from "../../src/projection/decision-event-projection.ts";
+import { withTempStore } from "./helpers.ts";
+
+import {
+  accepted,
+  applyDecision,
+  compileCurrent,
+  decisionProjectionDatabase,
+  git,
+  projectionFixture,
+  proposal,
+  testReadinessSource,
+} from "./relation-graph-projection.fixtures.ts";
+
+test("Decision readiness is commit-bound and ignores uncommitted worktree guesses", () => {
+  withTempStore((rootDir) => {
+    git(rootDir, "init");
+    git(rootDir, "config", "user.name", "Fixture");
+    git(rootDir, "config", "user.email", "fixture@example.test");
+    mkdirSync(path.join(rootDir, "packages/kernel"), { recursive: true });
+    writeFileSync(path.join(rootDir, "packages/kernel/index.ts"), "export const ready = true;\n");
+    git(rootDir, "add", ".");
+    git(rootDir, "commit", "-m", "base", {
+      GIT_AUTHOR_DATE: "2026-08-01T00:00:00Z",
+      GIT_COMMITTER_DATE: "2026-08-01T00:00:00Z",
+    });
+    const base = git(rootDir, "rev-parse", "HEAD"),
+      decision = {
+        decisionId: "dec_READY",
+        proposedAt: "2026-08-02T00:00:00.000Z",
+        appliesTo: { modules: ["kernel"], productLines: [] },
+      };
+    const source = testReadinessSource();
+    let readiness = projectDecisionReadiness({ rootDir, commitSha: base, decisions: [decision] }, source)[0]!;
+    assert.equal(readiness.appliesToDrift.state, "clear");
+    assert.equal(readiness.conflictMarker.state, "clear");
+    writeFileSync(path.join(rootDir, "packages/kernel/index.ts"), "<<<<<<< local\n=======\n>>>>>>> remote\n");
+    readiness = projectDecisionReadiness({ rootDir, commitSha: base, decisions: [decision] }, source)[0]!;
+    assert.equal(readiness.conflictMarker.state, "clear", "uncommitted worktree markers are not canonical truth");
+    git(rootDir, "add", ".");
+    git(rootDir, "commit", "-m", "canonical conflict", {
+      GIT_AUTHOR_DATE: "2026-08-03T00:00:00Z",
+      GIT_COMMITTER_DATE: "2026-08-03T00:00:00Z",
+    });
+    const head = git(rootDir, "rev-parse", "HEAD");
+    readiness = projectDecisionReadiness({ rootDir, commitSha: head, decisions: [decision] }, source)[0]!;
+    assert.equal(readiness.appliesToDrift.state, "drift");
+    assert.deepEqual(readiness.appliesToDrift.paths, ["packages/kernel/index.ts"]);
+    assert.equal(readiness.conflictMarker.state, "conflict");
+    assert.deepEqual(readiness.conflictMarker.paths, ["packages/kernel/index.ts"]);
+    const unknown = projectDecisionReadiness(
+      {
+        rootDir,
+        commitSha: head,
+        decisions: [
+          {
+            ...decision,
+            appliesTo: { modules: ["missing-module"], productLines: [] },
+          },
+        ],
+      },
+      source,
+    )[0]!;
+    assert.equal(unknown.appliesToDrift.state, "unknown");
+    assert.equal(unknown.conflictMarker.state, "unknown");
+  });
+});
+
+test("Decision readiness batches canonical Git reads across the ledger", () => {
+  const calls: string[][] = [];
+  const source = {
+      run: (_rootDir: string, args: readonly string[]) => {
+        calls.push([...args]);
+        return {
+          ok: true,
+          stdout: args[0] === "ls-tree" ? "packages/kernel/index.ts" : "",
+        };
+      },
+    },
+    count = 570;
+  const decisions = Array.from({ length: count }, (_, index) => ({
+    decisionId: `dec_SCALE_${index}`,
+    proposedAt: new Date(Date.UTC(2026, 7, 1) + index * 1_000).toISOString(),
+    appliesTo: { modules: ["kernel"], productLines: [] },
+  }));
+  const readiness = projectDecisionReadiness({ rootDir: "/fixture", commitSha: "a".repeat(40), decisions }, source);
+  assert.equal(readiness.length, count);
+  assert.equal(
+    readiness.every((row) => row.appliesToDrift.state === "clear" && row.conflictMarker.state === "clear"),
+    true,
+  );
+  assert.equal(
+    calls.length,
+    3,
+    `readiness opened ${calls.length} Git processes for ${count} decisions sharing one canonical scope`,
+  );
+});
+
+test("Replay accepts a document today's renderer no longer reproduces, as long as its content hash matches the signed claim", () => {
+  withTempStore((rootDir) => {
+    const fixture = projectionFixture(rootDir),
+      draft = proposal(1, "dec_LEGACY_RENDER"),
+      compiled = compileDecisionWrite({
+        decisionReviewRequirement: "off",
+        event: draft,
+        currentDecision: null,
+        currentRelations: [],
+        currentDocument: null,
+      });
+    // Stand in for a document written by an older renderer: strip a frontmatter line today's renderer always emits.
+    const legacyBody = compiled.body.replace(/^provenance: .*\n/mu, "");
+    assert.notEqual(legacyBody, compiled.body, "fixture must actually differ from what the current renderer produces");
+    const legacySha = sha256Text(legacyBody),
+      legacySize = Buffer.byteLength(legacyBody, "utf8");
+    const event = {
+      ...compiled.event,
+      payload: {
+        ...compiled.event.payload,
+        decisionDocumentClaim: {
+          ...compiled.event.payload.decisionDocumentClaim,
+          sha256: legacySha,
+          size: legacySize,
+        },
+      },
+    };
+    fixture.blobs.set(legacySha, Buffer.from(legacyBody, "utf8"));
+    fixture.appendEvent(event);
+    fixture.projection.apply(event, decisionWritePlan(event));
+    assert.equal(
+      fixture.projection.readDecision("dec_LEGACY_RENDER").decision?.decisionId,
+      "dec_LEGACY_RENDER",
+      "a historical document must replay even though the renderer has since evolved",
+    );
+  });
+});
+
+test("Decision projection requires an exact plan, consent pin, and document base", () => {
+  withTempStore((rootDir) => {
+    const fixture = projectionFixture(rootDir),
+      draft = proposal(1, "dec_EXACT"),
+      compiled = compileDecisionWrite({
+        decisionReviewRequirement: "off",
+        event: draft,
+        currentDecision: null,
+        currentRelations: [],
+        currentDocument: null,
+      });
+    assert.throws(() => fixture.projection.apply(compiled.event), /write plan/u);
+    assert.equal(fixture.projection.readDecision("dec_EXACT").decision, null);
+    applyDecision(fixture, draft);
+    const next = compileCurrent(fixture, accepted(2, "dec_EXACT")),
+      tampered = {
+        ...next.event,
+        payload: {
+          ...next.event.payload,
+          judgmentConsent: {
+            ...next.event.payload.judgmentConsent,
+            machineDigest: `sha256:${"0".repeat(64)}` as const,
+          },
+        },
+      },
+      stale = {
+        ...next.event,
+        payload: { ...next.event.payload, baseDocumentSha256: "0".repeat(64) },
+      };
+    fixture.blobs.set(next.blobs[0].sha256, Buffer.from(next.body));
+    assert.throws(() => fixture.projection.apply(tampered, decisionWritePlan(tampered)), /machine content cut/u);
+    assert.throws(() => fixture.projection.apply(stale, decisionWritePlan(stale)), /base.*mismatch/u);
+    assert.equal(fixture.projection.readDecision("dec_EXACT").decision?.state, "proposed");
+  });
+});
+
+test("Decision projection preserves authored option and claim order across two-digit ids", () => {
+  const draft = proposal(1, "dec_ORDER"),
+    numbered = (prefix: string) => Array.from({ length: 10 }, (_, index) => `${prefix}${index + 1}`),
+    event: typeof draft = {
+      ...draft,
+      payload: {
+        ...draft.payload,
+        chosen: numbered("CH").map((id) => ({ id, text: `Chosen ${id}` })),
+        rejected: numbered("RJ").map((id) => ({
+          id,
+          text: `Rejected ${id}`,
+          whyNot: `Why not ${id}`,
+        })),
+        claims: numbered("C").map((id) => ({
+          id,
+          text: `Claim ${id}`,
+          loadBearing: true,
+        })),
+      },
+    },
+    compiled = compileDecisionWrite({
+      decisionReviewRequirement: "off",
+      event,
+      currentDecision: null,
+      currentRelations: [],
+      currentDocument: null,
+    }),
+    db = decisionProjectionDatabase();
+  try {
+    reduceDecisionEvent(db, compiled.event);
+    const state = readDecisionDocumentState(db, event.decisionId);
+    assert.ok(state);
+    assert.deepEqual(
+      state.chosen.map(({ id }) => id),
+      numbered("CH"),
+    );
+    assert.deepEqual(
+      state.rejected.map(({ id }) => id),
+      numbered("RJ"),
+    );
+    assert.deepEqual(
+      state.claims.map(({ id }) => id),
+      numbered("C"),
+    );
+    assert.equal(renderDecisionDocument(state, null, event.payload.body), compiled.body);
+  } finally {
+    db.close();
+  }
+});

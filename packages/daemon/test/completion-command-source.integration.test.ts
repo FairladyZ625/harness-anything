@@ -4,12 +4,12 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, cpSync, readFileSync } f
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { makeTaskEventReader } from "@harness-anything/storage";
 import {
   INITIAL_SETTINGS_V1,
   writeRepositorySettingsFacet,
   currentGateRun,
   isTaskEvent,
-  makeTaskEventReader,
   emptyTaskLifecycleSnapshot,
   reduceTaskEvent,
 } from "@harness-anything/kernel";

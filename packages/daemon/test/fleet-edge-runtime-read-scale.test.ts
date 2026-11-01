@@ -5,15 +5,15 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { sha256Bytes } from "@harness-anything/kernel";
+import { installCostProbe, resetCostProbe, snapshotCostProbe } from "./fixtures/g1-cost-probe.mjs";
 import {
   activateEmptyCanonicalGeneration,
   makeTaskProjection,
   openSqliteEventStore,
-  sha256Bytes,
   sqliteLedgerPath,
-} from "@harness-anything/kernel";
-import { installCostProbe, resetCostProbe, snapshotCostProbe } from "./fixtures/g1-cost-probe.mjs";
-import { startBaseBackup } from "../src/fleet/basebackup.ts";
+  startBaseBackup,
+} from "@harness-anything/storage";
 import { installReplicaGeneration, readReplicaGeneration } from "../src/fleet/replica-generation.ts";
 import { readEdgeRuntimeRepository } from "../src/fleet-edge-runtime-read.ts";
 import {

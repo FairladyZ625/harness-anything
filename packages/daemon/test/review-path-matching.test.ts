@@ -36,7 +36,7 @@ test("settings entries group into one lane per agent, splitting directory prefix
   assert.deepEqual(
     reviewPathRules([
       "data-migration packages/kernel/src/domain/",
-      "data-migration packages/kernel/src/store/",
+      "data-migration packages/storage/src/store/",
       "data-migration tools/gates/canonical-event-compat.mjs",
       "gui-reviewer packages/gui/src/",
       "data-migration packages/kernel/src/domain/",
@@ -47,7 +47,7 @@ test("settings entries group into one lane per agent, splitting directory prefix
     [
       {
         agentId: "data-migration",
-        prefixes: ["packages/kernel/src/domain/", "packages/kernel/src/store/"],
+        prefixes: ["packages/kernel/src/domain/", "packages/storage/src/store/"],
         files: ["tools/gates/canonical-event-compat.mjs"],
       },
       { agentId: "gui-reviewer", prefixes: ["packages/gui/src/"], files: [] },
@@ -108,7 +108,7 @@ test("legacy lane routing uses the same normalized paths exposed by submission f
 
 test("incomplete legacy manifests conservatively seat every configured professional reviewer", () => {
   const cut = submission(["none", "merge commit 8ba0c5978 on main"]),
-    rules = reviewPathRules(["data-migration packages/kernel/src/store/", "gui-reviewer packages/gui/src/"]),
+    rules = reviewPathRules(["data-migration packages/storage/src/store/", "gui-reviewer packages/gui/src/"]),
     hits = reviewPathHits(cut, rules);
   assert.equal(hits.size, 2);
   for (const matched of hits.values())

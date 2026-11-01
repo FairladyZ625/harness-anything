@@ -8,7 +8,7 @@ directories, the contract each file must carry, and the ID shapes the schemas
 enforce.
 
 Authored Markdown is the published document surface of accepted entities.
-`packages/kernel/src/store/sqlite-task-event-store.ts` derives it from
+`packages/storage/src/store/sqlite-task-event-store.ts` derives it from
 canonical SQLite events and required objects. The paths below describe that
 authored surface; the acceptance boundary is described in
 [the write path](02-write-path.md).
@@ -57,7 +57,7 @@ facts simply have no such edge.
 
 Canonical content objects live beside `ledger.sqlite`, under the active local
 `store/generations/<generation>/objects/sha256/` directory.
-`packages/kernel/src/store/sqlite-event-store.ts` verifies required content
+`packages/storage/src/store/sqlite-event-store.ts` verifies required content
 claims and synchronizes object bytes and directory links before accepting the
 referencing events. Authored object copies are publication output, not the
 acceptance record.
@@ -124,7 +124,7 @@ just a field write — `decision-judgment-consent/v1` records consent pinned to
 a specific `decision-content-pin/v1`.
 
 Accepted operations are identified by their SQLite command outcomes and event
-intervals; see `packages/kernel/src/store/sqlite-event-store.ts` and
+intervals; see `packages/storage/src/store/sqlite-event-store.ts` and
 [the write path](02-write-path.md).
 
 ## The task package
@@ -154,7 +154,7 @@ vertical/preset/profile, `presetSnapshotDigest`, scaffold digests,
 one: machine-owned files are rewritten by the daemon, while `doc-sync`-owned
 narrative documents (`task_plan.md`, `closeout.md`, ...) flow through
 `ha doc status` / `ha doc sync --submit`. Task state comes from canonical
-events; `packages/kernel/src/store/sqlite-task-event-store.ts` publishes their
+events; `packages/storage/src/store/sqlite-task-event-store.ts` publishes their
 document view to `INDEX.md`.
 
 ## Fact documents

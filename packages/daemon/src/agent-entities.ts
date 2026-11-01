@@ -2,12 +2,11 @@ import { readProjectedAgentDeclaration } from "./agent-declaration-resolution.ts
 import { resolveAgentSkills } from "./agent-skills.ts";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { openEntityStore, type EntityStore } from "@harness-anything/storage";
 import {
   attributeEntityActionCriterion,
   consumeKnownError,
   getExecutableEntityAction,
-  openEntityStore,
-  type EntityStore,
   type TaskProjection,
 } from "@harness-anything/kernel";
 import {

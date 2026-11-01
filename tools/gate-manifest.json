@@ -178,9 +178,7 @@
         "lint",
         "entity-id-links"
       ],
-      "helperJobsNotRegisteredAsGates": [
-        "install"
-      ],
+      "helperJobsNotRegisteredAsGates": ["install"],
       "nonPullRequestGateJobs": [
         "full-check",
         "crlf-checkout",
@@ -199,12 +197,7 @@
       ]
     },
     "prBody": {
-      "pullRequestGateJobs": [
-        "pr-body-lint",
-        "production-delta",
-        "evidence-contract",
-        "dependency-policy-declaration"
-      ],
+      "pullRequestGateJobs": ["pr-body-lint", "production-delta", "evidence-contract", "dependency-policy-declaration"],
       "helperJobsNotRegisteredAsGates": [],
       "nonPullRequestGateJobs": []
     },
@@ -237,7 +230,12 @@
       "category": "lint",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/**/src/**","tools/gates/**","tools/check-poll-spin-boundary.mjs","tools/gate-allowlists/check-poll-spin-boundary.json"],
+      "localPathGlobs": [
+        "packages/**/src/**",
+        "tools/gates/**",
+        "tools/check-poll-spin-boundary.mjs",
+        "tools/gate-allowlists/check-poll-spin-boundary.json"
+      ],
       "authoritySource": ["dec_EF5F3820E81FB8A5266F1F3342#CH3"],
       "consumerScope": ["polling and spin syntax in production package sources and gate scripts"],
       "githubContext": {
@@ -277,7 +275,7 @@
       "category": "boundary",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/**/src/**","tools/**"],
+      "localPathGlobs": ["packages/**/src/**", "tools/**"],
       "authoritySource": ["dec_EF5F3820E81FB8A5266F1F3342#CH4", "dec_4190D5EA63D9DD208CE946F133#CH1"],
       "consumerScope": ["consumeKnownError, catch substitution, and online full-history reads"],
       "githubContext": { "requiredContexts": ["boundaries"], "workflowJobs": ["boundaries"], "nodeVersions": [24] },
@@ -313,7 +311,11 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/kernel/src/**","packages/gui/src/renderer/entity-docs.ts","tools/generate-entity-doc-contract.mjs"],
+      "localPathGlobs": [
+        "packages/kernel/src/**",
+        "packages/gui/src/renderer/entity-docs.ts",
+        "tools/generate-entity-doc-contract.mjs"
+      ],
       "authoritySource": ["tools/generate-entity-doc-contract.mjs", "task_5a8b9bb1cff98ebd897402f2d2"],
       "consumerScope": [
         "committed generated region of packages/gui/src/renderer/entity-docs.ts against the live kernel entity kind registry"
@@ -718,7 +720,7 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["**/*.js","**/*.mjs","**/*.ts","**/*.tsx","eslint.config.mjs"],
+      "localPathGlobs": ["**/*.js", "**/*.mjs", "**/*.ts", "**/*.tsx", "eslint.config.mjs"],
       "authoritySource": [
         "eslint.config.mjs",
         "tools/port-physical-io-boundary-known-debt.mjs",
@@ -829,7 +831,23 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/**/*.test.js","packages/**/*.test.mjs","packages/**/*.test.ts","packages/**/*.test.tsx","packages/**/*.spec.js","packages/**/*.spec.mjs","packages/**/*.spec.ts","packages/**/*.spec.tsx","tools/**/*.test.js","tools/**/*.test.mjs","tools/**/*.test.ts","tools/**/*.spec.js","tools/**/*.spec.mjs","tools/**/*.spec.ts","tools/test-tier-manifest.mjs"],
+      "localPathGlobs": [
+        "packages/**/*.test.js",
+        "packages/**/*.test.mjs",
+        "packages/**/*.test.ts",
+        "packages/**/*.test.tsx",
+        "packages/**/*.spec.js",
+        "packages/**/*.spec.mjs",
+        "packages/**/*.spec.ts",
+        "packages/**/*.spec.tsx",
+        "tools/**/*.test.js",
+        "tools/**/*.test.mjs",
+        "tools/**/*.test.ts",
+        "tools/**/*.spec.js",
+        "tools/**/*.spec.mjs",
+        "tools/**/*.spec.ts",
+        "tools/test-tier-manifest.mjs"
+      ],
       "authoritySource": ["tools/test-tier-manifest.mjs", "package.json:scripts.harness:check-test-tier-manifest"],
       "consumerScope": ["first-line tier markers for every discovered package and tool test"],
       "githubContext": {
@@ -897,7 +915,12 @@
       "changeControl": {
         "ordinaryImplementationMayModify": false,
         "requiresGovernanceEvidence": true,
-        "protectedSurfaces": ["tools/test-tier-manifest.mjs", "package.json:scripts.test:fast", "packages/daemon/test/local-json-rpc.test.ts", "tools/gate-allowlists/action-catalog-null.json"]
+        "protectedSurfaces": [
+          "tools/test-tier-manifest.mjs",
+          "package.json:scripts.test:fast",
+          "packages/daemon/test/local-json-rpc.test.ts",
+          "tools/gate-allowlists/action-catalog-null.json"
+        ]
       },
       "bypassFixtureRequired": false,
       "executionSurfaces": {
@@ -1227,7 +1250,7 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/**","tools/**"],
+      "localPathGlobs": ["packages/**", "tools/**"],
       "authoritySource": [
         "harness/governance/standards/file-complexity-structural-decomposition-standard.md",
         "tools/check-file-complexity.mjs"
@@ -1282,7 +1305,7 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["**/*.js","**/*.mjs","**/*.ts","**/*.tsx","prettier.config.mjs","package.json"],
+      "localPathGlobs": ["**/*.js", "**/*.mjs", "**/*.ts", "**/*.tsx", "prettier.config.mjs", "package.json"],
       "authoritySource": ["prettier.config.mjs", "package.json:lint-staged", "tools/check-format.mjs"],
       "consumerScope": [
         "every tracked source and test file in the lint-staged extension set, checked against prettier.config.mjs"
@@ -1320,7 +1343,7 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/**/src/**","tools/check-cli-structure.mjs"],
+      "localPathGlobs": ["packages/**/src/**", "tools/check-cli-structure.mjs"],
       "authoritySource": ["packages/cli/src", "tools/check-cli-structure.mjs"],
       "consumerScope": ["CLI source structure"],
       "githubContext": {
@@ -1372,7 +1395,14 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/cli/src/**","packages/daemon/src/**","packages/preset/src/**","packages/kernel/src/**","tools/tool-command-contract.mjs","tools/check-cli-help-contract.mjs"],
+      "localPathGlobs": [
+        "packages/cli/src/**",
+        "packages/daemon/src/**",
+        "packages/preset/src/**",
+        "packages/kernel/src/**",
+        "tools/tool-command-contract.mjs",
+        "tools/check-cli-help-contract.mjs"
+      ],
       "authoritySource": [
         "packages/daemon/src/protocol/daemon-protocol.contract.ts",
         "packages/preset/src/preset-command-contract.ts",
@@ -1430,7 +1460,7 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/cli/src/**","tools/check-cli-error-codes.mjs"],
+      "localPathGlobs": ["packages/cli/src/**", "tools/check-cli-error-codes.mjs"],
       "authoritySource": ["packages/cli/src/cli/thin-command.ts", "tools/check-cli-error-codes.mjs"],
       "consumerScope": ["CLI error code registry and CLI source usage"],
       "githubContext": {
@@ -1482,7 +1512,7 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/cli/src/**","packages/kernel/src/**","tools/check-error-classification.mjs"],
+      "localPathGlobs": ["packages/cli/src/**", "packages/kernel/src/**", "tools/check-error-classification.mjs"],
       "authoritySource": [
         "packages/kernel/src/domain/errors.ts",
         "packages/cli/src/cli/thin-command.ts",
@@ -1538,7 +1568,7 @@
       "category": "boundary",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["package.json","packages/**","tools/**"],
+      "localPathGlobs": ["package.json", "packages/**", "tools/**"],
       "authoritySource": [
         "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d1",
         "package.json:workspaces",
@@ -1594,7 +1624,7 @@
       "category": "boundary",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/**","tools/check-write-coordinator-boundary.mjs"],
+      "localPathGlobs": ["packages/**", "tools/check-write-coordinator-boundary.mjs"],
       "authoritySource": [
         "harness/adr/ADR-0016-write-coordinator-scope-authored-markdown-boundary.md",
         "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#f6-write-coordinator",
@@ -1602,7 +1632,7 @@
         "task_01KWWCBRSV0V3AWTCM3ZZ1J998"
       ],
       "consumerScope": [
-        "packages/kernel/src/store/write-journal-coordinator.ts imports and local calls",
+        "packages/storage/src/store/write-journal-coordinator.ts imports and local calls",
         "metabolic write-admissibility policy modules named by ADR-0022 F6"
       ],
       "githubContext": {
@@ -1654,7 +1684,18 @@
       "category": "boundary",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/kernel/src/store/**","packages/kernel/src/local/**","packages/kernel/src/projection/**","packages/cli/src/**","tools/check-bypass-write-boundary.mjs","tools/check-bypass-write-boundary.test.mjs","tools/gates/test/bypass-write-boundary-allowlist-sync.test.mjs","tools/gate-allowlists/source-identity.mjs","tools/gate-allowlists/check-bypass-write-boundary.json","tools/gate-allowlists/load-gate-allowlist.mjs"],
+      "localPathGlobs": [
+        "packages/storage/src/store/**",
+        "packages/kernel/src/local/**",
+        "packages/storage/src/projection/**",
+        "packages/cli/src/**",
+        "tools/check-bypass-write-boundary.mjs",
+        "tools/check-bypass-write-boundary.test.mjs",
+        "tools/gates/test/bypass-write-boundary-allowlist-sync.test.mjs",
+        "tools/gate-allowlists/source-identity.mjs",
+        "tools/gate-allowlists/check-bypass-write-boundary.json",
+        "tools/gate-allowlists/load-gate-allowlist.mjs"
+      ],
       "authoritySource": [
         "harness/adr/ADR-0016-write-coordinator-scope-authored-markdown-boundary.md",
         "task_01KWW58383X74ZK28Y068CQ2TG",
@@ -1664,7 +1705,7 @@
         "dec_5EC2631352B17EE2BF4979E37E#CH2"
       ],
       "consumerScope": [
-        "AST-classified fs write calls in packages/kernel/src/store and packages/cli/src",
+        "AST-classified fs write calls in packages/storage/src/store, packages/kernel/src/local, and packages/cli/src",
         "ADR-0016 D1 bypass write channel closure and explicit exemption registry"
       ],
       "githubContext": {
@@ -1718,7 +1759,12 @@
       "category": "boundary",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/**","tools/write-road-registry.json","tools/check-write-road-registry.mjs","tools/check-write-coordinator-boundary.mjs"],
+      "localPathGlobs": [
+        "packages/**",
+        "tools/write-road-registry.json",
+        "tools/check-write-road-registry.mjs",
+        "tools/check-write-coordinator-boundary.mjs"
+      ],
       "authoritySource": [
         "task_01KX19G7VXRHSEH6YE7GHYMJYP",
         "dec_mrcda9kw",
@@ -1784,7 +1830,7 @@
       "category": "boundary",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/**","tools/**"],
+      "localPathGlobs": ["packages/**", "tools/**"],
       "authoritySource": [
         "packages/kernel/src/index.ts",
         "packages/kernel/tsconfig.json",
@@ -1845,7 +1891,7 @@
       "category": "boundary",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/**","tools/**"],
+      "localPathGlobs": ["packages/**", "tools/**"],
       "authoritySource": [
         "packages/kernel/src/domain/relation-cycle.ts#findRelationCycleWitnesses",
         "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#f8-d4-projection-zero-consumption-dead-code--two-cycle-detectors",
@@ -1905,7 +1951,7 @@
       "category": "boundary",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/**","tools/check-domain-judgment-single-definition.mjs"],
+      "localPathGlobs": ["packages/**", "tools/check-domain-judgment-single-definition.mjs"],
       "authoritySource": [
         "decision/dec_399F48E3547D831F1199F51E84#CH1",
         "harness/context/research/2026-08-16-ddd-domain-modeling/10-blueprint.md#\u9886\u57df\u670d\u52a1\u8de8\u805a\u5408\u7684\u5224\u5b9a\u4ecd\u5728-domain-\u5c42",
@@ -1971,7 +2017,7 @@
       "category": "boundary",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/**","tools/check-relation-canonical-direction.mjs"],
+      "localPathGlobs": ["packages/**", "tools/check-relation-canonical-direction.mjs"],
       "authoritySource": [
         "packages/kernel/src/domain/relation-direction.ts",
         "packages/kernel/src/domain/entity-relation.ts#isAllowedRelationKindTriple",
@@ -2033,7 +2079,11 @@
       "category": "boundary",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/**","tools/check-task-event-aggregate-entry.mjs","tools/gate-allowlists/task-event-aggregate-entry.mjs"],
+      "localPathGlobs": [
+        "packages/**",
+        "tools/check-task-event-aggregate-entry.mjs",
+        "tools/gate-allowlists/task-event-aggregate-entry.mjs"
+      ],
       "authoritySource": [
         "packages/kernel/src/domain/task-lifecycle.contract.ts#TASK_LIFECYCLE_TRANSITIONS",
         "decision/dec_399F48E3547D831F1199F51E84#CH1",
@@ -2155,7 +2205,12 @@
       "category": "boundary",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/**","tools/scan-forbidden-symbols.mjs","tools/gate-allowlists/scan-forbidden-symbols.json","tools/gate-allowlists/load-gate-allowlist.mjs"],
+      "localPathGlobs": [
+        "packages/**",
+        "tools/scan-forbidden-symbols.mjs",
+        "tools/gate-allowlists/scan-forbidden-symbols.json",
+        "tools/gate-allowlists/load-gate-allowlist.mjs"
+      ],
       "authoritySource": [
         "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d6",
         "packages/** public contracts"
@@ -2210,7 +2265,12 @@
       "category": "boundary",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/**","tools/check-self-repo-path-literals.mjs","tools/gate-allowlists/check-self-repo-path-literals.json","tools/gate-allowlists/load-gate-allowlist.mjs"],
+      "localPathGlobs": [
+        "packages/**",
+        "tools/check-self-repo-path-literals.mjs",
+        "tools/gate-allowlists/check-self-repo-path-literals.json",
+        "tools/gate-allowlists/load-gate-allowlist.mjs"
+      ],
       "authoritySource": [
         "harness/tasks/task_427b738002d4d6c9c42a4cf010-no-self-repo-paths-in-product/task_plan.md",
         "packages/** product source"
@@ -2265,7 +2325,7 @@
       "category": "boundary",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/**","tools/check-integrity-single-source.mjs"],
+      "localPathGlobs": ["packages/**", "tools/check-integrity-single-source.mjs"],
       "authoritySource": [
         "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d6",
         "packages/** source @canonical-substrate marker declarations"
@@ -2373,7 +2433,7 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/**","tools/**",".github/workflows/**"],
+      "localPathGlobs": ["packages/**", "tools/**", ".github/workflows/**"],
       "authoritySource": [
         "tools/test-tier-manifest.mjs",
         "tools/integration-test-shards.mjs",
@@ -2497,7 +2557,7 @@
       "tierReason": null,
       "authoritySource": ["docs-release/", "tools/check-docs-release-map.mjs"],
       "consumerScope": ["public docs-release map"],
-      "localPathGlobs": ["README.md","docs-release/**","tools/check-docs-release-map.mjs"],
+      "localPathGlobs": ["README.md", "docs-release/**", "tools/check-docs-release-map.mjs"],
       "githubContext": {
         "requiredContexts": ["boundaries"],
         "workflowJobs": ["boundaries", "full-check"],
@@ -2547,7 +2607,15 @@
       "category": "meta-governance",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["package.json",".github/**","tools/gate-manifest.json","tools/check-gate-surface.mjs","tools/gate-*.mjs","tools/run-manifest-gates.mjs","tools/gate-allowlists/**"],
+      "localPathGlobs": [
+        "package.json",
+        ".github/**",
+        "tools/gate-manifest.json",
+        "tools/check-gate-surface.mjs",
+        "tools/gate-*.mjs",
+        "tools/run-manifest-gates.mjs",
+        "tools/gate-allowlists/**"
+      ],
       "authoritySource": [
         "harness/adr/ADR-0023-ci-gate-governance-authority-model.md#d7--meta-gate-guards-cigate-itself",
         "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d7--meta-gate-must-include-documented-bypass-fixture-gate-of-gates",
@@ -2621,7 +2689,14 @@
       "category": "meta-governance",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["package.json",".github/workflows/**","tools/gate-manifest.json","tools/check-gate-manifest-invariants.mjs","tools/check-pr-governance.mjs","tools/gate-*.mjs"],
+      "localPathGlobs": [
+        "package.json",
+        ".github/workflows/**",
+        "tools/gate-manifest.json",
+        "tools/check-gate-manifest-invariants.mjs",
+        "tools/check-pr-governance.mjs",
+        "tools/gate-*.mjs"
+      ],
       "authoritySource": [
         "decision/dec_mrepu7h7#CH1",
         "tools/gate-manifest.schema.md",
@@ -2674,7 +2749,11 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/cli/src/commands/extensions/**","packages/cli/src/cli/thin-command.ts","tools/check-template-command-surface.mjs"],
+      "localPathGlobs": [
+        "packages/cli/src/commands/extensions/**",
+        "packages/cli/src/cli/thin-command.ts",
+        "tools/check-template-command-surface.mjs"
+      ],
       "authoritySource": ["packages/cli/src/cli/thin-command.ts", "tools/check-template-command-surface.mjs"],
       "consumerScope": ["seeded task templates and current CLI command registry"],
       "githubContext": {
@@ -2726,7 +2805,11 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/cli/src/commands/extensions/**","packages/cli/src/cli/thin-command.ts","tools/check-locale-content.mjs"],
+      "localPathGlobs": [
+        "packages/cli/src/commands/extensions/**",
+        "packages/cli/src/cli/thin-command.ts",
+        "tools/check-locale-content.mjs"
+      ],
       "authoritySource": ["packages/cli/src/cli/thin-command.ts", "tools/check-locale-content.mjs"],
       "consumerScope": ["seeded zh-CN task templates"],
       "githubContext": {
@@ -2779,7 +2862,12 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/cli/src/commands/extensions/**","packages/cli/src/cli/thin-command.ts","packages/daemon/src/protocol/daemon-protocol.contract.ts","tools/check-catalog-schema.mjs"],
+      "localPathGlobs": [
+        "packages/cli/src/commands/extensions/**",
+        "packages/cli/src/cli/thin-command.ts",
+        "packages/daemon/src/protocol/daemon-protocol.contract.ts",
+        "tools/check-catalog-schema.mjs"
+      ],
       "authoritySource": [
         "packages/daemon/src/protocol/daemon-protocol.contract.ts",
         "packages/cli/src/cli/thin-command.ts",
@@ -2841,7 +2929,18 @@
         "docs-release/"
       ],
       "consumerScope": ["runtime release readiness declarations"],
-      "localPathGlobs": ["README.md","docs-release/**","package.json","packages/**/package.json","packages/gui/src/distribution/**",".github/workflows/**","tools/gate-manifest.json","tools/check-runtime-release-readiness.mjs","tools/public-ready-packages.mjs","tools/run-manifest-gates.mjs"],
+      "localPathGlobs": [
+        "README.md",
+        "docs-release/**",
+        "package.json",
+        "packages/**/package.json",
+        "packages/gui/src/distribution/**",
+        ".github/workflows/**",
+        "tools/gate-manifest.json",
+        "tools/check-runtime-release-readiness.mjs",
+        "tools/public-ready-packages.mjs",
+        "tools/run-manifest-gates.mjs"
+      ],
       "githubContext": {
         "requiredContexts": ["boundaries"],
         "workflowJobs": ["boundaries"],
@@ -2891,7 +2990,13 @@
       "category": "release-policy",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["package.json","packages/**/package.json","tools/check-package-policy.mjs","tools/public-ready-packages.mjs","tools/package-exports-lifecycle.mjs"],
+      "localPathGlobs": [
+        "package.json",
+        "packages/**/package.json",
+        "tools/check-package-policy.mjs",
+        "tools/public-ready-packages.mjs",
+        "tools/package-exports-lifecycle.mjs"
+      ],
       "authoritySource": [
         "harness/governance/standards/ci-cd-standard.md#local-distribution-and-release",
         "package.json",
@@ -3001,7 +3106,15 @@
       "category": "boundary",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["package.json","package-lock.json","packages/**","tools/check-implementation-contracts.mjs","tools/implementation-contract-evidence.mjs","tools/gate-allowlists/check-implementation-contracts.json","tools/gate-allowlists/load-gate-allowlist.mjs"],
+      "localPathGlobs": [
+        "package.json",
+        "package-lock.json",
+        "packages/**",
+        "tools/check-implementation-contracts.mjs",
+        "tools/implementation-contract-evidence.mjs",
+        "tools/gate-allowlists/check-implementation-contracts.json",
+        "tools/gate-allowlists/load-gate-allowlist.mjs"
+      ],
       "authoritySource": [
         "harness/governance/standards/implementation-contract-standard.md",
         "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d6",
@@ -3057,7 +3170,7 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/application/src/index.ts","tools/check-service-mappability.mjs"],
+      "localPathGlobs": ["packages/application/src/index.ts", "tools/check-service-mappability.mjs"],
       "authoritySource": ["packages/application/src", "packages/gui/src/api", "tools/check-service-mappability.mjs"],
       "consumerScope": ["service declarations and mappability projections"],
       "githubContext": {
@@ -3109,7 +3222,7 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/**/src/**","packages/**/package.json","tools/check-api-contract-registry.mjs"],
+      "localPathGlobs": ["packages/**/src/**", "packages/**/package.json", "tools/check-api-contract-registry.mjs"],
       "authoritySource": [
         "packages/gui/src/api/api-contract-registry.ts",
         "packages/gui/src/preload/allowlist.ts",
@@ -3168,7 +3281,11 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/kernel/src/**","packages/kernel/fixtures/schemas/**","tools/check-schema-contracts.mjs"],
+      "localPathGlobs": [
+        "packages/kernel/src/**",
+        "packages/kernel/fixtures/schemas/**",
+        "tools/check-schema-contracts.mjs"
+      ],
       "authoritySource": [
         "packages/kernel/src/schemas",
         "packages/gui/src/api/api-contract-registry.ts",
@@ -3224,7 +3341,12 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/kernel/src/**","tools/check-schema-field-coverage.mjs","tools/gate-allowlists/check-schema-field-coverage.json","tools/gate-allowlists/load-gate-allowlist.mjs"],
+      "localPathGlobs": [
+        "packages/kernel/src/**",
+        "tools/check-schema-field-coverage.mjs",
+        "tools/gate-allowlists/check-schema-field-coverage.json",
+        "tools/gate-allowlists/load-gate-allowlist.mjs"
+      ],
       "authoritySource": [
         "tools/gate-allowlists/check-schema-field-coverage.json",
         "decision/dec_F5B2CBF8B45042B6DA2824A7FA/CH2b"
@@ -3387,7 +3509,7 @@
       "category": "smoke",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/**/src/**","tools/smoke-legacy-intake.mjs"],
+      "localPathGlobs": ["packages/**/src/**", "tools/smoke-legacy-intake.mjs"],
       "authoritySource": ["packages/cli/src/cli/thin-command.ts", "tools/smoke-legacy-intake.mjs"],
       "consumerScope": ["W3 retired Legacy Intake command surface"],
       "githubContext": {
@@ -3676,7 +3798,16 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/kernel/src/**","packages/daemon/src/**","packages/kernel/fixtures/canonical-events/**","packages/daemon/fixtures/readside-responses/**","tools/gates/canonical-event-compat.mjs","tools/gates/canonical-event-generations.mjs","tools/gates/completion-generation-fixtures.*","tools/gates/git.mjs"],
+      "localPathGlobs": [
+        "packages/kernel/src/**",
+        "packages/daemon/src/**",
+        "packages/kernel/fixtures/canonical-events/**",
+        "packages/daemon/fixtures/readside-responses/**",
+        "tools/gates/canonical-event-compat.mjs",
+        "tools/gates/canonical-event-generations.mjs",
+        "tools/gates/completion-generation-fixtures.*",
+        "tools/gates/git.mjs"
+      ],
       "authoritySource": [
         "decision/dec_3CA0514AF96C0E8C1AE555A513#CH1",
         "decision/dec_3CA0514AF96C0E8C1AE555A513#CH3",
@@ -3754,7 +3885,14 @@
       "category": "boundary",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/kernel/src/domain/**","packages/gui/src/renderer/model/types.ts","packages/gui/src/renderer/triadic-data.ts","packages/daemon/src/protocol/daemon-protocol-vocabulary.ts","tools/check-status-vocabulary.mjs","tools/generate-daemon-status-vocabulary.mjs"],
+      "localPathGlobs": [
+        "packages/kernel/src/domain/**",
+        "packages/gui/src/renderer/model/types.ts",
+        "packages/gui/src/renderer/triadic-data.ts",
+        "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts",
+        "tools/check-status-vocabulary.mjs",
+        "tools/generate-daemon-status-vocabulary.mjs"
+      ],
       "authoritySource": [
         "packages/kernel/src/domain/status-vocabulary.ts",
         "decision/dec_399F48E3547D831F1199F51E84#CH1",
@@ -3815,7 +3953,13 @@
       "category": "boundary",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/daemon/src/**","packages/kernel/src/**","tools/check-sync-subprocess.mjs","tools/gate-allowlists/sync-subprocess-baseline.mjs","tools/gate-allowlists/source-identity.mjs"],
+      "localPathGlobs": [
+        "packages/daemon/src/**",
+        "packages/kernel/src/**",
+        "tools/check-sync-subprocess.mjs",
+        "tools/gate-allowlists/sync-subprocess-baseline.mjs",
+        "tools/gate-allowlists/source-identity.mjs"
+      ],
       "authoritySource": [
         "decision/dec_7F0604B4D53637BB6FF9875C8B#CH1",
         "decision/dec_7F0604B4D53637BB6FF9875C8B#CH2",
@@ -3876,7 +4020,11 @@
       "category": "local-consistency",
       "tier": "nightly-only",
       "tierReason": "Real-ledger GUI latency is host-sensitive, so only the committed shrink-only request/payload/latency ratchet is enforced; dec_F5B2CBF8B45042B6DA2824A7FA/CH3 moved the advisory ontology-advisory lane off the pull-request path (zero real catches in 60 days), keeping the gate on the nightly schedule and manual dispatch.",
-      "authoritySource": ["task_c03713017573032b7b7149b9b5", "tools/measure-gui-read-baseline.mjs", "decision/dec_F5B2CBF8B45042B6DA2824A7FA#CH3"],
+      "authoritySource": [
+        "task_c03713017573032b7b7149b9b5",
+        "tools/measure-gui-read-baseline.mjs",
+        "decision/dec_F5B2CBF8B45042B6DA2824A7FA#CH3"
+      ],
       "consumerScope": [
         "cold-load daemon reads for overview, board, graph, sessions, schedules, Agent/Squad, and Artifacts views",
         "per-view request count, response payload, IPC elapsed time, and daemon handler elapsed time"
@@ -3922,7 +4070,11 @@
       "category": "boundary",
       "tier": "nightly-only",
       "tierReason": "B13 stays in the advisory ontology-advisory job, which dec_F5B2CBF8B45042B6DA2824A7FA/CH3 moved off the pull-request path: the lane is continue-on-error and never blocked a PR, so its four real catches (most recently #3980) were visibility, not merge blocking. Detection is preserved on the nightly schedule and manual dispatch. Promotion to a required context remains a CEO-controlled switch after observation.",
-      "authoritySource": ["task_01130d097481420c8d59e1fe08", "decision/dec_99000027E6BCC263E341D38DC0/CH2", "decision/dec_F5B2CBF8B45042B6DA2824A7FA#CH3"],
+      "authoritySource": [
+        "task_01130d097481420c8d59e1fe08",
+        "decision/dec_99000027E6BCC263E341D38DC0/CH2",
+        "decision/dec_F5B2CBF8B45042B6DA2824A7FA#CH3"
+      ],
       "consumerScope": [
         "path-accounting sections in tools/gate-allowlists/*.json",
         "path fingerprints and known-debt entries in the five registered inline baseline modules",
@@ -4429,6 +4581,7 @@
       "localPathGlobs": [
         "packages/kernel/**",
         "packages/daemon/**",
+        "packages/storage/**",
         "packages/application/**",
         "packages/preset/**",
         "tools/gates/cost-budget.mjs",
@@ -4489,13 +4642,8 @@
       "category": "meta-governance",
       "tier": "pr-advisory",
       "tierReason": "The gate fixture suite is not a branch-protection required context; its blocking signal is the rewrite-ci.yml gate-contract-tests job (merged from the retired rebuild-gates.yml). Promotion to a required context remains a CEO-controlled switch.",
-      "authoritySource": [
-        "task_9a1058d01d5487ef3e44118485",
-        "tools/gates/contracts/gates.contract.mjs"
-      ],
-      "consumerScope": [
-        "every fixture suite under tools/gates/test executed by node --test in CI"
-      ],
+      "authoritySource": ["task_9a1058d01d5487ef3e44118485", "tools/gates/contracts/gates.contract.mjs"],
+      "consumerScope": ["every fixture suite under tools/gates/test executed by node --test in CI"],
       "githubContext": {
         "requiredContexts": [],
         "workflowJobs": ["gate-contract-tests"],
@@ -4531,13 +4679,8 @@
       "category": "smoke",
       "tier": "pr-advisory",
       "tierReason": "G20 is not a branch-protection required context; its blocking signal is the rewrite-ci.yml platform-smoke job (merged from the retired rebuild-gates.yml). Promotion to a required context remains a CEO-controlled switch.",
-      "authoritySource": [
-        "task_9a1058d01d5487ef3e44118485",
-        "tools/gates/platform-smoke.mjs"
-      ],
-      "consumerScope": [
-        "packaged CLI boot and cold-machine refusal behavior on ubuntu-latest and windows-latest"
-      ],
+      "authoritySource": ["task_9a1058d01d5487ef3e44118485", "tools/gates/platform-smoke.mjs"],
+      "consumerScope": ["packaged CLI boot and cold-machine refusal behavior on ubuntu-latest and windows-latest"],
       "githubContext": {
         "requiredContexts": [],
         "workflowJobs": ["platform-smoke"],
@@ -4577,10 +4720,7 @@
       "category": "meta-governance",
       "tier": "pr-advisory",
       "tierReason": "G25 is not a branch-protection required context; its blocking signal is the rewrite-ci.yml test-selection job (merged from the retired rebuild-gates.yml). Promotion to a required context remains a CEO-controlled switch.",
-      "authoritySource": [
-        "task_9a1058d01d5487ef3e44118485",
-        "tools/gates/test-selection.mjs"
-      ],
+      "authoritySource": ["task_9a1058d01d5487ef3e44118485", "tools/gates/test-selection.mjs"],
       "consumerScope": [
         "changed-path required test tier derivation for pull requests",
         "the governance-mechanism fixture requirement for gate wiring changes"
@@ -4624,13 +4764,8 @@
       "category": "smoke",
       "tier": "pr-advisory",
       "tierReason": "G30 is not a branch-protection required context; its blocking signal is the rewrite-ci.yml clean-build job (merged from the retired rebuild-gates.yml). Promotion to a required context remains a CEO-controlled switch.",
-      "authoritySource": [
-        "task_9a1058d01d5487ef3e44118485",
-        "tools/gates/clean-build.mjs"
-      ],
-      "consumerScope": [
-        "npm ci and workspace build from a clean temporary clone of the pull request tree"
-      ],
+      "authoritySource": ["task_9a1058d01d5487ef3e44118485", "tools/gates/clean-build.mjs"],
+      "consumerScope": ["npm ci and workspace build from a clean temporary clone of the pull request tree"],
       "githubContext": {
         "requiredContexts": [],
         "workflowJobs": ["clean-build"],

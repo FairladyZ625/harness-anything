@@ -14,8 +14,8 @@
   { "path": "packages/kernel/src/domain/task-lifecycle.contract.ts", "module": "kernel" },
   { "path": "packages/kernel/src/domain/write-chain.contract.ts", "module": "write-contract" },
   { "path": "packages/kernel/src/index.ts", "module": "kernel" },
-  { "path": "packages/kernel/src/projection/cold-rebuild-source.ts", "module": "kernel" },
-  { "path": "packages/kernel/src/projection/fact-event-projection.ts", "module": "fact" },
-  { "path": "packages/kernel/src/projection/rebuildable-task-projection.ts", "module": "kernel" },
-  { "path": "packages/kernel/src/store/task-event-store.ts", "module": "kernel" }
+  { "path": "packages/storage/src/projection/cold-rebuild-source.ts", "module": "storage" },
+  { "path": "packages/storage/src/projection/fact-event-projection.ts", "module": "storage" },
+  { "path": "packages/storage/src/projection/rebuildable-task-projection.ts", "module": "storage" },
+  { "path": "packages/storage/src/store/task-event-store.ts", "module": "storage" }
 ]

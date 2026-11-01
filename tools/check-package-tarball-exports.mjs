@@ -71,7 +71,7 @@ function targetExists(files, target) {
   if (normalized.startsWith("../") || path.isAbsolute(normalized)) return false;
   if (!normalized.includes("*")) return files.has(normalized);
   const expression = new RegExp(`^${normalized.split("*").map(escapeRegExp).join(".+")}$`, "u");
-  return [...files].some((file) => expression.test(file));
+  return [...files.keys()].some((file) => expression.test(file));
 }
 
 function escapeRegExp(value) {

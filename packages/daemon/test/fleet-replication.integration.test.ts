@@ -11,7 +11,8 @@ import path from "node:path";
 import test from "node:test";
 import { createHash, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
-import { makeTaskProjectionReader } from "@harness-anything/kernel";
+import { makeTaskProjectionReader } from "@harness-anything/storage";
+
 import { AccessAdminService } from "../src/access-admin-service.ts";
 import { createIdentitySession } from "../src/authorization-provider.ts";
 import {

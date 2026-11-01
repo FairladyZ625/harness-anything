@@ -12,11 +12,12 @@ import {
   provisionPolicyTestRepository,
 } from "./keycloak-policy.fixtures.ts";
 import { eventually } from "./schedule-actions.fixtures.ts";
-import { makeTaskEventReader, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
+import { makeTaskEventReader } from "@harness-anything/storage";
+import type { AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { operationId } from "../src/repo-cell-proof.ts";
-import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
+import { openPersistentWriterEpoch } from "@harness-anything/storage";
 
 const settlementActor = withPolicyGroup(
   {
@@ -323,7 +324,7 @@ test("runtime attempt-terminal settles the Schedule occurrence while the RepoCel
       // Ledger visibility alone must not satisfy the terminal read assertion below.
       killpoint: async (point) => {
         if (
-          point === "after_sqlite_commit" &&
+          point === "after_store_commit" &&
           makeTaskEventReader({ repoId, rootDir: root })
             .read()
             .events.some((event) => event.type === "schedule_run_settled")

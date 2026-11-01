@@ -6,10 +6,9 @@ import { readEdgeDocWorkspace } from "./fleet-edge-doc-read.ts";
 import type { FleetMirrorView } from "./fleet-edge-mirror.ts";
 import type { RepositoryReadFrame } from "./protocol/repository-read-frame.ts";
 import { readEdgeViewBlob } from "./runtime-result-read.ts";
+import { makeTaskEventReader, makeTaskProjectionReader } from "@harness-anything/storage";
 import {
   consumeKnownError,
-  makeTaskEventReader,
-  makeTaskProjectionReader,
   isDomainStatus,
   timestamp,
   type TaskProjection,

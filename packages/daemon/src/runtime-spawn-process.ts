@@ -7,7 +7,8 @@ import { StringDecoder } from "node:string_decoder";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import type { CanonicalEventStore, TaskProjection } from "@harness-anything/kernel";
-import { cmdShellInvocation, consumeKnownError } from "@harness-anything/kernel";
+import { cmdShellInvocation } from "@harness-anything/storage";
+import { consumeKnownError } from "@harness-anything/kernel";
 import type { PreparedRuntimeLaunch, RuntimeInstanceKind } from "./agent-runtime-instances.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import {

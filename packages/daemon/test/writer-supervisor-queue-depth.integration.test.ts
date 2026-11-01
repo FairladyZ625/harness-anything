@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { policyTestCenter, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
+import { openPersistentWriterEpoch } from "@harness-anything/storage";
 import { openWriterSupervisor } from "../src/writer-supervisor.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";

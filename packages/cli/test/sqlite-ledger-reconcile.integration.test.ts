@@ -9,7 +9,7 @@ import test from "node:test";
 import type { DaemonHost } from "@harness-anything/daemon/internal/daemon-host";
 import { listenFleetTls } from "@harness-anything/daemon/internal/fleet/center";
 import { daemonStdioLogPath } from "@harness-anything/daemon/internal/lifecycle-log";
-import { openPersistentWriterEpoch } from "@harness-anything/daemon/internal/writer-epoch";
+import { openPersistentWriterEpoch } from "@harness-anything/storage";
 import { localUserDaemonEndpoint } from "../src/daemon/client.ts";
 
 import { signInProcessPolicyTestUser } from "../../daemon/test/keycloak-process-policy.fixtures.ts";

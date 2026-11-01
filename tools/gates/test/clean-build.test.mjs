@@ -45,3 +45,12 @@ test("G30 resolves workspace links inside the archive tree", () => {
 
   assert.equal(result.ok, true, result.errors.join("\n"));
 });
+
+test("G30 resolves wildcard export targets when an archived source matches", () => {
+  const { rootDir } = makeRepo({
+    "package.json": JSON.stringify({ private: true, exports: { "./internal/*.ts": "./src/*.ts" } }),
+    "src/contract.ts": "export {};\n",
+  });
+  const result = evaluateCleanBuild(rootDir);
+  assert.equal(result.ok, true, result.errors.join("\n"));
+});

@@ -13,7 +13,8 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { getEntityKindContract, makeTaskEventStore, makeTaskProjection } from "@harness-anything/kernel";
+import { makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
+import { getEntityKindContract } from "@harness-anything/kernel";
 import {
   prepareAgentEntityInstall,
   readAgentDeclaration,

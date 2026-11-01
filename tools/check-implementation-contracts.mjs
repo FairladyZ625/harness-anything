@@ -161,7 +161,7 @@ const hasGuiImplementation = files.some((file) =>
   /packages\/gui\/src\/(?:main|preload|renderer|api|terminal|doc-renderer)\//.test(relative(file)),
 );
 const hasDaemonImplementation = files.some((file) => relative(file).startsWith("packages/daemon/src/"));
-const hasStoreImplementation = files.some((file) => /packages\/kernel\/src\/store\//.test(relative(file)));
+const hasStoreImplementation = files.some((file) => /packages\/(?:kernel|storage)\/src\/store\//.test(relative(file)));
 const hasPublishImplementation = files.some((file) =>
   /packages\/(?:kernel|cli|gui)\/src\/.*publish/i.test(relative(file)),
 );
@@ -169,7 +169,7 @@ const hasLocalLifecycleImplementation =
   files.some((file) => relative(file) === "packages/daemon/src/repo-cell.ts") &&
   files.some((file) => relative(file) === "packages/cli/src/cli/thin-command.ts");
 const hasTaskProjectionImplementation = files.some(
-  (file) => relative(file) === "packages/kernel/src/projection/rebuildable-task-projection.ts",
+  (file) => relative(file) === "packages/storage/src/projection/rebuildable-task-projection.ts",
 );
 const hasExtensionModelImplementation = files.some(
   (file) => relative(file) === "packages/preset/src/preset-extension-model.ts",
@@ -219,7 +219,7 @@ if (hasDaemonImplementation) {
 
 if (hasStoreImplementation) {
   const coordinatorText = files
-    .filter((file) => relative(file).startsWith("packages/kernel/src/store/"))
+    .filter((file) => relative(file).startsWith("packages/storage/src/store/"))
     .map((file) => readFileSync(file, "utf8"))
     .join("\n");
   for (const requiredSnippet of storeRequiredSnippets) {
@@ -231,22 +231,22 @@ if (hasStoreImplementation) {
   const storeIndexExported = readFileSync(path.join(root, "packages/kernel/src/index.ts"), "utf8").includes("./store/");
   if (storeIndexExported) record("kernel public index must not export internal store implementations");
 
-  const storeTest = readFileSync(path.join(root, "packages/kernel/test/store/task-event-store.test.ts"), "utf8");
+  const storeTest = readFileSync(path.join(root, "packages/storage/test/store/task-event-store.test.ts"), "utf8");
   const daemonTest = readFileSync(
     path.join(root, "packages/daemon/test/json-rpc-task-settlement.integration.test.ts"),
     "utf8",
   );
   for (const evidence of missingEventStoreEvidence(storeTest, daemonTest))
     record(`W3 event-store tests must prove ${evidence}`);
-  const publisher = readFileSync(path.join(root, "packages/kernel/src/store/task-event-store.ts"), "utf8");
+  const publisher = readFileSync(path.join(root, "packages/storage/src/store/task-event-store.ts"), "utf8");
   for (const forbidden of ["update-index", "checkout", "reset", "restore"])
     if (publisher.includes(forbidden)) record(`object/ref event publisher must not expose Git ${forbidden}`);
   requireTestContract(
-    "packages/kernel/test/store/task-event-store.test.ts",
+    "packages/storage/test/store/task-event-store.test.ts",
     "store.git-follower-preserves-unrelated-worktree",
   );
   requireTestContract(
-    "packages/kernel/test/store/task-event-store.test.ts",
+    "packages/storage/test/store/task-event-store.test.ts",
     "store.history-independent-subprocess-cost",
   );
   requireTestContract(
@@ -283,7 +283,7 @@ if (hasLocalLifecycleImplementation) {
 
 if (hasTaskProjectionImplementation) {
   const projectionText = files
-    .filter((file) => relative(file).startsWith("packages/kernel/src/projection/"))
+    .filter((file) => relative(file).startsWith("packages/storage/src/projection/"))
     .map((file) => readFileSync(file, "utf8"))
     .join("\n");
   for (const requiredSnippet of taskProjectionRequiredSnippets) {
@@ -296,7 +296,7 @@ if (hasTaskProjectionImplementation) {
     "projection.bounded-catch-up-no-stale-ready",
     "projection.lease-cas-rejection",
   ])
-    requireTestContract("packages/kernel/test/store/task-projection-steady-state.integration.test.ts", id);
+    requireTestContract("packages/storage/test/store/task-projection-steady-state.integration.test.ts", id);
   if (/writeFileSync\s*\([^)]*tasks\//s.test(projectionText) || /renameSync\s*\([^)]*tasks\//s.test(projectionText)) {
     record("task projection must not write authored task documents");
   }
@@ -390,7 +390,7 @@ for (const file of files) {
   }
 
   if (
-    !rel.startsWith("packages/kernel/src/store/") &&
+    !rel.startsWith("packages/storage/src/store/") &&
     !isTestOrFixture &&
     /\.(?:writeDocument|archivePackage)\s*\(/.test(text)
   ) {
@@ -398,14 +398,14 @@ for (const file of files) {
   }
 
   if (
-    rel.startsWith("packages/kernel/src/store/") &&
+    rel.startsWith("packages/storage/src/store/") &&
     /\bfrom\s+["'][^"']*(?:packages\/adapters|@harness-anything\/adapter-)[^"']*["']/.test(text)
   ) {
     record(`${rel}: store must not import engine adapter implementations`);
   }
-  const allowedGitProcessImplementations = new Set(["packages/kernel/src/store/local-version-control-system.ts"]);
+  const allowedGitProcessImplementations = new Set(["packages/storage/src/store/local-version-control-system.ts"]);
   if (
-    rel.startsWith("packages/kernel/src/store/") &&
+    rel.startsWith("packages/storage/src/store/") &&
     !allowedGitProcessImplementations.has(rel) &&
     (/\bfrom\s+["']node:child_process["']/.test(text) || /\brunGit\s*\(/.test(text))
   ) {

@@ -3,22 +3,24 @@ import path from "node:path";
 import {
   readLegacyMigrationSource,
   readMarkdownSource,
+  taskEntryToRow,
+  type ColdDecisionProjectionRow,
+  type TaskSourceEntry,
+} from "@harness-anything/storage";
+import {
   readScalar,
   resolveHarnessLayout,
   stableStringify,
-  taskEntryToRow,
   validateCurrentMigrationImportEvent,
   validateCurrentCanonicalEvent,
   MIGRATION_IMPORT_SOURCE,
   type ActorIdentity,
   type CanonicalEventStore,
-  type ColdDecisionProjectionRow,
   type MigrationImportEventV1,
   type RelationFactRow,
   type RelationGraphEdgeRow,
   type RuntimeSession,
   type TaskProjection,
-  type TaskSourceEntry,
 } from "@harness-anything/kernel";
 import { auditAuthoredCoverage, authoredPaths, parseResolutions } from "./migration-import-authored-audit.ts";
 import { classifyAuthored, referencedContent } from "./migration-import-authored-classification.ts";
@@ -51,12 +53,9 @@ import {
   type MigrationRelationsContext,
   type ReboundRelation,
 } from "./migration-import-relations.ts";
-import {
-  migrationOracleKinds,
-  readMigrationProjectionOracle,
-  type MigrationOracleKind,
-  type MigrationProjectionOracle,
-} from "./migration-import-oracle.ts";
+import { migrationOracleKinds, type MigrationOracleKind } from "./migration-import-types.ts";
+import { readMigrationProjectionOracle } from "./migration-import-oracle.ts";
+import { type MigrationProjectionOracle } from "@harness-anything/storage";
 import { addOracleDecision, addOracleFact } from "./migration-import-projection-restatement.ts";
 import { scheduleArchivedEntity } from "./migration-import-dispositions.ts";
 import { reconcileProjectionOracle } from "./migration-import-reconciliation.ts";
@@ -65,7 +64,6 @@ import {
   clean,
   fromColdIssue,
   message,
-  migrationImportError,
   reportTable,
   requiredMigrationText,
   skippedCounts,
@@ -73,6 +71,7 @@ import {
   taskIndexPaths,
   timestamp,
 } from "./migration-import-report.ts";
+import { migrationImportError } from "@harness-anything/storage";
 import {
   idRemapConflict,
   includeSourceEventCoverage,

@@ -174,7 +174,7 @@ test("standalone changed mode selects the standalone gate jobs' checks for the p
     ["derived-contracts", "node tools/gates/derived-contracts.mjs --check", "tools/gates/contracts/gates.contract.mjs"],
     ["schema-closure", "node tools/gates/schema-closure.mjs --check", "packages/daemon/fixtures/contracts/x.json"],
     ["dependency-policy", "node tools/gates/dependency-policy.mjs", "package-lock.json"],
-    ["cost-budget", "node tools/gates/cost-budget.mjs", "packages/kernel/src/store/task-event-store.ts"],
+    ["cost-budget", "node tools/gates/cost-budget.mjs", "packages/storage/src/store/task-event-store.ts"],
   ];
   for (const [id, command, changedPath] of cases) {
     assert.ok(
@@ -217,13 +217,13 @@ test("standalone changed mode selects every cheap local gate for a path it check
     "check-entity-doc-contract": "packages/kernel/src/domain/entity-kind-registry.ts",
     "check-format": "packages/cli/src/index.ts",
     lint: "packages/cli/src/index.ts",
-    "check-test-tier-manifest": "packages/kernel/test/store/task-event-store.test.ts",
+    "check-test-tier-manifest": "packages/storage/test/store/task-event-store.test.ts",
     "check-cli-structure": "packages/cli/src/new-command.ts",
     "check-cli-help-contract": "packages/daemon/src/protocol/daemon-protocol.contract.ts",
     "check-cli-error-codes": "packages/cli/src/new-command.ts",
     "check-error-classification": "packages/cli/src/cli/thin-command.ts",
     "check-import-boundaries": "packages/daemon/package.json",
-    "check-bypass-write-boundary": "packages/kernel/src/store/task-event-store.ts",
+    "check-bypass-write-boundary": "packages/storage/src/store/task-event-store.ts",
     "check-kernel-dead-exports": "packages/daemon/src/repo-cell.ts",
     "check-relation-cycle-substrate": "packages/kernel/src/domain/relation-cycle.ts",
     "check-domain-judgment-single-definition": "packages/gui/src/renderer/task-adapter.ts",
@@ -254,7 +254,7 @@ test("standalone changed mode selects every cheap local gate for a path it check
     "derived-contracts": "tools/gates/contracts/gates.contract.mjs",
     "schema-closure": "packages/daemon/fixtures/contracts/x.json",
     "dependency-policy": "package-lock.json",
-    "cost-budget": "packages/kernel/src/store/task-event-store.ts",
+    "cost-budget": "packages/storage/src/store/task-event-store.ts",
   };
   const selectedIds = (changedPath) => {
     const options = parseManifestGateArgs(["--changed", "origin/main"]);

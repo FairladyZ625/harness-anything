@@ -727,7 +727,7 @@ export function readRelationCycleWitnessAtCut(input: {
 }
 
 export function publicationKillpoints(killpoint: ((point: EventPublicationKillpoint) => void) | undefined): void {
-  killpoint?.("after_sqlite_commit");
+  killpoint?.("after_store_commit");
   killpoint?.("before_response_write");
   killpoint?.("after_response_write");
 }

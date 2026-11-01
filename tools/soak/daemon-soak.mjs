@@ -10,12 +10,14 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { randomUUID } from "node:crypto";
 import {
-  REPLAY_TASK_GRAPH,
   createLedgerBackup,
-  eventObjectTarget,
   openSqliteEventStore,
   registerDaemonRepo,
   runCompletionGenerationConversion,
+} from "../../packages/storage/src/index.ts";
+import {
+  REPLAY_TASK_GRAPH,
+  eventObjectTarget,
   serializeCanonicalEvent,
   serializeEventHead,
   sha256Text,
@@ -25,7 +27,7 @@ import {
   createImmutableLegacyGenerationSnapshotFromStoppedRepository,
   legacyGenerationSnapshotPath,
   preflightConvertedGenerationActivation,
-} from "../../packages/kernel/src/store/legacy-generation-conversion.ts";
+} from "../../packages/storage/src/store/legacy-generation-conversion.ts";
 import {
   JsonRpcLineClient,
   connectSocket,

@@ -7,7 +7,7 @@ import {
   readCertifiedGitFollower,
   reconcileSqliteEvents,
   sqliteLedgerPath,
-} from "@harness-anything/kernel";
+} from "@harness-anything/storage";
 
 export async function runLedgerReconcileAction(
   cell: RepoCellOperationalContext,

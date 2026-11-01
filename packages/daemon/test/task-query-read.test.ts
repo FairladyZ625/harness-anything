@@ -14,7 +14,7 @@ import {
   type TaskRelationProjectionRead,
   type TaskRelationQuery,
 } from "@harness-anything/kernel";
-import { seedRelationProjection } from "../../kernel/test/store/relation-graph-projection.fixtures.ts";
+import { seedRelationProjection } from "../../storage/test/store/relation-graph-projection.fixtures.ts";
 import {
   canonicalRoot,
   validateDaemonAgenda,
