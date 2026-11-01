@@ -29,6 +29,7 @@ import { candidateSample, resolveUniquePrefix } from "./unique-id-prefix.ts";
 import { presetSnapshotReader, taskWorkspaceView } from "./task-worktree.ts";
 import { readWorktreeSetupSucceeded } from "./worktree-setup.ts";
 import { assignmentFromRelations } from "./entity-assignment-runtime.ts";
+import { witnessOperationId } from "./repo-cell-proof.ts";
 
 /**
  * The canonical witness write entry: judge the evidence's binding to the frozen cut, then let
@@ -67,10 +68,10 @@ export function publishGateWitness(
       result: evidence.result,
       runId: evidence.provenance.runId,
       claimFence: evidence.provenance.claimFence,
-      commitSha: execution.submission.commitSha,
-      iteration: execution.iteration,
+      basis: evidence.basis,
     },
-    opId = cell.operationId(intent, binding, cell.input.repoId, snapshot.revision),
+    // A witness identifies its frozen cut and actor, independent of later writes or ingress node.
+    opId = witnessOperationId(intent, binding.actor, cell.input.repoId),
     existing = cell.store.readEvent(opId);
   if (existing) {
     if (!isTaskEvent(existing) || existing.type !== "completion_gate_verified")
