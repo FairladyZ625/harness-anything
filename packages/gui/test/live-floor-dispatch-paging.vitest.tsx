@@ -178,6 +178,19 @@ it("a later dispatch page failure rejects the whole refresh", async () => {
   );
 });
 
+it("single-task details retain unavailable-task errors while batch listings retain per-task degradation", async () => {
+  vi.spyOn(harnessClient, "getTaskDispatches").mockResolvedValue({
+    ...page([], null, null),
+    unavailableTaskIds: ["task-one"],
+  });
+  await expect(readAllTaskDispatches({ repoId: "repo-one", taskId: "task-one" })).rejects.toMatchObject({
+    code: "task_not_found",
+  });
+  await expect(readAllTaskDispatches({ repoId: "repo-one", taskIds: ["task-one"] })).resolves.toEqual({
+    dispatches: [],
+  });
+});
+
 it("complete histories retain chronological order across task batches", async () => {
   const rows = dispatches();
   vi.spyOn(harnessClient, "getTaskDispatches")

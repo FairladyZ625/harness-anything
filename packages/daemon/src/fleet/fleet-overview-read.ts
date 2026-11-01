@@ -6,7 +6,6 @@ import { taskStatusWords } from "../protocol/daemon-protocol-vocabulary.ts";
 import { daemonBuildStamp } from "../build-identity.ts";
 import type { KeycloakCenterAuthority } from "../transport/auth-context.ts";
 import type { DaemonTaskSnapshotListResult } from "../protocol/daemon-protocol-gui-types.ts";
-import { readAllTaskDispatchPages } from "../dispatch-read.ts";
 
 /**
  * 协作页舰队拓扑的只读聚合(task_8ce646d94):一次 typed read 回答「舰队有哪些节点、
@@ -591,12 +590,12 @@ export async function readFleetOverviewFromHost(input: {
     const taskIds = [...new Set(leases.map((lease) => lease.taskId))];
     const dispatches: FleetDispatchFact[] = [];
     for (let offset = 0; offset < taskIds.length; offset += 500) {
-      const read = await readAllTaskDispatchPages((facets) =>
-        input.cell.read(
-          "repo.task.dispatches",
-          { taskIds: taskIds.slice(offset, offset + 500), limit: 200, ...facets },
-          input.binding,
-        ),
+      // This intermediate DTO stays inside the daemon and is projected to shallow
+      // facts below. A transport page budget would reject prose that is never sent.
+      const read = await input.cell.read(
+        "repo.task.dispatches",
+        { taskIds: taskIds.slice(offset, offset + 500) },
+        input.binding,
       );
       dispatches.push(
         ...read.dispatches.map((row) => ({

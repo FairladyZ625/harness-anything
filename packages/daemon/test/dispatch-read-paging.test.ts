@@ -136,6 +136,26 @@ test("the shared Fleet read guard rejects other oversized read families before s
   });
 });
 
+test("unpaged internal reads retain canonical order for dispatches with equal start times", () => {
+  const { projection: original, events } = largeDispatchProjection(2);
+  const tied = events.map((event, index) => ({
+    ...event,
+    occurredAt: "2026-11-01T00:00:00.000Z",
+    payload: { ...event.payload, dispatchId: `dispatch_${(index === 0 ? "b" : "a").repeat(24)}` },
+  }));
+  const projection = { ...original, readRuntimeDispatches: () => tied } as TaskProjectionQueries;
+  const unpaged = readTaskDispatches({ projection, taskId: "task-one" });
+  assert.deepEqual(
+    unpaged.dispatches.map((row) => row.dispatchId),
+    tied.map((event) => event.payload.dispatchId),
+  );
+  const page = readTaskDispatches({ projection, taskIds: ["task-one"], limit: 16 });
+  assert.deepEqual(
+    page.dispatches.map((row) => row.dispatchId),
+    tied.map((event) => event.payload.dispatchId).sort(),
+  );
+});
+
 test("member windows shrink by bytes while retaining newest rows, matching groups and full-history totals", () => {
   const { projection: original, events: source } = largeDispatchProjection(500);
   const events = source.map((event) => ({ ...event, payload: { ...event.payload, agentId: "member-one" } })).reverse();

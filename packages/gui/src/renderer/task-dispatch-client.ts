@@ -18,17 +18,25 @@ export async function readAllTaskDispatches(payload: TaskDispatchSelection): Pro
   const taskIds = [...new Set(payload.taskId === undefined ? payload.taskIds : [payload.taskId])].sort();
   const rows = new Map<string, TaskDispatchProjectionRow>();
   for (let offset = 0; offset < taskIds.length; offset += TASK_DISPATCH_PAGE_LIMIT) {
-    const pages = await drainCursorPages(
-      async (facets) =>
-        (await harnessClient.getTaskDispatches({
-          repoId: payload.repoId,
-          taskIds: taskIds.slice(offset, offset + TASK_DISPATCH_PAGE_LIMIT),
-          limit: TASK_DISPATCH_PAGE_LIMIT,
-          ...(payload.advisorySurface === undefined ? {} : { advisorySurface: payload.advisorySurface }),
-          ...facets,
-        })) as TaskDispatchBatchRead,
-      "task dispatches",
-    );
+    const pages = await drainCursorPages(async (facets) => {
+      const read = await harnessClient.getTaskDispatches({
+        repoId: payload.repoId,
+        taskIds: taskIds.slice(offset, offset + TASK_DISPATCH_PAGE_LIMIT),
+        limit: TASK_DISPATCH_PAGE_LIMIT,
+        ...(payload.advisorySurface === undefined ? {} : { advisorySurface: payload.advisorySurface }),
+        ...facets,
+      });
+      // Batch listings degrade missing tasks per row. A single-task detail used
+      // to reject that same absence; retain its error instead of showing no history.
+      if (
+        payload.taskId !== undefined &&
+        "unavailableTaskIds" in read &&
+        read.status === "ready" &&
+        read.unavailableTaskIds.includes(payload.taskId)
+      )
+        throw Object.assign(new Error(`Task ${payload.taskId} has no projected package.`), { code: "task_not_found" });
+      return read as TaskDispatchBatchRead;
+    }, "task dispatches");
     for (const page of pages) for (const row of page.dispatches) rows.set(row.dispatchId, row);
   }
   return {

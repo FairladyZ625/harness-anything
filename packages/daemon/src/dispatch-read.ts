@@ -221,6 +221,7 @@ export function readTaskDispatches(
   if (input.agentId !== undefined || input.squadId !== undefined) return readMemberTaskDispatches(input);
   const singleTaskId = input.taskId,
     cursor = dispatchCursor(input.cursor),
+    paged = singleTaskId === undefined && (input.limit !== undefined || cursor.after !== undefined),
     batch = projection.readTaskRuntimeBatch(
       singleTaskId === undefined
         ? {
@@ -267,7 +268,8 @@ export function readTaskDispatches(
       ),
     );
   const dispatches = [...rows.values()].sort(
-      (left, right) => left.startedAt.localeCompare(right.startedAt) || left.dispatchId.localeCompare(right.dispatchId),
+      (left, right) =>
+        left.startedAt.localeCompare(right.startedAt) || (paged ? left.dispatchId.localeCompare(right.dispatchId) : 0),
     ),
     resumed = new Map(dispatches.flatMap((row) => (row.nextDispatchId ? [[row.dispatchId, row.nextDispatchId]] : []))),
     terminal = taskDispatchesOutcome(dispatches, resumed);
@@ -291,9 +293,7 @@ export function readTaskDispatches(
   };
   // Internal unpaged reads retain their complete local result. Explicit batch pages
   // additionally honor bytes, because one task may contain arbitrarily many rounds.
-  return "page" in result && (input.limit !== undefined || cursor.after !== undefined)
-    ? boundedDispatchPage(result, cursor, input.cursor)
-    : result;
+  return "page" in result && paged ? boundedDispatchPage(result, cursor, input.cursor) : result;
 }
 
 /** The member-scoped page of `repo.task.dispatches`: an executor's newest dispatch rows, one
