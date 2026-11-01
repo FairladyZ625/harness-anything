@@ -40,7 +40,7 @@ export interface WriterSupervisor {
 /** Node-local override for the ready watchdog (dec_9DBB2EB3 CH3: machine-speed thresholds stay off the shared
  * settings); a cold rebuild on a large repository or slow disk can outlive the default without being dead. */
 export const WRITER_READY_WATCHDOG_MS_ENV = "HARNESS_WRITER_READY_WATCHDOG_MS";
-export const WRITER_READY_WATCHDOG_MS = 120_000;
+export const WRITER_READY_WATCHDOG_MS = 30_000;
 
 /** Effective watchdog: the environment override, else the default. An invalid override fails closed. */
 export function resolveWriterReadyWatchdogMs(env: NodeJS.ProcessEnv = process.env): number {
@@ -256,6 +256,14 @@ export async function openWriterSupervisor(
               lastAttachProgress = published.attach;
               armReadyWatchdog();
             }
+            if (
+              !settled &&
+              attaching &&
+              message.kind === "status" &&
+              published.attach !== undefined &&
+              attachProgressAllowsWatchdog(lastAttachProgress, published.attach)
+            )
+              armReadyWatchdog();
           }
           if (message.bootstrapReceipt !== undefined) {
             publishedBootstrapReceipt = message.bootstrapReceipt;
@@ -583,6 +591,16 @@ function attachProgressAdvanced(previous: RepoCellAttachProgress | null, next: R
   if (next.phase === "catching-up")
     return next.watermark !== null && (previous.watermark === null || next.watermark > previous.watermark);
   return false;
+}
+
+function attachProgressAllowsWatchdog(previous: RepoCellAttachProgress | null, next: RepoCellAttachProgress): boolean {
+  if (previous === null) return false;
+  if (attachPhaseOrder(next.phase) < attachPhaseOrder(previous.phase)) return false;
+  if (next.phase !== previous.phase || next.phase === "opening") return true;
+  const nextApplied = next.phase === "catching-up" ? next.watermark : next.applied,
+    previousApplied = previous.phase === "catching-up" ? previous.watermark : previous.applied;
+  if (nextApplied === null || previousApplied === null) return nextApplied === previousApplied;
+  return nextApplied >= previousApplied;
 }
 
 function attachPhaseOrder(phase: RepoCellAttachProgress["phase"]): number {

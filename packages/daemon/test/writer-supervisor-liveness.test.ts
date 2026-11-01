@@ -27,14 +27,14 @@ test("a writer may open beyond 30 seconds when attach progress advances the read
       onAttachStatus: (status) => published.push(status),
     });
 
-  context.mock.timers.tick(119_999);
+  context.mock.timers.tick(29_999);
   writer.publish(
     writerStatus(
       "attach-progress",
       warmingStatus({ phase: "catching-up", applied: 4_096, total: 8_192, watermark: 4_096 }),
     ),
   );
-  context.mock.timers.tick(119_999);
+  context.mock.timers.tick(29_999);
   assert.equal(writer.terminateCalls, 0);
   writer.publish(writerStatus("ready", attachedStatus()));
   writer.publish(
@@ -66,11 +66,51 @@ test("a writer with no messages is terminated after 30 seconds of ready inactivi
     }),
     rejected = assert.rejects(opening, /RepoWriterCell did not publish ready/u);
 
-  context.mock.timers.tick(119_999);
+  context.mock.timers.tick(29_999);
   assert.equal(writer.terminateCalls, 0);
   context.mock.timers.tick(1);
   await rejected;
   assert.equal(writer.terminateCalls, 1);
+});
+
+test("an attach status heartbeat keeps a slow projection open alive beyond 30 seconds", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const writer = new FakeWriter(),
+    opening = openWriterSupervisor(supervisorInput, { createWorker: () => writer as unknown as Worker }),
+    heartbeat = warmingStatus({ phase: "opening", applied: null, total: null, watermark: null });
+
+  writer.publish(writerStatus("attach-progress", heartbeat));
+  writer.publish(writerStatus("status", heartbeat));
+  context.mock.timers.tick(29_999);
+  writer.publish(writerStatus("status", heartbeat));
+  context.mock.timers.tick(29_999);
+
+  assert.equal(writer.terminateCalls, 0);
+  writer.publish(writerStatus("ready", attachedStatus()));
+  const supervisor = await opening;
+  assert.equal(supervisor.status().state, "attached");
+  await supervisor.close();
+});
+
+test("runtime restoration heartbeats remain live after projection phases advance", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const writer = new FakeWriter(),
+    opening = openWriterSupervisor(supervisorInput, { createWorker: () => writer as unknown as Worker }),
+    publish = (kind: RepoWriterStatusV1["kind"], attach: NonNullable<RepoCellStatus["attach"]>) =>
+      writer.publish(writerStatus(kind, warmingStatus(attach)));
+
+  publish("attach-progress", { phase: "recovering", applied: 1, total: 1, watermark: null });
+  publish("attach-progress", { phase: "catching-up", applied: 1, total: 1, watermark: 1 });
+  publish("attach-progress", { phase: "restoring-runtimes", applied: 0, total: null, watermark: null });
+  context.mock.timers.tick(29_999);
+  publish("status", { phase: "restoring-runtimes", applied: 0, total: null, watermark: null });
+  context.mock.timers.tick(29_999);
+
+  assert.equal(writer.terminateCalls, 0);
+  writer.publish(writerStatus("ready", attachedStatus()));
+  const supervisor = await opening;
+  assert.equal(supervisor.status().state, "attached");
+  await supervisor.close();
 });
 
 test("a failed first open does not prevent a later supervisor from opening", async (context) => {
@@ -80,9 +120,9 @@ test("a failed first open does not prevent a later supervisor from opening", asy
     workers = [first, second],
     createWorker = () => workers.shift() as unknown as Worker,
     opening = openWriterSupervisor(supervisorInput, { createWorker }),
-    rejected = assert.rejects(opening, /120000ms without progress/);
+    rejected = assert.rejects(opening, /30000ms without progress/);
 
-  context.mock.timers.tick(120_000);
+  context.mock.timers.tick(30_000);
   await rejected;
   context.mock.timers.tick(1_000);
   assert.equal(first.terminateCalls, 1);
@@ -100,7 +140,7 @@ test("advancing watermark may continue beyond ten minutes; repeated watermark ca
   context.mock.timers.enable({ apis: ["setTimeout", "Date"] });
   const writer = new FakeWriter();
   const opening = openWriterSupervisor(supervisorInput, { createWorker: () => writer as unknown as Worker });
-  const rejected = assert.rejects(opening, /120000ms without progress/);
+  const rejected = assert.rejects(opening, /30000ms without progress/);
   for (let watermark = 1; watermark <= 31; watermark += 1) {
     context.mock.timers.tick(20_000);
     writer.publish(
@@ -115,7 +155,7 @@ test("advancing watermark may continue beyond ten minutes; repeated watermark ca
   writer.publish(
     writerStatus("attach-progress", warmingStatus({ phase: "catching-up", applied: 31, total: 100, watermark: 31 })),
   );
-  context.mock.timers.tick(99_999);
+  context.mock.timers.tick(9_999);
   assert.equal(writer.terminateCalls, 0);
   context.mock.timers.tick(1);
   await rejected;
@@ -149,7 +189,7 @@ test("completed runtime restorations extend startup, but duplicate, older and st
   context.mock.timers.enable({ apis: ["setTimeout"] });
   const writer = new FakeWriter(),
     opening = openWriterSupervisor(supervisorInput, { createWorker: () => writer as unknown as Worker }),
-    rejected = assert.rejects(opening, /120000ms without progress/);
+    rejected = assert.rejects(opening, /30000ms without progress/);
   writer.publish(
     writerStatus("attach-progress", warmingStatus({ phase: "catching-up", applied: 100, total: 100, watermark: 100 })),
   );
@@ -174,7 +214,7 @@ test("completed runtime restorations extend startup, but duplicate, older and st
   writer.publish(
     writerStatus("attach-progress", warmingStatus({ phase: "catching-up", applied: 101, total: 101, watermark: 101 })),
   );
-  context.mock.timers.tick(99_999);
+  context.mock.timers.tick(9_999);
   assert.equal(writer.terminateCalls, 0);
   context.mock.timers.tick(1);
   await rejected;
