@@ -713,6 +713,93 @@ test("a decision failure does not mark a newer provider configuration as failed"
   }
 });
 
+test("a failure from a deleted configuration does not overwrite a recreated provider's probe", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-decision-provider-recreate-race-")),
+    providerMessage = "This model is unavailable for free. Use this slug instead: baseten/elephant-1",
+    vault: CredentialPort = {
+      issue: () => "credential:v1:test-key",
+      store: async () => undefined,
+      resolve: async () => "test-key",
+      remove: async () => undefined,
+    };
+  let requestStarted!: () => void;
+  const started = new Promise<void>((resolve) => {
+    requestStarted = resolve;
+  });
+  let releaseFailure!: () => void;
+  const failureGate = new Promise<void>((resolve) => {
+    releaseFailure = resolve;
+  });
+  const service = openDecisionProviderService({
+    userRoot: parent,
+    vault,
+    now: () => "2026-11-01T00:00:00.000Z",
+    invokeDecision: async (input) => {
+      if (input.model !== "model-a")
+        return {
+          model: "model-b-resolved",
+          provider: "route-b",
+          usage: { inputTokens: 3, outputTokens: 1, cost: 0 },
+          answers: { decision: { type: "noul", noul: 0.9 } },
+        };
+      // The operator deletes this configuration and recreates the same provider id with another
+      // model while the old model's request is still in flight.
+      requestStarted();
+      await failureGate;
+      throw Object.assign(new Error(providerMessage), { name: "NotFoundResponseError", statusCode: 404 });
+    },
+  });
+  try {
+    await service.command({
+      kind: "provider-create",
+      type: "decisions",
+      providerId: "decision-a",
+      name: "Decision A",
+      model: "model-a",
+      credentialRef: "credential:v1:test-key",
+    });
+    const settledFailure = service.port
+      .decide({
+        subjectRef: "dispatch/recreate-race",
+        providerId: "decision-a",
+        questionSetVersion: "noul/v1",
+        state: ["text"],
+        question: { type: "noul", prompt: "Choose", criteria: { true: "yes", false: "no" } },
+      })
+      .then(
+        () => {
+          throw new Error("The stale configuration's failing decision unexpectedly resolved.");
+        },
+        (error: unknown) => error,
+      );
+    await started;
+    await service.command({ kind: "provider-delete", providerId: "decision-a" });
+    await service.command({
+      kind: "provider-create",
+      type: "decisions",
+      providerId: "decision-a",
+      name: "Decision A",
+      model: "model-b",
+      credentialRef: "credential:v1:test-key",
+    });
+    const probed = await service.command({ kind: "provider-probe", providerId: "decision-a" });
+    assert.deepEqual((probed.provider as { probe: unknown }).probe, {
+      state: "ready",
+      checkedAt: "2026-11-01T00:00:00.000Z",
+    });
+
+    releaseFailure();
+    const failure = await settledFailure;
+    assert.equal((failure as { code?: string }).code, "decision_model_unavailable");
+    const current = service.read()[0];
+    assert.equal(current?.model, "model-b");
+    assert.deepEqual(current?.probe, { state: "ready", checkedAt: "2026-11-01T00:00:00.000Z" });
+  } finally {
+    releaseFailure();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test("DecisionPort retries only failures with transient evidence and never echoes the API key", async (t) => {
   const apiKey = "sk-test-secret-value-12345",
     vault: CredentialPort = {

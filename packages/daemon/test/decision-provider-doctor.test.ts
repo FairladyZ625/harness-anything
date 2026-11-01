@@ -23,6 +23,7 @@ function provider(
     auth: { mode: "api-key", credentialRef: "credential:v1:test" },
     enabled: true,
     configurationRevision: 1,
+    configurationId: "config-1",
     probe,
     ...overrides,
   };

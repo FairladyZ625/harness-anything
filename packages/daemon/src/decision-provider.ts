@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { OpenRouter } from "@openrouter/sdk";
@@ -172,6 +173,7 @@ export function openDecisionProviderService(input: {
         auth: { mode: "api-key", credentialRef: auth.reference },
         enabled,
         configurationRevision: 1,
+        configurationId: randomUUID(),
         probe: { state: "unknown" },
       };
       try {
@@ -291,13 +293,20 @@ export function openDecisionProviderService(input: {
 
   const recordProbeFailure = (
     providerId: string,
-    code: DecisionPortFailureCode,
     configurationRevision: number,
+    configurationId: string,
+    code: DecisionPortFailureCode,
   ): void => {
     const current = read().find((entry) => entry.providerId === providerId);
-    // A configuration update races the in-flight decision; its probe was reset to `unknown` for
-    // the new model, so an old model's failure must not label the new configuration as failed.
-    if (!current || current.configurationRevision !== configurationRevision) return;
+    // A configuration update increments the revision and resets the probe for the new model; a
+    // delete/recreate keeps revision 1 but issues a new configuration id. Either way the failure
+    // belongs to the configuration the request selected, not to whatever now owns the provider id.
+    if (
+      !current ||
+      current.configurationRevision !== configurationRevision ||
+      current.configurationId !== configurationId
+    )
+      return;
     persist(
       read().map((entry) =>
         entry.providerId === providerId
@@ -348,7 +357,12 @@ export function openDecisionProviderService(input: {
         const code = decisionFailureCode(error);
         if (code === "decision_model_unavailable" || code === "provider_credential_unavailable")
           await enqueue(() =>
-            recordProbeFailure(selected.provider.providerId, code, selected.provider.configurationRevision),
+            recordProbeFailure(
+              selected.provider.providerId,
+              selected.provider.configurationRevision,
+              selected.provider.configurationId,
+              code,
+            ),
           ).catch(consumeKnownError);
         throw error;
       }

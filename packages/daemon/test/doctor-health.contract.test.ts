@@ -162,6 +162,7 @@ test("doctor host composes loaded/disk identities and remote edge never reports 
           auth: { mode: "api-key", credentialRef: "credential:v1:fixture" },
           enabled: true,
           configurationRevision: 1,
+          configurationId: "config-fixture",
           probe: { state: "failed", checkedAt: "2026-11-01T00:00:00.000Z", code: "decision_model_unavailable" },
         },
       ],

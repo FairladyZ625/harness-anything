@@ -164,6 +164,7 @@ const provider = {
     auth: { mode: "api-key", credentialRef: "credential-ref" },
     enabled: true,
     configurationRevision: 1,
+    configurationId: "config-a",
     probe: { state: "unknown" },
   } as const,
   answer = {
