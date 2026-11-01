@@ -31,3 +31,12 @@ ha bootstrap --mode external --url https://identity.example.com \
 ```
 
 切换不会自动迁移本地凭据或授权。请先在 Keycloak realm 中创建需要的账号、角色和授权，再执行 `ha bootstrap --operation login`。回切内置 provider 需要显式写入 `mode: builtin` 并重新登录。
+
+### 旧 edge 根目录恢复
+
+旧版 Keycloak 创建的 edge 根目录可能只有 `fleet-edge.json` 和
+`rbac/oidc-session.json`，没有 `rbac/config.json`。恢复时安装 Keycloak 插件并保留
+这些文件，按 `fleet-edge.json` 指向的中心执行正常 edge 登录。daemon 会在首次成功
+写入按中心键控的会话前读取旧会话，不会自动把旧 edge 切到本地 provider。旧会话可用
+后，只有在业主明确选择目标 provider 时，才在 `rbac/config.json` 写入显式 selector。
+新建本地根目录没有 selector 仍默认使用内置身份；这不表示旧 edge 可以使用本地身份。

@@ -27,6 +27,7 @@ type Pending = {
   readonly expiresAt: number;
   approvedPersonId?: string;
 };
+type BrowserCode = { readonly state: string; readonly user: BuiltinUser; readonly expiresAt: number };
 type LoginResponse = {
   readonly status: number;
   readonly headers?: Readonly<Record<string, string>>;
@@ -42,18 +43,28 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
   readonly #root: string;
   readonly #writes: { current: Promise<unknown> } = { current: Promise.resolve() };
   readonly #adapter: BuiltinPolicyAdapter;
+  readonly #external?: IdentitySessionPort;
   readonly #pending = new Map<string, Pending>();
+  readonly #browserCodes = new Map<string, BrowserCode>();
+  #currentDeviceCode: string | undefined;
   #loginServer: Server | undefined;
   #loginPort: number | undefined;
   #loginRedirectUri: string | undefined;
   #centerToken: string | undefined;
   #sessionGeneration = 0;
   #loginState: string | undefined;
-  constructor(userRoot: string) {
+  constructor(
+    userRoot: string,
+    readArtifactActionScopes?: () => Promise<readonly string[]>,
+    external?: IdentitySessionPort,
+  ) {
     this.#root = userRoot;
-    this.#adapter = new BuiltinPolicyAdapter({ userRoot });
+    this.#adapter = new BuiltinPolicyAdapter({ userRoot, readArtifactActionScopes });
+    this.#external = external;
   }
   async begin(redirectUri: string, loginTarget?: string): Promise<Record<string, unknown>> {
+    const external = this.#externalSession(loginTarget);
+    if (external) return external.begin(redirectUri, loginTarget);
     this.#assertLocalLoginTarget(loginTarget);
     const url = new URL(redirectUri);
     if (url.protocol !== "http:" || !["127.0.0.1", "localhost"].includes(url.hostname))
@@ -68,13 +79,18 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
     };
   }
   async complete(code: string, state: string): Promise<Record<string, unknown>> {
+    const external = this.#externalSession();
+    if (external) return external.complete(code, state);
     return this.serialize(async () => {
       if (!this.#loginState || state !== this.#loginState)
         throw coded("oidc_state_invalid", "Login callback state is missing, mismatched, or expired.");
-      const [username, password] = code.split(":", 2),
-        user = this.#adapter.userByUsername(username ?? "");
-      if (!user || password === undefined || !this.#adapter.verifyPassword(user, password))
+      const pending = this.#browserCodes.get(code);
+      if (!pending || pending.state !== state || pending.expiresAt <= Date.now()) {
+        this.#browserCodes.delete(code);
         throw coded("oidc_identity_rejected", "Built-in account credentials were rejected.");
+      }
+      this.#browserCodes.delete(code);
+      const user = pending.user;
       this.#loginState = undefined;
       await this.#closeLoginServer();
       this.#loginRedirectUri = undefined;
@@ -86,45 +102,53 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
     _authorityOverride?: OidcLoginAuthority,
     expiresAtLimit?: number,
   ): Promise<Record<string, unknown>> {
+    const external = this.#externalSession(loginTarget);
+    if (external) return external.beginDevice(loginTarget, _authorityOverride, expiresAtLimit);
     this.#assertLocalLoginTarget(loginTarget);
     const now = Date.now(),
       expiresAt = Math.min(now + 10 * 60_000, expiresAtLimit ?? Number.POSITIVE_INFINITY),
       userCode = randomCode(),
       deviceCode = opaqueToken("device");
+    if (this.#currentDeviceCode) this.#pending.delete(this.#currentDeviceCode);
+    this.#currentDeviceCode = deviceCode;
     this.#pending.set(deviceCode, { userCode, deviceCode, expiresAt });
     const verificationUri = await this.#loginPageUrl("device", userCode);
     return { ok: true, pending: true, verificationUri, userCode, interval: 1, expiresAt };
   }
   async deviceApproval(userCode: string, loginTarget?: string): Promise<Record<string, unknown>> {
+    const external = this.#externalSession(loginTarget);
+    if (external) return external.deviceApproval(userCode, loginTarget);
     this.#assertLocalLoginTarget(loginTarget);
     const pending = [...this.#pending.values()].find((item) => item.userCode === userCode);
     if (!pending) throw coded("oidc_device_missing", "Unknown or expired built-in device code.");
     const user = this.#adapter.owner();
     if (!user) throw coded("bootstrap_admin_required", "Create the first built-in administrator before signing in.");
-    this.#pending.set(pending.deviceCode, { ...pending, approvedPersonId: user.personId });
-    return {
-      ok: true,
-      approved: true,
-      personId: user.personId,
-      authorizationUrl: await this.#loginPageUrl("device", userCode),
-    };
+    const authorizationUrl = await this.#loginPageUrl("device", userCode);
+    void user;
+    return { ok: true, pending: true, approved: false, authorizationUrl };
   }
   async pollDevice(): Promise<Record<string, unknown>> {
+    const external = this.#externalSession();
+    if (external) return external.pollDevice();
     return this.serialize(async () => {
-      const pending = [...this.#pending.values()][0];
+      const pending = this.#currentDeviceCode ? this.#pending.get(this.#currentDeviceCode) : undefined;
       if (!pending) throw coded("oidc_device_missing", "Start device login first.");
       if (pending.expiresAt <= Date.now()) {
         this.#pending.delete(pending.deviceCode);
+        this.#currentDeviceCode = undefined;
         throw coded("oidc_device_expired", "Device authorization expired; start login again.");
       }
       if (!pending.approvedPersonId) return { ok: true, pending: true, interval: 1 };
       const user = this.#adapter.owner();
       this.#pending.delete(pending.deviceCode);
+      this.#currentDeviceCode = undefined;
       if (!user) throw coded("oidc_identity_rejected", "Built-in account no longer exists.");
       return this.#acceptUser(user);
     });
   }
   async status(loginTarget?: string): Promise<Record<string, unknown>> {
+    const external = this.#externalSession(loginTarget);
+    if (external) return external.status(loginTarget);
     this.#assertLocalLoginTarget(loginTarget);
     const session = this.#readSession();
     if (!session) return { ok: true, authenticated: false };
@@ -136,10 +160,14 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
     };
   }
   async bindingHealth(loginTarget: string): Promise<Record<string, unknown>> {
+    const external = this.#externalSession(loginTarget);
+    if (external) return external.bindingHealth(loginTarget);
     this.#assertLocalLoginTarget(loginTarget);
     return this.health();
   }
   logout(loginTarget?: string): Promise<Record<string, unknown>> {
+    const external = this.#externalSession(loginTarget);
+    if (external) return external.logout(loginTarget);
     this.#assertLocalLoginTarget(loginTarget);
     ++this.#sessionGeneration;
     return this.serialize(async () => {
@@ -150,20 +178,30 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
     });
   }
   async bootstrapStatus(): Promise<Record<string, unknown>> {
+    const external = this.#externalSession();
+    if (external) return external.bootstrapStatus();
     return { ok: true, required: !this.#adapter.owner() };
   }
   async interactiveAuthority(): Promise<{ readonly url: string; readonly realm: string; readonly clientId: string }> {
+    const external = this.#externalSession();
+    if (external) return external.interactiveAuthority();
     this.requireCollaboration();
     return { url: "builtin://local", realm: "local", clientId: "harness-center" };
   }
   configured(): boolean {
+    const external = this.#externalSession();
+    if (external) return external.configured();
     ensureBuiltinConfig(this.#root);
     return true;
   }
   centerConfigured(): boolean {
+    const external = this.#externalSession();
+    if (external) return external.centerConfigured();
     return this.configured();
   }
   requireCollaboration(): void {
+    const external = this.#externalSession();
+    if (external) return external.requireCollaboration();
     throw identityPluginRequired();
   }
   async bind<T extends IdentityAuthenticationContext>(
@@ -171,6 +209,8 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
     loginTarget?: string,
     replicaRead = false,
   ): Promise<T & IdentityAuthenticationContext> {
+    const external = this.#externalSession(loginTarget);
+    if (external) return external.bind(auth, loginTarget, replicaRead);
     this.#assertLocalLoginTarget(loginTarget);
     const session = this.#readSession();
     if (!session) return auth;
@@ -207,28 +247,39 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
     };
   }
   discovery(_nodeId: string): OidcLoginAuthority | null {
+    const external = this.#externalSession();
+    if (external) return external.discovery(_nodeId);
     return null;
   }
   async requireRole(role: string, loginTarget?: string): Promise<StoredSession> {
+    const external = this.#externalSession(loginTarget);
+    if (external) return external.requireRole(role, loginTarget);
     const session = await this.requireSession(loginTarget);
     if (!session.roles.includes(role)) throw coded("authorization_denied", `Built-in role ${role} is required.`);
     return session;
   }
   async requireSession(loginTarget?: string): Promise<StoredSession> {
+    const external = this.#externalSession(loginTarget);
+    if (external) return external.requireSession(loginTarget);
     this.#assertLocalLoginTarget(loginTarget);
     const session = this.#readSession();
     if (!session) throw coded("authentication_required", "Sign in with the built-in identity provider first.");
     return session;
   }
   serialize<T>(operation: () => Promise<T>): Promise<T> {
+    const external = this.#externalSession();
+    if (external) return external.serialize(operation);
     const run = this.#writes.current.then(operation);
     this.#writes.current = Promise.allSettled([run]).then(() => undefined);
     return run;
   }
   configureAuthority<T>(operation: () => Promise<T>, loginTarget?: string): Promise<T> {
+    const external = this.#externalSession();
+    if (external) return external.configureAuthority(operation, loginTarget);
     this.#assertLocalLoginTarget(loginTarget);
     return this.serialize(async () => {
-      ensureBuiltinConfig(this.#root);
+      if (this.#adapter.owner()) this.#requireOwnerSession();
+      else ensureBuiltinConfig(this.#root);
       return operation();
     });
   }
@@ -238,6 +289,8 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
     readonly accessToken: string;
     readonly provider: AuthorizationProvider;
   }> {
+    const external = this.#externalSession();
+    if (external) return external.center();
     ensureBuiltinConfig(this.#root);
     const accessToken = this.#centerToken ?? this.#adapter.issueCenterToken();
     this.#centerToken = accessToken;
@@ -251,6 +304,8 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
     readonly password: string;
     readonly personId: string;
   }): Promise<Record<string, unknown>> {
+    const external = this.#externalSession();
+    if (external) return external.bootstrapAdmin(input);
     return this.serialize(async () => {
       ensureBuiltinConfig(this.#root);
       if (this.#adapter.owner())
@@ -269,11 +324,35 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
     _withinWriter = false,
     _loginTarget?: string,
   ): Promise<Record<string, unknown>> {
+    const external = this.#externalSession();
+    if (external) return external.invite(input, _withinWriter, _loginTarget);
     void input;
+    throw identityPluginRequired();
+  }
+  async revokeDeviceSessions(nodeId: string): Promise<void> {
+    const external = this.#externalSession();
+    if (external?.revokeDeviceSessions) return external.revokeDeviceSessions(nodeId);
+    throw identityPluginRequired();
+  }
+  receiveDeviceNotice(
+    nodeId: string,
+    personId: string,
+    notice: import("@harness-anything/kernel").FleetDeviceLoginNotice,
+  ): void {
+    const external = this.#externalSession();
+    if (external?.receiveDeviceNotice) return external.receiveDeviceNotice(nodeId, personId, notice);
     throw identityPluginRequired();
   }
   #provider(): BuiltinPolicyAdapter {
     return this.#adapter;
+  }
+  #externalSession(loginTarget?: string): IdentitySessionPort | undefined {
+    if (!this.#external) return undefined;
+    if (loginTarget && existsSync(path.join(loginTarget, "fleet-edge.json"))) return this.#external;
+    const file = path.join(this.#root, "rbac", "config.json");
+    if (!existsSync(file)) return undefined;
+    const config = JSON.parse(readFileSync(file, "utf8")) as { readonly mode?: unknown };
+    return config.mode === "builtin" || config.mode === undefined ? undefined : this.#external;
   }
   #assertLocalLoginTarget(loginTarget?: string): void {
     if (loginTarget && existsSync(path.join(loginTarget, "fleet-edge.json"))) throw identityPluginRequired();
@@ -335,8 +414,10 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
     const state = form.get("state"),
       redirect = this.#loginRedirectUri;
     if (!state || !redirect || state !== this.#loginState) return { status: 400, body: "Login state expired." };
-    const callback = new URL(redirect);
-    callback.searchParams.set("code", `${user.username}:${password}`);
+    const callback = new URL(redirect),
+      code = opaqueToken("builtin-code");
+    this.#browserCodes.set(code, { state, user, expiresAt: Date.now() + 120_000 });
+    callback.searchParams.set("code", code);
     callback.searchParams.set("state", state);
     return { status: 302, headers: { location: callback.toString() } };
   }
@@ -353,6 +434,13 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
     const result = this.#readSessionFile(file);
     if (result.kind === "invalid") throw result.error;
     return result.kind === "present" ? result.session : undefined;
+  }
+  #requireOwnerSession(): StoredSession {
+    const owner = this.#adapter.owner(),
+      session = this.#readSession();
+    if (!owner || !session || session.personId !== owner.personId || !session.roles.includes("access-admin"))
+      throw coded("authentication_required", "Sign in as the built-in owner before changing identity authority.");
+    return session;
   }
   #readSessionFile(file: string): SessionFileResult {
     const parsed = parseSessionFile(readFileSync(file, "utf8"));
@@ -394,7 +482,7 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
         refreshToken: opaqueToken("builtin-refresh"),
         subject: `builtin-subject-${user.userId}`,
         personId: user.personId,
-        expiresAt: now + 15 * 60_000,
+        expiresAt: sessionExpiresAt,
         sessionExpiresAt,
         roles: ["access-admin"],
         authority: { url: builtinAuthorityUrl(this.#root), realm: "local", clientId: "harness-center" },

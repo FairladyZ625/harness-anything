@@ -1,13 +1,24 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { IdentityManagementPort, ManagedRbacRequest } from "@harness-anything/kernel";
-import { ensureBuiltinConfig, readState, writeState } from "./state.ts";
+import { ensureBuiltinConfig } from "./state.ts";
 
 export class BuiltinIdentityManagement implements IdentityManagementPort {
   readonly #root: string;
+  readonly #external?: Pick<
+    IdentityManagementPort,
+    "run" | "resume" | "start" | "stop" | "health" | "loginListenerCertificate"
+  >;
   #lifecycle: Promise<unknown> = Promise.resolve();
-  constructor(userRoot: string) {
+  constructor(
+    userRoot: string,
+    external?: Pick<
+      IdentityManagementPort,
+      "run" | "resume" | "start" | "stop" | "health" | "loginListenerCertificate"
+    >,
+  ) {
     this.#root = userRoot;
+    this.#external = external;
   }
   run(request: ManagedRbacRequest = {}): Promise<Record<string, unknown>> {
     const run = this.#lifecycle.then(() => this.#run(request));
@@ -16,47 +27,31 @@ export class BuiltinIdentityManagement implements IdentityManagementPort {
   }
   async resume(): Promise<void> {
     if (this.#config()?.mode === "builtin") return;
+    await this.#external?.resume();
   }
-  loginListenerCertificate(): null {
-    return null;
+  loginListenerCertificate(): ReturnType<IdentityManagementPort["loginListenerCertificate"]> {
+    return this.#external?.loginListenerCertificate() ?? null;
   }
   start(): Promise<void> {
-    return Promise.resolve();
+    return this.#external?.start() ?? Promise.resolve();
   }
   stop(): Promise<Record<string, unknown>> {
-    return Promise.resolve({ ok: true, command: "rbac-stop", stopped: [] });
+    return this.#external?.stop() ?? Promise.resolve({ ok: true, command: "rbac-stop", stopped: [] });
   }
   health(): Promise<Record<string, unknown>> {
-    return Promise.resolve(this.#health());
+    return this.#config()?.mode === "builtin" || !this.#external
+      ? Promise.resolve(this.#health())
+      : this.#external.health();
   }
   async #run(request: ManagedRbacRequest): Promise<Record<string, unknown>> {
-    if (request.mode === "external") {
-      if (!request.url || !request.realm || !request.clientId)
-        throw Object.assign(new Error("External identity configuration requires url, realm, and clientId."), {
-          code: "rbac_config_invalid",
-        });
-      const config = {
-        schema: "harness-managed-rbac/v1",
-        mode: "external",
-        url: request.url,
-        realm: request.realm,
-        clientId: request.clientId,
-      };
-      const state = readState(this.#root);
-      writeState(this.#root, state);
-      const root = path.join(this.#root, "rbac");
-      const { mkdirSync, writeFileSync, chmodSync } = await import("node:fs");
-      mkdirSync(root, { recursive: true, mode: 0o700 });
-      writeFileSync(path.join(root, "config.json"), `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
-      chmodSync(path.join(root, "config.json"), 0o600);
-      return {
-        ok: true,
-        command: "rbac-external",
-        mode: "external",
-        url: request.url,
-        realm: request.realm,
-        clientId: request.clientId,
-      };
+    if (request.mode === "external" || request.mode === "managed") {
+      if (this.#external) {
+        const result = await this.#external.run(request);
+        return { ...result, restartRequired: true };
+      }
+      throw Object.assign(new Error("Install the Keycloak identity plugin before selecting an external provider."), {
+        code: "identity_plugin_unavailable",
+      });
     }
     ensureBuiltinConfig(this.#root);
     return {
@@ -67,18 +62,21 @@ export class BuiltinIdentityManagement implements IdentityManagementPort {
       downloaded: [],
     };
   }
-  #config(): { readonly mode?: string } | undefined {
+  #config():
+    | { readonly mode?: string; readonly url?: string; readonly realm?: string; readonly clientId?: string }
+    | undefined {
     const file = path.join(this.#root, "rbac", "config.json");
     return existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as { readonly mode?: string }) : undefined;
   }
   #health(): Record<string, unknown> {
+    const config = this.#config();
     return {
       ok: true,
       ready: true,
-      mode: "builtin",
-      url: "builtin://local",
-      realm: "local",
-      clientId: "harness-center",
+      mode: config?.mode ?? "builtin",
+      url: config?.url ?? "builtin://local",
+      realm: config?.realm ?? "local",
+      clientId: config?.clientId ?? "harness-center",
       downloaded: [],
     };
   }

@@ -4,6 +4,7 @@ import {
   deriveBasePolicyGroups,
   effectivePolicyGroupScopes,
   encodeAuthorizationResource,
+  registeredArtifactActionPolicyActions,
   type AuthorizationGrant,
   type AuthorizationIdentityDirectoryPort,
   type AuthorizationNode,
@@ -33,6 +34,8 @@ export interface BuiltinPolicyAdapterConfig {
   readonly userRoot: string;
   readonly resourceServerClientId?: string;
   readonly mode?: "builtin";
+  /** Canonical accepted Artifact scopes, read from durable declarations in another process. */
+  readonly readArtifactActionScopes?: () => Promise<readonly string[]>;
 }
 export type BuiltinPolicyGroup = AuthorizationPolicyGroup;
 export type BuiltinNode = AuthorizationNode;
@@ -51,12 +54,15 @@ export class BuiltinPolicyAdapter
   readonly sessionLifetimeBounds = builtinSessionLifetimeBounds;
   readonly #root: string;
   readonly #knownScopes = new Set(actionDeclarations.map((item) => item.policyAction));
+  readonly #readArtifactActionScopes: () => Promise<readonly string[]>;
   #centerToken: string | undefined;
   constructor(config: BuiltinPolicyAdapterConfig) {
     this.#root = config.userRoot;
+    this.#readArtifactActionScopes =
+      config.readArtifactActionScopes ?? (async () => registeredArtifactActionPolicyActions());
   }
   withFetchPort(): BuiltinPolicyAdapter {
-    return new BuiltinPolicyAdapter({ userRoot: this.#root });
+    return new BuiltinPolicyAdapter({ userRoot: this.#root, readArtifactActionScopes: this.#readArtifactActionScopes });
   }
   readSessionLifetime(token: string): Promise<number> {
     this.#assertCenter(token);
@@ -67,9 +73,10 @@ export class BuiltinPolicyAdapter
   }
   async syncBasePolicy(token: string): Promise<{ readonly scopeCount: number; readonly groupCount: number }> {
     this.#assertCenter(token);
-    const base = deriveBasePolicyGroups();
+    const artifactScopes = await this.#readArtifactActionScopes(),
+      base = deriveBasePolicyGroups(actionDeclarations, artifactScopes);
     assertAcyclicPolicyGroups(base);
-    return Object.freeze({ scopeCount: this.#knownScopes.size, groupCount: base.length });
+    return Object.freeze({ scopeCount: this.#knownScopes.size + artifactScopes.length, groupCount: base.length });
   }
   validatePolicyGroups(groups: readonly PolicyGroup[]): void {
     void groups;
@@ -324,21 +331,25 @@ export class BuiltinPolicyAdapter
   owner(): BuiltinUser | undefined {
     return readState(this.#root).owner;
   }
-  #decision(
+  async #decision(
     personId: string | undefined,
     action: string,
     resourceValue: AuthorizationResource,
     ancestors: readonly AuthorizationResource[] = [],
-  ): BuiltinPermissionDecision {
+  ): Promise<BuiltinPermissionDecision> {
     const resource = encodeAuthorizationResource(resourceValue),
       denied = (reasonCode: string): BuiltinPermissionDecision =>
         Object.freeze({ outcome: "denied", reasonCode, resource, scope: action });
-    if (!this.#knownScopes.has(action)) return denied("unknown_scope");
+    const artifactScopes = await this.#readArtifactActionScopes();
+    if (!this.#knownScopes.has(action) && !artifactScopes.includes(action)) return denied("unknown_scope");
     if (!personId) return denied(this.deniedReasonCode);
     const state = readState(this.#root),
       user = state.owner?.personId === personId ? state.owner : undefined;
     if (!user) return denied(this.deniedReasonCode);
-    const groups = deriveBasePolicyGroups().map((group) => ({ ...group, displayName: group.id })),
+    const groups = deriveBasePolicyGroups(actionDeclarations, artifactScopes).map((group) => ({
+        ...group,
+        displayName: group.id,
+      })),
       covered = coveringResources(resourceValue, ancestors);
     const repositoryResources = Object.entries(state.repositoryOwners)
       .filter(([, ownerPersonId]) => ownerPersonId === personId)

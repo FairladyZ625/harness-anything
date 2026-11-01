@@ -24,3 +24,15 @@ ha bootstrap --mode external --url https://identity.example.com \
 ```
 
 Switching does not silently migrate local credentials or authorization. Create the required accounts, roles, and grants in the Keycloak realm, then run the normal login command. Switching back requires an explicit `mode: builtin` configuration and a new local login.
+
+### Existing edge roots
+
+An edge root created by an older Keycloak release may have `fleet-edge.json` and an
+`rbac/oidc-session.json` but no `rbac/config.json`. Keep that root on the Keycloak
+plugin while recovering it: install the plugin, preserve those files, and run the
+normal edge login against the center advertised by `fleet-edge.json`. The daemon
+reads the legacy session until the first successful keyed session write; it does not
+convert the edge to the local provider automatically. After the old session is
+usable, write an explicit provider selector under `rbac/config.json` only when the
+operator has chosen the target provider. A missing selector on a new local root still
+means built-in identity; it does not authorize an old edge to use local identity.
