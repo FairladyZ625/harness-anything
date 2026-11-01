@@ -53,7 +53,10 @@ export async function withPostgresTransaction<T>(
     } catch (rollbackError) {
       client.release(rollbackError instanceof Error ? rollbackError : new Error(String(rollbackError)));
       released = true;
-      throw new AggregateError([error, rollbackError], "PostgreSQL transaction and rollback both failed.");
+      throw new AggregateError(
+        [error, ...(connectionError && connectionError !== error ? [connectionError] : []), rollbackError],
+        "PostgreSQL transaction and rollback both failed.",
+      );
     }
     throw error;
   } finally {

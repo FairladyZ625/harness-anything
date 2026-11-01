@@ -322,9 +322,13 @@ test("real PG ledger: SQLite byte parity, scoped locks, outcomes, rollback and p
         disconnectedBetweenQueries.append(bundle(eventAt(1)), 0, fence("idle-disconnect-repo")),
         (error: unknown) => {
           assert.ok(error instanceof AggregateError);
-          const original = error.errors[0] as Error & { readonly code?: string };
+          const original = error.errors.find(
+            (item: Error & { readonly code?: string }) =>
+              item.code === "57P01" || item.message === "Connection terminated unexpectedly",
+          ) as (Error & { readonly code?: string }) | undefined;
           // PostgreSQL may deliver its fatal response before closing the idle socket, or the driver
           // may observe the transport close first. Preserve either native error without inventing a code.
+          assert.ok(original, "the originating connection error must survive a later not-queryable error");
           if (original.code === undefined) assert.equal(original.message, "Connection terminated unexpectedly");
           else assert.equal(original.code, "57P01");
           return true;
