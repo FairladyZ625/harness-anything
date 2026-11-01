@@ -18,7 +18,7 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 
-test("the real writer relays completed runtime restorations before ready without relaunching models", async () => {
+test("the ledger is ready and writable while runtime authorization remains unresolved", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-adoption-ready-")),
     statuses: RepoCellStatus[] = [],
     definition: AgentDefinitionSnapshot = {
@@ -40,6 +40,12 @@ test("the real writer relays completed runtime restorations before ready without
       version: "1.0.0",
       observedAt: "2026-09-13T00:00:00.000Z",
     };
+  const recoveryEntered = Promise.withResolvers<void>(),
+    authorization = Promise.withResolvers<void>(),
+    outcomes = Promise.withResolvers<void>();
+  const observedOutcomes = new Set<string>();
+  let holdRecovery = false;
+  let opening: ReturnType<typeof openRepoCell> | undefined;
   let launches = 0,
     cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
@@ -64,8 +70,18 @@ test("the real writer relays completed runtime restorations before ready without
       repoId: workspaceId("adoption-ready"),
       rootDir: canonicalRoot(rootDir),
       ownerId: "adoption-ready-test",
-      keycloakSession: async () => binding.keycloakAuthorization.session,
+      keycloakSession: async () => {
+        if (holdRecovery) {
+          recoveryEntered.resolve();
+          await authorization.promise;
+        }
+        return binding.keycloakAuthorization.session;
+      },
       onStatus: (status: RepoCellStatus) => statuses.push(status),
+      onRuntimeOutcome: (event: { payload: { runtimeSessionId: string } }) => {
+        observedOutcomes.add(event.payload.runtimeSessionId);
+        if (observedOutcomes.size === 2) outcomes.resolve();
+      },
       runtimeInstances: () => [
         {
           schemaVersion: 2 as const,
@@ -123,17 +139,43 @@ test("the real writer relays completed runtime restorations before ready without
     await cell.close();
     cell = undefined;
     statuses.length = 0;
-    cell = await openRepoCell(input);
-    assert.deepEqual(
-      [
-        ...new Set(
-          statuses
-            .filter((status) => status.attach?.phase === "restoring-runtimes")
-            .map((status) => status.attach?.applied),
-        ),
-      ],
-      [1, 2],
+    holdRecovery = true;
+    opening = openRepoCell(input);
+    const first = await Promise.race([
+      opening.then((opened) => {
+        cell = opened;
+        return "ledger-ready";
+      }),
+      recoveryEntered.promise.then(() => "runtime-blocked"),
+    ]);
+    assert.equal(first, "ledger-ready", "runtime authorization cannot be a repository readiness prerequisite");
+    cell = await opening;
+    opening = undefined;
+    await recoveryEntered.promise;
+    assert.equal((await cell.run({ kind: "task-list" }, binding)).outcome, "applied");
+    assert.equal(
+      (
+        await cell.run(
+          { kind: "task-create", taskId: "task_during_recovery", title: "Writable during recovery" },
+          binding,
+        )
+      ).outcome,
+      "applied",
     );
+    await assert.rejects(
+      cell.spawnRuntime(
+        {
+          runtimeInstanceId: definition.instanceId,
+          cwd: { scope: "repo-root" },
+          prompt: "must reserve old capacity",
+          dispatchKey: "while-recovering",
+        },
+        binding,
+      ),
+      { code: "runtime_recovery_pending" },
+    );
+    authorization.resolve();
+    await outcomes.promise;
     assert.equal(cell.status().state, "attached");
     assert.equal(cell.status().attach, undefined);
     assert.equal(launches, 2);
@@ -153,6 +195,8 @@ test("the real writer relays completed runtime restorations before ready without
     );
     assert.equal(launches, 2);
   } finally {
+    authorization.resolve();
+    if (opening) cell = await opening;
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
   }
@@ -218,6 +262,7 @@ test("owner adoption checks dead PID before publishing live and preserves live c
       },
       remote: {
         readRuntimeSessions: async () => [accepted],
+        readRuntimeDispatchId: async () => dispatchId,
         publish: async (draft) => {
           published.push(`${draft.type}:${String(draft.payload.liveness ?? "")}`);
           throw new Error("center unavailable");
@@ -225,7 +270,9 @@ test("owner adoption checks dead PID before publishing live and preserves live c
       } as never,
     });
     try {
-      await assert.rejects(runtime.adopt(), /center unavailable/u);
+      const recovery = await runtime.adopt();
+      assert.equal(recovery[0]?.outcome, "failed");
+      assert.match(String(recovery[0]?.error), /center unavailable/u);
       assert.equal(
         published.some((value) => value === "runtime_session_liveness_changed:live"),
         alive,

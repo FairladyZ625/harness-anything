@@ -4,7 +4,7 @@ import type { ActiveRuntime, RuntimeSessionSelection } from "./runtime-spawn-typ
 import {
   appendRuntimeWorkerRecord,
   readDispatchStream,
-  readDispatchStreamHeaders,
+  readDispatchStreamHeader,
   readDispatchStreamSummary,
   reopenDispatchStream,
   type DispatchStreamHeader,
@@ -24,193 +24,265 @@ import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import type { RuntimeInstanceKind } from "./agent-runtime-instance-types.ts";
 import { isRuntimeKindId } from "./runtime-inventory.ts";
 
+export interface RuntimeRecoveryResult {
+  readonly runtimeSessionId: string;
+  readonly dispatchId: string | null;
+  readonly outcome: "ready" | "failed";
+  readonly error?: unknown;
+}
+
+const recoveries = new WeakMap<
+  RuntimeSpawnerContext,
+  Map<
+    string,
+    {
+      readonly promise: Promise<RuntimeRecoveryResult>;
+      result?: RuntimeRecoveryResult;
+    }
+  >
+>();
+
 export async function adoptRuntimes(
   context: RuntimeSpawnerContext,
   onProgress?: (completed: number) => void,
-  options?: { readonly sweepTempDirectories?: boolean },
-): Promise<void> {
-  // Reconstruct owner handles even when the center cannot answer. Publication errors remain
-  // errors; they cannot erase independently verified local process control.
-  const [sessionRead] = await Promise.allSettled([
-    Promise.resolve().then(() =>
-      context.input.remote
-        ? context.input.remote.readRuntimeSessions()
-        : context.requiredRuntimeProjection(context.input).readRuntimeSessions(),
-    ),
-  ]);
-  const byId = new Map(
-    sessionRead.status === "fulfilled" ? sessionRead.value.map((session) => [session.runtimeSessionId, session]) : [],
-  );
-  const failures: unknown[] = sessionRead.status === "rejected" ? [sessionRead.reason] : [];
+  options?: { readonly runtimeSessionId?: string },
+): Promise<readonly RuntimeRecoveryResult[]> {
+  const sessions = context.input.remote
+    ? await context.input.remote.readRuntimeSessions()
+    : context.requiredRuntimeProjection(context.input).readRuntimeSessions();
+  let pending = recoveries.get(context);
+  if (!pending) recoveries.set(context, (pending = new Map()));
   let completed = 0;
-  // A terminal stream can be archived before its canonical outcome reaches the projection. Keep
-  // archived streams in the adoption census so a daemon restart replays that terminal and releases
-  // the dispatch/review lane; the session outcome guard below makes settled archives idempotent.
-  for (const header of readDispatchStreamHeaders(context.input.rootDir, true)) {
-    if (context.processes.has(header.runtimeSessionId) || context.exiting.has(header.runtimeSessionId)) continue;
-    const metadata = adoptableMetadata(header);
-    if (!metadata || !ownedByRuntimeSpawner(metadata.binding, context.input.runtimeNode)) continue;
-    const fallbackSummary = header.fallbackAttempt
-      ? readDispatchStreamSummary(context.input.rootDir, header.dispatchId)
-      : null;
-    if (fallbackSummary) context.reconcileFallback(fallbackSummary);
-    const session = byId.get(header.runtimeSessionId);
-    if (sessionRead.status === "fulfilled" && (!session || session.outcome !== null)) {
-      removeRuntimeCallbackRelay(header.dispatchId);
-      continue;
-    }
-    const fullStream = readDispatchStream(context.input.rootDir, header.dispatchId),
-      streamSummary = readDispatchStreamSummary(context.input.rootDir, header.dispatchId),
-      stream = fullStream ?? streamSummary;
-    if (!stream) continue;
-    const processState = stream.process,
-      processPid = processState?.pid ?? 0;
-    // A terminal outcome is appended before publication. If a second node opens while the
-    // center projection is still catching up, the local stream is the authoritative owner
-    // record and must not publish the same terminal transition a second time.
-    if (stream.terminalOutcome && processState?.exited && session?.outcome !== null && session?.outcome !== undefined) {
-      removeRuntimeCallbackRelay(header.dispatchId);
-      continue;
-    }
-    const runtimeProcess = adoptNativeProcess(
-      context.input.rootDir,
-      stream.header.dispatchId,
-      processPid,
-      durableOutputRecordCount(fullStream?.records ?? []),
-    );
-    if (!fullStream) runtimeProcess.release?.();
-    const active = createActiveRuntime({
-      process: runtimeProcess,
-      dispatchId: stream.header.dispatchId,
-      runtimeSessionId: stream.header.runtimeSessionId,
-      dispatchOpId: metadata.dispatchOpId,
-      instanceId: stream.header.instanceId,
-      kindId: metadata.kindId,
-      resolvedProviderDirectory: stream.header.resolvedProviderDirectory ?? null,
-      permissionMode: metadata.permissionMode,
-      agent: stream.header.agentId
-        ? { id: stream.header.agentId, name: stream.header.agentName ?? stream.header.agentId }
-        : null,
-      role: stream.header.role ?? null,
-      delegatedBy: stream.header.delegatedByAgentId
+  // Point reads, including archived streams, belong to each recovery. A stalled
+  // remote header lookup must not delay a sibling's restoration.
+  const attempts = sessions
+    .filter(
+      (session) =>
+        session.outcome === null &&
+        (!options?.runtimeSessionId || session.runtimeSessionId === options.runtimeSessionId),
+    )
+    .map((session) => {
+      const runtimeSessionId = session.runtimeSessionId;
+      const existing = pending.get(runtimeSessionId);
+      if (existing && !existing.result) return existing.promise;
+      const alreadyOwned = context.processes.has(runtimeSessionId) || context.exiting.has(runtimeSessionId);
+      let dispatchId: string | null = null;
+      const entry: { promise: Promise<RuntimeRecoveryResult>; result?: RuntimeRecoveryResult } = {
+        promise: Promise.resolve()
+          .then(async () => {
+            dispatchId = context.input.remote
+              ? await context.input.remote.readRuntimeDispatchId(runtimeSessionId)
+              : (context.requiredRuntimeProjection(context.input).readRuntimeDispatch(runtimeSessionId)?.payload
+                  .dispatchId ?? null);
+            const header = dispatchId ? readDispatchStreamHeader(context.input.rootDir, dispatchId) : null;
+            if (!header)
+              throw context.runtimeSpawnError(
+                "runtime_recovery_missing_dispatch",
+                `Runtime ${runtimeSessionId} has no readable dispatch.`,
+              );
+            await restoreRuntime(context, header, session);
+          })
+          .then(
+            () => ({
+              runtimeSessionId,
+              dispatchId,
+              outcome: "ready" as const,
+            }),
+            (error: unknown) => {
+              context.input.recordLifecycle?.({
+                event: "runtime_recovery_failed",
+                runtimeSessionId,
+                ...(dispatchId ? { dispatchId } : {}),
+                error: error instanceof Error ? error.message : String(error),
+              });
+              console.error(`[runtime-recovery] ${runtimeSessionId}`, error);
+              return {
+                runtimeSessionId,
+                dispatchId,
+                outcome: "failed" as const,
+                error,
+              };
+            },
+          )
+          .then((result) => {
+            entry.result = result;
+            if (result.outcome === "ready" && !alreadyOwned) onProgress?.(++completed);
+            return result;
+          }),
+      };
+      pending.set(runtimeSessionId, entry);
+      return entry.promise;
+    });
+  return Promise.all(attempts);
+}
+
+/** Admission never waits while holding the writer: an unresolved owner cannot look idle. */
+export function assertRuntimeRecoveryReady(context: RuntimeSpawnerContext, runtimeSessionId: string): void {
+  const recovery = recoveries.get(context)?.get(runtimeSessionId);
+  if (recovery?.result?.outcome === "failed") throw recovery.result.error;
+  if (recovery && !recovery.result)
+    throw context.runtimeSpawnError("runtime_recovery_pending", `Runtime ${runtimeSessionId} is still recovering.`);
+}
+
+async function restoreRuntime(
+  context: RuntimeSpawnerContext,
+  header: DispatchStreamHeader,
+  session: RuntimeSessionSelection | undefined,
+): Promise<void> {
+  if (context.closed?.()) return;
+  if (context.processes.has(header.runtimeSessionId) || context.exiting.has(header.runtimeSessionId)) return;
+  const metadata = adoptableMetadata(header);
+  if (!metadata || !ownedByRuntimeSpawner(metadata.binding, context.input.runtimeNode)) return;
+  const fallbackSummary = header.fallbackAttempt
+    ? readDispatchStreamSummary(context.input.rootDir, header.dispatchId)
+    : null;
+  if (fallbackSummary) context.reconcileFallback(fallbackSummary);
+
+  if (session && session.outcome !== null) {
+    removeRuntimeCallbackRelay(header.dispatchId);
+    return;
+  }
+  const fullStream = readDispatchStream(context.input.rootDir, header.dispatchId),
+    streamSummary = readDispatchStreamSummary(context.input.rootDir, header.dispatchId),
+    stream = fullStream ?? streamSummary;
+  if (!stream) return;
+  const processState = stream.process,
+    processPid = processState?.pid ?? 0;
+  // A terminal outcome is appended before publication. If a second node opens while the
+  // center projection is still catching up, the local stream is the authoritative owner
+  // record and must not publish the same terminal transition a second time.
+  if (stream.terminalOutcome && processState?.exited && session?.outcome !== null && session?.outcome !== undefined) {
+    removeRuntimeCallbackRelay(header.dispatchId);
+    return;
+  }
+  const runtimeProcess = adoptNativeProcess(
+    context.input.rootDir,
+    stream.header.dispatchId,
+    processPid,
+    durableOutputRecordCount(fullStream?.records ?? []),
+  );
+  if (!fullStream) runtimeProcess.release?.();
+  const active = createActiveRuntime({
+    process: runtimeProcess,
+    dispatchId: stream.header.dispatchId,
+    runtimeSessionId: stream.header.runtimeSessionId,
+    dispatchOpId: metadata.dispatchOpId,
+    instanceId: stream.header.instanceId,
+    kindId: metadata.kindId,
+    resolvedProviderDirectory: stream.header.resolvedProviderDirectory ?? null,
+    permissionMode: metadata.permissionMode,
+    agent: stream.header.agentId
+      ? { id: stream.header.agentId, name: stream.header.agentName ?? stream.header.agentId }
+      : null,
+    role: stream.header.role ?? null,
+    delegatedBy: stream.header.delegatedByAgentId
+      ? {
+          id: stream.header.delegatedByAgentId,
+          name: stream.header.delegatedByAgentName ?? stream.header.delegatedByAgentId,
+        }
+      : null,
+    squadId: stream.header.squadId ?? null,
+    publicationOwner: stream.header.publicationOwner ?? "runtime",
+    parentRuntimeSessionId: stream.header.parentRuntimeSessionId ?? null,
+    binding: metadata.binding,
+    task:
+      stream.header.taskId && stream.header.executionId
         ? {
-            id: stream.header.delegatedByAgentId,
-            name: stream.header.delegatedByAgentName ?? stream.header.delegatedByAgentId,
+            taskId: stream.header.taskId,
+            executionId: stream.header.executionId,
+            leaseVersion: stream.header.leaseVersion ?? null,
           }
         : null,
-      squadId: stream.header.squadId ?? null,
-      publicationOwner: stream.header.publicationOwner ?? "runtime",
-      parentRuntimeSessionId: stream.header.parentRuntimeSessionId ?? null,
-      binding: metadata.binding,
-      task:
-        stream.header.taskId && stream.header.executionId
-          ? {
-              taskId: stream.header.taskId,
-              executionId: stream.header.executionId,
-              leaseVersion: stream.header.leaseVersion ?? null,
-            }
-          : null,
-      decisionReviewTarget:
-        stream.header.reviewTarget?.kind === "decision"
-          ? {
-              decisionId: stream.header.reviewTarget.decisionId,
-              digest: stream.header.reviewTarget.digest,
-            }
-          : null,
-      schedule: stream.header.schedule ?? null,
-      cwd: metadata.cwd,
-      prompt: metadata.prompt,
-      ...(stream.header.promptSource ? { promptSource: stream.header.promptSource } : {}),
-      onExitCommand: stream.header.onExitCommand ?? null,
-      model: metadata.model,
-      reasoningEffort: metadata.reasoningEffort,
-      fast: metadata.fast,
-      tokenLimit: stream.header.tokenLimit ?? null,
-      stallTimeoutMs: stream.header.stallTimeoutMs ?? DEFAULT_RUNTIME_STALL_TIMEOUT_MS,
-      lastProgressAtMs: Date.parse(streamSummary?.lastProgressAt ?? stream.header.startedAt),
-      workspaceActivityCount: streamSummary?.workspaceActivityCount ?? 0,
-      stalledAt: streamSummary?.stalledAt ?? null,
-      startedAt: stream.header.startedAt,
-      stream: reopenDispatchStream(context.input.rootDir, stream.header),
-      fallbackAttempt: stream.header.fallbackAttempt ?? null,
-      resumeProviderSessionId: stream.header.resumeProviderSessionId ?? null,
-      providerSessionId: stream.providerSessionId,
-    });
-    context.processes.set(active.runtimeSessionId, active);
-    const processAlive = !!processState && !processState.exited && runtimePidIsAlive(processState.pid);
-    if (processAlive && fullStream) {
-      const attachmentFailure = attachAdoptedObservations(context, active);
-      if (attachmentFailure !== null) {
-        failures.push(attachmentFailure);
-        continue;
+    decisionReviewTarget:
+      stream.header.reviewTarget?.kind === "decision"
+        ? {
+            decisionId: stream.header.reviewTarget.decisionId,
+            digest: stream.header.reviewTarget.digest,
+          }
+        : null,
+    schedule: stream.header.schedule ?? null,
+    cwd: metadata.cwd,
+    prompt: metadata.prompt,
+    ...(stream.header.promptSource ? { promptSource: stream.header.promptSource } : {}),
+    onExitCommand: stream.header.onExitCommand ?? null,
+    model: metadata.model,
+    reasoningEffort: metadata.reasoningEffort,
+    fast: metadata.fast,
+    tokenLimit: stream.header.tokenLimit ?? null,
+    stallTimeoutMs: stream.header.stallTimeoutMs ?? DEFAULT_RUNTIME_STALL_TIMEOUT_MS,
+    lastProgressAtMs: Date.parse(streamSummary?.lastProgressAt ?? stream.header.startedAt),
+    workspaceActivityCount: streamSummary?.workspaceActivityCount ?? 0,
+    stalledAt: streamSummary?.stalledAt ?? null,
+    startedAt: stream.header.startedAt,
+    stream: reopenDispatchStream(context.input.rootDir, stream.header),
+    fallbackAttempt: stream.header.fallbackAttempt ?? null,
+    resumeProviderSessionId: stream.header.resumeProviderSessionId ?? null,
+    providerSessionId: stream.providerSessionId,
+  });
+  context.processes.set(active.runtimeSessionId, active);
+  const processAlive = !!processState && !processState.exited && runtimePidIsAlive(processState.pid);
+  const [publication] = await Promise.allSettled([
+    (async () => {
+      context.input.recordLifecycle?.({
+        event: "runtime_spawn",
+        runtimeSessionId: active.runtimeSessionId,
+        dispatchId: active.dispatchId,
+        // A session adopted without a recorded process has no pid to report; the drain count follows
+        // live pids, so reporting a placeholder would keep counting a runtime that does not exist.
+        ...(processState ? { pid: processState.pid } : {}),
+      });
+      await restoreDurableOutputRecords(context, active, fullStream?.records ?? []);
+      if (context.closed?.()) return;
+      if (processAlive && fullStream) {
+        const attachmentFailure = attachAdoptedObservations(context, active);
+        if (attachmentFailure !== null) {
+          throw attachmentFailure;
+        }
       }
-    }
-    const [publication] = await Promise.allSettled([
-      (async () => {
-        context.input.recordLifecycle?.({
-          event: "runtime_spawn",
-          runtimeSessionId: active.runtimeSessionId,
-          dispatchId: active.dispatchId,
-          // A session adopted without a recorded process has no pid to report; the drain count follows
-          // live pids, so reporting a placeholder would keep counting a runtime that does not exist.
-          ...(processState ? { pid: processState.pid } : {}),
-        });
-        await restoreDurableOutputRecords(context, active, fullStream?.records ?? []);
-        // Replaying the durable stream recomputes consumption from the launch cut. A runtime
-        // already past its frozen limit must be stopped before liveness is republished, or a
-        // daemon restart would hand a capped dispatch a fresh lease on spending.
-        if (processAlive && active.spendCapExceeded) {
-          await context.enforceSpendCap(active);
-          return;
-        }
-        if (processAlive && session?.liveness !== "live" && session?.liveness !== "exited") {
-          await context.publishRuntimeEvent(
-            "runtime_session_liveness_changed",
-            { runtimeSessionId: active.runtimeSessionId, liveness: "live", processGroupPid: processState.pid },
-            randomUUID(),
-            active.binding,
-          );
-        }
-        if (!processAlive) {
-          const reason = processState
-            ? `runtime process ${String(processState.pid)} is no longer alive after daemon restart`
-            : "runtime process was never recorded before daemon restart";
-          active.lossReason = processState?.exited ? null : reason;
-          active.lossExitCode = processState?.exitCode ?? null;
-          active.lossSignal = processState?.signal ?? null;
-          removeRuntimeCallbackRelay(active.dispatchId);
-          if (!processState?.exited)
-            appendRuntimeWorkerRecord(context.input.rootDir, active.dispatchId, {
-              kind: "process_lost",
-              occurredAt: context.input.now(),
-              reason,
-              exitCode: active.lossExitCode,
-              signal: active.lossSignal,
-            });
-          await consumeDurableOutput(context, active);
-          await context.publishExit(active, active.lossExitCode, session?.liveness === "exited");
-        }
-      })(),
-    ]);
-    if (publication.status === "rejected") {
+
+      // Replaying the durable stream recomputes consumption from the launch cut. A runtime
+      // already past its frozen limit must be stopped before liveness is republished, or a
+      // daemon restart would hand a capped dispatch a fresh lease on spending.
+      if (processAlive && active.spendCapExceeded) {
+        await context.enforceSpendCap(active);
+        return;
+      }
+      if (processAlive && session?.liveness !== "live" && session?.liveness !== "exited") {
+        await context.publishRuntimeEvent(
+          "runtime_session_liveness_changed",
+          { runtimeSessionId: active.runtimeSessionId, liveness: "live", processGroupPid: processState.pid },
+          randomUUID(),
+          active.binding,
+        );
+      }
       if (!processAlive) {
-        if (context.processes.get(active.runtimeSessionId) === active)
-          context.processes.delete(active.runtimeSessionId);
-        active.process.release?.();
+        const reason = processState
+          ? `runtime process ${String(processState.pid)} is no longer alive after daemon restart`
+          : "runtime process was never recorded before daemon restart";
+        active.lossReason = processState?.exited ? null : reason;
+        active.lossExitCode = processState?.exitCode ?? null;
+        active.lossSignal = processState?.signal ?? null;
+        removeRuntimeCallbackRelay(active.dispatchId);
+        if (!processState?.exited)
+          appendRuntimeWorkerRecord(context.input.rootDir, active.dispatchId, {
+            kind: "process_lost",
+            occurredAt: context.input.now(),
+            reason,
+            exitCode: active.lossExitCode,
+            signal: active.lossSignal,
+          });
+        await consumeDurableOutput(context, active);
+        await context.publishExit(active, active.lossExitCode, session?.liveness === "exited");
       }
-      failures.push(publication.reason);
-    } else {
-      // Settlement must finish before it can renew the startup inactivity budget.
-      onProgress?.(++completed);
+    })(),
+  ]);
+  if (publication.status === "rejected") {
+    if (!processAlive) {
+      if (context.processes.get(active.runtimeSessionId) === active) context.processes.delete(active.runtimeSessionId);
+      active.process.release?.();
     }
+    throw publication.reason;
   }
-  // The sweep runs after the header loop, so sessions re-adopted above are live in
-  // context.processes and their directories are skipped. Startup adoption (daemon open, or an
-  // edge's readiness gate) passes the flag; cancel's mid-operation adoption call does not — a
-  // just-minted directory whose dispatch event has not committed yet would be
-  // indistinguishable here from an orphaned one.
-  if (options?.sweepTempDirectories) await sweepSettledRuntimeTempDirectories(context);
-  if (failures.length > 0) throw failures[0];
 }
 
 /**

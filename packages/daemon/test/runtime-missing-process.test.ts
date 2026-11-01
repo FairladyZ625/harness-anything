@@ -27,7 +27,10 @@ test("adoption settles an owned live session whose dispatch never recorded a pro
     const settled: Array<{ readonly runtimeSessionId: string; readonly reason: string | null }> = [],
       context = {
         input: { rootDir, repoId: "missing-process", now: () => "2026-09-13T00:01:00.000Z" },
-        requiredRuntimeProjection: () => ({ readRuntimeSessions: () => [liveSession(runtimeSessionId)] }),
+        requiredRuntimeProjection: () => ({
+          readRuntimeSessions: () => [liveSession(runtimeSessionId)],
+          readRuntimeDispatch: () => ({ payload: { dispatchId } }),
+        }),
         processes: new Map(),
         exiting: new Set<string>(),
         reconcileFallback: () => undefined,
@@ -59,7 +62,10 @@ test("adoption replays an archived dead dispatch whose canonical outcome was not
     const settled: Array<{ readonly runtimeSessionId: string; readonly lossReason: string | null }> = [],
       context = {
         input: { rootDir, repoId: "archived-dead-process", now: () => "2026-10-31T04:00:00.000Z" },
-        requiredRuntimeProjection: () => ({ readRuntimeSessions: () => [liveSession(runtimeSessionId)] }),
+        requiredRuntimeProjection: () => ({
+          readRuntimeSessions: () => [liveSession(runtimeSessionId)],
+          readRuntimeDispatch: () => ({ payload: { dispatchId } }),
+        }),
         processes: new Map(),
         exiting: new Set<string>(),
         reconcileFallback: () => undefined,
@@ -87,7 +93,10 @@ test("recovery adoption preserves a runtime already owned by this daemon", async
       processes = new Map([[runtimeSessionId, owned]]);
     const context = {
       input: { rootDir, repoId: "owned-runtime", now: () => "2026-09-13T00:01:00.000Z" },
-      requiredRuntimeProjection: () => ({ readRuntimeSessions: () => [liveSession(runtimeSessionId)] }),
+      requiredRuntimeProjection: () => ({
+        readRuntimeSessions: () => [liveSession(runtimeSessionId)],
+        readRuntimeDispatch: () => ({ payload: { dispatchId } }),
+      }),
       processes,
       exiting: new Set<string>(),
       reconcileFallback: () => {
@@ -119,6 +128,7 @@ for (const failurePoint of ["liveness", "settlement", "in-flight"] as const) {
         input: { rootDir, repoId: "retry-adoption", now: () => "2026-09-13T00:01:00.000Z" },
         requiredRuntimeProjection: () => ({
           readRuntimeSessions: () => [{ ...liveSession(runtimeSessionId), liveness: "unknown" }],
+          readRuntimeDispatch: () => ({ payload: { dispatchId } }),
         }),
         processes: new Map(),
         exiting: new Set(failurePoint === "in-flight" ? [runtimeSessionId] : []),
@@ -140,7 +150,7 @@ for (const failurePoint of ["liveness", "settlement", "in-flight"] as const) {
         return;
       }
       if (failurePoint === "in-flight") await adoptRuntimes(context as never);
-      else await assert.rejects(adoptRuntimes(context as never), /center disconnected/);
+      else assert.equal((await adoptRuntimes(context as never))[0]?.outcome, "failed");
       assert.equal(context.processes.size, 0, "failed or in-flight adoption must not leave an owned runtime");
       unavailable = false;
       context.exiting.clear();
@@ -153,12 +163,13 @@ for (const failurePoint of ["liveness", "settlement", "in-flight"] as const) {
   });
 }
 
-test("adoption reports only completed session restorations, never in-flight or failed settlement", async () => {
+test("adoption reports completed restores independently of a pending or failed sibling", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-adoption-progress-"));
+  const pending = Promise.withResolvers<void>(),
+    secondStarted = Promise.withResolvers<void>();
   try {
-    const sessions = ["a", "b", "c"].map((id) => liveSession(`runtime_${id.repeat(24)}`)),
-      progress: number[] = [],
-      settlements: string[] = [];
+    const sessions = ["a", "b", "c"].map((id) => liveSession(`runtime_${id.repeat(24)}`));
+    const progress: number[] = [];
     for (const [index, session] of sessions.entries())
       openMissingProcessStream(
         rootDir,
@@ -166,41 +177,38 @@ test("adoption reports only completed session restorations, never in-flight or f
         session.runtimeSessionId,
         `op-${index}`,
       );
-    let release!: () => void, announceSecond!: () => void;
-    const pending = new Promise<void>((resolve) => {
-        release = resolve;
-      }),
-      secondStarted = new Promise<void>((resolve) => {
-        announceSecond = resolve;
-      });
     const context = {
-      input: { rootDir, repoId: "adoption-progress", now: () => "2026-09-13T00:01:00.000Z" },
-      requiredRuntimeProjection: () => ({ readRuntimeSessions: () => sessions }),
+      input: { rootDir, now: () => "2026-09-13T00:01:00.000Z" },
+      requiredRuntimeProjection: () => ({
+        readRuntimeSessions: () => sessions,
+        readRuntimeDispatch: (id: string) => ({
+          payload: {
+            dispatchId: `dispatch_${String(sessions.findIndex((s) => s.runtimeSessionId === id)).repeat(24)}`,
+          },
+        }),
+      }),
       processes: new Map(),
       exiting: new Set<string>(),
       consumeLine: async () => undefined,
       publishExit: async (active: { runtimeSessionId: string }) => {
-        if (settlements.length === 1) {
-          announceSecond();
-          await pending;
+        if (active.runtimeSessionId === sessions[1]!.runtimeSessionId) {
+          secondStarted.resolve();
+          await pending.promise;
         }
-        assert.equal(progress.length, settlements.length, "starting settlement is not completed progress");
-        if (settlements.length === 2) throw new Error("settlement stalled");
-        settlements.push(active.runtimeSessionId);
+        if (active.runtimeSessionId === sessions[2]!.runtimeSessionId) throw new Error("settlement stalled");
         context.processes.delete(active.runtimeSessionId);
       },
     };
     const adopting = adoptRuntimes(context as never, (completed) => progress.push(completed));
-    await secondStarted;
-    try {
-      assert.deepEqual(progress, [1]);
-    } finally {
-      release();
-    }
-    await assert.rejects(adopting, /settlement stalled/);
+    await secondStarted.promise;
+    pending.resolve();
+    assert.deepEqual(
+      (await adopting).map((r) => r.outcome),
+      ["ready", "ready", "failed"],
+    );
     assert.deepEqual(progress, [1, 2]);
-    assert.equal(settlements.length, 2);
   } finally {
+    pending.resolve();
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
@@ -218,7 +226,10 @@ test("runtime cancel settles a live projection whose dispatch never recorded a p
       }> = [],
       context = {
         input: { rootDir, repoId: "cancel-missing-process" },
-        requiredRuntimeProjection: () => ({ readRuntimeSessions: () => [liveSession(runtimeSessionId)] }),
+        requiredRuntimeProjection: () => ({
+          readRuntimeSessions: () => [liveSession(runtimeSessionId)],
+          readRuntimeDispatch: () => ({ payload: { dispatchId } }),
+        }),
         processes: new Map(),
         exiting: new Set<string>(),
         publishRuntimeEvent: async (

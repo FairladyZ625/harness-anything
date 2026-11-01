@@ -40,14 +40,19 @@ export async function publishRuntimeEvent<T extends RuntimeEventType>(
           ...(dispatchContext === undefined ? {} : { dispatchContext }),
         })
       : context.input.commitRuntimeEvent
-        ? await context.input.commitRuntimeEvent(
-            {
-              type,
-              payload,
-              opId,
-              ...(resultBody === undefined ? {} : { resultBody }),
-              ...(dispatchContext === undefined ? {} : { dispatchContext }),
-            },
+        ? await writeRuntime(
+            context,
+            () =>
+              context.input.commitRuntimeEvent!(
+                {
+                  type,
+                  payload,
+                  opId,
+                  ...(resultBody === undefined ? {} : { resultBody }),
+                  ...(dispatchContext === undefined ? {} : { dispatchContext }),
+                },
+                authorizedBinding,
+              ),
             authorizedBinding,
           )
         : (() => {
@@ -478,4 +483,13 @@ export function markProtocolError(context: RuntimeSpawnerContext, active: Active
     type: "error",
     code: "provider_protocol_error",
   });
+}
+
+/** All local runtime mutation paths share the caller's existing writer boundary. */
+export function writeRuntime<T>(
+  context: RuntimeSpawnerContext,
+  work: () => T | Promise<T>,
+  binding: RuntimeBinding,
+): Promise<T> {
+  return context.input.writeRuntime ? context.input.writeRuntime(work, binding) : Promise.resolve().then(work);
 }

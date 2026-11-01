@@ -348,6 +348,7 @@ export interface RemoteRuntimePersistence {
     readonly worktree: TaskWorktreeBindingV1 | null;
   }>;
   readonly readRuntimeSessions: () => Promise<readonly RuntimeSessionSelection[]>;
+  readonly readRuntimeDispatchId: (runtimeSessionId: string) => Promise<string | null>;
   readonly publish: (draft: {
     readonly type: AgentRuntimeEventV1["type"];
     readonly payload: Readonly<Record<string, unknown>>;
@@ -382,6 +383,8 @@ export interface RuntimeSpawnerInput {
     },
     binding: RuntimeBinding,
   ) => Promise<{ readonly event?: AgentRuntimeEventV1; readonly receipt: JsonObject }>;
+  /** Serialize prepared recovery mutations; external observation and authorization run before this port. */
+  readonly writeRuntime?: <T>(work: () => T | Promise<T>, binding: RuntimeBinding) => Promise<T>;
   readonly stream: Pick<AgentRuntimeStreamHub, "publish">;
   readonly now: () => string;
   readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];

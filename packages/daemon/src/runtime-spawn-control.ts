@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { unknownFieldViolation, type JsonObject } from "./protocol/json-rpc-types.ts";
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
-import { adoptRuntimes, ownedByRuntimeSpawner } from "./runtime-spawn-adoption.ts";
+import { adoptRuntimes, ownedByRuntimeSpawner, assertRuntimeRecoveryReady } from "./runtime-spawn-adoption.ts";
 import { appendRuntimeWorkerRecord, readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
@@ -35,10 +35,12 @@ export async function cancelRuntime(
       "execution_scope_mismatch",
       "This runtime has no owner dispatch on this node; cancel it through its owner.",
     );
+  assertRuntimeRecoveryReady(context, runtimeSessionId);
   if (!context.processes.has(runtimeSessionId) && !missingOwnedProcess) {
-    const [adoption] = await Promise.allSettled([adoptRuntimes(context)]);
+    const [adoption] = await Promise.allSettled([adoptRuntimes(context, undefined, { runtimeSessionId })]);
     if (adoption.status === "rejected" && !context.processes.has(runtimeSessionId)) throw adoption.reason;
   }
+  assertRuntimeRecoveryReady(context, runtimeSessionId);
   const active = context.processes.get(runtimeSessionId);
   if (active) {
     active.cancelBinding = binding;
@@ -144,9 +146,11 @@ export async function steerRuntime(
   const runtimeSessionId = header.runtimeSessionId;
   if (!header?.binding || !ownedByRuntimeSpawner(header.binding, context.input.runtimeNode))
     throw runtimeSpawnError("execution_scope_mismatch", "This runtime is owned by another node.");
+  assertRuntimeRecoveryReady(context, runtimeSessionId);
   let active = context.processes.get(runtimeSessionId);
   if (!active) {
-    await adoptRuntimes(context);
+    await adoptRuntimes(context, undefined, { runtimeSessionId });
+    assertRuntimeRecoveryReady(context, runtimeSessionId);
     active = context.processes.get(runtimeSessionId);
   }
   if (!active) throw runtimeSpawnError("runtime_not_running", "Runtime is not running.");

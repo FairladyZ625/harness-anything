@@ -433,6 +433,11 @@ export function openFleetEdgeRuntime(input: {
       },
       readRuntimeSessions: () =>
         readFleetRuntimeSessionsPaged(async (payload) => readReplica("repo.agentRuntime.overview", payload)),
+      readRuntimeDispatchId: async (id) =>
+        withEdgeReadModel(
+          { ...request, principalId: (await input.readBinding()).actor.principal.personId },
+          (projection) => projection.readRuntimeDispatch(id)?.payload.dispatchId ?? null,
+        ),
       publish: async (draft) => {
         let response: Awaited<ReturnType<typeof runFleetRuntimeEventClient>>;
         try {
@@ -645,19 +650,16 @@ export function openFleetEdgeRuntime(input: {
     readWorktreeSetup: () => readSettings().worktree,
     readResult: (ref) => readEdgeRuntimeResult(request.viewRoot, request.repoId, request.nodeId, ref),
   });
-  // Adoption is shared by concurrent requests, but a failed connection must not become a
-  // permanent property of the cached edge runtime.  The daemon keeps one runtime per
-  // node, so retain the instance and discard only the rejected readiness attempt;
-  // the next request can then observe a recovered center and adopt again.
+  // Replica admission is shared; independent runtime recovery never owns the request barrier.
   let ready: Promise<void> | null = null;
   const ensureReady = (): Promise<void> => {
     if (ready === null) {
-      // adopt() runs with the temp-directory sweep enabled: a readiness attempt only ever
-      // runs after the previous one rejected, and a spawn that passed a rejected attempt
-      // threw before prepareLaunch — so no launch is mid-flight while the sweep runs.
-      const attempt = pullRuntimeReplica()
-        .then(() => spawner.adopt())
-        .then(() => squad.reconcile());
+      const attempt = pullRuntimeReplica().then(() => {
+        void spawner.adopt().then(
+          () => schedule(() => squad.reconcile()),
+          (error: unknown) => console.error("[runtime-recovery]", error),
+        );
+      });
       ready = attempt.catch((error: unknown) => {
         ready = null;
         throw error;

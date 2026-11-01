@@ -28,7 +28,12 @@ import { runtimePermissionMode } from "./runtime-permissions.ts";
 import { dispatchCallbackRelay, removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { cancelRuntime, closeRuntimes, enforceRuntimeSpendCap, steerRuntime } from "./runtime-spawn-control.ts";
 import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active.ts";
-import { adoptRuntimes, reclaimFailedLaunchTempDirectory } from "./runtime-spawn-adoption.ts";
+import {
+  adoptRuntimes,
+  reclaimFailedLaunchTempDirectory,
+  sweepSettledRuntimeTempDirectories,
+  assertRuntimeRecoveryReady,
+} from "./runtime-spawn-adoption.ts";
 import {
   requiredRuntimeSpawnText,
   runtimeErrorCode,
@@ -152,6 +157,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     });
   };
   const extracted: RuntimeSpawnerContext = {
+    closed: () => fallbackClosed,
     input,
     requiredRuntimeStore,
     requiredRuntimeProjection,
@@ -452,6 +458,16 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           now: input.now(),
         },
         async (runtimeInstanceId) => {
+          if (!dryRun)
+            for (const session of localRuntimeSessions) {
+              if (session.outcome !== null || session.instanceId !== runtimeInstanceId) continue;
+              assertRuntimeRecoveryReady(extracted, session.runtimeSessionId);
+              if (!processes.has(session.runtimeSessionId))
+                throw runtimeSpawnError(
+                  "runtime_recovery_pending",
+                  `Runtime ${session.runtimeSessionId} has unresolved capacity.`,
+                );
+            }
           const initialFallback =
               inheritedFallback ??
               initialFallbackAttempt(
@@ -1312,11 +1328,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         undefined,
         onPrepared,
       ),
-    // Startup adoption only: cancel's mid-operation adoption call passes no sweep flag,
-    // because a just-minted temp directory whose dispatch event has not committed yet must
-    // not be reclaimed out from under an in-flight launch.
-    adopt: (onProgress?: (completed: number) => void) =>
-      adoptRuntimes(extracted, onProgress, { sweepTempDirectories: true }),
+    adopt: (onProgress?: (completed: number) => void) => {
+      input.schedule(() => sweepSettledRuntimeTempDirectories(extracted));
+      return adoptRuntimes(extracted, onProgress);
+    },
     cancel: (payload: JsonObject, binding: RuntimeBinding) => cancelRuntime(extracted, payload, binding),
     steer: (payload: JsonObject, binding: RuntimeBinding) => steerRuntime(extracted, payload, binding),
     close: () => {
