@@ -9,6 +9,8 @@ import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { PassThrough, Writable } from "node:stream";
 import { actionDeclarations, getEntityKindContract } from "@harness-anything/kernel";
+import { auditDurableActionAuthorization } from "../../../tools/gates/ontology-durable-action-authorization.mjs";
+import { walkTypeScriptFiles } from "../../../tools/gates/ontology-gate-lib.mjs";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { connectSocket, JsonRpcLineClient, requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import {
@@ -798,6 +800,52 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
   assert.equal(dismissDeclaration?.residency.scope, "host-local");
   assert.equal(dismissDeclaration?.receiptSettlement, "none");
   assert.equal(dismissDeclaration?.policyTier, "maintainer");
+  // A local declaration leaves the canonical catalog gate, so residency alone must not be enough to
+  // make a write disappear from the closure. Each local() declaration has to name a registered
+  // protocol route, that route has to land in a daemon writer module, and the ingress kind that
+  // module actually authorizes has to statically reach AuthorizationPort. The route census is the
+  // declaration set itself, and the authorization trace is the same ontology gate that CI already
+  // runs; neither list is copied here. Resolve the ingress kind through the descriptor because a
+  // bearing alias can send another local action's kind (agent-run -> runtime-spawn,
+  // dec_2BF45FF7E52020380F5F35CE2D/CH6, where deleting the alias is not an option).
+  const localDeclarations = actionDeclarations.filter(
+      ({ executionClass, residency }) =>
+        residency.scope !== "canonical" && executionClass !== "repo-read" && executionClass !== "admin",
+    ),
+    localDescriptors = [...daemonProtocolCommands, ...daemonGuiActionMethods],
+    writerSources = walkTypeScriptFiles(REPO_ROOT, "packages/daemon/src").filter(
+      (file) =>
+        !file.startsWith("packages/daemon/src/protocol/") &&
+        file !== "packages/daemon/src/repo-cell-authorization.ts" &&
+        file !== "packages/daemon/src/write-receipt-settlement.ts",
+    ),
+    writerTexts = writerSources.map((file) => [file, readFileSync(path.join(REPO_ROOT, file), "utf8")] as const),
+    localIngressKinds = new Set<string>();
+  assert.ok(localDeclarations.length > 0, "local declaration census must not be empty");
+  for (const declaration of localDeclarations) {
+    const descriptor = localDescriptors.find(({ actionKind, id }) => (actionKind ?? id) === declaration.kind);
+    assert.ok(descriptor, `${declaration.kind}: local declaration has no registered protocol route descriptor`);
+    let ingressKind = declaration.kind;
+    try {
+      ingressKind = actionForDaemonMethod(descriptor.method, {}).kind;
+    } catch {
+      // repo.task.run and repo.agentRuntime.handoff carry the kind in their closed payload; their
+      // descriptor's own kind is the registered route for that ingress.
+    }
+    const routeSource = writerTexts.find(([, text]) => text.includes(`"${ingressKind}"`));
+    assert.ok(
+      routeSource,
+      `${declaration.kind}: no daemon writer route registers ${ingressKind} outside the protocol ` +
+        "descriptors, the authorization table, and the receipt settlement table",
+    );
+    localIngressKinds.add(ingressKind);
+  }
+  const localAuthorization = auditDurableActionAuthorization(REPO_ROOT, [...localIngressKinds].sort());
+  assert.deepEqual(
+    localAuthorization.rows.filter(({ authorizationPort }) => !authorizationPort).map(({ action }) => action),
+    [],
+    "every local writer route kind must statically reach AuthorizationPort",
+  );
   // Standard GUI command receipts must carry committed acceptance. The daemon control bridge is a
   // host-local long-running operation, and terminal control acts on the runtime host; each has a
   // dedicated receipt schema rather than the canonical command receipt.
