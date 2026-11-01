@@ -98,6 +98,46 @@ test("respond-review and override-review read their packet from --from-file like
   }
 });
 
+test("decision review registers the finding category required by its dispatch mission", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-review-category-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  initRepo(rootDir);
+  const cell = await openRepoCell({
+    repoId: workspaceId("decision-review-category"),
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "decision-review-category-test",
+  });
+  try {
+    const decisionId = receiptJson(await cell.run(decisionProposal(), proposer)).decisionId as string,
+      decision = receiptJson(await cell.run({ kind: "decision-show", decisionId }, owner)).decision as {
+        readonly currentReviewContentDigest: `sha256:${string}`;
+      },
+      reportRef = `decisions/decision-${decisionId}/artifacts/reports/category.md`;
+    writePackage(rootDir, reportRef, "# Review\n\nClaim C1 has no evidence.\n");
+    const reviewed = await cell.run(
+      {
+        kind: "decision-review",
+        decisionId,
+        reviewId: "review-category",
+        reviewContentDigest: decision.currentReviewContentDigest,
+        verdict: "changes_requested",
+        reason: "The claim lacks evidence.",
+        findings: [{ findingId: "F1", text: "Claim C1 has no evidence.", category: "correctness" }],
+        evidenceChecked: [],
+        reportRef,
+      },
+      reviewer,
+    );
+    assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+    const readback = receiptJson(await cell.run({ kind: "decision-show", decisionId }, owner)).decision as {
+      readonly reviews: readonly { readonly findings: readonly { readonly category?: string }[] }[];
+    };
+    assert.equal(readback.reviews[0]?.findings[0]?.category, "correctness");
+  } finally {
+    await cell.close();
+  }
+});
+
 function decisionProposal() {
   return {
     kind: "decision-propose",

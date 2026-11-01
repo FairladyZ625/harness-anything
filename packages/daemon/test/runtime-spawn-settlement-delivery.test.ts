@@ -576,6 +576,45 @@ test("a reviewer without a registered review settles failed with a specific reas
   assert.match(outcomeBodies[0]!, /review-.*was not registered/u);
 });
 
+test("reviewer settlement registers a valid dispatch report left before registration", async (context) => {
+  const fixture = workerGitFixture(context, "settle-review-report-unregistered", { reachableRemote: true }),
+    runtime = workerSettlementRuntime(fixture, {
+      finalText: "review report written; registration command was rejected",
+      publicationOwner: "commander",
+      role: "reviewer",
+    }),
+    reportDirectory = path.join(
+      fixture.worker,
+      "harness/tasks/task_0123456789abcdef01234567-fixture/artifacts/reports",
+    ),
+    outcomes: Record<string, unknown>[] = [],
+    settleContext = workerSettlementContext(fixture, async (type, payload = {}) => {
+      if (type === "runtime_session_outcome_observed") outcomes.push(payload);
+      return {};
+    });
+  mkdirSync(reportDirectory, { recursive: true });
+  writeFileSync(path.join(reportDirectory, `${runtime.dispatchId}.md`), "# Review\n\nVerified the submitted cut.\n");
+  writeFileSync(
+    path.join(reportDirectory, `${runtime.dispatchId}.json`),
+    JSON.stringify({
+      verdict: "approved",
+      reason: "Verified the submitted cut.",
+      evidenceChecked: ["The dispatch-bound execution submission."],
+      findings: [],
+    }),
+  );
+  await publishExit(
+    {
+      ...settleContext,
+      requiredRuntimeProjection: () => deliveryProjection(null, "repository-diff", [], [], true, true),
+    },
+    runtime,
+    0,
+  );
+  assert.equal(outcomes[0]?.outcome, "succeeded", "a valid review input must be registered before terminal settlement");
+  assert.notEqual(outcomes[0]?.reasonCode, "review_result_missing");
+});
+
 test("a decision reviewer without a registered review settles failed with a specific reason", async (context) => {
   const fixture = workerGitFixture(context, "settle-decision-review-unregistered", { reachableRemote: true }),
     runtime = workerSettlementRuntime(fixture, {
