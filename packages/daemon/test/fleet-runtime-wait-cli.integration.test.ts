@@ -219,6 +219,7 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
     await edgeHost.runtimeInstance("daemon.runtimeInstance.create", codexInstance, localAuth);
     let edgeAwaitRouteCount = 0;
     const sessionPrincipalMethods: string[] = [];
+    const sessionPrincipalRoutesSeen: string[] = [];
     const fleetRuntimeMethodsSeen: string[] = [];
     const edgeAwaitRouteWaiters = new Map<number, () => void>(),
       waitForEdgeAwaitRoute = (count: number) => {
@@ -252,6 +253,11 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
             authContext: { ...authContext, connectionSignal },
             sessionPrincipal: (method, params) => {
               sessionPrincipalMethods.push(method);
+              const payload = params.payload,
+                action = payload && typeof payload === "object" ? (payload as Record<string, unknown>).action : null;
+              sessionPrincipalRoutesSeen.push(
+                `${method}:${action && typeof action === "object" ? `${String((action as Record<string, unknown>).kind)}:${String((action as Record<string, unknown>).method)}` : "no-action"}`,
+              );
               if (!interactiveSessionAvailable)
                 throw Object.assign(new Error("The active interactive Keycloak session is unavailable."), {
                   code: "authentication_required",
@@ -354,6 +360,7 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
               `offline wait exited before reaching the edge await route: ${JSON.stringify({
                 result,
                 sessionPrincipalMethods,
+                sessionPrincipalRoutesSeen,
                 fleetRuntimeMethodsSeen,
               })}`,
             );
