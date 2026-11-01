@@ -13,5 +13,5 @@ test("remote dispatch resources do not require a local task projection", async (
     null,
     new Map(),
   );
-  assert.deepEqual(resources, [[], [], ["remote-instance"], []]);
+  assert.deepEqual(resources, [[], [], ["remote-instance"], [], []]);
 });

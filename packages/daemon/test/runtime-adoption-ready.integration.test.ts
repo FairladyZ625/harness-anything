@@ -369,6 +369,14 @@ test("owner adoption checks dead PID before publishing live and preserves live c
         new Map([[runtimeSessionId, { process: { pid } as RuntimeProcess }]]),
       );
       assert.equal(selected[0]!.liveness, alive ? "live" : "unknown");
+      assert.equal(
+        locallyObservedRuntimeSessions(
+          [{ ...accepted, liveness: "exited" }],
+          new Map([[runtimeSessionId, { process: { pid: process.pid } as RuntimeProcess }]]),
+        )[0]!.liveness,
+        "live",
+        "a live local PID remains instance-load evidence even when canonical liveness is exited",
+      );
       assert.equal(accepted.liveness, "unknown", "local evidence cannot mutate the canonical observation");
     } finally {
       runtime.close();

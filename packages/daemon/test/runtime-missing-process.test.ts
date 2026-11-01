@@ -330,7 +330,11 @@ test("runtime cancel settles a live projection whose dispatch never recorded a p
         },
         controlReceipt: (_opId: string, _runtimeSessionId: string, detail: string) => ({ detail }),
       };
-    const receipt = await cancelRuntime(context as never, { runtimeSessionId }, binding);
+    const receipt = await cancelRuntime(
+      context as never,
+      { runtimeSessionId },
+      { actor: binding.actor, source: { kind: "node", nodeId: "edge-a" } },
+    );
     assert.equal(
       published.find(({ type }) => type === "runtime_session_outcome_observed")?.resultBody,
       "Runtime session cancelled after its worker process was no longer available.",
@@ -360,6 +364,51 @@ test("runtime cancel settles a live projection whose dispatch never recorded a p
         ],
       ],
     );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("runtime cancel closes an exited session whose dispatch stream is missing", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-cancel-exited-missing-stream-"));
+  try {
+    const runtimeSessionId = "runtime_exited_missing_stream",
+      dispatchId = "dispatch_exited_missing_stream",
+      published: string[] = [],
+      context = {
+        input: {
+          rootDir,
+          repoId: "cancel-exited-missing-stream",
+          runtimeNode: { nodeId: "edge-a" },
+          remote: {
+            readRuntimeSessions: async () => [{ ...liveSession(runtimeSessionId), liveness: "exited" }],
+            readRuntimeDispatch: async () => ({
+              actor: binding.actor,
+              source: { kind: "node" as const, nodeId: "edge-a" },
+              payload: { dispatchId },
+              instanceId: "instance-exited-missing-stream",
+            }),
+          },
+        },
+        processes: new Map(),
+        exiting: new Set<string>(),
+        publishRuntimeEvent: async (type: string) => {
+          published.push(type);
+          return {};
+        },
+        controlReceipt: (_opId: string, _runtimeSessionId: string, detail: string) => ({ detail }),
+      };
+    const receipt = await cancelRuntime(
+      context as never,
+      { runtimeSessionId },
+      { actor: binding.actor, source: { kind: "node", nodeId: "edge-a" } },
+    );
+    assert.equal(receipt.detail, "cancelled");
+    assert.deepEqual(published, [
+      "runtime_session_cancelled",
+      "runtime_session_exited",
+      "runtime_session_outcome_observed",
+    ]);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
