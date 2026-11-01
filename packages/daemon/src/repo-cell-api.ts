@@ -1025,6 +1025,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
     catalog: context.catalog,
     terminal: context.terminal,
     read,
+    readEventWitness: (revision) => context.projection.readEventWitness(revision),
     [repoCellSynchronousRead]: readNow,
     workspaceSummary: () => workspaceSummaryFromProjection(context.projection),
     workspaceScope: (payload) => workspaceScopeFromProjection(context.projection, payload),

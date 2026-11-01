@@ -30,6 +30,14 @@ import {
 } from "./agent-runtime-instances.ts";
 import { daemonBuildStamp, observeDaemonBuild } from "./build-identity.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { parseAssignmentExpiry } from "@harness-anything/kernel";
+import { readClaimableTasks } from "./task-claimable-read.ts";
+import {
+  openNodeAutoClaimLoop,
+  type NodeAutoClaimAssignment,
+  type NodeAutoClaimDiagnosticRow,
+} from "./node-auto-claim.ts";
+import { readNodeAutoClaimDiagnostics, recordNodeAutoClaimDiagnostic } from "./node-auto-claim-config.ts";
 import { createEdgeJoinProgressTap, joinFleetEdge } from "./fleet/edge-join-client.ts";
 import { localUserDaemonEndpoint } from "./client/local-daemon-target.ts";
 import {
@@ -90,7 +98,13 @@ import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { currentDaemonProtocolVersion } from "./protocol/version.ts";
 import { makeRecoveryProbe } from "./recovery-state.ts";
 import { openDaemonRuntimePorts } from "./daemon-runtime-ports.ts";
-import { causeClassOf, latchReprobeThrottleMs, type RepoCell, type RepoCellStatus } from "./repo-cell.ts";
+import {
+  causeClassOf,
+  latchReprobeThrottleMs,
+  type RepoCell,
+  type RepoCellBinding,
+  type RepoCellStatus,
+} from "./repo-cell.ts";
 import { openRepoCell } from "./repo-cell-open.ts";
 import { type RepoModeAdmission } from "./repo-mode.ts";
 import type { RuntimeLauncher } from "./runtime-spawn.ts";
@@ -323,81 +337,223 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           };
     return writerRepoId ? daemonWriterBinding(writerRepoId, base) : base;
   };
-  const edgeRuntimeFor = (request: FleetEdgeRuntimeRequest["payload"]) => {
-      const key = `${request.repoId}\0${request.nodeId}\0${request.host}\0${request.port}`,
-        runtime =
-          fleetEdgeRuntimes.get(key) ??
-          openFleetEdgeRuntime({
-            request,
-            readBinding: async () => {
-              const binding = await hostBinding(
-                request.workspaceRoot,
-                { transportKind: "unix-socket" },
-                undefined,
-                undefined,
-                true,
-              );
-              return { ...binding, source: { kind: "node", nodeId: request.nodeId } };
-            },
-            controlBinding: async () => {
-              const binding = await hostBinding(request.workspaceRoot, { transportKind: "unix-socket" });
-              return { ...binding, source: { kind: "node", nodeId: request.nodeId } };
-            },
-            daemonGeneration: Date.now() * 1000 + (process.pid % 1000),
-            daemonRoute: runtimeDaemonRoute,
-            ports: runtimePorts,
-            waitForReplicaReady: () =>
-              waitForFleetReplicaReady({
-                viewRoot: path.isAbsolute(request.viewRoot)
-                  ? request.viewRoot
-                  : path.resolve(request.workspaceRoot, request.viewRoot),
-                repoId: request.repoId,
-                nodeId: request.nodeId,
-              }),
-            ...(input.runtimeLaunch ? { launch: input.runtimeLaunch } : {}),
-            now,
-          });
-      fleetEdgeRuntimes.set(key, runtime);
-      return runtime;
-    },
-    scheduleScheduler = makeScheduleScheduler({
-      cells,
-      now,
-      localBinding: async (repoId, rootDir, action) => {
-        const system = localSystemBinding(rootDir);
-        if (action.kind === "schedule-list") return system;
-        const cell = cells.get(repoId);
-        if (!cell) throw hostCodedError("repo_unavailable", `Schedule repository ${repoId} is unavailable.`);
-        const receipt = await cell.run({ kind: "schedule-show", scheduleId: action.scheduleId }, system),
-          schedule = (receipt as unknown as { readonly schedule?: import("@harness-anything/kernel").ScheduleV1 })
-            .schedule;
-        if (!schedule || validateScheduleV1(schedule).length)
-          throw hostCodedError("invalid_schedule", "Schedule execution requires its canonical creator identity.");
-        const current = await hostBinding(rootDir, { transportKind: "unix-socket" });
-        if (
-          schedule.spec.target.kind !== "builtin" &&
-          current.actor.principal.personId !== schedule.createdBy.principal.personId
-        )
-          throw hostCodedError("authentication_required", "The schedule creator must sign in on this device.");
-        return daemonWriterBinding(repoId, current);
+  type AutoClaimRepo = {
+    readonly repoId: string;
+    readonly rootDir: string;
+    readonly mode: DaemonRepoMode;
+    readonly cell: RepoCell;
+  };
+  const autoClaimActive = new Set<string>();
+  let edgeRuntimeFor!: DaemonHostRegistryContext["edgeRuntimeFor"];
+  const autoClaimBinding = async (repo: AutoClaimRepo): Promise<RepoCellBinding | null> => {
+    if (repo.mode !== "remote-edge") return null;
+    const config = readFleetEdgeConfig(repo.rootDir);
+    if (!config || config.repoId !== repo.repoId) return null;
+    const binding = await hostBinding(repo.rootDir, { transportKind: "unix-socket" }),
+      center = await keycloakCenter(),
+      node = await center.provider.readNode(center.accessToken, config.nodeId);
+    if (!node || node.state !== "active" || node.personId !== binding.actor.principal.personId)
+      throw hostCodedError("authentication_required", "The signed-in person is not the registered node owner.");
+    return {
+      ...binding,
+      source: { kind: "node", nodeId: config.nodeId },
+      keycloakAuthorization: {
+        ...(binding.keycloakAuthorization ?? {}),
+        center: keycloakCenter,
       },
-      remoteEdgeAction: async (repoId, rootDir, action) => {
-        const config = readFleetEdgeConfig(rootDir);
-        if (!config || config.repoId !== repoId)
-          throw hostCodedError(
-            "fleet_edge_config_invalid",
-            `Remote-edge Schedule ${repoId} requires a matching fleet-edge.json.`,
-          );
-        const request: FleetEdgeRuntimeRequest["payload"] = {
-          ...config,
-          repoId,
-          workspaceRoot: rootDir,
-          method: "repo.schedule.run",
-          action,
+    };
+  };
+  const autoClaimLoop = openNodeAutoClaimLoop<
+    AutoClaimRepo,
+    {
+      readonly taskId: string;
+      readonly assignment: {
+        readonly assignee: {
+          readonly kind: string;
+          readonly personId?: string;
+          readonly nodeId?: string;
+          readonly teamId?: string;
         };
-        return edgeRuntimeFor(request).run(request.method, action);
-      },
-    });
+        readonly expiresAt: string;
+      } | null;
+      readonly autoAssignment: NodeAutoClaimAssignment | null;
+    }
+  >({
+    userRoot: input.userRoot,
+    now,
+    repos: () =>
+      [...cells.entries()]
+        .map(([repoId, cell]) => ({ repoId, rootDir: cell.status().rootDir, mode: cell.status().mode, cell }))
+        .filter((repo) => repo.mode === "remote-edge"),
+    repoIdOf: (repo) => repo.repoId,
+    ownerPersonIdFor: async (repo) => (await autoClaimBinding(repo))?.actor.principal.personId ?? null,
+    candidates: async (repo) => {
+      const binding = await autoClaimBinding(repo);
+      if (!binding) return [];
+      const settings = await repo.cell.read("repo.settings.read", {}, binding),
+        graph = await repo.cell.read(
+          "repo.triadic.relationGraph",
+          { facet: "edges", relationType: "assigned-to", state: "active", limit: 500 },
+          binding,
+        ),
+        result = await readClaimableTasks({
+          repoId: repo.repoId,
+          binding,
+          settings: settings.settings,
+          now: now(),
+          page: (cursor) => repo.cell.read("repo.tasks.list", { limit: 500, ...(cursor ? { cursor } : {}) }, binding),
+          readTask: async (taskId) =>
+            (await repo.cell.read("repo.tasks.runtimeContext.read", { taskId }, binding)).snapshot.task,
+          readAssignments: async () => graph.edges,
+        });
+      const relations = new Map(graph.edges.map((edge) => [edge.sourceRef, edge] as const));
+      const center = await keycloakCenter();
+      return Promise.all(
+        result.tasks.map(async (task) => {
+          const relation = relations.get(`task/${task.taskId}`),
+            witness =
+              relation?.current && relation.workspaceRevision !== null
+                ? repo.cell.readEventWitness(relation.workspaceRevision)
+                : null,
+            assignedByPersonId = witness?.actor.principal.personId ?? null,
+            assignedByTeamIds = assignedByPersonId
+              ? await center.provider.readPersonTeams(center.accessToken, assignedByPersonId)
+              : [];
+          const expiresAt = relation ? parseAssignmentExpiry(relation.rationale) : null;
+          return {
+            taskId: task.taskId,
+            assignment: task.assignment,
+            autoAssignment:
+              relation && expiresAt ? { taskId: task.taskId, expiresAt, assignedByPersonId, assignedByTeamIds } : null,
+          };
+        }),
+      );
+    },
+    taskIdOf: (candidate) => candidate.taskId,
+    assignmentOf: async (candidate) => {
+      return candidate.autoAssignment;
+    },
+    activeCount: async () => {
+      let count = 0;
+      for (const repo of [...cells.entries()]
+        .map(([repoId, cell]) => ({ repoId, rootDir: cell.status().rootDir, mode: cell.status().mode, cell }))
+        .filter((entry) => entry.mode === "remote-edge")) {
+        const overview = await repo.cell.read("repo.agentRuntime.overview", {});
+        count += overview.sessions.filter(
+          (session) => session.liveness !== "exited" && session.associations.some((association) => association.taskId),
+        ).length;
+      }
+      return Math.max(count, autoClaimActive.size);
+    },
+    agentIds: (_repo, policy) => policy.allowedAgentIds,
+    claimAndRun: async (repo, candidate, agentId, dispatchKey, signal) => {
+      const binding = await autoClaimBinding(repo);
+      if (!binding) throw new Error("authentication_required: node identity is unavailable");
+      autoClaimActive.add(`${repo.repoId}:${candidate.taskId}`);
+      try {
+        if (signal.aborted) throw new Error("node auto-claim was cancelled");
+        const edge = readFleetEdgeConfig(repo.rootDir);
+        if (!edge || edge.repoId !== repo.repoId) throw new Error("fleet_edge_config_invalid");
+        const receipt = await edgeRuntimeFor({
+            ...edge,
+            caPath: path.isAbsolute(edge.caPath) ? edge.caPath : path.resolve(repo.rootDir, edge.caPath),
+            viewRoot: path.isAbsolute(edge.viewRoot) ? edge.viewRoot : path.resolve(repo.rootDir, edge.viewRoot),
+            workspaceRoot: repo.rootDir,
+            method: "repo.agentRuntime.spawn",
+            action: { agentId, taskId: candidate.taskId, dispatchKey },
+          }).run("repo.agentRuntime.spawn", { agentId, taskId: candidate.taskId, dispatchKey }, signal),
+          runtimeSessionId = typeof receipt.runtimeSessionId === "string" ? receipt.runtimeSessionId : null;
+        if (!runtimeSessionId) throw new Error("runtime spawn did not return a runtimeSessionId");
+        await repo.cell.awaitRuntimeOutcome(runtimeSessionId);
+      } finally {
+        autoClaimActive.delete(`${repo.repoId}:${candidate.taskId}`);
+      }
+    },
+    onDiagnostic: (row: NodeAutoClaimDiagnosticRow) => {
+      recordNodeAutoClaimDiagnostic(input.userRoot, {
+        repoId: row.repoId,
+        taskId: row.taskId,
+        reason: row.reason,
+        observedAt: row.observedAt,
+        ...(row.assignedByPersonId ? { assignedByPersonId: row.assignedByPersonId } : {}),
+      });
+    },
+  });
+  edgeRuntimeFor = (request: FleetEdgeRuntimeRequest["payload"]) => {
+    const key = `${request.repoId}\0${request.nodeId}\0${request.host}\0${request.port}`,
+      runtime =
+        fleetEdgeRuntimes.get(key) ??
+        openFleetEdgeRuntime({
+          request,
+          readBinding: async () => {
+            const binding = await hostBinding(
+              request.workspaceRoot,
+              { transportKind: "unix-socket" },
+              undefined,
+              undefined,
+              true,
+            );
+            return { ...binding, source: { kind: "node", nodeId: request.nodeId } };
+          },
+          controlBinding: async () => {
+            const binding = await hostBinding(request.workspaceRoot, { transportKind: "unix-socket" });
+            return { ...binding, source: { kind: "node", nodeId: request.nodeId } };
+          },
+          daemonGeneration: Date.now() * 1000 + (process.pid % 1000),
+          daemonRoute: runtimeDaemonRoute,
+          ports: runtimePorts,
+          waitForReplicaReady: () =>
+            waitForFleetReplicaReady({
+              viewRoot: path.isAbsolute(request.viewRoot)
+                ? request.viewRoot
+                : path.resolve(request.workspaceRoot, request.viewRoot),
+              repoId: request.repoId,
+              nodeId: request.nodeId,
+            }),
+          ...(input.runtimeLaunch ? { launch: input.runtimeLaunch } : {}),
+          now,
+        });
+    fleetEdgeRuntimes.set(key, runtime);
+    return runtime;
+  };
+  const scheduleScheduler = makeScheduleScheduler({
+    cells,
+    now,
+    localBinding: async (repoId, rootDir, action) => {
+      const system = localSystemBinding(rootDir);
+      if (action.kind === "schedule-list") return system;
+      const cell = cells.get(repoId);
+      if (!cell) throw hostCodedError("repo_unavailable", `Schedule repository ${repoId} is unavailable.`);
+      const receipt = await cell.run({ kind: "schedule-show", scheduleId: action.scheduleId }, system),
+        schedule = (receipt as unknown as { readonly schedule?: import("@harness-anything/kernel").ScheduleV1 })
+          .schedule;
+      if (!schedule || validateScheduleV1(schedule).length)
+        throw hostCodedError("invalid_schedule", "Schedule execution requires its canonical creator identity.");
+      const current = await hostBinding(rootDir, { transportKind: "unix-socket" });
+      if (
+        schedule.spec.target.kind !== "builtin" &&
+        current.actor.principal.personId !== schedule.createdBy.principal.personId
+      )
+        throw hostCodedError("authentication_required", "The schedule creator must sign in on this device.");
+      return daemonWriterBinding(repoId, current);
+    },
+    remoteEdgeAction: async (repoId, rootDir, action) => {
+      const config = readFleetEdgeConfig(rootDir);
+      if (!config || config.repoId !== repoId)
+        throw hostCodedError(
+          "fleet_edge_config_invalid",
+          `Remote-edge Schedule ${repoId} requires a matching fleet-edge.json.`,
+        );
+      const request: FleetEdgeRuntimeRequest["payload"] = {
+        ...config,
+        repoId,
+        workspaceRoot: rootDir,
+        method: "repo.schedule.run",
+        action,
+      };
+      return edgeRuntimeFor(request).run(request.method, action);
+    },
+  });
   let latestControl: DaemonControlReceipt | null = null;
   let fleetCenter: FleetTlsCenter | null = null;
   let initialAttachments: Promise<void> | null = null,
@@ -503,6 +659,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     keycloakCenter,
     keycloakSession,
     scheduleScheduler,
+    onAutoClaimTrigger: (reason) => void autoClaimLoop.trigger(reason),
     edgeRuntimeFor,
     invalidRepoId,
     closeCell,
@@ -984,6 +1141,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     },
     close: async () => {
       parkedWaitController.abort();
+      await autoClaimLoop.close();
       for (const { controller } of replicaSyncControllers.values()) controller.abort();
       replicaSyncControllers.clear();
       await rbacResumed;
@@ -1052,6 +1210,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             method: "repo.squad.control",
             action: {},
           }).reconcile();
+          await autoClaimLoop.trigger("replica-confirmed");
         },
         onConfirmedFailure: (error) =>
           input.recordLifecycle?.({
