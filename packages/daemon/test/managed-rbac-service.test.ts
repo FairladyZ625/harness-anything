@@ -127,6 +127,28 @@ test("health propagates a realm transport failure", async () => {
   }
 });
 
+test("external health without a configured endpoint reports rbac_not_configured", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-rbac-unconfigured-health-"));
+  let fetches = 0;
+  try {
+    mkdirSync(path.join(root, "rbac"));
+    writeFileSync(
+      path.join(root, "rbac", "config.json"),
+      JSON.stringify({ schema: "harness-managed-rbac/v1", mode: "external" }),
+    );
+    const service = createIdentityManagement(root, {
+      fetch: (async () => {
+        fetches += 1;
+        return Response.json({});
+      }) as typeof fetch,
+    });
+    await assert.rejects(service.run({ operation: "health" }), { code: "rbac_not_configured" });
+    assert.equal(fetches, 0);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("failed external Keycloak probe does not replace the active configuration", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-rbac-external-probe-"));
   try {
