@@ -45,7 +45,6 @@ test(
         certificateFile: path.join(root, "test.crt"),
         certificateKeyFile: path.join(root, "test.key"),
       };
-    let predecessor: ReturnType<typeof managedShutdownFixture>, successor: ReturnType<typeof managedShutdownFixture>;
     mkdirSync(bin, { recursive: true });
     mkdirSync(data, { recursive: true });
     writeFileSync(path.join(bin, "postgres"), "fixture");
@@ -62,8 +61,8 @@ test(
         listener,
       }),
     );
-    predecessor = managedShutdownFixture(root, { ignoreSigterm: "keycloak" });
-    successor = managedShutdownFixture(root);
+    const predecessor = managedShutdownFixture(root, { ignoreSigterm: "keycloak" });
+    const successor = managedShutdownFixture(root);
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
         release = resolve;
