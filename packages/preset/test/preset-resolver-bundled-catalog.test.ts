@@ -69,6 +69,10 @@ test("bundled closeout reviewer is machine-independent and leaves instance model
   assert.match(reviewer.instructions, /do not reject solely for absent frozen facts/u);
   assert.match(reviewer.instructions, /only the completion gates declared by the task/u);
   assert.doesNotMatch(reviewer.instructions, /(?:\/Users\/|harness\/tasks\/|\\Users\\)/u);
+  // The shipped default reviewer is host-independent: it mounts no skill directory and names no
+  // skill script, so a fresh repository can dispatch it without a host checkout's private tree.
+  assert.deepEqual(reviewer.skills ?? [], []);
+  assert.doesNotMatch(reviewer.instructions, /review-facts|self-iteration|skills\//u);
   assert.equal(readBundledAgentDeclaration("not-bundled"), null);
 });
 test("bundled candidates are decoded once per process while user packages stay live", () => {
