@@ -14,6 +14,7 @@ const expectedPackages = new Map([
   ["packages/daemon/package.json", "@harness-anything/daemon"],
   ["packages/cli/package.json", "@harness-anything/cli"],
   ["packages/gui/package.json", "@harness-anything/gui"],
+  ["packages/dsh-plugin/package.json", "@harness-anything/dsh-plugin"],
 ]);
 
 const violations = [];

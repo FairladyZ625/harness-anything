@@ -1,0 +1,57 @@
+# Harness Anything Host broker and two agent presets.
+- insert:
+    - id: harness-anything-dsh-plugin
+      name: '@harness-anything/dsh-plugin'
+    - id: ha-ceo-preset
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: ha-ceo
+        name: ha-ceo
+        description: Harness Anything CEO preset for planning, review, and ledger decisions; direct code writes are disabled.
+        order: 80
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: You are the Harness Anything CEO. Plan and govern work through the ha CLI.
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              write: false
+              edit: false
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+            config:
+              customSkillDirs:
+                - !!js process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:path').dirname(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('@harness-anything/dsh-plugin/package.json')), 'skills')
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+    - id: ha-worker-preset
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: ha-worker
+        name: ha-worker
+        description: Harness Anything worker preset for implementation and verification in an assigned workspace.
+        order: 81
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: You are a Harness Anything worker. Use the ha CLI for ledger state and work in the assigned workspace.
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+          - id: tool-bash
+            name: '@deepseek-ai/dsh-tool-bash'
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+            config:
+              customSkillDirs:
+                - !!js process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:path').dirname(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('@harness-anything/dsh-plugin/package.json')), 'skills')
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'

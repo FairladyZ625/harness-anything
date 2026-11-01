@@ -143,6 +143,11 @@
         "reason": "PLT-Daemon W2 adds the governed daemon protocol workspace."
       },
       {
+        "value": "packages/dsh-plugin/tsconfig.json",
+        "ref": "dec_A9E29A23DED4EAF4FE0320199B",
+        "reason": "CH1 adds the governed DeepSeek Harness Bundle plugin workspace."
+      },
+      {
         "value": "packages/gui/tsconfig.json",
         "ref": "ADR-0023#D6",
         "reason": "Workspace TypeScript references are a governed package boundary list."
