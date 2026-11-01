@@ -20,6 +20,7 @@ import type { CanonicalEventStore } from "@harness-anything/kernel/internal/port
 import {
   resolveStorageBackend,
   unsupportedStorageBackendError,
+  type PGliteStorageBackendConfig,
   type PostgresStorageBackendConfig,
   type SqliteStorageBackendConfig,
   type StorageBackendOptions,
@@ -55,6 +56,7 @@ type SqliteEntityStoreOptions = Omit<StorageBackendOptions, "storage"> & {
   readonly storage?: SqliteStorageBackendConfig;
 };
 export type PostgresEntityDeclarationStoreOptions = { readonly storage: PostgresStorageBackendConfig };
+export type PGliteEntityDeclarationStoreOptions = { readonly storage: PGliteStorageBackendConfig };
 
 const entityEventCaches = new WeakMap<
   EntityEventSource,
@@ -116,6 +118,10 @@ export function createEntityStore(
 ): EntityDeclarationStorePort;
 export function createEntityStore(
   source: EntityEventSource,
+  options: PGliteEntityDeclarationStoreOptions,
+): EntityDeclarationStorePort;
+export function createEntityStore(
+  source: EntityEventSource,
   dynamicContracts: readonly EntityStoreKindContract[],
   options: PostgresEntityDeclarationStoreOptions,
 ): EntityDeclarationStorePort;
@@ -136,7 +142,7 @@ export function createEntityStore(
     ? options
     : (dynamicContractsOrOptions as StorageBackendOptions);
   const backend = resolveStorageBackend(backendOptions);
-  if (backend.backend === "postgres") throw unsupportedStorageBackendError(backend.backend);
+  if (backend.backend !== "sqlite") throw unsupportedStorageBackendError(backend.backend);
   const sqliteSource = source as EntityEventSource;
   const contractForKind = (kind: string): EntityStoreKindContract => {
     const dynamic = dynamicContracts.find((candidate) => candidate.kind === kind);
@@ -205,13 +211,17 @@ export function openEntityStore(
   rootInput: HarnessLayoutInput,
   options: PostgresEntityDeclarationStoreOptions,
 ): EntityDeclarationStorePort;
+export function openEntityStore(
+  rootInput: HarnessLayoutInput,
+  options: PGliteEntityDeclarationStoreOptions,
+): EntityDeclarationStorePort;
 export function openEntityStore(rootInput: HarnessLayoutInput, options?: SqliteEntityStoreOptions): EntityStore;
 export function openEntityStore(
   rootInput: HarnessLayoutInput,
   options: StorageBackendOptions = {},
 ): EntityStore | EntityDeclarationStorePort {
   const backend = resolveStorageBackend(options);
-  if (backend.backend === "postgres") throw unsupportedStorageBackendError(backend.backend);
+  if (backend.backend !== "sqlite") throw unsupportedStorageBackendError(backend.backend);
   const canonical = openSqliteEventStore({ rootInput, readOnly: true });
   return createEntityStore(
     {

@@ -16,8 +16,18 @@ export interface PostgresStorageBackendConfig {
   readonly scope?: StorageScope;
 }
 
-export type StorageBackendConfig = SqliteStorageBackendConfig | PostgresStorageBackendConfig;
-export type StorageBackend = "sqlite" | "postgres";
+export interface PGliteStorageBackendConfig {
+  /** A filesystem directory, `memory://...`, or another PGlite data-dir URI. */
+  readonly backend: "pglite";
+  readonly dataDir?: string;
+  readonly scope?: StorageScope;
+}
+
+export type StorageBackendConfig =
+  | SqliteStorageBackendConfig
+  | PostgresStorageBackendConfig
+  | PGliteStorageBackendConfig;
+export type StorageBackend = "sqlite" | "postgres" | "pglite";
 
 /** Factories accept one configuration field; omitting it keeps the SQLite default. */
 export interface StorageBackendOptions {
@@ -27,6 +37,7 @@ export interface StorageBackendOptions {
 export interface ResolvedStorageBackend {
   readonly backend: StorageBackend;
   readonly connectionString?: string;
+  readonly dataDir?: string;
   readonly scope?: StorageScope;
 }
 
@@ -44,6 +55,7 @@ export function resolveStorageBackend(options: StorageBackendOptions = {}): Reso
   return {
     backend: config?.backend ?? "sqlite",
     ...(config?.backend === "postgres" ? { connectionString: config.connectionString } : {}),
+    ...(config?.backend === "pglite" && config.dataDir !== undefined ? { dataDir: config.dataDir } : {}),
     ...(config?.scope === undefined ? {} : { scope: config.scope }),
   };
 }

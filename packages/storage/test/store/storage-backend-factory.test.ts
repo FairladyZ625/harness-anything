@@ -39,6 +39,14 @@ test("storage config defaults to SQLite and resolves one nested config field", (
     assert.equal("scope" in store, false);
     assert.equal(typeof store.append, "function");
   });
+  assert.deepEqual(
+    resolveStorageBackend({ storage: { backend: "pglite", dataDir: "memory://backend-route", scope } }),
+    {
+      backend: "pglite",
+      dataDir: "memory://backend-route",
+      scope,
+    },
+  );
 });
 
 test("postgres is a typed route with an explicit Wave 1 implementation boundary", () => {
@@ -78,6 +86,18 @@ test("postgres is a typed route with an explicit Wave 1 implementation boundary"
   );
 });
 
+test("pglite is a typed route and cannot accidentally fall through to SQLite", () => {
+  assert.throws(
+    () =>
+      makeTaskEventStore({
+        repoId: "pglite-route",
+        rootDir: "/tmp/unused",
+        storage: { backend: "pglite", dataDir: "memory://pglite-route" },
+      }),
+    /storage backend "pglite" is not implemented by kernel Wave 1/u,
+  );
+});
+
 const emptyEventSource = {
   readBatch: () => ({ sourceRevision: 0, events: [], cursor: null, done: true, accessedItems: 0 }),
   readContentBlob: () => null,
@@ -92,6 +112,12 @@ function postgresStoreRoute(): LedgerEventStorePort {
   return makeTaskEventStore({
     repoId: "typed-postgres-route",
     storage: { backend: "postgres", connectionString: "postgres://localhost/ha" },
+  });
+}
+function pgliteStoreRoute(): LedgerEventStorePort {
+  return makeTaskEventStore({
+    repoId: "typed-pglite-route",
+    storage: { backend: "pglite", dataDir: "memory://typed-pglite-route" },
   });
 }
 function sqliteStoreRoute(): SqliteCanonicalEventStore {
@@ -121,6 +147,7 @@ function syncPortMethodTypes() {
 }
 void [
   postgresStoreRoute,
+  pgliteStoreRoute,
   sqliteStoreRoute,
   postgresProjectionRoute,
   postgresProjectionReaderRoute,

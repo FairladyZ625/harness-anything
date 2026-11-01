@@ -24,6 +24,7 @@ export {
 } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 export { resolveStorageBackend, unsupportedStorageBackendError } from "../storage-backend.ts";
 export type {
+  PGliteStorageBackendConfig,
   PostgresStorageBackendConfig,
   ResolvedStorageBackend,
   SqliteStorageBackendConfig,
