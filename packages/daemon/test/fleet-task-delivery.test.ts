@@ -73,6 +73,7 @@ for (const denialMode of ["permission", "cas"])
         await release.promise;
         return "owner";
       },
+      verifyHolder: async () => undefined,
       action: { kind: "task-submit", taskId },
       readTask: async () => snapshot("old"),
     });
@@ -87,6 +88,7 @@ for (const denialMode of ["permission", "cas"])
     const accepted = await prepareEdgeTaskDelivery({
       workspaceRoot: second,
       authorize: async () => "owner",
+      verifyHolder: async () => undefined,
       action: { kind: "task-submit", taskId },
       readTask: async () => snapshot("new"),
     });

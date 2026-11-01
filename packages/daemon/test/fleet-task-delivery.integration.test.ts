@@ -336,10 +336,17 @@ test(
             ...requestPeer,
             actionKind: "task-submit",
             taskId: created.taskId,
-            ...(action.executionId ? { executionId: action.executionId } : {}),
           });
           assert.equal(metadata.actionAllowed, true, JSON.stringify(metadata));
           return metadata.personId;
+        },
+        verifyHolder: async () => {
+          await readFleetRepositoryMetadataClient({
+            ...requestPeer,
+            actionKind: "task-submit",
+            taskId: created.taskId,
+            ...(action.executionId ? { executionId: action.executionId } : {}),
+          });
         },
         readTask: async () => stale,
       });
@@ -379,6 +386,13 @@ test(
         });
         assert.equal(metadata.actionAllowed, true, JSON.stringify(metadata));
         return metadata.personId;
+      },
+      verifyHolder: async () => {
+        await readFleetRepositoryMetadataClient({
+          ...peer,
+          actionKind: "task-submit",
+          taskId: created.taskId,
+        });
       },
       readTask: async () => stale,
     });

@@ -38,6 +38,12 @@ export async function prepareEdgeTaskDelivery(input: {
   readonly workspaceRoot: string;
   readonly action: FleetTaskAction;
   readonly authorize: () => Promise<string>;
+  /**
+   * Prove the canonical execution holder before any worker ref is published.
+   * The edge replica is intentionally not a source for this proof: callers must
+   * use the center's authoritative holder/execution check here.
+   */
+  readonly verifyHolder: (personId: string) => Promise<void>;
   readonly readTask: () => Promise<FleetDeliveryTask>;
 }): Promise<FleetTaskAction> {
   const initial = await input.readTask();
@@ -56,6 +62,7 @@ export async function prepareEdgeTaskDelivery(input: {
   const taskId = String(input.action.taskId),
     expectedRemoteCommit = await readPublishedTaskCut(input.workspaceRoot, taskId),
     personId = await input.authorize(),
+    _holder = await input.verifyHolder(personId),
     cwd = path.join(input.workspaceRoot, initial.workspace.path),
     head = makeGitReadinessSource().run(cwd, ["rev-parse", "HEAD"]);
   if (!head.ok || (input.action.commitSha !== undefined && input.action.commitSha !== head.stdout))

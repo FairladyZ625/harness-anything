@@ -379,7 +379,6 @@ export async function runFleetEdgeTask(
             ...peer,
             actionKind: "task-submit",
             taskId,
-            ...(typeof action.executionId === "string" ? { executionId: action.executionId } : {}),
           });
           if (metadata.actionAllowed !== true)
             throw new FleetEdgeTaskError(
@@ -387,6 +386,17 @@ export async function runFleetEdgeTask(
               "Task submit permission is required before publishing delivery.",
             );
           return metadata.personId;
+        },
+        verifyHolder: async () => {
+          // This is deliberately a second center request after permission admission:
+          // the center's task-submit metadata path proves node, owner, execution id,
+          // lease phase, and expiry before pushWorkerBranch can mutate the remote ref.
+          await readFleetRepositoryMetadataClient({
+            ...peer,
+            actionKind: "task-submit",
+            taskId,
+            ...(typeof action.executionId === "string" ? { executionId: action.executionId } : {}),
+          });
         },
         readTask: async () => {
           const current = readEdgeRuntimeRepository(
