@@ -38,6 +38,8 @@ export interface TutorialCopy {
   readonly commandLabel: string;
   readonly contents: string;
   readonly next: string;
+  /** Tab labels, in the order of TUTORIAL_LAYOUT. */
+  readonly tabs: readonly string[];
   readonly sections: readonly TutorialSection[];
 }
 
@@ -51,7 +53,8 @@ const zh: TutorialCopy = {
   sayLabel: "发给 Agent",
   commandLabel: "命令",
   contents: "目录",
-  next: "下一节：",
+  next: "下一页：",
+  tabs: ["开始使用", "第一次走一遍", "用哪个 skill", "出问题怎么办", "按仓库定制"],
   sections: [
     {
       id: "what",
@@ -81,7 +84,7 @@ const zh: TutorialCopy = {
         },
         {
           title: "`ha` 命令可用",
-          body: "新建会话，把权限切到「完全权限」，发下面这句话。能看到版本号就没问题；提示找不到命令，去左侧「一键安装」。",
+          body: "新建会话，把权限切到「完全权限」，发下面这句话。能看到版本号就没问题；提示找不到命令，去「一键安装」那一栏。",
           say: "运行 ha --version 和 ha daemon status，把结果原样告诉我。",
         },
         {
@@ -144,7 +147,7 @@ const zh: TutorialCopy = {
         {
           title: "安装或补装 Harness",
           tag: "harness-dsh-install",
-          body: "见左侧「一键安装」。",
+          body: "见「开始使用」页的「一键安装」。",
         },
       ],
     },
@@ -331,6 +334,7 @@ const en: TutorialCopy = {
   commandLabel: "Command",
   contents: "Contents",
   next: "Next:",
+  tabs: ["Get started", "Your first run", "Which skill", "Troubleshooting", "Tailor it"],
   sections: [
     {
       id: "what",
@@ -360,7 +364,7 @@ const en: TutorialCopy = {
         },
         {
           title: "The `ha` command works",
-          body: "Start a session, switch permission to Full access, and send the sentence below. A version number means you are set. If the command is missing, go to “Install Harness and every skill”.",
+          body: "Start a session, switch permission to Full access, and send the sentence below. A version number means you are set. If the command is missing, see the “Install Harness and every skill” column.",
           say: "Run ha --version and ha daemon status, and show me the output as is.",
         },
         {
@@ -424,7 +428,7 @@ const en: TutorialCopy = {
         {
           title: "Install or repair Harness",
           tag: "harness-dsh-install",
-          body: "See “Install Harness and every skill” on the left.",
+          body: "See “Install Harness and every skill” on the Get started tab.",
         },
       ],
     },
@@ -605,6 +609,31 @@ const en: TutorialCopy = {
     },
   ],
 };
+
+/**
+ * Tabs and the sections each one lays out side by side; the number is how many
+ * card columns a section spans, so every tab fills a wide screen.
+ */
+export const TUTORIAL_LAYOUT: readonly (readonly (readonly [string, number])[])[] = [
+  [
+    ["what", 1],
+    ["check", 1],
+    ["install", 1],
+  ],
+  [
+    ["first-run", 2],
+    ["presets", 1],
+  ],
+  [
+    ["skills", 2],
+    ["usage", 2],
+  ],
+  [
+    ["trouble", 3],
+    ["limits", 1],
+  ],
+  [["customize", 3]],
+];
 
 export const tutorialCopy = { zh, en } as const;
 export type TutorialLanguage = keyof typeof tutorialCopy;

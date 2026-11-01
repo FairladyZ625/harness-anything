@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { tutorialCopy } from "../src/tutorial-content.ts";
+import { TUTORIAL_LAYOUT, tutorialCopy } from "../src/tutorial-content.ts";
 
 const read = (path: string): string => readFileSync(new URL(path, import.meta.url), "utf8");
 const allText = (language: keyof typeof tutorialCopy): string => JSON.stringify(tutorialCopy[language]);
@@ -32,5 +32,15 @@ test("tutorial presets are declared by the bundle patch", () => {
   const patch = read("../cordis.patch.yml");
   for (const preset of ["ha-ceo", "ha-worker"]) {
     assert.ok(patch.includes(`id: ${preset}\n`), `${preset} is not declared in cordis.patch.yml`);
+  }
+});
+
+test("tutorial tabs place every section exactly once", () => {
+  const placed = TUTORIAL_LAYOUT.flat()
+    .map(([id]) => id)
+    .sort();
+  for (const language of ["zh", "en"] as const) {
+    assert.deepEqual(placed, tutorialCopy[language].sections.map((section) => section.id).sort());
+    assert.equal(tutorialCopy[language].tabs.length, TUTORIAL_LAYOUT.length);
   }
 });
