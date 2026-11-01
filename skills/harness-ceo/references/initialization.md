@@ -6,6 +6,45 @@ Start with the repository instructions, `ha --help`, `ha capabilities`, and `ha 
 
 Read existing tasks, decisions, presets, agent and squad declarations, project instructions, verification commands, and known issues before creating new ones. Reuse existing knowledge locations and current task records. Do not create a private model matrix or duplicate issue tracker merely because the skill has an optional template.
 
+## Make the first worker dispatch possible
+
+After `ha init`, inspect the declared identities before assigning implementation work:
+
+```bash
+ha agent list
+```
+
+If the list has no suitable implementation worker, read the repository's [`create-agent` skill](../../create-agent/SKILL.md). Use it to declare two reusable identities: one `worker` responsible for implementation and one `reviewer` responsible for independent review. Follow that skill's declaration and authoring rules; do not treat a model name as an Agent. If the declarations use an empty `runtimes` list, they accept any compatible runtime kind; a declaration pinned to a runtime kind must be validated only after that kind is available. Validate and install each declaration through the CLI:
+
+```bash
+ha agent validate --source <implementation-worker-declaration>
+ha agent install --source <implementation-worker-declaration>
+ha agent validate --source <reviewer-declaration>
+ha agent install --source <reviewer-declaration>
+```
+
+An Agent declaration supplies role and task instructions; a runtime instance supplies execution capacity. Check the node's enabled instances and witnessed installations:
+
+```bash
+ha runtime instance list
+```
+
+Reuse an enabled instance compatible with the worker. If none is available, create one for an installed runtime. For a DeepSeek Harness desktop installation, the current documented ACP runtime kind is `deepseek-harness`; the release guide shows `deepseek-v4.1-flash` as a model. The current built-in provider id is `deepseek`. For example, when that installation and subscription are available:
+
+```bash
+ha runtime instance create --id <instance-id> --name "DeepSeek Harness ACP" --kind deepseek-harness --provider deepseek --model deepseek-v4.1-flash --auth subscription
+```
+
+Use an installation identifier reported by `ha runtime instance list` with `--installation <installation-id>` when the node has multiple witnessed installations. If no compatible installation is listed, make the runtime available on the node before creating an instance. Keep authentication material out of declarations and task records; for API-key authentication, follow `ha runtime instance create --help` and the repository's provider-credential documentation.
+
+Once a declared worker and a compatible instance are available, assign the task through the task-bound Agent entry point:
+
+```bash
+ha agent run <agent-id> --task <task-id> --detach
+```
+
+Do not substitute `ha runtime run` for task-bound assignment. If several instances can serve the worker, resolve the choice through its runtime target or preference before dispatch.
+
 ## Map user-owned knowledge only when needed
 
 The user's workspace may already have places for collaboration preferences, capability observations, recurring runtime failures, accepted project risks, decisions, verification policy, and per-run evidence. Record their real paths or native queries in [knowledge map](../assets/knowledge-map.md) only if that helps the next session find them. Create a new location only when a real observation needs one and the user has authorized that kind of record.
