@@ -14,8 +14,8 @@ import {
   workerPushFailureCode,
 } from "../src/runtime-worker-push.ts";
 
-for (const denialMode of ["node", "owner", "permission", "cas"])
-  test(`delivery checks current node, owner, permission and remote CAS (${denialMode})`, async (t) => {
+for (const denialMode of ["permission", "cas"])
+  test(`edge delivery checks permission and remote CAS (${denialMode})`, async (t) => {
     const root = mkdtempSync(path.join(tmpdir(), "ha-delivery-cas-"));
     t.after(() => rmSync(root, { recursive: true, force: true }));
     const env = { ...process.env, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_SYSTEM: devNull };
@@ -65,36 +65,27 @@ for (const denialMode of ["node", "owner", "permission", "cas"])
       }) as unknown as FleetDeliveryTask;
     const ready = Promise.withResolvers<void>(),
       release = Promise.withResolvers<void>();
-    let reads = 0;
     const old = prepareEdgeTaskDelivery({
       workspaceRoot: first,
-      nodeId: "old",
       authorize: async () => {
         if (denialMode === "permission") throw new Error("authorization denied before push");
-        return denialMode === "owner" ? "changed-owner" : "owner";
+        ready.resolve();
+        await release.promise;
+        return "owner";
       },
       action: { kind: "task-submit", taskId },
-      readTask: async () => {
-        if (++reads === 2) {
-          ready.resolve();
-          await release.promise;
-        }
-        return snapshot(reads === 2 && denialMode === "node" ? "new" : "old");
-      },
+      readTask: async () => snapshot("old"),
     });
     // Attach the rejection observer before unblocking the operation.
-    const rejected = assert.rejects(
-      old,
-      denialMode === "permission"
-        ? /authorization denied/u
-        : denialMode === "cas"
-          ? /stale info/u
-          : /current node, owner/u,
-    );
+    const rejected = assert.rejects(old, denialMode === "permission" ? /authorization denied/u : /stale info/u);
+    if (denialMode === "permission") {
+      await rejected;
+      assert.equal(git(first, "ls-remote", "--heads", "origin", taskId), "");
+      return;
+    }
     await ready.promise;
     const accepted = await prepareEdgeTaskDelivery({
       workspaceRoot: second,
-      nodeId: "new",
       authorize: async () => "owner",
       action: { kind: "task-submit", taskId },
       readTask: async () => snapshot("new"),

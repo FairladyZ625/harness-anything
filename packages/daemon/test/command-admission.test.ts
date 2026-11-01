@@ -1,6 +1,10 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
+import { allDaemonProtocolMethods } from "../src/protocol/daemon-protocol-commands.ts";
+import { assertDaemonRpcRouting, daemonRpcRoutingDeclarations } from "../src/rpc-command-routing.ts";
+import { getExecutableEntityAction } from "@harness-anything/kernel";
+import { isFleetTaskAction } from "../src/fleet/command-protocol.ts";
 import { daemonProtocolCommands, repoCellExecutionForAction } from "../src/protocol/daemon-protocol-commands.ts";
 import { observeTailReadMethod } from "../src/protocol/daemon-protocol-observe-tail-read.ts";
 import { daemonRepoModeWords } from "../src/protocol/daemon-protocol-vocabulary.ts";
@@ -10,10 +14,93 @@ const localSource = "local" as const;
 const nodeSource = { kind: "node", nodeId: "edge-one" } as const;
 const admissionRoutes = new Set(["direct", "via-node", "via-center-forward", "edge-replica", "rejected"]);
 
+function assertAdmissionDeclared(command: { readonly id: string; readonly admission: object }) {
+  assert.deepEqual(Object.keys(command.admission).sort(), [...daemonRepoModeWords].sort(), command.id);
+}
+
+test("admission coverage rejects a new write command missing its edge decision", () => {
+  const command = {
+    id: "new-write",
+    admission: { local: "direct", "remote-proxy": "rejected", "remote-center": "direct" },
+  };
+  assert.throws(() => assertAdmissionDeclared(command), assert.AssertionError);
+  assertAdmissionDeclared({ ...command, admission: { ...command.admission, "remote-edge": "rejected" } });
+});
+
+test("fleet declaration writes carry values and cannot ask the center to read a source path", () => {
+  for (const kind of ["agent-install", "squad-install"]) {
+    const action = { kind, declaration: { schema: `${kind.split("-")[0]}-declaration/v1` } };
+    assert.equal(isFleetTaskAction(action), true, kind);
+    assert.equal(isFleetTaskAction({ kind, packageSource: "/center/private.json" }), false, kind);
+    assert.equal(isFleetTaskAction({ ...action, packageSource: "/center/private.json" }), false, kind);
+    assert.equal(isFleetTaskAction({ ...action, actor: { personId: "spoofed" } }), false, kind);
+  }
+});
+
+test("fleet forwarded writes use their declared entity identity", () => {
+  for (const action of [
+    { kind: "agent-delete", agentId: "worker", reason: "Remove worker.", expectedVersion: 1 },
+    { kind: "agent-retire", agentId: "worker", reason: "Retire worker." },
+    { kind: "squad-delete", squadId: "team", reason: "Remove team.", expectedVersion: 1 },
+    { kind: "vertical-kind-publish-schema", kindId: "software/document", attributes: {}, expectedVersion: 1 },
+    { kind: "vertical-kind-retire", kindId: "software/document", reason: "Retire kind.", expectedVersion: 1 },
+    {
+      kind: "entity-update",
+      entityKind: "software/document",
+      entityId: "doc-one",
+      title: "Update",
+      expectedVersion: 1,
+    },
+    {
+      kind: "entity-delete",
+      entityKind: "software/document",
+      entityId: "doc-one",
+      reason: "Delete.",
+      expectedVersion: 1,
+    },
+    {
+      kind: "entity-archive",
+      entityKind: "software/document",
+      entityId: "doc-one",
+      reason: "Archive.",
+      expectedVersion: 1,
+    },
+  ]) {
+    assert.equal(isFleetTaskAction(action), true, action.kind);
+    const spoofed = { ...action, actor: { personId: "spoofed" } };
+    assert.equal(isFleetTaskAction(spoofed), false, action.kind);
+  }
+});
+
+test("forwarded command positional tokens name their canonical payload field", () => {
+  for (const command of daemonProtocolCommands) {
+    if (command.admission["remote-edge"] !== "via-center-forward" || !("positional" in command)) continue;
+    const token = command.syntaxPath.find((part) => /^<[a-z][a-z0-9-]*>$/u.test(part));
+    if (!token) continue;
+    assert.equal(
+      token.slice(1, -1).replace(/-([a-z])/gu, (_, letter: string) => letter.toUpperCase()),
+      command.positional,
+      command.id,
+    );
+  }
+});
+
+test("compiled entity writes retain the edge route declared by their canonical action", () => {
+  let checked = 0;
+  for (const command of daemonProtocolCommands) {
+    const action = getExecutableEntityAction("actionKind" in command ? command.actionKind : command.id);
+    if (action?.execution?.implementation !== "compiled-event" || action.execution.topology !== "center-forward-write")
+      continue;
+    checked += 1;
+    assert.equal(command.admission["remote-edge"], "via-center-forward", command.id);
+  }
+  assert.ok(checked > 0);
+});
+
 test("all daemon commands close every repo-mode admission cell", () => {
   let cells = 0;
   for (const command of daemonProtocolCommands) {
-    assert.deepEqual(Object.keys(command.admission).sort(), [...daemonRepoModeWords].sort(), command.id);
+    assertAdmissionDeclared(command);
     for (const mode of daemonRepoModeWords) {
       cells += 1;
       const route = command.admission[mode];
@@ -266,4 +353,62 @@ test("Person delegation Actions are admin Actions and forward from an edge", () 
     });
     assert.equal(byId.get(id)?.commandClass, "admin");
   }
+});
+
+test("all GUI and host RPC declarations have an explicit repository/node route", () => {
+  const routes = daemonRpcRoutingDeclarations();
+  assertDaemonRpcRouting(routes);
+  assert.deepEqual(
+    new Set(routes.map((route) => route.method)),
+    new Set(allDaemonProtocolMethods.map((method) => method.method)),
+  );
+});
+
+test("the full RPC route gate rejects a missing GUI edge route and an undeclared host method", () => {
+  const routes = daemonRpcRoutingDeclarations();
+  const missingEdge = routes.map((route) => {
+    if (route.method !== "repo.terminal.spawn") return route;
+    const { "remote-edge": _edge, ...admission } = route.topology.admission;
+    return { ...route, topology: { ...route.topology, admission } };
+  });
+  assert.throws(() => assertDaemonRpcRouting(missingEdge as typeof routes), /repo\.terminal\.spawn has no declared/u);
+  assert.throws(
+    () =>
+      daemonRpcRoutingDeclarations([
+        ...allDaemonProtocolMethods,
+        { id: "new-host-write", method: "daemon.new.write", commandClass: "admin" },
+      ]),
+    /daemon\.new\.write has no declared/u,
+  );
+});
+
+test("RPC coverage retains every generic action and rejects conflicting aliases", () => {
+  const routes = daemonRpcRoutingDeclarations();
+  assert.throws(
+    () =>
+      assertDaemonRpcRouting(
+        routes.filter((route) => !(route.method === "repo.task.run" && route.actionKind === "agent-install")),
+      ),
+    /repo\.task\.run has no declared/u,
+  );
+  const conflict = routes.map((route) =>
+    route.method === "repo.agentRuntime.steer"
+      ? {
+          ...route,
+          topology: {
+            ...route.topology,
+            admission: { ...route.topology.admission, "remote-edge": "rejected" as const },
+          },
+        }
+      : route,
+  );
+  assert.throws(() => assertDaemonRpcRouting(conflict), /repo\.agentRuntime\.steer has no declared/u);
+  assert.throws(
+    () =>
+      daemonRpcRoutingDeclarations([
+        ...allDaemonProtocolMethods,
+        { id: "new-read", method: "daemon.new.read", commandClass: "repo-read" },
+      ]),
+    /daemon\.new\.read has no declared/u,
+  );
 });

@@ -549,7 +549,49 @@ test("a remote-edge read resolves viewer node without a roster", () => {
     assert.deepEqual(row.claim, { nodeId: null, claimFence: null });
     assert.equal(row.actions.runNow.available, true);
     assert.equal(row.actions.enable.available, false);
-    assert.equal(row.actions.enable.nextAction, "repo_mode_read_only");
+    assert.equal(row.actions.enable.nextAction, "no_changes");
+    assert.equal(result.actions.create.available, true);
+    for (const facet of [row.actions.edit, row.actions.delete, row.actions.disable])
+      assert.equal(facet.available, true);
+    const read = (schedule: ScheduleV1): ScheduleGuiRowDto =>
+      readSchedulesGui(
+        guiContext({
+          mode: "remote-edge",
+          rootDir: root,
+          projection: {
+            ...guiContext().projection,
+            listEntities: (kind) =>
+              kind === "schedule"
+                ? [{ id: schedule.scheduleId, value: schedule, workspaceRevision: 3 }]
+                : guiContext().projection.listEntities(kind),
+          },
+        }),
+      ).schedules[0] as ScheduleGuiRowDto;
+    const paused = read({ ...armedSchedule, state: "paused" });
+    assert.equal(paused.actions.enable.available, true);
+    assert.equal(paused.actions.disable.code, "no_changes");
+    assert.equal(paused.actions.runNow.code, "schedule_paused");
+    assert.equal(
+      read({ ...armedSchedule, systemPresetId: "ledger-backup" }).actions.delete.code,
+      "schedule_builtin_protected",
+    );
+    const claimed = read({
+      ...armedSchedule,
+      status: {
+        ...armedSchedule.status,
+        activeRun: {
+          occurrenceId: "edge-active-occurrence",
+          kind: "scheduled",
+          scheduledFor: now,
+          claimedAt: now,
+          nodeId: "other-node",
+          claimFence: "edge-active-fence",
+          attemptIndex: 0,
+        },
+      },
+    });
+    assert.equal(claimed.actions.delete.code, "schedule_single_flight_active");
+    assert.equal(claimed.actions.runNow.code, "schedule_single_flight_active");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

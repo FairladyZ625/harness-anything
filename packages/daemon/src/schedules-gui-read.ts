@@ -139,8 +139,10 @@ function admissionFacet(
     | "schedule-run-now",
   mode: DaemonRepoMode,
 ): ScheduleGuiActionFacet {
-  const admission = admitRepoMode(mode, commandDescriptorForAction(actionKind), "local");
-  return scheduleActionFacet(admission.ok, admission.ok ? null : admission.code);
+  const command = commandDescriptorForAction(actionKind),
+    admission = admitRepoMode(mode, command, "local"),
+    available = admission.ok || (mode === "remote-edge" && command.admission[mode] === "via-center-forward");
+  return scheduleActionFacet(available, available ? null : admission.code);
 }
 
 function deleteFacet(

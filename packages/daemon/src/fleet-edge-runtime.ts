@@ -2,7 +2,12 @@ import { fleetMirrorTaskPaths } from "./fleet-edge-mirror.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import { requiredCellText } from "./repo-cell-settlement.ts";
 import { operationId } from "./repo-cell-proof.ts";
-import { canStartExecution, type RepositorySettingsV1, type TaskProjection } from "@harness-anything/kernel";
+import {
+  canStartExecution,
+  isNativeExecution,
+  type RepositorySettingsV1,
+  type TaskProjection,
+} from "@harness-anything/kernel";
 import { readEdgeRuntimeRepository } from "./fleet-edge-runtime-read.ts";
 import { repositoryRuntimeReads } from "./repository-runtime-reads.ts";
 import { repositoryReadData } from "./protocol/repository-read-frame.ts";
@@ -328,7 +333,13 @@ export function openFleetEdgeRuntime(input: {
           : current.lease?.phase === "held"
             ? current.lease.executionId
             : undefined;
-        const taskStartExecutionId = "runtime-task-start-" + taskId;
+        const activeExecution = current.executions.find(
+          (execution) =>
+            isNativeExecution(execution) &&
+            execution.iteration === current.task?.iteration &&
+            execution.state === "active",
+        );
+        const taskStartExecutionId = activeExecution?.executionId ?? "runtime-task-start-" + taskId;
         if (!executionId && !review && canStartExecution(current, taskStartExecutionId)) {
           const taskStartOpId = randomUUID();
           const started = await runFleetEdgeWrite({
@@ -342,7 +353,11 @@ export function openFleetEdgeRuntime(input: {
                 repoId: request.repoId,
                 taskId,
                 opId: taskStartOpId,
-                action: { kind: "task-start", taskId },
+                action: {
+                  kind: "task-start",
+                  taskId,
+                  ...(activeExecution ? { executionId: activeExecution.executionId } : {}),
+                },
                 waitMs: centerWriteWaitMs,
                 timeoutMs: centerWriteWaitMs + 10_000,
               }),

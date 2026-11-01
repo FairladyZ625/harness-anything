@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader, openSqliteEventStore } from "@harness-anything/storage";
+import { attributeEntityActionCriterion } from "@harness-anything/kernel";
 
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
@@ -304,6 +305,51 @@ test("real SQLite writer divergence remains fatal while rejected entity CAS is r
     assert.equal(fatalCellError(new SettingsActionError("revision_conflict", "stale settings revision")), false);
     assert.equal(fatalCellError(new SettingsActionError("invalid_command", "invalid settings input")), false);
     assert.equal(fatalCellError(new SettingsProjectionError("canonical settings projection is unavailable")), true);
+    for (const actionId of ["install", "delete"]) {
+      for (const kind of ["agent", "squad"]) {
+        const conflict = attributeEntityActionCriterion(
+          Object.assign(new Error("stale declaration revision"), { code: "revision_conflict" }),
+          actionId,
+          `${kind}/entity-revision`,
+        );
+        assert.equal(fatalCellError(conflict), false, `${kind} ${actionId} CAS is recoverable`);
+      }
+    }
+    assert.equal(
+      fatalCellError(
+        attributeEntityActionCriterion(
+          Object.assign(new Error("stale retirement revision"), { code: "revision_conflict" }),
+          "retire",
+          "agent/entity-revision",
+        ),
+      ),
+      false,
+    );
+    for (const [code, actionId, criterionRef] of [
+      ["invalid_store", "install", "agent/entity-revision"],
+      ["revision_conflict", "publish", "agent/entity-revision"],
+      ["revision_conflict", "install", "agent/declaration-schema"],
+      ["revision_conflict", "retire", "squad/entity-revision"],
+    ]) {
+      assert.equal(
+        fatalCellError(
+          attributeEntityActionCriterion(Object.assign(new Error(code), { code }), actionId, criterionRef),
+        ),
+        true,
+        `${code} ${actionId} ${criterionRef} still latches`,
+      );
+    }
+    assert.equal(
+      fatalCellError(
+        Object.assign(new Error("forged criterion"), {
+          code: "revision_conflict",
+          actionId: "install",
+          criterionRef: "agent/entity-revision",
+        }),
+      ),
+      true,
+      "plain external fields do not supply compiler attribution",
+    );
     assert.equal(
       fatalCellError(Object.assign(new Error("unclassified revision divergence"), { code: "revision_conflict" })),
       true,

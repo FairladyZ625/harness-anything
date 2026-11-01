@@ -16,7 +16,7 @@ import {
   type TaskProjectionQueries,
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
-import { ledgerWriteCommandTopology } from "@harness-anything/preset/internal/preset-command-contract";
+import { nodeLocalWriteCommandTopology } from "@harness-anything/preset/internal/preset-command-contract";
 import { readObservedRuntimeSession } from "./agent-runtime-read.ts";
 import { makeAgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import { taskShowFromProjection } from "./repo-cell-completion.ts";
@@ -509,7 +509,7 @@ export async function openRepoCellProxy(
     return supervisor.request("run", { action }, binding, signal);
   };
   const admitTerminalWrite = (binding: RepoCellBinding): void => {
-    const admission = admitRepoMode(input.mode ?? "local", ledgerWriteCommandTopology, binding.source);
+    const admission = admitRepoMode(input.mode ?? "local", nodeLocalWriteCommandTopology, binding.source);
     if (!admission.ok) throw cellCodedError(admission.code, admission.nextAction);
     if (closed || supervisor.status().state !== "attached")
       throw cellCodedError("repo_unavailable", "RepoWriterCell is unavailable.");

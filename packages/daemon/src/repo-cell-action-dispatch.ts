@@ -17,7 +17,6 @@ import {
   lifecycleDocumentPaths,
   requireEntityTypeContract,
   type ExecutionAnnotationKind,
-  type TaskProjection,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import { runPresetAction } from "@harness-anything/preset";
@@ -29,7 +28,7 @@ import { runMigrationImport } from "./migration-import.ts";
 import { assertExecutionExecutorDeclarationEligible } from "./repo-cell-execution-selection.ts";
 import { runLedgerReconcileAction } from "./repo-cell-migration-actions.ts";
 import { type RepoCellBinding, type RepoTaskAction, type Snapshot } from "./repo-cell-types.ts";
-import { readTaskLineageDispatches } from "./dispatch-read.ts";
+import { isReviewerDispatch, readTaskLineageDispatches } from "./dispatch-read.ts";
 import { readCompletionContext } from "./task-completion-read.ts";
 import { dispatchDecisionReview, dispatchTaskReview } from "./task-review-dispatch.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
@@ -732,11 +731,4 @@ function dispatchedExecutor(
       )
       .join(" or ")}.`,
   );
-}
-
-/** The dispatch event is the canonical role record: stream headers predate the `role` field and
- * settled archives drop both it and `reviewTarget`, so the projection is the only readable witness. */
-function isReviewerDispatch(projection: TaskProjection, dispatchId: string): boolean {
-  const payload = projection.readRuntimeDispatchById(dispatchId)?.event.payload;
-  return payload?.role === "reviewer" || payload?.reviewTarget !== undefined;
 }

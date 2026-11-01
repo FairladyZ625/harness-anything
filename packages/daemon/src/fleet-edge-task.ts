@@ -1,3 +1,4 @@
+import { readAgentEntityDeclarationSource } from "./agent-entities.ts";
 import { fleetMirrorTaskPaths } from "./fleet-edge-mirror.ts";
 import { readEdgeRuntimeRepository } from "./fleet-edge-runtime-read.ts";
 // Edge-side product write path: routes one `ha task ...` write command through
@@ -24,7 +25,18 @@ import {
   RAW_ARTIFACT_MAX_BYTES,
   RAW_ARTIFACT_POLICY_ID,
   resolveHarnessLayout,
+  readDaemonRegistry,
+  getExecutableEntityAction,
+  type IdentitySessionPort,
+  type WriteReceiptDraft,
 } from "@harness-anything/kernel";
+import type { CommandTopology } from "@harness-anything/preset/internal/preset-command-contract";
+import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
+import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { localDefaultBinding } from "./daemon-host-binding.ts";
+import { executionCredentialRejected } from "./runtime-execution-credential.ts";
+import type { RepoTaskAction } from "./repo-cell-types.ts";
+import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import {
   FleetRemoteError,
   readFleetRepositoryMetadataClient,
@@ -77,6 +89,67 @@ export class FleetEdgeTaskError extends Error {
     this.name = "FleetEdgeTaskError";
     this.code = code;
   }
+}
+
+/** The ordinary repository RPC shares the CLI's Fleet command executor. */
+export async function forwardRegisteredFleetAction(input: {
+  readonly userRoot?: string;
+  readonly repoId: string;
+  readonly command: Pick<CommandTopology, "admission">;
+  readonly action: RepoTaskAction;
+  readonly auth: DaemonAuthenticationContext;
+  readonly oidc: IdentitySessionPort;
+  readonly runSchedule: (payload: JsonObject) => Promise<Record<string, unknown>>;
+}): Promise<WriteReceiptDraft | null> {
+  if (
+    input.command.admission["remote-edge"] !== "via-center-forward" ||
+    input.auth.transportKind !== "unix-socket" ||
+    input.auth.nodePrincipal
+  )
+    return null;
+  const edge = readDaemonRegistry({ userRoot: input.userRoot }).repos.find(
+    (repo) => repo.repoId === input.repoId && repo.state === "enabled" && repo.mode === "remote-edge",
+  );
+  if (!edge?.canonicalRoot) return null;
+  const workspaceRoot = edge.canonicalRoot,
+    config = readFleetEdgeConfig(workspaceRoot);
+  if (!config || config.repoId !== input.repoId) return null;
+  // Document commands use the dedicated submit/conflict flow, not this repository RPC adapter.
+  const descriptor = commandDescriptorForAction(input.action.kind);
+  if ("path" in descriptor && descriptor.path[0] === "doc") return null;
+  // A verified runtime identity cannot be replaced by the person's interactive session.
+  // Its CLI already carries the execution secret through daemon.fleet.task.run.
+  if (input.auth.executionPrincipal && !input.auth.executionCredential) throw executionCredentialRejected();
+  if (getExecutableEntityAction(input.action.kind)?.target.kind === "schedule") {
+    // This existing Schedule port binds an interactive person; it cannot relay a runtime secret.
+    if (input.auth.executionPrincipal || input.auth.executionCredential) throw executionCredentialRejected();
+    return (await input.runSchedule({
+      ...config,
+      workspaceRoot,
+      method: "repo.schedule.run",
+      action: input.action as JsonObject,
+    })) as unknown as WriteReceiptDraft;
+  }
+  const bound = input.auth.executionPrincipal ? input.auth : await input.oidc.bind(input.auth, workspaceRoot),
+    personId = input.auth.executionPrincipal?.personId ?? localDefaultBinding(bound).actor.principal.personId;
+  const receipt = await runFleetEdgeTask(
+    {
+      payload: {
+        ...config,
+        workspaceRoot,
+        principalId: personId,
+        ...(input.auth.executionCredential ? { executionCredential: input.auth.executionCredential } : {}),
+        action: input.action as FleetTaskAction,
+      },
+    },
+    async () =>
+      input.auth.executionPrincipal
+        ? undefined
+        : (await input.oidc.bind(input.auth, workspaceRoot)).oidcPrincipal?.accessToken,
+    "domain",
+  );
+  // The repository RPC assembles its own envelope around the center's domain receipt.
+  return receipt as unknown as WriteReceiptDraft;
 }
 
 type EdgeWriteCut = { readonly revision: number; readonly headDigest: string };
@@ -168,6 +241,7 @@ export async function runFleetEdgeRepositoryRead(
 export async function runFleetEdgeTask(
   input: FleetEdgeTaskRequest,
   readAccessToken?: () => Promise<string | undefined>,
+  receiptFormat: "cli" | "domain" = "cli",
 ): Promise<Record<string, unknown>> {
   const payload = input.payload;
   let action = payload.action;
@@ -196,6 +270,16 @@ export async function runFleetEdgeTask(
   // materialization so an A round cannot interleave with B sync (or another
   // A round) between those state-machine edges.
   return withFleetMirrorLock(payload.viewRoot, payload.repoId, async () => {
+    if (
+      (action.kind === "agent-install" || action.kind === "squad-install") &&
+      Object.hasOwn(action, "packageSource") &&
+      !Object.hasOwn(action, "declaration")
+    ) {
+      const decoded = readAgentEntityDeclarationSource(action);
+      if ("issues" in decoded) throw new FleetEdgeTaskError(decoded.issues[0]!.code, decoded.issues[0]!.message);
+      const { packageSource: _packageSource, ...resolved } = action;
+      action = { ...resolved, declaration: decoded.declaration, declarationSource: decoded.source };
+    }
     // The unresolved-conflict gate (design §4): while this task's package has a
     // staged, unhandled divergence, its transitions stay blocked — the edge
     // refuses before any upload or center round-trip.
@@ -216,8 +300,8 @@ export async function runFleetEdgeTask(
           command: action.kind,
           outcome: "op_rejected",
           opId: `conflict-open:${taskId}`,
-          canonicalOutcome: "op_rejected",
-          mirrorOutcome: "conflict_open",
+          ...(receiptFormat === "cli" ? { canonicalOutcome: "op_rejected", mirrorOutcome: "conflict_open" } : {}),
+          origin: "fleet-edge",
           code: "conflict_open",
           taskId,
           error: {
@@ -289,7 +373,6 @@ export async function runFleetEdgeTask(
     if (action.kind === "task-submit" && workspaceRoot !== null && taskId !== null)
       action = await prepareEdgeTaskDelivery({
         workspaceRoot,
-        nodeId: payload.nodeId,
         action,
         authorize: async () => {
           const metadata = await readFleetRepositoryMetadataClient({ ...peer, actionKind: "task-submit", taskId });
@@ -392,7 +475,8 @@ export async function runFleetEdgeTask(
         command: action.kind,
         outcome: "op_rejected",
         opId: `fleet:${opId}`,
-        canonicalOutcome: "op_rejected",
+        ...(receiptFormat === "cli" ? { canonicalOutcome: "op_rejected" } : {}),
+        origin: "fleet-edge",
         code,
         error: { code, message: error instanceof Error ? error.message : String(error) },
       } as Record<string, unknown>;
@@ -446,6 +530,18 @@ export async function runFleetEdgeTask(
     }
     const receipt = result.receipt ?? { outcome: result.outcome, code: result.code };
     if (applied) rememberAppliedCut(payload.viewRoot, payload.repoId, payload.nodeId, result.appliedCut);
+    if (receiptFormat === "domain")
+      return {
+        ...receipt,
+        ...(mirror !== null && (mirror.outcome === "pull_blocked" || mirror.outcome === "pull_failed")
+          ? {
+              warnings: [
+                ...(Array.isArray(receipt.warnings) ? receipt.warnings : []),
+                `Center outcome=${result.outcome}; edge mirror=${String(mirror.outcome)}. Sync the replica before relying on local files.`,
+              ],
+            }
+          : {}),
+      };
     const ok = applied && (mirror === null || mirror.outcome !== "pull_blocked");
     return {
       schema: "command-receipt/v2",
