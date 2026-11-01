@@ -315,10 +315,21 @@ test("real SQLite writer divergence remains fatal while rejected entity CAS is r
         assert.equal(fatalCellError(conflict), false, `${kind} ${actionId} CAS is recoverable`);
       }
     }
+    assert.equal(
+      fatalCellError(
+        attributeEntityActionCriterion(
+          Object.assign(new Error("stale retirement revision"), { code: "revision_conflict" }),
+          "retire",
+          "agent/entity-revision",
+        ),
+      ),
+      false,
+    );
     for (const [code, actionId, criterionRef] of [
       ["invalid_store", "install", "agent/entity-revision"],
       ["revision_conflict", "publish", "agent/entity-revision"],
       ["revision_conflict", "install", "agent/declaration-schema"],
+      ["revision_conflict", "retire", "squad/entity-revision"],
     ]) {
       assert.equal(
         fatalCellError(
