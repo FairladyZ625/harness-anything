@@ -595,7 +595,16 @@ export class KeycloakPolicyAdapter
   /** Keep a disabled tombstone: removing a device never makes its id available for registration. */
   async deleteNode(adminAccessToken: string, nodeId: string): Promise<void> {
     const current = await this.#nodeClient(adminAccessToken, nodeId);
-    if (!current) return;
+    if (!current) {
+      // A slot can outlive its registry client. Reserve that retired id with a disabled tombstone,
+      // so removing orphaned transport state cannot make the old identity registerable again.
+      const tombstone = { ...newDevice({ nodeId, personId: "" }), state: "removed" as const };
+      await this.#request(adminAccessToken, "/clients", {
+        method: "POST",
+        body: JSON.stringify(nodeClientBody(this.#config, tombstone)),
+      });
+      return;
+    }
     await this.revokeNode(adminAccessToken, { ...nodeOf(current), state: "removed" });
   }
 
@@ -624,10 +633,8 @@ export class KeycloakPolicyAdapter
     if (!current) throw new Error(`Keycloak has no client for node ${nodeId}.`);
     const personId = consentPersonId ?? nodeOf(current).personId,
       userId = await this.findUserId(adminAccessToken, personId);
-    if (!userId)
-      throw Object.assign(new Error(`No Keycloak account carries Harness person ${personId}.`), {
-        code: "access_person_unknown",
-      });
+    // A deleted account has no remaining consent to revoke. The device was disabled first.
+    if (!userId) return;
     const consentPath = `/users/${encodeURIComponent(userId)}/consents`,
       consents = await this.#json<readonly { readonly clientId: string }[]>(adminAccessToken, consentPath);
     // Keycloak lists offline grants here even when the client never requested browser consent.

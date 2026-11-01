@@ -8,6 +8,7 @@ import { parseFleetFrame, serializeFleetFrame, type FleetFrameV1 } from "../src/
 import { managedRbacReceiptJournal } from "../src/access-admin-state.ts";
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
 import { signInAt } from "./keycloak.fixtures.ts";
+import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
 import { fleetFixture, rawPeer } from "./fleet-tls-session.fixture.ts";
 
 // A settled unregistration is the center cutting the node's live sessions, not a per-frame question.
@@ -22,6 +23,8 @@ async function unregisterNodeOne(
     listed = (await admin.run({ operation: "node-list" })).nodes as { nodeId: string; version: string }[],
     removed = await admin.run({
       operation: "node-unregister",
+      confirm: true,
+      force: true,
       operationId,
       nodeId: fixture.subject.nodeId,
       expectedVersion: listed.find((node) => node.nodeId === fixture.subject.nodeId)!.version,
@@ -195,6 +198,8 @@ test("a removal whose receipt never settled cuts through reconcile", { timeout: 
       schema: "harness-access-receipt/v1",
       operationId,
       operation: "node-unregister",
+      confirm: true,
+      force: true,
       actor: "person-admin",
       authority: { url: "http://127.0.0.1:1", realm: "harness", clientId: "harness-center" },
       phase: "intent",
@@ -207,4 +212,106 @@ test("a removal whose receipt never settled cuts through reconcile", { timeout: 
 
   await peer.closed;
   assert.equal(fixture.eventCount(), before, "nothing was written for the unregistered node");
+});
+
+test(
+  "temporary center: semantic CLI preview, busy refusal, forced cut and stable reconnect rejection",
+  { timeout: 60_000 },
+  async (t) => {
+    const fixture = await fleetFixture(t);
+    t.after(() => fixture.close());
+    const center = await fixture.center(),
+      nodeId = fixture.subject.nodeId,
+      peer = await rawPeer(fixture.track, center.port, fixture.cert, nodeId, "machine-secret");
+    signInAt(fixture.userRoot, "person-admin");
+    const admin = fixture.admin(center);
+    const command = async (flags: string[]) => {
+      const args = ["access", "node", "unregister", "--node-id", nodeId, ...flags],
+        parsed = parseThinCommand(args, "/temporary-center");
+      assert.equal(parsed.ok, true, JSON.stringify(parsed));
+      if (!parsed.ok) throw new Error("CLI parse failed");
+      const result = await admin.run(parsed.command.action);
+      console.log(JSON.stringify({ command: `ha ${args.join(" ")}`, result }));
+      return result;
+    };
+    const preview = await command([]);
+    assert.equal(preview.dryRun, true);
+    assert.equal(preview.online, true);
+    await assert.rejects(
+      command(["--confirm", "--expected-version", String(preview.expectedVersion)]),
+      (error: unknown) => {
+        assert.equal((error as { code: string }).code, "node_busy");
+        console.log(JSON.stringify({ command: "ha access node unregister --confirm", code: "node_busy" }));
+        return true;
+      },
+    );
+    assert.equal(
+      (
+        await peer.request({
+          schema: "fleet.repo.metadata.get/v1",
+          messageId: "still-alive",
+          repoId: fixture.subject.repoId,
+        })
+      ).schema,
+      "fleet.repo.metadata.result/v1",
+    );
+    const result = await command(["--confirm", "--force", "--expected-version", String(preview.expectedVersion)]);
+    assert.equal(result.ok, true);
+    await peer.closed;
+    assert.deepEqual(
+      center.status().replicas.filter((row) => row.nodeId === nodeId),
+      [],
+    );
+    await assert.rejects(
+      rawPeer(fixture.track, center.port, fixture.cert, nodeId, "machine-secret"),
+      (error: unknown) => {
+        console.log(JSON.stringify({ reconnect: nodeId, error: String(error) }));
+        return /authentication_failed/u.test(String(error));
+      },
+    );
+  },
+);
+
+test("forced retirement drains an admitted command before reporting success", { timeout: 60_000 }, async (t) => {
+  const fixture = await fleetFixture(t);
+  t.after(() => fixture.close());
+  const center = await fixture.center(),
+    { nodeId, repoId, taskId } = fixture.subject,
+    peer = await rawPeer(fixture.track, center.port, fixture.cert, nodeId, "machine-secret"),
+    assigned = await peer.request({ schema: "fleet.repo.metadata.get/v1", messageId: "epoch", repoId });
+  assert.equal(assigned.schema, "fleet.repo.metadata.result/v1");
+  if (assigned.schema !== "fleet.repo.metadata.result/v1") return;
+  const barrier = fixture.blockTaskRelease();
+  t.after(barrier.release);
+  const pending = peer.request({
+    schema: "fleet.task.command/v1",
+    messageId: "held-release",
+    opId: "held-release",
+    repoId,
+    taskId,
+    writerEpoch: assigned.writerEpoch,
+    action: { kind: "task-release", taskId },
+    docChanges: null,
+    mirrorBaseCut: null,
+  });
+  await barrier.started;
+  assert.equal(center.inspectNode(nodeId).inFlight, 1);
+  signInAt(fixture.userRoot, "person-admin");
+  const admin = fixture.admin(center),
+    preview = await admin.run({ operation: "node-unregister", nodeId });
+  assert.equal(preview.inFlight, 1);
+  const retiring = admin.run({
+    operation: "node-unregister",
+    nodeId,
+    expectedVersion: "1",
+    confirm: true,
+    force: true,
+  });
+  // The command was admitted before the retirement fence; retirement waits for its canonical result.
+  barrier.release();
+  await pending;
+  const result = await retiring;
+  assert.equal(result.ok, true);
+  assert.equal(center.inspectNode(nodeId).inFlight, 0);
+  await peer.closed;
 });

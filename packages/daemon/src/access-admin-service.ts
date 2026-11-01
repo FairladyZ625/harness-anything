@@ -22,6 +22,7 @@ import {
 } from "./access-admin-state.ts";
 import type { IdentitySessionPort } from "@harness-anything/kernel";
 import { type AccessAdminOperation, type AccessAdminPorts, type AccessAdminRequest } from "./access-admin-contract.ts";
+import { createNodeRetirement, planNodeRetirement } from "./fleet/node-retirement.ts";
 import { EdgeJoinAdminService } from "./access-admin-edge-join.ts";
 import { EdgeJoinSshTunnelManager } from "./fleet/edge-join-ssh-tunnel.ts";
 import { coded, names, requiredUserId, text, uniqueSorted } from "./access-admin-utils.ts";
@@ -49,6 +50,8 @@ type Expectation =
 
 interface Plan {
   readonly expect: Expectation;
+  readonly preview?: Readonly<Record<string, unknown>>;
+  readonly release?: () => void;
   /** Whatever the write returns is handed to the caller once and never journaled. */
   readonly apply: () => Promise<Readonly<Record<string, unknown>> | void>;
   /** Releases local-only preparation when the write never started: its intent could not be recorded. */
@@ -107,6 +110,7 @@ export class AccessAdminService {
       fetch,
       now: () => new Date().toISOString(),
       journal: managedRbacReceiptJournal(userRoot),
+      nodeRetirement: createNodeRetirement({ stateRoot: path.join(userRoot, "fleet") }),
       ...ports,
     };
     this.#edgeJoinTunnels = ports.sshTunnels ?? new EdgeJoinSshTunnelManager();
@@ -197,7 +201,9 @@ export class AccessAdminService {
       case "node-register":
         return this.#mutate(request, actor, (session) => this.#planNodeRegistration(session, request));
       case "node-unregister":
-        return this.#mutate(request, actor, (session) => this.#planNodeRemoval(session, request));
+        return this.#mutate(request, actor, (session) =>
+          planNodeRetirement(session, request, this.#ports.nodeRetirement!),
+        );
       case "edge-join-create":
         return this.#oidc.serialize(() => this.#edgeJoinAdmin.create(request, actor));
       case "edge-join-status":
@@ -578,6 +584,8 @@ export class AccessAdminService {
       const session = await this.#session(),
         planned = await plan(session),
         base = { schema: "harness-access-receipt/v1", operationId, operation, actor, authority: session.authority };
+      if (!("conflict" in planned) && planned.preview && request.confirm !== true)
+        return { ok: true, dryRun: true, ...planned.preview };
       if ("conflict" in planned) {
         const receipt = {
           ...base,
@@ -589,17 +597,33 @@ export class AccessAdminService {
         this.#ports.journal.append(JSON.stringify(receipt));
         return { ok: false, code: "version_conflict", ...receipt };
       }
-      // The intent lands before Keycloak changes, so a lost receipt can be reconciled without replaying the write.
       try {
-        this.#ports.journal.append(
-          JSON.stringify({ ...base, phase: "intent", expect: planned.expect, recordedAt: this.#ports.now() }),
-        );
-      } catch (error) {
-        planned.abandon?.();
-        throw error;
+        // The intent lands before Keycloak changes, so a lost receipt can be reconciled without replaying the write.
+        try {
+          this.#ports.journal.append(
+            JSON.stringify({
+              ...base,
+              phase: "intent",
+              expect: planned.expect,
+              ...(planned.preview ? { retirement: planned.preview } : {}),
+              recordedAt: this.#ports.now(),
+            }),
+          );
+        } catch (error) {
+          planned.abandon?.();
+          throw error;
+        }
+        const issued = await planned.apply();
+        return {
+          ...this.#settle(
+            { ...base, expect: planned.expect, ...(planned.preview ? { retirement: planned.preview } : {}) },
+            "applied",
+          ),
+          ...issued,
+        };
+      } finally {
+        planned.release?.();
       }
-      const issued = await planned.apply();
-      return { ...this.#settle({ ...base, expect: planned.expect }, "applied"), ...issued };
     });
   }
 
@@ -610,7 +634,14 @@ export class AccessAdminService {
     if (settled) return { ok: settled.outcome === "applied", ...settled };
     if (!intent) throw coded("access_operation_unknown", `No access operation ${operationId} is recorded.`);
     const observed = await this.#observed(await this.#session(), intent.expect as Expectation);
-    return this.#settle({ ...intent, reconciledBy: actor }, observed ? "applied" : "failed");
+    const removed = observed ? removedNode(intent.expect) : null,
+      release = removed ? this.#ports.nodeRetirement!.fence(removed) : undefined;
+    try {
+      if (removed) await this.#ports.nodeRetirement!.drain(removed);
+      return this.#settle({ ...intent, reconciledBy: actor }, observed ? "applied" : "failed");
+    } finally {
+      release?.();
+    }
   }
 
   async #observed(session: Session, expect: Expectation): Promise<boolean> {
@@ -650,13 +681,14 @@ export class AccessAdminService {
   }
 
   #settle(record: Readonly<Record<string, unknown>>, outcome: "applied" | "failed"): Record<string, unknown> {
+    const removed = outcome === "applied" ? removedNode(record.expect) : null;
+    if (removed) this.#ports.nodeRetirement!.remove(removed);
     const receipt = { ...record, phase: "settled", outcome, settledAt: this.#ports.now() };
     try {
       this.#ports.journal.append(JSON.stringify(receipt));
     } catch (error) {
       throw Object.assign(unsettled(String(record.operationId)), { cause: error });
     }
-    const removed = outcome === "applied" ? removedNode(record.expect) : null;
     if (removed) {
       this.#edgeJoinAdmin.releaseNodeTunnel(removed);
       this.#ports.onNodeRemoved?.(removed);
@@ -848,19 +880,6 @@ export class AccessAdminService {
         await session.adapter.createNode(session.token, next, credential);
         return { credentialFile: reserved.file };
       },
-    };
-  }
-
-  /** Carries the version read; a node somebody else already moved or removed answers with a conflict. */
-  async #planNodeRemoval(session: Session, request: AccessAdminRequest): Promise<Plan | Conflict> {
-    const nodeId = text(request.nodeId, "nodeId"),
-      expectedVersion = text(request.expectedVersion, "expectedVersion"),
-      current = await session.adapter.readNode(session.token, nodeId),
-      currentVersion = nodeVersion(current);
-    if (expectedVersion !== currentVersion) return { conflict: { nodeId, expectedVersion, currentVersion } };
-    return {
-      expect: { kind: "node", nodeId, version: String(current!.revision + 1), state: "removed" },
-      apply: () => session.adapter.deleteNode(session.token, nodeId),
     };
   }
 

@@ -503,17 +503,25 @@ test("unregistering a device disables access and retains an immutable tombstone"
   const version = (await nodes())[0]!.version;
   assert.equal(await registry.authenticate("edge-a", credential), true);
   // A version nobody read is refused before Keycloak changes.
-  const stale = await run({ operation: "node-unregister", nodeId: "edge-a", expectedVersion: "stale" });
+  const stale = await run({
+    operation: "node-unregister",
+    confirm: true,
+    force: true,
+    nodeId: "edge-a",
+    expectedVersion: "stale",
+  });
   assert.deepEqual(
     [stale.ok, stale.code, stale.nodeId, stale.expectedVersion, stale.currentVersion],
     [false, "version_conflict", "edge-a", "stale", version],
   );
   assert.equal(keycloak.writes.filter((write) => write.startsWith("DELETE")).length, 0);
-  await assert.rejects(run({ operation: "node-unregister", nodeId: "edge-a" }), { code: "access_request_invalid" });
+  await assert.rejects(run({ operation: "node-unregister", confirm: true, force: true, nodeId: "edge-a" }), {
+    code: "access_request_invalid",
+  });
   // Two administrators remove the node from the same version: one applies, the other is told it is gone.
   const results = await Promise.all([
-    run({ operation: "node-unregister", nodeId: "edge-a", expectedVersion: version }),
-    run({ operation: "node-unregister", nodeId: "edge-a", expectedVersion: version }),
+    run({ operation: "node-unregister", confirm: true, force: true, nodeId: "edge-a", expectedVersion: version }),
+    run({ operation: "node-unregister", confirm: true, force: true, nodeId: "edge-a", expectedVersion: version }),
   ]);
   assert.deepEqual(
     results.map((result) => [result.ok, result.outcome, result.actor]),
@@ -583,7 +591,14 @@ test("offline revocation failure leaves removal unsettled and never reports comp
     onNodeRemoved: (nodeId) => removed.push(nodeId),
   });
   await assert.rejects(
-    admin.run({ operation: "node-unregister", operationId, nodeId: "edge-a", expectedVersion: version }),
+    admin.run({
+      operation: "node-unregister",
+      confirm: true,
+      force: true,
+      operationId,
+      nodeId: "edge-a",
+      expectedVersion: version,
+    }),
     { code: "keycloak_admin_rejected" },
   );
   assert.deepEqual(removed, []);
@@ -643,10 +658,22 @@ test("a removal that settles applied reports the removed node, and nothing else 
   );
   assert.deepEqual(removed, [], "moving a node to another owner is not a removal");
   const version = move.find((node) => node.nodeId === "edge-a")!.version,
-    stale = await run({ operation: "node-unregister", nodeId: "edge-a", expectedVersion: "stale" });
+    stale = await run({
+      operation: "node-unregister",
+      confirm: true,
+      force: true,
+      nodeId: "edge-a",
+      expectedVersion: "stale",
+    });
   assert.equal(stale.ok, false);
   assert.deepEqual(removed, [], "a refused removal reports nothing");
-  const applied = await run({ operation: "node-unregister", nodeId: "edge-a", expectedVersion: version });
+  const applied = await run({
+    operation: "node-unregister",
+    confirm: true,
+    force: true,
+    nodeId: "edge-a",
+    expectedVersion: version,
+  });
   assert.equal(applied.ok, true);
   assert.deepEqual(removed, ["edge-a"]);
 });

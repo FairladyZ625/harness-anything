@@ -471,3 +471,59 @@ function hostTaskRows() {
     },
   ];
 }
+
+test("the collaboration read omits a retired node even when force preserved its lease", async () => {
+  const cell = {
+    read: async (method: string) =>
+      method === "repo.tasks.list"
+        ? {
+            rows: [
+              {
+                taskId: "retired-task",
+                coordinationStatus: "active",
+                snapshot: {
+                  task: { title: "Retained work" },
+                  lease: {
+                    source: { kind: "node", nodeId: "retired-node" },
+                    actor: { principal: { personId: "old-owner" } },
+                    phase: "held",
+                    expiresAt: null,
+                  },
+                },
+              },
+            ],
+            page: { nextCursor: null },
+          }
+        : { dispatches: [] },
+    observeTail: async () => ({ status: "ready", items: [] }),
+    statusCuts: () => null,
+  };
+  const result = await readFleetOverviewFromHost({
+    repoId: "repo-test",
+    mode: "remote-center",
+    cell: cell as never,
+    binding: {} as never,
+    fleetReplicas: [replica("retired-node"), replica("healthy-node")],
+    keycloakCenter: (async () => ({
+      accessToken: "token",
+      provider: {
+        readNode: async (_token: string, nodeId: string) => ({
+          state: nodeId === "retired-node" ? "removed" : "active",
+          revocation: "complete",
+          personId: "owner",
+        }),
+      },
+    })) as never,
+    now: "2026-11-01T00:00:00Z",
+    userRoot: "/tmp/fleet-overview-test",
+    daemon: { daemonId: "default", startedAt: "2026-11-01T00:00:00Z" },
+  });
+  assert.deepEqual(
+    result.nodes.map((node) => node.nodeId),
+    ["center", "healthy-node"],
+  );
+  assert.deepEqual(
+    result.links.map((link) => link.nodeId),
+    ["healthy-node"],
+  );
+});

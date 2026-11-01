@@ -1,7 +1,6 @@
 import type { FleetReplicaStatus } from "./center-types.ts";
 import { runtimeErrorCode } from "../runtime-spawn-errors.ts";
 import type { RepoCell, RepoCellBinding } from "../repo-cell-types.ts";
-import { keycloakNodeRegistry } from "../fleet-center-admission.ts";
 import { taskStatusWords } from "../protocol/daemon-protocol-vocabulary.ts";
 import { daemonBuildStamp } from "../build-identity.ts";
 import type { KeycloakCenterAuthority } from "../transport/auth-context.ts";
@@ -634,10 +633,13 @@ export async function readFleetOverviewFromHost(input: {
     leaseFacts.ok ? leaseFacts.value.leases.flatMap((lease) => (lease.nodeId === null ? [] : [lease.nodeId])) : [],
   );
   const nodeOwners = new Map<string, FleetFieldState>();
-  const registry = keycloakNodeRegistry(input.keycloakCenter);
+  const retiredNodes = new Set<string>();
   const ownerOf = async (nodeId: string): Promise<FleetFieldState> => {
     try {
-      const personId = await registry.nodeOwner(nodeId);
+      const authority = await input.keycloakCenter(),
+        node = await authority.provider.readNode(authority.accessToken, nodeId);
+      if (node?.state === "removed") retiredNodes.add(nodeId);
+      const personId = node?.state === "active" && node.revocation === "complete" ? node.personId : null;
       return { kind: "value", text: personId ?? "not-in-registry" };
     } catch (error) {
       // Keycloak 是外部登记服务:查不到 owner 时该节点字段显式 unavailable(带原因),
@@ -660,8 +662,14 @@ export async function readFleetOverviewFromHost(input: {
       version: process.env.npm_package_version ?? "0.0.0",
       commitSha: daemonBuildStamp().commit,
     },
-    replicas: input.fleetReplicas,
-    leaseReads: leaseFacts.ok ? { ok: true, ...leaseFacts.value } : { ok: false, code: leaseFacts.code },
+    replicas: input.fleetReplicas.filter((replica) => !retiredNodes.has(replica.nodeId)),
+    leaseReads: leaseFacts.ok
+      ? {
+          ok: true,
+          ...leaseFacts.value,
+          leases: leaseFacts.value.leases.filter((lease) => lease.nodeId === null || !retiredNodes.has(lease.nodeId)),
+        }
+      : { ok: false, code: leaseFacts.code },
     events: eventFacts.slice(0, EVENT_PAGE_LIMIT),
     nodeOwners,
     centerRevision: input.cell.statusCuts()?.ledgerRevision ?? null,

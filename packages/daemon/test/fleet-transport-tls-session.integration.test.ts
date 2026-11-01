@@ -225,6 +225,8 @@ test(
       listed = (await admin.run({ operation: "node-list" })).nodes as { nodeId: string; version: string }[],
       removed = await admin.run({
         operation: "node-unregister",
+        confirm: true,
+        force: true,
         operationId: "unregister-connected-node",
         nodeId,
         expectedVersion: listed.find((node) => node.nodeId === nodeId)!.version,
@@ -234,16 +236,10 @@ test(
     // The settled removal cut the existing session: no frame on it is processed or answered any more.
     await peer.closed;
     assert.equal(fixture.eventCount(), before, "nothing was written for the unregistered node");
-    // A session that authenticates afterwards still resolves no owner for the frames that act for somebody.
-    const next = await rawPeer(fixture.track, center.port, fixture.cert, nodeId, "machine-secret"),
-      refused = await next.request({
-        schema: "fleet.receipt.get/v1",
-        messageId: "receipt-after-reconnect",
-        repoId,
-        opId: "op-unknown",
-      });
-    assert.equal(answer(refused), "node_owner_unregistered");
-    next.close();
+    await assert.rejects(
+      rawPeer(fixture.track, center.port, fixture.cert, nodeId, "machine-secret"),
+      /authentication_failed/u,
+    );
   },
 );
 // Consent is a person's own confirmation. The connection authenticated a machine, so the owner the center

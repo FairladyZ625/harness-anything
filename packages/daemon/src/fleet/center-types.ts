@@ -102,6 +102,14 @@ export interface FleetTlsCenter {
   /** Cuts every session the node holds, including a handshake still awaiting its verdict. */
   readonly pendingDeliveries: () => number;
   readonly disconnectNode: (nodeId: string) => void;
+  readonly inspectNode: (nodeId: string) => {
+    readonly online: boolean;
+    readonly inFlight: number;
+    readonly slots: readonly ReplicationSlotKey[];
+  };
+  readonly drainNode: (nodeId: string) => Promise<void>;
+  readonly fenceNode: (nodeId: string) => () => void;
+  readonly removeNode: (nodeId: string) => void;
   readonly replicaReceipt: (opId: string, nodeId: string, viewId: string, repoId: string) => WriteReceipt;
   readonly status: () => {
     readonly replicas: readonly FleetReplicaStatus[];

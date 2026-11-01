@@ -91,6 +91,10 @@ export function openReplicationSlots(file: string) {
         .get(repoId, history);
       return value?.floor == null ? null : Number(value.floor);
     },
+    /** Node retirement removes every repository slot and fences all outstanding slot leases. */
+    removeNode(nodeId: string): void {
+      db.prepare("DELETE FROM replication_slot WHERE node=?").run(nodeId);
+    },
     invalidateOffline(repoId: string): void {
       db.prepare("UPDATE replication_slot SET fence=fence+1, ack=NULL, acked_at=NULL WHERE repo=?").run(repoId);
     },

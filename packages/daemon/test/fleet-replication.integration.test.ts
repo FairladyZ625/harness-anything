@@ -13,6 +13,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { makeTaskProjectionReader } from "@harness-anything/storage";
 
+import { createNodeRetirement } from "../src/fleet/node-retirement.ts";
 import { AccessAdminService } from "../src/access-admin-service.ts";
 import { createIdentitySession } from "../src/authorization-provider.ts";
 import {
@@ -398,7 +399,11 @@ test("revoking a node's registration cuts its replication session", { timeout: 1
   const replicationStatus = () => center.status().replicas.find((replica) => replica.nodeId === "edge-three");
   assert.equal(replicationStatus()?.connected, true, "the installed edge owns a live replication session");
   const admin = new AccessAdminService(createIdentitySession(fixture.userRoot), fixture.userRoot, {
-      onNodeRemoved: (nodeId) => center.disconnectNode(nodeId),
+      nodeRetirement: createNodeRetirement({
+        stateRoot: fixture.stateRoot,
+        center: () => center,
+        repositories: () => fixture.host.status().repos,
+      }),
     }),
     listed = (await admin.run({ operation: "node-list", operationId: randomUUID() })) as {
       nodes: { nodeId: string; version: string }[];
@@ -407,6 +412,8 @@ test("revoking a node's registration cuts its replication session", { timeout: 1
   assert.ok(target, `edge-three is registered: ${JSON.stringify(listed)}`);
   const removed = await admin.run({
     operation: "node-unregister",
+    confirm: true,
+    force: true,
     operationId: randomUUID(),
     nodeId: "edge-three",
     expectedVersion: target.version,
@@ -414,7 +421,7 @@ test("revoking a node's registration cuts its replication session", { timeout: 1
   assert.equal((removed as { ok?: boolean }).ok, true, JSON.stringify(removed));
   // Observe the center's socket-close state, not whether the child process reported a terminal error.
   await waitForState(
-    () => replicationStatus()?.connected === false,
+    () => replicationStatus() === undefined,
     () =>
       `edge-three replication session is still connected after unregister; status=${JSON.stringify(replicationStatus())}`,
   );
@@ -425,8 +432,8 @@ test("revoking a node's registration cuts its replication session", { timeout: 1
   t.diagnostic(`post-revoke session state: ${typeof rejected === "string" ? rejected : rejected.schema}`);
   assert.ok(
     typeof rejected === "string"
-      ? rejected.includes("node_owner_unregistered")
-      : rejected.schema === "fleet.error/v1" && rejected.code === "node_owner_unregistered",
+      ? rejected.includes("authentication_failed")
+      : rejected.schema === "fleet.error/v1" && rejected.code === "authentication_failed",
     `a new request from the unregistered node is rejected: ${JSON.stringify(rejected)}`,
   );
 });

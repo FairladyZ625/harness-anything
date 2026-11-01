@@ -481,6 +481,8 @@ export const daemonProtocolMethods = Object.freeze([
       groupIds: "array?",
       nodeLabel: "string?",
       operationId: "string?",
+      confirm: "boolean?",
+      force: "boolean?",
       groupId: "string?",
       teamId: "string?",
       teamName: "string?",

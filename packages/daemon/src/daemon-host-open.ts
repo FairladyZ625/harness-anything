@@ -102,6 +102,7 @@ import { credentialPort, type CredentialPort } from "./agent-runtime-credential-
 import { runtimeInstanceCredentialService } from "./runtime-instance-credentials.ts";
 import { openDecisionProviderService } from "./decision-provider.ts";
 import { openDecisionPointExecutorFactory } from "./decision-point-executor.ts";
+import { createNodeRetirement } from "./fleet/node-retirement.ts";
 import { AccessAdminService } from "./access-admin-service.ts";
 import type { EdgeJoinSshTunnelManager } from "./fleet/edge-join-ssh-tunnel.ts";
 import type { createEdgeJoinStore } from "./fleet/edge-join.ts";
@@ -740,7 +741,16 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   // live TLS sessions, so the settled cut is handed from one to the other here.
   const accessAdmin = new AccessAdminService(oidc, input.userRoot, {
     daemonId: input.daemonId,
-    onNodeRemoved: (nodeId) => hostContext.fleetCenter?.disconnectNode(nodeId),
+    nodeRetirement: createNodeRetirement({
+      stateRoot: () =>
+        readFleetCenterConfig(input.userRoot, input.daemonId)?.stateRoot ?? path.join(input.userRoot, "fleet"),
+      center: () => hostContext.fleetCenter,
+      repositories: () =>
+        [...cells.values()]
+          .map((cell) => cell.status())
+          .concat([...warming.values(), ...unavailable.values()])
+          .filter((repo) => repo.mode !== "remote-proxy"),
+    }),
     ...(input.sshTunnels ? { sshTunnels: input.sshTunnels } : {}),
     ...(input.edgeJoins ? { edgeJoins: input.edgeJoins } : {}),
   });

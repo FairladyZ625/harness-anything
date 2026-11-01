@@ -12,6 +12,7 @@ export interface AccessAdminPorts {
   readonly now: () => string;
   readonly journal: ReturnType<typeof managedRbacReceiptJournal>;
   readonly daemonId?: string;
+  readonly nodeRetirement?: import("./fleet/node-retirement.ts").NodeRetirement;
   readonly onNodeRemoved?: (nodeId: string) => void;
   readonly sshTunnels?: EdgeJoinSshTunnelManager;
   readonly edgeJoins?: ReturnType<typeof createEdgeJoinStore>;

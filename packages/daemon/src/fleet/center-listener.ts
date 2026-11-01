@@ -50,6 +50,7 @@ import {
 import { runWalSender } from "./walsender.ts";
 import { createReplicationRetention, openReplicationSlots, replicationSlotKey } from "@harness-anything/storage";
 import { startBaseBackup } from "@harness-anything/storage";
+import { createNodeRetirementAdmission } from "./node-retirement.ts";
 import { createReplicaStatusTracker } from "./replica-status.ts";
 /** The replication head poll interval: commit-to-edge latency floor versus idle reads. */
 const REPLICATION_HEAD_POLL_MS = 50;
@@ -71,6 +72,7 @@ function delay(ms: number, signal: AbortSignal): Promise<void> {
 export async function listenFleetTls(options: FleetCenterOptions): Promise<FleetTlsCenter> {
   mkdirSync(options.stateRoot, { recursive: true });
   const closing = new AbortController();
+  const nodeAdmission = createNodeRetirementAdmission();
   const deliveries = createFleetDeliveryDrain(options.onDeliverySettled);
   const resourceBudget = createResourceBudget(DOC_SHOW_BUDGET_LIMITS);
   const stateFile = path.join(options.stateRoot, "state.json"),
@@ -103,13 +105,14 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     currentEpochFor = (repoId: string) => writerEpoch.current(repoId) ?? ownedEpochFor(repoId),
     // dec_F01770FD0DCF72683B7C4C7A47: each request presents this device owner's user session.
     readerAuth = async (node: { nodeId: string; repoId: string; accessToken?: string }) => {
+      nodeAdmission.assertOpen(node.nodeId);
       const personId = await options.nodeOwner(node.nodeId);
       if (!personId) throw new FleetFault("node_owner_unregistered", `Node ${node.nodeId} has no registered owner.`);
       if (!node.accessToken || !options.verifyHuman)
         throw new FleetFault("authentication_required", "Sign in on this device before using Fleet.");
       try {
         const invitation = options.invitationClientForNode?.(node.nodeId);
-        return await options.verifyHuman({
+        const principal = await options.verifyHuman({
           transportKind: "fleet-tls",
           nodePrincipal: { nodeId: node.nodeId, personId },
           humanAccessToken: node.accessToken,
@@ -117,6 +120,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             ? { fleetExpectedAzps: [{ clientId: invitation.clientId, personId: invitation.personId }] }
             : {}),
         });
+        nodeAdmission.assertOpen(node.nodeId);
+        return principal;
       } catch (error) {
         if (typeof error === "object" && error !== null && "code" in error && typeof error.code === "string")
           throw new FleetFault(error.code, error instanceof Error ? error.message : "Device session was rejected.");
@@ -138,6 +143,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     ) => {
       const lease = ownedEpochFor(node.repoId);
       const principal = await principalAuth(node, accessToken, executionCredential);
+      nodeAdmission.assertOpen(node.nodeId);
       return {
         ...principal,
         writerEpoch: lease.epoch,
@@ -319,6 +325,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       throw error;
     }
     const slots = replicationSlots;
+    nodeAdmission.assertOpen(nodeId);
     const lease = slots.claim({ repoId: frame.repoId, nodeId }, store.replicationPosition().history);
     const retention = retentionFor(frame.repoId);
     const source = {
@@ -1125,12 +1132,15 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   // sessions, not per socket and not per claimed node id. Each unauthenticated socket holds a
   // session slot and a credential check it may still trigger; the limiter bounds the credential
   // cost of a source that keeps failing its hello.
-  const guardedAuthenticate = createHelloRateLimiter(options.authenticate);
+  const guardedAuthenticate = createHelloRateLimiter(async (nodeId, credential, source) => {
+    if (!nodeAdmission.isOpen(nodeId)) return false;
+    return (await options.authenticate(nodeId, credential, source)) && nodeAdmission.isOpen(nodeId);
+  });
   const server: Server = createServer({ key: options.key, cert: options.cert }, (socket) =>
     serve(
       socket,
       { ...options, authenticate: guardedAuthenticate, onReplicationStart },
-      handle,
+      (nodeId, ...args) => nodeAdmission.run(nodeId, () => handle(nodeId, ...args)),
       sessions,
       replicationOwners,
     ),
@@ -1152,6 +1162,20 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   return {
     port: address.port,
     pendingDeliveries: deliveries.pending,
+    inspectNode: (nodeId) => ({
+      online: (sessions.get(nodeId)?.size ?? 0) > 0,
+      inFlight: nodeAdmission.inFlight(nodeId),
+      slots: replicationSlots.list().filter((slot) => slot.nodeId === nodeId),
+    }),
+    drainNode: nodeAdmission.drain,
+    fenceNode: nodeAdmission.fence,
+    removeNode: (nodeId) => {
+      nodeAdmission.remove(nodeId);
+      for (const socket of sessions.get(nodeId) ?? []) socket.destroy();
+      sessions.delete(nodeId);
+      replicationSlots.removeNode(nodeId);
+      replicaStatus.removeNode(nodeId);
+    },
     disconnectNode: (nodeId: string) => {
       const live = sessions.get(nodeId);
       if (!live) return;
