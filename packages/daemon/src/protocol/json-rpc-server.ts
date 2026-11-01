@@ -643,27 +643,42 @@ export function createJsonRpcProtocolServer(options: {
             ),
           );
         }
-        return reply(
-          method,
-          await runFleetEdgeTask(
-            {
-              payload: {
-                ...params.payload,
-                ...(executionCredential ? { executionCredential } : {}),
-                ...(options.authContext.executionPrincipal
-                  ? { principalId: options.authContext.executionPrincipal.personId }
-                  : relayedExecutionPrincipal
-                    ? { principalId: relayedExecutionPrincipal.personId }
-                    : !executionCredential && options.authContext.oidcPrincipal
-                      ? { principalId: options.authContext.oidcPrincipal.personId }
-                      : {}),
-                // The two non-task discriminants return above; the remainder is FleetTaskAction.
-                action: fleetAction as DaemonFleetTaskAction,
-              },
+        const result = await runFleetEdgeTask(
+          {
+            payload: {
+              ...params.payload,
+              ...(executionCredential ? { executionCredential } : {}),
+              ...(options.authContext.executionPrincipal
+                ? { principalId: options.authContext.executionPrincipal.personId }
+                : relayedExecutionPrincipal
+                  ? { principalId: relayedExecutionPrincipal.personId }
+                  : !executionCredential && options.authContext.oidcPrincipal
+                    ? { principalId: options.authContext.oidcPrincipal.personId }
+                    : {}),
+              // The two non-task discriminants return above; the remainder is FleetTaskAction.
+              action: fleetAction as DaemonFleetTaskAction,
             },
-            async () => (await options.sessionPrincipal?.(method, params as JsonObject))?.accessToken,
-          ),
+          },
+          async () => (await options.sessionPrincipal?.(method, params as JsonObject))?.accessToken,
         );
+        // The center accepts the escalation artifact, but the edge owns the worker process. Close
+        // that owner through the existing edge runtime route before reporting command success.
+        if (
+          fleetAction.kind === "task-escalate" &&
+          relayedExecutionPrincipal !== undefined &&
+          result.outcome === "applied"
+        ) {
+          const cancel = await options.host.fleet.edgeRuntime(
+            {
+              ...fleetPayload,
+              method: "repo.agentRuntime.cancel",
+              action: { runtimeSessionId: relayedExecutionPrincipal.runtimeSessionId, escalation: true },
+            },
+            options.authContext,
+          );
+          return reply(method, { ...result, edgeCancellation: cancel });
+        }
+        return reply(method, result);
       } catch (error) {
         return reply(method, protocolFailure(method, error));
       }

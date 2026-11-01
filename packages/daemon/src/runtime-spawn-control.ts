@@ -17,11 +17,12 @@ export async function cancelRuntime(
   payload: JsonObject,
   binding: RuntimeBinding,
 ): Promise<JsonObject> {
-  const allowed = ["runtimeSessionId"],
+  const allowed = ["runtimeSessionId", "escalation"],
     unknownField = unknownFieldViolation(payload, allowed);
   if (unknownField)
     throw runtimeSpawnError("invalid_runtime_cancel", `Runtime cancel payload contains an ${unknownField}`);
   const runtimeSessionId = requiredRuntimeSpawnText(payload.runtimeSessionId, "runtimeSessionId"),
+    escalation = payload.escalation === true,
     hash = createHash("sha256").update(`${context.input.repoId}\0${runtimeSessionId}`).digest("hex"),
     opId = `runtime-cancel-${hash.slice(0, 32)}`;
   // Terminal streams retain their owner binding after archival; repeated cancellation still verifies it.
@@ -66,7 +67,10 @@ export async function cancelRuntime(
   const active = context.processes.get(runtimeSessionId);
   if (active) {
     active.cancelBinding = binding;
-    active.cancelOpId = opId;
+    // The mechanical stop must retain whether it was requested by the escalation action. Runtime
+    // settlement uses this marker to distinguish a worker-owned report from an ordinary owner
+    // cancellation that happens to race with a ruling artifact.
+    active.cancelOpId = escalation ? `${opId}:escalation` : opId;
     active.cancelRequested = true;
     if (active.process.terminateTree) await active.process.terminateTree();
     else active.process.terminate();

@@ -196,6 +196,17 @@ test("the worker's own filesystem is the read path: a worktree-local artifact is
       })?.question,
       question,
     );
+    // The remote edge reader receives an absolute packageRoot and must also support the package
+    // itself as cwd, where the logical path is simply artifacts/rulings/<dispatch>.md.
+    assert.equal(
+      readDispatchRulingFromWorker({
+        cwd: path.join(cwd, "harness", ...packagePath.split("/")),
+        rootDir: root,
+        packagePath: "",
+        dispatchId: String(dispatchRecord.dispatchId),
+      })?.path,
+      runtimeRulingPath(String(dispatchRecord.dispatchId)),
+    );
     // No artifact anywhere: the ordinary classification survives.
     assert.equal(
       readDispatchRulingFromWorker({ cwd, rootDir: root, packagePath, dispatchId: "dispatch_absent" }),
@@ -240,7 +251,20 @@ test("the receipt text carries the question, every option in order, and the reso
 });
 
 test("a cancellation after escalation preserves the owner-ruling classification", () => {
-  const cancelled = classifyRuntimeExit(active({ cancelRequested: true }), 2, { question, options });
+  const cancelled = classifyRuntimeExit(
+    active({ cancelRequested: true, cancelOpId: "runtime-cancel-test:escalation" }),
+    2,
+    { question, options },
+  );
   assert.equal(cancelled.classification, "awaiting_ruling");
   assert.equal(cancelled.outcome, "stopped");
+});
+
+test("an ordinary owner cancellation remains a worker stop even when a ruling file exists", () => {
+  const cancelled = classifyRuntimeExit(active({ cancelRequested: true, cancelOpId: "runtime-cancel-test" }), 2, {
+    question,
+    options,
+  });
+  assert.equal(cancelled.classification, "worker_stop");
+  assert.equal(cancelled.outcome, "cancelled");
 });

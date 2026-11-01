@@ -159,7 +159,9 @@ export function classifyRuntimeExit(
   // The escalation command requests cancellation after its structured artifact is durable. The
   // ruling is the lifecycle intent and must win over the mechanical cancel bit, otherwise a
   // successful report is downgraded to an ordinary worker stop and can be redispatched.
-  if (ruling !== null) return { ...classified("awaiting_ruling", ruling.question), outcome: "stopped" };
+  const escalationCancellation = active.cancelOpId?.endsWith(":escalation") === true;
+  if (ruling !== null && (!active.cancelRequested || escalationCancellation))
+    return { ...classified("awaiting_ruling", ruling.question), outcome: "stopped" };
   if (active.cancelRequested) return classified("worker_stop", "Worker stop was requested.");
   if (active.observationError)
     return { ...classified("worker_stop", active.lossReason ?? active.observationError.message), outcome: "failed" };

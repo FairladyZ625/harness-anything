@@ -692,13 +692,33 @@ async function runtimeRulingRequest(context: RuntimeSpawnerContext, active: Acti
     // The execution credential writes the escalation at the center. Pull the serving cut before
     // edge settlement reads the mirrored package, otherwise the edge would archive an ordinary
     // stop and the center could not distinguish a waiting worker from a failed one.
-    const remoteTask = await context.input.remote.taskContext(active.task.taskId);
-    return readDispatchRulingFromWorker({
-      cwd: remoteTask.packageRoot,
-      rootDir: context.input.rootDir,
-      packagePath: "",
-      dispatchId: active.dispatchId,
-    });
+    const remoteTask = await context.input.remote.taskContext(active.task.taskId),
+      packagePath = path
+        .relative(context.input.rootDir, remoteTask.packageRoot)
+        .replaceAll(path.sep, "/")
+        .replace(/^harness\//u, "");
+    // A freshly written ruling lives in the worker worktree until the next mirror pull. Check that
+    // serving cwd first, then the mirrored package and finally the canonical root fallback.
+    return (
+      readDispatchRulingFromWorker({
+        cwd: active.cwd,
+        rootDir: context.input.rootDir,
+        packagePath,
+        dispatchId: active.dispatchId,
+      }) ??
+      readDispatchRulingFromWorker({
+        cwd: remoteTask.packageRoot,
+        rootDir: context.input.rootDir,
+        packagePath: "",
+        dispatchId: active.dispatchId,
+      }) ??
+      readDispatchRulingFromWorker({
+        cwd: context.input.rootDir,
+        rootDir: context.input.rootDir,
+        packagePath,
+        dispatchId: active.dispatchId,
+      })
+    );
   }
   if (!context.input.projection) return null;
   const projection = context.requiredRuntimeProjection(context.input),
