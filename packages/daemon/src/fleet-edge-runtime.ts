@@ -669,6 +669,7 @@ export function openFleetEdgeRuntime(input: {
                   : "runtime_lease_release_failed",
             `Center rejected Runtime terminal lease settlement: ${String(settled.code ?? settled.outcome)}.`,
           );
+        await pullRuntimeReplica();
       }
       await squad.reconcile();
       const scheduled = terminal.schedule;

@@ -613,6 +613,26 @@ export async function openRepoCellProxy(
       return query((projection) => readAtCut(projection, method, payload, binding)) as never;
     },
     readEventWitness: async (revision) => query((projection) => projection.readEventWitness(revision)),
+    readNodeAutoClaimAssignments: async (binding) => {
+      const readAssignments = (projection: TaskProjectionQueries) => {
+        const graph = readAtCut(
+          projection,
+          "repo.triadic.relationGraph",
+          { facet: "edges", relationType: "assigned-to", state: "active", limit: 500 },
+          binding,
+        ) as { readonly edges: readonly import("./repo-cell-types.ts").RepoCellAutoClaimRelation[] };
+        return graph.edges.map((relation) => ({
+          relation,
+          assignedByPersonId:
+            relation.workspaceRevision === null
+              ? null
+              : (projection.readEventWitness(relation.workspaceRevision)?.actor.principal.personId ?? null),
+        }));
+      };
+      return input.mode === "remote-edge"
+        ? edgeReplicaRead(binding, (projection) => readAssignments(projection))
+        : query(readAssignments);
+    },
     workspaceSummary: () => query((projection) => workspaceSummaryFromProjection(projection as never)),
     workspaceScope: (payload) => query((projection) => workspaceScopeFromProjection(projection as never, payload)),
     observeTail: (payload, daemon, binding) => {

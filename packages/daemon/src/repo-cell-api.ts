@@ -1026,6 +1026,20 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
     terminal: context.terminal,
     read,
     readEventWitness: async (revision) => context.projection.readEventWitness(revision),
+    readNodeAutoClaimAssignments: async (binding) => {
+      const graph = await read(
+        "repo.triadic.relationGraph",
+        { facet: "edges", relationType: "assigned-to", state: "active", limit: 500 },
+        binding,
+      );
+      return graph.edges.map((relation) => ({
+        relation,
+        assignedByPersonId:
+          relation.workspaceRevision === null
+            ? null
+            : (context.projection.readEventWitness(relation.workspaceRevision)?.actor.principal.personId ?? null),
+      }));
+    },
     [repoCellSynchronousRead]: readNow,
     workspaceSummary: () => workspaceSummaryFromProjection(context.projection),
     workspaceScope: (payload) => workspaceScopeFromProjection(context.projection, payload),

@@ -402,11 +402,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       const binding = await autoClaimBinding(repo);
       if (!binding) return [];
       const settings = await repo.cell.read("repo.settings.read", {}, binding),
-        graph = await repo.cell.read(
-          "repo.triadic.relationGraph",
-          { facet: "edges", relationType: "assigned-to", state: "active", limit: 500 },
-          binding,
-        ),
+        assignments = await repo.cell.readNodeAutoClaimAssignments(binding),
         result = await readClaimableTasks({
           repoId: repo.repoId,
           binding,
@@ -415,20 +411,17 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           page: (cursor) => repo.cell.read("repo.tasks.list", { limit: 500, ...(cursor ? { cursor } : {}) }, binding),
           readTask: async (taskId) =>
             (await repo.cell.read("repo.tasks.runtimeContext.read", { taskId }, binding)).snapshot.task,
-          readAssignments: async () => graph.edges,
+          readAssignments: async () => assignments.map(({ relation }) => relation),
         });
-      const relations = new Map(graph.edges.map((edge) => [edge.sourceRef, edge] as const));
+      const relations = new Map(assignments.map((row) => [row.relation.sourceRef, row] as const));
       const center = await keycloakCenter();
       return Promise.all(
         result.tasks
           .filter((task) => relations.has(`task/${task.taskId}`))
           .map(async (task) => {
-            const relation = relations.get(`task/${task.taskId}`),
-              witness =
-                relation?.current && relation.workspaceRevision !== null
-                  ? await repo.cell.readEventWitness(relation.workspaceRevision)
-                  : null,
-              assignedByPersonId = witness?.actor.principal.personId ?? null,
+            const row = relations.get(`task/${task.taskId}`),
+              relation = row?.relation,
+              assignedByPersonId = row?.assignedByPersonId ?? null,
               assignedByTeamIds = assignedByPersonId
                 ? await center.provider.readPersonTeams(center.accessToken, assignedByPersonId)
                 : [];
@@ -451,13 +444,32 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       const active = new Set<string>();
       for (const repo of [...cells.entries()]
         .map(([repoId, cell]) => ({ repoId, rootDir: cell.status().rootDir, mode: cell.status().mode, cell }))
-        .filter((entry) => entry.mode === "remote-edge")) {
-        const overview = await repo.cell.read("repo.agentRuntime.overview", {});
+        .filter((entry): entry is AutoClaimRepo => entry.mode === "remote-edge")) {
+        const binding = await autoClaimBinding(repo);
+        if (!binding) continue;
+        const overview = await repo.cell.read("repo.agentRuntime.overview", {}, binding);
         for (const session of overview.sessions) {
           if (session.liveness === "exited") continue;
-          for (const association of session.associations) {
-            if (association.taskId) active.add(`${repo.repoId}:${association.taskId}`);
-          }
+          for (const association of session.associations)
+            if (association.taskId) {
+              const task = await repo.cell.read(
+                  "repo.tasks.runtimeContext.read",
+                  { taskId: association.taskId },
+                  binding,
+                ),
+                lease = task.snapshot.lease,
+                source = lease?.source;
+              if (
+                lease?.phase === "held" &&
+                source &&
+                typeof source === "object" &&
+                source.kind === "node" &&
+                typeof binding.source === "object" &&
+                binding.source.kind === "node" &&
+                source.nodeId === binding.source.nodeId
+              )
+                active.add(`${repo.repoId}:${association.taskId}`);
+            }
         }
       }
       return [...active];
@@ -469,33 +481,26 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       if (signal.aborted) throw new Error("node auto-claim was cancelled");
       const edge = readFleetEdgeConfig(repo.rootDir);
       if (!edge || edge.repoId !== repo.repoId) throw new Error("fleet_edge_config_invalid");
-      const receipt = await edgeRuntimeFor({
+      const runtime = edgeRuntimeFor({
           ...edge,
           caPath: path.isAbsolute(edge.caPath) ? edge.caPath : path.resolve(repo.rootDir, edge.caPath),
           viewRoot: path.isAbsolute(edge.viewRoot) ? edge.viewRoot : path.resolve(repo.rootDir, edge.viewRoot),
           workspaceRoot: repo.rootDir,
           method: "repo.agentRuntime.spawn",
           action: { agentId, taskId: candidate.taskId, dispatchKey },
-        }).run("repo.agentRuntime.spawn", { agentId, taskId: candidate.taskId, dispatchKey }, signal),
+        }),
+        receipt = await runtime.run(
+          "repo.agentRuntime.spawn",
+          { agentId, taskId: candidate.taskId, dispatchKey },
+          signal,
+        ),
         runtimeSessionId = typeof receipt.runtimeSessionId === "string" ? receipt.runtimeSessionId : null;
       if (!runtimeSessionId) throw new Error("runtime spawn did not return a runtimeSessionId");
-      await new Promise<void>((resolve, reject) => {
-        const finish = (error?: unknown): void => {
-          signal.removeEventListener("abort", abort);
-          if (error === undefined) resolve();
-          else reject(error);
-        };
-        const abort = () => finish(signal.reason ?? new Error("node auto-claim was cancelled"));
-        if (signal.aborted) {
-          abort();
-          return;
-        }
-        signal.addEventListener("abort", abort, { once: true });
-        void repo.cell.awaitRuntimeOutcome(runtimeSessionId).then(
-          () => finish(),
-          (error: unknown) => finish(error),
-        );
-      });
+      await runtime.run(
+        "repo.agentRuntime.sessions.await",
+        { runtimeSessionIds: [runtimeSessionId], mode: "all" },
+        signal,
+      );
     },
     onDiagnostic: (row: NodeAutoClaimDiagnosticRow) => {
       recordNodeAutoClaimDiagnostic(input.userRoot, {
