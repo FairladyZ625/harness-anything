@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { actionDeclarations } from "@harness-anything/kernel";
 import type { DaemonHost } from "../src/daemon-host.ts";
 import { fleetNodeClaimFixture, localAuthFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
@@ -144,7 +145,11 @@ test(
     });
     assert.equal(deleted.outcome, "applied", JSON.stringify(deleted));
     const beforeDenied = f.eventCount();
-    f.owners.keycloak.userPermissions.clear();
+    f.owners.keycloak.revoke(
+      "person-one",
+      "lease-repo",
+      actionDeclarations.map(({ kind }) => kind),
+    );
     f.owners.keycloak.permit("person-one", "lease-repo", ["repository-read"]);
     const denied = await edge.command({
       kind: "agent-install",
