@@ -294,7 +294,7 @@ test("one command: medium submission records missing local auth and still cold-r
       medium = receipt.mediumSubmission;
     assert.equal(receipt.ok, false);
     assert.equal(medium, null);
-    assert.match(JSON.stringify(receipt.failures), /rbac_not_configured/u);
+    assert.match(JSON.stringify(receipt.failures), /authentication_required/u);
     assert.equal(receipt.coldRebuild.sourceRevision, 1, "the denied create does not append copied-ledger events");
     assert.equal(receipt.coldRebuild.watermark, receipt.coldRebuild.sourceRevision);
     assert.equal(receipt.cleanup.kept, false);

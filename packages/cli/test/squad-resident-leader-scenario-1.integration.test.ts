@@ -60,8 +60,8 @@ test("each terminal worker batch calls back into one leader turn and a failed wo
   });
   ownDaemonFixture({ parent, userRoot, daemonId: String(env.HARNESS_DAEMON_ID), env });
 
-  run(root, env, ["daemon", "start", "--service"]);
   await signInProcessPolicyTestUser(userRoot, "owner", ["squad-resident"], "admin");
+  run(root, env, ["daemon", "start", "--service"]);
   run(root, env, [
     "runtime",
     "instance",
@@ -309,8 +309,8 @@ test("a Claude leader dispatches Codex workers by each worker declaration and re
   });
   ownDaemonFixture({ parent, userRoot, daemonId: String(env.HARNESS_DAEMON_ID), env });
 
-  run(root, env, ["daemon", "start", "--service"]);
   await signInProcessPolicyTestUser(userRoot, "owner", ["squad-mixed-runtime"], "admin");
+  run(root, env, ["daemon", "start", "--service"]);
   for (const [id, name, kind, provider, model] of [
     ["claude-lee", "Claude Leader", "claude", "anthropic", "fable"],
     ["test-codex-sol", "Codex Workers", "codex", "openai", "gpt-5.6-terra"],
@@ -541,8 +541,8 @@ test(
       input: "squad-secret",
     });
     assert.equal(stored.status, 0, stored.stderr);
-    run(root, env, ["daemon", "start", "--service"]);
     await signInProcessPolicyTestUser(userRoot, "owner", ["squad-api-key"], "admin");
+    run(root, env, ["daemon", "start", "--service"]);
     run(root, env, [
       "runtime",
       "instance",
