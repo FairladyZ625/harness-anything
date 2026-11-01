@@ -113,12 +113,11 @@ export interface PostgresTaskProjectionFactoryOptions
   readonly storage: PostgresStorageBackendConfig;
   readonly eventStore: LedgerEventStorePort;
 }
-
 function requireSqliteBackend<Options extends StorageBackendOptions>(
   options: Options,
 ): asserts options is Options & { readonly storage?: SqliteStorageBackendConfig } {
   const backend = resolveStorageBackend(options);
-  if (backend.backend === "postgres") throw unsupportedStorageBackendError(backend.backend);
+  if (backend.backend !== "sqlite") throw unsupportedStorageBackendError(backend.backend);
 }
 
 // Public projection construction and local source-head handling.
@@ -284,7 +283,6 @@ export interface PostgresTaskProjectionReaderFactoryOptions
   readonly storage: PostgresStorageBackendConfig;
   readonly rootDir?: string;
 }
-
 export function makeTaskProjectionReader(options: PostgresTaskProjectionReaderFactoryOptions): TaskProjectionReaderPort;
 export function makeTaskProjectionReader(options: TaskProjectionReaderFactoryOptions): TaskProjectionReader;
 export function makeTaskProjectionReader(

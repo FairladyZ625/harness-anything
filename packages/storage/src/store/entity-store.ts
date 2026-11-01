@@ -136,7 +136,7 @@ export function createEntityStore(
     ? options
     : (dynamicContractsOrOptions as StorageBackendOptions);
   const backend = resolveStorageBackend(backendOptions);
-  if (backend.backend === "postgres") throw unsupportedStorageBackendError(backend.backend);
+  if (backend.backend !== "sqlite") throw unsupportedStorageBackendError(backend.backend);
   const sqliteSource = source as EntityEventSource;
   const contractForKind = (kind: string): EntityStoreKindContract => {
     const dynamic = dynamicContracts.find((candidate) => candidate.kind === kind);
@@ -211,7 +211,7 @@ export function openEntityStore(
   options: StorageBackendOptions = {},
 ): EntityStore | EntityDeclarationStorePort {
   const backend = resolveStorageBackend(options);
-  if (backend.backend === "postgres") throw unsupportedStorageBackendError(backend.backend);
+  if (backend.backend !== "sqlite") throw unsupportedStorageBackendError(backend.backend);
   const canonical = openSqliteEventStore({ rootInput, readOnly: true });
   return createEntityStore(
     {

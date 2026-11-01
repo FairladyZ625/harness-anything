@@ -18,15 +18,14 @@ const selectGeneration = (options: SqliteTaskEventStoreOptions): SqliteTaskEvent
   return { ...options, generation: resolveActiveGeneration({ rootInput, repoId: options.repoId }) };
 };
 
-type TaskEventStoreFactoryOptions = SqliteTaskEventStoreOptions | PostgresTaskEventStoreOptions;
-
 export type PostgresTaskEventStoreOptions = Omit<SqliteTaskEventStoreOptions, "storage"> & {
   readonly storage: PostgresStorageBackendConfig;
 };
+type TaskEventStoreFactoryOptions = SqliteTaskEventStoreOptions | PostgresTaskEventStoreOptions;
 
 function selectBackend(options: TaskEventStoreFactoryOptions): asserts options is SqliteTaskEventStoreOptions {
   const backend = resolveStorageBackend(options);
-  if (backend.backend === "postgres") throw unsupportedStorageBackendError(backend.backend);
+  if (backend.backend !== "sqlite") throw unsupportedStorageBackendError(backend.backend);
 }
 
 export function makeTaskEventStore(options: PostgresTaskEventStoreOptions): KernelLedgerEventStorePort;
@@ -54,6 +53,7 @@ export function makeTaskEventReader(
 export type { SqliteCanonicalEventStore, SqliteTaskEventStoreOptions } from "./sqlite-task-event-store.ts";
 export type { LedgerEventStorePort } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 export type {
+  PGliteStorageBackendConfig,
   PostgresStorageBackendConfig,
   ResolvedStorageBackend,
   SqliteStorageBackendConfig,

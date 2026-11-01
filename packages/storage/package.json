@@ -41,6 +41,7 @@
     }
   },
   "dependencies": {
+    "@electric-sql/pglite": "^0.5.14",
     "@harness-anything/kernel": "0.1.0",
     "pg": "^8.23.1",
     "tar": "7.5.22"

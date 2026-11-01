@@ -39,6 +39,14 @@ test("storage config defaults to SQLite and resolves one nested config field", (
     assert.equal("scope" in store, false);
     assert.equal(typeof store.append, "function");
   });
+  assert.deepEqual(
+    resolveStorageBackend({ storage: { backend: "pglite", dataDir: "memory://backend-route", scope } }),
+    {
+      backend: "pglite",
+      dataDir: "memory://backend-route",
+      scope,
+    },
+  );
 });
 
 test("postgres is a typed route with an explicit Wave 1 implementation boundary", () => {

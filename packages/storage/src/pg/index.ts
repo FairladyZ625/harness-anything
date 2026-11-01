@@ -1,3 +1,5 @@
+export { createPgStorageBackend, resolvePostgresEventStoreScope } from "./backend.ts";
+export type { PgStorageBackend, PgStorageBackendOptions } from "./backend.ts";
 export {
   ensurePgProjectionSchema,
   grantPgProjectionRuntimeAccess,

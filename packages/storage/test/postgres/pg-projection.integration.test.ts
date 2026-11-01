@@ -4,10 +4,6 @@ import { randomUUID } from "node:crypto";
 import test from "node:test";
 import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixture.ts";
 import { blockingOf } from "@harness-anything/kernel/internal/domain/task-blocking.ts";
-import { closeoutReadiness } from "@harness-anything/kernel/internal/domain/closeout-readiness.ts";
-import { taskBoardPlacement } from "@harness-anything/kernel/internal/domain/task-board-projection.ts";
-import { compileCompletionGateWitness } from "@harness-anything/kernel/internal/domain/completion-gate-publication.ts";
-import { completionEvidenceBasis } from "@harness-anything/kernel/internal/domain/completion-evidence.ts";
 import {
   compileAgentRetired,
   compileEntityDeleted,
@@ -64,6 +60,7 @@ import { makeTaskProjection } from "../../src/projection/rebuildable-task-projec
 import { createEntityStore } from "../../src/store/entity-store.ts";
 import { makeTaskEventStore, type CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
 import { POSTGRES_SCOPE_SCHEMA_CONTRACT } from "../../src/postgres/scope-schema.ts";
+import { appendGatedLifecycleFixture, assertLifecycleParity } from "./pg-lifecycle.assertions.ts";
 import { startManagedPostgresFixture } from "./managed-postgres.fixture.ts";
 import { bundle, event, initRepo } from "../store/task-event-store.fixtures.ts";
 import {
@@ -185,70 +182,7 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
     for (const value of parityEvents) {
       await appendCanonical({ event: value, plan: taskLifecycleWritePlan(value), blobs: [] });
     }
-    const gated = lifecycleFixture({
-      taskId: "task-gated-parity",
-      executionId: "execution-gated-parity",
-      complete: false,
-      gates: [
-        {
-          gateId: "signoff",
-          appliesTo: "code",
-          witness: {
-            kind: "manual",
-            adapterId: "manual-attest",
-            adapterOptions: {},
-            predicateType: "human/v1",
-            resultSchema: { type: "object" },
-          },
-        },
-      ],
-    });
-    for (const value of gated.events) {
-      const current = {
-        ...value,
-        eventId: `pg-gated-${value.eventId}`,
-        opId: `pg-gated-${value.opId}`,
-        workspaceRevision: expectedRevision,
-      };
-      await appendCanonical({ event: current, plan: taskLifecycleWritePlan(current), blobs: [] });
-    }
-    const gatedSnapshot = (await source.readSnapshot("task-gated-parity"))!,
-      gatedExecution = gatedSnapshot.executions[0]!;
-    await appendCanonical(
-      compileCompletionGateWitness({
-        snapshot: gatedSnapshot,
-        taskId: gatedSnapshot.task!.taskId,
-        executionId: gatedExecution.executionId,
-        gateId: "signoff",
-        result: "pass",
-        receiptId: "pg-signoff",
-        checkerId: "manual-attest",
-        commitSha: gatedExecution.submission!.commitSha,
-        iteration: gatedExecution.iteration,
-        reviewGate: true,
-        actor: event.actor,
-        source: "local",
-        opId: "pg-signoff",
-        eventId: "pg-signoff",
-        workspaceRevision: expectedRevision,
-        occurredAt: "2026-08-11T00:05:00.000Z",
-        packagePath: null,
-        currentDocuments: [],
-        evidence: {
-          schema: "completion-evidence/v1",
-          checkerId: "manual-attest",
-          gateId: "signoff",
-          result: "pass",
-          observed: true,
-          basis: completionEvidenceBasis(gatedExecution),
-          subjects: [],
-          predicateType: "human/v1",
-          predicate: {},
-          diagnostic: "canonical signoff parity",
-          provenance: { source: "human", adapterId: "manual-attest", runId: "pg-signoff", rawResult: "pass" },
-        },
-      }),
-    );
+    await appendGatedLifecycleFixture(appendCanonical, () => expectedRevision, source);
     for (const id of ["replay-agent", "deleted-agent", "retired-agent"]) {
       const declaration = compileEntityUpsert({
         eventId: `event-${id}`,
@@ -804,32 +738,13 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
       for (const value of canonicalBundles) sqliteEvents.append(value);
       const sqliteProjection = makeTaskProjection({ rootDir, eventStore: sqliteEvents });
       sqliteProjection.catchUp();
-      const sqliteRead = sqliteProjection.read("task-parity"),
-        sqliteEntities = createEntityStore(sqliteEvents),
+      const sqliteEntities = createEntityStore(sqliteEvents),
         sqliteSnapshots = sqliteProjection.list({
           taskIds: postgresSnapshotsBeforeRebuild.rows.map((row) => row.taskId),
         });
-      assert.deepEqual(postgresSnapshot, sqliteRead.snapshot);
-      assert.deepEqual(postgresSnapshot.gateWitnesses, sqliteRead.snapshot.gateWitnesses);
-      assert.deepEqual(postgresSnapshot.reviews, sqliteRead.snapshot.reviews);
-      assert.deepEqual(postgresSnapshot.consents, sqliteRead.snapshot.consents);
-      const pgGated = (await source.readSnapshot("task-gated-parity"))!,
-        sqliteGated = sqliteProjection.read("task-gated-parity").snapshot;
-      assert.equal(pgGated.gateWitnesses.length, 1);
-      assert.deepEqual(pgGated, sqliteGated);
-      assert.deepEqual(closeoutReadiness(pgGated), closeoutReadiness(sqliteGated));
-      assert.deepEqual(closeoutReadiness(postgresSnapshot), closeoutReadiness(sqliteRead.snapshot));
-      const boardInput = (snapshot: typeof postgresSnapshot) => ({
-        snapshot,
-        blockingState: "clear" as const,
-        packageDisposition: snapshot.task?.packageDisposition ?? "active",
-        origin: "native" as const,
-        closeoutReadiness: closeoutReadiness(snapshot).readiness,
-      });
-      assert.deepEqual(
-        taskBoardPlacement(boardInput(postgresSnapshot)),
-        taskBoardPlacement(boardInput(sqliteRead.snapshot)),
-      );
+      await assertLifecycleParity(source, sqliteProjection, "task-parity");
+      await assertLifecycleParity(source, sqliteProjection, "task-gated-parity");
+      assert.equal((await source.readSnapshot("task-gated-parity"))!.gateWitnesses.length, 1);
       const unrestrictedSource = createPgTaskProjectionSource({
         pool: runtimePool,
         repoId,
