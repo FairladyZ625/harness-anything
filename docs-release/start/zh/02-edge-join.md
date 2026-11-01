@@ -101,9 +101,10 @@ curl --version
 curl -fsSL https://raw.githubusercontent.com/FairladyZ625/harness-anything/main/scripts/install-source.sh | bash
 ```
 
-安装器把源码保存在 `~/.local/share/harness-anything`，执行 `npm ci`（依赖未变时跳过），构建 daemon、CLI 与 Electron GUI，并通过
-`npm link` 生成 `ha` 入口。Linux 会设置 Electron 所需的 `chrome-sandbox` 属主与 setuid 权限（必要时使用
-`sudo`）。
+安装器把源码保存在 `~/.local/share/harness-anything`，执行 `npm ci`（依赖未变时跳过），下载或校验 Electron 运行时，
+构建 daemon、CLI 与 Electron GUI，并把 `ha` 入口 link 到用户自己的 npm 前缀（`~/.local/share/harness-anything-npm`），
+不改 npm 的宿主全局前缀；结束时打印可直接使用的 `export PATH=...`。Linux 会设置 Electron 所需的 `chrome-sandbox`
+属主与 setuid 权限（必要时使用 `sudo`）。
 
 ### 升级与无外网中心
 
