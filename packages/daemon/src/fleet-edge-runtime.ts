@@ -656,7 +656,11 @@ export function openFleetEdgeRuntime(input: {
     if (ready === null) {
       const attempt = pullRuntimeReplica().then(() => {
         void spawner.adopt().then(
-          () => schedule(() => squad.reconcile()),
+          () => {
+            // The queue owns and reports maintenance failures. Returning its promise
+            // would create an unobserved second rejection in this detached continuation.
+            schedule(() => squad.reconcile());
+          },
           (error: unknown) => console.error("[runtime-recovery]", error),
         );
       });
@@ -672,6 +676,12 @@ export function openFleetEdgeRuntime(input: {
       schedule(async () => {
         if (readDispatchStreamHeaders(request.workspaceRoot).length === 0) return;
         await ensureReady();
+        // Explicit runtime reconciliation is a dependent action: report its recovery
+        // failures after attempting every sibling, without making repository reads wait.
+        const recovered = await spawner.adopt();
+        const failed = recovered.find((result) => result.outcome === "failed");
+        if (failed) throw failed.error;
+        await squad.reconcile();
         await squad.flushPublications();
         await pullRuntimeReplica();
       }),

@@ -13,6 +13,8 @@ import { currentWorktreeHead } from "../src/runtime-continuation-context.ts";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
 import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
 import { makeRuntimeRecoveryWork } from "../src/runtime-recovery-work.ts";
+import { makeRuntimeSpawner } from "../src/runtime-spawn.ts";
+import { definition, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
 
 function fixture(t: test.TestContext, settle: (active: ActiveRuntime) => Promise<void>) {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-recovery-isolation-"));
@@ -63,6 +65,73 @@ function fixture(t: test.TestContext, settle: (active: ActiveRuntime) => Promise
     runtimeSpawnError: (code: string, message: string) => Object.assign(new Error(message), { code }),
   } as unknown as RuntimeSpawnerContext;
   return { context, events, rootDir };
+}
+
+for (const owner of ["node-a", "node-b", null]) {
+  test(`a session arriving after census reserves capacity only on its canonical node (${owner})`, async (t) => {
+    const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-late-owner-"));
+    t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+    let arrived = false;
+    const prepared = Object.assign(new Error("selection reached the launch port"), { code: "fixture_prepared" });
+    const spawner = makeRuntimeSpawner({
+      rootDir,
+      repoId: "late-owner",
+      daemonGeneration: 1,
+      runtimeNode: { nodeId: "node-a" },
+      now: () => new Date().toISOString(),
+      stream: { publish: () => ({}) as never },
+      runtimeInstances: scheduleRuntimePorts().runtimeInstances,
+      readSettings: () => ({ runtime: { allowedInstances: [definition.instanceId] } }) as never,
+      prepareLaunch: async () => {
+        throw prepared;
+      },
+      schedule: () => undefined,
+      remote: {
+        existing: async () => null,
+        taskContext: async () => {
+          throw new Error("taskless probe must not request task context");
+        },
+        readRuntimeSessions: async () =>
+          arrived
+            ? [
+                {
+                  runtimeSessionId: "late",
+                  instanceId: definition.instanceId,
+                  providerSessionId: null,
+                  liveness: "live",
+                  outcome: null,
+                },
+              ]
+            : [],
+        readRuntimeDispatch: async () =>
+          owner === null
+            ? null
+            : {
+                payload: { dispatchId: "late-dispatch" },
+                source: { kind: "node", nodeId: owner },
+              },
+        publish: async () => {
+          throw new Error("the selection probe must not publish a dispatch");
+        },
+        archive: async () => ({ outcome: "applied" }),
+      },
+    });
+    t.after(() => spawner.close());
+    await spawner.adopt();
+    arrived = true;
+    await assert.rejects(
+      spawner.spawn(
+        {
+          runtimeInstanceId: definition.instanceId,
+          prompt: "select",
+          cwd: { scope: "repo-root" },
+          dispatchKey: "probe",
+        },
+        { actor: { principal: { personId: "owner" }, executor: null }, source: { kind: "node", nodeId: "node-a" } },
+      ),
+      owner === "node-b" ? prepared : { code: "runtime_recovery_pending" },
+    );
+  });
 }
 
 for (const fault of ["HEAD timeout", "HEAD signal", "runtime restoration rejected"]) {

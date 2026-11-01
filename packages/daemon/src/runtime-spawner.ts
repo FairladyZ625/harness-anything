@@ -33,6 +33,7 @@ import {
   reclaimFailedLaunchTempDirectory,
   sweepSettledRuntimeTempDirectories,
   assertRuntimeRecoveryReady,
+  ownedByRuntimeSpawner,
 } from "./runtime-spawn-adoption.ts";
 import {
   requiredRuntimeSpawnText,
@@ -466,6 +467,12 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           if (!dryRun)
             for (const session of localRuntimeSessions) {
               if (session.outcome !== null || session.instanceId !== runtimeInstanceId) continue;
+              // A session can arrive after the startup census. Its canonical node owner,
+              // not absence from this node's process map, determines who must recover it.
+              const dispatch = input.remote
+                ? await input.remote.readRuntimeDispatch(session.runtimeSessionId)
+                : projection!.readRuntimeDispatch(session.runtimeSessionId);
+              if (dispatch && !ownedByRuntimeSpawner(dispatch, input.runtimeNode)) continue;
               if (!assertRuntimeRecoveryReady(extracted, session.runtimeSessionId)) continue;
               if (!processes.has(session.runtimeSessionId))
                 throw runtimeSpawnError(
