@@ -215,6 +215,35 @@ test("agent validate reports skill paths dispatch cannot resolve", async () => {
   }
 });
 
+test("agent install refuses a declaration whose skills are absent instead of failing at dispatch", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-skill-install-")),
+    source = path.join(rootDir, "source");
+  try {
+    // A declaration copied from another repository names its host's skill directories. The write
+    // boundary must resolve them here: accepting the declaration only moves the same
+    // agent_skill_not_found to the first dispatch that selects it.
+    writeEntity(source, "dangling-install", "agent", {
+      ...agent,
+      id: "dangling-install",
+      skills: [{ id: "self-iteration", path: "skills/self-iteration" }],
+    });
+    await assert.rejects(
+      install({ rootDir, kind: "agent-install", packageSource: path.join(source, "dangling-install") }),
+      (error: unknown) => {
+        assert.equal((error as { code?: string }).code, "agent_skill_not_found");
+        assert.match(String((error as Error).message), /skills\/self-iteration/u);
+        return true;
+      },
+    );
+    assert.throws(
+      () => readAgentDeclaration({ rootDir, agentId: "dangling-install" }),
+      (error: unknown) => (error as { code?: string }).code === "agent_not_found",
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("direct authored-file writes never enter the canonical Agent read surface", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-bypass-"));
   try {
@@ -259,21 +288,28 @@ test("daemon Agent validation rejects the retired provider fallback authority", 
 });
 
 test("install preparation repairs a stored declaration rejected by the current schema", () => {
-  const staleStore = {
-      get: () => {
-        throw Object.assign(new Error('agent declaration field "fallback.enabled" is unknown; remove it.'), {
-          code: "invalid_entity_contract",
-        });
-      },
-    } as never,
-    prepared = prepareAgentEntityInstall({
-      rootDir: "/unused",
-      entityStore: staleStore,
-      action: { kind: "agent-install", declaration: { ...agent, id: "glm-5-3", name: "GLM 5.3" } },
-    });
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-install-repair-"));
+  try {
+    mkdirSync(path.join(rootDir, "harness", "skills", "review"), { recursive: true });
+    writeFileSync(path.join(rootDir, "harness", "skills", "review", "SKILL.md"), "# Review\n");
+    const staleStore = {
+        get: () => {
+          throw Object.assign(new Error('agent declaration field "fallback.enabled" is unknown; remove it.'), {
+            code: "invalid_entity_contract",
+          });
+        },
+      } as never,
+      prepared = prepareAgentEntityInstall({
+        rootDir,
+        entityStore: staleStore,
+        action: { kind: "agent-install", declaration: { ...agent, id: "glm-5-3", name: "GLM 5.3" } },
+      });
 
-  assert.equal(prepared.report.changed, true);
-  assert.equal(prepared.declaration.id, "glm-5-3");
+    assert.equal(prepared.report.changed, true);
+    assert.equal(prepared.declaration.id, "glm-5-3");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
 });
 
 test("install preparation does not hide stored declaration integrity failures", () => {

@@ -90,6 +90,11 @@ export function createAgentActionCatalog(
             explain: "Generated Agent model must be supported by a compatible runtime instance.",
           },
           {
+            ref: "agent/skill-resolution",
+            failureCode: "agent_skill_not_found",
+            explain: "Every declared skill path must resolve to a SKILL.md directory in this repository.",
+          },
+          {
             ref: "agent/lifecycle",
             failureCode: "agent_retired",
             explain: "A retired Agent identity cannot be reinstalled or revived.",

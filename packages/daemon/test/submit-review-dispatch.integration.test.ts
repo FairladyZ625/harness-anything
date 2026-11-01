@@ -121,6 +121,52 @@ test("a low-risk submit freezes no dispatch and never launches a reviewer", { ti
 });
 
 test(
+  "a copied reviewer declaration whose skills are absent cannot take the default seat",
+  { timeout: 20_000 },
+  async () => {
+    const f = await fixture(false, true, false, false, false, { autoSubmit: false });
+    try {
+      // Reproduce a repository that copied the host's enhanced closeout-reviewer: the declaration
+      // names skills/self-iteration, which exists only in the host checkout. The install boundary
+      // must refuse it; otherwise the automatic submit dispatch seats it and dies in the spawner.
+      const installError = await f
+        .run({
+          kind: "agent-install",
+          declaration: {
+            schema: "agent-declaration/v1",
+            id: "closeout-reviewer",
+            name: "Copied host reviewer",
+            instructions: "Review the submitted cut.",
+            runtimes: [{ type: "codex", model: "review-model" }],
+            instance: "review-first",
+            role: "reviewer",
+            skills: [{ id: "self-iteration", path: "skills/self-iteration" }],
+          },
+        })
+        .then(
+          () => null,
+          (error: unknown) => error,
+        );
+      if (installError !== null) {
+        assert.equal((installError as { code?: string }).code, "agent_skill_not_found");
+        assert.match(String((installError as Error).message), /skills\/self-iteration/u);
+      }
+      const submitted = (await f.submit()) as Record<string, unknown>,
+        warnings = JSON.stringify(submitted.warnings ?? []);
+      assert.doesNotMatch(
+        warnings,
+        /Agent skill "self-iteration" was not found/u,
+        `the copied reviewer must not take the seat: ${warnings}`,
+      );
+      assert.equal(f.launches.length, 1, "the default reviewer starts from the bundled declaration");
+      assert.match(f.launches[0]!.prompt, /closeout-reviewer/u);
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test(
   "submit automatically dispatches the accepted cut and complete never dispatches a reviewer",
   { timeout: 20_000 },
   async () => {
