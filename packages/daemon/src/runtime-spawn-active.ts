@@ -1,9 +1,9 @@
 import type { ActiveRuntime, ResumeProcessObservation } from "./runtime-spawn-types.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import type { DispatchStallEvidence } from "./dispatch-stream.ts";
-import { watch, type FSWatcher } from "node:fs";
+import { statSync, watch, type FSWatcher } from "node:fs";
 import path from "node:path";
-import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS, resolveHarnessLayout } from "@harness-anything/kernel";
+import { consumeKnownError, DEFAULT_RUNTIME_STALL_TIMEOUT_MS, resolveHarnessLayout } from "@harness-anything/kernel";
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
 
 type ActiveRuntimeBase = Omit<
@@ -241,12 +241,20 @@ function attachRuntimeObservations(context: RuntimeSpawnerContext, active: Activ
   };
   active.recordProviderProgress = () => progress(false);
   active.recordWorkspaceProgress = () => progress(true);
-  // Recursive watching is supported on every platform this repository runs on, so a workspace it
-  // cannot watch is a real fault of this dispatch: it throws out of the attach instead of quietly
-  // reducing the watchdog to provider events. A later watcher fault reaches the process as the
-  // emitter's own error (the same policy as the edge read's watcher) — no layer here invents a
-  // degraded liveness mode, and the ordinary exit/adoption settlement still owns the attempt.
-  handles.watcher = watch(active.cwd, { recursive: true }, (_eventType, filename) => {
+  // Workspaces can be reclaimed independently of the durable dispatch. Observe only a workspace
+  // that still exists; its removal must not prevent the repository from restoring this runtime.
+  const workspaceRemoved = (): boolean => {
+      if (statSync(active.cwd, { throwIfNoEntry: false })) return false;
+      handles.watcher?.close();
+      handles.watcher = null;
+      return true;
+    },
+    watchError = (error: NodeJS.ErrnoException): void => {
+      // Windows reports deletion as EPERM; only an absent root makes it an ordinary removal.
+      if ((error.code !== "ENOENT" && error.code !== "EPERM") || !workspaceRemoved()) throw error;
+    };
+  const workspaceChanged = (eventType: string, filename: string | Buffer | null): void => {
+    if (eventType === "rename" && workspaceRemoved()) return;
     const relative = typeof filename === "string" ? filename : String(filename ?? "");
     // The daemon's own stream/cache writes are observations about the dispatch, not worker
     // progress. Ignoring the local runtime root also prevents appendWorkspaceActivity from
@@ -259,8 +267,17 @@ function attachRuntimeObservations(context: RuntimeSpawnerContext, active: Activ
     )
       return;
     active.recordWorkspaceProgress?.();
-  });
-  handles.watcher.unref?.();
+  };
+  try {
+    handles.watcher = watch(active.cwd, { recursive: true }, workspaceChanged);
+    handles.watcher.on("error", watchError);
+    handles.watcher.unref?.();
+  } catch (error) {
+    // Check the directory after watch refuses it as well: deletion can race registration.
+    // Other watcher errors, including ENOENT below a workspace that still exists, stay faults.
+    watchError(error as NodeJS.ErrnoException);
+    consumeKnownError(error);
+  }
   if (active.stalledAt === null) armStallDeadline(context, active, handles);
 }
 
@@ -301,7 +318,7 @@ export function attachActiveRuntime(
     };
   // Observations first: the watchdog and its workspace watcher belong to this registration, so a
   // provider exit that arrives while the process handlers are being wired already finds a
-  // disposable registration instead of one created after disposal. A workspace the watcher cannot
+  // disposable registration instead of one created after disposal. A present workspace the watcher cannot
   // open is a real fault: it travels out of here, and the launcher's failed-launch path terminates
   // the process and retires the dispatch.
   try {

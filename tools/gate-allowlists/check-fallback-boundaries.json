@@ -3,6 +3,12 @@
   "gateId": "check-fallback-boundaries",
   "baseline": "Existing CH4 fallback exits are ratcheted here; remove a key when the corresponding production exit is deleted.",
   "rationales": {
+    "packages/daemon/src/runtime-spawn-active.ts#attachRuntimeObservations": {
+      "task": "task_eaa42c3889fc1234cd6f0190a5",
+      "decision": null,
+      "errors": "ENOENT or EPERM only after stat confirms the watched workspace root no longer exists",
+      "reason": "Task worktrees are independently reclaimable. A missing workspace has no watcher to restore; the provider and its original watchdog remain observed. Other registration errors retain their original identity. Both external deletion methods and present-root permission errors have regression coverage. No retry or replacement workspace."
+    },
     "packages/daemon/src/fleet/replica-sync.ts#confirm": {
       "task": "task_aceaabaedfedcf9cb062ccf883",
       "decision": "dec_9284BD6119D453EEECEED62450",
@@ -192,6 +198,7 @@
       "packages/daemon/src/runtime-orchestration.ts#worker",
       "packages/daemon/src/runtime-ruling.ts#readDispatchRuling",
       "packages/daemon/src/runtime-ruling.ts#readFileIfPresent",
+      "packages/daemon/src/runtime-spawn-active.ts#attachRuntimeObservations",
       "packages/daemon/src/runtime-spawn-fallback.ts#scheduleFallbackContinuation",
       "packages/daemon/src/runtime-spawn-mission.ts#prepareRuntimeInstance",
       "packages/daemon/src/runtime-spawn-process.ts#drain",
