@@ -219,6 +219,11 @@ export function createAgentActionCatalog(
             failureCode: "agent_not_active",
             explain: "Only an active Agent can transition to retired.",
           },
+          {
+            ref: "agent/entity-revision",
+            failureCode: "revision_conflict",
+            explain: "When supplied, expectedVersion matches the current Agent projection revision.",
+          },
         ]),
         concurrency: Object.freeze({
           ...declared.concurrency,
@@ -356,13 +361,15 @@ export const compileAgentRetireAction: EntityActionCompileHook = (input): AgentA
     input.action.expectedVersion !== undefined &&
     (!Number.isSafeInteger(input.action.expectedVersion) || Number(input.action.expectedVersion) !== priorVersion)
   )
-    throw Object.assign(
-      new Error(
-        `Agent ${entityId} expected revision ${String(input.action.expectedVersion)} differs from current revision ${String(priorVersion)}.`,
+    throw attributeEntityActionCriterion(
+      Object.assign(
+        new Error(
+          `Agent ${entityId} expected revision ${String(input.action.expectedVersion)} differs from current revision ${String(priorVersion)}.`,
+        ),
+        { code: "revision_conflict" },
       ),
-      {
-        code: "revision_conflict",
-      },
+      "retire",
+      "agent/entity-revision",
     );
   const lifecycleState =
     typeof input.currentEntity === "object" && input.currentEntity !== null

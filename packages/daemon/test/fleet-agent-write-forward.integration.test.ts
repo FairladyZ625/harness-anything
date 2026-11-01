@@ -112,6 +112,7 @@ test(
         reason: "Stale delete.",
       },
       { kind: "agent-delete", agentId: agent.id, expectedVersion: installed.revision! + 1, reason: "Stale delete." },
+      { kind: "agent-retire", agentId: agent.id, expectedVersion: 0, reason: "Stale retirement." },
     ]) {
       const before = f.eventCount();
       const rejected = await edge.command(action);
@@ -134,7 +135,7 @@ test(
     });
     assert.equal(retired.outcome, "applied", JSON.stringify(retired));
     const inspected = await f.host.run("lease-repo", { kind: "agent-inspect", agentId: agent.id }, localAuthFixture());
-    assert.equal(inspected.ok, true, JSON.stringify(inspected));
+    assert.equal(inspected.outcome, "applied", JSON.stringify(inspected));
     const deleted = await edge.command({
       kind: "agent-delete",
       agentId: agent.id,
