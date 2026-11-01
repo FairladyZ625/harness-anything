@@ -131,6 +131,16 @@ export function fatalCellError(error: unknown): boolean {
   if (error instanceof ArtifactEntityServiceError && error.code === "revision_conflict") return false;
   if (error instanceof VcsCommandError) return true;
   const normalized = normalizeDomainError(error);
+  const criterion = entityActionCriterionFailure(error);
+  // Agent/Squad CAS rejects carry compiler-owned criterion attribution, rather than a
+  // service error type. They must not poison the writer after rejecting a stale command.
+  if (
+    normalized._tag === "OtherCodedError" &&
+    normalized.code === "revision_conflict" &&
+    (criterion?.actionId === "install" || criterion?.actionId === "delete") &&
+    (criterion.criterionRef === "agent/entity-revision" || criterion.criterionRef === "squad/entity-revision")
+  )
+    return false;
   switch (normalized._tag) {
     case "UnclassifiedError":
       return true;

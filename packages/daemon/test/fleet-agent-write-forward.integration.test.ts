@@ -80,8 +80,13 @@ test(
     });
     assert.equal(stale.code, "revision_conflict", JSON.stringify(stale));
     assert.equal(f.eventCount(), beforeStale, "a stale edge write appends no canonical event");
+    assert.equal(f.host.status().repos.find((repo) => repo.repoId === "lease-repo")?.state, "attached");
     const invalid = await edge.command({ kind: "agent-install", declaration: { ...agent, schema: "invalid" } });
-    assert.equal(invalid.code, "invalid_manifest", JSON.stringify(invalid));
+    assert.equal(
+      invalid.code,
+      "invalid_manifest",
+      JSON.stringify({ invalid, center: f.host.status().repos, edge: edge.host.status().repos }),
+    );
     const dualSource = await edge.command({ kind: "agent-install", packageSource, declaration: agent });
     assert.equal(dualSource.ok, false, JSON.stringify(dualSource));
     assert.equal(f.eventCount(), beforeStale, "center schema validation is retained");
@@ -98,6 +103,22 @@ test(
     writeFileSync(squadFile, JSON.stringify(squad));
     const squadInstalled = await edge.command({ kind: "squad-install", packageSource: squadFile, expectedVersion: 0 });
     assert.equal(squadInstalled.outcome, "applied", JSON.stringify(squadInstalled));
+    for (const action of [
+      { kind: "squad-install", declaration: { ...squad, name: "Stale squad" }, expectedVersion: 0 },
+      {
+        kind: "squad-delete",
+        squadId: squad.id,
+        expectedVersion: squadInstalled.revision! + 1,
+        reason: "Stale delete.",
+      },
+      { kind: "agent-delete", agentId: agent.id, expectedVersion: installed.revision! + 1, reason: "Stale delete." },
+    ]) {
+      const before = f.eventCount();
+      const rejected = await edge.command(action);
+      assert.equal(rejected.code, "revision_conflict", JSON.stringify(rejected));
+      assert.equal(f.eventCount(), before);
+      assert.equal(f.host.status().repos.find((repo) => repo.repoId === "lease-repo")?.state, "attached");
+    }
     const squadDeleted = await edge.command({
       kind: "squad-delete",
       squadId: squad.id,
@@ -112,10 +133,12 @@ test(
       reason: "Retire test worker.",
     });
     assert.equal(retired.outcome, "applied", JSON.stringify(retired));
+    const inspected = await f.host.run("lease-repo", { kind: "agent-inspect", agentId: agent.id }, localAuthFixture());
+    assert.equal(inspected.ok, true, JSON.stringify(inspected));
     const deleted = await edge.command({
       kind: "agent-delete",
       agentId: agent.id,
-      expectedVersion: retired.revision,
+      expectedVersion: JSON.parse(String(inspected.evidence)).workspaceRevision,
       reason: "Remove retired worker.",
     });
     assert.equal(deleted.outcome, "applied", JSON.stringify(deleted));
