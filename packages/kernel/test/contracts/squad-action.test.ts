@@ -20,7 +20,20 @@ test("Squad catalog declares the complete command surface and center concurrency
   assert.equal(catalog.ref, "kernel/squad-action/v1");
   assert.deepEqual(
     catalog.actions.map(({ id }) => id),
-    ["install", "delete", "validate", "list", "inspect", "run", "status", "cancel", "assign", "unassign"],
+    [
+      "install",
+      "delete",
+      "validate",
+      "list",
+      "inspect",
+      "run",
+      "status",
+      "cancel",
+      "assign",
+      "unassign",
+      "pin",
+      "unpin",
+    ],
   );
   assert.deepEqual(
     catalog.actions.filter(({ execution }) => execution?.read).map(({ id }) => id),

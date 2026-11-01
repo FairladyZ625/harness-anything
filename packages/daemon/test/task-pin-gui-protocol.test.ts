@@ -7,6 +7,7 @@ import {
   daemonGuiActionMethods,
   parseDaemonRpcParams,
 } from "../src/protocol/daemon-protocol.contract.ts";
+import { policyActionForTarget } from "../src/repo-cell-authorization.ts";
 
 /**
  * GUI task pin/unpin 与顶层 Entity Pin 共用 durable write path，payload 仍保持闭集。
@@ -81,4 +82,10 @@ test("GUI pin ingress stays closed to the renderer", () => {
       true,
       `${guiBridgeMethod} must be declared once on the GUI bridge`,
     );
+});
+
+test("EntityRef pin authorization resolves the target kind base action", () => {
+  assert.equal(policyActionForTarget({ kind: "entity-pin" }, "task/task_current"), "task/pin");
+  assert.equal(policyActionForTarget({ kind: "entity-pin" }, "decision/dec_pin"), "decision/pin");
+  assert.equal(policyActionForTarget({ kind: "entity-unpin" }, "schedule/sch-1"), "schedule/unpin");
 });

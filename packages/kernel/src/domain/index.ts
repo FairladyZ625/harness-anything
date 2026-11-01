@@ -51,7 +51,7 @@ export {
   encodeAuthorizationResource,
 } from "./policy-groups.ts";
 export type { AuthorizationResource, PolicyGroup } from "./policy-groups.ts";
-export { durablePolicyActions } from "./action-declaration.ts";
+export { durableActionKinds } from "./action-declaration.ts";
 export { REPLAY_TASK_GRAPH } from "./task-graph.ts";
 export { TASK_LIFECYCLE_TRANSITIONS } from "./task-lifecycle.contract.ts";
 export type { CompleteTaskCommand } from "./task-lifecycle.contract.ts";
@@ -198,6 +198,7 @@ export type { ContractVersion } from "./contract-version.ts";
 export { normalizePersistedTimestamp, timestamp } from "./timestamp.ts";
 
 export {
+  baseEntityPolicyActions,
   entityContentPath,
   entityContentRoot,
   entityDocumentPath,

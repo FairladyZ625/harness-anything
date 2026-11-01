@@ -21,7 +21,7 @@ import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { TASK_WIP_LIMIT_ENV } from "../src/task-wip-settings.ts";
 
-import { grantTestPolicyGroups } from "./keycloak-policy.fixtures.ts";
+import { grantTestPolicyGroups, revokeTestPolicyActions } from "./keycloak-policy.fixtures.ts";
 
 const definition: AgentDefinitionSnapshot = {
   schema: "agent-definition-snapshot/v1",
@@ -149,6 +149,33 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
           source: "local" as const,
         },
         "admin",
+      );
+      const deniedTask = await cell.run(
+        { kind: "task-create", taskId: "task-runtime-policy-denied", title: "Runtime policy denied" },
+        binding,
+      );
+      assert.equal(deniedTask.outcome, "applied", JSON.stringify(deniedTask));
+      await waitForFixturePublication(cell, deniedTask.opId, binding);
+      await realizeTaskPlanFixture(
+        root,
+        String((deniedTask as Record<string, unknown>).packagePath),
+        (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
+        "Runtime policy denied",
+      );
+      await assert.rejects(
+        cell.spawnRuntime(
+          {
+            runtimeInstanceId: "codex-review",
+            cwd: { scope: "repo-root" },
+            prompt: "An unbound runtime cannot attach to an execution.",
+            taskId: null,
+            executionId: "execution-unbound",
+            dispatchKey: "spawn-unbound-execution",
+          },
+          binding,
+        ),
+        (error: unknown) =>
+          error instanceof Error && "code" in error && error.code === "runtime_execution_binding_forbidden",
       );
       await assert.rejects(
         cell.spawnRuntime(
@@ -456,16 +483,26 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
             taskId: null,
             dispatchKey: "legacy",
           },
-          withPolicyGroup(
-            {
-              actor: { principal: { personId: "person-spawn" }, executor: null },
-              source: "local",
-            },
-            "admin",
-          ),
+          binding,
         ),
         (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_runtime_spawn",
       );
+      revokeTestPolicyActions("person-spawn", "runtime-spawn", ["runtime-run"]);
+      for (const taskId of [null, "task-runtime-policy-denied"] as const) {
+        await assert.rejects(
+          cell.spawnRuntime(
+            {
+              runtimeInstanceId: "codex-review",
+              cwd: { scope: "repo-root" },
+              prompt: "Runtime policy is required.",
+              taskId,
+              dispatchKey: `spawn-policy-denied-${taskId ?? "unbound"}`,
+            },
+            binding,
+          ),
+          (error: unknown) => error instanceof Error && "code" in error && error.code === "authorization_denied",
+        );
+      }
     } finally {
       await cell.close();
     }

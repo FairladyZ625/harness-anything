@@ -196,7 +196,7 @@ test("Settings exposes executable singleton read and update contracts", () => {
   const explanation = explainEntityKind("settings"),
     byId = new Map(explanation.transitions.actions.map((action) => [action.id, action])),
     update = getExecutableEntityAction("settings-update");
-  assert.deepEqual(explanation.transitions.available, ["read", "update"]);
+  assert.deepEqual(explanation.transitions.available, ["read", "update", "pin", "unpin"]);
   assert.equal(update?.execution?.implementation, "catalog-runtime");
   assert.equal(update?.execution?.targetIdField, "settingsId");
   assert.equal(byId.get("update")?.concurrency.expectedVersion.conflict, "revision_conflict");

@@ -6,7 +6,7 @@ import { isCurrentSubmittedWorkerWrite, requireCurrentExecutionScope } from "./r
 import { composeDurableActionEnvelope } from "@harness-anything/application/internal/durable-action-envelope";
 import path from "node:path";
 import {
-  durablePolicyActions,
+  durableActionKinds,
   actionDeclarations,
   isSameExecution,
   parseEntityRef,
@@ -25,6 +25,7 @@ import {
   type TaskProjection,
   type TaskV2,
   isWorkRoot,
+  baseEntityPolicyActions,
 } from "@harness-anything/kernel";
 import type { ExecutionDelegationRecord } from "@harness-anything/kernel";
 import { authorizeAction } from "./authorization.ts";
@@ -45,6 +46,7 @@ export async function evaluateRepoCellAction(input: {
   readonly fetchPort?: typeof fetch;
 }): Promise<AuthorizationDecision> {
   const target = input.targetOverride ?? actionTarget(input.action),
+    policyAction = policyActionForTarget(input.action, target),
     envelope = composeDurableActionEnvelope({
       actionId: input.actionId,
       kind: input.action.kind,
@@ -71,7 +73,7 @@ export async function evaluateRepoCellAction(input: {
   const result = await evaluateKeycloakPerson({
     credential,
     personId: envelope.actor.principal.personId,
-    action: input.action.kind,
+    action: policyAction,
     resource,
     resourceAncestors,
     policyRef: envelope.authorizationRef,
@@ -85,6 +87,7 @@ export async function evaluateRepoCellAction(input: {
       resource,
       result.policyRef,
       result.authority,
+      policyAction,
     ),
     token = input.binding.delegatedExecutionToken;
   return token
@@ -101,6 +104,22 @@ export async function evaluateRepoCellAction(input: {
         ],
       }
     : decision;
+}
+
+/** Resolve the shared pin ingress to the base action scope of its actual EntityRef kind. */
+export function policyActionForTarget(action: RepoTaskAction, target: EntityRef): string {
+  if (
+    action.kind === "runtime-spawn" &&
+    typeof action.executionRuntimeIngress === "object" &&
+    action.executionRuntimeIngress !== null &&
+    "kind" in action.executionRuntimeIngress &&
+    action.executionRuntimeIngress.kind === "runtime-run"
+  )
+    return "runtime-run";
+  if (action.kind !== "entity-pin" && action.kind !== "entity-unpin") return action.kind;
+  const parsed = parseEntityRef(target);
+  if (!parsed) return action.kind;
+  return `${parsed.kind}/${action.kind === "entity-pin" ? "pin" : "unpin"}`;
 }
 
 /** Resolve Work ancestors from the current writer projection; caller payloads cannot supply them. */
@@ -238,13 +257,16 @@ export function keycloakDecision(
   resource?: AuthorizationResource,
   policyRef = "authorization-provider@1",
   authority = "authorization-provider",
+  policyAction = action.kind,
 ): AuthorizationDecision {
-  const groupId = actionDeclarations.find((declaration) => declaration.kind === action.kind)?.policyTier ?? "admin";
+  const groupId =
+    actionDeclarations.find((declaration) => declaration.policyAction === policyAction)?.policyTier ??
+    (baseEntityPolicyActions.includes(policyAction) ? "contributor" : "admin");
   return Object.freeze({
     policyRef,
     actor: action.actor,
     subject: action.target,
-    bindingsUsed: Object.freeze([{ authority, scope: action.kind }]),
+    bindingsUsed: Object.freeze([{ authority, scope: policyAction }]),
     outcome,
     reasonCodes: Object.freeze([reasonCode]),
     nextActions: Object.freeze(
@@ -278,7 +300,7 @@ function resourceName(resource: AuthorizationResource): string {
 
 /**
  * Concrete durable routes. Every case reaches the same port; no route grants authority here.
- * The exhaustive per-action cases look like duplication of durablePolicyActions, but they are
+ * The exhaustive per-action cases look like duplication of durableActionKinds, but they are
  * the static witness tools/gates/ontology-durable-action-authorization.mjs traces: each kind's
  * literal must sit in a region that provably reaches AuthorizationPort. Collapsing this into an
  * inventory-membership check breaks that trace for every action routed only here.
@@ -537,8 +559,6 @@ function authorizeDurableRepoCellAction(input: Parameters<typeof authorizeRepoCe
       return authorizeRepoCellAction(input);
     case "task-dispatch-review":
       return authorizeRepoCellAction(input);
-    case "task-pin":
-      return authorizeRepoCellAction(input);
     case "task-rematerialize":
       return authorizeRepoCellAction(input);
     case "task-progress-append":
@@ -564,8 +584,6 @@ function authorizeDurableRepoCellAction(input: Parameters<typeof authorizeRepoCe
     case "task-supersede":
       return authorizeRepoCellAction(input);
     case "task-transition":
-      return authorizeRepoCellAction(input);
-    case "task-unpin":
       return authorizeRepoCellAction(input);
     case "terminal-input":
       return authorizeRepoCellAction(input);
@@ -633,8 +651,7 @@ export function bindVerifiedExecutorClaim(input: {
   }
   // Runtime identities are durable authority only when the action itself is durable. Reads may
   // reuse an already-running daemon but must not fail merely because no task binding is projected.
-  if (!(durablePolicyActions as readonly string[]).includes(input.action.kind))
-    return { action, binding: input.binding };
+  if (!(durableActionKinds as readonly string[]).includes(input.action.kind)) return { action, binding: input.binding };
   const match = /^runtime-session:([A-Za-z0-9][A-Za-z0-9._-]*)$/u.exec(raw.id);
   if (!match || Object.keys(raw).some((field) => field !== "kind" && field !== "id"))
     throw invalidExecutorBindingFor(input, raw, "Executor claims must use runtime-session:<runtime-id>.");

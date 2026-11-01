@@ -18,7 +18,7 @@ function mayRescueInfrastructureLatch(
     context.recoveryUncertain ||
     context.causeClass !== "infrastructure" ||
     commandKind !== "runtime-run" ||
-    policyAction.kind !== "runtime-spawn" ||
+    !["runtime-run", "runtime-spawn"].includes(policyAction.kind) ||
     policyAction.taskId != null ||
     binding.source !== "local"
   )

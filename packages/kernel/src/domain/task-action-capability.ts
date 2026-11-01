@@ -53,9 +53,12 @@ const revisionCurrent: Evaluation = ({ snapshot }) =>
   } as TaskLifecycleCommand).length === 0
     ? "met"
     : "unmet";
+const taskTargetExists: Evaluation = ({ snapshot }) => (snapshot.task === null ? "unmet" : "met");
 
 const taskCapabilityEvaluators = Object.freeze(
   new Map<string, Evaluation>([
+    [key("pin", "entity-pin/target"), taskTargetExists],
+    [key("unpin", "entity-pin/target"), taskTargetExists],
     ...["claim", "settle", "revoke", "rerun"].map((operation): [string, Evaluation] => [
       key(`witness-${operation}`, `repo-cell-task-mutation/witness-${operation}`),
       mutationInvocation,
@@ -344,6 +347,7 @@ function reviewCommand(taskId: string, executionId: string, reviewId: string): s
 
 export function taskActionUsage(action: EntityActionContract, taskId = "<task-id>"): string {
   const ingress = action.execution?.ingress;
+  if (action.id === "pin" || action.id === "unpin") return `ha ${action.id} task/${taskId}`;
   if (ingress === undefined || (!ingress.startsWith("task-") && action.id !== "preset-upgrade"))
     throw new Error(`Task Action ${action.id} has no Task command ingress.`);
   const flags = action.input.fields.flatMap((field) => {

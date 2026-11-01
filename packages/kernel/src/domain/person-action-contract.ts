@@ -145,6 +145,7 @@ export function createPersonActionCatalog(
 }
 
 export function personActionUsage(action: EntityActionContract, targetId = "<person-id>"): string {
+  if (action.id === "pin" || action.id === "unpin") return `ha ${action.id} person/${targetId}`;
   const ingress = action.execution?.ingress;
   if (!ingress?.startsWith("people-")) throw new Error(`Person Action ${action.id} has no People command ingress.`);
   return renderPersonActionUsage(ingress.slice("people-".length), action.input.fields, targetId);

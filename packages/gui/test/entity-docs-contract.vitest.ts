@@ -61,6 +61,7 @@ describe("per-kind contract against kernel explainEntityKind", () => {
     expect(doc, `entity doc missing for kernel kind ${kind}`).toBeDefined();
     expect(doc!.schemaId).toBe(explanation.documentSchema.id);
     expect(doc!.actions).toEqual(explanation.transitions.available);
+    if (kind === "runtime-session") expect(doc!.actions.filter((id) => id === "run")).toHaveLength(1);
   });
 
   it.each(KERNEL_KINDS)("%s: documented fields exist in the kernel schema with matching required flags", (kind) => {

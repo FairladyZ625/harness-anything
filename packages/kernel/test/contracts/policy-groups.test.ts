@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { actionDeclarations } from "../../src/index.ts";
+import { actionDeclarations, baseEntityPolicyActions } from "../../src/index.ts";
 import {
   assertAcyclicPolicyGroups,
   decodeAuthorizationResource,
@@ -34,7 +34,7 @@ test("every declaration has one minimum Base tier and one unique Keycloak scope"
   // Owner 2026-10-24 (task_a242ec14) deletes decision-supersede: supersede is driven by the relation.
   // dec_E369B8616F50A6208B293997E7/CH5 (W2-2) deletes task-adjudicate with the manual forward/return commands.
   // task_8c579f0d2c896668e2fd92ab85 adds six Todo action declarations.
-  assert.equal(actionDeclarations.length, 173);
+  assert.equal(actionDeclarations.length, 171);
   assert.equal(
     actionDeclarations.some(
       ({ kind }) => kind === "ci-observe-pull" || kind === "task-ci" || kind.startsWith("task-code-doc-"),
@@ -43,12 +43,14 @@ test("every declaration has one minimum Base tier and one unique Keycloak scope"
   );
   assert.equal(new Set(actionDeclarations.map((item) => item.policyAction)).size, actionDeclarations.length);
   for (const declaration of actionDeclarations) {
-    assert.equal(declaration.policyAction, declaration.kind);
     assert.ok(["viewer", "contributor", "maintainer", "admin"].includes(minimumBasePolicyGroup(declaration)));
   }
+  assert.equal(actionDeclarations.find(({ kind }) => kind === "entity-pin")?.policyAction, "task/pin");
+  assert.equal(actionDeclarations.find(({ kind }) => kind === "entity-unpin")?.policyAction, "task/unpin");
+  assert.equal(actionDeclarations.find(({ kind }) => kind === "runtime-run")?.policyAction, "runtime-run");
   const groups = deriveBasePolicyGroups();
   for (const declaration of actionDeclarations) {
-    const matching = groups.filter((group) => group.scopes.includes(declaration.kind));
+    const matching = groups.filter((group) => group.scopes.includes(declaration.policyAction));
     assert.deepEqual(
       matching.map((group) => group.id),
       [declaration.policyTier],
@@ -62,7 +64,10 @@ test("Base composite inheritance expands monotonically without a handwritten act
   assert.deepEqual(effective("viewer"), ["repository-read"]);
   assert.equal(effective("contributor").length < effective("maintainer").length, true);
   assert.equal(effective("maintainer").length < effective("admin").length, true);
-  assert.deepEqual(effective("admin"), actionDeclarations.map((item) => item.kind).sort());
+  assert.deepEqual(
+    effective("admin"),
+    [...new Set([...actionDeclarations.map((item) => item.policyAction), ...baseEntityPolicyActions])].sort(),
+  );
 });
 
 test("a missing or unknown policy tier cannot silently leave the generated groups", () => {
