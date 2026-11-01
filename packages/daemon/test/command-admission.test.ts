@@ -35,6 +35,54 @@ test("fleet declaration writes carry values and cannot ask the center to read a 
   }
 });
 
+test("fleet forwarded writes use their declared entity identity", () => {
+  for (const action of [
+    { kind: "agent-delete", agentId: "worker", reason: "Remove worker.", expectedVersion: 1 },
+    { kind: "agent-retire", agentId: "worker", reason: "Retire worker." },
+    { kind: "squad-delete", squadId: "team", reason: "Remove team.", expectedVersion: 1 },
+    { kind: "vertical-kind-publish-schema", kindId: "software/document", attributes: {}, expectedVersion: 1 },
+    { kind: "vertical-kind-retire", kindId: "software/document", reason: "Retire kind.", expectedVersion: 1 },
+    {
+      kind: "entity-update",
+      entityKind: "software/document",
+      entityId: "doc-one",
+      title: "Update",
+      expectedVersion: 1,
+    },
+    {
+      kind: "entity-delete",
+      entityKind: "software/document",
+      entityId: "doc-one",
+      reason: "Delete.",
+      expectedVersion: 1,
+    },
+    {
+      kind: "entity-archive",
+      entityKind: "software/document",
+      entityId: "doc-one",
+      reason: "Archive.",
+      expectedVersion: 1,
+    },
+  ]) {
+    assert.equal(isFleetTaskAction(action), true, action.kind);
+    const spoofed = { ...action, actor: { personId: "spoofed" } };
+    assert.equal(isFleetTaskAction(spoofed), false, action.kind);
+  }
+});
+
+test("forwarded command positional tokens name their canonical payload field", () => {
+  for (const command of daemonProtocolCommands) {
+    if (command.admission["remote-edge"] !== "via-center-forward" || !("positional" in command)) continue;
+    const token = command.syntaxPath.find((part) => /^<[a-z][a-z0-9-]*>$/u.test(part));
+    if (!token) continue;
+    assert.equal(
+      token.slice(1, -1).replace(/-([a-z])/gu, (_, letter: string) => letter.toUpperCase()),
+      command.positional,
+      command.id,
+    );
+  }
+});
+
 test("compiled entity writes retain the edge route declared by their canonical action", () => {
   let checked = 0;
   for (const command of daemonProtocolCommands) {

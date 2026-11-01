@@ -109,7 +109,7 @@ export const agentProtocolCommands = Object.freeze([
     id: "vertical-kind-publish-schema",
     actionKind: "vertical-kind-publish-schema",
     phase: "Governed-Entity-W2",
-    path: ["vertical", "kind", "publish-schema", "<kind>"],
+    path: ["vertical", "kind", "publish-schema", "<kind-id>"],
     summary:
       "Publish the next immutable attribute schema version of one Artifact kind; published versions are never rewritten.",
     method: "repo.task.run",
@@ -129,7 +129,7 @@ export const agentProtocolCommands = Object.freeze([
     id: "vertical-kind-retire",
     actionKind: "vertical-kind-retire",
     phase: "Governed-Entity-W2",
-    path: ["vertical", "kind", "retire", "<kind>"],
+    path: ["vertical", "kind", "retire", "<kind-id>"],
     summary: "Retire one Artifact kind with a required reason while preserving its declaration and instances.",
     method: "repo.task.run",
     positional: "kindId",
@@ -335,7 +335,7 @@ export const agentProtocolCommands = Object.freeze([
   defineCenterForwardWriteCommand({
     id: "entity-update",
     phase: "Governed-Entity-W2",
-    path: ["entity", "update", "<kind>"],
+    path: ["entity", "update", "<entity-kind>"],
     summary: "Update mutable fields of one compiled vertical Artifact Entity.",
     method: "repo.task.run",
     positional: "entityKind",
@@ -360,7 +360,7 @@ export const agentProtocolCommands = Object.freeze([
   defineCenterForwardWriteCommand({
     id: "entity-delete",
     phase: "Governed-Entity-W2",
-    path: ["entity", "delete", "<kind>"],
+    path: ["entity", "delete", "<entity-kind>"],
     summary: "Delete one compiled vertical Artifact Entity and retire every file it owns.",
     method: "repo.task.run",
     positional: "entityKind",
@@ -382,7 +382,7 @@ export const agentProtocolCommands = Object.freeze([
   defineCenterForwardWriteCommand({
     id: "entity-archive",
     phase: "Governed-Entity-W2",
-    path: ["entity", "archive", "<kind>"],
+    path: ["entity", "archive", "<entity-kind>"],
     summary: "Archive one compiled vertical Artifact Entity without deleting its descriptor.",
     method: "repo.task.run",
     positional: "entityKind",
@@ -524,7 +524,7 @@ export const agentProtocolCommands = Object.freeze([
   defineCenterForwardWriteCommand({
     id: "agent-delete",
     phase: "Runtime-B",
-    path: ["agent", "delete", "<id>"],
+    path: ["agent", "delete", "<agent-id>"],
     summary: "Delete an Agent current view while retaining its canonical history.",
     method: "repo.task.run",
     positional: "agentId",
@@ -566,7 +566,7 @@ export const agentProtocolCommands = Object.freeze([
   defineCenterForwardWriteCommand({
     id: "agent-retire",
     phase: "Runtime-B",
-    path: ["agent", "retire", "<id>"],
+    path: ["agent", "retire", "<agent-id>"],
     summary: "Retire an Agent while retaining its canonical history and deep-link identity.",
     method: "repo.task.run",
     positional: "agentId",
@@ -665,7 +665,7 @@ export const agentProtocolCommands = Object.freeze([
   defineCenterForwardWriteCommand({
     id: "squad-delete",
     phase: "Runtime-B",
-    path: ["squad", "delete", "<id>"],
+    path: ["squad", "delete", "<squad-id>"],
     summary: "Delete a Squad current view while retaining its canonical history.",
     method: "repo.task.run",
     positional: "squadId",
