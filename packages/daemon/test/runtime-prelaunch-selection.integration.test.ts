@@ -21,6 +21,7 @@ for (const route of ["agent", "schedule"] as const) {
   for (const state of ["first-ready", "first-unavailable", "all-unavailable"] as const) {
     test(`${route} prepares candidates before any launch: ${state}`, async () => {
       const root = mkdtempSync(path.join(tmpdir(), "ha-prelaunch-selection-")),
+        repoId = workspaceId(`prelaunch-selection-${route}-${state}`),
         first = { ...definition, instanceId: "codex-first" },
         second = { ...definition, instanceId: "claude-second", kindId: "claude" as const, model: "GLM-5.3" },
         attempted: string[] = [],
@@ -32,7 +33,7 @@ for (const route of ["agent", "schedule"] as const) {
       );
       const ports = scheduleRuntimePorts(),
         cell = await openRepoCell({
-          repoId: workspaceId("prelaunch-selection"),
+          repoId,
           rootDir: canonicalRoot(root),
           ownerId: "selection-test",
           runtimeDaemonRoute: {

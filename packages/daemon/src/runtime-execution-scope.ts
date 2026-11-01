@@ -92,6 +92,9 @@ export function requireExecutionActionScope(p: RuntimeExecutionPrincipal, action
   }
   if (selfApprovalActions.has(action.kind) || commandClass === "arbiter" || commandClass === "admin")
     throw executionCredentialRejected("self-approval");
+  // A session is authenticated as its spawning person, not granted a task lease. The normal
+  // repository authorization path still decides every action against that person's current RBAC.
+  if (p.role === "session" && commandClass === "repo-write") return;
   // A path-selected doc submit names its task on the documents, not in the action envelope, and this
   // entry turn holds no projection to resolve an owner. It is admitted here and the owner is proved
   // where the projection exists: runDocAction refuses any path outside the execution's task, so a
@@ -154,7 +157,6 @@ export function requireCurrentExecutionScope(input: {
     requireExecutionActionScope(p, input.action);
     return;
   }
-  if (p.taskId === null || p.executionId === null) throw executionCredentialRejected();
   const ingress =
     input.action.kind === "runtime-run" && isJsonObject(input.action.executionRuntimeIngress)
       ? input.action.executionRuntimeIngress
@@ -194,9 +196,11 @@ export function requireCurrentExecutionScope(input: {
       (input.action.kind === "task-push" ||
         input.action.executionId === undefined ||
         input.action.executionId === p.executionId),
-    current = postSubmitCandidate ? input.projection.read(p.taskId).snapshot : null,
+    current = postSubmitCandidate && p.taskId !== null ? input.projection.read(p.taskId).snapshot : null,
     postSubmitWorkerWrite =
       current !== null &&
+      p.taskId !== null &&
+      p.executionId !== null &&
       isCurrentSubmittedWorkerWrite({
         action: input.action,
         taskId: p.taskId,
@@ -232,9 +236,13 @@ export function requireCurrentExecutionScope(input: {
     dispatch.actor.principal.personId !== p.personId ||
     stableStringify(dispatch.source) !== stableStringify(p.source) ||
     stableStringify(input.binding.source) !== stableStringify(p.source) ||
-    !session.taskBindings.some((b) => b.taskId === p.taskId && b.executionId === p.executionId)
+    (p.role === "session"
+      ? dispatch.payload.taskId != null || dispatch.payload.role === "read-only" || dispatch.payload.role === "reviewer"
+      : !session.taskBindings.some((b) => b.taskId === p.taskId && b.executionId === p.executionId))
   )
     throw executionCredentialRejected();
+  if (p.role === "session") return;
+  if (p.taskId === null || p.executionId === null) throw executionCredentialRejected();
   if (p.role === "reviewer") {
     const target = dispatch.payload.reviewTarget,
       execution = input.projection.read(p.taskId).snapshot.executions.find((e) => e.executionId === p.executionId);

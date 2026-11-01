@@ -102,7 +102,7 @@ export interface RuntimeSpawnerContext {
   readonly reconcileFallback: (stream: ReturnType<typeof readDispatchStream>) => void;
 }
 
-/** The bound worker environment is the sole delivery point for its short-lived execution secret. */
+/** The runtime environment is the sole delivery point for its short-lived execution secret. */
 export async function prepareBoundRuntimeLaunch(args: {
   readonly input: RuntimeSpawnerInput;
   readonly prepared: PreparedRuntimeLaunch;
@@ -112,11 +112,10 @@ export async function prepareBoundRuntimeLaunch(args: {
   readonly runtimeActor: string;
   readonly taskId: string | null;
   readonly trustedSchedule?: TrustedScheduleRuntime;
-  readonly reviewerBinding: boolean;
   readonly execution?: Omit<RuntimeExecutionPrincipal, "expiresAt">;
 }): Promise<PreparedRuntimeLaunch> {
   const { input, prepared, daemonRoute, callbackRelay, taskId, trustedSchedule } = args;
-  if (!(taskId || trustedSchedule || args.reviewerBinding || args.execution) || !daemonRoute) return prepared;
+  if (!daemonRoute) return prepared;
   const remote =
     args.execution && input.remote ? input.remote.executionCredential(args.execution.runtimeSessionId) : undefined;
   const expiresAt = remote?.expiresAt ?? new Date(Date.parse(input.now()) + runtimeExecutionLifetimeMs).toISOString(),

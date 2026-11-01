@@ -2,7 +2,7 @@ import { stableStringify, type WriteSource } from "@harness-anything/kernel";
 import { randomBytes } from "node:crypto";
 import type { KeycloakCenterCredential } from "./transport/auth-context.ts";
 
-/** One dispatch, twelve hours, no renewal. Keycloak owns both the secret and its revocation. */
+/** One runtime dispatch, twelve hours, no renewal. Keycloak owns the secret and its revocation. */
 export const runtimeExecutionLifetimeMs = 12 * 60 * 60 * 1000;
 const clientPrefix = "harness-execution-";
 
@@ -12,12 +12,12 @@ export interface RuntimeExecutionPrincipal {
   readonly runtimeSessionId: string;
   readonly dispatchId: string;
   /**
-   * Null only on the read-only role: an unbound read-only dispatch (the bundled ask-agent
-   * surface) holds no task lease, so its credential is allowlist-scoped reads and nothing else.
+   * Unbound sessions hold no task lease. A session retains the spawning person's repository
+   * permissions; a read-only dispatch is limited to allowlisted reads.
    */
   readonly taskId: string | null;
   readonly executionId: string | null;
-  readonly role: "implementation" | "reviewer" | "read-only";
+  readonly role: "implementation" | "reviewer" | "read-only" | "session";
   /** Decision review dispatches bind reads to this canonical decision id. */
   readonly reviewDecisionId?: string;
   /** Task review dispatches bind reads to this canonical task id. */
@@ -162,8 +162,8 @@ function validPrincipal(value: unknown): value is RuntimeExecutionPrincipal {
     ["personId", "repoId", "runtimeSessionId", "dispatchId"].every(
       (key) => typeof p[key] === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/u.test(p[key]),
     ) &&
-    (p.role === "implementation" || p.role === "reviewer" || p.role === "read-only") &&
-    (p.role === "read-only"
+    (p.role === "implementation" || p.role === "reviewer" || p.role === "read-only" || p.role === "session") &&
+    (p.role === "read-only" || p.role === "session"
       ? p.taskId === null && p.executionId === null
       : typeof p.taskId === "string" &&
         /^[A-Za-z0-9][A-Za-z0-9._:-]*$/u.test(p.taskId) &&

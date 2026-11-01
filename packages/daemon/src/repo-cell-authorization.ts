@@ -662,6 +662,11 @@ export function bindVerifiedExecutorClaim(input: {
   if (raw === undefined || raw === null) return { action, binding: input.binding };
   if (!isExecutorDescriptorRecord(raw) || raw.kind !== "agent" || typeof raw.id !== "string")
     throw invalidExecutorBindingFor(input, raw, "Executor claims must identify one agent actor.");
+  if (input.binding.executionPrincipal?.role === "session") {
+    if (raw.id !== input.binding.actor.executor?.id || Object.keys(raw).some((key) => key !== "kind" && key !== "id"))
+      throw invalidExecutorBindingFor(input, raw, "Executor claim differs from the authenticated RuntimeSession.");
+    return { action, binding: input.binding };
+  }
   if (!raw.id.startsWith("runtime-session:")) {
     if (
       !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/u.test(raw.id) ||
