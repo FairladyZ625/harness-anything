@@ -183,20 +183,13 @@ repository gets the same compounding mechanism.
 
 ## Install and run
 
-Install the CLI and daemon from npm (Node.js 24+):
+Choose [Harness Anything only](#harness-anything-only) or
+[Harness + DSH](#harness-anything--deepseek-harness-plugin-macos) above. Both setup
+skills use a persistent source checkout and require Node.js 24+.
 
-```bash
-npm install --global @harness-anything/cli@latest @harness-anything/daemon@latest
-ha init
-```
-
-For preview releases use the `next` channel: `npm install --global @harness-anything/cli@next @harness-anything/daemon@next`.
-
-Download the matching desktop App from the [GitHub Releases page](https://github.com/FairladyZ625/harness-anything/releases).
+Find desktop App builds on the [GitHub Releases page](https://github.com/FairladyZ625/harness-anything/releases).
 macOS releases are Apple Silicon arm64 only (dmg/zip); Windows releases are x64 NSIS and may show SmartScreen;
-Linux releases include x64 AppImage (automatic updates) and deb (manual upgrades). The npm and App versions always match.
-
-For Harness + DSH installation, use the [DSH setup prompt above](#harness-anything--deepseek-harness-plugin-macos).
+Linux releases include x64 AppImage (automatic updates) and deb (manual upgrades).
 
 For source installation (CLI, daemon, and GUI in one pass, including the Electron download), follow [harness-download](./skills/harness-download/SKILL.md); it is the only source-install recipe. The [contributor guide](./docs-release/contributing/en/01-local-setup.md) covers working on this repository.
 
