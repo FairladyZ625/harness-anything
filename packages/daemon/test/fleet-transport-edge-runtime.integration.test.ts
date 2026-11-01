@@ -749,7 +749,12 @@ test(
           quotaBytes: replicaQuota,
           workspaceRoot: edgeRoot,
           method: "repo.agentRuntime.handoff",
-          action: { operation: "claim", dispatchId: "dispatch_000000000000000000000000" },
+          action: {
+            operation: "claim",
+            dispatchId: "dispatch_000000000000000000000000",
+            runtimeInstanceId: codexInstance.instanceId,
+            prompt: "Continue the unowned dispatch.",
+          },
         },
         localAuth,
       );
