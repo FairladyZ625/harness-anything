@@ -129,10 +129,84 @@ for (const owner of ["node-a", "node-b", null]) {
         },
         { actor: { principal: { personId: "owner" }, executor: null }, source: { kind: "node", nodeId: "node-a" } },
       ),
-      owner === "node-b" ? prepared : { code: "runtime_recovery_pending" },
+      owner === "node-b" || owner === null ? prepared : { code: "runtime_recovery_pending" },
     );
   });
 }
+
+test("a session without a dispatch never holds its instance, while a dispatched failed recovery still does", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-residual-dispatch-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  const prepared = Object.assign(new Error("selection reached the launch port"), { code: "fixture_prepared" });
+  let sessions: Array<{
+    runtimeSessionId: string;
+    instanceId: string;
+    providerSessionId: null;
+    liveness: "unknown";
+    outcome: null;
+  }> = [];
+  const spawner = makeRuntimeSpawner({
+    rootDir,
+    repoId: "residual-dispatch",
+    daemonGeneration: 1,
+    runtimeNode: { nodeId: "node-a" },
+    now: () => new Date().toISOString(),
+    stream: { publish: () => ({}) as never },
+    runtimeInstances: scheduleRuntimePorts().runtimeInstances,
+    readSettings: () => ({ runtime: { allowedInstances: [definition.instanceId] } }) as never,
+    prepareLaunch: async () => {
+      throw prepared;
+    },
+    schedule: () => undefined,
+    remote: {
+      taskContext: async () => {
+        throw new Error("taskless probe must not request task context");
+      },
+      readRuntimeSessions: async () => sessions,
+      readRuntimeDispatch: async (runtimeSessionId: string) =>
+        runtimeSessionId === "residual"
+          ? null
+          : {
+              payload: { dispatchId: "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa" },
+              source: { kind: "node", nodeId: "node-a" },
+            },
+      publish: async () => {
+        throw new Error("the selection probe must not publish a dispatch");
+      },
+      archive: async () => ({ outcome: "applied" }),
+    },
+  });
+  t.after(() => spawner.close());
+  const session = (runtimeSessionId: string) => ({
+      runtimeSessionId,
+      instanceId: definition.instanceId,
+      providerSessionId: null,
+      liveness: "unknown" as const,
+      outcome: null,
+    }),
+    spawn = () =>
+      spawner.spawn(
+        {
+          runtimeInstanceId: definition.instanceId,
+          prompt: "select",
+          cwd: { scope: "repo-root" },
+          dispatchKey: "probe",
+        },
+        { actor: { principal: { personId: "owner" }, executor: null }, source: { kind: "node", nodeId: "node-a" } },
+      );
+  // Maintenance still records the failure: the session has no dispatch to read.
+  sessions = [session("residual")];
+  const residualRecovery = await spawner.adopt();
+  assert.equal(residualRecovery[0]?.outcome, "failed");
+  assert.equal((residualRecovery[0]?.error as { code?: string }).code, "runtime_recovery_missing_dispatch");
+  // ...but that failure cannot hold capacity the session never occupied.
+  await assert.rejects(spawn(), prepared);
+  // A dispatched session's failed recovery is a real unresolved runtime and still refuses.
+  sessions = [session("dispatched")];
+  const dispatchedRecovery = await spawner.adopt();
+  assert.equal(dispatchedRecovery[0]?.outcome, "failed");
+  await assert.rejects(spawn(), { code: "runtime_recovery_missing_dispatch" });
+});
 
 for (const fault of ["HEAD timeout", "HEAD signal", "runtime restoration rejected"]) {
   test(`${fault} is a per-runtime failure and another archived runtime still restores`, async (t) => {
