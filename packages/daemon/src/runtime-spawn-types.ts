@@ -219,6 +219,9 @@ export type ActiveRuntime = {
   failureText: string | null;
   providerOutcome: "succeeded" | "failed" | "unknown" | null;
   writeItemObserved: boolean;
+  /** Absolute write paths a provider reported under the canonical checkout but outside this
+   * dispatch's cwd; surfaced live and in the settlement conclusion instead of failing silently. */
+  strayWritePaths: string[];
   planObserved: boolean;
   planIncomplete: boolean;
   protocolError: boolean;
@@ -265,6 +268,8 @@ export type ProviderFrame = {
   readonly failureText?: string;
   readonly outcome?: "succeeded" | "failed" | "unknown";
   readonly writeItemObserved?: boolean;
+  /** Absolute paths carried by a completed file-write item, before any boundary judgement. */
+  readonly writePaths?: readonly string[];
   readonly planObserved?: boolean;
   readonly planIncomplete?: boolean;
   readonly toolCallObserved?: boolean;

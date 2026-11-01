@@ -17,6 +17,7 @@ import {
   workerBranchHasDelivery,
   workerGitIdentityForPerson,
 } from "./runtime-worker-push.ts";
+import { strayWriteWarning } from "./runtime-write-boundary.ts";
 import { cacheWriteTokensOfUsage, writeRuntime } from "./runtime-spawn-provider-stream.ts";
 import { classifyRuntimeExit } from "./runtime-provider-fault.ts";
 import {
@@ -820,6 +821,17 @@ function hasAcceptedExecutionSubmission(context: RuntimeSpawnerContext, active: 
 
 export function runtimeResultText(
   context: RuntimeSpawnerContext,
+  active: ActiveRuntime,
+  code: number | null,
+  outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped",
+): string {
+  const text = runtimeResultBody(active, code, outcome),
+    stray = active.strayWritePaths ?? [];
+  if (stray.length === 0) return text;
+  return `${strayWriteWarning(stray, { rootDir: context.input.rootDir, workerRoot: active.cwd })}\n\n${text}`;
+}
+
+function runtimeResultBody(
   active: ActiveRuntime,
   code: number | null,
   outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped",

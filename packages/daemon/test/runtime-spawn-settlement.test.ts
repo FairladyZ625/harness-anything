@@ -702,6 +702,18 @@ test("runtime result text caps provider frame failure text", () => {
   assert.ok(text.length <= 1200, String(text.length));
 });
 
+test("runtime result text leads with a stray-write warning", () => {
+  const runtime = active({
+      cwd: "/repo/.worktrees/task_a",
+      finalText: "delivered",
+      strayWritePaths: ["/repo/packages/cli/src/index.ts"],
+    }),
+    text = runtimeResultText({ input: { rootDir: "/repo" } } as never, runtime, 0, "succeeded");
+  assert.match(text, /^Stray write outside the worker worktree: /u);
+  assert.match(text, /\/repo\/packages\/cli\/src\/index\.ts/u);
+  assert.match(text, /\n\ndelivered$/u);
+});
+
 test("a taskless squad leader result is stopped without a delivery witness", () => {
   const result = classifyRuntimeExit(
     active({
