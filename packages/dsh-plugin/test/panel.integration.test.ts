@@ -98,7 +98,8 @@ test("open here asks once for the default view, keeps the board alive, and share
   const address = server.address();
   assert.ok(address && typeof address !== "string");
   origin = `http://127.0.0.1:${address.port}`;
-  resources.browser = await chromium.launch({ headless: true });
+  // CI runners and developer Macs ship system Chrome; Playwright downloads no browser here.
+  resources.browser = await chromium.launch({ channel: "chrome", headless: true });
   const page = await resources.browser.newPage({ viewport: { width: 1280, height: 900 } });
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
