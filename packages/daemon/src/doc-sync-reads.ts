@@ -116,6 +116,7 @@ export function readAction(input: Input): WriteReceipt {
           evidenceDone: offset + artifact.bytes.byteLength >= artifact.size,
           evidenceBlobSha256: artifact.anchor.blobSha256,
           evidenceSourceRevision: anchor.revision,
+          evidenceWorkspaceRevision: anchor.revision,
           evidenceContentEncoding: artifact.encoding,
           visibility: "center",
           proof: proof(anchor.revision, anchor.revision, true, false),
@@ -149,6 +150,7 @@ export function readAction(input: Input): WriteReceipt {
           evidenceDone: offset + chunk.byteLength >= bytes.byteLength,
           evidenceBlobSha256: artifact.anchor.blobSha256,
           evidenceSourceRevision: anchor.revision,
+          evidenceWorkspaceRevision: anchor.revision,
           evidenceContentEncoding: artifact.encoding,
         } as unknown as WriteReceipt;
       }
@@ -214,7 +216,7 @@ export function readAction(input: Input): WriteReceipt {
     pinned &&
     (!reads[0]?.document ||
       String(input.action.contentSha256) !== reads[0].document.blobSha256 ||
-      Number(input.action.contentRevision) !== reads[0].sourceRevision)
+      Number(input.action.contentRevision) !== reads[0].document.workspaceRevision)
   )
     throw docSyncError("content_changed", "Document content identity changed during range read");
   if (rangeOffset !== null && rangeLength !== null && input.store.readContentBlobRange && reads[0]?.document) {
@@ -223,7 +225,7 @@ export function readAction(input: Input): WriteReceipt {
     if (
       pinned &&
       (String(input.action.contentSha256) !== document.blobSha256 ||
-        Number(input.action.contentRevision) !== sourceRevision)
+        Number(input.action.contentRevision) !== document.workspaceRevision)
     )
       throw docSyncError("content_changed", "Document content identity changed during range read");
     const encoding = verifyAcceptedContent(
@@ -261,6 +263,7 @@ export function readAction(input: Input): WriteReceipt {
       evidenceDone: rangeOffset + bytes.byteLength >= document.size,
       evidenceBlobSha256: document.blobSha256,
       evidenceSourceRevision: sourceRevision,
+      evidenceWorkspaceRevision: document.workspaceRevision,
       evidenceContentEncoding: encoding,
     } as unknown as WriteReceipt;
   }
@@ -301,6 +304,7 @@ export function readAction(input: Input): WriteReceipt {
     evidenceDone: rangeOffset + chunk.byteLength >= bytes.byteLength,
     evidenceBlobSha256: reads[0]?.document?.blobSha256 ?? null,
     evidenceSourceRevision: reads[0]?.sourceRevision ?? revision,
+    evidenceWorkspaceRevision: reads[0]?.document?.workspaceRevision ?? revision,
     evidenceContentEncoding: "utf8",
   } as WriteReceipt;
 }

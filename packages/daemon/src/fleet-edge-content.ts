@@ -20,7 +20,8 @@ export interface FleetDocContentMetadata {
   readonly path: string;
   readonly sha256: string;
   readonly size: number;
-  readonly sourceRevision: number;
+  /** Immutable document revision; repository source watermarks are not content identity. */
+  readonly workspaceRevision: number;
   readonly encoding: "utf8" | "base64";
 }
 
@@ -54,9 +55,9 @@ export function readFleetDocContentMetadata(rootDir: string, key: string): Fleet
     typeof value.size !== "number" ||
     !Number.isSafeInteger(value.size) ||
     value.size < 0 ||
-    typeof value.sourceRevision !== "number" ||
-    !Number.isSafeInteger(value.sourceRevision) ||
-    value.sourceRevision < 1 ||
+    typeof value.workspaceRevision !== "number" ||
+    !Number.isSafeInteger(value.workspaceRevision) ||
+    value.workspaceRevision < 1 ||
     (value.encoding !== "utf8" && value.encoding !== "base64")
   )
     throw new Error("Fleet content transfer metadata is malformed");

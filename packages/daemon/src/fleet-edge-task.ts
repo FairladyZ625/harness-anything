@@ -137,7 +137,7 @@ export async function runFleetDocShowRange(options: {
             ...options.action,
             offset,
             length: DOC_SHOW_RANGE_BYTES,
-            ...(metadata ? { contentSha256: metadata.sha256, contentRevision: metadata.sourceRevision } : {}),
+            ...(metadata ? { contentSha256: metadata.sha256, contentRevision: metadata.workspaceRevision } : {}),
           },
         });
       if (result.outcome !== "applied") return result;
@@ -151,7 +151,7 @@ export async function runFleetDocShowRange(options: {
         typeof receipt.evidenceSize !== "number" ||
         !Number.isSafeInteger(receipt.evidenceSize) ||
         receipt.evidenceSize < 0 ||
-        !Number.isSafeInteger(receipt.evidenceSourceRevision) ||
+        !Number.isSafeInteger(receipt.evidenceWorkspaceRevision) ||
         typeof receipt.evidenceBlobSha256 !== "string" ||
         (encoding !== "utf8" && encoding !== "base64") ||
         typeof receipt.evidenceDone !== "boolean"
@@ -161,7 +161,7 @@ export async function runFleetDocShowRange(options: {
         path: String(options.action.path),
         sha256: String(receipt.evidenceBlobSha256),
         size: Number(receipt.evidenceSize),
-        sourceRevision: Number(receipt.evidenceSourceRevision),
+        workspaceRevision: Number(receipt.evidenceWorkspaceRevision),
         encoding,
       };
       if (metadata && JSON.stringify(metadata) !== JSON.stringify(nextMetadata))

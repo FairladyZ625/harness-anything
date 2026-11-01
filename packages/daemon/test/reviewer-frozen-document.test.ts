@@ -238,7 +238,8 @@ test("pinned range reads reject a same-size document update between windows", ()
     second = Buffer.from("BBBB2222"),
     firstDigest = digest(first),
     secondDigest = digest(second);
-  let version = { bytes: first, revision: 10, blobSha256: firstDigest };
+  let version = { bytes: first, workspaceRevision: 10, blobSha256: firstDigest },
+    repositoryRevision = 10;
   try {
     const input = {
       workspaceId: "repo-one",
@@ -262,13 +263,23 @@ test("pinned range reads reject a same-size document update between windows", ()
       projection: {
         readDocument: () => ({
           status: "ready",
-          document: { path: pathName, body: version.bytes.toString(), blobSha256: version.blobSha256, size: 8 },
-          watermark: version.revision,
-          sourceRevision: version.revision,
+          document: {
+            path: pathName,
+            body: version.bytes.toString(),
+            blobSha256: version.blobSha256,
+            size: 8,
+            workspaceRevision: version.workspaceRevision,
+          },
+          watermark: repositoryRevision,
+          sourceRevision: repositoryRevision,
         }),
       } as never,
       store: {
-        currentCut: () => ({ repoId: "repo-one", revision: version.revision, headDigest: `head-${version.revision}` }),
+        currentCut: () => ({
+          repoId: "repo-one",
+          revision: repositoryRevision,
+          headDigest: `head-${repositoryRevision}`,
+        }),
         readContentBlobRange: (blob: string, offset: number, maxBytes: number) => {
           const bytes = blob === firstDigest ? first : blob === secondDigest ? second : null;
           return bytes?.subarray(offset, offset + maxBytes) ?? null;
@@ -278,10 +289,31 @@ test("pinned range reads reject a same-size document update between windows", ()
     const initial = runDocAction({ ...input, action: { kind: "doc-show", path: pathName, offset: 0, length: 4 } }) as {
       readonly evidenceBlobSha256: string;
       readonly evidenceSourceRevision: number;
+      readonly evidenceWorkspaceRevision: number;
     };
     assert.equal(initial.evidenceBlobSha256, firstDigest);
+    assert.equal(initial.evidenceWorkspaceRevision, 10);
     assert.equal(initial.evidenceSourceRevision, 10);
-    version = { bytes: second, revision: 11, blobSha256: secondDigest };
+    repositoryRevision = 11;
+    const afterUnrelatedEvent = runDocAction({
+      ...input,
+      action: {
+        kind: "doc-show",
+        path: pathName,
+        offset: 4,
+        length: 4,
+        contentSha256: initial.evidenceBlobSha256,
+        contentRevision: initial.evidenceWorkspaceRevision,
+      },
+    }) as {
+      readonly evidence: string;
+      readonly evidenceSourceRevision: number;
+      readonly evidenceWorkspaceRevision: number;
+    };
+    assert.deepEqual(Buffer.from(afterUnrelatedEvent.evidence, "base64"), first.subarray(4));
+    assert.equal(afterUnrelatedEvent.evidenceSourceRevision, 11);
+    assert.equal(afterUnrelatedEvent.evidenceWorkspaceRevision, 10);
+    version = { bytes: second, workspaceRevision: 11, blobSha256: secondDigest };
     assert.throws(
       () =>
         runDocAction({
@@ -292,7 +324,7 @@ test("pinned range reads reject a same-size document update between windows", ()
             offset: 4,
             length: 4,
             contentSha256: initial.evidenceBlobSha256,
-            contentRevision: initial.evidenceSourceRevision,
+            contentRevision: initial.evidenceWorkspaceRevision,
           },
         }),
       { code: "content_changed" },

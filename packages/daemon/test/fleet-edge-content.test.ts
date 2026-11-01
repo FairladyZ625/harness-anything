@@ -17,7 +17,7 @@ test("Fleet doc content sink resumes from its fsynced offset and seals exact byt
       path: "tasks/demo/artifacts/blob.bin",
       sha256: sha256(bytes),
       size: bytes.byteLength,
-      sourceRevision: 12,
+      workspaceRevision: 12,
       encoding: "base64" as const,
     },
     options = {
@@ -53,7 +53,7 @@ test("Fleet doc content sink rejects gaps and replay mismatches", async () => {
         path: "context/blob.txt",
         sha256: sha256(bytes),
         size: bytes.byteLength,
-        sourceRevision: 4,
+        workspaceRevision: 4,
         encoding: "utf8" as const,
       },
       nodeId: "edge-one",
@@ -82,7 +82,8 @@ test("Fleet edge range aggregation preserves binary reviewer bytes and resumes a
         evidenceSize: bytes.byteLength,
         evidenceDone: offset + chunkSize >= bytes.byteLength,
         evidenceBlobSha256: sha256(bytes),
-        evidenceSourceRevision: 12,
+        evidenceSourceRevision: 99,
+        evidenceWorkspaceRevision: 12,
         evidenceContentEncoding: "base64",
       },
     });
