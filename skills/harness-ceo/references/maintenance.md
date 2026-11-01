@@ -1,64 +1,19 @@
-# 技能与模型知识的改进方法
+# Maintaining coordination knowledge
 
-首次使用先按[初始化方法](initialization.md)找到用户的知识落点。用户反馈和新问题使用[观察模板](../assets/observation.md)记录事实、假设和处置；不把私人原文复制进公共技能。
+## Put each observation where it can change the next action
 
-用户准备发起一次 CEO Skill 迭代、需要判断触发信号或管理自己的副本时，先读[迭代教程](iteration-tutorial.md)；本文件只保留 Agent 执行维护时的判断门和验证规则。
+Keep cross-project coordination rules here. Keep project-specific facts, decisions, known issues, verification policy, and accepted risk in the user's project records. Keep model or runtime performance observations in the user's own matrix or equivalent. Keep each execution's raw output and handoff with that execution. Reuse an existing record instead of creating parallel memory.
 
-## 先判断观察该去哪里
+An observation is not a root cause. Record what happened, its source, the environment and version, and what is not yet known. Check for an existing issue or task before creating another. Promote a lesson only when the evidence shows that it generalizes beyond one project or one host.
 
-从实际失败或成功模式及其证据出发。把发生的事实与推测的解释分开，判断它属于模型、运行时或工具、单个仓库，还是通用协调方法。
+## Fix the mechanism, remove the obsolete advice
 
-| 观察 | 落点 |
-| --- | --- |
-| 模型与设置在实测条件下适合某类任务 | 用户模型矩阵，以运行证据支撑 |
-| 本地拓扑、审批、供应商配置、事故或项目决策 | 用户或项目上下文及权威记录 |
-| 可复现的工具缺陷 | 先归并到已有同族工作，由其判断消除责任还是修复责任；经正常授权路径处理，不每次拒绝当场立新件 |
-| 跨项目仍需要的判断 | 技能中负责该问题的规则或参考手册 |
+When a recurring coordination problem appears, ask whether the responsibility should be removed or the underlying tool/contract corrected. Do not turn a tool defect into a permanent prompt workaround. Once a correction supersedes old instructions, delete the obsolete path in the same change and check its consumers.
 
-工具或门拒绝工作时，先归并到已有同族工作，由其负责人判断「消除这份责任还是修复它」；一次拒绝本身不证明这道门必要。修复不自动授予修改门禁或基础设施的权限，需要另外决策时继续已授权工作并记录阻塞。反过来，能从工具源头修好的问题，也不应只靠新增规则提醒。
+For a skill change, state the expected behavior, relevant consumers, and a concrete scenario that would fail under the old guidance. Preserve behavior that solves another named failure. Avoid adding mechanisms that duplicate a boundary which already rejects the same invalid input.
 
-## 改写，然后验证
+## Keep the public skill useful to strangers
 
-1. 找到被新证据改变的既有规则，改写或删除，不追加竞争性警告。只有真正独立的新维度才新增章节。
-2. 高频判断留在 `SKILL.md`；场景细节放入带明确触发条件链接的参考资料。移动前核实目标文件已经包含完整指导，且仍然可发现。
-3. 新裁决生效时，在同一变更中删改被它取代的规则、角色文本、模板与测试断言，被取代的旧默认不再要求新一轮授权往返；过时绕行办法和重复断言一并删除。不把一次失败变成永久模型禁令、强制审批或通用重试规则。
-4. 核实新措辞保留用户范围和既有审批。扩大权限须单独明确决策，“自主执行”不提供额外授权。
-5. 用能区分修改前后行为的真实场景检验。重大修订在可用且已授权时使用新评估者，只给场景和公共技能包，不透露预期答案；检查实际结果。模拟判断与真实派工测试分开标明。
-6. 检查链接、发现元数据和受影响的仓库检查。通读修改的整节及相关参考资料，消除矛盾。证据记入任务，不把个人事故历史写进公共技能。
+Do not add private people, paths, task identifiers, decisions, user-specific usage limits, account details, internal repository policy files, or incident transcripts. Convert a case into a general mechanism and a checkable method, or omit it. State host-dependent behavior as conditional on a verified host capability. Examples must use current supported commands or remain clearly illustrative placeholders.
 
-精简保护读者注意力。正文设定一个长期稳定的字符或 token 预算，每次更新都按同一口径测量；新增内容必须同时通过改写、合并、下沉或删除腾出大致相当的空间，不能只加不减。下沉前先确认目标参考已经有完整指导，否则那是删除知识而不是移动知识。只有完成下沉后仍装不下、且新内容确实属于每次编排都要用的判断骨架，才调整预算，并记录调整理由。新维度确实可能需要新增内容，但必须说明为什么现有规则无法改写或合并。
-
-### 三问与根源修复
-
-每条说明性从句、括号或“不要 X”都先问：**能不能塌进工具？删掉会怎样？必须留下的能否压成一行禁令加半句机制？** 能由工具稳定保证的行为改工具或命令面，不把“记得 X”写成规则；删掉不改变下一步判断的解释、日期、人名和事故复述。必须保留的判断才进入技能正文，理由只保留提高遵守率所需的半句机制。
-
-遇到反复摩擦，先判断责任是否应该存在，再区分工具缺陷、用户记录和通用方法。能在工具源头消除的，不新增 prompt 规则；只能靠判断完成的，改写现有规则。新规则的删除清单必须和新增清单一起审阅，避免把一次失败扩成永久禁令、重试或审批。
-
-## 熵审计
-
-出现以下任一信号就做一次跨文档熵审计：正文超出既定预算；连续多次更新都没有下沉、合并或删除；或使用中两次在正文找不到常用规则。审计按场景重排主文档和所有参考资料，搜索重复原则、互相冲突的说法和死链，保留一个权威落点，其余改成带触发条件的指针。日期与当事人信息移入工作区记录，纯考据删除；完成后重读原场景，确认规则仍能指导下一步。
-
-## 可用的行为检验场景
-
-按本次修订选择相关场景，不要求每次全部执行：
-
-- 只有一个可用、未测模型和一个小任务：无需强制基准测试或新设指挥层也能推进。
-- 三个独立结果：职责和逐次运行产物各自独立，集成负责人明确。
-- 执行者证伪前提：接受证据，不强迫产生改动。
-- 派工启动后失联：重试前核对，避免重复写入者。
-- 两个边缘节点提出矩阵修改：保留各自运行证据和中心归属。
-- 没有发布审批：完成已授权准备，不发布。
-- 任务检查已通过且相关状态未变：复用证据，不仪式性重测。
-- 技能升级时已有用户矩阵：保留用户数据与选择。
-
-## 对照迁移与后续清理
-
-迁移成熟技能时，先按原文的章节、规则、模板和排障分支建立对照。每项标明保留、改写、转入用户记录或不迁入，并给出目标章节和理由。只列文件数或总行数不证明能力覆盖。
-
-私人故障内容可以不携带，但运行时问题、用户反馈、模型观察和接受风险的概念落点必须保留，同时给出首次初始化、读取触发、记录字段及修复后撤销办法。不能把原来有具体诊断分支的内容缩成“自行判断”或“看帮助”就声称等效。
-
-原文有矛盾、过时技术结论或权限扩大时，保留其要解决的问题，重写适用条件和动作，不悄悄选一条照搬。待实际验证的运行时行为明确标记，不能把历史故障当成已修复，也不能作为永久禁令。
-
-发现重复表述、正文找不到常用规则、参考资料互相冲突或连续新增却不改旧条目时，按上面的熵审计处理。检查主文与参考之间、参考彼此之间的重复，保留一处权威说明及条件路由；指针必须告诉读者何时读取和能解决什么问题。清理的判据是下一次行为是否更容易正确，不以堆积字数或历史叙述证明工作量。
-
-静态对照、模拟使用和真实派工比较是不同证据阶段。没有真实对照结果前，不宣称迁移版与原版具有相同性能或完成率。
+After editing, inspect the complete public skill tree for personal or private terms, broken links, stale commands, contradictory instructions, and methods with no concrete decision point. Use the [iteration guide](iteration-tutorial.md) when reviewing a larger rewrite.

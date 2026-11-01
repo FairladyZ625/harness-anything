@@ -21,7 +21,12 @@ import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
 import type { ActiveRuntime, RuntimeAttemptTerminal } from "../src/runtime-spawn-types.ts";
 import { active, tasklessSettlementRuntime } from "./runtime-spawn-settlement.fixtures.ts";
 
-test("path-like runtime missions produce an actionable receipt without exposing the path", (context) => {
+test("path-like or textual runtime missions produce an actionable receipt without exposing the input", (context) => {
+  const expectation =
+    "Expected a bare mission id. Publish the text as a mission document with " +
+    "ha task artifact add <task-id> --source <file> --destination artifacts/missions/<name>.md, " +
+    "then retry ha agent run <agent-id> --task <task-id> --mission <name>; " +
+    "update a published mission at its package path with ha doc sync --submit --path <task-package>/artifacts/missions/<name>.md.";
   let error: unknown;
   try {
     runtimeMissionName("tasks/task-owner/artifacts/missions/continue-01.md");
@@ -35,11 +40,24 @@ test("path-like runtime missions produce an actionable receipt without exposing 
     entity: "runtime mission",
     field: "mission",
     actual: "path-like value",
-    expectation:
-      "Expected a bare mission id; the daemon resolves harness/<task-package>/artifacts/missions/<name>.md " +
-      "and did not look up this file. Retry ha agent run <agent-id> --task <task-id> --mission <name>",
+    expectation,
   });
   context.diagnostic(`invalid_runtime_mission receipt=${JSON.stringify(receipt)}`);
+  let textError: unknown;
+  try {
+    runtimeMissionName("mission text");
+  } catch (caught) {
+    textError = caught;
+  }
+  const textReceipt = failed("op-runtime-mission-text", textError);
+  assert.equal(textReceipt.code, "invalid_runtime_mission");
+  assert.deepEqual(textReceipt.diagnostic, {
+    kind: "validation",
+    entity: "runtime mission",
+    field: "mission",
+    actual: "invalid mission id",
+    expectation,
+  });
 });
 
 test("exit zero without a declared delivery witness is stopped when the worker reported a final message", () => {

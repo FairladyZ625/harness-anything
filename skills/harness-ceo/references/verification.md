@@ -1,42 +1,27 @@
-# 验证闭环与缺陷归因
+# Verification and defect attribution
 
-适用：进新项目、复现缺陷、评审发现潜在回归、设计回归检查。先找现有验证入口，避免把“再加一个评审者”当成缺环境的替代品。
+## Match checks to the claim
 
-## 给断言选择正确证据
+Write each acceptance statement as something observable. Choose a check capable of disproving it:
 
-| 断言 | 取证路径 | 不足以证明的材料 |
-| --- | --- | --- |
-| 行为：崩溃、丢数据、恢复错误、资源泄漏 | 在代表性条件下执行；尽可能比较缺陷版本与修复版本，检查实际后果 | 只读代码的推测、检查退出码却不看输出 |
-| 结构：多份权威、死路径、装配遗漏、职责重复 | 搜索实现和引用两侧，阅读消费者及装配路径，对照有效契约 | 每个局部模块各自测试通过 |
-| 采用：真实使用方是否切换 | 检查用户入口、调用关系及契约要求的实际使用记录 | 文件存在、安装成功、演示数据 |
-| 性能：是否更快、成本是否下降 | 固定场景与环境，采集可比样本和波动，检查测量模型 | 单次快慢、把并发总耗时当作各项耗时之和 |
+| Claim kind | Check shape |
+| --- | --- |
+| Runtime behavior | Run the real path with an input or state that distinguishes success from the known failure. |
+| Structure or wiring | Trace the caller and search for both the required new form and forbidden old form. |
+| Performance | Measure comparable workloads and report environment, sample, duration, and relevant call/resource counts. |
+| Compatibility | Run the supported version/platform matrix that the change actually affects, or state the unverified entries. |
+| Recovery or lifecycle | Exercise the public lifecycle and inspect the durable state and produced artifacts. |
 
-代码与原始日志能支持调查和某些结构结论，但没有相应运行证据时，不把行为推测标成已证实。无法运行时，继续有价值的只读分析，明确验证缺口；额外生产访问和插桩仍按原授权边界处理。
+Use repository-required checks and tests for the changed surface. A focused check is valuable evidence but does not replace a required broader gate. A check that cannot reach the caller does not prove integration.
 
-## 从怀疑到可判定结果
+## Establish causality
 
-1. 写清预期行为、实际表现、首次失败阶段及触发条件，不先选修复方案。
-2. 找当前仓库实际使用的测试或验证入口，核实它提供的配置、构建产物、夹具和隔离方式。
-3. 选择最小但能保留失败条件的场景。缩小的是成本，不是把导致问题的边界一起删掉。
-4. 先复现失败或核实结构差异，再改变一个有关因素。保留原始输出与退出码，区分“没运行”和“运行失败”。
-5. 复核修复后的目标行为、相关调用方及必要的恢复、并发路径。检查范围由失败面推导，不由文件名猜。
-6. 把结论与仍未知的部分分开记录。没有分辨力时先改测量方法，不急着扩大实现。
+Preserve the original failure. Reproduce it before changing the code when possible. Compare a base or unchanged path under equivalent environment and configuration before deciding the patch is unrelated. Change one causal condition at a time. If two independent layers can cause the symptom, test which boundary rejects the bad state and which allows it through.
 
-## CI 与本地环境不一致
+Do not increase retries, timeouts, or fallback behavior without showing which observed failure it addresses. A timeout may hide a stalled dependency; a retry can multiply side effects. Prefer an explicit state event, bounded wait, or corrected premise when that is the actual cause.
 
-先读 CI 实际使用的执行入口，尤其是环境、缓存、并发、事件载荷和生成产物。尽量复用同一个入口，不凭印象拼“等价命令”。
+## Keep gates honest
 
-- 本地假绿：全局配置、已有文件或陈旧构建掩盖缺失依赖。在仓库支持的隔离环境验证。
-- 本地假红：缺少 CI 注入条件使修改前后都失败。先建立可用的基线对照，不能据此宣布“存量问题”。
-- 并发污染：查共享可变缓存或固定路径，用独立运行目录、受支持的缓存隔离或串行对照区分原因。
-- 事件差异：同一源码不等于同一输入；PR 编辑事件与代码推送事件可能运行不同检查。
+Do not weaken an existing gate to turn a failing change green. If a test is invalid, show the false positive and a replacement that still catches the named failure. Before trusting a zero-result scan, validate its scope and use a positive control. For CI/local differences, compare exact commit, runner, environment, and configuration before assigning cause.
 
-定向命令须确认测试文件集合非空；空参数可能触发整个仓库测试。命令包装不得吞掉真实退出码。修改生成式检查的源码后，核实执行的是对应构建版本。
-
-## 什么时候改善工具或检查
-
-重复同类错误时，先判断能否删除重复状态、收窄入口或复用现有机制。能在源头消除的问题，优先修源头；不是每个事故都增加门禁。需要新增检查时，应针对仍成立的一类失败，并核实它能抓住已知错误，也能接受正确输入。
-
-涉及时间和并发时，再检查稳定性：事件驱动优于无依据的等待时间，重复绿不自动证明不会抖动。详见[取证对照](evidence.md)。
-
-检查本身有缺陷不授予修改 CI 或权限面的权利。沿仓库治理路径处理，保留当前失败证据；不加忽略、豁免或重试来伪造通过。没有环境的独立功能可以继续，但被缺失验证实质阻塞的完成声明必须保留为未验证。
+When a required tool or environment cannot be reached, record the raw limitation and mark that evidence unverified. Do not report an intended command as a test result.

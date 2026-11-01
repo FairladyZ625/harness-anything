@@ -758,8 +758,10 @@ export function runtimeMissionName(value: unknown): string {
         field: "mission",
         actual: typeof value === "string" && /[/\\]/u.test(value) ? "path-like value" : "invalid mission id",
         expectation:
-          "Expected a bare mission id; the daemon resolves harness/<task-package>/artifacts/missions/<name>.md " +
-          "and did not look up this file. Retry ha agent run <agent-id> --task <task-id> --mission <name>",
+          "Expected a bare mission id. Publish the text as a mission document with " +
+          "ha task artifact add <task-id> --source <file> --destination artifacts/missions/<name>.md, " +
+          "then retry ha agent run <agent-id> --task <task-id> --mission <name>; " +
+          "update a published mission at its package path with ha doc sync --submit --path <task-package>/artifacts/missions/<name>.md.",
       },
     );
   return value;
@@ -779,7 +781,8 @@ function readMissionDocument(
       "runtime_mission_unavailable",
       [
         `Task ${taskId} has no ready non-empty mission in the canonical projection at harness/${logicalPath}. `,
-        `If the file exists on disk, run ha doc sync --submit --path ${logicalPath}, then retry.`,
+        `Publish it with ha task artifact add ${taskId} --source <file> --destination artifacts/missions/${name}.md, ` +
+          `or if harness/${logicalPath} exists, run ha doc sync --submit --path ${logicalPath}; then retry.`,
       ].join(""),
     );
   return read.document.body;

@@ -125,7 +125,15 @@ test("artifact add refuses an existing destination and names the base-sha doc ch
       holder,
     );
     assert.equal(collision.code, "artifact_collision", JSON.stringify(collision));
-    assert.match(String(collision.rejectionExplanation), /ha doc sync --submit --path .*artifacts\/worker-owned\.md/u);
+    const explanation = String(collision.rejectionExplanation);
+    assert.ok(
+      explanation.includes(`the published copy harness/${fixture.artifactPath} is the source of truth`),
+      explanation,
+    );
+    assert.match(
+      explanation,
+      /Edit it in place, then update it with ha doc sync --submit --path .*artifacts\/worker-owned\.md/u,
+    );
 
     writeFileSync(fixture.workerArtifact, body);
     const receipt = await fixture.cell.run({ kind: "doc-submit", paths: [`harness/${fixture.artifactPath}`] }, holder);

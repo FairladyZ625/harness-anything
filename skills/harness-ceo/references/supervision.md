@@ -1,54 +1,35 @@
-# 长程监管与交接
+# Durable supervision and handoff
 
-适用：已有后台派工、多个依赖包、PR 等待或跨会话交接。主控对在飞工作的去向负责，但本技能不自动创建定时任务；持久唤醒须使用宿主支持且已获授权的机制。
+## Every supervisory tick has an outcome
 
-## 每轮监管的实际顺序
+Start from the current `ha agenda`. Select work from live task state, decisions, dependencies, and current owners rather than session memory. For a work subtree, inspect its root and open tasks. For a dispatched task, read its current and historical dispatches, durable runtime or squad status, and produced artifact.
 
-1. **重建承诺的工作集**：读取当前任务、依赖和正式议程。若工作区以置顶表示承诺，使用该现有机制；不假定每个用户都采用相同置顶语义。区分已承诺事项与新发现候选，避免把所有发现自动扩成任务。定时任务产出的审计与报告接入议程前，负责人每轮亲读最新一份；没有读者的产出先停造，不再自动续跑堆积。
-2. **核对现场**：按任务和执行身份读取状态、报告及可见运行信号。判断是在执行、等待检查点、已结束待验收，还是观测不足。运行中内容不是终稿；无新日志只是线索。
-3. **先回收完成线**：取得稳定产物，按[验收方法](acceptance.md)核实功能与原始目标。需要修改时明确返回哪个执行者、哪条证据不成立；不要只说“继续完善”。
-4. **推进依赖**：区分实现、集成与发布的前置条件。实际依赖验收的动作仍等待；可独立完成的基线测量、失败复现、文档和不重叠实现应同步推进，不因一个 PR 或设备等待而冻结整条工作线。重新核实文件归属、上游版本与当前可用实例；不是把上一轮排程原样重放。
-5. **办理已授权集成与收尾**：核实实际合并状态，完成仓库要求的生命周期记录，再清理自己负责且可清理的工作树与分支。交叉核对“已合并但任务未收口”“任务已收口但仍有在飞执行”。
-6. **落实责任后再交接**：对本轮选定、已授权且依赖满足的动作，亲自执行或派发并核实运行。若尚未启动，记录具体阻塞或与更高优先级动作的资源冲突，不能用负责人名字或“下一步”代替执行证据。区分实际操作、在飞执行、待验收产物和未启动事项；等待 CI 或 worker 时明确由谁、通过什么触发接手。没有可用唤醒能力就如实说明，并使用已授权的监管方式。进度问答不终止原执行责任；明确暂停、范围改变及审批边界仍然有效。无实质变化时不发空状态广播。
+Use this sequence:
 
-## 回调与状态检查
+1. **Establish state:** which task and execution are active, which owner holds the next action, and what evidence is current?
+2. **Check the checkpoint:** compare concrete output with the task plan. Is it verified, partial, blocked, failed, or unknown?
+3. **Act:** answer a question, clarify a criterion, run a focused check, review a result, dispatch a ready independent task, or change the approach based on new evidence.
+4. **Record:** write meaningful progress and attach evidence through the task's supported path. State the next owner, action, and triggering condition.
+5. **Handoff:** before leaving, identify all still-running, waiting, and unknown work and who will resume it.
 
-回调是及时信号，不是唯一证据。查清当前宿主是否保证跨会话、压缩或断连后的送达；不能沿用其他工具的保证。已有托管后台调用就不要再叠加脱离托管的后台化方式，否则被跟踪的进程可能先退出。
+A dispatch receipt, no-output wait, `running` label, quiet log, or absent process on the CEO's machine is not sufficient by itself to establish completion or failure. Check status in the system that owns the execution and inspect its output. If visibility is missing, state `unknown`; do not manufacture a terminal result.
 
-一个批处理或小队的规划者退出，不等于所有下属完成；有的运行时只负责生成计划与扇出。核实谁监管各执行、谁接收失败、谁重派与综合。若无人负责，主控承担这些动作，而不是再派一个无人监管的规划者。
+## Host notifications are hints
 
-没有可靠回调时，在本会话内做有界状态检查，或交给已授权的持久设施。不固定私人使用的轮询分钟数；按任务耗时、阶段、成本及用户通知偏好选择频率。检查必须能改变下一动作。
+Completion events and shell return behavior depend on the host. Use them when they are actually available, but verify the durable task and execution state when they arrive. Do not assume a shell exit automatically starts another model turn. When a host cannot wake the CEO, leave a durable checkpoint and resume on the next invocation or supported event. Do not build a private always-on poller to compensate for an absent host feature.
 
-## 中途改变方向
+Use a bounded wait or event when supported. Avoid fixed sleeps as a substitute for an observable state change. Before retrying, query existing dispatches and outputs so a lost response does not create duplicate writers. Never cancel another owner's work or release a lease without the supported authority and evidence.
 
-权威进度记录负责留痕，不默认具有消息投递能力。写了新决策不等于执行者收到了。
+## Change direction without losing evidence
 
-- 宿主支持向活跃执行送达指令时，使用该通道并核实接收状态。
-- 已到检查点或已退出时，将新增裁决写入下一次续跑包，不能等一个已结束的进程回答。
-- 执行途中不静默移动其工作目录或改写其输入文件。确需变化时通过支持的中断、交接或消息机制协调。
+Keep the original task contract and prior attempts available. If evidence disproves an assumption, update the task through its supported amendment or review process; state what changed and why. A resumed worker receives completed work, exact current state, preserved changes, failed attempts, and the new objective. Do not repeat measurements whose relevant conditions have not changed.
 
-## 交接给下一会话
+After two attempts of the same method without new evidence, change the method or return the contract for a decision. Continue independent work while one question is waiting. If no useful authorized action remains, record the exact blocker and next trigger rather than issuing empty status turns.
 
-使用[续跑与交接模板](../assets/continuation.md)，至少留下：
+## Write a usable handoff
 
-- 当前目标、有效契约和已授权范围的引用。
-- 每条在飞任务、执行、派工的真实身份，实例、工作目录和报告落点。
-- 已完成并验证的结果、未提交但需要保留的变更、未知状态。
-- 上一轮新增裁决及是否确认送达。
-- 下一步负责取结果的人或持久设施；若无人接手，明确报告，不能称监管完成。
+Use [continuation](../assets/continuation.md) when a new session must take over. Include the task and execution identities, artifact and source versions, verified changes, exact test results, uncommitted work, active owners, previous attempts, remaining budget, and the next decision. Separate work that is done, submitted, under review, integrated, and released. A host notification without a durable handoff is not recovery.
 
-接手者先回读现场，再恢复执行；不重做已验证工作，也不因“旧目录存在”就直接在未知基线上派工。
+## Keep long-lived goals separate from live state
 
-## 什么时候停
-
-本次目标完成，或剩余动作确实都需要未取得的输入或权限时，报告具体阶段和答复后的动作。等待一个问题期间仍可推进独立工作。
-
-需要某个人答复的事——问题、亲自上手验收、同意、要不要重开——在明确具有关系写权时记成台账里的等待关系；只有文档、progress 或 fact 写权时，把具体 ask 写进获准报告并请 owner 登记。关系写权独立于这些写权。获准时用以下命令登记：`ha relation relate --source-ref task/<id>（或 decision/<id>） --target-ref person/<id> --type awaits --rationale "<question|acceptance|consent|reopen>: <问的是什么>" --expected-version 0`。它出现在对方 `ha agenda` 的「等你处理」段和图形界面「需要你处理」里，被挂住的任务离开可派队列、进入「球在别人手里」；对方有两条答复通道，写的是同一条台账记录：在图形界面总览「等你答复」里点开这一条就地答复（按类型选通过/不通过、重开/不重开、同意/不同意，或直接写答复），或直接告诉 Agent，让它执行 `ha relation unrelate <relation-id> --reason "<答复>" --expected-version <n>`；答复留在退役理由里。答复之后，提问方（被挂住的任务的创建者或决策的提案者）在自己的 `ha agenda`「已答复，待你跟进」和图形界面同名分组里看到问题与答复；按答复在源任务或决策上继续（追加进度、改状态或裁决），源上一有新写入这一条即出列。同一件事需要再问一次（第二轮验收、打回后再裁）时，对同一对端点再执行一次同样的 `ha relation relate`，`--expected-version` 填这条边答复时的 revision（填 0 会被拒，报错里给出该值）；边重新激活，旧答复从「已答复，待你跟进」出列，历次问答都留在历史里。连续两次同一方法没有新证据，或多轮监管无实质推进时，检查是否缺裁决、观测或运行能力，改变方法或升级，不保持空转。
-
-任务队列为空不授权寻找范围外的新活。结束时停用本次创建且由自己负责的监视设施，保留仍必要且已有接手人的监管。不要关闭别人的定时任务或服务。
-
-## 长程目标写法
-
-长程目标通常包含四部分：外部可观察结果、发生冲突时的优先序、完成或升级条件、本周期新增边界。任务标识、路径和实时队列保存在可更新的交接记录，不硬编码进长期不维护的目标文本。通用规则引用本技能，不重复抄写。
-
-这是目标文案方法，不是调用任何特定 `/goal`、`/loop` 或调度工具的授权。
+If the host provides a persistent-goal facility, state the observable outcome, priority when work conflicts, completion or escalation conditions, and the current scope boundary. Keep the mutable queue, task identifiers, and execution snapshot in supported task and handoff records. A goal statement does not authorize new work or replace the task contract. If the host has no such facility, use its normal task lifecycle and a durable handoff rather than inventing a private poller.

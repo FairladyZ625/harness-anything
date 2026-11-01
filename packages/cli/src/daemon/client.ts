@@ -20,6 +20,7 @@ import {
   resolveLocalDaemonTarget,
 } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import type { DaemonLaunchSpec } from "@harness-anything/daemon/internal/client/daemon-autostart";
+import { materializeArtifactSource } from "../cli-artifact-source.ts";
 import { materializePromptFile } from "../cli-runtime-prompt-file.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
 import { fleetDocRoute, fleetRuntimeRoute, fleetScheduleRoute, fleetTaskRoute } from "./fleet-command-route.ts";
@@ -159,7 +160,7 @@ export async function runCommandThroughDaemon(
   options: { readonly autostart?: boolean; readonly env?: NodeJS.ProcessEnv } = {},
   timeRequest?: (typeof import("../cli/timing.ts"))["timedDaemonRequest"],
 ): Promise<JsonObject> {
-  command = materializePromptFile(materializeScheduleMission(command));
+  command = materializeArtifactSource(materializePromptFile(materializeScheduleMission(command)));
   const env = options.env ?? process.env;
   assertCanonicalCliEntry();
   const rpc = await import("@harness-anything/daemon/internal/client/local-json-rpc-client"),

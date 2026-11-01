@@ -590,8 +590,10 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     field: "mission",
     actual: "path-like value",
     expectation:
-      "Expected a bare mission id; the daemon resolves harness/<task-package>/artifacts/missions/<name>.md " +
-      "and did not look up this file. Retry ha agent run <agent-id> --task <task-id> --mission <name>",
+      "Expected a bare mission id. Publish the text as a mission document with " +
+      "ha task artifact add <task-id> --source <file> --destination artifacts/missions/<name>.md, " +
+      "then retry ha agent run <agent-id> --task <task-id> --mission <name>; " +
+      "update a published mission at its package path with ha doc sync --submit --path <task-package>/artifacts/missions/<name>.md.",
   });
   context.diagnostic(`invalid_runtime_mission receipt=${JSON.stringify(pathLikeMission.receipt)}`);
   // The unavailable rejection is only deterministic while the file is absent: once it exists on

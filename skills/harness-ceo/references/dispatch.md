@@ -1,71 +1,51 @@
-# 派工、并发与恢复
+# Dispatch and task setup
 
-## 发现当前安装的契约
+## Discover the live contract
 
-从 `ha capabilities` 和相关命令帮助开始。选择前检查现有成员、小队声明和可用运行时实例。新声明须通过当前 CLI 验证后再使用或安装。不假设示例标识、参数、供应商别名、权限模式或回调行为在另一套安装中仍然成立。
+Begin with `ha --help` and `ha capabilities`. Read the installed version's help for each command before composing flags. The CLI, preset set, declarations, and runtime instances are the live contract; an example in this skill is only a starting shape.
 
-使用现有任务与预设创建入口、声明的阅读集合，以及任务绑定的运行时或小队执行。遵守当前认领、租约和执行者绑定要求，不照搬固定的释放再启动序列。不得释放他人的租约或伪造身份绕过权限。只保留一份权威执行指令；补充说明引用它，不另起分叉版本。
+Before making a task, read `ha agenda`, search the relevant task tree, and read the current request and decisions. Check whether the requested outcome is already implemented, assigned, rejected, deferred, or waiting on a dependency. Verify the caller and the deliverable itself; an existing file without an active caller may be incomplete.
 
-宿主无法使用受支持的派工入口时，继续可行的本地工作，报告具体缺失能力。不得未经授权安装私人封装或配置凭据。
+Use `ha preset list --vertical software/coding` and `ha task create --help` to choose the task's contract. A task preset sets planning and completion expectations; an agent or squad identity sets who performs the work. Do not conflate them. Use `standard-task` for ordinary repository changes and `docs-task` when the deliverable is documentation or design only and that preset fits. Select a risk tier from the actual impact; do not label a protected or hard-to-reverse change low risk to skip review.
 
-## 多个边缘节点，一个中心
+Create a standalone task when it has one outcome and no meaningful shared work goal. A work is a root task and the subtree below it. Inspect `ha work list` and `ha work show <work-id>` before reusing one. A newly created work requires an accepted decision; do not invent a decision merely to get a grouping container. When there is a real new direction choice, inspect `ha decision propose --help` and `ha decision accept --help`, then use the authorized decision flow before `ha work create`. Add work items as children with `ha task create --work <work-id> ...`.
 
-权威中心负责共享任务状态和矩阵更新。边缘节点使用当前持有人及认领凭证，经受支持的中心写入路径提交；不能各写一份本地副本，再覆盖权威记录。同一任务执行不得产生竞争写入者。并行工作使用不同的已授权执行单元；共享同一租约时串行执行。
+## Make the task plan executable
 
-定时工作归属调度发生次的认领，不绑定到一个所有节点同时启动的常设任务。通过 `ha schedule create --help` 核对 interval/cron、时区、detect/remediate 与 agent 声明；用 `schedule list/show/runs` 回读，用 `schedule run-now` 手动触发已授权的 schedule。定时执行使用 Agent 的有序 runtime 声明，不另加私有轮询进程。
+The generated task package is the authority for mission and acceptance. Keep one canonical task plan, not a prompt copy that can drift. Before dispatch, fill its relevant sections with:
 
-每次运行经受支持的入口分配产物目录，并以实际派工或执行身份区分。不同执行者不得共写可变的 `report.md`。Git 工作树隔离源码变更；无 Git 边缘节点经中心交回产物，不强求 Git，也不假装拥有提交。
+- the source of the request and why the outcome matters;
+- verified current behavior, real consumers, existing solutions, and assumptions open to challenge;
+- the single outcome, user-visible or operational result, and non-goals;
+- concrete output, report location, evidence, and acceptance checks;
+- repository instructions, authorization, budget, dependency, and active write conflicts;
+- the next checkpoint, stop conditions, and where to send a challenge or unresolved risk.
 
-在运行证据中记录选型使用的矩阵条目和版本。执行者把观察写入自己的报告，由指定矩阵负责人复核后，经中心写入路径整合。并发运行可以基于不同矩阵版本完成，彼此不改写对方观察。
+Evidence and output paths should follow the generated task contract. Keep large supporting material in the task's artifact area and link it from the plan. Do not place secret values or personal credentials in the task package.
 
-矩阵是用户维护的文档；本技能不新增锁、注册表、认领类型或配置解析器。
+## Choose a team, then a person
 
-## 任务工作树
+Inspect `ha squad list` before an individual agent when the work has a real domain coordination need. Inspect the candidate squad's roster and assigned runtime requirements. Otherwise use `ha agent list` and inspect the candidate declaration. Prefer an existing identity whose instructions, tools, task type, and review boundary match the work.
 
-仓库变更类任务的工作树由 Harness 在本节点首次启动或派工时建立：分支 `<任务标识>`，目录 `.worktrees/<任务标识>`，基线为 `origin/HEAD` 指向的远端默认分支，无远端时为主检出的当前分支。执行者在该分支上完成定向验证和本地提交；worker 不自行推送或开 PR。非 Squad 的任务绑定运行由 daemon 在成功结算时管理分支发布，Squad child 交回本地提交；主控负责 PR 与集成。委托包不另指定分支名或手建工作树。
+Use one worker for one coherent semantic result. Split only where tasks can be accepted independently, need distinct write ownership, or have different risk/check contracts. A larger packet with sufficient context is usually cheaper than repeated context transfer. Do not split by arbitrary file count. Parallel tasks must not have overlapping active write surfaces.
 
-新工作树的准备步骤由仓库 Settings `worktree.setup` 声明（`node-modules`，或 `run: <命令>`，如 `run: uv sync`），在工作树内按顺序只运行一次。准备失败时派工被拒、工作树保留，提示给出步骤和 `harness-setup/step-<n>.log`；修复原因后重派同一任务，只重跑未成功的步骤。这是环境问题，不换执行者、不删工作树重来。准备步骤缺失导致执行者无法构建时，调整 Settings，不在委托包里补安装指令。
+The current task-bound command shapes are:
 
-## 先观察、核对，再重试
+```bash
+ha agent run <agent-id> --task <task-id> --detach
+ha squad run <squad-id> --instance <runtime-instance> --task <task-id> --detach
+```
 
-保存真实运行返回的任务、执行、派工、工作区、模型与运行时、产物身份。回执说明请求了什么；使用受支持的状态与结果接口和输出核实实际运行情况。宿主暴露实际模型与设置时记录它们；否则将请求身份标为未验证。
+Harness owns task worktrees and squad child worktrees. Avoid a hand-made worktree or custom `--cwd` unless the task has an explicit need and its ownership is clear.
 
-超时或失联后，重派前先查询已有执行。综合运行时状态、产物时间与内容，以及宿主可见的进程状态进行核对。看不到另一节点的进程不证明它已经死亡。日志安静不等于停止，也不能单信陈旧的运行中状态。
+If no declared identity fits, do not substitute an unbound runtime prompt for task-bound work. The current `ha runtime run --help` explicitly directs task-bound work to `ha agent run`. Create a follow-up task to declare and validate a suitable reusable agent or squad, or revise the assignment to work the CEO can safely own. A missing identity is not permission to omit review or task tracking.
 
-仅当前运行时支持恢复、且执行状态符合条件时恢复执行。否则走当前文档规定的恢复路径，或新建有界运行并引用已完成产物。保留原失败尝试作为证据，不把历史供应商故障写成适用于所有运行时的永久规则。
+## Resolve ownership before dispatch
 
-重复尝试没有新证据时，停止重复该方法，接管、改变实验或升级缺失能力；继续独立工作。结束监管会话前，把在飞运行交给明确持有人，或使用宿主持久监管设施，不假设回调在会话丢失后仍然有效。最终交接明确列出仍在飞的工作。
+For each proposed parallel assignment, identify its task, execution owner, artifact location, and paths another active owner is changing. The file boundary is a deny list, not an allowlist: list only active conflicting paths and protected surfaces. Let a worker inspect adjacent code and discover unanticipated consumers. Check live task and dispatch state, and the hosting platform when relevant, before marking a path occupied. A dirty worktree by itself does not establish an active owner; a historical task status by itself does not establish a live process.
 
-## 派发准备的可检查顺序
+If two tasks need the same writable path, serialize that work or change the task boundary. Do not solve it with an informal lock file. If runtime ownership cannot be determined, keep the decision explicit and wait on that conflict while progressing independent work.
 
-1. 确认目标工作区、当前任务和真实实例存在；实例可能是节点本地资源，中心能看到任务不意味着每个节点都已配置同名实例。
-2. 检查实例就绪状态、实际模型选择与所需工具。首次接入按[模型方法](models.md)办理，不硬编码模型档位或登录方式。
-3. 核实执行契约已落到权威任务，目标执行者能读到原文。任务包路径可读和台账版本已提交是两件事，分别确认；不移动在飞执行正在读取的文件。
-4. 核实任务当前执行与认领状态、调用者权限、报告落点，以及所需的真实机器授权。计划里的文字不代替工具要求的授权记录。
-5. 经支持的任务绑定入口派出，保存实际身份并检查受理后的运行状态。检查批处理中各项结果，不能只看总退出码。
+## Preserve an objection route
 
-仓库若有需预先批准的配额或保护面变更，在派发前依据已批准设计办理其正常机器授权，并将范围和上限写入契约。执行者不能修改授权凭证，超出仍须裁决。没有此类门时不新增配额机制；未授权时不为避免往返自动批准。
-
-## 按失败层次恢复
-
-| 症状 | 先核实 | 可做的下一步 |
-| --- | --- | --- |
-| 实例不存在或未就绪 | 当前节点实例、安装和授权状态 | 选已授权可用实例，或报告缺失配置；不回退到私人脚本 |
-| 文档找不到 | 权威根、任务包定位、执行者实际可读性 | 修正已授权的定位或提供可达引用；不复制第二套台账 |
-| 连接被拒或找不到端点 | 路径不存在、权限拒绝、服务不可用属于哪一层 | 保留具体错误；采用支持的授权/连接修复，不默认放宽沙箱 |
-| 认领拒绝、持有但显示过期 | 真实持有人、执行状态、到期时间与当前恢复契约 | 使用有权执行的恢复入口；不强行释放他人租约，不固定先释放再启动 |
-| 启动返回失败但疑似已运行 | 已有派工、执行及产物记录 | 先关联已有运行再决定重试，避免同树双写 |
-| 状态运行中但缺少进程或报告 | 所在节点、进程归属、终态、日志与检查点 | 确认失败后按支持的取消/恢复处理；观测不足就标未知 |
-| 报告缺失或为空 | 是否正常结束、报告落点、报告写权限 | 保留已有产物并报告未完成，不能只把运行成功当作交付 |
-| 评审显示批准 | 实际执行与评审身份、被评内容版本、所需同意 | 核实独立性；缺失则走支持的复核路径，不修改身份冒充独立 |
-| `ha task push` 报 `delivery_publish_failed` | 分支名是否等于任务标识、git 常规身份、CAS 远端切点、网络 | 按回执 detail 点名的原因在本地修正后重试 `ha task push`；不绕过 git 包装器直推 |
-| `ha task push` 报 `runtime_credential_unavailable` | 派工实例是否已绑定对应 provider 的托管凭据、原生凭据库是否可解析 | 由操作者配置（`ha runtime instance hosting-credential set <instance-id> --provider <github|gitlab> --ref <ref>`，见 docs-release/hosted-credentials.md）；发布受阻如实上报。CI 结果看托管平台的 PR 检查，不在台账复制一份另行裁决 |
-| `ha task push` 报 `unsupported_command` | 该机器 CLI 与 daemon 版本是否早于这些命令 | 升级后重试；升级前在 closeout 记录受阻原文。CI 是否可合入由托管平台在 PR 检查与合并时裁决，不再读取另一份台账判定 |
-
-守护进程重启或主干更新是否影响执行，依据当前运行时契约与现场核实。支持独立执行和重新收养的运行时不能沿用“一重启就杀掉所有执行”的禁令；也不能假设所有宿主都具有收养能力。涉及共享服务的动作仍需真实归属与授权。
-
-## 模型切换不改变委托语义
-
-供应商失败先确认调用的是预期入口，再区分认证、配额、权限、工具能力与任务质量。切换只在用户授权和预算内进行，保持角色契约、必需模态和输出形态；实际使用模型能取证就取证，不能取证就标未验证。
-
-执行者被宿主安全或审批机制阻止时，报告动作与理由，寻找范围内的合法替代。不得通过改写措辞隐藏原动作或绕过拒绝。
+The worker may show that the requested work is unnecessary, already done, or based on a false assumption. The expected result can be a supported correction to the plan, a smaller task, or a no-change report with evidence. Do not force implementation to satisfy an obsolete file list. If the task no longer has a valid outcome, record that finding through the task's supported lifecycle instead of leaving a zombie assignment.
