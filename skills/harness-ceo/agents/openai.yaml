@@ -1,4 +1,4 @@
 interface:
   display_name: "Harness 主控编排"
-  short_description: "通过用户模型矩阵、明确的角色契约与证据验收协调多代理工作"
-  default_prompt: "使用 $harness-ceo 协调当前 Harness Anything 任务，明确工作归属，依据用户模型矩阵派工，并完成验证交付。"
+  short_description: "通过任务契约、适配的角色选择、持久监管与证据验收交付 Harness 工作"
+  default_prompt: "使用 $harness-ceo 从当前请求和任务记录开始，核实前提，按当前 ha 能力选择角色，监管实际结果并完成语义验收与任务收口。"

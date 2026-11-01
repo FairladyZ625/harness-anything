@@ -1,49 +1,48 @@
-# 验收与完成
+# Acceptance and completion
 
-## 三个问题
+## Three acceptance layers
 
-| 问题 | 证据 | 责任 |
+Keep three distinct questions separate:
+
+| Layer | Question | Owner |
 | --- | --- | --- |
-| 结果兑现了它的声明吗？ | 变更、直接检查、输出、错误路径 | 执行者与按需独立评审；上级核实声明 |
-| 声明符合用户要求的结果吗？ | 当前目标要证明什么、哪个已有权威已经证明、新增责任买到什么；再对照原始请求与当前有效决策 | 主控最终语义验收 |
-| 预期使用方能用起来吗？ | 真实入口与代表性使用路径 | 主控负责，必要时委托冷启动取证 |
+| Functional review | Does the delivered change match its claim, preserve required invariants, connect to consumers, and pass the required checks? | Independent reviewer or delegated reviewer; CEO verifies important evidence. |
+| Semantic acceptance | Does it solve the user's current problem, honor the governing request or decision, and add only justified responsibility? | CEO; cannot be delegated. |
+| Usability acceptance | Can a person or fresh agent use the result through its real entry point without private session context? | Fresh-use check may be delegated; CEO confirms the required user path. |
 
-CI 证明它实际测试的性质，不证明符合每个设计决策。评审声明在核实前只是输入。搜索未命中不证明不存在：检查搜索范围和真实使用方。报告漂移前排除已被替代或明确延后的要求。零发现是有效结果。
+CI green proves only the checks it actually ran. A review approval proves only the review's stated scope. Neither substitutes for semantic or usability acceptance.
 
-验收一个工作（根任务及其子树）时，从权威来源逐项走向实现，不只从变更文件反推要求，这样才能找到从未产生变更的遗漏。契约包含删除时，同时检查被移除路径和替代路径。已知失败模式复用现有回归证据；新增检查必须能识别相关失败。
+## Re-read the source and search for omissions
 
-## 有界评审
+For each submitted change, reread the request and current accepted design that define the intended outcome. Write the semantic acceptance points before reviewing code. Compare the exact submitted cut with those claims and with the real entry points. Do not derive requirements from the implementation or an old memory summary.
 
-按真实不确定性和影响选择评审强度。低风险工作可以由主控验证；有实质风险或仓库要求时使用独立评审。多个视角只有检验不同假设时才有价值。给评审者原始来源和中性问题，不给预期结论。遵守宿主与仓库对真实传输身份独立性的要求；同一身份换一段提示词不构成独立批准。
+For a milestone or broad change, enumerate all active acceptance claims from their authoritative records. Walk from each claim to its implementation and use evidence. Look for omitted work, because omissions have no diff. For moves, removals, and migrations, search both the new target state and the old state that must disappear. Exclude claims explicitly superseded or deferred only after checking their live status.
 
-发现须有证据，并处置为修复、有依据的驳回、有明确负责人的延期，或阻塞。复查变更行为与已确认问题；没有新证据就不要求无限轮次。必需检查和发布阻塞项仍然有效，不得削弱门禁来接收工作。
+When an audit worker reports drift, verify each material finding directly in the source and current records. The inventory is a useful input; its judgment is not a substitute for CEO ground-truth. If the user questions the meaning of a change, reopen it and inspect other work in the same delivery batch for the same missed condition.
 
-## 如实区分阶段
+For a broad audit, also sample entries the auditor marked satisfied and verify them from the same authoritative sources. This checks whether the audit method is systematically missing or reversing cases; it does not replace checking every reported blocker. Filter superseded or explicitly deferred claims only after confirming their current status and rationale.
 
-分别报告已实现、已验证、已集成、已发布、已采用。本地测试成功不等于已发布，功能已发布也不证明被采用。处在强制路径上被大量使用只证明真实接线，不证明这份能力值得存在——把一道门放在唯一完成路上，会自动制造它被使用的证据。只有用户契约要求时，真实采用才是完成条件。有界冷启动演练可以验证可用性，但不能冒充生产使用。不把主观满意或用户未要求的打磨变成完成前提。
+## Prove real use
 
-Git 工作遵守仓库规定的定向验证和提交交接；无 Git 工作使用中心产物与执行证据。授权集成后验证发生变化的组装状态，记录所需任务生命周期写入。本地产物可以已就绪，但中心提交或独立同意仍受阻：指出具体阶段，不虚报任务完成。
+Trace the result through its actual caller, task, application route, or operator workflow. If a feature has no connected entry point, it is not usable delivery. Exercise the user-facing workflow in the task's required environment; for a documentation or CLI task, follow it from a clean context. Note limitations when the actual environment or a required persona is unavailable.
 
-请求包含发布、清理和退役时，这些属于完成范围。只删除授权范围内归属明确且已被替代的路径；不删除他人的活跃工作树或用户定制矩阵。在权威记录中保留有用的失败证据。最终报告结果、证据和实质缺口，不复述活动流水账。
+Before milestone closeout, check any existing issue or regression register for recurrence, then scan newly changed surfaces for newly introduced risks. A zero-finding result is acceptable only when scope and tools were capable of finding the named problems.
 
-## 每包语义验收的操作顺序
+## Add milestone exit evidence
 
-1. 主控先回答当前目标要证明什么、哪个已有权威已经证明、新增责任买到什么，再回读该包原始请求、当前有效决策和验收条件，不先看实现摘要来决定查什么。
-2. 写出会区分“做了相似东西”和“兑现目标”的关键语义点。例如要求模板资产时，搬到另一个文件的内联文本不自动符合。
-3. 将这些原始要求连同完整产物交给按需复核者，使用[复核模板](../assets/review-packet.md)。结论未验证就标存疑，不强迫出问题。
-4. 主控回读实际依据。行为不符或遗漏明确要求时返回具体缺口，即使 CI 通过也不据此接受。
-5. 用户提出语义疑问时，重查相关契约与同类受影响部分，不把疑问自动扩大为全仓审计。
+For a milestone, reconcile its authoritative checklist against the integrated state and close four evidence lenses:
 
-## 工作遗漏与复发
+1. **Structure:** required checks and assembly boundaries pass on the intended integrated version.
+2. **Semantics:** the CEO walks every active claim from its source to the result, including omissions and replaced or removed paths.
+3. **Adversarial and regression:** challenge the most consequential assumptions independently, recheck known defects for recurrence, and inspect the changed surface for new failures. A reviewer report is an input; verify material findings against source or behavior.
+4. **Use:** demonstrate the representative user or operator path through the real entry point. A standalone artifact or test without that path is insufficient.
 
-使用[逐项审计模板](../assets/audit-packet.md)，从权威来源枚举本工作的有效要求，用 `ha work show <工作标识>` 核对其子树中仍未完成的任务。既查“实现形态错”，也查“整个要求没做”；后者不会出现在变更中。检查已有失败模式是否复发，并检查新变更引入的风险，两者证据不能互相替代。
+When safe and within the task's authorization, the CEO should also exercise the critical path directly and record concrete friction as evidence. Do not turn subjective satisfaction into an acceptance condition the user did not request. Report production adoption separately from a bounded usability demonstration.
 
-已知问题记录应包含仍有效的症状、验证方法和接受条件。复查前核对原诊断，不能只凭陈旧状态再次立项。来源被替代或明确延期的要求记录其依据，不能算遗漏。
+## Bound review effort
 
-## 冷启动使用与视觉交付
+Meet all review requirements frozen in the task and repository policy. Set additional review depth according to impact: protected boundaries, production writes, security, data changes, and hard-to-reverse behavior justify independent or adversarial review. Ordinary bounded work usually needs the required independent reviewer and focused evidence; pure prose can receive CEO review when its task contract permits it.
 
-需要使用证明时，让没有本次前情的使用者只凭交付文档和真实入口完成代表性路径。过程中不暗中补代码或提供只在主控脑中的步骤；原样记录阻塞。此时衡量的是文档和入口的可用性，不等于生产采用或模型性能。
+Tie findings to the exact cut. After a repair, verify confirmed findings and rerun only checks whose inputs changed, plus required gates. New findings must be classified: does the issue break a current invariant, production path, or acceptance criterion? If yes, resolve it before merge. If not, record a clear follow-up rather than expanding the current review indefinitely. Never weaken a required check to make the cut pass.
 
-视觉交付按受影响状态、视口和交互列出需要检查的画面，回读实际渲染并操作关键流程。截图清单不是截图证据，模型文字描述不代替看图。选择具有所需视觉工具的已授权执行资源；图像大小按当前工具限制处理，不使用固定私人像素值。
-
-主控负责最终语义与使用判读；数据枚举、截图和冷启动证据可委托。发现真实使用阻力时按契约影响处置，不无限打磨。
+For suspected overengineering, ask the author for the simplest compliant solution, the extra complexity introduced, and the failure or capability it buys. Remove complexity that has no evidence-backed purpose.

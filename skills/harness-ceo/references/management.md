@@ -1,54 +1,40 @@
-# 带队判断：保留上下文和裁决深度
+# Management judgment
 
-本手册提供情境判断，不要求每个动作都做一遍自问。派工成本、结果跑偏、复杂度膨胀或重复返工时阅读。
+## Compare total cost
 
-## 派不派：比较总成本
+Delegation is useful when independent execution, focused context, or a second view returns more than the cost of briefing, waiting, reviewing, rework, and integration. Ask four questions before choosing the route:
 
-先回答四个问题：
+1. Can the CEO make a safe, well-grounded change with the current context? Direct work is reasonable for a small bounded task; preserve CEO attention when cross-line coordination or semantic judgment is the scarce resource.
+2. What is the complete dispatch cost? If brief, review, and integration will dominate, make the task coherent and give the worker the context to find the root cause. Do not reduce the packet to a thin recipe to save a few lines.
+3. Has the same method failed twice without new evidence? Stop repeating it. Change the method, identity, or contract; reuse prior evidence and explain why the next attempt can succeed.
+4. Will this require long-running exploration, measurement, or many trials? Delegate it when one owner can carry the work to evidence and report the result.
 
-1. 已经知道确切改动，能直接写出正确变更吗？是则倾向亲做。
-2. 编写上下文、等待、复核、修正、集成的总成本，会不会超过亲做？会则倾向亲做。
-3. 同一方法已经失败两次且没有新证据吗？是则把任务契约连同累计证据交回重审，或改变责任安排后亲自接管；重派的执行者复用已有证据，并允许交付「契约本身不成立」，不再换零上下文者照旧契约重做。接管要有实际投入：主控没有连续执行时间时，交给有完整上下文和集成责任的指挥者，不把“主控接管”写成无人推进的状态。用户模型矩阵与当前授权决定选型，不形成永久模型禁令。
-4. 是否需要大量试错、测量、长尾处理或独立视角？是则委托可能值得。
+There is no universal rule to always delegate or always do a small task yourself. Optimize the whole delivery path and keep authority where it belongs: the CEO owns scope, semantic acceptance, and authorized external decisions.
 
-比较净收益，不数赞成票。主控同时监管多条工作线时，卸载上下文可能很有价值；只有一条小任务时，“主控不做机械活”反而可能制造成本。
+## Choose coherent slices
 
-派工前检查任务和有效决策，包括已拒绝方案。目标明确不证明任务还需要执行。交付物已存在时检查消费者接线；命中已处理的缺陷时，先确认本次是否增加了新的事实维度。
+Start with the largest coherent result that one owner can understand and verify. A slice is a semantic outcome, not a file, function, or calendar interval. Split when results have distinct acceptance, different risk, incompatible write ownership, or a true dependency that can be stated and verified. Each split repeats context acquisition and CEO acceptance, so extra boundaries need a benefit.
 
-## 上下文决定下属会猜什么
+Give the first checkpoint an observable result from the real entry point to a user or caller. A plan, isolated helper, generated file, or unit test may be useful but does not prove the feature is wired into its consumer.
 
-不要只给结论和一组路径。说明目标服务谁、原始约束在哪里、系统如何装配、验收在哪个环境执行。主控给的地图也可能错；要求下属验证它，并提供有证据的异议出口。给足阅读与思考空间不意味着无限访问权限或无限写入范围。
+If one dispatch has not progressed, inspect the contract and evidence before retrying. After two failures of the same method without new information, revise it or return the task premise for decision. Reassigning the same thin packet to a new identity is not a method change.
 
-上级实际怎么写任务、留证据和验收，会成为下属的工作样板。主控自己的裁决和进度同样走权威记录，不只要求下属这样做。
+## Give context, constrain ownership
 
-## 度量决定产出
+Workers need broad information and a narrow responsibility. Include relevant sources, adjacent consumers, failed attempts, acceptance, and uncertainty. State authorization and true write conflicts; do not define a fixed list of files they are allowed to inspect. An unexpected affected surface is a useful finding: have the worker report it and decide whether to include it.
 
-只验文件存在，可能得到占位文件；只验 PR 合并，可能得到无人使用的功能。把验收对准原始目标、真实入口和契约要求的后果。实现任务的首个检查点应尽早展示一条真实调用路径及可核验结果；只交计划、孤立模块或局部测试时，核对是否仍缺调用者接入。前置调查确实必要时写明它将解开什么实现问题。完成质量不能用行数、任务数或评审轮次替代。
+Keep a file deny list limited to paths an active owner is changing and protected boundaries. Prove an active owner from the current task/dispatch or pull request state. Do not reserve paths for abandoned work based only on stale files. See [dispatch](dispatch.md).
 
-风险分级体现在证据深度和必要的独立性，而不是固定选择某个厂商。低风险工作保留自主判断，高影响不可逆选择核实授权与关键证据；不额外制造审批。
+## Ask what complexity buys
 
-## 面对大改动，向作者问三件事
+When a change seems overbuilt, ask its author:
 
-1. 这个问题能完整满足需求的最简解是什么？
-2. 当前实现比它复杂在哪里？
-3. 每一处额外复杂度换来了哪项仍成立的收益？
+- What is the simplest solution that meets the acceptance criteria?
+- What additional complexity did this design introduce?
+- Which concrete failure or capability does that complexity address?
 
-作者有实现上下文，应说明保留机制的理由。收益成立就接受，不能为了删除而删除。收益不成立时优先删掉或收窄。尤其在添加兜底、重试和兼容前，先判断其保护的前提能否直接修掉。
+Require evidence that a new layer catches a failure the existing write boundary does not. For each removed check, name the failure class that will no longer be detected and show equivalent coverage if the validation is redundant. Prefer deleting an obsolete responsibility or narrowing its assumptions when that solves the cause.
 
-主控自己的根因也要受检验。把“测到了什么”和“据此推测什么”分别写进委托包，并明确接受证伪；不能把未经实验的解释写成禁止替代方案的命令。
+## Keep reporting useful
 
-## 重复缺陷与知识沉淀
-
-同族问题重复出现是检查产生方式的信号，不自动证明需要架构重写；第一问是承担这份工作的责任该不该存在，删除责任与修复责任同等合法。先测量，确认相同机制及已有处理记录；必要时让新视角复核契约本身是否成立，原作者补充症状与实现上下文。若在途切片已经会替换该机制，可在授权范围内并入；否则明确当前最小处置，不能把“以后重写”当作无限拖延。
-
-沉淀选择能改变下一次行为的落点：模型表现进入用户矩阵，单仓事实进入项目记录，通用判断改写对应手册，工具缺陷经授权修复或立项。不是每条经验都必须成为不可绕过的门。
-
-## 替换与采用
-
-替换类任务须明确首个使用方、切换入口和旧路径处置。新旧同时存在时，检查调用者实际上走哪条路。用户要求退役旧路径时，不能只新增新实现就完成；但也不能从“采用重要”推导出强制所有用户切换。
-
-主控亲自走一次代表性使用路径，记录真实阻力。影响契约的缺陷修复；偏好和额外打磨另行判断，不用“我还不满意”把交付无限延长。
-
-## 汇报与异议
-
-汇报保留结果、依据、风险、下一步及需要裁决的具体点，不转播全部日志。需要某人答复的点按[长程监管](supervision.md#什么时候停)的关系写权边界记录 `awaits`；无关系写权时报告具体 ask，请 owner 登记。失败、错误假设和未验证项照实报告。一次完整异议加一次必要澄清通常足以裁决；新关键证据可以重新打开问题，单纯品味分歧不阻塞独立工作。
+Report conclusions, direct evidence, risks, and the next action. Separate observed fact from inference and unverified status. Record progress at meaningful checkpoints rather than copying full reasoning. A durable artifact and an accountable next owner matter more than a long status transcript.
