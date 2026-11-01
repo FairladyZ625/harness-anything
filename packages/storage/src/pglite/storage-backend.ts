@@ -1,6 +1,7 @@
 import type { PoolClient } from "pg";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
 import { POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS, POSTGRES_EVENT_LEDGER_TABLES } from "../postgres/index.ts";
+import type { PostgresAppendHooks } from "../postgres/pg-event-store.ts";
 import { ensurePgProjectionSchema } from "../pg/pg-projection-schema.ts";
 import { createPgStorageBackend, resolvePostgresEventStoreScope, type PgStorageBackend } from "../pg/backend.ts";
 import type { PGliteStorageBackendConfig } from "../storage-backend.ts";
@@ -9,6 +10,7 @@ import { createPGliteStorage, type PGliteStorage, type PGliteStorageOptions } fr
 export interface PGliteStorageBackendOptions extends Omit<PGliteStorageOptions, "dataDir"> {
   readonly repoId: string;
   readonly storage: PGliteStorageBackendConfig;
+  readonly readAuthoredDocument?: PostgresAppendHooks["readAuthoredDocument"];
 }
 
 export interface PGliteStorageBackend extends PgStorageBackend {
@@ -24,7 +26,12 @@ export async function createPGliteStorageBackend(options: PGliteStorageBackendOp
   try {
     await initializeSchema(storage.pool);
     return {
-      ...createPgStorageBackend({ pool: storage.pool, repoId: options.repoId, scope }),
+      ...createPgStorageBackend({
+        pool: storage.pool,
+        repoId: options.repoId,
+        scope,
+        readAuthoredDocument: options.readAuthoredDocument,
+      }),
       db: storage.db,
       pool: storage.pool,
       close: storage.close,

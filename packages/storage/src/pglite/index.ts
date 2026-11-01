@@ -1,5 +1,6 @@
 import { createPgStorageBackend, resolvePostgresEventStoreScope, type PgStorageBackend } from "../pg/backend.ts";
 import { createPostgresPool } from "../postgres/transaction.ts";
+import type { PostgresAppendHooks } from "../postgres/pg-event-store.ts";
 import type { PGliteStorageBackendConfig, PostgresStorageBackendConfig } from "../storage-backend.ts";
 import { createPGliteStorageBackend } from "./storage-backend.ts";
 
@@ -13,9 +14,14 @@ export type PgDialectStorageBackendConfig = PostgresStorageBackendConfig | PGlit
 export async function createPgDialectStorageBackend(input: {
   readonly repoId: string;
   readonly storage: PgDialectStorageBackendConfig;
+  readonly readAuthoredDocument?: PostgresAppendHooks["readAuthoredDocument"];
 }): Promise<PgDialectStorageBackend> {
   if (input.storage.backend === "pglite") {
-    const backend = await createPGliteStorageBackend({ repoId: input.repoId, storage: input.storage });
+    const backend = await createPGliteStorageBackend({
+      repoId: input.repoId,
+      storage: input.storage,
+      readAuthoredDocument: input.readAuthoredDocument,
+    });
     return {
       eventStore: backend.eventStore,
       projection: backend.projection,
@@ -27,7 +33,15 @@ export async function createPgDialectStorageBackend(input: {
   const scope = resolvePostgresEventStoreScope(input.storage.scope),
     pool = createPostgresPool(input.storage.connectionString);
   try {
-    return { ...createPgStorageBackend({ pool, repoId: input.repoId, scope }), close: () => pool.end() };
+    return {
+      ...createPgStorageBackend({
+        pool,
+        repoId: input.repoId,
+        scope,
+        readAuthoredDocument: input.readAuthoredDocument,
+      }),
+      close: () => pool.end(),
+    };
   } catch (error) {
     try {
       await pool.end();

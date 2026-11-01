@@ -1,5 +1,5 @@
 import type { Pool } from "pg";
-import type { PostgresEventStoreScope } from "../postgres/pg-event-store.ts";
+import type { PostgresAppendHooks, PostgresEventStoreScope } from "../postgres/pg-event-store.ts";
 import { makePostgresTaskEventStore } from "../postgres/pg-task-event-store.ts";
 import { createPgEntityStore, type PgEntityDeclarationStore } from "./pg-entity-store.ts";
 import { materializePgProjectionEvents } from "./pg-task-event-materialize.ts";
@@ -10,6 +10,8 @@ export interface PgStorageBackendOptions {
   readonly pool: Pool;
   readonly repoId: string;
   readonly scope: PostgresEventStoreScope;
+  /** Optional authored-tree capability used by document replacement admission. */
+  readonly readAuthoredDocument?: PostgresAppendHooks["readAuthoredDocument"];
 }
 
 export function resolvePostgresEventStoreScope(scope: StorageScope | undefined): PostgresEventStoreScope {
@@ -32,6 +34,7 @@ export function createPgStorageBackend(options: PgStorageBackendOptions): PgStor
       pool: options.pool,
       repoId: options.repoId,
       scope,
+      readAuthoredDocument: options.readAuthoredDocument,
       project: (client, input) => materializePgProjectionEvents(client, scope, input),
     }),
     projection = createPgTaskProjectionSource({ pool: options.pool, repoId: options.repoId, scope }),
