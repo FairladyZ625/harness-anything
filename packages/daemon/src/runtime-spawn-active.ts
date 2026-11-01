@@ -19,6 +19,7 @@ type ActiveRuntimeBase = Omit<
   | "failureText"
   | "providerOutcome"
   | "writeItemObserved"
+  | "strayWritePaths"
   | "planObserved"
   | "planIncomplete"
   | "protocolError"
@@ -80,6 +81,7 @@ export function createActiveRuntime(base: ActiveRuntimeBase): ActiveRuntime {
     failureText: null,
     providerOutcome: null,
     writeItemObserved: false,
+    strayWritePaths: [],
     planObserved: false,
     planIncomplete: false,
     protocolError: false,

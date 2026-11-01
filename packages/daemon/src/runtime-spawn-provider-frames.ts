@@ -140,13 +140,16 @@ export function parseCodexFrame(value: Record<string, unknown>, providerSessionI
           failureText: message,
         };
     }
-    if (codexToolItemTypes.has(itemType))
+    if (codexToolItemTypes.has(itemType)) {
+      const writePaths = itemType === "file_change" && item.status === "completed" ? fileWritePaths(item) : [];
       return {
         signals: [{ type: "activity", activity: "tool", content: JSON.stringify(item) }],
         toolCallObserved: true,
         toolCallSucceeded: codexToolItemSucceeded(itemType, item),
         writeItemObserved: itemType === "file_change" && item.status === "completed",
+        ...(writePaths.length ? { writePaths } : {}),
       };
+    }
     if (["plan", "todo", "todo_list"].includes(itemType))
       return {
         planObserved: true,
@@ -233,12 +236,16 @@ export function parseZcodeFrame(value: Record<string, unknown>, providerSessionI
       return { signals: [{ type: "activity", activity: "message", content: payload.delta }] };
     if (payload.kind === "reasoning_delta" && typeof payload.delta === "string" && payload.delta)
       return { signals: [{ type: "activity", activity: "thinking", content: payload.delta }] };
-    if (payload.kind === "tool_call")
+    if (payload.kind === "tool_call") {
+      const writes = zcodeWriteTools.has(String(payload.toolName)),
+        writePath = writes && isPlainRecord(payload.input) ? payload.input.file_path : undefined;
       return {
         signals: [{ type: "activity", activity: "tool", content: JSON.stringify(payload) }],
         toolCallObserved: true,
-        writeItemObserved: zcodeWriteTools.has(String(payload.toolName)),
+        writeItemObserved: writes,
+        ...(typeof writePath === "string" && writePath !== "" ? { writePaths: [writePath] } : {}),
       };
+    }
     return {};
   }
   if (value.type === "turn.failed") {
@@ -352,6 +359,16 @@ function codexToolItemSucceeded(itemType: string, item: Record<string, unknown>)
   if (itemType === "web_search") return Array.isArray(item.results);
   if (itemType === "command_execution") return item.status === "completed" && (item.exit_code ?? 0) === 0;
   return item.status === "completed";
+}
+
+/** The paths a Codex file_change reported. The provider may send a mix of relative and absolute
+ * paths in one item; only the absolute ones can bypass the process cwd, so keep the raw list and
+ * let the write-boundary check decide. */
+function fileWritePaths(item: Record<string, unknown>): readonly string[] {
+  const changes = Array.isArray(item.changes) ? item.changes : [];
+  return changes.flatMap((change) =>
+    isPlainRecord(change) && typeof change.path === "string" && change.path !== "" ? [change.path] : [],
+  );
 }
 
 export function planHasIncompleteItems(item: Record<string, unknown>): boolean {

@@ -58,9 +58,18 @@ function active(kindId = "codex", process = {} as never, extras: Record<string, 
   } as never);
 }
 
-function context() {
+function context(rootDir = fixtureWorkspace, published: unknown[] = []) {
   return {
-    input: { now: () => "2026-09-11T00:00:00.000Z", stream: { publish: () => undefined } },
+    input: {
+      rootDir,
+      now: () => "2026-09-11T00:00:00.000Z",
+      stream: {
+        publish: (_runtimeSessionId: string, signal: unknown) => {
+          published.push(signal);
+          return signal;
+        },
+      },
+    },
     parseProviderFrame: () => ({}),
     markProtocolError: () => undefined,
     bindProvider: async () => undefined,
@@ -756,11 +765,17 @@ test("ZCode model.streaming deltas and tool calls become native signals", () => 
     signals: [{ type: "activity", activity: "tool", content: JSON.stringify(toolCall) }],
     toolCallObserved: true,
     writeItemObserved: true,
+    writePaths: ["/tmp/hello.txt"],
   });
   assert.equal(
     parseZcodeFrame({ type: "model.streaming", sessionId, payload: { ...toolCall, toolName: "Read" } }, sessionId)
       .writeItemObserved,
     false,
+  );
+  assert.equal(
+    parseZcodeFrame({ type: "model.streaming", sessionId, payload: { ...toolCall, toolName: "Read" } }, sessionId)
+      .writePaths,
+    undefined,
   );
   assert.deepEqual(parseZcodeFrame({ type: "model.streaming", sessionId, payload: { kind: "start" } }, sessionId), {});
   assert.deepEqual(parseZcodeFrame({ type: "session.updated", sessionId, payload: {} }, sessionId), {});
@@ -1461,4 +1476,80 @@ test("durable drains do not wait when no process record shows the worker running
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
+});
+
+test("Codex file_change frames expose completed absolute write paths", () => {
+  const canonical = path.join(fixtureWorkspace, "packages/cli/src/index.ts"),
+    worker = path.join(fixtureWorkspace, ".worktrees/task_a/packages/cli/src/index.ts");
+  assert.deepEqual(
+    parseProviderFrame("codex" as never, {
+      type: "item.completed",
+      item: {
+        id: "write",
+        type: "file_change",
+        status: "completed",
+        changes: [{ path: worker, kind: "update" }, { path: canonical, kind: "update" }, { kind: "update" }],
+      },
+    }).writePaths,
+    [worker, canonical],
+  );
+  assert.equal(
+    parseProviderFrame("codex" as never, {
+      type: "item.started",
+      item: { id: "write", type: "file_change", changes: [{ path: canonical }] },
+    }).writePaths,
+    undefined,
+  );
+});
+
+test("a canonical file_change records a stray write and publishes the warning once", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-stray-write-")),
+    published: unknown[] = [];
+  try {
+    const runtime = active(),
+      frame = {
+        type: "item.completed",
+        item: {
+          id: "write",
+          type: "file_change",
+          status: "completed",
+          changes: [{ path: path.join(rootDir, "packages/cli/src/index.ts"), kind: "update" }],
+        },
+      },
+      stray = { ...context(rootDir, published), parseProviderFrame } as never;
+    await consumeProviderLine(stray, runtime, JSON.stringify(frame));
+    await consumeProviderLine(stray, runtime, JSON.stringify(frame));
+
+    assert.deepEqual(runtime.strayWritePaths, [path.join(rootDir, "packages/cli/src/index.ts")]);
+    assert.equal(
+      published.filter((signal) => JSON.stringify(signal).includes("Stray write outside the worker worktree")).length,
+      1,
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a worktree-relative file_change records no stray write", async () => {
+  const published: unknown[] = [],
+    runtime = active(),
+    stray = { ...context(fixtureWorkspace, published), parseProviderFrame } as never;
+  await consumeProviderLine(
+    stray,
+    runtime,
+    JSON.stringify({
+      type: "item.completed",
+      item: {
+        id: "write",
+        type: "file_change",
+        status: "completed",
+        changes: [{ path: "apps/web/src/features/document-preview.tsx", kind: "update" }],
+      },
+    }),
+  );
+  assert.deepEqual(runtime.strayWritePaths, []);
+  assert.equal(
+    published.filter((signal) => JSON.stringify(signal).includes("Stray write outside the worker worktree")).length,
+    0,
+  );
 });

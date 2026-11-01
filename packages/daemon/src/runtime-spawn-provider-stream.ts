@@ -4,7 +4,7 @@ import { globSync, readFileSync } from "node:fs";
 import { StringDecoder } from "node:string_decoder";
 import path from "node:path";
 import type { SessionIdentity } from "@harness-anything/kernel";
-import { consumeKnownError } from "@harness-anything/kernel";
+import { consumeKnownError, resolveHarnessLayout } from "@harness-anything/kernel";
 import { dispatchStreamPath, parseRecord, readDispatchStreamIncrement, scrubProviderValue } from "./dispatch-stream.ts";
 import { deepSeekSessionUsageTotals } from "./runtime-spawn-deepseek-session.ts";
 import { observeRuntimeSpendCap } from "./runtime-spend-cap.ts";
@@ -13,6 +13,7 @@ import type { ActiveRuntime, ProviderFrame, RuntimeBinding } from "./runtime-spa
 import type { FleetRuntimeDispatchContext } from "./fleet/command-protocol.ts";
 import { transcriptRefForSessionIdentity } from "./session-identity/index.ts";
 import { observeProviderFault } from "./runtime-provider-fault.ts";
+import { escapesWorkerWorktree, strayWriteWarning } from "./runtime-write-boundary.ts";
 import {
   runtimeEventHasType,
   type RuntimeEventOf,
@@ -142,12 +143,47 @@ export async function consumeProviderLine(
   if (parsed.failureText !== undefined) active.failureText = parsed.failureText;
   if (parsed.outcome) active.providerOutcome = parsed.outcome;
   active.writeItemObserved ||= parsed.writeItemObserved === true;
+  if (parsed.writePaths?.length) observeStrayWrites(context, active, parsed.writePaths, publishSignals);
   // Older AGY builds re-emit settled steps as ACTIVE, so a step that once settled stays settled.
   active.planObserved ||=
     parsed.planObserved === true ||
     (parsed.finalText !== undefined && context.isStructuredSuccessResult(parsed.finalText));
   if (parsed.planIncomplete !== undefined) active.planIncomplete = parsed.planIncomplete;
   observeProviderFault(active, parsed);
+}
+
+/**
+ * A provider write item carries the paths it edited. Relative paths stay inside the process cwd;
+ * an absolute path that opens the canonical checkout instead of this dispatch's worktree is the
+ * escape observed on 2026-11-02 (task_6b7a41423 and task_48b66031). Record it once, publish it
+ * while the worker still runs, and let settlement repeat it in the conclusion.
+ */
+function observeStrayWrites(
+  context: RuntimeSpawnerContext,
+  active: ActiveRuntime,
+  paths: readonly string[],
+  publishSignals: boolean,
+): void {
+  const boundary = {
+      rootDir: context.input.rootDir,
+      workerRoot: active.cwd,
+      ledgerRoot: resolveHarnessLayout(context.input.rootDir).authoredRoot,
+    },
+    known = new Set(active.strayWritePaths ?? []),
+    fresh: string[] = [];
+  for (const candidate of paths) {
+    if (known.has(candidate) || !escapesWorkerWorktree(candidate, boundary)) continue;
+    known.add(candidate);
+    fresh.push(candidate);
+  }
+  if (fresh.length === 0) return;
+  (active.strayWritePaths ??= []).push(...fresh);
+  if (publishSignals)
+    context.input.stream.publish(active.runtimeSessionId, {
+      type: "activity",
+      activity: "message",
+      content: strayWriteWarning(fresh, boundary),
+    });
 }
 
 function observeRuntimeMetrics(active: ActiveRuntime, value: unknown): void {
