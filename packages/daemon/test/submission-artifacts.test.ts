@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { sha256Bytes, submissionDigest } from "@harness-anything/kernel";
 import { validateGuiSubmission } from "../src/protocol/daemon-protocol-validate-entities.ts";
-import { readSubmissionArtifact } from "../src/submission-artifacts.ts";
+import { readSubmissionArtifact, readSubmissionArtifactRange } from "../src/submission-artifacts.ts";
 import { deriveCloseoutSubmission } from "../src/repo-cell-submit.ts";
 
 const repositorySettingsStub = {
@@ -21,8 +21,8 @@ function fixture(bytes = Buffer.from("Frozen evidence.\n")) {
     opId: "accepted-7",
     payload: {
       changes: [
-        { path, candidate: { sha256: blobSha256 } },
-        { path: cjkPath, candidate: { sha256: blobSha256 } },
+        { path, candidate: { sha256: blobSha256, size: bytes.byteLength } },
+        { path: cjkPath, candidate: { sha256: blobSha256, size: bytes.byteLength } },
       ],
     },
   };
@@ -39,6 +39,8 @@ function fixture(bytes = Buffer.from("Frozen evidence.\n")) {
             }
           : null,
     readContentBlob: () => bytes,
+    readContentBlobRange: (_blob: string, offset: number, maxBytes: number) =>
+      bytes.subarray(offset, offset + maxBytes),
   };
   const cell = {
     store,
@@ -169,6 +171,16 @@ test("missing or changed frozen content cannot be replaced by latest workspace c
   assert.throws(() => readSubmissionArtifact(cell, packagePath, path, 7), { code: "invalid_submission" });
 });
 
+test("range reads reject an accepted object whose bytes were changed at the same size", () => {
+  const bytes = Buffer.from("accepted bytes that must remain immutable\n"),
+    { cell, store, blobSha256 } = fixture(bytes);
+  store.readContentBlobRange = (_blob: string, offset: number, maxBytes: number) =>
+    Buffer.from("CORRUPTED bytes that must remain immutable\n").subarray(offset, offset + maxBytes);
+  assert.throws(() => readSubmissionArtifactRange(cell, packagePath, path, 7, blobSha256, 0, 8), {
+    code: "content_claim_mismatch",
+  });
+});
+
 test("canonical bootstrap and carried-document acceptances retain the same frozen identity checks", () => {
   const { cell, store, bytes, blobSha256 } = fixture();
   for (const schema of ["task-bootstrap-event/v1", "task-event/v1", "task-progress-event/v1"]) {
@@ -182,8 +194,8 @@ test("canonical bootstrap and carried-document acceptances retain the same froze
           opId: "atomic-acceptance",
           payload:
             schema === "task-bootstrap-event/v1"
-              ? { initialDocumentClaims: [{ path, sha256: blobSha256 }] }
-              : { carriedDocumentClaims: [{ path, candidate: { sha256: blobSha256 } }] },
+              ? { initialDocumentClaims: [{ path, sha256: blobSha256, size: bytes.byteLength }] }
+              : { carriedDocumentClaims: [{ path, candidate: { sha256: blobSha256, size: bytes.byteLength } }] },
         }),
       },
     } as unknown as Parameters<typeof readSubmissionArtifact>[0];

@@ -146,9 +146,18 @@ test("reviewer doc-show preserves frozen submitted artifacts and permits other r
         assert.equal(ranged.evidenceEncoding, "base64");
         assert.deepEqual(Buffer.from(ranged.evidence, "base64"), bytes.subarray(2, 7));
       }
+      if (path.endsWith("image.png")) {
+        const ranged = runDocAction({
+          ...input,
+          binding: { ...input.binding, source },
+          action: { kind: "doc-show", path, offset: 1, length: 3 },
+        }) as { readonly evidence: string; readonly evidenceEncoding?: string };
+        assert.equal(ranged.evidenceEncoding, "base64");
+        assert.deepEqual(Buffer.from(ranged.evidence, "base64"), bytes.subarray(1, 4));
+      }
     }
   }
-  assert.equal(rangeReads.count, 2);
+  assert.equal(rangeReads.count, 11);
   const otherTask = runDocAction({
     ...input,
     action: { kind: "doc-show", path: "tasks/task-other/artifacts/report.md" },
@@ -217,6 +226,77 @@ test("implementer doc-show reads repository documents through the live projectio
       };
       assert.equal(other.outcome, "applied");
     }
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("pinned range reads reject a same-size document update between windows", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-pin-")),
+    pathName = "context/pinned.md",
+    first = Buffer.from("AAAA1111"),
+    second = Buffer.from("BBBB2222"),
+    firstDigest = digest(first),
+    secondDigest = digest(second);
+  let version = { bytes: first, revision: 10, blobSha256: firstDigest };
+  try {
+    const input = {
+      workspaceId: "repo-one",
+      rootDir,
+      now: () => new Date().toISOString(),
+      binding: {
+        actor: { principal: { personId: "reader" }, executor: null },
+        source: "local" as const,
+        executionPrincipal: {
+          personId: "reader",
+          repoId: "repo-one",
+          runtimeSessionId: "runtime-one",
+          dispatchId: "dispatch-one",
+          taskId: null,
+          executionId: null,
+          role: "implementation" as const,
+          source: "local" as const,
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        },
+      },
+      projection: {
+        readDocument: () => ({
+          status: "ready",
+          document: { path: pathName, body: version.bytes.toString(), blobSha256: version.blobSha256, size: 8 },
+          watermark: version.revision,
+          sourceRevision: version.revision,
+        }),
+      } as never,
+      store: {
+        currentCut: () => ({ repoId: "repo-one", revision: version.revision, headDigest: `head-${version.revision}` }),
+        readContentBlobRange: (blob: string, offset: number, maxBytes: number) => {
+          const bytes = blob === firstDigest ? first : blob === secondDigest ? second : null;
+          return bytes?.subarray(offset, offset + maxBytes) ?? null;
+        },
+      } as never,
+    };
+    const initial = runDocAction({ ...input, action: { kind: "doc-show", path: pathName, offset: 0, length: 4 } }) as {
+      readonly evidenceBlobSha256: string;
+      readonly evidenceSourceRevision: number;
+    };
+    assert.equal(initial.evidenceBlobSha256, firstDigest);
+    assert.equal(initial.evidenceSourceRevision, 10);
+    version = { bytes: second, revision: 11, blobSha256: secondDigest };
+    assert.throws(
+      () =>
+        runDocAction({
+          ...input,
+          action: {
+            kind: "doc-show",
+            path: pathName,
+            offset: 4,
+            length: 4,
+            contentSha256: initial.evidenceBlobSha256,
+            contentRevision: initial.evidenceSourceRevision,
+          },
+        }),
+      { code: "content_changed" },
+    );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

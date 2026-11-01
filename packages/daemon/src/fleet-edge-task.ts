@@ -90,13 +90,16 @@ type EdgeWriteCut = { readonly revision: number; readonly headDigest: string };
 const DOC_SHOW_RANGE_BYTES = 48 * 1024;
 const edgeDocShowBudget = createResourceBudget(DOC_SHOW_BUDGET_LIMITS);
 
-async function runFleetDocShowRange(options: {
+export async function runFleetDocShowRange(options: {
   readonly peer: Parameters<typeof runFleetTaskCommandClient>[0];
   readonly action: FleetTaskAction;
   readonly opId: string;
   readonly workspaceRoot: string | null;
   readonly nodeId: string;
   readonly repoId: string;
+  readonly request?: (
+    input: Parameters<typeof runFleetTaskCommandClient>[0],
+  ) => ReturnType<typeof runFleetTaskCommandClient>;
 }): Promise<Awaited<ReturnType<typeof runFleetTaskCommandClient>>> {
   const transferRoot = options.workspaceRoot
       ? path.join(resolveHarnessLayout(options.workspaceRoot).localRoot, "fleet-transfers")
@@ -115,11 +118,20 @@ async function runFleetDocShowRange(options: {
       : null,
     reservation: ReturnType<typeof edgeDocShowBudget.reserve> | null = null,
     completed = false;
+  if (sinkHandle && (await sinkHandle.sink.status(new AbortController().signal)).sealed) {
+    // A prior process may have sealed before publishing its command result. The receipt is
+    // not durable in this local transfer record, so restart the read rather than appending
+    // at a sealed offset or manufacturing a receipt with missing operation metadata.
+    sinkHandle.cleanup();
+    metadata = null;
+    sinkHandle = null;
+  }
   let last: Awaited<ReturnType<typeof runFleetTaskCommandClient>> | null = null;
+  const request = options.request ?? runFleetTaskCommandClient;
   try {
     for (;;) {
       const offset = sinkHandle ? (await sinkHandle.sink.status(new AbortController().signal)).durableOffset : 0,
-        result = await runFleetTaskCommandClient({
+        result = await request({
           ...options.peer,
           opId: `${options.opId}:range:${offset}`,
           action: {
