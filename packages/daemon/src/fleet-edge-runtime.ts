@@ -4,6 +4,7 @@ import { requiredCellText } from "./repo-cell-settlement.ts";
 import { operationId } from "./repo-cell-proof.ts";
 import { canStartExecution, type RepositorySettingsV1, type TaskProjection } from "@harness-anything/kernel";
 import { readEdgeRuntimeRepository } from "./fleet-edge-runtime-read.ts";
+import { repositoryRuntimeReads } from "./repository-runtime-reads.ts";
 import { repositoryReadData } from "./protocol/repository-read-frame.ts";
 import { withEdgeReadModel } from "./fleet-edge-task-read.ts";
 import { makeFleetSquadCoordinator } from "./fleet-squad-coordinator.ts";
@@ -488,7 +489,19 @@ export function openFleetEdgeRuntime(input: {
         };
       },
       readRuntimeSessions: () =>
-        readFleetRuntimeSessionsPaged(async (payload) => readReplica("repo.agentRuntime.overview", payload)),
+        readFleetRuntimeSessionsPaged(async (payload) =>
+          withEdgeReadModel(
+            { ...request, principalId: (await input.readBinding()).actor.principal.personId, includeEntries: false },
+            (projection, frame, view) => ({
+              // Recovery needs the center's published outcome. Local terminal evidence is
+              // for public reads; treating it as publication would skip replay after a lost write.
+              ...repositoryRuntimeReads(projection as TaskProjection, {
+                readContentBlob: (sha256) => readEdgeViewBlob(view, sha256),
+              }).overview(payload),
+              ...frame,
+            }),
+          ),
+        ),
       readRuntimeDispatch: async (runtimeSessionId) =>
         withEdgeReadModel(
           {
