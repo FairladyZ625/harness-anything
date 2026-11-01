@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { keycloakRealm, keycloakUrl, spawnKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts";
+import { spawnKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
@@ -32,7 +32,6 @@ test("ha explain and Task help overlay share one typed read, renderer, cut, and 
     userRoot = path.join(parent, "user");
   try {
     initialize(root);
-    selectExternalProvider(userRoot);
     realm.bind(userRoot);
     signInAt(userRoot, "owner");
     const seeded = await seedTasks(root);
@@ -148,7 +147,6 @@ test("ha explain reports submit availability for the same actor that can submit"
     actorId = "agent:submit-actor";
   try {
     initialize(root);
-    selectExternalProvider(userRoot);
     realm.bind(userRoot);
     signInAt(userRoot, "owner");
     // Prepare the caller-owned Git cut before any asynchronous ledger follower exists.
@@ -274,16 +272,6 @@ function initialize(root: string): void {
   git(root, "config", "user.email", "explain@example.test");
   git(root, "add", "README.md", "harness");
   git(root, "commit", "--quiet", "-m", "fixture");
-}
-
-function selectExternalProvider(userRoot: string): void {
-  const rbacRoot = path.join(userRoot, "rbac");
-  mkdirSync(rbacRoot, { recursive: true });
-  writeFileSync(
-    path.join(rbacRoot, "config.json"),
-    JSON.stringify({ schema: "harness-managed-rbac/v1", mode: "external", url: keycloakUrl, realm: keycloakRealm }),
-    "utf8",
-  );
 }
 
 function startDaemon(root: string, userRoot: string): void {
