@@ -98,9 +98,31 @@ curl --version
 curl -fsSL https://raw.githubusercontent.com/FairladyZ625/harness-anything/main/scripts/install-source.sh | bash
 ```
 
-安装器把源码保存在 `~/.local/share/harness-anything`，执行 `npm ci`，构建 daemon、CLI 与 Electron GUI，并通过
+安装器把源码保存在 `~/.local/share/harness-anything`，执行 `npm ci`（依赖未变时跳过），构建 daemon、CLI 与 Electron GUI，并通过
 `npm link` 生成 `ha` 入口。Linux 会设置 Electron 所需的 `chrome-sandbox` 属主与 setuid 权限（必要时使用
 `sudo`）。
+
+### 升级与无外网中心
+
+再次运行同一命令会先 `git pull --ff-only` 升级源码，再构建。依赖（`package-lock.json` 与各 workspace 的
+`package.json`）未变时跳过 `npm ci`；构建产物更新后，正在运行的 daemon 会以 build-superseded 自行退出并由新构建接管，
+不需要手工重启。
+
+中心机访问不了 GitHub 时，先让另一台能访问仓库的机器把提交推到中心，再在中心合并并安装：
+
+```bash
+# 在另一台机器上执行（center 是中心机的 SSH 别名）
+git push center HEAD:refs/heads/laptop/main
+
+# 在中心机上执行
+git -C ~/.local/share/harness-anything merge --ff-only laptop/main
+bash ~/.local/share/harness-anything/scripts/install-source.sh --offline
+```
+
+`--offline`（同义 `--no-pull`）完全跳过 pull，只使用中心已有的源码。若还想让安装器校验中心源码正好是某个提交，
+用 `--ref <commit>`：pull 失败但 HEAD 已是该提交时继续，否则在构建前退出，并打印本地 HEAD 与目标提交。
+不带参数时仍要求 pull 成功，拉取失败即退出，避免把未知源码当成新版本构建。首次安装需要现有 checkout，
+没有时 `--offline` 会直接报错而不是猜测目录。
 
 受邀成员运行：
 
