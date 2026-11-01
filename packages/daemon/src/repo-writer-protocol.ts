@@ -1,3 +1,4 @@
+import type { PostgresTaskEventStoreRequest, PostgresTaskEventStoreResult } from "@harness-anything/storage";
 import type { DaemonRepoMode, EventPublicationKillpoint, ReceiptDiagnostic } from "@harness-anything/kernel";
 import type { PreparedRuntimeLaunch, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import type { AgentRuntimeNativeSignal } from "./agent-runtime-stream.ts";
@@ -26,6 +27,7 @@ export interface RepoWriterBootstrapV1 {
   };
   readonly capabilities: {
     /** Only an injected (test) clock crosses threads; a production writer reads its own clock. */
+    readonly canonicalStore?: boolean;
     readonly now: boolean;
     readonly killpoint: boolean;
     readonly shouldStop: boolean;
@@ -46,6 +48,7 @@ export interface RepoWriterRequestV1 {
   readonly protocolVersion: typeof REPO_WRITER_PROTOCOL_VERSION;
   readonly requestId: string;
   readonly method:
+    | "canonicalStore"
     | "hasBuiltinExecutor"
     | "run"
     | "presetRun"
@@ -143,6 +146,7 @@ export interface SerializedWriterErrorV1 {
 }
 
 export type RepoWriterCapabilityName =
+  | "canonicalStore"
   | "now"
   | "killpoint"
   | "shouldStop"
@@ -249,3 +253,13 @@ export function deserializeWriterError(error: SerializedWriterErrorV1): Error {
 function isWriterJsonRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
+
+/** One complete database operation; no SQL/client handles or per-row calls cross the writer protocol. */
+export interface RepoWriterCanonicalStoreCall {
+  readonly requestId: string;
+  readonly request: PostgresTaskEventStoreRequest;
+}
+export type RepoWriterCanonicalStoreCapability = (
+  request: PostgresTaskEventStoreRequest,
+  signal?: AbortSignal,
+) => Promise<PostgresTaskEventStoreResult>;

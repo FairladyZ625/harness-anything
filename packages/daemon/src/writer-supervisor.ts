@@ -12,6 +12,8 @@ import {
   serializableKeycloakAuthorization,
   serializeWriterError,
   type RepoWriterBootstrapV1,
+  type RepoWriterCanonicalStoreCall,
+  type RepoWriterCanonicalStoreCapability,
   type RepoWriterCancelV1,
   type RepoWriterCapabilityCallV1,
   type RepoWriterCapabilityResultV1,
@@ -57,6 +59,7 @@ export function resolveWriterReadyWatchdogMs(env: NodeJS.ProcessEnv = process.en
 export async function openWriterSupervisor(
   input: RepoCellOpenInput,
   options: {
+    readonly canonicalStore?: RepoWriterCanonicalStoreCapability;
     readonly createWorker?: (
       url: URL,
       workerOptions: { readonly execArgv: readonly string[]; readonly workerData: RepoWriterBootstrapV1 },
@@ -97,6 +100,7 @@ export async function openWriterSupervisor(
         readonly reject: (error: Error) => void;
         readonly cleanup: () => void;
         readonly retainSessionToken: boolean;
+        readonly storeAbort?: AbortController;
       }
     >(),
     runtimeProcesses = new Map<string, RuntimeProcess>(),
@@ -116,6 +120,7 @@ export async function openWriterSupervisor(
       await ready;
       if (closed || !worker) throw new Error("RepoWriterCell is closed");
       if (signal?.aborted) throw abortError(signal);
+      const storeAbort = method === "canonicalStore" ? new AbortController() : undefined;
       const requestId = randomUUID(),
         serializedBinding = binding ? serializableRepoCellBinding(binding) : undefined,
         request: RepoWriterRequestV1 = {
@@ -130,6 +135,7 @@ export async function openWriterSupervisor(
       status = { ...status, queueDepth: (status.queueDepth ?? 0) + 1 };
       return new Promise<T>((resolve, reject) => {
         const cancel = () => {
+            storeAbort?.abort(signal?.reason);
             const active = worker;
             if (!active) return;
             active.postMessage({
@@ -146,6 +152,7 @@ export async function openWriterSupervisor(
           resolve: resolve as (value: unknown) => void,
           reject,
           cleanup,
+          storeAbort,
           // Preset admission returns before produce; keep its session until the terminal witness.
           retainSessionToken:
             method === "presetRun" && (payload as { action: { kind: string } }).action.kind === "preset-run-start",
@@ -169,6 +176,7 @@ export async function openWriterSupervisor(
     close: async () => {
       if (closed) return;
       closed = true;
+      for (const operation of pending.values()) operation.storeAbort?.abort(new Error("RepoWriterCell closed"));
       try {
         if (worker) {
           await sendControl("drain", true);
@@ -196,7 +204,7 @@ export async function openWriterSupervisor(
           execArgv: process.execArgv.filter(
             (argument) => argument === "--experimental-strip-types" || argument === "--enable-source-maps",
           ),
-          workerData: bootstrapMessage(input),
+          workerData: bootstrapMessage(input, options.canonicalStore !== undefined),
         };
       const candidate =
         options.createWorker?.(writerWorkerUrl(), workerOptions) ?? new Worker(writerWorkerUrl(), workerOptions);
@@ -335,6 +343,7 @@ export async function openWriterSupervisor(
 
   function failActive(error: Error): void {
     for (const operation of pending.values()) {
+      operation.storeAbort?.abort(error);
       operation.cleanup();
       operation.reject(error);
     }
@@ -354,6 +363,15 @@ export async function openWriterSupervisor(
 
   async function capabilityValue(call: RepoWriterCapabilityCallV1): Promise<unknown> {
     switch (call.capability) {
+      case "canonicalStore": {
+        if (!options.canonicalStore || call.sync)
+          throw new Error("Writer canonical store capability requires an async host");
+        const { requestId, request } = call.payload as RepoWriterCanonicalStoreCall;
+        const operation = pending.get(requestId);
+        if (!operation?.storeAbort) throw new Error("Writer canonical store request is no longer active");
+        operation.storeAbort.signal.throwIfAborted();
+        return options.canonicalStore(request, operation.storeAbort.signal);
+      }
       case "now":
         return input.now!();
       case "killpoint":
@@ -480,7 +498,7 @@ function statusWithCurrentRetryElapsed(status: RepoCellStatus, observedAt: numbe
   };
 }
 
-function bootstrapMessage(input: RepoCellOpenInput): RepoWriterBootstrapV1 {
+function bootstrapMessage(input: RepoCellOpenInput, canonicalStore: boolean): RepoWriterBootstrapV1 {
   return {
     schema: "harness-repo-writer-bootstrap/v1",
     protocolVersion: REPO_WRITER_PROTOCOL_VERSION,
@@ -504,6 +522,7 @@ function bootstrapMessage(input: RepoCellOpenInput): RepoWriterBootstrapV1 {
       ...(input.defaultWriterEpochFence ? { defaultWriterEpochFence: input.defaultWriterEpochFence } : {}),
     },
     capabilities: {
+      canonicalStore,
       now: input.now !== undefined,
       killpoint: input.killpoint !== undefined,
       shouldStop: input.shouldStop !== undefined,

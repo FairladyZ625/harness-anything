@@ -11,6 +11,7 @@ import {
   serializableRepoCellBinding,
   serializeWriterError,
   type RepoWriterBootstrapV1,
+  type RepoWriterCanonicalStoreCall,
   type SerializedWriterErrorV1,
   type RepoWriterCancelV1,
   type RepoWriterCapabilityCallV1,
@@ -53,7 +54,9 @@ async function startRepoWriterWorker(): Promise<void> {
       { readonly resolve: (value: unknown) => void; readonly reject: (error: Error) => void }
     >(),
     runtimeProcesses = new Map<string, RuntimeProcessListeners>(),
-    activeRequests = new Map<string, AbortController>();
+    activeRequests = new Map<string, AbortController>(),
+    activeStoreRequests = new Set<Promise<void>>();
+  let draining = false;
   let cell: Awaited<ReturnType<typeof openRepoWriterCell>> | null = null;
   let openingStatus = statusDuringOpen({
     phase: "opening",
@@ -84,8 +87,13 @@ async function startRepoWriterWorker(): Promise<void> {
       else listeners.exit?.(message.code ?? null, message.lossReason);
       return;
     }
-    if (isWriterRequest(message)) void handleRequest(message);
-    else if (isWriterControl(message)) void handleControl(message);
+    if (isWriterRequest(message)) {
+      const operation = handleRequest(message);
+      if (message.method === "canonicalStore") {
+        activeStoreRequests.add(operation);
+        void operation.finally(() => activeStoreRequests.delete(operation));
+      }
+    } else if (isWriterControl(message)) void handleControl(message);
   });
 
   try {
@@ -243,7 +251,7 @@ async function startRepoWriterWorker(): Promise<void> {
   async function handleRequest(request: RepoWriterRequestV1): Promise<void> {
     const abort = new AbortController();
     activeRequests.set(request.requestId, abort);
-    if (!cell) {
+    if (!cell || draining) {
       activeRequests.delete(request.requestId);
       return postReceipt(request.requestId, undefined, new Error("RepoWriterCell is unavailable"));
     }
@@ -265,9 +273,17 @@ async function startRepoWriterWorker(): Promise<void> {
       );
       // Reject a stale descriptor before any effect: runtime cancel terminates a process and a
       // resumed spawn launches one before their first ledger append reaches the append fence.
-      assertWriterEpoch(request.writerEpoch);
+      if (request.method !== "canonicalStore") assertWriterEpoch(request.writerEpoch);
       let value: unknown;
       switch (request.method) {
+        case "canonicalStore":
+          if (!bootstrap.capabilities.canonicalStore)
+            throw new Error("Writer canonical store capability is unavailable");
+          value = await asyncCapability("canonicalStore", {
+            requestId: request.requestId,
+            request: request.payload as RepoWriterCanonicalStoreCall["request"],
+          } satisfies RepoWriterCanonicalStoreCall);
+          break;
         case "hasBuiltinExecutor":
           value = await cell.hasBuiltinExecutor((request.payload as { claimFence: string }).claimFence);
           break;
@@ -335,7 +351,9 @@ async function startRepoWriterWorker(): Promise<void> {
       if (control.command === "crash") process.exit(86);
       if (control.command === "recover") await cell?.verifyReadiness();
       if (control.command === "drain") {
+        draining = true;
         for (const request of activeRequests.values()) request.abort();
+        await Promise.all(activeStoreRequests);
         await cell?.close();
         cell = null;
         closeWriterEpochFenceDescriptors();
