@@ -216,14 +216,22 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
     t.after(() => edgeHost.close());
     await edgeHost.attachmentsSettled();
     await edgeHost.runtimeInstance("daemon.runtimeInstance.create", codexInstance, localAuth);
-    const edgeAwaitRouteStarted = Promise.withResolvers<void>(),
+    let edgeAwaitRouteCount = 0;
+    const edgeAwaitRouteWaiters = new Map<number, () => void>(),
+      waitForEdgeAwaitRoute = (count: number) => {
+        if (edgeAwaitRouteCount >= count) return Promise.resolve();
+        return new Promise<void>((resolve) => edgeAwaitRouteWaiters.set(count, resolve));
+      },
       protocolHost = new Proxy(edgeHost, {
         get(target, property, receiver) {
           if (property === "fleet")
             return {
               ...target.fleet,
               edgeRuntime: async (...args: Parameters<typeof target.fleet.edgeRuntime>) => {
-                if (args[0].method === "repo.agentRuntime.sessions.await") edgeAwaitRouteStarted.resolve();
+                if (args[0].method === "repo.agentRuntime.sessions.await") {
+                  edgeAwaitRouteCount += 1;
+                  edgeAwaitRouteWaiters.get(edgeAwaitRouteCount)?.();
+                }
                 return target.fleet.edgeRuntime(...args);
               },
             };
@@ -324,9 +332,10 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
           JSON.stringify({ ...session, expiresAt: Date.now() - 1, sessionExpiresAt: Date.now() + 3_600_000 }),
         );
         edgeKeycloakAvailable = false;
+        const activeAwaitRouteCount = edgeAwaitRouteCount + 1;
         waiting = invoke(["runtime", "status", receipt.runtimeSessionId, "--wait", "--no-stream"]);
         await Promise.race([
-          edgeAwaitRouteStarted.promise,
+          waitForEdgeAwaitRoute(activeAwaitRouteCount),
           waiting.then((result) => {
             throw new Error(`offline wait exited before reaching the edge await route: ${JSON.stringify(result)}`);
           }),
@@ -364,9 +373,10 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
         const terminalSession = JSON.parse(sessionStore.read()!);
         sessionStore.write(JSON.stringify({ ...terminalSession, expiresAt: Date.now() - 1 }));
         edgeKeycloakAvailable = false;
+        const terminalAwaitRouteCount = edgeAwaitRouteCount + 1;
         waiting = invoke(["runtime", "status", receipt.runtimeSessionId, "--wait", "--no-stream"]);
         await Promise.race([
-          edgeAwaitRouteStarted.promise,
+          waitForEdgeAwaitRoute(terminalAwaitRouteCount),
           waiting.then((result) => {
             throw new Error(`offline wait exited before reaching the edge await route: ${JSON.stringify(result)}`);
           }),
