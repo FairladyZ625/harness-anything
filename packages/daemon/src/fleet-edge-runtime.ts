@@ -679,7 +679,6 @@ export function openFleetEdgeRuntime(input: {
       // cannot stop a sibling's terminal publication. Only this dependent action waits.
       const recovered = await spawner.adopt();
       await schedule(async () => {
-        await squad.reconcile();
         await squad.flushPublications();
         await pullRuntimeReplica();
       });
