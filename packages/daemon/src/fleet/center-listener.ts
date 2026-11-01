@@ -31,6 +31,8 @@ import { runtimeErrorCode, runtimeErrorMessage } from "../runtime-spawn-errors.t
 import {
   discardOwnedClaims as discardOwnedClaimsImpl,
   findOwnedClaim as findOwnedClaimImpl,
+  reclaimConsumedClaims,
+  uploadWindow,
   verifyOwnedClaims as verifyOwnedClaimsImpl,
 } from "./center-lease-claims.ts";
 import { digestId, immediate, loadState, mid, ownedUpload, serve, writeCenterDurableJson } from "./center-transport.ts";
@@ -470,6 +472,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       if (!upload) throw new FleetFault("upload_unknown", "Upload metadata is missing.");
       return path.join(safeLocal(upload.repoId, "fleet-uploads"), `${uploadId}.part`);
     };
+  for (const repo of options.host.status().repos)
+    if (repo.state === "attached") reclaimConsumedClaims(extracted, repo.repoId);
   const admitReplica = async (nodeId: string, repoId: string, accessToken?: string) => {
     if (!Number.isSafeInteger(options.replicaDiskQuotaBytes) || options.replicaDiskQuotaBytes! <= 0)
       throw new FleetFault("replica_quota_required", "Replica admission requires an explicit persistent disk quota.");
@@ -567,17 +571,31 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             frame.content.mediaType,
           );
         await repoAdmission(a);
+        reclaimConsumedClaims(extracted, a.repoId);
+        for (const id of window.uploads) if (state.uploads[id]?.descriptor !== null) window.uploads.delete(id);
         let upload = state.uploads[uploadId];
         if (upload && JSON.stringify(upload.content) !== JSON.stringify(frame.content))
           throw new FleetFault("upload_conflict", "Upload identity conflicts with persisted metadata.");
-        if (!upload && Object.keys(state.uploads).length >= 64)
-          throw new FleetFault("busy", "Upload recovery window is full.", true);
-        if (
-          !upload &&
-          Object.values(state.uploads).filter((entry) => entry.nodeId === nodeId && entry.descriptor === null).length >=
-            FLEET_NODE_ACTIVE_UPLOADS
-        )
-          throw new FleetFault("busy", `Node already has ${FLEET_NODE_ACTIVE_UPLOADS} active uploads.`, true);
+        const occupancy = uploadWindow(state),
+          node = occupancy.nodes.find((entry) => entry.nodeId === nodeId),
+          detail = `receiving=${occupancy.receiving}, staged=${occupancy.staged}, limit=${occupancy.limit}`;
+        if (!upload && occupancy.receiving >= occupancy.limit)
+          throw new FleetFault("busy", `Upload recovery window is full (${detail}).`, true);
+        if (!upload && (node?.receiving ?? 0) >= FLEET_NODE_ACTIVE_UPLOADS)
+          throw new FleetFault(
+            "busy",
+            `Node already has ${FLEET_NODE_ACTIVE_UPLOADS} active uploads (node staged=${node?.staged ?? 0}; ${detail}).`,
+            true,
+          );
+        if (!upload?.descriptor && !window.uploads.has(uploadId) && window.uploads.size >= 8) {
+          const file = upload ? uploadPath(uploadId, upload) : null;
+          throw new FleetFault(
+            "busy",
+            `Session upload window is full (receiving=${window.uploads.size}, limit=8; global ${detail}).`,
+            true,
+            file && existsSync(file) ? statSync(file).size : 0,
+          );
+        }
         if (!upload)
           upload = state.uploads[uploadId] = {
             nodeId,
@@ -586,24 +604,12 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             descriptor: null,
           };
         const file = uploadPath(uploadId, upload);
-        if (
-          upload.descriptor &&
-          !existsSync(path.join(safeLocal(a.repoId, "doc-sync-claims"), path.basename(upload.descriptor.ref)))
-        )
-          upload.descriptor = null;
         if (!upload.descriptor) {
           mkdirSync(path.dirname(file), { recursive: true });
           if (!existsSync(file)) writeFileSync(file, "");
         }
-        await persist();
-        if (!window.uploads.has(uploadId) && window.uploads.size >= 8)
-          throw new FleetFault(
-            "busy",
-            "Session already has eight active uploads.",
-            true,
-            existsSync(file) ? statSync(file).size : 0,
-          );
-        window.uploads.add(uploadId);
+        if (!upload.descriptor) window.uploads.add(uploadId);
+        persist();
         return immediate({
           schema: "fleet.upload.ready/v1",
           messageId: mid(frame.messageId, "ready"),
@@ -1161,6 +1167,6 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     replicaReceipt: () => {
       throw new Error("replica receipt is retired");
     },
-    status: () => ({ replicas: replicaStatus.snapshot() }),
+    status: () => ({ replicas: replicaStatus.snapshot(), uploads: uploadWindow(state) }),
   };
 }

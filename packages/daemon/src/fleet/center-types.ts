@@ -105,7 +105,15 @@ export interface FleetTlsCenter {
   readonly replicaReceipt: (opId: string, nodeId: string, viewId: string, repoId: string) => WriteReceipt;
   readonly status: () => {
     readonly replicas: readonly FleetReplicaStatus[];
+    readonly uploads: FleetUploadWindow;
   };
+}
+
+export interface FleetUploadWindow {
+  readonly limit: number;
+  readonly receiving: number;
+  readonly staged: number;
+  readonly nodes: readonly { readonly nodeId: string; readonly receiving: number; readonly staged: number }[];
 }
 
 export type Upload = {
