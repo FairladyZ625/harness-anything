@@ -870,7 +870,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             },
           );
         }
-        if (request.mode === "external")
+        if (request.mode === "external" || request.mode === "managed")
           return oidc.configureAuthority(() => managedRbac.run(request), requireLoginTarget());
         if (request.repoId && !loginTarget)
           throw hostCodedError("repo_namespace_unknown", "Select a registered repository for login.");

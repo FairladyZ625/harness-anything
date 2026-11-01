@@ -36,7 +36,10 @@ export const createAuthorizationProvider = (
   // builtin:// URL is still present in a caller's config object.  The URL is
   // only an implicit builtin selector for the default (mode omitted) path.
   return config.mode === "builtin" || (config.mode === undefined && userRoot)
-    ? new BuiltinPolicyAdapter({ userRoot: userRoot ?? process.env.HARNESS_USER_ROOT ?? process.cwd() })
+    ? new BuiltinPolicyAdapter({
+        userRoot: userRoot ?? process.env.HARNESS_USER_ROOT ?? process.cwd(),
+        readArtifactActionScopes: readArtifactActionScopes(userRoot ?? process.env.HARNESS_USER_ROOT ?? process.cwd()),
+      })
     : new KeycloakPolicyAdapter(config, fetchPort, refreshAdminAccessToken);
 };
 export { keycloakLoginAttributes, keycloakLoginMappers };
@@ -55,8 +58,7 @@ import {
 } from "./tls-ca-certificate.ts";
 export function createIdentitySession(userRoot: string, ports: Partial<OidcSessionPorts> = {}): IdentitySessionPort {
   const mode = readProviderMode(userRoot);
-  if (mode === "builtin") return new BuiltinIdentitySession(userRoot);
-  return new OidcSessionService(
+  const external = new OidcSessionService(
     userRoot,
     {
       centers: oidcCenterSelections(userRoot),
@@ -71,6 +73,9 @@ export function createIdentitySession(userRoot: string, ports: Partial<OidcSessi
     },
     ports,
   );
+  return mode === "builtin"
+    ? new BuiltinIdentitySession(userRoot, readArtifactActionScopes(userRoot), external)
+    : external;
 }
 
 import { ManagedRbacService, type ManagedRbacPorts } from "@harness-anything/authorization-keycloak";
@@ -78,12 +83,12 @@ import { runProcessText, runProcessTextAsync, runProcessExitAsync } from "./proc
 import { mapListenerBindError, validateCertificateNames } from "./tls-listener-admission.ts";
 export function createIdentityManagement(userRoot: string, ports: Partial<ManagedRbacPorts> = {}) {
   const mode = readProviderMode(userRoot);
-  if (mode === "builtin") return new BuiltinIdentityManagement(userRoot);
-  return new ManagedRbacService(
+  const managed = new ManagedRbacService(
     userRoot,
     { runProcessText, runProcessTextAsync, runProcessExitAsync, mapListenerBindError, validateCertificateNames },
     { readArtifactActionScopes: readArtifactActionScopes(userRoot), ...ports },
   );
+  return mode === "builtin" ? new BuiltinIdentityManagement(userRoot, managed) : managed;
 }
 
 /**
@@ -144,7 +149,16 @@ export function readArtifactActionScopes(userRoot: string): () => Promise<readon
 }
 function readProviderMode(userRoot: string): "builtin" | "managed" | "external" | "legacy" {
   const file = path.join(userRoot, "rbac", "config.json");
-  if (!existsSync(file)) return "builtin";
+  // A pre-provider edge root has no selector but carries its durable fleet binding. Keep
+  // resolving that root through the Keycloak implementation until the operator writes an
+  // explicit mode; a brand-new local root remains builtin by default.
+  if (!existsSync(file))
+    return existsSync(path.join(userRoot, "fleet-edge.json")) ||
+      existsSync(path.join(userRoot, "rbac", "oidc-session.json")) ||
+      existsSync(path.join(userRoot, "rbac", "oidc-sessions")) ||
+      existsSync(path.join(userRoot, "rbac", "oidc-centers"))
+      ? "legacy"
+      : "builtin";
   try {
     const config = JSON.parse(readFileSync(file, "utf8")) as { readonly mode?: unknown };
     return config.mode === "builtin" || config.mode === "managed" || config.mode === "external"

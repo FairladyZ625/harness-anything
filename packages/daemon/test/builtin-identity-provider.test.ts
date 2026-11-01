@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,7 +9,7 @@ import {
   BuiltinIdentityManagement,
   userRootFromBuiltinUrl,
 } from "@harness-anything/authorization-builtin";
-import { OidcSessionService } from "@harness-anything/authorization-keycloak";
+import { managedRbacSessionStore } from "@harness-anything/authorization-keycloak/managed-rbac-service";
 import { AccessAdminService } from "../src/access-admin-service.ts";
 import {
   createAuthorizationProvider,
@@ -42,7 +42,7 @@ test("clean user roots select built-in identity without a managed runtime", asyn
     username: "owner",
     email: "owner@example.invalid",
     displayName: "Owner",
-    password: "correct horse",
+    password: "correct:horse",
     personId: "person-owner",
   };
   const outcomes = await Promise.allSettled([
@@ -58,12 +58,61 @@ test("clean user roots select built-in identity without a managed runtime", asyn
   );
   const browserLogin = await session.begin("http://127.0.0.1:43123/callback");
   await assert.rejects(session.complete("owner", String(browserLogin.state)), { code: "oidc_identity_rejected" });
-  assert.equal((await session.complete("owner:correct horse", String(browserLogin.state))).authenticated, true);
+  const browserCode = await session.begin("http://127.0.0.1:43123/callback");
+  const loginPage = new URL(String(browserCode.authorizationUrl));
+  const response = await fetch(loginPage, {
+    method: "POST",
+    body: new URLSearchParams({ username: "owner", password: "correct:horse", state: String(browserCode.state) }),
+    redirect: "manual",
+  });
+  // The callback code is opaque and one-time; the password never crosses the callback URL.
+  const callback = new URL(response.headers.get("location")!);
+  assert.equal(callback.searchParams.get("code")?.includes("correct:horse"), false);
+  await assert.rejects(session.complete(callback.searchParams.get("code")!, `${browserCode.state}-wrong`), {
+    code: "oidc_state_invalid",
+  });
+  assert.equal(
+    (await session.complete(callback.searchParams.get("code")!, String(browserCode.state))).authenticated,
+    true,
+  );
+  await assert.rejects(session.complete(callback.searchParams.get("code")!, String(browserCode.state)), {
+    code: "oidc_state_invalid",
+  });
   await session.logout();
   const login = await session.beginDevice();
+  const retry = await session.beginDevice();
+  await assert.rejects(session.deviceApproval(String(login.userCode)), { code: "oidc_device_missing" });
   assert.deepEqual(await session.pollDevice(), { ok: true, pending: true, interval: 1 });
-  await session.deviceApproval(String(login.userCode));
+  const verification = await session.deviceApproval(String(retry.userCode));
+  assert.equal(verification.approved, false);
+  const devicePage = new URL(String(verification.authorizationUrl));
+  const wrongDeviceResponse = await fetch(devicePage, {
+    method: "POST",
+    body: new URLSearchParams({
+      username: "owner",
+      password: "wrong",
+      userCode: devicePage.searchParams.get("value")!,
+    }),
+  });
+  assert.equal(wrongDeviceResponse.status, 401);
+  assert.deepEqual(await session.pollDevice(), { ok: true, pending: true, interval: 1 });
+  const deviceResponse = await fetch(devicePage, {
+    method: "POST",
+    body: new URLSearchParams({
+      username: "owner",
+      password: "correct:horse",
+      userCode: devicePage.searchParams.get("value")!,
+    }),
+  });
+  assert.equal(deviceResponse.status, 200);
   assert.equal((await session.pollDevice()).authenticated, true);
+  const start = Date.now();
+  Date.now = () => start + 16 * 60_000;
+  try {
+    assert.equal((await session.status()).authenticated, true);
+  } finally {
+    Date.now = () => start;
+  }
   const bound = await session.bind({ transportKind: "unix-socket" });
   assert.equal(bound.oidcPrincipal?.personId, "person-owner");
   const center = await session.center();
@@ -95,19 +144,106 @@ test("clean user roots select built-in identity without a managed runtime", asyn
   );
 });
 
+test("configured built-in session lifetime is used at the expiry boundary", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-session-lifetime-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const session = new BuiltinIdentitySession(root);
+  await session.bootstrapAdmin({
+    username: "owner",
+    email: "owner@example.invalid",
+    displayName: "Owner",
+    password: "correct:horse",
+    personId: "person-owner",
+  });
+  const center = await session.center();
+  await center.provider.writeSessionLifetime(center.accessToken, 300);
+  const login = await session.begin("http://127.0.0.1:43123/callback"),
+    page = new URL(String(login.authorizationUrl)),
+    response = await fetch(page, {
+      method: "POST",
+      body: new URLSearchParams({ username: "owner", password: "correct:horse", state: String(login.state) }),
+      redirect: "manual",
+    }),
+    callback = new URL(response.headers.get("location")!);
+  await session.complete(callback.searchParams.get("code")!, String(login.state));
+  const start = Date.now();
+  Date.now = () => start + 301_000;
+  try {
+    assert.equal((await session.status()).authenticated, false);
+  } finally {
+    Date.now = () => start;
+  }
+});
+
 test("external mode remains an explicit Keycloak plugin selection", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-switch-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const management = createIdentityManagement(root);
+  const fakeFetch = (async (input: string | URL, init?: RequestInit) => {
+    const url = new URL(input),
+      pathName = url.pathname;
+    if (pathName === "/realms/fleet") return Response.json({ realm: "fleet" });
+    if (pathName.endsWith("/protocol/openid-connect/token"))
+      return Response.json({ access_token: "center-token", expires_in: 300 });
+    if (pathName === "/admin/realms/fleet/users") return Response.json([]);
+    throw new Error(`Unexpected external identity request ${url} ${String(init?.method ?? "GET")}`);
+  }) as typeof fetch;
+  const management = createIdentityManagement(root, { fetch: fakeFetch });
   await management.run({ operation: "bootstrap" });
+  const session = createIdentitySession(root, { fetch: fakeFetch });
+  assert.ok(session instanceof BuiltinIdentitySession);
+  await session.bootstrapAdmin({
+    username: "owner",
+    email: "owner@example.invalid",
+    displayName: "Owner",
+    password: "correct:horse",
+    personId: "person-owner",
+  });
+  const login = await session.begin("http://127.0.0.1:43123/callback");
+  const loginPage = new URL(String(login.authorizationUrl));
+  const loginResponse = await fetch(loginPage, {
+    method: "POST",
+    body: new URLSearchParams({ username: "owner", password: "correct:horse", state: String(login.state) }),
+    redirect: "manual",
+  });
+  const callback = new URL(loginResponse.headers.get("location")!);
+  await session.complete(callback.searchParams.get("code")!, String(login.state));
+  const before = readFileSync(path.join(root, "rbac", "config.json"), "utf8");
+  await session.logout();
+  await assert.rejects(
+    session.configureAuthority(() =>
+      management.run({
+        mode: "external",
+        url: "https://identity.example.invalid",
+        realm: "fleet",
+        clientId: "harness-center",
+        clientSecret: "synthetic-client-secret",
+      }),
+    ),
+    { code: "authentication_required" },
+  );
+  assert.equal(readFileSync(path.join(root, "rbac", "config.json"), "utf8"), before);
+  const relogin = await session.begin("http://127.0.0.1:43123/callback");
+  const reloginPage = new URL(String(relogin.authorizationUrl));
+  const reloginResponse = await fetch(reloginPage, {
+    method: "POST",
+    body: new URLSearchParams({ username: "owner", password: "correct:horse", state: String(relogin.state) }),
+    redirect: "manual",
+  });
+  const reloginCallback = new URL(reloginResponse.headers.get("location")!);
+  await session.complete(reloginCallback.searchParams.get("code")!, String(relogin.state));
   await management.run({
     mode: "external",
     url: "https://identity.example.invalid",
     realm: "fleet",
     clientId: "harness-center",
+    clientSecret: "synthetic-client-secret",
   });
-  const session = createIdentitySession(root);
-  assert.ok(session instanceof OidcSessionService);
+  assert.ok(session instanceof BuiltinIdentitySession);
+  assert.equal(existsSync(path.join(root, "rbac", "center-client-secret")), true);
+  const switched = await session.center();
+  assert.equal(switched.provider.authority, "keycloak");
+  assert.equal(session.centerConfigured(), true);
+  assert.ok(session instanceof BuiltinIdentitySession);
   assert.equal(
     createAuthorizationProvider({
       mode: "external",
@@ -126,6 +262,112 @@ test("external mode remains an explicit Keycloak plugin selection", async (t) =>
     resourceServerClientId: "harness-center",
   });
   assert.equal(provider.authority, "builtin");
+
+  const configBeforeInvalidSwitch = readFileSync(path.join(root, "rbac", "config.json"), "utf8"),
+    secretBeforeInvalidSwitch = readFileSync(path.join(root, "rbac", "center-client-secret"), "utf8"),
+    invalidFetch = (async (input: string | URL) => {
+      const url = new URL(input);
+      if (url.pathname === "/realms/fleet") return Response.json({ realm: "fleet" });
+      if (url.pathname.endsWith("/protocol/openid-connect/token"))
+        return new Response("bad credentials", { status: 401 });
+      throw new Error(`Unexpected invalid external identity request ${url}`);
+    }) as typeof fetch,
+    invalidManagement = createIdentityManagement(root, { fetch: invalidFetch });
+  await assert.rejects(
+    invalidManagement.run({
+      mode: "external",
+      url: "https://identity.example.invalid",
+      realm: "fleet",
+      clientId: "harness-center",
+      clientSecret: "invalid-secret",
+    }),
+    { code: "rbac_external_credentials_rejected" },
+  );
+  assert.equal(readFileSync(path.join(root, "rbac", "config.json"), "utf8"), configBeforeInvalidSwitch);
+  assert.equal(readFileSync(path.join(root, "rbac", "center-client-secret"), "utf8"), secretBeforeInvalidSwitch);
+});
+
+test("expired built-in owner sessions cannot change authority", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-expired-owner-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const session = new BuiltinIdentitySession(root);
+  await session.bootstrapAdmin({
+    username: "owner",
+    email: "owner@example.invalid",
+    displayName: "Owner",
+    password: "correct:horse",
+    personId: "person-owner",
+  });
+  const login = await session.begin("http://127.0.0.1:43123/callback"),
+    page = new URL(String(login.authorizationUrl)),
+    response = await fetch(page, {
+      method: "POST",
+      body: new URLSearchParams({ username: "owner", password: "correct:horse", state: String(login.state) }),
+      redirect: "manual",
+    }),
+    callback = new URL(response.headers.get("location")!);
+  await session.complete(callback.searchParams.get("code")!, String(login.state));
+  const before = readFileSync(path.join(root, "rbac", "config.json"), "utf8"),
+    now = Date.now();
+  Date.now = () => now + 7 * 60 * 60_000;
+  try {
+    let callbackRan = false;
+    await assert.rejects(
+      session.configureAuthority(async () => {
+        callbackRan = true;
+        return { ok: true };
+      }),
+      { code: "authentication_required" },
+    );
+    assert.equal(callbackRan, false);
+    assert.equal(readFileSync(path.join(root, "rbac", "config.json"), "utf8"), before);
+  } finally {
+    Date.now = () => now;
+  }
+});
+
+test("built-in policy accepts live Artifact scopes and rejects unknown or unclaimed repositories", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-artifact-policy-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const artifactImport = "entity-kind/KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94/import",
+    session = new BuiltinIdentitySession(root, async () => [artifactImport]);
+  await session.bootstrapAdmin({
+    username: "owner",
+    email: "owner@example.invalid",
+    displayName: "Owner",
+    password: "correct:horse",
+    personId: "person-owner",
+  });
+  const login = await session.begin("http://127.0.0.1:43123/callback"),
+    page = new URL(String(login.authorizationUrl)),
+    response = await fetch(page, {
+      method: "POST",
+      body: new URLSearchParams({ username: "owner", password: "correct:horse", state: String(login.state) }),
+      redirect: "manual",
+    }),
+    callback = new URL(response.headers.get("location")!);
+  await session.complete(callback.searchParams.get("code")!, String(login.state));
+  const center = await session.center();
+  await center.provider.claimRepositoryOwner(center.accessToken, "repo-owned", "person-owner");
+  const auth = await session.bind({ transportKind: "unix-socket" });
+  const allowed = await center.provider.authorize({
+    userAccessToken: auth.oidcPrincipal!.accessToken,
+    action: artifactImport,
+    resource: { kind: "repository", repoId: "repo-owned" },
+  });
+  assert.equal(allowed.outcome, "allowed");
+  const unknown = await center.provider.authorize({
+    userAccessToken: auth.oidcPrincipal!.accessToken,
+    action: "entity-kind/KND-unknown/import",
+    resource: { kind: "repository", repoId: "repo-owned" },
+  });
+  assert.equal(unknown.reasonCode, "unknown_scope");
+  const unclaimed = await center.provider.authorize({
+    userAccessToken: auth.oidcPrincipal!.accessToken,
+    action: artifactImport,
+    resource: { kind: "repository", repoId: "repo-other" },
+  });
+  assert.equal(unclaimed.outcome, "denied");
 });
 
 test("builtin authority URLs reject malformed or non-absolute roots", () => {
@@ -153,6 +395,86 @@ test("builtin sessions reject remote edge targets at the identity boundary", asy
   await assert.rejects(session.requireSession(edgeRoot), pluginRequired);
   await assert.rejects(session.requireRole("access-admin", edgeRoot), pluginRequired);
   assert.throws(() => session.configureAuthority(async () => ({ ok: true }), edgeRoot), pluginRequired);
+});
+
+test("legacy Keycloak edges keep their session port until an explicit selector is written", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-legacy-edge-")),
+    edgeRoot = mkdtempSync(path.join(tmpdir(), "ha-builtin-legacy-workspace-"));
+  t.after(() => {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(edgeRoot, { recursive: true, force: true });
+  });
+  writeFileSync(
+    path.join(edgeRoot, "fleet-edge.json"),
+    JSON.stringify({
+      schema: "fleet-edge-config/v1",
+      repoId: "legacy-repo",
+      host: "127.0.0.1",
+      port: 7443,
+      caPath: "/tmp/ca.pem",
+      nodeId: "edge-old",
+      credential: "edge-credential",
+      viewRoot: "/tmp/view",
+      quotaBytes: 1024,
+    }),
+  );
+  const service = createIdentitySession(root, {
+    loginAuthority: async () => ({ url: "https://identity.example.invalid", realm: "fleet", clientId: "harness-gui" }),
+    fetch: (async (input) => {
+      assert.match(String(input), /\.well-known\/openid-configuration/u);
+      return Response.json({ issuer: "https://identity.example.invalid/realms/fleet" });
+    }) as typeof fetch,
+  });
+  const pending = await service.begin("http://127.0.0.1:43123/callback", edgeRoot);
+  assert.match(String(pending.authorizationUrl), /identity\.example\.invalid/u);
+  assert.equal(existsSync(path.join(root, "rbac", "config.json")), false);
+});
+
+test("legacy edge roots reopen through Keycloak without a selector and preserve their session file", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-legacy-reopen-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(path.join(root, "rbac"), { recursive: true });
+  writeFileSync(
+    path.join(root, "fleet-edge.json"),
+    JSON.stringify({
+      schema: "fleet-edge-config/v1",
+      repoId: "legacy-repo",
+      host: "127.0.0.1",
+      port: 7443,
+      caPath: "/tmp/ca.pem",
+      nodeId: "edge-old",
+      credential: "edge-credential",
+      viewRoot: "/tmp/view",
+      quotaBytes: 1024,
+    }),
+  );
+  const legacySession = JSON.stringify({ schema: "harness-oidc-session/v2", accessToken: "legacy-token" });
+  writeFileSync(path.join(root, "rbac", "oidc-session.json"), legacySession);
+  const service = createIdentitySession(root, {
+    loginAuthority: async () => ({ url: "https://identity.example.invalid", realm: "fleet", clientId: "harness-gui" }),
+    fetch: (async (input) => {
+      assert.match(String(input), /\.well-known\/openid-configuration/u);
+      return Response.json({ issuer: "https://identity.example.invalid/realms/fleet" });
+    }) as typeof fetch,
+  });
+  const pending = await service.begin("http://127.0.0.1:43123/callback", root);
+  assert.match(String(pending.authorizationUrl), /identity\.example\.invalid/u);
+  assert.equal(
+    managedRbacSessionStore(root, "https://identity.example.invalid/realms/fleet", "fleet").read(),
+    legacySession,
+  );
+  writeFileSync(
+    path.join(root, "rbac", "config.json"),
+    JSON.stringify({
+      schema: "harness-builtin-rbac/v1",
+      mode: "builtin",
+      url: "builtin://local",
+      realm: "local",
+      clientId: "harness-center",
+    }),
+  );
+  assert.ok(createIdentitySession(root) instanceof BuiltinIdentitySession);
+  assert.equal(readFileSync(path.join(root, "rbac", "oidc-session.json"), "utf8"), legacySession);
 });
 
 test("builtin collaboration entry points require the Keycloak plugin", async (t) => {
