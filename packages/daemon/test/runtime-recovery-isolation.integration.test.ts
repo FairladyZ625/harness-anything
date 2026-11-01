@@ -208,6 +208,157 @@ test("a session without a dispatch never holds its instance, while a dispatched 
   await assert.rejects(spawn(), { code: "runtime_recovery_missing_dispatch" });
 });
 
+test("an exited owner session with a dispatch but no stream header settles and frees its instance", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-recovery-missing-header-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  const prepared = Object.assign(new Error("selection reached the launch port"), { code: "fixture_prepared" });
+  const dispatchId = "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa";
+  const session = {
+    runtimeSessionId: "runtime-missing-header",
+    instanceId: definition.instanceId,
+    providerSessionId: null,
+    liveness: "exited" as const,
+    outcome: null as "succeeded" | "failed" | "unknown" | "cancelled" | "stopped" | null,
+  };
+  const published: Array<{
+    readonly type: string;
+    readonly opId: string;
+    readonly payload: Readonly<Record<string, unknown>>;
+    readonly resultBody?: string;
+  }> = [];
+  const spawner = makeRuntimeSpawner({
+    rootDir,
+    repoId: "missing-header",
+    daemonGeneration: 1,
+    runtimeNode: { nodeId: "node-a" },
+    now: () => "2026-11-01T00:01:00.000Z",
+    stream: { publish: () => ({}) as never },
+    runtimeInstances: scheduleRuntimePorts().runtimeInstances,
+    readSettings: () => ({ runtime: { allowedInstances: [definition.instanceId] } }) as never,
+    prepareLaunch: async () => {
+      throw prepared;
+    },
+    schedule: () => undefined,
+    remote: {
+      taskContext: async () => {
+        throw new Error("taskless probe must not request task context");
+      },
+      readRuntimeSessions: async () => [session],
+      readRuntimeDispatch: async () => ({
+        payload: { dispatchId },
+        actor: { principal: { personId: "owner" }, executor: null },
+        source: { kind: "node", nodeId: "node-a" },
+      }),
+      publish: async (draft) => {
+        published.push({
+          type: draft.type,
+          opId: draft.opId,
+          payload: draft.payload,
+          ...(draft.resultBody === undefined ? {} : { resultBody: draft.resultBody }),
+        });
+        if (draft.type === "runtime_session_outcome_observed")
+          session.outcome = draft.payload.outcome as typeof session.outcome;
+        return { event: { type: draft.type } as never, receipt: { outcome: "applied" } };
+      },
+      archive: async () => ({ outcome: "applied" }),
+    },
+  });
+  t.after(() => spawner.close());
+  const recovery = await spawner.adopt();
+  await assert.rejects(
+    spawner.spawn(
+      {
+        runtimeInstanceId: definition.instanceId,
+        prompt: "select",
+        cwd: { scope: "repo-root" },
+        dispatchKey: "probe",
+      },
+      { actor: { principal: { personId: "owner" }, executor: null }, source: { kind: "node", nodeId: "node-a" } },
+    ),
+    prepared,
+  );
+  assert.equal(recovery[0]?.outcome, "settled");
+  assert.equal(session.outcome, "unknown");
+  assert.deepEqual(
+    published.map(({ type }) => type),
+    ["runtime_session_exited", "runtime_session_outcome_observed"],
+  );
+  assert.deepEqual(
+    published.map(({ opId }) => opId),
+    [`runtime-recovery-${dispatchId}-exited`, `runtime-recovery-${dispatchId}-outcome`],
+  );
+  assert.equal(published[1]?.payload.dispatchId, dispatchId);
+  assert.equal(
+    published[1]?.resultBody,
+    "Runtime session lost: runtime process was no longer alive after daemon restart.",
+  );
+});
+
+test("a missing dispatch stream cannot settle a live or foreign runtime", async (t) => {
+  const dispatchId = "dispatch_bbbbbbbbbbbbbbbbbbbbbbbb",
+    published: string[] = [],
+    rootDir = mkdtempSync(path.join(tmpdir(), "runtime-recovery-negative-control-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  const makeContext = (
+    session: {
+      readonly runtimeSessionId: string;
+      readonly liveness: "live" | "exited";
+      outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped" | null;
+    },
+    owner: string,
+    acquireSlotDuringDispatchRead = false,
+  ) => {
+    let ownsSlot = false;
+    return {
+      input: {
+        rootDir,
+        runtimeNode: { nodeId: "node-a" },
+        remote: {
+          readRuntimeSessions: async () => [session],
+          readRuntimeDispatch: async () => {
+            if (acquireSlotDuringDispatchRead) ownsSlot = true;
+            return {
+              payload: { dispatchId },
+              actor: { principal: { personId: "owner" }, executor: null },
+              source: { kind: "node", nodeId: owner },
+            };
+          },
+        },
+      },
+      processes: new Map(),
+      exiting: new Set(),
+      ownsModelSlot: () => ownsSlot,
+      runtimeSpawnError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+      publishRuntimeEvent: async (type: string, payload: { runtimeSessionId: string; outcome?: string }) => {
+        published.push(type);
+        if (type === "runtime_session_outcome_observed") session.outcome = payload.outcome as typeof session.outcome;
+        return { event: { type } as never };
+      },
+    } as unknown as RuntimeSpawnerContext;
+  };
+  const liveSession = { runtimeSessionId: "live-runtime", liveness: "live" as const, outcome: null },
+    liveContext = makeContext(liveSession, "node-a"),
+    liveResult = await adoptRuntimes(liveContext);
+  assert.equal(liveResult[0]?.outcome, "failed");
+  assert.equal(liveSession.outcome, null);
+  assert.deepEqual(published, []);
+
+  const foreignSession = { runtimeSessionId: "foreign-runtime", liveness: "exited" as const, outcome: null },
+    foreignContext = makeContext(foreignSession, "node-b"),
+    foreignResult = await adoptRuntimes(foreignContext);
+  assert.equal(foreignResult[0]?.outcome, "foreign");
+  assert.equal(foreignSession.outcome, null);
+  assert.deepEqual(published, []);
+  assert.equal(assertRuntimeRecoveryReady(foreignContext, foreignSession.runtimeSessionId), false);
+
+  const racingSession = { runtimeSessionId: "racing-runtime", liveness: "exited" as const, outcome: null },
+    racingContext = makeContext(racingSession, "node-a", true),
+    racingResult = await adoptRuntimes(racingContext);
+  assert.equal(racingResult[0]?.outcome, "failed");
+  assert.equal(racingSession.outcome, null);
+  assert.deepEqual(published, []);
+});
+
 for (const fault of ["HEAD timeout", "HEAD signal", "runtime restoration rejected"]) {
   test(`${fault} is a per-runtime failure and another archived runtime still restores`, async (t) => {
     const error = Object.assign(new Error(fault), {

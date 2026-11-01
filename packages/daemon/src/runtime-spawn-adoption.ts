@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS } from "@harness-anything/kernel";
 import type { ActiveRuntime, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import {
@@ -27,7 +27,7 @@ import { isRuntimeKindId } from "./runtime-inventory.ts";
 export interface RuntimeRecoveryResult {
   readonly runtimeSessionId: string;
   readonly dispatchId: string | null;
-  readonly outcome: "ready" | "failed" | "foreign";
+  readonly outcome: "ready" | "settled" | "failed" | "foreign";
   readonly error?: unknown;
 }
 
@@ -65,10 +65,7 @@ export async function adoptRuntimes(
       const runtimeSessionId = session.runtimeSessionId;
       const existing = pending.get(runtimeSessionId);
       if (existing && !existing.result) return existing.promise;
-      const alreadyOwned =
-        context.processes.has(runtimeSessionId) ||
-        context.exiting.has(runtimeSessionId) ||
-        context.ownsModelSlot?.(runtimeSessionId) === true;
+      const alreadyOwned = hasLocalRuntimeOwner(context, runtimeSessionId);
       let dispatchId: string | null = null;
       const entry: { promise: Promise<RuntimeRecoveryResult>; result?: RuntimeRecoveryResult } = {
         promise: Promise.resolve()
@@ -81,11 +78,24 @@ export async function adoptRuntimes(
             dispatchId = dispatch?.payload.dispatchId ?? null;
             if (dispatch && !ownedByRuntimeSpawner(dispatch, context.input.runtimeNode)) return "foreign" as const;
             const header = dispatchId ? readDispatchStreamHeader(context.input.rootDir, dispatchId) : null;
-            if (!header)
+            if (!header) {
+              if (
+                session.liveness === "exited" &&
+                !hasLocalRuntimeOwner(context, runtimeSessionId) &&
+                dispatch !== null &&
+                dispatch.actor
+              ) {
+                await settleMissingDispatchStream(context, session, dispatch.payload.dispatchId, {
+                  actor: dispatch.actor,
+                  source: dispatch.source,
+                });
+                return "settled" as const;
+              }
               throw context.runtimeSpawnError(
                 "runtime_recovery_missing_dispatch",
                 `Runtime ${runtimeSessionId} has no readable dispatch.`,
               );
+            }
             await restoreRuntime(context, header, session);
             return "ready" as const;
           })
@@ -124,13 +134,58 @@ export async function adoptRuntimes(
 }
 
 /** Admission never waits while holding the writer: an unresolved owner cannot look idle. */
-export function assertRuntimeRecoveryReady(context: RuntimeSpawnerContext, runtimeSessionId: string): boolean {
+export function assertRuntimeRecoveryReady(
+  context: RuntimeSpawnerContext,
+  runtimeSessionId: string,
+  dispatchId?: string | null,
+): boolean {
   const recovery = recoveries.get(context)?.get(runtimeSessionId);
-  if (recovery?.result?.outcome === "foreign") return false;
+  if (dispatchId === null || recovery?.result?.outcome === "foreign" || recovery?.result?.outcome === "settled")
+    return false;
   if (recovery?.result?.outcome === "failed") throw recovery.result.error;
   if (recovery && !recovery.result)
     throw context.runtimeSpawnError("runtime_recovery_pending", `Runtime ${runtimeSessionId} is still recovering.`);
   return true;
+}
+
+function hasLocalRuntimeOwner(context: RuntimeSpawnerContext, runtimeSessionId: string): boolean {
+  return (
+    context.processes.has(runtimeSessionId) ||
+    context.exiting.has(runtimeSessionId) ||
+    context.ownsModelSlot?.(runtimeSessionId) === true
+  );
+}
+
+async function settleMissingDispatchStream(
+  context: RuntimeSpawnerContext,
+  session: RuntimeSessionSelection,
+  dispatchId: string,
+  binding: RuntimeBinding,
+): Promise<void> {
+  const resultBody = "Runtime session lost: runtime process was no longer alive after daemon restart.",
+    resultSha256 = createHash("sha256").update(resultBody).digest("hex"),
+    opId = `runtime-recovery-${dispatchId}`;
+  await context.publishRuntimeEvent(
+    "runtime_session_exited",
+    { runtimeSessionId: session.runtimeSessionId },
+    `${opId}-exited`,
+    binding,
+  );
+  await context.publishRuntimeEvent(
+    "runtime_session_outcome_observed",
+    {
+      runtimeSessionId: session.runtimeSessionId,
+      outcome: "unknown",
+      exitCode: null,
+      resultRef: `artifact:runtime-result/sha256/${resultSha256}`,
+      result: { sha256: resultSha256, size: Buffer.byteLength(resultBody), mediaType: context.resultMediaType },
+      dispatchId,
+      endedAt: context.input.now(),
+    },
+    `${opId}-outcome`,
+    binding,
+    resultBody,
+  );
 }
 
 async function restoreRuntime(

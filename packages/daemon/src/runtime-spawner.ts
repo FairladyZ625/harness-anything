@@ -467,17 +467,15 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               if (session.outcome !== null || session.instanceId !== runtimeInstanceId) continue;
               // A session can arrive after the startup census. Its canonical node owner,
               // not absence from this node's process map, determines who must recover it.
+              let dispatchId: string | null | undefined;
               if (!processes.has(session.runtimeSessionId)) {
                 const dispatch = input.remote
                   ? await input.remote.readRuntimeDispatch(session.runtimeSessionId)
                   : projection!.readRuntimeDispatch(session.runtimeSessionId);
-                // No dispatch and no process here means the session never held an occupiable
-                // runtime on this node. Recovery still records its failure in the summary, but
-                // that failure cannot refuse a new dispatch on the instance.
-                if (!dispatch) continue;
-                if (!ownedByRuntimeSpawner(dispatch, input.runtimeNode)) continue;
+                dispatchId = dispatch?.payload.dispatchId ?? null;
+                if (dispatch && !ownedByRuntimeSpawner(dispatch, input.runtimeNode)) continue;
               }
-              if (!assertRuntimeRecoveryReady(extracted, session.runtimeSessionId)) continue;
+              if (!assertRuntimeRecoveryReady(extracted, session.runtimeSessionId, dispatchId)) continue;
               if (!processes.has(session.runtimeSessionId))
                 throw runtimeSpawnError(
                   "runtime_recovery_pending",
