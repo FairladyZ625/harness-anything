@@ -15,5 +15,5 @@
     "outDir": "./dist"
   },
   "include": ["src/**/*.ts"],
-  "references": [{"path": "../kernel"}]
+  "references": []
 }
