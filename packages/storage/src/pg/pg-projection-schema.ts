@@ -82,6 +82,7 @@ export function projectionDdl(): readonly string[] {
       fact_id text NOT NULL,
       workspace_revision bigint NOT NULL,
       value jsonb NOT NULL,
+      memory_class text GENERATED ALWAYS AS (value->>'memoryClass') STORED,
       updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
       PRIMARY KEY (tenant_id, project_id, policy_epoch, fact_id)
     )`,
@@ -142,12 +143,16 @@ export function projectionDdl(): readonly string[] {
     "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS generation text NOT NULL DEFAULT 'v1'",
     "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS created_at timestamptz",
     "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS completed_at timestamptz",
+    "ALTER TABLE ha_facts ADD COLUMN IF NOT EXISTS memory_class text GENERATED ALWAYS AS (value->>'memoryClass') STORED",
     "CREATE INDEX IF NOT EXISTS ha_task_snapshots_scope_revision ON ha_task_snapshots (tenant_id, project_id, workspace_revision DESC)",
     ...PG_PROJECTION_TABLES.map(
       (table) => `CREATE INDEX IF NOT EXISTS ${table}_readers_gin ON ${table} USING gin (readers)`,
     ),
     "CREATE INDEX IF NOT EXISTS ha_decisions_value_gin ON ha_decisions USING gin (value)",
     "CREATE INDEX IF NOT EXISTS ha_facts_value_gin ON ha_facts USING gin (value)",
+    // JSONB extraction/containment is not leakproof. A stored scalar allows the runtime's
+    // equality predicate to use this index below the forced RLS barrier.
+    "CREATE INDEX IF NOT EXISTS ha_facts_memory_class ON ha_facts (tenant_id, project_id, policy_epoch, memory_class)",
     "CREATE INDEX IF NOT EXISTS ha_relations_source ON ha_relations (tenant_id, project_id, source_ref, relation_type)",
     "CREATE INDEX IF NOT EXISTS ha_relations_target ON ha_relations (tenant_id, project_id, target_ref, relation_type)",
     "CREATE INDEX IF NOT EXISTS ha_relations_value_gin ON ha_relations USING gin (value)",

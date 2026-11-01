@@ -322,7 +322,20 @@ async function storeDecision(
      WHERE tenant_id = $1 AND project_id = $2 AND policy_epoch = $3 AND decision_id = $4`,
     [scope.tenantId, scope.projectId, scope.policyEpoch, decisionId],
   );
-  const value = reduceDecisionDocument(current.rows[0]?.value ?? null, event);
+  const previous = current.rows[0]?.value ?? null,
+    reduced = reduceDecisionDocument(previous, event),
+    value: DecisionDocumentState = {
+      ...reduced,
+      ...("judgmentConsent" in event.payload && event.payload.judgmentConsent
+        ? { judgmentConsents: [...(previous?.judgmentConsents ?? []), event.payload.judgmentConsent] }
+        : {}),
+      ...("contentPin" in event.payload && event.payload.contentPin
+        ? { contentPins: [...(previous?.contentPins ?? []), event.payload.contentPin] }
+        : {}),
+      ...("amendment" in event.payload && event.payload.amendment
+        ? { amendments: [...(previous?.amendments ?? []), event.payload.amendment] }
+        : {}),
+    };
   await client.query(
     `INSERT INTO ha_decisions
        (tenant_id, project_id, policy_epoch, readers, decision_id, workspace_revision, value, updated_at)
@@ -641,6 +654,7 @@ async function storeEmbeddedRelations(
   event: PersistedCanonicalEventV1,
   tables: Set<string>,
 ): Promise<void> {
+  const executionSourceVersions: { readonly relationId: string; readonly workspaceRevision: number }[] = [];
   for (const contract of entityKindContracts) {
     if (
       !contract.canonicalProjection?.embeddedEvents.some(
@@ -666,6 +680,11 @@ async function storeEmbeddedRelations(
             value.rationale !== relation.rationale
           )
             throw new Error(`Embedded relation ${relation.relationId} changed identity`);
+          if (projection.kind === "execution")
+            executionSourceVersions.push({
+              relationId: relation.relationId,
+              workspaceRevision: projection.workspaceRevision,
+            });
           continue;
         }
         const observedVersion = await relationTargetVersion(client, scope, relation.targetRef),
@@ -694,8 +713,30 @@ async function storeEmbeddedRelations(
             },
           };
         await storeRelation(client, scope, derived, tables);
+        if (projection.kind === "execution")
+          executionSourceVersions.push({
+            relationId: relation.relationId,
+            workspaceRevision: projection.workspaceRevision,
+          });
       }
   }
+  for (const { relationId, workspaceRevision } of executionSourceVersions)
+    await recordExecutionRelationSourceVersion(client, scope, relationId, workspaceRevision);
+}
+
+async function recordExecutionRelationSourceVersion(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  relationId: string,
+  workspaceRevision: number,
+): Promise<void> {
+  await client.query(
+    `UPDATE ha_relations
+     SET value=jsonb_set(value, '{sourceObservedVersion}',
+       to_jsonb(GREATEST(COALESCE((value->>'sourceObservedVersion')::bigint, 0), $1::bigint)), true)
+     WHERE tenant_id=$2 AND project_id=$3 AND policy_epoch=$4 AND relation_id=$5`,
+    [workspaceRevision, scope.tenantId, scope.projectId, scope.policyEpoch, relationId],
+  );
 }
 
 async function relationEventWithTargetWitness(
@@ -769,7 +810,19 @@ async function relationTargetVersion(
   const slash = target.indexOf("/"),
     kind = slash > 0 ? target.slice(0, slash) : "",
     id = slash > 0 ? target.slice(slash + 1) : "",
-    table =
+    readers = [...(scope.readers ?? [])];
+  if (kind === "execution") {
+    const result = await client.query<{ source_version: string }>(
+      `SELECT value->>'sourceObservedVersion' AS source_version FROM ha_relations
+       WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND source_ref=$4 AND relation_type='executes'
+         AND value ? 'sourceObservedVersion'
+         AND (cardinality($5::text[])=0 OR readers && $5::text[])
+       ORDER BY (value->>'sourceObservedVersion')::bigint DESC LIMIT 1`,
+      [scope.tenantId, scope.projectId, scope.policyEpoch, target, readers],
+    );
+    return result.rows[0] ? Number(result.rows[0].source_version) : null;
+  }
+  const table =
       knownTable ??
       (kind === "task"
         ? "ha_task_snapshots"
@@ -798,7 +851,7 @@ async function relationTargetVersion(
   if (!table || !idColumn) return null;
   const result = await client.query<{ workspace_revision: string }>(
     `SELECT workspace_revision::text FROM ${table} WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND ${idColumn}=$4 AND (cardinality($5::text[])=0 OR readers && $5::text[])`,
-    [scope.tenantId, scope.projectId, scope.policyEpoch, knownId ?? id, [...(scope.readers ?? [])]],
+    [scope.tenantId, scope.projectId, scope.policyEpoch, knownId ?? id, readers],
   );
   return result.rows[0] ? Number(result.rows[0].workspace_revision) : null;
 }

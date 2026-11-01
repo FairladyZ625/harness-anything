@@ -1,6 +1,7 @@
 import type { PoolClient } from "pg";
 import type { DecisionProjectionRow } from "@harness-anything/kernel/internal/ports/decision-projection-model.ts";
 import type { EntityRelationRecord } from "@harness-anything/kernel/internal/domain/entity-relation.ts";
+import { decisionDocumentProse } from "@harness-anything/kernel/internal/domain/decision-event.ts";
 import { relationOwnerRef } from "@harness-anything/kernel/internal/domain/entity-relation.ts";
 import {
   decisionCapabilities,
@@ -57,7 +58,7 @@ export async function readPgDecisionRows(
         blobSha256: row.sha256,
         size: Number(row.size),
         mediaType: "text/markdown",
-        body: row.body.toString("utf8"),
+        body: decisionDocumentProse(row.body.toString("utf8")),
         workspaceRevision: Number(row.revision),
       },
     ]),

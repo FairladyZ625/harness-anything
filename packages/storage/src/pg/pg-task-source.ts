@@ -396,13 +396,13 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           );
         }
         for (const [field, value] of [
-          ["taskId", filters.taskId],
-          ["confidence", filters.confidence],
-          ["memoryClass", filters.memoryClass],
+          ["value->>'taskId'", filters.taskId],
+          ["value->>'confidence'", filters.confidence],
+          ["memory_class", filters.memoryClass],
         ] as const)
           if (value !== undefined) {
             values.push(value);
-            where.push(`value->>'${field}' = $${values.length}`);
+            where.push(`${field} = $${values.length}`);
           }
         if (filters.refs !== undefined) {
           values.push(filters.refs);
@@ -757,6 +757,27 @@ async function readEntityVersionWitnesses(
       continue;
     }
     const { kind, id } = parsed;
+    if (kind === "execution") {
+      const executions = await client.query<{ source_version: string }>(
+        `SELECT value->>'sourceObservedVersion' AS source_version FROM ha_relations
+         WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND source_ref=$4 AND relation_type='executes'
+           AND value ? 'sourceObservedVersion'
+           AND (cardinality($5::text[])=0 OR readers && $5::text[])
+         ORDER BY (value->>'sourceObservedVersion')::bigint DESC LIMIT 1`,
+        [claims.tenantId, claims.projectId, claims.policyEpoch, ref, readers],
+      );
+      result.set(
+        ref,
+        executions.rows.length === 0
+          ? { entityRef: ref, freshness: "unknown", currentVersion: null }
+          : {
+              entityRef: ref,
+              freshness: "current",
+              currentVersion: Number(executions.rows[0]!.source_version),
+            },
+      );
+      continue;
+    }
     const table =
       kind === "task"
         ? "ha_task_snapshots"

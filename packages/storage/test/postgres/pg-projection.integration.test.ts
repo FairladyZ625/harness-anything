@@ -162,12 +162,14 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
     );
     assert.deepEqual(cut, { status: "ready", watermark: 1, sourceRevision: 1 });
 
-    const parityEvents = lifecycleFixture({ taskId: "task-parity" }).events.map((value, index) => ({
-      ...value,
-      eventId: `pg-parity-${value.eventId}`,
-      opId: `pg-parity-${value.opId}`,
-      workspaceRevision: index + 2,
-    }));
+    const parityEvents = lifecycleFixture({ taskId: "task-parity", executionId: "execution-parity" }).events.map(
+      (value, index) => ({
+        ...value,
+        eventId: `pg-parity-${value.eventId}`,
+        opId: `pg-parity-${value.opId}`,
+        workspaceRevision: index + 2,
+      }),
+    );
     for (const value of parityEvents) {
       await appendCanonical({ event: value, plan: taskLifecycleWritePlan(value), blobs: [] });
     }
@@ -358,9 +360,10 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
       });
     await appendCanonical({ event: refinesRelation, plan: relationEventWritePlan(refinesRelation), blobs: [] });
 
-    const blockerStartBase = lifecycleFixture({ taskId: taskBlocker.taskId }).events.find(
-        (value) => value.type === "execution_started",
-      )!,
+    const blockerStartBase = lifecycleFixture({
+        taskId: taskBlocker.taskId,
+        executionId: "execution-blocker",
+      }).events.find((value) => value.type === "execution_started")!,
       blockerStart = {
         ...blockerStartBase,
         eventId: "pg-blocker-start",
@@ -434,7 +437,7 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
           },
         },
       },
-      childStartBase = lifecycleFixture({ taskId: childCreated.taskId }).events.find(
+      childStartBase = lifecycleFixture({ taskId: childCreated.taskId, executionId: "execution-child" }).events.find(
         (value) => value.type === "execution_started",
       )!,
       childStart = {
@@ -507,9 +510,10 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
         },
       ],
     });
-    const bootstrapStartBase = lifecycleFixture({ taskId: bootstrapTaskId }).events.find(
-        (value) => value.type === "execution_started",
-      )!,
+    const bootstrapStartBase = lifecycleFixture({
+        taskId: bootstrapTaskId,
+        executionId: "execution-bootstrap",
+      }).events.find((value) => value.type === "execution_started")!,
       bootstrapStart = {
         ...bootstrapStartBase,
         eventId: "pg-bootstrap-start",
@@ -614,7 +618,7 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
       decisionReviewRequirement: "off",
     });
     await appendCanonical(acceptedWrite);
-    const blockedStartBase = lifecycleFixture({ taskId: "task-blocked" }).events.find(
+    const blockedStartBase = lifecycleFixture({ taskId: "task-blocked", executionId: "execution-blocked" }).events.find(
         (value) => value.type === "execution_started",
       )!,
       blockedStart = {
@@ -644,9 +648,10 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
       };
     await appendCanonical({ event: readerATask, plan: taskLifecycleWritePlan(readerATask), blobs: [] });
     await appendCanonical({ event: readerBTask, plan: taskLifecycleWritePlan(readerBTask), blobs: [] });
-    const readerBStartBase = lifecycleFixture({ taskId: "task-reader-b" }).events.find(
-        (value) => value.type === "execution_started",
-      )!,
+    const readerBStartBase = lifecycleFixture({
+        taskId: "task-reader-b",
+        executionId: "execution-reader-b",
+      }).events.find((value) => value.type === "execution_started")!,
       readerBStart = {
         ...readerBStartBase,
         eventId: "pg-reader-b-start",
@@ -808,7 +813,12 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
         taskBoardPlacement(boardInput(postgresSnapshot)),
         taskBoardPlacement(boardInput(sqliteRead.snapshot)),
       );
-      const relationsPg = await source.readRelations(),
+      const unrestrictedSource = createPgTaskProjectionSource({
+        pool: runtimePool,
+        repoId,
+        scope: { ...projectionScope, readers: [] },
+      });
+      const relationsPg = await unrestrictedSource.readRelations(),
         relationsSqlite = sqliteProjection.readRelationQuery({});
       assert.deepEqual(relationsPg.rows, relationsSqlite.rows);
       assert.deepEqual(
@@ -831,6 +841,7 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
           relationsSqlite.rows,
         ),
       );
+      await unrestrictedSource.close();
       assert.deepEqual(await source.list(), {
         ...sqliteSnapshots,
         status: "ready",
@@ -842,6 +853,10 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
         sqliteProjection.list({ taskIds: ["task-work-root"], presentationStatus: true }).rows,
       );
       assert.deepEqual((await source.searchFacts({})).facts, sqliteProjection.searchFacts({}).facts);
+      assert.deepEqual(
+        (await source.searchFacts({ memoryClass: "semantic" })).facts,
+        sqliteProjection.searchFacts({ memoryClass: "semantic" }).facts,
+      );
       assert.deepEqual(await source.readDecision("dec_PG_PARITY"), sqliteProjection.readDecision("dec_PG_PARITY"));
       assert.deepEqual(
         (await source.listDecisionAgendaPage({ state: "in_effect", limit: 10 })).decisions,
@@ -963,8 +978,22 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
         ),
       projectionScope,
     );
+    // An index plan needs a selective population, not the two-row lifecycle fixture.
+    // This disposable fixture also distinguishes non-leakproof JSONB GIN planning from
+    // the runtime's scalar equality index under FORCE ROW LEVEL SECURITY.
+    await adminPool.query(
+      "INSERT INTO ha_facts (tenant_id,project_id,policy_epoch,fact_id,workspace_revision,value) " +
+        "SELECT $1,$2,$3,'plan-' || n,0,jsonb_build_object('memoryClass','episodic','ordinal',n) " +
+        "FROM generate_series(1,2048) AS n",
+      [projectionScope.tenantId, projectionScope.projectId, projectionScope.policyEpoch],
+    );
+    await adminPool.query("ANALYZE ha_facts");
+    const operator = await adminPool.query<{ proleakproof: boolean }>(
+      "SELECT proleakproof FROM pg_proc WHERE oid='jsonb_contains(jsonb,jsonb)'::regprocedure",
+    );
+    assert.equal(operator.rows[0]?.proleakproof, false);
     const explain = await withPostgresTransaction(
-      runtimePool,
+      adminPool,
       async (client) => {
         await client.query("SET LOCAL enable_seqscan = off");
         return client.query<{ readonly "QUERY PLAN": readonly { readonly Plan: unknown }[] }>(
@@ -981,6 +1010,19 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
       projectionScope,
     );
     assert.match(JSON.stringify(explain.rows[0]?.["QUERY PLAN"]), /ha_facts_value_gin/u);
+    const runtimeExplain = await withPostgresTransaction(
+      runtimePool,
+      (client) =>
+        client.query<{ readonly "QUERY PLAN": readonly { readonly Plan: unknown }[] }>(
+          "EXPLAIN (FORMAT JSON) SELECT fact_id FROM ha_facts " +
+            "WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND memory_class=$4 " +
+            "AND readers && $5::text[]",
+          [projectionScope.tenantId, projectionScope.projectId, projectionScope.policyEpoch, "semantic", ["reader-a"]],
+        ),
+      projectionScope,
+    );
+    assert.match(JSON.stringify(runtimeExplain.rows[0]?.["QUERY PLAN"]), /ha_facts_memory_class/u);
+    process.stdout.write("PG_INDEX_PLANS admin_jsonb=ha_facts_value_gin runtime_rls=ha_facts_memory_class\n");
 
     const hidden = createPgTaskProjectionSource({
       pool: runtimePool,
