@@ -89,9 +89,9 @@ test("CLI declares external-document, publishes schema v2, imports an entity, re
     ]);
     assert.equal(created.outcome, "applied", JSON.stringify(created));
     const createdEvidence = evidence(created) as { kindRef: string; kindVersion: number },
-      kindRef = createdEvidence.kindRef;
+      kindRef = createdEvidence.kindRef,
+      kindRevision = Number(created.revision);
     grantArtifactKindScopes(repoId, kindRef);
-    kindRevision = Number(created.revision);
     assert.match(kindRef, /^entity-kind\/KND-[0-9a-f]{32}$/u);
     assert.equal(createdEvidence.kindVersion, 1);
 
