@@ -12,14 +12,18 @@ const FLEET_SOURCES = [
 /** Return structural violations that would let a new Fleet RPC bypass the transfer boundary. */
 export function findFleetTransferBypasses(sourceText, fileName = "inline.ts") {
   const violations = [];
-  for (const [index, line] of String(sourceText).split(/\r?\n/u).entries()) {
-    if (/socket\.write\(\s*JSON\.stringify\(/u.test(line))
-      violations.push({ file: fileName, line: index + 1, reason: "direct JSON socket write" });
-    if (/fleet\.task\.evidence\/v1/u.test(line))
-      violations.push({ file: fileName, line: index + 1, reason: "retired per-read evidence transport" });
-    if (/assertFleetReadFits\(/u.test(line) && !/function assertFleetReadFits/u.test(line))
-      violations.push({ file: fileName, line: index + 1, reason: "read face owns the Fleet frame limit" });
-  }
+  const source = String(sourceText),
+    addMatches = (pattern, reason, ignore) => {
+      for (const match of source.matchAll(pattern)) {
+        const before = source.slice(0, match.index),
+          line = before.split("\n").length;
+        if (ignore?.(match, before)) continue;
+        violations.push({ file: fileName, line, reason });
+      }
+    };
+  addMatches(/socket\s*\.\s*write\s*\(\s*JSON\s*\.\s*stringify\s*\(/gu, "direct JSON socket write");
+  addMatches(/fleet\.task\.evidence\/v1/gu, "retired per-read evidence transport");
+  addMatches(/assertFleetReadFits\s*\(/gu, "read face owns the Fleet frame limit");
   return violations;
 }
 

@@ -33,7 +33,7 @@ import { readRuntimeExecutionPrincipal } from "../src/runtime-execution-principa
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { eventually, scheduleRuntimePorts, definition } from "./schedule-actions.fixtures.ts";
 import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
-import { FLEET_TRANSFER_CHUNK_BYTES } from "../src/fleet/command-protocol.ts";
+import { FLEET_TRANSFER_CHUNK_BYTES, FLEET_UPLOAD_MAX_BYTES } from "../src/fleet/command-protocol.ts";
 const replicaQuota = 64 * 1024 * 1024;
 test("Fleet operational replies transparently carry 1 MiB and 32 MiB results", { timeout: 120_000 }, async (t) => {
   const fixture = await fleetFixture(t, [], [], "local", undefined, undefined, false),
@@ -49,6 +49,8 @@ test("Fleet operational replies transparently carry 1 MiB and 32 MiB results", {
   t.after(() => fixture.close());
   for (const size of sizes) {
     response.payload = "x".repeat(size);
+    const peakBefore = process.resourceUsage().maxRSS,
+      rssBytes = (value: number) => (process.platform === "darwin" ? value : value * 1024);
     const result = await readFleetOperationalClient({
       hostname: "127.0.0.1",
       port: center.port,
@@ -62,6 +64,12 @@ test("Fleet operational replies transparently carry 1 MiB and 32 MiB results", {
       payload: {},
     });
     assert.deepEqual(result, { payload: response.payload });
+    if (size === 32 * 1024 * 1024) {
+      const peakAfter = process.resourceUsage().maxRSS,
+        peakDelta = Math.max(0, rssBytes(peakAfter) - rssBytes(peakBefore));
+      console.log(`fleet-32MiB-transfer: peakRssBytes=${rssBytes(peakAfter)} deltaBytes=${peakDelta}`);
+      assert.ok(peakDelta <= FLEET_UPLOAD_MAX_BYTES * 8, `peak RSS delta exceeded ${FLEET_UPLOAD_MAX_BYTES * 8} bytes`);
+    }
   }
 });
 test(
@@ -85,7 +93,12 @@ test(
         sha256,
       });
     first.write(begin("transfer-first", "large-request-first"));
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    const firstSessionStillResponsive = await first.request({
+      schema: "fleet.repo.metadata.get/v1",
+      messageId: "first-transfer-admitted",
+      repoId: fixture.subject.repoId,
+    });
+    assert.equal(firstSessionStillResponsive.schema, "fleet.repo.metadata.result/v1");
     second.write(begin("transfer-second", "large-request-second"));
     const refused = await second.receive();
     assert.equal(refused.schema, "fleet.error/v1");
