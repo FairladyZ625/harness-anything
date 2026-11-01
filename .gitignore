@@ -27,6 +27,11 @@ tmp/
 *.tsbuildinfo
 .playwright-mcp/
 
+# The plugin copies the repository's public skills into this build output; npm
+# still publishes it because packages/dsh-plugin/package.json lists `skills` in
+# its `files` field.
+packages/dsh-plugin/skills/
+
 # release tarballs (npm pack output)
 *.tgz
 .gstack/
