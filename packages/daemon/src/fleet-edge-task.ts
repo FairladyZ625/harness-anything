@@ -88,6 +88,7 @@ export class FleetEdgeTaskError extends Error {
 
 type EdgeWriteCut = { readonly revision: number; readonly headDigest: string };
 const DOC_SHOW_RANGE_BYTES = 48 * 1024;
+const DOC_SHOW_MEMORY_BYTES = 64 * 1024;
 const edgeDocShowBudget = createResourceBudget(DOC_SHOW_BUDGET_LIMITS);
 
 export async function runFleetDocShowRange(options: {
@@ -116,8 +117,7 @@ export async function runFleetDocShowRange(options: {
           opId: options.opId,
         })
       : null,
-    reservation: ReturnType<typeof edgeDocShowBudget.reserve> | null = null,
-    completed = false;
+    reservation: ReturnType<typeof edgeDocShowBudget.reserve> | null = null;
   if (sinkHandle && (await sinkHandle.sink.status(new AbortController().signal)).sealed) {
     // A prior process may have sealed before publishing its command result. The receipt is
     // not durable in this local transfer record, so restart the read rather than appending
@@ -177,7 +177,9 @@ export async function runFleetDocShowRange(options: {
       });
       reservation ??= edgeDocShowBudget.reserve(
         { nodeId: options.nodeId, repoId: options.repoId, sessionId: options.opId },
-        { bulkTransfers: 1, memoryBytes: metadata.size },
+        // The durable sink owns the object on disk. Only the current wire chunk is
+        // resident, so a large document must not consume the whole object budget.
+        { bulkTransfers: 1, memoryBytes: DOC_SHOW_MEMORY_BYTES },
       );
       const chunk = Buffer.from(String(receipt.evidence), "base64");
       await sinkHandle.sink.write(offset, chunk, new AbortController().signal);
@@ -189,25 +191,34 @@ export async function runFleetDocShowRange(options: {
         continue;
       }
       await sinkHandle.sink.seal(new AbortController().signal);
-      const bytes = sinkHandle.readSealed(),
-        evidence = metadata.encoding === "base64" ? bytes.toString("base64") : bytes.toString("utf8"),
-        cleanReceipt = { ...(result.receipt ?? {}), evidence } as Record<string, unknown>;
+      const cleanReceipt = {
+        ...(result.receipt ?? {}),
+        evidenceFile: sinkHandle.sealedPath,
+        evidenceSize: metadata.size,
+        evidenceContentEncoding: metadata.encoding,
+      } as Record<string, unknown>;
       for (const field of [
+        "evidence",
         "evidenceEncoding",
         "evidenceOffset",
         "evidenceSize",
         "evidenceDone",
         "evidenceBlobSha256",
         "evidenceSourceRevision",
+        "evidenceWorkspaceRevision",
         "evidenceContentEncoding",
       ])
         delete cleanReceipt[field];
-      completed = true;
+      cleanReceipt.evidenceFile = sinkHandle.sealedPath;
+      cleanReceipt.evidenceSize = metadata.size;
+      cleanReceipt.evidenceContentEncoding = metadata.encoding;
       return { ...result, receipt: cleanReceipt };
     }
   } finally {
     reservation?.release();
-    if (completed) sinkHandle?.cleanup();
+    // Keep both partial and sealed files durable across a dropped RPC. A later
+    // call resumes the partial prefix or reclaims a sealed handoff after the CLI
+    // has consumed its descriptor.
   }
 }
 const recentAppliedCuts = new Map<string, EdgeWriteCut>();

@@ -607,14 +607,8 @@ test("doc show --raw writes the document body verbatim and keeps decorated outpu
     execFileSync("git", ["-C", root, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", ...args]);
   seedSettingsEvent({ rootDir: root, repoId });
   registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
-  const receipt = {
-      schema: "command-receipt/v2",
-      ok: true,
-      command: "doc-show",
-      outcome: "applied",
-      evidence: body,
-    },
-    actions: Record<string, unknown>[] = [];
+  let transfer = 0;
+  const actions: Record<string, unknown>[] = [];
   const server = createServer((socket) => {
     let buffered = "";
     socket.on("data", (chunk) => {
@@ -628,7 +622,22 @@ test("doc show --raw writes the document body verbatim and keeps decorated outpu
         buffered = buffered.slice(newline + 1);
         if (request.method === "repo.task.read" && request.params?.payload?.action)
           actions.push(request.params.payload.action);
-        const result = request.method === "protocol.hello" ? { protocolVersion: { major: 1, minor: 0 } } : receipt;
+        const result =
+          request.method === "protocol.hello"
+            ? { protocolVersion: { major: 1, minor: 0 } }
+            : (() => {
+                const evidenceFile = path.join(parent, `doc-${transfer++}.sealed`);
+                writeFileSync(evidenceFile, body);
+                return {
+                  schema: "command-receipt/v2",
+                  ok: true,
+                  command: "doc-show",
+                  outcome: "applied",
+                  evidenceFile,
+                  evidenceSize: Buffer.byteLength(body),
+                  evidenceContentEncoding: "utf8",
+                };
+              })();
         socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`);
       }
     });

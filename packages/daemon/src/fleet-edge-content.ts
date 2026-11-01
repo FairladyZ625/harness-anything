@@ -1,5 +1,6 @@
 import {
   closeSync,
+  createReadStream,
   existsSync,
   fsyncSync,
   mkdirSync,
@@ -100,7 +101,8 @@ function digestFile(file: string, expectedSize: number): string {
 export interface FleetDocContentSink {
   readonly metadata: FleetDocContentMetadata;
   readonly sink: ContentSink;
-  readonly readSealed: () => Buffer;
+  readonly sealedPath: string;
+  readonly openSealed: () => ReturnType<typeof createReadStream>;
   readonly cleanup: () => void;
 }
 
@@ -191,9 +193,10 @@ export function openFleetDocContentSink(options: {
   return {
     metadata: options.metadata,
     sink,
-    readSealed: () => {
+    sealedPath: target.sealed,
+    openSealed: () => {
       if (!sealed || !existsSync(target.sealed)) throw error("content_claim_mismatch", "Fleet content is not sealed");
-      return readFileSync(target.sealed);
+      return createReadStream(target.sealed, { highWaterMark: 64 * 1024 });
     },
     cleanup: () => {
       for (const file of [target.part, target.sealed, target.metadata]) if (existsSync(file)) unlinkSync(file);

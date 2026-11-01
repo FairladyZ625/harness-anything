@@ -33,7 +33,7 @@ import {
   runCommandThroughDaemon,
 } from "./daemon/client.ts";
 import { runOfflineCommandThroughDaemonBin } from "./daemon/offline-command.ts";
-import { readFileSync, realpathSync } from "node:fs";
+import { createReadStream, readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 export { resolveCliVersion } from "./cli-meta.ts";
 
@@ -183,7 +183,9 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
     dispatchMeasured = true;
     cliPhaseEnd("dispatch", dispatchStartedAt);
     const renderStartedAt = cliPhaseStart();
-    if (typedCommand.action.kind === "template-render" && typedCommand.action.raw === true && receipt.ok === true)
+    if (typedCommand.action.kind === "doc-show" && receipt.ok === true && typeof receipt.evidenceFile === "string")
+      await streamDocumentFile(receipt, typedCommand.action.raw === true);
+    else if (typedCommand.action.kind === "template-render" && typedCommand.action.raw === true && receipt.ok === true)
       process.stdout.write(rawTemplateBody(receipt));
     else if (typedCommand.action.kind === "doc-show" && typedCommand.action.raw === true && receipt.ok === true)
       process.stdout.write(rawDocumentBody(receipt));
@@ -277,6 +279,30 @@ export function rawDocumentBody(receipt: Record<string, unknown>): string {
   if (receipt.ok !== true || typeof receipt.evidence !== "string")
     throw new TypeError("Raw document output requires a successful doc-show receipt.");
   return receipt.evidence;
+}
+
+/** Stream an edge-owned sealed document without materializing the full receipt in the CLI. */
+async function streamDocumentFile(receipt: Record<string, unknown>, raw: boolean): Promise<void> {
+  const file = String(receipt.evidenceFile),
+    encoding = receipt.evidenceContentEncoding;
+  if (encoding !== "utf8" && encoding !== "base64")
+    throw new TypeError("Fleet document descriptor has an invalid content encoding.");
+  let carry = Buffer.alloc(0);
+  for await (const chunk of createReadStream(file, { highWaterMark: 64 * 1024 })) {
+    const bytes = Buffer.concat([carry, Buffer.from(chunk)]);
+    if (encoding === "utf8") {
+      if (!process.stdout.write(bytes)) await new Promise<void>((resolve) => process.stdout.once("drain", resolve));
+      continue;
+    }
+    const complete = bytes.byteLength - (bytes.byteLength % 3);
+    carry = bytes.subarray(complete);
+    if (complete > 0) {
+      const encoded = bytes.subarray(0, complete).toString("base64");
+      if (!process.stdout.write(encoded)) await new Promise<void>((resolve) => process.stdout.once("drain", resolve));
+    }
+  }
+  if (encoding === "base64" && carry.byteLength > 0) process.stdout.write(carry.toString("base64"));
+  if (!raw) process.stdout.write("\n");
 }
 
 function isCliEntrypoint(): boolean {
