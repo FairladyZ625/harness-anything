@@ -160,9 +160,11 @@ export function classifyRuntimeExit(
   // ruling is the lifecycle intent and must win over the mechanical cancel bit, otherwise a
   // successful report is downgraded to an ordinary worker stop and can be redispatched.
   const escalationCancellation = active.cancelOpId?.endsWith(":escalation") === true;
-  if (ruling !== null && (!active.cancelRequested || escalationCancellation))
-    return { ...classified("awaiting_ruling", ruling.question), outcome: "stopped" };
-  if (active.cancelRequested) return classified("worker_stop", "Worker stop was requested.");
+  if (active.cancelRequested) {
+    if (ruling !== null && escalationCancellation)
+      return { ...classified("awaiting_ruling", ruling.question), outcome: "stopped" };
+    return classified("worker_stop", "Worker stop was requested.");
+  }
   if (active.observationError)
     return { ...classified("worker_stop", active.lossReason ?? active.observationError.message), outcome: "failed" };
   // A cap stop is policy: it settles failed, and the worker_stop classification keeps the
@@ -177,6 +179,7 @@ export function classifyRuntimeExit(
       ),
       outcome: "failed",
     };
+  if (ruling !== null) return { ...classified("awaiting_ruling", ruling.question), outcome: "stopped" };
   if (attemptFailed && providerFault?.code === "unrecognized_model")
     return classified("gate_red", providerFault.reason);
   if (attemptFailed && providerFault)

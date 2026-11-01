@@ -268,3 +268,15 @@ test("an ordinary owner cancellation remains a worker stop even when a ruling fi
   assert.equal(cancelled.classification, "worker_stop");
   assert.equal(cancelled.outcome, "cancelled");
 });
+
+test("observation and spend-cap stops keep their terminal semantics when a ruling file is present", () => {
+  const observed = classifyRuntimeExit(active({ observationError: new Error("reader lost") }), 2, {
+      question,
+      options,
+    }),
+    capped = classifyRuntimeExit(active({ spendCapExceeded: true }), 2, { question, options });
+  assert.equal(observed.classification, "worker_stop");
+  assert.equal(observed.outcome, "failed");
+  assert.equal(capped.classification, "worker_stop");
+  assert.equal(capped.outcome, "failed");
+});
