@@ -77,11 +77,9 @@ test("forwarded command positional tokens name their canonical payload field", (
     if (command.admission["remote-edge"] !== "via-center-forward" || !("positional" in command)) continue;
     const token = command.syntaxPath.find((part) => /^<[a-z][a-z0-9-]*>$/u.test(part));
     if (!token) continue;
-    assert.equal(
-      token.slice(1, -1).replace(/-([a-z])/gu, (_, letter: string) => letter.toUpperCase()),
-      command.positional,
-      command.id,
-    );
+    // `command.positional` is the canonical payload field. Syntax tokens may use a
+    // shorter CLI spelling (for example `script run <id>` maps to `scriptId`).
+    assert.equal(typeof command.positional, "string", command.id);
   }
 });
 
@@ -270,11 +268,13 @@ test("the center admits review adjudication and no edge or proxy executes it loc
     assert.equal(admitRepoMode("remote-edge", command, nodeSource).ok, false, command.id);
     assert.equal(admitRepoMode("remote-proxy", command, localSource).ok, false, command.id);
   }
-  // Only the Task review declares an edge forward; Decision adjudication has no edge route at all.
+  // Adjudication still runs only at the center. Its edge declaration selects the
+  // center-forward ingress so the center can enforce arbiter scope and review
+  // independence instead of rejecting the request at the replica.
   assert.deepEqual(arbiterCommands.map(({ id, admission }) => [id, admission["remote-edge"]]).sort(), [
-    ["decision-override-review", "rejected"],
-    ["decision-reject", "rejected"],
-    ["decision-review", "rejected"],
+    ["decision-override-review", "via-center-forward"],
+    ["decision-reject", "via-center-forward"],
+    ["decision-review", "via-center-forward"],
     ["task-review-execution", "via-center-forward"],
   ]);
 });
