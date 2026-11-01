@@ -21,7 +21,14 @@ export async function withPostgresTransaction<T>(
   claims?: PostgresScopeClaims,
 ): Promise<T> {
   const client = await pool.connect();
-  let released = false;
+  let released = false,
+    connectionError: Error | undefined;
+  // The pool removes its idle error listener while a client is checked out. A disconnect can
+  // reject the query AND emit a client error before rollback/release has returned it to the pool.
+  const onConnectionError = (error: Error) => {
+    connectionError ??= error;
+  };
+  client.on("error", onConnectionError);
   try {
     await client.query("BEGIN");
     if (claims) {
@@ -37,6 +44,7 @@ export async function withPostgresTransaction<T>(
       ]);
     }
     const result = await operation(client);
+    if (connectionError) throw connectionError;
     await client.query("COMMIT");
     return result;
   } catch (error) {
@@ -45,11 +53,15 @@ export async function withPostgresTransaction<T>(
     } catch (rollbackError) {
       client.release(rollbackError instanceof Error ? rollbackError : new Error(String(rollbackError)));
       released = true;
-      throw new AggregateError([error, rollbackError], "PostgreSQL transaction and rollback both failed.");
+      throw new AggregateError(
+        [error, ...(connectionError && connectionError !== error ? [connectionError] : []), rollbackError],
+        "PostgreSQL transaction and rollback both failed.",
+      );
     }
     throw error;
   } finally {
     if (!released) client.release();
+    client.removeListener("error", onConnectionError);
   }
 }
 
