@@ -6,6 +6,8 @@ import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
 import { writeFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
+import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
+import type { ScheduleGuiRowDto, SchedulesListResult } from "../src/protocol/schedules-gui-contract.ts";
 
 test("edge repository and GUI write RPCs reach the same center command port", { timeout: 90_000 }, async (t) => {
   const installation = {
@@ -122,6 +124,17 @@ test("edge repository and GUI write RPCs reach the same center command port", { 
     idempotencyKey: "gui-forward-schedule",
   });
   assert.equal(scheduled.outcome, "applied", JSON.stringify(scheduled));
+  const plane = parseDaemonGuiReadResult(
+    "repo.projection.read",
+    await edge.host.read("lease-repo", "repo.projection.read", { name: "schedule-plane" }, localAuthFixture()),
+  ).projection as SchedulesListResult;
+  assert.equal(plane.repoMode, "remote-edge");
+  assert.equal(plane.actions.create.available, true, "the GUI offers the same center route that just succeeded");
+  const row = plane.schedules.find((candidate) => candidate.scheduleId === "gui-forward-schedule") as ScheduleGuiRowDto;
+  assert.ok(row);
+  for (const facet of [row.actions.edit, row.actions.delete, row.actions.disable])
+    assert.equal(facet.available, true, JSON.stringify(facet));
+  assert.deepEqual(row.actions.enable, { available: false, code: "no_changes", nextAction: "no_changes" });
   const runtimeSchedule = await edge.host.run(
     "lease-repo",
     { kind: "schedule-disable", scheduleId: "gui-forward-schedule", idempotencyKey: "runtime-cannot-borrow-session" },
