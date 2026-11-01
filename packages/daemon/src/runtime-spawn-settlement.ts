@@ -43,24 +43,34 @@ export async function publishExit(
   code: number | null,
   resumePublishedExit = false,
 ): Promise<void> {
+  if (active.exitSettlement) return active.exitSettlement;
   if (context.exiting.has(active.runtimeSessionId)) return;
-  context.exiting.add(active.runtimeSessionId);
-  disposeActiveRuntimeObservations(active);
-  // Every terminal path — success, failure, cancellation, and the daemon-restart loss
-  // settlement — flows through here, so the run's own temp directory goes with it. A
-  // filesystem refusal (a dying provider can still hold a lock) is recorded below in the
-  // terminal body; the next daemon start's settled-session sweep is the retry.
-  const tempReclaimFailure =
-    context.input.reclaimRuntimeTempDirectory?.(active.instanceId, active.runtimeSessionId) ?? null;
-  if (tempReclaimFailure)
-    console.error(
-      `[runtime-temp] ${active.instanceId}/${active.runtimeSessionId} could not be reclaimed: ${tempReclaimFailure.message}`,
-    );
-  const cancelled = active.cancelRequested,
-    cancelBinding = cancelled && active.cancelBinding ? active.cancelBinding : active.binding,
-    terminalBinding = runtimeSessionBinding(active.binding, active.runtimeSessionId),
-    squadLeaderControl = active.squadId !== null && active.delegatedBy === null;
+  let resolveSettlement!: () => void, rejectSettlement!: (error: unknown) => void;
+  const settlement = new Promise<void>((resolve, reject) => {
+    resolveSettlement = resolve;
+    rejectSettlement = reject;
+  });
+  void settlement.catch(() => undefined);
+  active.exitSettlement = settlement;
+  let settlementFailed = false;
   try {
+    context.exiting.add(active.runtimeSessionId);
+    disposeActiveRuntimeObservations(active);
+    // Every terminal path — success, failure, cancellation, and the daemon-restart loss
+    // settlement — flows through here, so the run's own temp directory goes with it. A
+    // filesystem refusal (a dying provider can still hold a lock) is recorded below in the
+    // terminal body; the next daemon start's settled-session sweep is the retry.
+    const tempReclaimFailure =
+      context.input.reclaimRuntimeTempDirectory?.(active.instanceId, active.runtimeSessionId) ?? null;
+    if (tempReclaimFailure)
+      console.error(
+        `[runtime-temp] ${active.instanceId}/${active.runtimeSessionId} could not be reclaimed: ${tempReclaimFailure.message}`,
+      );
+    const escalationStop = active.cancelRequested && active.cancelOpId?.endsWith(":escalation") === true,
+      cancelled = active.cancelRequested && !escalationStop,
+      cancelBinding = cancelled && active.cancelBinding ? active.cancelBinding : active.binding,
+      terminalBinding = runtimeSessionBinding(active.binding, active.runtimeSessionId),
+      squadLeaderControl = active.squadId !== null && active.delegatedBy === null;
     const persistedTerminal = readDispatchStream(context.input.rootDir, active.dispatchId)?.terminalOutcome;
     // A non-failed terminal snapshot follows successful lease settlement and can replay
     // while the replica still shows an earlier liveness. Failed snapshots can include a
@@ -128,7 +138,7 @@ export async function publishExit(
     // One read of the worker's own ruling artifact feeds both the settlement classification and
     // the receipt body: the file is worktree-local at exit time, so settlement must not re-read it
     // from the projection.
-    const ruling = runtimeRulingRequest(context, active),
+    const ruling = await runtimeRulingRequest(context, active),
       reviewReport = runtimeReviewReport(context, active),
       { outcome: initialOutcome, ...classifiedAttempt } = classifyRuntimeExit(active, code, ruling);
     let outcome = initialOutcome,
@@ -556,8 +566,14 @@ export async function publishExit(
     };
     active.stream.appendTerminalOutcome(terminalOutcome, endedAt);
     await publishTerminalOutcome(context, active, terminalBinding, terminalOutcome);
+  } catch (error) {
+    settlementFailed = true;
+    if (active.exitSettlement === settlement) active.exitSettlement = undefined;
+    rejectSettlement(error);
+    throw error;
   } finally {
     context.exiting.delete(active.runtimeSessionId);
+    if (!settlementFailed) resolveSettlement();
   }
 }
 
@@ -686,8 +702,41 @@ function runtimeSessionBinding(binding: ActiveRuntime["binding"], runtimeSession
  * fallback below can only serve an artifact the worker itself published. An edge settles by the
  * same ordinary classification it always had.
  */
-function runtimeRulingRequest(context: RuntimeSpawnerContext, active: ActiveRuntime) {
-  if (!active.task || !context.input.projection) return null;
+async function runtimeRulingRequest(context: RuntimeSpawnerContext, active: ActiveRuntime) {
+  if (!active.task) return null;
+  if (context.input.remote && typeof context.input.remote.taskContext === "function") {
+    // The execution credential writes the escalation at the center. Pull the serving cut before
+    // edge settlement reads the mirrored package, otherwise the edge would archive an ordinary
+    // stop and the center could not distinguish a waiting worker from a failed one.
+    const remoteTask = await context.input.remote.taskContext(active.task.taskId),
+      packagePath = path
+        .relative(context.input.rootDir, remoteTask.packageRoot)
+        .replaceAll(path.sep, "/")
+        .replace(/^harness\//u, "");
+    // A freshly written ruling lives in the worker worktree until the next mirror pull. Check that
+    // serving cwd first, then the mirrored package and finally the canonical root fallback.
+    return (
+      readDispatchRulingFromWorker({
+        cwd: active.cwd,
+        rootDir: context.input.rootDir,
+        packagePath,
+        dispatchId: active.dispatchId,
+      }) ??
+      readDispatchRulingFromWorker({
+        cwd: remoteTask.packageRoot,
+        rootDir: context.input.rootDir,
+        packagePath: "",
+        dispatchId: active.dispatchId,
+      }) ??
+      readDispatchRulingFromWorker({
+        cwd: context.input.rootDir,
+        rootDir: context.input.rootDir,
+        packagePath,
+        dispatchId: active.dispatchId,
+      })
+    );
+  }
+  if (!context.input.projection) return null;
   const projection = context.requiredRuntimeProjection(context.input),
     packagePath = projection.read(active.task.taskId).packagePath;
   if (typeof packagePath !== "string") return null;

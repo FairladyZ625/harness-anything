@@ -156,7 +156,15 @@ export function classifyRuntimeExit(
       attemptGroupId,
       attemptIndex,
     });
-  if (active.cancelRequested) return classified("worker_stop", "Worker stop was requested.");
+  // The escalation command requests cancellation after its structured artifact is durable. The
+  // ruling is the lifecycle intent and must win over the mechanical cancel bit, otherwise a
+  // successful report is downgraded to an ordinary worker stop and can be redispatched.
+  const escalationCancellation = active.cancelOpId?.endsWith(":escalation") === true;
+  if (active.cancelRequested) {
+    if (ruling !== null && escalationCancellation)
+      return { ...classified("awaiting_ruling", ruling.question), outcome: "stopped" };
+    return classified("worker_stop", "Worker stop was requested.");
+  }
   if (active.observationError)
     return { ...classified("worker_stop", active.lossReason ?? active.observationError.message), outcome: "failed" };
   // A cap stop is policy: it settles failed, and the worker_stop classification keeps the
@@ -171,9 +179,6 @@ export function classifyRuntimeExit(
       ),
       outcome: "failed",
     };
-  // A requested stop for a ruling is never a provider fault: the worker wrote the question and
-  // stopped, which is exactly what the unattended contract asks for. It settles `stopped` rather
-  // than `failed` so the receipt and agenda read "waiting on the owner", not "the run broke".
   if (ruling !== null) return { ...classified("awaiting_ruling", ruling.question), outcome: "stopped" };
   if (attemptFailed && providerFault?.code === "unrecognized_model")
     return classified("gate_red", providerFault.reason);

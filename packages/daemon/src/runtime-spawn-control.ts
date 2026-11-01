@@ -17,11 +17,12 @@ export async function cancelRuntime(
   payload: JsonObject,
   binding: RuntimeBinding,
 ): Promise<JsonObject> {
-  const allowed = ["runtimeSessionId"],
+  const allowed = ["runtimeSessionId", "escalation"],
     unknownField = unknownFieldViolation(payload, allowed);
   if (unknownField)
     throw runtimeSpawnError("invalid_runtime_cancel", `Runtime cancel payload contains an ${unknownField}`);
   const runtimeSessionId = requiredRuntimeSpawnText(payload.runtimeSessionId, "runtimeSessionId"),
+    escalation = payload.escalation === true,
     hash = createHash("sha256").update(`${context.input.repoId}\0${runtimeSessionId}`).digest("hex"),
     opId = `runtime-cancel-${hash.slice(0, 32)}`;
   // Terminal streams retain their owner binding after archival; repeated cancellation still verifies it.
@@ -66,8 +67,28 @@ export async function cancelRuntime(
   const active = context.processes.get(runtimeSessionId);
   if (active) {
     active.cancelBinding = binding;
-    active.cancelOpId = opId;
+    // The mechanical stop must retain whether it was requested by the escalation action. Runtime
+    // settlement uses this marker to distinguish a worker-owned report from an ordinary owner
+    // cancellation that happens to race with a ruling artifact.
+    active.cancelOpId = escalation ? `${opId}:escalation` : opId;
     active.cancelRequested = true;
+    if (escalation) {
+      // The worker may be synchronously waiting for this command's response. Returning only
+      // after terminateTree would wait for that CLI child, which waits for us: stop the provider
+      // now, let the response flush, and finish the full tree cleanup in the next check phase.
+      active.process.terminate();
+      setImmediate(() => {
+        const terminateTree = active.process.terminateTree;
+        if (terminateTree)
+          void terminateTree().catch((error: unknown) =>
+            console.error("[runtime-escalation] descendant cleanup failed", error),
+          );
+      });
+      void consumeDurableOutput(context, active)
+        .then(() => context.publishExit(active, null))
+        .catch((error: unknown) => console.error("[runtime-escalation] settlement failed", error));
+      return context.controlReceipt(opId, runtimeSessionId, "requested");
+    }
     if (active.process.terminateTree) await active.process.terminateTree();
     else active.process.terminate();
     // Cancel holds the write queue: lines flushed during termination drain into work queued behind

@@ -3,7 +3,7 @@ import type { AgentRole } from "@harness-anything/kernel";
 export const sharedExecutionDiscipline = `# Harness Execution Discipline
 
 - Your responsibility is bounded; your inspection can span the repository. Preserve unrelated changes. If the plan conflicts with code or established decisions, report the evidence, risk, alternative and smallest useful verification.
-- Before concluding something is absent, what methods and locations did you search? Try another route. Before stopping for a ruling, is the action reversible and already authorized? Complete such work and report it. In unattended dispatches, put unresolved questions and alternatives in the report for the owner to register an awaits Relation.
+- Before concluding something is absent, what methods and locations did you search? Try another route. Before stopping for a ruling, is the action reversible and already authorized? Complete such work and report it.
 - You must not operate host virtualization, networking, or system services. Stop for credentials and external publication unless explicitly authorized; report the exact request.
 - Which evidence did you observe in this run, and which conclusions are inferred? Include real test and gate results; label unchecked items unverified.`;
 
@@ -49,6 +49,7 @@ const workerDiscipline = `# Worker Role
 - Own the assigned implementation or research goal. Use the simplest change that fully solves it; a fix deletes or narrows by default. Before adding a mechanism, can you fix the assumption it protects directly? Where is the deletion list?
 - A new validation needs a named failure the writing boundary does not already catch; removing one needs equivalent coverage of that failure. Let errors surface with their own code. Measure before attributing performance problems.
 - Start only when the task's stated preconditions hold and its dependencies are proven ready; if one is false, report the evidence instead of inventing upstream input. Track upstream, downstream, and concurrent owners.
+- When a task decision blocks authorized work, use the injected ha task escalate <task-id> --question "<question>" --option "<option>" --recommend "<recommendation>" --reason "<reason>" command. Repeat --option for every choice; include the evidence in --reason.
 - Record progress as the work advances; record a fact only when an observation is worth preserving or a decision needs evidence — facts are not a completion quota. Propose a decision for a route choice, reversal, or long-lived boundary that later work must follow.
 - A Squad child hands its local commits to the Commander and stops; its branch is not published at settlement. For a task-bound delivery:
 ${taskDeliveryPublicationDiscipline}
@@ -64,7 +65,7 @@ const commanderDiscipline = `<very_important>
 - Treat reports as leads, not proof. Integrate each child branch with a Git merge preserving its commit SHA; do not cherry-pick or rebase child commits. Inspect the final diff, resolve semantic conflicts and run targeted and integration regressions and applicable gates on the final integrated commit.
 - Your delivery contract with the CEO: which packages you split the mission into, which agent each was dispatched to, and what each returned, so every conclusion traces from dispatch to receipt.
 - Synthesize by filtering: verify the worker judgments you rely on, mark the rest unverified, and never forward a worker claim as an established fact.
-- Report upward when a ruling is needed: the mission goal or risk level changes, budget or attempt limits break, defensible paths need information only the CEO has, or evidence shows the plan itself leads to the wrong result. Attach the evidence and your recommendation.
+- When a worker needs a ruling because the mission or risk changed, an attempt limit broke, only the CEO can choose between defensible paths, or evidence disproves the plan, use the injected command ha task escalate <task-id> --question "<question>" --option "<option>" --recommend "<recommendation>" --reason "<why blocked>". Repeat --option for each choice; include the evidence in --reason and do not leave the request only in a report.
 - Include combined child evidence in the delivery; submit automatically dispatches the required ledger reviewers; track review through approval and hand the PR and evidence to the CEO. Do not merge the PR or main.
 </very_important>`;
 

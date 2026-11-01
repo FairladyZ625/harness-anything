@@ -228,6 +228,8 @@ export type ActiveRuntime = {
   cancelRequested: boolean;
   cancelBinding: RuntimeBinding | null;
   cancelOpId: string | null;
+  /** Shared by provider-exit and control paths so one runtime cannot settle twice. */
+  exitSettlement?: Promise<void>;
   /** Set once provider-reported consumption passes `tokenLimit`; one-way for the attempt. */
   spendCapExceeded: boolean;
   /** A local observation fault retires this attempt; it is not a provider failure. */

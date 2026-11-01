@@ -170,16 +170,27 @@ function taskMutationWithStopResult(
         throw cell.cellCodedError("runtime_process_group_unproven", reason);
       }
     }
+    // An edge publishes the runtime archive before sending the existing task-release command.
+    // Read that canonical archive to carry the owner-wait intent through the same release event;
+    // this keeps the center's lease fence and blocked transition ordered without changing fleet
+    // command payloads.
+    const waitingOnOwner =
+      terminalRuntimeSessionId !== null &&
+      typeof binding.source === "object" &&
+      binding.source.kind === "node" &&
+      runtimeTerminalAwaitingOwner(cell, task.taskId, terminalRuntimeSessionId);
     return {
       type: "lease_released",
-      task,
+      task: waitingOnOwner ? { ...task, status: "blocked" } : task,
       ...(execution === undefined ? {} : { execution }),
       releasedLease: activeLease,
       authorizationDecision,
       audit: {
         command: "release",
-        reason,
-        fields: ["lease"],
+        reason: waitingOnOwner
+          ? `Worker is waiting for owner ruling: ${String(action.reason ?? "runtime escalation")}`
+          : reason,
+        fields: waitingOnOwner ? ["lease", "status"] : ["lease"],
       },
     };
   }
@@ -505,6 +516,21 @@ function terminalRuntimeStopProof(
 
 function optionalReleaseText(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function runtimeTerminalAwaitingOwner(
+  cell: Pick<RepoCellActionContext, "projection">,
+  taskId: string,
+  runtimeSessionId: string,
+): boolean {
+  const dispatch = cell.projection.readRuntimeDispatch(runtimeSessionId),
+    packagePath = cell.projection.read(taskId).packagePath;
+  if (!dispatch || packagePath === null) return false;
+  const body = cell.projection.readDocument(`${packagePath}/artifacts/dispatches/${dispatch.payload.dispatchId}.json`)
+    .document?.body;
+  if (body === undefined || body === null || body.trim() === "") return false;
+  const value = JSON.parse(body) as Record<string, unknown>;
+  return value.schema === "runtime-dispatch/v1" && value.classification === "awaiting_ruling";
 }
 
 /** Whether walking `parentTaskId` up from `ancestorId` reaches `taskId`: the move would close a

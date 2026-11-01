@@ -1,3 +1,4 @@
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { AgentRole, TaskLifecycleSnapshot, TaskProjection } from "@harness-anything/kernel";
 import { consumeKnownError, resolveHarnessLayout } from "@harness-anything/kernel";
@@ -34,6 +35,7 @@ import {
   currentWorktreeHead,
   latestRuntimeContinuationSeed,
 } from "./runtime-continuation-context.ts";
+import { readDispatchRuling } from "./runtime-ruling.ts";
 
 export function resolveRuntimeCwd(root: string, value: unknown): string {
   if (!value || typeof value !== "object" || Array.isArray(value))
@@ -427,8 +429,9 @@ export function taskQueryGuidance(taskId: string): string {
 /**
  * The unattended-session constraint every dispatch carries: a dispatched session has no one
  * reading its turn, so a provider question tool either blocks the run or (measured on Codex
- * 2026-10-21, task_936005e1) fails the turn outright. The ruling request has one channel — an
- * artifact plus a stop — because a free-form final message is not a machine-readable ask.
+ * 2026-10-21, task_936005e1) fails the turn outright. The ruling request has one channel — the
+ * escalation CLI, which writes a structured artifact and stops — because a free-form final
+ * message is not a machine-readable ask.
  * Progress has one file channel too, and it differs by audience because the write boundary does:
  * a worker owns its delivery report and `ha task progress append`, while a reviewer writes nothing
  * but the review report it was dispatched to produce (`runtime-execution-scope.ts`). The shared
@@ -440,10 +443,21 @@ export const unattendedRulingContract = [
   "# 无人值守会话：不能提问",
   "- 本会话没有应答方。不要调用任何提问/等待用户输入的 provider 工具：没人会回答，turn 会空转或直接失败。",
   "- 进度写进本次派工要求你写的报告，不要用消息汇报。",
-  "- 需要业主裁决时：把问题、可选项与你的建议写进任务包的 " +
-    "`artifacts/rulings/__HARNESS_DISPATCH_ID__.md`，然后在交付报告里引用它并停下。" +
-    "写不清楚的裁决请求等于没有提出问题。",
+  '- 需要业主裁决时，必须执行 `ha task escalate <task-id> --question "<问题>" --option "<选项>" --recommend "<建议>" --reason "<原因>"`；`--option` 可重复。' +
+    "该命令只接受本次派工凭据绑定的任务，并会写入 blocked 与结构化上报。",
+  "- 仅在越出禁区、需要业主裁决、前提不成立或被其他任务卡住时上报；自己能决定的实现取舍自行处理，不要把普通问题交给业主。",
+  '完整示例：`ha task escalate task_123 --question "Can this task change the shared fleet protocol?" --option "Keep the current boundary" --option "Expand the task scope" --recommend "Keep the current boundary" --reason "The protocol files are owned by another active task."`。',
+  "- 完整记录会保留在 `artifacts/rulings/__HARNESS_DISPATCH_ID__.md`（schema `worker-escalation/v1`，status `awaiting`，含 taskId、dispatchId、executionId、question、options、recommendation、reason、createdAt）；可把额外证据写入此详情附件，但文件不能代替命令上报。",
+  "- 命令成功后停止，不要反复重派。若仅留下无法解析的 ruling 文件，系统会显示文件路径与格式原因并停止重派；不要把它当作成功的命令上报。",
+  '- 只有 owner/CEO 裁决后才会恢复：`ha task escalation resolve <task-id> --dispatch-id <dispatch-id> --answer "<答复>"`；下一次派工会收到答复。',
+  "- 适用：越出禁区、需要裁决、前提不成立、被其他任务卡住；不适用：自己能决定的实现取舍。",
   "- 不需要裁决的取舍自己做完并在报告里说明理由；只有收不回或越权的动作才留给业主。",
+].join("\n");
+
+const unattendedReviewContract = [
+  "# 无人值守会话：不能提问",
+  "- 本会话没有应答方。不要调用任何提问/等待用户输入的 provider 工具。",
+  "- 本次是只读评审派工，没有 worker 上报凭据；把进度、发现和无法完成评审的原因写入本次 review report，并通过评审命令收口。",
 ].join("\n");
 
 /**
@@ -514,6 +528,48 @@ export function priorOwnerReturnBody(projection: TaskProjection, taskId: string)
     .readDocument(`${read.packagePath}/returns/iteration-${String(priorIteration)}.md`)
     .document?.body.trim();
   return body ? body : null;
+}
+
+export function priorEscalationAnswer(projection: TaskProjection, taskId: string): string | null {
+  const read = projection.read(taskId),
+    packagePath = read.packagePath;
+  if (packagePath === null) return null;
+  const answers = projection
+    .readDocuments(`${packagePath}/artifacts/rulings/`)
+    .documents.flatMap(({ path }) => {
+      if (!path.endsWith(".resolution.md")) return [];
+      const dispatchId = path.slice(path.lastIndexOf("/") + 1, -".resolution.md".length),
+        resolution = readDispatchRuling(
+          (relative) => projection.readDocument(relative).document?.body ?? null,
+          packagePath,
+          `${dispatchId}.resolution`,
+        );
+      return resolution === null
+        ? []
+        : [{ dispatchId, answer: resolution.question, answeredAt: resolution.createdAt ?? "" }];
+    })
+    .sort((left, right) => left.answeredAt.localeCompare(right.answeredAt))
+    .at(-1);
+  return answers ? `Owner answer to worker escalation ${answers.dispatchId}: ${answers.answer}` : null;
+}
+
+/** Read the latest resolution from an edge's mirrored package after its center serving cut. */
+function mirroredEscalationAnswer(packageRoot: string): string | null {
+  const rulingRoot = path.join(packageRoot, "artifacts", "rulings");
+  if (!existsSync(rulingRoot)) return null;
+  const answers = readdirSync(rulingRoot)
+    .filter((name) => /^dispatch_[a-f0-9]{24}\.resolution\.md$/u.test(name))
+    .flatMap((name) => {
+      const dispatchId = name.slice(0, -".resolution.md".length);
+      const body = readFileSync(path.join(rulingRoot, name), "utf8");
+      const resolution = readDispatchRuling(() => body, "", `${dispatchId}.resolution`);
+      return resolution === null
+        ? []
+        : [{ dispatchId, answer: resolution.question, answeredAt: resolution.createdAt ?? "" }];
+    })
+    .sort((left, right) => left.answeredAt.localeCompare(right.answeredAt))
+    .at(-1);
+  return answers ? `Owner answer to worker escalation ${answers.dispatchId}: ${answers.answer}` : null;
 }
 
 /**
@@ -603,7 +659,7 @@ export function taskMissionSections(
     : livingDeliverableProtocol(riskTier, taskClass, profileId, riskTierFlowVersion);
   return [
     taskQueryGuidance(taskId),
-    unattendedRulingContract,
+    reviewerBinding ? unattendedReviewContract : unattendedRulingContract,
     ...(reviewerBinding || reviewerNote === null ? [] : [reviewerNote]),
     ...(living === null ? [] : [living]),
     ...(reviewerBinding ? [] : [taskPrPublicationNote]),
@@ -882,6 +938,7 @@ export async function resolveRuntimeMission(input: {
     // remotely from the center's serving read. Historical tasks without the policy version keep
     // the creation-time profile rule.
     missionRiskTier = remoteTask?.riskTier ?? taskSnapshot?.task?.metadata?.riskTier ?? null,
+    remoteEscalationAnswer = remoteTask === null ? null : mirroredEscalationAnswer(remoteTask.packageRoot),
     // A re-dispatched worker answers the latest owner return, so its mission carries the managed
     // rework record verbatim — from the center's serving read remotely, from the projection
     // locally. Reviewers bind to a submitted cut instead, so their missions never carry it, and
@@ -891,8 +948,12 @@ export async function resolveRuntimeMission(input: {
       taskId === null || input.reviewerBinding
         ? null
         : remoteTask !== null
-          ? remoteTask.ownerReturnBody
-          : priorOwnerReturnBody(projection, taskId),
+          ? [remoteTask.ownerReturnBody, remoteEscalationAnswer]
+              .filter((value): value is string => value !== null)
+              .join("\n\n") || null
+          : [priorOwnerReturnBody(projection, taskId), priorEscalationAnswer(projection, taskId)]
+              .filter((value): value is string => value !== null)
+              .join("\n\n") || null,
     continuation =
       taskId === null
         ? null
@@ -921,7 +982,12 @@ export async function resolveRuntimeMission(input: {
           (projection ? taskReviewerNote(projection, taskSnapshot ?? projection.read(taskId).snapshot) : null)),
     baseMission =
       explicitMission === undefined
-        ? (taskMission?.mission ?? requiredRuntimeSpawnText(undefined, "prompt"))
+        ? (() => {
+            const mission = taskMission?.mission ?? requiredRuntimeSpawnText(undefined, "prompt");
+            return remoteEscalationAnswer !== null && !mission.includes(remoteEscalationAnswer)
+              ? `${mission}\n\n# Owner escalation answer\n\n${remoteEscalationAnswer}`
+              : mission;
+          })()
         : explicitPromptMission(
             taskId,
             causalContext,

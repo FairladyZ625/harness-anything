@@ -52,10 +52,8 @@ for (const role of ["worker", "reviewer"] as const)
         "Do the mission.",
       ),
     ]) {
-      assert.match(
-        prompt,
-        /unresolved questions and alternatives in the report for the owner to register an awaits Relation/u,
-      );
+      if (role === "reviewer") assert.doesNotMatch(prompt, /ha task escalate/u);
+      else assert.match(prompt, /ha task escalate <task-id> --question/u);
       assert.doesNotMatch(prompt, /ha relation relate/u);
     }
   });
@@ -202,7 +200,7 @@ test("commander owns child waiting, the CEO delivery contract and final integrat
     /delivery contract with the CEO: which packages you split the mission into, which agent each was dispatched to/u,
   );
   assert.match(prompt, /Synthesize by filtering.*never forward a worker claim as an established fact/u);
-  assert.match(prompt, /Report upward when a ruling is needed.*plan itself leads to the wrong result/u);
+  assert.match(prompt, /use the injected command ha task escalate.*Repeat --option.*include the evidence in --reason/u);
   assert.match(prompt, /submit automatically dispatches the required ledger reviewers/u);
   assert.match(prompt, /Do not merge the PR or main/u);
   assert.doesNotMatch(prompt, /ha task pr|ha task push|closeout.md|task delivery commands/u);

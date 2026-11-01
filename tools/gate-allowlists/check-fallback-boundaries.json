@@ -29,8 +29,8 @@
     "packages/daemon/src/runtime-ruling.ts#readDispatchRuling": {
       "task": "task_e37fdc679340ced096108525a9",
       "decision": null,
-      "errors": "unreadable or malformed artifacts/rulings/<dispatch-id>.md",
-      "reason": "Settlement reads the dispatch's ruling artifact after the worker exits. A read failure is not evidence about the worker's outcome, and failing the settlement over it would turn an ordinary exit into a daemon error; a null read keeps the dispatch's ordinary classification (a malformed body is likewise not a ruling, per parseRulingRequest). The artifact itself is only ever an advisory input to classification, never a substitute for the provider outcome."
+      "errors": "unreadable artifacts/rulings/<dispatch-id>.md",
+      "reason": "Settlement reads the dispatch's ruling artifact after the worker exits. A read failure is not evidence about the worker's outcome, and failing the settlement over it would turn an ordinary exit into a daemon error; only an absent or unreadable artifact keeps the dispatch's ordinary classification. A present malformed body is retained as a visible awaiting_ruling stop with its path and parse reason, and a valid request also waits for the owner. Neither artifact replaces the provider outcome."
     },
     "packages/daemon/src/runtime-ruling.ts#readFileIfPresent": {
       "task": "task_e37fdc679340ced096108525a9",

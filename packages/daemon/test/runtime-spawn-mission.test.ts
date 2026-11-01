@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
@@ -146,6 +146,49 @@ test("task mission includes the previous conclusion and compares it with current
   assert.match(resolved.mission, /Current worktree HEAD: [a-f0-9]{40}/u);
   assert.match(resolved.mission, /HEAD comparison: changed/u);
   assert.doesNotMatch(resolved.mission, /full terminal result/iu);
+});
+
+test("a remote mission carries an escalation answer from the mirrored ruling package", async () => {
+  const packageRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-escalation-mirror-"));
+  try {
+    mkdirSync(path.join(packageRoot, "artifacts", "rulings"), { recursive: true });
+    writeFileSync(
+      path.join(packageRoot, "artifacts", "rulings", "dispatch_0123456789abcdef01234567.resolution.md"),
+      JSON.stringify({
+        schema: "worker-escalation-resolution/v1",
+        dispatchId: "dispatch_0123456789abcdef01234567",
+        taskId: "task_x",
+        answer: "Keep the boundary.",
+        answeredAt: "2026-11-02T00:00:00.000Z",
+      }),
+    );
+    const resolved = await resolveRuntimeMission({
+      rootDir: process.cwd(),
+      cwd: process.cwd(),
+      taskId: "task_x",
+      projection: null,
+      remoteTask: {
+        packageRoot,
+        mission: () => "Continue the task.",
+        continuationContext: null,
+        causalContext: null,
+        profileId: null,
+        taskClass: "standard",
+        planBody: null,
+        ownerReturnBody: null,
+      } as never,
+      taskSnapshot: null,
+      missionName: undefined,
+      explicitMission: undefined,
+      reviewerBinding: false,
+    });
+    assert.match(
+      resolved.mission,
+      /Owner answer to worker escalation dispatch_0123456789abcdef01234567: Keep the boundary\./u,
+    );
+  } finally {
+    rmSync(packageRoot, { recursive: true, force: true });
+  }
 });
 
 test("task-bound explicit prompts carry the lookup guidance, living protocol and PR note", () => {
@@ -433,7 +476,7 @@ test("a re-dispatched explicit mission carries the owner return verbatim before 
   );
 });
 
-test("every task-bound mission tells the worker this session cannot ask, with one ruling channel", () => {
+test("implementation missions use the escalation CLI and reviewers receive only their read-only ruling guidance", () => {
   // Measured 2026-10-21 (task_936005e1): a dispatched Codex worker called the provider's question
   // tool; the turn failed and the dispatch settled failed, with the question visible only in the
   // raw stream. The mission must name the constraint and where a ruling request actually lands.
@@ -441,13 +484,15 @@ test("every task-bound mission tells the worker this session cannot ask, with on
     const mission = explicitPromptMission("task_x", null, "Go.", riskTier);
     assert.match(mission, /# 无人值守会话：不能提问/u, `riskTier=${String(riskTier)} carries the constraint`);
     assert.match(mission, /不要调用任何提问\/等待用户输入的 provider 工具/u);
+    assert.match(mission, /ha task escalate <task-id> --question/u);
+    assert.match(mission, /越出禁区、需要业主裁决、前提不成立或被其他任务卡住/u);
+    assert.match(mission, /ha task escalation resolve <task-id> --dispatch-id/u);
     assert.match(mission, /artifacts\/rulings\/__HARNESS_DISPATCH_ID__\.md/u, "the artifact path is per dispatch");
   }
-  // Reviewers are unattended too: same constraint, same single channel.
-  assert.match(
-    explicitPromptMission("task_x", null, "Review.", "medium", undefined, null, true),
-    /# 无人值守会话：不能提问/u,
-  );
+  const reviewerMission = explicitPromptMission("task_x", null, "Review.", "medium", undefined, null, true);
+  assert.match(reviewerMission, /# 无人值守会话：不能提问/u);
+  assert.match(reviewerMission, /没有 worker 上报凭据/u);
+  assert.doesNotMatch(reviewerMission, /ha task escalate/u);
   // Unbound prompts have no task package, so there is nowhere to write the ruling artifact.
   assert.doesNotMatch(explicitPromptMission(null, null, "Free-form prompt.", "medium"), /无人值守会话/u);
 });
@@ -469,7 +514,7 @@ test("every task-bound mission sends progress to a file and keeps the rule model
   // Reviewers write one report and cannot run worker publication commands; the shared line must
   // still hold for them without advertising a write their boundary rejects.
   const review = explicitPromptMission("task_x", null, "Review.", "medium", undefined, null, true);
-  assert.match(review, /进度写进本次派工要求你写的报告/u);
+  assert.match(review, /把进度、发现和无法完成评审的原因写入本次 review report/u);
   assert.doesNotMatch(review, /ha task progress append|ha task submit|ha task push/u);
   // The assembled prompt (role baseline + mission) still carries the rule exactly once.
   const assembled = assembleUnboundPrompt(explicitPromptMission("task_x", null, "Go.", "medium"), "worker");
