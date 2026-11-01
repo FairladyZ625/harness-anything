@@ -12,6 +12,21 @@ import { auth } from "./daemon-host-recovery.fixture.ts";
 test("the first-admin window closes and later listener changes require access-admin", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-rbac-listener-auth-")),
     configFile = path.join(userRoot, "rbac", "config.json");
+  mkdirSync(path.dirname(configFile), { recursive: true });
+  writeFileSync(
+    configFile,
+    JSON.stringify({
+      schema: "harness-managed-rbac/v1",
+      mode: "managed",
+      url: "http://127.0.0.1:1",
+      realm: "harness",
+      clientId: "harness-center",
+      versions: managedRbacVersions,
+      postgresPort: 2,
+      managementPort: 3,
+      stopped: true,
+    }),
+  );
   let session: string | undefined;
   const members: string[] = [];
   let invalidMembership = false;
@@ -58,21 +73,6 @@ test("the first-admin window closes and later listener changes require access-ad
         retireBootstrap: () => undefined,
       }),
     });
-  mkdirSync(path.dirname(configFile), { recursive: true });
-  writeFileSync(
-    configFile,
-    JSON.stringify({
-      schema: "harness-managed-rbac/v1",
-      mode: "managed",
-      url: "http://127.0.0.1:1",
-      realm: "harness",
-      clientId: "harness-center",
-      versions: managedRbacVersions,
-      postgresPort: 2,
-      managementPort: 3,
-      stopped: true,
-    }),
-  );
   writeFileSync(path.join(userRoot, "rbac", "center-client-secret"), "fixture-secret");
   const before = readFileSync(configFile, "utf8"),
     host = await openDaemonHost({ daemonId: "listener-authorization", userRoot, oidc }),
