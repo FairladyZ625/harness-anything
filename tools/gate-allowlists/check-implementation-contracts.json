@@ -119,7 +119,6 @@
       },
       {
         "value": "packages/authorization-builtin/tsconfig.json",
-        "ref": "dec_F073F8D0ED97A7FE0B26932C7B",
         "reason": "The built-in identity provider is the default replaceable authorization implementation."
       },
       {
