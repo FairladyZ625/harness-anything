@@ -115,7 +115,7 @@ test("advancing watermark may continue beyond ten minutes; repeated watermark ca
   writer.publish(
     writerStatus("attach-progress", warmingStatus({ phase: "catching-up", applied: 31, total: 100, watermark: 31 })),
   );
-  context.mock.timers.tick(9_999);
+  context.mock.timers.tick(99_999);
   assert.equal(writer.terminateCalls, 0);
   context.mock.timers.tick(1);
   await rejected;
@@ -174,7 +174,7 @@ test("completed runtime restorations extend startup, but duplicate, older and st
   writer.publish(
     writerStatus("attach-progress", warmingStatus({ phase: "catching-up", applied: 101, total: 101, watermark: 101 })),
   );
-  context.mock.timers.tick(9_999);
+  context.mock.timers.tick(99_999);
   assert.equal(writer.terminateCalls, 0);
   context.mock.timers.tick(1);
   await rejected;
