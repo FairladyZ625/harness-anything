@@ -70,6 +70,7 @@ export function reduceSquadRunProjection(
     event.payload.squadRun &&
     !("ownerDispatchId" in event.payload.squadRun)
   ) {
+    if (currentRow) return currentRow;
     state = {
       ...event.payload.squadRun,
       ownerDispatchId: event.payload.dispatchId,

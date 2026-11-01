@@ -94,7 +94,7 @@ export async function appendRuntimeQueryFixtures(
         taskId: "task-parity",
         executionId: "execution-parity",
         agentId: "parity-agent",
-        ...(id === "runtime-query-a"
+        ...(id === "runtime-query-a" || id === "runtime-query-b"
           ? {
               squadId: "parity-squad",
               squadRun: {
