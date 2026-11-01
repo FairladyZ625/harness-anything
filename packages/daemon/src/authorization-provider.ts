@@ -70,27 +70,52 @@ export function createIdentityManagement(userRoot: string, ports: Partial<Manage
  */
 export function readArtifactActionScopes(userRoot: string): () => Promise<readonly string[]> {
   return async () => {
-    const files = new Set<string>([path.join(defaultAssets, "vertical.json")]),
-      byKind = new Map<string, readonly string[]>();
-    for (const repo of readDaemonRegistry({ userRoot }).repos)
-      if (repo.canonicalRoot !== null) {
-        files.add(path.join(repo.canonicalRoot, "vertical.json"));
-        files.add(path.join(repo.canonicalRoot, "harness", "vertical.json"));
-      }
-    for (const file of files)
-      if (existsSync(file)) {
+    const readDefinition = (file: string) => {
         const raw = JSON.parse(readFileSync(file, "utf8")) as unknown,
           envelope =
             raw !== null && typeof raw === "object" && "schema" in raw && "definition" in raw
               ? (raw as { readonly schema?: unknown; readonly definition?: unknown })
-              : null,
-          definition = decodeVerticalDefinition(
-            envelope?.schema === "repository-vertical-declaration/v1" ? envelope.definition : raw,
-          );
-        // A repository's accepted declaration replaces the bundled seed for the kinds it names;
-        // a retired kind must not regain `import` from the seed union (F7).
-        for (const [kind, scopes] of artifactActionPoliciesByKind(definition)) byKind.set(kind, scopes);
+              : null;
+        return decodeVerticalDefinition(
+          envelope?.schema === "repository-vertical-declaration/v1" ? envelope.definition : raw,
+        );
+      },
+      seed = readDefinition(path.join(defaultAssets, "vertical.json")),
+      repos = readDaemonRegistry({ userRoot }).repos.filter(
+        (repo): repo is typeof repo & { readonly canonicalRoot: string } => repo.canonicalRoot !== null,
+      ),
+      // One view per registered repository. A repository that has not materialized a declaration
+      // falls back to the bundled seed; a repository that has one owns its own active/retired state.
+      views = repos.length
+        ? repos.map((repo) => {
+            const file = [
+              path.join(repo.canonicalRoot, "vertical.json"),
+              path.join(repo.canonicalRoot, "harness", "vertical.json"),
+            ].find((candidate) => existsSync(candidate));
+            return file === undefined ? seed : readDefinition(file);
+          })
+        : [seed],
+      seedByKind = artifactActionPoliciesByKind(seed),
+      viewMaps = views.map((view) => artifactActionPoliciesByKind(view)),
+      kinds = new Set([...seedByKind.keys(), ...viewMaps.flatMap((map) => [...map.keys()])]),
+      byKind = new Map<string, readonly string[]>();
+    for (const kind of kinds) {
+      let active: readonly string[] | null = null,
+        retired: readonly string[] | null = null;
+      for (const map of viewMaps) {
+        const scopes = map.get(kind) ?? seedByKind.get(kind);
+        if (scopes === undefined) continue;
+        if (scopes.includes(`${kind}/import`)) {
+          active = scopes;
+          break;
+        }
+        retired ??= scopes;
       }
+      // A kind stays grantable if any repository keeps it active; only an all-retired set removes
+      // import. Registration order can never let one repository revoke another's active kind (F8).
+      if (active !== null) byKind.set(kind, active);
+      else if (retired !== null) byKind.set(kind, retired);
+    }
     return [...byKind.values()].flat().sort();
   };
 }
