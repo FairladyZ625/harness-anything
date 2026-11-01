@@ -23,6 +23,8 @@ const tierRank: Readonly<Record<ActionPolicyTier, number>> = Object.freeze({
 /** Base groups contain only their minimum tier; effective membership comes from composite inheritance. */
 export function deriveBasePolicyGroups(
   declarations: readonly ActionDeclaration[] = [...actionDeclarations, ...registeredArtifactActionDeclarations()],
+  /** Canonical scopes read from accepted repository declarations by a process that did not compile them. */
+  extraContributorScopes: readonly string[] = [],
 ): readonly PolicyGroup[] {
   for (const declaration of declarations) {
     if (!Object.hasOwn(tierRank, declaration.policyTier))
@@ -33,7 +35,7 @@ export function deriveBasePolicyGroups(
       [
         ...new Set([
           ...declarations.filter((item) => item.policyTier === tier).map((item) => item.policyAction),
-          ...(tier === "contributor" ? baseEntityPolicyActions : []),
+          ...(tier === "contributor" ? [...baseEntityPolicyActions, ...extraContributorScopes] : []),
         ]),
       ].sort(),
     );

@@ -1,10 +1,17 @@
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+import { defaultAssets } from "@harness-anything/preset/internal/preset-resolver-common";
 import {
   KeycloakPolicyAdapter,
   keycloakLoginAttributes,
   keycloakLoginMappers,
   type KeycloakPolicyAdapterConfig,
 } from "@harness-anything/authorization-keycloak";
-import type { AuthorizationProvider } from "@harness-anything/kernel";
+import {
+  artifactActionPolicyActionsForDefinition,
+  readDaemonRegistry,
+  type AuthorizationProvider,
+} from "@harness-anything/kernel";
 
 /** Default implementation selection. Only process/service composition roots import this module. */
 export const createAuthorizationProvider = (
@@ -51,6 +58,28 @@ export function createIdentityManagement(userRoot: string, ports: Partial<Manage
   return new ManagedRbacService(
     userRoot,
     { runProcessText, runProcessTextAsync, runProcessExitAsync, mapListenerBindError, validateCertificateNames },
-    ports,
+    { readArtifactActionScopes: readArtifactActionScopes(userRoot), ...ports },
   );
+}
+
+/**
+ * Policy sync runs outside the writer process, so it rebuilds the runtime Artifact scope inventory
+ * from the accepted canonical declarations: the bundled default plus each registered repository's
+ * materialized vertical.json. The writer's process-local registry is never assumed to be visible.
+ */
+export function readArtifactActionScopes(userRoot: string): () => Promise<readonly string[]> {
+  return async () => {
+    const files = new Set<string>([path.join(defaultAssets, "vertical.json")]),
+      scopes = new Set<string>();
+    for (const repo of readDaemonRegistry({ userRoot }).repos)
+      if (repo.canonicalRoot !== null) {
+        files.add(path.join(repo.canonicalRoot, "vertical.json"));
+        files.add(path.join(repo.canonicalRoot, "harness", "vertical.json"));
+      }
+    for (const file of files)
+      if (existsSync(file))
+        for (const scope of artifactActionPolicyActionsForDefinition(JSON.parse(readFileSync(file, "utf8"))))
+          scopes.add(scope);
+    return [...scopes].sort();
+  };
 }

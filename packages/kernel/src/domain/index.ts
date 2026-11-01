@@ -43,7 +43,10 @@ export { deriveActionReturnsContract } from "./entity-action-descriptor.ts";
 export type { ReceiptGuidanceArgument, ReceiptGuidanceContractEntry } from "./entity-action-descriptor.ts";
 export { evaluateTaskActionCapability, taskLifecycleNextActions } from "./task-action-capability.ts";
 export { actionDeclarations, actionPresentation, isArtifactActionIngressKind } from "./action-declaration.ts";
-export { registeredArtifactActionPolicyActions } from "./artifact-action-declarations.ts";
+export {
+  artifactActionPolicyActionsForDefinition,
+  registeredArtifactActionPolicyActions,
+} from "./artifact-action-declarations.ts";
 export {
   assertAcyclicPolicyGroups,
   decodeAuthorizationResource,

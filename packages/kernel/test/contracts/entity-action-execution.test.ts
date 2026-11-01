@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { explainEntityKind, getExecutableEntityAction } from "../../src/domain/entity-kind-registry.ts";
 import { artifactEntityActionCatalog } from "../../src/domain/artifact-entity-actions.ts";
-import { projectArtifactActionDeclarations } from "../../src/domain/artifact-action-declarations.ts";
+import {
+  projectArtifactActionDeclarations,
+  registerArtifactActionDeclarations,
+  registeredArtifactActionPolicyActions,
+} from "../../src/domain/artifact-action-declarations.ts";
 
 const ingressKinds = [
   "agent-install",
@@ -361,4 +365,32 @@ test("RuntimeSession explains adoption, operation replay, center arbitration, an
     true,
   );
   assert.ok(getExecutableEntityAction("runtime_session_task_bound")?.execution?.compile);
+});
+
+test("re-registering a retired kind removes its import projection", () => {
+  const kind = "entity-kind/KND-55555555555555555555555555555555",
+    identity = {
+      field: "entityId",
+      pattern: "^[A-Z][A-Z0-9]{0,15}-[a-f0-9]{32}$",
+      refTemplate: `${kind}/{id}` as const,
+    },
+    active = { kind, actionCatalog: artifactEntityActionCatalog(kind, identity) },
+    retired = {
+      ...active,
+      actionCatalog: {
+        ...active.actionCatalog,
+        actions: active.actionCatalog.actions.map((action) =>
+          action.id === "import" ? { ...action, execution: null } : action,
+        ),
+      },
+    };
+  registerArtifactActionDeclarations([active]);
+  assert.ok(registeredArtifactActionPolicyActions().includes(`${kind}/import`));
+  registerArtifactActionDeclarations([retired]);
+  assert.equal(
+    projectArtifactActionDeclarations([retired]).some(({ policyAction }) => policyAction === `${kind}/import`),
+    false,
+  );
+  assert.equal(registeredArtifactActionPolicyActions().includes(`${kind}/import`), false);
+  assert.ok(registeredArtifactActionPolicyActions().includes(`${kind}/update`));
 });

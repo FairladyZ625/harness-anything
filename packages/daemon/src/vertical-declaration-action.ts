@@ -96,9 +96,6 @@ export async function runVerticalDeclarationAction(input: {
     }),
     appended = input.store.append(bundle);
   input.projection.apply(bundle.event, bundle.plan);
-  // A successful kind/declaration change is the runtime registration point for the projected
-  // <kind>/<action> Policy scopes. The next syncBasePolicy/materializeGrants then sees them.
-  compileVerticalContract(result.definition);
   await input.store.settlePendingMaterialization?.("vertical declaration");
   return {
     outcome: "applied",

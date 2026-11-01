@@ -1,5 +1,6 @@
 import { type ActionDeclaration } from "./action-declaration.ts";
 import type { EntityKindContract } from "./entity-kind-registry.ts";
+import type { VerticalDefinition } from "./vertical-definition.ts";
 
 /** The generic artifact CRUD Actions a compiled Artifact kind projects into the declaration space. */
 export const artifactActionIds = Object.freeze(["import", "update", "archive", "delete"] as const);
@@ -46,6 +47,11 @@ export function projectArtifactActionDeclarations(contracts: readonly ProjectedS
 const projectedByCatalogId = new Map<string, ActionDeclaration>();
 
 export function registerArtifactActionDeclarations(contracts: readonly ProjectedSource[]): void {
+  // Replace each kind's previous projection so an active -> retired transition removes the
+  // import scope instead of leaving a stale grantable name (F5 from the re-review).
+  const replaced = new Set(contracts.map(({ kind }) => kind));
+  for (const catalogId of projectedByCatalogId.keys())
+    if (replaced.has(catalogId.slice(0, catalogId.lastIndexOf("/")))) projectedByCatalogId.delete(catalogId);
   for (const declaration of projectArtifactActionDeclarations(contracts))
     projectedByCatalogId.set(declaration.catalogId as string, declaration);
 }
@@ -56,4 +62,24 @@ export function registeredArtifactActionDeclarations(): readonly ActionDeclarati
 
 export function registeredArtifactActionPolicyActions(): readonly string[] {
   return Object.freeze([...projectedByCatalogId.keys()]);
+}
+
+/**
+ * Scope inventory from an accepted vertical declaration, without compiling relations. Policy sync
+ * runs in a different process from the writer that compiled the runtime registry, so it reads the
+ * canonical declaration itself instead of relying on module state.
+ */
+export function artifactActionPolicyActionsForDefinition(
+  definition: Pick<VerticalDefinition, "entityKinds">,
+): readonly string[] {
+  return Object.freeze(
+    definition.entityKinds.flatMap((entity) => {
+      if (entity.entityType !== "artifact") return [];
+      const kind = `entity-kind/${entity.kindId}`,
+        actions = entity.retired
+          ? (["update", "archive", "delete"] as const)
+          : (["import", "update", "archive", "delete"] as const);
+      return actions.map((action) => `${kind}/${action}`);
+    }),
+  );
 }

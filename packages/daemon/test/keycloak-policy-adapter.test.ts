@@ -1,11 +1,15 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
 import {
   actionDeclarations,
   baseEntityPolicyActions,
   deriveBasePolicyGroups,
   effectivePolicyGroupScopes,
+  artifactActionPolicyActionsForDefinition,
+  decodeVerticalDefinition,
   registeredArtifactActionPolicyActions,
 } from "@harness-anything/kernel";
 import { artifactEntityActionCatalog } from "@harness-anything/kernel/internal/domain/artifact-entity-actions.ts";
@@ -803,4 +807,56 @@ test("two runtime Artifact kinds authorize on their own scope and deny the other
   assert.equal(denied.outcome, "denied");
   assert.deepEqual(denied.reasonCodes, ["keycloak_denied"]);
   assert.deepEqual(permissions, [`repo-artifact-scope#${kindA}/import`, `repo-artifact-scope#${kindB}/import`]);
+});
+
+test("a process that did not compile the registry syncs canonical Artifact scopes and grants them", async () => {
+  const raw = JSON.parse(
+    readFileSync(path.join(import.meta.dirname, "../../preset/assets/software-coding/vertical.json"), "utf8"),
+  ) as { entityKinds: Record<string, unknown>[] };
+  raw.entityKinds.push({
+    kindId: "KND-44444444444444444444444444444444",
+    id: "custom-note",
+    entityType: "artifact",
+    schemaVersions: [{ version: 1, attributes: {} }],
+    idPrefix: "CN",
+    display: { singular: "Custom Note", plural: "Custom Notes" },
+    descriptorSchemaRef: "schema://artifact-descriptor",
+    store: { pathTemplate: "entities/custom-notes/{id}.json" },
+    locatorKinds: ["repository-path"],
+  });
+  const definition = decodeVerticalDefinition(raw),
+    scopes = artifactActionPolicyActionsForDefinition(definition);
+  assert.equal(scopes.length, 16, "three bundled plus one custom Artifact kind project four scopes each");
+  const customScope = "entity-kind/KND-44444444444444444444444444444444/import";
+  const keycloak = fakeKeycloak(),
+    adapter = new KeycloakPolicyAdapter(config, keycloak.fetch);
+  keycloak.account("person-cross-process");
+  await adapter.syncBasePolicy("admin-token", scopes);
+  await adapter.claimRepositoryOwner("admin-token", "repo-cross-process", "person-cross-process");
+  for (const scope of scopes) {
+    assert.equal(keycloak.scopes.has(scope), true, scope);
+    const decision = await adapter.authorizePerson({
+      adminAccessToken: "admin-token",
+      personId: "person-cross-process",
+      action: scope,
+      resource: { kind: "repository", repoId: "repo-cross-process" },
+    });
+    assert.equal(decision.outcome, "allowed", scope);
+  }
+
+  // Negative control: the same accepted declaration without the sync input leaves the realm and
+  // the owner grant without the scope; the request reaches Keycloak and is denied.
+  const coldRealm = fakeKeycloak(),
+    cold = new KeycloakPolicyAdapter(config, coldRealm.fetch);
+  coldRealm.account("person-cold");
+  await cold.syncBasePolicy("admin-token");
+  await cold.claimRepositoryOwner("admin-token", "repo-cold", "person-cold");
+  const denied = await cold.authorizePerson({
+    adminAccessToken: "admin-token",
+    personId: "person-cold",
+    action: customScope,
+    resource: { kind: "repository", repoId: "repo-cold" },
+  });
+  assert.equal(denied.outcome, "denied");
+  assert.equal(coldRealm.scopes.has(customScope), false);
 });

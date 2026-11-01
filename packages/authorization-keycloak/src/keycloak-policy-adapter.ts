@@ -128,6 +128,7 @@ export class KeycloakPolicyAdapter
       ...actionDeclarations.map((item) => item.policyAction),
       ...baseEntityPolicyActions,
       ...registeredArtifactActionPolicyActions(),
+      ...this.#extraScopes,
     ]);
   }
 
@@ -139,9 +140,14 @@ export class KeycloakPolicyAdapter
   #scopeKnown(scope: string): boolean {
     return this.#knownScopes.has(scope) || artifactActionScopePattern.test(scope);
   }
+
+  #baseGroups(): ReturnType<typeof deriveBasePolicyGroups> {
+    return deriveBasePolicyGroups(undefined, this.#extraScopes);
+  }
   readonly #readCache: PolicyReadCache;
   readonly #refreshAdminAccessToken?: (rejectedAccessToken: string) => Promise<string>;
   #refreshedAdminAccessToken: string | undefined;
+  #extraScopes: readonly string[] = [];
 
   constructor(
     config: KeycloakPolicyAdapterConfig,
@@ -174,8 +180,12 @@ export class KeycloakPolicyAdapter
     };
   }
 
-  async syncBasePolicy(adminAccessToken: string): Promise<KeycloakPolicySyncReceipt> {
-    const groups = deriveBasePolicyGroups();
+  async syncBasePolicy(
+    adminAccessToken: string,
+    extraScopes: readonly string[] = [],
+  ): Promise<KeycloakPolicySyncReceipt> {
+    this.#extraScopes = extraScopes;
+    const groups = this.#baseGroups();
     assertAcyclicPolicyGroups(groups);
     const clientUuid = await this.#clientUuid(adminAccessToken),
       scopesPath = `/clients/${clientUuid}/authz/resource-server/scope`,
@@ -300,7 +310,7 @@ export class KeycloakPolicyAdapter
       );
     }
     return Object.freeze([
-      ...deriveBasePolicyGroups().map((group) => Object.freeze({ ...group, displayName: group.id })),
+      ...this.#baseGroups().map((group) => Object.freeze({ ...group, displayName: group.id })),
       ...custom.sort((left, right) => left.id.localeCompare(right.id)),
     ]);
   }
@@ -463,7 +473,7 @@ export class KeycloakPolicyAdapter
     await this.writeGrant(
       adminAccessToken,
       { groupId: "admin", resource: repoId, userIds: [userId] },
-      effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"),
+      effectivePolicyGroupScopes(this.#baseGroups(), "admin"),
     );
   }
 
