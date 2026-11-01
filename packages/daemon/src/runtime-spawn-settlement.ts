@@ -688,8 +688,7 @@ function runtimeSessionBinding(binding: ActiveRuntime["binding"], runtimeSession
  */
 async function runtimeRulingRequest(context: RuntimeSpawnerContext, active: ActiveRuntime) {
   if (!active.task) return null;
-  if (context.input.remote) {
-    if (typeof context.input.remote.taskContext !== "function") return null;
+  if (context.input.remote && typeof context.input.remote.taskContext === "function") {
     // The execution credential writes the escalation at the center. Pull the serving cut before
     // edge settlement reads the mirrored package, otherwise the edge would archive an ordinary
     // stop and the center could not distinguish a waiting worker from a failed one.
