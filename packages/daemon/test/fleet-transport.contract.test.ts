@@ -10,6 +10,8 @@ import {
   FleetContractError,
   FleetUtf8LineDecoder,
   parseFleetFrame,
+  parseFleetTransferPayload,
+  serializeFleetTransferPayload,
   serializeFleetFrame,
 } from "../src/fleet/command-protocol.ts";
 import { encodeFleetFrames, FleetTransferAssembler, FleetTransferError } from "../src/fleet/command-transfer.ts";
@@ -66,6 +68,17 @@ test("transfer assembler rejects a changed chunk before exposing a logical frame
     if (current.schema === "fleet.transfer.end/v1") assert.throws(() => assembler.push(current), /digest/u);
     else assert.equal(assembler.push(current), null);
   }
+});
+
+test("logical transfer payloads reject invalid UTF-8 before schema validation", () => {
+  const bytes = serializeFleetTransferPayload({
+    schema: "fleet.operational.read.result/v1",
+    messageId: "invalid-utf8",
+    inReplyTo: "request",
+    result: { payload: "x".repeat(FLEET_FRAME_BYTES) },
+  });
+  bytes[bytes.indexOf(0x78)] = 0xff;
+  assert.throws(() => parseFleetTransferPayload(bytes), /UTF-8 JSON/u);
 });
 
 test("an in-progress transfer holds per-node bytes while another node remains admissible", () => {
@@ -146,6 +159,39 @@ test("a malformed transfer releases its reservation and drains trailing chunks",
     assembler.push({
       schema: "fleet.transfer.chunk/v1",
       messageId: "malformed-transfer_0",
+      transferId: begin.messageId,
+      sequence: 0,
+      offset: 0,
+      dataBase64: Buffer.from("x").toString("base64"),
+    }),
+    null,
+  );
+  assembler.reset();
+});
+test("a timed-out transfer releases its reservation and drains late chunks", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let releases = 0;
+  const assembler = new FleetTransferAssembler({
+    direction: "request",
+    timeoutMs: 5,
+    reserve: () => ({ release: () => (releases += 1) }),
+  });
+  const begin = {
+    schema: "fleet.transfer.begin/v1" as const,
+    messageId: "timed-out-transfer",
+    correlationId: "timed-out-request",
+    direction: "request" as const,
+    repoId: "repo",
+    totalBytes: FLEET_FRAME_BYTES + 1,
+    sha256: "a".repeat(64),
+  };
+  assert.equal(assembler.push(begin), null);
+  t.mock.timers.tick(5);
+  assert.equal(releases, 1);
+  assert.equal(
+    assembler.push({
+      schema: "fleet.transfer.chunk/v1",
+      messageId: "timed-out-transfer_0",
       transferId: begin.messageId,
       sequence: 0,
       offset: 0,

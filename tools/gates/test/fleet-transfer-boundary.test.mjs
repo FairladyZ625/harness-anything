@@ -14,3 +14,17 @@ test("the negative direct large reply fixture is rejected", () => {
   );
   assert.deepEqual(violations, [{ file: "negative-fixture.ts", line: 1, reason: "direct JSON socket write" }]);
 });
+
+test("the gate catches a direct JSON write split over source lines", () => {
+  const violations = findFleetTransferBypasses(
+    `socket
+  .write(
+    JSON
+      .stringify(payload),
+  );`,
+    "multiline-negative-fixture.ts",
+  );
+  assert.deepEqual(violations, [
+    { file: "multiline-negative-fixture.ts", line: 1, reason: "direct JSON socket write" },
+  ]);
+});

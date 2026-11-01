@@ -956,9 +956,9 @@ export function parseFleetTransferPayload(input: Uint8Array): FleetFrameV1 {
     throw new FleetContractError("Fleet transfer payload size is outside the permitted range");
   let value: unknown;
   try {
-    value = JSON.parse(Buffer.from(input).toString("utf8"));
+    value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(input));
   } catch {
-    throw new FleetContractError("Fleet transfer payload is not valid JSON");
+    throw new FleetContractError("Fleet transfer payload is not valid UTF-8 JSON");
   }
   return validateFleetFrame(value);
 }
