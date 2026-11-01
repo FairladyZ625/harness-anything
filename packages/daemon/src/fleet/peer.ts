@@ -23,7 +23,7 @@ import {
   updateReplicaGenerationPosition,
 } from "./replica-generation.ts";
 import type { BaseBackupMetadata } from "@harness-anything/storage";
-import type { LedgerCutIdentity } from "@harness-anything/kernel";
+import { consumeKnownError, type LedgerCutIdentity } from "@harness-anything/kernel";
 import {
   FleetUtf8LineDecoder,
   currentFleetProtocolVersion,
@@ -35,6 +35,9 @@ import {
   type FleetTaskAction,
 } from "./command-protocol.ts";
 import { daemonBuildStamp } from "../build-identity.ts";
+import type { ResourceBudget } from "./resource-budget.ts";
+import { createResourceBudget, DOC_SHOW_BUDGET_LIMITS } from "./resource-budget.ts";
+const edgeCommandResourceBudget = createResourceBudget(DOC_SHOW_BUDGET_LIMITS);
 export interface FleetEdgeChange {
   readonly path: string;
   readonly body: string | Buffer;
@@ -55,6 +58,8 @@ export interface FleetPeerOptions {
   readonly timeoutMs?: number;
   readonly onFrame?: (frame: FleetFrameV1) => void;
   readonly signal?: AbortSignal;
+  /** Shared edge-side admission ledger for inbound and outbound bulk transfers. */
+  readonly commandResourceBudget?: ResourceBudget;
 }
 export interface FleetWriteClientOptions extends FleetPeerOptions {
   readonly taskId?: string;
@@ -544,7 +549,7 @@ export async function readFleetOperationalClient(
       options.method === "repo.agentRuntime.sessions.await" ? null : (options.timeoutMs ?? 5_000),
     );
     if (response.schema !== "fleet.operational.read.result/v1") throw new Error("repository read result expected");
-    if (options.method !== "repo.fleet.overview.read" || !session.versionWarning) return response.result;
+    if (!session.versionWarning) return response.result;
     if (!session.centerBuildCommit || !daemonBuildStamp().commit) return response.result;
     return {
       ...response.result,
@@ -711,19 +716,24 @@ export async function runFleetScheduleCommandClient(
 }
 export async function openPeer(options: Omit<FleetPeerOptions, "repoId">) {
   const socket = await peerSocket(options),
-    peer = peerFor(socket, options.timeoutMs ?? 5_000),
+    budget = options.commandResourceBudget ?? edgeCommandResourceBudget,
     prefix = `${options.nodeId}_${Date.now().toString(36)}`;
+  const peer = peerFor(socket, options.timeoutMs ?? 5_000, {
+    commandResourceBudget: budget,
+    nodeId: options.nodeId,
+    sessionId: prefix,
+  });
   let sequence = 0;
   let versionWarning: string | null = null;
   const messageId = () => `${prefix}_${sequence++}`,
-    next = async (responseTimeoutMs?: number | null) => {
-      const frame = await peer.next(responseTimeoutMs);
+    next = async (responseTimeoutMs?: number | null, signal?: AbortSignal) => {
+      const frame = await peer.next(responseTimeoutMs, signal);
       options.onFrame?.(frame);
       if (frame.schema === "fleet.session.ready/v1") versionWarning = frame.versionWarning ?? null;
       if (frame.schema === "fleet.error/v1") throw new FleetRemoteError(frame, versionWarning);
       return frame;
     },
-    send = async (frame: FleetFrameV1) => {
+    send = async (frame: FleetFrameV1, signal?: AbortSignal) => {
       const token =
         frame.schema === "fleet.session.hello/v1" ||
         frame.schema === "fleet.device.login/v1" ||
@@ -734,13 +744,31 @@ export async function openPeer(options: Omit<FleetPeerOptions, "repoId">) {
         { ...frame, ...(token ? { accessToken: token } : {}) },
         "request",
         "repoId" in frame && typeof frame.repoId === "string" ? frame.repoId : "transport",
+        (repoId, bytes) =>
+          budget.reserve(
+            { nodeId: options.nodeId, sessionId: prefix, repoId },
+            { memoryBytes: bytes, bulkTransfers: 1 },
+          ),
       )) {
-        if (!socket.write(`${JSON.stringify(encoded)}\n`)) await once(socket, "drain");
+        if (!socket.write(`${JSON.stringify(encoded)}\n`)) await waitForSocketDrain(socket, signal ?? options.signal);
       }
     },
     request = async (frame: FleetFrameV1, responseTimeoutMs?: number | null) => {
-      await send(frame);
-      return next(responseTimeoutMs);
+      const timeout = responseTimeoutMs === undefined ? (options.timeoutMs ?? 5_000) : responseTimeoutMs,
+        controller = new AbortController(),
+        startedAt = Date.now(),
+        timer =
+          timeout === null
+            ? undefined
+            : setTimeout(() => controller.abort(new Error("Fleet response timeout")), timeout);
+      try {
+        const signal = options.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal;
+        await send(frame, signal);
+        const remaining = timeout === null ? null : Math.max(1, timeout - (Date.now() - startedAt));
+        return await next(remaining, signal);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
     };
   try {
     const ready = await request({
@@ -938,7 +966,36 @@ function peerSocket(options: Omit<FleetPeerOptions, "repoId">): Promise<TLSSocke
     socket.once("error", reject);
   });
 }
-function peerFor(socket: TLSSocket, timeoutMs: number) {
+function waitForSocketDrain(socket: TLSSocket, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const cleanup = (): void => {
+      socket.removeListener("drain", onDrain);
+      socket.removeListener("error", onError);
+      socket.removeListener("close", onClose);
+      signal?.removeEventListener("abort", onAbort);
+    };
+    const finish = (error?: Error): void => {
+      cleanup();
+      if (error) reject(error);
+      else resolve();
+    };
+    const onDrain = (): void => finish();
+    const onError = (error: Error): void => finish(error);
+    const onClose = (): void => finish(new Error("Fleet connection closed while waiting for socket drain"));
+    const onAbort = (): void =>
+      finish(signal?.reason instanceof Error ? signal.reason : new Error("Fleet send cancelled"));
+    if (signal?.aborted) return onAbort();
+    socket.once("drain", onDrain);
+    socket.once("error", onError);
+    socket.once("close", onClose);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+function peerFor(
+  socket: TLSSocket,
+  timeoutMs: number,
+  options: Partial<Pick<FleetPeerOptions, "commandResourceBudget" | "nodeId">> & { readonly sessionId?: string } = {},
+) {
   let closed: Error | null = null;
   const reader = new FleetUtf8LineDecoder(),
     queue: FleetFrameV1[] = [],
@@ -946,16 +1003,31 @@ function peerFor(socket: TLSSocket, timeoutMs: number) {
       readonly resolve: (value: FleetFrameV1) => void;
       readonly reject: (error: Error) => void;
       readonly timer: NodeJS.Timeout | undefined;
+      readonly signal?: AbortSignal;
+      readonly abort?: () => void;
     }> = [],
     deliver = (frame: FleetFrameV1): void => {
       const waiter = waiting.shift();
       if (waiter) {
         clearTimeout(waiter.timer);
+        if (waiter.abort) waiter.signal?.removeEventListener("abort", waiter.abort);
         waiter.resolve(frame);
       } else queue.push(frame);
     },
     transfers = new FleetTransferAssembler({
       direction: "response",
+      reserve:
+        options.commandResourceBudget && options.nodeId
+          ? (repoId, bytes) =>
+              options.commandResourceBudget!.reserve(
+                {
+                  nodeId: options.nodeId!,
+                  sessionId: options.sessionId ?? `peer_${socket.remotePort ?? "unknown"}`,
+                  repoId,
+                },
+                { memoryBytes: bytes, bulkTransfers: 1 },
+              )
+          : undefined,
       onTimeout: (transfer) => {
         deliver({
           schema: "fleet.error/v1",
@@ -971,14 +1043,25 @@ function peerFor(socket: TLSSocket, timeoutMs: number) {
     settleWaiters = (error: Error): void => {
       for (const waiter of waiting.splice(0)) {
         clearTimeout(waiter.timer);
+        if (waiter.abort) waiter.signal?.removeEventListener("abort", waiter.abort);
         waiter.reject(error);
       }
     };
+  const failSession = (error: Error): void => {
+    transfers.reset();
+    settleWaiters(error);
+    if (!socket.destroyed) socket.destroy(error);
+  };
   socket.on("data", (chunk) => {
-    for (const line of reader.push(chunk)) {
-      const frame = transfers.push(parseFleetFrame(line));
-      if (frame === null) continue;
-      deliver(frame);
+    try {
+      for (const line of reader.push(chunk)) {
+        const frame = transfers.push(parseFleetFrame(line));
+        if (frame === null) continue;
+        deliver(frame);
+      }
+    } catch (error) {
+      consumeKnownError(error);
+      failSession(error instanceof Error ? error : new Error(String(error)));
     }
   });
   socket.on("end", () => {
@@ -986,19 +1069,22 @@ function peerFor(socket: TLSSocket, timeoutMs: number) {
   });
   socket.on("error", (error) => {
     closed = error;
-    settleWaiters(error);
+    failSession(error);
   }); // A parked server-hold request must fail fast when the connection drops, so
   // the retry loop can reconnect with the same opId instead of waiting out the
   // response timeout (adversarial F4).
   socket.on("close", () => {
     const error = closed ?? new Error("Fleet connection closed");
     closed = error;
+    transfers.reset();
     settleWaiters(error);
   });
   return {
-    next: (responseTimeoutMs: number | null = timeoutMs) => {
+    next: (responseTimeoutMs: number | null = timeoutMs, signal?: AbortSignal) => {
       if (queue.length) return Promise.resolve(queue.shift()!);
       if (closed) return Promise.reject(closed);
+      if (signal?.aborted)
+        return Promise.reject(signal.reason instanceof Error ? signal.reason : new Error("Fleet request cancelled"));
       return new Promise<FleetFrameV1>((resolve, reject) => {
         const timer =
           responseTimeoutMs === null
@@ -1006,11 +1092,26 @@ function peerFor(socket: TLSSocket, timeoutMs: number) {
             : setTimeout(() => {
                 const at = waiting.findIndex((waiter) => waiter.timer === timer);
                 if (at >= 0) waiting.splice(at, 1);
+                if (abort && signal) signal.removeEventListener("abort", abort);
                 reject(new Error("Fleet response timeout"));
               }, responseTimeoutMs);
-        waiting.push({ resolve, reject, timer });
+        const abortSignal = signal;
+        const abort = abortSignal
+          ? () => {
+              const at = waiting.findIndex((waiter) => waiter.abort === abort);
+              if (at >= 0) waiting.splice(at, 1);
+              clearTimeout(timer);
+              abortSignal.removeEventListener("abort", abort!);
+              reject(abortSignal.reason instanceof Error ? abortSignal.reason : new Error("Fleet request cancelled"));
+            }
+          : undefined;
+        waiting.push({ resolve, reject, timer, ...(signal ? { signal } : {}), ...(abort ? { abort } : {}) });
+        if (abort && signal) signal.addEventListener("abort", abort, { once: true });
       });
     },
-    close: () => socket.destroy(),
+    close: () => {
+      transfers.reset();
+      socket.destroy();
+    },
   };
 }

@@ -100,6 +100,7 @@
       "packages/daemon/src/daemon-singleton.ts#acquireDaemonSingleton",
       "packages/daemon/src/daemon-singleton.ts#processAlive",
       "packages/daemon/src/fleet/edge-join-ssh-tunnel.ts##launch",
+      "packages/daemon/src/fleet/peer.ts#peerFor",
       "packages/daemon/src/daemon-singleton.ts#readPidFile",
       "packages/daemon/src/daemon-singleton.ts#releaseIfHeld",
       "packages/daemon/src/decision-point-executor.ts#readIncidentFields",

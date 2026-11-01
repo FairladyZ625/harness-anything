@@ -6,6 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { DecisionState, TaskRow } from "./model/types.ts";
 import type { WorkspaceSummaryRead } from "../api/renderer-dto.ts";
 import { ThemeProvider } from "./theme.tsx";
+import { FleetVersionWarningBanner } from "./components/FleetVersionWarningBanner.tsx";
 import { HomeView } from "./views/HomeView.tsx";
 import { LiveFloorView } from "./views/LiveFloorView.tsx";
 import { OverviewView } from "./views/OverviewView.tsx";
@@ -242,7 +243,7 @@ function AppShell() {
   useProjectWindowTitle(activeRepo?.displayName ?? null);
   // 协作页舰队拓扑(task_8ce646d94):repo.fleet.overview.read 一条 typed read,挂统一
   // 节奏常量自持轮询(见 collaboration-data.ts:半数事实是 daemon 级状态,cut 覆盖不到)。
-  const fleetOverview = useFleetOverview(activeRepoId, view === "collaboration" && activeRepo !== undefined);
+  const fleetOverview = useFleetOverview(activeRepoId, activeRepo !== undefined);
   const project = adaptRepoProject(
     projectId,
     activeRepo,
@@ -586,6 +587,7 @@ function AppShell() {
             </div>
           ) : null}
           <NavigationHistoryBar canBack={canBack} canForward={canForward} onBack={back} onForward={forward} />
+          <FleetVersionWarningBanner warning={fleetOverview.overview?.versionWarning} />
           <RepositoryReadNotice repoId={activeRepoId} />
           {activeRepoId &&
             (selected ||

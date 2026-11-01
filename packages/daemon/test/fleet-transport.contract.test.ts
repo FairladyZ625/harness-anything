@@ -43,6 +43,27 @@ test("large logical frames use ordered digest-checked envelopes and reassemble a
   assert.equal((lines[0]!.schema === frame.schema ? lines[0]!.result.payload : "").length, 1024 * 1024);
 });
 
+test("outbound quota admission runs before allocating the complete logical payload", async () => {
+  let payloadReads = 0;
+  const frame = {
+    schema: "fleet.operational.read.result/v1" as const,
+    messageId: "budget-rejected-result",
+    inReplyTo: "request",
+    result: Object.defineProperty({}, "payload", {
+      enumerable: true,
+      get: () => {
+        payloadReads += 1;
+        return "x".repeat(2 * FLEET_FRAME_BYTES);
+      },
+    }),
+  };
+  const encoder = encodeFleetFrames(frame, "response", "repo", () => {
+    throw Object.assign(new Error("resource_exhausted"), { code: "resource_exhausted" });
+  });
+  await assert.rejects(encoder.next(), /resource_exhausted/u);
+  assert.equal(payloadReads, 1, "only the non-allocating size pass may read the payload before admission");
+});
+
 test("transfer assembler rejects a changed chunk before exposing a logical frame", async () => {
   const frame = {
       schema: "fleet.operational.read.result/v1" as const,
@@ -200,6 +221,27 @@ test("a timed-out transfer releases its reservation and drains late chunks", (t)
     null,
   );
   assembler.reset();
+});
+
+test("reset releases a partially received transfer immediately", async () => {
+  let released = 0;
+  const assembler = new FleetTransferAssembler({
+    direction: "response",
+    reserve: () => ({ release: () => (released += 1) }),
+  });
+  const frame = {
+    schema: "fleet.operational.read.result/v1" as const,
+    messageId: "reset-result",
+    inReplyTo: "request",
+    result: { payload: "x".repeat(FLEET_FRAME_BYTES * 2) },
+  };
+  const encoded: unknown[] = [];
+  for await (const part of encodeFleetFrames(frame, "response", "repo")) encoded.push(part);
+  assembler.push(parseFleetFrame(encoded[0]!));
+  assembler.push(parseFleetFrame(encoded[1]!));
+  assembler.reset();
+  assert.equal(released, 1);
+  assert.throws(() => assembler.push(parseFleetFrame(encoded[2]!)), /sequence or offset/u);
 });
 test("fleet authentication metadata admits a standard JWT and remains separate from closed action fields", () => {
   const frame = {

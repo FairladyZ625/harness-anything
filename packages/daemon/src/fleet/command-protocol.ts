@@ -951,6 +951,69 @@ export function serializeFleetTransferPayload(value: FleetFrameV1): Buffer {
     throw new FleetContractError("Fleet transfer payload exceeds 64 MiB");
   return payload;
 }
+/** Counts JSON UTF-8 bytes without materializing the complete string or buffer. */
+export function measureFleetTransferPayload(value: FleetFrameV1): number {
+  const frame = validateFleetFrame(value),
+    active = new Set<object>();
+  const stringBytes = (text: string): number => {
+    let bytes = 2;
+    for (let index = 0; index < text.length; index += 1) {
+      const code = text.charCodeAt(index);
+      if (
+        code === 0x22 ||
+        code === 0x5c ||
+        code === 0x08 ||
+        code === 0x09 ||
+        code === 0x0a ||
+        code === 0x0c ||
+        code === 0x0d
+      )
+        bytes += 2;
+      else if (
+        code < 0x20 ||
+        (code >= 0xd800 &&
+          code <= 0xdfff &&
+          !(code <= 0xdbff && text.charCodeAt(index + 1) >= 0xdc00 && text.charCodeAt(index + 1) <= 0xdfff))
+      )
+        bytes += 6;
+      else if (code >= 0xd800 && code <= 0xdbff) {
+        bytes += 4;
+        index += 1;
+      } else if (code < 0x80) bytes += 1;
+      else if (code < 0x800) bytes += 2;
+      else bytes += 3;
+    }
+    return bytes;
+  };
+  const count = (item: unknown): number => {
+    if (item === null) return 4;
+    if (typeof item === "string") return stringBytes(item);
+    if (typeof item === "boolean") return item ? 4 : 5;
+    if (typeof item === "number") return Number.isFinite(item) ? Buffer.byteLength(String(item)) : 4;
+    if (Array.isArray(item)) {
+      if (active.has(item)) throw new FleetContractError("Fleet transfer payload contains a cycle");
+      active.add(item);
+      const size = 2 + item.reduce((sum, entry, index) => sum + (index === 0 ? 0 : 1) + count(entry), 0);
+      active.delete(item);
+      return size;
+    }
+    if (typeof item === "object") {
+      if (active.has(item)) throw new FleetContractError("Fleet transfer payload contains a cycle");
+      active.add(item);
+      const entries = Object.entries(item).filter(([, entry]) => entry !== undefined);
+      const size =
+        2 +
+        entries.reduce(
+          (sum, [key, entry], index) => sum + (index === 0 ? 0 : 1) + stringBytes(key) + 1 + count(entry),
+          0,
+        );
+      active.delete(item);
+      return size;
+    }
+    throw new FleetContractError("Fleet transfer payload contains a non-JSON value");
+  };
+  return count(frame);
+}
 export function parseFleetTransferPayload(input: Uint8Array): FleetFrameV1 {
   if (input.byteLength <= FLEET_FRAME_BYTES || input.byteLength > FLEET_UPLOAD_MAX_BYTES)
     throw new FleetContractError("Fleet transfer payload size is outside the permitted range");

@@ -347,22 +347,6 @@ function renderView(
 }
 
 describe("协作页舰队拓扑契约", () => {
-  it("版本不一致时在拓扑顶部显示中心、本机身份和升级命令", () => {
-    const view = renderView({
-      data: overview({
-        versionWarning: {
-          centerBuildCommit: "a".repeat(40),
-          localBuildCommit: "b".repeat(40),
-          upgradeCommand: "ha update",
-        },
-      }),
-    });
-    const banner = view.host.querySelector<HTMLElement>('[data-testid="collaboration-version-warning"]')!;
-    expect(banner.textContent).toContain("版本不一致");
-    expect(banner.textContent).toContain("ha update");
-    expect(banner.title).toBe(`${"a".repeat(40)} / ${"b".repeat(40)}`);
-  });
-
   it("拓扑渲染 daemon 给出的中心与边缘节点,不自行推断节点集合", () => {
     const view = renderView();
     expect(view.nodeCard("center")).not.toBeNull();
