@@ -76,7 +76,12 @@ export function validateDaemonRpcCall(value: unknown): readonly string[] {
   const errors = validateShape(value.params === undefined ? {} : value.params, method.params, "params");
   if (!errors.length && value.method === "protocol.hello")
     errors.push(...validateSessionEnvironment((value.params as JsonObject).sessionEnvironment));
-  if (!errors.length && (value.method === "repo.tasks.list" || value.method === "repo.triadic.relationGraph"))
+  if (
+    !errors.length &&
+    (value.method === "repo.tasks.list" ||
+      value.method === "repo.triadic.relationGraph" ||
+      value.method === "repo.artifacts.list")
+  )
     errors.push(...validateDaemonQueryPayload(value.method, (value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.agenda.read")
     errors.push(...validateAgendaQueryPayload((value.params as JsonObject).payload));

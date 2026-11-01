@@ -19,7 +19,7 @@ import { consumeKnownError } from "../../api/error-consumption.ts";
 import { isHtmlDocument } from "../entity-locator-renderer.ts";
 import { openArtifactExternally } from "../artifact-open-client.ts";
 
-// Artifacts 抽屉(task_7e713fee 重排,视觉基线 v1 §2.4 行与筛选):一次 `repo.artifacts.list`
+// Artifacts 抽屉(task_7e713fee 重排,视觉基线 v1 §2.4 行与筛选):分页 `repo.artifacts.list`
 // 读出跨 task 包的 artifacts html/md 投影(归属、时间、时间来源都是 daemon 事实),本页只
 // 排序呈现与切换 facet;左抽屉按时间倒序列产物(DenseRow,kind 为有底色标签),右侧整块高度
 // 预览 —— HTML 走隔离 webview 的 HtmlArtifactPreview(脚本/外联禁用,唯一 HTML 渲染路径),

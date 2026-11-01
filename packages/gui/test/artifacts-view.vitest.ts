@@ -6,6 +6,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { createElement } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { artifactsClient } from "../src/renderer/artifacts-client.ts";
 import { ArtifactsWorkspace } from "../src/renderer/views/ArtifactsView.tsx";
 import type { ArtifactGuiRowDto, ArtifactsListResult } from "@harness-anything/daemon/protocol";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
@@ -55,6 +56,7 @@ function dto(overrides: Partial<ArtifactsListResult> = {}): ArtifactsListResult 
     repoId: "repo-a",
     kind: "html",
     artifacts: [row()],
+    page: { limit: 100, cursor: null, nextCursor: null },
     counts: { html: 2, md: 5729, raw: 3 },
     watermark: 12,
     sourceRevision: 12,
@@ -537,5 +539,47 @@ describe("artifacts timeline — list, preview, and task jump", () => {
     expect(container.querySelector('[data-testid="artifact-preview-pane"]')).toBeNull();
     expect(container.textContent).toContain("No artifacts exist in this repository yet.");
     expect(container.textContent).not.toContain("Select an artifact");
+  });
+});
+
+describe("artifacts client pagination", () => {
+  it("drains exactly through the last page and preserves the full facet counts", async () => {
+    const first = dto({ page: { limit: 100, cursor: null, nextCursor: "second" } });
+    const last = dto({
+      artifacts: [row({ path: "artifacts/last.html" })],
+      page: { limit: 100, cursor: "second", nextCursor: null },
+    });
+    const listArtifacts = vi.fn().mockResolvedValueOnce(first).mockResolvedValueOnce(last);
+    vi.stubGlobal("window", { harness: { listArtifacts } });
+    try {
+      const result = await artifactsClient.list("repo-a", "html");
+      expect(result.artifacts.map(({ path }) => path)).toEqual([
+        "artifacts/reports/weathering.html",
+        "artifacts/last.html",
+      ]);
+      expect(result.counts).toEqual(first.counts);
+      expect(listArtifacts.mock.calls).toEqual([
+        [{ repoId: "repo-a", kind: "html", limit: 100 }],
+        [{ repoId: "repo-a", kind: "html", limit: 100, cursor: "second" }],
+      ]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+  it("rejects repeated cursors and a later-page failure without returning a partial collection", async () => {
+    const first = dto({ page: { limit: 100, cursor: null, nextCursor: "same" } });
+    const listArtifacts = vi.fn().mockResolvedValue(first);
+    vi.stubGlobal("window", { harness: { listArtifacts } });
+    try {
+      await expect(artifactsClient.list("repo-a", "html")).rejects.toThrow(/cursor did not advance/);
+      expect(listArtifacts).toHaveBeenCalledTimes(2);
+      listArtifacts
+        .mockReset()
+        .mockResolvedValueOnce(first)
+        .mockResolvedValueOnce({ ok: false, code: "replica_unavailable", rejectionExplanation: "page unavailable" });
+      await expect(artifactsClient.list("repo-a", "html")).rejects.toMatchObject({ code: "replica_unavailable" });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

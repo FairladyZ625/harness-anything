@@ -280,6 +280,7 @@ test("the artifacts list validator locks the wire shape", () => {
         timeSource: "ledger",
       },
     ],
+    page: { limit: 100, cursor: null, nextCursor: null },
     counts: { html: 1, md: 0, raw: 0 },
     watermark: 9,
     sourceRevision: 9,
@@ -293,6 +294,10 @@ test("the artifacts list validator locks the wire shape", () => {
     (value: ArtifactsListResult) => ({ ...value, artifacts: "many" }),
     (value: ArtifactsListResult) => ({ ...value, apiKey: "secret" }),
     (value: ArtifactsListResult) => ({ ...value, nextCursor: null }),
+    (value: ArtifactsListResult) => ({ ...value, page: undefined }),
+    (value: ArtifactsListResult) => ({ ...value, page: { ...value.page, nextCursor: "" } }),
+    (value: ArtifactsListResult) => ({ ...value, page: { ...value.page, cursor: 1 } }),
+    (value: ArtifactsListResult) => ({ ...value, page: { ...value.page, limit: 501 } }),
   ])
     assert.notDeepEqual(validateArtifactsList(mutate(base)), []);
   const row = base.artifacts[0]!;
@@ -338,4 +343,111 @@ test("the artifacts list schema is registry-closed with a negative fixture", () 
     ),
     [],
   );
+});
+
+test("artifacts pages are bounded and resume across identical times and paths without losing packages", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-artifacts-pages-"));
+  try {
+    const mtime = new Date("2026-08-01T00:00:00.000Z");
+    for (let index = 0; index < 103; index += 1)
+      taskFixture(root, `task_${String(index).padStart(3, "0")}`, { "artifacts/same.html": "<p>same</p>" }, mtime);
+    const tasks = Array.from({ length: 103 }, (_, index) => {
+      const taskId = `task_${String(index).padStart(3, "0")}`;
+      return { taskId, title: taskId, packagePath: `tasks/${taskId}` };
+    });
+    const context = { rootDir: root, projection: projectionStub({ tasks }), input: { repoId: "pages" } };
+    const first = readArtifactsGui(context);
+    assert.equal(first.artifacts.length, 100, "an omitted limit must still bound the response");
+    assert.equal(first.page.limit, 100);
+    assert.equal(first.page.cursor, null);
+    assert.equal(typeof first.page.nextCursor, "string");
+    const last = readArtifactsGui(context, { cursor: first.page.nextCursor });
+    assert.equal(last.artifacts.length, 3);
+    assert.equal(last.page.nextCursor, null);
+    assert.deepEqual(last.counts, first.counts, "counts describe the whole facet, not this page");
+    const seen = new Set<string>();
+    const taskIds: (string | null)[] = [];
+    let cursor: string | undefined;
+    for (let pageIndex = 0; pageIndex < 103; pageIndex += 1) {
+      const page = readArtifactsGui(context, { limit: 1, ...(cursor ? { cursor } : {}) });
+      assert.equal(page.artifacts.length, 1);
+      taskIds.push(page.artifacts[0]!.taskId);
+      assert.deepEqual(validateArtifactsList(page), []);
+      assert.equal(page.page.cursor, cursor ?? null);
+      if (pageIndex === 102) assert.equal(page.page.nextCursor, null);
+      else {
+        assert.equal(typeof page.page.nextCursor, "string");
+        assert.ok(!seen.has(page.page.nextCursor!));
+        seen.add(page.page.nextCursor!);
+        cursor = page.page.nextCursor!;
+      }
+    }
+    assert.deepEqual(
+      taskIds,
+      tasks.map(({ taskId }) => taskId),
+    );
+    for (const cursor of ["garbage", Buffer.from('["only-one-key"]').toString("base64url")])
+      assert.throws(() => readArtifactsGui(context, { cursor }), { code: "invalid_command" });
+    const empty = readArtifactsGui(context, { kind: "md", limit: 1 });
+    assert.deepEqual(empty.artifacts, []);
+    assert.deepEqual(empty.page, { limit: 1, cursor: null, nextCursor: null });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("artifacts pagination validates the shared query limit and cursor contract", () => {
+  for (const payload of [{ limit: 1 }, { limit: 500, cursor: "opaque", kind: "raw" }])
+    assert.deepEqual(
+      validateDaemonRpcCall({ method: "repo.artifacts.list", params: { repo: { repoId: "pages" }, payload } }),
+      [],
+    );
+  for (const payload of [
+    { limit: 0 },
+    { limit: -1 },
+    { limit: 501 },
+    { limit: 1.5 },
+    { limit: "2" },
+    { cursor: "" },
+    { cursor: 1 },
+  ])
+    assert.notDeepEqual(
+      validateDaemonRpcCall({ method: "repo.artifacts.list", params: { repo: { repoId: "pages" }, payload } }),
+      [],
+    );
+});
+
+test("artifact cursors distinguish raw paths and packages that collate equally", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-artifacts-unicode-cursors-"));
+  try {
+    const time = new Date("2026-08-01T00:00:00.000Z");
+    taskFixture(root, "task_same", { "artifacts/a.html": "plain", "artifacts/a\u200b.html": "zero width" }, time);
+    const context = { rootDir: root, projection: projectionStub({}), input: { repoId: "unicode-paths" } };
+    const all = readArtifactsGui(context);
+    assert.equal(all.artifacts.length, 2);
+    const first = readArtifactsGui(context, { limit: 1 });
+    assert.equal(first.artifacts.length, 1);
+    assert.notEqual(first.page.nextCursor, null);
+    const last = readArtifactsGui(context, { limit: 1, cursor: first.page.nextCursor });
+    assert.deepEqual([...first.artifacts, ...last.artifacts], all.artifacts);
+    assert.deepEqual(
+      all.artifacts.map(({ path }) => path),
+      ["artifacts/a.html", "artifacts/a\u200b.html"],
+    );
+    assert.equal(last.page.nextCursor, null);
+
+    // A package name is also part of the cursor, including when filenames match.
+    taskFixture(root, "task_a", { "artifacts/same.md": "plain package" }, time);
+    taskFixture(root, "task_a\u200b", { "artifacts/same.md": "zero width package" }, time);
+    const packages = readArtifactsGui(context, { kind: "md" });
+    const firstPackage = readArtifactsGui(context, { kind: "md", limit: 1 });
+    assert.equal(packages.artifacts.length, 2);
+    assert.notEqual(firstPackage.page.nextCursor, null);
+    const lastPackage = readArtifactsGui(context, { kind: "md", limit: 1, cursor: firstPackage.page.nextCursor });
+    assert.equal(lastPackage.artifacts.length, 1);
+    assert.deepEqual([...firstPackage.artifacts, ...lastPackage.artifacts], packages.artifacts);
+    assert.equal(lastPackage.page.nextCursor, null);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

@@ -321,7 +321,7 @@ function dispatchInteger(value: unknown): value is number {
 }
 // Absent facets keep the unparameterized full-result contract.
 export function validateDaemonQueryPayload(
-  method: "repo.tasks.list" | "repo.triadic.relationGraph",
+  method: "repo.tasks.list" | "repo.triadic.relationGraph" | "repo.artifacts.list",
   value: unknown,
 ): string[] {
   if (value === undefined) return [];

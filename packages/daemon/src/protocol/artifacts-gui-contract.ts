@@ -1,7 +1,9 @@
+import { queryPageRow } from "./daemon-protocol-validate-task.ts";
+import type { CursorPage } from "../task-index-query.ts";
 import { isJsonObject, rejectSecretKeys } from "./json-rpc-types.ts";
 import { nullableNonEmpty, utcTimestamp } from "./schedules-gui-contract.ts";
 
-/** Artifacts GUI wire contract。一次 `repo.artifacts.list` 的 DTO 是「全部 task 包
+/** Artifacts GUI wire contract。每页 `repo.artifacts.list` 的 DTO 是「全部 task 包
  * artifacts/ 下的 html/md 文件」×「文档投影(台账时间)」×「task 归属(投影
  * packagePath→taskId/title 批量 join)」的只读投影;renderer 只格式化,不扫盘、
  * 不重算时间来源。本文件只持线形状与校验,读侧 join 在
@@ -37,6 +39,7 @@ export interface ArtifactsListResult {
   /** 本页返回的 facet;html 是时间线默认面,md/raw 必须显式请求(md 体量 ~77×)。 */
   readonly kind: ArtifactGuiKind;
   readonly artifacts: readonly ArtifactGuiRowDto[];
+  readonly page: CursorPage;
   /** 遍历事实:三种 kind 的全量计数(与返回 facet 无关),筛选 chip 用。 */
   readonly counts: { readonly html: number; readonly md: number; readonly raw: number };
   readonly watermark: number;
@@ -49,6 +52,7 @@ const artifactsListFields = [
   "repoId",
   "kind",
   "artifacts",
+  "page",
   "counts",
   "watermark",
   "sourceRevision",
@@ -93,6 +97,7 @@ export function validateArtifactsList(value: unknown): readonly string[] {
     !artifactNonEmptyText(value.repoId) ||
     !artifactKinds.includes(String(value.kind) as (typeof artifactKinds)[number]) ||
     !Array.isArray(value.artifacts) ||
+    !queryPageRow(value.page) ||
     !artifactCounts(value.counts) ||
     !Number.isSafeInteger(value.watermark) ||
     !Number.isSafeInteger(value.sourceRevision)

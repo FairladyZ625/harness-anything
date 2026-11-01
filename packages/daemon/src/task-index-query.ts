@@ -23,20 +23,14 @@ export type TaskIndexSelection =
       readonly mode: "flat";
       readonly rows: readonly TaskIndexProjectionRow[];
       readonly childCounts: ReadonlyMap<string, number>;
-      readonly page?: TaskIndexPage;
+      readonly page?: CursorPage;
     }
   | {
       readonly mode: "tree";
       readonly rows: readonly TaskTreeNode[];
       readonly count: number;
-      readonly page?: TaskIndexPage;
+      readonly page?: CursorPage;
     };
-
-interface TaskIndexPage {
-  readonly limit: number;
-  readonly cursor: string | null;
-  readonly nextCursor: string | null;
-}
 
 interface MutableTreeNode {
   readonly taskId: string;
@@ -190,36 +184,13 @@ function paginate<T extends { readonly taskId: string }>(
   rows: readonly T[],
   limit: number | undefined,
   cursor: string | undefined,
-): { readonly rows: readonly T[]; readonly page?: TaskIndexPage } {
-  if (limit === undefined && cursor === undefined) return { rows };
-  const pageLimit = limit ?? 100,
-    after = cursor === undefined ? null : decodeCursor(cursor),
-    remaining = after === null ? rows : rows.filter((row) => row.taskId > after),
-    visible = remaining.slice(0, pageLimit),
-    last = visible.at(-1);
-  return {
-    rows: visible,
-    page: {
-      limit: pageLimit,
-      cursor: cursor ?? null,
-      nextCursor: remaining.length > pageLimit && last ? encodeCursor(last.taskId) : null,
-    },
-  };
-}
-
-function decodeCursor(value: string): string {
-  try {
-    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
-    if (Array.isArray(parsed) && parsed.length === 1 && typeof parsed[0] === "string" && parsed[0]) return parsed[0];
-  } catch (error) {
-    // The caller translates this stable error to the command receipt.
-    consumeKnownError(error);
-  }
-  throw new Error("task list cursor is invalid");
-}
-
-function encodeCursor(taskId: string): string {
-  return Buffer.from(JSON.stringify([taskId]), "utf8").toString("base64url");
+) {
+  return paginateRows(rows, limit, cursor, {
+    key: (row) => [row.taskId],
+    keySize: 1,
+    compare: (left, right) => (left[0]! > right[0]! ? 1 : left[0]! < right[0]! ? -1 : 0),
+    invalidCursor: new Error("task list cursor is invalid"),
+  });
 }
 
 function compareTaskRows(left: { readonly taskId: string }, right: { readonly taskId: string }): number {
@@ -251,4 +222,53 @@ function renderTreeRows(rows: readonly Record<string, unknown>[]): string {
       stack.push({ row: children[index]!, depth: depth + 1 });
   }
   return lines.join("\n");
+}
+
+export interface CursorPage {
+  readonly limit: number;
+  readonly cursor: string | null;
+  readonly nextCursor: string | null;
+}
+
+/** Shared keyset pagination for sorted in-memory reads. The complete ordering key
+ * is the continuation boundary, so ties and removed boundary rows cannot lose rows. */
+export function paginateRows<T>(
+  rows: readonly T[],
+  limit: number | undefined,
+  cursor: string | undefined,
+  order: {
+    readonly key: (row: T) => readonly string[];
+    readonly keySize: number;
+    readonly compare: (left: readonly string[], right: readonly string[]) => number;
+    readonly invalidCursor: Error;
+  },
+): { readonly rows: readonly T[]; readonly page?: CursorPage } {
+  if (limit === undefined && cursor === undefined) return { rows };
+  const pageLimit = limit ?? 100,
+    after = cursor === undefined ? null : decodeCursor(cursor, order.keySize, order.invalidCursor),
+    remaining = after === null ? rows : rows.filter((row) => order.compare(order.key(row), after) > 0),
+    visible = remaining.slice(0, pageLimit),
+    last = visible.at(-1);
+  return {
+    rows: visible,
+    page: {
+      limit: pageLimit,
+      cursor: cursor ?? null,
+      nextCursor:
+        remaining.length > pageLimit && last
+          ? Buffer.from(JSON.stringify(order.key(last)), "utf8").toString("base64url")
+          : null,
+    },
+  };
+}
+
+function decodeCursor(value: string, size: number, invalid: Error): readonly string[] {
+  try {
+    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+    if (Array.isArray(parsed) && parsed.length === size && parsed.every((part) => typeof part === "string" && part))
+      return parsed;
+  } catch (error) {
+    consumeKnownError(error);
+  }
+  throw invalid;
 }

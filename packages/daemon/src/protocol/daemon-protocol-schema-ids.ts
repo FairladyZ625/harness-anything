@@ -305,8 +305,18 @@ export const DAEMON_AGENT_ENTITY_CATALOG_SCHEMA = Object.freeze({
     ]),
   }),
   DAEMON_ARTIFACTS_LIST_SCHEMA = Object.freeze({
-    id: "daemon.artifacts-list/v2",
-    required: Object.freeze(["ok", "status", "repoId", "kind", "artifacts", "counts", "watermark", "sourceRevision"]),
+    id: "daemon.artifacts-list/v3",
+    required: Object.freeze([
+      "ok",
+      "status",
+      "repoId",
+      "kind",
+      "artifacts",
+      "page",
+      "counts",
+      "watermark",
+      "sourceRevision",
+    ]),
   });
 
 export const DAEMON_USE_CASE_PROJECTION_SCHEMA = Object.freeze({
@@ -405,6 +415,8 @@ export const daemonDecisionListPayloadShape = shape({
 
 /** 时间线默认面是 html;md(体量 ~77×)与 raw(二进制产物)是显式 opt-in,absent 字段即 html。 */
 export const daemonArtifactsListPayloadShape = shape({
+  limit: "number?",
+  cursor: "string?",
   kind: optionalEnum(["html", "md", "raw"]),
 });
 
