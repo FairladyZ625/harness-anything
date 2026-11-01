@@ -255,7 +255,11 @@ export type FleetFrameV1 =
       "fleet.operational.read/v1",
       {
         repoId: string;
-        method: "repo.agentRuntime.sessions.await" | "repo.task.dispatches" | "repo.fleet.overview.read";
+        method:
+          | "repo.agentRuntime.sessions.await"
+          | "repo.task.dispatches"
+          | "repo.fleet.overview.read"
+          | "repo.tasks.autoClaimCandidates";
         payload: Readonly<Record<string, unknown>>;
       }
     >
@@ -834,7 +838,12 @@ const schemas: Readonly<Record<string, Check>> = {
   "fleet.operational.read/v1": shape({
     ...common,
     repoId: id,
-    method: one("repo.agentRuntime.sessions.await", "repo.task.dispatches", "repo.fleet.overview.read"),
+    method: one(
+      "repo.agentRuntime.sessions.await",
+      "repo.task.dispatches",
+      "repo.fleet.overview.read",
+      "repo.tasks.autoClaimCandidates",
+    ),
     payload: record,
   }),
   "fleet.operational.read.result/v1": shape({ ...reply, result: record }),

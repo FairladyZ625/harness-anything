@@ -92,6 +92,7 @@ export interface DaemonHostRegistryContext extends HostMaps, DaemonHostAdmission
   readonly keycloakCenter: import("./transport/auth-context.ts").KeycloakCenterAuthority;
   readonly keycloakSession: NonNullable<import("./repo-cell-open.ts").RepoCellOpenInput["keycloakSession"]>;
   readonly scheduleScheduler: ReturnType<typeof makeScheduleScheduler>;
+  readonly onAutoClaimTrigger: (reason: string) => void;
   readonly edgeRuntimeFor: (request: FleetEdgeRuntimeRequest["payload"]) => ReturnType<typeof openFleetEdgeRuntime>;
   readonly invalidRepoId: (repo: InvalidDaemonRegistryRepo) => string;
   readonly closeCell: (repoId: string) => Promise<void>;

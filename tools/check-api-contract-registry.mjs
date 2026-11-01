@@ -7,6 +7,7 @@ import ts from "typescript";
 const expectedMethods = Object.freeze([
   { method: "protocol.hello", requiresRepo: false },
   { method: "daemon.status", requiresRepo: false },
+  { method: "daemon.nodeAutoClaim.configure", requiresRepo: false },
   { method: "daemon.skillEval.case.add", requiresRepo: false },
   { method: "daemon.skillEval.cases.list", requiresRepo: false },
   { method: "daemon.skillEval.run", requiresRepo: false },
@@ -113,6 +114,7 @@ export function evaluateApiContractRegistry(root = process.cwd()) {
       'request.method === "protocol.hello"',
       "if (!handshaken)",
       'request.method === "daemon.status"',
+      'request.method === "daemon.nodeAutoClaim.configure"',
       'request.method === "daemon.stop"',
       'request.method === "daemon.rbac.manage"',
       'request.method === "daemon.repo.bootstrap"',

@@ -233,12 +233,24 @@ function write(root, relative, body) {
 function validRuntimeActions() {
   return `export const daemonGuiActionMethods = Object.freeze([\n  guiS3Action(\n    "agentRuntime.steer",\n    "repo.agentRuntime.steer",\n    "runtime-steer",\n    shape({ runtimeSessionId: "string?", dispatchId: "string?", prompt: "string" }),\n    "steerAgentRuntime",\n    "/api/agent-runtime/sessions/:id/steer",\n    "repo-write",\n    "command-receipt/v2",\n  ),\n]);\n`;
 }
-function validRegistry() {
+function validRegistrySource() {
   return `export const daemonProtocolMethods = Object.freeze([\n  { method: "protocol.hello", requiresRepo: false },\n  { method: "daemon.status", requiresRepo: false },\n  { method: "daemon.skillEval.case.add", requiresRepo: false },\n  { method: "daemon.skillEval.cases.list", requiresRepo: false },\n  { method: "daemon.skillEval.run", requiresRepo: false },\n  { method: "daemon.stop", requiresRepo: false },\n  { method: "daemon.repo.bootstrap", requiresRepo: false },\n  { method: "daemon.rbac.manage", requiresRepo: false },\n  { method: "daemon.runtimeInstance.hostingCredential.set", requiresRepo: false },\n  { method: "daemon.runtimeInstance.hostingCredential.unset", requiresRepo: false },\n  { method: "daemon.repo.register", requiresRepo: false },\n  { method: "daemon.repo.update", requiresRepo: false },\n  { method: "daemon.repo.backup", requiresRepo: false },\n  { method: "daemon.repo.restoreDrill", requiresRepo: false },\n  { method: "daemon.repo.unbind", requiresRepo: false },\n  { method: "daemon.repo.purge", requiresRepo: false },\n  { method: "daemon.connection.register", requiresRepo: false },\n  { method: "daemon.connection.update", requiresRepo: false },\n  { method: "daemon.connection.unregister", requiresRepo: false },\n  { method: "daemon.connection.probe", requiresRepo: false },\n  { method: "repo.task.run", requiresRepo: true },\n  { method: "repo.agentRuntime.steer", requiresRepo: true, id: "repo.agentRuntime.steer", phase: "Runtime-B", params: shape({ repo: shape({ repoId: "string" }), payload: shape({ runtimeSessionId: "string?", dispatchId: "string?", prompt: "string" }) }) },\n  { method: "repo.task.read", requiresRepo: true }\n]);\nexport const fleetProtocolMethods = Object.freeze([\n  { id: "daemon.fleet.center.start", phase: "Fleet-Wiring", method: "daemon.fleet.center.start", requiresRepo: false, params: shape({ payload: shape({ port: "number" }) }) },
   { id: "daemon.fleet.center.read", phase: "Fleet-Wiring", method: "daemon.fleet.center.read", requiresRepo: false, params: shape({ payload: shape({}) }) },\n  { id: "daemon.fleet.center.external-address.read", phase: "Fleet-Wiring", method: "daemon.fleet.center.external-address.read", requiresRepo: false, params: shape({ payload: shape({}) }) },\n  { id: "daemon.fleet.center.external-address.set", phase: "Fleet-Wiring", method: "daemon.fleet.center.external-address.set", requiresRepo: false, params: shape({ payload: shape({ externalUrl: "string" }) }) },\n  { id: "daemon.fleet.edge.sync", phase: "Fleet-Wiring", method: "daemon.fleet.edge.sync", requiresRepo: false, params: shape({ payload: shape({ host: "string" }) }) },\n  { id: "daemon.fleet.task.run", phase: "Fleet-Wiring", method: "daemon.fleet.task.run", requiresRepo: false, params: shape({ payload: shape({ action: "json" }) }) },\n  { id: "daemon.fleet.doc.sync", phase: "Fleet-Wiring", method: "daemon.fleet.doc.sync", requiresRepo: false, params: shape({ payload: shape({ workspaceRoot: "string" }) }) },\n  { id: "daemon.fleet.conflict.exit", phase: "Fleet-Wiring", method: "daemon.fleet.conflict.exit", requiresRepo: false, params: shape({ payload: shape({ conflictId: "string" }) }) }\n]);\n`;
 }
-function validServer() {
+function validRegistry() {
+  return validRegistrySource().replace(
+    '  { method: "daemon.skillEval.case.add", requiresRepo: false },',
+    '  { method: "daemon.nodeAutoClaim.configure", requiresRepo: false },\n  { method: "daemon.skillEval.case.add", requiresRepo: false },',
+  );
+}
+function validServerSource() {
   return `jsonRpcMethodContracts.some(() => true); request.method === "protocol.hello"; if (!handshaken) fail(); request.method === "daemon.status"; request.method === "daemon.stop"; request.method === "daemon.repo.bootstrap"; request.method === "daemon.rbac.manage"; case "daemon.repo.register": case "daemon.repo.backup": case "daemon.repo.restoreDrill": case "daemon.repo.unbind": case "daemon.repo.purge": case "daemon.connection.probe": options.host.run(repo, action, options.authContext);\n`;
+}
+function validServer() {
+  return validServerSource().replace(
+    'request.method === "daemon.status";',
+    'request.method === "daemon.status"; request.method === "daemon.nodeAutoClaim.configure";',
+  );
 }
 function validHostComposition() {
   return `/** @daemon-transport-authority */

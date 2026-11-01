@@ -8,6 +8,7 @@ import { connect } from "node:tls";
 import test from "node:test";
 import { fleetCenterConfigPath } from "../src/fleet-center-config.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
+import { nodeAutoClaimConfigPath } from "../src/node-auto-claim-config.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
 import { serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
 import { registerSettledBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
@@ -102,4 +103,37 @@ test("center start uses the signed-in person's authority repository permission w
       resolve();
     });
   });
+});
+
+test("node auto-claim policy is writable by the daemon socket owner only", async (t) => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-node-auto-claim-owner-")),
+    host = await openDaemonHost({ daemonId: "node-auto-claim-owner", userRoot }),
+    policy = {
+      schema: "node-auto-claim/v1",
+      enabled: false,
+      allowedSources: { personIds: [], teamIds: [] },
+      allowedAgentIds: [],
+      maxConcurrent: 1,
+    };
+  t.after(async () => {
+    await host.close();
+    rmSync(userRoot, { recursive: true, force: true });
+  });
+
+  const configured = await host.configureNodeAutoClaim(policy, auth);
+  assert.equal(configured.command, "daemon-auto-claim-configure");
+  const stored = readFileSync(nodeAutoClaimConfigPath(userRoot), "utf8");
+  assert.deepEqual(JSON.parse(stored), policy);
+
+  const foreignSocketOwner = {
+    ...auth,
+    unixSocketOwnerBoundary: {
+      ...auth.unixSocketOwnerBoundary,
+      ownerUid: (process.getuid?.() ?? 0) + 1,
+    },
+  };
+  await assert.rejects(host.configureNodeAutoClaim({ ...policy, maxConcurrent: 2 }, foreignSocketOwner), {
+    code: "authentication_required",
+  });
+  assert.equal(readFileSync(nodeAutoClaimConfigPath(userRoot), "utf8"), stored);
 });

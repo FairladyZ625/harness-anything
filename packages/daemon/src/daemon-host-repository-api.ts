@@ -9,6 +9,7 @@ import { repositoryReadDescriptor } from "./repository-read-contract.ts";
 import { readFleetOverviewFromHost } from "./fleet/fleet-overview-read.ts";
 import { readClaimableTasks } from "./task-claimable-read.ts";
 import { readEntityAssignmentDirectory } from "./entity-assignment-directory.ts";
+import { parseAssignmentExpiry } from "@harness-anything/kernel";
 import { doctorBuildDrift, type DoctorCheck } from "./repo-cell-doctor.ts";
 import { decisionProviderDoctorCheck } from "./decision-provider-doctor.ts";
 import { hostedCredentialDoctorCheck } from "./hosting-credential-readiness.ts";
@@ -90,9 +91,70 @@ export function createDaemonHostRepositoryApi(
   context: DaemonHostApiContext,
 ): Pick<
   DaemonHost,
-  "bootstrap" | "admin" | "run" | "replica" | "pruneReplicationLog" | "settleMaterialization" | "presetRun" | "read"
+  | "bootstrap"
+  | "admin"
+  | "run"
+  | "replica"
+  | "pruneReplicationLog"
+  | "settleMaterialization"
+  | "presetRun"
+  | "read"
+  | "readNodeAutoClaimCandidates"
 > {
   return {
+    readNodeAutoClaimCandidates: async (repoId, auth) => {
+      if (auth.transportKind !== "fleet-tls" || !auth.nodePrincipal)
+        throw context.hostCodedError("authentication_required", "Auto-claim candidates require a Fleet node session.");
+      const cell = context.cells.get(repoId);
+      if (!cell || cell.status().mode === "remote-edge")
+        throw context.hostCodedError("repo_unavailable", `Center repository ${repoId} is unavailable.`);
+      const binding = await context.binding(cell.status().rootDir, auth),
+        nodeId = typeof binding.source === "object" && binding.source.kind === "node" ? binding.source.nodeId : null;
+      if (nodeId !== auth.nodePrincipal.nodeId || binding.actor.principal.personId !== auth.nodePrincipal.personId)
+        throw context.hostCodedError(
+          "authentication_required",
+          "Fleet node binding does not match its authenticated owner.",
+        );
+      const settings = await cell.read("repo.settings.read", {}, binding),
+        assignments = await cell.readNodeAutoClaimAssignments(binding),
+        claimable = await readClaimableTasks({
+          repoId,
+          binding,
+          settings: settings.settings,
+          now: context.now(),
+          page: (cursor) => cell.read("repo.tasks.list", { limit: 500, ...(cursor ? { cursor } : {}) }, binding),
+          readTask: async (taskId) =>
+            (await cell.read("repo.tasks.runtimeContext.read", { taskId }, binding)).snapshot.task,
+          readAssignments: async () => assignments.map(({ relation }) => relation),
+        });
+      const relations = new Map(assignments.map((row) => [row.relation.sourceRef, row] as const)),
+        center = await context.keycloakCenter();
+      const candidates = await Promise.all(
+        claimable.tasks
+          .filter((task) => relations.has(`task/${task.taskId}`))
+          .map(async (task) => {
+            const row = relations.get(`task/${task.taskId}`),
+              relation = row?.relation,
+              assignedByPersonId = row?.assignedByPersonId ?? null,
+              assignedByTeamIds = assignedByPersonId
+                ? await center.provider.readPersonTeams(center.accessToken, assignedByPersonId)
+                : [];
+            return {
+              taskId: task.taskId,
+              autoAssignment: relation
+                ? {
+                    taskId: task.taskId,
+                    workspaceRevision: relation.workspaceRevision,
+                    expiresAt: parseAssignmentExpiry(relation.rationale) ?? "",
+                    assignedByPersonId,
+                    assignedByTeamIds,
+                  }
+                : null,
+            };
+          }),
+      );
+      return { schema: "node-auto-claim-candidates/v1", candidates };
+    },
     bootstrap: async (request, auth) => {
       const requestedRoot = canonicalRoot(request.rootDir, true),
         registeredRoot = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(

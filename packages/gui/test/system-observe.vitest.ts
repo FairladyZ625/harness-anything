@@ -73,6 +73,22 @@ function seedStatus(client: QueryClient, repos: readonly ReturnType<typeof repoR
       build: { version: "sys", commitSha: null },
       activeControl: null,
     },
+    nodeAutoClaim: {
+      enabled: true,
+      configuration: "valid",
+      maxConcurrent: 2,
+      allowedAgentIds: ["sol"],
+      recent: [
+        {
+          repoId: REPO_ID,
+          taskId: "task-auto",
+          reason: "accepted",
+          observedAt: AT,
+          assignedByPersonId: "person-assigner",
+          agentId: "sol",
+        },
+      ],
+    },
     repos,
   });
 }
@@ -156,6 +172,15 @@ describe("observe.tail 的按仓路由在系统页的取仓口径", () => {
 });
 
 describe("系统 tab 的常驻守护进程日志面板", () => {
+  it("显示本节点自动认领策略和最近执行原因", async () => {
+    const container = await mountSystem([repoRow()]);
+    expect(container.textContent).toContain("节点自动认领");
+    expect(container.textContent).toContain("已启用");
+    expect(container.textContent).toContain("task-auto: accepted");
+    expect(container.textContent).toContain("指派人 person-assigner");
+    expect(container.textContent).toContain("sol");
+  });
+
   it("挂载即在读 lifecycle,无需任何点击,并说明日志只属于本节点", async () => {
     const calls = mockTail({ lifecycle: tailPage("lifecycle", "runtime_spawn") }),
       container = await mountSystem([repoRow()]);

@@ -40,6 +40,7 @@ export async function fleetEdgeHostFixture(
     readonly registerBeforeOpen?: boolean;
     readonly credential?: string;
     readonly repoId?: string;
+    readonly now?: () => string;
     /** false leaves fleet-edge.json for the first `daemon.fleet.edge.sync` to write. */
     readonly writeEdgeConfig?: boolean;
     readonly beforeOpen?: (edgeRoot: string) => void | Promise<void>;
@@ -157,6 +158,7 @@ export async function fleetEdgeHostFixture(
     );
   const host = await openDaemonHost({
     daemonId: `${name}-daemon`,
+    ...(options.now ? { now: options.now } : {}),
     ...(options.openCell ? { openCell: options.openCell } : {}),
     ...(options.runtimeLaunch ? { runtimeLaunch: options.runtimeLaunch } : {}),
     ...(options.runtimeDiscover ? { runtimeDiscover: options.runtimeDiscover } : {}),
