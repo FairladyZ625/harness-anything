@@ -263,7 +263,7 @@ test("the startup sweep leaves every directory alone when the center read fails"
   assert.equal(reclaimCalled, false, "settled-ness is unverifiable without the session read");
 });
 
-test("startup adoption sweeps; cancel's mid-operation adoption call does not", async () => {
+test("settled temp maintenance is independent of runtime adoption", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-adoption-sweep-flag-"));
   try {
     const sweeps: number[] = [],
@@ -280,8 +280,8 @@ test("startup adoption sweeps; cancel's mid-operation adoption call does not", a
         },
         requiredRuntimeProjection: () => ({ readRuntimeSessions: () => [] }),
       };
-    await adoptRuntimes(context as never, undefined, { sweepTempDirectories: true });
-    assert.deepEqual(sweeps, [0], "startup adoption reclaims settled temp directories");
+    await sweepSettledRuntimeTempDirectories(context as never);
+    assert.deepEqual(sweeps, [0], "maintenance reclaims settled temp directories");
     await adoptRuntimes(context as never);
     assert.deepEqual(sweeps, [0], "cancel's mid-operation adoption must not sweep");
   } finally {

@@ -13,7 +13,7 @@ import { listenFleetTls } from "../src/fleet/center.ts";
 import { runFleetTaskCommandClient } from "../src/fleet/peer.ts";
 import { fleetFixture, git, initRepo, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
-import { scheduleRuntimePorts, definition } from "./schedule-actions.fixtures.ts";
+import { scheduleRuntimePorts, definition, eventually } from "./schedule-actions.fixtures.ts";
 import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
 
 for (const distinctNode of [false, true])
@@ -295,8 +295,21 @@ for (const distinctNode of [false, true])
           await assert.rejects(reopened.run("repo.agentRuntime.cancel", { runtimeSessionId: a.runtimeSessionId }), {
             code: "execution_scope_mismatch",
           });
-          const repeated = await reopened.run("repo.agentRuntime.cancel", { runtimeSessionId: b.runtimeSessionId });
-          assert.equal(repeated.detail, "already-exited");
+          let repeated: Awaited<ReturnType<typeof reopened.run>> | undefined;
+          assert.equal(
+            await eventually(async () => {
+              try {
+                repeated = await reopened.run("repo.agentRuntime.cancel", { runtimeSessionId: b.runtimeSessionId });
+                return true;
+              } catch (error) {
+                if ((error as { code?: string }).code === "runtime_recovery_pending") return false;
+                throw error;
+              }
+            }),
+            true,
+            "only this runtime's pending recovery delays repeated cancellation",
+          );
+          assert.equal(repeated?.detail, "already-exited");
           assert.equal(existsSync(relay), true, "another node must not remove a terminal owner callback");
         }
         for (const [taskId, count] of counts) {

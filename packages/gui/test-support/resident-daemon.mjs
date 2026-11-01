@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -170,6 +170,13 @@ export async function startGuiResidentDaemonFixture({
         1_000,
       );
       if (bootstrapped.ok !== true) throw new Error(`GUI daemon bootstrap failed: ${JSON.stringify(bootstrapped)}`);
+    }
+    // GUI fixtures install declarations naming harness/skills/review; install resolves the path,
+    // so the disposable repository must own the directory the declaration names.
+    const reviewSkill = path.join(rootDir, "harness", "skills", "review");
+    if (!existsSync(path.join(reviewSkill, "SKILL.md"))) {
+      mkdirSync(reviewSkill, { recursive: true });
+      writeFileSync(path.join(reviewSkill, "SKILL.md"), "# Review\n");
     }
     if (runtimeInstance) {
       const created = await requestDaemonJsonRpcAt(

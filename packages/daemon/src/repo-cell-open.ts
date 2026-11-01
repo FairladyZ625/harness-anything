@@ -1,3 +1,4 @@
+import { makeRuntimeRecoveryWork } from "./runtime-recovery-work.ts";
 import { scheduleOccurrenceSettlementOwner } from "./schedule-runtime-outcome.ts";
 import { dispatchTaskReview } from "./task-review-dispatch.ts";
 import { reviewDispatchKey } from "./review-dispatch-key.ts";
@@ -365,7 +366,17 @@ export async function openRepoWriterCell(
       activeWriterEpochFenceDescriptor = previousDescriptor;
     }
   };
-  const schedule = (work: () => void | Promise<void>, binding?: RuntimeAttemptTerminal["binding"]): void => {
+  const recoveryWork = makeRuntimeRecoveryWork(
+    async <T>(work: () => T | Promise<T>, binding: RuntimeAttemptTerminal["binding"]) => {
+      let result!: T;
+      await schedule(async () => {
+        result = await work();
+      }, binding);
+      if (state === "closed") throw cellCodedError("daemon_closed", "Runtime recovery writer closed.");
+      return result;
+    },
+  );
+  const schedule = (work: () => void | Promise<void>, binding?: RuntimeAttemptTerminal["binding"]): Promise<void> => {
     queueDepth += 1;
     input.onQueueDepthChange?.(queueDepth);
     const pending = chainRepoCellWrite(tail, async () => {
@@ -375,7 +386,8 @@ export async function openRepoWriterCell(
       // latched window: the durable SQLite ledger still accepts appends while Git publication and
       // projection recovery run behind them, and the writer-epoch fence rejects appends whose epoch
       // a replacement already superseded. Only a closed cell skips the work entirely.
-      if (state !== "closed") await (binding ? withWriterEpochBinding(binding, work) : work());
+      if (state !== "closed")
+        await recoveryWork.queued(() => (binding ? withWriterEpochBinding(binding, work) : work()));
     }).finally(() => input.onQueueDepthChange?.(queueDepth));
     tail = pending.catch(() => undefined);
     void pending.then(
@@ -385,6 +397,7 @@ export async function openRepoWriterCell(
         replica.kick();
       },
     );
+    return pending;
   };
   const backup: NonNullable<RepoCell["backup"]> = (request) => {
     queueDepth += 1;
@@ -475,6 +488,7 @@ export async function openRepoWriterCell(
     stream: runtimeStream,
     now,
     schedule,
+    writeRuntime: recoveryWork.write,
     runtimeInstances: input.runtimeInstances,
     runtimeProviderHealth: input.runtimeProviderHealth,
     keycloakCenter: input.keycloakCenter,
@@ -869,9 +883,13 @@ export async function openRepoWriterCell(
         reason: `Runtime session ${runtimeSessionId} reached a terminal dispatch state.`,
       },
       binding = await authorizeRuntimeAction(action, terminalBinding, `runtime-task-release:${runtimeSessionId}`),
-      settled = preservePrimaryError
-        ? taskSurfaceWriteAtForRuntimeTerminal(extracted, action, binding, occurredAt)
-        : taskSurfaceWriteAt(extracted, action, binding, occurredAt);
+      settled = await recoveryWork.write(
+        () =>
+          preservePrimaryError
+            ? taskSurfaceWriteAtForRuntimeTerminal(extracted, action, binding, occurredAt)
+            : taskSurfaceWriteAt(extracted, action, binding, occurredAt),
+        binding,
+      );
     if (settled.outcome === "lease_unproven") return settled;
     if (settled.outcome !== "applied")
       throw cellCodedError("runtime_lease_release_failed", `Runtime terminal lease settlement was ${settled.outcome}.`);
@@ -936,16 +954,22 @@ export async function openRepoWriterCell(
         terminal.binding,
         `runtime-task-awaiting-owner:${terminal.runtimeSessionId}`,
       ),
-      parked = await extracted.lifecycleAction(action, binding);
+      parked = await recoveryWork.write(() => extracted.lifecycleAction(action, binding), binding);
     if (parked.outcome !== "applied")
       throw cellCodedError(
         "runtime_waiting_task_block_failed",
         `Runtime terminal waiting settlement was ${parked.outcome}.`,
       );
   };
-  await runtimeSpawner.adopt((completed) =>
-    input.onOpenProgress?.({ phase: "restoring-runtimes", applied: completed, total: null, watermark: null }),
-  );
+  setImmediate(() => {
+    if (state === "closed") return;
+    void recoveryWork
+      .run(() => runtimeSpawner.adopt())
+      .then(
+        () => undefined,
+        (error: unknown) => console.error("[runtime-recovery]", error),
+      );
+  });
   // Retention first: pruning doomed streams before the compaction pass keeps it from rewriting
   // files the same queue is about to delete.
   schedule(() =>

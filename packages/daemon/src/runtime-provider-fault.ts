@@ -157,6 +157,8 @@ export function classifyRuntimeExit(
       attemptIndex,
     });
   if (active.cancelRequested) return classified("worker_stop", "Worker stop was requested.");
+  if (active.observationError)
+    return { ...classified("worker_stop", active.lossReason ?? active.observationError.message), outcome: "failed" };
   // A cap stop is policy: it settles failed, and the worker_stop classification keeps the
   // fallback chain from spending the next provider's budget on the same runaway attempt.
   if (active.spendCapExceeded)

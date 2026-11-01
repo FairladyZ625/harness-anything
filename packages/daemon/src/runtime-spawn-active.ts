@@ -1,10 +1,11 @@
 import type { ActiveRuntime, ResumeProcessObservation } from "./runtime-spawn-types.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
-import type { DispatchStallEvidence } from "./dispatch-stream.ts";
+import { appendRuntimeWorkerRecord, type DispatchStallEvidence } from "./dispatch-stream.ts";
 import { statSync, watch, type FSWatcher } from "node:fs";
 import path from "node:path";
 import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS, resolveHarnessLayout } from "@harness-anything/kernel";
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
+import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
 
 type ActiveRuntimeBase = Omit<
   ActiveRuntime,
@@ -231,6 +232,19 @@ function attachRuntimeObservations(
             : localRootRelative
           ).replaceAll(path.sep, "/");
   observationHandles.set(active, handles);
+  // EventEmitter callbacks run after registration's try/catch has returned. Keep their
+  // filesystem work inside the runtime's scheduling boundary, never the writer's event loop.
+  const observe = (work: () => void): void => {
+    context.input.schedule(() => {
+      if (handles.disposed || context.processes.get(active.runtimeSessionId) !== active) return;
+      try {
+        work();
+      } catch (error) {
+        retireObservationFault(context, active, error);
+        throw error; // The existing queue reports the original error; it cannot escape the watcher callback.
+      }
+    }, active.binding);
+  };
   const progress = (workspaceChanged: boolean): void => {
     if (handles.disposed || context.processes.get(active.runtimeSessionId) !== active || active.stalledAt !== null)
       return;
@@ -275,11 +289,17 @@ function attachRuntimeObservations(
     active.recordWorkspaceProgress?.();
   };
   if (active.stalledAt === null) armStallDeadline(context, active, handles);
+  // Recursive backends can return an empty watcher for an absent root without throwing.
+  if (workspaceRemoved()) return "workspace-removed";
   try {
-    handles.watcher = watch(active.cwd, { recursive: true }, workspaceChanged);
+    handles.watcher = watch(active.cwd, { recursive: true }, (event, filename) =>
+      observe(() => workspaceChanged(event, filename)),
+    );
     handles.watcher.on("error", (error: NodeJS.ErrnoException) => {
-      watchError(error);
-      active.recordWorkspaceProgress = null;
+      observe(() => {
+        watchError(error);
+        active.recordWorkspaceProgress = null;
+      });
     });
     handles.watcher.unref?.();
   } catch (error) {
@@ -289,6 +309,37 @@ function attachRuntimeObservations(
     return "workspace-removed";
   }
   return "watching";
+}
+
+function retireObservationFault(context: RuntimeSpawnerContext, active: ActiveRuntime, error: unknown): void {
+  active.observationError = error instanceof Error ? error : new Error(String(error));
+  active.lossReason = `Runtime workspace observation failed (${runtimeErrorCode(error)}): ${active.observationError.message}`;
+  context.input.recordLifecycle?.({
+    event: "runtime_observation_failed",
+    runtimeSessionId: active.runtimeSessionId,
+    dispatchId: active.dispatchId,
+    error: active.lossReason,
+  });
+  disposeActiveRuntimeObservations(active);
+  // Termination may wait on another process. It must not hold the ledger writer; only
+  // the prepared loss record and normal terminal settlement return to its existing queue.
+  void Promise.resolve()
+    .then(async () => {
+      if (active.process.terminateTree) await active.process.terminateTree();
+      else active.process.terminate();
+      context.input.schedule(async () => {
+        if (context.processes.get(active.runtimeSessionId) !== active || context.exiting.has(active.runtimeSessionId))
+          return;
+        appendRuntimeWorkerRecord(context.input.rootDir, active.dispatchId, {
+          kind: "process_lost",
+          occurredAt: context.input.now(),
+          reason: active.lossReason!,
+        });
+        await consumeDurableOutput(context, active);
+        await context.publishExit(active, null);
+      }, active.binding);
+    })
+    .catch((terminationError: unknown) => console.error("[runtime-observation] termination failed", terminationError));
 }
 
 export function attachActiveRuntime(

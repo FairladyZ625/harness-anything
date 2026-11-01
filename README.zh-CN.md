@@ -36,7 +36,14 @@ Harness Anything 是一个会自我进化的 harness，也让你的仓库持续�
 
 ## 快速开始
 
-在编程 Agent 中打开你的项目，复制下面这段话即可开始：
+先选择需要的安装入口，再把对应的话复制给编程 Agent：
+
+| 只装 Harness Anything | 同时装 Harness Anything 与 DeepSeek Harness 插件 |
+| --- | --- |
+| CLI、daemon、GUI 和编程 Agent 所需技能 | 同一套 Harness，加上已安装的 **macOS DSH 桌面 App** 插件 |
+| [harness-download](./skills/harness-download/SKILL.md) | [harness-dsh-install](./skills/harness-dsh-install/SKILL.md)，复用已有 Harness |
+
+### 只装 Harness Anything
 
 ```text
 读取 https://github.com/FairladyZ625/harness-anything 中的 skills/harness-download/SKILL.md，
@@ -46,6 +53,16 @@ Harness Anything 是一个会自我进化的 harness，也让你的仓库持续�
 能从项目和环境查到的信息请直接读取；
 需要我选择或批准时，给出具体方案后再问，已确认内容不要重复确认。
 ```
+
+### 同时装 Harness Anything 与 DeepSeek Harness 插件（macOS）
+
+复制这一整段给 Agent：
+
+```text
+读取 https://github.com/FairladyZ625/harness-anything 中的 skills/harness-dsh-install/SKILL.md，使用它为我的 macOS DeepSeek Harness 桌面 App 安装 Harness Anything、完整使用技能和插件。复用已有 Harness，保留定制过的技能，只补缺项。检查 DSH 版本，列出 profile 让我确认桌面 profile，然后安装插件，验证 DSH 内可调用 ha、ha-ceo/ha-worker 预设、教程和 Harness 面板。当前项目需要接入时继续引导，并明确报告缺少的前提与未完成的验证。
+```
+
+[安装 skill](./skills/harness-dsh-install/SKILL.md) 会从持久源码准备插件，挂到选定的 DSH profile。插件当前为 private，不使用未发布的 npm 安装命令；源码中须已有 `packages/dsh-plugin`。Agent 准备好后，手动安装首选 DSH **插件 → 添加插件**，填入它给出的绝对 `link:` 路径；指定 profile 的 CLI 是备选。全部使用技能一并补齐，已有定制版本保留。
 
 <details>
 <summary>Skills 安装选项与流程说明</summary>

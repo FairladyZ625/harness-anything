@@ -136,9 +136,11 @@ export function initRepo(rootDir: string): void {
   git(rootDir, "config", "user.email", "agent-entities@example.invalid");
   git(rootDir, "config", "gc.auto", "0");
   git(rootDir, "commit", "--allow-empty", "-qm", "base");
-  // The shared fixture agent declares the review skill, so the fixture repo owns its directory.
-  mkdirSync(path.join(rootDir, "harness", "skills", "review"), { recursive: true });
-  writeFileSync(path.join(rootDir, "harness", "skills", "review", "SKILL.md"), "# Review\n");
+  // Shared fixture declarations name these skills, so the fixture repo owns both directories.
+  for (const skill of ["review", "gui"]) {
+    mkdirSync(path.join(rootDir, "harness", "skills", skill), { recursive: true });
+    writeFileSync(path.join(rootDir, "harness", "skills", skill, "SKILL.md"), `# ${skill}\n`);
+  }
   // Production reads run against an initialized accepting ledger, even when it is empty.
   activateEmptyCanonicalGeneration({ repoId: "agent-entities", rootInput: rootDir });
 }

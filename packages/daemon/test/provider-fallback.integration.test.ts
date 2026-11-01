@@ -791,7 +791,28 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
       taskContext: async () => {
         throw new Error("task context is not used by this taskless fallback test");
       },
-      readRuntimeSessions: async () => [],
+      readRuntimeSessions: async () =>
+        published.flatMap((event) => {
+          if (event.type !== "runtime_session_started") return [];
+          const outcome = published.findLast(
+            (value) =>
+              value.type === "runtime_session_outcome_observed" &&
+              value.payload.runtimeSessionId === event.payload.runtimeSessionId,
+          );
+          return [
+            {
+              runtimeSessionId: event.payload.runtimeSessionId,
+              instanceId: event.payload.instanceId,
+              providerSessionId: null,
+              liveness: outcome ? ("exited" as const) : ("live" as const),
+              outcome: outcome?.type === "runtime_session_outcome_observed" ? outcome.payload.outcome : null,
+            },
+          ];
+        }),
+      readRuntimeDispatch: async (id: string) =>
+        (published.find(
+          (event) => event.type === "runtime_dispatch_requested" && event.payload.runtimeSessionId === id,
+        ) as Extract<AgentRuntimeEventV1, { type: "runtime_dispatch_requested" }> | undefined) ?? null,
       publish: async (draft: {
         readonly type: AgentRuntimeEventV1["type"];
         readonly payload: Readonly<Record<string, unknown>>;
@@ -893,6 +914,19 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
       const stream = readDispatchStream(root, spawned.dispatchId);
       return stream?.fallbackState === "scheduled" ? stream : null;
     });
+    const canonical = await eventually(
+      async () =>
+        published.find(
+          (event) =>
+            event.type === "runtime_session_outcome_observed" &&
+            event.payload.runtimeSessionId === first.header.runtimeSessionId,
+        ) ?? null,
+    );
+    assert.equal(canonical.type, "runtime_session_outcome_observed");
+    if (canonical.type === "runtime_session_outcome_observed") {
+      assert.equal(canonical.payload.outcome, "failed");
+      assert.equal(canonical.payload.attempt?.fallbackState, "scheduled");
+    }
     spawner.close();
     const journalPath = dispatchStreamPath(root, first.header.dispatchId),
       lines = readFileSync(journalPath, "utf8").split("\n"),

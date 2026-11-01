@@ -17,7 +17,7 @@ import {
   workerBranchHasDelivery,
   workerGitIdentityForPerson,
 } from "./runtime-worker-push.ts";
-import { cacheWriteTokensOfUsage } from "./runtime-spawn-provider-stream.ts";
+import { cacheWriteTokensOfUsage, writeRuntime } from "./runtime-spawn-provider-stream.ts";
 import { classifyRuntimeExit } from "./runtime-provider-fault.ts";
 import {
   readDispatchRuling,
@@ -314,13 +314,15 @@ export async function publishExit(
     const exitGuidance = unsubmittedExitGuidance(active, outcome);
     if (exitGuidance) body = `${body}\n\n${exitGuidance}`;
     let reasonCode: string | null =
-        active.spendCapExceeded && !cancelled
-          ? runtimeSpendCapReasonCode
-          : reviewSuperseded.superseded
-            ? "review_cut_superseded"
-            : reviewResultMissing
-              ? "review_result_missing"
-              : null,
+        active.observationError && !cancelled
+          ? "runtime_observation_failed"
+          : active.spendCapExceeded && !cancelled
+            ? runtimeSpendCapReasonCode
+            : reviewSuperseded.superseded
+              ? "review_cut_superseded"
+              : reviewResultMissing
+                ? "review_result_missing"
+                : null,
       sha256 = createHash("sha256").update(body).digest("hex"),
       result: RuntimeResultClaim = {
         sha256,
@@ -374,17 +376,25 @@ export async function publishExit(
         : null;
     if (archive) {
       try {
+        const archiveBinding = context.input.remote
+          ? terminalBinding
+          : await (context.input.authorizeRuntimeArchive?.(archive, terminalBinding) ?? terminalBinding);
         const archived = context.input.remote
           ? await context.input.remote.archive(archive)
-          : archiveRuntimeDispatch({
-              workspaceId: context.input.repoId,
-              rootDir: context.input.rootDir,
-              store: context.requiredRuntimeStore(context.input),
-              projection: context.requiredRuntimeProjection(context.input),
-              binding: await (context.input.authorizeRuntimeArchive?.(archive, terminalBinding) ?? terminalBinding),
-              now: context.input.now,
-              archive,
-            });
+          : await writeRuntime(
+              context,
+              () =>
+                archiveRuntimeDispatch({
+                  workspaceId: context.input.repoId,
+                  rootDir: context.input.rootDir,
+                  store: context.requiredRuntimeStore(context.input),
+                  projection: context.requiredRuntimeProjection(context.input),
+                  binding: archiveBinding,
+                  now: context.input.now,
+                  archive,
+                }),
+              archiveBinding,
+            );
         if (archived.outcome !== "applied" && archived.outcome !== "no_changes")
           throw context.runtimeSpawnError(
             "runtime_archive_failed",

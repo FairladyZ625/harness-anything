@@ -609,8 +609,15 @@ export function prepareAgentEntityInstall(input: {
       `${kind}/entity-revision`,
     );
   if (kind === "agent") {
-    const issue = agentRuntimeSelectionIssue(declaration as AgentDeclarationV1, input.runtimeInstances);
-    if (issue) throw agentInstallError("agent", issue.code, issue.message, "agent/runtime-compatibility");
+    const runtimeIssue = agentRuntimeSelectionIssue(declaration as AgentDeclarationV1, input.runtimeInstances);
+    if (runtimeIssue)
+      throw agentInstallError("agent", runtimeIssue.code, runtimeIssue.message, "agent/runtime-compatibility");
+    // Validate resolves declared skill paths against the repository; install is the last write
+    // boundary before a dispatch can select this declaration. An unchecked missing directory
+    // would surface as agent_skill_not_found only when the Agent is first dispatched, which is
+    // how a copied host declaration took a repository's default review seat out of service.
+    const skillIssue = agentSkillResolutionIssue(input.rootDir, declaration as AgentDeclarationV1);
+    if (skillIssue) throw agentInstallError("agent", skillIssue.code, skillIssue.message, "agent/skill-resolution");
   }
   const body = `${JSON.stringify(declaration, null, 2)}\n`,
     changed = current.value === null || `${JSON.stringify(current.value, null, 2)}\n` !== body,

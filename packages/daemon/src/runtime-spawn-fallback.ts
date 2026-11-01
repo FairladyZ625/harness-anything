@@ -1,6 +1,9 @@
+import { ownedByRuntimeSpawner } from "./runtime-spawn-adoption.ts";
 import {
   archiveDispatchStream,
   readDispatchStream,
+  readDispatchStreamHeaders,
+  readDispatchStreamSummary,
   reopenDispatchStream,
   scrubProviderValue,
 } from "./dispatch-stream.ts";
@@ -560,4 +563,16 @@ export function reconcileFallback(args: {
   readonly stream: ReturnType<typeof readDispatchStream>;
 }): void {
   scheduleFallbackContinuation(args);
+}
+
+/** A terminal attempt can still own a pending continuation. These schedules remain in
+ * the live spool until dispatched, so maintenance never enumerates historical archives
+ * or treats the terminal attempt as a process that needs adoption. */
+export function restoreFallbackSchedules(context: RuntimeSpawnerContext): void {
+  for (const header of readDispatchStreamHeaders(context.input.rootDir)) {
+    if (!header.fallbackAttempt || !header.binding || !ownedByRuntimeSpawner(header.binding, context.input.runtimeNode))
+      continue;
+    const stream = readDispatchStreamSummary(context.input.rootDir, header.dispatchId);
+    if (stream?.fallbackState === "scheduled") context.reconcileFallback(stream);
+  }
 }
