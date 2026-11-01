@@ -10,6 +10,7 @@ import { readFleetOverviewFromHost } from "./fleet/fleet-overview-read.ts";
 import { readClaimableTasks } from "./task-claimable-read.ts";
 import { readEntityAssignmentDirectory } from "./entity-assignment-directory.ts";
 import { doctorBuildDrift, type DoctorCheck } from "./repo-cell-doctor.ts";
+import { decisionProviderDoctorCheck } from "./decision-provider-doctor.ts";
 import { hostedCredentialDoctorCheck } from "./hosting-credential-readiness.ts";
 import { existsSync, realpathSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -715,11 +716,17 @@ export function createDaemonHostRepositoryApi(
           void context.scheduleScheduler.refresh();
         if (action.kind === "doctor-health" && receipt.outcome === "applied") {
           const health = receipt as typeof receipt & { checks: readonly DoctorCheck[] };
+          const settings = (await cell.read("repo.settings.read")).settings;
           const checks = [
             ...health.checks.map((check) =>
               check.id === "build-drift" ? doctorBuildDrift(context.buildObserver.status()) : check,
             ),
-            // The runtime instance store lives only in the host process; the cell-level checks cannot see it.
+            // Provider records and the runtime instance store live only in the host process.
+            decisionProviderDoctorCheck({
+              userRoot: context.input.userRoot,
+              configuredProviderId: settings.decisions?.provider ?? null,
+              listProviders: () => context.decisionProviders.list(),
+            }),
             await hostedCredentialDoctorCheck(cell.status().rootDir, { instances: context.instances.list() }),
           ];
           return { ...health, checks, evidence: JSON.stringify({ ...JSON.parse(health.evidence!), checks }) };

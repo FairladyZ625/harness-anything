@@ -126,6 +126,12 @@ test("doctor host composes loaded/disk identities and remote edge never reports 
     edge = path.join(parent, "edge");
   t.after(() => rmSync(parent, { recursive: true, force: true }));
   rosterRepo(rootDir, "doctor-host");
+  // Select a Decisions provider whose model the upstream no longer serves; the host-level check
+  // must read both the repository setting and the machine-local provider record.
+  writeFileSync(
+    path.join(rootDir, "harness/harness.yaml"),
+    "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\nsettings:\n  decisions:\n    provider: openrouter-mammoth\n",
+  );
   mkdirSync(path.dirname(runtimeFile), { recursive: true });
   writeFileSync(runtimeFile, "fixture");
   writeFileSync(marker, "build-a\n");
@@ -140,6 +146,28 @@ test("doctor host composes loaded/disk identities and remote edge never reports 
     userRoot,
     createConvenienceLinks: false,
   });
+  writeFileSync(
+    path.join(userRoot, "decision-providers.json"),
+    JSON.stringify({
+      schema: "decision-providers/v1",
+      providers: [
+        {
+          schema: "decision-provider/v1",
+          providerId: "openrouter-mammoth",
+          name: "baseten/elephant-1:free",
+          providerType: "decisions",
+          vendor: "openrouter",
+          model: "baseten/elephant-1:free",
+          baseUrl: null,
+          auth: { mode: "api-key", credentialRef: "credential:v1:fixture" },
+          enabled: true,
+          configurationRevision: 1,
+          configurationId: "config-fixture",
+          probe: { state: "failed", checkedAt: "2026-11-01T00:00:00.000Z", code: "decision_model_unavailable" },
+        },
+      ],
+    }),
+  );
   // An edge registration comes from fleet onboarding; it has no ledger Git checkout.
   const registry = readDaemonRegistry({ userRoot });
   writeFileSync(
@@ -164,10 +192,16 @@ test("doctor host composes loaded/disk identities and remote edge never reports 
       writeFileSync(marker, disk!);
       const receipt = (await host.run("doctor-host", { kind: "doctor-health" }, auth)) as Record<string, unknown>;
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-      const checks = receipt.checks as { id: string; status: string }[];
-      assert.equal(checks.length, 9);
+      const checks = receipt.checks as { id: string; status: string; summary: string; next: string }[];
+      assert.equal(checks.length, 10);
       assert.deepEqual(JSON.parse(String(receipt.evidence)).checks, checks);
       assert.equal(checks.find((check) => check.id === "build-drift")?.status, expected);
+      // The host check reads the repository's selected provider and the machine-local record.
+      const decisions = checks.find((check) => check.id === "decisions-provider");
+      assert.equal(decisions?.status, "fail");
+      assert.match(decisions?.summary ?? "", /openrouter-mammoth/u);
+      assert.match(decisions?.summary ?? "", /decision_model_unavailable/u);
+      assert.match(decisions?.next ?? "", /ha provider update openrouter-mammoth --model/u);
       // The fixture repository has no origin remote, so the hosted-credential check cannot
       // identify a provider and stays indeterminate instead of guessing.
       assert.equal(checks.find((check) => check.id === "hosted-credential")?.status, "indeterminate");

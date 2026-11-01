@@ -15,6 +15,8 @@ export type DecisionProviderRecord = {
   readonly auth: { readonly mode: "api-key"; readonly credentialRef: string };
   readonly enabled: boolean;
   readonly configurationRevision: number;
+  /** Unique per record creation. A delete/recreate receives a new id, so a delayed failure from the old record cannot match the new one. */
+  readonly configurationId: string;
   readonly probe: DecisionProviderProbe;
 };
 
@@ -105,5 +107,6 @@ export type DecisionPortFailureCode =
   | "invalid_decision_request"
   | "decision_timeout"
   | "decision_rate_limited"
+  | "decision_model_unavailable"
   | "decision_transport"
   | "decision_protocol_invalid";
