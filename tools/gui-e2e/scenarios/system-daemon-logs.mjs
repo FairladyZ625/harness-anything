@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 /**
@@ -21,9 +21,38 @@ export default {
   id: "system-daemon-logs",
   feature: "system",
   lane: "isolated",
-  description:
-    "The System tab fills the remaining page height with its resident daemon log panel, shows real lifecycle rows, and the request kind switch does not fail.",
+  description: "The System tab shows local auto-claim policy and denial provenance alongside resident daemon logs.",
   async run({ page, fixture, shot }) {
+    writeFileSync(
+      path.join(fixture.userRoot, "node-auto-claim.json"),
+      `${JSON.stringify(
+        {
+          schema: "node-auto-claim/v1",
+          enabled: true,
+          allowedSources: { personIds: [], teamIds: [] },
+          allowedAgentIds: ["auto-agent"],
+          maxConcurrent: 2,
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    writeFileSync(
+      path.join(fixture.userRoot, "node-auto-claim-diagnostics.json"),
+      `${JSON.stringify(
+        [
+          {
+            repoId: fixture.repoId,
+            taskId: "task-auto-claim-probe",
+            reason: "source_not_allowed",
+            observedAt: new Date().toISOString(),
+            assignedByPersonId: "person-external",
+          },
+        ],
+        null,
+        2,
+      )}\n`,
+    );
     // Replay observed durations through the real daemon log reader, in this fixture's namespace.
     // Move timestamps into its current observation window; this is a replay, not a performance run.
     const now = Date.now(),
@@ -42,7 +71,13 @@ export default {
       wait: false,
       ...sample,
     }));
+    await page.reload();
     await page.getByRole("button", { name: /^(?:Daemon 状态|Daemon status)$/u }).click();
+    const autoClaim = page.getByTestId("system-auto-claim");
+    await autoClaim.waitFor();
+    assert.match(await autoClaim.textContent(), /task-auto-claim-probe: source_not_allowed/u);
+    assert.match(await autoClaim.textContent(), /person-external/u);
+    await shot("node-auto-claim-policy-and-denial");
     const panel = page.getByTestId("system-daemon-logs");
     await panel.waitFor();
     await page.getByTestId("system-daemon-logs-scope").waitFor();

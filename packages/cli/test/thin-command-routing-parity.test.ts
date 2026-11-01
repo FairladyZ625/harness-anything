@@ -573,6 +573,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "daemon-connection-probe",
       "daemon-connection-remove",
       "daemon-connection-update",
+      "daemon-node-auto-claim",
       "daemon-fleet-center-start",
       "daemon-fleet-edge-sync",
       "daemon-metrics",

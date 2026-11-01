@@ -317,7 +317,7 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     path: ["daemon", "auto-claim", "<operation>"],
     positional: "operation",
     summary: "Read or update the local node auto-claim policy and wake the resident daemon.",
-    method: "daemon.nodeAutoClaim.wake",
+    method: "daemon.nodeAutoClaim.configure",
     inputs: [
       cliInput("--agent", "repeated", false, { code: "invalid_field" }),
       cliInput("--allow-person", "repeated", false, { code: "invalid_field" }),

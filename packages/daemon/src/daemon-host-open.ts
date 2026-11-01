@@ -40,7 +40,10 @@ import {
 import {
   readNodeAutoClaimDiagnostics,
   readNodeAutoClaimPolicy,
+  parseNodeAutoClaimPolicy,
   recordNodeAutoClaimDiagnostic,
+  writeNodeAutoClaimPolicy,
+  type NodeAutoClaimPolicy,
 } from "./node-auto-claim-config.ts";
 import { createEdgeJoinProgressTap, joinFleetEdge } from "./fleet/edge-join-client.ts";
 import { localUserDaemonEndpoint } from "./client/local-daemon-target.ts";
@@ -49,7 +52,13 @@ import {
   requireHostMode as requireHostModeImpl,
   settleControl as settleControlImpl,
 } from "./daemon-host-admission.ts";
-import { binding as deriveBinding, isDaemonSocketOwner, localSystemBinding } from "./daemon-host-binding.ts";
+import {
+  binding as deriveBinding,
+  isDaemonSocketOwner,
+  localDefaultBinding,
+  localSystemActionBinding,
+  localSystemBinding,
+} from "./daemon-host-binding.ts";
 import { createDaemonHostControlApi } from "./daemon-host-control-api.ts";
 import {
   attachBudgetError,
@@ -347,7 +356,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     readonly mode: DaemonRepoMode;
     readonly cell: RepoCell;
   };
-  let edgeRuntimeFor!: DaemonHostRegistryContext["edgeRuntimeFor"];
   const autoClaimBinding = async (repo: AutoClaimRepo): Promise<RepoCellBinding | null> => {
     if (repo.mode !== "remote-edge") return null;
     const config = readFleetEdgeConfig(repo.rootDir);
@@ -500,7 +508,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       });
     },
   });
-  edgeRuntimeFor = (request: FleetEdgeRuntimeRequest["payload"]) => {
+  function edgeRuntimeFor(request: FleetEdgeRuntimeRequest["payload"]): ReturnType<typeof openFleetEdgeRuntime> {
     const key = `${request.repoId}\0${request.nodeId}\0${request.host}\0${request.port}`,
       runtime =
         fleetEdgeRuntimes.get(key) ??
@@ -536,7 +544,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         });
     fleetEdgeRuntimes.set(key, runtime);
     return runtime;
-  };
+  }
   const scheduleScheduler = makeScheduleScheduler({
     cells,
     now,
@@ -983,8 +991,27 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         skillEvalProduction.runner.run(await skillEvalProduction.policy.scope(auth), skillId, version, options),
     },
     remoteProxy,
-    wakeAutoClaim: async () => {
+    configureNodeAutoClaim: async (value, auth) => {
+      localOnly(auth);
+      const policy: NodeAutoClaimPolicy = parseNodeAutoClaimPolicy(value),
+        binding = await localSystemActionBinding(input.userRoot, "daemon-node-auto-claim", auth, () =>
+          Promise.resolve(localDefaultBinding(auth)),
+        ),
+        authorizationDecision = await requireAuthorizedHostAction({
+          kind: "daemon-node-auto-claim",
+          binding,
+          actionId: "daemon-node-auto-claim:configure",
+          evaluatedAtCut: "node-auto-claim:local",
+        });
+      writeNodeAutoClaimPolicy(input.userRoot, policy);
       await autoClaimLoop.trigger("rpc-wake");
+      return {
+        ok: true,
+        command: "daemon-auto-claim-configure",
+        policy: policy as unknown as JsonObject,
+        activation: "woken",
+        authorizationDecision: authorizationDecision as unknown as JsonObject,
+      };
     },
     home,
     keycloakCenter,

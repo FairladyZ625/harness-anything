@@ -383,11 +383,11 @@ export const daemonProtocolMethods = Object.freeze([
     params: shape({}),
   },
   {
-    id: "daemon-node-auto-claim-wake",
+    id: "daemon-node-auto-claim",
     phase: "Edge-Resident-H1",
-    method: "daemon.nodeAutoClaim.wake",
+    method: "daemon.nodeAutoClaim.configure",
     requiresRepo: false,
-    params: shape({}),
+    params: shape({ policy: "json" }),
   },
   {
     id: "daemon.skillEval.case.add",

@@ -1648,6 +1648,7 @@
   "views.systemView.autoClaimEnabled": "已启用",
   "views.systemView.autoClaimDisabled": "已停用",
   "views.systemView.autoClaimPolicy": "Agent {agents} · 并发上限 {max} · 配置 {configuration}",
+  "views.systemView.autoClaimAssignedBy": "指派人 {personId}",
   "views.workspace.tasks.executor": "执行者",
   "views.settingsView.decisionReviewRequirementLabel": "决策评审要求",
   "views.settingsView.decisionReviewRequirementDescription": "按风险高低，哪些决策必须先有通过的评审才能被采纳。",

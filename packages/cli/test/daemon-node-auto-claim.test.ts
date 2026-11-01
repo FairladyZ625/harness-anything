@@ -8,6 +8,7 @@ import {
   readNodeAutoClaimDiagnostics,
   readNodeAutoClaimPolicy,
   recordNodeAutoClaimDiagnostic,
+  writeNodeAutoClaimPolicy,
 } from "@harness-anything/daemon/internal/node-auto-claim-config";
 import { applyNodeAutoClaimControl, parseNodeAutoClaimControl } from "../src/daemon/node-auto-claim.ts";
 
@@ -28,9 +29,10 @@ test("node auto-claim CLI configures local policy and wakes without exposing cre
     assert.equal(typeof parsed, "object");
     if (typeof parsed === "string") return;
     let woken = false;
-    const enabled = await applyNodeAutoClaimControl(parsed, userRoot, async () => {
+    const enabled = await applyNodeAutoClaimControl(parsed, userRoot, async (policy) => {
       woken = true;
-      return true;
+      writeNodeAutoClaimPolicy(userRoot, policy);
+      return { ok: true, activation: "woken" };
     });
     assert.equal(woken, true);
     assert.equal(enabled.activation, "woken");
@@ -53,6 +55,9 @@ test("node auto-claim CLI configures local policy and wakes without exposing cre
     assert.equal((shown.recent as { reason: string }[])[0]?.reason, "source_not_allowed");
     assert.equal(JSON.stringify(shown).includes("credential"), false);
     assert.equal(readNodeAutoClaimDiagnostics(userRoot).length, 1);
+    const offline = await applyNodeAutoClaimControl({ operation: "disable" }, userRoot);
+    assert.equal(offline.activation, "next-attach");
+    assert.equal(readNodeAutoClaimPolicy(userRoot).policy.enabled, false);
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
   }

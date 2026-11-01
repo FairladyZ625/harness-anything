@@ -246,7 +246,7 @@ export interface DaemonHost {
     readonly repos: readonly RepoCellStatus[];
     readonly summary: string;
   };
-  readonly wakeAutoClaim: () => Promise<void>;
+  readonly configureNodeAutoClaim: (policy: unknown, auth: DaemonAuthenticationContext) => Promise<JsonObject>;
   readonly pendingFleetDeliveries: () => number;
   readonly startAttachments: () => void;
   readonly attachmentsSettled: () => Promise<void>;

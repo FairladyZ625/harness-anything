@@ -43,6 +43,7 @@ test("two same-owner nodes auto-claim through one canonical task lease", { timeo
     });
 
   const started: { readonly nodeId: string; readonly outcome: string; readonly code?: string }[] = [];
+  const claimCommands: Promise<Awaited<ReturnType<typeof fixture.command>>>[] = [];
   const loops = ["node-one", "node-two"].map((nodeId, index) =>
     openNodeAutoClaimLoop({
       userRoot: userRoots[index]!,
@@ -67,11 +68,13 @@ test("two same-owner nodes auto-claim through one canonical task lease", { timeo
       activeTaskKeys: async () => [],
       agentIds: () => ["auto-agent"],
       claimAndRun: async (_repo, candidate) => {
-        const receipt = await fixture.command(nodeId, {
+        const command = fixture.command(nodeId, {
           kind: "task-start",
           taskId: candidate.taskId,
           executionId: `execution-${nodeId}`,
         });
+        claimCommands.push(command);
+        const receipt = await command;
         started.push({ nodeId, outcome: String(receipt.outcome), ...(receipt.code ? { code: receipt.code } : {}) });
       },
     }),
@@ -87,6 +90,7 @@ test("two same-owner nodes auto-claim through one canonical task lease", { timeo
       [[taskId], [taskId]],
     );
     await Promise.all(loops.map((loop) => loop.trigger("same-replica-candidate")));
+    await Promise.all(claimCommands);
     assert.equal(started.filter((row) => row.outcome === "applied").length, 1, JSON.stringify(started));
     assert.equal(started.filter((row) => row.code === "lease_conflict").length, 1, JSON.stringify(started));
     const task = await fixture.host.run("lease-repo", { kind: "task-show", taskId }, localAuthFixture());

@@ -250,7 +250,7 @@ export function createJsonRpcProtocolServer(options: {
     if (stoppingRefusal) return reply(method, stoppingRefusal);
     // These daemon controls use the transport boundary, so center startup cannot block them.
     const daemonControl =
-      method === "daemon.status" || method === "daemon.stop" || method === "daemon.nodeAutoClaim.wake";
+      method === "daemon.status" || method === "daemon.stop" || method === "daemon.nodeAutoClaim.configure";
     if (daemonControl && executionCredential !== undefined)
       return reply(method, protocolFailure(method, executionCredentialRejected()));
     const relayExecution =
@@ -343,10 +343,9 @@ export function createJsonRpcProtocolServer(options: {
       const warning = daemonBuildStaleNotice(options.buildObserver, options.buildDrainStatus);
       return reply("daemon.status", { ok: true, ...withDaemonDrainSummary(options.host.status(), warning, options) });
     }
-    if (request.method === "daemon.nodeAutoClaim.wake" && method === request.method) {
+    if (request.method === "daemon.nodeAutoClaim.configure" && method === request.method) {
       try {
-        await options.host.wakeAutoClaim();
-        return reply(method, { ok: true, command: "daemon-node-auto-claim-wake" });
+        return reply(method, await options.host.configureNodeAutoClaim(params.policy, options.authContext));
       } catch (error) {
         return reply(method, protocolFailure(method, error));
       }
