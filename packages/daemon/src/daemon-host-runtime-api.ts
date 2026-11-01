@@ -545,10 +545,6 @@ export function createDaemonHostRuntimeApi(
             "repo_mode_read_only",
             "Fleet runtime launch requires the matching enabled remote-edge registration.",
           );
-        if (request.method === "repo.agentRuntime.overview" || request.method === "repo.agentRuntime.sessions.read")
-          return context.host.read(request.repoId, request.method, request.action, auth) as unknown as Promise<
-            Record<string, unknown>
-          >;
         // Runtime reads may race the asynchronous resident stream startup after daemon attach.
         // Register the stream before ensureReady decides whether its first generation exists.
         context.startReplicaSyncs();

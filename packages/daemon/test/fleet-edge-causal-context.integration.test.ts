@@ -437,6 +437,7 @@ for (const probe of [
     // current manifest and every readable local file before that guard.
     const runtime = openFleetEdgeRuntime({
       readBinding: () => fixture.owners.binding(fixture.subject.nodeId),
+      controlBinding: () => fixture.owners.binding(fixture.subject.nodeId),
       request: {
         host: "127.0.0.1",
         port: center.port,

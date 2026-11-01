@@ -85,6 +85,7 @@ const fleetRuntimeMethods = [
   "repo.agentRuntime.cancel",
   "repo.agentRuntime.steer",
   "repo.agentRuntime.handoff",
+  "repo.agentRuntime.sessions.read",
   "repo.agentRuntime.sessions.await",
 ] as const;
 

@@ -7,7 +7,7 @@ import { grantTestPolicyGroups, revokeTestPolicyActions, withPolicyGroup } from 
  * owner's permissions this file's other tests rely on. A reviewer never needs to spawn. */
 const REWORK_REVIEWER_PERSON = "completion-rework-reviewer";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import {
@@ -17,9 +17,16 @@ import {
   sha256Text,
   submissionDigest,
 } from "@harness-anything/kernel";
-import { readDispatchStream } from "../src/dispatch-stream.ts";
+import { dispatchStreamPath, readDispatchStream } from "../src/dispatch-stream.ts";
 import { realizedDecisionBody, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { executionId, fixture, owner, reviewerExecutionBinding, taskId } from "./task-completion-review.fixture.ts";
+import {
+  executionId,
+  fixture,
+  owner,
+  principal,
+  reviewerExecutionBinding,
+  taskId,
+} from "./task-completion-review.fixture.ts";
 import { makeDaemonCommandReceipt } from "../src/protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiActionResult } from "../src/protocol/gui-result-validation.ts";
 import { activeCutReviewDispatches } from "../src/task-review-dispatch.ts";
@@ -175,6 +182,65 @@ test("review dispatch starts over provider-sized evidence and reads every frozen
     await f.close();
   }
 });
+
+test(
+  "a lost owner stream is settled from its stopped process group so review can be dispatched again",
+  { timeout: 20_000 },
+  async () => {
+    const f = await fixture(false, true, false, false, false, {
+      autoSubmit: false,
+      closeoutProfile: "standard",
+      runtimePid: 2_147_483_646,
+    });
+    try {
+      await f.install();
+      await f.submit();
+      const dispatch = f
+        .events()
+        .findLast((event) => event.type === "runtime_dispatch_requested" && event.payload.role === "reviewer");
+      assert.ok(dispatch?.type === "runtime_dispatch_requested", "submission dispatched no reviewer");
+      const { dispatchId, runtimeSessionId } = dispatch.payload,
+        streamPath = dispatchStreamPath(f.root, dispatchId),
+        runtimeTempDirectory = path.join(f.root, "user", "runtime-instances", "review-first", "tmp", runtimeSessionId);
+      assert.equal(existsSync(streamPath), true, "review dispatch stream was not written");
+      const liveness = await f.awaitRuntimeLiveness(runtimeSessionId);
+      assert.equal(liveness.payload.runtimeSessionId, runtimeSessionId, "reviewer liveness belongs to another session");
+      assert.equal(liveness.payload.processGroupPid, 2_147_483_646, "canonical owner process-group evidence differs");
+
+      mkdirSync(runtimeTempDirectory, { recursive: true });
+      writeFileSync(path.join(runtimeTempDirectory, "provider-temp"), "orphaned provider scratch");
+      rmSync(streamPath, { force: true });
+      assert.equal(
+        existsSync(runtimeTempDirectory),
+        true,
+        "fixture did not create the orphaned runtime temp directory",
+      );
+      await f.reopen();
+      const cancelled = await f.cell().cancelRuntime({ runtimeSessionId }, principal);
+      assert.equal(cancelled.detail, "cancelled", JSON.stringify(cancelled));
+      assert.equal(existsSync(runtimeTempDirectory), false, "ghost runtime temp directory was not reclaimed");
+      assert.ok(
+        f
+          .events()
+          .some(
+            (event) =>
+              event.type === "runtime_session_outcome_observed" &&
+              event.payload.runtimeSessionId === runtimeSessionId &&
+              event.payload.outcome === "cancelled" &&
+              event.payload.reasonCode === "runtime_process_missing",
+          ),
+        "lost reviewer runtime did not publish a terminal outcome",
+      );
+
+      const retried = dispatchesOf(await f.run({ kind: "task-dispatch-review", taskIds: [taskId] }))[0]!;
+      assert.equal(retried.outcome, "dispatched", JSON.stringify(retried));
+      assert.notEqual(retried.runtimeSessionId, runtimeSessionId);
+      assert.equal(f.launches.length, 2, "review terminalization must release the reviewer seat");
+    } finally {
+      await f.close();
+    }
+  },
+);
 
 test("expanded reviewer runtime publishes only its bound report atomically", async () => {
   const f = await fixture(false, true, false, false, false, { closeoutProfile: "standard" });

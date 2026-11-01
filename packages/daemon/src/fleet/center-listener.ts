@@ -52,6 +52,7 @@ import { createReplicationRetention, openReplicationSlots, replicationSlotKey } 
 import { startBaseBackup } from "@harness-anything/storage";
 import { createNodeRetirementAdmission } from "./node-retirement.ts";
 import { createReplicaStatusTracker } from "./replica-status.ts";
+import { readFleetCenterGitMetadata } from "../fleet-edge-git-preflight.ts";
 /** The replication head poll interval: commit-to-edge latency floor versus idle reads. */
 const REPLICATION_HEAD_POLL_MS = 50;
 /** Edges treat three missed keepalives as a dead connection (peer.ts). */
@@ -547,6 +548,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
                 )
               ).outcome === "allowed";
       if (!baseLedgerSha) throw new FleetFault("projection_pending", "Current ledger cut is unavailable.", true);
+      const centerGit = frame.includeGitMetadata
+        ? await readFleetCenterGitMetadata(
+            options.host.status().repos.find((repo) => repo.repoId === a.repoId)?.rootDir ?? "",
+          )
+        : { originUrl: null, originPushUrls: [], defaultBranch: null, defaultBranchCommit: null };
       return immediate({
         schema: "fleet.repo.metadata.result/v1",
         personId: principal.nodePrincipal!.personId,
@@ -557,6 +563,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         baseLedgerSha,
         writerEpoch: ownedEpochFor(a.repoId).epoch,
         replicationSequence: replicationHead(a.repoId),
+        originUrl: centerGit.originUrl,
+        originPushUrls: centerGit.originPushUrls,
+        defaultBranch: centerGit.defaultBranch,
+        defaultBranchCommit: centerGit.defaultBranchCommit,
       });
     }
     if (frame.schema === "fleet.receipt.get/v1") {

@@ -14,6 +14,7 @@ import {
 import { attachReceiptAcceptance } from "@harness-anything/kernel";
 import { validateDaemonGuiCommandReceipt } from "../src/protocol/daemon-protocol.contract.ts";
 import { adoptRuntimes } from "../src/runtime-spawn-adoption.ts";
+import { runtimeSpawnError } from "../src/runtime-spawn-errors.ts";
 import { cancelRuntime, steerRuntime } from "../src/runtime-spawn-control.ts";
 import { makeRuntimeSpawner } from "../src/runtime-spawner.ts";
 import { ModelSlotQueue } from "../src/runtime/model-slot-queue.ts";
@@ -358,6 +359,130 @@ test("runtime cancel settles a live projection whose dispatch never recorded a p
           },
         ],
       ],
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("runtime cancel settles a live remote session when the owner stream is gone", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-cancel-ghost-owner-"));
+  try {
+    const runtimeSessionId = "runtime_121212121212121212121212",
+      dispatchId = "dispatch_121212121212121212121212",
+      instanceId = "instance-ghost-owner",
+      edgeBinding = {
+        actor: binding.actor,
+        source: { kind: "node" as const, nodeId: "edge-a" },
+      },
+      owner = {
+        actor: edgeBinding.actor,
+        source: edgeBinding.source,
+        payload: { dispatchId },
+        instanceId,
+        processGroupPid: 2_147_483_646,
+      },
+      published: string[] = [],
+      reclaimed: Array<[string, string]> = [],
+      context = {
+        input: {
+          rootDir,
+          repoId: "cancel-ghost-owner",
+          runtimeNode: { nodeId: "edge-a" },
+          reclaimRuntimeTempDirectory: (ownerInstanceId: string, ownerRuntimeSessionId: string) => {
+            reclaimed.push([ownerInstanceId, ownerRuntimeSessionId]);
+            return null;
+          },
+          remote: {
+            readRuntimeSessions: async () => [liveSession(runtimeSessionId)],
+            readRuntimeDispatch: async () => owner,
+          },
+        },
+        processes: new Map(),
+        exiting: new Set<string>(),
+        runtimeSpawnError,
+        publishRuntimeEvent: async (type: string) => {
+          published.push(type);
+          return {};
+        },
+        controlReceipt: (_opId: string, _runtimeSessionId: string, detail: string) => ({ detail }),
+      };
+    assert.equal((await adoptRuntimes(context as never))[0]?.outcome, "failed");
+    const receipt = await cancelRuntime(context as never, { runtimeSessionId }, edgeBinding);
+    assert.equal(receipt.detail, "cancelled");
+    assert.deepEqual(reclaimed, [[instanceId, runtimeSessionId]]);
+    assert.deepEqual(published, [
+      "runtime_session_cancelled",
+      "runtime_session_exited",
+      "runtime_session_outcome_observed",
+    ]);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("runtime cancel refuses to settle an owner session when its process group is unproven", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-cancel-unproven-owner-"));
+  try {
+    const runtimeSessionId = "runtime_131313131313131313131313",
+      edgeBinding = { actor: binding.actor, source: { kind: "node" as const, nodeId: "edge-a" } },
+      context = {
+        input: {
+          rootDir,
+          repoId: "cancel-unproven-owner",
+          runtimeNode: { nodeId: "edge-a" },
+          remote: {
+            readRuntimeSessions: async () => [{ ...liveSession(runtimeSessionId), liveness: "unknown" }],
+            readRuntimeDispatch: async () => ({
+              actor: edgeBinding.actor,
+              source: edgeBinding.source,
+              dispatchId: "dispatch_131313131313131313131313",
+              instanceId: "instance-unproven-owner",
+              processGroupPid: null,
+            }),
+          },
+        },
+        processes: new Map(),
+        exiting: new Set<string>(),
+        publishRuntimeEvent: async () => assert.fail("unproven owner process group must not settle"),
+      };
+    await assert.rejects(
+      cancelRuntime(context as never, { runtimeSessionId }, edgeBinding),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("runtime cancel cannot settle a remote owner's runtime from another node", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-cancel-foreign-owner-"));
+  try {
+    const runtimeSessionId = "runtime_141414141414141414141414",
+      foreignBinding = { actor: binding.actor, source: { kind: "node" as const, nodeId: "edge-b" } },
+      context = {
+        input: {
+          rootDir,
+          repoId: "cancel-foreign-owner",
+          runtimeNode: { nodeId: "edge-b" },
+          remote: {
+            readRuntimeSessions: async () => [liveSession(runtimeSessionId)],
+            readRuntimeDispatch: async () => ({
+              actor: binding.actor,
+              source: { kind: "node" as const, nodeId: "edge-a" },
+              dispatchId: "dispatch_141414141414141414141414",
+              instanceId: "instance-foreign-owner",
+              processGroupPid: 2_147_483_646,
+            }),
+          },
+        },
+        processes: new Map(),
+        exiting: new Set<string>(),
+        publishRuntimeEvent: async () => assert.fail("another node cannot settle the owner runtime"),
+      };
+    await assert.rejects(
+      cancelRuntime(context as never, { runtimeSessionId }, foreignBinding),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "execution_scope_mismatch",
     );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });

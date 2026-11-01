@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { sameWriteSource, type TaskProjection } from "@harness-anything/kernel";
 import { unknownFieldViolation, type JsonObject } from "./protocol/json-rpc-types.ts";
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
@@ -6,7 +7,8 @@ import { adoptRuntimes, ownedByRuntimeSpawner, assertRuntimeRecoveryReady } from
 import { appendRuntimeWorkerRecord, readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
-import type { ActiveRuntime, RuntimeBinding } from "./runtime-spawn-types.ts";
+import { probeProcessGroup } from "./runtime/process-group-reconciler.ts";
+import type { ActiveRuntime, RuntimeBinding, RuntimeDispatchOwnerEvidence } from "./runtime-spawn-types.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { disposeActiveRuntimeObservations } from "./runtime-spawn-active.ts";
 
@@ -25,22 +27,42 @@ export async function cancelRuntime(
   // Terminal streams retain their owner binding after archival; repeated cancellation still verifies it.
   const headers = readDispatchStreamHeaders(context.input.rootDir, true),
     matchingHeader = headers.find((header) => header.runtimeSessionId === runtimeSessionId),
+    canonicalDispatch =
+      matchingHeader !== undefined
+        ? null
+        : context.input.remote?.readRuntimeDispatch
+          ? await context.input.remote.readRuntimeDispatch(runtimeSessionId)
+          : readLocalRuntimeDispatchOwner(context, runtimeSessionId),
+    ownerBinding = matchingHeader?.binding ?? canonicalDispatch,
+    sameSource =
+      canonicalDispatch === null ||
+      canonicalDispatch === undefined ||
+      sameWriteSource(canonicalDispatch.source, binding.source),
+    owned =
+      ownerBinding !== null &&
+      ownerBinding !== undefined &&
+      ownedByRuntimeSpawner(ownerBinding, context.input.runtimeNode) &&
+      (canonicalDispatch === null ||
+        canonicalDispatch === undefined ||
+        (canonicalDispatch.actor.principal.personId === binding.actor.principal.personId && sameSource)),
     missingOwnedProcess =
-      matchingHeader !== undefined &&
-      matchingHeader.binding !== undefined &&
-      ownedByRuntimeSpawner(matchingHeader.binding, context.input.runtimeNode) &&
-      !readDispatchStreamSummary(context.input.rootDir, matchingHeader.dispatchId)?.process;
-  if (!matchingHeader?.binding || !ownedByRuntimeSpawner(matchingHeader.binding, context.input.runtimeNode))
+      owned &&
+      !context.processes.has(runtimeSessionId) &&
+      (matchingHeader === undefined ||
+        (matchingHeader.binding !== undefined &&
+          ownedByRuntimeSpawner(matchingHeader.binding, context.input.runtimeNode) &&
+          !readDispatchStreamSummary(context.input.rootDir, matchingHeader.dispatchId)?.process));
+  if (!owned)
     throw runtimeSpawnError(
       "execution_scope_mismatch",
       "This runtime has no owner dispatch on this node; cancel it through its owner.",
     );
-  assertRuntimeRecoveryReady(context, runtimeSessionId);
+  if (!missingOwnedProcess) assertRuntimeRecoveryReady(context, runtimeSessionId);
   if (!context.processes.has(runtimeSessionId) && !missingOwnedProcess) {
     const [adoption] = await Promise.allSettled([adoptRuntimes(context, undefined, { runtimeSessionId })]);
     if (adoption.status === "rejected" && !context.processes.has(runtimeSessionId)) throw adoption.reason;
   }
-  assertRuntimeRecoveryReady(context, runtimeSessionId);
+  if (!missingOwnedProcess) assertRuntimeRecoveryReady(context, runtimeSessionId);
   const active = context.processes.get(runtimeSessionId);
   if (active) {
     active.cancelBinding = binding;
@@ -65,6 +87,27 @@ export async function cancelRuntime(
             : context.requiredRuntimeProjection(context.input).readRuntimeSessions()
           ).find((value) => value.runtimeSessionId === runtimeSessionId);
   if (session && session.liveness !== "exited" && session.outcome === null) {
+    const instanceId = matchingHeader?.instanceId ?? canonicalDispatch?.instanceId;
+    if (
+      matchingHeader === undefined &&
+      (!Number.isSafeInteger(canonicalDispatch?.processGroupPid) ||
+        Number(canonicalDispatch?.processGroupPid) <= 1 ||
+        probeProcessGroup({
+          pid: Number(canonicalDispatch?.processGroupPid),
+          pgid: Number(canonicalDispatch?.processGroupPid),
+        }) !== "proven_stopped")
+    )
+      throw runtimeSpawnError(
+        "runtime_process_group_unproven",
+        `Owner process group ${String(canonicalDispatch?.processGroupPid ?? "unknown")} could not be proven stopped.`,
+      );
+    if (typeof instanceId === "string") {
+      const failure = context.input.reclaimRuntimeTempDirectory?.(instanceId, runtimeSessionId) ?? null;
+      if (failure)
+        console.error(
+          `[runtime-temp] ${instanceId}/${runtimeSessionId} could not be reclaimed after owner loss: ${failure.message}`,
+        );
+    }
     const terminalBinding = {
       ...binding,
       actor: {
@@ -98,6 +141,41 @@ export async function cancelRuntime(
     return context.controlReceipt(opId, runtimeSessionId, "cancelled");
   }
   return context.controlReceipt(opId, runtimeSessionId, "already-exited");
+}
+
+export function readRuntimeDispatchOwnerEvidence(
+  projection: Pick<TaskProjection, "readRuntimeSession" | "readRuntimeDispatch" | "readRuntimeSessionEvents">,
+  runtimeSessionId: string,
+): RuntimeDispatchOwnerEvidence | null {
+  const session = projection.readRuntimeSession(runtimeSessionId);
+  if (!session) return null;
+  const dispatch = projection.readRuntimeDispatch(runtimeSessionId, session.definitionSnapshotRef);
+  if (!dispatch) return null;
+  const livenessEvent = projection
+    .readRuntimeSessionEvents(runtimeSessionId, 0, Number.MAX_SAFE_INTEGER)
+    .findLast(
+      (event) =>
+        event.type === "runtime_session_liveness_changed" &&
+        sameWriteSource(event.source, dispatch.source) &&
+        Number.isSafeInteger(event.payload.processGroupPid) &&
+        Number(event.payload.processGroupPid) > 1,
+    );
+  const processGroupPid =
+    livenessEvent?.type === "runtime_session_liveness_changed" ? (livenessEvent.payload.processGroupPid ?? null) : null;
+  return {
+    actor: dispatch.actor,
+    source: dispatch.source,
+    payload: { dispatchId: dispatch.payload.dispatchId },
+    instanceId: dispatch.payload.instanceId,
+    processGroupPid,
+  };
+}
+
+function readLocalRuntimeDispatchOwner(
+  context: RuntimeSpawnerContext,
+  runtimeSessionId: string,
+): RuntimeDispatchOwnerEvidence | null {
+  return readRuntimeDispatchOwnerEvidence(context.requiredRuntimeProjection(context.input), runtimeSessionId);
 }
 
 export async function enforceRuntimeSpendCap(context: RuntimeSpawnerContext, active: ActiveRuntime): Promise<void> {

@@ -15,15 +15,16 @@ import { readFleetOperationalClient } from "../src/fleet/peer.ts";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
+import { readDispatchStream } from "../src/dispatch-stream.ts";
 import { fleetFixture, git, initRepo, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { eventually } from "./schedule-actions.fixtures.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 const replicaQuota = 64 * 1024 * 1024;
-for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnect", "planned"] as const)
+for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnect", "planned", "offline"] as const)
   test(`edge CLI wait: ${scenario}`, { timeout: 60_000 }, async (t) => {
-    const foreground = scenario !== "status" && scenario !== "reconnect";
+    const foreground = scenario !== "status" && scenario !== "reconnect" && scenario !== "offline";
     const expectedOutcome = scenario === "failed" ? "failed" : scenario === "cancelled" ? "cancelled" : "succeeded";
     const installation: RuntimeInstallationWitness = {
         installationId: "edge-codex-installation",
@@ -106,6 +107,12 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
       viewRoot = path.join(fixture.root, "worker-edge-view"),
       remote = path.join(fixture.root, "worker-remote.git"),
       localAuth = localAuthFixture();
+    let edgeKeycloakAvailable = true;
+    let interactiveSessionAvailable = true;
+    const edgeFetch: typeof fetch = (...args) =>
+      edgeKeycloakAvailable
+        ? fixture.owners.keycloak.fetch(...args)
+        : Promise.reject(new Error("Keycloak is unavailable for the offline wait scenario."));
     mkdirSync(path.join(edgeRoot, "harness"), { recursive: true });
     initRepo(edgeRoot);
     writeFileSync(
@@ -169,12 +176,14 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
         clientId: `harness-node-${fixture.subject.nodeId}`,
       }),
     }).status(edgeRoot);
-    let finish: (() => void) | undefined, cancel: (() => void) | undefined;
+    let finish: (() => void) | undefined,
+      cancel: (() => void) | undefined,
+      terminateCalls = 0;
     const launchedIn: string[] = [],
       edgeHost = await openDaemonHost({
         daemonId: "fleet-worker-edge",
         userRoot: edgeUserRoot,
-        oidc: createIdentitySession(edgeUserRoot, { fetch: fixture.owners.keycloak.fetch }),
+        oidc: createIdentitySession(edgeUserRoot, { fetch: edgeFetch }),
         runtimeDiscover: () => [installation],
         runtimeLaunch: (prepared) => {
           launchedIn.push(prepared.cwd);
@@ -198,24 +207,66 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
                 exit(scenario === "failed" ? 1 : 0);
               };
             },
-            terminate: () => cancel?.(),
+            terminate: () => {
+              terminateCalls += 1;
+              cancel?.();
+            },
           };
         },
       });
     t.after(() => edgeHost.close());
     await edgeHost.attachmentsSettled();
     await edgeHost.runtimeInstance("daemon.runtimeInstance.create", codexInstance, localAuth);
-    const transport = createUnixSocketTransportServer({
-      daemonId: "fleet-worker-edge",
-      socketPath: localUserDaemonEndpoint(edgeUserRoot, "fleet-worker-edge"),
-      createProtocolServer: (authContext, emit, _connectionId, connectionSignal) =>
-        createJsonRpcProtocolServer({
-          host: edgeHost,
-          build: { commit: null },
-          authContext: { ...authContext, connectionSignal },
-          emit,
-        }),
-    });
+    let edgeAwaitRouteCount = 0;
+    const sessionPrincipalMethods: string[] = [];
+    const sessionPrincipalRoutesSeen: string[] = [];
+    const fleetRuntimeMethodsSeen: string[] = [];
+    const edgeAwaitRouteWaiters = new Map<number, () => void>(),
+      waitForEdgeAwaitRoute = (count: number) => {
+        if (edgeAwaitRouteCount >= count) return Promise.resolve();
+        return new Promise<void>((resolve) => edgeAwaitRouteWaiters.set(count, resolve));
+      },
+      protocolHost = new Proxy(edgeHost, {
+        get(target, property, receiver) {
+          if (property === "fleet")
+            return {
+              ...target.fleet,
+              edgeRuntime: async (...args: Parameters<typeof target.fleet.edgeRuntime>) => {
+                fleetRuntimeMethodsSeen.push(`${args[0].method}:${String(args[0].action.kind)}`);
+                if (args[0].method === "repo.agentRuntime.sessions.await") {
+                  edgeAwaitRouteCount += 1;
+                  edgeAwaitRouteWaiters.get(edgeAwaitRouteCount)?.();
+                }
+                return target.fleet.edgeRuntime(...args);
+              },
+            };
+          return Reflect.get(target, property, receiver);
+        },
+      }),
+      transport = createUnixSocketTransportServer({
+        daemonId: "fleet-worker-edge",
+        socketPath: localUserDaemonEndpoint(edgeUserRoot, "fleet-worker-edge"),
+        createProtocolServer: (authContext, emit, _connectionId, connectionSignal) =>
+          createJsonRpcProtocolServer({
+            host: protocolHost,
+            build: { commit: null },
+            authContext: { ...authContext, connectionSignal },
+            sessionPrincipal: (method, params) => {
+              sessionPrincipalMethods.push(method);
+              const payload = params.payload,
+                action = payload && typeof payload === "object" ? (payload as Record<string, unknown>).action : null;
+              sessionPrincipalRoutesSeen.push(
+                `${method}:${action && typeof action === "object" ? `${String((action as Record<string, unknown>).kind)}:${String((action as Record<string, unknown>).method)}` : "no-action"}`,
+              );
+              if (!interactiveSessionAvailable)
+                throw Object.assign(new Error("The active interactive Keycloak session is unavailable."), {
+                  code: "authentication_required",
+                });
+              return edgeHost.sessionPrincipal({ ...authContext, connectionSignal }, method, params);
+            },
+            emit,
+          }),
+      });
     await transport.start();
     t.after(() => transport.stop());
     const invoke = async (args: string[]) => {
@@ -291,9 +342,73 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
         ),
         { code: "runtime_session_not_found" },
       );
-      let waiting = invoke(["runtime", "status", receipt.runtimeSessionId, "--wait", "--no-stream"]);
-      await waitStarted.promise;
-      assert.equal(awaitRequests, 1);
+      let waiting: ReturnType<typeof invoke>;
+      if (scenario === "offline") {
+        const sessionStore = managedRbacSessionStore(edgeUserRoot, `${fixture.owners.url}/realms/harness`, "harness"),
+          session = JSON.parse(sessionStore.read()!);
+        // The offline grant has no locally known deadline. Expire only the access token so an
+        // unreachable Keycloak yields the persisted replica identity for this read.
+        sessionStore.write(
+          JSON.stringify({ ...session, expiresAt: Date.now() - 1, sessionExpiresAt: Date.now() + 3_600_000 }),
+        );
+        edgeKeycloakAvailable = false;
+        interactiveSessionAvailable = false;
+        const activeAwaitRouteCount = edgeAwaitRouteCount + 1;
+        const sessionPrincipalCallCount = sessionPrincipalMethods.length;
+        waiting = invoke(["runtime", "status", receipt.runtimeSessionId, "--wait", "--no-stream"]);
+        await Promise.race([
+          waitForEdgeAwaitRoute(activeAwaitRouteCount),
+          waiting.then((result) => {
+            throw new Error(
+              `offline wait exited before reaching the edge await route: ${JSON.stringify({
+                result,
+                sessionPrincipalMethods,
+                sessionPrincipalRoutesSeen,
+                fleetRuntimeMethodsSeen,
+              })}`,
+            );
+          }),
+        ]);
+        assert.equal(
+          sessionPrincipalMethods.slice(sessionPrincipalCallCount).includes("daemon.fleet.task.run"),
+          false,
+          "offline runtime reads must bypass the interactive session principal check",
+        );
+        assert.equal(awaitRequests, 0, "offline edge wait must not open center operational await");
+        const cancelAuthCallCount = sessionPrincipalMethods.length;
+        const cancelled = await invoke(["runtime", "cancel", receipt.runtimeSessionId]);
+        assert.notEqual(cancelled.code, 0, JSON.stringify(cancelled));
+        assert.equal(
+          sessionPrincipalMethods.slice(cancelAuthCallCount).includes("daemon.fleet.task.run"),
+          true,
+          "offline runtime cancellation must retain the interactive session principal check",
+        );
+        assert.equal(terminateCalls, 0, "offline read identity must not authorize runtime cancellation");
+        const steerAuthCallCount = sessionPrincipalMethods.length;
+        const steered = await invoke(["runtime", "steer", receipt.runtimeSessionId, "--prompt", "unauthorized steer"]);
+        assert.notEqual(steered.code, 0, JSON.stringify(steered));
+        assert.equal(
+          sessionPrincipalMethods.slice(steerAuthCallCount).includes("daemon.fleet.task.run"),
+          true,
+          "offline runtime steer must retain the interactive session principal check",
+        );
+        assert.equal(
+          readDispatchStream(edgeRoot, String(receipt.dispatchId))?.records.some(
+            (record) => record.kind === "steer_requested",
+          ),
+          false,
+          "offline read identity must not append a runtime steer",
+        );
+        assert.equal(awaitRequests, 0, "offline cancellation must not reach the center");
+        sessionStore.write(JSON.stringify(session));
+        edgeKeycloakAvailable = true;
+        interactiveSessionAvailable = true;
+        finish!();
+      } else {
+        waiting = invoke(["runtime", "status", receipt.runtimeSessionId, "--wait", "--no-stream"]);
+        await waitStarted.promise;
+        assert.equal(awaitRequests, 1);
+      }
       if (scenario === "reconnect") {
         await center.close();
         const disconnected = await waiting;
@@ -302,7 +417,7 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
         await openCenter(center.port);
         waiting = invoke(["runtime", "status", receipt.runtimeSessionId, "--wait", "--no-stream"]);
       }
-      finish!();
+      if (scenario !== "offline") finish!();
       const waited = await waiting;
       assert.equal(waited.code, 0, JSON.stringify(waited));
       assert.equal(waited.receipt.outcome, "succeeded", JSON.stringify(waited));

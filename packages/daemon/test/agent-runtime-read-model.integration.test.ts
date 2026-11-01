@@ -16,7 +16,11 @@ import {
   type RuntimeSession,
 } from "@harness-anything/kernel";
 import { makeAgentRuntimeReadModel, sessionWithActivityEvidence } from "../src/agent-runtime-read.ts";
-import { readSessionGroupDispatches, readTaskDispatches } from "../src/dispatch-read.ts";
+import {
+  readRuntimeSessionActivityEvidence,
+  readSessionGroupDispatches,
+  readTaskDispatches,
+} from "../src/dispatch-read.ts";
 import { validateAgentRuntimeOverview } from "../src/agent-runtime-contract.ts";
 import { makeAgentRuntimeStreamHub } from "../src/agent-runtime-stream.ts";
 import { readFleetRuntimeSessionsPaged } from "../src/fleet-edge-runtime.ts";
@@ -132,6 +136,60 @@ test("historical runtime sessions with no snapshot event degrade without failing
     assert.equal(overview.sessions[0]?.definitionSnapshot, null);
     assert.equal(overview.sessions[0]?.definitionSnapshotPersisted, false);
     assert.deepEqual(validateAgentRuntimeOverview(overview), []);
+  }));
+
+test("runtime status reports unknown without local process evidence, for local and remote owners", () =>
+  withRuntime(({ rootDir, store, projection }) => {
+    const dispatchId = "dispatch_abcdefabcdefabcdefabcdef",
+      projectionForDispatch = (source?: { readonly kind: "node"; readonly nodeId: string }) =>
+        new Proxy(projection, {
+          get: (target, property, receiver) => {
+            const rewriteDispatch = (
+              dispatch: Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>,
+            ) =>
+              dispatch.payload.runtimeSessionId === "runtime-session"
+                ? {
+                    ...dispatch,
+                    source: source ?? dispatch.source,
+                    payload: { ...dispatch.payload, dispatchId },
+                  }
+                : dispatch;
+            if (property === "readRuntimeDispatch")
+              return (runtimeSessionId: string, snapshotRef?: string) => {
+                const dispatch = target.readRuntimeDispatch(runtimeSessionId, snapshotRef);
+                return dispatch ? rewriteDispatch(dispatch) : null;
+              };
+            if (property === "readRuntimeDispatches")
+              return (...args: Parameters<typeof target.readRuntimeDispatches>) =>
+                target.readRuntimeDispatches(...args).map(rewriteDispatch);
+            const value = Reflect.get(target, property, receiver);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        });
+    const localReads = makeAgentRuntimeReadModel({ store, projection: projectionForDispatch(), rootDir }),
+      remoteReads = makeAgentRuntimeReadModel({
+        store,
+        projection: projectionForDispatch({ kind: "node", nodeId: "another-edge" }),
+        rootDir,
+      });
+    assert.equal(localReads.overview({}).sessions[0]?.liveness, "unknown");
+    assert.equal(remoteReads.session({ runtimeSessionId: "runtime-session" }).session.liveness, "unknown");
+
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: null,
+      executionId: null,
+      runtimeSessionId: "runtime-session",
+      instanceId: "instance-runtime",
+      startedAt: new Date().toISOString(),
+    });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: process.pid });
+    assert.equal(
+      readRuntimeSessionActivityEvidence(rootDir, dispatchId)?.workerHostAlive,
+      true,
+      "the fixture must contain live process evidence",
+    );
+    assert.equal(localReads.overview({}).sessions[0]?.liveness, "live");
   }));
 
 test("unscoped overview hides exited history and short session ids resolve or list candidates", () =>
@@ -767,7 +825,7 @@ function fixture(rootDir: string) {
       canAttach: ({ attachable }) => attachable,
       now: () => fixedNow,
     });
-  return { store, projection, stream, events, session };
+  return { rootDir, store, projection, stream, events, session };
 }
 function runtimeWritePlan(event: AgentRuntimeEventV1): FrozenWritePlan {
   return Object.freeze({

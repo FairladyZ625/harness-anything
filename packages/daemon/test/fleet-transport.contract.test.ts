@@ -239,6 +239,10 @@ const frames = [
     baseLedgerSha: ledgerCut,
     writerEpoch: 1,
     replicationSequence: 7,
+    originUrl: null,
+    originPushUrls: [],
+    defaultBranch: null,
+    defaultBranchCommit: null,
   },
   { schema: "fleet.receipt.get/v1", messageId: "m4-receipt-get", repoId: "a1", opId: "op1" },
   {

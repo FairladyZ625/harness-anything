@@ -385,7 +385,11 @@ export async function runFleetUploadClient(
   }
 }
 export async function readFleetRepositoryMetadataClient(
-  options: FleetPeerOptions & { readonly actionKind?: string; readonly taskId?: string },
+  options: FleetPeerOptions & {
+    readonly actionKind?: string;
+    readonly includeGitMetadata?: boolean;
+    readonly taskId?: string;
+  },
 ): Promise<Extract<FleetFrameV1, { schema: "fleet.repo.metadata.result/v1" }>> {
   const session = await openPeer(options);
   try {
@@ -394,6 +398,7 @@ export async function readFleetRepositoryMetadataClient(
       messageId: session.messageId(),
       repoId: options.repoId,
       ...(options.executionCredential ? { executionCredential: options.executionCredential } : {}),
+      ...(options.includeGitMetadata ? { includeGitMetadata: true } : {}),
       ...(options.actionKind ? { actionKind: options.actionKind } : {}),
       ...(options.taskId ? { taskId: options.taskId } : {}),
     });

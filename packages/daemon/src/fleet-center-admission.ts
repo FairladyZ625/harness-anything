@@ -16,6 +16,8 @@ import type { WriterEpochLease } from "@harness-anything/storage";
 import { readFleetEdgeConfig, writeFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { parseFleetCenterExternalUrl } from "./fleet-center-config.ts";
 import { mapListenerBindError, validateCertificateNames } from "./tls-listener-admission.ts";
+import { assertFleetEdgeRepositoryGit } from "./fleet-edge-git-preflight.ts";
+import { readFleetCenterGitMetadata } from "./fleet-edge-git-preflight.ts";
 /** The center's node registry: Keycloak verifies the machine credential and names the node's owner. */
 export function keycloakNodeRegistry(
   center: KeycloakCenterAuthority,
@@ -128,20 +130,24 @@ function edgeJoinFor(
   return async (join) => {
     const admitted = await admit(join),
       registry = readDaemonRegistry({ userRoot: input.userRoot }),
-      repositories = admitted.repoIds.map((repoId) => {
-        const repository = registry.repos.find(
-          (repo) =>
-            repo.repoId === repoId &&
-            repo.state === "enabled" &&
-            repo.mode !== "remote-proxy" &&
-            repo.canonicalRoot !== null,
-        );
-        if (!repository?.canonicalRoot) throw new Error(`Fleet center repository ${repoId} is not registered.`);
-        return {
-          repoId,
-          harnessYaml: readFileSync(path.join(repository.canonicalRoot, "harness", "harness.yaml"), "utf8"),
-        };
-      });
+      repositories = await Promise.all(
+        admitted.repoIds.map(async (repoId) => {
+          const repository = registry.repos.find(
+            (repo) =>
+              repo.repoId === repoId &&
+              repo.state === "enabled" &&
+              repo.mode !== "remote-proxy" &&
+              repo.canonicalRoot !== null,
+          );
+          if (!repository?.canonicalRoot) throw new Error(`Fleet center repository ${repoId} is not registered.`);
+          const git = await readFleetCenterGitMetadata(repository.canonicalRoot);
+          return {
+            repoId,
+            harnessYaml: readFileSync(path.join(repository.canonicalRoot, "harness", "harness.yaml"), "utf8"),
+            ...git,
+          };
+        }),
+      );
     return {
       joinId: admitted.joinId,
       nodeId: admitted.nodeId,
@@ -216,12 +222,18 @@ export async function syncFleetEdgeMirror(
       credential: request.credential,
       repoId: request.repoId,
       actionKind: "repository-read",
+      includeGitMetadata: true,
       ...(request.timeoutMs ? { timeoutMs: request.timeoutMs } : {}),
     }).catch((error: unknown) =>
       error instanceof FleetRemoteError ? advise(error.code, error.message) : Promise.reject(error),
     );
   if (head.actionAllowed !== true)
     advise("authorization_denied", "authorization_denied: The node owner may not read this repository.");
+  await assertFleetEdgeRepositoryGit({
+    rootDir: request.workspaceRoot,
+    center: head,
+    operation: "edge sync",
+  });
   // The admitted connection becomes the workspace's fleet-edge.json, which the resident stream follows
   // (started or restarted by onAdmitted); sync then waits on that stream.
   persistEdgeConnection(request);

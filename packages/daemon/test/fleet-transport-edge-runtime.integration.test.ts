@@ -665,20 +665,14 @@ test(
       viewRoot = path.join(fixture.root, "worker-edge-view"),
       remote = path.join(fixture.root, "worker-remote.git"),
       localAuth = localAuthFixture();
-    mkdirSync(path.join(edgeRoot, "harness"), { recursive: true });
-    initRepo(edgeRoot);
-    writeFileSync(
-      path.join(edgeRoot, "harness/harness.yaml"),
-      "schema: harness-anything/v1\nname: worker-edge\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
-    );
-    git(edgeRoot, "add", "harness");
-    git(edgeRoot, "commit", "-qm", "edge harness");
+    git(fixture.root, "clone", "--bare", "-q", fixture.repo, remote);
+    git(fixture.repo, "remote", "add", "origin", remote);
+    git(fixture.repo, "fetch", "-q", "origin");
+    const branch = git(fixture.repo, "branch", "--show-current");
+    git(fixture.repo, "remote", "set-head", "origin", branch);
+    git(fixture.root, "clone", "-q", remote, edgeRoot);
     fixture.owners.signIn(edgeUserRoot, fixture.subject.nodeId, edgeRoot);
-    git(fixture.root, "clone", "--bare", "-q", edgeRoot, remote);
-    git(edgeRoot, "remote", "add", "origin", remote);
-    git(edgeRoot, "fetch", "-q", "origin");
-    git(edgeRoot, "branch", `--set-upstream-to=origin/${git(edgeRoot, "branch", "--show-current")}`);
-    const base = git(edgeRoot, "rev-parse", "HEAD");
+    git(edgeRoot, "branch", `--set-upstream-to=origin/${branch}`);
     await catchUpReplica({
       readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
       port: center.port,
@@ -742,6 +736,50 @@ test(
     t.after(() => edgeHost.close());
     await edgeHost.attachmentsSettled();
     await registerFixtureRuntimeInstance(edgeHost, repoId, localAuth, codexInstance, { allowHost: fixture.host });
+    const claimUnknownHandoff = () =>
+      edgeHost.fleet.edgeRuntime(
+        {
+          host: "127.0.0.1",
+          port: center.port,
+          caPath: fixture.certFile,
+          nodeId: fixture.subject.nodeId,
+          credential: "machine-secret",
+          repoId,
+          viewRoot,
+          quotaBytes: replicaQuota,
+          workspaceRoot: edgeRoot,
+          method: "repo.agentRuntime.handoff",
+          action: {
+            operation: "claim",
+            dispatchId: "dispatch_000000000000000000000000",
+            runtimeInstanceId: codexInstance.instanceId,
+            prompt: "Continue the unowned dispatch.",
+          },
+        },
+        localAuth,
+      );
+    git(
+      fixture.repo,
+      "-c",
+      "user.name=Edge Test",
+      "-c",
+      "user.email=edge@example.invalid",
+      "commit",
+      "--allow-empty",
+      "-qm",
+      "center advances",
+    );
+    git(fixture.repo, "push", "-q", "origin", branch);
+    git(fixture.repo, "fetch", "-q", "origin");
+    await assert.rejects(claimUnknownHandoff(), { code: "edge_default_branch_behind" });
+    git(edgeRoot, "fetch", "-q", "origin");
+    git(edgeRoot, "merge", "--ff-only", `origin/${branch}`);
+    const base = git(edgeRoot, "rev-parse", "HEAD");
+    const matchingHandoff = await claimUnknownHandoff();
+    assert.equal(matchingHandoff.code, "runtime_handoff_owner_mismatch", JSON.stringify(matchingHandoff));
+    git(edgeRoot, "remote", "set-url", "--push", "origin", path.join(fixture.root, "wrong-push.git"));
+    await assert.rejects(claimUnknownHandoff(), { code: "edge_push_url_mismatch" });
+    git(edgeRoot, "config", "--unset-all", "remote.origin.pushurl");
     const receipt = await edgeHost.fleet.edgeRuntime(
       {
         host: "127.0.0.1",
@@ -808,6 +846,7 @@ test(
     );
     const runtime = openFleetEdgeRuntime({
       readBinding: () => fixture.owners.binding(fixture.subject.nodeId),
+      controlBinding: () => fixture.owners.binding(fixture.subject.nodeId),
       request: {
         host: "127.0.0.1",
         port: unavailablePort,
@@ -905,6 +944,7 @@ test(
     );
     const runtime = openFleetEdgeRuntime({
       readBinding: () => fixture.owners.binding(fixture.subject.nodeId),
+      controlBinding: () => fixture.owners.binding(fixture.subject.nodeId),
       request: {
         host: "127.0.0.1",
         port: center.port,

@@ -51,6 +51,7 @@ test("edge terminal task settlement rejects a changed node owner", { timeout: 60
   let terminal: (() => void) | undefined;
   const runtime = openFleetEdgeRuntime({
     readBinding: () => fixture.owners.binding(fixture.subject.nodeId),
+    controlBinding: () => fixture.owners.binding(fixture.subject.nodeId),
     request: {
       host: "127.0.0.1",
       port: center.port,
@@ -227,6 +228,7 @@ for (const restart of [false, true])
       const createRuntime = () =>
         openFleetEdgeRuntime({
           readBinding: () => fixture.owners.binding(fixture.subject.nodeId),
+          controlBinding: () => fixture.owners.binding(fixture.subject.nodeId),
           request: {
             host: "127.0.0.1",
             port: center.port,

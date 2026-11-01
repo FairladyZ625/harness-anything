@@ -256,6 +256,7 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
         projection,
         store,
         rootDir: context.rootDir,
+        activityEvidence: false,
         now: context.now,
       }),
       service = makeTaskLifecycleService({

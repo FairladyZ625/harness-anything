@@ -359,8 +359,22 @@ test("the join result carries layouts for every invited repository", () => {
       personId: "person-a",
       credential: "protected-credential",
       repositories: [
-        { repoId: "repo-a", harnessYaml: "schema: harness-anything/v1\n" },
-        { repoId: "repo-b", harnessYaml: "schema: harness-anything/v1\n" },
+        {
+          repoId: "repo-a",
+          harnessYaml: "schema: harness-anything/v1\n",
+          originUrl: null,
+          originPushUrls: [],
+          defaultBranch: null,
+          defaultBranchCommit: null,
+        },
+        {
+          repoId: "repo-b",
+          harnessYaml: "schema: harness-anything/v1\n",
+          originUrl: null,
+          originPushUrls: [],
+          defaultBranch: null,
+          defaultBranchCommit: null,
+        },
       ],
     }),
   );

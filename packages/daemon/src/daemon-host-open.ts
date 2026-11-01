@@ -330,6 +330,16 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           openFleetEdgeRuntime({
             request,
             readBinding: async () => {
+              const binding = await hostBinding(
+                request.workspaceRoot,
+                { transportKind: "unix-socket" },
+                undefined,
+                undefined,
+                true,
+              );
+              return { ...binding, source: { kind: "node", nodeId: request.nodeId } };
+            },
+            controlBinding: async () => {
               const binding = await hostBinding(request.workspaceRoot, { transportKind: "unix-socket" });
               return { ...binding, source: { kind: "node", nodeId: request.nodeId } };
             },

@@ -445,6 +445,10 @@ test("split UTF-8 frame preserves multibyte text in both TLS directions", { time
               baseLedgerSha: { repoId: fixture.subject.repoId, revision: 0, headDigest: `sha256:${"0".repeat(64)}` },
               writerEpoch: 1,
               replicationSequence: 0,
+              originUrl: null,
+              originPushUrls: [],
+              defaultBranch: null,
+              defaultBranchCommit: null,
             }),
           );
         else if (frame.schema === "fleet.upload.begin/v1") {

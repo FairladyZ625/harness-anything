@@ -118,7 +118,16 @@ test(
           nodeId: issuedNodeId,
           personId,
           credential: `secret-${issuedNodeId}`,
-          repositories: [{ repoId: "lease-repo", harnessYaml }],
+          repositories: [
+            {
+              repoId: "lease-repo",
+              harnessYaml,
+              originUrl: null,
+              originPushUrls: [],
+              defaultBranch: null,
+              defaultBranchCommit: null,
+            },
+          ],
         };
       },
     });
