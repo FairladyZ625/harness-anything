@@ -4,7 +4,7 @@ import { parseFleetCenterExternalUrl, readFleetCenterConfig, saveFleetCenterConf
 import { annotateHostingCredentialNotice } from "./hosting-credential-readiness.ts";
 import { requireExecutionActionScope } from "./runtime-execution-scope.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
-import { readDaemonRegistry } from "@harness-anything/kernel";
+import { readDaemonRegistry, type FleetDeviceLoginNotice } from "@harness-anything/kernel";
 import { catalogRereadReceipt } from "./gui-catalog.ts";
 import {
   ledgerWriteCommandTopology,
@@ -286,6 +286,7 @@ export function createDaemonHostRuntimeApi(
     },
     fleet: {
       readCenterExternalAddress: async (auth) => {
+        context.oidc.requireCollaboration();
         const config = readFleetCenterConfig(context.input.userRoot, context.input.daemonId);
         if (!config) return { ok: true, externalUrl: null };
         await authorizeCenterConfiguration(config.repoId, auth);
@@ -295,6 +296,7 @@ export function createDaemonHostRuntimeApi(
       // listener, not the saved config) plus the fields the panel displays. A saved config whose
       // restore failed reports running=false — that machine still needs an authorized start.
       readCenterState: async (auth) => {
+        context.oidc.requireCollaboration();
         const config = readFleetCenterConfig(context.input.userRoot, context.input.daemonId);
         if (!config)
           return {
@@ -324,6 +326,7 @@ export function createDaemonHostRuntimeApi(
         };
       },
       setCenterExternalAddress: async (payload, auth) => {
+        context.oidc.requireCollaboration();
         if (centerStarting)
           throw context.hostCodedError(
             "fleet_center_running",
@@ -360,6 +363,7 @@ export function createDaemonHostRuntimeApi(
         }
       },
       startCenter: async (payload, auth) => {
+        context.oidc.requireCollaboration();
         if (centerStarting)
           throw context.hostCodedError(
             "fleet_center_running",
@@ -427,9 +431,15 @@ export function createDaemonHostRuntimeApi(
             nodes: {
               ...keycloakNodeRegistry(context.keycloakCenter),
               loginAuthority: (nodeId) => context.oidc.discovery(nodeId),
-              revokeDeviceSessions: (nodeId) => context.oidc.revokeDeviceSessions(nodeId),
-              deviceLoginNotice: (nodeId, personId, notice) =>
-                context.oidc.receiveDeviceNotice(nodeId, personId, notice),
+              ...(context.oidc.revokeDeviceSessions
+                ? { revokeDeviceSessions: (nodeId: string) => context.oidc.revokeDeviceSessions!(nodeId) }
+                : {}),
+              ...(context.oidc.receiveDeviceNotice
+                ? {
+                    deviceLoginNotice: (nodeId: string, personId: string, notice: FleetDeviceLoginNotice) =>
+                      context.oidc.receiveDeviceNotice!(nodeId, personId, notice),
+                  }
+                : {}),
               verifyHuman: (auth) => context.oidc.bind(auth),
               edgeJoin: (input) =>
                 context.accessAdmin.admitEdgeJoin({
@@ -504,6 +514,7 @@ export function createDaemonHostRuntimeApi(
         }
       },
       edgeSync: async (payload, auth) => {
+        context.oidc.requireCollaboration();
         const request = payload as unknown as FleetEdgeSyncRequest["payload"],
           registered = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
             (repo) => repo.repoId === request.repoId && repo.state === "enabled",
@@ -530,6 +541,7 @@ export function createDaemonHostRuntimeApi(
         return receipt;
       },
       edgeRuntime: async (payload, auth) => {
+        context.oidc.requireCollaboration();
         context.localOnly(auth);
         const request = payload as unknown as FleetEdgeRuntimeRequest["payload"],
           registered = readDaemonRegistry({

@@ -1,5 +1,4 @@
-import type { IdentityManagementPort } from "@harness-anything/kernel";
-import type { IdentitySessionPort } from "@harness-anything/kernel";
+import type { FleetDeviceLoginNotice, IdentityManagementPort, IdentitySessionPort } from "@harness-anything/kernel";
 import { readHomeOverview } from "./home/home-overview-read.ts";
 import { readFleetCenterConfig } from "./fleet-center-config.ts";
 import {
@@ -837,8 +836,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     manageRbac: (request, auth) => {
       localOnly(auth);
       return (async () => {
-        if (request.operation === "edge-join-progress")
+        if (request.operation === "edge-join-progress") {
+          oidc.requireCollaboration();
           return { ok: true, command: "edge-join", ...edgeJoinProgress.read() };
+        }
         const loginTarget =
             request.rootDir ??
             request.workspaceRoot ??
@@ -851,7 +852,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
               throw hostCodedError("oidc_center_required", "Select a repository root to choose its identity center.");
             return loginTarget;
           };
-        if (request.operation === "edge-join")
+        if (request.operation === "edge-join") {
+          oidc.requireCollaboration();
           return joinFleetEdge(
             {
               link: String(request.link ?? ""),
@@ -868,11 +870,13 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
               onProgress: edgeJoinProgress.record,
             },
           );
+        }
         if (request.mode === "external")
           return oidc.configureAuthority(() => managedRbac.run(request), requireLoginTarget());
         if (request.repoId && !loginTarget)
           throw hostCodedError("repo_namespace_unknown", "Select a registered repository for login.");
         if (request.operation === "listener" && loginTarget) {
+          oidc.requireCollaboration();
           const edge = readFleetEdgeConfig(loginTarget);
           if (edge?.loginUrl && edge.loginBrowserUrl && edge.loginCertificate) {
             const browser = new URL(edge.loginBrowserUrl),
@@ -934,6 +938,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           });
         }
         if (request.operation === "invite") {
+          oidc.requireCollaboration();
           const required = [request.username, request.email, request.displayName, request.personId];
           if (required.some((value) => typeof value !== "string" || value.trim() === ""))
             throw hostCodedError("invite_invalid", "Invitation fields must be non-empty strings.");
@@ -971,8 +976,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             auth.executionPrincipal?.personId,
           );
         }
-        if (request.operation === "listener-set")
+        if (request.operation === "listener-set") {
+          oidc.requireCollaboration();
           return oidc.configureAuthority(() => managedRbac.run(request), requireLoginTarget());
+        }
         return requireAuthorizedHostAction({
           kind: "rbac-bootstrap",
           // Lifecycle bootstrap is the sole socket-owner exception: it can install/start the
@@ -1105,8 +1112,15 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             ...keycloakNodeRegistry(hostContext.keycloakCenter),
             invitationClientForNode: (nodeId) => accessAdmin.invitationClientForNode(nodeId),
             loginAuthority: (nodeId) => oidc.discovery(nodeId),
-            revokeDeviceSessions: (nodeId) => oidc.revokeDeviceSessions(nodeId),
-            deviceLoginNotice: (nodeId, personId, notice) => oidc.receiveDeviceNotice(nodeId, personId, notice),
+            ...(oidc.revokeDeviceSessions
+              ? { revokeDeviceSessions: (nodeId: string) => oidc.revokeDeviceSessions!(nodeId) }
+              : {}),
+            ...(oidc.receiveDeviceNotice
+              ? {
+                  deviceLoginNotice: (nodeId: string, personId: string, notice: FleetDeviceLoginNotice) =>
+                    oidc.receiveDeviceNotice!(nodeId, personId, notice),
+                }
+              : {}),
             verifyHuman: (auth) => oidc.bind(auth),
             edgeJoin: (input) =>
               accessAdmin.admitEdgeJoin({

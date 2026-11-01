@@ -23,11 +23,11 @@ import {
   hashToken,
   readState,
   type BuiltinState,
-  type BuiltinStoredNode,
   type BuiltinUser,
   writeState,
   verifySecret,
 } from "./state.ts";
+import { identityPluginRequired } from "./collaboration.ts";
 
 export interface BuiltinPolicyAdapterConfig {
   readonly userRoot: string;
@@ -190,92 +190,54 @@ export class BuiltinPolicyAdapter
   }
   async readPersonTeams(token: string, personId: string): Promise<readonly string[]> {
     this.#assertCenter(token);
-    const user = this.#user(personId);
-    return Object.freeze([...user.teamIds]);
+    this.#user(personId);
+    return Object.freeze([]);
   }
   async readTeam(token: string, teamId: string): Promise<{ readonly id: string; readonly name: string }> {
     this.#assertCenter(token);
-    const team = readState(this.#root).teams.find((item) => item.id === teamId);
-    if (!team) throw new Error(`Built-in work team ${teamId} is missing.`);
-    return { id: team.id, name: team.name };
+    void teamId;
+    throw identityPluginRequired();
   }
   async readTeams(token: string): Promise<readonly { readonly id: string; readonly name: string }[]> {
     this.#assertCenter(token);
-    return Object.freeze(
-      readState(this.#root)
-        .teams.map(({ id, name }) => ({ id, name }))
-        .sort((a, b) => a.id.localeCompare(b.id)),
-    );
+    throw identityPluginRequired();
   }
   async readTeamMembers(token: string, teamId: string): Promise<readonly string[]> {
     this.#assertCenter(token);
-    return Object.freeze(
-      readState(this.#root)
-        .teams.find((team) => team.id === teamId)
-        ?.memberUserIds.slice()
-        .sort() ?? [],
-    );
+    void teamId;
+    throw identityPluginRequired();
   }
   async createTeam(token: string, name: string): Promise<void> {
     this.#assertCenter(token);
-    await this.#write(token, (state) => ({
-      ...state,
-      teams: [...state.teams, { id: randomUUID(), name, memberUserIds: [] }],
-    }));
+    void name;
+    throw identityPluginRequired();
   }
   async updateTeam(token: string, teamId: string, name: string): Promise<void> {
     this.#assertCenter(token);
-    await this.#write(token, (state) => ({
-      ...state,
-      teams: state.teams.map((team) => (team.id === teamId ? { ...team, name } : team)),
-    }));
+    void teamId;
+    void name;
+    throw identityPluginRequired();
   }
   async deleteTeam(token: string, teamId: string): Promise<void> {
     this.#assertCenter(token);
-    await this.#write(token, (state) => ({
-      ...state,
-      teams: state.teams.filter((team) => team.id !== teamId),
-      users: state.users.map((user) => ({ ...user, teamIds: user.teamIds.filter((id) => id !== teamId) })),
-    }));
+    void teamId;
+    throw identityPluginRequired();
   }
   async setTeamMember(token: string, teamId: string, userId: string, held: boolean): Promise<void> {
     this.#assertCenter(token);
-    await this.#write(token, (state) => ({
-      ...state,
-      teams: state.teams.map((team) =>
-        team.id === teamId
-          ? {
-              ...team,
-              memberUserIds: held
-                ? [...new Set([...team.memberUserIds, userId])]
-                : team.memberUserIds.filter((id) => id !== userId),
-            }
-          : team,
-      ),
-      users: state.users.map((user) =>
-        user.userId === userId
-          ? {
-              ...user,
-              teamIds: held ? [...new Set([...user.teamIds, teamId])] : user.teamIds.filter((id) => id !== teamId),
-            }
-          : user,
-      ),
-    }));
+    void teamId;
+    void userId;
+    void held;
+    throw identityPluginRequired();
   }
   async readNodes(token: string): Promise<readonly BuiltinNode[]> {
     this.#assertCenter(token);
-    return Object.freeze(
-      readState(this.#root)
-        .nodes.map(({ credentialHash: _credentialHash, ...node }) => node)
-        .sort((a, b) => a.nodeId.localeCompare(b.nodeId)),
-    );
+    throw identityPluginRequired();
   }
   async readNode(token: string, nodeId: string): Promise<BuiltinNode | undefined> {
     this.#assertCenter(token);
-    const node = readState(this.#root).nodes.find((item) => item.nodeId === nodeId);
-    if (!node) return undefined;
-    const { credentialHash: _credentialHash, ...publicNode } = node;
-    return publicNode;
+    void nodeId;
+    throw identityPluginRequired();
   }
   async createNode(
     token: string,
@@ -284,64 +246,50 @@ export class BuiltinPolicyAdapter
     secret: string,
   ): Promise<void> {
     this.#assertCenter(token);
-    const node: BuiltinStoredNode = {
-      nodeId: registration.nodeId,
-      personId: registration.personId,
-      systemName: registration.systemName ?? registration.nodeId,
-      displayName: registration.displayName ?? registration.nodeId,
-      platform: registration.platform ?? "unknown",
-      registeredAt: registration.registeredAt ?? new Date().toISOString(),
-      state: "active",
-      revision: 1,
-      revocation: "complete",
-      credentialHash: hashToken(secret),
-    };
-    await this.#write(token, (state) =>
-      state.nodes.some((item) => item.nodeId === node.nodeId) ? state : { ...state, nodes: [...state.nodes, node] },
-    );
+    void registration;
+    void secret;
+    throw identityPluginRequired();
   }
   async writeNode(token: string, node: BuiltinNode): Promise<void> {
     this.#assertCenter(token);
-    await this.#write(token, (state) => ({
-      ...state,
-      nodes: state.nodes.map((item) => (item.nodeId === node.nodeId ? { ...item, ...node } : item)),
-    }));
+    void node;
+    throw identityPluginRequired();
   }
   async rotateNodeCredential(token: string, node: BuiltinNode, secret: string): Promise<void> {
     this.#assertCenter(token);
-    await this.#write(token, (state) => ({
-      ...state,
-      nodes: state.nodes.map((item) =>
-        item.nodeId === node.nodeId ? { ...item, ...node, credentialHash: hashToken(secret) } : item,
-      ),
-    }));
+    void node;
+    void secret;
+    throw identityPluginRequired();
   }
   async deleteNode(token: string, nodeId: string): Promise<void> {
     this.#assertCenter(token);
-    const current = await this.readNode(token, nodeId);
-    if (current) await this.revokeNode(token, current);
+    void nodeId;
+    throw identityPluginRequired();
   }
   async revokeNode(token: string, node: BuiltinNode): Promise<void> {
-    await this.revokeNodes(token, [node]);
+    this.#assertCenter(token);
+    void node;
+    throw identityPluginRequired();
   }
   async transferNode(token: string, node: BuiltinNode, _previousPersonId: string): Promise<void> {
-    await this.writeNode(token, node);
+    this.#assertCenter(token);
+    void node;
+    throw identityPluginRequired();
   }
   async revokeNodes(token: string, nodes: readonly BuiltinNode[]): Promise<void> {
     this.#assertCenter(token);
-    for (const node of nodes)
-      await this.writeNode(token, { ...node, state: "removed", revision: node.revision + 1, revocation: "complete" });
+    void nodes;
+    throw identityPluginRequired();
   }
   async revokeNodeConsent(token: string, nodeId: string, _consentPersonId?: string): Promise<void> {
     this.#assertCenter(token);
-    if (!readState(this.#root).nodes.some((node) => node.nodeId === nodeId))
-      throw new Error(`Built-in node ${nodeId} is missing.`);
+    void nodeId;
+    throw identityPluginRequired();
   }
   async authenticateNode(nodeId: string, credential: string): Promise<boolean> {
-    const node = readState(this.#root).nodes.find((item) => item.nodeId === nodeId);
-    return (
-      !!node && node.state === "active" && node.revocation === "complete" && verifyHash(credential, node.credentialHash)
-    );
+    void nodeId;
+    void credential;
+    throw identityPluginRequired();
   }
   async authorize(input: {
     readonly userAccessToken: string;
@@ -398,11 +346,12 @@ export class BuiltinPolicyAdapter
     return verifySecret(password, user.passwordSalt, user.passwordHash);
   }
   addUser(
-    input: Omit<BuiltinUser, "userId" | "passwordSalt" | "passwordHash" | "roles" | "teamIds"> & {
+    input: Omit<BuiltinUser, "userId" | "passwordSalt" | "passwordHash" | "roles"> & {
       readonly password: string;
       readonly roles?: readonly string[];
     },
   ): BuiltinUser {
+    if (readState(this.#root).users.length > 0) throw identityPluginRequired();
     const existing = readState(this.#root).users.find(
       (user) => user.username === input.username || user.personId === input.personId,
     );
@@ -421,7 +370,6 @@ export class BuiltinPolicyAdapter
         passwordSalt: hashed.salt,
         passwordHash: hashed.hash,
         roles: [...(input.roles ?? [])],
-        teamIds: [],
       };
     const state = readState(this.#root);
     writeState(this.#root, { ...state, users: [...state.users, user] });
@@ -474,9 +422,6 @@ export class BuiltinPolicyAdapter
   #writeUnchecked(update: (state: BuiltinState) => BuiltinState): void {
     writeState(this.#root, update(readState(this.#root)));
   }
-}
-function verifyHash(value: string, expected: string): boolean {
-  return hashToken(value) === expected;
 }
 function boundedLifetime(seconds: number): number {
   return Math.max(

@@ -46,6 +46,7 @@ export async function admitEdgeJoin(input: {
   readonly accessToken?: string;
   readonly sessionExpiresAt?: number;
 }> {
+  input.oidc.requireCollaboration();
   const initial = input.edgeJoins.assertConsumable(input.joinId, input.inviteToken),
     nodeId = randomUUID(),
     invitationSession =
