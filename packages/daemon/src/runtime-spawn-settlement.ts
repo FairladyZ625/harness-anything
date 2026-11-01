@@ -113,6 +113,7 @@ export async function publishExit(
           binding: active.binding,
         });
       await publishTerminalOutcome(context, active, terminalBinding, persistedTerminal);
+      context.input.remote?.releaseExecutionCredential?.(active.runtimeSessionId);
       return;
     }
     if (!cancelled && code === null)
@@ -602,8 +603,12 @@ export async function publishExit(
     };
     active.stream.appendTerminalOutcome(terminalOutcome, endedAt);
     await publishTerminalOutcome(context, active, terminalBinding, terminalOutcome);
-  } finally {
     context.input.remote?.releaseExecutionCredential?.(active.runtimeSessionId);
+  } catch (error) {
+    if (context.processes.get(active.runtimeSessionId) === active) context.processes.delete(active.runtimeSessionId);
+    active.process.release?.();
+    throw error;
+  } finally {
     context.exiting.delete(active.runtimeSessionId);
   }
 }

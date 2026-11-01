@@ -156,8 +156,8 @@ test("edge terminal task settlement rejects a changed node owner", { timeout: 60
           event.payload.runtimeSessionId === launched.runtimeSessionId,
       )
       .map((event) => event.payload);
-  // Current node ownership is rejected by the dispatch credential before lease settlement.
-  assert.equal(((await denial) as { code?: string }).code, "execution_credential_rejected");
+  // The Fleet owner fence rejects the stale node before checking its runtime credential.
+  assert.equal(((await denial) as { code?: string }).code, "authorization_denied");
   assert.deepEqual(outcomes(), [], "the replacement owner cannot publish the original owner's terminal outcome");
   const shown = await fixture.host.run(
     fixture.subject.repoId,
