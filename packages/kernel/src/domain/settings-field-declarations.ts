@@ -672,7 +672,7 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     uniqueItems: true,
     description: "Skill directories this repository adds to every Agent dispatch it serves.",
     effect:
-      "Repository skills mount beside the Agent's own skills; an Agent-declared id keeps precedence, and a missing directory still fails the dispatch instead of being skipped.",
+      "Repository skills mount beside the Agent's own; a declared id wins; a missing directory still fails dispatch.",
     group: "agent-skills",
     action: { field: "runtimeAgentSkills", type: "string-array" },
     cli: {

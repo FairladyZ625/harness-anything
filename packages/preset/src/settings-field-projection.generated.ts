@@ -654,7 +654,7 @@ export const settingsFieldProtocolProjection = {
       description: "Skill directories this repository adds to every Agent dispatch it serves.",
       group: "agent-skills",
       effect:
-        "Repository skills mount beside the Agent's own skills; an Agent-declared id keeps precedence, and a missing directory still fails the dispatch instead of being skipped.",
+        "Repository skills mount beside the Agent's own; a declared id wins; a missing directory still fails dispatch.",
       name: "--runtime-agent-skill",
       kind: "repeated",
       regex: "^[A-Za-z0-9][A-Za-z0-9/_.@-]*$",

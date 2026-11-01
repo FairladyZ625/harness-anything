@@ -1809,7 +1809,7 @@
   "views.settingsView.runtimeAllowedInstancesEffect": "Only enabled instances in this list can receive dispatches; an explicit empty list blocks all instances.",
   "views.settingsView.runtimeAgentSkillsLabel": "Repository Agent skills",
   "views.settingsView.runtimeAgentSkillsDescription": "Skill directories this repository adds to every Agent dispatch it serves.",
-  "views.settingsView.runtimeAgentSkillsEffect": "Repository skills mount beside the Agent's own skills; an Agent-declared id keeps precedence, and a missing directory still fails the dispatch instead of being skipped.",
+  "views.settingsView.runtimeAgentSkillsEffect": "Repository skills mount beside the Agent's own; a declared id wins; a missing directory still fails dispatch.",
   "agentRuntime.providerHealthTitle": "Provider health · {node}",
   "agentRuntime.providerHealthReady": "ready",
   "agentRuntime.providerHealthCooldown": "cooldown",

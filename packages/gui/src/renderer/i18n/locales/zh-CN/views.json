@@ -1809,7 +1809,7 @@
   "views.settingsView.runtimeAllowedInstancesEffect": "设置后只有列表中的已启用实例能接收派工；明确设置为空列表时会阻止所有实例。",
   "views.settingsView.runtimeAgentSkillsLabel": "仓库级 Agent 技能",
   "views.settingsView.runtimeAgentSkillsDescription": "本仓库为每次 Agent 派工附加的技能目录。",
-  "views.settingsView.runtimeAgentSkillsEffect": "仓库技能与 Agent 自己声明的技能一起挂载；同 id 时以 Agent 声明为准，目录缺失仍会让派工失败，不会静默跳过。",
+  "views.settingsView.runtimeAgentSkillsEffect": "仓库技能与 Agent 声明一起挂载；同 id 以声明为准，目录缺失仍会派工失败。",
   "agentRuntime.providerHealthTitle": "Provider 健康 · {node}",
   "agentRuntime.providerHealthReady": "可用",
   "agentRuntime.providerHealthCooldown": "冷却中",
