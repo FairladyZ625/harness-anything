@@ -147,6 +147,7 @@ test("canonical-stream kind bindings resolve to declared Actions on their stream
   assert.deepEqual(
     explainEntityKind("runtime-session").transitions.actions.map(({ id }) => id),
     [
+      "run",
       "runtime_session_started",
       "runtime_session_provider_bound",
       "runtime_session_task_bound",
@@ -155,6 +156,8 @@ test("canonical-stream kind bindings resolve to declared Actions on their stream
       "runtime_session_exited",
       "runtime_session_outcome_observed",
       "run",
+      "pin",
+      "unpin",
     ],
   );
 });

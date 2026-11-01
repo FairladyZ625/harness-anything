@@ -252,11 +252,20 @@ test("RepoCell online evaluation uses the authenticated token and asks for the r
 
 test("Task pin scope cannot authorize a non-Task EntityRef", async () => {
   const permissions: string[] = [],
+    fetchPort = async (_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+      const permission = new URLSearchParams(String(init?.body)).get("permission") ?? "";
+      permissions.push(permission);
+      return permission.endsWith("#task/pin")
+        ? Response.json({ result: true })
+        : Response.json({ error: "access_denied" }, { status: 403 });
+    },
+    provider = new KeycloakPolicyAdapter(config, fetchPort),
     binding = {
       actor: { principal: { personId: "person-pin-scope" }, executor: null },
       source: "local" as const,
       keycloakAuthorization: {
         session: {
+          provider,
           personId: "person-pin-scope",
           accessToken: "pin-scope-token",
           url: config.url,
@@ -264,13 +273,6 @@ test("Task pin scope cannot authorize a non-Task EntityRef", async () => {
           clientId: config.resourceServerClientId,
         },
       },
-    },
-    fetchPort = async (_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
-      const permission = new URLSearchParams(String(init?.body)).get("permission") ?? "";
-      permissions.push(permission);
-      return permission.endsWith("#task/pin")
-        ? Response.json({ result: true })
-        : Response.json({ error: "access_denied" }, { status: 403 });
     },
     task = await evaluateRepoCellAction({
       action: { kind: "entity-pin", entityRef: "task/task-scope" },
