@@ -1,0 +1,193 @@
+import { isMainThread, parentPort, workerData, type MessagePort } from "node:worker_threads";
+import { Pool, type PoolClient, type QueryResult } from "pg";
+import { consumeKnownError } from "@harness-anything/kernel";
+import { createPgTaskProjectionSource } from "./pg-task-source.ts";
+import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
+import { POSTGRES_SCOPE_SCHEMA_CONTRACT } from "../postgres/scope-schema.ts";
+import { PG_TASK_QUERY_METHODS } from "./pg-task-query-contract.ts";
+
+interface PgQueryWorkerData {
+  readonly connectionString: string;
+  readonly scope: PgProjectionScope;
+  readonly repoId: string;
+  readonly path: string;
+  readonly ready: Int32Array;
+  readonly state: Int32Array;
+  readonly responsePort: MessagePort;
+}
+
+interface PgQueryWorkerRequest {
+  readonly id: number;
+  readonly op: "begin" | "query" | "end" | "close";
+  readonly method?: string;
+  readonly args?: readonly unknown[];
+}
+
+const data = workerData as PgQueryWorkerData | undefined;
+if (!isMainThread && data && parentPort) startWorker(data);
+
+function startWorker(input: PgQueryWorkerData): void {
+  const pool = new Pool({ connectionString: input.connectionString, max: 4 });
+  let source: ReturnType<typeof createPgTaskProjectionSource> | null = null,
+    sessionClient: PoolClient | null = null,
+    savepoint = 0;
+
+  const respond = (id: number, target: Int32Array, result?: unknown, error?: unknown) => {
+    input.responsePort.postMessage({ id, ...(error === undefined ? { result } : { error: serializeError(error) }) });
+    Atomics.store(target, 0, 1);
+    Atomics.notify(target, 0);
+  };
+
+  const initialize = async () => {
+    const client = await pool.connect();
+    client.release();
+    source = createPgTaskProjectionSource({
+      pool: sessionPool(),
+      scope: input.scope,
+      repoId: input.repoId,
+      path: input.path,
+      ownsPool: false,
+    });
+  };
+
+  const sessionPool = () =>
+    ({
+      connect: async () => {
+        if (!sessionClient) throw new Error("PostgreSQL query requested outside a reader session");
+        const name = `ha_query_${++savepoint}`;
+        await sessionClient.query(`SAVEPOINT ${name}`);
+        return {
+          query: (query: string, values?: readonly unknown[]) => {
+            const normalized = query.trim().replace(/;$/u, "").toUpperCase();
+            if (/^BEGIN(?:\s|$)/u.test(normalized))
+              return Promise.resolve({ rows: [], rowCount: null } as unknown as QueryResult);
+            if (normalized === "COMMIT")
+              return sessionClient!.query(`RELEASE SAVEPOINT ${name}`) as Promise<QueryResult>;
+            if (normalized === "ROLLBACK")
+              return sessionClient!
+                .query(`ROLLBACK TO SAVEPOINT ${name}`)
+                .then(() => sessionClient!.query(`RELEASE SAVEPOINT ${name}`)) as Promise<QueryResult>;
+            return sessionClient!.query(query, values as unknown[]) as Promise<QueryResult>;
+          },
+          on: sessionClient.on.bind(sessionClient),
+          removeListener: sessionClient.removeListener.bind(sessionClient),
+          release: () => undefined,
+        };
+      },
+    }) as unknown as Pool;
+
+  const handle = async (request: PgQueryWorkerRequest) => {
+    try {
+      if (request.op === "begin") {
+        if (sessionClient) throw new Error("PostgreSQL query session is already active");
+        sessionClient = await pool.connect();
+        await sessionClient.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+        const names = POSTGRES_SCOPE_SCHEMA_CONTRACT.claims;
+        await sessionClient.query(
+          "SELECT set_config($1, $2, true), set_config($3, $4, true), set_config($5, $6, true)",
+          [
+            names.tenantId,
+            input.scope.tenantId,
+            names.projectId,
+            input.scope.projectId,
+            names.policyEpoch,
+            String(input.scope.policyEpoch),
+          ],
+        );
+        respond(request.id, input.state, null);
+        return;
+      }
+      if (request.op === "query") {
+        if (!sessionClient || !source) throw new Error("PostgreSQL query requested outside a reader session");
+        const method = request.method ? Reflect.get(source, request.method) : undefined;
+        if (
+          !PG_TASK_QUERY_METHODS.includes(request.method as (typeof PG_TASK_QUERY_METHODS)[number]) ||
+          typeof method !== "function"
+        )
+          throw Object.assign(
+            new Error(`PostgreSQL task projection query is not implemented: ${request.method ?? ""}`),
+            {
+              code: "pg_query_not_implemented",
+            },
+          );
+        respond(request.id, input.state, await method.apply(source, [...(request.args ?? [])]));
+        return;
+      }
+      if (request.op === "end") {
+        if (sessionClient) {
+          const client = sessionClient;
+          sessionClient = null;
+          await client.query("COMMIT");
+          client.release();
+        }
+        respond(request.id, input.state, null);
+        return;
+      }
+      if (request.op === "close") {
+        if (sessionClient) {
+          const client = sessionClient;
+          sessionClient = null;
+          await client.query("ROLLBACK");
+          client.release();
+        }
+        await pool.end();
+        respond(request.id, input.state, null);
+        input.responsePort.close();
+        parentPort!.close();
+        return;
+      }
+      throw new Error(`unknown PostgreSQL task query operation: ${String(request.op)}`);
+    } catch (error) {
+      let failure = error;
+      if (request.op === "begin" && sessionClient) {
+        const client = sessionClient;
+        sessionClient = null;
+        try {
+          await client.query("ROLLBACK");
+          client.release();
+        } catch (rollbackError) {
+          client.release(rollbackError instanceof Error ? rollbackError : new Error(String(rollbackError)));
+          failure = new AggregateError(
+            [error, rollbackError],
+            "PostgreSQL query session failed to start and roll back.",
+          );
+          consumeKnownError(rollbackError);
+        }
+      }
+      respond(request.id, input.state, undefined, failure);
+      consumeKnownError(failure);
+    }
+  };
+
+  void initialize().then(
+    () => {
+      respond(0, input.ready, null);
+      parentPort!.on("message", (request: PgQueryWorkerRequest) => void handle(request));
+    },
+    async (error: unknown) => {
+      let failure = error;
+      try {
+        await pool.end();
+      } catch (closeError) {
+        failure = new AggregateError([error, closeError], "PostgreSQL task query worker failed to start and close.");
+        consumeKnownError(closeError);
+      }
+      respond(0, input.ready, undefined, failure);
+      consumeKnownError(failure);
+      input.responsePort.close();
+      parentPort!.close();
+    },
+  );
+}
+
+function serializeError(value: unknown): {
+  readonly name: string;
+  readonly message: string;
+  readonly fields: Readonly<Record<string, unknown>>;
+} {
+  if (!(value instanceof Error)) return { name: "Error", message: String(value), fields: {} };
+  const fields: Record<string, unknown> = {};
+  for (const key of ["code", "detail", "hint", "constraint", "severity", "schema", "table", "column", "position"])
+    if (key in value) fields[key] = Reflect.get(value, key);
+  return { name: value.name, message: value.message, fields };
+}

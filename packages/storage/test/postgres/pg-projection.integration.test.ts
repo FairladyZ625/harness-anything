@@ -43,6 +43,7 @@ import { Pool } from "pg";
 import {
   createPgEntityStore,
   createPgTaskProjectionSource,
+  createPgTaskQueryReader,
   ensurePgProjectionSchema,
   grantPgProjectionRuntimeAccess,
   materializePgProjectionEvents,
@@ -97,10 +98,8 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
     const adminPool = new Pool({ host: "127.0.0.1", port: fixture.port, user: "postgres", database, max: 1 });
     pools.push(adminPool);
     const runtimePassword = randomUUID().replaceAll("-", ""),
-      runtimePool = createPostgresPool(
-        `postgres://${POSTGRES_SCOPE_SCHEMA_CONTRACT.roles.runtime}:${runtimePassword}@127.0.0.1:${fixture.port}/${database}`,
-        { max: 4 },
-      );
+      runtimeConnectionString = `postgres://${POSTGRES_SCOPE_SCHEMA_CONTRACT.roles.runtime}:${runtimePassword}@127.0.0.1:${fixture.port}/${database}`,
+      runtimePool = createPostgresPool(runtimeConnectionString, { max: 4 });
     pools.push(runtimePool);
     const { roles, roleAttributes } = POSTGRES_SCOPE_SCHEMA_CONTRACT;
     await adminPool.query(`CREATE ROLE "${roles.schemaOwner}" ${roleAttributes.schemaOwner}`);
@@ -738,6 +737,70 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
       for (const value of canonicalBundles) sqliteEvents.append(value);
       const sqliteProjection = makeTaskProjection({ rootDir, eventStore: sqliteEvents });
       sqliteProjection.catchUp();
+      const queryReader = createPgTaskQueryReader({
+        connectionString: runtimeConnectionString,
+        scope: projectionScope,
+        repoId,
+      });
+      try {
+        const leaseCase = leaseCases[0]!;
+        const pgRead = queryReader.withSession((queries) => ({
+          cut: queries.readCut(),
+          snapshot: queries.read("task-parity").snapshot,
+          tasks: queries.list({ taskIds: ["task-parity"] }).rows,
+          decision: queries.readDecision("dec_PG_PARITY"),
+          fact: queries.readFact("F-11111111"),
+          decisions: queries.readDecisions(["dec_PG_PARITY"]),
+          decisionList: queries.listDecisions({}),
+          facts: queries.searchFacts({ query: "alpha" }),
+          agenda: queries.listDecisionAgendaPage({ state: "in_effect", limit: 10 }),
+          taskLease: queries.currentLease(leaseCase.taskId, "2026-08-11T00:30:00.000Z"),
+          executionLease: queries.currentLeaseForExecution(leaseCase.executionId, "2026-08-11T00:30:00.000Z"),
+          canonicalEvents: queries.readCanonicalEvents(0, 500),
+          scheduleEvents: queries.readScheduleEvents(),
+          reckoningEvents: queries.readReckoningEvents({
+            type: "fact_recorded",
+            after: "2026-01-01T00:00:00.000Z",
+            before: "2026-12-31T23:59:59.999Z",
+          }),
+          scheduleOutputEvents: queries.readScheduleOutputEvents(["missing-runtime-session"]),
+          runtimeSessionEvents: queries.readRuntimeSessionEvents("missing-runtime-session", 0, 50),
+        }));
+        assert.deepEqual(pgRead.cut, sqliteProjection.readCut());
+        assert.deepEqual(pgRead.snapshot, sqliteProjection.read("task-parity").snapshot);
+        assert.deepEqual(pgRead.tasks, sqliteProjection.list({ taskIds: ["task-parity"] }).rows);
+        assert.deepEqual(pgRead.decision, sqliteProjection.readDecision("dec_PG_PARITY"));
+        assert.deepEqual(pgRead.fact, sqliteProjection.readFact("F-11111111"));
+        assert.deepEqual(pgRead.decisions, sqliteProjection.readDecisions(["dec_PG_PARITY"]));
+        assert.deepEqual(pgRead.decisionList, sqliteProjection.listDecisions({}));
+        assert.deepEqual(pgRead.facts, sqliteProjection.searchFacts({ query: "alpha" }));
+        assert.deepEqual(pgRead.agenda, sqliteProjection.listDecisionAgendaPage({ state: "in_effect", limit: 10 }));
+        assert.deepEqual(pgRead.taskLease, sqliteProjection.currentLease(leaseCase.taskId, "2026-08-11T00:30:00.000Z"));
+        assert.deepEqual(
+          pgRead.executionLease,
+          sqliteProjection.currentLeaseForExecution(leaseCase.executionId, "2026-08-11T00:30:00.000Z"),
+        );
+        assert.deepEqual(pgRead.canonicalEvents, sqliteProjection.readCanonicalEvents(0, 500));
+        assert.deepEqual(pgRead.scheduleEvents, sqliteProjection.readScheduleEvents());
+        assert.deepEqual(
+          pgRead.reckoningEvents,
+          sqliteProjection.readReckoningEvents({
+            type: "fact_recorded",
+            after: "2026-01-01T00:00:00.000Z",
+            before: "2026-12-31T23:59:59.999Z",
+          }),
+        );
+        assert.deepEqual(
+          pgRead.scheduleOutputEvents,
+          sqliteProjection.readScheduleOutputEvents(["missing-runtime-session"]),
+        );
+        assert.deepEqual(
+          pgRead.runtimeSessionEvents,
+          sqliteProjection.readRuntimeSessionEvents("missing-runtime-session", 0, 50),
+        );
+      } finally {
+        queryReader.close();
+      }
       const sqliteEntities = createEntityStore(sqliteEvents),
         sqliteSnapshots = sqliteProjection.list({
           taskIds: postgresSnapshotsBeforeRebuild.rows.map((row) => row.taskId),

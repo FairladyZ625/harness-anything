@@ -1,11 +1,14 @@
 import type { Pool } from "pg";
 import type {
+  AgentRuntimeEventV1,
+  CanonicalEventV1,
   DecisionAgendaProjectionPageRead,
   DecisionProjectionListRead,
   DecisionProjectionRead,
   FactProjectionRead,
   FactProjectionSearchRead,
   LeaseV1,
+  TaskProjectionQueries,
   TaskProjectionListQuery,
   TaskProjectionListRead,
   TaskProjectionRead,
@@ -18,6 +21,11 @@ import type {
 import type { FactSearchFilters } from "@harness-anything/kernel/internal/ports/projection-contracts.ts";
 import type { TaskLifecycleSnapshot } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract.ts";
 import { emptyTaskLifecycleSnapshot } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract.ts";
+import { isAgentRuntimeEvent } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
+import {
+  privateRuntimeEventTypes,
+  publicRuntimeDispatch,
+} from "@harness-anything/kernel/internal/domain/runtime-public-query.ts";
 import type {
   FactProjectionRow,
   TaskRelationProjectionRow,
@@ -110,6 +118,21 @@ export interface PgTaskProjectionSource {
   readonly listDecisionAgendaPage: (query: DecisionPageQuery) => Promise<DecisionAgendaProjectionPageRead>;
   readonly currentLease: (taskId: string, now?: string) => Promise<LeaseV1 | null>;
   readonly currentLeaseForExecution: (executionId: string, now?: string) => Promise<LeaseV1 | null>;
+  readonly readCanonicalEvents: (
+    ...args: Parameters<TaskProjectionQueries["readCanonicalEvents"]>
+  ) => Promise<ReturnType<TaskProjectionQueries["readCanonicalEvents"]>>;
+  readonly readScheduleEvents: (
+    ...args: Parameters<TaskProjectionQueries["readScheduleEvents"]>
+  ) => Promise<ReturnType<TaskProjectionQueries["readScheduleEvents"]>>;
+  readonly readReckoningEvents: (
+    ...args: Parameters<TaskProjectionQueries["readReckoningEvents"]>
+  ) => Promise<ReturnType<TaskProjectionQueries["readReckoningEvents"]>>;
+  readonly readScheduleOutputEvents: (
+    ...args: Parameters<TaskProjectionQueries["readScheduleOutputEvents"]>
+  ) => Promise<ReturnType<TaskProjectionQueries["readScheduleOutputEvents"]>>;
+  readonly readRuntimeSessionEvents: (
+    ...args: Parameters<TaskProjectionQueries["readRuntimeSessionEvents"]>
+  ) => Promise<ReturnType<TaskProjectionQueries["readRuntimeSessionEvents"]>>;
   readonly close: () => Promise<void>;
 }
 
@@ -605,6 +628,116 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
   const currentLease = (taskId: string, now = new Date().toISOString()) => readLease("task_id", taskId, now);
   const currentLeaseForExecution = (executionId: string, now = new Date().toISOString()) =>
     readLease("raw_lease->>'executionId'", executionId, now);
+  const readCanonicalEvents: PgTaskProjectionSource["readCanonicalEvents"] = (afterRevision, pageLimit) =>
+    withPostgresTransaction(
+      options.pool,
+      async (client) => {
+        if (
+          !Number.isSafeInteger(afterRevision) ||
+          afterRevision < 0 ||
+          !Number.isSafeInteger(pageLimit) ||
+          pageLimit < 1 ||
+          pageLimit > 500
+        )
+          throw new Error("canonical event page requires a non-negative revision and a limit from 1 to 500");
+        const cut = await readCutInTransaction(client, claims, readers, repoId),
+          events = await readEventsInTransaction(
+            client,
+            claims,
+            readers,
+            repoId,
+            "revision > $6",
+            [afterRevision],
+            "LIMIT $7",
+            [pageLimit],
+          );
+        return { ...cut, events };
+      },
+      claims,
+      { isolationLevel: "repeatable read" },
+    );
+  const readScheduleEvents: PgTaskProjectionSource["readScheduleEvents"] = (scheduleId) =>
+    withPostgresTransaction(
+      options.pool,
+      async (client) => {
+        const cut = await readCutInTransaction(client, claims, readers, repoId),
+          events = await readEventsInTransaction(
+            client,
+            claims,
+            readers,
+            repoId,
+            scheduleId === undefined
+              ? "event_json::jsonb ->> 'schema' = 'schedule-event/v1'"
+              : "event_json::jsonb ->> 'schema' = 'schedule-event/v1' AND event_json::jsonb #>> '{entity,id}' = $6",
+            scheduleId === undefined ? [] : [scheduleId],
+          );
+        return { ...cut, events };
+      },
+      claims,
+      { isolationLevel: "repeatable read" },
+    );
+  const readReckoningEvents: PgTaskProjectionSource["readReckoningEvents"] = ({ type, after, before }) =>
+    withPostgresTransaction(
+      options.pool,
+      (client) =>
+        readEventsInTransaction(
+          client,
+          claims,
+          readers,
+          repoId,
+          "event_type = $6 AND event_json::jsonb ->> 'occurredAt' >= $7 AND event_json::jsonb ->> 'occurredAt' <= $8",
+          [type, after, before],
+        ),
+      claims,
+      { isolationLevel: "repeatable read" },
+    );
+  const readScheduleOutputEvents: PgTaskProjectionSource["readScheduleOutputEvents"] = (runtimeSessionIds) =>
+    withPostgresTransaction(
+      options.pool,
+      (client) =>
+        runtimeSessionIds.length === 0
+          ? Promise.resolve([])
+          : readEventsInTransaction(
+              client,
+              claims,
+              readers,
+              repoId,
+              "event_json::jsonb #>> '{actor,executor,id}' = ANY($6::text[]) AND event_json::jsonb ->> 'schema' = ANY($7::text[])",
+              [
+                runtimeSessionIds.map((id) => `runtime-session:${id}`),
+                ["fact-event/v1", "decision-event/v1", "task-event/v1"],
+              ],
+            ),
+      claims,
+      { isolationLevel: "repeatable read" },
+    );
+  const readRuntimeSessionEvents: PgTaskProjectionSource["readRuntimeSessionEvents"] = (
+    runtimeSessionId,
+    afterRevision,
+    limit,
+  ) =>
+    withPostgresTransaction(
+      options.pool,
+      async (client) => {
+        if (!Number.isSafeInteger(afterRevision) || afterRevision < 0 || !Number.isSafeInteger(limit) || limit < 1)
+          throw new Error("runtime session event page requires a non-negative revision and a positive limit");
+        const events = await readEventsInTransaction(
+          client,
+          claims,
+          readers,
+          repoId,
+          "revision > $6 AND event_type <> ALL($7::text[]) AND event_json::jsonb #>> '{payload,runtimeSessionId}' = $8",
+          [afterRevision, privateRuntimeEventTypes, runtimeSessionId],
+          "LIMIT $9",
+          [limit],
+        );
+        return events
+          .filter((event): event is AgentRuntimeEventV1 => isAgentRuntimeEvent(event))
+          .map((event) => (event.type === "runtime_dispatch_requested" ? publicRuntimeDispatch(event) : event));
+      },
+      claims,
+      { isolationLevel: "repeatable read" },
+    );
   const listDecisions = (filters: DecisionListFilters): Promise<DecisionProjectionListRead> =>
     withPostgresTransaction(
       options.pool,
@@ -702,10 +835,35 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
     listDecisions,
     currentLease,
     currentLeaseForExecution,
+    readCanonicalEvents,
+    readScheduleEvents,
+    readReckoningEvents,
+    readScheduleOutputEvents,
+    readRuntimeSessionEvents,
     close: async () => {
       if (options.ownsPool === true) await options.pool.end();
     },
   };
+}
+
+async function readEventsInTransaction(
+  client: import("pg").PoolClient,
+  claims: PostgresScopeClaims,
+  readers: readonly string[],
+  repoId: string,
+  predicate: string,
+  predicateValues: readonly unknown[] = [],
+  suffix = "",
+  suffixValues: readonly unknown[] = [],
+): Promise<CanonicalEventV1[]> {
+  const result = await client.query<{ event_json: string }>(
+    `SELECT event_json FROM ha_events
+     WHERE tenant_id = $1 AND project_id = $2 AND repo_id = $3 AND policy_epoch = $4
+       AND (cardinality($5::text[]) = 0 OR readers && $5::text[]) AND ${predicate}
+     ORDER BY revision ${suffix}`,
+    [claims.tenantId, claims.projectId, repoId, claims.policyEpoch, readers, ...predicateValues, ...suffixValues],
+  );
+  return result.rows.map(({ event_json }) => JSON.parse(event_json) as CanonicalEventV1);
 }
 
 async function readCutInTransaction(
