@@ -12,6 +12,28 @@ import { createIdentityManagement } from "../src/authorization-provider.ts";
 import { validateCertificateNames } from "../src/tls-listener-admission.ts";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
 
+function selectIdentityMode(root: string, mode: "external" | "managed"): void {
+  const rbacRoot = path.join(root, "rbac");
+  mkdirSync(rbacRoot, { recursive: true });
+  writeFileSync(
+    path.join(rbacRoot, "config.json"),
+    JSON.stringify(
+      mode === "managed"
+        ? {
+            schema: "harness-managed-rbac/v1",
+            mode,
+            url: "http://127.0.0.1:1",
+            realm: "harness",
+            clientId: "harness-center",
+            versions: managedRbacVersions,
+            postgresPort: 2,
+            managementPort: 3,
+          }
+        : { schema: "harness-managed-rbac/v1", mode },
+    ),
+  );
+}
+
 test("managed RBAC pins supported platform artifacts and published checksums", () => {
   for (const platform of ["darwin-arm64", "darwin-x64", "linux-x64", "win32-x64", "win32-arm64"] as const) {
     const artifacts = artifactManifest(platform);
@@ -35,6 +57,7 @@ test("managed RBAC pins supported platform artifacts and published checksums", (
 
 test("external Keycloak writes the connection contract only after probing the realm", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-rbac-external-"));
+  selectIdentityMode(root, "external");
   let fetches = 0;
   try {
     const service = createIdentityManagement(root, {
@@ -66,6 +89,7 @@ test("external Keycloak writes the connection contract only after probing the re
 for (const failure of ["token", "malformed", "missing", "admin"] as const) {
   test(`external ${failure} refusal preserves the configured credentials without response disclosure`, async () => {
     const root = mkdtempSync(path.join(tmpdir(), "ha-external-refusal-"));
+    selectIdentityMode(root, "external");
     let reject = false;
     const service = createIdentityManagement(root, {
       fetch: async (url) => {
@@ -151,10 +175,12 @@ test("external health without a configured endpoint reports rbac_not_configured"
 
 test("failed external Keycloak probe does not replace the active configuration", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-rbac-external-probe-"));
+  selectIdentityMode(root, "external");
   try {
     const service = createIdentityManagement(root, {
       fetch: (() => Promise.resolve(new Response(null, { status: 503 }))) as typeof fetch,
     });
+    rmSync(path.join(root, "rbac", "config.json"));
     await assert.rejects(
       service.run({
         mode: "external",
@@ -173,6 +199,7 @@ test("failed external Keycloak probe does not replace the active configuration",
 
 test("external Keycloak rejects a non-loopback cleartext authority", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-rbac-external-invalid-"));
+  selectIdentityMode(root, "external");
   try {
     const service = createIdentityManagement(root);
     await assert.rejects(
@@ -192,6 +219,7 @@ test("external Keycloak rejects a non-loopback cleartext authority", async () =>
 
 test("managed bootstrap rejects a changed archive before extraction", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-rbac-checksum-"));
+  selectIdentityMode(root, "managed");
   try {
     const service = createIdentityManagement(root, {
       platform: "darwin",
@@ -835,6 +863,7 @@ function fakePostgresBin(rbac: string, name: string, body: string): string {
 
 test("managed bootstrap keeps Keycloak on loopback until a listener is explicitly set", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-rbac-default-listener-"));
+  selectIdentityMode(root, "managed");
   try {
     const rbac = installedManagedRoot(root),
       service = createIdentityManagement(root, { platform: "darwin", arch: "arm64" });
@@ -852,6 +881,7 @@ test("managed bootstrap keeps Keycloak on loopback until a listener is explicitl
 
 test("managed bootstrap keys PostgreSQL with a daemon-generated scram password", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-rbac-postgres-password-"));
+  selectIdentityMode(root, "managed");
   try {
     const rbac = path.join(root, "rbac"),
       data = path.join(rbac, "data", "postgres"),
