@@ -354,6 +354,74 @@ test("Decision compiler renders the exact single-file package and frozen write p
   );
 });
 
+test("Decision review current writer preserves the declared finding metadata and rejects malformed values", () => {
+  const finding = {
+      findingId: "F1",
+      text: "The declared metadata must survive registration.",
+      anchor: "claim/C1",
+      category: "correctness" as const,
+      label: "Important" as const,
+      evidenceDigest: `sha256:${"a".repeat(64)}` as const,
+      priorFindingRefs: ["review/prior/F1"],
+    },
+    review = {
+      ...decision.event,
+      type: "decision_review_recorded" as const,
+      payload: {
+        baseDocumentSha256: decision.event.payload.decisionDocumentClaim.sha256,
+        decisionDocumentClaim: decision.event.payload.decisionDocumentClaim,
+        reviewId: "review-metadata",
+        reviewContentDigest: `sha256:${"b".repeat(64)}` as const,
+        verdict: "changes_requested" as const,
+        reason: "One finding requires a correction.",
+        findings: [finding],
+        evidenceChecked: ["claim/C1"],
+        reportRef: null,
+      },
+    };
+  assert.deepEqual(validateCurrentDecisionEvent(review), []);
+  assert.deepEqual(parseCanonicalEvent(serializeCanonicalEvent(review)), review);
+  assert.deepEqual(validateCurrentDecisionEvent({ ...review, payload: { ...review.payload, findings: [] } }), [
+    "decision review payload is invalid",
+  ]);
+  for (const fields of [
+    { category: "invented" },
+    { label: "invented" },
+    { evidenceDigest: "sha256:short" },
+    { evidenceDigest: 42 },
+    { priorFindingRefs: [] },
+    { priorFindingRefs: [""] },
+    { anchor: " " },
+    { blocking: true },
+    { unexpected: true },
+  ]) {
+    const invalid = { ...review, payload: { ...review.payload, findings: [{ ...finding, ...fields }] } };
+    assert.notDeepEqual(validateCurrentDecisionEvent(invalid), [], JSON.stringify(fields));
+    assert.throws(() => serializeCanonicalEvent(invalid as typeof review), JSON.stringify(fields));
+  }
+  const future = { ...review, payload: { ...review.payload, findings: [{ ...finding, futureField: true }] } };
+  assert.deepEqual(validateDecisionEvent(future), [], "historical readers still admit additive fields");
+  const historical = {
+    ...review,
+    payload: { ...review.payload, findings: [{ ...finding, category: "historical-report-category" }] },
+  };
+  assert.deepEqual(validateDecisionEvent(historical), [], "admitted report metadata is not rewritten or narrowed");
+  assert.deepEqual(parseCanonicalEvent(serializePersistedCanonicalEvent(historical as typeof review)), historical);
+  assert.notDeepEqual(validateCurrentDecisionEvent(historical), [], "new findings require the current vocabulary");
+  assert.throws(() => serializeCanonicalEvent(historical as typeof review), /decision review payload is invalid/u);
+  assert.notDeepEqual(
+    validateDecisionEvent({ ...review, payload: { ...review.payload, findings: [{ ...finding, anchor: " " }] } }),
+    [],
+    "historical readers retain the original anchor validation",
+  );
+  for (const invalid of [
+    { ...review, actor: { principal: { personId: "" }, executor: null } },
+    { ...review, source: { kind: "node", nodeId: "" } },
+    { ...review, payload: { ...review.payload, reviewContentDigest: "sha256:short" } },
+  ])
+    assert.notDeepEqual(validateCurrentDecisionEvent(invalid), []);
+});
+
 test("Decision outcome embeds an independently verifiable machine-content consent", () => {
   const current = {
     decisionId: decisionDraft.decisionId,

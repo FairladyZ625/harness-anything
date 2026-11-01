@@ -101,6 +101,7 @@ import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import { withWriterEpochFenceDescriptor } from "@harness-anything/storage";
 import { repoCellLatchedMessage } from "./repo-cell-latched-message.ts";
 import { backupRepo, drillRepoBackup } from "./repo-all-purge.ts";
+import { reviewerArtifactsFromCarriedReview } from "./reviewer-artifact-publication.ts";
 
 export function publicPublication(value: Pick<CanonicalEventAppendReceipt, "commitSha" | "cut">): PublicPublication {
   return { commitSha: value.commitSha?.sha ?? null, cut: value.cut };
@@ -615,6 +616,27 @@ export async function openRepoWriterCell(
         binding,
         `runtime-archive:${archive.dispatchId}`,
       ),
+    recoverReviewerReview: async ({ taskId, executionId, dispatchId, runtimeSessionId, binding, packet, report }) => {
+      const action: RepoTaskAction = {
+          kind: "task-review-execution",
+          taskId,
+          executionId,
+          reviewId: `review-${dispatchId}`,
+          jsonInput: packet.body,
+        },
+        authorized = await authorizeRuntimeAction(
+          action,
+          binding as RuntimeAttemptTerminal["binding"] & RepoCellBinding,
+          `runtime-review-recovery:${runtimeSessionId}`,
+        ),
+        carried = reviewerArtifactsFromCarriedReview(operationalContext, action, { packet, report }),
+        receipt = await recoveryWork.write(() => extracted.lifecycleAction(action, authorized, carried), authorized);
+      if (receipt.outcome !== "applied" && receipt.outcome !== "no_changes")
+        throw cellCodedError(
+          "review_result_missing",
+          `Recovered Review ${action.reviewId as string} was not applied: ${JSON.stringify(receipt)}.`,
+        );
+    },
     ...(input.recordLifecycle ? { recordLifecycle: input.recordLifecycle } : {}),
     ...(input.runtimeLaunch ? { launch: input.runtimeLaunch } : {}),
   });

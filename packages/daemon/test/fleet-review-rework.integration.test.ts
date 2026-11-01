@@ -4,10 +4,156 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
+import { submissionDigest } from "@harness-anything/kernel";
 
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
 import { dualSyncFixture, ledgerRevision } from "./fleet-dual-sync.fixture.ts";
 import { scheduleRuntimePorts, definition } from "./schedule-actions.fixtures.ts";
+
+test(
+  "edge settlement registers its carried review through the center before terminal outcome",
+  { timeout: 90_000 },
+  async (t) => {
+    const fixture = await dualSyncFixture(scheduleRuntimePorts().runtimeInstances());
+    t.after(() => fixture.close());
+    const created = await fixture.createTask(
+        "node-one",
+        "task-edge-review-recovery",
+        "Edge review recovery",
+        "docs-task",
+      ),
+      executionId = "execution-edge-review-recovery",
+      started = await fixture.edgeTask("node-one", { kind: "task-start", taskId: created.taskId, executionId });
+    assert.equal(started.ok, true, JSON.stringify(started));
+    writeFileSync(path.join(fixture.repo, "verification.md"), "Verified the center submitted cut.\n");
+    const artifact = await fixture.centerRun({
+      kind: "task-artifact-add",
+      taskId: created.taskId,
+      source: "verification.md",
+      destination: "verification.md",
+    });
+    assert.equal(artifact.outcome, "applied", JSON.stringify(artifact));
+    await fixture.waitPublished(String(artifact.opId));
+    assert.equal((await fixture.edgeDocSync("node-one")).ok, true);
+    fixture.writeWorktree(
+      "node-one",
+      `${created.packagePath}/closeout.md`,
+      "# Closeout\n\n## Summary\n\nSubmitted edge review recovery cut.\n\n" +
+        "## Verification\n\nChecked the task artifact.\n\n## Residual Risk\n\nNone.\n\n" +
+        "## Same Mechanism Elsewhere\n\nFleet review recovery.\n",
+    );
+    const submitted = await fixture.edgeTask("node-one", { kind: "task-submit", taskId: created.taskId, executionId });
+    assert.equal(submitted.ok, true, JSON.stringify(submitted));
+    assert.equal((await fixture.edgeDocSync("node-one")).ok, true);
+
+    const config = fixture.channel("node-one"),
+      launched: { readonly output: (chunk: string) => void; readonly exit: (code: number | null) => void }[] = [];
+    const runtime = openFleetEdgeRuntime({
+      readBinding: () => fixture.owners.binding("node-one"),
+      controlBinding: () => fixture.owners.binding("node-one"),
+      request: { ...config, method: "repo.agentRuntime.spawn", action: {} },
+      daemonGeneration: 1,
+      daemonRoute: {
+        userRoot: path.join(fixture.root, "edge-user"),
+        daemonId: "edge-review-recovery",
+        endpoint: path.join(fixture.root, "edge-review-recovery.sock"),
+      },
+      ports: scheduleRuntimePorts(),
+      launch: () => {
+        let output: ((chunk: string) => void) | null = null,
+          exit: ((code: number | null) => void) | null = null;
+        const launchedProcess = {
+          output: (chunk: string) => output?.(chunk),
+          exit: (code: number | null) => exit?.(code),
+        };
+        launched.push(launchedProcess);
+        return {
+          pid: 91420,
+          onOutput: (listener: (chunk: string) => void) => {
+            output = listener;
+          },
+          onErrorOutput: () => undefined,
+          onExit: (listener: (code: number | null) => void) => {
+            exit = listener;
+          },
+          terminate: () => undefined,
+        };
+      },
+    });
+    t.after(() => runtime.close());
+    const spawned = await runtime.run("repo.agentRuntime.spawn", {
+      taskId: created.taskId,
+      role: "reviewer",
+      runtimeInstanceId: definition.instanceId,
+      cwd: { scope: "repo-root" },
+      prompt: "Review the submitted cut.",
+      dispatchKey: "edge-review-recovery",
+    });
+    assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
+    const dispatchId = String(spawned.dispatchId),
+      runtimeSessionId = String(spawned.runtimeSessionId),
+      reportPath = `${created.packagePath}/artifacts/reports/${dispatchId}.md`;
+    fixture.writeWorktree("node-one", reportPath, "# Review\n\nVerified the submitted cut from the edge.\n");
+    fixture.writeWorktree(
+      "node-one",
+      reportPath.replace(/\.md$/u, ".json"),
+      JSON.stringify({
+        verdict: "approved",
+        reason: "Verified the submitted cut from the edge.",
+        evidenceChecked: ["submitted execution", "closeout.md"],
+        findings: [],
+      }),
+    );
+    const recordedBefore = makeTaskEventReader({ repoId: "dual-repo", rootDir: fixture.repo })
+      .read()
+      .events.filter(
+        (event) => event.type === "review_recorded" && event.payload.review.reviewId === `review-${dispatchId}`,
+      );
+    assert.equal(recordedBefore.length, 0, "the test must begin settlement with no canonical Review");
+    const provider = launched.at(-1)!;
+    provider.output(`${JSON.stringify({ type: "thread.started", thread_id: "edge-review-provider" })}\n`);
+    provider.output(
+      `${JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: "Review completed." } })}\n`,
+    );
+    provider.output(`${JSON.stringify({ type: "turn.completed", usage: {} })}\n`);
+    provider.exit(0);
+
+    const deadline = performance.now() + 30_000;
+    for (;;) {
+      const terminalObserved = makeTaskEventReader({ repoId: "dual-repo", rootDir: fixture.repo })
+        .read()
+        .events.some(
+          (event) =>
+            event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,
+        );
+      if (terminalObserved) break;
+      if (performance.now() >= deadline) throw new Error(`Edge reviewer ${runtimeSessionId} did not settle at center.`);
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    const events = makeTaskEventReader({ repoId: "dual-repo", rootDir: fixture.repo }).read().events,
+      review = events.find(
+        (event) => event.type === "review_recorded" && event.payload.review.reviewId === `review-${dispatchId}`,
+      ),
+      terminal = events.find(
+        (event) =>
+          event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,
+      );
+    assert.ok(review?.type === "review_recorded");
+    assert.ok(terminal?.type === "runtime_session_outcome_observed");
+    assert.equal(review.payload.review.actor.executor?.id, `runtime-session:${runtimeSessionId}`);
+    assert.deepEqual(review.source, { kind: "node", nodeId: "node-one" });
+    const submittedEvent = events.find(
+      (event) => event.type === "execution_submitted" && event.payload.execution.executionId === executionId,
+    );
+    assert.ok(submittedEvent?.type === "execution_submitted" && submittedEvent.payload.execution.submission);
+    assert.equal(review.payload.review.submissionDigest, submissionDigest(submittedEvent.payload.execution.submission));
+    assert.ok(
+      review.workspaceRevision < terminal.workspaceRevision,
+      "the canonical Review must precede terminal outcome",
+    );
+    assert.equal(terminal.payload.outcome, "succeeded");
+  },
+);
 
 test(
   "concurrent edge task starts use distinct operation keys and preserve the center rejection",

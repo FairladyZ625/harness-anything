@@ -116,6 +116,11 @@ test("submit enters independent review automatically and completion still requir
     assert.deepEqual(await taskStatus(f), { status: "in_review", iteration: 0 });
     const reviewed = await f.review(runtimeSessionId(submitted), "review-approved");
     assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+    assert.doesNotMatch(
+      JSON.stringify((reviewed as Receipt).warnings ?? []),
+      /requested changes/u,
+      "an approved verdict must not receive the changes-requested warning",
+    );
 
     const noConsent = await f.complete();
     assert.equal(noConsent.code, "consent_missing", JSON.stringify(noConsent));

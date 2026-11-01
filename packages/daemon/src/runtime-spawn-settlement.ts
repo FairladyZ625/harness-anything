@@ -9,7 +9,7 @@ import {
   type DispatchTerminalOutcome,
 } from "./dispatch-stream.ts";
 import { archiveRuntimeDispatch, type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
-import type { ActiveRuntime } from "./runtime-spawn-types.ts";
+import type { ActiveRuntime, ReviewerReviewArtifacts } from "./runtime-spawn-types.ts";
 import { runtimeSpendCapReason, runtimeSpendCapReasonCode } from "./runtime-spend-cap.ts";
 import {
   pushTaskWorkerBranch,
@@ -113,6 +113,7 @@ export async function publishExit(
           binding: active.binding,
         });
       await publishTerminalOutcome(context, active, terminalBinding, persistedTerminal);
+      context.input.remote?.releaseExecutionCredential?.(active.runtimeSessionId);
       return;
     }
     if (!cancelled && code === null)
@@ -128,8 +129,23 @@ export async function publishExit(
     // One read of the worker's own ruling artifact feeds both the settlement classification and
     // the receipt body: the file is worktree-local at exit time, so settlement must not re-read it
     // from the projection.
-    const ruling = runtimeRulingRequest(context, active),
-      reviewReport = runtimeReviewReport(context, active),
+    const ruling = runtimeRulingRequest(context, active);
+    let remoteReviewArtifacts: ReviewerReviewArtifacts | null = null;
+    if (active.role === "reviewer" && active.task && context.input.remote?.readReviewerArtifacts) {
+      try {
+        remoteReviewArtifacts = await context.input.remote.readReviewerArtifacts({
+          taskId: active.task.taskId,
+          dispatchId: active.dispatchId,
+          cwd: active.cwd,
+        });
+      } catch (error) {
+        consumeKnownError(error);
+        const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512);
+        console.error(`[review-recovery] ${active.dispatchId} could not read carried review: ${detail}`);
+      }
+    }
+    const reviewReport = remoteReviewArtifacts?.report ?? runtimeReviewReport(context, active),
+      reviewPacket = remoteReviewArtifacts?.packet ?? runtimeReviewPacket(context, active),
       { outcome: initialOutcome, ...classifiedAttempt } = classifyRuntimeExit(active, code, ruling);
     let outcome = initialOutcome,
       reviewResultMissing = false;
@@ -161,29 +177,59 @@ export async function publishExit(
     const providerAlreadyFailed = outcome === "failed";
     // A reviewer owes a registered review, not merely a report or a clean provider exit. Check
     // the event on the node that owns the projection so normal exit without registration cannot
-    // look complete. Remote edges have no local projection and keep their existing unknown path.
+    // look complete. A remote edge uses its center-issued Review Action and replicated read port.
+    let reviewRegistered = await reviewerReviewRegistered(context, active, reviewId);
     if (
       !cancelled &&
       ruling === null &&
       !reviewSuperseded.superseded &&
       (active.role === "reviewer" ||
         (active.decisionReviewTarget !== null && active.decisionReviewTarget !== undefined)) &&
-      context.input.projection &&
+      (context.input.projection || context.input.remote?.readReviewerArtifacts) &&
       (active.task !== null || (active.decisionReviewTarget !== null && active.decisionReviewTarget !== undefined)) &&
-      !(active.task
-        ? context
-            .requiredRuntimeProjection(context.input)
-            .read(active.task.taskId)
-            .snapshot.reviews.some(
-              (review) =>
-                review.reviewId === reviewId ||
-                review.actor.executor?.id === `runtime-session:${active.runtimeSessionId}`,
-            )
-        : active.decisionReviewTarget !== null &&
-          decisionReviewRegistered(context, active.decisionReviewTarget, active.dispatchId))
+      !reviewRegistered
     ) {
-      if (!providerAlreadyFailed) outcome = "failed";
-      reviewResultMissing = true;
+      const recoverReview = context.input.remote?.recoverReviewerReview ?? context.input.recoverReviewerReview;
+      if (
+        !providerAlreadyFailed &&
+        active.task !== null &&
+        reviewReport !== null &&
+        reviewPacket !== null &&
+        recoverReview
+      ) {
+        try {
+          await recoverReview({
+            taskId: active.task.taskId,
+            executionId: active.task.executionId,
+            dispatchId: active.dispatchId,
+            runtimeSessionId: active.runtimeSessionId,
+            // Recovery is a durable Review Action and must carry the terminal runtime
+            // identity, even when the dispatch was admitted from a principal-only binding.
+            binding: terminalBinding,
+            packet: reviewPacket,
+            report: reviewReport,
+          });
+          // Both paths confirm the canonical Review event through their owning read port: the
+          // local RepoCell projection or the edge's center-backed replica.
+          reviewRegistered = await reviewerReviewRegistered(context, active, reviewId);
+        } catch (error) {
+          consumeKnownError(error);
+          const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(
+            0,
+            512,
+          );
+          console.error(`[review-recovery] ${active.dispatchId} could not register carried review: ${detail}`);
+        }
+      }
+      if (reviewRegistered) {
+        // The carried Review Action is the terminal witness. Keep the provider's successful
+        // outcome and continue through the ordinary archive/terminal path.
+        if (!providerAlreadyFailed) outcome = "succeeded";
+        reviewResultMissing = false;
+      } else {
+        if (!providerAlreadyFailed) outcome = "failed";
+        reviewResultMissing = true;
+      }
     }
     const attemptOutcome = {
       ...classifiedAttempt,
@@ -410,27 +456,28 @@ export async function publishExit(
         // event honest when publication fails, while still publishing the exit
         // event so the runtime cannot remain live forever.
         console.error(`[runtime-archive] ${active.dispatchId} could not be archived: ${detail}`);
-        // A local projection can witness a registered review despite an archive failure.
-        // The remote path has no such witness and must report failure or cancellation.
+        // A local projection or the edge's center-backed read can witness a registered review
+        // despite an archive failure.
         // Settlement honesty for a local reviewer is whether the review was registered, not whether
         // every archive document was fresh: a reviewer that already recorded its RecordReview
         // (which publishes the report documents itself) keeps its real outcome, and the archive
         // failure is recorded as a note instead of flipping the dispatch to failed.
-        const reviewRegistered =
-          !context.input.remote &&
+        const reviewWasRecorded =
           active.role === "reviewer" &&
-          (active.task !== null
-            ? context
-                .requiredRuntimeProjection(context.input)
-                .read(active.task.taskId)
-                .snapshot.reviews.some(
-                  (review) =>
-                    review.reviewId === `review-${active.dispatchId}` ||
-                    review.actor.executor?.id === `runtime-session:${active.runtimeSessionId}`,
-                )
-            : active.decisionReviewTarget !== null &&
-              decisionReviewRegistered(context, active.decisionReviewTarget, active.dispatchId));
-        if (!reviewRegistered && !reviewSuperseded.superseded) {
+          (reviewRegistered ||
+            (!context.input.remote &&
+              (active.task !== null
+                ? context
+                    .requiredRuntimeProjection(context.input)
+                    .read(active.task.taskId)
+                    .snapshot.reviews.some(
+                      (review) =>
+                        review.reviewId === `review-${active.dispatchId}` ||
+                        review.actor.executor?.id === `runtime-session:${active.runtimeSessionId}`,
+                    )
+                : active.decisionReviewTarget !== null &&
+                  decisionReviewRegistered(context, active.decisionReviewTarget, active.dispatchId))));
+        if (!reviewWasRecorded && !reviewSuperseded.superseded) {
           outcome = cancelled ? "cancelled" : "failed";
           reasonCode = reviewResultMissing ? "review_result_missing" : "runtime_archive_failed";
         }
@@ -556,6 +603,11 @@ export async function publishExit(
     };
     active.stream.appendTerminalOutcome(terminalOutcome, endedAt);
     await publishTerminalOutcome(context, active, terminalBinding, terminalOutcome);
+    context.input.remote?.releaseExecutionCredential?.(active.runtimeSessionId);
+  } catch (error) {
+    if (context.processes.get(active.runtimeSessionId) === active) context.processes.delete(active.runtimeSessionId);
+    active.process.release?.();
+    throw error;
   } finally {
     context.exiting.delete(active.runtimeSessionId);
   }
@@ -728,6 +780,52 @@ function runtimeReviewReport(context: RuntimeSpawnerContext, active: ActiveRunti
     if (body !== null && body.trim() !== "") return { path: reportPath, body };
   }
   return null;
+}
+
+function runtimeReviewPacket(context: RuntimeSpawnerContext, active: ActiveRuntime) {
+  if (active.role !== "reviewer" || active.task === null || context.input.remote) return null;
+  const packagePath = context.requiredRuntimeProjection(context.input).read(active.task.taskId).packagePath;
+  if (typeof packagePath !== "string") return null;
+  const packetPath = `${packagePath}/artifacts/reports/${active.dispatchId}.json`,
+    packageRelative = packetPath.split("/"),
+    candidates = [
+      path.join(active.cwd, "harness", ...packageRelative),
+      path.join(active.cwd, ...packageRelative),
+      path.join(active.cwd, "artifacts", "reports", `${active.dispatchId}.json`),
+      path.join(context.input.rootDir, "harness", ...packageRelative),
+    ];
+  for (const candidate of new Set(candidates)) {
+    const body = readFileIfPresent(candidate, 2 * 1024 * 1024);
+    if (body !== null && body.trim() !== "") return { path: packetPath, body };
+  }
+  return null;
+}
+
+async function reviewerReviewRegistered(
+  context: RuntimeSpawnerContext,
+  active: ActiveRuntime,
+  reviewId: string,
+): Promise<boolean> {
+  if (active.task !== null && context.input.remote?.reviewerReviewRegistered)
+    return context.input.remote.reviewerReviewRegistered({
+      taskId: active.task.taskId,
+      reviewId,
+      runtimeSessionId: active.runtimeSessionId,
+    });
+  if (active.task !== null)
+    return (
+      context.input.projection !== undefined &&
+      context
+        .requiredRuntimeProjection(context.input)
+        .read(active.task.taskId)
+        .snapshot.reviews.some(
+          (review) =>
+            review.reviewId === reviewId || review.actor.executor?.id === `runtime-session:${active.runtimeSessionId}`,
+        )
+    );
+  return active.decisionReviewTarget !== null && active.decisionReviewTarget !== undefined
+    ? decisionReviewRegistered(context, active.decisionReviewTarget, active.dispatchId)
+    : false;
 }
 
 /** The registration witness for a dispatched Decision review: the Decision carries a review by

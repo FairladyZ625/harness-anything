@@ -320,7 +320,10 @@ export function validateReviewFindings(value: unknown, allowUnknownFields = fals
   return issues;
 }
 
-function isValidReviewFindingOptionalFieldValue(contract: ReviewFindingOptionalFieldContract, value: unknown): boolean {
+export function isValidReviewFindingOptionalFieldValue(
+  contract: ReviewFindingOptionalFieldContract,
+  value: unknown,
+): boolean {
   switch (contract.kind) {
     case "non-empty-string":
       return isNonEmptyString(value);
