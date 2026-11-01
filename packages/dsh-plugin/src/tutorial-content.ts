@@ -4,6 +4,10 @@
  * test/tutorial-content.test.ts checks the ones that can be checked mechanically.
  */
 
+/** Public source repository; every Agent phrase names the skill file it relies on. */
+export const REPOSITORY_URL = "https://github.com/FairladyZ625/harness-anything";
+const skillUrl = (skill: string): string => `${REPOSITORY_URL}/blob/main/skills/${skill}/SKILL.md`;
+
 export interface TutorialItem {
   readonly title?: string;
   readonly body?: string;
@@ -33,6 +37,7 @@ export interface TutorialCopy {
   readonly sayLabel: string;
   readonly commandLabel: string;
   readonly contents: string;
+  readonly next: string;
   readonly sections: readonly TutorialSection[];
 }
 
@@ -46,6 +51,7 @@ const zh: TutorialCopy = {
   sayLabel: "发给 Agent",
   commandLabel: "命令",
   contents: "目录",
+  next: "下一节：",
   sections: [
     {
       id: "what",
@@ -53,6 +59,11 @@ const zh: TutorialCopy = {
       items: [
         {
           body: "Harness Anything 是给 Agent 用的项目台账。任务、决定、评审结论都存在仓库的 `harness/` 目录里，Agent 用 `ha` 命令读写它。",
+        },
+        {
+          title: "源码仓库",
+          body: "Harness 的源码、全部 skill 和安装说明都在这里。下面每句发给 Agent 的话都带了对应 skill 的地址，Agent 本地找不到也能照着装。",
+          command: REPOSITORY_URL,
         },
         {
           body: "这个插件做三件事：加上 `ha-ceo` 和 `ha-worker` 两个预设；自带 Harness 的全部 skill；在右侧打开 Harness 看板。看板上显示的，就是 Agent 写进台账的内容。",
@@ -70,7 +81,7 @@ const zh: TutorialCopy = {
         },
         {
           title: "`ha` 命令可用",
-          body: "新建会话，把权限切到「完全权限」，发下面这句话。能看到版本号就没问题；提示找不到命令，去下一节「一键安装」。",
+          body: "新建会话，把权限切到「完全权限」，发下面这句话。能看到版本号就没问题；提示找不到命令，去左侧「一键安装」。",
           say: "运行 ha --version 和 ha daemon status，把结果原样告诉我。",
         },
         {
@@ -86,12 +97,12 @@ const zh: TutorialCopy = {
       items: [
         {
           tag: "harness-dsh-install",
-          say: "用 harness-dsh-install 在这台 Mac 上安装 Harness Anything 和 DeepSeek Harness 插件：已装的直接复用，缺哪个 skill 补哪个，不要覆盖我改过的 skill，装完逐项验证并告诉我结果。",
+          say: `用 harness-dsh-install skill（${skillUrl("harness-dsh-install")}）在这台 Mac 上安装 Harness Anything 和 DeepSeek Harness 插件：已装的直接复用，缺哪个 skill 补哪个，不要覆盖我改过的 skill，装完逐项验证并告诉我结果。`,
         },
         {
           title: "skill 装在哪",
           body: "用 `ha-ceo` 或 `ha-worker` 预设时，全部 Harness skill 已随插件自带，不用另装。想在别的预设里也用，让 Agent 补装到 DSH 的用户 skill 目录：",
-          say: "用 harness-dsh-install 把 Harness 的全部 skill 补装到 DSH 的用户 skill 目录，已有的不要覆盖。",
+          say: `用 harness-dsh-install skill（${skillUrl("harness-dsh-install")}）把 Harness 的全部 skill 补装到 DSH 的用户 skill 目录，已有的不要覆盖。`,
         },
         {
           title: "确认装好了",
@@ -107,33 +118,33 @@ const zh: TutorialCopy = {
         {
           title: "第一次把仓库接入 Harness",
           tag: "harness-install",
-          say: "用 harness-install 把当前仓库接入 Harness Anything。",
+          say: `用 harness-install skill（${skillUrl("harness-install")}）把当前仓库接入 Harness Anything。`,
         },
         {
           title: "提需求、拆任务、派人、验收",
           tag: "harness-ceo",
           body: "日常最常用的一个。",
-          say: "用 harness-ceo 接手这个需求：<写你的需求>。先建任务、写计划，给我看过再派工。",
+          say: `用 harness-ceo skill（${skillUrl("harness-ceo")}）接手这个需求：<写你的需求>。先建任务、写计划，给我看过再派工。`,
         },
         {
           title: "仓库里的台账是旧版本",
           tag: "harness-migration",
-          say: "用 harness-migration 检查这个仓库的台账需不需要迁移，需要就迁移，迁移前先给我看方案。",
+          say: `用 harness-migration skill（${skillUrl("harness-migration")}）检查这个仓库的台账需不需要迁移，需要就迁移，迁移前先给我看方案。`,
         },
         {
           title: "把一套固定做法教给 Agent",
           tag: "create-skill",
-          say: "用 create-skill 为这个仓库写一个 skill：<描述这套做法>。",
+          say: `用 create-skill skill（${skillUrl("create-skill")}）为这个仓库写一个 skill：<描述这套做法>。`,
         },
         {
           title: "新建或调整一个 Agent",
           tag: "create-agent",
-          say: "用 create-agent 为这个仓库建一个 Agent：<它负责什么>。",
+          say: `用 create-agent skill（${skillUrl("create-agent")}）为这个仓库建一个 Agent：<它负责什么>。`,
         },
         {
           title: "安装或补装 Harness",
           tag: "harness-dsh-install",
-          body: "见上一节「一键安装」。",
+          body: "见左侧「一键安装」。",
         },
       ],
     },
@@ -153,12 +164,12 @@ const zh: TutorialCopy = {
         {
           title: "仓库还没接入的话，先接入",
           body: "完成后仓库里会出现 `harness/` 目录。已经接入的跳过这一步。",
-          say: "用 harness-install 把当前仓库接入 Harness Anything。",
+          say: `用 harness-install skill（${skillUrl("harness-install")}）把当前仓库接入 Harness Anything。`,
         },
         {
           title: "提一个真实需求",
           body: "Agent 会建任务、写计划，并告诉你任务编号（形如 `task_…`）。",
-          say: "用 harness-ceo 接手这个需求：<写你的需求>。先建任务、写计划，给我看过再派工。",
+          say: `用 harness-ceo skill（${skillUrl("harness-ceo")}）接手这个需求：<写你的需求>。先建任务、写计划，给我看过再派工。`,
         },
         {
           title: "打开看板看任务",
@@ -199,9 +210,15 @@ const zh: TutorialCopy = {
       title: "常用说法",
       intro: "复制后把尖括号里的内容换成你的。",
       items: [
-        { title: "看进度", say: "用 harness-ceo 汇报现在所有任务的进度：哪些在做、哪些卡住、哪些等我决定。" },
+        {
+          title: "看进度",
+          say: `用 harness-ceo skill（${skillUrl("harness-ceo")}）汇报现在所有任务的进度：哪些在做、哪些卡住、哪些等我决定。`,
+        },
         { title: "接着上次做", say: "继续推进 <任务编号>，先读台账里的进度再动手。" },
-        { title: "拆一个大需求", say: "用 harness-ceo 把这个需求拆成几个能单独验收的任务：<需求>。" },
+        {
+          title: "拆一个大需求",
+          say: `用 harness-ceo skill（${skillUrl("harness-ceo")}）把这个需求拆成几个能单独验收的任务：<需求>。`,
+        },
         { title: "任务卡住了", say: "<任务编号> 卡住了，查清原因，给我一个处理方案，先别动手。" },
         { title: "记下一个决定", say: "把这个决定记进台账：<决定>，理由是 <理由>。" },
         { title: "验收", say: "验收 <任务编号>：讲清楚改了什么、怎么验证的、还有什么风险。" },
@@ -223,7 +240,7 @@ const zh: TutorialCopy = {
         {
           title: "Agent 说找不到 `ha` 命令",
           body: "DSH 没拿到终端里的 PATH。",
-          say: "用 harness-dsh-install 检查为什么 DSH 里找不到 ha，并修好 PATH。",
+          say: `用 harness-dsh-install skill（${skillUrl("harness-dsh-install")}）检查为什么 DSH 里找不到 ha，并修好 PATH。`,
         },
         {
           title: "Agent 每条命令都要你批准，或被拒绝",
@@ -232,7 +249,7 @@ const zh: TutorialCopy = {
         {
           title: "提示仓库没有初始化",
           body: "这个文件夹还没接入 Harness。",
-          say: "用 harness-install 把当前仓库接入 Harness Anything。",
+          say: `用 harness-install skill（${skillUrl("harness-install")}）把当前仓库接入 Harness Anything。`,
         },
         {
           title: "面板提示 `daemon_start_failed`",
@@ -264,13 +281,13 @@ const zh: TutorialCopy = {
           title: "写一个仓库专用 skill",
           tag: "create-skill",
           body: "比如发布流程、测试命令、代码规范。Agent 会先读仓库现有的脚本和文档，写到仓库的 `skills/<名字>/SKILL.md`，写好给你看。",
-          say: "用 create-skill 为这个仓库写一个 skill：<这套做法>。先读仓库现有的脚本和文档，写好给我看。",
+          say: `用 create-skill skill（${skillUrl("create-skill")}）为这个仓库写一个 skill：<这套做法>。先读仓库现有的脚本和文档，写好给我看。`,
         },
         {
           title: "配一个执行者和一个评审员",
           tag: "create-agent",
           body: "执行者负责改代码，权限给「工作区内修改」；评审员只读不改，权限给「只读」。声明文件写在 `harness/agents/<id>.json`，刚写的 skill 也挂在这里。",
-          say: "用 create-agent 为这个仓库建两个 Agent：一个执行者负责实现，挂上 <skill 名>；一个评审员只读评审。写好先校验，再给我看。",
+          say: `用 create-agent skill（${skillUrl("create-agent")}）为这个仓库建两个 Agent：一个执行者负责实现，挂上 <skill 名>；一个评审员只读评审。写好先校验，再给我看。`,
         },
         {
           title: "校验并安装",
@@ -313,6 +330,7 @@ const en: TutorialCopy = {
   sayLabel: "Send to Agent",
   commandLabel: "Command",
   contents: "Contents",
+  next: "Next:",
   sections: [
     {
       id: "what",
@@ -320,6 +338,11 @@ const en: TutorialCopy = {
       items: [
         {
           body: "Harness Anything is a project ledger for Agents. Tasks, decisions, and review results live in your repository's `harness/` folder, and Agents read and write it with the `ha` command.",
+        },
+        {
+          title: "Source repository",
+          body: "Harness's source, every skill, and the install guide live here. Every phrase below includes the address of the skill it uses, so the Agent can follow it even if the skill is not installed locally.",
+          command: REPOSITORY_URL,
         },
         {
           body: "This plugin does three things: it adds the `ha-ceo` and `ha-worker` presets, ships every Harness skill, and opens the Harness board on the right. The board shows exactly what Agents wrote to the ledger.",
@@ -354,12 +377,12 @@ const en: TutorialCopy = {
       items: [
         {
           tag: "harness-dsh-install",
-          say: "Use harness-dsh-install to install Harness Anything and the DeepSeek Harness plugin on this Mac. Reuse whatever is already installed, add only missing skills, do not overwrite skills I changed, then verify each part and report.",
+          say: `Use the harness-dsh-install skill (${skillUrl("harness-dsh-install")}) to install Harness Anything and the DeepSeek Harness plugin on this Mac. Reuse whatever is already installed, add only missing skills, do not overwrite skills I changed, then verify each part and report.`,
         },
         {
           title: "Where skills live",
           body: "With the `ha-ceo` or `ha-worker` preset, every Harness skill ships with the plugin, so there is nothing to install. To use them in other presets, ask the Agent to add them to DSH's user skill folder:",
-          say: "Use harness-dsh-install to add every Harness skill to DSH's user skill folder without overwriting existing ones.",
+          say: `Use the harness-dsh-install skill (${skillUrl("harness-dsh-install")}) to add every Harness skill to DSH's user skill folder without overwriting existing ones.`,
         },
         {
           title: "Confirm they are installed",
@@ -375,33 +398,33 @@ const en: TutorialCopy = {
         {
           title: "Set up a repository for Harness",
           tag: "harness-install",
-          say: "Use harness-install to set up this repository for Harness Anything.",
+          say: `Use the harness-install skill (${skillUrl("harness-install")}) to set up this repository for Harness Anything.`,
         },
         {
           title: "Plan, split, assign, and accept work",
           tag: "harness-ceo",
           body: "The one you will use most.",
-          say: "Use harness-ceo to take this request: <your request>. Create the task and a plan, and show me the plan before assigning work.",
+          say: `Use the harness-ceo skill (${skillUrl("harness-ceo")}) to take this request: <your request>. Create the task and a plan, and show me the plan before assigning work.`,
         },
         {
           title: "The repository's ledger is from an older version",
           tag: "harness-migration",
-          say: "Use harness-migration to check whether this repository's ledger needs migrating. If it does, show me the plan before migrating.",
+          say: `Use the harness-migration skill (${skillUrl("harness-migration")}) to check whether this repository's ledger needs migrating. If it does, show me the plan before migrating.`,
         },
         {
           title: "Teach the Agent a routine",
           tag: "create-skill",
-          say: "Use create-skill to write a skill for this repository: <describe the routine>.",
+          say: `Use the create-skill skill (${skillUrl("create-skill")}) to write a skill for this repository: <describe the routine>.`,
         },
         {
           title: "Create or change an Agent",
           tag: "create-agent",
-          say: "Use create-agent to create an Agent for this repository: <what it is responsible for>.",
+          say: `Use the create-agent skill (${skillUrl("create-agent")}) to create an Agent for this repository: <what it is responsible for>.`,
         },
         {
           title: "Install or repair Harness",
           tag: "harness-dsh-install",
-          body: "See “Install Harness and every skill” above.",
+          body: "See “Install Harness and every skill” on the left.",
         },
       ],
     },
@@ -421,12 +444,12 @@ const en: TutorialCopy = {
         {
           title: "Set up the repository if needed",
           body: "Afterwards the repository has a `harness/` folder. Skip this step if it already does.",
-          say: "Use harness-install to set up this repository for Harness Anything.",
+          say: `Use the harness-install skill (${skillUrl("harness-install")}) to set up this repository for Harness Anything.`,
         },
         {
           title: "Give it a real request",
           body: "The Agent creates a task, writes a plan, and tells you the task id (it looks like `task_…`).",
-          say: "Use harness-ceo to take this request: <your request>. Create the task and a plan, and show me the plan before assigning work.",
+          say: `Use the harness-ceo skill (${skillUrl("harness-ceo")}) to take this request: <your request>. Create the task and a plan, and show me the plan before assigning work.`,
         },
         {
           title: "Open the board",
@@ -469,7 +492,7 @@ const en: TutorialCopy = {
       items: [
         {
           title: "Check progress",
-          say: "Use harness-ceo to report progress on every task: what is moving, what is stuck, and what needs my decision.",
+          say: `Use the harness-ceo skill (${skillUrl("harness-ceo")}) to report progress on every task: what is moving, what is stuck, and what needs my decision.`,
         },
         {
           title: "Pick up where you left off",
@@ -477,7 +500,7 @@ const en: TutorialCopy = {
         },
         {
           title: "Split a large request",
-          say: "Use harness-ceo to split this request into tasks that can each be accepted on their own: <request>.",
+          say: `Use the harness-ceo skill (${skillUrl("harness-ceo")}) to split this request into tasks that can each be accepted on their own: <request>.`,
         },
         {
           title: "A task is stuck",
@@ -503,7 +526,7 @@ const en: TutorialCopy = {
         {
           title: "The Agent cannot find the `ha` command",
           body: "DSH did not inherit your terminal's PATH.",
-          say: "Use harness-dsh-install to find out why DSH cannot find ha, and fix the PATH.",
+          say: `Use the harness-dsh-install skill (${skillUrl("harness-dsh-install")}) to find out why DSH cannot find ha, and fix the PATH.`,
         },
         {
           title: "Every command needs approval or gets refused",
@@ -512,7 +535,7 @@ const en: TutorialCopy = {
         {
           title: "The repository is not initialized",
           body: "This folder is not set up for Harness yet.",
-          say: "Use harness-install to set up this repository for Harness Anything.",
+          say: `Use the harness-install skill (${skillUrl("harness-install")}) to set up this repository for Harness Anything.`,
         },
         {
           title: "The panel shows `daemon_start_failed`",
@@ -545,13 +568,13 @@ const en: TutorialCopy = {
           title: "Write a skill for this repository",
           tag: "create-skill",
           body: "For example your release steps, test commands, or code conventions. The Agent reads the repository's scripts and docs first, writes `skills/<name>/SKILL.md`, and shows it to you.",
-          say: "Use create-skill to write a skill for this repository: <the routine>. Read the existing scripts and docs first, and show it to me when done.",
+          say: `Use the create-skill skill (${skillUrl("create-skill")}) to write a skill for this repository: <the routine>. Read the existing scripts and docs first, and show it to me when done.`,
         },
         {
           title: "Set up a worker and a reviewer",
           tag: "create-agent",
           body: "The worker changes code and gets Workspace Write. The reviewer only reads and gets Read Only. Declarations live in `harness/agents/<id>.json`, which is also where you attach the skill you just wrote.",
-          say: "Use create-agent to create two Agents for this repository: a worker that implements, with <skill name> attached, and a read-only reviewer. Validate them, then show me.",
+          say: `Use the create-agent skill (${skillUrl("create-agent")}) to create two Agents for this repository: a worker that implements, with <skill name> attached, and a read-only reviewer. Validate them, then show me.`,
         },
         {
           title: "Validate and install",
