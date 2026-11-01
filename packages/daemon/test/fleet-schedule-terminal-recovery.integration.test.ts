@@ -100,6 +100,7 @@ for (const restart of [false, true])
     const createRuntime = () =>
       openFleetEdgeRuntime({
         readBinding: () => fixture.owners.binding(subject.nodeId),
+        controlBinding: () => fixture.owners.binding(subject.nodeId),
         request: {
           host: "127.0.0.1",
           port: center.port,

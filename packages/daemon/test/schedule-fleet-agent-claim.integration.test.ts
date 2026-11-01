@@ -163,6 +163,7 @@ test(
       });
       edge = openFleetEdgeRuntime({
         readBinding: () => owners.binding(subject.nodeId),
+        controlBinding: () => owners.binding(subject.nodeId),
         request: {
           host: "127.0.0.1",
           port: center.port,

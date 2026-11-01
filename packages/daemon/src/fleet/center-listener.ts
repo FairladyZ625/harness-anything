@@ -552,7 +552,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         ? await readFleetCenterGitMetadata(
             options.host.status().repos.find((repo) => repo.repoId === a.repoId)?.rootDir ?? "",
           )
-        : { originUrl: null, defaultBranch: null, defaultBranchCommit: null };
+        : { originUrl: null, originPushUrls: [], defaultBranch: null, defaultBranchCommit: null };
       return immediate({
         schema: "fleet.repo.metadata.result/v1",
         personId: principal.nodePrincipal!.personId,
@@ -564,6 +564,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         writerEpoch: ownedEpochFor(a.repoId).epoch,
         replicationSequence: replicationHead(a.repoId),
         originUrl: centerGit.originUrl,
+        originPushUrls: centerGit.originPushUrls,
         defaultBranch: centerGit.defaultBranch,
         defaultBranchCommit: centerGit.defaultBranchCommit,
       });

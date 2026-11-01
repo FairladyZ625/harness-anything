@@ -15,6 +15,7 @@ import { readFleetOperationalClient } from "../src/fleet/peer.ts";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
+import { readDispatchStream } from "../src/dispatch-stream.ts";
 import { fleetFixture, git, initRepo, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
@@ -23,7 +24,7 @@ import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 const replicaQuota = 64 * 1024 * 1024;
 for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnect", "planned", "offline"] as const)
   test(`edge CLI wait: ${scenario}`, { timeout: 60_000 }, async (t) => {
-    const foreground = scenario !== "status" && scenario !== "reconnect";
+    const foreground = scenario !== "status" && scenario !== "reconnect" && scenario !== "offline";
     const expectedOutcome = scenario === "failed" ? "failed" : scenario === "cancelled" ? "cancelled" : "succeeded";
     const installation: RuntimeInstallationWitness = {
         installationId: "edge-codex-installation",
@@ -174,7 +175,9 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
         clientId: `harness-node-${fixture.subject.nodeId}`,
       }),
     }).status(edgeRoot);
-    let finish: (() => void) | undefined, cancel: (() => void) | undefined;
+    let finish: (() => void) | undefined,
+      cancel: (() => void) | undefined,
+      terminateCalls = 0;
     const launchedIn: string[] = [],
       edgeHost = await openDaemonHost({
         daemonId: "fleet-worker-edge",
@@ -203,24 +206,41 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
                 exit(scenario === "failed" ? 1 : 0);
               };
             },
-            terminate: () => cancel?.(),
+            terminate: () => {
+              terminateCalls += 1;
+              cancel?.();
+            },
           };
         },
       });
     t.after(() => edgeHost.close());
     await edgeHost.attachmentsSettled();
     await edgeHost.runtimeInstance("daemon.runtimeInstance.create", codexInstance, localAuth);
-    const transport = createUnixSocketTransportServer({
-      daemonId: "fleet-worker-edge",
-      socketPath: localUserDaemonEndpoint(edgeUserRoot, "fleet-worker-edge"),
-      createProtocolServer: (authContext, emit, _connectionId, connectionSignal) =>
-        createJsonRpcProtocolServer({
-          host: edgeHost,
-          build: { commit: null },
-          authContext: { ...authContext, connectionSignal },
-          emit,
-        }),
-    });
+    const edgeAwaitRouteStarted = Promise.withResolvers<void>(),
+      protocolHost = new Proxy(edgeHost, {
+        get(target, property, receiver) {
+          if (property === "fleet")
+            return {
+              ...target.fleet,
+              edgeRuntime: async (...args: Parameters<typeof target.fleet.edgeRuntime>) => {
+                if (args[0].method === "repo.agentRuntime.sessions.await") edgeAwaitRouteStarted.resolve();
+                return target.fleet.edgeRuntime(...args);
+              },
+            };
+          return Reflect.get(target, property, receiver);
+        },
+      }),
+      transport = createUnixSocketTransportServer({
+        daemonId: "fleet-worker-edge",
+        socketPath: localUserDaemonEndpoint(edgeUserRoot, "fleet-worker-edge"),
+        createProtocolServer: (authContext, emit, _connectionId, connectionSignal) =>
+          createJsonRpcProtocolServer({
+            host: protocolHost,
+            build: { commit: null },
+            authContext: { ...authContext, connectionSignal },
+            emit,
+          }),
+      });
     await transport.start();
     t.after(() => transport.stop());
     const invoke = async (args: string[]) => {
@@ -296,7 +316,7 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
         ),
         { code: "runtime_session_not_found" },
       );
-      let waiting = invoke(["runtime", "status", receipt.runtimeSessionId, "--wait", "--no-stream"]);
+      let waiting: ReturnType<typeof invoke>;
       if (scenario === "offline") {
         const sessionStore = managedRbacSessionStore(edgeUserRoot, `${fixture.owners.url}/realms/harness`, "harness"),
           session = JSON.parse(sessionStore.read()!);
@@ -304,11 +324,55 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
           JSON.stringify({ ...session, expiresAt: Date.now() - 1, sessionExpiresAt: Date.now() + 3_600_000 }),
         );
         edgeKeycloakAvailable = false;
-        await new Promise<void>((resolve) => setTimeout(resolve, 100));
+        waiting = invoke(["runtime", "status", receipt.runtimeSessionId, "--wait", "--no-stream"]);
+        await Promise.race([
+          edgeAwaitRouteStarted.promise,
+          waiting.then((result) => {
+            throw new Error(`offline wait exited before reaching the edge await route: ${JSON.stringify(result)}`);
+          }),
+        ]);
         assert.equal(awaitRequests, 0, "offline edge wait must not open center operational await");
+        const cancelled = await invoke(["runtime", "cancel", receipt.runtimeSessionId]);
+        assert.notEqual(cancelled.code, 0, JSON.stringify(cancelled));
+        assert.equal(terminateCalls, 0, "offline read identity must not authorize runtime cancellation");
+        const steered = await invoke(["runtime", "steer", receipt.runtimeSessionId, "--prompt", "unauthorized steer"]);
+        assert.notEqual(steered.code, 0, JSON.stringify(steered));
+        assert.equal(
+          readDispatchStream(edgeRoot, String(receipt.dispatchId))?.records.some(
+            (record) => record.kind === "steer_requested",
+          ),
+          false,
+          "offline read identity must not append a runtime steer",
+        );
+        assert.equal(awaitRequests, 0, "offline cancellation must not reach the center");
         sessionStore.write(JSON.stringify({ ...session, expiresAt: Date.now() + 3_600_000 }));
         edgeKeycloakAvailable = true;
+        finish!();
+        assert.equal(
+          await eventually(async () => {
+            const result = await fixture.host.read(
+              repoId,
+              "repo.agentRuntime.sessions.read",
+              { runtimeSessionId: receipt.runtimeSessionId },
+              fixture.auth,
+            );
+            return result.session?.activity.outcome === "succeeded";
+          }),
+          true,
+          "the edge worker must settle before exercising an offline read of its terminal result",
+        );
+        const terminalSession = JSON.parse(sessionStore.read()!);
+        sessionStore.write(JSON.stringify({ ...terminalSession, expiresAt: Date.now() - 1 }));
+        edgeKeycloakAvailable = false;
+        waiting = invoke(["runtime", "status", receipt.runtimeSessionId, "--wait", "--no-stream"]);
+        await Promise.race([
+          edgeAwaitRouteStarted.promise,
+          waiting.then((result) => {
+            throw new Error(`offline wait exited before reaching the edge await route: ${JSON.stringify(result)}`);
+          }),
+        ]);
       } else {
+        waiting = invoke(["runtime", "status", receipt.runtimeSessionId, "--wait", "--no-stream"]);
         await waitStarted.promise;
         assert.equal(awaitRequests, 1);
       }
@@ -320,7 +384,7 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
         await openCenter(center.port);
         waiting = invoke(["runtime", "status", receipt.runtimeSessionId, "--wait", "--no-stream"]);
       }
-      finish!();
+      if (scenario !== "offline") finish!();
       const waited = await waiting;
       assert.equal(waited.code, 0, JSON.stringify(waited));
       assert.equal(waited.receipt.outcome, "succeeded", JSON.stringify(waited));

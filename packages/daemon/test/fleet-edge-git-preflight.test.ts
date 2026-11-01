@@ -49,6 +49,22 @@ test("edge Git preflight rejects a missing or mismatched origin and allows the m
     const centerGit = await readFleetCenterGitMetadata(center);
     assert.equal(centerGit.defaultBranch, "main");
     assert.ok(centerGit.defaultBranchCommit);
+    assert.deepEqual(centerGit.originPushUrls, [centerGit.originUrl]);
+
+    git(edge, "remote", "set-url", "--push", "origin", wrong);
+    await assert.rejects(
+      assertFleetEdgeRepositoryGit({ rootDir: edge, center: centerGit, operation: "runtime dispatch" }),
+      { code: "edge_push_url_mismatch" },
+    );
+    git(edge, "remote", "set-url", "--push", "origin", origin);
+    await assertFleetEdgeRepositoryGit({ rootDir: edge, center: centerGit, operation: "runtime dispatch" });
+    git(edge, "config", "--add", "remote.origin.pushurl", wrong);
+    await assert.rejects(
+      assertFleetEdgeRepositoryGit({ rootDir: edge, center: centerGit, operation: "runtime dispatch" }),
+      { code: "edge_push_url_mismatch" },
+    );
+    git(edge, "config", "--unset-all", "remote.origin.pushurl");
+    await assertFleetEdgeRepositoryGit({ rootDir: edge, center: centerGit, operation: "runtime dispatch" });
 
     git(edge, "remote", "set-url", "origin", wrong);
     await assert.rejects(
@@ -65,6 +81,37 @@ test("edge Git preflight rejects a missing or mismatched origin and allows the m
     await assert.rejects(assertFleetEdgeRepositoryGit({ rootDir: edge, center: centerGit, operation: "edge sync" }), {
       code: "edge_origin_missing",
     });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("center local-only Git mode is explicit and unreadable center facts fail closed", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-edge-git-center-facts-")),
+    center = path.join(root, "center"),
+    edge = path.join(root, "edge"),
+    origin = path.join(root, "origin.git");
+  try {
+    git(root, "init", "-b", "main", "-q", center);
+    commit(center, "local center");
+    const localOnly = await readFleetCenterGitMetadata(center);
+    assert.deepEqual(localOnly, {
+      originUrl: null,
+      originPushUrls: [],
+      defaultBranch: null,
+      defaultBranchCommit: null,
+    });
+    git(root, "init", "--bare", "-q", origin);
+    git(center, "remote", "add", "backup", origin);
+    await assert.rejects(readFleetCenterGitMetadata(center), { code: "center_git_metadata_unavailable" });
+    await assert.rejects(readFleetCenterGitMetadata(path.join(root, "unreadable")), {
+      code: "center_git_metadata_unavailable",
+    });
+
+    git(root, "init", "-b", "main", "-q", edge);
+    commit(edge, "edge");
+    git(edge, "remote", "add", "origin", origin);
+    await assertFleetEdgeRepositoryGit({ rootDir: edge, center: localOnly, operation: "runtime dispatch" });
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

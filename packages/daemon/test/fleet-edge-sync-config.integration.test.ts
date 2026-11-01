@@ -143,14 +143,15 @@ test(
     execFileSync("git", ["-C", f.repo, "remote", "add", "origin", centerOrigin]);
     const e = await fleetEdgeHostFixture(t, f),
       { waitTimeoutMs: _wait, ...connection } = readFleetEdgeConfig(e.edgeRoot)!;
+    execFileSync("git", ["-C", e.edgeRoot, "remote", "add", "origin", path.join(f.root, "wrong-origin.git")]);
     const response = await e.rpc.handle({
       jsonrpc: "2.0",
       id: 301,
       method: "daemon.fleet.edge.sync",
       params: { payload: { ...connection, workspaceRoot: e.edgeRoot, timeoutMs: 30_000 } },
     });
-    assert.ok(response && !Array.isArray(response), JSON.stringify(response));
-    assert.ok("error" in response, JSON.stringify(response));
-    assert.match(response.error.message, /has no Git origin remote/u);
+    assert.ok(response && !Array.isArray(response) && "result" in response, JSON.stringify(response));
+    assert.equal((response.result as Record<string, unknown>).code, "edge_origin_mismatch", JSON.stringify(response));
+    assert.match(String((response.result as Record<string, unknown>).rejectionExplanation), /origin does not match/u);
   },
 );

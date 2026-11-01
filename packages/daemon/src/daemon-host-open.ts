@@ -330,9 +330,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           openFleetEdgeRuntime({
             request,
             readBinding: async () => {
-              // Runtime reads, including an offline edge wait, may use the admitted replica
-              // identity. Writes still carry the current token through the Fleet peer and are
-              // independently rejected by the center when that session is unavailable.
               const binding = await hostBinding(
                 request.workspaceRoot,
                 { transportKind: "unix-socket" },
@@ -340,6 +337,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
                 undefined,
                 true,
               );
+              return { ...binding, source: { kind: "node", nodeId: request.nodeId } };
+            },
+            controlBinding: async () => {
+              const binding = await hostBinding(request.workspaceRoot, { transportKind: "unix-socket" });
               return { ...binding, source: { kind: "node", nodeId: request.nodeId } };
             },
             daemonGeneration: Date.now() * 1000 + (process.pid % 1000),

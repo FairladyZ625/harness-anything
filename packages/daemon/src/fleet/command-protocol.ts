@@ -71,9 +71,10 @@ export type FleetFrameV1 =
         repositories: readonly {
           readonly repoId: string;
           readonly harnessYaml: string;
-          readonly originUrl?: string | null;
-          readonly defaultBranch?: string | null;
-          readonly defaultBranchCommit?: string | null;
+          readonly originUrl: string | null;
+          readonly originPushUrls: readonly string[];
+          readonly defaultBranch: string | null;
+          readonly defaultBranchCommit: string | null;
         }[];
       }
     >
@@ -114,9 +115,10 @@ export type FleetFrameV1 =
         personId: string;
         actionAllowed: boolean | null;
         /** Git facts used by an edge before it materializes a task worktree. Older centers omit these fields. */
-        originUrl?: string | null;
-        defaultBranch?: string | null;
-        defaultBranchCommit?: string | null;
+        originUrl: string | null;
+        originPushUrls: readonly string[];
+        defaultBranch: string | null;
+        defaultBranchCommit: string | null;
       }
     >
   | Msg<"fleet.receipt.get/v1", { repoId: string; opId: string }>
@@ -679,6 +681,7 @@ const schemas: Readonly<Record<string, Check>> = {
           repoId: id,
           harnessYaml: bodyText,
           originUrl: nullable(text),
+          originPushUrls: array(text, 16),
           defaultBranch: nullable(text),
           defaultBranchCommit: nullable(gitCommitSha),
         },
@@ -723,6 +726,7 @@ const schemas: Readonly<Record<string, Check>> = {
       writerEpoch: uint,
       replicationSequence: uint,
       originUrl: nullable(text),
+      originPushUrls: array(text, 16),
       defaultBranch: nullable(text),
       defaultBranchCommit: nullable(gitCommitSha),
     },

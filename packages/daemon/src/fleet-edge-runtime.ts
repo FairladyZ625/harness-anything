@@ -213,6 +213,8 @@ export function createFleetEdgeRuntimeWorkQueue(onError: (error: unknown) => voi
 export function openFleetEdgeRuntime(input: {
   readonly request: FleetEdgeRuntimeRequest["payload"];
   readonly readBinding: () => Promise<import("./repo-cell-types.ts").RepoCellBinding>;
+  /** Binding for controls and launches; offline replica identity is valid for reads only. */
+  readonly controlBinding: () => Promise<import("./repo-cell-types.ts").RepoCellBinding>;
   readonly daemonGeneration: number;
   readonly daemonRoute: RuntimeDaemonRoute;
   readonly ports: RuntimePorts;
@@ -225,6 +227,7 @@ export function openFleetEdgeRuntime(input: {
   // polls the canonical session read below. Forwarding stream frames would create a second,
   // non-canonical synchronization surface with no consumer or settlement contract.
   const request = input.request,
+    controlBinding = input.controlBinding,
     credential = request.credential,
     peer: FleetPeerOptions = {
       readAccessToken: async () => {
@@ -700,7 +703,7 @@ export function openFleetEdgeRuntime(input: {
     request,
     peer: writePeer,
     spawner,
-    controlBinding: input.readBinding,
+    controlBinding,
     sync: async () => {
       await pullRuntimeReplica();
     },
@@ -756,6 +759,7 @@ export function openFleetEdgeRuntime(input: {
         return readReplica("repo.agentRuntime.sessions.read", { runtimeSessionId: action.runtimeSessionId });
       }
       const readBinding = await input.readBinding();
+      let handoffControlBinding: import("./repo-cell-types.ts").RepoCellBinding | undefined;
       if (method === "repo.agentRuntime.sessions.await" && readBinding.keycloakAuthorization === undefined)
         return awaitLocalRuntimeSessions(action, readReplica, connectionSignal);
       if (
@@ -785,11 +789,15 @@ export function openFleetEdgeRuntime(input: {
         );
       // Local termination cannot wait for adoption's canonical publications.
       if (method === "repo.squad.control" && action.kind === "squad-cancel") return squad.run(action);
-      if (method === "repo.agentRuntime.cancel") return spawner.cancel(action, await input.readBinding());
-      if (method === "repo.agentRuntime.steer") return spawner.steer(action, await input.readBinding());
+      if (method === "repo.agentRuntime.cancel") return spawner.cancel(action, await controlBinding());
+      if (method === "repo.agentRuntime.steer") return spawner.steer(action, await controlBinding());
       if (method === "repo.agentRuntime.spawn" && typeof action.taskId !== "string") await preflightRuntimeWorkspace();
       if (method === "repo.agentRuntime.spawn" && typeof action.taskId === "string")
         await prepareRuntimeWorkspace(action.taskId);
+      if (method === "repo.agentRuntime.handoff" && action.operation === "claim") {
+        handoffControlBinding = await controlBinding();
+        await preflightRuntimeWorkspace();
+      }
       await ensureReady();
       await squad.flushPublications();
       if (method === "repo.squad.control") return squad.run(action);
@@ -818,10 +826,10 @@ export function openFleetEdgeRuntime(input: {
             return result.receipt as JsonObject;
           },
           spawn: async (checkpoint, spawn, rollout) =>
-            spawner.spawnHandoff(checkpoint, spawn, await input.readBinding(), null, rollout),
+            spawner.spawnHandoff(checkpoint, spawn, handoffControlBinding ?? (await controlBinding()), null, rollout),
         });
       return method === "repo.agentRuntime.spawn"
-        ? spawner.spawn(action, await input.readBinding())
+        ? spawner.spawn(action, await controlBinding())
         : ((await readFleetOperationalClient({
             ...runtimeReadPeer,
             repoId: request.repoId,
@@ -922,7 +930,7 @@ export function openFleetEdgeRuntime(input: {
       idempotencyKey: operationKey,
       now,
       spawn: async (scheduled) => {
-        const spawned = await spawner.spawnScheduled(scheduled, await input.readBinding());
+        const spawned = await spawner.spawnScheduled(scheduled, await controlBinding());
         return {
           outcome: String(spawned.outcome),
           ...(typeof spawned.dispatchId === "string" ? { dispatchId: spawned.dispatchId } : {}),

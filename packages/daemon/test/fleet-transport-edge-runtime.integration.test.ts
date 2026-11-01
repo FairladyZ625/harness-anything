@@ -678,6 +678,9 @@ test(
     git(edgeRoot, "remote", "add", "origin", remote);
     git(edgeRoot, "fetch", "-q", "origin");
     git(edgeRoot, "branch", `--set-upstream-to=origin/${git(edgeRoot, "branch", "--show-current")}`);
+    git(fixture.repo, "remote", "add", "origin", remote);
+    git(fixture.repo, "fetch", "-q", "origin");
+    git(fixture.repo, "remote", "set-head", "origin", git(edgeRoot, "branch", "--show-current"));
     const base = git(edgeRoot, "rev-parse", "HEAD");
     await catchUpReplica({
       readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
@@ -742,6 +745,27 @@ test(
     t.after(() => edgeHost.close());
     await edgeHost.attachmentsSettled();
     await registerFixtureRuntimeInstance(edgeHost, repoId, localAuth, codexInstance, { allowHost: fixture.host });
+    git(edgeRoot, "remote", "set-url", "--push", "origin", path.join(fixture.root, "wrong-push.git"));
+    await assert.rejects(
+      edgeHost.fleet.edgeRuntime(
+        {
+          host: "127.0.0.1",
+          port: center.port,
+          caPath: fixture.certFile,
+          nodeId: fixture.subject.nodeId,
+          credential: "machine-secret",
+          repoId,
+          viewRoot,
+          quotaBytes: replicaQuota,
+          workspaceRoot: edgeRoot,
+          method: "repo.agentRuntime.handoff",
+          action: { operation: "claim", dispatchId: "dispatch_000000000000000000000000" },
+        },
+        localAuth,
+      ),
+      { code: "edge_push_url_mismatch" },
+    );
+    git(edgeRoot, "config", "--unset-all", "remote.origin.pushurl");
     const receipt = await edgeHost.fleet.edgeRuntime(
       {
         host: "127.0.0.1",
@@ -808,6 +832,7 @@ test(
     );
     const runtime = openFleetEdgeRuntime({
       readBinding: () => fixture.owners.binding(fixture.subject.nodeId),
+      controlBinding: () => fixture.owners.binding(fixture.subject.nodeId),
       request: {
         host: "127.0.0.1",
         port: unavailablePort,
@@ -905,6 +930,7 @@ test(
     );
     const runtime = openFleetEdgeRuntime({
       readBinding: () => fixture.owners.binding(fixture.subject.nodeId),
+      controlBinding: () => fixture.owners.binding(fixture.subject.nodeId),
       request: {
         host: "127.0.0.1",
         port: center.port,
