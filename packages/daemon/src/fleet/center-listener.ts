@@ -1,5 +1,6 @@
 import { validateTaskDispatchesPayload } from "../protocol/daemon-protocol-rpc-validation.ts";
 import { createFleetDeliveryDrain } from "./center-delivery-drain.ts";
+import { createResourceBudget, DOC_SHOW_BUDGET_LIMITS, ResourceBudgetExceeded } from "./resource-budget.ts";
 import { fetchWorkerDelivery, workerGitIdentityForPerson } from "../runtime-worker-push.ts";
 import { assertFleetDeliveryHolder, type FleetDeliveryTask } from "../fleet-task-delivery.ts";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
@@ -71,6 +72,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   mkdirSync(options.stateRoot, { recursive: true });
   const closing = new AbortController();
   const deliveries = createFleetDeliveryDrain(options.onDeliverySettled);
+  const resourceBudget = createResourceBudget(DOC_SHOW_BUDGET_LIMITS);
   const stateFile = path.join(options.stateRoot, "state.json"),
     state = loadState(stateFile),
     now = options.now ?? (() => new Date().toISOString()),
@@ -838,66 +840,82 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           ...(frame.docChanges === null ? {} : { docChanges: frame.docChanges }),
           ...(frame.mirrorBaseCut === null ? {} : { mirrorBaseCut: frame.mirrorBaseCut }),
         };
-        const receipt = await runCenterWriter(
-          a.repoId,
-          action,
-          await writerAuth(a, frame.accessToken, frame.executionCredential),
-        );
-        const result = {
-          outcome:
-            receipt.outcome === "op_rejected" || receipt.outcome === "indeterminate"
-              ? ("op_rejected" as const)
-              : ("applied" as const),
-          opId: frame.opId,
-          revision: receipt.revision ?? null,
-          replicationSequence: writeReplicationSequence(a.repoId, receipt),
-          ...(receipt.outcome === "applied" &&
-          receipt.cut &&
-          typeof receipt.cut.revision === "number" &&
-          typeof receipt.cut.headDigest === "string"
-            ? {
-                appliedCut: {
-                  revision: receipt.cut.revision,
-                  headDigest: receipt.cut.headDigest,
-                  schemaGeneration: 0,
-                },
-              }
-            : {}),
-          code: receipt.code ?? null,
-          receipt: receipt as unknown as Readonly<Record<string, unknown>>,
-        };
-        if (receipt.outcome === "applied" && frame.docChanges) discardOwnedClaims(nodeId, a.repoId, frame.docChanges);
-        if (command.kind === "runtime-handoff-export" && command.candidate)
-          discardOwnedClaims(nodeId, a.repoId, [
-            { candidate: command.candidate as import("./command-protocol.ts").FleetDescriptor },
-          ]);
-        if (receipt.outcome === "applied" && frame.artifact)
-          discardOwnedClaims(nodeId, a.repoId, [{ candidate: frame.artifact }]);
-        const response: Extract<FleetFrameV1, { schema: "fleet.task.result/v1" }> = {
-          schema: "fleet.task.result/v1",
-          messageId: mid(frame.messageId, "task"),
-          inReplyTo: frame.messageId,
-          ...result,
-        };
-        if (command.kind === "doc-show" && receipt.outcome === "applied") {
-          const { evidence, ...metadata } = result.receipt,
-            bytes = Buffer.from(evidence as string);
-          return {
-            key: null,
-            frames: (async function* () {
-              for (let offset = 0; offset < bytes.length; offset += FLEET_CHUNK_BYTES) {
-                yield {
-                  schema: "fleet.task.evidence/v1" as const,
-                  messageId: mid(frame.messageId, `evidence-${offset}`),
-                  inReplyTo: frame.messageId,
-                  dataBase64: bytes.subarray(offset, offset + FLEET_CHUNK_BYTES).toString("base64"),
-                };
-              }
-              yield { ...response, receipt: metadata };
-            })(),
-          };
+        const commandAuth = await writerAuth(a, frame.accessToken, frame.executionCredential);
+        let reservation;
+        try {
+          reservation =
+            command.kind === "doc-show"
+              ? resourceBudget.reserve({ nodeId, repoId: a.repoId, sessionId: window.holderId }, { bulkTransfers: 1 })
+              : null;
+        } catch (error) {
+          if (error instanceof ResourceBudgetExceeded) throw new FleetFault("busy", error.message, true);
+          throw error;
         }
-        return immediate(response);
+        try {
+          const receipt = await runCenterWriter(a.repoId, action, commandAuth);
+          if (reservation) connectionSignal.throwIfAborted();
+          const result = {
+            outcome:
+              receipt.outcome === "op_rejected" || receipt.outcome === "indeterminate"
+                ? ("op_rejected" as const)
+                : ("applied" as const),
+            opId: frame.opId,
+            revision: receipt.revision ?? null,
+            replicationSequence: writeReplicationSequence(a.repoId, receipt),
+            ...(receipt.outcome === "applied" &&
+            receipt.cut &&
+            typeof receipt.cut.revision === "number" &&
+            typeof receipt.cut.headDigest === "string"
+              ? {
+                  appliedCut: {
+                    revision: receipt.cut.revision,
+                    headDigest: receipt.cut.headDigest,
+                    schemaGeneration: 0,
+                  },
+                }
+              : {}),
+            code: receipt.code ?? null,
+            receipt: receipt as unknown as Readonly<Record<string, unknown>>,
+          };
+          if (receipt.outcome === "applied" && frame.docChanges) discardOwnedClaims(nodeId, a.repoId, frame.docChanges);
+          if (command.kind === "runtime-handoff-export" && command.candidate)
+            discardOwnedClaims(nodeId, a.repoId, [
+              { candidate: command.candidate as import("./command-protocol.ts").FleetDescriptor },
+            ]);
+          if (receipt.outcome === "applied" && frame.artifact)
+            discardOwnedClaims(nodeId, a.repoId, [{ candidate: frame.artifact }]);
+          const response: Extract<FleetFrameV1, { schema: "fleet.task.result/v1" }> = {
+            schema: "fleet.task.result/v1",
+            messageId: mid(frame.messageId, "task"),
+            inReplyTo: frame.messageId,
+            ...result,
+          };
+          if (command.kind === "doc-show" && receipt.outcome === "applied") {
+            const { evidence, ...metadata } = result.receipt,
+              bytes = Buffer.from(evidence as string);
+            return {
+              key: null,
+              onComplete: () => reservation?.release(),
+              onFailure: () => reservation?.release(),
+              frames: (async function* () {
+                for (let offset = 0; offset < bytes.length; offset += FLEET_CHUNK_BYTES) {
+                  yield {
+                    schema: "fleet.task.evidence/v1" as const,
+                    messageId: mid(frame.messageId, `evidence-${offset}`),
+                    inReplyTo: frame.messageId,
+                    dataBase64: bytes.subarray(offset, offset + FLEET_CHUNK_BYTES).toString("base64"),
+                  };
+                }
+                yield { ...response, receipt: metadata };
+              })(),
+            };
+          }
+          reservation?.release();
+          return immediate(response);
+        } catch (error) {
+          reservation?.release();
+          throw error;
+        }
       });
     }
     if (frame.schema === "fleet.schedule.command/v1") {
