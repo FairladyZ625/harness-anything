@@ -17,7 +17,11 @@ import { memoryEventStore, reviewEvents } from "../store/task-owned-entity-proje
 import { legacyAgentCommand } from "../store/legacy-agent-declaration.fixture.ts";
 import { withTempStoreAsync } from "../store/helpers.ts";
 import { startManagedPostgresFixture } from "./managed-postgres.fixture.ts";
-import { historicalEventQueryFixtures, historicalEventQueryContract } from "./pg-task-event-parity.fixture.ts";
+import {
+  historicalEventQueryFixtures,
+  historicalEventQueryContract,
+  retiredCiQueryFixtures,
+} from "./pg-task-event-parity.fixture.ts";
 
 test("PG query edge inputs retain the SQLite contract", async (t) => {
   const fixture = await startManagedPostgresFixture(),
@@ -53,6 +57,33 @@ test("PG query edge inputs retain the SQLite contract", async (t) => {
       );
     };
 
+    const seedEventHistory = async (events: readonly CanonicalEventV1[]) => {
+      await withPostgresTransaction(pool, async (client) => {
+        await client.query("DELETE FROM ha_events");
+        for (const event of events) {
+          const body = serializeCanonicalEventUnchecked(event).trimEnd();
+          await client.query(
+            `INSERT INTO ha_events(tenant_id,project_id,repo_id,revision,op_id,event_id,event_type,event_json,event_digest,occurred_at,policy_epoch,readers)
+                 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+            [
+              scope.tenantId,
+              scope.projectId,
+              repoId,
+              event.workspaceRevision,
+              event.opId,
+              event.eventId,
+              event.type,
+              body,
+              `sha256:${sha256Text(body)}`,
+              event.occurredAt,
+              scope.policyEpoch,
+              scope.readers,
+            ],
+          );
+        }
+      });
+    };
+
     await t.test("historical task, schedule, settings and vertical outputs retain accepted fields", async (t) => {
       const fixture = historicalEventQueryFixtures();
       for (let end = 1; end <= fixture.events.length; end++) {
@@ -73,30 +104,7 @@ test("PG query edge inputs retain the SQLite contract", async (t) => {
             sqlite.catchUp();
             const expected = historicalEventQueryContract(sqlite, events);
             await replay(events, fixture.blobs);
-            await withPostgresTransaction(pool, async (client) => {
-              await client.query("DELETE FROM ha_events");
-              for (const event of events) {
-                const body = serializeCanonicalEventUnchecked(event).trimEnd();
-                await client.query(
-                  `INSERT INTO ha_events(tenant_id,project_id,repo_id,revision,op_id,event_id,event_type,event_json,event_digest,occurred_at,policy_epoch,readers)
-                 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-                  [
-                    scope.tenantId,
-                    scope.projectId,
-                    repoId,
-                    event.workspaceRevision,
-                    event.opId,
-                    event.eventId,
-                    event.type,
-                    body,
-                    `sha256:${sha256Text(body)}`,
-                    event.occurredAt,
-                    scope.policyEpoch,
-                    scope.readers,
-                  ],
-                );
-              }
-            });
+            await seedEventHistory(events);
             const pg = createPgTaskQueryReader({ connectionString, scope, repoId });
             try {
               pg.withSession((queries) => assert.deepEqual(historicalEventQueryContract(queries, events), expected));
@@ -107,6 +115,64 @@ test("PG query edge inputs retain the SQLite contract", async (t) => {
           }),
         );
       }
+      await pool.query("DELETE FROM ha_events");
+    });
+
+    await t.test("retired CI observations stay outside every event-index query", async () => {
+      await withTempStoreAsync(async (rootDir) => {
+        const retired = retiredCiQueryFixtures(),
+          current = { ...lifecycleFixture({ taskId: "retired-ci-task" }).events[0]!, workspaceRevision: 2 },
+          events = [
+            retired[0]!,
+            current,
+            ...retired.slice(1).map((event, index) => ({ ...event, workspaceRevision: index + 3 })),
+          ],
+          head = events.at(-1)!,
+          sqlite = makeTaskProjection({
+            rootDir,
+            eventStore: {
+              ...memoryEventStore(events),
+              readHead: () => ({
+                revision: head.workspaceRevision,
+                eventDigest: `sha256:${sha256Text(serializeCanonicalEventUnchecked(head))}`,
+              }),
+            },
+          });
+        sqlite.catchUp();
+        const contract = (queries: TaskProjectionQueries) => {
+          const canonical = queries.readCanonicalEvents(0, 500),
+            replica = queries.readReplicaBasis(0),
+            list = queries.readEventList({ limit: 1 }),
+            summaries = queries.readEventSummaries(0, 1),
+            skipped = events.filter(({ type }) => type === "ci_run_observed"),
+            operations = skipped.map(({ opId }) => queries.readOperation(opId)),
+            witnesses = skipped.map(({ workspaceRevision }) => queries.readEventWitness(workspaceRevision));
+          assert.deepEqual(canonical.events, [current]);
+          assert.deepEqual(
+            queries.readCanonicalEvents(0, 1).events,
+            [current],
+            "filter retired rows before page limit",
+          );
+          assert.deepEqual(queries.readCanonicalEvents(2, 1).events, []);
+          assert.deepEqual(replica.events, [current]);
+          assert.equal(replica.headEvent, null);
+          assert.equal(list.rows.length, 1);
+          assert.equal(summaries.events.length, 1);
+          assert.deepEqual(operations, [null, null, null, null]);
+          assert.deepEqual(witnesses, [null, null, null, null]);
+          return { canonical, replica, list, summaries, operations, witnesses };
+        };
+        const expected = contract(sqlite);
+        await replay(events);
+        await seedEventHistory(events);
+        const pg = createPgTaskQueryReader({ connectionString, scope, repoId });
+        try {
+          pg.withSession((queries) => assert.deepEqual(contract(queries), expected));
+        } finally {
+          pg.close();
+          sqlite.close();
+        }
+      });
       await pool.query("DELETE FROM ha_events");
     });
 

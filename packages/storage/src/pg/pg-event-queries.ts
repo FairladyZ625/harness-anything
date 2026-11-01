@@ -349,6 +349,7 @@ export async function readEventRowsInTransaction(
     await client.query<PgEventRow>(
       `SELECT revision::text, op_id, event_json FROM ha_events
        WHERE tenant_id = $1 AND project_id = $2 AND repo_id = $3 AND policy_epoch = $4
+         AND event_type <> 'ci_run_observed'
          AND (cardinality($5::text[]) = 0 OR readers && $5::text[])
          AND revision <= (SELECT watermark FROM ha_projection_meta WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$4 AND projection_name='task/v1') AND ${predicate}
        ORDER BY ha_events.revision ${order} ${suffix} ${limitClause}`,

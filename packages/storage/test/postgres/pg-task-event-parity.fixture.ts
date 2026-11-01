@@ -22,6 +22,22 @@ import type { PgTaskQueryMethods } from "../../src/pg/pg-task-query-contract.ts"
 
 export const QUERY_SETTINGS_BASE = "schema: harness-anything/v1\nname: parity\nsettings: {}\n";
 
+export function retiredCiQueryFixtures(): readonly CanonicalEventV1[] {
+  return [
+    "ci-run-observation-v1/accepted",
+    "ci-run-observation-v2/accepted",
+    "ci-run-observation-v3/accepted",
+    "ci-run-observation-v4/workflow",
+  ].map((file, index) => ({
+    ...JSON.parse(
+      readFileSync(new URL(`../../../kernel/fixtures/canonical-events/${file}.json`, import.meta.url), "utf8"),
+    ),
+    workspaceRevision: index + 1,
+    opId: `retired-ci-${index}`,
+    eventId: `event-retired-ci-${index}`,
+  }));
+}
+
 /** Accepted historical carriers: reducers discard retired fields; event_index returns their original payloads. */
 export function historicalEventQueryFixtures() {
   const task = lifecycleFixture({ taskId: "historical-task" }).events[0]!;
