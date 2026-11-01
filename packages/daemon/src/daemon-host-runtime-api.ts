@@ -1,4 +1,5 @@
 import path from "node:path";
+import { daemonRpcCommandTopology } from "./rpc-command-routing.ts";
 import { readFileSync } from "node:fs";
 import { parseFleetCenterExternalUrl, readFleetCenterConfig, saveFleetCenterConfig } from "./fleet-center-config.ts";
 import { annotateHostingCredentialNotice } from "./hosting-credential-readiness.ts";
@@ -215,10 +216,7 @@ export function createDaemonHostRuntimeApi(
           rejected: typeof payload.expectedDigest === "string" && payload.expectedDigest !== digest,
         }) as JsonObject;
       }
-      const commandTopology =
-        method === "repo.gui.catalog.reread" || method === "repo.terminal.detach"
-          ? repoReadCommandTopology
-          : ledgerWriteCommandTopology;
+      const commandTopology = daemonRpcCommandTopology(method);
       context.requireHostMode(repoId, commandTopology, auth);
       await context.attemptHostRecovery(repoId);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId),

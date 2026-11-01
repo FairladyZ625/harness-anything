@@ -3,11 +3,13 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { parseThinCommand } from "../src/cli/thin-command.ts";
+import { fleetTaskRoute } from "../src/daemon/fleet-command-route.ts";
 import { actionDeclarations } from "@harness-anything/kernel";
-import type { DaemonHost } from "../src/daemon-host.ts";
-import { fleetNodeClaimFixture, localAuthFixture } from "./fleet-node-claim.fixtures.ts";
-import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
-import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
+import type { DaemonHost } from "@harness-anything/daemon/internal/daemon-host";
+import { fleetNodeClaimFixture, localAuthFixture } from "../../daemon/test/fleet-node-claim.fixtures.ts";
+import { fleetEdgeHostFixture } from "../../daemon/test/fleet-edge-host.fixture.ts";
+import { registerFixtureRuntimeInstance } from "../../daemon/test/repo-settings.fixture.ts";
 
 const agent = {
   schema: "agent-declaration/v1",
@@ -68,7 +70,22 @@ test(
     const packageSource = path.join(edge.edgeRoot, "edge-only-package");
     mkdirSync(packageSource);
     writeFileSync(path.join(packageSource, "agent.json"), JSON.stringify(agent));
-    const installed = await edge.command({ kind: "agent-install", packageSource, expectedVersion: 0 });
+    const parsed = parseThinCommand(
+      ["agent", "install", "--source", "edge-only-package", "--expected-version", "0"],
+      edge.edgeRoot,
+    );
+    assert.equal(parsed.ok, true, JSON.stringify(parsed));
+    if (!parsed.ok) throw new Error("agent install must parse");
+    const routed = await fleetTaskRoute(parsed.command, { HARNESS_DAEMON_USER_ROOT: edge.edgeUser });
+    assert.ok(routed, "the actual CLI chooses center forwarding");
+    const response = await edge.rpc.handle({
+      jsonrpc: "2.0",
+      id: 100,
+      method: "daemon.fleet.task.run",
+      params: { payload: routed },
+    });
+    assert.ok(response && !Array.isArray(response) && "result" in response, JSON.stringify(response));
+    const installed = response.result as Record<string, unknown>;
     assert.equal(installed.outcome, "applied", JSON.stringify(installed));
     assert.equal(installed.ok, true, JSON.stringify(installed));
     assert.deepEqual(forwarded.at(-1)?.declaration, agent);
