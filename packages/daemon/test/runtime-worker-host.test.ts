@@ -286,48 +286,99 @@ test("full provider environment inherits operator hosting credentials", () => {
 });
 
 test("DeepSeek drops shell-side Git credentials before its environment scrub", () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-dsh-git-credential-")),
+    home = path.join(parent, "home"),
+    staleHelper = path.join(parent, "stale-helper"),
+    staleMarker = path.join(parent, "stale-helper-called"),
+    nullDevice = process.platform === "win32" ? "NUL" : "/dev/null";
+  mkdirSync(home);
+  writeFileSync(
+    staleHelper,
+    `#!/bin/sh\nprintf 'called\\n' >> '${staleMarker}'\ncat >/dev/null\nprintf 'username=x-access-token\\npassword=stale-token\\n'\n`,
+  );
+  chmodSync(staleHelper, 0o755);
+  writeFileSync(
+    path.join(home, ".gitconfig"),
+    `[credential "https://github.com"]\n\thelper = !${staleHelper} auth git-credential\n`,
+  );
   const source: NodeJS.ProcessEnv = {
     PATH: process.env.PATH,
-    HOME: tmpdir(),
-    GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : "/dev/null",
-    GIT_CONFIG_SYSTEM: process.platform === "win32" ? "NUL" : "/dev/null",
+    HOME: home,
+    GIT_CONFIG_GLOBAL: nullDevice,
+    GIT_CONFIG_SYSTEM: nullDevice,
     GIT_CONFIG_NOSYSTEM: "1",
   };
   applyGithubLaunchCredential(source, "github-token");
 
-  for (const permissionMode of ["full", "restricted"] as const) {
-    const providerEnvironment = runtimeWorkerProviderEnvironment(
-        source,
-        process.platform,
+  try {
+    for (const permissionMode of ["full", "restricted"] as const) {
+      const providerEnvironment = runtimeWorkerProviderEnvironment(
+          source,
+          process.platform,
+          permissionMode,
+          "deepseek-harness",
+        ),
+        toolShellEnvironment = Object.fromEntries(
+          Object.entries(providerEnvironment).filter(([name]) => !/(?:KEY|PASSWORD|SECRET|TOKEN)/iu.test(name)),
+        ),
+        result = spawnSync("git", ["config", "--list"], {
+          env: toolShellEnvironment,
+          encoding: "utf8",
+        });
+
+      assert.equal(providerEnvironment.GH_TOKEN, undefined, permissionMode);
+      assert.equal(providerEnvironment.GIT_CONFIG_COUNT, undefined, permissionMode);
+      assert.equal(
+        Object.keys(providerEnvironment).some((name) => /^GIT_CONFIG_(?:KEY|VALUE)_\d+$/u.test(name)),
+        false,
         permissionMode,
-        "deepseek-harness",
-      ),
-      toolShellEnvironment = Object.fromEntries(
-        Object.entries(providerEnvironment).filter(([name]) => !/(?:KEY|PASSWORD|SECRET|TOKEN)/iu.test(name)),
-      ),
-      result = spawnSync("git", ["config", "--list"], {
-        env: toolShellEnvironment,
+      );
+      assert.equal(result.status, 0, `${permissionMode}: ${result.stderr}`);
+    }
+
+    if (process.platform !== "win32") {
+      // Prove the isolated HOME fixture would return a stale credential if its Git config were read.
+      const staleHomeControl = spawnSync("git", ["credential", "fill"], {
+        env: { PATH: process.env.PATH, HOME: home, GIT_CONFIG_SYSTEM: nullDevice, GIT_CONFIG_NOSYSTEM: "1" },
+        input: "protocol=https\nhost=github.com\n\n",
         encoding: "utf8",
       });
+      assert.equal(staleHomeControl.status, 0, staleHomeControl.stderr);
+      assert.match(staleHomeControl.stdout, /password=stale-token/u);
+      assert.equal(existsSync(staleMarker), true);
+      rmSync(staleMarker);
 
-    assert.equal(providerEnvironment.GH_TOKEN, undefined, permissionMode);
-    assert.equal(providerEnvironment.GIT_CONFIG_COUNT, undefined, permissionMode);
-    assert.equal(
-      Object.keys(providerEnvironment).some((name) => /^GIT_CONFIG_(?:KEY|VALUE)_\d+$/u.test(name)),
-      false,
-      permissionMode,
-    );
-    assert.equal(result.status, 0, `${permissionMode}: ${result.stderr}`);
+      const restrictedEnvironment = runtimeWorkerProviderEnvironment(
+          source,
+          process.platform,
+          "restricted",
+          "deepseek-harness",
+        ),
+        filteredRestrictedEnvironment = Object.fromEntries(
+          Object.entries(restrictedEnvironment).filter(([name]) => !/(?:KEY|PASSWORD|SECRET|TOKEN)/iu.test(name)),
+        ),
+        fill = spawnSync("git", ["credential", "fill"], {
+          env: filteredRestrictedEnvironment,
+          input: "protocol=https\nhost=github.com\n\n",
+          encoding: "utf8",
+        });
+      assert.equal(fill.status, 128);
+      assert.match(fill.stderr, /could not read Username.*terminal prompts disabled/u);
+      assert.doesNotMatch(fill.stdout, /password=/u);
+      assert.equal(existsSync(staleMarker), false, "restricted DSH must not call the isolated HOME's stale helper");
+    }
+
+    // The same complete source environment still reproduces the failure for a provider that does not scrub names.
+    const otherProvider = runtimeWorkerProviderEnvironment(source, process.platform, "full", "codex"),
+      filteredOtherProvider = Object.fromEntries(
+        Object.entries(otherProvider).filter(([name]) => !/(?:KEY|PASSWORD|SECRET|TOKEN)/iu.test(name)),
+      ),
+      before = spawnSync("git", ["config", "--list"], { env: filteredOtherProvider, encoding: "utf8" });
+    assert.equal(before.status, 128);
+    assert.match(before.stderr, /missing config key GIT_CONFIG_KEY_0/u);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
   }
-
-  // The same source env still reproduces the failure for providers that do not scrub names.
-  const otherProvider = runtimeWorkerProviderEnvironment(source, process.platform, "full", "codex"),
-    filteredOtherProvider = Object.fromEntries(
-      Object.entries(otherProvider).filter(([name]) => !/(?:KEY|PASSWORD|SECRET|TOKEN)/iu.test(name)),
-    ),
-    before = spawnSync("git", ["config", "--list"], { env: filteredOtherProvider, encoding: "utf8" });
-  assert.equal(before.status, 128);
-  assert.match(before.stderr, /missing config key GIT_CONFIG_KEY_0/u);
 });
 
 test(
