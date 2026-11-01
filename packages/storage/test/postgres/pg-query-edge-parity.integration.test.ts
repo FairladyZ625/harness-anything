@@ -218,12 +218,15 @@ test("PG query edge inputs retain the SQLite contract", async (t) => {
           );
           assert.equal((await source.getEntity("agent", "legacy-worker"))?.freshness, "current");
           sqlite.close();
-          // Corruption remains a hard replay failure. The current schema-valid blob has the wrong identity.
-          const wrongId = { ...current.event, payload: { ...current.event.payload, entityId: "different" } };
+          // Inject corrupt blob reads after the verified event envelope; the declaration keeps its valid claim.
           const sha = current.blobs[0]!.sha256,
-            size = Buffer.byteLength(current.blobs[0]!.body);
+            size = Buffer.byteLength(current.blobs[0]!.body),
+            wrongIdentity = Buffer.from(
+              Buffer.from(current.blobs[0]!.body).toString().replaceAll("current-worker", "corrupt-worker"),
+            );
+          assert.equal(wrongIdentity.byteLength, size);
           const corruptions = [
-            { event: wrongId, content: blobs, error: /identity mismatch/ },
+            { event: current.event, content: new Map([[sha, wrongIdentity]]), error: /identity mismatch/ },
             { event: current.event, content: new Map<string, Uint8Array>(), error: /unavailable/ },
             { event: current.event, content: new Map([[sha, Buffer.alloc(size, 0xff)]]), error: /UTF-8/ },
             { event: current.event, content: new Map([[sha, Buffer.alloc(size, 0x7b)]]), error: /JSON/ },
