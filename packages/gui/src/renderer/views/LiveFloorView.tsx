@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import type { AgentRuntimeSessionDto } from "@harness-anything/daemon/protocol";
-import type { TaskDispatchProjectionRow, TaskDispatchesRead } from "../../api/renderer-dto.ts";
+import type { TaskDispatchProjectionRow } from "../../api/renderer-dto.ts";
 import { harnessClient } from "../api-client.ts";
+import { readAllTaskDispatches } from "../task-dispatch-client.ts";
 import { agentRuntimeClient, runtimeQueryKeys } from "../agent-runtime-client.ts";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import { formatDuration, formatTime } from "../model/time.ts";
@@ -99,13 +100,11 @@ export function LiveFloorView({
     dispatches = useQuery({
       queryKey: [...runtimeQueryKeys.dispatchesAll(repoId), "live-floor", dispatchTaskIds.join("\0")],
       queryFn: async () => {
-        if (dispatchTaskIds.length === 0) return [] as readonly TaskDispatchProjectionRow[];
-        const read = (await harnessClient.getTaskDispatches({
+        const read = await readAllTaskDispatches({
           repoId,
           taskIds: dispatchTaskIds,
-          limit: 500,
-        })) as TaskDispatchesRead;
-        return read.dispatches as readonly TaskDispatchProjectionRow[];
+        });
+        return read.dispatches;
       },
       enabled: runtime.data !== undefined,
       staleTime: 4_000,
@@ -720,12 +719,11 @@ function LiveFloorTaskTimeline({
   const dispatches = useQuery({
       queryKey: ["live-floor-task-dispatches", repoId, taskId],
       queryFn: async () => {
-        const read = (await harnessClient.getTaskDispatches({
+        const read = await readAllTaskDispatches({
           repoId,
           taskIds: [taskId],
-          limit: 500,
-        })) as TaskDispatchesRead;
-        return read.dispatches as readonly TaskDispatchProjectionRow[];
+        });
+        return read.dispatches;
       },
       staleTime: 4_000,
     }),
