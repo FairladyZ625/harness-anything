@@ -6,7 +6,7 @@ import type {
   RuntimeSession,
 } from "@harness-anything/kernel";
 import { publicRuntimeDispatch } from "@harness-anything/kernel/internal/domain/runtime-public-query.ts";
-import { normalizeHistoricalEvent } from "@harness-anything/kernel/internal/domain/historical-event-normalization.ts";
+import { eventIndexEvent } from "./pg-event-queries.ts";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
 import type { PgTaskProjectionSourceOptions } from "./pg-task-source.ts";
 
@@ -53,9 +53,7 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
        AND ${predicate} ORDER BY ${order}${limit === undefined ? "" : ` LIMIT $${parameters.length}`}`,
       parameters,
     );
-    return result.rows.map(
-      ({ event_json }) => normalizeHistoricalEvent(JSON.parse(event_json) as Dispatch) as Dispatch,
-    );
+    return result.rows.map(({ event_json }) => eventIndexEvent(JSON.parse(event_json) as Dispatch));
   };
   const projected = async (client: PoolClient, event: Dispatch): Promise<RuntimeDispatchProjectionRow> => {
     const result = await client.query<{ event_json: string }>(

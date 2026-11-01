@@ -8,9 +8,8 @@ import type {
   CanonicalEventV1,
 } from "@harness-anything/kernel";
 import type { DocumentState } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
-import { normalizeHistoricalEvent } from "@harness-anything/kernel/internal/domain/historical-event-normalization.ts";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
-import { readCutInTransaction, readEventRowsInTransaction } from "./pg-event-queries.ts";
+import { eventIndexEvent, readCutInTransaction, readEventRowsInTransaction } from "./pg-event-queries.ts";
 import { getPgProjectionValue, listPgProjectionValues } from "./pg-projection-values.ts";
 import type { PgTaskProjectionSourceOptions } from "./pg-task-source.ts";
 import type { AsyncQueries } from "./pg-runtime-dispatch-queries.ts";
@@ -144,8 +143,8 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
           documents: await documents(client, ""),
-          headEvent: head[0] ? (normalizeHistoricalEvent(JSON.parse(head[0].event_json)) as CanonicalEventV1) : null,
-          events: rows.map(({ event_json }) => normalizeHistoricalEvent(JSON.parse(event_json)) as CanonicalEventV1),
+          headEvent: head[0] ? eventIndexEvent(JSON.parse(head[0].event_json) as CanonicalEventV1) : null,
+          events: rows.map(({ event_json }) => eventIndexEvent(JSON.parse(event_json) as CanonicalEventV1)),
         };
       }),
     taskIdForDocumentPath: (path) =>

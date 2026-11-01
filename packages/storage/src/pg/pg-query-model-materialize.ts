@@ -42,10 +42,7 @@ import {
   OPAQUE_TEXTUAL_POLICY_ID,
 } from "@harness-anything/kernel/internal/domain/artifact-text-classification.ts";
 import { ENTITY_CONTENT_POLICY_ID } from "@harness-anything/kernel/internal/domain/entity-owned-content.ts";
-import {
-  normalizeHistoricalEvent,
-  normalizeHistoricalPresetSnapshot,
-} from "@harness-anything/kernel/internal/domain/historical-event-normalization.ts";
+import { normalizeHistoricalPresetSnapshot } from "@harness-anything/kernel/internal/domain/historical-event-normalization.ts";
 import { reduceSquadRunProjection } from "../projection/rebuildable-task-projection-squad-runs.ts";
 import {
   putPgProjectionValue,
@@ -181,10 +178,9 @@ export async function materializePgQueryModels(
 
   if (isAgentRuntimeEvent(event)) {
     if (event.type === "runtime_dispatch_requested") {
-      const dispatch = normalizeHistoricalEvent(event) as typeof event;
       // Keep each revision and its readers: lookup selects the first visible dispatch,
       // including when several historical events carry the same normalized key.
-      await put("runtime-dispatch-key", dispatch.payload.dispatchKey, revision, String(revision));
+      await put("runtime-dispatch-key", event.payload.dispatchKey, revision, String(revision));
     }
     const installation = reduceRuntimeInstallation(
       event.type === "runtime_installation_observed"

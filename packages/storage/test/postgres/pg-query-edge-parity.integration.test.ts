@@ -2,6 +2,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { CanonicalEventV1, TaskProjectionQueries } from "@harness-anything/kernel";
+import { serializeCanonicalEventUnchecked } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
+import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { compileEntityUpsert } from "@harness-anything/kernel/internal/domain/entity-event-compile.ts";
 import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixture.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
@@ -15,6 +17,7 @@ import { memoryEventStore, reviewEvents } from "../store/task-owned-entity-proje
 import { legacyAgentCommand } from "../store/legacy-agent-declaration.fixture.ts";
 import { withTempStoreAsync } from "../store/helpers.ts";
 import { startManagedPostgresFixture } from "./managed-postgres.fixture.ts";
+import { historicalEventQueryFixtures, historicalEventQueryContract } from "./pg-task-event-parity.fixture.ts";
 
 test("PG query edge inputs retain the SQLite contract", async (t) => {
   const fixture = await startManagedPostgresFixture(),
@@ -49,6 +52,63 @@ test("PG query edge inputs retain the SQLite contract", async (t) => {
         scope,
       );
     };
+
+    await t.test("historical task, schedule, settings and vertical outputs retain accepted fields", async (t) => {
+      const fixture = historicalEventQueryFixtures();
+      for (let end = 1; end <= fixture.events.length; end++) {
+        const events = fixture.events.slice(0, end),
+          head = events.at(-1)!;
+        await t.test(head.schema, async () =>
+          withTempStoreAsync(async (rootDir) => {
+            const sqlite = makeTaskProjection({
+              rootDir,
+              eventStore: {
+                ...memoryEventStore(events, fixture.blobs),
+                readHead: () => ({
+                  revision: head.workspaceRevision,
+                  eventDigest: `sha256:${sha256Text(serializeCanonicalEventUnchecked(head))}`,
+                }),
+              },
+            });
+            sqlite.catchUp();
+            const expected = historicalEventQueryContract(sqlite, events);
+            await replay(events, fixture.blobs);
+            await withPostgresTransaction(pool, async (client) => {
+              await client.query("DELETE FROM ha_events");
+              for (const event of events) {
+                const body = serializeCanonicalEventUnchecked(event).trimEnd();
+                await client.query(
+                  `INSERT INTO ha_events(tenant_id,project_id,repo_id,revision,op_id,event_id,event_type,event_json,event_digest,occurred_at,policy_epoch,readers)
+                 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+                  [
+                    scope.tenantId,
+                    scope.projectId,
+                    repoId,
+                    event.workspaceRevision,
+                    event.opId,
+                    event.eventId,
+                    event.type,
+                    body,
+                    `sha256:${sha256Text(body)}`,
+                    event.occurredAt,
+                    scope.policyEpoch,
+                    scope.readers,
+                  ],
+                );
+              }
+            });
+            const pg = createPgTaskQueryReader({ connectionString, scope, repoId });
+            try {
+              pg.withSession((queries) => assert.deepEqual(historicalEventQueryContract(queries, events), expected));
+            } finally {
+              pg.close();
+              sqlite.close();
+            }
+          }),
+        );
+      }
+      await pool.query("DELETE FROM ha_events");
+    });
 
     await t.test("owned review and execution witnesses include colliding local ids", async () => {
       await withTempStoreAsync(async (rootDir) => {

@@ -2,6 +2,7 @@ import { assertPgProjectionSchemaVersion } from "./pg-projection-schema.ts";
 import type { AgentRuntimeEventV1, CanonicalEventV1 } from "@harness-anything/kernel";
 import { canonicalEventEntityRefs } from "@harness-anything/kernel";
 import { normalizeHistoricalEvent } from "@harness-anything/kernel/internal/domain/historical-event-normalization.ts";
+import { withReviewerQualifiedDispatchKey } from "@harness-anything/kernel/internal/domain/event-shape-migration-event.ts";
 import { isAgentRuntimeEvent } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import {
   privateRuntimeEventTypes,
@@ -15,6 +16,11 @@ import {
 import { isTaskEvent } from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events.ts";
 import { withPostgresTransaction, type PostgresScopeClaims } from "../postgres/transaction.ts";
 import type { PgTaskProjectionSourceOptions, PgTaskProjectionSource, PgProjectionCut } from "./pg-task-source.ts";
+
+/** SQLite event_index keeps accepted bytes unless the registered reviewer-key transform changes a dispatch. */
+export function eventIndexEvent<Event extends CanonicalEventV1>(event: Event): Event {
+  return withReviewerQualifiedDispatchKey(event) === event ? event : (normalizeHistoricalEvent(event) as Event);
+}
 
 export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
   const claims: PostgresScopeClaims = options.scope,
@@ -253,7 +259,7 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
           ]);
         return rows[0]
           ? {
-              event: normalizeHistoricalEvent(JSON.parse(rows[0].event_json)) as CanonicalEventV1,
+              event: eventIndexEvent(JSON.parse(rows[0].event_json) as CanonicalEventV1),
               watermark: cut.watermark,
             }
           : null;
@@ -314,7 +320,7 @@ async function readEventsInTransaction(
       suffix,
       suffixValues,
     )
-  ).map(({ event_json }) => normalizeHistoricalEvent(JSON.parse(event_json)) as CanonicalEventV1);
+  ).map(({ event_json }) => eventIndexEvent(JSON.parse(event_json) as CanonicalEventV1));
 }
 
 interface PgEventRow {

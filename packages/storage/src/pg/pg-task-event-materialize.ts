@@ -3,6 +3,7 @@ import { putPgProjectionValue } from "./pg-projection-values.ts";
 import { derivedRelationRecordsForReplay } from "../projection/relation-entity-projection.ts";
 import { materializePgQueryModels } from "./pg-query-model-materialize.ts";
 import type { PoolClient } from "pg";
+import { normalizeHistoricalEvent } from "@harness-anything/kernel/internal/domain/historical-event-normalization.ts";
 import {
   emptyTaskLifecycleSnapshot,
   initializeTaskLifecycleSnapshot,
@@ -101,7 +102,7 @@ async function materializeProjectionEvent(
   scope: PgProjectionScope,
   input: PgProjectionEventInput,
 ): Promise<PgProjectionMaterializationReceipt> {
-  const event = input.event,
+  const event = normalizeHistoricalEvent(input.event),
     revision = input.sourceRevision ?? event.workspaceRevision,
     tables = new Set<string>();
   let snapshot: TaskLifecycleSnapshot | null = null,
@@ -135,7 +136,7 @@ async function materializeProjectionEvent(
     await storeEntityEvent(client, scope, event, tables, input.readContentBlob);
   }
   await storeEmbeddedRelations(client, scope, event, tables);
-  await materializePgQueryModels(client, scope, input, snapshot);
+  await materializePgQueryModels(client, scope, { ...input, event }, snapshot);
   tables.add("ha_projection_values");
   await updateProjectionMeta(client, scope, revision, input.sourceHeadRevision ?? input.sourceRevision ?? revision);
   return { revision, taskId, snapshot, tables: [...tables].sort() };
