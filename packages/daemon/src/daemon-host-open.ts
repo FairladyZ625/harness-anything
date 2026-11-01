@@ -34,6 +34,7 @@ import { parseAssignmentExpiry } from "@harness-anything/kernel";
 import { readClaimableTasks } from "./task-claimable-read.ts";
 import {
   openNodeAutoClaimLoop,
+  nodeAutoClaimLeaseKey,
   type NodeAutoClaimAssignment,
   type NodeAutoClaimDiagnosticRow,
 } from "./node-auto-claim.ts";
@@ -430,7 +431,13 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
               taskId: task.taskId,
               assignment: task.assignment,
               autoAssignment: relation
-                ? { taskId: task.taskId, expiresAt: expiresAt ?? "", assignedByPersonId, assignedByTeamIds }
+                ? {
+                    taskId: task.taskId,
+                    workspaceRevision: relation.workspaceRevision,
+                    expiresAt: expiresAt ?? "",
+                    assignedByPersonId,
+                    assignedByTeamIds,
+                  }
                 : null,
             };
           }),
@@ -458,17 +465,12 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
                   binding,
                 ),
                 lease = task.snapshot.lease,
-                source = lease?.source;
-              if (
-                lease?.phase === "held" &&
-                source &&
-                typeof source === "object" &&
-                source.kind === "node" &&
-                typeof binding.source === "object" &&
-                binding.source.kind === "node" &&
-                source.nodeId === binding.source.nodeId
-              )
-                active.add(`${repo.repoId}:${association.taskId}`);
+                nodeId =
+                  typeof binding.source === "object" && binding.source.kind === "node" ? binding.source.nodeId : null,
+                key = nodeId
+                  ? nodeAutoClaimLeaseKey({ repoId: repo.repoId, taskId: association.taskId, nodeId, lease })
+                  : null;
+              if (key) active.add(key);
             }
         }
       }

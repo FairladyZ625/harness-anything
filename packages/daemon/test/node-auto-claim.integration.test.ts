@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -9,7 +9,7 @@ import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 import { openNodeAutoClaimLoop } from "../src/node-auto-claim.ts";
-import { writeNodeAutoClaimPolicy } from "../src/node-auto-claim-config.ts";
+import { readNodeAutoClaimDiagnostics, writeNodeAutoClaimPolicy } from "../src/node-auto-claim-config.ts";
 import { fleetNodeClaimFixture, localAuthFixture } from "./fleet-node-claim.fixtures.ts";
 import { eventually } from "./fixtures/runtime-ingress.ts";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
@@ -69,7 +69,7 @@ test("two same-owner nodes auto-claim through one canonical task lease", { timeo
       taskIdOf: (candidate) => candidate.taskId,
       assignmentOf: async (candidate) =>
         candidate.taskId === taskId
-          ? { taskId, expiresAt, assignedByPersonId: "person-one", assignedByTeamIds: [] }
+          ? { taskId, workspaceRevision: 1, expiresAt, assignedByPersonId: "person-one", assignedByTeamIds: [] }
           : null,
       activeTaskKeys: async () => [],
       agentIds: () => ["auto-agent"],
@@ -131,44 +131,107 @@ test(
         codex: { reasoningEffort: "medium" },
         authMode: "subscription",
       },
-      launches: Array<{ readonly taskId: string; finish: () => void }> = [];
+      launches: Array<{
+        readonly taskId: string;
+        readonly ready: Promise<void>;
+        finish: () => Promise<void>;
+        readonly child: ChildProcess;
+      }> = [];
     const vertical = await fixture.host.run("lease-repo", { kind: "vertical-declaration-migrate" }, localAuth);
     assert.equal(vertical.outcome, "applied", JSON.stringify(vertical));
-    t.after(() => {
-      for (const launch of launches) launch.finish();
+    t.after(async () => {
+      await Promise.allSettled(launches.map((launch) => launch.finish()));
     });
     const runtimeLaunch = (
       prepared: Parameters<NonNullable<Parameters<typeof fleetEdgeHostFixture>[2]["runtimeLaunch"]>>[0],
     ) => {
       let output: ((chunk: string) => void) | undefined,
         exit: ((code: number | null) => void) | undefined,
-        finished = false;
-      const taskId = path.basename(prepared.cwd),
+        finishing: Promise<void> | null = null,
+        readyResolve!: () => void,
+        outputReady = false,
+        exitReady = false;
+      const ready = new Promise<void>((resolve) => {
+        readyResolve = resolve;
+      });
+      const markReady = () => {
+        if (outputReady && exitReady) readyResolve();
+      };
+      const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 60_000)"], {
+          detached: true,
+          stdio: ["ignore", "ignore", "ignore"],
+        }),
+        taskId = path.basename(prepared.cwd),
         launch = {
           taskId,
+          ready,
+          child,
           finish: () => {
-            if (finished) return;
-            finished = true;
-            output?.(
-              `${JSON.stringify({ type: "thread.started", thread_id: `auto-claim-${taskId}` })}\n` +
-                `${JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "done" } })}\n` +
-                `${JSON.stringify({ type: "turn.completed" })}\n`,
-            );
-            exit?.(0);
+            if (finishing) return finishing;
+            finishing = (async () => {
+              output?.(
+                `${JSON.stringify({ type: "thread.started", thread_id: `auto-claim-${taskId}` })}\n` +
+                  `${JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "done" } })}\n` +
+                  `${JSON.stringify({ type: "turn.completed" })}\n`,
+              );
+              if (!child.pid) throw new Error("fixture runtime process did not expose a pid");
+              if (child.exitCode === null && child.signalCode === null) {
+                const stopped = new Promise<void>((resolve) => child.once("exit", () => resolve()));
+                child.kill("SIGTERM");
+                await stopped;
+              }
+              exit?.(0);
+            })();
+            return finishing;
           },
         };
+      if (!child.pid) throw new Error("fixture runtime process did not expose a pid");
       launches.push(launch);
       return {
-        pid: 90_200 + launches.length,
+        pid: child.pid,
         onOutput: (listener: (chunk: string) => void) => {
           output = listener;
+          outputReady = true;
+          markReady();
         },
         onErrorOutput: () => undefined,
         onExit: (listener: (code: number | null) => void) => {
           exit = listener;
+          exitReady = true;
+          markReady();
         },
-        terminate: () => launch.finish(),
+        release: () => {
+          if (child.exitCode === null && child.signalCode === null) child.kill("SIGTERM");
+        },
+        terminate: () => {
+          void launch.finish();
+        },
       };
+    };
+    const waitForLaunch = async (edge: Awaited<ReturnType<typeof fleetEdgeHostFixture>>, taskId: string) => {
+      try {
+        await eventually(() => launches.some((candidate) => candidate.taskId === taskId));
+        await launches.find((candidate) => candidate.taskId === taskId)!.ready;
+      } catch (error) {
+        const detail = readNodeAutoClaimDiagnostics(edge.edgeUser).slice(-20),
+          centerTask = await fixture.host.read(
+            "lease-repo",
+            "repo.tasks.runtimeContext.read",
+            { taskId },
+            fixture.owners.auth({ nodeId: "node-one" }),
+          ),
+          centerRuntime = await fixture.host.read(
+            "lease-repo",
+            "repo.agentRuntime.overview",
+            { taskId },
+            fixture.owners.auth({ nodeId: "node-one" }),
+          );
+        throw new Error(
+          `waiting for ${taskId}: ${error instanceof Error ? error.message : String(error)}; ` +
+            `auto-claim=${JSON.stringify(detail)}; lease=${JSON.stringify(centerTask.snapshot.lease)}; ` +
+            `runtime=${JSON.stringify(centerRuntime.sessions)}`,
+        );
+      }
     };
     const createAssignedTask = async (
       taskId: string,
@@ -281,7 +344,7 @@ test(
 
     try {
       await configure([], 2);
-      await eventually(() => launches.some((launch) => launch.taskId === tasks.offline));
+      await waitForLaunch(edge, tasks.offline);
       assert.deepEqual(
         launches.map((launch) => launch.taskId),
         [tasks.offline],
@@ -315,7 +378,7 @@ test(
           : null,
         "node-two",
       );
-      launches.find((launch) => launch.taskId === tasks.offline)!.finish();
+      await launches.find((launch) => launch.taskId === tasks.offline)!.finish();
       await eventually(async () => {
         const status = await edge.host.system(localAuth);
         const autoClaim = status.nodeAutoClaim as {
@@ -323,15 +386,35 @@ test(
         };
         return autoClaim.recent.some((row) => row.taskId === tasks.denied && row.reason === "source_not_allowed");
       });
-      await eventually(async () => {
+      try {
+        await eventually(async () => {
+          const context = await fixture.host.read(
+            "lease-repo",
+            "repo.tasks.runtimeContext.read",
+            { taskId: tasks.offline },
+            fixture.owners.auth({ nodeId: "node-one" }),
+          );
+          return context.snapshot.lease === null || context.snapshot.lease.phase === "released";
+        });
+      } catch (error) {
         const context = await fixture.host.read(
-          "lease-repo",
-          "repo.tasks.runtimeContext.read",
-          { taskId: tasks.offline },
-          fixture.owners.auth({ nodeId: "node-one" }),
+            "lease-repo",
+            "repo.tasks.runtimeContext.read",
+            { taskId: tasks.offline },
+            fixture.owners.auth({ nodeId: "node-one" }),
+          ),
+          overview = await fixture.host.read(
+            "lease-repo",
+            "repo.agentRuntime.overview",
+            { taskId: tasks.offline },
+            fixture.owners.auth({ nodeId: "node-one" }),
+          );
+        throw new Error(
+          `offline lease did not settle: ${error instanceof Error ? error.message : String(error)}; ` +
+            `context=${JSON.stringify(context.snapshot)}; overview=${JSON.stringify(overview.sessions)}; ` +
+            `diagnostics=${JSON.stringify(readNodeAutoClaimDiagnostics(edge.edgeUser).slice(-20))}`,
         );
-        return context.snapshot.lease === null || context.snapshot.lease.phase === "released";
-      });
+      }
       assert.equal(
         launches.some((launch) => launch.taskId === tasks.denied),
         false,
@@ -351,13 +434,23 @@ test(
         return overview.sessions.some((session) => session.activity.outcome !== null);
       });
       await configure(["person-two"], 2);
-      await eventually(() => launches.some((launch) => launch.taskId === tasks.denied));
+      await waitForLaunch(edge, tasks.denied);
       assert.deepEqual(
         launches.map((launch) => launch.taskId),
         [tasks.offline, "task-a-node-runtime", tasks.denied],
         "B starts its own task while A's runtime is still active, without charging A's lease against B",
       );
-      launches.find((launch) => launch.taskId === tasks.denied)!.finish();
+      await launches.find((launch) => launch.taskId === "task-a-node-runtime")!.finish();
+      await eventually(async () => {
+        const overview = await fixture.host.read(
+          "lease-repo",
+          "repo.agentRuntime.overview",
+          { taskId: "task-a-node-runtime" },
+          fixture.owners.auth({ nodeId: "node-one" }),
+        );
+        return overview.sessions.some((session) => session.activity.outcome !== null);
+      });
+      await launches.find((launch) => launch.taskId === tasks.denied)!.finish();
       await eventually(async () => {
         const context = await fixture.host.read(
           "lease-repo",
@@ -379,27 +472,31 @@ test(
 
       await configure(["person-two"], 1);
       await createAssignedTask(tasks.next, "node-one", "node-one");
-      try {
-        await eventually(() => launches.some((launch) => launch.taskId === tasks.next));
-      } catch (error) {
-        const status = await edge.host.system(localAuth);
-        throw new Error(
-          `${error instanceof Error ? error.message : String(error)}; auto-claim=${JSON.stringify(status.nodeAutoClaim)}`,
-        );
-      }
+      await catchUpEdge(edge, "node-one");
+      await configure(["person-two"], 1);
+      await waitForLaunch(edge, tasks.next);
       await createAssignedTask("task-50-waits-for-b-slot", "node-one", "node-one");
+      await catchUpEdge(edge, "node-one");
+      await configure(["person-two"], 1);
       assert.equal(
         launches.some((launch) => launch.taskId === "task-50-waits-for-b-slot"),
         false,
       );
-      launches.find((launch) => launch.taskId === tasks.next)!.finish();
-      await eventually(() => launches.some((launch) => launch.taskId === "task-50-waits-for-b-slot"));
-      const startedOnB = await fixture.host.read(
-        "lease-repo",
-        "repo.tasks.runtimeContext.read",
-        { taskId: "task-50-waits-for-b-slot" },
-        fixture.owners.auth({ nodeId: "node-one" }),
-      );
+      await launches.find((launch) => launch.taskId === tasks.next)!.finish();
+      await waitForLaunch(edge, "task-50-waits-for-b-slot");
+      let startedOnB: Awaited<ReturnType<typeof fixture.host.read>>;
+      try {
+        startedOnB = await fixture.host.read(
+          "lease-repo",
+          "repo.tasks.runtimeContext.read",
+          { taskId: "task-50-waits-for-b-slot" },
+          fixture.owners.auth({ nodeId: "node-one" }),
+        );
+      } catch (error) {
+        throw new Error(`reading queued task lease failed: ${error instanceof Error ? error.message : String(error)}`, {
+          cause: error,
+        });
+      }
       assert.deepEqual(
         {
           phase: startedOnB.snapshot.lease?.phase,
@@ -411,8 +508,22 @@ test(
         { phase: "held", nodeId: "node-one" },
         "Fleet terminal settlement released B's first lease and admitted the next assigned task",
       );
+      await launches.find((launch) => launch.taskId === "task-50-waits-for-b-slot")!.finish();
+      await eventually(async () => {
+        const overview = await fixture.host.read(
+          "lease-repo",
+          "repo.agentRuntime.overview",
+          { taskId: "task-50-waits-for-b-slot" },
+          fixture.owners.auth({ nodeId: "node-one" }),
+        );
+        return overview.sessions.some((session) => session.activity.outcome !== null);
+      });
+      await catchUpEdge(edge, "node-one");
+      await Promise.allSettled(launches.map((launch) => launch.finish()));
     } finally {
-      for (const launch of launches) launch.finish();
+      await Promise.allSettled(launches.map((launch) => launch.finish()));
+      await edge.host.close();
+      await activeEdge.host.close();
     }
   },
 );
