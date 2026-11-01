@@ -125,6 +125,104 @@ test("stalled settlement never enters the provider fallback chain", async () => 
   }
 });
 
+test("a late provider exit after cancellation does not publish a second terminal", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-cancel-settlement-once-"));
+  try {
+    const runtime = tasklessSettlementRuntime(rootDir, "worker stopped"),
+      packageRoot = path.join(rootDir, "harness", "tasks", "task-owner");
+    mkdirSync(path.join(packageRoot, "artifacts", "rulings"), { recursive: true });
+    writeFileSync(
+      path.join(packageRoot, "artifacts", "rulings", `${runtime.dispatchId}.md`),
+      `---\nruling: awaiting\nquestion: ${"Should the worker stop for the owner?"}\noptions:\n  - Wait\n---\n`,
+    );
+    Object.assign(runtime, {
+      cancelRequested: true,
+      cancelOpId: "runtime-cancel:escalation",
+      cwd: rootDir,
+      task: { taskId: "task-owner", executionId: "execution-owner", leaseVersion: 1 },
+    });
+    const published: string[] = [],
+      outcomes: Record<string, unknown>[] = [],
+      context = {
+        exiting: new Set<string>(),
+        processes: new Map([[runtime.runtimeSessionId, runtime]]),
+        input: {
+          repoId: "canonical",
+          rootDir,
+          now: () => "2026-10-24T00:05:01.000Z",
+          stream: { publish: () => ({}) },
+          remote: {
+            archive: async () => ({ outcome: "applied" }),
+            taskContext: async () => ({ packageRoot }),
+          },
+        },
+        resultMediaType: "text/markdown",
+        runtimeResultText: () => "worker stopped",
+        markProtocolError: () => undefined,
+        publishRuntimeEvent: async (type: string, payload: Record<string, unknown> = {}) => {
+          published.push(type);
+          if (type === "runtime_session_outcome_observed") outcomes.push(payload);
+          return {};
+        },
+        settleFallback: async () => undefined,
+      } as unknown as RuntimeSpawnerContext;
+
+    await Promise.all([publishExit(context, runtime, null), publishExit(context, runtime, null)]);
+
+    assert.deepEqual(published, ["runtime_session_exited", "runtime_session_outcome_observed"]);
+    assert.equal(outcomes[0]?.outcome, "stopped");
+    assert.equal((outcomes[0]?.attempt as Record<string, unknown>)?.classification, "awaiting_ruling");
+    assert.equal(context.exiting.size, 0);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a rejected in-flight exit settlement can be retried by the next provider callback", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-settlement-retry-"));
+  try {
+    const runtime = tasklessSettlementRuntime(rootDir, "worker result"),
+      published: string[] = [];
+    let failSettlementOnce = true;
+    const context = {
+      exiting: new Set<string>(),
+      processes: new Map([[runtime.runtimeSessionId, runtime]]),
+      input: {
+        repoId: "canonical",
+        rootDir,
+        now: () => "2026-10-24T00:05:01.000Z",
+        reclaimRuntimeTempDirectory: () => {
+          if (failSettlementOnce) {
+            failSettlementOnce = false;
+            throw new Error("simulated interruption before terminal persistence");
+          }
+          return null;
+        },
+        stream: { publish: () => ({}) },
+        remote: { archive: async () => ({ outcome: "applied" }) },
+      },
+      resultMediaType: "text/markdown",
+      runtimeResultText: () => "worker result",
+      markProtocolError: () => undefined,
+      publishRuntimeEvent: async (type: string) => {
+        published.push(type);
+        return {};
+      },
+      settleFallback: async () => undefined,
+    } as unknown as RuntimeSpawnerContext;
+
+    await assert.rejects(publishExit(context, runtime, 0), /simulated interruption/u);
+    assert.equal(runtime.exitSettlement, undefined, "a rejected single-flight slot is cleared for retry");
+    assert.equal(context.exiting.size, 0, "an interrupted settlement releases its in-progress guard");
+
+    await publishExit(context, runtime, 0);
+    assert.deepEqual(published, ["runtime_session_exited", "runtime_session_outcome_observed"]);
+    assert.ok(runtime.exitSettlement, "the completed terminal promise absorbs late callbacks");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("the idle watchdog reaches stalled settlement and dispatch_stalled after the frozen deadline", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-stalled-watchdog-"));
   const originalNow = Date.now;

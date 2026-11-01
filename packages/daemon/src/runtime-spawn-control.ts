@@ -72,6 +72,23 @@ export async function cancelRuntime(
     // cancellation that happens to race with a ruling artifact.
     active.cancelOpId = escalation ? `${opId}:escalation` : opId;
     active.cancelRequested = true;
+    if (escalation) {
+      // The worker may be synchronously waiting for this command's response. Returning only
+      // after terminateTree would wait for that CLI child, which waits for us: stop the provider
+      // now, let the response flush, and finish the full tree cleanup in the next check phase.
+      active.process.terminate();
+      setImmediate(() => {
+        const terminateTree = active.process.terminateTree;
+        if (terminateTree)
+          void terminateTree().catch((error: unknown) =>
+            console.error("[runtime-escalation] descendant cleanup failed", error),
+          );
+      });
+      void consumeDurableOutput(context, active)
+        .then(() => context.publishExit(active, null))
+        .catch((error: unknown) => console.error("[runtime-escalation] settlement failed", error));
+      return context.controlReceipt(opId, runtimeSessionId, "requested");
+    }
     if (active.process.terminateTree) await active.process.terminateTree();
     else active.process.terminate();
     // Cancel holds the write queue: lines flushed during termination drain into work queued behind

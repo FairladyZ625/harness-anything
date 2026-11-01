@@ -43,24 +43,34 @@ export async function publishExit(
   code: number | null,
   resumePublishedExit = false,
 ): Promise<void> {
+  if (active.exitSettlement) return active.exitSettlement;
   if (context.exiting.has(active.runtimeSessionId)) return;
-  context.exiting.add(active.runtimeSessionId);
-  disposeActiveRuntimeObservations(active);
-  // Every terminal path — success, failure, cancellation, and the daemon-restart loss
-  // settlement — flows through here, so the run's own temp directory goes with it. A
-  // filesystem refusal (a dying provider can still hold a lock) is recorded below in the
-  // terminal body; the next daemon start's settled-session sweep is the retry.
-  const tempReclaimFailure =
-    context.input.reclaimRuntimeTempDirectory?.(active.instanceId, active.runtimeSessionId) ?? null;
-  if (tempReclaimFailure)
-    console.error(
-      `[runtime-temp] ${active.instanceId}/${active.runtimeSessionId} could not be reclaimed: ${tempReclaimFailure.message}`,
-    );
-  const cancelled = active.cancelRequested,
-    cancelBinding = cancelled && active.cancelBinding ? active.cancelBinding : active.binding,
-    terminalBinding = runtimeSessionBinding(active.binding, active.runtimeSessionId),
-    squadLeaderControl = active.squadId !== null && active.delegatedBy === null;
+  let resolveSettlement!: () => void, rejectSettlement!: (error: unknown) => void;
+  const settlement = new Promise<void>((resolve, reject) => {
+    resolveSettlement = resolve;
+    rejectSettlement = reject;
+  });
+  void settlement.catch(() => undefined);
+  active.exitSettlement = settlement;
+  let settlementFailed = false;
   try {
+    context.exiting.add(active.runtimeSessionId);
+    disposeActiveRuntimeObservations(active);
+    // Every terminal path — success, failure, cancellation, and the daemon-restart loss
+    // settlement — flows through here, so the run's own temp directory goes with it. A
+    // filesystem refusal (a dying provider can still hold a lock) is recorded below in the
+    // terminal body; the next daemon start's settled-session sweep is the retry.
+    const tempReclaimFailure =
+      context.input.reclaimRuntimeTempDirectory?.(active.instanceId, active.runtimeSessionId) ?? null;
+    if (tempReclaimFailure)
+      console.error(
+        `[runtime-temp] ${active.instanceId}/${active.runtimeSessionId} could not be reclaimed: ${tempReclaimFailure.message}`,
+      );
+    const escalationStop = active.cancelRequested && active.cancelOpId?.endsWith(":escalation") === true,
+      cancelled = active.cancelRequested && !escalationStop,
+      cancelBinding = cancelled && active.cancelBinding ? active.cancelBinding : active.binding,
+      terminalBinding = runtimeSessionBinding(active.binding, active.runtimeSessionId),
+      squadLeaderControl = active.squadId !== null && active.delegatedBy === null;
     const persistedTerminal = readDispatchStream(context.input.rootDir, active.dispatchId)?.terminalOutcome;
     // A non-failed terminal snapshot follows successful lease settlement and can replay
     // while the replica still shows an earlier liveness. Failed snapshots can include a
@@ -556,8 +566,14 @@ export async function publishExit(
     };
     active.stream.appendTerminalOutcome(terminalOutcome, endedAt);
     await publishTerminalOutcome(context, active, terminalBinding, terminalOutcome);
+  } catch (error) {
+    settlementFailed = true;
+    if (active.exitSettlement === settlement) active.exitSettlement = undefined;
+    rejectSettlement(error);
+    throw error;
   } finally {
     context.exiting.delete(active.runtimeSessionId);
+    if (!settlementFailed) resolveSettlement();
   }
 }
 
