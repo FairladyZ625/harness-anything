@@ -25,7 +25,6 @@ import {
   provisionPolicyTestRepository,
   policyTestCenter,
 } from "./keycloak-policy.fixtures.ts";
-import { signInAt } from "./keycloak.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { openRepoCell as openProductRepoCell } from "../src/repo-cell-open.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
@@ -387,10 +386,10 @@ test("bootstrap binds the ledger repository branch independently of the project 
 
 test("bootstrap validates local identity before repository initialization", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-bootstrap-identity-")), rootDir = path.join(parent, "repo"), userRoot = path.join(parent, "user"), host = await openDaemonHost({ daemonId: "bootstrap-identity", userRoot });
-  try { await assert.rejects(host.bootstrap({ rootDir, repoId: "identity", personId: "owner", displayName: "Owner" }, { transportKind: "unix-socket" }), hasCode("rbac_not_configured")); assert.equal(existsSync(path.join(rootDir, ".git")), false);
-    // With the authority installed the same request proceeds to the local-identity gate: no socket owner boundary still refuses before any write.
-    signInPolicyTestUser(userRoot, "owner", ["identity"], "admin");
-    signInAt(userRoot, "owner", ["access-admin"], "token-owner", rootDir);
+  const auth = { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: process.getuid?.() ?? 0,
+    source: "unix-socket-filesystem-owner-boundary" } } as const;
+  try { await assert.rejects(host.bootstrap({ rootDir, repoId: "identity", personId: "owner", displayName: "Owner" }, auth), hasCode("access_person_unknown")); assert.equal(existsSync(path.join(rootDir, ".git")), false);
+    // Without the local socket owner boundary, bootstrap refuses before any repository write.
     await assert.rejects(host.bootstrap({ rootDir, repoId: "identity", personId: "owner", displayName: "Owner" }, { transportKind: "unix-socket" }), hasCode("bootstrap_identity_unavailable")); assert.equal(existsSync(path.join(rootDir, ".git")), false); }
   finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });

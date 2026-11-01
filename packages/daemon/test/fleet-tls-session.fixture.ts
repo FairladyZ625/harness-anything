@@ -108,12 +108,12 @@ export async function fleetFixture(
   );
   const key = readFileSync(keyFile),
     cert = readFileSync(certFile),
-    host = await openDaemonHost({ daemonId: "fleet-center", userRoot }),
     owners = await fleetNodeOwners({
       userRoot,
       owners: { "node-one": "person-owner", "node-two": "person-owner", "node-slow": "person-owner" },
       repoIds: ["fleet-repo"],
-    });
+    }),
+    host = await openDaemonHost({ daemonId: "fleet-center", userRoot });
   t.after(async () => {
     try {
       await owned.reclaim();

@@ -99,5 +99,5 @@ test("G34 fails when the declared CLI entrypoint is unresolved", async () => {
 });
 
 test("G34 fails when the identity provider cannot initialize the real write path", async () => {
-  await assert.rejects(evaluateWith({ STUB_IDENTITY_REJECTED: "1" }), /identity bootstrap --mode failed/u);
+  await assert.rejects(evaluateWith({ STUB_IDENTITY_REJECTED: "1" }), /identity bootstrap --operation failed/u);
 });

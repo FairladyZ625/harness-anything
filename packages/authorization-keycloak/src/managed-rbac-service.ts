@@ -319,6 +319,11 @@ export class ManagedRbacService {
 
   async health(): Promise<Record<string, unknown>> {
     const config = this.#readConfig();
+    if (!config.url)
+      throw managedRbacError(
+        "rbac_not_configured",
+        "This daemon has no configured Keycloak endpoint; select a repository with an identity authority or configure one.",
+      );
     const response = await this.#ports.fetch(`${config.url}/realms/${encodeURIComponent(config.realm)}`);
     return {
       ok: response.ok,
@@ -914,18 +919,30 @@ export function managedRbacSessionStore(
       .update(JSON.stringify([issuer, realm]))
       .digest("hex"),
     directory = path.join(root, "oidc-sessions"),
-    file = path.join(directory, `${key}.json`);
-  rmSync(path.join(root, "oidc-session.json"), { force: true });
+    file = path.join(directory, `${key}.json`),
+    legacyFile = path.join(root, "oidc-session.json");
   return {
-    read: () => (existsSync(file) ? readFileSync(file, "utf8") : undefined),
+    // A pre-keyed edge kept one session at this path. Read it until the first
+    // successful keyed write so reopening an old edge cannot silently sign it
+    // out. The issuer is validated by OIDC session use after this read.
+    read: () =>
+      existsSync(file)
+        ? readFileSync(file, "utf8")
+        : existsSync(legacyFile)
+          ? readFileSync(legacyFile, "utf8")
+          : undefined,
     write: (value) => {
       mkdirSync(directory, { recursive: true, mode: 0o700 });
       const temporary = `${file}.tmp`;
       writeFileSync(temporary, value, { mode: 0o600 });
       renameSync(temporary, file);
       chmodSync(file, 0o600);
+      rmSync(legacyFile, { force: true });
     },
-    delete: () => rmSync(file, { force: true }),
+    delete: () => {
+      rmSync(file, { force: true });
+      rmSync(legacyFile, { force: true });
+    },
     retireBootstrap: () => rmSync(path.join(root, "bootstrap-admin-password"), { force: true }),
   };
 }

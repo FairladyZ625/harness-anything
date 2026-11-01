@@ -19,7 +19,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { signInAt, signOutAt, spawnKeycloak } from "../../daemon/test/keycloak.fixtures.ts";
+import { keycloakRealm, keycloakUrl, signInAt, signOutAt, spawnKeycloak } from "../../daemon/test/keycloak.fixtures.ts";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 import { realizedTaskPlan, sizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
@@ -706,6 +706,15 @@ function setup(): {
   mkdirSync(tls, { recursive: true });
   mkdirSync(centerUser);
   mkdirSync(edgeUser);
+  for (const userRoot of [centerUser, edgeUser]) {
+    const rbacRoot = path.join(userRoot, "rbac");
+    mkdirSync(rbacRoot);
+    writeFileSync(
+      path.join(rbacRoot, "config.json"),
+      JSON.stringify({ schema: "harness-managed-rbac/v1", mode: "external", url: keycloakUrl, realm: keycloakRealm }),
+      "utf8",
+    );
+  }
   writeFileSync(path.join(repo, "harness", "harness.yaml"), "layout:\n  authoredRoot: harness\n", "utf8");
   writeFileSync(path.join(edgeRepo, "harness", "harness.yaml"), "layout:\n  authoredRoot: harness\n", "utf8");
   git(repo, "init", "--quiet");

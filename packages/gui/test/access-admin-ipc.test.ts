@@ -236,16 +236,23 @@ test("the handler returns the daemon's answer as it is, refusals and conflicts i
     expectedVersion: "a",
     currentVersion: "b",
   };
+  const pluginRequired = {
+    ok: false,
+    command: "edge-join",
+    code: "identity_plugin_required",
+    rejectionExplanation:
+      "需要安装身份插件（Keycloak）后使用协作功能。请参阅 docs-release/builtin-identity-provider.md#keycloak-plugin。",
+  };
   let handler!: (event: IpcMainInvokeEvent, input?: unknown) => Promise<unknown>;
   registerAccessAdminIpc({ handle: (_channel, listener) => (handler = listener) }, policy, {
-    daemonRequest: async () => conflict,
+    daemonRequest: async (params) => (params.operation === "edge-join-create" ? pluginRequired : conflict),
     operationId: () => "operation",
   });
   assert.deepEqual(
     await handler(event, { operation: "group-delete", groupId: "release", expectedVersion: "a" }),
     conflict,
   );
-  // An invitation refusal is a refusal too: it crosses unchanged, nothing is encoded onto it.
+  // A collaboration refusal is a refusal too: it crosses unchanged, nothing is encoded onto it.
   assert.deepEqual(
     await handler(event, {
       operation: "edge-join-create",
@@ -256,7 +263,7 @@ test("the handler returns the daemon's answer as it is, refusals and conflicts i
       repoIds: ["repo-a"],
       groupIds: ["viewer"],
     }),
-    conflict,
+    pluginRequired,
   );
 });
 

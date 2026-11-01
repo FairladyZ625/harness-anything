@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskProjectionReader } from "@harness-anything/storage";
@@ -92,6 +92,11 @@ test(
       mode: "remote-edge",
       createConvenienceLinks: false,
     });
+    mkdirSync(path.join(edgeUser, "rbac"), { recursive: true });
+    writeFileSync(
+      path.join(edgeUser, "rbac", "config.json"),
+      JSON.stringify({ schema: "harness-managed-rbac/v1", mode: "external" }),
+    );
     managedRbacSessionStore(edgeUser, `${f.owners.url}/realms/harness`, "harness").write(
       JSON.stringify({
         schema: "harness-oidc-session/v3",
@@ -105,7 +110,12 @@ test(
         authority: { url: f.owners.url, realm: "harness" },
       }),
     );
-    assert.equal(existsSync(path.join(edgeUser, "rbac/config.json")), false);
+    const providerConfig = JSON.parse(readFileSync(path.join(edgeUser, "rbac/config.json"), "utf8")) as {
+      readonly mode: string;
+      readonly url?: string;
+    };
+    assert.equal(providerConfig.mode, "external");
+    assert.equal(providerConfig.url, undefined, "the edge learns its endpoint from the center invitation");
     assert.equal(existsSync(path.join(edgeUser, "rbac/center-client-secret")), false);
     f.owners.keycloak.interactiveSession("person-one", "node-one", f.owners.url);
     const config = {

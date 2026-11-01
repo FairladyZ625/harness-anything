@@ -7,14 +7,18 @@ import test from "node:test";
 import { managedRbacSessionStore } from "@harness-anything/authorization-keycloak/managed-rbac-service";
 import { createIdentitySession } from "../src/authorization-provider.ts";
 
+function selectExternalProvider(root: string, config: Readonly<Record<string, string>> = {}): void {
+  mkdirSync(path.join(root, "rbac"), { recursive: true });
+  writeFileSync(
+    path.join(root, "rbac", "config.json"),
+    JSON.stringify({ schema: "harness-managed-rbac/v1", mode: "external", ...config }),
+  );
+}
+
 test("Device login without verification_uri_complete keeps secrets private and binds the person after pending/slow-down", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-device-session-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  mkdirSync(path.join(root, "rbac"));
-  writeFileSync(
-    path.join(root, "rbac/config.json"),
-    JSON.stringify({ url: "http://127.0.0.1:8080", realm: "harness" }),
-  );
+  selectExternalProvider(root, { url: "http://127.0.0.1:8080", realm: "harness" });
   const calls: Request[] = [];
   let now = 0,
     polls = 0;
@@ -83,11 +87,7 @@ test("Device login without verification_uri_complete keeps secrets private and b
 test("invited login authority supplies a request-scoped TLS CA", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-device-ca-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  mkdirSync(path.join(root, "rbac"));
-  writeFileSync(
-    path.join(root, "rbac/config.json"),
-    JSON.stringify({ url: "http://127.0.0.1:8080", realm: "harness" }),
-  );
+  selectExternalProvider(root, { url: "http://127.0.0.1:8080", realm: "harness" });
   let dispatcher: unknown,
     userInfoDispatcher: unknown,
     bindingDispatcher: unknown,
@@ -160,6 +160,7 @@ test("invited login authority supplies a request-scoped TLS CA", async (t) => {
 test("SSH device authorization uses the loopback login endpoint and hands the browser to the canonical center URL", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-device-ssh-browser-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
+  selectExternalProvider(root);
   let now = 0;
   const requests: string[] = [],
     dispatchers: unknown[] = [],
@@ -207,11 +208,7 @@ test("SSH device authorization uses the loopback login endpoint and hands the br
 test("device login survives transient transport loss and replaces a code invalidated by Keycloak restart", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-device-restart-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  mkdirSync(path.join(root, "rbac"));
-  writeFileSync(
-    path.join(root, "rbac/config.json"),
-    JSON.stringify({ url: "http://127.0.0.1:8080", realm: "harness" }),
-  );
+  selectExternalProvider(root, { url: "http://127.0.0.1:8080", realm: "harness" });
   let now = 0,
     deviceRequests = 0,
     tokenRequests = 0;
@@ -290,11 +287,11 @@ test("device authorization signs in as harness-gui even when the rbac config nam
   const root = mkdtempSync(path.join(tmpdir(), "ha-device-login-client-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   // A managed install writes the resource server into config.clientId; the login client stays harness-gui.
-  mkdirSync(path.join(root, "rbac"));
-  writeFileSync(
-    path.join(root, "rbac/config.json"),
-    JSON.stringify({ url: "http://127.0.0.1:8080", realm: "harness", clientId: "harness-center" }),
-  );
+  selectExternalProvider(root, {
+    url: "http://127.0.0.1:8080",
+    realm: "harness",
+    clientId: "harness-center",
+  });
   let deviceRequest: URLSearchParams | undefined;
   const service = createIdentitySession(root, {
     now: () => 0,
@@ -321,6 +318,7 @@ test("device authorization signs in as harness-gui even when the rbac config nam
 test("first device authorization reports an unreachable authority with the same code as polling", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-device-begin-transport-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
+  selectExternalProvider(root);
   const cause = Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:8443"), { code: "ECONNREFUSED" });
   const service = createIdentitySession(root, {
     now: () => 0,

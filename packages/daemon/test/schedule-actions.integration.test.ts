@@ -607,17 +607,17 @@ test(
         models: [definition.model],
         authMode: "subscription",
       });
+      owners = await fleetNodeOwners({
+        userRoot,
+        owners: { "edge-one": "operator-one", "edge-two": "operator-two" },
+        repoIds: [repoId],
+      });
       host = await openDaemonHost({
         daemonId: "schedule-center",
         userRoot,
         runtimeDiscover: () => [runtimeInstallation],
       });
       await host.attachmentsSettled();
-      owners = await fleetNodeOwners({
-        userRoot,
-        owners: { "edge-one": "operator-one", "edge-two": "operator-two" },
-        repoIds: [repoId],
-      });
       const nodeOwner = owners.nodeOwner,
         nodeAuth = owners.auth(subjects[0]!);
       assert.equal(

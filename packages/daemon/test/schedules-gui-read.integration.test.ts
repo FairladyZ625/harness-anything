@@ -363,13 +363,13 @@ test(
         userRoot,
         createConvenienceLinks: false,
       });
-      host = await openDaemonHost({ daemonId: "schedules-gui-center", userRoot });
-      await host.attachmentsSettled();
       owners = await fleetNodeOwners({
         userRoot,
         owners: { "edge-one": "operator" },
         repoIds: ["schedules-gui-center"],
       });
+      host = await openDaemonHost({ daemonId: "schedules-gui-center", userRoot });
+      await host.attachmentsSettled();
       const nodeAuth = owners.auth({ nodeId: "edge-one" });
       assert.equal(
         (

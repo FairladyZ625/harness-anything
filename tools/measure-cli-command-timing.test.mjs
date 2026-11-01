@@ -12,6 +12,7 @@ import { prepareFixtureIdentity } from "./measure-cli-command-timing.mjs";
 // administrator once, then sign in. Any skipped step is the failure the lane hit.
 test("timing fixture installs identity through the CLI bootstrap before init", async () => {
   const repo = mkdtempSync(path.join(tmpdir(), "ha-cli-timing-identity-")),
+    userRoot = path.join(repo, "user"),
     calls = [],
     receipt = (body) => ({ stdout: `${JSON.stringify(body)}\n`, stderr: "", status: body.ok ? 0 : 1 });
   let administrators = 0;
@@ -32,13 +33,11 @@ test("timing fixture installs identity through the CLI bootstrap before init", a
   };
   let identity;
   try {
-    identity = await prepareFixtureIdentity({ repo }, run);
-    assert.equal(calls.length, 5);
+    identity = await prepareFixtureIdentity({ repo, userRoot }, run);
+    assert.equal(calls.length, 3);
     assert.deepEqual(
       calls.map(({ argv }) => argv.slice(1, 4)),
       [
-        ["bootstrap", "--mode", "external"],
-        ["bootstrap", "--mode", "external"],
         ["bootstrap", "--operation", "bootstrap-admin"],
         ["bootstrap", "--operation", "bootstrap-admin"],
         ["bootstrap", "--operation", "login"],
@@ -52,8 +51,10 @@ test("timing fixture installs identity through the CLI bootstrap before init", a
       calls.every(({ timing }) => timing === false),
       true,
     );
-    assert.equal(typeof calls[0].input, "string");
-    assert.notEqual(calls[0].input, calls[1].input);
+    assert.equal(
+      calls.every(({ input }) => input === undefined),
+      true,
+    );
   } finally {
     await identity?.close();
     rmSync(repo, { recursive: true, force: true, maxRetries: 5 });

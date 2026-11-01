@@ -637,6 +637,7 @@ async function openFixture(
 ) {
   const parent = mkdtempSync(path.join(tmpdir(), `ha-squad-e2e-${slug}-`)),
     root = path.join(parent, "repo"),
+    userRoot = path.join(parent, "user"),
     repoId = workspaceId(`squad-e2e-${slug}`),
     taskId = `task-squad-e2e-${slug}`,
     providers: Provider[] = [];
@@ -658,6 +659,13 @@ async function openFixture(
   writeFileSync(path.join(root, ".gitignore"), "harness/\n.harness/\n.worktrees/\n");
   git(root, "add", ".gitignore");
   git(root, "commit", "-qm", "test: fixture boundaries");
+  // Squad orchestration exercises the external identity path. The product default remains
+  // builtin when this selector is absent; this multi-process fixture must opt into Keycloak.
+  mkdirSync(path.join(userRoot, "rbac"), { recursive: true });
+  writeFileSync(
+    path.join(userRoot, "rbac", "config.json"),
+    JSON.stringify({ schema: "harness-managed-rbac/v1", mode: "external" }),
+  );
   const runtimeLaunch: RuntimeLauncher = (prepared, persistence) => {
     const child = spawn(process.execPath, ["-e", "process.stdin.resume()"], {
       detached: true,
@@ -698,7 +706,7 @@ async function openFixture(
       rootDir: canonicalRoot(root),
       ownerId: `squad-${slug}`,
       runtimeDaemonRoute: {
-        userRoot: path.join(parent, "user"),
+        userRoot,
         daemonId: "test",
         endpoint: path.join(parent, "socket"),
       },
