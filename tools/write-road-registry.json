@@ -142,6 +142,7 @@
     "packages/kernel/src/daemon/registry.ts",
     "packages/kernel/src/local/local-layout-file-system.ts",
     "packages/storage/src/projection/rebuildable-task-projection-database.ts",
+    "packages/storage/src/pg/pg-text-search.ts",
     "packages/storage/src/store/local-version-control-system.ts",
     "packages/storage/src/store/sqlite-event-store.ts",
     "packages/preset/src/preset-installation.ts",

@@ -81,6 +81,7 @@ export {
   applyTransition,
   compileExecutionAnnotation,
   compileExecutionExecutorDeclaration,
+  initializeTaskLifecycleSnapshot,
   reduceTaskEvent,
   validateTransition,
 } from "./task-lifecycle-replay.ts";

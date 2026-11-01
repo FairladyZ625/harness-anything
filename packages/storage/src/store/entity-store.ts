@@ -32,6 +32,8 @@ export interface StoredEntity<T = unknown> {
   readonly value: T;
   readonly documentPath: string | null;
   readonly documentSha256: string | null;
+  /** Backend-specific declaration metadata retained outside the canonical document. */
+  readonly extensionMetadata?: Readonly<Record<string, unknown>>;
   readonly workspaceRevision: number;
 }
 

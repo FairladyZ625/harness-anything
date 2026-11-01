@@ -7,6 +7,11 @@ export interface PostgresScopeClaims {
   readonly policyEpoch: number;
 }
 
+export interface PostgresTransactionOptions {
+  /** Keep every statement in a read transaction on one committed snapshot. */
+  readonly isolationLevel?: "repeatable read";
+}
+
 export function createPostgresPool(connectionString: string, options: Omit<PoolConfig, "connectionString"> = {}): Pool {
   return new Pool({ ...options, connectionString });
 }
@@ -19,6 +24,7 @@ export async function withPostgresTransaction<T>(
   pool: Pool,
   operation: (client: PoolClient) => Promise<T>,
   claims?: PostgresScopeClaims,
+  options?: PostgresTransactionOptions,
 ): Promise<T> {
   const client = await pool.connect();
   let released = false,
@@ -30,7 +36,9 @@ export async function withPostgresTransaction<T>(
   };
   client.on("error", onConnectionError);
   try {
-    await client.query("BEGIN");
+    await client.query(
+      options?.isolationLevel ? `BEGIN ISOLATION LEVEL ${options.isolationLevel.toUpperCase()}` : "BEGIN",
+    );
     if (claims) {
       assertClaims(claims);
       const names = POSTGRES_SCOPE_SCHEMA_CONTRACT.claims;

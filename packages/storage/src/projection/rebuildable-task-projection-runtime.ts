@@ -263,7 +263,7 @@ function lifecycleRelation({
   return { relationId, sourceRef, targetRef, relationType, state, strength, freshness };
 }
 
-function effectiveLeaseValue(current: LeaseV1 | null, now: string): LeaseV1 | null {
+export function effectiveLeaseValue(current: LeaseV1 | null, now: string): LeaseV1 | null {
   if (current === null || current.phase === "released") return current;
   if (current.expiresAt > now) return current;
   return current.phase === "reserving" ? null : checkedLease({ ...current, phase: "orphaned" }, true);
@@ -341,10 +341,7 @@ export function changeLease(
 }
 
 export function effectiveLease(db: DatabaseSync, taskId: string, now: string): LeaseV1 | null {
-  const current = storedLease(db, taskId);
-  if (current === null || current.phase === "released") return current;
-  if (current.expiresAt > now) return current;
-  return current.phase === "reserving" ? null : checkedLease({ ...current, phase: "orphaned" }, true);
+  return effectiveLeaseValue(storedLease(db, taskId), now);
 }
 
 export function storedLease(db: DatabaseSync, taskId: string): LeaseV1 | null {
