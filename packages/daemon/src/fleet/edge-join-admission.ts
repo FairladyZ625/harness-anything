@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { coded } from "../agent-runtime-contract.ts";
-import type { IdentitySessionPort } from "@harness-anything/kernel";
+import type { IdentitySessionPort, StoredSession } from "@harness-anything/kernel";
 import { createEdgeJoinStore, type EdgeJoinRecord } from "./edge-join.ts";
 
 export function restoreEdgeJoinStore(
@@ -31,26 +31,35 @@ export function restoreEdgeJoinStore(
 export async function admitEdgeJoin(input: {
   readonly joinId: string;
   readonly inviteToken: string;
-  readonly accessToken: string;
+  readonly accessToken?: string;
   readonly oidc: IdentitySessionPort;
   readonly edgeJoins: ReturnType<typeof createEdgeJoinStore>;
   readonly validateSnapshot: (record: EdgeJoinRecord) => Promise<void>;
   readonly registerNode: (record: EdgeJoinRecord, nodeId: string) => Promise<string>;
+  readonly issueInvitationSession?: (personId: string) => Promise<StoredSession>;
 }): Promise<{
   readonly joinId: string;
   readonly nodeId: string;
   readonly personId: string;
   readonly credential: string;
   readonly repoIds: readonly string[];
+  readonly accessToken?: string;
+  readonly sessionExpiresAt?: number;
 }> {
   const initial = input.edgeJoins.assertConsumable(input.joinId, input.inviteToken),
     nodeId = randomUUID(),
-    auth = await input.oidc.bind({
-      transportKind: "fleet-tls",
-      humanAccessToken: input.accessToken,
-      fleetExpectedAzps: [{ clientId: initial.loginClientId, personId: initial.personId }],
-      nodePrincipal: { nodeId, personId: initial.personId },
-    });
+    invitationSession =
+      input.accessToken === undefined && input.issueInvitationSession
+        ? await input.issueInvitationSession(initial.personId)
+        : undefined,
+    accessToken = input.accessToken ?? invitationSession?.accessToken;
+  if (!accessToken) throw coded("authentication_required", "Sign in on this device before using Fleet.");
+  const auth = await input.oidc.bind({
+    transportKind: "fleet-tls",
+    humanAccessToken: accessToken,
+    fleetExpectedAzps: [{ clientId: initial.loginClientId, personId: initial.personId }],
+    nodePrincipal: { nodeId, personId: initial.personId },
+  });
   if (auth.oidcPrincipal?.personId !== initial.personId)
     throw coded("person_mismatch", "The signed-in person does not match the invitation.");
   return input.oidc.serialize(async () => {
@@ -63,6 +72,18 @@ export async function admitEdgeJoin(input: {
     input.edgeJoins.assertConsumable(input.joinId, input.inviteToken);
     const credential = await input.registerNode(record, nodeId);
     input.edgeJoins.consume(input.joinId, nodeId);
-    return { joinId: record.joinId, nodeId, personId: record.personId, credential, repoIds: record.repoIds };
+    return {
+      joinId: record.joinId,
+      nodeId,
+      personId: record.personId,
+      credential,
+      repoIds: record.repoIds,
+      ...(invitationSession
+        ? {
+            accessToken: invitationSession.accessToken,
+            sessionExpiresAt: invitationSession.sessionExpiresAt ?? undefined,
+          }
+        : {}),
+    };
   });
 }

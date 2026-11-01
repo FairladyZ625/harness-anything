@@ -740,7 +740,7 @@ export async function requestFleetEdgeJoinPinned(options: {
   readonly servername?: string;
   readonly joinId: string;
   readonly inviteToken: string;
-  readonly accessToken: string;
+  readonly accessToken?: string;
   readonly spkiSha256: string;
   readonly timeoutMs?: number;
 }): Promise<Extract<FleetFrameV1, { schema: "fleet.edge.join.result/v1" }> & { readonly certificate: string }> {

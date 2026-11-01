@@ -37,6 +37,30 @@
       "decision": null,
       "errors": "unreadable worker-side artifacts/rulings/<dispatch-id>.md candidate",
       "reason": "The same read, per candidate path on the worker's own filesystem (worktree ledger mirror, package root, canonical package). A missing or unreadable candidate just moves to the next one, and all-missing keeps the dispatch's ordinary classification; the file is an advisory classification input only. Task-authorized entry, 2026-10-21."
+    },
+    "packages/authorization-builtin/src/builtin-session-service.ts#serialize": {
+      "task": "task_b95c55237bb4d183f1ba042dc4",
+      "decision": "dec_F073F8D0ED97A7FE0B26932C7B",
+      "errors": "any queued built-in identity write failure",
+      "reason": "The built-in provider serializes local identity writes through one promise chain. A failed operation is consumed before the queue advances so a transient bootstrap, session, or configuration write failure cannot poison later independent requests; the original operation still rejects to its caller. This is the provider's local persistence boundary for the decision-authorized default identity implementation."
+    },
+    "packages/authorization-builtin/src/builtin-session-service.ts##serveLoginPage": {
+      "task": "task_b95c55237bb4d183f1ba042dc4",
+      "decision": "dec_F073F8D0ED97A7FE0B26932C7B",
+      "errors": "malformed or failed loopback login request",
+      "reason": "The built-in provider's loopback login page is an interactive boundary. Request parsing and credential handling failures are converted to an HTTP error response so the callback server remains available for a later attempt; authentication errors are returned as their own status and are never treated as a successful login."
+    },
+    "packages/authorization-builtin/src/builtin-session-service.ts##readSession": {
+      "task": "task_b95c55237bb4d183f1ba042dc4",
+      "decision": "dec_F073F8D0ED97A7FE0B26932C7B",
+      "errors": "missing, expired, malformed, or unreadable local session file",
+      "reason": "The built-in provider treats a local session file as an optional cache of the authenticated browser session. A missing, expired, malformed, or unreadable file means no local session and lets the normal authentication-required path report its own error; it never grants access from an invalid persisted value."
+    },
+    "packages/authorization-builtin/src/state.ts#userRootFromBuiltinUrl": {
+      "task": "task_b95c55237bb4d183f1ba042dc4",
+      "decision": "dec_F073F8D0ED97A7FE0B26932C7B",
+      "errors": "invalid built-in authority URL encoding",
+      "reason": "Authority discovery accepts only the provider's builtin://local/<base64url-root> form. Invalid input is not a provider match and returns undefined so callers can continue normal provider selection or surface the explicit configuration error; no fallback identity or root is invented."
     }
   },
   "entries": {

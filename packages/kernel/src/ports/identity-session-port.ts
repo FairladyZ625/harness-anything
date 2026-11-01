@@ -83,4 +83,11 @@ export interface IdentitySessionPort {
     withinWriter?: boolean,
     loginTarget?: string,
   ): Promise<Record<string, unknown>>;
+  /**
+   * A provider may exchange a one-time center admission for a short-lived human
+   * session.  Fleet uses this only for providers without a remote login service.
+   */
+  issueInvitationSession?(personId: string, withinWriter?: boolean): Promise<StoredSession>;
+  /** Import a center-issued session onto an edge without copying identity state. */
+  importSession?(session: StoredSession, withinWriter?: boolean): Promise<void>;
 }

@@ -8,6 +8,12 @@ import {
   type KeycloakPolicyAdapterConfig,
 } from "@harness-anything/authorization-keycloak";
 import {
+  BuiltinIdentityManagement,
+  BuiltinIdentitySession,
+  BuiltinPolicyAdapter,
+  userRootFromBuiltinUrl,
+} from "@harness-anything/authorization-builtin";
+import {
   artifactActionPoliciesByKind,
   decodeVerticalDefinition,
   readDaemonRegistry,
@@ -15,11 +21,24 @@ import {
 } from "@harness-anything/kernel";
 
 /** Default implementation selection. Only process/service composition roots import this module. */
+export type AuthorizationProviderConfig = KeycloakPolicyAdapterConfig & {
+  readonly mode?: "builtin" | "managed" | "external";
+  readonly userRoot?: string;
+};
+
 export const createAuthorizationProvider = (
-  config: KeycloakPolicyAdapterConfig,
+  config: AuthorizationProviderConfig,
   fetchPort?: typeof fetch,
   refreshAdminAccessToken?: (rejectedAccessToken: string) => Promise<string>,
-): AuthorizationProvider => new KeycloakPolicyAdapter(config, fetchPort, refreshAdminAccessToken);
+): AuthorizationProvider => {
+  const userRoot = config.userRoot ?? userRootFromBuiltinUrl(config.url);
+  // An explicit external/managed selection is authoritative even when a stale
+  // builtin:// URL is still present in a caller's config object.  The URL is
+  // only an implicit builtin selector for the default (mode omitted) path.
+  return config.mode === "builtin" || (config.mode === undefined && userRoot)
+    ? new BuiltinPolicyAdapter({ userRoot: userRoot ?? process.env.HARNESS_USER_ROOT ?? process.cwd() })
+    : new KeycloakPolicyAdapter(config, fetchPort, refreshAdminAccessToken);
+};
 export { keycloakLoginAttributes, keycloakLoginMappers };
 
 import { OidcSessionService } from "@harness-anything/authorization-keycloak";
@@ -35,6 +54,8 @@ import {
   systemCaCertificates,
 } from "./tls-ca-certificate.ts";
 export function createIdentitySession(userRoot: string, ports: Partial<OidcSessionPorts> = {}): IdentitySessionPort {
+  const mode = readProviderMode(userRoot);
+  if (mode === "builtin") return new BuiltinIdentitySession(userRoot);
   return new OidcSessionService(
     userRoot,
     {
@@ -56,6 +77,8 @@ import { ManagedRbacService, type ManagedRbacPorts } from "@harness-anything/aut
 import { runProcessText, runProcessTextAsync, runProcessExitAsync } from "./process-port.ts";
 import { mapListenerBindError, validateCertificateNames } from "./tls-listener-admission.ts";
 export function createIdentityManagement(userRoot: string, ports: Partial<ManagedRbacPorts> = {}) {
+  const mode = readProviderMode(userRoot);
+  if (mode === "builtin") return new BuiltinIdentityManagement(userRoot);
   return new ManagedRbacService(
     userRoot,
     { runProcessText, runProcessTextAsync, runProcessExitAsync, mapListenerBindError, validateCertificateNames },
@@ -118,4 +141,15 @@ export function readArtifactActionScopes(userRoot: string): () => Promise<readon
     }
     return [...byKind.values()].flat().sort();
   };
+function readProviderMode(userRoot: string): "builtin" | "managed" | "external" | "legacy" {
+  const file = path.join(userRoot, "rbac", "config.json");
+  if (!existsSync(file)) return "builtin";
+  try {
+    const config = JSON.parse(readFileSync(file, "utf8")) as { readonly mode?: unknown };
+    return config.mode === "builtin" || config.mode === "managed" || config.mode === "external"
+      ? config.mode
+      : "legacy";
+  } catch {
+    return "legacy";
+  }
 }

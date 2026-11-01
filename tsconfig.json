@@ -4,6 +4,7 @@
     { "path": "./packages/kernel" },
     { "path": "./packages/storage" },
     { "path": "./packages/application" },
+    { "path": "./packages/authorization-builtin" },
     { "path": "./packages/authorization-keycloak" },
     { "path": "./packages/authorization-gui" },
     { "path": "./packages/authorization-keycloak-gui" },

@@ -1,3 +1,4 @@
+/** @slice-activation Identity provider plugin keeps the provider-neutral daemon composition root on the Keycloak implementation boundary. */
 import type { ManagedRbacListener } from "@harness-anything/kernel";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
