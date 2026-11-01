@@ -86,13 +86,13 @@ export async function dualSyncFixture(
   );
   const key = readFileSync(keyFile),
     cert = readFileSync(certFile),
-    host = await openDaemonHost({ daemonId: "dual-center", userRoot }),
     owners = await fleetNodeOwners({
       userRoot,
       owners: Object.fromEntries(nodes.map((nodeId) => [nodeId, `person-${nodeId}`])),
       repoIds: ["dual-repo"],
       localPersonId: "person-fixture",
-    });
+    }),
+    host = await openDaemonHost({ daemonId: "dual-center", userRoot });
   await host.attachmentsSettled();
   // Match daemon-fleet-center-start: local and edge ingress share the host lease.
   const writerEpochStateRoot = path.join(userRoot, "fleet"),
