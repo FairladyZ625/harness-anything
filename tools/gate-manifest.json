@@ -4824,6 +4824,62 @@
       }
     },
     {
+      "id": "fleet-transfer-boundary",
+      "command": "node tools/gates/fleet-transfer-boundary.mjs --check",
+      "category": "boundary",
+      "tier": "pr-required",
+      "tierReason": null,
+      "localPathGlobs": [
+        "packages/daemon/src/fleet/**",
+        "packages/daemon/src/daemon-host-repository-api.ts",
+        "tools/gates/fleet-transfer-boundary.mjs",
+        "tools/gates/test/fleet-transfer-boundary.test.mjs",
+        "tools/gates/test/fixtures/fleet-transfer-bypasses/**"
+      ],
+      "authoritySource": [
+        "harness/tasks/task_186c7b8349c5f20e338630b38d-fleet-architecture-design/artifacts/design.md",
+        "tasks/task_6b7a41423fdaf44ed423463768-fleet-unified-chunking/artifacts/design-x.md",
+        "packages/daemon/src/fleet/command-transfer.ts"
+      ],
+      "consumerScope": [
+        "all TypeScript Fleet transport sources under packages/daemon/src/fleet, recursively",
+        "the daemon host repository Fleet read boundary",
+        "socket writes that serialize Fleet payloads and must use encodeFleetFrames or serializeFleetFrame"
+      ],
+      "githubContext": {
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries"],
+        "nodeVersions": [24]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Every Fleet payload write must use the unified transfer boundary; there is no bypass allowlist."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/gates/fleet-transfer-boundary.mjs",
+          "tools/gates/test/fleet-transfer-boundary.test.mjs",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": { "check": false, "checkPr": false, "script": null },
+        "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": ["boundaries"] },
+        "branchProtection": { "required": true, "contexts": ["boundaries"] },
+        "classes": ["pr"]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": ["tools/gates/test/fleet-transfer-boundary.test.mjs"]
+      }
+    },
+    {
       "id": "clean-build",
       "command": "node tools/gates/clean-build.mjs --temp",
       "category": "smoke",
