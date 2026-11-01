@@ -416,3 +416,38 @@ test("artifacts pagination validates the shared query limit and cursor contract"
       [],
     );
 });
+
+test("artifact cursors distinguish raw paths and packages that collate equally", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-artifacts-unicode-cursors-"));
+  try {
+    const time = new Date("2026-08-01T00:00:00.000Z");
+    taskFixture(root, "task_same", { "artifacts/a.html": "plain", "artifacts/a\u200b.html": "zero width" }, time);
+    const context = { rootDir: root, projection: projectionStub({}), input: { repoId: "unicode-paths" } };
+    const all = readArtifactsGui(context);
+    assert.equal(all.artifacts.length, 2);
+    const first = readArtifactsGui(context, { limit: 1 });
+    assert.equal(first.artifacts.length, 1);
+    assert.notEqual(first.page.nextCursor, null);
+    const last = readArtifactsGui(context, { limit: 1, cursor: first.page.nextCursor });
+    assert.deepEqual([...first.artifacts, ...last.artifacts], all.artifacts);
+    assert.deepEqual(
+      all.artifacts.map(({ path }) => path),
+      ["artifacts/a.html", "artifacts/a\u200b.html"],
+    );
+    assert.equal(last.page.nextCursor, null);
+
+    // A package name is also part of the cursor, including when filenames match.
+    taskFixture(root, "task_a", { "artifacts/same.md": "plain package" }, time);
+    taskFixture(root, "task_a\u200b", { "artifacts/same.md": "zero width package" }, time);
+    const packages = readArtifactsGui(context, { kind: "md" });
+    const firstPackage = readArtifactsGui(context, { kind: "md", limit: 1 });
+    assert.equal(packages.artifacts.length, 2);
+    assert.notEqual(firstPackage.page.nextCursor, null);
+    const lastPackage = readArtifactsGui(context, { kind: "md", limit: 1, cursor: firstPackage.page.nextCursor });
+    assert.equal(lastPackage.artifacts.length, 1);
+    assert.deepEqual([...firstPackage.artifacts, ...lastPackage.artifacts], packages.artifacts);
+    assert.equal(lastPackage.page.nextCursor, null);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

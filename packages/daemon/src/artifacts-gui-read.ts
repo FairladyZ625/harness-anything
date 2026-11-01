@@ -261,5 +261,10 @@ export function readArtifactsGui(
 }
 
 function compareArtifactKeys(left: readonly string[], right: readonly string[]): number {
-  return right[0]!.localeCompare(left[0]!) || left[1]!.localeCompare(right[1]!) || left[2]!.localeCompare(right[2]!);
+  // Cursor boundaries need a strict order: locale collation can equate distinct paths.
+  for (let index = 0; index < left.length; index += 1) {
+    const compared = left[index]! < right[index]! ? -1 : left[index]! > right[index]! ? 1 : 0;
+    if (compared !== 0) return index === 0 ? -compared : compared;
+  }
+  return 0;
 }
