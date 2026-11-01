@@ -60,6 +60,8 @@ export interface FleetPeerOptions {
   readonly signal?: AbortSignal;
   /** Shared edge-side admission ledger for inbound and outbound bulk transfers. */
   readonly commandResourceBudget?: ResourceBudget;
+  /** Protocol fixture override; normal callers use this daemon's build stamp. */
+  readonly buildCommit?: string | null;
 }
 export interface FleetWriteClientOptions extends FleetPeerOptions {
   readonly taskId?: string;
@@ -793,7 +795,7 @@ export async function openPeer(options: Omit<FleetPeerOptions, "repoId">) {
       protocolVersion: currentFleetProtocolVersion,
       nodeId: options.nodeId,
       credential: options.credential,
-      buildCommit: daemonBuildStamp().commit,
+      buildCommit: options.buildCommit === undefined ? daemonBuildStamp().commit : options.buildCommit,
     });
     if (ready.schema !== "fleet.session.ready/v1") throw new Error("session ready expected");
     return {

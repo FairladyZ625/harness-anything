@@ -8,6 +8,7 @@ import { createServer } from "node:tls";
 import { sha256Bytes, type LedgerCutIdentity } from "@harness-anything/kernel";
 import { createIdentitySession } from "../src/authorization-provider.ts";
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
+import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 import { digestId } from "../src/fleet/center-transport.ts";
 import { daemonBuildStamp } from "../src/build-identity.ts";
 import {
@@ -47,6 +48,26 @@ test("Fleet sessions stay connected across build identities and return an upgrad
   assert.match(peer.versionWarning ?? "", /build differs/u);
   assert.match(peer.versionWarning ?? "", /ha update/u);
   assert.ok(center.status().versionWarnings.some((warning) => warning.includes("ha update")));
+});
+test("version metadata stays outside the closed dispatch read result", async (t) => {
+  const fixture = await fleetFixture(t);
+  t.after(() => fixture.close());
+  const center = await fixture.center(),
+    peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret", {
+      buildCommit: "0".repeat(40),
+    }),
+    response = await peer.request({
+      schema: "fleet.operational.read/v1",
+      messageId: "dispatch-read-mismatch",
+      repoId: fixture.subject.repoId,
+      method: "repo.task.dispatches",
+      payload: { taskId: fixture.subject.taskId },
+    });
+  assert.equal(response.schema, "fleet.operational.read.result/v1");
+  if (response.schema !== "fleet.operational.read.result/v1") return;
+  assert.match(response.versionWarning ?? "", /build differs/u);
+  assert.doesNotThrow(() => parseDaemonGuiReadResult("repo.task.dispatches", response.result));
+  assert.equal(Object.hasOwn(response.result, "versionWarning"), false);
 });
 test("malformed transfer on a real TLS peer closes only that session", async (t) => {
   const fixture = await fleetFixture(t),

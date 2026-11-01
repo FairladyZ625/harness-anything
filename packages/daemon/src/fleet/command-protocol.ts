@@ -269,7 +269,15 @@ export type FleetFrameV1 =
         payload: Readonly<Record<string, unknown>>;
       }
     >
-  | Msg<"fleet.operational.read.result/v1", { inReplyTo: string; result: Readonly<Record<string, unknown>> }>
+  | Msg<
+      "fleet.operational.read.result/v1",
+      {
+        inReplyTo: string;
+        result: Readonly<Record<string, unknown>>;
+        /** Session metadata stays outside the closed operational read result. */
+        versionWarning?: string;
+      }
+    >
   | Msg<
       "fleet.transfer.begin/v1",
       {
@@ -877,7 +885,12 @@ const schemas: Readonly<Record<string, Check>> = {
     ),
     payload: record,
   }),
-  "fleet.operational.read.result/v1": shape({ ...reply, result: record }),
+  "fleet.operational.read.result/v1": optionalShape({ ...reply, result: record, versionWarning: text }, [
+    "schema",
+    "messageId",
+    "inReplyTo",
+    "result",
+  ]),
   "fleet.transfer.begin/v1": shape({
     ...common,
     correlationId: id,

@@ -1106,6 +1106,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         messageId: mid(frame.messageId, "runtime-read"),
         inReplyTo: frame.messageId,
         result: result as unknown as Readonly<Record<string, unknown>>,
+        ...(versionWarnings.has(nodeId) ? { versionWarning: versionWarnings.get(nodeId) } : {}),
       });
     }
     throw new FleetFault("unexpected_direction", `Frame ${frame.schema} is not accepted by the center.`);
