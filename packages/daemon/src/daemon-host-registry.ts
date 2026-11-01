@@ -187,7 +187,13 @@ export async function performOpenRegistered(
             },
           }
         : {}),
-      onAttemptTerminal: (_terminal: RuntimeAttemptTerminal) => void context.scheduleScheduler.refresh(),
+      onAttemptTerminal: (_terminal: RuntimeAttemptTerminal) => {
+        void context.scheduleScheduler.refresh();
+        context.onAutoClaimTrigger("runtime-terminal");
+      },
+      onRuntimeSignal: (_runtimeSessionId, signal) => {
+        if (signal.type === "exit") context.onAutoClaimTrigger("runtime-exit");
+      },
       onStatus: (status) => {
         const previousState = publishedState;
         publishedState = status.state;
@@ -225,6 +231,7 @@ export async function performOpenRegistered(
     await context.scheduleScheduler.refresh();
     context.settleWarming(repo.repoId);
     context.unavailable.delete(repo.repoId);
+    context.onAutoClaimTrigger("repo-attached");
     context.input.recordLifecycle?.({
       event: "repo_attach_completed",
       ...lifecycle,

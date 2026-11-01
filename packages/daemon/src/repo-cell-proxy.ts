@@ -612,6 +612,7 @@ export async function openRepoCellProxy(
         ) as never;
       return query((projection) => readAtCut(projection, method, payload, binding)) as never;
     },
+    readEventWitness: (revision) => query((projection) => projection.readEventWitness(revision)),
     workspaceSummary: () => query((projection) => workspaceSummaryFromProjection(projection as never)),
     workspaceScope: (payload) => query((projection) => workspaceScopeFromProjection(projection as never, payload)),
     observeTail: (payload, daemon, binding) => {
