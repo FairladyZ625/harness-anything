@@ -104,10 +104,11 @@ test("malformed transfer on a real TLS peer closes only that session", async (t)
     nodeId: "edge-test",
     timeoutMs: 2_000,
   };
-  const [corruptPeer, healthyPeer, stalledPeer] = await Promise.all([
+  const [corruptPeer, healthyPeer, stalledPeer, eofPeer] = await Promise.all([
     openPeer({ ...options, nodeId: "edge-corrupt" }),
     openPeer({ ...options, nodeId: "edge-healthy" }),
     openPeer({ ...options, nodeId: "edge-stall" }),
+    openPeer({ ...options, nodeId: "edge-eof" }),
   ]);
   const corrupted = socketsByNode.get("edge-corrupt")!;
   corrupted.write(
@@ -153,9 +154,14 @@ test("malformed transfer on a real TLS peer closes only that session", async (t)
     ),
     /Fleet response timeout/u,
   );
+  const eofSocket = socketsByNode.get("edge-eof")!;
+  eofSocket.write('{"schema":"fleet.transfer.chunk/v1"');
+  eofSocket.end();
+  await assert.rejects(eofPeer.next(2_000), /Fleet stream ended mid-frame/u);
   corruptPeer.close();
   healthyPeer.close();
   stalledPeer.close();
+  eofPeer.close();
 });
 test(
   "fact record from the real CLI parser crosses TLS and reaches the canonical ledger",

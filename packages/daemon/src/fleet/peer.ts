@@ -554,16 +554,9 @@ export async function readFleetOperationalClient(
       options.method === "repo.agentRuntime.sessions.await" ? null : (options.timeoutMs ?? 5_000),
     );
     if (response.schema !== "fleet.operational.read.result/v1") throw new Error("repository read result expected");
-    if (!session.versionWarning) return response.result;
-    if (!session.centerBuildCommit || !daemonBuildStamp().commit) return response.result;
-    return {
-      ...response.result,
-      versionWarning: {
-        centerBuildCommit: session.centerBuildCommit,
-        localBuildCommit: daemonBuildStamp().commit,
-        upgradeCommand: "ha update",
-      },
-    };
+    // Operational read payloads are closed per method. Keep the warning in the
+    // session metadata; command receipts add it at their shared outer boundary.
+    return response.result;
   } finally {
     options.connectionSignal?.removeEventListener("abort", close);
     session.close();
@@ -586,6 +579,21 @@ export interface FleetTaskCommandClientOptions extends FleetPeerOptions {
     candidate: FleetDescriptor;
   }[];
   readonly mirrorBaseCut?: { readonly revision: number; readonly headDigest: string } | null;
+}
+function withFleetVersionWarning(
+  receipt: Readonly<Record<string, unknown>> | null,
+  session: { readonly versionWarning: string | null; readonly centerBuildCommit: string | null },
+): Readonly<Record<string, unknown>> {
+  if (!receipt || !session.versionWarning || !session.centerBuildCommit || !daemonBuildStamp().commit)
+    return receipt ?? {};
+  return {
+    ...receipt,
+    versionWarning: {
+      centerBuildCommit: session.centerBuildCommit,
+      localBuildCommit: daemonBuildStamp().commit,
+      upgradeCommand: "ha update",
+    },
+  };
 }
 // Task conflicts return immediately; this timeout covers one canonical command round trip.
 export async function runFleetTaskCommandClient(
@@ -647,13 +655,16 @@ export async function runFleetTaskCommandClient(
           revision: null,
           replicationSequence: assigned?.schema === "fleet.repo.metadata.result/v1" ? assigned.replicationSequence : 0,
           code: error.code,
-          receipt: queried.receipt,
+          receipt: withFleetVersionWarning(queried.receipt, session),
         };
       }
       throw error;
     }
     if (result.schema !== "fleet.task.result/v1") throw new Error("task result expected");
-    return result;
+    return {
+      ...result,
+      receipt: withFleetVersionWarning(result.receipt, session),
+    };
   } finally {
     session.close();
   }
@@ -1070,7 +1081,12 @@ function peerFor(
     }
   });
   socket.on("end", () => {
-    reader.finish();
+    try {
+      reader.finish();
+    } catch (error) {
+      consumeKnownError(error);
+      failSession(error instanceof Error ? error : new Error(String(error)));
+    }
   });
   socket.on("error", (error) => {
     closed = error;
