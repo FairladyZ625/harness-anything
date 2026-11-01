@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -55,7 +55,13 @@ test("external credentials enter through CLI stdin, failed replacement preserves
   const address = authority.address();
   assert.ok(address && typeof address === "object");
   const url = `http://127.0.0.1:${address.port}`,
-    host = await openDaemonHost({ daemonId, userRoot }),
+    rbacRoot = path.join(userRoot, "rbac");
+  mkdirSync(rbacRoot, { recursive: true });
+  writeFileSync(
+    path.join(rbacRoot, "config.json"),
+    JSON.stringify({ mode: "external", url, realm: "fleet", clientId: "harness-center" }),
+  );
+  const host = await openDaemonHost({ daemonId, userRoot }),
     transport = createUnixSocketTransportServer({
       daemonId,
       socketPath: localUserDaemonEndpoint(userRoot, daemonId),

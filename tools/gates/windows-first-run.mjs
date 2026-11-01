@@ -169,7 +169,7 @@ export async function evaluateWindowsFirstRun(rootDir, { stopSettleMs = STOP_SET
   } finally {
     harness(entry, repo, env, ["daemon", "stop"]);
     await identity.close();
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }
   return { ok: errors.length === 0, errors, checks };
 }
