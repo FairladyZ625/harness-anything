@@ -319,6 +319,11 @@ export class ManagedRbacService {
 
   async health(): Promise<Record<string, unknown>> {
     const config = this.#readConfig();
+    if (!config.url)
+      throw managedRbacError(
+        "rbac_not_configured",
+        "This daemon has no configured Keycloak endpoint; select a repository with an identity authority or configure one.",
+      );
     const response = await this.#ports.fetch(`${config.url}/realms/${encodeURIComponent(config.realm)}`);
     return {
       ok: response.ok,
