@@ -29,6 +29,7 @@ test("module-policy keeps its ordered budget catalog and tooling policy", () => 
     "agent-runtime",
     "decision",
     "fact",
+    "dsh-plugin",
   ]);
   assert.deepEqual(MODULE_POLICY.tooling, { production: true, budgetExempt: true });
   assert.equal(classifyModule("packages/kernel/src/domain/task.ts"), "kernel");
@@ -47,6 +48,7 @@ test("module-policy keeps its ordered budget catalog and tooling policy", () => 
   assert.equal(classifyModule("packages/daemon/src/agent-runtime-registry.ts"), "agent-runtime");
   assert.equal(classifyModule("packages/kernel/src/domain/decision-event.ts"), "decision");
   assert.equal(classifyModule("packages/kernel/src/domain/fact-event.ts"), "fact");
+  assert.equal(classifyModule("packages/dsh-plugin/src/broker.ts"), "dsh-plugin");
   assert.equal(classifyModule("tools/gates/cost-budget.mjs"), "tooling");
 });
 

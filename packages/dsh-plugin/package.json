@@ -1,0 +1,82 @@
+{
+  "name": "@harness-anything/dsh-plugin",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Harness Anything native Bundle and Host bridge for DeepSeek Harness.",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "default": "./dist/client.js"
+    },
+    "./locale/*.json": "./locale/*.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "package.json"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml",
+      "platforms": [
+        "darwin"
+      ]
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-sidebar-right",
+        "@deepseek-ai/dsh-client-ui-sidebar-browser",
+        "@deepseek-ai/dsh-client-ui-layout"
+      ],
+      "external": []
+    },
+    "manifestVersion": 1
+  },
+  "engines": {
+    "node": ">=22",
+    "dsh": ">=0.2.0-alpha.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && npm run build:client",
+    "build:client": "tsdown --config tsdown.config.ts",
+    "typecheck": "tsc -p tsconfig.json --pretty false",
+    "test": "node --test"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": ">=4.0.0",
+    "@deepseek-ai/dsh-subprocess": ">=0.2.0-alpha.0",
+    "@deepseek-ai/dsh-tools": ">=0.2.0-alpha.0",
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/cordis": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-subprocess": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-tools": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "tsdown": "^0.22.14"
+  }
+}

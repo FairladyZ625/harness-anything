@@ -60,6 +60,16 @@ test("G33 keeps an unregistered authorization implementation package unclassifie
   assert.deepEqual(result.unclassified, ["packages/authorization-custom/src/provider.ts"]);
 });
 
+test("G33 classifies dsh-plugin production sources through module policy", () => {
+  const { rootDir, base } = makeRepo({ "packages/dsh-plugin/src/broker.ts": "old\n" });
+  writeRepoFile(rootDir, "packages/dsh-plugin/src/broker.ts", "new\nnext\n");
+  const result = computeProductionDelta({ rootDir, base });
+  assert.deepEqual(result.unclassified, []);
+  assert.deepEqual(result.changed, [
+    { filePath: "packages/dsh-plugin/src/broker.ts", module: "dsh-plugin", added: 2, deleted: 1 },
+  ]);
+});
+
 test("G33 ignores tool tests and fixtures in both delta directions", () => {
   const files = {
     "tools/gates/example.test.mjs": "old test\n",

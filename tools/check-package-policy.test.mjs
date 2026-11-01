@@ -203,6 +203,7 @@ function writeValidFixture(root) {
     ["packages/authorization-keycloak/package.json", "@harness-anything/authorization-keycloak"],
     ["packages/authorization-gui/package.json", "@harness-anything/authorization-gui"],
     ["packages/authorization-keycloak-gui/package.json", "@harness-anything/authorization-keycloak-gui"],
+    ["packages/dsh-plugin/package.json", "@harness-anything/dsh-plugin"],
     ["packages/daemon/package.json", "@harness-anything/daemon"],
     ["packages/gui/package.json", "@harness-anything/gui"],
   ]);
