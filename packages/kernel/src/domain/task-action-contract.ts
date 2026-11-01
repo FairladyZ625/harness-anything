@@ -435,6 +435,44 @@ export const declarations: readonly Declaration[] = Object.freeze([
     concurrency: mutationConcurrency,
     explain: "Move the canonical Task status while preserving its independent graph cursor.",
   }),
+  mutation(
+    "escalate",
+    input([
+      taskId,
+      cli("question", "string", true, "--question", "single", {
+        description: "The decision needed from the task owner.",
+      }),
+      cli("options", "string-array", false, "--option", "repeated", {
+        description: "An answer the owner can choose; repeat for multiple options.",
+      }),
+      cli("recommendation", "string", false, "--recommend", "single", { description: "Your recommended answer." }),
+      cli("reason", "string", false, "--reason", "single", {
+        description: "Why work cannot continue without this ruling.",
+      }),
+    ]),
+    "invalid_escalation",
+    "The worker escalation names a question and belongs to the authenticated dispatch task.",
+    'Use when a worker crosses a forbidden boundary, needs an owner ruling, a precondition is false, or another task blocks progress. Do not use for tradeoffs you can decide yourself. Example: ha task escalate <task-id> --question "May I change the fleet protocol?" --option "Keep scope" --option "Extend protocol" --recommend "Keep scope" --reason "Required writer is outside this task." This writes a structured ruling, marks the task blocked, and stops automatic re-dispatch until the owner answers.',
+    "taskId",
+    "center-forward-write",
+    "via-center-forward",
+  ),
+  mutation(
+    "escalation-resolve",
+    input([
+      taskId,
+      cli("dispatchId", "string", true, "--dispatch-id", "single", {
+        description: "The dispatch listed by ha task dispatches.",
+      }),
+      cli("answer", "string", true, "--answer", "single", { description: "The ruling to pass to the next dispatch." }),
+    ]),
+    "invalid_escalation_resolution",
+    "The owner answer names an awaiting escalation for this Task.",
+    'Owner/CEO command: ha task escalation resolve <task-id> --dispatch-id <dispatch-id> --answer "<answer>". It records the answer, unblocks the task, and injects it into the next dispatch.',
+    "taskId",
+    "center-forward-write",
+    "via-center-forward",
+  ),
   lifecycle("submit", {
     input: input([
       taskId,

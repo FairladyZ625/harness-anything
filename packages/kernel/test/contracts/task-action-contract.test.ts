@@ -30,6 +30,8 @@ test("all public Task writes are complete executable Action contracts", () => {
       "create",
       "start",
       "transition",
+      "escalate",
+      "escalation-resolve",
       "submit",
       "review",
       "respondReview",
@@ -93,6 +95,8 @@ test("all public Task writes are complete executable Action contracts", () => {
     ["attest", "task-attest"],
     ["declare-executor", "task-declare-executor"],
     ["dispatch-review", "task-dispatch-review"],
+    ["escalate", "task-escalate"],
+    ["escalation-resolve", "task-escalation-resolve"],
     ["progress-append", "task-progress-append"],
     ["push", "task-push"],
     ["rematerialize", "task-rematerialize"],
@@ -111,6 +115,8 @@ test("all public Task writes are complete executable Action contracts", () => {
     "create",
     "start",
     "transition",
+    "escalate",
+    "escalation-resolve",
     "submit",
     "review",
     "respondReview",
@@ -151,6 +157,21 @@ test("all public Task writes are complete executable Action contracts", () => {
     "pin",
     "unpin",
   ]);
+});
+
+test("worker escalation and owner resolution are classified Task capabilities", () => {
+  const actions = getEntityKindContract("task")?.actionCatalog?.actions ?? [],
+    snapshot = lifecycleFixture().snapshot;
+  for (const id of ["escalate", "escalation-resolve"] as const) {
+    const action = actions.find((candidate) => candidate.id === id);
+    assert.ok(action, id);
+    assert.equal(
+      evaluateTaskActionCapability({ action, snapshot, actor: implementer, invocation: { taskId: "task-1" } })[0]
+        ?.status,
+      "invocation-required",
+      id,
+    );
+  }
 });
 
 test("Task base pin Actions explain their real EntityRef target and reject a missing Task", () => {

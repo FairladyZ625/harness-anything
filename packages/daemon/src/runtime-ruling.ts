@@ -1,11 +1,17 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError, readFrontmatter, readScalar } from "@harness-anything/kernel";
+import { decodeEvidencePayload } from "./evidence-payload.ts";
 
 /** A worker's request for an owner ruling, read from the task package. */
 export interface RuntimeRulingRequest {
   readonly question: string;
   readonly options: readonly string[];
+  readonly recommendation?: string;
+  readonly reason?: string;
+  readonly dispatchId?: string;
+  readonly createdAt?: string;
+  readonly malformedReason?: string;
   /** Task-package-relative logical path of the artifact that carries the request. */
   readonly path: string;
 }
@@ -19,25 +25,98 @@ export interface RuntimeRulingArtifact extends RuntimeRulingRequest {
   readonly body: string;
 }
 
-/** The artifact a dispatched worker writes when it needs a ruling instead of finishing. */
+export type RuntimeRulingArtifactParse =
+  | {
+      readonly kind: "valid";
+      readonly question: string;
+      readonly options: readonly string[];
+      readonly path: string;
+      readonly recommendation?: string;
+      readonly reason?: string;
+      readonly dispatchId?: string;
+      readonly createdAt?: string;
+      readonly answer?: string;
+      readonly answeredAt?: string;
+    }
+  | { readonly kind: "malformed"; readonly path: string; readonly reason: string };
+
+/** The structured artifact written by `ha task escalate` for the dispatch that needs a ruling. */
 export function runtimeRulingPath(dispatchId: string): string {
   return `artifacts/rulings/${dispatchId}.md`;
 }
 
+export function runtimeRulingResolutionPath(dispatchId: string): string {
+  return `artifacts/rulings/${dispatchId}.resolution.md`;
+}
+
 /**
  * The one machine-readable shape of an unattended ruling request. The mission tells the worker to
- * write this file and stop; settlement reads it here rather than inferring a ruling from prose or
- * from a provider's question-tool frame (which is not structured in the exec JSON stream at all).
- * Returns null for an absent artifact and for any body that is not exactly this declaration — a
- * malformed ruling is not a ruling, so the dispatch keeps its ordinary classification.
+ * use `ha task escalate`; settlement reads this artifact rather than inferring a ruling from prose
+ * or from a provider's question-tool frame (which is not structured in the exec JSON stream at all).
+ * Returns null for an absent artifact and for any body that is not exactly this declaration.
+ * A legacy frontmatter file remains supported; a present but malformed file is retained as a
+ * malformed artifact by `parseRulingArtifact` so settlement cannot silently classify the exit as
+ * an ordinary worker stop.
  */
 export function parseRulingRequest(body: string, path: string): RuntimeRulingRequest | null {
-  const frontmatter = readFrontmatter(body);
-  if (frontmatter === null || readScalar(frontmatter, "ruling") !== "awaiting") return null;
-  const question = readScalar(frontmatter, "question");
-  if (question === "") return null;
-  return { question, options: readOptions(frontmatter), path };
+  const parsed = parseRulingArtifact(body, path);
+  return parsed?.kind === "valid"
+    ? {
+        question: parsed.question,
+        options: parsed.options,
+        path: parsed.path,
+        ...(parsed.recommendation === undefined ? {} : { recommendation: parsed.recommendation }),
+        ...(parsed.reason === undefined ? {} : { reason: parsed.reason }),
+        ...(parsed.dispatchId === undefined ? {} : { dispatchId: parsed.dispatchId }),
+        ...(parsed.createdAt === undefined ? {} : { createdAt: parsed.createdAt }),
+      }
+    : null;
 }
+
+/** Distinguish an absent artifact from a present file the old worker guidance did not structure. */
+export function parseRulingArtifact(body: string, path: string): RuntimeRulingArtifactParse | null {
+  if (body.trim() === "") return { kind: "malformed", path, reason: "ruling artifact is empty" };
+  const structured = structuredRuling(body, path);
+  if (structured !== undefined) return structured;
+  const frontmatter = readFrontmatter(body);
+  if (frontmatter === null) return { kind: "malformed", path, reason: "missing ruling frontmatter" };
+  if (readScalar(frontmatter, "ruling") !== "awaiting")
+    return { kind: "malformed", path, reason: "frontmatter must declare ruling: awaiting" };
+  const question = readScalar(frontmatter, "question");
+  if (question === "") return { kind: "malformed", path, reason: "frontmatter is missing question" };
+  return { kind: "valid", question, options: readOptions(frontmatter), path };
+}
+
+/** Structured requests are emitted by `ha task escalate`; frontmatter remains supported for old workers. */
+const structuredRuling = (body: string, path: string): RuntimeRulingArtifactParse | undefined => {
+  const value = decodeEvidencePayload(body);
+  if (value === undefined) return undefined;
+  if (value === null || typeof value !== "object" || Array.isArray(value))
+    return { kind: "malformed", path, reason: "structured ruling must be a JSON object" };
+  const row = value as Record<string, unknown>;
+  if (row.schema !== "worker-escalation/v1")
+    return { kind: "malformed", path, reason: "structured ruling must declare schema worker-escalation/v1" };
+  if (row.status !== "awaiting")
+    return { kind: "malformed", path, reason: "structured ruling must declare status awaiting" };
+  if (typeof row.question !== "string" || row.question.trim() === "")
+    return { kind: "malformed", path, reason: "structured ruling is missing question" };
+  if (!Array.isArray(row.options) || !row.options.every((option) => typeof option === "string" && option.trim() !== ""))
+    return { kind: "malformed", path, reason: "structured ruling options must be an array of non-empty strings" };
+  if (typeof row.dispatchId !== "string" || !/^dispatch_[a-f0-9]{24}$/u.test(row.dispatchId))
+    return { kind: "malformed", path, reason: "structured ruling is missing a valid dispatchId" };
+  if (typeof row.createdAt !== "string" || !Number.isFinite(Date.parse(row.createdAt)))
+    return { kind: "malformed", path, reason: "structured ruling is missing a valid createdAt timestamp" };
+  return {
+    kind: "valid",
+    question: row.question.trim(),
+    options: row.options.map((option) => (option as string).trim()),
+    path,
+    ...(typeof row.recommendation === "string" ? { recommendation: row.recommendation } : {}),
+    ...(typeof row.reason === "string" ? { reason: row.reason } : {}),
+    dispatchId: row.dispatchId,
+    createdAt: row.createdAt,
+  };
+};
 
 /** The `options:` block: one `- <option>` entry per line, in the worker's order. */
 function readOptions(frontmatter: string): readonly string[] {
@@ -60,26 +139,72 @@ export function readDispatchRuling(
   packagePath: string,
   dispatchId: string,
 ): RuntimeRulingArtifact | null {
-  const relative = `${packagePath}/${runtimeRulingPath(dispatchId)}`;
+  const resolution = dispatchId.endsWith(".resolution"),
+    baseDispatchId = resolution ? dispatchId.slice(0, -".resolution".length) : dispatchId,
+    relative = `${packagePath}/${resolution ? runtimeRulingResolutionPath(baseDispatchId) : runtimeRulingPath(dispatchId)}`;
   try {
     const body = readDocument(relative);
     if (body === null) return null;
-    const parsed = parseRulingRequest(body, relative);
-    return parsed === null ? null : { ...parsed, body };
+    if (resolution) {
+      try {
+        const value = JSON.parse(body) as Record<string, unknown>;
+        return value.schema === "worker-escalation-resolution/v1" &&
+          value.dispatchId === baseDispatchId &&
+          typeof value.answer === "string" &&
+          value.answer.trim() !== "" &&
+          typeof value.answeredAt === "string"
+          ? {
+              question: value.answer,
+              options: [],
+              path: relative,
+              body,
+              dispatchId: value.dispatchId,
+              createdAt: value.answeredAt,
+            }
+          : null;
+      } catch (error) {
+        consumeKnownError(error);
+        return null;
+      }
+    }
+    return decodeArtifactBody(body, relative);
   } catch (error) {
     consumeKnownError(error);
     return null;
   }
 }
 
+/** Read a ruling artifact without collapsing malformed, present documents into absence. */
+function decodeArtifactBody(
+  body: string,
+  relative: string,
+): (RuntimeRulingRequest & { readonly body: string; readonly malformedReason?: string }) | null {
+  const parsed = parseRulingArtifact(body, relative);
+  if (parsed === null) return null;
+  return parsed.kind === "valid"
+    ? {
+        question: parsed.question,
+        options: parsed.options,
+        path: parsed.path,
+        body,
+        ...(parsed.recommendation === undefined ? {} : { recommendation: parsed.recommendation }),
+        ...(parsed.reason === undefined ? {} : { reason: parsed.reason }),
+        ...(parsed.dispatchId === undefined ? {} : { dispatchId: parsed.dispatchId }),
+        ...(parsed.createdAt === undefined ? {} : { createdAt: parsed.createdAt }),
+      }
+    : {
+        question: `Ruling artifact is not machine-readable: ${parsed.reason}`,
+        options: [],
+        path: parsed.path,
+        body,
+        malformedReason: parsed.reason,
+      };
+}
+
 /**
- * The worker writes its ruling into the task package as it reaches it from its own cwd: the
- * mirrored `harness/<packagePath>` inside a task worktree, or the package root itself when the
- * dispatch runs in the package. That file is not in the ledger projection at settlement time — a
- * worktree artifact is a new local file, and only doc sync publishes documents — so settlement
- * reads the worker's own filesystem. The projection reader above remains the fallback for an
- * artifact the worker did publish. Candidates are tried in the order the dispatch could have
- * written them; the first parseable one wins.
+ * Legacy workers may still write a ruling file from their cwd. The CLI route writes through the
+ * canonical document action, so the projection reader is normally authoritative; the filesystem
+ * candidates preserve recovery for files produced by older workers before doc sync.
  */
 export function readDispatchRulingFromWorker(input: {
   readonly cwd: string;
@@ -87,6 +212,15 @@ export function readDispatchRulingFromWorker(input: {
   readonly packagePath: string;
   readonly dispatchId: string;
 }): RuntimeRulingArtifact | null {
+  return rulingFromWorkerInternal(input);
+}
+
+function rulingFromWorkerInternal(input: {
+  readonly cwd: string;
+  readonly rootDir: string;
+  readonly packagePath: string;
+  readonly dispatchId: string;
+}): (RuntimeRulingRequest & { readonly body: string; readonly malformedReason?: string }) | null {
   const relative = runtimeRulingPath(input.dispatchId),
     logicalPath = `${input.packagePath}/${relative}`,
     candidates = [
@@ -100,8 +234,9 @@ export function readDispatchRulingFromWorker(input: {
   for (const candidate of candidates) {
     const body = readFileIfPresent(candidate);
     if (body === null) continue;
-    const parsed = parseRulingRequest(body, logicalPath);
-    if (parsed !== null) return { ...parsed, body };
+    const parsed = decodeArtifactBody(body, logicalPath);
+    if (parsed === null) continue;
+    return parsed;
   }
   return null;
 }
@@ -128,10 +263,13 @@ function statSizeAtMost(file: string, maxBytes: number): boolean {
 export function rulingReceiptText(ruling: RuntimeRulingRequest): string {
   return [
     `Awaiting owner ruling: ${ruling.question}`,
+    ...(ruling.recommendation ? [`Recommendation: ${ruling.recommendation}`] : []),
+    ...(ruling.reason ? [`Reason: ${ruling.reason}`] : []),
     ...(ruling.options.length
       ? ["Options:", ...ruling.options.map((option, index) => `  ${String(index + 1)}. ${option}`)]
       : []),
     `Ruling artifact: ${ruling.path}`,
-    'Answer, then continue this session: ha agent run <agent-id> --resume-dispatch <dispatch-id> --prompt "<answer>"',
+    ...(ruling.malformedReason ? [`Ruling artifact issue: ${ruling.malformedReason}`] : []),
+    'After the owner decides, run `ha task escalation resolve <task-id> --dispatch-id <dispatch-id> --answer "<answer>"`; the task will resume with that answer.',
   ].join("\n");
 }

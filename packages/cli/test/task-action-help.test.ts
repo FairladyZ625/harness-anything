@@ -6,9 +6,10 @@ import { taskActionCommandUsage } from "@harness-anything/daemon/internal/protoc
 import {
   generatedTaskActionProtocolDeclarations,
   taskActionHelpRows,
+  taskExecutionProtocolCommands,
 } from "@harness-anything/daemon/internal/protocol/daemon-protocol-commands-task";
 import { renderEntityActionExplanation } from "../src/cli/entity-action-explain-render.ts";
-import { parseThinCommand, renderThinHelp } from "../src/cli/thin-command.ts";
+import { parseThinCommand, renderThinCapabilities, renderThinHelp } from "../src/cli/thin-command.ts";
 
 test("Task lifecycle help is projected from the generated Action declarations", () => {
   const rows = taskActionHelpRows;
@@ -44,6 +45,25 @@ test("Task help replaces every descriptor-backed lifecycle row", () => {
   assert.match(help, /ha task progress append/u);
   assert.match(help, /ha task delete \[--soft <soft>\].*--soft — optional; value; format: <task-id>/su);
   assert.doesNotMatch(help, /availability: (?:true|false)|available: (?:true|false)/u);
+});
+
+test("worker escalation has one discoverable CLI command with actionable guidance", () => {
+  const commands = taskExecutionProtocolCommands.filter(({ id }) => id === "task-escalate"),
+    command = commands[0],
+    help = renderThinHelp([], "task", "ha task escalate");
+  assert.equal(commands.length, 1);
+  assert.ok(command);
+  assert.match(command.usage, /ha task escalate <task-id>.*--question/u);
+  for (const text of [command.summary, help]) {
+    assert.match(text, /forbidden boundaries/u);
+    assert.match(text, /precondition is false/u);
+    assert.match(text, /another task/u);
+    assert.match(text, /do not use for choices you can decide yourself/u);
+    assert.match(text, /Example: ha task escalate/u);
+  }
+  assert.match(help, /ha task escalate <task-id>/u);
+  const capabilities = renderThinCapabilities();
+  assert.match(capabilities, /task-escalate/u);
 });
 
 test("human explain output labels catalog availability as not evaluated", () => {

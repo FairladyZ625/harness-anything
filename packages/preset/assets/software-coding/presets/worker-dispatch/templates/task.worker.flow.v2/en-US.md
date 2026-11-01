@@ -24,7 +24,7 @@ State the outcome this worker owns and what a successful handoff makes possible.
 
 ## Stop Conditions
 
-Stop and report when scope, authority, required input, or a destructive choice is unclear.
+When scope, authority, required input, or a destructive choice blocks progress, use the injected `ha task escalate <task-id> --question "<question>" --option "<option>" --recommend "<recommendation>" --reason "<why blocked>"` command. Repeat `--option` for each choice. Do not leave a ruling request only in a report.
 
 ## Commit and Handoff
 

@@ -18,7 +18,7 @@ Show the changed behavior through actual consumers, including long content, narr
 
 ## Stop Conditions
 
-Resolve uncertainty using the task's authorized scope; report actual ownership conflicts or product decisions requiring the owner. Continue independent authorized work. Do not weaken gates or substitute a mockup for an implemented feature.
+Resolve uncertainty using the task's authorized scope. For an actual ownership conflict or product decision that blocks progress, use the injected `ha task escalate <task-id> --question "<question>" --option "<option>" --recommend "<recommendation>" --reason "<why blocked>"` command; repeat `--option` for each choice. Continue independent authorized work. Do not weaken gates or substitute a mockup for an implemented feature.
 
 ## Commit and Handoff
 
