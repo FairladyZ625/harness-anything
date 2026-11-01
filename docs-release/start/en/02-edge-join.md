@@ -126,9 +126,34 @@ curl --version
 curl -fsSL https://raw.githubusercontent.com/FairladyZ625/harness-anything/main/scripts/install-source.sh | bash
 ```
 
-The installer keeps the checkout under `~/.local/share/harness-anything`, runs `npm ci`, builds the daemon, CLI and
-Electron GUI bundles, and creates the `ha` command with `npm link`. On Linux it sets Electron's `chrome-sandbox`
-owner and setuid mode (using `sudo` when needed).
+The installer keeps the checkout under `~/.local/share/harness-anything`, runs `npm ci` (skipped when dependencies are
+unchanged), builds the daemon, CLI and Electron GUI bundles, and creates the `ha` command with `npm link`. On Linux it
+sets Electron's `chrome-sandbox` owner and setuid mode (using `sudo` when needed).
+
+### Upgrading, including a center without GitHub access
+
+Running the same command again first upgrades the checkout with `git pull --ff-only` and then builds. It skips `npm ci`
+while dependencies (`package-lock.json` and each workspace `package.json`) are unchanged. Once the build output changes,
+a running daemon exits as build-superseded and the new build takes over, so no manual restart is needed.
+
+When the center cannot reach GitHub, push the commit from another machine that can, merge it on the center, then install
+from the local source:
+
+```bash
+# on the machine that can reach the repository (center is the center host's SSH alias)
+git push center HEAD:refs/heads/laptop/main
+
+# on the center
+git -C ~/.local/share/harness-anything merge --ff-only laptop/main
+bash ~/.local/share/harness-anything/scripts/install-source.sh --offline
+```
+
+`--offline` (also `--no-pull`) skips pull entirely and uses the source already on the center. To also require that the
+center's source is exactly a given commit, use `--ref <commit>`: a failed pull continues when HEAD already is that
+commit, and otherwise the installer exits before building, printing both the local HEAD and the requested commit.
+Without flags the installer still requires a successful pull and exits when it fails, so unknown source is never
+presented as a new build. A first install needs an existing checkout; without one, `--offline` reports that instead of
+guessing a directory.
 
 The invited person runs:
 
