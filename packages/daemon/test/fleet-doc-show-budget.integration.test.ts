@@ -1,9 +1,11 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { mkdirSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
 import { listenFleetTls } from "../src/fleet/center.ts";
 import type { FleetFrameV1 } from "../src/fleet/command-protocol.ts";
-import { fleetFixture, rawPeer } from "./fleet-tls-session.fixture.ts";
+import { fleetFixture, localAuthFixture, rawPeer } from "./fleet-tls-session.fixture.ts";
 import { createIdentitySession } from "../src/authorization-provider.ts";
 
 function deferred() {
@@ -19,6 +21,17 @@ test(
   { timeout: 30_000 },
   async (t) => {
     const fixture = await fleetFixture(t);
+    // Repository context is readable by both nodes without borrowing node-one's task lease.
+    const healthyPath = "context/healthy.md";
+    const healthyBody = "# Healthy node\n";
+    mkdirSync(path.join(fixture.repo, "harness/context"), { recursive: true });
+    writeFileSync(path.join(fixture.repo, "harness", healthyPath), healthyBody);
+    const published = await fixture.host.run(
+      fixture.subject.repoId,
+      { kind: "doc-submit", paths: [healthyPath] },
+      localAuthFixture(),
+    );
+    assert.equal(published.outcome, "applied", JSON.stringify(published));
     const release = deferred();
     const disconnectedSettled = deferred();
     t.after(release.resolve);
@@ -70,14 +83,14 @@ test(
     });
     assert.equal(metadata.schema, "fleet.repo.metadata.result/v1");
     if (metadata.schema !== "fleet.repo.metadata.result/v1") throw new Error("metadata required");
-    const command = (messageId: string): FleetFrameV1 => ({
+    const command = (messageId: string, documentPath = `${fixture.packagePath}/task_plan.md`): FleetFrameV1 => ({
       schema: "fleet.task.command/v1",
       messageId,
       opId: `op-${messageId}`,
       repoId: fixture.subject.repoId,
       taskId: fixture.subject.taskId,
       writerEpoch: metadata.writerEpoch,
-      action: { kind: "doc-show", path: `${fixture.packagePath}/task_plan.md` },
+      action: { kind: "doc-show", path: documentPath },
       docChanges: null,
       mirrorBaseCut: null,
     });
@@ -100,10 +113,14 @@ test(
     assert.equal(refused.retryable, true);
     assert.match(refused.message, /node.*bulkTransfers/u);
     // Another node and the receipt control path progress while node-one's readers are parked.
-    const evidence = await healthy.request(command("healthy"));
+    const evidence = await healthy.request(command("healthy", healthyPath));
     assert.equal(evidence.schema, "fleet.task.evidence/v1");
+    if (evidence.schema !== "fleet.task.evidence/v1") throw new Error(JSON.stringify(evidence));
+    assert.equal(Buffer.from(evidence.dataBase64, "base64").toString("utf8"), healthyBody);
     const completed = await healthy.receive();
     assert.equal(completed.schema, "fleet.task.result/v1");
+    if (completed.schema !== "fleet.task.result/v1") throw new Error(JSON.stringify(completed));
+    assert.equal(completed.outcome, "applied", JSON.stringify(completed));
     const control = await peers[2]!.request({
       schema: "fleet.receipt.get/v1",
       messageId: "control",
