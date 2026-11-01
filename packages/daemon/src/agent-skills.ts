@@ -63,6 +63,30 @@ export function resolveAgentSkills(input: {
     skills = input.skills ?? [];
   return skills.map((skill) => resolveAgentSkill(rootDir, skill));
 }
+
+/**
+ * Repository skills are a property of the serving repository, not of a portable Agent identity:
+ * a user-level Agent copied between repositories must not fail because one repository owns a
+ * procedure the identity does not carry. The repository Settings add those directories for every
+ * dispatch; the Agent's own declaration wins when both name the same skill id.
+ */
+export function mergeRepositorySkills(
+  declared: readonly AgentSkillDeclarationV1[] | undefined,
+  repositoryPaths: readonly string[] | undefined,
+): readonly AgentSkillDeclarationV1[] {
+  const merged = [...(declared ?? [])],
+    ids = new Set(merged.map((skill) => skill.id)),
+    paths = new Set(merged.map((skill) => skill.path));
+  for (const skillPath of repositoryPaths ?? []) {
+    if (paths.has(skillPath)) continue;
+    const id = path.posix.basename(skillPath);
+    if (ids.has(id)) continue;
+    merged.push({ id, path: skillPath });
+    ids.add(id);
+    paths.add(skillPath);
+  }
+  return merged;
+}
 function resolveAgentSkill(rootDir: string, skill: AgentSkillDeclarationV1): ResolvedAgentSkill {
   const candidate = path.isAbsolute(skill.path) ? path.resolve(skill.path) : path.resolve(rootDir, skill.path);
   if (!existsSync(candidate))
