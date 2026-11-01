@@ -22,6 +22,7 @@ export const daemonLogDefaultKeptFiles = 4;
 
 export type DaemonLifecycleEvent =
   | "process_start"
+  | "process_stopping"
   | "socket_bound"
   | "process_exit"
   | "repo_attach_started"
