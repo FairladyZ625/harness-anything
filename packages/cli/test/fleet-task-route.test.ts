@@ -276,6 +276,27 @@ test("fleet task routing requires both edge config and remote-edge registry mode
       payload: { dispatchId: "dispatch_123", prompt: "change direction" },
     });
   }
+  const cancelCommand = parseThinCommand(["runtime", "cancel", "runtime_one"], root);
+  assert.equal(cancelCommand.ok, true, JSON.stringify(cancelCommand));
+  if (cancelCommand.ok) {
+    const routedCancel = await fleetRuntimeRoute(cancelCommand.command, env);
+    assert.deepEqual(routedCancel?.action, {
+      kind: "fleet-runtime",
+      method: "repo.agentRuntime.cancel",
+      payload: { runtimeSessionId: "runtime_one" },
+    });
+  }
+  const handoffDispatch = `dispatch_${"a".repeat(24)}`,
+    handoffCommand = parseThinCommand(["runtime", "handoff", "export", handoffDispatch], root);
+  assert.equal(handoffCommand.ok, true, JSON.stringify(handoffCommand));
+  if (handoffCommand.ok) {
+    const routedHandoff = await fleetRuntimeRoute(handoffCommand.command, env);
+    assert.deepEqual(routedHandoff?.action, {
+      kind: "fleet-runtime",
+      method: "repo.agentRuntime.handoff",
+      payload: { operation: "export", dispatchId: handoffDispatch },
+    });
+  }
   const missing: string[] = [],
     unexpected: string[] = [];
   for (const descriptor of daemonProtocolCommands) {

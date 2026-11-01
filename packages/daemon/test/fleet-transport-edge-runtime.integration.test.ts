@@ -337,25 +337,15 @@ test(
     const after = await fixture.host.read(fixture.subject.repoId, "repo.tasks.list", {}, fixture.auth);
     assert.ok(after.sourceRevision > before.sourceRevision);
     await t.test("provider resume recovers when the center loses the outcome publication", async () => {
-      // A retained provider session does not retain the terminal attempt's released task lease.
-      const rejoined = await fixture.host.run(
-        fixture.subject.repoId,
-        { kind: "task-start", taskId: fixture.subject.taskId, executionId: fixture.subject.executionId },
-        fixture.auth,
-      );
-      assert.equal(rejoined.outcome, "applied", JSON.stringify(rejoined));
-      await waitForFleetPublication(fixture.host, fixture.subject.repoId, rejoined.opId, fixture.auth);
-      await catchUpReplica({
-        readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
-        port: center.port,
-        ca: fixture.cert,
-        nodeId: fixture.subject.nodeId,
-        credential: "machine-secret",
-        repoId: fixture.subject.repoId,
-        viewRoot,
-        diskQuotaBytes: replicaQuota,
-      });
-      const outcomeFailure = fixture.failNextRuntimeOutcome();
+      // A retained provider session does not retain the terminal attempt's released task lease;
+      // dispatch itself must rejoin the still-active execution through the center.
+      const executionStarts = () =>
+        makeTaskEventReader({ repoId: fixture.subject.repoId, rootDir: fixture.repo })
+          .read()
+          .events.filter((event) => event.type === "execution_started" && event.taskId === fixture.subject.taskId)
+          .length;
+      const startsBeforeResume = executionStarts(),
+        outcomeFailure = fixture.failNextRuntimeOutcome();
       let reportQueueFailure!: () => void;
       const queueFailure = new Promise<void>((resolve) => {
         reportQueueFailure = resolve;
@@ -389,6 +379,11 @@ test(
       );
       assert.equal(resumed.outcome, "applied", JSON.stringify(resumed));
       assert.equal(typeof resumed.runtimeSessionId, "string", JSON.stringify(resumed));
+      assert.equal(
+        executionStarts(),
+        startsBeforeResume + 1,
+        "edge dispatch reconnects its released lease through center task-start",
+      );
       await outcomeFailure;
       await queueFailure;
       errorProbe.mock.restore();
