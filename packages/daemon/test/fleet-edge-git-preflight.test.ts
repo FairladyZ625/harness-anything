@@ -58,13 +58,36 @@ test("edge Git preflight rejects a missing or mismatched origin and allows the m
     );
     git(edge, "remote", "set-url", "--push", "origin", origin);
     await assertFleetEdgeRepositoryGit({ rootDir: edge, center: centerGit, operation: "runtime dispatch" });
+    const secondPush = path.join(root, "second-push.git");
+    git(center, "config", "--add", "remote.origin.pushurl", origin);
+    git(center, "config", "--add", "remote.origin.pushurl", secondPush);
+    const multipleCenterPushUrls = await readFleetCenterGitMetadata(center);
+    git(edge, "config", "--add", "remote.origin.pushurl", origin);
+    git(edge, "config", "--add", "remote.origin.pushurl", secondPush);
+    await assertFleetEdgeRepositoryGit({
+      rootDir: edge,
+      center: multipleCenterPushUrls,
+      operation: "runtime dispatch",
+    });
     git(edge, "config", "--add", "remote.origin.pushurl", wrong);
+    await assert.rejects(
+      assertFleetEdgeRepositoryGit({
+        rootDir: edge,
+        center: multipleCenterPushUrls,
+        operation: "runtime dispatch",
+      }),
+      { code: "edge_push_url_mismatch" },
+    );
+    git(edge, "config", "--unset-all", "remote.origin.pushurl");
+    git(center, "config", "--unset-all", "remote.origin.pushurl");
+    await assertFleetEdgeRepositoryGit({ rootDir: edge, center: centerGit, operation: "runtime dispatch" });
+
+    git(edge, "config", `url.${wrong}.pushInsteadOf`, origin);
     await assert.rejects(
       assertFleetEdgeRepositoryGit({ rootDir: edge, center: centerGit, operation: "runtime dispatch" }),
       { code: "edge_push_url_mismatch" },
     );
-    git(edge, "config", "--unset-all", "remote.origin.pushurl");
-    await assertFleetEdgeRepositoryGit({ rootDir: edge, center: centerGit, operation: "runtime dispatch" });
+    git(edge, "config", `--unset-all`, `url.${wrong}.pushInsteadOf`);
 
     git(edge, "remote", "set-url", "origin", wrong);
     await assert.rejects(

@@ -681,7 +681,7 @@ test(
     git(fixture.repo, "remote", "add", "origin", remote);
     git(fixture.repo, "fetch", "-q", "origin");
     git(fixture.repo, "remote", "set-head", "origin", git(edgeRoot, "branch", "--show-current"));
-    const base = git(edgeRoot, "rev-parse", "HEAD");
+    let base = git(edgeRoot, "rev-parse", "HEAD");
     await catchUpReplica({
       readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
       port: center.port,
@@ -745,8 +745,7 @@ test(
     t.after(() => edgeHost.close());
     await edgeHost.attachmentsSettled();
     await registerFixtureRuntimeInstance(edgeHost, repoId, localAuth, codexInstance, { allowHost: fixture.host });
-    git(edgeRoot, "remote", "set-url", "--push", "origin", path.join(fixture.root, "wrong-push.git"));
-    await assert.rejects(
+    const claimUnknownHandoff = () =>
       edgeHost.fleet.edgeRuntime(
         {
           host: "127.0.0.1",
@@ -762,9 +761,28 @@ test(
           action: { operation: "claim", dispatchId: "dispatch_000000000000000000000000" },
         },
         localAuth,
-      ),
-      { code: "edge_push_url_mismatch" },
+      );
+    const branch = git(edgeRoot, "branch", "--show-current");
+    git(
+      fixture.repo,
+      "-c",
+      "user.name=Edge Test",
+      "-c",
+      "user.email=edge@example.invalid",
+      "commit",
+      "--allow-empty",
+      "-qm",
+      "center advances",
     );
+    git(fixture.repo, "push", "-q", "origin", branch);
+    git(fixture.repo, "fetch", "-q", "origin");
+    await assert.rejects(claimUnknownHandoff(), { code: "edge_default_branch_behind" });
+    git(edgeRoot, "fetch", "-q", "origin");
+    git(edgeRoot, "merge", "--ff-only", `origin/${branch}`);
+    base = git(edgeRoot, "rev-parse", "HEAD");
+    await assert.rejects(claimUnknownHandoff(), { code: "runtime_handoff_owner_mismatch" });
+    git(edgeRoot, "remote", "set-url", "--push", "origin", path.join(fixture.root, "wrong-push.git"));
+    await assert.rejects(claimUnknownHandoff(), { code: "edge_push_url_mismatch" });
     git(edgeRoot, "config", "--unset-all", "remote.origin.pushurl");
     const receipt = await edgeHost.fleet.edgeRuntime(
       {
