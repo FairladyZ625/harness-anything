@@ -1,4 +1,5 @@
 export * from "./store/index.ts";
+export * from "./postgres/index.ts";
 export { resolveStorageBackend, unsupportedStorageBackendError } from "./storage-backend.ts";
 export type {
   PostgresStorageBackendConfig,
