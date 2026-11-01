@@ -113,8 +113,11 @@ The wizard pairs every failure with a suggested next step. Common cases:
 
 ## Fallback: source install and the command line
 
-On machines without an app package, install from source and join from the command line. On a clean macOS or Linux
-machine, check for Git, Node.js 24+, and curl:
+On machines without an app package, the one-command installer below is the edge path and runs the same source build
+steps. For a general source checkout (CLI, daemon, and GUI), follow
+[harness-download](../../../skills/harness-download/SKILL.md) instead of repeating them.
+
+On a clean macOS or Linux machine, check for Git, Node.js 24+, and curl:
 
 ```bash
 git --version

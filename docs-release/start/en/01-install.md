@@ -1,6 +1,6 @@
 # Install
 
-The CLI and daemon require Node.js 24 or newer. They are not currently published to the public npm registry; use the [source checkout smoke demo](00-what-is-this.md) until publication. The desktop App is downloaded from the [GitHub Releases page](https://github.com/FairladyZ625/harness-anything/releases).
+The CLI and daemon require Node.js 24 or newer. They are not currently published to the public npm registry; use the [source install skill](../../../skills/harness-download/SKILL.md) until publication. The desktop App is downloaded from the [GitHub Releases page](https://github.com/FairladyZ625/harness-anything/releases).
 
 ## CLI and daemon
 
@@ -11,7 +11,7 @@ npm install --global @harness-anything/cli@0.0.1 @harness-anything/daemon@0.0.1
 ha init
 ```
 
-The source checkout path remains available before publication. It builds the CLI locally and runs it from that checkout; it does not install a global `ha` command.
+The source checkout path remains available before publication. The [source install skill](../../../skills/harness-download/SKILL.md) builds the CLI, daemon, and GUI in one pass and puts the built `ha` on PATH for the current shell; a persistent PATH change or `npm link` is proposed and confirmed with you first.
 
 ## Install the desktop App
 

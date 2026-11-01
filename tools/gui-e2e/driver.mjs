@@ -6,18 +6,27 @@ import path from "node:path";
 import electronPath from "electron";
 import { _electron as electron } from "playwright-core";
 
-export async function startGuiDriver({ workspaceRoot, rootDir, env, runRoot, headless = true }) {
+export async function startGuiDriver({ workspaceRoot, rootDir, env, runRoot, headless = true, mainPath }) {
   const profile = mkdtempSync(path.join(tmpdir(), "hg-profile-"));
   const consoleFailures = [];
-  const args = [path.join(workspaceRoot, "packages/gui/src/main/electron-main.ts"), `--user-data-dir=${profile}`];
+  const args = [
+    mainPath ?? path.join(workspaceRoot, "packages/gui/src/main/electron-main.ts"),
+    `--user-data-dir=${profile}`,
+  ];
   if (headless) args.push("--no-sandbox", "--headless", "--disable-gpu", "--disable-dev-shm-usage");
+  // A task worker exports ELECTRON_RUN_AS_NODE=1 for its own child processes; Electron then
+  // starts as plain Node and rejects Chromium switches (bad option: --remote-debugging-port).
+  // This driver always launches the GUI shell, so it must run Electron in its own mode.
+  const launchEnv = { ...env, ELECTRON_DISABLE_SANDBOX: "1", HARNESS_GUI_ROOT: rootDir };
+  delete launchEnv.ELECTRON_RUN_AS_NODE;
+  delete launchEnv.ELECTRON_RENDERER_URL;
   let app;
   try {
     app = await electron.launch({
       executablePath: electronPath,
       args,
       cwd: workspaceRoot,
-      env: { ...env, ELECTRON_DISABLE_SANDBOX: "1", HARNESS_GUI_ROOT: rootDir },
+      env: launchEnv,
     });
     const page = await app.firstWindow();
     page.setDefaultTimeout(20_000);

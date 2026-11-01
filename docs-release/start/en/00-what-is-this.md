@@ -19,19 +19,21 @@ bypassed; no gate means 100% bypass.
 
 ## Try the source checkout demo
 
-The 0.0.1 CLI candidate is not yet published to the public npm registry. The
-source checkout smoke demo is the current way to build and run it:
+The 0.0.1 CLI candidate is not yet published to the public npm registry. Install the
+source checkout once with the [harness-download skill](../../../skills/harness-download/SKILL.md):
+it builds the CLI, daemon, and GUI, explains the Electron download cost before it starts,
+and puts the built `ha` on PATH for the current shell. This page does not keep a second
+source-install recipe.
+
+Then run the smoke demo from the checkout:
 
 ```bash
-git clone https://github.com/FairladyZ625/harness-anything
-cd harness-anything
-npm ci
 npm run quickstart:demo
 ```
 
-That run builds the CLI, initializes a throwaway git workspace, creates a task,
-records a queryable fact, and renders a relation graph. A load-bearing step that
-cannot produce evidence fails closed instead of quietly passing.
+That run initializes a throwaway git workspace, creates a task, records a queryable fact,
+and renders a relation graph. A load-bearing step that cannot produce evidence fails closed
+instead of quietly passing.
 
 The demo is not a first-run authority wizard. It requires a configured
 authorization authority, a signed-in human session, and admin policy access to
@@ -39,7 +41,7 @@ the `quickstart` repository. See [Server Daemon Operations](../../operations-ser
 for authority setup and login before running it.
 
 After a registry publication, install the scoped package and run `ha init` with
-no arguments. Until then, use the source checkout path above.
+no arguments. Until then, use the source install path above.
 
 ## What lands on disk
 

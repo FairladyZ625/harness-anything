@@ -86,7 +86,10 @@ App 为邀请的每个仓库依次显示：准备工作区 → 注册仓库 → 
 
 ## 备选：源码安装与命令行加入
 
-在没有 App 安装包的机器上，可以先做源码安装，再用命令行加入。在干净的 macOS 或 Linux 机器上准备 Git、Node.js 24+ 与 curl，再运行源码安装命令：
+在没有 App 安装包的机器上，下面的一键安装器就是边缘节点的源码安装路径，内部执行同一套构建步骤。需要通用源码 checkout
+（CLI、daemon 与 GUI）时按 [harness-download](../../../skills/harness-download/SKILL.md) 办理，不要在这里重复一套命令。
+
+在干净的 macOS 或 Linux 机器上准备 Git、Node.js 24+ 与 curl，再运行源码安装命令：
 
 ```bash
 git --version

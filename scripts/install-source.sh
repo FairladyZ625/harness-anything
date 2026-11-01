@@ -82,7 +82,6 @@ elif [ "$pull_mode" = pull ]; then
   fi
 fi
 cd "$install_root"
-
 if [ -n "$expected_ref" ]; then
   if ! expected_sha=$(git rev-parse --verify --quiet "$expected_ref^{commit}"); then
     printf 'Requested --ref %s is not present in %s; fetch or merge it first.\n' "$expected_ref" "$install_root" >&2
@@ -115,12 +114,15 @@ deps_digest=$(dependency_digest)
 if [ -d node_modules ] && [ -f "$deps_stamp" ] && [ "$(cat "$deps_stamp")" = "$deps_digest" ]; then
   printf 'Dependencies unchanged (%s); skipping npm ci.\n' "${deps_digest:0:12}"
 else
+  printf '%s\n' 'Installing dependencies. The Electron runtime downloads separately and a first run can take several minutes; later runs reuse the caches.'
   npm ci
   printf '%s\n' "$deps_digest" > "$deps_stamp"
 fi
+node node_modules/electron/install.js
 npm run build -w @harness-anything/daemon
 npm run build -w @harness-anything/cli
-(npm run build -w @harness-anything/gui)
+npm run build -w @harness-anything/gui
+node -e "const fs=require('fs'),path=require('path');const root=path.dirname(require.resolve('electron/package.json'));const rel=fs.readFileSync(path.join(root,'path.txt'),'utf8').trim();const bin=path.join(root,'dist',rel);fs.accessSync(bin,fs.constants.X_OK);console.log('Electron runtime: '+bin)"
 (cd packages/cli && npm link)
 
 if [ "$(uname -s)" = Linux ] && [ -f node_modules/electron/dist/chrome-sandbox ]; then
@@ -139,6 +141,7 @@ fi
 
 printf '\nInstalled source CLI at %s\n' "$install_root"
 printf 'Run: ha edge join <invite-link>\n'
+printf 'GUI: ha gui   (headless check: npm run smoke:gui:headless)\n'
 if [ "${XDG_SESSION_TYPE:-}" = wayland ]; then
   printf 'Wayland session detected. Launch the GUI with: ELECTRON_OZONE_PLATFORM_HINT=auto ha gui\n'
 fi

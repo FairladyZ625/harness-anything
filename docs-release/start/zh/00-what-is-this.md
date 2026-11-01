@@ -17,16 +17,18 @@ gate，就等于一定被绕过。
 
 ## 试运行源码 checkout demo
 
-0.0.1 CLI 候选版尚未发布到公开 npm registry；当前可通过源码 checkout smoke demo 构建并运行：
+0.0.1 CLI 候选版尚未发布到公开 npm registry。源码 checkout 统一按
+[harness-download](../../../skills/harness-download/SKILL.md) 第 1 节安装一次：它构建 CLI、daemon 与 GUI，
+在装依赖前说明 Electron 下载的耗时和体积，并把构建后的 `ha` 放进当前 shell 的 PATH。
+本文不另列一套源码安装命令。
+
+装好后在 checkout 里运行 smoke demo：
 
 ```bash
-git clone https://github.com/FairladyZ625/harness-anything
-cd harness-anything
-npm ci
 npm run quickstart:demo
 ```
 
-这条命令会构建 CLI、初始化一个临时 git workspace、创建 task、记录可查询的
+这条命令会初始化一个临时 git workspace、创建 task、记录可查询的
 fact，并渲染 relation graph。承重步骤如果拿不出证据，会 fail closed，而不
 是静默放行。
 
@@ -35,7 +37,7 @@ fact，并渲染 relation graph。承重步骤如果拿不出证据，会 fail c
 Daemon 运维](../../operations-server-daemon.zh-CN.md)配置授权服务并登录。
 
 等 package 正式发布到 registry 后，可安装 scoped package 并直接运行不带参数的 `ha init`。在那之前，
-请使用上面的源码路径。
+请使用上面的源码安装路径。
 
 ## 什么会落到磁盘上
 

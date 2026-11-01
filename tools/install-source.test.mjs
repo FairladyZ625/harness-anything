@@ -167,6 +167,15 @@ function createFixture(root) {
     '{"name":"fixture","lockfileVersion":3,"requires":true,"packages":{}}\n',
   );
   writeFileSync(path.join(installRoot, "packages/cli/package.json"), '{"name":"@fixture/cli"}\n');
+  // The installer downloads Electron through the package's own install.js and then
+  // verifies path.txt; model both in the fixture so the test exercises the real
+  // installer sequence instead of failing on a missing Electron tree.
+  const electronRoot = path.join(installRoot, "node_modules", "electron");
+  mkdirSync(path.join(electronRoot, "dist"), { recursive: true });
+  writeFileSync(path.join(electronRoot, "package.json"), '{"name":"electron","version":"0.0.0"}\n');
+  writeFileSync(path.join(electronRoot, "path.txt"), "electron\n");
+  writeExecutable(path.join(electronRoot, "install.js"), "process.exit(0);\n");
+  writeExecutable(path.join(electronRoot, "dist", "electron"), "#!/bin/sh\nexit 0\n");
   writeExecutable(path.join(binDir, "git"), gitStub);
   writeExecutable(path.join(binDir, "npm"), npmStub);
   return {

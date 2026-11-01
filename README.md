@@ -173,7 +173,7 @@ Download the matching desktop App from the [GitHub Releases page](https://github
 macOS releases are Apple Silicon arm64 only (dmg/zip); Windows releases are x64 NSIS and may show SmartScreen;
 Linux releases include x64 AppImage (automatic updates) and deb (manual upgrades). The npm and App versions always match.
 
-Contributors can use the source setup in [the contributor guide](./docs-release/contributing/en/01-local-setup.md).
+For source installation (CLI, daemon, and GUI in one pass, including the Electron download), follow [harness-download](./skills/harness-download/SKILL.md); it is the only source-install recipe. The [contributor guide](./docs-release/contributing/en/01-local-setup.md) covers working on this repository.
 
 ## Breaking change: existing repositories must migrate
 
