@@ -142,6 +142,10 @@ test("loop bounds concurrent starts, de-duplicates in-flight tasks, and rescans 
       release = resolve;
     });
     const started: string[] = [];
+    let queuedStarted!: () => void;
+    const queuedRun = new Promise<void>((resolve) => {
+      queuedStarted = resolve;
+    });
     const loop = openNodeAutoClaimLoop({
       userRoot,
       now: () => "2026-11-02T00:00:00.000Z",
@@ -163,6 +167,7 @@ test("loop bounds concurrent starts, de-duplicates in-flight tasks, and rescans 
       agentIds: () => ["sol"],
       claimAndRun: async (_repo, candidate) => {
         started.push(candidate.id);
+        if (candidate.id === queued.id) queuedStarted();
         await runGate;
       },
     });
@@ -183,8 +188,9 @@ test("loop bounds concurrent starts, de-duplicates in-flight tasks, and rescans 
       true,
     );
     release();
+    await queuedRun;
     await loop.close();
-    assert.deepEqual(started, ["task-allowed"]);
+    assert.deepEqual(started, ["task-allowed", "task-queued"]);
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
   }

@@ -90,7 +90,8 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
   const rows: NodeAutoClaimDiagnosticRow[] = [],
     controllers = new Set<AbortController>(),
     runs = new Set<Promise<void>>(),
-    inFlight = new Set<string>();
+    inFlight = new Set<string>(),
+    settled = new Set<string>();
   let closed = false,
     pending: Promise<void> | null = null,
     queuedReason: string | null = null;
@@ -175,6 +176,7 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
         const taskId = input.taskIdOf(candidate),
           activeTaskKey = `${repoId}:${taskId}`,
           agentId = agents[0];
+        if (settled.has(activeTaskKey)) continue;
         if (inFlight.has(activeTaskKey)) {
           record({
             repoId,
@@ -240,6 +242,7 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
         inFlight.add(activeTaskKey);
         const controller = new AbortController();
         controllers.add(controller);
+        let completed = false;
         const run = input
           .claimAndRun(
             repo,
@@ -249,7 +252,9 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
             controller.signal,
           )
           .then(
-            () => undefined,
+            () => {
+              completed = true;
+            },
             (error: unknown) => {
               if (controller.signal.aborted) return;
               record({
@@ -265,6 +270,16 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
             controllers.delete(controller);
             inFlight.delete(activeTaskKey);
             runs.delete(run);
+            if (completed) settled.add(activeTaskKey);
+            void trigger("runtime-settled").catch((error: unknown) => {
+              record({
+                repoId,
+                taskId,
+                reason: "claim_failed",
+                detail: error instanceof Error ? error.message : String(error),
+                observedAt: input.now(),
+              });
+            });
           });
         runs.add(run);
       }
@@ -272,6 +287,7 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
   };
   const trigger = (reason: string): Promise<void> => {
     if (closed) return Promise.resolve();
+    if (reason !== "runtime-settled") settled.clear();
     if (pending) {
       queuedReason = reason;
       return pending;
