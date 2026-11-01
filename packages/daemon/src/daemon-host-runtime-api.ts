@@ -298,6 +298,7 @@ export function createDaemonHostRuntimeApi(
             repoId: null,
             quotaBytes: null,
             certificateSource: null,
+            uploads: null,
           };
         await authorizeCenterConfiguration(config.repoId, auth);
         const loginListener = context.loginListenerCertificate();
@@ -309,6 +310,7 @@ export function createDaemonHostRuntimeApi(
           externalUrl: config.externalUrl ?? null,
           repoId: config.repoId,
           quotaBytes: config.quotaBytes,
+          uploads: context.fleetCenter?.status().uploads ?? null,
           certificateSource:
             loginListener !== null && loginListener.certificateFile === config.certPath ? "login-listener" : "explicit",
         };

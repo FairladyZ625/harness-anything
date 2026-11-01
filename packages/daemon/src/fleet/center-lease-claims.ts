@@ -3,7 +3,26 @@ import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel";
 
 import type { FleetDescriptor } from "./command-protocol.ts";
-import { FleetFault, type State, type Upload } from "./center-types.ts";
+import { FleetFault, type FleetUploadWindow, type State, type Upload } from "./center-types.ts";
+
+/** Only durable prefixes still being received occupy the recovery window. */
+export function uploadWindow(state: State): FleetUploadWindow {
+  const nodes = new Map<string, { nodeId: string; receiving: number; staged: number }>();
+  let receiving = 0,
+    staged = 0;
+  for (const upload of Object.values(state.uploads)) {
+    const node = nodes.get(upload.nodeId) ?? { nodeId: upload.nodeId, receiving: 0, staged: 0 };
+    if (upload.descriptor === null) {
+      receiving += 1;
+      node.receiving += 1;
+    } else {
+      staged += 1;
+      node.staged += 1;
+    }
+    nodes.set(upload.nodeId, node);
+  }
+  return { limit: 64, receiving, staged, nodes: [...nodes.values()] };
+}
 
 export interface FleetLeaseClaimsContext {
   readonly state: State;
@@ -11,6 +30,22 @@ export interface FleetLeaseClaimsContext {
   readonly FleetFault: typeof FleetFault;
   readonly safeLocal: (repoId: string, child: string) => string;
   readonly uploadPath: (uploadId: string, upload?: Upload) => string;
+}
+
+/** Consumption may have removed a claim before a crash persisted its metadata deletion.
+ * Keep staged claims that still exist: they prove ownership and make finish replay idempotent.
+ * Unfinished uploads are never reclaimed here, including a rename interrupted before persistence.
+ */
+export function reclaimConsumedClaims(context: FleetLeaseClaimsContext, repoId: string): void {
+  let released = false;
+  for (const [uploadId, upload] of Object.entries(context.state.uploads)) {
+    if (upload.repoId !== repoId || !upload.descriptor) continue;
+    const claim = path.join(context.safeLocal(repoId, "doc-sync-claims"), path.basename(upload.descriptor.ref));
+    if (existsSync(claim)) continue;
+    delete context.state.uploads[uploadId];
+    released = true;
+  }
+  if (released) context.persist();
 }
 
 export function verifyOwnedClaims(

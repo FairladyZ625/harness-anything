@@ -446,6 +446,7 @@ test("a start without a certificate pair reuses the login listener pair and the 
     before = await host.fleet.readCenterState(auth);
   assert.equal(before.running, false);
   assert.equal(before.repoId, null);
+  assert.equal(before.uploads, null);
   const started = await host.fleet.startCenter(
     { port: 0, repoId: f.request.repoId, quotaBytes: f.request.quotaBytes, bind: "127.0.0.1" },
     auth,
@@ -461,6 +462,7 @@ test("a start without a certificate pair reuses the login listener pair and the 
   assert.equal(status.bind, "127.0.0.1");
   assert.equal(status.repoId, f.request.repoId);
   assert.equal(status.certificateSource, "login-listener");
+  assert.deepEqual(status.uploads, { limit: 64, receiving: 0, staged: 0, nodes: [] });
   await host.close();
   const restored = await f.open("reuse-login-certificate", [], undefined, {
     run: async () => {

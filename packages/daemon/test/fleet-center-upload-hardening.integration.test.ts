@@ -1,10 +1,10 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { connect, type TLSSocket } from "node:tls";
-import { sha256Bytes } from "@harness-anything/kernel";
+import { resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
 import { FLEET_UPLOAD_MAX_BYTES, type FleetFrameV1 } from "../src/fleet/command-protocol.ts";
 import { fleetFixture, rawPeer, replicaQuota } from "./fleet-tls-session.fixture.ts";
 
@@ -208,5 +208,174 @@ test("a third party's failed hellos do not lock a node out from another source",
   }
   const ready = await peer.request(beginFrame(fixture.subject.repoId, "source-budget-peer", 5, "source-budget-peer"));
   assert.equal(ready.schema, "fleet.upload.ready/v1", JSON.stringify(ready));
+  peer.close();
+});
+
+test(
+  "completed uploads release recovery capacity while finish replay remains idempotent",
+  { timeout: 60_000 },
+  async (t) => {
+    const fixture = await fleetFixture(t);
+    t.after(() => fixture.close());
+    const center = await fixture.center(),
+      peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret");
+    let first: Extract<FleetFrameV1, { schema: "fleet.upload.result/v1" }> | undefined;
+    let firstId = "";
+    for (let index = 0; index < 65; index += 1) {
+      const body = `completed-${index}`,
+        ready = await peer.request(
+          beginFrame(fixture.subject.repoId, `complete-${index}`, Buffer.byteLength(body), body),
+        );
+      assert.equal(ready.schema, "fleet.upload.ready/v1", `upload ${index}: ${JSON.stringify(ready)}`);
+      if (ready.schema !== "fleet.upload.ready/v1") throw new Error("ready expected");
+      await peer.request(chunkFrame(ready.uploadId, 0, body));
+      const result = await peer.request({
+        schema: "fleet.upload.finish/v1",
+        messageId: `finish-${index}`,
+        opId: "op-upload-test",
+        uploadId: ready.uploadId,
+      });
+      assert.equal(result.schema, "fleet.upload.result/v1", JSON.stringify(result));
+      if (index === 0 && result.schema === "fleet.upload.result/v1") {
+        first = result;
+        firstId = ready.uploadId;
+      }
+    }
+    // Replaying completed claims never spends the eight receiving slots of this session.
+    for (let index = 0; index < 9; index += 1) {
+      const body = `completed-${index}`;
+      const replayed = await peer.request(
+        beginFrame(fixture.subject.repoId, `staged-${index}`, Buffer.byteLength(body), body),
+      );
+      assert.equal(replayed.schema, "fleet.upload.ready/v1", JSON.stringify(replayed));
+    }
+    const replay = await peer.request({
+      schema: "fleet.upload.finish/v1",
+      messageId: "finish-replay",
+      opId: "op-upload-test",
+      uploadId: firstId,
+    });
+    assert.equal(replay.schema, "fleet.upload.result/v1");
+    if (replay.schema !== "fleet.upload.result/v1") throw new Error("result expected");
+    assert.equal(replay.status, "already_staged");
+    assert.deepEqual(replay.descriptor, first!.descriptor);
+    const staged = await peer.request(beginFrame(fixture.subject.repoId, "begin-replay", 11, "completed-0"));
+    assert.equal(staged.schema, "fleet.upload.ready/v1");
+    if (staged.schema === "fleet.upload.ready/v1") {
+      assert.equal(staged.status, "already_staged");
+      assert.equal(staged.resumeOffset, 11);
+    }
+    peer.close();
+    await center.close();
+    const restarted = await fixture.center(),
+      afterRestart = await rawPeer(
+        fixture.track,
+        restarted.port,
+        fixture.cert,
+        fixture.subject.nodeId,
+        "machine-secret",
+      ),
+      stillStaged = await afterRestart.request({
+        schema: "fleet.upload.finish/v1",
+        messageId: "finish-after-restart",
+        opId: "op-upload-test",
+        uploadId: firstId,
+      });
+    assert.equal(stillStaged.schema, "fleet.upload.result/v1", JSON.stringify(stillStaged));
+    if (stillStaged.schema === "fleet.upload.result/v1") assert.deepEqual(stillStaged.descriptor, first!.descriptor);
+    afterRestart.close();
+  },
+);
+
+test(
+  "startup heals 64 historical completed records and preserves an interrupted durable prefix",
+  { timeout: 30_000 },
+  async (t) => {
+    const fixture = await fleetFixture(t);
+    t.after(() => fixture.close());
+    const local = resolveHarnessLayout(fixture.repo).localRoot,
+      claims = path.join(local, "doc-sync-claims"),
+      parts = path.join(local, "fleet-uploads"),
+      content = { sha256: sha256Bytes(Buffer.from("staged")), size: 6, mediaType: "text/plain" },
+      uploads: Record<string, unknown> = {};
+    mkdirSync(claims, { recursive: true });
+    mkdirSync(parts, { recursive: true });
+    mkdirSync(fixture.stateRoot, { recursive: true });
+    for (let index = 0; index < 64; index += 1) {
+      const id = `historical-${index}`;
+      uploads[id] = {
+        nodeId: fixture.subject.nodeId,
+        repoId: fixture.subject.repoId,
+        content,
+        descriptor: { ref: `doc-sync-claims/${id}`, ...content },
+      };
+      // Half are awaiting consumption; the other half were already consumed before a crash.
+      if (index < 32) writeFileSync(path.join(claims, id), "staged");
+    }
+    const stateFile = path.join(fixture.stateRoot, "state.json");
+    writeFileSync(stateFile, JSON.stringify({ uploads }));
+    const center = await fixture.center(),
+      peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret");
+    const healed = JSON.parse(readFileSync(stateFile, "utf8"));
+    assert.equal(Object.keys(healed.uploads).length, 32, "only consumed metadata is removed on startup");
+    assert.equal(readFileSync(path.join(claims, "historical-0"), "utf8"), "staged");
+    const begin = beginFrame(fixture.subject.repoId, "interrupt", 8, "abcdefgh"),
+      ready = await peer.request(begin);
+    assert.equal(ready.schema, "fleet.upload.ready/v1", JSON.stringify(ready));
+    if (ready.schema !== "fleet.upload.ready/v1") throw new Error("ready expected");
+    await peer.request(chunkFrame(ready.uploadId, 0, "abcd"));
+    peer.close();
+    await center.close();
+    const restarted = await fixture.center(),
+      resumed = await rawPeer(fixture.track, restarted.port, fixture.cert, fixture.subject.nodeId, "machine-secret"),
+      prefix = await resumed.request({ ...begin, messageId: "resume" });
+    assert.equal(prefix.schema, "fleet.upload.ready/v1", JSON.stringify(prefix));
+    if (prefix.schema !== "fleet.upload.ready/v1") throw new Error("ready expected");
+    assert.equal(prefix.resumeOffset, 4);
+    await resumed.request(chunkFrame(prefix.uploadId, 0, "abcd"));
+    await resumed.request(chunkFrame(prefix.uploadId, 4, "efgh"));
+    const finished = await resumed.request({
+      schema: "fleet.upload.finish/v1",
+      messageId: "resume-finish",
+      opId: "op-upload-test",
+      uploadId: prefix.uploadId,
+    });
+    assert.equal(finished.schema, "fleet.upload.result/v1", JSON.stringify(finished));
+    resumed.close();
+  },
+);
+
+test("recovery window errors and center status name receiving and staged occupancy", { timeout: 30_000 }, async (t) => {
+  const fixture = await fleetFixture(t);
+  t.after(() => fixture.close());
+  mkdirSync(fixture.stateRoot, { recursive: true });
+  const uploads = Object.fromEntries(
+    Array.from({ length: 64 }, (_, index) => [
+      `partial-${index}`,
+      {
+        nodeId: `node-${index % 4}`,
+        repoId: fixture.subject.repoId,
+        content: { sha256: "a".repeat(64), size: 8, mediaType: "text/plain" },
+        descriptor: null,
+      },
+    ]),
+  );
+  writeFileSync(path.join(fixture.stateRoot, "state.json"), JSON.stringify({ uploads }));
+  const center = await fixture.center(),
+    peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret"),
+    refused = await peer.request(beginFrame(fixture.subject.repoId, "full-window", 8));
+  assert.equal(errorCode(refused), "busy");
+  if (refused.schema !== "fleet.error/v1") throw new Error("error expected");
+  assert.match(refused.message, /receiving=64/u);
+  assert.match(refused.message, /staged=0/u);
+  assert.match(refused.message, /limit=64/u);
+  const status = center.status();
+  assert.equal(status.uploads.receiving, 64);
+  assert.equal(status.uploads.staged, 0);
+  assert.equal(status.uploads.limit, 64);
+  assert.equal(
+    Object.keys(JSON.parse(readFileSync(path.join(fixture.stateRoot, "state.json"), "utf8")).uploads).length,
+    64,
+  );
   peer.close();
 });

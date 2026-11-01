@@ -100,7 +100,12 @@ export async function serve(
       }
       const line = serializeFleetFrame(frame),
         bytes = Buffer.byteLength(line);
-      if (bytes > FLEET_KEY_SEND_WINDOW_BYTES) throw new FleetFault("busy", "Per-key send window is full.", true);
+      if (bytes > FLEET_KEY_SEND_WINDOW_BYTES)
+        throw new FleetFault(
+          "busy",
+          `Per-key send window is full (frameBytes=${bytes}, bufferedBytes=${socket.writableLength}, limit=${FLEET_KEY_SEND_WINDOW_BYTES}).`,
+          true,
+        );
       const signal = delivery?.signal ?? disconnected.signal;
       signal.throwIfAborted();
       if (socket.writableLength + bytes > FLEET_SESSION_SEND_WINDOW_BYTES)
@@ -367,7 +372,7 @@ export function immediate(frame: FleetFrameV1): Delivery {
 export function loadState(file: string): State {
   if (!existsSync(file)) return { uploads: {} };
   const value = JSON.parse(readFileSync(file, "utf8")) as State & Record<string, unknown>;
-  if (!value.uploads || Object.keys(value.uploads).length > 64 || "transfers" in value || "cursors" in value)
+  if (!value.uploads || "transfers" in value || "cursors" in value)
     throw new Error("Fleet durable state contains retired delivery state");
   return { uploads: value.uploads };
 }
