@@ -668,7 +668,9 @@ const docChange = shape({ path: logicalPath, baseBlobSha256: nullable(sha64), po
 const common = { schema: text, messageId: id } as const,
   reply = { ...common, inReplyTo: id } as const;
 const schemas: Readonly<Record<string, Check>> = {
-  "fleet.edge.join/v1": shape({ ...common, joinId: id, inviteToken: text, accessToken: text }),
+  // accessToken is validated separately below and deliberately excluded from the
+  // closed-schema payload so the secret never enters generic shape validation.
+  "fleet.edge.join/v1": shape({ ...common, joinId: id, inviteToken: text }),
   "fleet.edge.join.result/v1": shape({
     ...reply,
     joinId: id,

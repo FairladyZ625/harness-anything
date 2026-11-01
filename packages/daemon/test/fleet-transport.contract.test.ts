@@ -39,6 +39,18 @@ test("fleet authentication metadata admits a standard JWT and remains separate f
     FleetContractError,
   );
 });
+test("edge join frames validate their required access token without exposing it to the closed payload schema", () => {
+  const frame = {
+    schema: "fleet.edge.join/v1",
+    messageId: "join-message",
+    joinId: "join-id",
+    inviteToken: "invite-token",
+    accessToken: "access-token",
+  } as const;
+  assert.deepEqual(parseFleetFrame(frame), frame);
+  const { accessToken: _accessToken, ...missing } = frame;
+  assert.throws(() => parseFleetFrame(missing), FleetContractError);
+});
 test("Fleet document rejection receipts preserve explanation and path touches", () => {
   const frame = {
     schema: "fleet.doc.result/v1",
