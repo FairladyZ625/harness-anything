@@ -145,7 +145,7 @@ with `plan_placeholder`. `ha agent run <agent-id> --task <id> --mission <name>`
 appends the canonical `artifacts/missions/<name>.md` document to that
 plan-derived mission. Publish a named mission with `ha task artifact add
 <task-id> --source <file> --destination artifacts/missions/<name>.md`; edit
-its published copy in the task package and update it with `ha doc sync
+its mission file already in the task package and update it with `ha doc sync
 --submit --path <package>/artifacts/missions/<name>.md`. `--prompt` remains an
 explicit override. Agent
 declarations select a node-local instance and permission mode; `--instance` and

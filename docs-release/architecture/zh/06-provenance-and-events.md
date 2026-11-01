@@ -99,7 +99,7 @@ runtime 派工与 Squad 派工都会用同一个校验器拒绝必需节为空�
 `plan_placeholder`。`ha agent run <agent-id> --task <id> --mission <name>` 会把 canonical
 `artifacts/missions/<name>.md` 追加到 plan-derived mission。命名 mission 先用
 `ha task artifact add <task-id> --source <file> --destination artifacts/missions/<name>.md` 发布，
-之后编辑任务包里的已发布副本并用 `ha doc sync --submit --path <package>/artifacts/missions/<name>.md` 更新；
+之后编辑任务包里的 mission 文件并用 `ha doc sync --submit --path <package>/artifacts/missions/<name>.md` 更新；
 `--prompt` 仍是显式 override，而
 agent 声明选择节点本地 instance 与 permissionMode；`--instance` 与 `--cwd` 只作本次覆盖。
 `ha squad run --task <id>` 无需 prompt 即可派工。report 来自 provider 的结构化 runtime
