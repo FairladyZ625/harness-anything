@@ -18,7 +18,7 @@ import { openRuntimeInstanceStore } from "../src/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
 import { listenFleetTls } from "../src/fleet/center.ts";
-import { runFleetReplicaSync } from "../src/fleet/replica-sync.ts";
+import { runFleetReplicaSync, waitForFleetReplicaReady } from "../src/fleet/replica-sync.ts";
 import { initHarnessRepo, pullScheduleView, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
 
 const actor = withPolicyGroup(
@@ -559,7 +559,8 @@ test(
     let center: Awaited<ReturnType<typeof listenFleetTls>> | null = null,
       host: Awaited<ReturnType<typeof openDaemonHost>> | null = null,
       owners: Awaited<ReturnType<typeof fleetNodeOwners>> | null = null;
-    const edgeRuntimes: ReturnType<typeof openFleetEdgeRuntime>[] = [];
+    const edgeRuntimes: ReturnType<typeof openFleetEdgeRuntime>[] = [],
+      replicaSyncs: Array<{ readonly controller: AbortController; readonly running: Promise<void> }> = [];
     try {
       initHarnessRepo(repo, "schedule-center");
       registerDaemonRepo({
@@ -710,26 +711,36 @@ test(
           edgeRuntimes.push(runtime);
           return { subject, runtime, workspaceRoot, viewRoot };
         });
-      // The writing edge owns a resident stream, as the daemon does. The second edge stays
-      // deliberately stale so its disabled-view claim still tests center-side fencing.
+      // Pull both views first so edge-two stays stale through the disabled-view fence check.
       for (const workspace of workspaces) await pullScheduleView(workspace, center.port, certificate);
-      const writerEdge = workspaces[0]!,
-        controller = new AbortController();
-      const replication = runFleetReplicaSync({
-        readAccessToken: owners.readAccessToken(writerEdge.subject.nodeId),
-        port: center.port,
-        ca: certificate,
-        nodeId: writerEdge.subject.nodeId,
-        credential: `credential-${writerEdge.subject.nodeId}`,
-        repoId,
-        viewRoot: writerEdge.viewRoot,
-        diskQuotaBytes: 64 * 1024 * 1024,
-        signal: controller.signal,
-      });
+      const startReplicaSync = async (workspace: (typeof workspaces)[number]): Promise<void> => {
+        const controller = new AbortController(),
+          running = runFleetReplicaSync({
+            readAccessToken: owners!.readAccessToken(workspace.subject.nodeId),
+            port: center!.port,
+            ca: certificate,
+            nodeId: workspace.subject.nodeId,
+            credential: `credential-${workspace.subject.nodeId}`,
+            repoId,
+            viewRoot: workspace.viewRoot,
+            diskQuotaBytes: 64 * 1024 * 1024,
+            signal: controller.signal,
+          });
+        replicaSyncs.push({ controller, running });
+        assert.equal(
+          await waitForFleetReplicaReady(
+            { viewRoot: workspace.viewRoot, repoId, nodeId: workspace.subject.nodeId },
+            controller.signal,
+          ),
+          true,
+        );
+      };
       t.after(async () => {
-        controller.abort();
-        await replication;
+        for (const { controller } of replicaSyncs) controller.abort();
+        await Promise.all(replicaSyncs.map(({ running }) => running));
       });
+      const writerEdge = workspaces[0]!;
+      await startReplicaSync(writerEdge);
       await t.test("edge schedule requires action kind", async () => {
         await assert.rejects(workspaces[0]!.runtime.run("repo.schedule.run", {}), {
           code: "invalid_field",
@@ -782,6 +793,9 @@ test(
       assert.equal(stale.outcome, "op_rejected");
       assert.equal((stale.error as { code?: string } | undefined)?.code, "schedule_paused");
       assert.deepEqual(launches, [0, 0]);
+      // Both edges may win the following claim race. Each real edge owns a resident stream
+      // so an accepted center receipt can be observed on its own mirror.
+      await startReplicaSync(workspaces[1]!);
       assert.equal(
         (
           await workspaces[0]!.runtime.run("repo.schedule.run", {
