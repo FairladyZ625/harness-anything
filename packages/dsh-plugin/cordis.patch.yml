@@ -25,9 +25,6 @@
             name: '@deepseek-ai/dsh-tool-bash'
           - id: skill-filesystem
             name: '@deepseek-ai/dsh-skill-filesystem'
-            config:
-              customSkillDirs:
-                - !!js process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:path').dirname(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('@harness-anything/dsh-plugin/package.json')), 'skills')
           - id: tool-skill
             name: '@deepseek-ai/dsh-tool-skill'
     - id: ha-worker-preset
@@ -50,8 +47,5 @@
             name: '@deepseek-ai/dsh-tool-bash'
           - id: skill-filesystem
             name: '@deepseek-ai/dsh-skill-filesystem'
-            config:
-              customSkillDirs:
-                - !!js process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:path').dirname(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('@harness-anything/dsh-plugin/package.json')), 'skills')
           - id: tool-skill
             name: '@deepseek-ai/dsh-tool-skill'

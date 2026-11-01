@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 import { TUTORIAL_LAYOUT, tutorialCopy } from "../src/tutorial-content.ts";
 
@@ -42,5 +42,17 @@ test("tutorial tabs place every section exactly once", () => {
   for (const language of ["zh", "en"] as const) {
     assert.deepEqual(placed, tutorialCopy[language].sections.map((section) => section.id).sort());
     assert.equal(tutorialCopy[language].tabs.length, TUTORIAL_LAYOUT.length);
+  }
+});
+
+test("every skill the tutorial links to exists in the repository skills folder", () => {
+  const source = readFileSync(new URL("../src/tutorial-content.ts", import.meta.url), "utf8");
+  const linked = new Set([...source.matchAll(/skillUrl\("([^"]+)"\)/gu)].map((match) => match[1]!));
+  assert.ok(linked.size > 0);
+  for (const skill of linked) {
+    assert.ok(
+      existsSync(new URL(`../../../skills/${skill}/SKILL.md`, import.meta.url)),
+      `tutorial links skills/${skill}/SKILL.md, which does not exist`,
+    );
   }
 });

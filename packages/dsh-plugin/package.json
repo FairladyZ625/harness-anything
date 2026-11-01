@@ -23,7 +23,6 @@
     "dist",
     "cordis.patch.yml",
     "locale/*.json",
-    "skills",
     "package.json"
   ],
   "dsh": {
@@ -52,8 +51,7 @@
     "dsh": ">=0.2.0-alpha.0"
   },
   "scripts": {
-    "build": "npm run build:skills && tsc -p tsconfig.build.json && npm run build:client",
-    "build:skills": "node scripts/copy-skills.mjs",
+    "build": "tsc -p tsconfig.build.json && npm run build:client",
     "build:client": "tsdown --config tsdown.config.ts",
     "typecheck": "tsc -p tsconfig.json --pretty false",
     "test": "node --test"

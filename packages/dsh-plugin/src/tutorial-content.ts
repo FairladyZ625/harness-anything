@@ -85,7 +85,7 @@ const zh: TutorialCopy = {
           command: REPOSITORY_URL,
         },
         {
-          body: "这个插件做三件事：加上 `ha-ceo` 和 `ha-worker` 两个预设；自带 Harness 的全部 skill；在右侧打开 Harness 看板。看板上显示的，就是 Agent 写进台账的内容。",
+          body: "这个插件做两件事：加上 `ha-ceo` 和 `ha-worker` 两个预设；在插件页或会话旁打开 Harness 看板。看板上显示的，就是 Agent 写进台账的内容。Harness 的 skill 由下面的安装话术补到你的用户 skill 目录。",
         },
       ],
     },
@@ -120,7 +120,7 @@ const zh: TutorialCopy = {
         },
         {
           title: "skill 装在哪",
-          body: "用 `ha-ceo` 或 `ha-worker` 预设时，全部 Harness skill 已随插件自带，不用另装。想在别的预设里也用，让 Agent 补装到 DSH 的用户 skill 目录：",
+          body: "skill 补在 `~/.agents/skills`，这是 DSH 读取顺序里最靠后的一层：你在任何位置改过的同名 skill 都优先生效，不会被盖住。只想补 skill 时说：",
           say: `用 harness-dsh-install skill（${skillUrl("harness-dsh-install")}）把 Harness 的全部 skill 补装到 DSH 的用户 skill 目录，已有的不要覆盖。`,
         },
         {
@@ -372,7 +372,7 @@ const en: TutorialCopy = {
           command: REPOSITORY_URL,
         },
         {
-          body: "This plugin does three things: it adds the `ha-ceo` and `ha-worker` presets, ships every Harness skill, and opens the Harness board on the right. The board shows exactly what Agents wrote to the ledger.",
+          body: "This plugin does two things: it adds the `ha-ceo` and `ha-worker` presets, and opens the Harness board in the plugin page or beside a session. The board shows exactly what Agents wrote to the ledger. Harness skills go into your user skill folder through the install prompt below.",
         },
       ],
     },
@@ -408,7 +408,7 @@ const en: TutorialCopy = {
         },
         {
           title: "Where skills live",
-          body: "With the `ha-ceo` or `ha-worker` preset, every Harness skill ships with the plugin, so there is nothing to install. To use them in other presets, ask the Agent to add them to DSH's user skill folder:",
+          body: "Skills are added to `~/.agents/skills`, the last folder DSH reads, so a skill you changed anywhere keeps priority and is never shadowed. To add only the skills, say:",
           say: `Use the harness-dsh-install skill (${skillUrl("harness-dsh-install")}) to add every Harness skill to DSH's user skill folder without overwriting existing ones.`,
         },
         {
