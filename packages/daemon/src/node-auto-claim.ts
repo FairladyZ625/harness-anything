@@ -60,6 +60,7 @@ export interface NodeAutoClaimDiagnosticRow {
   readonly detail: string;
   readonly observedAt: string;
   readonly assignedByPersonId?: string;
+  readonly agentId?: string;
 }
 
 export interface NodeAutoClaimLoopInput<TRepo, TCandidate> {
@@ -71,7 +72,7 @@ export interface NodeAutoClaimLoopInput<TRepo, TCandidate> {
   readonly candidates: (repo: TRepo) => Promise<readonly TCandidate[]>;
   readonly taskIdOf: (candidate: TCandidate) => string;
   readonly assignmentOf: (candidate: TCandidate) => Promise<NodeAutoClaimAssignment | null>;
-  readonly activeCount: () => Promise<number>;
+  readonly activeTaskKeys: () => Promise<readonly string[]>;
   readonly agentIds: (repo: TRepo, policy: NodeAutoClaimPolicy) => readonly string[];
   readonly claimAndRun: (
     repo: TRepo,
@@ -87,23 +88,28 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
   input: NodeAutoClaimLoopInput<TRepo, TCandidate>,
 ): NodeAutoClaimLoop<TRepo, TCandidate> {
   const rows: NodeAutoClaimDiagnosticRow[] = [],
-    controllers = new Set<AbortController>();
+    controllers = new Set<AbortController>(),
+    runs = new Set<Promise<void>>(),
+    inFlight = new Set<string>();
   let closed = false,
-    pending: Promise<void> | null = null;
+    pending: Promise<void> | null = null,
+    queuedReason: string | null = null,
+    backgroundFailure: unknown;
   const record = (row: NodeAutoClaimDiagnosticRow): void => {
     rows.push(row);
     if (rows.length > 200) rows.splice(0, rows.length - 200);
-    try {
-      input.onDiagnostic?.(row);
-    } catch {
-      // Diagnostic persistence must not make an otherwise authorized claim fail.
-    }
+    input.onDiagnostic?.(row);
   };
   const scan = async (_reason: string): Promise<void> => {
+    if (backgroundFailure !== undefined) {
+      const error = backgroundFailure;
+      backgroundFailure = undefined;
+      throw error;
+    }
     const configured = readNodeAutoClaimPolicy(input.userRoot);
     let slots: number;
     try {
-      slots = await input.activeCount();
+      slots = new Set([...(await input.activeTaskKeys()), ...inFlight]).size;
     } catch (error) {
       record({
         repoId: "*",
@@ -173,7 +179,18 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
       const agents = input.agentIds(repo, policy);
       for (const candidate of candidates) {
         const taskId = input.taskIdOf(candidate),
+          activeTaskKey = `${repoId}:${taskId}`,
           agentId = agents[0];
+        if (inFlight.has(activeTaskKey)) {
+          record({
+            repoId,
+            taskId,
+            reason: "concurrency_limit",
+            detail: "task is already being auto-claimed",
+            observedAt: input.now(),
+          });
+          continue;
+        }
         let assignment: NodeAutoClaimAssignment | null;
         try {
           assignment = await input.assignmentOf(candidate);
@@ -216,10 +233,20 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
           });
           continue;
         }
+        record({
+          repoId,
+          taskId,
+          reason: "accepted",
+          detail: `starting with Agent ${agentId}`,
+          observedAt: input.now(),
+          ...(assignment?.assignedByPersonId ? { assignedByPersonId: assignment.assignedByPersonId } : {}),
+          agentId,
+        });
         slots += 1;
+        inFlight.add(activeTaskKey);
         const controller = new AbortController();
         controllers.add(controller);
-        void input
+        const run = input
           .claimAndRun(
             repo,
             candidate,
@@ -228,25 +255,45 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
             controller.signal,
           )
           .then(
-            () => controllers.delete(controller),
+            () => undefined,
             (error: unknown) => {
-              controllers.delete(controller);
-              record({
-                repoId,
-                taskId,
-                reason: "claim_failed",
-                detail: error instanceof Error ? error.message : String(error),
-                observedAt: input.now(),
-              });
+              if (controller.signal.aborted) return;
+              try {
+                record({
+                  repoId,
+                  taskId,
+                  reason: "claim_failed",
+                  detail: error instanceof Error ? error.message : String(error),
+                  observedAt: input.now(),
+                });
+              } catch (diagnosticError) {
+                backgroundFailure = diagnosticError;
+              }
             },
-          );
+          )
+          .finally(() => {
+            controllers.delete(controller);
+            inFlight.delete(activeTaskKey);
+            runs.delete(run);
+          });
+        runs.add(run);
       }
     }
   };
   const trigger = (reason: string): Promise<void> => {
     if (closed) return Promise.resolve();
-    if (pending) return pending;
-    pending = scan(reason).finally(() => {
+    if (pending) {
+      queuedReason = reason;
+      return pending;
+    }
+    pending = (async () => {
+      let nextReason: string | null = reason;
+      while (!closed && nextReason !== null) {
+        queuedReason = null;
+        await scan(nextReason);
+        nextReason = queuedReason;
+      }
+    })().finally(() => {
       pending = null;
     });
     return pending;
@@ -255,7 +302,7 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
     closed = true;
     for (const controller of controllers) controller.abort();
     await pending;
-    controllers.clear();
+    await Promise.allSettled([...runs]);
   };
   return { trigger, close, diagnostics: () => rows };
 }

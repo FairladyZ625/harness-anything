@@ -312,6 +312,20 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     inputs: [],
   }),
   defineHostAdminCommand({
+    id: "daemon-node-auto-claim",
+    phase: "Edge-Resident-H1",
+    path: ["daemon", "auto-claim", "<operation>"],
+    positional: "operation",
+    summary: "Read or update the local node auto-claim policy and wake the resident daemon.",
+    method: "daemon.nodeAutoClaim.wake",
+    inputs: [
+      cliInput("--agent", "repeated", false, { code: "invalid_field" }),
+      cliInput("--allow-person", "repeated", false, { code: "invalid_field" }),
+      cliInput("--allow-team", "repeated", false, { code: "invalid_field" }),
+      cliInput("--max-concurrent", "single", false, { code: "invalid_field" }),
+    ],
+  }),
+  defineHostAdminCommand({
     id: "runtime-instance-create",
     phase: "Runtime-Instances-S1",
     path: ["runtime", "instance", "create"],

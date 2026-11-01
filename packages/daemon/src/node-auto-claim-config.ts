@@ -21,6 +21,7 @@ export interface NodeAutoClaimPersistedDiagnostic {
   readonly reason: string;
   readonly observedAt: string;
   readonly assignedByPersonId?: string;
+  readonly agentId?: string;
 }
 
 export const DEFAULT_NODE_AUTO_CLAIM_POLICY: NodeAutoClaimPolicy = Object.freeze({
@@ -42,22 +43,19 @@ export function nodeAutoClaimDiagnosticsPath(userRoot: string): string {
 export function readNodeAutoClaimDiagnostics(userRoot: string): readonly NodeAutoClaimPersistedDiagnostic[] {
   const file = nodeAutoClaimDiagnosticsPath(userRoot);
   if (!existsSync(file)) return [];
-  try {
-    const value: unknown = JSON.parse(readFileSync(file, "utf8"));
-    if (!Array.isArray(value)) return [];
-    return value.filter(
-      (row): row is NodeAutoClaimPersistedDiagnostic =>
-        row !== null &&
-        typeof row === "object" &&
-        typeof row.repoId === "string" &&
-        (typeof row.taskId === "string" || row.taskId === null) &&
-        typeof row.reason === "string" &&
-        typeof row.observedAt === "string" &&
-        (row.assignedByPersonId === undefined || typeof row.assignedByPersonId === "string"),
-    );
-  } catch {
-    return [];
-  }
+  const value: unknown = JSON.parse(readFileSync(file, "utf8"));
+  if (!Array.isArray(value)) throw new Error("node auto-claim diagnostics must be an array");
+  return value.filter(
+    (row): row is NodeAutoClaimPersistedDiagnostic =>
+      row !== null &&
+      typeof row === "object" &&
+      typeof row.repoId === "string" &&
+      (typeof row.taskId === "string" || row.taskId === null) &&
+      typeof row.reason === "string" &&
+      typeof row.observedAt === "string" &&
+      (row.assignedByPersonId === undefined || typeof row.assignedByPersonId === "string") &&
+      (row.agentId === undefined || typeof row.agentId === "string"),
+  );
 }
 
 export function recordNodeAutoClaimDiagnostic(userRoot: string, row: NodeAutoClaimPersistedDiagnostic): void {
