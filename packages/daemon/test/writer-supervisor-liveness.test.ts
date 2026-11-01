@@ -92,6 +92,27 @@ test("an attach status heartbeat keeps a slow projection open alive beyond 30 se
   await supervisor.close();
 });
 
+test("runtime restoration heartbeats remain live after projection phases advance", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const writer = new FakeWriter(),
+    opening = openWriterSupervisor(supervisorInput, { createWorker: () => writer as unknown as Worker }),
+    publish = (kind: RepoWriterStatusV1["kind"], attach: NonNullable<RepoCellStatus["attach"]>) =>
+      writer.publish(writerStatus(kind, warmingStatus(attach)));
+
+  publish("attach-progress", { phase: "recovering", applied: 1, total: 1, watermark: null });
+  publish("attach-progress", { phase: "catching-up", applied: 1, total: 1, watermark: 1 });
+  publish("attach-progress", { phase: "restoring-runtimes", applied: 0, total: null, watermark: null });
+  context.mock.timers.tick(29_999);
+  publish("status", { phase: "restoring-runtimes", applied: 0, total: null, watermark: null });
+  context.mock.timers.tick(29_999);
+
+  assert.equal(writer.terminateCalls, 0);
+  writer.publish(writerStatus("ready", attachedStatus()));
+  const supervisor = await opening;
+  assert.equal(supervisor.status().state, "attached");
+  await supervisor.close();
+});
+
 test("a failed first open does not prevent a later supervisor from opening", async (context) => {
   context.mock.timers.enable({ apis: ["setTimeout"] });
   const first = new FakeWriter(true),

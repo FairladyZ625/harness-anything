@@ -231,9 +231,11 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
         };
       }
     }
+    // Projection is ready; runtime adoption is the next attach stage. Keep this boundary monotonic
+    // so the worker heartbeat remains valid while the first adoption publication is pending.
     context.input.onOpenProgress?.({
-      phase: "opening",
-      applied: null,
+      phase: "restoring-runtimes",
+      applied: 0,
       total: null,
       watermark: null,
     });
