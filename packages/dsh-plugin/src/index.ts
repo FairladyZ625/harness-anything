@@ -41,14 +41,6 @@ interface HostContext extends Context {
   };
 }
 
-function listWorkspaces(ctx: HostContext): readonly string[] {
-  try {
-    return ctx.workspaceRegistry.list().map((workspace) => workspace.path);
-  } catch {
-    return [];
-  }
-}
-
 /** Register the lazy Host broker route; all Harness state remains behind the `ha` CLI. */
 export function apply(ctx: HostContext, config: Config = {}): void {
   const executable = config.executable ?? "ha";
@@ -59,7 +51,7 @@ export function apply(ctx: HostContext, config: Config = {}): void {
         ? config.cwd
         : chooseWorkspace({
             requested,
-            workspaces: listWorkspaces(ctx),
+            workspaces: ctx.workspaceRegistry.list().map((workspace) => workspace.path),
             repos: await readRegisteredRepos(ctx.subprocess, executable, process.cwd()),
             separator: path.sep,
             fallback: process.cwd(),

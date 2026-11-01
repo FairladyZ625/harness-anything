@@ -577,3 +577,57 @@ test("Host obtains embedding origin from its profile and webServer, never reques
     await dispose();
   }
 });
+
+test("a Workspace registry failure is reported and never opens another repository", async () => {
+  const argv: string[][] = [];
+  let handler!: (request: never, response: never) => Promise<void>;
+  applyHost({
+    subprocess: {
+      spawn(command: readonly string[]) {
+        argv.push([...command]);
+        const next = child();
+        queueMicrotask(() => {
+          next.stdout.emit(JSON.stringify({ ok: true, repos: [{ rootDir: "/other", state: "attached" }] }));
+          next.resolve({ exitCode: 0, signal: null });
+        });
+        return next.handle;
+      },
+    },
+    get: () => ({ name: "desktop" }),
+    workspaceRegistry: {
+      list: () => {
+        throw new Error("registry offline");
+      },
+    },
+    webServer: {
+      getOrigin: () => "http://127.0.0.1:4000",
+      register: (route: { handler: typeof handler }) => {
+        handler = route.handler;
+        return () => {};
+      },
+    },
+    effect: () => {},
+    logger: { info() {} },
+  } as never);
+  let status = 0;
+  let body = "";
+  await handler(
+    { method: "GET", url: "/__harness_anything/broker?workspace=%2Frepo", headers: {} } as never,
+    {
+      set statusCode(value: number) {
+        status = value;
+      },
+      setHeader() {},
+      end(text: string) {
+        body = text;
+      },
+    } as never,
+  );
+  assert.equal(status, 503);
+  assert.equal((JSON.parse(body) as { error: { code: string } }).error.code, "workspace_unavailable");
+  assert.equal(
+    argv.some((command) => command.includes("gui")),
+    false,
+    "no broker starts on a repository the selection could not be checked against",
+  );
+});

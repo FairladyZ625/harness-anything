@@ -338,7 +338,9 @@ export function createBrokerManager(subprocess: BrokerSubprocessRuntime, options
         return;
       }
       const requested = new URL(request.url ?? "/", "http://host").searchParams.get("workspace") ?? undefined;
-      const result = await ensure(requested);
+      const result = await ensure(requested).catch((error: unknown) =>
+        failure("workspace_unavailable", `The DSH workspace list could not be read: ${String(error)}`),
+      );
       response.statusCode = result.ok ? 200 : 503;
       response.setHeader("Content-Type", "application/json");
       response.end(JSON.stringify(result));
