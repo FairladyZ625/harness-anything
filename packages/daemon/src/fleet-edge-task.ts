@@ -1,3 +1,4 @@
+import { readAgentEntityDeclarationSource } from "./agent-entities.ts";
 import { fleetMirrorTaskPaths } from "./fleet-edge-mirror.ts";
 import { readEdgeRuntimeRepository } from "./fleet-edge-runtime-read.ts";
 // Edge-side product write path: routes one `ha task ...` write command through
@@ -196,6 +197,16 @@ export async function runFleetEdgeTask(
   // materialization so an A round cannot interleave with B sync (or another
   // A round) between those state-machine edges.
   return withFleetMirrorLock(payload.viewRoot, payload.repoId, async () => {
+    if (
+      (action.kind === "agent-install" || action.kind === "squad-install") &&
+      Object.hasOwn(action, "packageSource") &&
+      !Object.hasOwn(action, "declaration")
+    ) {
+      const decoded = readAgentEntityDeclarationSource(action);
+      if ("issues" in decoded) throw new FleetEdgeTaskError(decoded.issues[0]!.code, decoded.issues[0]!.message);
+      const { packageSource: _packageSource, ...resolved } = action;
+      action = { ...resolved, declaration: decoded.declaration, declarationSource: decoded.source };
+    }
     // The unresolved-conflict gate (design §4): while this task's package has a
     // staged, unhandled divergence, its transitions stay blocked — the edge
     // refuses before any upload or center round-trip.
