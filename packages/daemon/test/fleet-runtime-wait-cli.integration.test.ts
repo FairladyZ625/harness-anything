@@ -21,7 +21,7 @@ import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-set
 import { eventually } from "./schedule-actions.fixtures.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 const replicaQuota = 64 * 1024 * 1024;
-for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnect", "planned"] as const)
+for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnect", "planned", "offline"] as const)
   test(`edge CLI wait: ${scenario}`, { timeout: 60_000 }, async (t) => {
     const foreground = scenario !== "status" && scenario !== "reconnect";
     const expectedOutcome = scenario === "failed" ? "failed" : scenario === "cancelled" ? "cancelled" : "succeeded";
@@ -106,6 +106,11 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
       viewRoot = path.join(fixture.root, "worker-edge-view"),
       remote = path.join(fixture.root, "worker-remote.git"),
       localAuth = localAuthFixture();
+    let edgeKeycloakAvailable = true;
+    const edgeFetch: typeof fetch = (...args) =>
+      edgeKeycloakAvailable
+        ? fixture.owners.keycloak.fetch(...args)
+        : Promise.reject(new Error("Keycloak is unavailable for the offline wait scenario."));
     mkdirSync(path.join(edgeRoot, "harness"), { recursive: true });
     initRepo(edgeRoot);
     writeFileSync(
@@ -174,7 +179,7 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
       edgeHost = await openDaemonHost({
         daemonId: "fleet-worker-edge",
         userRoot: edgeUserRoot,
-        oidc: createIdentitySession(edgeUserRoot, { fetch: fixture.owners.keycloak.fetch }),
+        oidc: createIdentitySession(edgeUserRoot, { fetch: edgeFetch }),
         runtimeDiscover: () => [installation],
         runtimeLaunch: (prepared) => {
           launchedIn.push(prepared.cwd);
@@ -292,8 +297,21 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
         { code: "runtime_session_not_found" },
       );
       let waiting = invoke(["runtime", "status", receipt.runtimeSessionId, "--wait", "--no-stream"]);
-      await waitStarted.promise;
-      assert.equal(awaitRequests, 1);
+      if (scenario === "offline") {
+        const sessionStore = managedRbacSessionStore(edgeUserRoot, `${fixture.owners.url}/realms/harness`, "harness"),
+          session = JSON.parse(sessionStore.read()!);
+        sessionStore.write(
+          JSON.stringify({ ...session, expiresAt: Date.now() - 1, sessionExpiresAt: Date.now() + 3_600_000 }),
+        );
+        edgeKeycloakAvailable = false;
+        await new Promise<void>((resolve) => setTimeout(resolve, 100));
+        assert.equal(awaitRequests, 0, "offline edge wait must not open center operational await");
+        sessionStore.write(JSON.stringify({ ...session, expiresAt: Date.now() + 3_600_000 }));
+        edgeKeycloakAvailable = true;
+      } else {
+        await waitStarted.promise;
+        assert.equal(awaitRequests, 1);
+      }
       if (scenario === "reconnect") {
         await center.close();
         const disconnected = await waiting;
