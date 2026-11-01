@@ -59,8 +59,18 @@ test("external credentials enter through CLI stdin, failed replacement preserves
   mkdirSync(rbacRoot, { recursive: true });
   writeFileSync(
     path.join(rbacRoot, "config.json"),
-    JSON.stringify({ mode: "external", url, realm: "fleet", clientId: "harness-center" }),
+    JSON.stringify({
+      schema: "harness-managed-rbac/v1",
+      mode: "external",
+      url,
+      realm: "fleet",
+      clientId: "harness-center",
+    }),
   );
+  // Select the external provider before the daemon starts. The preexisting center secret lets
+  // the configuration writer authenticate its replacement check; the CLI still owns the
+  // candidate secret write and all subsequent replacement assertions.
+  writeFileSync(path.join(rbacRoot, "center-client-secret"), secret, { mode: 0o600 });
   const host = await openDaemonHost({ daemonId, userRoot }),
     transport = createUnixSocketTransportServer({
       daemonId,
