@@ -114,7 +114,7 @@ export type FleetFrameV1 =
         replicationSequence: number | null;
         personId: string;
         actionAllowed: boolean | null;
-        /** Git facts used by an edge before it materializes a task worktree. Older centers omit these fields. */
+        /** Git facts used by an edge before it materializes a task worktree. */
         originUrl: string | null;
         originPushUrls: readonly string[];
         defaultBranch: string | null;

@@ -775,7 +775,8 @@ test(
     git(edgeRoot, "fetch", "-q", "origin");
     git(edgeRoot, "merge", "--ff-only", `origin/${branch}`);
     const base = git(edgeRoot, "rev-parse", "HEAD");
-    await assert.rejects(claimUnknownHandoff(), { code: "runtime_handoff_owner_mismatch" });
+    const matchingHandoff = await claimUnknownHandoff();
+    assert.equal(matchingHandoff.code, "runtime_handoff_owner_mismatch", JSON.stringify(matchingHandoff));
     git(edgeRoot, "remote", "set-url", "--push", "origin", path.join(fixture.root, "wrong-push.git"));
     await assert.rejects(claimUnknownHandoff(), { code: "edge_push_url_mismatch" });
     git(edgeRoot, "config", "--unset-all", "remote.origin.pushurl");

@@ -125,6 +125,18 @@ test("center local-only Git mode is explicit and unreadable center facts fail cl
       defaultBranch: null,
       defaultBranchCommit: null,
     });
+    await assert.rejects(
+      assertFleetEdgeRepositoryGit({ rootDir: edge, center: { originUrl: null }, operation: "runtime dispatch" }),
+      { code: "center_git_metadata_unavailable" },
+    );
+    await assert.rejects(
+      assertFleetEdgeRepositoryGit({
+        rootDir: edge,
+        center: { originUrl, originPushUrls: [origin] },
+        operation: "runtime dispatch",
+      }),
+      { code: "center_git_metadata_unavailable" },
+    );
     git(root, "init", "--bare", "-q", origin);
     git(center, "remote", "add", "backup", origin);
     await assert.rejects(readFleetCenterGitMetadata(center), { code: "center_git_metadata_unavailable" });

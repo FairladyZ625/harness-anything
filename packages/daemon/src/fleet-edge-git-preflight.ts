@@ -153,19 +153,31 @@ export async function readFleetEdgeGitMetadata(rootDir: string): Promise<FleetRe
 export async function fleetEdgeRepositoryGitFailure(
   input: FleetEdgeGitPreflightInput,
 ): Promise<FleetEdgeGitPreflightError | null> {
-  const operation = input.operation;
-  if (!input.center.originPushUrls)
+  const operation = input.operation,
+    center = input.center;
+  if (
+    center.originUrl === undefined ||
+    center.originPushUrls === undefined ||
+    center.defaultBranch === undefined ||
+    center.defaultBranchCommit === undefined
+  )
     return new FleetEdgeGitPreflightError(
       "center_git_metadata_unavailable",
-      `Cannot start ${operation}: the center did not provide complete Git publish metadata. Refresh edge registration or repair the center Git configuration, then retry.`,
+      `Cannot start ${operation}: the center did not provide complete Git repository metadata. Repair the center Git configuration, then retry.`,
     );
-  if (!input.center.originUrl) {
-    if (input.center.originPushUrls.length === 0) return null;
+  if (!center.originUrl) {
+    if (center.originPushUrls.length === 0 && center.defaultBranch === null && center.defaultBranchCommit === null)
+      return null;
     return new FleetEdgeGitPreflightError(
       "center_git_metadata_unavailable",
       `Cannot start ${operation}: the center's Git publish metadata is incomplete. Repair the center repository Git configuration, then retry.`,
     );
   }
+  if (center.originPushUrls.length === 0)
+    return new FleetEdgeGitPreflightError(
+      "center_git_metadata_unavailable",
+      `Cannot start ${operation}: the center did not provide a Git publish destination. Repair the center Git configuration, then retry.`,
+    );
   let local: FleetRepositoryGitMetadata;
   try {
     local = await readFleetEdgeGitMetadata(input.rootDir);
@@ -180,26 +192,26 @@ export async function fleetEdgeRepositoryGitFailure(
       "edge_origin_missing",
       `Cannot start ${operation}: ${input.rootDir} has no Git origin remote. Add origin pointing to the center repository, then retry; Harness will not change remotes automatically.`,
     );
-  if (local.originUrl !== input.center.originUrl)
+  if (local.originUrl !== center.originUrl)
     return new FleetEdgeGitPreflightError(
       "edge_origin_mismatch",
       `Cannot start ${operation}: the edge origin does not match the center repository origin. Set it with ` +
         `git -C ${input.rootDir} remote set-url origin <center-origin>, then retry; Harness will not change remotes automatically.`,
     );
-  if (local.originPushUrls.length === 0 || !sameUrls(local.originPushUrls, input.center.originPushUrls))
+  if (local.originPushUrls.length === 0 || !sameUrls(local.originPushUrls, center.originPushUrls))
     return new FleetEdgeGitPreflightError(
       "edge_push_url_mismatch",
       `Cannot start ${operation}: the edge's effective origin push URL${local.originPushUrls.length === 1 ? "" : "s"} do not match the center's publish destination. Run git -C ${input.rootDir} remote set-url --push origin <center-push-url>, then retry; Harness will not change remotes automatically.`,
     );
-  if (!input.center.defaultBranch || !input.center.defaultBranchCommit)
+  if (!center.defaultBranch || !center.defaultBranchCommit)
     return new FleetEdgeGitPreflightError(
       "center_default_branch_unavailable",
       `Cannot start ${operation}: the center has no known default branch head. Update the center checkout and retry.`,
     );
-  if (local.defaultBranch !== input.center.defaultBranch)
+  if (local.defaultBranch !== center.defaultBranch)
     return new FleetEdgeGitPreflightError(
       "edge_default_branch_mismatch",
-      `Cannot start ${operation}: the edge default branch is ${local.defaultBranch ?? "unknown"}, while the center uses ${input.center.defaultBranch}. Check out the center default branch and retry.`,
+      `Cannot start ${operation}: the edge default branch is ${local.defaultBranch ?? "unknown"}, while the center uses ${center.defaultBranch}. Check out the center default branch and retry.`,
     );
   const fetched = await runProcessExitAsync(
     "git",
@@ -209,7 +221,7 @@ export async function fleetEdgeRepositoryGitFailure(
       "--no-tags",
       "--no-write-fetch-head",
       "origin",
-      `+refs/heads/${input.center.defaultBranch}:refs/remotes/origin/${input.center.defaultBranch}`,
+      `+refs/heads/${center.defaultBranch}:refs/remotes/origin/${center.defaultBranch}`,
     ],
     input.rootDir,
     nonInteractiveGitEnv,
@@ -220,16 +232,16 @@ export async function fleetEdgeRepositoryGitFailure(
   if (!fetched || fetched.exitCode !== 0)
     return new FleetEdgeGitPreflightError(
       "edge_default_branch_unverifiable",
-      `Cannot start ${operation}: the edge could not fetch ${input.center.defaultBranch} from the matching origin. Run git -C ${input.rootDir} fetch origin ${input.center.defaultBranch}, then retry.`,
+      `Cannot start ${operation}: the edge could not fetch ${center.defaultBranch} from the matching origin. Run git -C ${input.rootDir} fetch origin ${center.defaultBranch}, then retry.`,
     );
   if (!local.defaultBranchCommit)
     return new FleetEdgeGitPreflightError(
       "edge_default_branch_unavailable",
-      `Cannot start ${operation}: the edge default branch has no commit. Fetch ${input.center.defaultBranch} from origin, then retry.`,
+      `Cannot start ${operation}: the edge default branch has no commit. Fetch ${center.defaultBranch} from origin, then retry.`,
     );
   const relation = await runProcessExitAsync(
     "git",
-    ["rev-list", "--left-right", "--count", `${local.defaultBranchCommit}...${input.center.defaultBranchCommit}`],
+    ["rev-list", "--left-right", "--count", `${local.defaultBranchCommit}...${center.defaultBranchCommit}`],
     input.rootDir,
     nonInteractiveGitEnv,
     undefined,
@@ -239,18 +251,18 @@ export async function fleetEdgeRepositoryGitFailure(
   if (!relation || relation.exitCode !== 0)
     return new FleetEdgeGitPreflightError(
       "edge_default_branch_unverifiable",
-      `Cannot start ${operation}: the edge does not contain the center default branch head ${input.center.defaultBranchCommit}. Fetch ${input.center.defaultBranch} from the matching origin, then retry.`,
+      `Cannot start ${operation}: the edge does not contain the center default branch head ${center.defaultBranchCommit}. Fetch ${center.defaultBranch} from the matching origin, then retry.`,
     );
   const [localOnly, centerOnly] = relation.stdout.trim().split(/\s+/u).map(Number);
   if (localOnly > 0 && centerOnly > 0)
     return new FleetEdgeGitPreflightError(
       "edge_default_branch_diverged",
-      `Cannot start ${operation}: the edge default branch diverges from the center ${input.center.defaultBranch}. Rebase or reset it explicitly onto the center head, then retry.`,
+      `Cannot start ${operation}: the edge default branch diverges from the center ${center.defaultBranch}. Rebase or reset it explicitly onto the center head, then retry.`,
     );
   if (centerOnly > 0)
     return new FleetEdgeGitPreflightError(
       "edge_default_branch_behind",
-      `Cannot start ${operation}: the edge default branch is behind the center ${input.center.defaultBranch} by ${centerOnly} commit${centerOnly === 1 ? "" : "s"}. Run git -C ${input.rootDir} fetch origin ${input.center.defaultBranch} && git -C ${input.rootDir} merge --ff-only origin/${input.center.defaultBranch}, then retry.`,
+      `Cannot start ${operation}: the edge default branch is behind the center ${center.defaultBranch} by ${centerOnly} commit${centerOnly === 1 ? "" : "s"}. Run git -C ${input.rootDir} fetch origin ${center.defaultBranch} && git -C ${input.rootDir} merge --ff-only origin/${center.defaultBranch}, then retry.`,
     );
   return null;
 }

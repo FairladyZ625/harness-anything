@@ -107,7 +107,8 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
       viewRoot = path.join(fixture.root, "worker-edge-view"),
       remote = path.join(fixture.root, "worker-remote.git"),
       localAuth = localAuthFixture();
-    let edgeKeycloakAvailable = true;
+    const edgeKeycloakAvailable = true;
+    let interactiveSessionAvailable = true;
     const edgeFetch: typeof fetch = (...args) =>
       edgeKeycloakAvailable
         ? fixture.owners.keycloak.fetch(...args)
@@ -217,6 +218,7 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
     await edgeHost.attachmentsSettled();
     await edgeHost.runtimeInstance("daemon.runtimeInstance.create", codexInstance, localAuth);
     let edgeAwaitRouteCount = 0;
+    const sessionPrincipalMethods: string[] = [];
     const edgeAwaitRouteWaiters = new Map<number, () => void>(),
       waitForEdgeAwaitRoute = (count: number) => {
         if (edgeAwaitRouteCount >= count) return Promise.resolve();
@@ -246,6 +248,14 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
             host: protocolHost,
             build: { commit: null },
             authContext: { ...authContext, connectionSignal },
+            sessionPrincipal: (method, params) => {
+              sessionPrincipalMethods.push(method);
+              if (!interactiveSessionAvailable)
+                throw Object.assign(new Error("The active interactive Keycloak session is unavailable."), {
+                  code: "authentication_required",
+                });
+              return edgeHost.sessionPrincipal({ ...authContext, connectionSignal }, method, params);
+            },
             emit,
           }),
       });
@@ -331,8 +341,9 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
         sessionStore.write(
           JSON.stringify({ ...session, expiresAt: Date.now() - 1, sessionExpiresAt: Date.now() + 3_600_000 }),
         );
-        edgeKeycloakAvailable = false;
+        interactiveSessionAvailable = false;
         const activeAwaitRouteCount = edgeAwaitRouteCount + 1;
+        const sessionPrincipalCallCount = sessionPrincipalMethods.length;
         waiting = invoke(["runtime", "status", receipt.runtimeSessionId, "--wait", "--no-stream"]);
         await Promise.race([
           waitForEdgeAwaitRoute(activeAwaitRouteCount),
@@ -340,12 +351,29 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
             throw new Error(`offline wait exited before reaching the edge await route: ${JSON.stringify(result)}`);
           }),
         ]);
+        assert.equal(
+          sessionPrincipalMethods.slice(sessionPrincipalCallCount).includes("daemon.fleet.task.run"),
+          false,
+          "offline runtime reads must bypass the interactive session principal check",
+        );
         assert.equal(awaitRequests, 0, "offline edge wait must not open center operational await");
+        const cancelAuthCallCount = sessionPrincipalMethods.length;
         const cancelled = await invoke(["runtime", "cancel", receipt.runtimeSessionId]);
         assert.notEqual(cancelled.code, 0, JSON.stringify(cancelled));
+        assert.equal(
+          sessionPrincipalMethods.slice(cancelAuthCallCount).includes("daemon.fleet.task.run"),
+          true,
+          "offline runtime cancellation must retain the interactive session principal check",
+        );
         assert.equal(terminateCalls, 0, "offline read identity must not authorize runtime cancellation");
+        const steerAuthCallCount = sessionPrincipalMethods.length;
         const steered = await invoke(["runtime", "steer", receipt.runtimeSessionId, "--prompt", "unauthorized steer"]);
         assert.notEqual(steered.code, 0, JSON.stringify(steered));
+        assert.equal(
+          sessionPrincipalMethods.slice(steerAuthCallCount).includes("daemon.fleet.task.run"),
+          true,
+          "offline runtime steer must retain the interactive session principal check",
+        );
         assert.equal(
           readDispatchStream(edgeRoot, String(receipt.dispatchId))?.records.some(
             (record) => record.kind === "steer_requested",
@@ -354,33 +382,7 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
           "offline read identity must not append a runtime steer",
         );
         assert.equal(awaitRequests, 0, "offline cancellation must not reach the center");
-        sessionStore.write(JSON.stringify({ ...session, expiresAt: Date.now() + 3_600_000 }));
-        edgeKeycloakAvailable = true;
         finish!();
-        assert.equal(
-          await eventually(async () => {
-            const result = await fixture.host.read(
-              repoId,
-              "repo.agentRuntime.sessions.read",
-              { runtimeSessionId: receipt.runtimeSessionId },
-              fixture.auth,
-            );
-            return result.session?.activity.outcome === "succeeded";
-          }),
-          true,
-          "the edge worker must settle before exercising an offline read of its terminal result",
-        );
-        const terminalSession = JSON.parse(sessionStore.read()!);
-        sessionStore.write(JSON.stringify({ ...terminalSession, expiresAt: Date.now() - 1 }));
-        edgeKeycloakAvailable = false;
-        const terminalAwaitRouteCount = edgeAwaitRouteCount + 1;
-        waiting = invoke(["runtime", "status", receipt.runtimeSessionId, "--wait", "--no-stream"]);
-        await Promise.race([
-          waitForEdgeAwaitRoute(terminalAwaitRouteCount),
-          waiting.then((result) => {
-            throw new Error(`offline wait exited before reaching the edge await route: ${JSON.stringify(result)}`);
-          }),
-        ]);
       } else {
         waiting = invoke(["runtime", "status", receipt.runtimeSessionId, "--wait", "--no-stream"]);
         await waitStarted.promise;

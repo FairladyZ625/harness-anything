@@ -72,6 +72,8 @@ test(
     git(remote, "update-ref", "refs/heads/main", codeBaseline);
     git(remote, "symbolic-ref", "HEAD", "refs/heads/main");
     git(f.repo, "remote", "add", "origin", remote);
+    git(f.repo, "fetch", "-q", "origin");
+    git(f.repo, "remote", "set-head", "origin", "main");
     git(f.root, "clone", "--branch", "main", remote, edgeRoot);
     git(edgeRoot, "config", "user.name", "Fleet Test");
     git(edgeRoot, "config", "user.email", "fleet@example.invalid");

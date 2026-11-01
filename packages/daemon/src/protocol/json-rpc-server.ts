@@ -273,6 +273,7 @@ export function createJsonRpcProtocolServer(options: {
     } else if (
       !daemonControl &&
       !sessionIndependentRbacOperation(method, params as JsonObject) &&
+      !sessionIndependentFleetRuntimeRead(method, params as JsonObject) &&
       !relayExecution &&
       options.sessionPrincipal
     ) {
@@ -1084,6 +1085,18 @@ function sessionIndependentRbacOperation(method: string, params: JsonObject): bo
     "logout",
     "session",
   ].includes(String(params.operation));
+}
+
+function sessionIndependentFleetRuntimeRead(method: string, params: JsonObject): boolean {
+  if (method !== "daemon.fleet.task.run" || !isJsonObject(params.payload)) return false;
+  const action = params.payload.action;
+  return (
+    isJsonObject(action) &&
+    action.kind === "fleet-runtime" &&
+    ["repo.agentRuntime.overview", "repo.agentRuntime.sessions.read", "repo.agentRuntime.sessions.await"].includes(
+      String(action.method),
+    )
+  );
 }
 
 function protocolFailure(command: string, error: unknown) {
