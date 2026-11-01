@@ -30,7 +30,7 @@
       },
       {
         "value": "packages/storage/src/",
-        "ref": "task_73e52380b6afa9390d1f028392",
+        "ref": "dec_D90F19C8AAAF39747F8F0D6698",
         "reason": "Storage product sources ship to users; a checkout path literal here cannot describe an installed layout."
       },
       {

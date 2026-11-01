@@ -273,47 +273,38 @@ test("import boundary check resolves package export patterns before enforcing st
   }
 });
 
-test("import boundary check confines kernel store imports to the kernel composition root", () => {
+test("import boundary check permits storage implementations to depend on kernel ports", () => {
   const root = makeFixtureRoot();
   try {
-    mkdirSync(path.join(root, "packages/kernel/src/composition"), { recursive: true });
     mkdirSync(path.join(root, "packages/storage/src/store"), { recursive: true });
-    mkdirSync(path.join(root, "packages/kernel/src/application"), { recursive: true });
+    mkdirSync(path.join(root, "packages/kernel/src/ports"), { recursive: true });
     writeFileSync(
-      path.join(root, "packages/kernel/src/index.ts"),
-      ["export { makeStore } from './composition/index.ts';"].join("\n"),
-      "utf8",
-    );
-    writeFileSync(
-      path.join(root, "packages/kernel/src/composition/index.ts"),
-      ["import { makeStore } from '../store/index.ts';", "export { makeStore };"].join("\n"),
-      "utf8",
-    );
-    writeFileSync(
-      path.join(root, "packages/kernel/src/application/service.ts"),
-      ["import { makeStore } from '../store/index.ts';", "export const service = makeStore;"].join("\n"),
-      "utf8",
-    );
-    writeFileSync(
-      path.join(root, "packages/application/src/index.ts"),
-      ["import { makeStore } from '@harness-anything/kernel';", "export const appStore = makeStore;"].join("\n"),
+      path.join(root, "packages/kernel/src/ports/index.ts"),
+      ["export type StorePort = { readonly read: () => unknown };"].join("\n"),
       "utf8",
     );
     writeFileSync(
       path.join(root, "packages/storage/src/store/index.ts"),
-      ["export function makeStore() {", "  return {};", "}"].join("\n"),
+      [
+        "import type { StorePort } from '@harness-anything/kernel/ports/index.ts';",
+        "export const makeStore = (): StorePort => ({ read: () => undefined });",
+      ].join("\n"),
+      "utf8",
+    );
+    writeFileSync(
+      path.join(root, "packages/storage/src/index.ts"),
+      ["export { makeStore } from './store/index.ts';"].join("\n"),
+      "utf8",
+    );
+    writeFileSync(
+      path.join(root, "packages/application/src/index.ts"),
+      ["import { makeStore } from '@harness-anything/storage';", "export const appStore = makeStore;"].join("\n"),
       "utf8",
     );
 
     const result = runChecker(root);
-    assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /packages\/kernel\/src\/application\/service\.ts/);
-    assert.match(
-      result.stderr,
-      /store implementation is internal to the kernel and must be obtained via the packages\/kernel\/src\/composition\/ seam/u,
-    );
-    assert.doesNotMatch(result.stderr, /packages\/kernel\/src\/composition\/index\.ts/);
-    assert.doesNotMatch(result.stderr, /packages\/application\/src\/index\.ts/);
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Import boundary check passed/u);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -583,34 +574,6 @@ test("package-form mutations cover every import-boundary rule class", async (con
       "@harness-anything/kernel/application/package-probe",
       "packages/kernel/src/application/package-probe.ts",
       /ports layer imports implementation\/controller layer/u,
-    ],
-    [
-      "global kernel store boundary",
-      "packages/daemon/src/package-probe.ts",
-      "@harness-anything/kernel/store/package-probe",
-      "packages/storage/src/store/package-probe.ts",
-      /store implementation is internal to the kernel/u,
-    ],
-    [
-      "application kernel store boundary",
-      "packages/application/src/package-probe.ts",
-      "@harness-anything/kernel/store/package-probe",
-      "packages/storage/src/store/package-probe.ts",
-      /application layer imports store\/adapter\/controller implementation/u,
-    ],
-    [
-      "GUI kernel store boundary",
-      "packages/gui/src/package-probe.ts",
-      "@harness-anything/kernel/store/package-probe",
-      "packages/storage/src/store/package-probe.ts",
-      /GUI imports store or external adapter implementation/u,
-    ],
-    [
-      "CLI kernel store boundary",
-      "packages/cli/src/package-probe.ts",
-      "@harness-anything/kernel/store/package-probe",
-      "packages/storage/src/store/package-probe.ts",
-      /CLI imports GUI, adapter, or store implementation/u,
     ],
     [
       "domain legacy runtime",

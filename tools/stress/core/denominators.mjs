@@ -11,7 +11,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-const sourceRoots = ["packages/kernel/src", "packages/daemon/src"];
+const sourceRoots = ["packages/kernel/src", "packages/daemon/src", "packages/storage/src"];
 
 export async function generateCoverageDenominators({ repoRoot, mappedIds = [] }) {
   const commandModule = await import(
