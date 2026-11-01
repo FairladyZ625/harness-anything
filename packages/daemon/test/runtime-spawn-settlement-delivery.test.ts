@@ -588,6 +588,7 @@ test("reviewer settlement registers a valid dispatch report left before registra
       "harness/tasks/task_0123456789abcdef01234567-fixture/artifacts/reports",
     ),
     outcomes: Record<string, unknown>[] = [],
+    recovered = false,
     settleContext = workerSettlementContext(fixture, async (type, payload = {}) => {
       if (type === "runtime_session_outcome_observed") outcomes.push(payload);
       return {};
@@ -606,11 +607,32 @@ test("reviewer settlement registers a valid dispatch report left before registra
   await publishExit(
     {
       ...settleContext,
-      requiredRuntimeProjection: () => deliveryProjection(null, "repository-diff", [], [], true, true),
+      input: {
+        ...settleContext.input,
+        remote: undefined,
+        recoverReviewerReview: async (input) => {
+          recovered = true;
+          assert.equal(input.taskId, fixtureTaskId);
+          assert.equal(input.executionId, "execution-owner");
+          assert.equal(input.binding.actor.executor?.id, `runtime-session:${runtime.runtimeSessionId}`);
+          assert.equal(input.packet.path, `tasks/task_0123456789abcdef01234567-fixture/artifacts/reports/${runtime.dispatchId}.json`);
+          assert.equal(input.report.path, `tasks/task_0123456789abcdef01234567-fixture/artifacts/reports/${runtime.dispatchId}.md`);
+        },
+      },
+      requiredRuntimeProjection: () =>
+        deliveryProjection(
+          null,
+          "repository-diff",
+          [],
+          recovered ? [{ reviewId: `review-${runtime.dispatchId}` }] : [],
+          true,
+          true,
+        ),
     },
     runtime,
     0,
   );
+  assert.equal(recovered, true);
   assert.equal(outcomes[0]?.outcome, "succeeded", "a valid review input must be registered before terminal settlement");
   assert.notEqual(outcomes[0]?.reasonCode, "review_result_missing");
 });

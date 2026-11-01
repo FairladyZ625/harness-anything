@@ -216,6 +216,77 @@ export function reviewerArtifactsForReview(
   return { changes: rows.map(({ change }) => change), blobs: rows.map(({ blob }) => blob) };
 }
 
+/** Builds the same two-document Review publication as reviewerArtifactsForReview, using bytes
+ * carried from a reviewer worktree that has not yet reached the canonical authored root. The
+ * action and binding remain authoritative; carried bytes only replace the physical file read. */
+export function reviewerArtifactsFromCarriedReview(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  carried: {
+    readonly packet: { readonly path: string; readonly body: string };
+    readonly report: { readonly path: string; readonly body: string };
+  },
+): NonNullable<ReturnType<typeof reviewerArtifactsForReview>> {
+  const taskId = cell.requiredCellText(action.taskId, "taskId"),
+    task = cell.projection.read(taskId),
+    reviewId = cell.requiredCellText(action.reviewId, "reviewId"),
+    packagePath = task.packagePath,
+    expectedPacket = packagePath ? `${packagePath}/artifacts/reports/${reviewId.slice("review-".length)}.json` : null,
+    expectedReport = packagePath ? reviewReportRelativePath(packagePath, reviewId) : null;
+  if (expectedPacket === null || expectedReport === null)
+    throw cell.cellCodedError("review_report_missing", `Review ${reviewId} has no resolvable task package.`);
+  if (carried.packet.path !== expectedPacket || carried.report.path !== expectedReport)
+    throw cell.cellCodedError(
+      "review_report_invalid",
+      `Reviewer artifacts must be ${expectedPacket} and ${expectedReport}.`,
+    );
+  const report = assertPhysicalReviewReport({
+      rootDir: cell.rootDir,
+      packagePath,
+      reviewId,
+      subject: `Task ${taskId}`,
+      retry: `ha task review-execution ${taskId} --review-id ${reviewId}`,
+      carriedReport: carried.report,
+    }),
+    packetClassification = classifyTextualArtifactPath(carried.packet.path);
+  if (!packetClassification)
+    throw cell.cellCodedError("review_report_invalid", `Reviewer packet is not textual: ${carried.packet.path}.`);
+  if (!carried.packet.body.trim())
+    throw cell.cellCodedError("review_report_invalid", `Reviewer packet ${carried.packet.path} is empty.`);
+  const packetSha256 = sha256Text(carried.packet.body),
+    packetSize = Buffer.byteLength(carried.packet.body) as DocEventChange["candidate"]["size"],
+    reportClassification = classifyTextualArtifactPath(report.path);
+  if (!reportClassification)
+    throw cell.cellCodedError("review_report_invalid", `Reviewer report is not textual: ${report.path}.`);
+  const rows = [
+    {
+      path: documentPath(carried.packet.path),
+      baseBlobSha256: cell.projection.readDocument(carried.packet.path).document?.blobSha256 ?? null,
+      candidate: { sha256: packetSha256, size: packetSize, mediaType: packetClassification.mediaType },
+      policyId: packetClassification.policyId,
+      regionProofs: [],
+      body: carried.packet.body,
+    },
+    {
+      path: documentPath(report.path),
+      baseBlobSha256: cell.projection.readDocument(report.path).document?.blobSha256 ?? null,
+      candidate: { sha256: report.sha256, size: report.size, mediaType: reportClassification.mediaType },
+      policyId: reportClassification.policyId,
+      regionProofs: [],
+      body: report.body,
+    },
+  ];
+  return {
+    changes: rows.map(({ body: _body, ...change }) => change satisfies DocEventChange),
+    blobs: rows.map(({ body, candidate }) => ({
+      sha256: candidate.sha256,
+      size: candidate.size,
+      mediaType: candidate.mediaType,
+      body,
+    })),
+  };
+}
+
 export function decisionReviewerArtifact(input: {
   readonly rootDir: string;
   readonly projection: RepoCellOperationalContext["projection"];
