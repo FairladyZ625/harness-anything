@@ -29,7 +29,8 @@ test("tutorial error codes are the codes the plugin actually reports", () => {
 });
 
 test("tutorial presets are declared by the bundle patch", () => {
-  const patch = read("../cordis.patch.yml");
+  // The checkout may convert line endings, so compare line content rather than raw bytes.
+  const patch = read("../cordis.patch.yml").replaceAll("\r\n", "\n");
   for (const preset of ["ha-ceo", "ha-worker"]) {
     assert.ok(patch.includes(`id: ${preset}\n`), `${preset} is not declared in cordis.patch.yml`);
   }
