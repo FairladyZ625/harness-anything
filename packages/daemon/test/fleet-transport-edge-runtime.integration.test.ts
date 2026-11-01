@@ -81,6 +81,13 @@ test(
     t.after(() => fixture.close());
     const first = await rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret"),
       second = await rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret"),
+      healthyNode = await rawPeer(
+        fixture.track,
+        center.port,
+        fixture.cert,
+        fixture.peerSubject.nodeId,
+        "machine-secret",
+      ),
       totalBytes = 40 * 1024 * 1024,
       sha256 = "a".repeat(64),
       begin = (transferId: string, correlationId: string) => ({
@@ -99,6 +106,12 @@ test(
       repoId: fixture.subject.repoId,
     });
     assert.equal(firstSessionStillResponsive.schema, "fleet.repo.metadata.result/v1");
+    const healthyMetadata = await healthyNode.request({
+      schema: "fleet.repo.metadata.get/v1",
+      messageId: "other-node-during-transfer",
+      repoId: fixture.subject.repoId,
+    });
+    assert.equal(healthyMetadata.schema, "fleet.repo.metadata.result/v1");
     second.write(begin("transfer-second", "large-request-second"));
     const refused = await second.receive();
     assert.equal(refused.schema, "fleet.error/v1");
@@ -106,7 +119,10 @@ test(
     assert.equal(refused.inReplyTo, "large-request-second");
     assert.equal(refused.code, "resource_exhausted");
     assert.match(refused.message, /actualBytes=41943040/u);
+    assert.match(refused.message, /used=41943040/u);
     assert.match(refused.message, /limit=67108864/u);
+    assert.match(refused.message, /available=25165824/u);
+    assert.match(refused.message, /recommendation=retry after an active transfer finishes/u);
     second.write({
       schema: "fleet.transfer.chunk/v1",
       messageId: "transfer-second_0",
@@ -130,6 +146,7 @@ test(
     assert.equal(metadata.schema, "fleet.repo.metadata.result/v1");
     first.close();
     second.close();
+    healthyNode.close();
   },
 );
 // A `node --test` timeout suspends the test body at its current await and never resumes it, so `try…finally`
