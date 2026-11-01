@@ -159,6 +159,34 @@ test("edge repository and GUI write RPCs reach the same center command port", { 
   assert.equal(f.eventCount(), beforeUnconfigured);
 });
 
+test("authored task mutations forward with the center authorization boundary", { timeout: 90_000 }, async (t) => {
+  const f = await fleetNodeClaimFixture(t);
+  const created = await f.host.run(
+    "lease-repo",
+    { kind: "task-create", taskId: "edge-authored-task", title: "Before edge amendment" },
+    localAuthFixture(),
+  );
+  assert.equal(created.outcome, "applied", JSON.stringify(created));
+  const edge = await fleetEdgeHostFixture(t, f);
+  const amended = await edge.host.run(
+    "lease-repo",
+    { kind: "task-amend", taskId: "edge-authored-task", patches: [{ field: "title", value: "After edge amendment" }] },
+    localAuthFixture(),
+  );
+  assert.equal(amended.outcome, "applied", JSON.stringify(amended));
+  const shown = await f.host.run("lease-repo", { kind: "task-show", taskId: "edge-authored-task" }, localAuthFixture());
+  assert.equal(JSON.parse(String(shown.evidence)).task.title, "After edge amendment");
+  f.owners.keycloak.revoke("person-one", "lease-repo", ["task-amend"]);
+  const beforeDenied = f.eventCount();
+  const denied = await edge.host.run(
+    "lease-repo",
+    { kind: "task-amend", taskId: "edge-authored-task", patches: [{ field: "title", value: "Denied amendment" }] },
+    localAuthFixture(),
+  );
+  assert.equal(denied.code, "authorization_denied", JSON.stringify(denied));
+  assert.equal(f.eventCount(), beforeDenied);
+});
+
 test(
   "terminals stay on the addressed edge or center daemon and preserve authorization",
   { timeout: 90_000 },
