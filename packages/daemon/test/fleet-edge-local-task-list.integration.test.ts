@@ -264,7 +264,7 @@ test(
       { kind: "task-create", taskId: "closed-write", title: "Closed" } as never,
       localAuthFixture(),
     );
-    assert.equal(write.code, "repo_mode_read_only");
+    assert.equal(write.code, "authentication_required", JSON.stringify(write));
     rejected = true;
     const rejectedRead = await e.command({ kind: "task-list" });
     assert.equal(rejectedRead.code, "authorization_denied", JSON.stringify(rejectedRead));

@@ -1,5 +1,6 @@
 import { readFleetOperationalClient } from "./fleet-edge-write.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { forwardRegisteredFleetAction } from "./fleet-edge-task.ts";
 import { initialRuntimeInstanceSettings } from "./runtime-spawn-allowlist.ts";
 import { edgeReplicaDoctor } from "./edge-replica-doctor.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
@@ -642,7 +643,23 @@ export function createDaemonHostRepositoryApi(
     run: async (repoId, action, auth) => {
       const command = entityActionCommandTopology(commandDescriptorForAction(action.kind), action),
         modeAdmission = context.admitHostMode(repoId, command, auth);
-      if (!modeAdmission.ok) return context.rejectHostAction(action, modeAdmission.code, modeAdmission.nextAction);
+      if (!modeAdmission.ok) {
+        try {
+          const forwarded = await forwardRegisteredFleetAction({
+            userRoot: context.input.userRoot,
+            repoId,
+            command,
+            action,
+            auth,
+            oidc: context.oidc,
+            runSchedule: (request) => context.host.fleet.edgeRuntime(request, auth),
+          });
+          if (forwarded) return forwarded;
+        } catch (error) {
+          return context.rejectHostAction(action, context.code(error), context.daemonErrorMessage(error));
+        }
+        return context.rejectHostAction(action, modeAdmission.code, modeAdmission.nextAction);
+      }
       if (action.kind === "doctor-health") {
         const edge = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
           (repo) => repo.repoId === repoId && repo.mode === "remote-edge",
