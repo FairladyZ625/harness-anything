@@ -56,8 +56,10 @@ export interface PgTaskProjectionSource {
 }
 
 export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOptions): PgTaskProjectionSource {
-  const maxItems = options.maxItems ?? 4096,
-    claims: PostgresScopeClaims = options.scope,
+  const maxItems = options.maxItems ?? 4096;
+  if (!Number.isSafeInteger(maxItems) || maxItems < 1 || maxItems > 4096)
+    throw new Error("postgres task projection maxItems must be between 1 and 4096");
+  const claims: PostgresScopeClaims = options.scope,
     readers = [...(options.scope.readers ?? [])],
     path = options.path ?? "postgres:task-projection";
   const readCut = () =>
@@ -180,7 +182,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           updated_at: string;
         }>(
           `SELECT task_id, workspace_revision::text, snapshot, updated_at::text FROM ha_task_snapshots
-           WHERE ${where.join(" AND ")} ORDER BY ${query.pinnedFirst ? "(snapshot #>> '{task,pinned}')::boolean DESC, " : ""}task_id LIMIT $${values.length}`,
+           WHERE ${where.join(" AND ")} ORDER BY ${query.pinnedFirst ? "COALESCE((snapshot #>> '{task,pinned}')::boolean, false) DESC, " : ""}task_id LIMIT $${values.length}`,
           values,
         );
         const truncated = result.rows.length > limit,
