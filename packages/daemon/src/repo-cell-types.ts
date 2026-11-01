@@ -229,7 +229,7 @@ export interface RepoCell {
   /** Canonical actor witness for an event revision; used by local policy decisions. */
   readonly readEventWitness: (
     revision: number,
-  ) => ReturnType<import("@harness-anything/kernel").TaskProjection["readEventWitness"]>;
+  ) => Promise<ReturnType<import("@harness-anything/kernel").TaskProjection["readEventWitness"]>>;
   readonly workspaceSummary: () => DaemonGuiReadResultMap["repo.workspace.summary.read"];
   readonly workspaceScope: (
     payload: DaemonGuiReadPayloadMap["repo.workspace.scope.read"],

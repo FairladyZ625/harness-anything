@@ -1,8 +1,15 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DEFAULT_NODE_AUTO_CLAIM_POLICY, parseNodeAutoClaimPolicy } from "../src/node-auto-claim-config.ts";
-import { decideNodeAutoClaim } from "../src/node-auto-claim.ts";
+import {
+  DEFAULT_NODE_AUTO_CLAIM_POLICY,
+  parseNodeAutoClaimPolicy,
+  writeNodeAutoClaimPolicy,
+} from "../src/node-auto-claim-config.ts";
+import { decideNodeAutoClaim, openNodeAutoClaimLoop } from "../src/node-auto-claim.ts";
+import { mkdtempSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 const assignment = {
   taskId: "task-a",
@@ -120,4 +127,113 @@ test("policy parser rejects unknown fields and normalizes identifiers", () => {
   );
   assert.throws(() => parseNodeAutoClaimPolicy({ ...policy, extra: true }), /unknown policy field/u);
   assert.throws(() => parseNodeAutoClaimPolicy({ ...policy, maxConcurrent: 0 }), /maxConcurrent/u);
+});
+
+test("loop bounds concurrent starts, de-duplicates in-flight tasks, and rescans after offline attach", async () => {
+  const userRoot = mkdtempSync(path.join(os.tmpdir(), "ha-node-auto-claim-loop-"));
+  try {
+    writeNodeAutoClaimPolicy(userRoot, { ...policy, maxConcurrent: 1 });
+    const allowed = { id: "task-allowed", assignedBy: "owner", expiresAt: assignment.expiresAt },
+      queued = { id: "task-queued", assignedBy: "owner", expiresAt: assignment.expiresAt };
+    let online = false;
+    let candidateReads = 0;
+    let release!: () => void;
+    const runGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started: string[] = [];
+    const loop = openNodeAutoClaimLoop({
+      userRoot,
+      now: () => "2026-11-02T00:00:00.000Z",
+      ownerPersonIdFor: async () => "owner",
+      repos: () => (online ? ["repo-a"] : []),
+      repoIdOf: (repo) => repo,
+      candidates: async () => {
+        candidateReads += 1;
+        return [allowed, queued];
+      },
+      taskIdOf: (candidate) => candidate.id,
+      assignmentOf: async (candidate) => ({
+        taskId: candidate.id,
+        expiresAt: candidate.expiresAt,
+        assignedByPersonId: candidate.assignedBy,
+        assignedByTeamIds: [],
+      }),
+      activeTaskKeys: async () => [],
+      agentIds: () => ["sol"],
+      claimAndRun: async (_repo, candidate) => {
+        started.push(candidate.id);
+        await runGate;
+      },
+    });
+    await loop.trigger("offline");
+    assert.deepEqual(started, []);
+    online = true;
+    const first = loop.trigger("attach");
+    const second = loop.trigger("replica");
+    await Promise.all([first, second]);
+    assert.deepEqual(started, ["task-allowed"]);
+    assert.equal(candidateReads, 2);
+    assert.equal(
+      loop.diagnostics().some((row) => row.reason === "concurrency_limit"),
+      true,
+    );
+    assert.equal(
+      loop.diagnostics().some((row) => row.reason === "accepted" && row.agentId === "sol"),
+      true,
+    );
+    release();
+    await loop.close();
+    assert.deepEqual(started, ["task-allowed"]);
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("concurrency slots include local runs missing from the runtime projection", async () => {
+  const userRoot = mkdtempSync(path.join(os.tmpdir(), "ha-node-auto-claim-slots-"));
+  try {
+    writeNodeAutoClaimPolicy(userRoot, { ...policy, maxConcurrent: 2 });
+    const first = { id: "task-first" },
+      second = { id: "task-second" },
+      third = { id: "task-third" };
+    let candidates = [first],
+      activeTaskKeys: readonly string[] = [];
+    let release!: () => void;
+    const runGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started: string[] = [];
+    const loop = openNodeAutoClaimLoop({
+      userRoot,
+      now: () => "2026-11-02T00:00:00.000Z",
+      ownerPersonIdFor: async () => "owner",
+      repos: () => ["repo-a"],
+      repoIdOf: (repo) => repo,
+      candidates: async () => candidates,
+      taskIdOf: (candidate) => candidate.id,
+      assignmentOf: async (candidate) => ({
+        taskId: candidate.id,
+        expiresAt: assignment.expiresAt,
+        assignedByPersonId: "owner",
+        assignedByTeamIds: [],
+      }),
+      activeTaskKeys: async () => activeTaskKeys,
+      agentIds: () => ["sol"],
+      claimAndRun: async (_repo, candidate) => {
+        started.push(candidate.id);
+        await runGate;
+      },
+    });
+    await loop.trigger("first-candidate");
+    candidates = [second, third];
+    activeTaskKeys = ["repo-a:existing-runtime"];
+    await loop.trigger("projection-lag");
+    assert.deepEqual(started, ["task-first"]);
+    assert.equal(loop.diagnostics().filter((row) => row.reason === "concurrency_limit").length, 2);
+    release();
+    await loop.close();
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
 });

@@ -253,6 +253,20 @@ export interface SystemStatusSuccess {
     };
   };
   readonly repos: ReadonlyArray<SystemRepoRow>;
+  readonly nodeAutoClaim?: {
+    readonly enabled: boolean;
+    readonly configuration: string;
+    readonly maxConcurrent: number;
+    readonly allowedAgentIds: readonly string[];
+    readonly recent: readonly {
+      readonly repoId: string;
+      readonly taskId: string | null;
+      readonly reason: string;
+      readonly observedAt: string;
+      readonly assignedByPersonId?: string;
+      readonly agentId?: string;
+    }[];
+  };
 }
 export interface BridgeError {
   readonly code: string;

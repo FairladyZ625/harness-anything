@@ -37,6 +37,7 @@ import { runDaemonServiceControl } from "./service-control.ts";
 import { assertCanonicalCliEntry } from "./cli-entry-guard.ts";
 import { daemonMetricsArgsError, renderDaemonMetrics, runDaemonMetrics } from "./metrics.ts";
 import { renderDaemonFleetStatus, runDaemonFleetStatus } from "./fleet-status.ts";
+import { applyNodeAutoClaimControl, parseNodeAutoClaimControl } from "./node-auto-claim.ts";
 const fleetNumber = { port: /^(?:0|[1-9][0-9]{0,4})$/u, quota: /^[1-9][0-9]{0,15}$/u };
 type ReceiptEmitter = (receipt: Record<string, unknown>, json: boolean) => void;
 type ControlFinisher = (receipt: Record<string, unknown>, exitCode: number) => number;
@@ -102,6 +103,17 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
     // `return await`, not `return`: a bare return resolves the subcommand's rejection only after
     // this catch has let go, and a known coded error leaves the CLI as a bare stack, not a receipt.
     if (command === "fleet") return await fleetControl(argv, at, userRoot, daemonId, finish);
+    if (command === "auto-claim") {
+      const parsed = parseNodeAutoClaimControl(argv.slice(at + 2));
+      if (typeof parsed === "string") return finish(daemonFailure("daemon-auto-claim", "invalid_field", parsed), 2);
+      const receipt = await applyNodeAutoClaimControl(parsed, userRoot, async () => {
+        const endpoint = localUserDaemonEndpoint(userRoot, daemonId);
+        if (!(await daemonSocketProbe(endpoint))) return false;
+        const wake = await requestDaemonJsonRpcAt(endpoint, "daemon.nodeAutoClaim.wake", {}, 75);
+        return wake.ok === true;
+      });
+      return finish(receipt, 0);
+    }
     if (command === "repo") {
       const result = await runDaemonRepoControl(argv, subcommand, userRoot, daemonId, finish);
       if (result !== undefined) return result;
