@@ -29,6 +29,7 @@ export async function readEntityVersionWitnesses(
         { ...claims, readers },
         `entity:${kind}`,
         id,
+        null,
       );
       if (projected) {
         result.set(ref, { entityRef: ref, freshness: projected.freshness, currentVersion: projected.currentVersion });

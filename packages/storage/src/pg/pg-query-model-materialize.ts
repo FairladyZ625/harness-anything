@@ -1,3 +1,4 @@
+import { interpretReplayDeclaration } from "../projection/entity-declaration-replay.ts";
 import type { PoolClient } from "pg";
 import type {
   EntityProjectionRow,
@@ -126,7 +127,22 @@ export async function materializePgQueryModels(
           throw new Error(`entity declaration blob ${event.payload.declarationDocumentClaim.sha256} is unavailable`);
         raw = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
       }
-      const projection = deriveEntityProjection(contract, interpretEntityValue(contract, raw), revision, sourcePath);
+      const entity =
+        event.type === "entity_reference_declared"
+          ? interpretEntityValue(contract, raw)
+          : interpretReplayDeclaration(contract, raw, entityId);
+      if (entity === null) {
+        await put(model, entityId, {
+          kind: entityKind,
+          id: entityId,
+          ownerId: null,
+          workspaceRevision: revision,
+          freshness: "unknown",
+          currentVersion: null,
+          value: raw,
+        });
+      }
+      const projection = entity === null ? null : deriveEntityProjection(contract, entity, revision, sourcePath);
       await entityRow(
         projection,
         event.type === "entity_reference_declared"

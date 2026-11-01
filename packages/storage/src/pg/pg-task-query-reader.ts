@@ -21,6 +21,7 @@ export interface PgTaskQueryReader {
 
 interface WorkerResponse {
   readonly id: number;
+  readonly fatal?: boolean;
   readonly result?: unknown;
   readonly error?: {
     readonly name: string;
@@ -58,6 +59,25 @@ export function createPgTaskQueryReader(options: PgTaskQueryReaderOptions): PgTa
         (argument) => argument === "--experimental-strip-types" || argument === "--enable-source-maps",
       ),
     });
+  let requestId = 0,
+    activeSession = false,
+    closed = false;
+  let lifecycleError: Error | undefined;
+  // EventEmitter errors arrive after a synchronous caller yields. Consume them here even
+  // when a fatal response or the bounded wait has already invalidated the reader.
+  worker.on("error", (error) => {
+    lifecycleError = error;
+    closed = true;
+    port1.close();
+  });
+  worker.on("exit", (code) => {
+    if (!closed)
+      lifecycleError = Object.assign(new Error(`PostgreSQL task query worker exited (${code})`), {
+        code: "pg_query_worker_exited",
+      });
+    closed = true;
+    port1.close();
+  });
   worker.unref();
   let startup: WorkerResponse;
   try {
@@ -67,29 +87,29 @@ export function createPgTaskQueryReader(options: PgTaskQueryReaderOptions): PgTa
     throw error;
   }
   if (startup.error) {
+    void worker.terminate();
     port1.close();
     throw restoreError(startup.error);
   }
-  let requestId = 0,
-    activeSession = false,
-    closed = false;
 
   const request = <Result>(
     op: "begin" | "query" | "end" | "close",
     method?: string,
     args?: readonly unknown[],
   ): Result => {
-    if (closed && op !== "close") throw new Error("PostgreSQL task query reader is closed");
+    if (closed && op !== "close") throw new Error("PostgreSQL task query reader is closed", { cause: lifecycleError });
     if (op === "query" && !activeSession) throw new Error("PostgreSQL query methods require an active reader session");
     const id = ++requestId;
-    Atomics.store(state, 0, 0);
-    worker.postMessage({
-      id,
-      op,
-      ...(method ? { method } : {}),
-      ...(args ? { args } : {}),
-      ...(op === "query" && options.now ? { now: options.now() } : {}),
-    });
+    // Never overwrite the worker's terminal (-1) signal between requests.
+    Atomics.compareExchange(state, 0, 1, 0);
+    if (Atomics.load(state, 0) !== -1)
+      worker.postMessage({
+        id,
+        op,
+        ...(method ? { method } : {}),
+        ...(args ? { args } : {}),
+        ...(op === "query" && options.now ? { now: options.now() } : {}),
+      });
     let response: WorkerResponse;
     try {
       response = waitForWorker(state, port1, id, queryTimeoutMs, worker, "PostgreSQL task query worker timed out");
@@ -97,6 +117,12 @@ export function createPgTaskQueryReader(options: PgTaskQueryReaderOptions): PgTa
       closed = true;
       port1.close();
       throw error;
+    }
+    if (response.fatal) {
+      lifecycleError = response.error ? restoreError(response.error) : undefined;
+      closed = true;
+      port1.close();
+      void worker.terminate();
     }
     if (response.error) throw restoreError(response.error);
     return response.result as Result;
@@ -116,7 +142,7 @@ export function createPgTaskQueryReader(options: PgTaskQueryReaderOptions): PgTa
   return {
     path,
     withSession: (read) => {
-      if (closed) throw new Error("PostgreSQL task query reader is closed");
+      if (closed) throw new Error("PostgreSQL task query reader is closed", { cause: lifecycleError });
       if (activeSession) throw new Error("PostgreSQL task query sessions cannot be nested");
       request("begin");
       activeSession = true;
@@ -158,7 +184,13 @@ function waitForWorker(
     void worker.terminate();
     throw Object.assign(new Error(timeoutMessage), { code: "pg_query_worker_timeout" });
   }
-  const response = receiveMessageOnPort(port)?.message as WorkerResponse | undefined;
+  let response: WorkerResponse | undefined;
+  // Drain already delivered responses, giving a terminal failure precedence over a
+  // successful response sent immediately before the connection died.
+  for (let entry = receiveMessageOnPort(port); entry; entry = receiveMessageOnPort(port)) {
+    response = entry.message as WorkerResponse;
+    if (response.fatal) return response;
+  }
   if (!response || response.id !== requestId) {
     void worker.terminate();
     throw Object.assign(new Error("PostgreSQL task query worker returned an invalid response"), {

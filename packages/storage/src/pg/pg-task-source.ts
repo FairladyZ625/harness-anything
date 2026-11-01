@@ -297,8 +297,8 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           }
         }
         const paged = query.limit !== undefined || query.cursor !== undefined,
-          limit = paged ? checkedPageLimit(query.limit ?? 100) : maxItems;
-        values.push(limit + 1);
+          limit = paged ? checkedPageLimit(query.limit ?? 100) : null;
+        if (limit !== null) values.push(limit + 1);
         const result = await client.query<{
           task_id: string;
           package_path: string | null;
@@ -311,17 +311,17 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           updated_at: string;
         }>(
           `SELECT task_id, package_path, generation, workspace_revision::text, snapshot, created_at::text, completed_at::text, updated_at::text, ${presentationStatusSql(4)} AS presentation_status FROM ha_task_snapshots
-           WHERE ${where.join(" AND ")} ORDER BY ${query.pinnedFirst ? "COALESCE((snapshot #>> '{task,pinned}')::boolean, false) DESC, " : ""}task_id LIMIT $${values.length}`,
+           WHERE ${where.join(" AND ")} ORDER BY ${query.pinnedFirst ? "COALESCE((snapshot #>> '{task,pinned}')::boolean, false) DESC, " : ""}task_id${limit === null ? "" : ` LIMIT $${values.length}`}`,
           values,
         );
-        const truncated = result.rows.length > limit,
+        const truncated = limit !== null && result.rows.length > limit,
           hydrated = await hydrateSnapshots(
             client,
             options.scope,
             result.rows.map((row) => row.snapshot),
             now(),
           ),
-          rows = (truncated ? result.rows.slice(0, limit) : result.rows).map((row, index) => ({
+          rows = (limit === null ? result.rows : result.rows.slice(0, limit)).map((row, index) => ({
             taskId: row.task_id,
             packagePath: row.package_path,
             generation: row.generation,
@@ -339,7 +339,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
           warnings: [],
-          ...(query.limit !== undefined || query.cursor !== undefined || truncated
+          ...(limit !== null
             ? {
                 page: {
                   limit,

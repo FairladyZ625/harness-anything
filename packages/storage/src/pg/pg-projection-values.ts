@@ -68,11 +68,11 @@ export async function getPgProjectionValue<Value>(
   scope: PgProjectionScope,
   model: string,
   id: string,
-  owner = "",
+  owner: string | null = "",
 ): Promise<Value | null> {
   const result = await client.query<{ value: Value }>(
-    `SELECT value FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model=$4 AND entity_id=$5 AND owner_id=$6
-     AND (cardinality($7::text[])=0 OR readers && $7::text[])`,
+    `SELECT value FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model=$4 AND entity_id=$5 AND ($6::text IS NULL OR owner_id=$6)
+     AND (cardinality($7::text[])=0 OR readers && $7::text[]) ORDER BY owner_id DESC LIMIT 1`,
     [scope.tenantId, scope.projectId, scope.policyEpoch, model, id, owner, [...(scope.readers ?? [])]],
   );
   return result.rows[0]?.value ?? null;

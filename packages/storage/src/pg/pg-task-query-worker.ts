@@ -34,12 +34,36 @@ function startWorker(input: PgQueryWorkerData): void {
     sessionClient: PoolClient | null = null,
     savepoint = 0;
   let queryNow: string | undefined;
+  let stopped = false;
 
   const respond = (id: number, target: Int32Array, result?: unknown, error?: unknown) => {
+    if (stopped) return;
     input.responsePort.postMessage({ id, ...(error === undefined ? { result } : { error: serializeError(error) }) });
     Atomics.store(target, 0, 1);
     Atomics.notify(target, 0);
   };
+
+  const fail = (error: Error) => {
+    if (stopped) return;
+    stopped = true;
+    input.responsePort.postMessage({ id: -1, fatal: true, error: serializeError(error) });
+    for (const target of [input.ready, input.state]) {
+      Atomics.store(target, 0, -1);
+      Atomics.notify(target, 0);
+    }
+    // Destroy the checked-out client before draining the pool; no transaction can be
+    // reused after an asynchronous connection error.
+    sessionClient?.release(error);
+    sessionClient = null;
+    void pool.end();
+    input.responsePort.close();
+    parentPort!.close();
+  };
+  pool.on("error", fail);
+  process.on("uncaughtExceptionMonitor", fail);
+  process.on("exit", (code) =>
+    fail(Object.assign(new Error(`PostgreSQL task query worker exited (${code})`), { code: "pg_query_worker_exited" })),
+  );
 
   const initialize = async () => {
     const client = await pool.connect();
@@ -57,24 +81,24 @@ function startWorker(input: PgQueryWorkerData): void {
   const sessionPool = () =>
     ({
       connect: async () => {
-        if (!sessionClient) throw new Error("PostgreSQL query requested outside a reader session");
+        const client = sessionClient;
+        if (!client) throw new Error("PostgreSQL query requested outside a reader session");
         const name = `ha_query_${++savepoint}`;
-        await sessionClient.query(`SAVEPOINT ${name}`);
+        await client.query(`SAVEPOINT ${name}`);
         return {
           query: (query: string, values?: readonly unknown[]) => {
             const normalized = query.trim().replace(/;$/u, "").toUpperCase();
             if (/^BEGIN(?:\s|$)/u.test(normalized))
               return Promise.resolve({ rows: [], rowCount: null } as unknown as QueryResult);
-            if (normalized === "COMMIT")
-              return sessionClient!.query(`RELEASE SAVEPOINT ${name}`) as Promise<QueryResult>;
+            if (normalized === "COMMIT") return client.query(`RELEASE SAVEPOINT ${name}`) as Promise<QueryResult>;
             if (normalized === "ROLLBACK")
-              return sessionClient!
+              return client
                 .query(`ROLLBACK TO SAVEPOINT ${name}`)
-                .then(() => sessionClient!.query(`RELEASE SAVEPOINT ${name}`)) as Promise<QueryResult>;
-            return sessionClient!.query(query, values as unknown[]) as Promise<QueryResult>;
+                .then(() => client.query(`RELEASE SAVEPOINT ${name}`)) as Promise<QueryResult>;
+            return client.query(query, values as unknown[]) as Promise<QueryResult>;
           },
-          on: sessionClient.on.bind(sessionClient),
-          removeListener: sessionClient.removeListener.bind(sessionClient),
+          on: client.on.bind(client),
+          removeListener: client.removeListener.bind(client),
           release: () => undefined,
         };
       },
@@ -83,14 +107,16 @@ function startWorker(input: PgQueryWorkerData): void {
   const finishSession = async (command: "COMMIT" | "ROLLBACK") => {
     if (!sessionClient) return;
     const client = sessionClient;
-    sessionClient = null;
     try {
       await client.query(command);
     } catch (error) {
-      client.release(error instanceof Error ? error : new Error(String(error)));
+      if (!stopped) client.release(error instanceof Error ? error : new Error(String(error)));
       throw error;
+    } finally {
+      sessionClient = null;
     }
-    client.release();
+    if (!stopped) client.release();
+    client.removeListener("error", fail);
   };
 
   const handle = async (request: PgQueryWorkerRequest) => {
@@ -98,6 +124,7 @@ function startWorker(input: PgQueryWorkerData): void {
       if (request.op === "begin") {
         if (sessionClient) throw new Error("PostgreSQL query session is already active");
         sessionClient = await pool.connect();
+        sessionClient.on("error", fail);
         await sessionClient.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
         const names = POSTGRES_SCOPE_SCHEMA_CONTRACT.claims;
         await sessionClient.query(
@@ -141,12 +168,17 @@ function startWorker(input: PgQueryWorkerData): void {
         await finishSession("ROLLBACK");
         await pool.end();
         respond(request.id, input.state, null);
+        stopped = true;
         input.responsePort.close();
         parentPort!.close();
         return;
       }
       throw new Error(`unknown PostgreSQL task query operation: ${String(request.op)}`);
     } catch (error) {
+      if (stopped) {
+        consumeKnownError(error);
+        return;
+      }
       let failure = error;
       if (request.op === "begin" && sessionClient) {
         const client = sessionClient;
@@ -154,6 +186,7 @@ function startWorker(input: PgQueryWorkerData): void {
         try {
           await client.query("ROLLBACK");
           client.release();
+          client.removeListener("error", fail);
         } catch (rollbackError) {
           client.release(rollbackError instanceof Error ? rollbackError : new Error(String(rollbackError)));
           failure = new AggregateError(
@@ -170,10 +203,15 @@ function startWorker(input: PgQueryWorkerData): void {
 
   void initialize().then(
     () => {
+      if (stopped) return;
       respond(0, input.ready, null);
       parentPort!.on("message", (request: PgQueryWorkerRequest) => void handle(request));
     },
     async (error: unknown) => {
+      if (stopped) {
+        consumeKnownError(error);
+        return;
+      }
       let failure = error;
       try {
         await pool.end();

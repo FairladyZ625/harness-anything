@@ -63,7 +63,8 @@ export function pgTaskIndexQueries(
         return Object.fromEntries(result.rows.map(({ parent_id, count }) => [parent_id, Number(count)]));
       }),
     readTaskIndex: async (query = {}) => {
-      const result = await source.list(query);
+      // The index is ordered by task id even when the full-snapshot list asks for pins first.
+      const result = await source.list({ ...query, pinnedFirst: false });
       return {
         ...result,
         schema: "task-index-projection/v1",

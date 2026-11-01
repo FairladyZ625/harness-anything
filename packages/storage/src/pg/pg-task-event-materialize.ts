@@ -40,10 +40,9 @@ import {
 } from "@harness-anything/kernel/internal/domain/task-bootstrap-event.ts";
 import { isEntityPinEvent } from "@harness-anything/kernel/internal/domain/entity-pin-event.ts";
 import { isEntityEvent, isEntityDeclarationEvent } from "@harness-anything/kernel/internal/domain/entity-event.ts";
-import {
-  parseAgentDeclarationV1,
-  parseSquadDeclarationV1,
-} from "@harness-anything/kernel/internal/domain/agent-squad-schema.ts";
+import { requireEntityStoreKindContract } from "@harness-anything/kernel/internal/domain/entity-kind-registry.ts";
+import { interpretEntityValue } from "@harness-anything/kernel/internal/domain/entity-kind-projection.ts";
+import { interpretReplayDeclaration } from "../projection/entity-declaration-replay.ts";
 
 export interface PgProjectionScope {
   readonly tenantId: string;
@@ -666,7 +665,13 @@ async function storeEntityEvent(
     documentPath = claim.path;
     documentSha256 = claim.sha256;
   } else return;
-  const declaration = kind === "agent" ? parseAgentDeclarationV1(raw) : parseSquadDeclarationV1(raw);
+  const contract = requireEntityStoreKindContract(kind),
+    entity =
+      event.type === "entity_reference_declared"
+        ? interpretEntityValue(contract, raw)
+        : interpretReplayDeclaration(contract, raw, id),
+    declaration = entity?.value ?? raw;
+  if (entity && entity.id !== id) throw new Error("entity declaration identity mismatch");
   const table = kind === "agent" ? "ha_agents" : "ha_squads";
   const idColumn = kind === "agent" ? "agent_id" : "squad_id";
   await client.query(
