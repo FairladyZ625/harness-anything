@@ -93,12 +93,15 @@ const providerGitCredentialEnvironment = new Set([
 
 /**
  * Full-permission providers inherit the operator environment. Restricted providers lose host
- * Git credential sources; settlement still invokes the daemon-side push path independently.
+ * Git credential sources. DSH also loses credential-shaped names while spawning tools, so its
+ * restricted helper reset uses Git's child-process config parameter channel; settlement invokes
+ * the daemon-side push path independently.
  */
 export function runtimeWorkerProviderEnvironment(
   source: NodeJS.ProcessEnv,
   platform: NodeJS.Platform = process.platform,
   permissionMode: "full" | "restricted" = "full",
+  providerKindId?: string,
 ): NodeJS.ProcessEnv {
   const environment = { ...source };
   if (permissionMode === "restricted") {
@@ -108,7 +111,7 @@ export function runtimeWorkerProviderEnvironment(
     }
   }
   const nullDevice = platform === "win32" ? "NUL" : "/dev/null";
-  return {
+  const providerEnvironment: NodeJS.ProcessEnv = {
     ...environment,
     ...(permissionMode === "restricted"
       ? {
@@ -123,6 +126,24 @@ export function runtimeWorkerProviderEnvironment(
         }
       : {}),
   };
+  if (providerKindId === "deepseek-harness") {
+    // DSH removes credential-shaped names before spawning tools. Passing our GitHub helper
+    // would leave surviving GIT_CONFIG_COUNT/VALUE entries without their KEYs. Drop that group
+    // and any inherited parameter channel; restricted mode restores only the empty helper reset
+    // through GIT_CONFIG_PARAMETERS, whose name survives the DSH scrub. Git does not document
+    // this variable as a public interface, so the worker-host regression exercises the installed
+    // Git parser against a repository-local helper.
+    delete providerEnvironment.GH_TOKEN;
+    delete providerEnvironment.GITHUB_TOKEN;
+    delete providerEnvironment.HARNESS_GITHUB_TOKEN;
+    delete providerEnvironment.GIT_CONFIG_PARAMETERS;
+    delete providerEnvironment.GIT_CONFIG_COUNT;
+    for (const name of Object.keys(providerEnvironment)) {
+      if (/^GIT_CONFIG_(?:KEY|VALUE)_\d+$/u.test(name)) delete providerEnvironment[name];
+    }
+    if (permissionMode === "restricted") providerEnvironment.GIT_CONFIG_PARAMETERS = "'credential.helper'=''";
+  }
+  return providerEnvironment;
 }
 
 export async function runRuntimeWorkerHost(): Promise<void> {
@@ -200,6 +221,7 @@ export async function runRuntimeWorkerHost(): Promise<void> {
         relay ? { ...hostEnvironment, HARNESS_DAEMON_ENDPOINT: relay.endpoint } : hostEnvironment,
         process.platform,
         manifest.env.HARNESS_WORKER_PERMISSION_MODE === "restricted" ? "restricted" : "full",
+        manifest.kindId,
       );
     const declaration = manifest.kindId ? runtimeKindForId(manifest.kindId) : null;
     const baseArgs = [...manifest.args];

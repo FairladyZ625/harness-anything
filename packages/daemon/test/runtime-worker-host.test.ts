@@ -18,6 +18,7 @@ import { launchNative } from "../src/runtime-spawn-process.ts";
 import { consumeProviderChunk, consumeProviderLine } from "../src/runtime-spawn-provider-stream.ts";
 import { parseProviderFrame } from "../src/runtime-spawn-provider-frames.ts";
 import { runtimeWorkerProviderEnvironment } from "../src/runtime-worker-host.ts";
+import { applyGithubLaunchCredential } from "../src/runtime-github-credentials.ts";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
 import { writeAcpProviderStub } from "./fixtures/acp-stub.ts";
 
@@ -282,6 +283,114 @@ test("full provider environment inherits operator hosting credentials", () => {
   assert.equal(environment.GITLAB_TOKEN, source.GITLAB_TOKEN);
   assert.equal(environment.GIT_ASKPASS, source.GIT_ASKPASS);
   assert.equal(environment.SSH_AUTH_SOCK, source.SSH_AUTH_SOCK);
+});
+
+test("DeepSeek drops shell-side Git credentials before its environment scrub", () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-dsh-git-credential-")),
+    home = path.join(parent, "home"),
+    repository = path.join(parent, "repository"),
+    staleHelper = path.join(parent, "stale-helper"),
+    staleMarker = path.join(parent, "stale-helper-called"),
+    nullDevice = process.platform === "win32" ? "NUL" : "/dev/null";
+  mkdirSync(home);
+  mkdirSync(repository);
+  const init = spawnSync("git", ["init", "--quiet", repository], { encoding: "utf8" });
+  assert.equal(init.status, 0, init.stderr);
+  writeFileSync(
+    staleHelper,
+    `#!/bin/sh\nprintf 'called\\n' >> '${staleMarker}'\ncat >/dev/null\nprintf 'username=fixture-user\\npassword=fixture-password\\n'\n`,
+  );
+  chmodSync(staleHelper, 0o755);
+  const localHelper = spawnSync(
+    "git",
+    ["-C", repository, "config", "credential.https://github.com.helper", `!${staleHelper}`],
+    { encoding: "utf8" },
+  );
+  assert.equal(localHelper.status, 0, localHelper.stderr);
+  const source: NodeJS.ProcessEnv = {
+    PATH: process.env.PATH,
+    HOME: home,
+    GIT_CONFIG_GLOBAL: nullDevice,
+    GIT_CONFIG_SYSTEM: nullDevice,
+    GIT_CONFIG_NOSYSTEM: "1",
+  };
+  applyGithubLaunchCredential(source, "github-token");
+
+  try {
+    for (const permissionMode of ["full", "restricted"] as const) {
+      const providerEnvironment = runtimeWorkerProviderEnvironment(
+          source,
+          process.platform,
+          permissionMode,
+          "deepseek-harness",
+        ),
+        toolShellEnvironment = Object.fromEntries(
+          Object.entries(providerEnvironment).filter(([name]) => !/(?:KEY|PASSWORD|SECRET|TOKEN)/iu.test(name)),
+        ),
+        result = spawnSync("git", ["config", "--list"], {
+          env: toolShellEnvironment,
+          encoding: "utf8",
+        });
+
+      assert.equal(providerEnvironment.GH_TOKEN, undefined, permissionMode);
+      assert.equal(providerEnvironment.GIT_CONFIG_COUNT, undefined, permissionMode);
+      assert.equal(
+        providerEnvironment.GIT_CONFIG_PARAMETERS,
+        permissionMode === "restricted" ? "'credential.helper'=''" : undefined,
+        permissionMode,
+      );
+      assert.equal(
+        Object.keys(providerEnvironment).some((name) => /^GIT_CONFIG_(?:KEY|VALUE)_\d+$/u.test(name)),
+        false,
+        permissionMode,
+      );
+      assert.equal(result.status, 0, `${permissionMode}: ${result.stderr}`);
+    }
+
+    if (process.platform !== "win32") {
+      // Prove a repository-local helper can return credentials even when global config is disabled.
+      const staleLocalControl = spawnSync("git", ["-C", repository, "credential", "fill"], {
+        env: { PATH: process.env.PATH, HOME: home, GIT_CONFIG_SYSTEM: nullDevice, GIT_CONFIG_NOSYSTEM: "1" },
+        input: "protocol=https\nhost=github.com\n\n",
+        encoding: "utf8",
+      });
+      assert.equal(staleLocalControl.status, 0, staleLocalControl.stderr);
+      assert.match(staleLocalControl.stdout, /password=fixture-password/u);
+      assert.equal(existsSync(staleMarker), true);
+      rmSync(staleMarker);
+
+      const restrictedEnvironment = runtimeWorkerProviderEnvironment(
+          source,
+          process.platform,
+          "restricted",
+          "deepseek-harness",
+        ),
+        filteredRestrictedEnvironment = Object.fromEntries(
+          Object.entries(restrictedEnvironment).filter(([name]) => !/(?:KEY|PASSWORD|SECRET|TOKEN)/iu.test(name)),
+        ),
+        fill = spawnSync("git", ["-C", repository, "credential", "fill"], {
+          env: filteredRestrictedEnvironment,
+          input: "protocol=https\nhost=github.com\n\n",
+          encoding: "utf8",
+        });
+      assert.equal(filteredRestrictedEnvironment.GIT_CONFIG_PARAMETERS, "'credential.helper'=''");
+      assert.equal(fill.status, 128);
+      assert.match(fill.stderr, /could not read Username.*terminal prompts disabled/u);
+      assert.doesNotMatch(fill.stdout, /password=/u);
+      assert.equal(existsSync(staleMarker), false, "restricted DSH must not call the repository's local helper");
+    }
+
+    // The same complete source environment still reproduces the failure for a provider that does not scrub names.
+    const otherProvider = runtimeWorkerProviderEnvironment(source, process.platform, "full", "codex"),
+      filteredOtherProvider = Object.fromEntries(
+        Object.entries(otherProvider).filter(([name]) => !/(?:KEY|PASSWORD|SECRET|TOKEN)/iu.test(name)),
+      ),
+      before = spawnSync("git", ["config", "--list"], { env: filteredOtherProvider, encoding: "utf8" });
+    assert.equal(before.status, 128);
+    assert.match(before.stderr, /missing config key GIT_CONFIG_KEY_0/u);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
 });
 
 test(
