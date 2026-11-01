@@ -41,6 +41,8 @@
   },
   "entries": {
     "consumeKnownError": [
+      "packages/dsh-plugin/src/client.ts#openTabWhenSessionMounts",
+      "packages/dsh-plugin/src/tutorial.ts#writeClipboard",
       "packages/daemon/src/skill-eval-runner.ts#runCase",
       "packages/application/src/task-lifecycle-service.ts#releaseReservation",
       "packages/cli/src/cli-render.ts#contractMigrationDryRunSummary",

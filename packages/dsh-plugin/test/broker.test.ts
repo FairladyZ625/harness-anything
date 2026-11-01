@@ -300,3 +300,22 @@ test("client retries opening the browser tab until the session seat mounts", asy
   assert.equal(attempts, 3);
   assert.deepEqual(opened, ["http://127.0.0.1:4321/"]);
 });
+
+test("client propagates unexpected browser errors without retrying", async () => {
+  const harness = clientHarness();
+  const failure = new Error("browser plugin unavailable");
+  let attempts = 0;
+  const ctx = {
+    ...harness.ctx,
+    sidebarRight: {
+      openTab: () => {
+        attempts += 1;
+        throw failure;
+      },
+    },
+  } as never;
+  const fetcher: typeof fetch = async () =>
+    new Response(JSON.stringify({ ok: true, url: "http://127.0.0.1:4321/" }), { status: 200 });
+  await assert.rejects(openHarnessBrowser(ctx, fetcher), (error: unknown) => error === failure);
+  assert.equal(attempts, 1);
+});

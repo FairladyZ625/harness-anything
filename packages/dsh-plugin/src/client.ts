@@ -42,6 +42,10 @@ function nextFrame(): Promise<void> {
   });
 }
 
+function consumeKnownError(error: unknown): void {
+  if (!(error instanceof Error) || error.message !== "no session surface is mounted") throw error;
+}
+
 /**
  * Sidebar-right is session-scoped: after `selectPanel(null)` the session seat
  * mounts on a later render, and openTab throws until it has. DSH exposes no
@@ -53,6 +57,7 @@ async function openTabWhenSessionMounts(ctx: ClientContext, url: string): Promis
       ctx.sidebarRight.openTab("browser", { params: { url } });
       return;
     } catch (error) {
+      consumeKnownError(error);
       if (frame >= SESSION_MOUNT_FRAMES) throw error;
       await nextFrame();
     }

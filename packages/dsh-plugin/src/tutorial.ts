@@ -60,12 +60,19 @@ function inline(text: string): ReactNode[] {
   return text.split("`").map((part, index) => (index % 2 === 1 ? h("code", { key: index }, part) : part));
 }
 
+function consumeKnownError(error: unknown): void {
+  // Embeddings can deny the async clipboard API; unrelated failures must surface.
+  if (!(error instanceof DOMException) || error.name !== "NotAllowedError") throw error;
+}
+
 async function writeClipboard(text: string): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return;
-  } catch {
-    // Fall through: some embeddings deny the async clipboard API.
+  if (navigator.clipboard) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch (error) {
+      consumeKnownError(error);
+    }
   }
   const area = document.createElement("textarea");
   area.value = text;

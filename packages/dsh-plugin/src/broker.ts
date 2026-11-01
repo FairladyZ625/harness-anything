@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { BROKER_ROUTE, type BrokerFailure, type BrokerResponse } from "./shared.ts";
+import type { BrokerFailure, BrokerResponse } from "./shared.ts";
 
 export { BROKER_ROUTE } from "./shared.ts";
 export type { BrokerFailure, BrokerResponse, BrokerSuccess } from "./shared.ts";
