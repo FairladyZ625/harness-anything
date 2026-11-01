@@ -58,6 +58,7 @@ test("edge Git preflight rejects a missing or mismatched origin and allows the m
     );
     git(edge, "remote", "set-url", "--push", "origin", origin);
     await assertFleetEdgeRepositoryGit({ rootDir: edge, center: centerGit, operation: "runtime dispatch" });
+    git(edge, "config", "--unset-all", "remote.origin.pushurl");
     const secondPush = path.join(root, "second-push.git");
     git(center, "config", "--add", "remote.origin.pushurl", origin);
     git(center, "config", "--add", "remote.origin.pushurl", secondPush);
