@@ -13,6 +13,7 @@ import { SettingsView } from "../src/renderer/views/SettingsView.tsx";
 import { settingsUpdateInputFields } from "@harness-anything/kernel";
 import { catalogQueryKeys } from "../src/renderer/catalog-data.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
+import { I18nProvider } from "../src/renderer/i18n/index.tsx";
 import { settingsQueryKeys } from "../src/renderer/settings-data.ts";
 
 const REPO_ID = "g5-probe";
@@ -227,7 +228,12 @@ async function mountedContainerClasses(testId: (typeof FILL_TESTIDS)[number]): P
             onOpenObserve: () => undefined,
             onNavigateEntity: () => undefined,
           })
-        : createElement(SettingsView, { repoId: REPO_ID }),
+        : createElement(SettingsView, {
+            repoId: REPO_ID,
+            repos: [],
+            onOpenProject: () => undefined,
+            onJoinCenter: () => undefined,
+          }),
   );
   const el = container.querySelector(`[data-testid="${testId}"]`);
   expect(el, `${testId} 未渲染`).toBeTruthy();
@@ -323,8 +329,8 @@ describe("G5 系统组三页宽屏:内容容器铺满,不保留固定宽度收�
   });
 });
 
-describe("Settings kind renderer consumes and updates the daemon-owned facet", () => {
-  it("renders every read field and sends defaultPreset plus locale changes through the bridge", async () => {
+describe("Settings kind renderer consumes daemon fields and keeps locale local", () => {
+  it("sends repository field changes through the bridge and applies language changes locally", async () => {
     const settings = {
         schema: "settings/v1" as const,
         settingsId: "repository" as const,
@@ -371,7 +377,22 @@ describe("Settings kind renderer consumes and updates the daemon-owned facet", (
       configurable: true,
       value: { updateSettings, getSettings },
     });
-    const container = await mountView(createElement(SettingsView, { repoId: REPO_ID }));
+    const container = await mountView(
+      createElement(
+        I18nProvider,
+        null,
+        createElement(
+          "div",
+          null,
+          createElement(SettingsView, {
+            repoId: REPO_ID,
+            repos: [],
+            onOpenProject: () => undefined,
+            onJoinCenter: () => undefined,
+          }),
+        ),
+      ),
+    );
     for (const [testId, value] of [
       ["settings-vertical-select", "software/coding"],
       ["settings-preset-select", "standard-task"],
@@ -387,7 +408,9 @@ describe("Settings kind renderer consumes and updates the daemon-owned facet", (
       Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(preset, "docs-task");
       preset.dispatchEvent(new Event("change", { bubbles: true }));
     });
-    const save = [...container.querySelectorAll("button")].find((button) => button.textContent === "提交到仓库")!;
+    const save = [...container.querySelectorAll("button")].find((button) =>
+      /提交到仓库|Commit to repository/u.test(button.textContent ?? ""),
+    )!;
     await act(async () => save.click());
     expect(updateSettings.mock.calls[0]?.[0]).toMatchObject({
       repoId: REPO_ID,
@@ -397,14 +420,21 @@ describe("Settings kind renderer consumes and updates the daemon-owned facet", (
     expect(updateSettings.mock.calls[0]?.[0]).not.toHaveProperty("locale");
 
     const languageTab = [...container.querySelectorAll("button")].find((button) =>
-      button.textContent?.includes("语言"),
+      /语言|Language/u.test(button.textContent ?? ""),
     )!;
     await act(async () => languageTab.click());
-    const language = container.querySelector('select[aria-label="语言"]') as HTMLSelectElement;
+    const language = container.querySelector("select") as HTMLSelectElement;
+    await act(async () => {
+      language.value = "zh-CN";
+      language.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(container.querySelector("[data-i18n-locale]")?.getAttribute("data-i18n-locale")).toBe("zh-CN");
     await act(async () => {
       language.value = "en-US";
       language.dispatchEvent(new Event("change", { bubbles: true }));
     });
-    expect(updateSettings.mock.calls.at(-1)?.[0]).toMatchObject({ repoId: REPO_ID, locale: "en-US" });
+    expect(container.querySelector("[data-i18n-locale]")?.getAttribute("data-i18n-locale")).toBe("en-US");
+    expect(updateSettings).toHaveBeenCalledTimes(1);
+    expect(updateSettings.mock.calls[0]?.[0]).not.toHaveProperty("locale");
   });
 });

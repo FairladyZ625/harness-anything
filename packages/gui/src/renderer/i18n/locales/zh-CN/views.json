@@ -203,6 +203,8 @@
   "views.settingsView.statusColorsLabel": "状态色",
   "views.settingsView.submitPending": "提交中…",
   "views.settingsView.submitToRepository": "提交到仓库",
+  "views.settingsView.repositoryReadOnly": "只读",
+  "views.settingsView.repositoryReadOnlyNotice": "该仓库通过边缘只读连接提供。仓库治理设置可查看，不能在此修改或提交。",
   "views.settingsView.syncFeatureMobileReview": "手机端审阅",
   "views.settingsView.syncFeatureMultiDevice": "多设备同步",
   "views.settingsView.syncFeatureRemoteAccess": "远程项目访问",

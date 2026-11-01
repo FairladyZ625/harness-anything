@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import net from "node:net";
 import { once } from "node:events";
 import test from "node:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { openSqliteEventStore, sqliteLedgerPath } from "@harness-anything/storage";
@@ -17,6 +17,7 @@ import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts"
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
+import { materializeCellReplica } from "./edge-repository-cut.fixtures.ts";
 import { eventuallyValue } from "./fixtures/runtime-ingress.ts";
 
 test(
@@ -185,6 +186,63 @@ test(
     }
   },
 );
+
+test("a readable edge generation stays attached when the center sync token fails", { timeout: 180_000 }, async (t) => {
+  const fixture = await fleetNodeClaimFixture(t);
+  const edge = await fleetEdgeHostFixture(t, fixture, {
+    beforeOpen: async (edgeRoot) => {
+      // Preserve a previously readable replica while making the local writer fail to attach.
+      // This is the path used by a remote edge whose local ledger is unavailable after restart.
+      await materializeCellReplica(fixture.repo, "lease-repo", "person-one");
+      const config = JSON.parse(readFileSync(path.join(fixture.repo, "fleet-edge.json"), "utf8")) as Record<
+          string,
+          unknown
+        >,
+        viewRoot = String(config.viewRoot),
+        viewDir = path.join(viewRoot, "repos", "lease-repo", "views", "test-edge");
+      config.host = "127.0.0.1";
+      config.port = fixture.center.port;
+      config.caPath = path.join(fixture.root, "tls.crt");
+      writeFileSync(path.join(edgeRoot, "fleet-edge.json"), JSON.stringify(config));
+      writeFileSync(
+        path.join(viewDir, "replica-health.json"),
+        JSON.stringify({
+          rebuildCount: 0,
+          lastHeartbeatAt: null,
+          syncFailure: { code: "authentication_required", message: "fetch failed" },
+          modelFailure: null,
+        }),
+      );
+      const generationTwo = openSqliteEventStore({ repoId: "lease-repo", rootInput: edgeRoot, generation: 2 });
+      generationTwo.close();
+      mkdirSync(path.dirname(sqliteLedgerPath(edgeRoot, 3)), { recursive: true });
+      writeFileSync(`${sqliteLedgerPath(edgeRoot, 3)}.activation.json`, "{}\n");
+    },
+  });
+  const status = edge.host.status().repos.find((repo) => repo.repoId === "lease-repo");
+  t.diagnostic(
+    JSON.stringify({
+      state: status?.state,
+      lastError: status?.lastError,
+      health: JSON.parse(
+        readFileSync(
+          path.join(
+            String(JSON.parse(readFileSync(path.join(edge.edgeRoot, "fleet-edge.json"), "utf8")).viewRoot),
+            "repos",
+            "lease-repo",
+            "views",
+            "test-edge",
+            "replica-health.json",
+          ),
+          "utf8",
+        ),
+      ),
+    }),
+  );
+  assert.equal(status?.mode, "remote-edge");
+  assert.equal(status?.state, "attached");
+  assert.equal(status?.lastError, null);
+});
 
 test(
   "remote-edge mount ignores a stale generation-two ledger from the center mirror",

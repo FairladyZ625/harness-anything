@@ -161,7 +161,7 @@ describe("deriveRuntimeHealth (fourth grid, existing read surface only)", () => 
     expect(runtimeHealthAssessment(health).cause).toEqual({ kind: "projection-isolated", rows: 2 });
   });
 
-  it("surfaces the repo cell problem text for unavailable cells", () => {
+  it("keeps a daemon-wide unavailable cell degraded while surfacing its repo problem", () => {
     const health = deriveRuntimeHealth({
       daemon: { ok: true, observedAt: NOW, uptimeMs: 0 },
       repo: {
@@ -175,8 +175,9 @@ describe("deriveRuntimeHealth (fourth grid, existing read surface only)", () => 
       lastSnapshotAt: null,
       now: NOW,
     });
+    expect(health.daemon.state).toBe("responsive");
     expect(health.cell.problem).toBe("cell crashed during scan");
-    expect(runtimeHealthWorst(health)).toBe("down");
+    expect(runtimeHealthWorst(health)).toBe("degraded");
     expect(runtimeHealthAssessment(health).cause).toEqual({
       kind: "cell-unavailable",
       problem: "cell crashed during scan",

@@ -94,6 +94,7 @@ export async function openRepoCellProxy(
   let wakeReplica = (): void => undefined;
   // Read per use: the first `ha daemon fleet edge sync` writes fleet-edge.json after this cell opened.
   const edgeConfig = () => (input.mode === "remote-edge" ? readFleetEdgeConfig(input.rootDir) : null);
+  let replicaOnly = false;
   let supervisor: Awaited<ReturnType<typeof openWriterSupervisor>>;
   try {
     supervisor = await openWriterSupervisor(
@@ -124,6 +125,7 @@ export async function openRepoCellProxy(
       await lock.close();
       throw error;
     }
+    replicaOnly = true;
     consumeKnownError(error);
     const lastError = error instanceof Error ? error.message : String(error),
       baseStatus = () => ({
@@ -145,7 +147,10 @@ export async function openRepoCellProxy(
           generation = readReplicaGeneration(viewDir),
           health = readReplicaHealth(viewDir),
           failure = health.modelFailure ?? health.syncFailure;
-        if (generation !== null && failure === null)
+        // A center-token/network failure affects synchronization, not the readability of a
+        // generation already installed on this edge. Keep it on replica read warnings; only a
+        // model failure makes that generation unavailable to repository reads.
+        if (generation !== null && health.modelFailure === null)
           return {
             ...baseStatus(),
             state: "attached" as const,
@@ -698,7 +703,9 @@ export async function openRepoCellProxy(
     runtime,
     status: supervisor.status,
     statusCuts: () => {
-      if (closed || supervisor.status().state !== "attached") return null;
+      // A remote edge can serve its installed replica while its local writer/projection is
+      // unavailable. Do not make host status depend on querying that unrelated local projection.
+      if (closed || replicaOnly || supervisor.status().state !== "attached") return null;
       return {
         projectionWatermark: reader.withSession((projection) => projection.readCut().watermark),
         ledgerRevision: readCurrentLedger((store) => store.readHead()?.revision ?? 0),

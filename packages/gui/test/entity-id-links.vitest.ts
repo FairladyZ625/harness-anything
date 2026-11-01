@@ -864,7 +864,13 @@ const VIEW_RENDERERS = {
       onBack: noop,
       onNavigateEntity: noop,
     }),
-  settings: () => createElement(SettingsView, { repoId: REPO_ID }),
+  settings: () =>
+    createElement(SettingsView, {
+      repoId: REPO_ID,
+      repos: [fixtureRepoRow()],
+      onOpenProject: noop,
+      onJoinCenter: noop,
+    }),
   identityAccess: () => createElement(IdentityAccessView),
   todos: () => createElement(TodosView, { repoId: REPO_ID, onNavigateEntity: noop }),
 } satisfies Record<ViewId, () => ReturnType<typeof createElement>>;

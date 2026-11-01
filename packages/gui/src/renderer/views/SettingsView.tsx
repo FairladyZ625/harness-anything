@@ -19,7 +19,6 @@ import {
   type DateFormatPref,
   type TimeDisplayPrefs,
 } from "../model/time.ts";
-import { useSettingsMutation } from "../settings-data.ts";
 import type { SystemRepoRow } from "../api-client.ts";
 import { RepositoriesAndConnectionsView } from "./settings/RepositoriesAndConnectionsView.tsx";
 import { RepositorySettingsPanel } from "./settings/RepositorySettingsPanel.tsx";
@@ -124,7 +123,6 @@ export function SettingsView({
     writeTimeDisplayPrefs(next);
     setTimePrefs(next);
   };
-  const settingsMutation = useSettingsMutation(repoId);
   const renderActivePanel = () => {
     switch (activeTab) {
       case "repositories":
@@ -137,28 +135,45 @@ export function SettingsView({
           />
         );
       case "repository":
-        return <RepositorySettingsPanel repoId={repoId} onLocaleLoaded={setLocale} />;
+        return (
+          <RepositorySettingsPanel
+            repoId={repoId}
+            readOnly={repos.find((repo) => repo.repoId === repoId)?.mode === "remote-edge"}
+          />
+        );
       case "appearance":
         return (
           <Section variant="panel" title={t("views.settingsView.sectionAppearance")}>
             <Row label={t("views.settingsView.themeLabel")} desc={t("views.settingsView.themeDescription")}>
               <SegCtl
                 value={mode}
-                options={THEME_OPTIONS.map(({ key, labelKey }) => ({ value: key, label: t(labelKey) }))}
+                options={THEME_OPTIONS.map(({ key, labelKey }) => ({
+                  value: key,
+                  label: t(labelKey),
+                  testId: `settings-theme-${key}`,
+                }))}
                 onChange={setMode}
               />
             </Row>
             <Row label={t("views.settingsView.motionLabel")} desc={t("views.settingsView.motionDescription")}>
               <SegCtl
                 value={motionPreference}
-                options={MOTION_OPTIONS.map(({ key, labelKey }) => ({ value: key, label: t(labelKey) }))}
+                options={MOTION_OPTIONS.map(({ key, labelKey }) => ({
+                  value: key,
+                  label: t(labelKey),
+                  testId: `settings-motion-${key}`,
+                }))}
                 onChange={setMotionPreference}
               />
             </Row>
             <Row label={t("views.settingsView.uiScaleLabel")} desc={t("views.settingsView.uiScaleDescription")}>
               <SegCtl
                 value={uiScale}
-                options={SCALE_OPTIONS.map(({ key, labelKey }) => ({ value: key, label: t(labelKey) }))}
+                options={SCALE_OPTIONS.map(({ key, labelKey }) => ({
+                  value: key,
+                  label: t(labelKey),
+                  testId: `settings-ui-scale-${key}`,
+                }))}
                 onChange={setUiScale}
               />
             </Row>
@@ -186,6 +201,7 @@ export function SettingsView({
             >
               <select
                 aria-label={t("views.settingsView.timeZoneLabel")}
+                data-testid="settings-time-zone"
                 className="rounded border border-border bg-surface-raised px-2 py-1 font-mono ui-meta text-text"
                 value={timePrefs.timeZone ?? ""}
                 onChange={(event) => updateTimePrefs({ timeZone: event.currentTarget.value || null })}
@@ -203,6 +219,7 @@ export function SettingsView({
                 value={timePrefs.dateFormat}
                 options={DATE_FORMAT_OPTIONS.map((dateFormat) => ({
                   value: dateFormat,
+                  testId: `settings-date-format-${dateFormat}`,
                   // 选项标签即实时预览:固定样张在当前时区与小时制下的实际写法。
                   label:
                     formatTime(DATE_FORMAT_SAMPLE, { style: "date-time", prefs: { ...timePrefs, dateFormat } }) ??
@@ -217,12 +234,14 @@ export function SettingsView({
                 options={[
                   {
                     value: "h23" as const,
+                    testId: "settings-hour-cycle-h23",
                     label:
                       formatTime(DATE_FORMAT_SAMPLE, { style: "time", prefs: { ...timePrefs, hour12: false } }) ??
                       t("views.settingsView.hourCycle24"),
                   },
                   {
                     value: "h12" as const,
+                    testId: "settings-hour-cycle-h12",
                     label:
                       formatTime(DATE_FORMAT_SAMPLE, { style: "time", prefs: { ...timePrefs, hour12: true } }) ??
                       t("views.settingsView.hourCycle12"),
@@ -237,10 +256,12 @@ export function SettingsView({
                 options={[
                   {
                     value: "relative" as const,
+                    testId: "settings-list-style-relative",
                     label: formatRelative(RELATIVE_SAMPLE, { prefs: timePrefs }),
                   },
                   {
                     value: "absolute" as const,
+                    testId: "settings-list-style-absolute",
                     label:
                       formatTime(new Date(RELATIVE_SAMPLE).toISOString(), {
                         style: "date-time",
@@ -265,21 +286,18 @@ export function SettingsView({
             <Row label={t("settings.language")} desc={t("views.settingsView.languageDescription")}>
               <select
                 aria-label={t("views.settingsView.tabLanguage")}
+                data-testid="settings-language"
                 className="rounded border border-border bg-surface-raised px-2 py-1 ui-meta text-text"
                 value={locale}
                 onChange={(event) => {
                   const next = event.currentTarget.value as "zh-CN" | "en-US";
                   setLocale(next);
-                  settingsMutation.mutate({ locale: next });
                 }}
               >
                 <option value="zh-CN">{t("views.settingsView.chinese")}</option>
                 <option value="en-US">{t("views.settingsView.english")}</option>
               </select>
             </Row>
-            {settingsMutation.error ? (
-              <div className="px-3 py-2 ui-meta text-danger">{String(settingsMutation.error)}</div>
-            ) : null}
           </Section>
         );
       case "shortcuts":
@@ -404,6 +422,7 @@ export function SettingsView({
           {SETTINGS_TABS.map((tab) => (
             <button
               key={tab.id}
+              data-testid={`settings-tab-${tab.id}`}
               onClick={() => setActiveTab(tab.id)}
               className={`flex shrink-0 flex-col rounded-md px-2.5 py-2 text-left ${
                 activeTab === tab.id
