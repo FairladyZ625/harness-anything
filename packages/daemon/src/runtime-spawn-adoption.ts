@@ -73,6 +73,8 @@ export async function adoptRuntimes(
       const entry: { promise: Promise<RuntimeRecoveryResult>; result?: RuntimeRecoveryResult } = {
         promise: Promise.resolve()
           .then(async () => {
+            // The launch may not have written its stream header yet either.
+            if (context.ownsModelSlot?.(runtimeSessionId)) return "ready" as const;
             const dispatch = context.input.remote
               ? await context.input.remote.readRuntimeDispatch(runtimeSessionId)
               : context.requiredRuntimeProjection(context.input).readRuntimeDispatch(runtimeSessionId);

@@ -77,6 +77,7 @@ test("adoption cannot settle a launch that still owns its model slot before PID 
   try {
     publishedSessionId = await entered.promise;
     assert.equal(modelSlotQueue.position(publishedSessionId), 0);
+    assert.equal((await spawner.adopt())[0]?.outcome, "ready", "the launch also owns the pre-header window");
     // A center publication can become readable before the local process registration.
     openMissingProcessStream(rootDir, dispatchId, publishedSessionId, "held-launch");
     const recovery = await spawner.adopt();
