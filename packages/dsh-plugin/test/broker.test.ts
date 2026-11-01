@@ -228,10 +228,8 @@ test("client displays broker code and hint in the shell overlay on failure", asy
   applyClient(ctx as never);
   const mainRegistration = registrations.find((entry) => entry.options.name === "main");
   assert.ok(mainRegistration);
-  const tutorial = mainRegistration.component({} as never) as {
-    readonly props: { readonly children: readonly unknown[] };
-  };
-  const openButton = tutorial.props.children[3] as { readonly props: { readonly onClick: () => void } };
+  const tutorial = mainRegistration.component({} as never) as { readonly props: { readonly onOpen: () => void } };
+  const openButton = { props: { onClick: tutorial.props.onOpen } };
   const previousFetch = globalThis.fetch;
   const receipts = [
     { code: "ha_unavailable", hint: "Install ha CLI and retry." },
@@ -280,4 +278,25 @@ test("client displays broker code and hint in the shell overlay on failure", asy
   assert.ok(overlayInjection);
   overlayInjection.dispose();
   assert.equal(notice.disposed, true, "injection disposal removes the overlay registration");
+});
+
+test("client retries opening the browser tab until the session seat mounts", async () => {
+  const harness = clientHarness();
+  let attempts = 0;
+  const opened: string[] = [];
+  const ctx = {
+    ...harness.ctx,
+    sidebarRight: {
+      openTab: (_kind: string, options: { readonly params: { readonly url: string } }) => {
+        attempts += 1;
+        if (attempts < 3) throw new Error("no session surface is mounted");
+        opened.push(options.params.url);
+      },
+    },
+  } as never;
+  const fetcher: typeof fetch = async () =>
+    new Response(JSON.stringify({ ok: true, url: "http://127.0.0.1:4321/" }), { status: 200 });
+  await openHarnessBrowser(ctx, fetcher);
+  assert.equal(attempts, 3);
+  assert.deepEqual(opened, ["http://127.0.0.1:4321/"]);
 });

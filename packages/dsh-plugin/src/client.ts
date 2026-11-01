@@ -4,6 +4,8 @@ import type { PropsRuntime } from "@deepseek-ai/dsh-client-ui-slots";
 import type { SidebarPanelIconOwnerProps } from "@deepseek-ai/dsh-client-ui-sidebar/client";
 import type { BrokerFailure, BrokerResponse } from "./shared.ts";
 import { BROKER_ROUTE } from "./shared.ts";
+import { tutorialCopy } from "./tutorial-content.ts";
+import { Tutorial } from "./tutorial.ts";
 
 const PANEL_ID = "harness-anything";
 const LOCALE_NAMESPACE = "harnessAnything";
@@ -30,14 +32,31 @@ interface ClientContext extends Context {
   };
 }
 
-function waitForSessionMount(): Promise<void> {
+/** About two seconds of rendered frames. */
+const SESSION_MOUNT_FRAMES = 120;
+
+function nextFrame(): Promise<void> {
   return new Promise((resolve) => {
-    if (typeof globalThis.requestAnimationFrame === "function") {
-      globalThis.requestAnimationFrame(() => resolve());
-      return;
-    }
-    queueMicrotask(resolve);
+    if (typeof globalThis.requestAnimationFrame === "function") globalThis.requestAnimationFrame(() => resolve());
+    else queueMicrotask(resolve);
   });
+}
+
+/**
+ * Sidebar-right is session-scoped: after `selectPanel(null)` the session seat
+ * mounts on a later render, and openTab throws until it has. DSH exposes no
+ * mount event, so retry once per rendered frame.
+ */
+async function openTabWhenSessionMounts(ctx: ClientContext, url: string): Promise<void> {
+  for (let frame = 0; ; frame += 1) {
+    try {
+      ctx.sidebarRight.openTab("browser", { params: { url } });
+      return;
+    } catch (error) {
+      if (frame >= SESSION_MOUNT_FRAMES) throw error;
+      await nextFrame();
+    }
+  }
 }
 
 export class BrokerClientError extends Error {
@@ -79,16 +98,8 @@ function createSnapshotStore<T>(initial: T): SnapshotStore<T> {
 }
 
 const messages = {
-  en: {
-    panel: "Harness Anything",
-    title: "Harness Anything in DeepSeek Harness",
-    open: "Open Harness panel",
-  },
-  zh: {
-    panel: "Harness Anything",
-    title: "在 DeepSeek Harness 中使用 Harness Anything",
-    open: "打开 Harness 面板",
-  },
+  en: { panel: "Harness Anything", language: "en" },
+  zh: { panel: "Harness Anything", language: "zh" },
 };
 
 function isBrokerResponse(value: unknown): value is BrokerResponse {
@@ -111,11 +122,8 @@ export async function openHarnessBrowser(ctx: ClientContext, fetcher: typeof fet
   const value: unknown = await response.json();
   if (!isBrokerResponse(value)) throw new Error("Harness Anything broker returned an invalid response.");
   if (!value.ok) throw new BrokerClientError(value);
-  // Sidebar-right is session-scoped. Returning from this plugin's global main
-  // panel needs one browser turn for the session seat to mount before opening.
   ctx.layout.selectPanel(null);
-  await waitForSessionMount();
-  ctx.sidebarRight.openTab("browser", { params: { url: value.url } });
+  await openTabWhenSessionMounts(ctx, value.url);
   return value;
 }
 
@@ -194,62 +202,6 @@ function HarnessIcon({ size }: PropsRuntime<"sidebar.panellist"> & SidebarPanelI
   );
 }
 
-function Tutorial({
-  ctx,
-  t,
-  reportFailure,
-}: {
-  readonly ctx: ClientContext;
-  readonly t: (key: string) => string;
-  readonly reportFailure: (error: unknown) => void;
-}): ReactNode {
-  return createElement(
-    "article",
-    { style: { maxWidth: 720, padding: 32, lineHeight: 1.6 } },
-    createElement("h1", null, t("title")),
-    createElement("p", null, "macOS desktop only / 仅支持 macOS 桌面端。"),
-    createElement(
-      "ol",
-      null,
-      createElement(
-        "li",
-        null,
-        "Install the ha CLI and run `ha init` in your repository. / 安装 ha CLI，并在仓库中运行 `ha init`。",
-      ),
-      createElement(
-        "li",
-        null,
-        "Switch the DSH session to full permissions so bash can run ha. / 将 DSH 会话权限切到完全权限，bash 才能运行 ha。",
-      ),
-      createElement(
-        "li",
-        null,
-        "Choose the ha-ceo preset and start work with the harness-ceo skill. / 选择 ha-ceo preset，用 harness-ceo skill 发起工作。",
-      ),
-      createElement(
-        "li",
-        null,
-        "Use the Harness panel below to inspect the board. / 使用下面的按钮打开 Harness 面板看板。",
-      ),
-    ),
-    createElement(
-      "button",
-      {
-        type: "button",
-        onClick: () => {
-          void openHarnessBrowser(ctx).catch(reportFailure);
-        },
-      },
-      t("open"),
-    ),
-    createElement(
-      "p",
-      null,
-      "一期限制：实时流、终端和原生文件在 DSH 插件内嵌形态中不可用，这是内嵌形态本身的限制，不是 Harness 的限制。需要完整功能时，请在终端运行 `ha gui` 打开 Harness 原生桌面 GUI；它与面板看到的是同一份台账，可以同时开着。 / First-release limitation: live streams, terminals, and native files are unavailable in the DSH plugin's embedded form. This is a limitation of the embedded form, not of Harness. For the complete experience, run `ha gui` in a terminal to open the native Harness desktop GUI. It shows the same ledger as the panel, so both can stay open together.",
-    ),
-  );
-}
-
 export const inject = ["slots", "locale", "sidebarRight", "layout"];
 
 export function apply(ctx: ClientContext): void {
@@ -271,7 +223,12 @@ export function apply(ctx: ClientContext): void {
   );
   ctx.slots.inject("main", () =>
     ctx.slots.register({ name: "main", key: PANEL_ID, locale: LOCALE_NAMESPACE }, (() =>
-      Tutorial({ ctx, t, reportFailure })) as (props: never) => ReactNode),
+      createElement(Tutorial, {
+        copy: t("language") === "zh" ? tutorialCopy.zh : tutorialCopy.en,
+        onOpen: () => {
+          void openHarnessBrowser(ctx).catch(reportFailure);
+        },
+      })) as (props: never) => ReactNode),
   );
   ctx.slots.inject("sidebar.panellist", () =>
     ctx.slots.register(
