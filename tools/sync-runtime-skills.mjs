@@ -28,13 +28,16 @@ export function syncRuntimeSkills(options = {}) {
   }
   const targets = [...new Set(targetDirs.map((dir) => path.resolve(repoRoot, dir)))];
   // Check every collision before changing any target, including broken symlinks.
-  for (const targetDir of targets) {
-    for (const skillName of skillNames) {
-      assertSkillTarget(path.join(targetDir, skillName), path.join(skillsRoot, skillName));
+  if (!options.missingOnly) {
+    for (const targetDir of targets) {
+      for (const skillName of skillNames) {
+        assertSkillTarget(path.join(targetDir, skillName), path.join(skillsRoot, skillName));
+      }
     }
   }
   const linked = [];
   const pruned = [];
+  const preserved = [];
 
   for (const targetDir of targets) {
     mkdirSync(targetDir, { recursive: true });
@@ -42,10 +45,15 @@ export function syncRuntimeSkills(options = {}) {
     for (const skillName of skillNames) {
       const source = path.join(skillsRoot, skillName);
       const link = path.join(targetDir, skillName);
+      if (options.missingOnly && lstatSync(link, { throwIfNoEntry: false })) {
+        preserved.push(path.relative(repoRoot, link).split(path.sep).join("/"));
+        continue;
+      }
       ensureSkillSymlink(link, source, targetDir);
       linked.push(path.relative(repoRoot, link).split(path.sep).join("/"));
     }
 
+    if (options.missingOnly) continue;
     for (const entry of readdirSync(targetDir, { withFileTypes: true })) {
       if (!entry.isSymbolicLink() || skillNames.includes(entry.name)) continue;
       const link = path.join(targetDir, entry.name);
@@ -57,7 +65,7 @@ export function syncRuntimeSkills(options = {}) {
     }
   }
 
-  return { skillNames, targetDirs, linked, pruned };
+  return { skillNames, targetDirs, linked, pruned, preserved };
 }
 
 function assertSkillTarget(link, source) {
@@ -84,15 +92,16 @@ if (process.argv[1] && path.resolve(process.argv[1]) === scriptPath) {
   const { values } = parseArgs({
     options: {
       "target-dir": { type: "string", multiple: true },
+      "missing-only": { type: "boolean" },
       help: { type: "boolean" },
     },
   });
   if (values.help) {
     console.log(
-      "用法：node tools/sync-runtime-skills.mjs [--target-dir <Agent技能目录>]...\n不传目录时仅同步本仓库的项目级技能；显式目录可用于用户级安装。现有不同内容或不同来源链接不会被覆盖。",
+      "用法：node tools/sync-runtime-skills.mjs [--target-dir <Agent技能目录>]... [--missing-only]\n不传目录时仅同步本仓库的项目级技能；显式目录可用于用户级安装。默认遇到不同来源内容先报冲突；--missing-only 仅补缺失技能，保留全部已有内容且不清理旧链接。",
     );
   } else {
-    const result = syncRuntimeSkills({ targetDirs: values["target-dir"] });
+    const result = syncRuntimeSkills({ targetDirs: values["target-dir"], missingOnly: values["missing-only"] });
     console.log(JSON.stringify(result, null, 2));
   }
 }

@@ -1,5 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import {
   existsSync,
   lstatSync,
@@ -34,6 +35,7 @@ test("repository skills are discoverable with agent metadata", () => {
     "harness-ceo",
     "harness-contributing",
     "harness-download",
+    "harness-dsh-install",
     "harness-gui",
     "harness-install",
     "harness-migration",
@@ -49,6 +51,7 @@ test("repository skills are discoverable with agent metadata", () => {
     "create-skill",
     "harness-ceo",
     "harness-download",
+    "harness-dsh-install",
     "harness-gui",
     "harness-install",
     "harness-migration",
@@ -197,3 +200,71 @@ for (const conflict of ["directory", "foreign-link", "broken-link"]) {
     }
   });
 }
+
+test("missing-only installation fills gaps while preserving customized and retired skills", () => {
+  const tempRoot = mkdtempSync(path.join(os.tmpdir(), "ha-missing-skills-"));
+  try {
+    const sourceRoot = path.join(tempRoot, "source");
+    const targetDir = path.join(tempRoot, "user", "skills");
+    mkdirSync(targetDir, { recursive: true });
+    for (const name of ["custom", "foreign", "broken", "missing"]) {
+      mkdirSync(path.join(sourceRoot, "skills", name), { recursive: true });
+      writeFileSync(path.join(sourceRoot, "skills", name, "SKILL.md"), "upstream");
+    }
+    mkdirSync(path.join(targetDir, "custom"));
+    writeFileSync(path.join(targetDir, "custom", "SKILL.md"), "user customization");
+    mkdirSync(path.join(tempRoot, "foreign"));
+    symlinkSync(path.join(tempRoot, "foreign"), path.join(targetDir, "foreign"), "dir");
+    symlinkSync(path.join(tempRoot, "absent"), path.join(targetDir, "broken"), "dir");
+    symlinkSync(path.join(sourceRoot, "skills", "retired"), path.join(targetDir, "retired"), "dir");
+
+    const result = syncRuntimeSkills({ repoRoot: sourceRoot, targetDirs: [targetDir], missingOnly: true });
+    assert.equal(readFileSync(path.join(targetDir, "custom", "SKILL.md"), "utf8"), "user customization");
+    assert.equal(readlinkSync(path.join(targetDir, "foreign")), path.join(tempRoot, "foreign"));
+    assert.equal(readlinkSync(path.join(targetDir, "broken")), path.join(tempRoot, "absent"));
+    assert.equal(lstatSync(path.join(targetDir, "retired")).isSymbolicLink(), true);
+    assert.equal(readFileSync(path.join(targetDir, "missing", "SKILL.md"), "utf8"), "upstream");
+    assert.equal(result.linked.length, 1);
+    assert.equal(result.preserved.length, 3);
+    assert.deepEqual(result.pruned, []);
+    const repeated = syncRuntimeSkills({ repoRoot: sourceRoot, targetDirs: [targetDir], missingOnly: true });
+    assert.deepEqual(repeated.linked, []);
+    assert.equal(repeated.preserved.length, 4);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("missing-only CLI installs the complete discovered set into an empty HOME and is repeatable", () => {
+  const tempRoot = mkdtempSync(path.join(os.tmpdir(), "ha-dsh-skills-home-"));
+  try {
+    const targetDir = path.join(tempRoot, ".dsh", "skills");
+    const args = [path.join(repoRoot, "tools", "sync-runtime-skills.mjs"), "--missing-only", "--target-dir", targetDir];
+    const run = () =>
+      JSON.parse(
+        execFileSync(process.execPath, args, {
+          cwd: tempRoot,
+          env: { ...process.env, HOME: tempRoot, USERPROFILE: tempRoot, CODEX_HOME: path.join(tempRoot, ".codex") },
+          encoding: "utf8",
+        }),
+      );
+    const installed = run();
+    assert.equal(installed.linked.length, installed.skillNames.length);
+    for (const name of [
+      "harness-ceo",
+      "harness-install",
+      "create-skill",
+      "create-agent",
+      "harness-gui",
+      "harness-dsh-install",
+    ]) {
+      assert.equal(
+        readFileSync(path.join(targetDir, name, "SKILL.md"), "utf8"),
+        readFileSync(path.join(skillsRoot, name, "SKILL.md"), "utf8"),
+      );
+    }
+    assert.deepEqual(run().linked, []);
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
