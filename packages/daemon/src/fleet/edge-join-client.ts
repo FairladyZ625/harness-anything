@@ -109,9 +109,7 @@ export async function joinFleetEdge(
         spkiSha256: link.spkiSha256,
       }),
     ),
-    loginProbe = Promise.resolve().then(() =>
-      isBuiltinAuthority(authority) ? undefined : (ports.probeLogin ?? probeLoginAddress)(authority),
-    ),
+    loginProbe = Promise.resolve().then(() => (ports.probeLogin ?? probeLoginAddress)(authority)),
     [centerResult, loginResult] = await Promise.allSettled([centerProbe, loginProbe]),
     failedAddresses = [
       ...(centerResult.status === "rejected" ? [{ address: "Center service", error: centerResult.reason }] : []),
@@ -139,12 +137,11 @@ export async function joinFleetEdge(
   const session = await ports.session(loginTarget);
   // An invitation CA is authoritative when present; public-trust invitations leave CA rotation unpinned.
   if (
-    !isBuiltinAuthority(authority) &&
-    (!session ||
-      session.authority.url !== authority.url ||
-      session.authority.realm !== authority.realm ||
-      session.authority.servername !== authority.servername ||
-      (link.loginCertificate !== undefined && session.authority.certificate !== link.loginCertificate))
+    !session ||
+    session.authority.url !== authority.url ||
+    session.authority.realm !== authority.realm ||
+    session.authority.servername !== authority.servername ||
+    (link.loginCertificate !== undefined && session.authority.certificate !== link.loginCertificate)
   )
     return {
       ...(await ports.beginLogin(authority, loginTarget)),
@@ -158,7 +155,7 @@ export async function joinFleetEdge(
       servername: centerServername,
       joinId: link.joinId,
       inviteToken: link.token,
-      ...(session?.accessToken ? { accessToken: session.accessToken } : {}),
+      accessToken: session.accessToken,
       spkiSha256: link.spkiSha256,
     }),
     certificate = new X509Certificate(Buffer.from(admitted.certificate, "base64")).toString(),
@@ -315,10 +312,6 @@ export function deriveEdgeJoinQuotaBytes(rootDir: string, availableBytes: (rootD
 function availableFilesystemBytes(rootDir: string): number {
   const stats = statfsSync(rootDir);
   return stats.bavail * stats.bsize;
-}
-
-function isBuiltinAuthority(authority: OidcLoginAuthority): boolean {
-  return authority.url === "builtin://local" && authority.realm === "local";
 }
 
 async function probeLoginAddress(authority: OidcLoginAuthority): Promise<void> {

@@ -31,7 +31,7 @@ export function restoreEdgeJoinStore(
 export async function admitEdgeJoin(input: {
   readonly joinId: string;
   readonly inviteToken: string;
-  readonly accessToken?: string;
+  readonly accessToken: string;
   readonly oidc: IdentitySessionPort;
   readonly edgeJoins: ReturnType<typeof createEdgeJoinStore>;
   readonly validateSnapshot: (record: EdgeJoinRecord) => Promise<void>;
@@ -43,14 +43,11 @@ export async function admitEdgeJoin(input: {
   readonly credential: string;
   readonly repoIds: readonly string[];
 }> {
-  input.oidc.requireCollaboration();
   const initial = input.edgeJoins.assertConsumable(input.joinId, input.inviteToken),
-    nodeId = randomUUID(),
-    accessToken = input.accessToken;
-  if (!accessToken) throw coded("authentication_required", "Sign in on this device before using Fleet.");
+    nodeId = randomUUID();
   const auth = await input.oidc.bind({
     transportKind: "fleet-tls",
-    humanAccessToken: accessToken,
+    humanAccessToken: input.accessToken,
     fleetExpectedAzps: [{ clientId: initial.loginClientId, personId: initial.personId }],
     nodePrincipal: { nodeId, personId: initial.personId },
   });
@@ -66,12 +63,6 @@ export async function admitEdgeJoin(input: {
     input.edgeJoins.assertConsumable(input.joinId, input.inviteToken);
     const credential = await input.registerNode(record, nodeId);
     input.edgeJoins.consume(input.joinId, nodeId);
-    return {
-      joinId: record.joinId,
-      nodeId,
-      personId: record.personId,
-      credential,
-      repoIds: record.repoIds,
-    };
+    return { joinId: record.joinId, nodeId, personId: record.personId, credential, repoIds: record.repoIds };
   });
 }

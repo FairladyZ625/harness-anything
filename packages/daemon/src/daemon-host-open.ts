@@ -1125,7 +1125,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
               accessAdmin.admitEdgeJoin({
                 joinId: input.joinId,
                 inviteToken: input.inviteToken,
-                ...(input.accessToken === undefined ? {} : { accessToken: input.accessToken }),
+                accessToken: input.accessToken,
               }),
           },
         }),

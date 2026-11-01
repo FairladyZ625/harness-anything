@@ -445,7 +445,7 @@ export function createDaemonHostRuntimeApi(
                 context.accessAdmin.admitEdgeJoin({
                   joinId: input.joinId,
                   inviteToken: input.inviteToken,
-                  ...(input.accessToken === undefined ? {} : { accessToken: input.accessToken }),
+                  accessToken: input.accessToken,
                 }),
             },
           });

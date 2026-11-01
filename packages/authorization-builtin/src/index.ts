@@ -3,7 +3,6 @@ export {
   type BuiltinPolicyAdapterConfig,
   type BuiltinPermissionDecision,
   type BuiltinPolicyGroup,
-  type BuiltinGrant,
   type BuiltinNode,
 } from "./builtin-policy-adapter.ts";
 export { BuiltinIdentitySession } from "./builtin-session-service.ts";

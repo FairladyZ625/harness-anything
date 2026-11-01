@@ -35,7 +35,6 @@ export interface BuiltinPolicyAdapterConfig {
   readonly mode?: "builtin";
 }
 export type BuiltinPolicyGroup = AuthorizationPolicyGroup;
-export type BuiltinGrant = AuthorizationGrant;
 export type BuiltinNode = AuthorizationNode;
 export type BuiltinPermissionDecision = AuthorizationPermissionDecision;
 
@@ -99,11 +98,11 @@ export class BuiltinPolicyAdapter
     void groupId;
     throw identityPluginRequired();
   }
-  async readGrants(token: string): Promise<readonly BuiltinGrant[]> {
+  async readGrants(token: string): Promise<readonly AuthorizationGrant[]> {
     this.#assertCenter(token);
     throw identityPluginRequired();
   }
-  async writeGrant(token: string, grant: BuiltinGrant, scopes: readonly string[]): Promise<void> {
+  async writeGrant(token: string, grant: AuthorizationGrant, scopes: readonly string[]): Promise<void> {
     this.#assertCenter(token);
     void grant;
     void scopes;
@@ -112,7 +111,7 @@ export class BuiltinPolicyAdapter
   async claimRepositoryOwner(token: string, repoId: string, personId: string): Promise<void> {
     this.#assertCenter(token);
     const state = readState(this.#root),
-      user = state.users.find((item) => item.personId === personId);
+      user = state.owner?.personId === personId ? state.owner : undefined;
     if (!user)
       throw Object.assign(new Error(`No built-in account carries Harness person ${personId}.`), {
         code: "access_person_unknown",
@@ -125,10 +124,6 @@ export class BuiltinPolicyAdapter
     await this.#write(token, (next) => ({
       ...next,
       repositoryOwners: { ...next.repositoryOwners, [repoId]: personId },
-      grants: [
-        ...next.grants.filter((grant) => !(grant.groupId === "admin" && grant.resource === repoId)),
-        { groupId: "admin", resource: repoId, userIds: [user.userId] },
-      ],
     }));
   }
   async materializeGrants(token: string, groupIds?: ReadonlySet<string>): Promise<void> {
@@ -144,11 +139,12 @@ export class BuiltinPolicyAdapter
   }
   async findUserId(token: string, personId: string): Promise<string | undefined> {
     this.#assertCenter(token);
-    return readState(this.#root).users.find((user) => user.personId === personId)?.userId;
+    const owner = readState(this.#root).owner;
+    return owner?.personId === personId ? owner.userId : undefined;
   }
   async readPersonTeams(token: string, personId: string): Promise<readonly string[]> {
     this.#assertCenter(token);
-    this.#user(personId);
+    void personId;
     throw identityPluginRequired();
   }
   async readTeam(token: string, teamId: string): Promise<{ readonly id: string; readonly name: string }> {
@@ -298,26 +294,20 @@ export class BuiltinPolicyAdapter
     }));
   }
   userByUsername(username: string): BuiltinUser | undefined {
-    return readState(this.#root).users.find((user) => user.username === username);
+    const owner = readState(this.#root).owner;
+    return owner?.username === username ? owner : undefined;
   }
   verifyPassword(user: BuiltinUser, password: string): boolean {
     return verifySecret(password, user.passwordSalt, user.passwordHash);
   }
   addUser(
-    input: Omit<BuiltinUser, "userId" | "passwordSalt" | "passwordHash" | "roles"> & {
-      readonly password: string;
-      readonly roles?: readonly string[];
-    },
+    input: Omit<BuiltinUser, "userId" | "passwordSalt" | "passwordHash"> & { readonly password: string },
   ): BuiltinUser {
-    if (readState(this.#root).users.length > 0) throw identityPluginRequired();
-    const existing = readState(this.#root).users.find(
-      (user) => user.username === input.username || user.personId === input.personId,
-    );
-    if (existing) {
-      throw Object.assign(new Error("A built-in account already uses this username or person ID."), {
-        code: existing.username === input.username ? "account_username_taken" : "account_person_taken",
+    const state = readState(this.#root);
+    if (state.owner)
+      throw Object.assign(new Error("The built-in owner account has already been created."), {
+        code: "bootstrap_admin_closed",
       });
-    }
     const hashed = hashSecret(input.password),
       user: BuiltinUser = {
         userId: randomUUID(),
@@ -327,14 +317,12 @@ export class BuiltinPolicyAdapter
         displayName: input.displayName,
         passwordSalt: hashed.salt,
         passwordHash: hashed.hash,
-        roles: [...(input.roles ?? [])],
       };
-    const state = readState(this.#root);
-    writeState(this.#root, { ...state, users: [...state.users, user] });
+    writeState(this.#root, { ...state, owner: user });
     return user;
   }
-  users(): readonly BuiltinUser[] {
-    return readState(this.#root).users;
+  owner(): BuiltinUser | undefined {
+    return readState(this.#root).owner;
   }
   #decision(
     personId: string | undefined,
@@ -348,23 +336,19 @@ export class BuiltinPolicyAdapter
     if (!this.#knownScopes.has(action)) return denied("unknown_scope");
     if (!personId) return denied(this.deniedReasonCode);
     const state = readState(this.#root),
-      user = state.users.find((item) => item.personId === personId);
+      user = state.owner?.personId === personId ? state.owner : undefined;
     if (!user) return denied(this.deniedReasonCode);
     const groups = deriveBasePolicyGroups().map((group) => ({ ...group, displayName: group.id })),
       covered = coveringResources(resourceValue, ancestors);
-    for (const grant of state.grants)
-      if (
-        grant.userIds.includes(user.userId) &&
-        covered.includes(grant.resource) &&
-        effectivePolicyGroupScopes(groups, grant.groupId).includes(action)
-      )
-        return Object.freeze({ outcome: "allowed", reasonCode: "builtin_allowed", resource, scope: action });
+    const repositoryResources = Object.entries(state.repositoryOwners)
+      .filter(([, ownerPersonId]) => ownerPersonId === personId)
+      .map(([repoId]) => encodeAuthorizationResource({ kind: "repository", repoId }));
+    if (
+      repositoryResources.some((repository) => covered.includes(repository)) &&
+      effectivePolicyGroupScopes(groups, "admin").includes(action)
+    )
+      return Object.freeze({ outcome: "allowed", reasonCode: "builtin_allowed", resource, scope: action });
     return denied(this.deniedReasonCode);
-  }
-  #user(personId: string): BuiltinUser {
-    const user = readState(this.#root).users.find((item) => item.personId === personId);
-    if (!user) throw new Error(`Built-in account ${personId} is missing.`);
-    return user;
   }
   #isCenter(token: string): boolean {
     return readState(this.#root).centerTokenHashes.includes(hashToken(token));
