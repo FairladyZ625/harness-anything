@@ -565,6 +565,47 @@ test("Settings update records ordered worktree setup steps and clears them with 
   assert.doesNotMatch(cleared.result.bundle.blobs[0].body, /worktree:/u);
 });
 
+test("Settings update records repository Agent skills and clears them with none", () => {
+  const draft = compile({ runtimeAgentSkills: ["skills/test-isolation", "skills/backend-boundary-card"] });
+  if (draft.kind !== "settings" || draft.result.kind !== "event") throw new Error("missing settings event");
+  assert.deepEqual(draft.result.bundle.event.payload.settings.runtime.agentSkills, [
+    "skills/test-isolation",
+    "skills/backend-boundary-card",
+  ]);
+  assert.match(
+    draft.result.bundle.blobs[0].body,
+    /^  runtime:\n    agentSkills:\n      - skills\/test-isolation\n      - skills\/backend-boundary-card$/mu,
+  );
+  assert.deepEqual(readSettingsFacet(draft.result.bundle.blobs[0].body).runtime.agentSkills, [
+    "skills/test-isolation",
+    "skills/backend-boundary-card",
+  ]);
+  const cleared = compile(
+    { runtimeAgentSkills: ["none"] },
+    {
+      currentEntity: draft.result.bundle.event.payload.settings,
+      currentDocumentBody: draft.result.bundle.blobs[0].body,
+    },
+  );
+  if (cleared.kind !== "settings" || cleared.result.kind !== "event") throw new Error("missing cleared settings event");
+  assert.deepEqual(cleared.result.bundle.event.payload.settings.runtime.agentSkills, []);
+  assert.doesNotMatch(cleared.result.bundle.blobs[0].body, /agentSkills:/u);
+});
+
+test("Settings update rejects invalid or duplicate repository Agent skills", () => {
+  for (const runtimeAgentSkills of [
+    ["../outside"],
+    ["/absolute/skill"],
+    ["skills/test-isolation", "skills/test-isolation"],
+    "skills/test-isolation",
+  ])
+    assert.throws(
+      () => compile({ runtimeAgentSkills }),
+      (error: unknown) => error instanceof SettingsActionError && error.code === "invalid_command",
+      JSON.stringify(runtimeAgentSkills),
+    );
+});
+
 test("Settings update rejects invalid or duplicate worktree setup steps", () => {
   for (const worktreeSetup of [["npm"], ["run:"], ["node-modules", "node-modules"], "node-modules"])
     assert.throws(

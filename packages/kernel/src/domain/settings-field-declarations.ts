@@ -44,6 +44,10 @@ export const SETTINGS_FIELD_GROUPS = Object.freeze([
     title: "Dispatch roles",
   },
   {
+    id: "agent-skills",
+    title: "Agent skills",
+  },
+  {
     id: "worker-permissions",
     title: "Worker permissions",
   },
@@ -655,6 +659,27 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
       kind: "repeated",
       regex: settingValuePattern,
       format: "runtime instance ids, or none to block all machine instances",
+    },
+    noneMeansEmpty: true,
+    yamlStyle: "block-list",
+  }),
+  defineSettingsField({
+    path: ["runtime", "agentSkills"],
+    ownership: repository,
+    valueKind: "string-array",
+    defaultValue: Object.freeze([] as readonly string[]),
+    pattern: settingValuePattern,
+    uniqueItems: true,
+    description: "Skill directories this repository adds to every Agent dispatch it serves.",
+    effect:
+      "Repository skills mount beside the Agent's own; a declared id wins; a missing directory still fails dispatch.",
+    group: "agent-skills",
+    action: { field: "runtimeAgentSkills", type: "string-array" },
+    cli: {
+      name: "--runtime-agent-skill",
+      kind: "repeated",
+      regex: settingValuePattern,
+      format: "skill directories containing SKILL.md, relative to the repository",
     },
     noneMeansEmpty: true,
     yamlStyle: "block-list",

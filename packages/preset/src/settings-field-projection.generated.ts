@@ -4,6 +4,7 @@ export const settingsFieldProtocolProjection = {
   groups: [
     { id: "new-task-defaults", title: "New task defaults" },
     { id: "dispatch-roles", title: "Dispatch roles" },
+    { id: "agent-skills", title: "Agent skills" },
     { id: "worker-permissions", title: "Worker permissions" },
     { id: "review-closeout", title: "Review and closeout" },
     { id: "decisions", title: "Decision points" },
@@ -226,6 +227,12 @@ export const settingsFieldProtocolProjection = {
     {
       field: "runtimeAllowedInstances",
       description: "Runtime instance ids this repository may use from the machine-level instance catalog.",
+      type: "string-array",
+      required: false,
+    },
+    {
+      field: "runtimeAgentSkills",
+      description: "Skill directories this repository adds to every Agent dispatch it serves.",
       type: "string-array",
       required: false,
     },
@@ -641,6 +648,17 @@ export const settingsFieldProtocolProjection = {
       kind: "repeated",
       regex: "^[A-Za-z0-9][A-Za-z0-9/_.@-]*$",
       format: "runtime instance ids, or none to block all machine instances",
+    },
+    {
+      field: "runtimeAgentSkills",
+      description: "Skill directories this repository adds to every Agent dispatch it serves.",
+      group: "agent-skills",
+      effect:
+        "Repository skills mount beside the Agent's own; a declared id wins; a missing directory still fails dispatch.",
+      name: "--runtime-agent-skill",
+      kind: "repeated",
+      regex: "^[A-Za-z0-9][A-Za-z0-9/_.@-]*$",
+      format: "skill directories containing SKILL.md, relative to the repository",
     },
     {
       field: "runtimeDispatchUsageLimit",

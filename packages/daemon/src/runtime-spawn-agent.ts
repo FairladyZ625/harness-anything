@@ -1,7 +1,8 @@
 import { presetDocumentBody } from "@harness-anything/preset/internal/preset-resolver";
 import { presetRuntimeDefaults, presetUserRoot } from "@harness-anything/preset/internal/preset-system";
-import { resolveAgentSkills } from "./agent-skills.ts";
-import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
+import type { AgentSkillDeclarationV1 } from "@harness-anything/kernel";
+import { mergeRepositorySkills, resolveAgentSkills } from "./agent-skills.ts";
+import { runtimeErrorCode, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import type { RuntimeBinding, RuntimeSpawnerInput } from "./runtime-spawn-types.ts";
 import { workerLedgerPath } from "./worktree-setup.ts";
 
@@ -35,9 +36,7 @@ export function resolveDispatchAgent(
             throw runtimeSpawnError("agent_not_found", `Agent ${agentId} is unavailable.`);
           })())
         : null),
-    resolvedSkills = (agent ? resolveAgentSkills({ rootDir: input.rootDir, skills: agent.skills }) : []).map(
-      (skill) => ({ ...skill, skillFile: workerLedgerPath(input.rootDir, cwd, skill.skillFile) }),
-    ),
+    resolvedSkills = agent ? resolveDispatchSkills(input, cwd, agent) : [],
     preset = agent?.preset
       ? (() => {
           if (!input.readSettings)
@@ -57,4 +56,32 @@ export function resolveDispatchAgent(
         })()
       : undefined;
   return { squad, delegatedBy, agent, resolvedSkills, preset };
+}
+
+/**
+ * A missing skill is a property of one selected Agent, not of the dispatch machinery: name the
+ * Agent and the repair command so an operator holding an old installed declaration can act
+ * without reading the daemon source. The code and the underlying path stay unchanged.
+ */
+function resolveDispatchSkills(
+  input: RuntimeSpawnerInput,
+  cwd: string,
+  agent: { readonly id: string; readonly skills?: readonly AgentSkillDeclarationV1[] },
+) {
+  try {
+    return resolveAgentSkills({
+      rootDir: input.rootDir,
+      skills: mergeRepositorySkills(agent.skills, input.readSettings?.().runtime.agentSkills),
+    }).map((skill) => ({ ...skill, skillFile: workerLedgerPath(input.rootDir, cwd, skill.skillFile) }));
+  } catch (error) {
+    const code = runtimeErrorCode(error);
+    if (code !== "agent_skill_not_found" && code !== "agent_skill_manifest_missing") throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    throw runtimeSpawnError(
+      code,
+      `Agent ${agent.id} cannot dispatch because a declared skill is unavailable in this repository: ${message} ` +
+        `Reinstall ${agent.id} with a declaration that resolves here (ha agent install --source <declaration>), ` +
+        "or add the missing directory.",
+    );
+  }
 }

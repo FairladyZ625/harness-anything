@@ -468,6 +468,138 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
   }
 });
 
+test("a portable Agent dispatches in a repository whose skills live in repository Settings", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-dispatch-repository-skills-"));
+  let prompt: string | null = null;
+  let launches = 0;
+  let cell: Cell | undefined;
+  try {
+    initRepo(root);
+    mkdirSync(path.join(root, "harness", "skills", "repo-local"), { recursive: true });
+    writeFileSync(path.join(root, "harness", "skills", "repo-local", "SKILL.md"), "# Repository skill\n");
+    assert.equal(
+      existsSync(path.join(root, "harness", "skills", "test-isolation")),
+      false,
+      "the fixture repository must not own the author's private skill directories",
+    );
+    cell = await openRepoCell({
+      repoId: workspaceId("dispatch-repository-skills"),
+      rootDir: canonicalRoot(root),
+      ownerId: "dispatch-repository-skills-test",
+      runtimeDaemonRoute: {
+        userRoot: path.join(root, ".daemon-user"),
+        daemonId: "dispatch-repository-skills-test",
+        endpoint: path.join(root, ".daemon-user", "daemon.sock"),
+      },
+      runtimeInstances: () => [instance()],
+      prepareRuntimeLaunch: async (_instanceId, request) => {
+        prompt = request.prompt;
+        return {
+          definition,
+          installation,
+          executablePath: installation.executablePath,
+          args: ["exec", "--json", "-"],
+          env: {},
+          cwd: request.cwd,
+          prompt: request.prompt,
+        };
+      },
+      runtimeLaunch: () => {
+        launches += 1;
+        return {
+          pid: 4242,
+          onOutput: () => undefined,
+          onErrorOutput: () => undefined,
+          onExit: () => undefined,
+          terminate: () => undefined,
+        };
+      },
+    });
+    // The identity is portable: it carries no repository-private skill, so the same declaration
+    // installs and dispatches in a repository that has none of the author's skill directories.
+    const installed = await cell.run(
+      {
+        kind: "agent-install",
+        declaration: {
+          schema: "agent-declaration/v1",
+          id: "portable-worker",
+          name: "Portable Worker",
+          instructions: "Do the work.",
+          runtimes: [{ type: "codex" }],
+        },
+      },
+      binding,
+    );
+    assert.equal(installed.outcome, "applied", JSON.stringify(installed));
+    await createTask(cell, root, { taskId: "task_repo_skill", title: "Repository skill dispatch" });
+    const maintainer = withPolicyGroup({ actor, source: "local" as const }, "maintainer"),
+      settings = (await cell.read("repo.settings.read")) as { revision: number },
+      configured = await cell.run(
+        {
+          kind: "settings-update",
+          runtimeAgentSkills: ["skills/repo-local"],
+          expectedVersion: settings.revision,
+        },
+        maintainer,
+      );
+    assert.equal(configured.outcome, "applied", JSON.stringify(configured));
+    await waitForFixturePublication(cell, configured.opId, maintainer);
+    const spawned = await cell.spawnRuntime(
+      {
+        runtimeInstanceId: definition.instanceId,
+        agentId: "portable-worker",
+        cwd: { scope: "repo-root" },
+        taskId: "task_repo_skill",
+        dispatchKey: "dispatch-repository-skill",
+      },
+      binding,
+    );
+    assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
+    assert.equal(launches, 1);
+    assert.match(prompt!, /# Agent Identity: Portable Worker/u);
+    assert.match(prompt!, /# Required Skills/u);
+    assert.ok(
+      prompt!.includes(`repo-local: ${path.join(root, "harness", "skills", "repo-local", "SKILL.md")}`),
+      `repository skill missing from the dispatch prompt:\n${prompt}`,
+    );
+
+    // A configured directory that does not resolve is still an error, never a silent skip.
+    await createTask(cell, root, { taskId: "task_missing_skill", title: "Missing repository skill" });
+    const reread = (await cell.read("repo.settings.read")) as { revision: number },
+      broken = await cell.run(
+        {
+          kind: "settings-update",
+          runtimeAgentSkills: ["skills/not-there"],
+          expectedVersion: reread.revision,
+        },
+        maintainer,
+      );
+    assert.equal(broken.outcome, "applied", JSON.stringify(broken));
+    await waitForFixturePublication(cell, broken.opId, maintainer);
+    await assert.rejects(
+      cell.spawnRuntime(
+        {
+          runtimeInstanceId: definition.instanceId,
+          agentId: "portable-worker",
+          cwd: { scope: "repo-root" },
+          taskId: "task_missing_skill",
+          dispatchKey: "dispatch-missing-repository-skill",
+        },
+        binding,
+      ),
+      (error: unknown) =>
+        (error as { code?: string; message?: string }).code === "agent_skill_not_found" &&
+        /skills\/not-there/u.test(String((error as Error).message)) &&
+        /Agent portable-worker cannot dispatch/u.test(String((error as Error).message)) &&
+        /ha agent install --source/u.test(String((error as Error).message)),
+    );
+    assert.equal(launches, 1, "a missing repository skill must fail before the launch boundary");
+  } finally {
+    await cell?.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("artifact task dispatch confines writes to its package despite bypass declarations and cwd overrides", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-dispatch-package-"));
   let cell: Cell | undefined;
