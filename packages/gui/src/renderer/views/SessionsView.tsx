@@ -5,6 +5,7 @@ import { isAvailableSquadRunSummary } from "@harness-anything/daemon/protocol";
 import { agentEntityClient, isAvailableSquadEntityRow } from "../agent-entity-client.ts";
 import { agentRuntimeClient, runtimeQueryKeys } from "../agent-runtime-client.ts";
 import { harnessClient } from "../api-client.ts";
+import { readAllTaskDispatches } from "../task-dispatch-client.ts";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import { workspaceTitleIndex } from "../model/workspace-readable.ts";
 import { useTasksQuery } from "../task-data.ts";
@@ -59,7 +60,6 @@ import {
   type SessionStatusFilter,
 } from "../sessions-model.ts";
 import { NO_WORKS, type WorkIndex } from "../model/work-collections.ts";
-
 /**
  * 会话页(设计稿 §2–§5;标准 §2.5 v2 与 Agent 页同构:左列表、右常驻详情,不用抽屉):顶层两大段——单会话(默认,按 Task 分组)与小队编排
  * (一次 `ha squad run` 一个编排单元)。分组、范围与检索都在 daemon 侧完成
@@ -277,7 +277,7 @@ export function SessionsView({
   const roundsQueries = useQueries({
     queries: expandedTasks.map((group) => ({
       queryKey: runtimeQueryKeys.dispatches(repoId, group.taskId),
-      queryFn: () => harnessClient.getTaskDispatches({ repoId, taskId: group.taskId }),
+      queryFn: () => readAllTaskDispatches({ repoId, taskId: group.taskId }),
       staleTime: 4_000,
     })),
   });
@@ -584,7 +584,7 @@ export function SessionsView({
   // 按选中会话补这一行——queryKey 与展开组共用,展开与否不产生第二次 RPC。
   const selectedDispatchRead = useQuery({
     queryKey: runtimeQueryKeys.dispatches(repoId, selectedTaskId ?? ""),
-    queryFn: () => harnessClient.getTaskDispatches({ repoId, taskId: selectedTaskId! }),
+    queryFn: () => readAllTaskDispatches({ repoId, taskId: selectedTaskId! }),
     enabled: selectedRow === null && selectedTaskId !== null,
     staleTime: 4_000,
   });

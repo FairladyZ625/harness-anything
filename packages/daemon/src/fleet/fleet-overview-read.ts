@@ -588,20 +588,27 @@ export async function readFleetOverviewFromHost(input: {
       });
     }
     const taskIds = [...new Set(leases.map((lease) => lease.taskId))];
-    const dispatches =
-      taskIds.length === 0
-        ? []
-        : (await input.cell.read("repo.task.dispatches", { taskIds, limit: 200 }, input.binding)).dispatches.map(
-            (row) => ({
-              dispatchId: row.dispatchId,
-              taskId: row.taskId,
-              runtimeSessionId: row.runtimeSessionId,
-              agentId: row.agentId ?? null,
-              agentName: row.agentName ?? null,
-              startedAt: row.startedAt,
-              status: row.status,
-            }),
-          );
+    const dispatches: FleetDispatchFact[] = [];
+    for (let offset = 0; offset < taskIds.length; offset += 500) {
+      // This intermediate DTO stays inside the daemon and is projected to shallow
+      // facts below. A transport page budget would reject prose that is never sent.
+      const read = await input.cell.read(
+        "repo.task.dispatches",
+        { taskIds: taskIds.slice(offset, offset + 500) },
+        input.binding,
+      );
+      dispatches.push(
+        ...read.dispatches.map((row) => ({
+          dispatchId: row.dispatchId,
+          taskId: row.taskId,
+          runtimeSessionId: row.runtimeSessionId,
+          agentId: row.agentId ?? null,
+          agentName: row.agentName ?? null,
+          startedAt: row.startedAt,
+          status: row.status,
+        })),
+      );
+    }
     return { leases, dispatches };
   });
   const events = await input.cell.observeTail(

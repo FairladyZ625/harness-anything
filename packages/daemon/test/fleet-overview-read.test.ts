@@ -15,6 +15,7 @@ import {
 } from "../src/fleet/fleet-overview-read.ts";
 import type { FleetReplicaStatus } from "../src/fleet/center-types.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
+import { assertFleetReadFits } from "../src/dispatch-read.ts";
 
 const CENTER = { daemonId: "default", startedAt: "2026-10-01T00:00:00.000Z", version: "0.0.0", commitSha: "bd2251a" };
 
@@ -336,12 +337,13 @@ test("the host assembly maps task snapshots, dispatch rows, the event tail and r
           },
         };
       }
-      return {
+      const result = {
         ok: true,
         status: "ready",
         dispatches: [
           {
             dispatchId: "dispatch_local",
+            reason: "r".repeat(100_000),
             taskId: "task_local",
             runtimeSessionId: "runtime_local",
             agentId: "agent_ceo",
@@ -351,6 +353,10 @@ test("the host assembly maps task snapshots, dispatch rows, the event tail and r
           },
         ],
       };
+      // A real explicit dispatch page rejects this prose. The overview projects
+      // only shallow facts, so its local intermediate read must not impose that cap.
+      if (payload?.limit !== undefined) assertFleetReadFits(result, "repo.task.dispatches");
+      return result;
     },
     observeTail: async () => ({
       schema: "daemon.observe-tail/v3",

@@ -564,7 +564,7 @@ it("tags agenda task rows only when their dispatch read has an advisory", async 
   expect(getTaskDispatches).toHaveBeenCalledExactlyOnceWith({
     repoId: "repo-advisory",
     taskIds: ["task_plain", "task_tagged"],
-    limit: 500,
+    limit: 16,
     advisorySurface: "agenda",
   });
 });

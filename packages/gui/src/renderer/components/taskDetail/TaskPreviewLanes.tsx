@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { CaretDown, CaretRight } from "@phosphor-icons/react";
 import type { TaskRow } from "../../model/types.ts";
 import type { TaskDispatchProjectionRow } from "../../../api/renderer-dto.ts";
-import { harnessClient } from "../../api-client.ts";
+import { readAllTaskDispatches } from "../../task-dispatch-client.ts";
 import { runtimeQueryKeys } from "../../agent-runtime-client.ts";
 import { dispatchRole } from "../../model/lineage-tree.ts";
 import { t } from "../../i18n/index.tsx";
@@ -62,7 +62,7 @@ export function TaskPreviewLanes({ task }: { readonly task: TaskRow }) {
   const dispatches = useQuery({
     // 与任务详情「执行与干预」同一读键:两个面板共享一次读与缓存失效扇出。
     queryKey: runtimeQueryKeys.dispatches(task.projectId, task.taskId),
-    queryFn: () => harnessClient.getTaskDispatches({ repoId: task.projectId, taskId: task.taskId }),
+    queryFn: () => readAllTaskDispatches({ repoId: task.projectId, taskId: task.taskId }),
     staleTime: 4_000,
   });
   const rows = dispatches.data?.dispatches ?? [];

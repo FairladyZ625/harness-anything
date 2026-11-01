@@ -567,7 +567,7 @@ export function useRelatedDispatches(
     groups: read.data?.groups ?? [],
     totals: read.data?.totals ?? { groups: 0, sessions: 0 },
     truncated,
-    hasMore: truncated && windowRows < RELATED_SESSIONS_WINDOW_MAX,
+    hasMore: truncated && dispatchRows.length >= windowRows && windowRows < RELATED_SESSIONS_WINDOW_MAX,
     loadMore: () => setWindowRows((current) => Math.min(current + RELATED_SESSIONS_PAGE, RELATED_SESSIONS_WINDOW_MAX)),
     loadingMore: read.isFetching && read.data !== undefined,
     pending: read.isPending,

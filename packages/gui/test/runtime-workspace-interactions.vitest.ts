@@ -1605,14 +1605,33 @@ async function mountView(
     // 成员分页读:按 agentId/squadId 精确过滤派工行(新→旧),组视图与全量计数同给。
     if ("agentId" in payload || "squadId" in payload) {
       const member = "agentId" in payload ? payload.agentId : payload.squadId;
+      const rows = [boundDispatch, siblingDispatch, foreignDispatch]
+        .filter((row) => ("agentId" in payload ? row.agentId === member : row.squadId === member))
+        .sort((left, right) => right.startedAt.localeCompare(left.startedAt));
+      const window =
+        memberTotals.sessions <= rows.length
+          ? rows
+          : Array.from(
+              { length: Math.min(payload.limit ?? 50, memberTotals.sessions) },
+              (_, index) =>
+                rows[index] ?? {
+                  ...rows[index % rows.length]!,
+                  dispatchId: `window-dispatch-${index}`,
+                  runtimeSessionId: `window-runtime-${index}`,
+                },
+            );
       return {
         ok: true,
         status: "ready",
         ...("agentId" in payload ? { agentId: member } : { squadId: member }),
-        dispatches: [boundDispatch, siblingDispatch, foreignDispatch]
-          .filter((row) => ("agentId" in payload ? row.agentId === member : row.squadId === member))
-          .sort((left, right) => right.startedAt.localeCompare(left.startedAt)),
-        groups: sessionGroupsResult.groups.filter((group) => group.kind === "task"),
+        dispatches: window,
+        groups: sessionGroupsResult.groups
+          .filter((group) => group.kind === "task")
+          .map((group) => ({
+            ...group,
+            sessionCount: window.length,
+            roundCount: window.length,
+          })),
         taskLabels: [{ taskId: "task-bound", title: "Bound task title" }],
         totals: memberTotals,
         truncated: memberTotals.sessions > 2,
