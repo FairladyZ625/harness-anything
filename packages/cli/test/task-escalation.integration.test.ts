@@ -75,7 +75,8 @@ test("a worker escalation blocks its task until the owner answers and resumes wi
     path: `${task.packagePath}/artifacts/rulings/${dispatchId}.md`,
   });
   assert.equal(firstDispatch?.reason, question);
-  assert.equal(run(root, env, ["task", "show", task.taskId]).status, "blocked");
+  const shownWhileBlocked = run(root, env, ["task", "show", task.taskId]);
+  assert.equal(JSON.parse(String(shownWhileBlocked.evidence)).task.status, "blocked");
 
   const agenda = run(root, env, ["agenda"]),
     agendaRows = (agenda.awaitingRuling ?? []) as Array<Record<string, unknown>>,
@@ -85,7 +86,8 @@ test("a worker escalation blocks its task until the owner answers and resumes wi
   assert.match(String(agenda.summary), /待你处理/u);
 
   run(root, env, ["task", "escalation", "resolve", task.taskId, "--dispatch-id", dispatchId, "--answer", answer]);
-  assert.equal(run(root, env, ["task", "show", task.taskId]).status, "planned");
+  const shownAfterResolution = run(root, env, ["task", "show", task.taskId]);
+  assert.equal(JSON.parse(String(shownAfterResolution.evidence)).task.status, "planned");
   run(root, env, ["task", "start", task.taskId, "--execution-id", task.executionId]);
   const next = runMaybe(root, env, [
     "agent",
