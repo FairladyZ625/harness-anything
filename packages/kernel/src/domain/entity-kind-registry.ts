@@ -551,10 +551,6 @@ const withBaseEntityActions = <T extends readonly EntityKindContract[]>(contract
     contracts.map((contract) => {
       const actionCatalog = contract.actionCatalog;
       if (actionCatalog === null || actionCatalog.reason !== undefined) return contract;
-      // `entity` is the declared base Action bearer for runtime Artifact kinds, not a stored
-      // instance kind: the shared pin state belongs to the concrete Artifact kind, so it must not
-      // grow a second `entity/pin` scope here.
-      if (contract.kind === "entity") return contract;
       const existing = new Set(actionCatalog.actions.map(({ id }) => id)),
         actions = [
           ...actionCatalog.actions,
@@ -768,25 +764,6 @@ const relationActionCatalog = Object.freeze({
 });
 
 /**
- * The base kind owns the generic Action family for the governed artifact instances
- * (dec_776B4D61DF711D9F31126D375D/CH1). The actual bytes and descriptors stay under the runtime
- * Artifact kind contract; this row exists so `entity-import`/`update`/`archive`/`delete` bind
- * `entity/<action>` policy scopes instead of a null catalog row (dec_2446.../CH4).
- */
-const entityKindSchema: EntityDocumentJsonSchema = {
-  $schema: "https://json-schema.org/draft/2020-12/schema",
-  $id: "entity/v1",
-  type: "object",
-  additionalProperties: true,
-  required: ["entityKind", "entityId"],
-  properties: {
-    entityKind: { type: "string", minLength: 1 },
-    entityId: { type: "string", minLength: 1 },
-    title: { type: "string" },
-  },
-};
-
-/**
  * Canonical-stream kinds (dec_2446BC2F8C68630F71AE3E3BD7/CH4). Each row owns one ledger stream that
  * had no registered kind, so its write roads could only declare a null catalogId. The rows carry no
  * entity store and no projection: they name the stream, its identity and the executable Actions the
@@ -850,7 +827,6 @@ const documentIdentity = requireEntityTypeContract("document").id,
   migrationIdentity = requireEntityTypeContract("migration").id,
   scriptExecutionIdentity = requireEntityTypeContract("script-execution").id,
   verticalDeclarationIdentity = requireEntityTypeContract("vertical-declaration").id,
-  entityIdentity = requireEntityTypeContract("entity").id,
   // The daemon executes these roads directly; the catalog entry names the stream and the ingress only.
   declaredStreamAction = (
     kind: string,
@@ -949,44 +925,7 @@ const documentActionCatalog = Object.freeze({
         "Retire one Artifact kind in the canonical vertical declaration.",
       ),
     ]),
-  }),
-  // One base kind owns the four generic artifact CRUD Actions. Each runtime Artifact kind compiles
-  // its own copy of the same Action ids (artifact-entity-actions.ts), so the Action is declared once
-  // here and its concrete target/Policy is projected from the runtime kind contract at execution.
-  entityActionCatalog = Object.freeze({
-    ref: "kernel/entity-event/v1",
-    actions: Object.freeze([
-      declaredStreamAction(
-        "entity",
-        entityIdentity,
-        "import",
-        "entity-import",
-        "Import one governed artifact instance through the canonical entity revision fence.",
-      ),
-      declaredStreamAction(
-        "entity",
-        entityIdentity,
-        "update",
-        "entity-update",
-        "Update mutable fields of one governed artifact instance.",
-      ),
-      declaredStreamAction(
-        "entity",
-        entityIdentity,
-        "archive",
-        "entity-archive",
-        "Archive one governed artifact instance without retiring its material.",
-      ),
-      declaredStreamAction(
-        "entity",
-        entityIdentity,
-        "delete",
-        "entity-delete",
-        "Delete one governed artifact instance and retire the files it owns.",
-      ),
-    ]),
   });
-
 // prettier-ignore
 export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActions([
   {
@@ -1332,17 +1271,6 @@ export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActio
     relations: { directions: [], edges: [] },
     canonicalProjection: null,
     actionCatalog: verticalDeclarationActionCatalog,
-    entityStore: null,
-    authoring: null,
-    sdkExposure: noSdkExposure,
-  },
-  {
-    kind: "entity",
-    ...entityTypeContractFields("entity"),
-    schema: entityKindSchema,
-    relations: { directions: [], edges: [] },
-    canonicalProjection: null,
-    actionCatalog: entityActionCatalog,
     entityStore: null,
     authoring: null,
     sdkExposure: noSdkExposure,

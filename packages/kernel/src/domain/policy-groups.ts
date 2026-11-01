@@ -1,6 +1,7 @@
 import { actionDeclarations, type ActionDeclaration, type ActionPolicyTier } from "./action-declaration.ts";
 import { parseEntityRef, type EntityRef } from "./entity-ref.ts";
 import { baseEntityPolicyActions } from "./entity-kind-registry.ts";
+import { registeredArtifactActionDeclarations } from "./artifact-action-declarations.ts";
 
 export const basePolicyGroupIds = Object.freeze(["viewer", "contributor", "maintainer", "admin"] as const);
 export type BasePolicyGroupId = (typeof basePolicyGroupIds)[number];
@@ -21,7 +22,7 @@ const tierRank: Readonly<Record<ActionPolicyTier, number>> = Object.freeze({
 
 /** Base groups contain only their minimum tier; effective membership comes from composite inheritance. */
 export function deriveBasePolicyGroups(
-  declarations: readonly ActionDeclaration[] = actionDeclarations,
+  declarations: readonly ActionDeclaration[] = [...actionDeclarations, ...registeredArtifactActionDeclarations()],
 ): readonly PolicyGroup[] {
   for (const declaration of declarations) {
     if (!Object.hasOwn(tierRank, declaration.policyTier))

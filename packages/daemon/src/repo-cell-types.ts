@@ -41,6 +41,8 @@ export interface RepoCellBinding {
   /** Daemon-established node identity for references to host-local files; never accepted from the Action. */
   readonly sourceNodeId?: string;
   readonly executionPrincipal?: import("./runtime-execution-credential.ts").RuntimeExecutionPrincipal;
+  /** Resolve a declared Artifact kind name to its stable `entity-kind/KND-…` identity at this turn. */
+  readonly artifactKindResolver?: (kind: string) => string | null;
   /** Online directory facts resolved inside the center writer, never accepted from transport. */
   readonly taskClaimant?: TaskClaimant;
   readonly actor: ActorIdentity;

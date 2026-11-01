@@ -22,6 +22,7 @@ import {
 import { cellErrorCode } from "./repo-cell-errors.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { chainRepoCellWrite } from "./repo-cell.ts";
+import { compiledArtifactKinds, findArtifactKindContract } from "./artifact-entity-action.ts";
 import { admitRepoMode, builtinOccurrenceCommandTopology, entityActionCommandTopology } from "./repo-mode.ts";
 import { commandDescriptorForAction } from "./protocol/daemon-protocol.contract.ts";
 import { recoveryCommandPolicy } from "./recovery-state.ts";
@@ -140,6 +141,10 @@ export function makeRepoCellCommandRunner(
   ): Promise<WriteReceipt | SquadControlResult> => {
     if (context.state !== "attached")
       await context.attemptRecovery(recoveryCommandPolicy(action.kind, context.causeClass)?.settlesLatch === true);
+    const artifactKindResolver = (kind: string): string | null =>
+      findArtifactKindContract(kind, compiledArtifactKinds(context.projection, context.input.repoId))?.typeIdentity ??
+      null;
+    binding = { ...binding, artifactKindResolver };
     const requested = { action, binding },
       durable = (durableActionKinds as readonly string[]).includes(action.kind),
       // A durable executor claim is verified in the publication turn that authorizes and executes it.
@@ -177,6 +182,7 @@ export function makeRepoCellCommandRunner(
               revision,
               now: context.now(),
               readTask: (taskId) => context.projection.read(taskId).snapshot.task,
+              binding: { ...requested.binding, artifactKindResolver },
             });
           return withAuthorizationDecision(
             context.failed(actionId, error),
@@ -289,7 +295,9 @@ export function makeRepoCellCommandRunner(
             return withAuthorizationDecision(
               context.rejected(
                 context.operationId(action, binding, context.input.repoId, context.store.readHead()?.revision ?? 0),
-                "authorization_denied",
+                queuedDecision.reasonCodes.includes("entity_kind_not_found")
+                  ? "entity_kind_not_found"
+                  : "authorization_denied",
               ),
               queuedDecision,
               [],

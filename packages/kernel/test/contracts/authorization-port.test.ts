@@ -51,7 +51,7 @@ test("retired People mutations are absent from the durable authorization invento
   // commands retire with the automatic review loop. Both deletions land in one inventory.
   // task_8c579f0d2c896668e2fd92ab85 adds six durable Todo writes through ActionDeclaration.
   // dec_6C9E3399972A2F06C046BA89DC/CH1 removes the task-pin/unpin-only authorization paths.
-  assert.equal(durablePolicyActions.length, 170);
+  assert.equal(durablePolicyActions.length, 166);
   assert.equal(durablePolicyActions.includes("task-adjudicate"), false);
   assert.equal(durablePolicyActions.includes("task-code-doc-reconcile"), false);
   assert.equal(durablePolicyActions.includes("task-code-doc-repoint"), false);

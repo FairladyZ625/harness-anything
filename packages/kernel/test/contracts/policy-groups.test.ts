@@ -1,7 +1,9 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { actionDeclarations, baseEntityPolicyActions } from "../../src/index.ts";
+import { actionDeclarations, baseEntityPolicyActions, registeredArtifactActionPolicyActions } from "../../src/index.ts";
+import { artifactEntityActionCatalog } from "../../src/domain/artifact-entity-actions.ts";
+import { registerArtifactActionDeclarations } from "../../src/domain/artifact-action-declarations.ts";
 import {
   assertAcyclicPolicyGroups,
   decodeAuthorizationResource,
@@ -34,7 +36,7 @@ test("every declaration has one minimum Base tier and one unique Keycloak scope"
   // Owner 2026-10-24 (task_a242ec14) deletes decision-supersede: supersede is driven by the relation.
   // dec_E369B8616F50A6208B293997E7/CH5 (W2-2) deletes task-adjudicate with the manual forward/return commands.
   // task_8c579f0d2c896668e2fd92ab85 adds six Todo action declarations.
-  assert.equal(actionDeclarations.length, 171);
+  assert.equal(actionDeclarations.length, 167);
   assert.equal(
     actionDeclarations.some(
       ({ kind }) => kind === "ci-observe-pull" || kind === "task-ci" || kind.startsWith("task-code-doc-"),
@@ -66,7 +68,13 @@ test("Base composite inheritance expands monotonically without a handwritten act
   assert.equal(effective("maintainer").length < effective("admin").length, true);
   assert.deepEqual(
     effective("admin"),
-    [...new Set([...actionDeclarations.map((item) => item.policyAction), ...baseEntityPolicyActions])].sort(),
+    [
+      ...new Set([
+        ...actionDeclarations.map((item) => item.policyAction),
+        ...baseEntityPolicyActions,
+        ...registeredArtifactActionPolicyActions(),
+      ]),
+    ].sort(),
   );
 });
 
@@ -103,4 +111,30 @@ test("fleet, repository, and EntityRef resources round-trip without widening sco
   // The fleet name is outside the repository id alphabet, so no repository can be registered under it.
   for (const invalid of ["", "@other", "Repo", "canonical:not-an-entity-ref", ":task/task_123"])
     assert.throws(() => decodeAuthorizationResource(invalid), invalid);
+});
+
+test("runtime Artifact kinds project one <kind>/<action> contributor scope per kind", () => {
+  const identity = (kind: string) => ({
+      field: "entityId",
+      pattern: "^[A-Z][A-Z0-9]{0,15}-[a-f0-9]{32}$",
+      refTemplate: `${kind}/{id}` as const,
+    }),
+    kindA = "entity-kind/KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94",
+    kindB = "entity-kind/KND-2a6d1b8f0c4e5d7b9f3a1c2e4d6b8f05";
+  registerArtifactActionDeclarations([
+    { kind: kindA, actionCatalog: artifactEntityActionCatalog(kindA, identity(kindA)) },
+    { kind: kindB, actionCatalog: artifactEntityActionCatalog(kindB, identity(kindB)) },
+  ]);
+  const groups = deriveBasePolicyGroups(),
+    contributor = groups.find(({ id }) => id === "contributor");
+  assert.ok(contributor);
+  for (const kind of [kindA, kindB])
+    for (const action of ["import", "update", "archive", "delete"])
+      assert.ok(contributor.scopes.includes(`${kind}/${action}`), `${kind}/${action}`);
+  assert.equal(
+    contributor.scopes.some((scope) => scope.startsWith("entity/")),
+    false,
+  );
+  assert.notEqual(`${kindA}/import`, `${kindB}/import`);
+  assert.equal(effectivePolicyGroupScopes(groups, "admin").includes(`${kindA}/import`), true);
 });

@@ -6,7 +6,10 @@ import {
   baseEntityPolicyActions,
   deriveBasePolicyGroups,
   effectivePolicyGroupScopes,
+  registeredArtifactActionPolicyActions,
 } from "@harness-anything/kernel";
+import { artifactEntityActionCatalog } from "@harness-anything/kernel/internal/domain/artifact-entity-actions.ts";
+import { registerArtifactActionDeclarations } from "@harness-anything/kernel/internal/domain/artifact-action-declarations.ts";
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
 import {
   authorizeRepoCellAction,
@@ -16,16 +19,17 @@ import {
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
 
 const config = { url: "http://127.0.0.1:8080", realm: "harness", resourceServerClientId: "harness-center" };
-const policyScopeCount = new Set([
-  ...actionDeclarations.map(({ policyAction }) => policyAction),
-  ...baseEntityPolicyActions,
-]).size;
+const basePolicyScopeCount = new Set([
+    ...actionDeclarations.map(({ policyAction }) => policyAction),
+    ...baseEntityPolicyActions,
+  ]).size,
+  policyScopeCount = (): number => basePolicyScopeCount + registeredArtifactActionPolicyActions().length;
 
 test("sync derives every Keycloak scope and four composite Base roles, and no permission that is not bound to a resource", async () => {
   const keycloak = fakeKeycloak(),
     receipt = await new KeycloakPolicyAdapter(config, keycloak.fetch).syncBasePolicy("admin-token");
-  assert.deepEqual(receipt, { scopeCount: policyScopeCount, groupCount: 4 });
-  assert.equal(keycloak.scopes.size, policyScopeCount);
+  assert.deepEqual(receipt, { scopeCount: policyScopeCount(), groupCount: 4 });
+  assert.equal(keycloak.scopes.size, policyScopeCount());
   assert.deepEqual([...keycloak.roles.keys()].sort(), ["admin", "contributor", "maintainer", "viewer"]);
   assert.deepEqual(
     ["admin", "maintainer", "contributor", "viewer"].map((id) => [...keycloak.roles.get(id)!.composites]),
@@ -46,7 +50,7 @@ test("sync reads complete paginated collections and does not recreate existing e
   assert.equal(keycloak.scopes.size > 100, true, "the scope collection spans more than one page");
   keycloak.writes.length = 0;
   assert.deepEqual(await adapter.syncBasePolicy("admin-token"), {
-    scopeCount: policyScopeCount,
+    scopeCount: policyScopeCount(),
     groupCount: 4,
   });
   assert.deepEqual(
@@ -57,18 +61,18 @@ test("sync reads complete paginated collections and does not recreate existing e
 
 test("sync re-expands stored grants to the currently declared actions of their group", async () => {
   const keycloak = fakeKeycloak(),
-    adapter = new KeycloakPolicyAdapter(config, keycloak.fetch),
-    contributorScopes = effectivePolicyGroupScopes(deriveBasePolicyGroups(), "contributor");
+    adapter = new KeycloakPolicyAdapter(config, keycloak.fetch);
   await adapter.syncBasePolicy("admin-token");
   await adapter.writeGrant("admin-token", { groupId: "contributor", resource: "repo-a", userIds: ["user-a"] }, [
     "task-create",
   ]);
-  const [permission] = [...keycloak.permissions.values()],
+  const contributorScopes = effectivePolicyGroupScopes(deriveBasePolicyGroups(), "contributor"),
+    [permission] = [...keycloak.permissions.values()],
     [resource] = [...keycloak.resources.values()];
   resource!.scopes = [{ name: "task-create" }];
   await adapter.syncBasePolicy("admin-token");
   assert.deepEqual(permission!.scopes, contributorScopes);
-  assert.equal(resource!.scopes.length, policyScopeCount);
+  assert.equal(resource!.scopes.length, policyScopeCount());
   assert.deepEqual(await adapter.readGrants("admin-token"), [
     { groupId: "contributor", resource: "repo-a", userIds: ["user-a"] },
   ]);
@@ -739,4 +743,64 @@ test("missing person and resource identifiers deny without caching misses or sub
   assert.equal(calls.filter((url) => new URL(url).pathname.endsWith("/users")).length, 2);
   assert.equal(calls.filter((url) => new URL(url).pathname.endsWith("/resource")).length, 2);
   assert.equal(calls.filter((url) => url.endsWith("/policy/evaluate")).length, 1);
+});
+
+test("two runtime Artifact kinds authorize on their own scope and deny the other", async () => {
+  const kindA = "entity-kind/KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94",
+    kindB = "entity-kind/KND-2a6d1b8f0c4e5d7b9f3a1c2e4d6b8f05",
+    identity = (kind: string) => ({
+      field: "entityId",
+      pattern: "^[A-Z][A-Z0-9]{0,15}-[a-f0-9]{32}$",
+      refTemplate: `${kind}/{id}` as const,
+    });
+  registerArtifactActionDeclarations([
+    { kind: kindA, actionCatalog: artifactEntityActionCatalog(kindA, identity(kindA)) },
+    { kind: kindB, actionCatalog: artifactEntityActionCatalog(kindB, identity(kindB)) },
+  ]);
+  const permissions: string[] = [],
+    fetchPort = async (_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+      const permission = new URLSearchParams(String(init?.body)).get("permission") ?? "";
+      permissions.push(permission);
+      return permission.endsWith(`#${kindA}/import`)
+        ? Response.json({ result: true })
+        : Response.json({ error: "access_denied" }, { status: 403 });
+    },
+    provider = new KeycloakPolicyAdapter(config, fetchPort),
+    binding = {
+      actor: { principal: { personId: "person-artifact-scope" }, executor: null },
+      source: "local" as const,
+      keycloakAuthorization: {
+        session: {
+          provider,
+          personId: "person-artifact-scope",
+          accessToken: "artifact-scope-token",
+          url: config.url,
+          realm: config.realm,
+          clientId: config.resourceServerClientId,
+        },
+      },
+    },
+    resolve = (kind: string) => kind,
+    allowed = await evaluateRepoCellAction({
+      action: { kind: "entity-import", entityKind: kindA },
+      binding: { ...binding, artifactKindResolver: resolve },
+      actionId: "action-artifact-import-a",
+      repoId: "repo-artifact-scope",
+      revision: 1,
+      now: "2026-09-30T00:00:08.000Z",
+      fetchPort,
+    }),
+    denied = await evaluateRepoCellAction({
+      action: { kind: "entity-import", entityKind: kindB },
+      binding: { ...binding, artifactKindResolver: resolve },
+      actionId: "action-artifact-import-b",
+      repoId: "repo-artifact-scope",
+      revision: 2,
+      now: "2026-09-30T00:00:09.000Z",
+      fetchPort,
+    });
+  assert.equal(allowed.outcome, "allowed");
+  assert.equal(denied.outcome, "denied");
+  assert.deepEqual(denied.reasonCodes, ["keycloak_denied"]);
+  assert.deepEqual(permissions, [`repo-artifact-scope#${kindA}/import`, `repo-artifact-scope#${kindB}/import`]);
 });

@@ -216,6 +216,17 @@ export const actionPresentation = {
   "vertical-kind-upsert": { domain: "vertical", name: "维护领域类型", description: "创建或更新业务领域类型。" },
 } as const;
 
+/** Protocol/command ingress kinds that carry the runtime artifact CRUD Actions. */
+export const artifactActionIngressKinds = Object.freeze([
+  "entity-import",
+  "entity-update",
+  "entity-archive",
+  "entity-delete",
+] as const);
+export type ArtifactActionIngressKind = (typeof artifactActionIngressKinds)[number];
+export const isArtifactActionIngressKind = (kind: string): kind is ArtifactActionIngressKind =>
+  (artifactActionIngressKinds as readonly string[]).includes(kind);
+
 export type ActionExecutionClass = "repo-read" | "repo-write" | "arbiter" | "admin";
 export type ActionPolicyTier = "viewer" | "contributor" | "maintainer" | "admin";
 export type ActionResidency =
@@ -390,16 +401,11 @@ export const actionDeclarations = Object.freeze([
   local("doc-materialize", "repo-write", hostResidency),
   canonical("doc-retire", "document/retire", "repo-write"),
   canonical("doc-submit", "document/submit", "repo-write"),
-  // dec_2446BC2F8C68630F71AE3E3BD7/CH4: the four artifact CRUD ingress routes write one governed
-  // artifact instance. The built-in `entity` kind owns the Action family; the runtime Artifact kind
-  // contract projects the same four action ids onto its own target, so Policy grants the base
-  // `entity/<action>` scope instead of a per-route null catalog row.
-  canonicalWithPolicyAction("entity-archive", "entity/archive", "repo-write", "entity/archive"),
-  canonicalWithPolicyAction("entity-delete", "entity/delete", "repo-write", "entity/delete"),
-  canonicalWithPolicyAction("entity-import", "entity/import", "repo-write", "entity/import"),
+  // entity-import/update/archive/delete have no static declaration: each compiled Artifact kind
+  // projects its own <kind>/<action> declaration into the runtime registry
+  // (artifact-action-declarations.ts) under dec_2446BC2F8C68630F71AE3E3BD7/CH4.
   canonicalWithPolicyAction("entity-pin", "task/pin", "repo-write", "task/pin"),
   canonicalWithPolicyAction("entity-unpin", "task/unpin", "repo-write", "task/unpin"),
-  canonicalWithPolicyAction("entity-update", "entity/update", "repo-write", "entity/update"),
   canonical("fact-archive", "fact/archive", "repo-write"),
   canonical("fact-assign", "fact/assign", "repo-write"),
   canonical("fact-unassign", "fact/unassign", "repo-write"),
@@ -559,6 +565,9 @@ export const durablePolicyActions = Object.freeze(
 );
 
 /** Durable command kinds derive from the same declarations as policy scopes, but remain distinct from them. */
-export const durableActionKinds = Object.freeze(
-  actionDeclarations.flatMap(({ kind, executionClass }) => (executionClass === "repo-read" ? [] : [kind])),
-);
+export const durableActionKinds = Object.freeze([
+  ...actionDeclarations.flatMap(({ kind, executionClass }) => (executionClass === "repo-read" ? [] : [kind])),
+  // The four artifact CRUD ingress kinds are durable routes; their declarations are the runtime
+  // projections, so the kind itself has no static declaration row.
+  ...artifactActionIngressKinds,
+]);

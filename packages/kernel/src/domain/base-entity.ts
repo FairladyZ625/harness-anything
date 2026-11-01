@@ -189,17 +189,6 @@ const verticalDeclarationIdentity = Object.freeze({
   pattern: "^default$",
   refTemplate: "vertical-declaration/{id}" as const,
 });
-/**
- * The built-in base kind that owns the generic Action family of a governed artifact instance
- * (dec_776B4D61DF711D9F31126D375D/CH1: `entity` carries the periphery instance while `entity-kind`
- * declares the kind). Its instances are addressed in the ledger by the Artifact kind's stable ref,
- * so this identity is the Action/policy bearer, never a second storage namespace.
- */
-const entityIdentity = Object.freeze({
-  field: "entityId",
-  pattern: "^[A-Z][A-Z0-9]{0,15}-[a-f0-9]{32}$",
-  refTemplate: "entity/{id}" as const,
-});
 
 export const entityTypeContracts = Object.freeze([
   {
@@ -241,7 +230,6 @@ export const entityTypeContracts = Object.freeze([
   { kind: "migration", ...baseEntityTypeContract(migrationIdentity, authoredResidency) },
   { kind: "script-execution", ...baseEntityTypeContract(scriptExecutionIdentity, authoredResidency) },
   { kind: "vertical-declaration", ...baseEntityTypeContract(verticalDeclarationIdentity, authoredResidency) },
-  { kind: "entity", ...baseEntityTypeContract(entityIdentity, authoredResidency) },
 ] as const satisfies readonly EntityTypeContract[]);
 
 export type RegisteredEntity = EntityFromTypeContract<(typeof entityTypeContracts)[number]>;

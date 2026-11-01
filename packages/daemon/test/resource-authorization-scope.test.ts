@@ -56,16 +56,43 @@ test("drops every ancestor when a Work chain contains a cycle", async () => {
   assert.deepEqual(ancestors, []);
 });
 
-test("the four artifact CRUD ingress kinds resolve to the base entity Action scope", () => {
-  const target = "entity-kind/KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94/ADR-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94" as const;
+test("the four artifact CRUD ingress kinds resolve to each runtime kind's own scope", () => {
+  const kindA = "entity-kind/KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94",
+    kindB = "entity-kind/KND-2a6d1b8f0c4e5d7b9f3a1c2e4d6b8f05",
+    target = "settings/repository" as const,
+    resolve = (kind: string) =>
+      kind === "architecture-decision-record" ? kindA : kind === "external-issue" ? kindB : null;
   for (const [kind, suffix] of [
     ["entity-import", "import"],
     ["entity-update", "update"],
     ["entity-archive", "archive"],
     ["entity-delete", "delete"],
-  ] as const)
+  ] as const) {
     assert.equal(
-      policyActionForTarget({ kind } as Parameters<typeof policyActionForTarget>[0], target),
-      `entity/${suffix}`,
+      policyActionForTarget(
+        { kind, entityKind: "architecture-decision-record" } as Parameters<typeof policyActionForTarget>[0],
+        target,
+        resolve,
+      ),
+      `${kindA}/${suffix}`,
     );
+    assert.equal(
+      policyActionForTarget(
+        { kind, entityKind: "external-issue" } as Parameters<typeof policyActionForTarget>[0],
+        target,
+        resolve,
+      ),
+      `${kindB}/${suffix}`,
+    );
+  }
+  assert.notEqual(`${kindA}/import`, `${kindB}/import`);
+  // An unknown kind has no declared scope and must not fall through to a granted command name.
+  assert.equal(
+    policyActionForTarget(
+      { kind: "entity-import", entityKind: "unregistered" } as Parameters<typeof policyActionForTarget>[0],
+      target,
+      resolve,
+    ),
+    "entity-import",
+  );
 });

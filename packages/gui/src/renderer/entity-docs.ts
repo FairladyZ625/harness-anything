@@ -134,12 +134,6 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
     statuses: [],
     actions: ["submit", "retire", "conflict-resolve", "conflict-overwrite-center", "pin", "unpin"],
   },
-  entity: {
-    schemaId: "entity/v1",
-    refTemplate: "entity/{id}",
-    statuses: [],
-    actions: ["import", "update", "archive", "delete"],
-  },
   execution: {
     schemaId: "Execution/v1",
     refTemplate: "execution/{id}",
@@ -957,28 +951,6 @@ const verticalDeclarationDoc: EntityKindDoc = {
 };
 
 /**
- * 外围实例的基座 kind。四个 CRUD Action 由它声明、Policy 授予 `entity/<action>`;
- * 每个 runtime Artifact kind 把同一组 Action 投影到自己的 target 上。
- */
-const entityDoc: EntityKindDoc = {
-  kind: "entity",
-  ...kernelContract("entity"),
-  storage: "entity-event/v1(外围实例的声明、内容与生命周期事件)",
-  definition:
-    "外围实例的基座 kind:Artifact kind 声明它是什么,entity 承载 import/update/archive/delete 这一组通用写动作;" +
-    "实例本身仍以 entity-kind/<KND> 的稳定身份入账。",
-  fields: [
-    field("entityKind", true, "string", "实体所属 Artifact kind 的稳定身份。"),
-    field("entityId", true, "string", "中心分配的外围实例 ID。"),
-    field("title", false, "string", "实例标题。"),
-  ],
-  nestedFields: noNested,
-  edges: [],
-  guiEntry: null,
-  liveCount: null,
-};
-
-/**
  * 声明实体的说明条目:**由声明派生**,不手写。内建 kind 的「它是什么」那一半是人写的
  * 策展文案(代码拥有语义,文档写不出来);vertical 声明出来的 kind 没有这样的作者——
  * 它的语义就是声明本身,所以这里逐字从读面的 declaration / explanation 取,一个字不编。
@@ -1058,16 +1030,7 @@ export const CURATED_ENTITY_DOC_GROUPS: readonly EntityDocGroup[] = [
     id: "catalog",
     title: "目录与配置",
     summary: "脚手架、默认值、人员,以及承载它们的账本流:文档、迁移、脚本执行与 vertical 声明。",
-    docs: [
-      presetDoc,
-      settingsDoc,
-      personDoc,
-      documentDoc,
-      migrationDoc,
-      scriptExecutionDoc,
-      verticalDeclarationDoc,
-      entityDoc,
-    ],
+    docs: [presetDoc, settingsDoc, personDoc, documentDoc, migrationDoc, scriptExecutionDoc, verticalDeclarationDoc],
   },
 ];
 

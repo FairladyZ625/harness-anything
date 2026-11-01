@@ -22,7 +22,7 @@ import {
   registerSettledBootstrappedDaemonRepo,
   waitForFixturePublication,
 } from "./repo-settings.fixture.ts";
-import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { grantArtifactKindScopes, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
 
 const binding = withPolicyGroup(
@@ -56,6 +56,7 @@ test("two edges at the same entity fence distinguish new intent from an exact re
     );
     assert.equal(kind.outcome, "applied", JSON.stringify(kind));
     const entityKind = JSON.parse(String(kind.evidence)).kindRef as string;
+    grantArtifactKindScopes(repoId, entityKind);
     const imported = await cell.run(
       { mode: "snapshot", kind: "entity-import", entityKind, locator: "source.md", expectedVersion: 0 },
       binding,
@@ -177,6 +178,7 @@ test("JSON-RPC returns domain conflicts during concurrent reads without recoveri
     const kind = await run({ kind: "vertical-kind-upsert", kindId: declaration.id, expectedVersion: 0, declaration });
     assert.equal(kind.outcome, "applied", JSON.stringify(kind));
     const entityKind = JSON.parse(String(kind.evidence)).kindRef as string;
+    grantArtifactKindScopes(repoId, entityKind);
     const imported = await run({
       kind: "entity-import",
       entityKind,

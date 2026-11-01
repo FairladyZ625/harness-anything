@@ -6,6 +6,7 @@ import {
   decodeAuthorizationResource,
   deriveBasePolicyGroups,
   effectivePolicyGroupScopes,
+  registeredArtifactActionPolicyActions,
   encodeAuthorizationResource,
   type AuthorizationResource,
   type AuthorizationDecisionPort,
@@ -96,6 +97,9 @@ interface PolicyReadCache {
 
 const policyReadCaches = new WeakMap<FetchPort, Map<string, PolicyReadCache>>();
 
+/** The scope grammar every compiled Artifact kind projects (the registry may be process-local). */
+const artifactActionScopePattern = /^entity-kind\/KND-[0-9a-f]{32}\/(?:import|update|archive|delete)$/u;
+
 export class KeycloakPolicyAdapter
   implements
     AuthorizationPolicyAdministrationPort,
@@ -118,7 +122,23 @@ export class KeycloakPolicyAdapter
   }
   readonly #config: KeycloakPolicyAdapterConfig;
   readonly #fetch: FetchPort;
-  readonly #knownScopes = new Set([...actionDeclarations.map((item) => item.policyAction), ...baseEntityPolicyActions]);
+  /** Declared scopes plus the <kind>/<action> scopes compiled Artifact kinds projected at runtime. */
+  get #knownScopes(): ReadonlySet<string> {
+    return new Set([
+      ...actionDeclarations.map((item) => item.policyAction),
+      ...baseEntityPolicyActions,
+      ...registeredArtifactActionPolicyActions(),
+    ]);
+  }
+
+  /**
+   * Artifact kind scopes are compiled in the writer process, while this adapter may run in the
+   * daemon process. Accept the declared `<entity-kind>/<action>` grammar and leave the actual
+   * per-kind grant to Keycloak; arbitrary unknown scopes still fail closed.
+   */
+  #scopeKnown(scope: string): boolean {
+    return this.#knownScopes.has(scope) || artifactActionScopePattern.test(scope);
+  }
   readonly #readCache: PolicyReadCache;
   readonly #refreshAdminAccessToken?: (rejectedAccessToken: string) => Promise<string>;
   #refreshedAdminAccessToken: string | undefined;
@@ -211,7 +231,7 @@ export class KeycloakPolicyAdapter
     assertAcyclicPolicyGroups(groups);
     for (const group of groups)
       for (const scope of group.scopes)
-        if (!this.#knownScopes.has(scope)) throw new Error(`Unknown Keycloak action scope ${scope}.`);
+        if (!this.#scopeKnown(scope)) throw new Error(`Unknown Keycloak action scope ${scope}.`);
   }
 
   /** Align existing managed login clients as part of the same realm synchronization. */
@@ -660,7 +680,7 @@ export class KeycloakPolicyAdapter
     readonly resourceAncestors?: readonly AuthorizationResource[];
   }): Promise<KeycloakPermissionDecision> {
     const resource = encodeAuthorizationResource(input.resource);
-    if (!this.#knownScopes.has(input.action))
+    if (!this.#scopeKnown(input.action))
       return Object.freeze({ outcome: "denied", reasonCode: "unknown_scope", resource, scope: input.action });
     for (const candidate of coveringResources(input.resource, input.resourceAncestors)) {
       const response = await this.#fetch(this.#realmUrl("/protocol/openid-connect/token"), {
@@ -749,7 +769,7 @@ export class KeycloakPolicyAdapter
     const resource = encodeAuthorizationResource(input.resource),
       denied = (reasonCode: KeycloakPermissionDecision["reasonCode"]) =>
         Object.freeze({ outcome: "denied" as const, reasonCode, resource, scope: input.action });
-    if (!this.#knownScopes.has(input.action)) return denied("unknown_scope");
+    if (!this.#scopeKnown(input.action)) return denied("unknown_scope");
     const userId = await this.#cachedUserId(input.adminAccessToken, input.personId);
     if (!userId) return denied("keycloak_denied");
     const server = `/clients/${await this.#clientUuid(input.adminAccessToken)}/authz/resource-server`;
