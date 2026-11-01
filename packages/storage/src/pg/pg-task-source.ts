@@ -97,6 +97,7 @@ export interface PgTaskProjectionSource {
   }) => Promise<readonly FactProjectionRow[]>;
   readonly readRelations: (query?: {
     readonly source?: string;
+    readonly taskOwned?: boolean;
     readonly target?: string;
     readonly relationType?: string;
     readonly limit?: number;
@@ -476,6 +477,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
   const readRelations = (
     query: {
       readonly source?: string;
+      readonly taskOwned?: boolean;
       readonly target?: string;
       readonly relationType?: string;
       readonly limit?: number;
@@ -831,6 +833,7 @@ function decodeTaskListCursor(value: string, expected: number): readonly string[
 
 interface PgRelationQuery {
   readonly source?: string;
+  readonly taskOwned?: boolean;
   readonly target?: string;
   readonly targets?: readonly string[];
   readonly relationType?: string;
@@ -850,6 +853,7 @@ async function readRelationsInTransaction(
       "policy_epoch = $3",
       "(cardinality($4::text[]) = 0 OR readers && $4::text[])",
     ];
+  if (query.taskOwned === true) where.push("starts_with(source_ref, 'task/')");
   if (query.source !== undefined) {
     values.push(query.source);
     where.push(`source_ref = $${values.length}`);

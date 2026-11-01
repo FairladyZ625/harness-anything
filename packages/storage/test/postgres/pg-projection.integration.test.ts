@@ -638,18 +638,25 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
         payload: {
           task: {
             ...readerBBase.payload.task,
-            metadata: { ...readerBBase.payload.task.metadata, parentTaskId: "task-reader-a", topLevel: false },
+            metadata: { ...childCreated.payload.task.metadata, parentTaskId: "task-reader-a", slug: "task-reader-b" },
           },
         },
       };
     await appendCanonical({ event: readerATask, plan: taskLifecycleWritePlan(readerATask), blobs: [] });
     await appendCanonical({ event: readerBTask, plan: taskLifecycleWritePlan(readerBTask), blobs: [] });
-    const readerBStart = {
-      ...lifecycleFixture({ taskId: "task-reader-b" }).events.find((value) => value.type === "execution_started")!,
-      eventId: "pg-reader-b-start",
-      opId: "pg-reader-b-start",
-      workspaceRevision: expectedRevision,
-    };
+    const readerBStartBase = lifecycleFixture({ taskId: "task-reader-b" }).events.find(
+        (value) => value.type === "execution_started",
+      )!,
+      readerBStart = {
+        ...readerBStartBase,
+        eventId: "pg-reader-b-start",
+        opId: "pg-reader-b-start",
+        workspaceRevision: expectedRevision,
+        payload: {
+          ...readerBStartBase.payload,
+          task: { ...readerBStartBase.payload.task, metadata: readerBTask.payload.task.metadata },
+        },
+      };
     await appendCanonical({ event: readerBStart, plan: taskLifecycleWritePlan(readerBStart), blobs: [] });
     const allReadersSource = createPgTaskProjectionSource({
       pool: runtimePool,
@@ -802,8 +809,12 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
         taskBoardPlacement(boardInput(sqliteRead.snapshot)),
       );
       const relationsPg = await source.readRelations(),
-        relationsSqlite = sqliteProjection.readTaskRelations();
+        relationsSqlite = sqliteProjection.readRelationQuery({});
       assert.deepEqual(relationsPg.rows, relationsSqlite.rows);
+      assert.deepEqual(
+        (await source.readRelations({ taskOwned: true })).rows,
+        sqliteProjection.readTaskRelations().rows,
+      );
       assert.deepEqual(
         blockingOf(
           [
