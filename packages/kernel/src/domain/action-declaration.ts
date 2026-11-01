@@ -446,11 +446,9 @@ export const actionDeclarations = Object.freeze([
   local("runtime-instance-logout", "repo-write", runtimeResidency),
   runtimeAdmin("runtime-instance-show"),
   runtimeAdmin("runtime-instance-update"),
-  // dec_6C9E3399972A2F06C046BA89DC/CH3 assigns runtime-run's canonical target
-  // (runtime-session/run) to task_0d5da74fbeaa266f99e717089c. Until that action lands the ingress
-  // maps to the same runtime publication queue, whose dispatch/session events settle canonically;
-  // the sibling task replaces this classification with the canonical binding.
-  local("runtime-run", "repo-write", runtimeResidency, { receiptSettlement: "canonical-acceptance" }),
+  // dec_6C9E3399972A2F06C046BA89DC/CH3: ha runtime run and ha agent run share the canonical
+  // runtime-session/run target; Policy action stays runtime-run and the command behavior is unchanged.
+  canonical("runtime-run", "runtime-session/run", "repo-write"),
   local("runtime-spawn", "repo-write", runtimeResidency, { receiptSettlement: "canonical-acceptance" }),
   canonical("todo-add", "todo/add", "repo-write"),
   canonical("todo-done", "todo/done", "repo-write"),

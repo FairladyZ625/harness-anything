@@ -76,6 +76,8 @@ test("Entity catalogs omit actions that decisions assign to another owner or no 
     "runtime_session_cancelled",
     "runtime_session_exited",
     "runtime_session_outcome_observed",
+    // dec_6C9E3399972A2F06C046BA89DC/CH3: the shared canonical target of ha runtime run / ha agent run.
+    "run",
   ]);
   assert.deepEqual(declared("runtime-session"), [
     "runtime_session_started",
@@ -85,6 +87,8 @@ test("Entity catalogs omit actions that decisions assign to another owner or no 
     "runtime_session_cancelled",
     "runtime_session_exited",
     "runtime_session_outcome_observed",
+    // dec_6C9E3399972A2F06C046BA89DC/CH3: the shared canonical target of ha runtime run / ha agent run.
+    "run",
   ]);
 });
 

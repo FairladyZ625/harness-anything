@@ -772,7 +772,6 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
   // commands cause are appended by the RuntimeSession event actions or the auxiliary runtime ingress,
   // so the commands themselves stay local; their receipts still accept the canonical outcome.
   for (const [kind, scope] of [
-    ["runtime-run", "runtime-local"],
     ["runtime-spawn", "runtime-local"],
     ["runtime-cancel", "runtime-local"],
     ["runtime-batch", "host-local"],
@@ -787,6 +786,12 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
     assert.equal(declaration?.policyTier, "contributor", kind);
     assert.equal(declaration?.catalogId, null, kind);
   }
+  // dec_6C9E3399972A2F06C046BA89DC/CH3: runtime-run is the shared canonical target of the two dispatch
+  // entry points, so it keeps a catalog binding instead of a local classification.
+  const runDeclaration = actionDeclarations.find(({ kind }) => kind === "runtime-run");
+  assert.equal(runDeclaration?.catalogId, "runtime-session/run");
+  assert.equal(runDeclaration?.residency.scope, "canonical");
+  assert.equal(runDeclaration?.receiptSettlement, "canonical-acceptance");
   // The incident dismissal appends one decision_action record to the dispatch stream and settles no
   // canonical event; the preserved maintainer tier proves reclassification did not widen who may dismiss.
   const dismissDeclaration = actionDeclarations.find(({ kind }) => kind === "runtime-incident-dismiss");

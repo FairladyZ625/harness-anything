@@ -124,8 +124,16 @@ test("canonical-stream kind bindings resolve to declared Actions on their stream
   // Runtime control is host ingress, not an entity-catalog action: its canonical events are written
   // by the RuntimeSession event actions or the auxiliary runtime ingress, so no control command may
   // resolve through the catalog (dec_2446BC2F8C68630F71AE3E3BD7/CH4).
+  // dec_6C9E3399972A2F06C046BA89DC/CH3: runtime-run is the one runtime command with a canonical
+  // catalog target (the shared runtime-session/run action); the rest stay host ingress.
+  {
+    const action = getExecutableEntityAction("runtime-run");
+    assert.equal(action?.id, "run");
+    assert.equal(action?.target.kind, "runtime-session");
+    assert.equal(action?.execution?.ingress, "runtime-run");
+    assert.equal(action?.execution?.implementation, "catalog-runtime");
+  }
   for (const ingress of [
-    "runtime-run",
     "runtime-batch",
     "runtime-spawn",
     "runtime-cancel",
@@ -146,6 +154,7 @@ test("canonical-stream kind bindings resolve to declared Actions on their stream
       "runtime_session_cancelled",
       "runtime_session_exited",
       "runtime_session_outcome_observed",
+      "run",
     ],
   );
 });
@@ -276,6 +285,7 @@ test("RuntimeSession explains adoption, operation replay, center arbitration, an
     "runtime_session_cancelled",
     "runtime_session_exited",
     "runtime_session_outcome_observed",
+    "run",
   ]);
   assert.deepEqual(explanation.canonicalProjection, {
     embeddedEvents: [],
