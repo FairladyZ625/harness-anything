@@ -34,6 +34,7 @@ export interface BrokerSubprocessRuntime {
 export interface BrokerManagerOptions {
   readonly executable?: string;
   readonly getWorkspace: () => string;
+  readonly getParentOrigin: () => string;
 }
 
 interface ActiveBroker {
@@ -107,12 +108,13 @@ function launchBroker(
   subprocess: BrokerSubprocessRuntime,
   workspace: string,
   executable: string,
+  parentOrigin: string,
   onSpawn: (handle: BrokerSubprocessHandle) => void,
 ): Promise<{ readonly response: BrokerResponse; readonly handle: BrokerSubprocessHandle }> {
   let handle: BrokerSubprocessHandle;
   try {
     handle = subprocess.spawn({
-      argv: [executable, "gui", "--browser", "--root", workspace, "--json"],
+      argv: [executable, "gui", "--browser", "--parent-origin", parentOrigin, "--root", workspace, "--json"],
       cwd: workspace,
       stdio: { stdin: "ignore", stdout: "pipe", stderr: "pipe" },
       graceMs: BROKER_GRACE_MS,
@@ -198,16 +200,24 @@ export function createBrokerManager(subprocess: BrokerSubprocessRuntime, options
     stop();
     pendingWorkspace = workspace;
     const requestGeneration = generation;
-    const request = launchBroker(subprocess, workspace, executable, (handle) => {
+    const request = launchBroker(subprocess, workspace, executable, options.getParentOrigin(), (handle) => {
       pendingHandle = handle;
-    }).then(async ({ response, handle }) => {
+    }).then(({ response, handle }) => {
+      if (requestGeneration === generation) {
+        pending = undefined;
+        pendingWorkspace = undefined;
+      }
       if (pendingHandle === handle) pendingHandle = undefined;
       if (requestGeneration !== generation || options.getWorkspace() !== workspace) {
         handle.terminate();
-        return response;
+        return failure("broker_superseded", "The workspace changed or the plugin stopped. Open Harness again.");
       }
       if (response.ok) {
         active = { workspace, url: response.url, handle };
+        const clearExitedBroker = (): void => {
+          if (active?.handle === handle) active = undefined;
+        };
+        void handle.done.then(clearExitedBroker, clearExitedBroker);
       } else {
         handle.terminate();
       }

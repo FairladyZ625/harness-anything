@@ -1,10 +1,10 @@
-import { createElement, type ReactNode } from "react";
+import { createElement, useEffect, useState, type ReactNode } from "react";
 import type { Context } from "@deepseek-ai/cordis";
 import type { PropsRuntime } from "@deepseek-ai/dsh-client-ui-slots";
 import type { SidebarPanelIconOwnerProps } from "@deepseek-ai/dsh-client-ui-sidebar/client";
 import type { BrokerFailure, BrokerResponse } from "./shared.ts";
 import { BROKER_ROUTE } from "./shared.ts";
-import { tutorialCopy } from "./tutorial-content.ts";
+import { tutorialCopy, type TutorialCopy } from "./tutorial-content.ts";
 import { Tutorial } from "./tutorial.ts";
 
 const PANEL_ID = "harness-anything";
@@ -122,11 +122,16 @@ function isBrokerResponse(value: unknown): value is BrokerResponse {
 }
 
 /** Fetch the Host-owned broker URL and open DSH's built-in browser tab. */
-export async function openHarnessBrowser(ctx: ClientContext, fetcher: typeof fetch = fetch): Promise<BrokerResponse> {
+async function fetchHarnessBroker(fetcher: typeof fetch = fetch): Promise<Extract<BrokerResponse, { ok: true }>> {
   const response = await fetcher(BROKER_ROUTE, { headers: { accept: "application/json" } });
   const value: unknown = await response.json();
   if (!isBrokerResponse(value)) throw new Error("Harness Anything broker returned an invalid response.");
   if (!value.ok) throw new BrokerClientError(value);
+  return value;
+}
+
+export async function openHarnessBrowser(ctx: ClientContext, fetcher: typeof fetch = fetch): Promise<BrokerResponse> {
+  const value = await fetchHarnessBroker(fetcher);
   ctx.layout.selectPanel(null);
   await openTabWhenSessionMounts(ctx, value.url);
   return value;
@@ -187,6 +192,128 @@ function reportOpenFailure(
   store.set(details);
 }
 
+const panelStyle = `
+.ha-panel{height:100%;min-height:0;display:flex;flex-direction:column;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family)}
+.ha-panel-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:calc(var(--dsh-frame-top-clearance, 0px) + 8px) 16px 8px;border-bottom:1px solid var(--dsw-alias-border-l2)}
+.ha-panel-tabs{display:flex;gap:4px;margin-right:auto}
+.ha-panel-bar button,.ha-panel-status button{font:inherit;cursor:pointer;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-sm);padding:6px 12px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary)}
+.ha-panel-tabs button[aria-selected=true]{background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-inverted)}
+.ha-panel-body{flex:1;min-height:0;overflow:auto;--dsh-frame-top-clearance:0px}
+.ha-panel-body[hidden]{display:none}
+.ha-panel-embed{position:relative;display:flex;flex-direction:column;overflow:hidden}
+.ha-panel-embed iframe{width:100%;flex:1;min-height:0;border:0;background:var(--dsw-alias-bg-base)}
+.ha-panel-status{padding:16px;color:var(--dsw-alias-label-secondary)}
+`;
+
+/** The Host owns the process; hiding a tab keeps its iframe and in-frame state alive. */
+export function HarnessPanel({
+  copy,
+  onOpen,
+}: {
+  readonly copy: TutorialCopy;
+  readonly onOpen: () => void;
+}): ReactNode {
+  const [tab, setTab] = useState<"tutorial" | "harness">("tutorial");
+  const [retry, setRetry] = useState(0);
+  const [broker, setBroker] = useState<{ readonly url: string; readonly error: BrokerFailureDetails | null }>({
+    url: "",
+    error: null,
+  });
+  useEffect(() => {
+    if (tab !== "harness") return;
+    let current = true;
+    void fetchHarnessBroker().then(
+      (value) => {
+        if (current) setBroker({ url: value.url, error: null });
+      },
+      (error: unknown) => {
+        if (current) setBroker({ url: "", error: failureDetails(error) });
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [tab, retry]);
+  const tabButton = (value: "tutorial" | "harness", label: string): ReactNode =>
+    createElement(
+      "button",
+      {
+        type: "button",
+        role: "tab",
+        id: `ha-tab-${value}`,
+        "aria-controls": `ha-page-${value}`,
+        "aria-selected": tab === value,
+        tabIndex: tab === value ? 0 : -1,
+        onClick: () => setTab(value),
+        onKeyDown: (event: import("react").KeyboardEvent<HTMLButtonElement>) => {
+          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+          event.preventDefault();
+          const next =
+            event.key === "Home"
+              ? "tutorial"
+              : event.key === "End"
+                ? "harness"
+                : value === "tutorial"
+                  ? "harness"
+                  : "tutorial";
+          setTab(next);
+          event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`#ha-tab-${next}`)?.focus();
+        },
+      },
+      label,
+    );
+  return createElement(
+    "div",
+    { className: "ha-panel", "data-testid": "harness-main-panel" },
+    createElement("style", null, panelStyle),
+    createElement(
+      "div",
+      { className: "ha-panel-bar" },
+      createElement(
+        "div",
+        { role: "tablist", "aria-label": "Harness", className: "ha-panel-tabs" },
+        tabButton("tutorial", "教程"),
+        tabButton("harness", "Harness"),
+      ),
+      createElement("button", { type: "button", onClick: onOpen }, "在内置浏览器打开"),
+    ),
+    createElement(
+      "div",
+      {
+        className: "ha-panel-body",
+        role: "tabpanel",
+        id: "ha-page-tutorial",
+        "aria-labelledby": "ha-tab-tutorial",
+        hidden: tab !== "tutorial",
+      },
+      createElement(Tutorial, { copy, onOpen }),
+    ),
+    createElement(
+      "div",
+      {
+        className: "ha-panel-body ha-panel-embed",
+        role: "tabpanel",
+        id: "ha-page-harness",
+        "aria-labelledby": "ha-tab-harness",
+        hidden: tab !== "harness",
+      },
+      broker.error
+        ? createElement(
+            "div",
+            { role: "alert", className: "ha-panel-status" },
+            createElement("p", null, `${broker.error.code}: ${broker.error.hint}`),
+            createElement("button", { type: "button", onClick: () => setRetry((value) => value + 1) }, "重试"),
+          )
+        : !broker.url
+          ? createElement("div", { role: "status", className: "ha-panel-status" }, "正在打开 Harness…")
+          : null,
+      broker.url
+        ? createElement("iframe", { src: broker.url, title: "Harness GUI", referrerPolicy: "no-referrer" })
+        : null,
+    ),
+  );
+}
+
 function HarnessIcon({ size }: PropsRuntime<"sidebar.panellist"> & SidebarPanelIconOwnerProps): ReactNode {
   return createElement(
     "span",
@@ -228,7 +355,7 @@ export function apply(ctx: ClientContext): void {
   );
   ctx.slots.inject("main", () =>
     ctx.slots.register({ name: "main", key: PANEL_ID, locale: LOCALE_NAMESPACE }, (() =>
-      createElement(Tutorial, {
+      createElement(HarnessPanel, {
         copy: t("language") === "zh" ? tutorialCopy.zh : tutorialCopy.en,
         onOpen: () => {
           void openHarnessBrowser(ctx).catch(reportFailure);

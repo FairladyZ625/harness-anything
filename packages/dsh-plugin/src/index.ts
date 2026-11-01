@@ -14,6 +14,7 @@ export interface Config {
 interface HostContext extends Context {
   readonly subprocess: BrokerSubprocessRuntime;
   readonly webServer: {
+    getOrigin(): string;
     register(route: {
       readonly kind: "exact";
       readonly path: string;
@@ -47,6 +48,8 @@ export function apply(ctx: HostContext, config: Config = {}): void {
   const manager = createBrokerManager(ctx.subprocess, {
     executable: config.executable,
     getWorkspace: () => currentWorkspace(ctx, config),
+    getParentOrigin: () =>
+      ctx.get("profileContext")?.name === "desktop" ? "dsh-app://app" : ctx.webServer.getOrigin(),
   });
   const unregister = ctx.webServer.register({ kind: "exact", path: BROKER_ROUTE, handler: manager.handle });
   ctx.effect(

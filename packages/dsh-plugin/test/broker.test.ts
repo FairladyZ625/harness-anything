@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createBrokerManager, type BrokerSubprocessHandle, type BrokerSubprocessRuntime } from "../src/broker.ts";
+import { apply as applyHost } from "../src/index.ts";
 import { apply as applyClient, openHarnessBrowser } from "../src/client.ts";
 
 test("bundle client externals do not request the plugin's own client module", () => {
@@ -137,14 +138,26 @@ test("broker launches ha gui with the workspace and reuses the URL", async () =>
   const children: Child[] = [];
   const subprocess: BrokerSubprocessRuntime = {
     spawn(spec) {
-      assert.deepEqual(spec.argv, ["ha", "gui", "--browser", "--root", spec.cwd, "--json"]);
+      assert.deepEqual(spec.argv, [
+        "ha",
+        "gui",
+        "--browser",
+        "--parent-origin",
+        "dsh-app://app",
+        "--root",
+        spec.cwd,
+        "--json",
+      ]);
       const current = child();
       children.push(current);
       queueMicrotask(() => current.stdout.emit('{"ok":true,"url":"http://127.0.0.1:4040/#token","summary":"ready"}\n'));
       return current.handle;
     },
   };
-  const manager = createBrokerManager(subprocess, { getWorkspace: () => workspace });
+  const manager = createBrokerManager(subprocess, {
+    getParentOrigin: () => "dsh-app://app",
+    getWorkspace: () => workspace,
+  });
   assert.deepEqual(await manager.ensure(), { ok: true, url: "http://127.0.0.1:4040/#token", summary: "ready" });
   assert.deepEqual(await manager.ensure(), { ok: true, url: "http://127.0.0.1:4040/#token" });
   assert.equal(children.length, 1);
@@ -162,7 +175,10 @@ test("broker forwards missing CLI and uninitialized repository code and hint", a
     '{"ok":false,"error":{"code":"repository_uninitialized","hint":"Run ha init."}}\n',
   ]) {
     const current = child();
-    const manager = createBrokerManager({ spawn: () => current.handle }, { getWorkspace: () => "/repo" });
+    const manager = createBrokerManager(
+      { spawn: () => current.handle },
+      { getParentOrigin: () => "dsh-app://app", getWorkspace: () => "/repo" },
+    );
     queueMicrotask(() => current.stdout.emit(receipt));
     const result = await manager.ensure();
     assert.deepEqual(result, JSON.parse(receipt));
@@ -172,7 +188,10 @@ test("broker forwards missing CLI and uninitialized repository code and hint", a
 
 test("broker preserves the CLI top-level daemon failure code and diagnostic hint", async () => {
   const current = child();
-  const manager = createBrokerManager({ spawn: () => current.handle }, { getWorkspace: () => "/repo" });
+  const manager = createBrokerManager(
+    { spawn: () => current.handle },
+    { getParentOrigin: () => "dsh-app://app", getWorkspace: () => "/repo" },
+  );
   queueMicrotask(() =>
     current.stdout.emit(
       '{"ok":false,"code":"daemon_start_failed","diagnostic":{"expectation":"Start the local daemon, then retry ha gui."}}\n',
@@ -187,13 +206,16 @@ test("broker preserves the CLI top-level daemon failure code and diagnostic hint
 
 test("disposing while ha is starting terminates the pending child", async () => {
   const current = child();
-  const manager = createBrokerManager({ spawn: () => current.handle }, { getWorkspace: () => "/repo" });
+  const manager = createBrokerManager(
+    { spawn: () => current.handle },
+    { getParentOrigin: () => "dsh-app://app", getWorkspace: () => "/repo" },
+  );
   const pending = manager.ensure();
   await manager.dispose();
   assert.equal(current.terminated.value, true);
   assert.deepEqual(await pending, {
     ok: false,
-    error: { code: "ha_unavailable", hint: "ha gui exited with code unknown" },
+    error: { code: "broker_superseded", hint: "The workspace changed or the plugin stopped. Open Harness again." },
   });
 });
 
@@ -318,4 +340,109 @@ test("client propagates unexpected browser errors without retrying", async () =>
     new Response(JSON.stringify({ ok: true, url: "http://127.0.0.1:4321/" }), { status: 200 });
   await assert.rejects(openHarnessBrowser(ctx, fetcher), (error: unknown) => error === failure);
   assert.equal(attempts, 1);
+});
+
+test("broker coalesces concurrent requests, retries failures, and replaces an exited process", async () => {
+  const children: Child[] = [];
+  const manager = createBrokerManager(
+    {
+      spawn() {
+        const next = child();
+        children.push(next);
+        return next.handle;
+      },
+    },
+    {
+      getWorkspace: () => "/repo",
+      getParentOrigin: () => "http://127.0.0.1:4000",
+    },
+  );
+  const first = manager.ensure();
+  const concurrent = manager.ensure();
+  assert.equal(children.length, 1);
+  children[0]!.stdout.emit(JSON.stringify({ ok: false, error: { code: "invalid_field", hint: "Upgrade CLI." } }));
+  assert.deepEqual(await first, await concurrent);
+  const retry = manager.ensure();
+  assert.equal(children.length, 2);
+  children[1]!.stdout.emit(JSON.stringify({ ok: true, url: "http://127.0.0.1:4001/" }));
+  assert.equal((await retry).ok, true);
+  children[1]!.resolve({ exitCode: 0, signal: null });
+  await children[1]!.handle.done;
+  const replacement = manager.ensure();
+  assert.equal(children.length, 3);
+  children[2]!.stdout.emit(JSON.stringify({ ok: true, url: "http://127.0.0.1:4002/" }));
+  assert.deepEqual(await replacement, { ok: true, url: "http://127.0.0.1:4002/" });
+  await manager.dispose();
+});
+
+test("broker never returns a stale workspace URL to an in-flight request", async () => {
+  let workspace = "/first";
+  const current = child();
+  const manager = createBrokerManager(
+    { spawn: () => current.handle },
+    {
+      getWorkspace: () => workspace,
+      getParentOrigin: () => "dsh-app://app",
+    },
+  );
+  const pending = manager.ensure();
+  workspace = "/second";
+  current.stdout.emit(JSON.stringify({ ok: true, url: "http://127.0.0.1:4001/" }));
+  const result = await pending;
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.error.code, "broker_superseded");
+  assert.equal(current.terminated.value, true);
+  await manager.dispose();
+});
+
+test("Host obtains embedding origin from its profile and webServer, never request headers", async () => {
+  for (const profile of ["desktop", "web"]) {
+    let handler!: ReturnType<typeof createBrokerManager>["handle"];
+    let dispose!: () => Promise<void>;
+    let originReads = 0;
+    const argv: string[][] = [];
+    applyHost({
+      subprocess: {
+        spawn(spec: { argv: string[] }) {
+          argv.push(spec.argv);
+          const next = child();
+          queueMicrotask(() => next.stdout.emit(JSON.stringify({ ok: true, url: "http://127.0.0.1:4001/" })));
+          return next.handle;
+        },
+      },
+      get: () => ({ name: profile }),
+      workspaceRegistry: { list: () => [{ path: "/repo" }] },
+      webServer: {
+        getOrigin: () => {
+          originReads += 1;
+          return "http://127.0.0.1:4000";
+        },
+        register: (route: { handler: typeof handler }) => {
+          handler = route.handler;
+          return () => {};
+        },
+      },
+      effect: (factory: () => typeof dispose) => {
+        dispose = factory();
+      },
+      logger: { info() {} },
+    } as never);
+    assert.equal(originReads, 0, "origin is read only after the Host listener is ready");
+    await handler(
+      { method: "GET", headers: { origin: "https://untrusted.example" } } as never,
+      { setHeader() {}, end() {} } as never,
+    );
+    assert.deepEqual(argv[0], [
+      "ha",
+      "gui",
+      "--browser",
+      "--parent-origin",
+      profile === "desktop" ? "dsh-app://app" : "http://127.0.0.1:4000",
+      "--root",
+      "/repo",
+      "--json",
+    ]);
+    assert.equal(originReads, profile === "desktop" ? 0 : 1);
+    await dispose();
+  }
 });

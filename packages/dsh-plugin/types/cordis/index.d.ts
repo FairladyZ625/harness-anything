@@ -1,7 +1,9 @@
 declare module "@deepseek-ai/cordis" {
   export interface Context {
+    get(name: "profileContext"): { readonly name: string } | undefined;
     readonly subprocess: import("../../src/broker.ts").BrokerSubprocessRuntime;
     readonly webServer: {
+      getOrigin(): string;
       register(route: {
         readonly kind: "exact" | "prefix";
         readonly path: string;
