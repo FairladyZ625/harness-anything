@@ -433,6 +433,11 @@ export function openFleetEdgeRuntime(input: {
       },
       readRuntimeSessions: () =>
         readFleetRuntimeSessionsPaged(async (payload) => readReplica("repo.agentRuntime.overview", payload)),
+      readRuntimeDispatch: async (id) =>
+        withEdgeReadModel(
+          { ...request, principalId: (await input.readBinding()).actor.principal.personId },
+          (projection) => projection.readRuntimeDispatch(id),
+        ),
       publish: async (draft) => {
         let response: Awaited<ReturnType<typeof runFleetRuntimeEventClient>>;
         try {
@@ -645,19 +650,20 @@ export function openFleetEdgeRuntime(input: {
     readWorktreeSetup: () => readSettings().worktree,
     readResult: (ref) => readEdgeRuntimeResult(request.viewRoot, request.repoId, request.nodeId, ref),
   });
-  // Adoption is shared by concurrent requests, but a failed connection must not become a
-  // permanent property of the cached edge runtime.  The daemon keeps one runtime per
-  // node, so retain the instance and discard only the rejected readiness attempt;
-  // the next request can then observe a recovered center and adopt again.
+  // Replica admission is shared; independent runtime recovery never owns the request barrier.
   let ready: Promise<void> | null = null;
   const ensureReady = (): Promise<void> => {
     if (ready === null) {
-      // adopt() runs with the temp-directory sweep enabled: a readiness attempt only ever
-      // runs after the previous one rejected, and a spawn that passed a rejected attempt
-      // threw before prepareLaunch — so no launch is mid-flight while the sweep runs.
-      const attempt = pullRuntimeReplica()
-        .then(() => spawner.adopt())
-        .then(() => squad.reconcile());
+      const attempt = pullRuntimeReplica().then(() => {
+        void spawner.adopt().then(
+          () => {
+            // The queue owns and reports maintenance failures. Returning its promise
+            // would create an unobserved second rejection in this detached continuation.
+            schedule(() => squad.reconcile());
+          },
+          (error: unknown) => console.error("[runtime-recovery]", error),
+        );
+      });
       ready = attempt.catch((error: unknown) => {
         ready = null;
         throw error;
@@ -666,13 +672,19 @@ export function openFleetEdgeRuntime(input: {
     return ready;
   };
   return {
-    reconcile: () =>
-      schedule(async () => {
-        if (readDispatchStreamHeaders(request.workspaceRoot).length === 0) return;
-        await ensureReady();
+    reconcile: async () => {
+      if (readDispatchStreamHeaders(request.workspaceRoot).length === 0) return;
+      await ensureReady();
+      // Recovery performs external work outside the queue, so one pending runtime
+      // cannot stop a sibling's terminal publication. Only this dependent action waits.
+      const recovered = await spawner.adopt();
+      await schedule(async () => {
         await squad.flushPublications();
         await pullRuntimeReplica();
-      }),
+      });
+      const failed = recovered.find((result) => result.outcome === "failed");
+      if (failed) throw failed.error;
+    },
     run: async (
       method: FleetEdgeRuntimeRequest["payload"]["method"],
       action: JsonObject,

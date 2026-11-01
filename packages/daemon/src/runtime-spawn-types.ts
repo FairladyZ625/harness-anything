@@ -227,6 +227,8 @@ export type ActiveRuntime = {
   cancelOpId: string | null;
   /** Set once provider-reported consumption passes `tokenLimit`; one-way for the attempt. */
   spendCapExceeded: boolean;
+  /** A local observation fault retires this attempt; it is not a provider failure. */
+  observationError?: Error;
   lossReason: string | null;
   lossSignal: string | null;
   lossExitCode: number | null;
@@ -348,6 +350,10 @@ export interface RemoteRuntimePersistence {
     readonly worktree: TaskWorktreeBindingV1 | null;
   }>;
   readonly readRuntimeSessions: () => Promise<readonly RuntimeSessionSelection[]>;
+  readonly readRuntimeDispatch: (runtimeSessionId: string) => Promise<{
+    readonly payload: { readonly dispatchId: string };
+    readonly source: RuntimeBinding["source"];
+  } | null>;
   readonly publish: (draft: {
     readonly type: AgentRuntimeEventV1["type"];
     readonly payload: Readonly<Record<string, unknown>>;
@@ -382,6 +388,8 @@ export interface RuntimeSpawnerInput {
     },
     binding: RuntimeBinding,
   ) => Promise<{ readonly event?: AgentRuntimeEventV1; readonly receipt: JsonObject }>;
+  /** Serialize prepared recovery mutations; external observation and authorization run before this port. */
+  readonly writeRuntime?: <T>(work: () => T | Promise<T>, binding: RuntimeBinding) => Promise<T>;
   readonly stream: Pick<AgentRuntimeStreamHub, "publish">;
   readonly now: () => string;
   readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];

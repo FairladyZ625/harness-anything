@@ -49,6 +49,7 @@ export interface RuntimeEventPublication<T extends RuntimeEventType> {
 
 /** Closed composition contract shared by the runtime spawner's extracted helpers. */
 export interface RuntimeSpawnerContext {
+  readonly closed?: () => boolean;
   readonly input: RuntimeSpawnerInput;
   readonly requiredRuntimeStore: typeof requiredRuntimeStore;
   readonly requiredRuntimeProjection: typeof requiredRuntimeProjection;
@@ -65,6 +66,8 @@ export interface RuntimeSpawnerContext {
   readonly bindProvider: (active: ActiveRuntime, identity: SessionIdentity) => Promise<void>;
   readonly isStructuredSuccessResult: typeof isStructuredSuccessResult;
   readonly processes: Map<string, ActiveRuntime>;
+  /** The existing model-slot reservation owns an attempt even before its process is registered. */
+  readonly ownsModelSlot?: (runtimeSessionId: string) => boolean;
   readonly providerErrorLimit: number;
   readonly publishRuntimeEvent: <T extends RuntimeEventType>(
     type: T,

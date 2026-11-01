@@ -28,7 +28,13 @@ import { runtimePermissionMode } from "./runtime-permissions.ts";
 import { dispatchCallbackRelay, removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { cancelRuntime, closeRuntimes, enforceRuntimeSpendCap, steerRuntime } from "./runtime-spawn-control.ts";
 import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active.ts";
-import { adoptRuntimes, reclaimFailedLaunchTempDirectory } from "./runtime-spawn-adoption.ts";
+import {
+  adoptRuntimes,
+  reclaimFailedLaunchTempDirectory,
+  sweepSettledRuntimeTempDirectories,
+  assertRuntimeRecoveryReady,
+  ownedByRuntimeSpawner,
+} from "./runtime-spawn-adoption.ts";
 import {
   requiredRuntimeSpawnText,
   runtimeErrorCode,
@@ -86,7 +92,12 @@ import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { assertReviewerTarget, selectReadOnlyAttachTarget, selectReviewTarget } from "./review-dispatch-admission.ts";
 import { assertContextBudget, ModelSlotQueue } from "./runtime/model-slot-queue.ts";
 import { relayBudgetMicrosOf } from "./runtime/cloud-dispatch-relay.ts";
-import { initialFallbackAttempt, reconcileFallback, requiredRuntimeFast } from "./runtime-spawn-fallback.ts";
+import {
+  initialFallbackAttempt,
+  reconcileFallback,
+  requiredRuntimeFast,
+  restoreFallbackSchedules,
+} from "./runtime-spawn-fallback.ts";
 import {
   resolveRuntimeResume,
   assertNativeResumeNotExported,
@@ -152,6 +163,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     });
   };
   const extracted: RuntimeSpawnerContext = {
+    closed: () => fallbackClosed,
     input,
     requiredRuntimeStore,
     requiredRuntimeProjection,
@@ -165,6 +177,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     bindProvider: (active, identity) => runtimeSpawnerDelegates.bindProvider(extracted, active, identity),
     isStructuredSuccessResult,
     processes,
+    ownsModelSlot: (runtimeSessionId) => modelSlotQueue.position(runtimeSessionId) === 0,
     providerErrorLimit,
     publishRuntimeEvent,
     exiting,
@@ -452,6 +465,24 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           now: input.now(),
         },
         async (runtimeInstanceId) => {
+          if (!dryRun)
+            for (const session of localRuntimeSessions) {
+              if (session.outcome !== null || session.instanceId !== runtimeInstanceId) continue;
+              // A session can arrive after the startup census. Its canonical node owner,
+              // not absence from this node's process map, determines who must recover it.
+              if (!processes.has(session.runtimeSessionId)) {
+                const dispatch = input.remote
+                  ? await input.remote.readRuntimeDispatch(session.runtimeSessionId)
+                  : projection!.readRuntimeDispatch(session.runtimeSessionId);
+                if (dispatch && !ownedByRuntimeSpawner(dispatch, input.runtimeNode)) continue;
+              }
+              if (!assertRuntimeRecoveryReady(extracted, session.runtimeSessionId)) continue;
+              if (!processes.has(session.runtimeSessionId))
+                throw runtimeSpawnError(
+                  "runtime_recovery_pending",
+                  `Runtime ${session.runtimeSessionId} has unresolved capacity.`,
+                );
+            }
           const initialFallback =
               inheritedFallback ??
               initialFallbackAttempt(
@@ -1312,11 +1343,11 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         undefined,
         onPrepared,
       ),
-    // Startup adoption only: cancel's mid-operation adoption call passes no sweep flag,
-    // because a just-minted temp directory whose dispatch event has not committed yet must
-    // not be reclaimed out from under an in-flight launch.
-    adopt: (onProgress?: (completed: number) => void) =>
-      adoptRuntimes(extracted, onProgress, { sweepTempDirectories: true }),
+    adopt: (onProgress?: (completed: number) => void) => {
+      input.schedule(() => restoreFallbackSchedules(extracted));
+      input.schedule(() => sweepSettledRuntimeTempDirectories(extracted));
+      return adoptRuntimes(extracted, onProgress);
+    },
     cancel: (payload: JsonObject, binding: RuntimeBinding) => cancelRuntime(extracted, payload, binding),
     steer: (payload: JsonObject, binding: RuntimeBinding) => steerRuntime(extracted, payload, binding),
     close: () => {

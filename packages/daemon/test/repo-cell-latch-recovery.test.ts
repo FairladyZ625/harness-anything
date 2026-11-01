@@ -307,6 +307,13 @@ test("SQLite malformed canonical rows fail closed during operator activation val
         }),
       /event|canonical|invalid|schema/iu,
     );
+    // The cached projection can serve a previously validated event cut without replaying old
+    // event_json rows. Damage the active store itself to exercise attach's mandatory store probe.
+    writeFileSync(path.join(rootDir, ".harness/store/generations/3/ledger.sqlite"), "not a SQLite database");
+    await assert.rejects(
+      () => openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "sqlite-invalid-reopen" }),
+      /database|sqlite/iu,
+    );
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });

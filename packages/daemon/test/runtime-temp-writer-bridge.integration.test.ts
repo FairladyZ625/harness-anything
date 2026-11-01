@@ -203,6 +203,8 @@ test(
       assert.equal(existsSync(path.join(root, "temp", reclaimed[2]!)), false);
       await cell.close();
       cell = await openRepoCell(cellInput);
+      // Repository readiness no longer waits for node-local maintenance.
+      await until(() => sweeps.length === 2);
       assert.equal(sweeps.length, 2);
       assert.deepEqual(
         [...sweeps[1]!].sort(),
