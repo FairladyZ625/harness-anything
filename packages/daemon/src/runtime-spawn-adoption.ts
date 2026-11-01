@@ -65,7 +65,10 @@ export async function adoptRuntimes(
       const runtimeSessionId = session.runtimeSessionId;
       const existing = pending.get(runtimeSessionId);
       if (existing && !existing.result) return existing.promise;
-      const alreadyOwned = context.processes.has(runtimeSessionId) || context.exiting.has(runtimeSessionId);
+      const alreadyOwned =
+        context.processes.has(runtimeSessionId) ||
+        context.exiting.has(runtimeSessionId) ||
+        context.ownsModelSlot?.(runtimeSessionId) === true;
       let dispatchId: string | null = null;
       const entry: { promise: Promise<RuntimeRecoveryResult>; result?: RuntimeRecoveryResult } = {
         promise: Promise.resolve()
@@ -134,6 +137,9 @@ async function restoreRuntime(
   session: RuntimeSessionSelection | undefined,
 ): Promise<void> {
   if (context.closed?.()) return;
+  // Canonical publication precedes process registration. Recovery must not reclaim a
+  // launch still owned by this spawner's existing slot reservation as a dead predecessor.
+  if (context.ownsModelSlot?.(header.runtimeSessionId)) return;
   if (context.processes.has(header.runtimeSessionId) || context.exiting.has(header.runtimeSessionId)) return;
   const metadata = adoptableMetadata(header);
   if (!metadata || !ownedByRuntimeSpawner(metadata.binding, context.input.runtimeNode)) return;

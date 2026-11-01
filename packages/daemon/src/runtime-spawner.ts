@@ -177,6 +177,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     bindProvider: (active, identity) => runtimeSpawnerDelegates.bindProvider(extracted, active, identity),
     isStructuredSuccessResult,
     processes,
+    ownsModelSlot: (runtimeSessionId) => modelSlotQueue.position(runtimeSessionId) === 0,
     providerErrorLimit,
     publishRuntimeEvent,
     exiting,
