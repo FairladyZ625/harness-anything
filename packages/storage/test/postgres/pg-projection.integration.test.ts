@@ -987,7 +987,8 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
         "FROM generate_series(1,2048) AS n",
       [projectionScope.tenantId, projectionScope.projectId, projectionScope.policyEpoch],
     );
-    await adminPool.query("ANALYZE ha_facts");
+    // Flush GIN's bulk-insert pending list before comparing steady-state access paths.
+    await adminPool.query("VACUUM (ANALYZE) ha_facts");
     const operator = await adminPool.query<{ proleakproof: boolean }>(
       "SELECT proleakproof FROM pg_proc WHERE oid='jsonb_contains(jsonb,jsonb)'::regprocedure",
     );
