@@ -203,6 +203,8 @@
   "views.settingsView.statusColorsLabel": "Status colors",
   "views.settingsView.submitPending": "Submitting…",
   "views.settingsView.submitToRepository": "Commit to repository",
+  "views.settingsView.repositoryReadOnly": "Read-only",
+  "views.settingsView.repositoryReadOnlyNotice": "This repository is connected as a read-only edge copy. Governance settings are visible but cannot be changed or committed here.",
   "views.settingsView.syncFeatureMobileReview": "Mobile review",
   "views.settingsView.syncFeatureMultiDevice": "Multi-device sync",
   "views.settingsView.syncFeatureRemoteAccess": "Remote project access",

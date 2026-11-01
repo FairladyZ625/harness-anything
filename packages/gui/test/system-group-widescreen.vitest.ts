@@ -228,7 +228,12 @@ async function mountedContainerClasses(testId: (typeof FILL_TESTIDS)[number]): P
             onOpenObserve: () => undefined,
             onNavigateEntity: () => undefined,
           })
-        : createElement(SettingsView, { repoId: REPO_ID }),
+        : createElement(SettingsView, {
+            repoId: REPO_ID,
+            repos: [],
+            onOpenProject: () => undefined,
+            onJoinCenter: () => undefined,
+          }),
   );
   const el = container.querySelector(`[data-testid="${testId}"]`);
   expect(el, `${testId} 未渲染`).toBeTruthy();
@@ -373,7 +378,20 @@ describe("Settings kind renderer consumes daemon fields and keeps locale local",
       value: { updateSettings, getSettings },
     });
     const container = await mountView(
-      createElement(I18nProvider, null, createElement("div", null, createElement(SettingsView, { repoId: REPO_ID }))),
+      createElement(
+        I18nProvider,
+        null,
+        createElement(
+          "div",
+          null,
+          createElement(SettingsView, {
+            repoId: REPO_ID,
+            repos: [],
+            onOpenProject: () => undefined,
+            onJoinCenter: () => undefined,
+          }),
+        ),
+      ),
     );
     for (const [testId, value] of [
       ["settings-vertical-select", "software/coding"],

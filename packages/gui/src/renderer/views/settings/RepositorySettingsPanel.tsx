@@ -40,7 +40,13 @@ const RESTORE_ACTION = "px-1 py-0.5 ui-meta text-text-faint underline-offset-2 h
 
 /** 仓库设置面板:字段面、分组与逐项解释全部由 settings 动作契约 + 声明元数据派生,
  * 本文件只承担渲染、目录联动与提交。 */
-export function RepositorySettingsPanel({ repoId }: { readonly repoId: string | null }) {
+export function RepositorySettingsPanel({
+  repoId,
+  readOnly = false,
+}: {
+  readonly repoId: string | null;
+  readonly readOnly?: boolean;
+}) {
   const settingsQuery = useSettingsQuery(repoId);
   const settingsMutation = useSettingsMutation(repoId);
   const catalogQuery = useCatalogSnapshot(repoId);
@@ -176,6 +182,7 @@ export function RepositorySettingsPanel({ repoId }: { readonly repoId: string | 
     repositoryScaffoldOptions,
     reviewerOptions,
     reviewerBlocked,
+    readOnly,
     chooseVertical,
     choosePreset,
     updateDraft,
@@ -221,9 +228,10 @@ export function RepositorySettingsPanel({ repoId }: { readonly repoId: string | 
         title={t("views.settingsView.sectionRepository")}
         action={
           <Button
+            testId="settings-repository-save"
             // 门映射草稿有未解决的非法组合时整表不让提交——约束在界面上表达,
             // 不靠提交后报错。
-            disabled={settingsMutation.isPending || gateIssues.length > 0}
+            disabled={readOnly || settingsMutation.isPending || gateIssues.length > 0}
             onClick={() =>
               settingsMutation.mutate({
                 ...settingsPayloadFromDraft(draft, snapshot?.settingsFields ?? [], settingsQuery.data?.values),
@@ -234,14 +242,18 @@ export function RepositorySettingsPanel({ repoId }: { readonly repoId: string | 
               })
             }
           >
-            {settingsMutation.isPending
-              ? t("views.settingsView.submitPending")
-              : t("views.settingsView.submitToRepository")}
+            {readOnly
+              ? t("views.settingsView.repositoryReadOnly")
+              : settingsMutation.isPending
+                ? t("views.settingsView.submitPending")
+                : t("views.settingsView.submitToRepository")}
           </Button>
         }
       >
         <div className="flex flex-col gap-2 border-b border-border px-3 py-2.5">
-          <p className="ui-meta text-text-muted">{t("views.settingsView.principalOnlyNotice")}</p>
+          <p data-testid={readOnly ? "settings-read-only" : undefined} className="ui-meta text-text-muted">
+            {t(readOnly ? "views.settingsView.repositoryReadOnlyNotice" : "views.settingsView.principalOnlyNotice")}
+          </p>
           <input
             type="search"
             aria-label={t("views.settingsView.searchPlaceholder")}
@@ -305,7 +317,7 @@ export function RepositorySettingsPanel({ repoId }: { readonly repoId: string | 
                       >
                         <Button
                           testId="settings-gates-import"
-                          disabled={settingsMutation.isPending}
+                          disabled={readOnly || settingsMutation.isPending}
                           tip={t("views.settingsView.gatesFromDocumentDescription")}
                           onClick={() => settingsMutation.mutate({ gatesFromDocument: true })}
                         >
@@ -320,7 +332,7 @@ export function RepositorySettingsPanel({ repoId }: { readonly repoId: string | 
                             drafts={gateDrafts}
                             descriptor={gateDescriptor}
                             issues={gateIssues}
-                            disabled={catalogBlocked || settingsMutation.isPending}
+                            disabled={readOnly || catalogBlocked || settingsMutation.isPending}
                             onChange={setGateDrafts}
                           />
                         )}
@@ -332,6 +344,7 @@ export function RepositorySettingsPanel({ repoId }: { readonly repoId: string | 
                       key={row.field}
                       row={row}
                       modified={fieldModified(row)}
+                      readOnly={readOnly}
                       defaultText={row.field === "roles" ? undefined : defaultValueText(fieldDefault(row))}
                       onRestore={() => updateDraft(row.field, fieldDefault(row))}
                     >
@@ -339,7 +352,7 @@ export function RepositorySettingsPanel({ repoId }: { readonly repoId: string | 
                         <DecisionPointsEditor
                           points={settingsQuery.data.decisionPoints}
                           enabled={Array.isArray(draft.decisionsEnabledPoints) ? draft.decisionsEnabledPoints : []}
-                          disabled={settingsMutation.isPending}
+                          disabled={readOnly || settingsMutation.isPending}
                           onChange={(next) => updateDraft("decisionsEnabledPoints", next)}
                         />
                       ) : (
@@ -379,12 +392,14 @@ function DefaultValueNote({ testId, text }: { readonly testId: string; readonly 
 function SettingsFieldEntry({
   row,
   modified,
+  readOnly,
   defaultText,
   onRestore,
   children,
 }: {
   readonly row: SettingsFieldRow;
   readonly modified: boolean;
+  readonly readOnly: boolean;
   readonly defaultText: string | undefined;
   readonly onRestore: () => void;
   readonly children: ReactNode;
@@ -413,6 +428,7 @@ function SettingsFieldEntry({
                 type="button"
                 className={RESTORE_ACTION}
                 data-testid={`settings-${row.field}-restore`}
+                disabled={readOnly}
                 onClick={onRestore}
               >
                 {t("views.settingsView.restoreDefault")}
@@ -479,6 +495,7 @@ function enumOptionLabel(field: string, value: string): string {
 interface FieldControlProps {
   readonly draft: SettingsDraft;
   readonly catalogBlocked: boolean;
+  readonly readOnly: boolean;
   readonly verticalOptions: readonly SelectorOption[];
   readonly presetOptions: readonly SelectorOption[];
   readonly profileOptions: readonly SelectorOption[];
@@ -532,6 +549,7 @@ function renderFieldControl(
                         type="button"
                         className={RESTORE_ACTION}
                         data-testid={`settings-roles-${key}-restore`}
+                        disabled={props.readOnly}
                         onClick={() => updateDraft("roles", { ...roles, [key]: null })}
                       >
                         {t("views.settingsView.restoreDefault")}
@@ -544,7 +562,7 @@ function renderFieldControl(
                   label={t(`views.settingsView.${key}Label`)}
                   testId={`settings-${key}-select`}
                   value={roles[key] ?? ""}
-                  disabled={props.catalogBlocked || props.reviewerBlocked}
+                  disabled={props.readOnly || props.catalogBlocked || props.reviewerBlocked}
                   options={selectorOptions(props.reviewerOptions, roles[key] ?? undefined)}
                   onChange={(value) => updateDraft("roles", { ...roles, [key]: value || null })}
                 />
@@ -562,7 +580,7 @@ function renderFieldControl(
           label={row.field}
           testId={testId ?? `settings-${row.field}-select`}
           value={typeof draft[row.field] === "string" ? (draft[row.field] as string) : ""}
-          disabled={selector.blocked}
+          disabled={selector.blocked || props.readOnly}
           options={selector.options}
           onChange={selector.onChange}
         />
@@ -575,6 +593,7 @@ function renderFieldControl(
           label={row.field}
           testId={testId ?? `settings-${row.field}-input`}
           value={Array.isArray(value) ? value : []}
+          disabled={props.readOnly}
           onChange={(next) => updateDraft(row.field, next)}
         />
       );
@@ -589,6 +608,7 @@ function renderFieldControl(
             (row.options ?? []).map((value) => ({ value, label: enumOptionLabel(row.field, value) })),
             typeof draft[row.field] === "string" ? (draft[row.field] as string) : undefined,
           )}
+          disabled={props.readOnly}
           onChange={(value) => updateDraft(row.field, value)}
         />
       );
@@ -597,6 +617,7 @@ function renderFieldControl(
         <Toggle
           label={row.field}
           checked={draft[row.field] === true}
+          disabled={props.readOnly}
           onChange={(enabled) => updateDraft(row.field, enabled)}
         />
       );
@@ -607,6 +628,7 @@ function renderFieldControl(
           label={row.field}
           testId={testId ?? `settings-${row.field}-input`}
           value={typeof value === "number" ? value : 1}
+          disabled={props.readOnly}
           onChange={(next) => updateDraft(row.field, next)}
         />
       );
@@ -620,6 +642,7 @@ function renderFieldControl(
           type="text"
           className="w-64 rounded border border-border bg-surface-raised px-2 py-1 font-mono ui-meta text-text"
           value={typeof value === "string" ? value : ""}
+          disabled={props.readOnly}
           onChange={(event) => updateDraft(row.field, event.currentTarget.value.trim())}
         />
       );
@@ -669,11 +692,13 @@ function SettingNumberInput({
   label,
   testId,
   value,
+  disabled,
   onChange,
 }: {
   readonly label: string;
   readonly testId: string;
   readonly value: number;
+  readonly disabled: boolean;
   readonly onChange: (value: number) => void;
 }) {
   return (
@@ -681,6 +706,7 @@ function SettingNumberInput({
       aria-label={label}
       data-testid={testId}
       type="number"
+      disabled={disabled}
       min={1}
       step={1}
       className="w-36 rounded border border-border bg-surface-raised px-2 py-1 font-mono ui-meta text-text"
@@ -697,11 +723,13 @@ function SettingLinesInput({
   label,
   testId,
   value,
+  disabled,
   onChange,
 }: {
   readonly label: string;
   readonly testId: string;
   readonly value: readonly string[];
+  readonly disabled: boolean;
   readonly onChange: (next: readonly string[]) => void;
 }) {
   const [text, setText] = useState(value.join("\n")),
@@ -717,6 +745,7 @@ function SettingLinesInput({
       placeholder={t("views.settingsView.worktreeSetupPlaceholder")}
       className="w-80 rounded border border-border bg-surface-raised px-2 py-1 font-mono ui-meta text-text"
       value={text}
+      disabled={disabled}
       onChange={(event) => {
         setText(event.currentTarget.value);
         onChange(lines(event.currentTarget.value));
