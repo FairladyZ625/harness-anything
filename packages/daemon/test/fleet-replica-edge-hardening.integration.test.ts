@@ -4,7 +4,7 @@
 // the retired cut/pull layout starts a fresh replica instead of failing on the old pointer; content
 // objects larger than the in-memory envelope bound stream to staging files and are digest-checked.
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
 import { open } from "node:fs/promises";
 import { TLSSocket } from "node:tls";
@@ -108,6 +108,79 @@ test(
     });
     await waitForState(() => waitedForLaterCommit, "the confirmation's write-then-read to complete", 60_000);
     assert.deepEqual(stream.failures, [], "the stream never failed while the confirmation waited");
+  },
+);
+
+test("stop joins the active confirmation and drops queued confirmations", { timeout: 120_000 }, async (t) => {
+  const fixture = await fleetReplicationFixture(t);
+  await seedCenterData(fixture, seededTask);
+  await fixture.openCenter();
+  const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-harden-stop-")),
+    entered = Promise.withResolvers<void>(),
+    release = Promise.withResolvers<void>();
+  let calls = 0,
+    confirmed = false,
+    stopped = false;
+  const stream = startHardeningStream(t, fixture, viewRoot, {
+    onConfirmed: async () => {
+      calls += 1;
+      entered.resolve();
+      await release.promise;
+      confirmed = true;
+    },
+  });
+  try {
+    await entered.promise;
+    await pressure(fixture);
+    await waitForFleetReplicaSequence(viewKey(viewRoot), centerSequence(fixture), AbortSignal.timeout(20_000));
+    const disconnected = assert.rejects(waitForFleetReplicaSequence(viewKey(viewRoot), centerSequence(fixture) + 1), {
+      code: "replica_stream_down",
+    });
+    const stopping = stream.stop().then(() => {
+      stopped = true;
+    });
+    await disconnected;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal(stopped, false, "the stream owner returned while its confirmation was still active");
+    release.resolve();
+    await stopping;
+    assert.equal(confirmed, true);
+    assert.equal(calls, 1, "an aborted stream never starts its queued confirmation");
+  } finally {
+    release.resolve();
+    await stream.stop();
+    rmSync(viewRoot, { recursive: true, force: true });
+  }
+});
+
+test(
+  "stop releases a confirmation waiting for a future replica sequence before joining it",
+  { timeout: 120_000 },
+  async (t) => {
+    const fixture = await fleetReplicationFixture(t);
+    await seedCenterData(fixture, seededTask);
+    await fixture.openCenter();
+    const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-harden-stop-waiter-")),
+      entered = Promise.withResolvers<void>(),
+      failures: unknown[] = [];
+    const stream = startHardeningStream(t, fixture, viewRoot, {
+      onConfirmed: async () => {
+        const pending = waitForFleetReplicaSequence(viewKey(viewRoot), centerSequence(fixture) + 1);
+        entered.resolve();
+        await pending;
+      },
+      onConfirmedFailure: (error) => failures.push(error),
+    });
+    try {
+      await entered.promise;
+      await stream.stop();
+      assert.equal(failures.length, 1);
+      assert.equal((failures[0] as { code?: string }).code, "replica_stream_down");
+      assert.deepEqual(stream.failures, [], "shutdown does not report a reconnect failure");
+    } finally {
+      await stream.stop();
+      rmSync(viewRoot, { recursive: true, force: true });
+    }
   },
 );
 
