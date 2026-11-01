@@ -6,6 +6,7 @@ import {
   generatedSettingsFieldProtocolProjection,
   presetCommands,
   presetMethods,
+  type CommandTopology,
   type CliInputGroup,
 } from "@harness-anything/preset/internal/preset-command-contract";
 import type { EntityActionContract } from "@harness-anything/kernel";
@@ -158,28 +159,85 @@ const entityPinProtocolCommands = Object.freeze([
   }),
 ]);
 
-export const daemonOwnedProtocolCommands = Object.freeze([
-  ...entityPinProtocolCommands,
-  ...taskSurfaceProtocolCommands,
-  ...doctorProtocolCommands,
-  ...todoProtocolCommands,
-  ...agentProtocolCommands,
-  ...assignmentProtocolCommands,
-  ...taskExecutionProtocolCommands,
-  ...docFactProtocolCommands,
-  ...decisionLifecycleProtocolCommands,
-  ...decisionRelationProtocolCommands,
-  ...relationProtocolCommands,
-  ...runtimeConfigProtocolCommands,
-  ...providerProtocolCommands,
-  ...runtimeFleetProtocolCommands,
-  ...scheduleProtocolCommands,
-  ...settingsProtocolCommands,
-  ...eventProtocolCommands,
-  ...peopleProtocolCommands,
-] as const);
+// These authored mutations are accepted by the canonical writer from an edge. Their individual
+// declarations historically used the local ledger topology, which made the edge reject them before
+// the center could apply the action's normal authorization, expected-version, and (for decisions)
+// human-consent checks. Maintenance imports, materialization, and source-host witness actions stay
+// out of this set and therefore remain explicitly rejected.
+const edgeForwardedAuthoredActionKinds = new Set([
+  "task-witness-revoke",
+  "task-witness-rerun",
+  "task-annotate",
+  "task-attest",
+  "task-amend",
+  "task-archive",
+  "task-supersede",
+  "task-rename",
+  "task-move",
+  "task-delete",
+  "task-reopen",
+  "doc-retire",
+  "fact-reclassify",
+  "fact-archive",
+  "fact-unarchive",
+  "fact-type-register",
+  "decision-repin",
+  "decision-propose",
+  "decision-transition",
+  "decision-accept",
+  "decision-defer",
+  "decision-reject",
+  "decision-review",
+  "decision-dispatch-review",
+  "decision-respond-review",
+  "decision-override-review",
+  "decision-retire",
+  "decision-amend",
+  "decision-claim-add",
+  "decision-claim-fulfill",
+  "decision-reckon",
+  "distill-candidate",
+  "distill-promote",
+  "preset-upgrade",
+  "script-run",
+  "preset-run-start",
+]);
 
-export const daemonProtocolCommands = Object.freeze([...daemonOwnedProtocolCommands, ...presetCommands] as const);
+function admitEdgeAuthoredWrite<T extends { readonly id: string; readonly actionKind?: string } & CommandTopology>(
+  command: T,
+): T {
+  const kind = ("actionKind" in command ? command.actionKind : undefined) ?? command.id;
+  return edgeForwardedAuthoredActionKinds.has(kind)
+    ? ({ ...command, admission: { ...command.admission, "remote-edge": "via-center-forward" as const } } as T)
+    : command;
+}
+
+export const daemonOwnedProtocolCommands = Object.freeze(
+  [
+    ...entityPinProtocolCommands,
+    ...taskSurfaceProtocolCommands,
+    ...doctorProtocolCommands,
+    ...todoProtocolCommands,
+    ...agentProtocolCommands,
+    ...assignmentProtocolCommands,
+    ...taskExecutionProtocolCommands,
+    ...docFactProtocolCommands,
+    ...decisionLifecycleProtocolCommands,
+    ...decisionRelationProtocolCommands,
+    ...relationProtocolCommands,
+    ...runtimeConfigProtocolCommands,
+    ...providerProtocolCommands,
+    ...runtimeFleetProtocolCommands,
+    ...scheduleProtocolCommands,
+    ...settingsProtocolCommands,
+    ...eventProtocolCommands,
+    ...peopleProtocolCommands,
+  ].map(admitEdgeAuthoredWrite),
+);
+
+export const daemonProtocolCommands = Object.freeze(
+  [...daemonOwnedProtocolCommands, ...presetCommands].map(admitEdgeAuthoredWrite),
+);
 
 export const thinCliCommands = Object.freeze(
   daemonProtocolCommands.filter((command) => !("internal" in command && command.internal)).map((command) => command),
