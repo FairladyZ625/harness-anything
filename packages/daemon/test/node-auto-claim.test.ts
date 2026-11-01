@@ -6,13 +6,14 @@ import {
   parseNodeAutoClaimPolicy,
   writeNodeAutoClaimPolicy,
 } from "../src/node-auto-claim-config.ts";
-import { decideNodeAutoClaim, openNodeAutoClaimLoop } from "../src/node-auto-claim.ts";
+import { decideNodeAutoClaim, nodeAutoClaimLeaseKey, openNodeAutoClaimLoop } from "../src/node-auto-claim.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
 const assignment = {
   taskId: "task-a",
+  workspaceRevision: 1,
   expiresAt: "2026-11-03T00:00:00.000Z",
   assignedByPersonId: "person-a",
   assignedByTeamIds: ["team-a"],
@@ -46,6 +47,27 @@ test("same owner is allowed while another person is denied", () => {
       activeCount: 0,
     }),
     { accepted: false, reason: "source_not_allowed" },
+  );
+});
+
+test("active lease accounting only counts work owned by the scanning node", () => {
+  const lease = (nodeId: string) => ({ phase: "held", source: { kind: "node", nodeId } });
+  assert.equal(
+    nodeAutoClaimLeaseKey({ repoId: "repo-a", taskId: "task-a", nodeId: "node-a", lease: lease("node-a") }),
+    "repo-a:task-a",
+  );
+  assert.equal(
+    nodeAutoClaimLeaseKey({ repoId: "repo-a", taskId: "task-a", nodeId: "node-b", lease: lease("node-a") }),
+    null,
+  );
+  assert.equal(
+    nodeAutoClaimLeaseKey({
+      repoId: "repo-a",
+      taskId: "task-a",
+      nodeId: "node-a",
+      lease: { ...lease("node-a"), phase: "released" },
+    }),
+    null,
   );
 });
 
@@ -137,6 +159,11 @@ test("loop bounds concurrent starts, de-duplicates in-flight tasks, and rescans 
       queued = { id: "task-queued", assignedBy: "owner", expiresAt: assignment.expiresAt };
     let online = false;
     let candidateReads = 0;
+    let allowedRevision = 1;
+    let fourthCandidateRead!: () => void;
+    const fourthCandidateScan = new Promise<void>((resolve) => {
+      fourthCandidateRead = resolve;
+    });
     let release!: () => void;
     const runGate = new Promise<void>((resolve) => {
       release = resolve;
@@ -154,11 +181,13 @@ test("loop bounds concurrent starts, de-duplicates in-flight tasks, and rescans 
       repoIdOf: (repo) => repo,
       candidates: async () => {
         candidateReads += 1;
+        if (candidateReads >= 4) fourthCandidateRead();
         return [allowed, queued];
       },
       taskIdOf: (candidate) => candidate.id,
       assignmentOf: async (candidate) => ({
         taskId: candidate.id,
+        workspaceRevision: candidate.id === allowed.id ? allowedRevision : 2,
         expiresAt: candidate.expiresAt,
         assignedByPersonId: candidate.assignedBy,
         assignedByTeamIds: [],
@@ -189,8 +218,13 @@ test("loop bounds concurrent starts, de-duplicates in-flight tasks, and rescans 
     );
     release();
     await queuedRun;
-    await loop.close();
+    await fourthCandidateScan;
+    await loop.trigger("external-wake");
     assert.deepEqual(started, ["task-allowed", "task-queued"]);
+    allowedRevision = 3;
+    await loop.trigger("assignment-reassigned");
+    await loop.close();
+    assert.deepEqual(started, ["task-allowed", "task-queued", "task-allowed"]);
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
   }
@@ -220,6 +254,7 @@ test("concurrency slots include local runs missing from the runtime projection",
       taskIdOf: (candidate) => candidate.id,
       assignmentOf: async (candidate) => ({
         taskId: candidate.id,
+        workspaceRevision: 3,
         expiresAt: assignment.expiresAt,
         assignedByPersonId: "owner",
         assignedByTeamIds: [],

@@ -12,6 +12,7 @@ export type NodeAutoClaimReason =
 
 export interface NodeAutoClaimAssignment {
   readonly taskId: string;
+  readonly workspaceRevision: number | null;
   readonly expiresAt: string;
   readonly assignedByPersonId: string | null;
   readonly assignedByTeamIds: readonly string[];
@@ -20,6 +21,20 @@ export interface NodeAutoClaimAssignment {
 export interface NodeAutoClaimDecision {
   readonly accepted: boolean;
   readonly reason: NodeAutoClaimReason;
+}
+
+export function nodeAutoClaimLeaseKey(input: {
+  readonly repoId: string;
+  readonly taskId: string;
+  readonly nodeId: string;
+  readonly lease: { readonly phase?: unknown; readonly source?: unknown } | null | undefined;
+}): string | null {
+  if (input.lease?.phase !== "held") return null;
+  const source = input.lease.source;
+  if (!source || typeof source !== "object") return null;
+  const kind = (source as { readonly kind?: unknown }).kind,
+    nodeId = (source as { readonly nodeId?: unknown }).nodeId;
+  return kind === "node" && nodeId === input.nodeId ? `${input.repoId}:${input.taskId}` : null;
 }
 
 export function decideNodeAutoClaim(input: {
@@ -91,7 +106,7 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
     controllers = new Set<AbortController>(),
     runs = new Set<Promise<void>>(),
     inFlight = new Set<string>(),
-    settled = new Set<string>();
+    settled = new Map<string, number | null>();
   let closed = false,
     pending: Promise<void> | null = null,
     queuedReason: string | null = null;
@@ -171,12 +186,14 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
         });
         throw error;
       }
+      const candidateKeys = new Set(candidates.map((candidate) => `${repoId}:${input.taskIdOf(candidate)}`));
+      for (const key of settled.keys())
+        if (key.startsWith(`${repoId}:`) && !candidateKeys.has(key)) settled.delete(key);
       const agents = input.agentIds(repo, policy);
       for (const candidate of candidates) {
         const taskId = input.taskIdOf(candidate),
           activeTaskKey = `${repoId}:${taskId}`,
           agentId = agents[0];
-        if (settled.has(activeTaskKey)) continue;
         if (inFlight.has(activeTaskKey)) {
           record({
             repoId,
@@ -200,6 +217,7 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
           });
           throw error;
         }
+        if (assignment && settled.get(activeTaskKey) === assignment.workspaceRevision) continue;
         if (!agentId) {
           record({
             repoId,
@@ -240,6 +258,7 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
         });
         slots += 1;
         inFlight.add(activeTaskKey);
+        const settlementRevision = assignment!.workspaceRevision;
         const controller = new AbortController();
         controllers.add(controller);
         let completed = false;
@@ -270,7 +289,7 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
             controllers.delete(controller);
             inFlight.delete(activeTaskKey);
             runs.delete(run);
-            if (completed) settled.add(activeTaskKey);
+            if (completed) settled.set(activeTaskKey, settlementRevision);
             void trigger("runtime-settled").catch((error: unknown) => {
               record({
                 repoId,
@@ -287,7 +306,6 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
   };
   const trigger = (reason: string): Promise<void> => {
     if (closed) return Promise.resolve();
-    if (reason !== "runtime-settled") settled.clear();
     if (pending) {
       queuedReason = reason;
       return pending;
