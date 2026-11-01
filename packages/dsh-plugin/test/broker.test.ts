@@ -1,8 +1,18 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createBrokerManager, type BrokerSubprocessHandle, type BrokerSubprocessRuntime } from "../src/broker.ts";
 import { apply as applyClient, openHarnessBrowser } from "../src/client.ts";
+
+test("bundle client externals do not request the plugin's own client module", () => {
+  const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
+    readonly name?: string;
+    readonly dsh?: { readonly client?: { readonly external?: readonly string[] } };
+  };
+  assert.ok(manifest.name);
+  assert.equal(manifest.dsh?.client?.external?.includes(`${manifest.name}/client`), false);
+});
 
 interface FakeStream {
   listeners: Array<(value: unknown) => void>;

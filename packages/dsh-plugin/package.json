@@ -39,7 +39,7 @@
         "@deepseek-ai/dsh-client-ui-sidebar-browser",
         "@deepseek-ai/dsh-client-ui-layout"
       ],
-      "external": ["@harness-anything/dsh-plugin/client"]
+      "external": []
     },
     "manifestVersion": 1
   },
