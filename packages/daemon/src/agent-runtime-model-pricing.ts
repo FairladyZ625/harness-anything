@@ -132,6 +132,7 @@ const modelPrices: Readonly<Record<string, ModelPrice>> = {
   },
 };
 
+const exactPrices = new Map(Object.entries(modelPrices));
 const caseFoldedPrices = new Map(Object.entries(modelPrices).map(([model, price]) => [model.toLowerCase(), price]));
 
 /** The price of one dispatched model string, or null when no public price is
@@ -139,7 +140,7 @@ const caseFoldedPrices = new Map(Object.entries(modelPrices).map(([model, price]
  * reaches us with drifted casing). */
 export function modelPriceOf(model: string | null): ModelPrice | null {
   if (model === null || model === "") return null;
-  return modelPrices[model] ?? caseFoldedPrices.get(model.toLowerCase()) ?? null;
+  return exactPrices.get(model) ?? caseFoldedPrices.get(model.toLowerCase()) ?? null;
 }
 
 /** USD amount of one counter set at the given price. `inputTokens` includes
