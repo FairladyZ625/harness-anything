@@ -1,6 +1,6 @@
 # 安装
 
-CLI 与 daemon 需要 Node.js 24 或更新版本，目前尚未发布到公开 npm registry；发布前请使用[源码 checkout smoke demo](00-what-is-this.md)。桌面 App 从 [GitHub Releases](https://github.com/FairladyZ625/harness-anything/releases) 下载。
+CLI 与 daemon 需要 Node.js 24 或更新版本，目前尚未发布到公开 npm registry；发布前请使用[源码安装技能](../../../skills/harness-download/SKILL.md)。桌面 App 从 [GitHub Releases](https://github.com/FairladyZ625/harness-anything/releases) 下载。
 
 ## CLI 与 daemon
 
@@ -11,7 +11,7 @@ npm install --global @harness-anything/cli@0.0.1 @harness-anything/daemon@0.0.1
 ha init
 ```
 
-发布前继续使用源码 checkout 路径：它会在本地构建 CLI 并从该 checkout 运行，不会安装全局 `ha` 命令。
+发布前继续使用源码 checkout 路径：[源码安装技能](../../../skills/harness-download/SKILL.md) 会一次构建 CLI、daemon 与 GUI，并把构建后的 `ha` 放进当前 shell 的 PATH；需要长期 PATH 或 `npm link` 时先向你展示提案并取得同意。
 
 ## 安装桌面 App
 

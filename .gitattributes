@@ -5,6 +5,9 @@
 #
 # Source stays convertible on purpose. A Windows contributor gets CRLF sources like any other, and
 # the crlf-checkout lane keeps the teeth it needs to find the next defect in this class.
+# A shell script is executed, so CRLF is a syntax error there rather than a rendering choice.
+# Keep script bytes LF even when the checkout converts everything else.
+*.sh text eol=lf
 package-lock.json text eol=lf
 packages/preset/assets/** -text
 packages/*/test/fixtures/** -text

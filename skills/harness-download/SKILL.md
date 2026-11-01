@@ -41,18 +41,83 @@ git clone --depth 1 --branch main https://github.com/FairladyZ625/harness-anythi
 
 源码不能放临时目录：技能链接和守护进程随后都依赖这个持久位置。
 
-在源码目录执行：
+开始装依赖前先把等待成本告诉用户，不要等命令跑起来才说。`npm ci` 只负责 JS 依赖；Electron 二进制由它自带的安装器单独下载。当前锁文件里的 `electron@42.11.16` 已经没有 `postinstall`，npm 的 install-scripts 列表里也没有它，所以 `allowScripts` 放行不了不存在的脚本，必须显式跑 `node node_modules/electron/install.js`。本机 macOS arm64 三次干净 clone 实测（2026-11-01，Node 26.8.2 / npm 11.19.1，干净 npm 与 Electron 缓存）：`npm ci` 45–80 秒，Electron 下载 98–149 秒，三包构建 53–57 秒（daemon 23–26 秒、CLI 25–28 秒、GUI 3–4 秒），从 `npm ci` 到构建完成 3 分 24 秒–4 分 39 秒；npm 缓存约 149 MiB，Electron 下载缓存约 128 MiB（合计约 277 MiB），装完 `node_modules` 约 993 MiB，其中 Electron 约 295 MiB。用户机器和网络会不同，按同一数量级预告即可。等待期间可以继续读第 2 节的技能目标目录、确认要接入的 Agent，但不要重复开第二个安装、不要删除 `node_modules`。进度直接看命令输出；Electron 下载阶段可以另开终端跑 `du -sh node_modules/electron/dist` 看增长。安装失败时读真实构建错误，不用 `--ignore-scripts` 把失败掩盖到守护进程启动阶段。
+
+在源码目录执行（一次装齐 CLI、daemon、GUI）：
 
 ```bash
 npm ci --no-audit --no-fund
-npm run build --workspace @harness-anything/daemon
-node packages/cli/src/index.ts --version
-node packages/cli/src/index.ts --help
+node node_modules/electron/install.js
+npm run build -w @harness-anything/daemon
+npm run build -w @harness-anything/cli
+npm run build -w @harness-anything/gui
 ```
 
-源码 CLI 的 daemon 自动启动入口来自 daemon 包的 bin（`dist/index.js`），因此必须先构建 daemon；`--version` / `--help` 成功不能证明该入口存在。当前 Git 钩子不会替你构建。构建失败时保留错误，不把下载阶段报成已就绪。
+`node node_modules/electron/install.js` 是幂等的：已装好会直接退出，缺二进制才会下载。构建顺序有依赖：daemon 的 bin 是 CLI daemon autostart 的入口，CLI 的 bin 是 `ha`，GUI 的产物是 `ha gui` 加载的窗口。三步都必须成功；缺一步只会在后面启动时才报错。源码 CLI 的 daemon 自动启动入口来自 daemon 包的 bin（`dist/index.js`），所以 `--version` / `--help` 成功不能证明该入口存在。当前 Git 钩子不会替你构建。
 
-本阶段以 TypeScript 源入口运行 CLI，避免把陈旧 PATH 中的 `ha` 当作本次安装。不要现在尝试安装一个尚未作为本流程发布方式的 npm 包。将来正式提供 npm 分发时，应替换本阶段，不能长期保留两套相互漂移的下载配方。
+先验证 Electron 运行时真的落地。不要用 `require('electron')` 做这一步：它在 `path.txt` 缺失时会自己触发下载，把“安装脚本没跑”伪装成成功。直接读 `path.txt` 并检查二进制：
+
+```bash
+node -e "const fs=require('fs'),path=require('path');const root=path.dirname(require.resolve('electron/package.json'));const rel=fs.readFileSync(path.join(root,'path.txt'),'utf8').trim();const bin=path.join(root,'dist',rel);fs.accessSync(bin,fs.constants.X_OK);console.log(bin)"
+```
+
+macOS 也可以直接看 `node_modules/electron/dist/Electron.app`；Linux/Windows 以该命令输出的实际二进制路径为准。
+
+让 `ha` 指向本次源码。干净源码安装不会自动生成根 `node_modules/.bin/ha`（CLI 不是任何 workspace 的依赖），所以不能靠它。二选一：
+
+不碰宿主 npm 全局前缀、先让当前会话可用：
+
+```bash
+npm_config_prefix="$HOME/.harness-anything/npm-global" npm link -w @harness-anything/cli
+export PATH="$HOME/.harness-anything/npm-global/bin:$PATH"
+command -v ha
+ha --version
+```
+
+这会把链接放进 `$HOME/.harness-anything/npm-global`，不写宿主 npm 全局前缀；删除该目录即可撤销。Windows PowerShell 用 `$env:npm_config_prefix` 和 `$env:PATH` 的等价写法。
+
+如果用户要的是“以后每个 shell 都有 `ha`”，再展示修改宿主 npm 全局前缀的提案，取得同意后执行：
+
+```bash
+npm link -w @harness-anything/cli
+```
+
+先给出会写入的 `npm prefix -g` 路径和可逆命令 `npm unlink -g @harness-anything/cli`，不要静默执行。
+
+`command -v ha` 必须是本次 link 出来的路径；`ha --version` 必须等于 `packages/cli/package.json` 的 `version`。
+
+GUI 的生产启动入口是 `ha gui`，不是 `npm run dev:electron`（后者只用于贡献者 hot reload）：
+
+```bash
+ha gui                 # 打开当前仓库
+ha gui --root <仓库>   # 打开指定仓库
+```
+
+`ha gui` 会构建缺失或过期的 renderer/preload，经 CLI 的 daemon autostart 取得 default daemon，再 detached 启动 Electron；关闭窗口不会停 daemon。首次启动 daemon 可能要几秒，回执里会给日志路径。
+
+验收时不要弹可见窗口：
+
+```bash
+npm run smoke:gui:headless
+```
+
+它用构建后的 `dist-electron/electron-main.js` 启动 Electron，断言 renderer 已加载且窗口不可见、未聚焦，输出 `gui headless smoke: ok`。只验证 daemon 自启、不开窗口时运行：
+
+```bash
+ha gui --browser
+```
+
+看到 `Harness Anything GUI available at http://127.0.0.1:...` 就说明 daemon 已由 CLI autostart 拉起；按 Ctrl-C 结束 broker（它不会停 daemon）。
+
+第 1 节完成前逐项核对：
+
+- `command -v ha` 指向本次源码 link 出来的 `ha`；
+- `ha --version` 等于 `packages/cli/package.json` 的 `version`；
+- 上面那条读 `path.txt` 的命令输出一个可执行文件路径；
+- `npm run smoke:gui:headless` 输出 `gui headless smoke: ok`；
+- `ha gui --browser` 输出 GUI URL（证明 daemon 自启）。
+
+本节是源码安装的唯一配方。npm 正式发布后替换本节，不要在 README 或 start 文档里再维护第二套源码安装命令。
 
 ## 2. 将整套技能链接到选定 Agent
 
@@ -78,7 +143,7 @@ Windows 若无法创建目录符号链接，报告具体权限条件，引导用
 
 ## 3. 继续初始化目标仓库
 
-从同一源码安装读取 `skills/harness-install/SKILL.md`，向它传递目标仓库、绝对 CLI 源入口、已发现环境和用户已给的信息。不要再下载一份源码，不要求用户另开任务。
+从同一源码安装读取 `skills/harness-install/SKILL.md`，向它传递目标仓库、`ha` 入口（`<源码目录>/packages/cli/dist/cli/src/index.js`，或上面 link 出来的 `ha`）、已发现环境和用户已给的信息。不要再下载一份源码，不要求用户另开任务。
 
 接入已有 Fleet 中心时，直接走 [harness-install 的边缘节点路线](../harness-install/SKILL.md#接入已有-fleet-中心的边缘节点)，不因 clone 中没有台账而重新 init。全新本地中心先满足该技能写明的身份前提；下载成功不代表初始化已经可用。
 
@@ -96,7 +161,7 @@ Windows 若无法创建目录符号链接，报告具体权限条件，引导用
 
 交付源码位置与版本、可重复执行的 CLI 命令、技能链接及所选 Agent、目标工作区与知识入口、首任务真实状态和未完成原因。下一次可直接调用 `harness-ceo`；另一个仓库调用 `harness-install`，不用再下载一次工具。
 
-默认使用 `node "<源码目录>/packages/cli/src/index.ts" ...`。用户明确希望命令进入 PATH 时，再按源码当前构建入口办理并说明会修改什么；不要静默全局 npm 安装。普通安装不改测试专用环境，不在临时 daemon 根里创建一个离开本会话就失联的正式工作区。
+本技能第 1 节已经把构建后的 `ha` 放在 `<源码目录>/node_modules/.bin`。交付时给出当前 shell 的 `ha ...` 命令和长期 PATH 方案；需要改 shell 启动文件或执行 `npm link` 时先展示提案取得同意。不要静默全局 npm 安装，也不要再让用户回到 `node packages/cli/src/index.ts`——那是故障排查入口，不是交付命令。普通安装不改测试专用环境，不在临时 daemon 根里创建一个离开本会话就失联的正式工作区。
 
 源码升级前检查在飞执行与共享服务归属，使用支持的更新路径；更新后同步相同技能链接。用户知识矩阵和问题记录在项目工作区，源码更新不得覆盖。
 

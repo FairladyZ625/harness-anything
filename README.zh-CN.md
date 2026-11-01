@@ -134,25 +134,19 @@ Harness 会观察自己的失败，把教训变成更强的约束，再把这些
 
 ## 本地演示
 
-Harness Anything 目前从源码 checkout 运行，需要 Node.js 24+。先运行 30 秒 smoke demo：
+Harness Anything 目前从源码 checkout 运行，需要 Node.js 24+。源码安装统一按
+[harness-download](./skills/harness-download/SKILL.md) 第 1 节执行：它一次构建 CLI、daemon 与 GUI，
+在装依赖前说明 Electron 下载的耗时和体积，并把本次源码的 `ha` 放进当前 shell 的 PATH。
+本文不另列一套源码安装命令。
+
+装好后运行 30 秒 smoke demo：
 
 ```bash
-git clone https://github.com/FairladyZ625/harness-anything
-cd harness-anything
-npm ci
 npm run quickstart:demo
 ```
 
 Demo 会构建 CLI、创建一个临时项目、跑通一条真实任务循环，并展示 agent 工作结束后
 真正留在仓库里的记录。
-
-要使用这份源码安装的 Electron GUI，先 link 一次构建后的 CLI，再从要打开的仓库启动：
-
-```bash
-npm run build -w @harness-anything/cli
-(cd packages/cli && npm link)
-ha gui
-```
 
 `ha gui` 是 GUI 的生产入口：它构建 renderer、经 CLI 取得 default daemon，再 detached
 启动 Electron；关闭窗口永远不会停止 daemon。package-local 的 `npm run dev:electron`

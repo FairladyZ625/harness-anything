@@ -3,6 +3,7 @@ set -euo pipefail
 
 repo_url=${HARNESS_REPO_URL:-https://github.com/FairladyZ625/harness-anything.git}
 install_root=${HARNESS_INSTALL_ROOT:-"$HOME/.local/share/harness-anything"}
+npm_prefix=${HARNESS_NPM_PREFIX:-"$HOME/.local/share/harness-anything-npm"}
 pull_mode=pull
 expected_ref=
 
@@ -82,7 +83,6 @@ elif [ "$pull_mode" = pull ]; then
   fi
 fi
 cd "$install_root"
-
 if [ -n "$expected_ref" ]; then
   if ! expected_sha=$(git rev-parse --verify --quiet "$expected_ref^{commit}"); then
     printf 'Requested --ref %s is not present in %s; fetch or merge it first.\n' "$expected_ref" "$install_root" >&2
@@ -115,13 +115,16 @@ deps_digest=$(dependency_digest)
 if [ -d node_modules ] && [ -f "$deps_stamp" ] && [ "$(cat "$deps_stamp")" = "$deps_digest" ]; then
   printf 'Dependencies unchanged (%s); skipping npm ci.\n' "${deps_digest:0:12}"
 else
+  printf '%s\n' 'Installing dependencies. The Electron runtime downloads separately and a first run can take several minutes; later runs reuse the caches.'
   npm ci
   printf '%s\n' "$deps_digest" > "$deps_stamp"
 fi
+node node_modules/electron/install.js
 npm run build -w @harness-anything/daemon
 npm run build -w @harness-anything/cli
-(npm run build -w @harness-anything/gui)
-(cd packages/cli && npm link)
+npm run build -w @harness-anything/gui
+node -e "const fs=require('fs'),path=require('path');const root=path.dirname(require.resolve('electron/package.json'));const rel=fs.readFileSync(path.join(root,'path.txt'),'utf8').trim();const bin=path.join(root,'dist',rel);fs.accessSync(bin,fs.constants.X_OK);console.log('Electron runtime: '+bin)"
+(cd packages/cli && npm_config_prefix="$npm_prefix" npm link)
 
 if [ "$(uname -s)" = Linux ] && [ -f node_modules/electron/dist/chrome-sandbox ]; then
   sandbox_path="$install_root/node_modules/electron/dist/chrome-sandbox"
@@ -138,7 +141,10 @@ if [ "$(uname -s)" = Linux ] && [ -f node_modules/electron/dist/chrome-sandbox ]
 fi
 
 printf '\nInstalled source CLI at %s\n' "$install_root"
+printf 'CLI entry: %s\n' "$npm_prefix/bin/ha"
+printf 'Add to PATH: export PATH="%s/bin:$PATH"\n' "$npm_prefix"
 printf 'Run: ha edge join <invite-link>\n'
+printf 'GUI: ha gui   (headless check: npm run smoke:gui:headless)\n'
 if [ "${XDG_SESSION_TYPE:-}" = wayland ]; then
   printf 'Wayland session detected. Launch the GUI with: ELECTRON_OZONE_PLATFORM_HINT=auto ha gui\n'
 fi

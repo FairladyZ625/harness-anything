@@ -113,8 +113,11 @@ The wizard pairs every failure with a suggested next step. Common cases:
 
 ## Fallback: source install and the command line
 
-On machines without an app package, install from source and join from the command line. On a clean macOS or Linux
-machine, check for Git, Node.js 24+, and curl:
+On machines without an app package, the one-command installer below is the edge path and runs the same source build
+steps. For a general source checkout (CLI, daemon, and GUI), follow
+[harness-download](../../../skills/harness-download/SKILL.md) instead of repeating them.
+
+On a clean macOS or Linux machine, check for Git, Node.js 24+, and curl:
 
 ```bash
 git --version
@@ -127,8 +130,10 @@ curl -fsSL https://raw.githubusercontent.com/FairladyZ625/harness-anything/main/
 ```
 
 The installer keeps the checkout under `~/.local/share/harness-anything`, runs `npm ci` (skipped when dependencies are
-unchanged), builds the daemon, CLI and Electron GUI bundles, and creates the `ha` command with `npm link`. On Linux it
-sets Electron's `chrome-sandbox` owner and setuid mode (using `sudo` when needed).
+unchanged), downloads or checks the Electron runtime, builds the daemon, CLI and Electron GUI bundles, and links the
+`ha` entry into a user-owned npm prefix (`~/.local/share/harness-anything-npm`) without changing npm's host-global
+prefix. It prints the exact `export PATH=...` line. On Linux it sets Electron's `chrome-sandbox` owner and setuid mode
+(using `sudo` when needed).
 
 ### Upgrading, including a center without GitHub access
 
