@@ -960,7 +960,15 @@ test("a superseded exit restarts the disk build, which re-adopts the live runtim
       "the old generation must record its superseded exit before starting the successor",
     );
     await successorStart;
-    await waitUntil(repoAttached, 10_000);
+    // Attachment and adoption have independent completion witnesses.
+    await waitUntil(
+      async () =>
+        (await repoAttached()) &&
+        readDaemonLifecycleRecords(userRoot, repoId).filter(
+          (record) => record.event === "runtime_spawn" && record.runtimeSessionId === spawnReceipt.runtimeSessionId,
+        ).length === 2,
+      10_000,
+    );
     const current = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 2_000, 2_000);
     assert.deepEqual(current.build, {
       ...(current.build as Record<string, unknown>),
