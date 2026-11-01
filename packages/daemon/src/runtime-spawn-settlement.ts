@@ -314,13 +314,15 @@ export async function publishExit(
     const exitGuidance = unsubmittedExitGuidance(active, outcome);
     if (exitGuidance) body = `${body}\n\n${exitGuidance}`;
     let reasonCode: string | null =
-        active.spendCapExceeded && !cancelled
-          ? runtimeSpendCapReasonCode
-          : reviewSuperseded.superseded
-            ? "review_cut_superseded"
-            : reviewResultMissing
-              ? "review_result_missing"
-              : null,
+        active.observationError && !cancelled
+          ? "runtime_observation_failed"
+          : active.spendCapExceeded && !cancelled
+            ? runtimeSpendCapReasonCode
+            : reviewSuperseded.superseded
+              ? "review_cut_superseded"
+              : reviewResultMissing
+                ? "review_result_missing"
+                : null,
       sha256 = createHash("sha256").update(body).digest("hex"),
       result: RuntimeResultClaim = {
         sha256,

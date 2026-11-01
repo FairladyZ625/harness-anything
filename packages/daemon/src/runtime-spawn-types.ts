@@ -227,6 +227,8 @@ export type ActiveRuntime = {
   cancelOpId: string | null;
   /** Set once provider-reported consumption passes `tokenLimit`; one-way for the attempt. */
   spendCapExceeded: boolean;
+  /** A local observation fault retires this attempt; it is not a provider failure. */
+  observationError?: Error;
   lossReason: string | null;
   lossSignal: string | null;
   lossExitCode: number | null;

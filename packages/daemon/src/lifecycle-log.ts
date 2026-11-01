@@ -34,6 +34,7 @@ export type DaemonLifecycleEvent =
   | "repo_registry_pruned"
   | "attachments_settled"
   | "runtime_recovery_failed"
+  | "runtime_observation_failed"
   | "runtime_spawn"
   | "runtime_exit"
   | "materializer_effect_denied"
