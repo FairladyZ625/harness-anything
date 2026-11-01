@@ -93,6 +93,24 @@ test("write-road registry classifies sqlite read-only by construction site, not 
     );
   }));
 
+// dec_D90F19C8AAAF39747F8F0D6698: scoped PG text reads preserve the SQLite FTS contract.
+test("PG scratch FTS construction must remain registered even though it is fileless", () =>
+  withFixture((root) => {
+    const sink = "packages/storage/src/pg/pg-text-search.ts";
+    write(root, sink, 'import { DatabaseSync } from "node:sqlite"; const db = new DatabaseSync(":memory:");\n');
+    assert.match(
+      findWriteRoadRegistryViolations(root).join("\n"),
+      /pg-text-search\.ts: physical write sink is not declared/u,
+    );
+    const file = path.join(root, "tools/write-road-registry.json");
+    const registry = JSON.parse(readFileSync(file, "utf8"));
+    registry.physicalWriteFiles.push(sink);
+    writeFileSync(file, JSON.stringify(registry));
+    assert.deepEqual(findWriteRoadRegistryViolations(root), []);
+    write(root, sink, "export {};\n");
+    assert.match(findWriteRoadRegistryViolations(root).join("\n"), /pg-text-search\.ts: stale physicalWriteFiles/u);
+  }));
+
 test("write-road registry does not flag a file whose sqlite sites are all read-only", () =>
   withFixture((root) => {
     write(

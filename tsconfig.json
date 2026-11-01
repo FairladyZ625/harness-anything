@@ -8,6 +8,7 @@
     { "path": "./packages/authorization-gui" },
     { "path": "./packages/authorization-keycloak-gui" },
     { "path": "./packages/preset" },
+    { "path": "./packages/dsh-plugin" },
     { "path": "./packages/daemon" },
     { "path": "./packages/cli" },
     { "path": "./packages/gui" }

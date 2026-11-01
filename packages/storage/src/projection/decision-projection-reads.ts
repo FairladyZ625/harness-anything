@@ -476,7 +476,7 @@ export function decisionLegacyNumber(decisionId: string): number | null {
   return legacyId === undefined ? null : Number(legacyId.slice(1));
 }
 
-function compareDecisionIds(left: string, right: string): number {
+export function compareDecisionIds(left: string, right: string): number {
   const a = decisionLegacyNumber(left),
     b = decisionLegacyNumber(right);
   return a !== null && b !== null && a !== b
