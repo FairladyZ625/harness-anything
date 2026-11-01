@@ -1,11 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, request } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { promisify } from "node:util";
 import { chromium } from "playwright-core";
 import { startBrowserGuiBroker } from "../src/cli/gui-browser-broker.ts";
 import {
@@ -100,12 +101,13 @@ test("browser GUI embedding requires an explicit matching parent without changin
   const address = parent.address();
   assert.ok(address && typeof address !== "string");
   const parentOrigin = `http://127.0.0.1:${address.port}`;
-  const browser = await chromium.launch({
-    executablePath: chromiumExecutable(root),
-    headless: true,
-    args: ["--no-sandbox"],
-  });
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
   try {
+    browser = await chromium.launch({
+      executablePath: chromiumExecutable(root),
+      headless: true,
+      args: ["--no-sandbox"],
+    });
     for (const allowedParent of [undefined, "https://different.example", parentOrigin, "dsh-app://app"]) {
       const broker = await startBrowserGuiBroker(root, root, allowedParent);
       const page = await browser.newPage();
@@ -159,7 +161,7 @@ test("browser GUI embedding requires an explicit matching parent without changin
       await assert.rejects(startBrowserGuiBroker(root, root, invalid), /parent origin/i);
     }
   } finally {
-    await browser.close();
+    await browser?.close();
     await new Promise<void>((resolve, reject) => parent.close((error) => (error ? reject(error) : resolve())));
     rmSync(root, { recursive: true, force: true });
   }
@@ -174,7 +176,9 @@ test("ordinary Chromium embeds real task data through authenticated browser RPC"
   let broker: Awaited<ReturnType<typeof startBrowserGuiBroker>> | undefined;
   const parentServer = createServer((_request, response) => {
     response.setHeader("Content-Type", "text/html");
-    response.end(`<!doctype html><title>Parent</title><iframe src="${broker?.url ?? "about:blank"}"></iframe>`);
+    response.end(
+      `<!doctype html><title>Parent</title><body style="margin:0"><iframe style="display:block;width:100vw;height:100vh;border:0" src="${broker?.url ?? "about:blank"}"></iframe>`,
+    );
   });
   await new Promise<void>((resolve) => parentServer.listen(0, "127.0.0.1", resolve));
   const address = parentServer.address();
@@ -226,18 +230,25 @@ test("ordinary Chromium embeds real task data through authenticated browser RPC"
 
       assert.deepEqual(cspErrors, []);
 
-      const unavailableResponse = page.waitForResponse(
-        (response) => new URL(response.url()).pathname === "/rpc" && response.status() === 502,
-        { timeout: 30_000 },
-      );
-      run(root, userRoot, ["daemon", "stop"]);
-      const unavailableBody = (await unavailableResponse).json();
+      // This process also serves the broker: a synchronous stop blocks its
+      // in-flight RPC sockets from draining while the CLI waits for daemon exit.
+      const [unavailableResponse] = await Promise.all([
+        page.waitForResponse((response) => new URL(response.url()).pathname === "/rpc" && response.status() === 502, {
+          timeout: 30_000,
+        }),
+        promisify(execFile)(
+          process.execPath,
+          [path.resolve("packages/cli/src/index.ts"), "--root", root, "--json", "daemon", "stop"],
+          { env: environment(root, userRoot) },
+        ),
+      ]);
+      const unavailableBody = unavailableResponse.json();
       assert.equal((await unavailableBody).error.code, "daemon_unavailable");
+      startDaemon(root, userRoot);
       const recoveredResponse = page.waitForResponse(
         (response) => new URL(response.url()).pathname === "/rpc" && response.status() === 200,
         { timeout: 30_000 },
       );
-      startDaemon(root, userRoot);
       await recoveredResponse;
       await gui.getByTestId("app-sidebar").waitFor({ timeout: 30_000 });
     } finally {
@@ -376,12 +387,18 @@ async function settleBrowserWrite(url: URL, token: string, repoId: string, opId:
 }
 
 function chromiumExecutable(parent: string): string {
+  const browserName =
+    process.platform === "darwin"
+      ? "Google Chrome for Testing"
+      : process.platform === "win32"
+        ? "chrome.exe"
+        : "chrome";
   const configured = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
     candidates = [configured, "/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome"];
   const executable = candidates.find((candidate): candidate is string => Boolean(candidate && existsSync(candidate)));
   if (executable) return executable;
   if (process.env.PLAYWRIGHT_BROWSERS_PATH) {
-    const cached = findFile(process.env.PLAYWRIGHT_BROWSERS_PATH, "chrome");
+    const cached = findFile(process.env.PLAYWRIGHT_BROWSERS_PATH, browserName);
     assert.ok(cached, "isolated dependency preparation did not cache Playwright Chromium");
     return cached;
   }
@@ -389,7 +406,7 @@ function chromiumExecutable(parent: string): string {
   execFileSync(process.execPath, [path.resolve("node_modules/playwright-core/cli.js"), "install", "chromium"], {
     stdio: "pipe",
   });
-  const downloaded = findFile(process.env.PLAYWRIGHT_BROWSERS_PATH, "chrome");
+  const downloaded = findFile(process.env.PLAYWRIGHT_BROWSERS_PATH, browserName);
   assert.ok(downloaded, "Playwright installed Chromium without its browser executable");
   return downloaded;
 }
