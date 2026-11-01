@@ -57,12 +57,12 @@ export async function cancelRuntime(
       "execution_scope_mismatch",
       "This runtime has no owner dispatch on this node; cancel it through its owner.",
     );
-  assertRuntimeRecoveryReady(context, runtimeSessionId);
+  if (!missingOwnedProcess) assertRuntimeRecoveryReady(context, runtimeSessionId);
   if (!context.processes.has(runtimeSessionId) && !missingOwnedProcess) {
     const [adoption] = await Promise.allSettled([adoptRuntimes(context, undefined, { runtimeSessionId })]);
     if (adoption.status === "rejected" && !context.processes.has(runtimeSessionId)) throw adoption.reason;
   }
-  assertRuntimeRecoveryReady(context, runtimeSessionId);
+  if (!missingOwnedProcess) assertRuntimeRecoveryReady(context, runtimeSessionId);
   const active = context.processes.get(runtimeSessionId);
   if (active) {
     active.cancelBinding = binding;

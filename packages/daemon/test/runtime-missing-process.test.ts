@@ -14,6 +14,7 @@ import {
 import { attachReceiptAcceptance } from "@harness-anything/kernel";
 import { validateDaemonGuiCommandReceipt } from "../src/protocol/daemon-protocol.contract.ts";
 import { adoptRuntimes } from "../src/runtime-spawn-adoption.ts";
+import { runtimeSpawnError } from "../src/runtime-spawn-errors.ts";
 import { cancelRuntime, steerRuntime } from "../src/runtime-spawn-control.ts";
 import { makeRuntimeSpawner } from "../src/runtime-spawner.ts";
 import { ModelSlotQueue } from "../src/runtime/model-slot-queue.ts";
@@ -377,7 +378,7 @@ test("runtime cancel settles a live remote session when the owner stream is gone
       owner = {
         actor: edgeBinding.actor,
         source: edgeBinding.source,
-        dispatchId,
+        payload: { dispatchId },
         instanceId,
         processGroupPid: 2_147_483_646,
       },
@@ -399,12 +400,14 @@ test("runtime cancel settles a live remote session when the owner stream is gone
         },
         processes: new Map(),
         exiting: new Set<string>(),
+        runtimeSpawnError,
         publishRuntimeEvent: async (type: string) => {
           published.push(type);
           return {};
         },
         controlReceipt: (_opId: string, _runtimeSessionId: string, detail: string) => ({ detail }),
       };
+    assert.equal((await adoptRuntimes(context as never))[0]?.outcome, "failed");
     const receipt = await cancelRuntime(context as never, { runtimeSessionId }, edgeBinding);
     assert.equal(receipt.detail, "cancelled");
     assert.deepEqual(reclaimed, [[instanceId, runtimeSessionId]]);
