@@ -15,8 +15,8 @@ export interface IdentitySessionPort {
     authorityOverride?: OidcLoginAuthority,
     expiresAtLimit?: number,
   ): Promise<Record<string, unknown>>;
-  revokeDeviceSessions(nodeId: string): Promise<void>;
-  receiveDeviceNotice(nodeId: string, personId: string, notice: FleetDeviceLoginNotice): void;
+  revokeDeviceSessions?(nodeId: string): Promise<void>;
+  receiveDeviceNotice?(nodeId: string, personId: string, notice: FleetDeviceLoginNotice): void;
   deviceApproval(userCode: string, loginTarget?: string): Promise<Record<string, unknown>>;
   pollDevice(): Promise<Record<string, unknown>>;
   /** `expiresAt` is the SSO deadline, or null when Keycloak decides offline validity on refresh. */
@@ -35,6 +35,8 @@ export interface IdentitySessionPort {
   }>;
   /** Whether a Keycloak authority exists at all; without one no request can ever authorize, so callers guide to ha bootstrap. */
   configured(): boolean;
+  /** Rejects collaboration-only operations when the selected provider is single-machine builtin. */
+  requireCollaboration(): void;
   /** Whether the daemon has the center service credential needed for ownership claims. */
   centerConfigured(): boolean;
   /**

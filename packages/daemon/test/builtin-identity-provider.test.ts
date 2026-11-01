@@ -6,7 +6,6 @@ import path from "node:path";
 import test from "node:test";
 import {
   BuiltinIdentitySession,
-  BuiltinPolicyAdapter,
   BuiltinIdentityManagement,
   userRootFromBuiltinUrl,
 } from "@harness-anything/authorization-builtin";
@@ -90,10 +89,10 @@ test("clean user roots select built-in identity without a managed runtime", asyn
     ).outcome,
     "denied",
   );
-  const nodeProvider = center.provider as BuiltinPolicyAdapter;
-  await nodeProvider.createNode(center.accessToken, { nodeId: "edge-a", personId: "person-owner" }, "node-secret");
-  assert.equal(await nodeProvider.authenticateNode("edge-a", "node-secret"), true);
-  assert.equal(await nodeProvider.authenticateNode("edge-a", "wrong"), false);
+  await assert.rejects(
+    center.provider.createNode(center.accessToken, { nodeId: "edge-a", personId: "person-owner" }, "node-secret"),
+    { code: "identity_plugin_required" },
+  );
 });
 
 test("external mode remains an explicit Keycloak plugin selection", async (t) => {
@@ -135,14 +134,10 @@ test("builtin authority URLs reject malformed or non-absolute roots", () => {
   assert.equal(userRootFromBuiltinUrl("https://identity.example.invalid"), undefined);
 });
 
-test("builtin edge admission issues a center session and edge can import it", async (t) => {
-  const centerRoot = mkdtempSync(path.join(tmpdir(), "ha-builtin-center-")),
-    edgeRoot = mkdtempSync(path.join(tmpdir(), "ha-builtin-edge-"));
-  t.after(() => {
-    rmSync(centerRoot, { recursive: true, force: true });
-    rmSync(edgeRoot, { recursive: true, force: true });
-  });
-  const center = new BuiltinIdentitySession(centerRoot);
+test("builtin collaboration entry points require the Keycloak plugin", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-collaboration-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const center = new BuiltinIdentitySession(root);
   await center.bootstrapAdmin({
     username: "owner",
     email: "owner@example.invalid",
@@ -150,6 +145,8 @@ test("builtin edge admission issues a center session and edge can import it", as
     password: "correct horse",
     personId: "person-owner",
   });
+  assert.throws(() => center.requireCollaboration(), { code: "identity_plugin_required" });
+  await assert.rejects(center.interactiveAuthority(), { code: "identity_plugin_required" });
   const store = createEdgeJoinStore({ randomToken: () => "builtin-edge-invite" }),
     created = store.create({
       centerOrigin: "https://center.example.invalid:7545",
@@ -163,35 +160,23 @@ test("builtin edge admission issues a center session and edge can import it", as
       createdBy: "person-owner",
       ttlMs: 60_000,
     });
-  const result = await admitEdgeJoin({
-    joinId: created.record.joinId,
-    inviteToken: created.link.token!,
-    oidc: center,
-    edgeJoins: store,
-    issueInvitationSession: (personId) => center.issueInvitationSession(personId),
-    validateSnapshot: async () => undefined,
-    registerNode: async (record) => {
-      assert.equal(record.personId, "person-owner");
-      return "node-credential";
+  await assert.rejects(
+    admitEdgeJoin({
+      joinId: created.record.joinId,
+      inviteToken: created.link.token!,
+      oidc: center,
+      edgeJoins: store,
+      validateSnapshot: async () => undefined,
+      registerNode: async (record) => {
+        assert.equal(record.personId, "person-owner");
+        return "node-credential";
+      },
+    }),
+    (error: unknown) => {
+      assert.equal((error as { code?: string }).code, "identity_plugin_required");
+      assert.match((error as Error).message, /Keycloak/);
+      return true;
     },
-  });
-  assert.equal(result.personId, "person-owner");
-  assert.equal(typeof result.accessToken, "string");
-  assert.equal(typeof result.sessionExpiresAt, "number");
-  assert.equal(store.status(created.record.joinId).state, "consumed");
-
-  const edge = new BuiltinIdentitySession(edgeRoot);
-  await edge.importSession({
-    schema: "harness-oidc-session/v3",
-    issuer: "builtin://local",
-    accessToken: result.accessToken!,
-    refreshToken: "builtin-edge-session",
-    subject: "builtin-subject-person-owner",
-    personId: result.personId,
-    expiresAt: Date.now() + 60_000,
-    sessionExpiresAt: result.sessionExpiresAt!,
-    roles: [],
-    authority: { url: "builtin://local", realm: "local", clientId: "harness-center" },
-  });
-  assert.equal((await edge.bind({ transportKind: "unix-socket" })).oidcPrincipal?.personId, "person-owner");
+  );
+  assert.equal(store.status(created.record.joinId).state, "pending");
 });

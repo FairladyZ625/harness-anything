@@ -128,6 +128,7 @@ export class AccessAdminService {
   /** Pre-session admission used only by the fleet edge.join frame. The whole invite/node write is
    * serialized by the OIDC writer, and the machine credential is returned only to this caller. */
   async admitEdgeJoin(input: { readonly joinId: string; readonly inviteToken: string; readonly accessToken?: string }) {
+    this.#oidc.requireCollaboration();
     return this.#edgeJoinAdmin.admit(input);
   }
 
@@ -148,6 +149,8 @@ export class AccessAdminService {
   }
 
   async run(request: AccessAdminRequest, requester?: string): Promise<Record<string, unknown>> {
+    if (request.operation !== "session-lifetime" && request.operation !== "session-lifetime-set")
+      this.#oidc.requireCollaboration();
     if (request.operation === "permission-request-create" && requester !== undefined)
       return this.#createPermissionRequest(request, requester);
     const ownDevices = request.operation?.startsWith("device-") === true,

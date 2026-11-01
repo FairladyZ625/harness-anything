@@ -3,10 +3,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from "node:net";
 import path from "node:path";
 import {
-  consumeKnownError,
   type AuthorizationProvider,
-  type DeviceLoginRequest,
-  type FleetDeviceLoginNotice,
   type IdentityAuthenticationContext,
   type IdentitySessionPort,
   type OidcLoginAuthority,
@@ -22,12 +19,18 @@ import {
   sessionFile,
   type BuiltinUser,
 } from "./state.ts";
+import { identityPluginRequired } from "./collaboration.ts";
 
 type Pending = {
   readonly userCode: string;
   readonly deviceCode: string;
   readonly expiresAt: number;
   approvedPersonId?: string;
+};
+type LoginResponse = {
+  readonly status: number;
+  readonly headers?: Readonly<Record<string, string>>;
+  readonly body?: string;
 };
 const coded = (code: string, message: string): Error => Object.assign(new Error(message), { code });
 
@@ -36,7 +39,6 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
   readonly #writes: { current: Promise<unknown> } = { current: Promise.resolve() };
   readonly #adapter: BuiltinPolicyAdapter;
   readonly #pending = new Map<string, Pending>();
-  readonly #devices = new Map<string, DeviceLoginRequest>();
   #loginServer: Server | undefined;
   #loginPort: number | undefined;
   #loginRedirectUri: string | undefined;
@@ -87,20 +89,6 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
     const verificationUri = await this.#loginPageUrl("device", userCode);
     return { ok: true, pending: true, verificationUri, userCode, interval: 1, expiresAt };
   }
-  revokeDeviceSessions(_nodeId: string): Promise<void> {
-    return Promise.resolve();
-  }
-  receiveDeviceNotice(nodeId: string, personId: string, notice: FleetDeviceLoginNotice): void {
-    const key = `${nodeId}:${notice.userCode}`;
-    if (notice.pending)
-      this.#devices.set(key, {
-        nodeId,
-        personId,
-        ...notice,
-        verificationUriComplete: `builtin://login?user_code=${encodeURIComponent(notice.userCode)}`,
-      });
-    else this.#devices.delete(key);
-  }
   async deviceApproval(userCode: string): Promise<Record<string, unknown>> {
     const pending = [...this.#pending.values()].find((item) => item.userCode === userCode);
     if (!pending) throw coded("oidc_device_missing", "Unknown or expired built-in device code.");
@@ -137,7 +125,6 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
       authenticated: true,
       personId: session.personId,
       expiresAt: session.sessionExpiresAt,
-      deviceLoginRequests: [...this.#devices.values()].filter((item) => item.personId === session.personId),
     };
   }
   async bindingHealth(_loginTarget: string): Promise<Record<string, unknown>> {
@@ -156,9 +143,7 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
     return { ok: true, required: this.#adapter.users().length === 0 };
   }
   async interactiveAuthority(): Promise<{ readonly url: string; readonly realm: string; readonly clientId: string }> {
-    ensureBuiltinConfig(this.#root);
-    // The invitation carries public provider metadata.  The center's local
-    // filesystem path is never placed in a link sent to an edge node.
+    this.requireCollaboration();
     return { url: "builtin://local", realm: "local", clientId: "harness-center" };
   }
   configured(): boolean {
@@ -168,13 +153,15 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
   centerConfigured(): boolean {
     return this.configured();
   }
+  requireCollaboration(): void {
+    throw identityPluginRequired();
+  }
   async bind<T extends IdentityAuthenticationContext>(
     auth: T,
     _loginTarget?: string,
     replicaRead = false,
   ): Promise<T & IdentityAuthenticationContext> {
-    const fleetToken = auth.transportKind === "fleet-tls" ? auth.humanAccessToken : undefined,
-      session = fleetToken ? this.#readFleetSession(fleetToken) : this.#readSession();
+    const session = this.#readSession();
     if (!session) return auth;
     if (
       session.expiresAt <= Date.now() ||
@@ -193,7 +180,7 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
     return {
       ...auth,
       localSessionAccessToken: async () => {
-        const current = fleetToken ? this.#readFleetSession(fleetToken) : this.#readSession();
+        const current = this.#readSession();
         if (!current || generation !== this.#sessionGeneration || current.subject !== session.subject)
           throw coded("authentication_required", "The originally bound built-in session has ended.");
         return current.accessToken;
@@ -208,8 +195,8 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
       },
     };
   }
-  discovery(nodeId: string): OidcLoginAuthority {
-    return { url: "builtin://local", realm: "local", clientId: `harness-node-${nodeId}` };
+  discovery(_nodeId: string): OidcLoginAuthority | null {
+    return null;
   }
   async requireRole(role: string): Promise<StoredSession> {
     const session = await this.requireSession();
@@ -223,9 +210,10 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
   }
   serialize<T>(operation: () => Promise<T>): Promise<T> {
     const run = this.#writes.current.then(operation);
-    this.#writes.current = run.catch((error) => {
-      consumeKnownError(error);
-    });
+    this.#writes.current = run.then(
+      () => undefined,
+      () => undefined,
+    );
     return run;
   }
   configureAuthority<T>(operation: () => Promise<T>): Promise<T> {
@@ -246,37 +234,6 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
     return { url: builtinAuthorityUrl(this.#root), realm: "local", accessToken, provider: this.#adapter };
   }
 
-  async issueInvitationSession(personId: string, withinWriter = false): Promise<StoredSession> {
-    const issue = async () => {
-      const user = this.#adapter.users().find((candidate) => candidate.personId === personId);
-      if (!user) throw coded("access_person_unknown", `Built-in account ${personId} does not exist.`);
-      return this.#mintSession(user);
-    };
-    return withinWriter ? issue() : this.serialize(issue);
-  }
-
-  async importSession(session: StoredSession, withinWriter = false): Promise<void> {
-    const importIt = async () => {
-      if (!session.accessToken || !session.personId || session.sessionExpiresAt === null)
-        throw coded("authentication_required", "The center returned an incomplete built-in session.");
-      const file = sessionFile(this.#root),
-        directory = path.dirname(file),
-        temporary = `${file}.${process.pid}.tmp`;
-      mkdirSync(directory, { recursive: true, mode: 0o700 });
-      writeFileSync(temporary, `${JSON.stringify(session)}\n`, { mode: 0o600 });
-      chmodSync(temporary, 0o600);
-      renameSync(temporary, file);
-      this.#adapter.registerSession(session.accessToken, {
-        personId: session.personId,
-        subject: session.subject,
-        expiresAt: session.expiresAt,
-        sessionExpiresAt: session.sessionExpiresAt,
-        roles: session.roles,
-      });
-    };
-    if (withinWriter) await importIt();
-    else await this.serialize(importIt);
-  }
   bootstrapAdmin(input: {
     readonly username: string;
     readonly email: string;
@@ -299,15 +256,11 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
       readonly displayName: string;
       readonly personId: string;
     },
-    withinWriter = false,
+    _withinWriter = false,
+    _loginTarget?: string,
   ): Promise<Record<string, unknown>> {
-    const invite = async () => {
-      await this.requireRole("access-admin");
-      const temporary = opaqueToken("invite");
-      this.#adapter.addUser({ ...input, password: temporary });
-      return { ok: true, invited: true, personId: input.personId };
-    };
-    return withinWriter ? invite() : this.serialize(invite);
+    void input;
+    throw identityPluginRequired();
   }
   #provider(): BuiltinPolicyAdapter {
     return this.#adapter;
@@ -328,52 +281,57 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
     return `http://127.0.0.1:${this.#loginPort}/${kind}?value=${encodeURIComponent(value)}`;
   }
   async #serveLoginPage(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const result = await this.#loginResponse(request);
+    response.writeHead(result.status, result.headers).end(result.body);
+  }
+  async #loginResponse(request: IncomingMessage): Promise<LoginResponse> {
     try {
       const url = new URL(request.url ?? "/", "http://127.0.0.1");
       if (request.method === "GET" && (url.pathname === "/login" || url.pathname === "/device")) {
         const field = url.pathname === "/device" ? "userCode" : "state";
-        response
-          .writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
-          .end(
-            `<!doctype html><title>Harness sign in</title><form method="post" action="/${url.pathname.slice(1)}"><label>Username <input name="username" autocomplete="username" required></label><label>Password <input name="password" type="password" autocomplete="current-password" required></label><input type="hidden" name="${field}" value="${escapeHtml(url.searchParams.get("value") ?? "")}"><button>Sign in</button></form>`,
-          );
-        return;
+        return {
+          status: 200,
+          headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
+          body: `<!doctype html><title>Harness sign in</title><form method="post" action="/${url.pathname.slice(1)}"><label>Username <input name="username" autocomplete="username" required></label><label>Password <input name="password" type="password" autocomplete="current-password" required></label><input type="hidden" name="${field}" value="${escapeHtml(url.searchParams.get("value") ?? "")}"><button>Sign in</button></form>`,
+        };
       }
       if (request.method !== "POST" || (url.pathname !== "/login" && url.pathname !== "/device")) {
-        response.writeHead(404).end();
-        return;
+        return { status: 404 };
       }
       const body = await readRequestBody(request),
         form = new URLSearchParams(body),
         user = this.#adapter.userByUsername(form.get("username") ?? ""),
         password = form.get("password");
       if (!user || password === null || !this.#adapter.verifyPassword(user, password)) {
-        response.writeHead(401, { "content-type": "text/plain" }).end("Built-in account credentials were rejected.");
-        return;
+        return {
+          status: 401,
+          headers: { "content-type": "text/plain" },
+          body: "Built-in account credentials were rejected.",
+        };
       }
       if (url.pathname === "/device") {
         const pending = [...this.#pending.values()].find((item) => item.userCode === form.get("userCode"));
-        if (!pending) {
-          response.writeHead(404).end("Unknown or expired device code.");
-          return;
-        }
+        if (!pending) return { status: 404, body: "Unknown or expired device code." };
         this.#pending.set(pending.deviceCode, { ...pending, approvedPersonId: user.personId });
-        response.writeHead(200, { "content-type": "text/plain" }).end("Device approved. Return to Harness.");
-        return;
+        return {
+          status: 200,
+          headers: { "content-type": "text/plain" },
+          body: "Device approved. Return to Harness.",
+        };
       }
       const state = form.get("state"),
         redirect = this.#loginRedirectUri;
-      if (!state || !redirect || state !== this.#loginState) {
-        response.writeHead(400).end("Login state expired.");
-        return;
-      }
+      if (!state || !redirect || state !== this.#loginState) return { status: 400, body: "Login state expired." };
       const callback = new URL(redirect);
       callback.searchParams.set("code", `${user.username}:${password}`);
       callback.searchParams.set("state", state);
-      response.writeHead(302, { location: callback.toString() }).end();
-    } catch (error) {
-      consumeKnownError(error);
-      response.writeHead(500, { "content-type": "text/plain" }).end("Built-in sign-in failed.");
+      return { status: 302, headers: { location: callback.toString() } };
+    } catch {
+      return {
+        status: 500,
+        headers: { "content-type": "text/plain" },
+        body: "Built-in sign-in failed.",
+      };
     }
   }
   async #closeLoginServer(): Promise<void> {
@@ -386,29 +344,20 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
   #readSession(): StoredSession | undefined {
     const file = sessionFile(this.#root);
     if (!existsSync(file)) return undefined;
+    const result = this.#readSessionFile(file);
+    return result.kind === "present" ? result.session : undefined;
+  }
+  #readSessionFile(
+    file: string,
+  ): { readonly kind: "present"; readonly session: StoredSession } | { readonly kind: "absent" } {
     try {
       const session = JSON.parse(readFileSync(file, "utf8")) as StoredSession;
-      return session.accessToken && findSession(readState(this.#root), session.accessToken) ? session : undefined;
-    } catch (error) {
-      consumeKnownError(error);
-      return undefined;
+      return session.accessToken && findSession(readState(this.#root), session.accessToken)
+        ? { kind: "present", session }
+        : { kind: "absent" };
+    } catch {
+      return { kind: "absent" };
     }
-  }
-  #readFleetSession(token: string): StoredSession | undefined {
-    const record = findSession(readState(this.#root), token);
-    if (!record) return undefined;
-    return {
-      schema: "harness-oidc-session/v3",
-      issuer: builtinAuthorityUrl(this.#root),
-      accessToken: token,
-      refreshToken: "builtin-fleet-session",
-      subject: record.subject,
-      personId: record.personId,
-      expiresAt: record.expiresAt,
-      sessionExpiresAt: record.sessionExpiresAt,
-      roles: record.roles,
-      authority: { url: builtinAuthorityUrl(this.#root), realm: "local", clientId: "harness-center" },
-    };
   }
   #deleteSession(): void {
     const file = sessionFile(this.#root);

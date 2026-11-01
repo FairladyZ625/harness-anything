@@ -1,12 +1,7 @@
 import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import {
-  consumeKnownError,
-  type AuthorizationNode,
-  type AuthorizationPolicyGroup,
-  type AuthorizationGrant,
-} from "@harness-anything/kernel";
+import { type AuthorizationPolicyGroup, type AuthorizationGrant } from "@harness-anything/kernel";
 
 export interface BuiltinUser {
   readonly userId: string;
@@ -17,15 +12,6 @@ export interface BuiltinUser {
   readonly passwordSalt: string;
   readonly passwordHash: string;
   readonly roles: readonly string[];
-  readonly teamIds: readonly string[];
-}
-export interface BuiltinTeam {
-  readonly id: string;
-  readonly name: string;
-  readonly memberUserIds: readonly string[];
-}
-export interface BuiltinStoredNode extends AuthorizationNode {
-  readonly credentialHash: string;
 }
 export interface BuiltinSessionRecord {
   readonly tokenHash: string;
@@ -41,8 +27,6 @@ export interface BuiltinState {
   readonly users: readonly BuiltinUser[];
   readonly groups: readonly AuthorizationPolicyGroup[];
   readonly grants: readonly AuthorizationGrant[];
-  readonly teams: readonly BuiltinTeam[];
-  readonly nodes: readonly BuiltinStoredNode[];
   readonly sessions: readonly BuiltinSessionRecord[];
   readonly repositoryOwners: Readonly<Record<string, string>>;
   readonly sessionLifetimeSeconds: number;
@@ -72,18 +56,13 @@ export function builtinAuthorityUrl(userRoot: string): string {
 }
 export function userRootFromBuiltinUrl(url: string): string | undefined {
   if (!url.startsWith("builtin://local/")) return undefined;
-  try {
-    const encodedUrl = url.slice("builtin://local/".length);
-    if (!encodedUrl || !/^[A-Za-z0-9_-]+$/u.test(encodedUrl)) return undefined;
-    const encoded = encodedUrl.replace(/-/gu, "+").replace(/_/gu, "/"),
-      decoded = Buffer.from(encoded, "base64").toString("utf8");
-    if (!decoded || !path.isAbsolute(decoded) || Buffer.from(decoded, "utf8").toString("base64url") !== encodedUrl)
-      return undefined;
-    return decoded;
-  } catch (error) {
-    consumeKnownError(error);
+  const encodedUrl = url.slice("builtin://local/".length);
+  if (!encodedUrl || !/^[A-Za-z0-9_-]+$/u.test(encodedUrl)) return undefined;
+  const encoded = encodedUrl.replace(/-/gu, "+").replace(/_/gu, "/"),
+    decoded = Buffer.from(encoded, "base64").toString("utf8");
+  if (!decoded || !path.isAbsolute(decoded) || Buffer.from(decoded, "utf8").toString("base64url") !== encodedUrl)
     return undefined;
-  }
+  return decoded;
 }
 export function stateFile(userRoot: string): string {
   return path.join(userRoot, "rbac", "builtin-state.json");
@@ -98,8 +77,6 @@ export function defaultState(): BuiltinState {
     users: [],
     groups: [],
     grants: [],
-    teams: [],
-    nodes: [],
     sessions: [],
     repositoryOwners: {},
     sessionLifetimeSeconds: builtinSessionLifetimeBounds.defaultSeconds,
@@ -108,8 +85,26 @@ export function defaultState(): BuiltinState {
 export function readState(userRoot: string): BuiltinState {
   const file = stateFile(userRoot);
   if (!existsSync(file)) return defaultState();
-  const parsed = JSON.parse(readFileSync(file, "utf8")) as BuiltinState;
-  return parsed.schema === "harness-builtin-identity/v1" ? parsed : defaultState();
+  const parsed = JSON.parse(readFileSync(file, "utf8")) as BuiltinState & {
+    readonly users?: readonly (BuiltinUser & { readonly teamIds?: readonly string[] })[];
+  };
+  if (parsed.schema !== "harness-builtin-identity/v1") return defaultState();
+  const {
+    teams: _teams,
+    nodes: _nodes,
+    users = [],
+    ...state
+  } = parsed as BuiltinState & {
+    readonly teams?: unknown;
+    readonly nodes?: unknown;
+  };
+  return {
+    ...state,
+    users: users.map((candidate) => {
+      const { teamIds: _teamIds, ...user } = candidate as BuiltinUser & { readonly teamIds?: readonly string[] };
+      return user;
+    }),
+  };
 }
 export function writeState(userRoot: string, state: BuiltinState): void {
   const root = path.join(userRoot, "rbac"),

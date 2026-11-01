@@ -558,6 +558,10 @@ export class OidcSessionService {
     return existsSync(path.join(this.#rbacRoot, "config.json"));
   }
 
+  requireCollaboration(): void {
+    // Keycloak is the collaboration-capable provider; this is a no-op gate.
+  }
+
   /** Whether the daemon has the center service credential needed for ownership claims. */
   centerConfigured(): boolean {
     return this.configured() && existsSync(path.join(this.#rbacRoot, "center-client-secret"));
