@@ -618,7 +618,7 @@ async function storeEntityEvent(
   const table = kind === "agent" ? "ha_agents" : "ha_squads";
   const idColumn = kind === "agent" ? "agent_id" : "squad_id";
   await client.query(
-    `INSERT INTO ${table} (tenant_id,project_id,policy_epoch,readers,${idColumn},workspace_revision,declaration,document_path,document_sha256,updated_at) VALUES ($1,$2,$3,$4::text[],$5,$6,$7::jsonb,$8,$9,$10::timestamptz) ON CONFLICT (tenant_id,project_id,policy_epoch,${idColumn}) DO UPDATE SET workspace_revision=excluded.workspace_revision,declaration=excluded.declaration,document_path=excluded.document_path,document_sha256=excluded.document_sha256,updated_at=excluded.updated_at WHERE ${table}.workspace_revision < excluded.workspace_revision`,
+    `INSERT INTO ${table} (tenant_id,project_id,policy_epoch,readers,${idColumn},workspace_revision,declaration_revision,declaration,document_path,document_sha256,updated_at) VALUES ($1,$2,$3,$4::text[],$5,$6,$6,$7::jsonb,$8,$9,$10::timestamptz) ON CONFLICT (tenant_id,project_id,policy_epoch,${idColumn}) DO UPDATE SET readers=excluded.readers,workspace_revision=excluded.workspace_revision,declaration_revision=excluded.declaration_revision,declaration=excluded.declaration,document_path=excluded.document_path,document_sha256=excluded.document_sha256,updated_at=excluded.updated_at WHERE ${table}.workspace_revision < excluded.workspace_revision`,
     [
       scope.tenantId,
       scope.projectId,

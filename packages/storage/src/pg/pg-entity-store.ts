@@ -54,13 +54,13 @@ export function createPgEntityStore(options: PgEntityStoreOptions): PgEntityDecl
           idColumn = idColumnFor(kind),
           result = await client.query<{
             id: string;
-            workspace_revision: string;
+            declaration_revision: string;
             declaration: AgentDeclarationV1 | SquadDeclarationV1;
             document_path: string | null;
             document_sha256: string | null;
             extension_metadata: Readonly<Record<string, unknown>>;
           }>(
-            `SELECT ${idColumn} AS id, workspace_revision::text, declaration, document_path, document_sha256, extension_metadata
+            `SELECT ${idColumn} AS id, declaration_revision::text, declaration, document_path, document_sha256, extension_metadata
              FROM ${table} WHERE tenant_id = $1 AND project_id = $2 AND policy_epoch = $3 AND ${idColumn} = $4
                AND (cardinality($5::text[]) = 0 OR readers && $5::text[])`,
             [claims.tenantId, claims.projectId, claims.policyEpoch, id, readers],
@@ -74,7 +74,7 @@ export function createPgEntityStore(options: PgEntityStoreOptions): PgEntityDecl
               documentPath: row.document_path,
               documentSha256: row.document_sha256,
               extensionMetadata: row.extension_metadata,
-              workspaceRevision: Number(row.workspace_revision),
+              workspaceRevision: Number(row.declaration_revision),
             } as StoredEntity<T>)
           : null;
       },
@@ -88,13 +88,13 @@ export function createPgEntityStore(options: PgEntityStoreOptions): PgEntityDecl
           idColumn = idColumnFor(kind),
           result = await client.query<{
             id: string;
-            workspace_revision: string;
+            declaration_revision: string;
             declaration: AgentDeclarationV1 | SquadDeclarationV1;
             document_path: string | null;
             document_sha256: string | null;
             extension_metadata: Readonly<Record<string, unknown>>;
           }>(
-            `SELECT ${idColumn} AS id, workspace_revision::text, declaration, document_path, document_sha256, extension_metadata
+            `SELECT ${idColumn} AS id, declaration_revision::text, declaration, document_path, document_sha256, extension_metadata
              FROM ${table} WHERE tenant_id = $1 AND project_id = $2 AND policy_epoch = $3
                AND (cardinality($4::text[]) = 0 OR readers && $4::text[]) ORDER BY ${idColumn}`,
             [claims.tenantId, claims.projectId, claims.policyEpoch, readers],
@@ -108,7 +108,7 @@ export function createPgEntityStore(options: PgEntityStoreOptions): PgEntityDecl
               documentPath: row.document_path,
               documentSha256: row.document_sha256,
               extensionMetadata: row.extension_metadata,
-              workspaceRevision: Number(row.workspace_revision),
+              workspaceRevision: Number(row.declaration_revision),
             }) as StoredEntity<T>,
         );
       },
@@ -163,12 +163,12 @@ async function persistDeclarationWithClient(
   if (parsed.id !== write.id) throw new Error(`${write.kind} declaration identity does not match its storage id`);
   await client.query(
     `INSERT INTO ${table}
-             (tenant_id, project_id, policy_epoch, readers, ${idColumn}, workspace_revision, declaration,
+             (tenant_id, project_id, policy_epoch, readers, ${idColumn}, workspace_revision, declaration_revision, declaration,
               document_path, document_sha256, extension_metadata, updated_at)
-           VALUES ($1, $2, $3, $4::text[], $5, $6, $7::jsonb, $8, $9, $10::jsonb, clock_timestamp())
+           VALUES ($1, $2, $3, $4::text[], $5, $6, $6, $7::jsonb, $8, $9, $10::jsonb, clock_timestamp())
            ON CONFLICT (tenant_id, project_id, policy_epoch, ${idColumn}) DO UPDATE SET
              policy_epoch = excluded.policy_epoch, readers = excluded.readers,
-             workspace_revision = excluded.workspace_revision, declaration = excluded.declaration,
+             workspace_revision = excluded.workspace_revision, declaration_revision = excluded.declaration_revision, declaration = excluded.declaration,
              document_path = excluded.document_path, document_sha256 = excluded.document_sha256,
              extension_metadata = excluded.extension_metadata, updated_at = excluded.updated_at
            WHERE ${table}.workspace_revision < excluded.workspace_revision`,

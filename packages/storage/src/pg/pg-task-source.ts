@@ -58,13 +58,13 @@ const RETIRED_TASK_SQL = `NOT (
   AND child.snapshot #>> '{task,supersededBy}' IS NOT NULL
 )`;
 
-const PRESENTATION_STATUS_SQL = `CASE
+const presentationStatusSql = (readersParameter: number) => `CASE
   WHEN ha_task_snapshots.snapshot #>> '{task,status}' IN ('done','cancelled') THEN ha_task_snapshots.snapshot #>> '{task,status}'
   WHEN ha_task_snapshots.snapshot #>> '{task,taskClass}' = 'work' OR (ha_task_snapshots.snapshot #>> '{task,metadata,parentTaskId}' IS NULL AND EXISTS (
-    SELECT 1 FROM ha_task_snapshots child WHERE child.tenant_id=ha_task_snapshots.tenant_id AND child.project_id=ha_task_snapshots.project_id AND child.policy_epoch=ha_task_snapshots.policy_epoch AND child.snapshot #>> '{task,metadata,parentTaskId}'=ha_task_snapshots.task_id
+    SELECT 1 FROM ha_task_snapshots child WHERE child.tenant_id=ha_task_snapshots.tenant_id AND child.project_id=ha_task_snapshots.project_id AND child.policy_epoch=ha_task_snapshots.policy_epoch AND (cardinality($${readersParameter}::text[])=0 OR child.readers && $${readersParameter}::text[]) AND child.snapshot #>> '{task,metadata,parentTaskId}'=ha_task_snapshots.task_id
   )) THEN COALESCE((WITH RECURSIVE members(task_id,status) AS (
-    SELECT child.task_id, child.snapshot #>> '{task,status}' FROM ha_task_snapshots child WHERE child.tenant_id=ha_task_snapshots.tenant_id AND child.project_id=ha_task_snapshots.project_id AND child.policy_epoch=ha_task_snapshots.policy_epoch AND child.snapshot #>> '{task,metadata,parentTaskId}'=ha_task_snapshots.task_id AND child.task_id<>ha_task_snapshots.task_id AND ${RETIRED_TASK_SQL}
-    UNION SELECT child.task_id, child.snapshot #>> '{task,status}' FROM ha_task_snapshots child JOIN members parent ON child.tenant_id=ha_task_snapshots.tenant_id AND child.project_id=ha_task_snapshots.project_id AND child.policy_epoch=ha_task_snapshots.policy_epoch AND child.snapshot #>> '{task,metadata,parentTaskId}'=parent.task_id WHERE child.task_id<>ha_task_snapshots.task_id AND ${RETIRED_TASK_SQL}
+    SELECT child.task_id, child.snapshot #>> '{task,status}' FROM ha_task_snapshots child WHERE child.tenant_id=ha_task_snapshots.tenant_id AND child.project_id=ha_task_snapshots.project_id AND child.policy_epoch=ha_task_snapshots.policy_epoch AND (cardinality($${readersParameter}::text[])=0 OR child.readers && $${readersParameter}::text[]) AND child.snapshot #>> '{task,metadata,parentTaskId}'=ha_task_snapshots.task_id AND child.task_id<>ha_task_snapshots.task_id AND ${RETIRED_TASK_SQL}
+    UNION SELECT child.task_id, child.snapshot #>> '{task,status}' FROM ha_task_snapshots child JOIN members parent ON child.tenant_id=ha_task_snapshots.tenant_id AND child.project_id=ha_task_snapshots.project_id AND child.policy_epoch=ha_task_snapshots.policy_epoch AND (cardinality($${readersParameter}::text[])=0 OR child.readers && $${readersParameter}::text[]) AND child.snapshot #>> '{task,metadata,parentTaskId}'=parent.task_id WHERE child.task_id<>ha_task_snapshots.task_id AND ${RETIRED_TASK_SQL}
   ) SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM members WHERE status NOT IN ('done','cancelled')) THEN CASE WHEN EXISTS (SELECT 1 FROM members) THEN CASE WHEN EXISTS (SELECT 1 FROM members WHERE status='done') THEN 'done' ELSE 'cancelled' END END WHEN ha_task_snapshots.snapshot #>> '{task,status}'='planned' AND EXISTS (SELECT 1 FROM members WHERE status NOT IN ('planned','cancelled')) THEN 'active' END), ha_task_snapshots.snapshot #>> '{task,status}')
   ELSE ha_task_snapshots.snapshot #>> '{task,status}' END`;
 
@@ -138,7 +138,8 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
              AND (cardinality($5::text[]) = 0 OR readers && $5::text[])`,
           [claims.tenantId, claims.projectId, claims.policyEpoch, taskId, readers],
         );
-        return result.rows[0]?.snapshot ?? null;
+        const snapshot = result.rows[0]?.snapshot;
+        return snapshot ? (await hydrateSnapshots(client, options.scope, [snapshot]))[0]! : null;
       },
       claims,
       { isolationLevel: "repeatable read" },
@@ -153,12 +154,14 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
             package_path: string | null;
             presentation_status: string;
           }>(
-            `SELECT snapshot, package_path, ${PRESENTATION_STATUS_SQL} AS presentation_status FROM ha_task_snapshots
+            `SELECT snapshot, package_path, ${presentationStatusSql(5)} AS presentation_status FROM ha_task_snapshots
              WHERE tenant_id = $1 AND project_id = $2 AND policy_epoch = $3 AND task_id = $4
                AND (cardinality($5::text[]) = 0 OR readers && $5::text[])`,
             [claims.tenantId, claims.projectId, claims.policyEpoch, taskId, readers],
           ),
-          snapshot = result.rows[0]?.snapshot ?? null;
+          snapshot = result.rows[0]?.snapshot
+            ? (await hydrateSnapshots(client, options.scope, [result.rows[0].snapshot]))[0]!
+            : null;
         return {
           status: cut.status,
           snapshot:
@@ -192,7 +195,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
         if (query.status !== undefined) {
           values.push(query.status);
           where.push(
-            `${query.presentationStatus ? PRESENTATION_STATUS_SQL : "snapshot #>> '{task,status}'"} = $${values.length}`,
+            `${query.presentationStatus ? presentationStatusSql(4) : "snapshot #>> '{task,status}'"} = $${values.length}`,
           );
         }
         if (query.search !== undefined) {
@@ -277,12 +280,17 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           completed_at: string | null;
           updated_at: string;
         }>(
-          `SELECT task_id, package_path, generation, workspace_revision::text, snapshot, created_at::text, completed_at::text, updated_at::text, ${PRESENTATION_STATUS_SQL} AS presentation_status FROM ha_task_snapshots
+          `SELECT task_id, package_path, generation, workspace_revision::text, snapshot, created_at::text, completed_at::text, updated_at::text, ${presentationStatusSql(4)} AS presentation_status FROM ha_task_snapshots
            WHERE ${where.join(" AND ")} ORDER BY ${query.pinnedFirst ? "COALESCE((snapshot #>> '{task,pinned}')::boolean, false) DESC, " : ""}task_id LIMIT $${values.length}`,
           values,
         );
         const truncated = result.rows.length > limit,
-          rows = (truncated ? result.rows.slice(0, limit) : result.rows).map((row) => ({
+          hydrated = await hydrateSnapshots(
+            client,
+            options.scope,
+            result.rows.map((row) => row.snapshot),
+          ),
+          rows = (truncated ? result.rows.slice(0, limit) : result.rows).map((row, index) => ({
             taskId: row.task_id,
             packagePath: row.package_path,
             generation: row.generation,
@@ -290,7 +298,9 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
             createdAt: row.created_at === null ? null : toIsoTimestamp(row.created_at),
             completedAt: row.completed_at === null ? null : toIsoTimestamp(row.completed_at),
             updatedAt: toIsoTimestamp(row.updated_at),
-            snapshot: query.presentationStatus ? presentSnapshot(row.snapshot, row.presentation_status) : row.snapshot,
+            snapshot: query.presentationStatus
+              ? presentSnapshot(hydrated[index]!, row.presentation_status)
+              : hydrated[index]!,
           }));
         return {
           status: cut.status,
@@ -474,80 +484,10 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
     withPostgresTransaction(
       options.pool,
       async (client) => {
-        const cut = await readCutInTransaction(client, claims, readers, repoId),
-          values: unknown[] = [claims.tenantId, claims.projectId, claims.policyEpoch, readers],
-          where = [
-            "tenant_id = $1",
-            "project_id = $2",
-            "policy_epoch = $3",
-            "(cardinality($4::text[]) = 0 OR readers && $4::text[])",
-          ];
-        if (query.source !== undefined) {
-          values.push(query.source);
-          where.push(`source_ref = $${values.length}`);
-        }
-        if (query.target !== undefined) {
-          values.push(query.target);
-          where.push(`target_ref = $${values.length}`);
-        }
-        if (query.relationType !== undefined) {
-          values.push(query.relationType);
-          where.push(`relation_type = $${values.length}`);
-        }
-        values.push(checkedPageLimit(query.limit ?? maxItems, maxItems));
-        const result = await client.query<{
-          relation_id: string;
-          source_ref: string;
-          target_ref: string;
-          relation_type: string;
-          relation_state: string;
-          workspace_revision: string;
-          value: Record<string, unknown>;
-        }>(
-          `SELECT relation_id, source_ref, target_ref, relation_type, relation_state, workspace_revision::text, value
-           FROM ha_relations WHERE ${where.join(" AND ")} ORDER BY relation_id LIMIT $${values.length}`,
-          values,
-        );
-        const refs = [...new Set(result.rows.flatMap((row) => [row.source_ref, row.target_ref]))],
-          witnesses = await readEntityVersionWitnesses(client, claims, readers, refs);
+        const cut = await readCutInTransaction(client, claims, readers, repoId);
         return {
-          status: cut.status,
-          rows: result.rows.map((row) => {
-            const targetObservedVersion = (row.value.targetObservedVersion as never) ?? null,
-              target = keycloakPersonIdentityWitness(row.target_ref, targetObservedVersion) ??
-                witnesses.get(row.target_ref) ?? {
-                  entityRef: row.target_ref,
-                  freshness: "unknown" as const,
-                  currentVersion: null,
-                };
-            return {
-              relationId: row.relation_id,
-              workspaceRevision: Number(row.workspace_revision),
-              sourceRef: row.source_ref,
-              targetRef: row.target_ref,
-              relationType: row.relation_type as TaskRelationProjectionRow["relationType"],
-              direction: String(row.value.direction ?? "directed") as never,
-              strength: String(row.value.strength ?? "strong") as never,
-              origin: String(row.value.origin ?? "event") as never,
-              state: row.relation_state as never,
-              targetObservedVersion,
-              currentTargetVersion: target.currentVersion,
-              freshness: relationFreshnessAtCut({
-                anchor: relationFreshnessAnchorForType(row.relation_type as RelationType),
-                target,
-                targetObservedVersion,
-                ...(relationFreshnessAnchorForType(row.relation_type as RelationType) === "source"
-                  ? { source: witnesses.get(row.source_ref) }
-                  : {}),
-              }),
-              rationale: String(row.value.rationale ?? ""),
-              ownerRef: String(row.value.ownerRef ?? relationOwnerRef(row.source_ref)),
-              sourcePath: String(row.value.sourcePath ?? "event:unknown"),
-              recordIndex: Number(row.value.recordIndex ?? 0),
-            } as TaskRelationProjectionRow;
-          }),
-          watermark: cut.watermark,
-          sourceRevision: cut.sourceRevision,
+          ...cut,
+          rows: await readRelationsInTransaction(client, claims, readers, { ...query, limit: query.limit ?? maxItems }),
         };
       },
       claims,
@@ -887,4 +827,138 @@ function decodeTaskListCursor(value: string, expected: number): readonly string[
   )
     throw new Error("query cursor is invalid");
   return parsed;
+}
+
+interface PgRelationQuery {
+  readonly source?: string;
+  readonly target?: string;
+  readonly targets?: readonly string[];
+  readonly relationType?: string;
+  readonly limit?: number;
+}
+
+async function readRelationsInTransaction(
+  client: import("pg").PoolClient,
+  claims: PgProjectionScope,
+  readers: readonly string[],
+  query: PgRelationQuery,
+): Promise<readonly TaskRelationProjectionRow[]> {
+  const values: unknown[] = [claims.tenantId, claims.projectId, claims.policyEpoch, readers],
+    where = [
+      "tenant_id = $1",
+      "project_id = $2",
+      "policy_epoch = $3",
+      "(cardinality($4::text[]) = 0 OR readers && $4::text[])",
+    ];
+  if (query.source !== undefined) {
+    values.push(query.source);
+    where.push(`source_ref = $${values.length}`);
+  }
+  if (query.targets !== undefined) {
+    values.push(query.targets);
+    where.push(`target_ref = ANY($${values.length}::text[])`);
+  }
+  if (query.target !== undefined) {
+    values.push(query.target);
+    where.push(`target_ref = $${values.length}`);
+  }
+  if (query.relationType !== undefined) {
+    values.push(query.relationType);
+    where.push(`relation_type = $${values.length}`);
+  }
+  if (query.limit !== undefined) values.push(checkedPageLimit(query.limit, 4096));
+  const result = await client.query<{
+    relation_id: string;
+    source_ref: string;
+    target_ref: string;
+    relation_type: string;
+    relation_state: string;
+    workspace_revision: string;
+    value: Record<string, unknown>;
+  }>(
+    `SELECT relation_id, source_ref, target_ref, relation_type, relation_state, workspace_revision::text, value
+           FROM ha_relations WHERE ${where.join(" AND ")} ORDER BY relation_id${query.limit === undefined ? "" : ` LIMIT $${values.length}`}`,
+    values,
+  );
+  const refs = [...new Set(result.rows.flatMap((row) => [row.source_ref, row.target_ref]))],
+    witnesses = await readEntityVersionWitnesses(client, claims, readers, refs);
+  return result.rows.map((row) => {
+    const targetObservedVersion = (row.value.targetObservedVersion as never) ?? null,
+      target = keycloakPersonIdentityWitness(row.target_ref, targetObservedVersion) ??
+        witnesses.get(row.target_ref) ?? {
+          entityRef: row.target_ref,
+          freshness: "unknown" as const,
+          currentVersion: null,
+        };
+    return {
+      relationId: row.relation_id,
+      workspaceRevision: Number(row.workspace_revision),
+      sourceRef: row.source_ref,
+      targetRef: row.target_ref,
+      relationType: row.relation_type as TaskRelationProjectionRow["relationType"],
+      direction: String(row.value.direction ?? "directed") as never,
+      strength: String(row.value.strength ?? "strong") as never,
+      origin: String(row.value.origin ?? "event") as never,
+      state: row.relation_state as never,
+      targetObservedVersion,
+      currentTargetVersion: target.currentVersion,
+      freshness: relationFreshnessAtCut({
+        anchor: relationFreshnessAnchorForType(row.relation_type as RelationType),
+        target,
+        targetObservedVersion,
+        ...(relationFreshnessAnchorForType(row.relation_type as RelationType) === "source"
+          ? { source: witnesses.get(row.source_ref) }
+          : {}),
+      }),
+      rationale: String(row.value.rationale ?? ""),
+      ownerRef: String(row.value.ownerRef ?? relationOwnerRef(row.source_ref)),
+      sourcePath: String(row.value.sourcePath ?? "event:unknown"),
+      recordIndex: Number(row.value.recordIndex ?? 0),
+    } as TaskRelationProjectionRow;
+  });
+}
+
+async function hydrateSnapshots(
+  client: import("pg").PoolClient,
+  scope: PgProjectionScope,
+  snapshots: readonly TaskLifecycleSnapshot[],
+): Promise<readonly TaskLifecycleSnapshot[]> {
+  if (!snapshots.length) return [];
+  const relations = await readRelationsInTransaction(client, scope, [...(scope.readers ?? [])], {
+    targets: snapshots.flatMap(({ task }) => (task ? [`task/${task.taskId}`] : [])),
+  });
+  const now = new Date().toISOString();
+  return snapshots.map((snapshot) => {
+    const stored = snapshot.lease,
+      lease =
+        stored === null || stored.phase === "released"
+          ? null
+          : stored.expiresAt > now
+            ? stored
+            : stored.phase === "reserving"
+              ? null
+              : { ...stored, phase: "orphaned" as const };
+    return {
+      ...snapshot,
+      executions: [...snapshot.executions].sort(
+        (a, b) =>
+          a.iteration - b.iteration ||
+          a.claimedAt.localeCompare(b.claimedAt) ||
+          a.executionId.localeCompare(b.executionId),
+      ),
+      reviews: [...snapshot.reviews].sort((a, b) => a.reviewId.localeCompare(b.reviewId)),
+      lease,
+      decisionRelations: relations
+        .filter((relation) => relation.targetRef === `task/${snapshot.task?.taskId}`)
+        .map(({ relationId, sourceRef, targetRef, relationType, state, strength, freshness }) => ({
+          relationId,
+          sourceRef,
+          targetRef,
+          relationType,
+          state,
+          strength,
+          freshness,
+        })),
+    };
+  });
 }

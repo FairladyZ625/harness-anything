@@ -6,6 +6,8 @@ import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixt
 import { blockingOf } from "@harness-anything/kernel/internal/domain/task-blocking.ts";
 import { closeoutReadiness } from "@harness-anything/kernel/internal/domain/closeout-readiness.ts";
 import { taskBoardPlacement } from "@harness-anything/kernel/internal/domain/task-board-projection.ts";
+import { compileCompletionGateWitness } from "@harness-anything/kernel/internal/domain/completion-gate-publication.ts";
+import { completionEvidenceBasis } from "@harness-anything/kernel/internal/domain/completion-evidence.ts";
 import {
   compileAgentRetired,
   compileEntityDeleted,
@@ -22,6 +24,7 @@ import {
   compileRelationCreatedEvent,
   compileRelationReconfirmedEvent,
   relationEventWritePlan,
+  type RelationEventRecord,
 } from "@harness-anything/kernel/internal/domain/relation-event.ts";
 import {
   taskBootstrapWritePlan,
@@ -71,7 +74,12 @@ import {
 } from "../store/relation-graph-projection.fixtures.ts";
 import { withTempStoreAsync } from "../store/helpers.ts";
 
-test("PG task projection materializes reduceTaskEvent snapshots and scopes readers", async () => {
+function relationFacet(record: EntityRelationRecord & RelationEventRecord): RelationEventRecord {
+  const { strength: _strength, ...facet } = record;
+  return facet;
+}
+
+test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, cut and replay", async () => {
   const fixture = await startManagedPostgresFixture();
   const pools: Pool[] = [];
   try {
@@ -163,6 +171,70 @@ test("PG task projection materializes reduceTaskEvent snapshots and scopes reade
     for (const value of parityEvents) {
       await appendCanonical({ event: value, plan: taskLifecycleWritePlan(value), blobs: [] });
     }
+    const gated = lifecycleFixture({
+      taskId: "task-gated-parity",
+      executionId: "execution-gated-parity",
+      complete: false,
+      gates: [
+        {
+          gateId: "signoff",
+          appliesTo: "code",
+          witness: {
+            kind: "manual",
+            adapterId: "manual-attest",
+            adapterOptions: {},
+            predicateType: "human/v1",
+            resultSchema: { type: "object" },
+          },
+        },
+      ],
+    });
+    for (const value of gated.events) {
+      const current = {
+        ...value,
+        eventId: `pg-gated-${value.eventId}`,
+        opId: `pg-gated-${value.opId}`,
+        workspaceRevision: expectedRevision,
+      };
+      await appendCanonical({ event: current, plan: taskLifecycleWritePlan(current), blobs: [] });
+    }
+    const gatedSnapshot = (await source.readSnapshot("task-gated-parity"))!,
+      gatedExecution = gatedSnapshot.executions[0]!;
+    await appendCanonical(
+      compileCompletionGateWitness({
+        snapshot: gatedSnapshot,
+        taskId: gatedSnapshot.task!.taskId,
+        executionId: gatedExecution.executionId,
+        gateId: "signoff",
+        result: "pass",
+        receiptId: "pg-signoff",
+        checkerId: "manual-attest",
+        commitSha: gatedExecution.submission!.commitSha,
+        iteration: gatedExecution.iteration,
+        reviewGate: true,
+        actor: event.actor,
+        source: "local",
+        opId: "pg-signoff",
+        eventId: "pg-signoff",
+        workspaceRevision: expectedRevision,
+        occurredAt: "2026-08-11T00:05:00.000Z",
+        packagePath: null,
+        currentDocuments: [],
+        evidence: {
+          schema: "completion-evidence/v1",
+          checkerId: "manual-attest",
+          gateId: "signoff",
+          result: "pass",
+          observed: true,
+          basis: completionEvidenceBasis(gatedExecution),
+          subjects: [],
+          predicateType: "human/v1",
+          predicate: {},
+          diagnostic: "canonical signoff parity",
+          provenance: { source: "human", adapterId: "manual-attest", runId: "pg-signoff", rawResult: "pass" },
+        },
+      }),
+    );
     for (const id of ["replay-agent", "deleted-agent", "retired-agent"]) {
       const declaration = compileEntityUpsert({
         eventId: `event-${id}`,
@@ -242,7 +314,7 @@ test("PG task projection materializes reduceTaskEvent snapshots and scopes reade
         type: "depends-on" as const,
         direction: "directed" as const,
       },
-      blockedRelationRecord: EntityRelationRecord = {
+      blockedRelationRecord: EntityRelationRecord & RelationEventRecord = {
         relation_id: deriveRelationId(blockedRelationIdentity),
         ...blockedRelationIdentity,
         strength: relationStrengthForType(blockedRelationIdentity.type),
@@ -252,7 +324,7 @@ test("PG task projection materializes reduceTaskEvent snapshots and scopes reade
         targetObservedVersion: taskBlocker.workspaceRevision,
       },
       blockedRelation = compileRelationCreatedEvent({
-        record: blockedRelationRecord,
+        record: relationFacet(blockedRelationRecord),
         actor: event.actor,
         source: "local",
         opId: "pg-parity-depends-on",
@@ -267,7 +339,7 @@ test("PG task projection materializes reduceTaskEvent snapshots and scopes reade
         type: "relates" as const,
         direction: "directed" as const,
       },
-      refinesRecord: EntityRelationRecord = {
+      refinesRecord: EntityRelationRecord & RelationEventRecord = {
         relation_id: deriveRelationId(refinesIdentity),
         ...refinesIdentity,
         strength: relationStrengthForType(refinesIdentity.type),
@@ -277,7 +349,7 @@ test("PG task projection materializes reduceTaskEvent snapshots and scopes reade
         targetObservedVersion: taskBlocker.workspaceRevision,
       },
       refinesRelation = compileRelationCreatedEvent({
-        record: refinesRecord,
+        record: relationFacet(refinesRecord),
         actor: event.actor,
         source: "local",
         opId: "pg-parity-refines",
@@ -328,7 +400,7 @@ test("PG task projection materializes reduceTaskEvent snapshots and scopes reade
         type: "derives" as const,
         direction: "directed" as const,
       },
-      derivesRecord: EntityRelationRecord = {
+      derivesRecord: EntityRelationRecord & RelationEventRecord = {
         relation_id: deriveRelationId(derivesIdentity),
         ...derivesIdentity,
         strength: relationStrengthForType(derivesIdentity.type),
@@ -343,7 +415,23 @@ test("PG task projection materializes reduceTaskEvent snapshots and scopes reade
       childCreated = {
         ...childCreatedBase,
         payload: {
-          task: { ...childCreatedBase.payload.task, metadata: { parentTaskId: taskWorkRoot.taskId } },
+          task: {
+            ...childCreatedBase.payload.task,
+            metadata: {
+              idempotencyKey: null,
+              parentTaskId: taskWorkRoot.taskId,
+              workKind: "test",
+              riskTier: "low",
+              urgency: null,
+              verticalId: "software/coding",
+              presetId: "standard-task",
+              profileId: "baseline",
+              moduleKey: null,
+              slug: "task-work-child",
+              surfaces: [],
+              fromLegacyId: null,
+            },
+          },
         },
       },
       childStartBase = lifecycleFixture({ taskId: childCreated.taskId }).events.find(
@@ -354,6 +442,10 @@ test("PG task projection materializes reduceTaskEvent snapshots and scopes reade
         eventId: "pg-work-child-start",
         opId: "pg-work-child-start",
         workspaceRevision: expectedRevision + 2,
+        payload: {
+          ...childStartBase.payload,
+          task: { ...childStartBase.payload.task, metadata: childCreated.payload.task.metadata },
+        },
       };
     await appendCanonical({ event: taskWorkRoot, plan: taskLifecycleWritePlan(taskWorkRoot), blobs: [] });
     await appendCanonical({ event: childCreated, plan: taskLifecycleWritePlan(childCreated), blobs: [] });
@@ -484,16 +576,20 @@ test("PG task projection materializes reduceTaskEvent snapshots and scopes reade
 
     const factWrite = compileFactWrite({ event: factDraft(expectedRevision) });
     await appendCanonical(factWrite);
-    const decisionWrite = compileDecisionWrite({
-      event: decisionDraft(expectedRevision, "dec_PG_PARITY"),
-      currentDecision: null,
-      currentRelations: [],
-      currentDocument: null,
-      decisionReviewRequirement: "off",
-    });
+    const proposed = decisionDraft(expectedRevision, "dec_PG_PARITY"),
+      decisionWrite = compileDecisionWrite({
+        event: {
+          ...proposed,
+          payload: { ...proposed.payload, provenance: factDraft(expectedRevision).payload.provenance },
+        },
+        currentDecision: null,
+        currentRelations: [],
+        currentDocument: null,
+        decisionReviewRequirement: "off",
+      });
     await appendCanonical(decisionWrite);
     const derivesRelation = compileRelationCreatedEvent({
-      record: derivesRecord,
+      record: relationFacet(derivesRecord),
       actor: event.actor,
       source: "local",
       opId: "pg-parity-derives",
@@ -510,7 +606,7 @@ test("PG task projection materializes reduceTaskEvent snapshots and scopes reade
     const acceptedWrite = compileDecisionWrite({
       event: decisionAcceptedDraft(expectedRevision, "dec_PG_PARITY"),
       currentDecision: reduceDecisionDocument(null, decisionWrite.event),
-      currentRelations: [derivesRecord],
+      currentRelations: (await source.readDecision("dec_PG_PARITY")).decision!.relations,
       currentDocument: {
         blobSha256: decisionWrite.event.payload.decisionDocumentClaim.sha256,
         body: decisionWrite.body,
@@ -536,9 +632,37 @@ test("PG task projection materializes reduceTaskEvent snapshots and scopes reade
     );
 
     const readerATask = taskCreated(expectedRevision, "task-reader-a"),
-      readerBTask = taskCreated(expectedRevision + 1, "task-reader-b");
+      readerBBase = taskCreated(expectedRevision + 1, "task-reader-b"),
+      readerBTask = {
+        ...readerBBase,
+        payload: {
+          task: {
+            ...readerBBase.payload.task,
+            metadata: { ...readerBBase.payload.task.metadata, parentTaskId: "task-reader-a", topLevel: false },
+          },
+        },
+      };
     await appendCanonical({ event: readerATask, plan: taskLifecycleWritePlan(readerATask), blobs: [] });
     await appendCanonical({ event: readerBTask, plan: taskLifecycleWritePlan(readerBTask), blobs: [] });
+    const readerBStart = {
+      ...lifecycleFixture({ taskId: "task-reader-b" }).events.find((value) => value.type === "execution_started")!,
+      eventId: "pg-reader-b-start",
+      opId: "pg-reader-b-start",
+      workspaceRevision: expectedRevision,
+    };
+    await appendCanonical({ event: readerBStart, plan: taskLifecycleWritePlan(readerBStart), blobs: [] });
+    const allReadersSource = createPgTaskProjectionSource({
+      pool: runtimePool,
+      repoId,
+      scope: { ...projectionScope, readers: [] },
+    });
+    assert.equal((await source.read("task-reader-a", true)).snapshot.task?.status, "planned");
+    assert.equal((await allReadersSource.read("task-reader-a", true)).snapshot.task?.status, "active");
+    assert.equal(
+      (await source.list({ taskIds: ["task-reader-a"], presentationStatus: true })).rows[0]?.snapshot.task?.status,
+      "planned",
+    );
+    await allReadersSource.close();
 
     const readerBSource = createPgTaskProjectionSource({
       pool: runtimePool,
@@ -650,6 +774,7 @@ test("PG task projection materializes reduceTaskEvent snapshots and scopes reade
       const sqliteEvents = makeTaskEventStore({ repoId: "projection-parity", rootDir });
       for (const value of canonicalBundles) sqliteEvents.append(value);
       const sqliteProjection = makeTaskProjection({ rootDir, eventStore: sqliteEvents });
+      sqliteProjection.catchUp();
       const sqliteRead = sqliteProjection.read("task-parity"),
         sqliteEntities = createEntityStore(sqliteEvents),
         sqliteSnapshots = sqliteProjection.list({
@@ -659,6 +784,11 @@ test("PG task projection materializes reduceTaskEvent snapshots and scopes reade
       assert.deepEqual(postgresSnapshot.gateWitnesses, sqliteRead.snapshot.gateWitnesses);
       assert.deepEqual(postgresSnapshot.reviews, sqliteRead.snapshot.reviews);
       assert.deepEqual(postgresSnapshot.consents, sqliteRead.snapshot.consents);
+      const pgGated = (await source.readSnapshot("task-gated-parity"))!,
+        sqliteGated = sqliteProjection.read("task-gated-parity").snapshot;
+      assert.equal(pgGated.gateWitnesses.length, 1);
+      assert.deepEqual(pgGated, sqliteGated);
+      assert.deepEqual(closeoutReadiness(pgGated), closeoutReadiness(sqliteGated));
       assert.deepEqual(closeoutReadiness(postgresSnapshot), closeoutReadiness(sqliteRead.snapshot));
       const boardInput = (snapshot: typeof postgresSnapshot) => ({
         snapshot,
@@ -711,6 +841,11 @@ test("PG task projection materializes reduceTaskEvent snapshots and scopes reade
       assert.deepEqual(sqliteEntities.get("agent", "replay-agent"), canonicalPgAgent);
       assert.equal(await sqliteEntities.get("agent", "deleted-agent"), null);
       assert.equal((await sqliteEntities.get("agent", "retired-agent"))?.value.lifecycleState, "retired");
+      const { extensionMetadata: _retiredMetadata, ...retiredPgAgent } = (await entities.get(
+        "agent",
+        "retired-agent",
+      ))!;
+      assert.deepEqual(sqliteEntities.get("agent", "retired-agent"), retiredPgAgent);
       assert.equal(
         (await source.list({ taskIds: ["task-parity"], updatedAfter: "2026-08-11T00:00:00.000Z" })).rows.length,
         1,
@@ -725,6 +860,9 @@ test("PG task projection materializes reduceTaskEvent snapshots and scopes reade
       );
       assert.throws(() => sqliteProjection.list({ limit: 0 }), /query page limit must be an integer/u);
       assert.throws(() => sqliteProjection.list({ limit: 1.5 }), /query page limit must be an integer/u);
+      process.stdout.write(
+        "PG_SQLITE_PARITY snapshots gateWitnesses reviews consents closeoutReadiness taskBoardPlacement blockingOf equal\n",
+      );
       sqliteProjection.close();
     });
 
