@@ -774,6 +774,14 @@ function awaitingRulingFields(
   if (!taskId) return {};
   const packagePath = projection.read(taskId).packagePath;
   if (typeof packagePath !== "string") return {};
+  if (
+    readDispatchRuling(
+      (relative) => projection.readDocument(relative).document?.body ?? null,
+      packagePath,
+      `${dispatch.dispatchId}.resolution`,
+    )
+  )
+    return {};
   const ruling = readDispatchRuling(
     (relative) => projection.readDocument(relative).document?.body ?? null,
     packagePath,

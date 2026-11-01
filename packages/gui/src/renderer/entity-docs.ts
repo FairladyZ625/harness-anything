@@ -354,6 +354,8 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
       "create",
       "start",
       "transition",
+      "escalate",
+      "escalation-resolve",
       "submit",
       "review",
       "respondReview",

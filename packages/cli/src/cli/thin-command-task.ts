@@ -33,6 +33,8 @@ export function parseTask(
   if (delegatedParse !== undefined) return delegatedParse;
   if (id === "task-progress-append") return parseProgress(rootDir, repoId, json, args, inputs);
   if (id === "task-artifact-add") return parseTaskArtifactAdd(args, rootDir, repoId, json, inputs);
+  if (id === "task-escalate") return parseTaskEscalate(args, rootDir, repoId, json, inputs, false);
+  if (id === "task-escalation-resolve") return parseTaskEscalate(args, rootDir, repoId, json, inputs, true);
   const taskId = args[2];
   if (!nonEmpty(taskId)) return rejected("missing_field", `Run ha task ${verb ?? "<verb>"} <task-id>.`, json);
   if (id === "task-push") return parseTaskPush(args, rootDir, repoId, json, inputs);
@@ -107,6 +109,41 @@ export function parseTask(
     renderCliGuidance("run-help", { helpCommand: inputs.get(id)!.helpCommand }),
     json,
   );
+}
+
+function parseTaskEscalate(
+  args: readonly string[],
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+  resolve: boolean,
+): ThinParseResult {
+  const taskId = resolve && args[2] === "resolve" ? args[3] : args[2],
+    flagStart = resolve && args[2] === "resolve" ? 4 : 3;
+  if (!nonEmpty(taskId))
+    return rejected("missing_field", `Run ha task ${resolve ? "escalation resolve" : "escalate"} <task-id>.`, json);
+  const flags = readFlags(resolve ? "task-escalation-resolve" : "task-escalate", args.slice(flagStart), inputs);
+  if (!flags.ok) return rejected(flags.code, flags.nextAction, json);
+  if (resolve) {
+    const dispatchId = flags.one.get("--dispatch-id"),
+      answer = flags.one.get("--answer");
+    return accepted(rootDir, repoId, json, {
+      kind: "task-escalation-resolve",
+      taskId,
+      dispatchId,
+      answer,
+    });
+  }
+  const question = flags.one.get("--question");
+  return accepted(rootDir, repoId, json, {
+    kind: "task-escalate",
+    taskId,
+    question,
+    ...(flags.many.get("--option")?.length ? { options: flags.many.get("--option") } : {}),
+    ...(flags.one.get("--recommend") ? { recommendation: flags.one.get("--recommend") } : {}),
+    ...(flags.one.get("--reason") ? { reason: flags.one.get("--reason") } : {}),
+  });
 }
 
 function parseTaskPush(

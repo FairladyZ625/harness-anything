@@ -106,6 +106,49 @@ describe("总览:右下「等你处理的事」", () => {
     unmount();
   });
 
+  it("worker ruling enters the CEO needs-you region with its question and choices", () => {
+    const dispatchId = "dispatch_1234567890abcdef12345678",
+      question = "May this worker change the shared host lifecycle?",
+      read = agenda({
+        awaitingRuling: [
+          {
+            taskId: "task_w1",
+            title: "代码质量长期检验",
+            work: { taskId: "task_w1", title: "代码质量长期检验" },
+            pinned: false,
+            dispatchId,
+            executionId: "execution_worker_escalation",
+            attention: "question",
+            question,
+            options: ["Keep boundary", "Expand scope"],
+            rulingPath: `tasks/task_worker/artifacts/rulings/${dispatchId}.md`,
+            askedAt: AT,
+            blockingAssessment: { state: "clear", blockers: [], warnings: [] },
+          },
+        ],
+        attentionItems: [
+          {
+            ref: `dispatch/${dispatchId}`,
+            title: question,
+            kind: "ruling",
+            region: "mine",
+            workTaskId: "task_w1",
+            attention: { score: 140, reasons: [] },
+          },
+          ...agenda().attentionItems,
+        ],
+      });
+    const container = mount({ agenda: read });
+    const awaits = container.querySelector('[data-testid="overview-awaits"]')!,
+      row = awaits.querySelector(`[data-awaits-row="dispatch/${dispatchId}"]`);
+    expect(row).not.toBeNull();
+    expect(textOf(row!)).toContain(question);
+    expect(textOf(row!)).toContain("Keep boundary");
+    expect(textOf(row!)).toContain("Expand scope");
+    expect(row!.querySelector('[data-status-tone="agent-question"]')).not.toBeNull();
+    unmount();
+  });
+
   it("checkpoint:Needs you 绝对顶置——分数再高也压不过提问阻塞,且用独立橙标识", () => {
     // Orca 五级序数(dec_C0AF8CBBFFECF71F4F34FB76F9/CH4):awaiting-you(class 1)排在
     // 一切 decision 之前,即使 decision 的注意力分(200)远高于它(132)。

@@ -60,7 +60,9 @@ function taskActionProtocolCommand(action: GeneratedTaskActionProtocolDeclaratio
   const syntaxPath =
     action.id === "transition"
       ? ["task", "transition", "<task-id>", "<planned|active|blocked|in_review|done|cancelled>"]
-      : ["task", execution.ingress.slice("task-".length), "<task-id>"];
+      : action.id === "escalation-resolve"
+        ? ["task", "escalation", "resolve", "<task-id>"]
+        : ["task", execution.ingress.slice("task-".length), "<task-id>"];
   const declaration = {
     id: execution.ingress,
     phase: "W3",
@@ -106,6 +108,46 @@ export const taskActionHelpRows = Object.freeze(
 
 export const taskExecutionProtocolCommands = Object.freeze([
   ...derivedTaskActionProtocolCommands,
+  defineCenterForwardWriteCommand({
+    id: "task-escalate",
+    actionKind: "task-escalate",
+    payloadFields: [
+      { field: "taskId", type: "string", required: true, regex: "^[A-Za-z0-9_-]{1,96}$" },
+      { field: "question", type: "string", required: true, wire: { maxLength: 8 * 1024 } },
+      { field: "options", type: "string-array", required: false },
+      { field: "recommendation", type: "string", required: false, wire: { maxLength: 4 * 1024 } },
+      { field: "reason", type: "string", required: false, wire: { maxLength: 8 * 1024 } },
+    ],
+    phase: "W3",
+    path: ["task", "escalate", "<task-id>"],
+    summary:
+      'Worker-only upward channel for a real blocker. Use for forbidden boundaries, owner rulings, false preconditions, or another task blocking progress; do not use for choices you can decide yourself. Example: ha task escalate <task-id> --question "May I change the fleet protocol?" --option "Keep scope" --option "Extend protocol" --recommend "Keep scope" --reason "Required writer is outside this task."',
+    method: "repo.task.run",
+    inputs: [
+      cliInput("--question", "single", true, { code: "missing_field" }),
+      cliInput("--option", "repeated", false, { code: "invalid_field" }),
+      cliInput("--recommend", "single", false, { code: "invalid_field" }),
+      cliInput("--reason", "single", false, { code: "invalid_field" }),
+    ],
+  }),
+  defineCenterForwardWriteCommand({
+    id: "task-escalation-resolve",
+    actionKind: "task-escalation-resolve",
+    payloadFields: [
+      { field: "taskId", type: "string", required: true, regex: "^[A-Za-z0-9_-]{1,96}$" },
+      { field: "dispatchId", type: "string", required: true, regex: "^dispatch_[a-f0-9]{24}$" },
+      { field: "answer", type: "string", required: true, wire: { maxLength: 8 * 1024 } },
+    ],
+    phase: "W3",
+    path: ["task", "escalation", "resolve", "<task-id>"],
+    summary:
+      "Owner/CEO answer to a worker escalation. Records the answer, unblocks the task, and injects it into the next dispatch.",
+    method: "repo.task.run",
+    inputs: [
+      cliInput("--dispatch-id", "single", true, { code: "missing_field" }),
+      cliInput("--answer", "single", true, { code: "missing_field" }),
+    ],
+  }),
   defineCliCommand({
     id: "task-push",
     actionKind: "task-push",

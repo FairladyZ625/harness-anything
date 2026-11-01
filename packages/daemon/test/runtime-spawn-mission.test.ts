@@ -433,7 +433,7 @@ test("a re-dispatched explicit mission carries the owner return verbatim before 
   );
 });
 
-test("every task-bound mission tells the worker this session cannot ask, with one ruling channel", () => {
+test("implementation missions use the escalation CLI and reviewers receive only their read-only ruling guidance", () => {
   // Measured 2026-10-21 (task_936005e1): a dispatched Codex worker called the provider's question
   // tool; the turn failed and the dispatch settled failed, with the question visible only in the
   // raw stream. The mission must name the constraint and where a ruling request actually lands.
@@ -441,13 +441,15 @@ test("every task-bound mission tells the worker this session cannot ask, with on
     const mission = explicitPromptMission("task_x", null, "Go.", riskTier);
     assert.match(mission, /# 无人值守会话：不能提问/u, `riskTier=${String(riskTier)} carries the constraint`);
     assert.match(mission, /不要调用任何提问\/等待用户输入的 provider 工具/u);
+    assert.match(mission, /ha task escalate <task-id> --question/u);
+    assert.match(mission, /越出禁区、需要业主裁决、前提不成立或被其他任务卡住/u);
+    assert.match(mission, /ha task escalation resolve <task-id> --dispatch-id/u);
     assert.match(mission, /artifacts\/rulings\/__HARNESS_DISPATCH_ID__\.md/u, "the artifact path is per dispatch");
   }
-  // Reviewers are unattended too: same constraint, same single channel.
-  assert.match(
-    explicitPromptMission("task_x", null, "Review.", "medium", undefined, null, true),
-    /# 无人值守会话：不能提问/u,
-  );
+  const reviewerMission = explicitPromptMission("task_x", null, "Review.", "medium", undefined, null, true);
+  assert.match(reviewerMission, /# 无人值守会话：不能提问/u);
+  assert.match(reviewerMission, /没有 worker 上报凭据/u);
+  assert.doesNotMatch(reviewerMission, /ha task escalate/u);
   // Unbound prompts have no task package, so there is nowhere to write the ruling artifact.
   assert.doesNotMatch(explicitPromptMission(null, null, "Free-form prompt.", "medium"), /无人值守会话/u);
 });

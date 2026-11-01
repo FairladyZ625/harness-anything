@@ -24,7 +24,7 @@
 
 ## Stop Conditions
 
-当范围、权限、必要输入或破坏性选择不清楚时，停止并上报。
+当范围、权限、必要输入或破坏性选择阻断进度时，使用派工注入的 `ha task escalate <task-id> --question "<问题>" --option "<选项>" --recommend "<建议>" --reason "<阻塞原因>"` 命令；每个选项重复一次 `--option`。不要只在报告里写裁决请求。
 
 ## Commit and Handoff
 

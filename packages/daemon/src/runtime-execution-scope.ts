@@ -55,6 +55,7 @@ const selfApprovalActions = new Set([
   "decision-review-consent",
   "relation-relate",
   "relation-unrelate",
+  "task-escalation-resolve",
 ]);
 
 const repositoryWriteActions = new Set(["entity-pin", "entity-unpin", "settings-update"]);

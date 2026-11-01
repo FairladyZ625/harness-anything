@@ -18,7 +18,7 @@
 
 ## Stop Conditions
 
-在既定授权内自主处理；真正的所有权冲突或新增产品裁决回报业主，其余工作继续。不削门，不用样稿替代已实现的功能。
+在既定授权内自主处理；真正的所有权冲突或新增产品裁决阻断进度时，使用派工注入的 `ha task escalate <task-id> --question "<问题>" --option "<选项>" --recommend "<建议>" --reason "<阻塞原因>"` 命令，每个选项重复一次 `--option`。其余已授权工作继续。不削门，不用样稿替代已实现的功能。
 
 ## Commit and Handoff
 

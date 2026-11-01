@@ -139,6 +139,8 @@ const taskCapabilityEvaluators = Object.freeze(
       "attest",
       "declare-executor",
       "dispatch-review",
+      "escalate",
+      "escalation-resolve",
       "progress-append",
       "push",
       "rematerialize",
