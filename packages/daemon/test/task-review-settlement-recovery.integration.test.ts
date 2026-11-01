@@ -4,6 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { submissionDigest } from "@harness-anything/kernel";
+import { readRuntimeExecutionPrincipal } from "../src/runtime-execution-credential.ts";
 import { executionId, fixture, reviewerExecutionBinding, taskId } from "./task-completion-review.fixture.ts";
 
 for (const registeredByWorker of [true, false]) {
@@ -39,11 +40,16 @@ for (const registeredByWorker of [true, false]) {
           }),
         );
         if (registeredByWorker) {
+          const binding = reviewerExecutionBinding(runtimeSessionId, dispatchId),
+            executionPrincipal = await readRuntimeExecutionPrincipal(
+              await binding.keycloakAuthorization.center(),
+              dispatchId,
+            );
           const registered = await f
             .cell()
             .run(
               { kind: "task-review-execution", taskId, executionId, reviewId, fromFile: `harness/${packet}` },
-              reviewerExecutionBinding(runtimeSessionId, dispatchId),
+              { ...binding, executionPrincipal },
             );
           assert.equal(registered.outcome, "applied", JSON.stringify(registered));
         }
@@ -54,7 +60,14 @@ for (const registeredByWorker of [true, false]) {
         );
 
         const outcome = await f.settleReview(dispatchId, runtimeSessionId, "Report written.");
-        assert.equal(outcome, "succeeded");
+        const terminal = f
+          .events()
+          .find(
+            (event) =>
+              event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,
+          );
+        assert.ok(terminal?.type === "runtime_session_outcome_observed");
+        assert.equal(outcome, "succeeded", JSON.stringify(terminal.payload));
         const records = f.events().filter((event) => event.type === "review_recorded");
         assert.equal(records.length, 1, "settlement must produce one real Review, including when already registered");
         const recorded = records[0]!;
@@ -69,13 +82,6 @@ for (const registeredByWorker of [true, false]) {
           recorded.payload.review.submissionDigest,
           submissionDigest(submitted.payload.execution.submission),
         );
-        const terminal = f
-          .events()
-          .find(
-            (event) =>
-              event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,
-          );
-        assert.ok(terminal?.type === "runtime_session_outcome_observed");
         assert.ok(
           recorded.workspaceRevision < terminal.workspaceRevision,
           "Review acceptance precedes terminal success",
