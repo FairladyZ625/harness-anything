@@ -6,35 +6,30 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { runDocAction } from "../src/doc-sync-actions.ts";
-import {
-  isFleetTaskAction,
-  FLEET_CHUNK_BYTES,
-  FleetUtf8LineDecoder,
-  parseFleetFrame,
-  serializeFleetFrame,
-} from "../src/fleet/command-protocol.ts";
+import { isFleetTaskAction, type FleetFrameV1 } from "../src/fleet/command-protocol.ts";
+import { encodeFleetFrames, FleetTransferAssembler } from "../src/fleet/command-transfer.ts";
 
-test("several bounded evidence frames share a transport chunk while an oversized evidence frame is rejected", () => {
-  const frame = {
-    schema: "fleet.task.evidence/v1" as const,
-    messageId: "part-one",
-    inReplyTo: "read-one",
-    dataBase64: Buffer.alloc(FLEET_CHUNK_BYTES, 97).toString("base64"),
-  };
-  const decoder = new FleetUtf8LineDecoder();
-  const lines = decoder.push(
-    Buffer.from(serializeFleetFrame(frame) + serializeFleetFrame({ ...frame, messageId: "part-two" })),
-  );
-  assert.equal(lines.length, 2);
-  assert.deepEqual(
-    lines.map((line) => parseFleetFrame(line).schema),
-    ["fleet.task.evidence/v1", "fleet.task.evidence/v1"],
-  );
-  decoder.finish();
-  assert.throws(
-    () => parseFleetFrame({ ...frame, dataBase64: Buffer.alloc(FLEET_CHUNK_BYTES + 1).toString("base64") }),
-    /closed schema/,
-  );
+test("large doc-show evidence uses the generic transfer envelope", async () => {
+  const frame: Extract<FleetFrameV1, { schema: "fleet.task.result/v1" }> = {
+      schema: "fleet.task.result/v1",
+      messageId: "result-one",
+      inReplyTo: "read-one",
+      outcome: "applied",
+      opId: "op-one",
+      revision: 7,
+      replicationSequence: 9,
+      appliedCut: null,
+      code: null,
+      receipt: { outcome: "applied", evidence: "evidence\n".repeat(20000) },
+    },
+    encoded: FleetFrameV1[] = [];
+  for await (const part of encodeFleetFrames(frame, "response", "repo-one")) encoded.push(part);
+  assert.equal(encoded[0]?.schema, "fleet.transfer.begin/v1");
+  assert.equal(encoded.at(-1)?.schema, "fleet.transfer.end/v1");
+  const assembler = new FleetTransferAssembler({ direction: "response" });
+  let result: FleetFrameV1 | null = null;
+  for (const part of encoded) result = assembler.push(part) ?? result;
+  assert.deepEqual(result, frame);
 });
 
 test("Fleet accepts the declared doc-show fields for center-owned frozen reads", () => {

@@ -9,6 +9,7 @@ import { sha256Bytes, type LedgerCutIdentity } from "@harness-anything/kernel";
 import { createIdentitySession } from "../src/authorization-provider.ts";
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
 import { digestId } from "../src/fleet/center-transport.ts";
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import {
   readFleetRepositoryMetadataClient,
   runFleetWriteClient,
@@ -34,6 +35,17 @@ import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
 import { fleetMirrorCutFile, locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 type RoundTripOptions = FleetWriteClientOptions & { readonly viewRoot: string };
+test("Fleet sessions stay connected across build identities and return an upgrade warning", async (t) => {
+  const fixture = await fleetFixture(t);
+  t.after(() => fixture.close());
+  const center = await fixture.center(),
+    peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret", {
+      buildCommit: "0".repeat(40),
+    });
+  assert.equal(peer.centerBuildCommit, daemonBuildStamp().commit);
+  assert.match(peer.versionWarning ?? "", /build differs/u);
+  assert.match(peer.versionWarning ?? "", /ha update/u);
+});
 test(
   "fact record from the real CLI parser crosses TLS and reaches the canonical ledger",
   { timeout: 30_000 },
@@ -590,11 +602,13 @@ test(
     );
     const center = await fixture.center(1),
       before = fixture.eventCount();
+    console.log("tls-session-checkpoint: center");
     await assert.rejects(
       rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "wrong-machine-secret"),
       /authentication_failed/u,
     );
     let peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret");
+    console.log("tls-session-checkpoint: authenticated-peer");
     const replayedHello = await peer.request({
       schema: "fleet.session.hello/v1",
       messageId: "replayed-hello",
@@ -604,6 +618,7 @@ test(
     });
     assert.equal(replayedHello.schema, "fleet.error/v1");
     if (replayedHello.schema === "fleet.error/v1") assert.equal(replayedHello.code, "hello_replayed");
+    console.log("tls-session-checkpoint: replayed-hello");
     const staging = path.join(fixture.repo, ".harness", "fleet-uploads"),
       stagingTarget = path.join(fixture.root, "unsafe-staging-target");
     mkdirSync(stagingTarget);
@@ -627,6 +642,7 @@ test(
     });
     assert.equal(uploadConflict.schema, "fleet.error/v1");
     if (uploadConflict.schema === "fleet.error/v1") assert.equal(uploadConflict.code, "upload_conflict");
+    console.log("tls-session-checkpoint: upload-conflict");
     fixture.setOwnerLookupDelay(50);
     await assert.rejects(
       runFleetRoundTrip({
@@ -644,6 +660,7 @@ test(
       /Fleet response timeout/u,
     );
     fixture.setOwnerLookupDelay(0);
+    console.log("tls-session-checkpoint: delayed-client-timeout");
     const spoofed = await peer.raw({
       schema: "fleet.upload.begin/v1",
       opId: "op-upload-test",
@@ -653,6 +670,7 @@ test(
     });
     assert.equal(spoofed.schema, "fleet.error/v1");
     if (spoofed.schema === "fleet.error/v1") assert.equal(spoofed.code, "invalid_frame");
+    console.log("tls-session-checkpoint: spoofed");
     assert.equal(fixture.transportErrors.length, 0, "a malformed frame is the edge's fault, not a handler failure");
     // A handler that crashes on something other than the frame is reported as such and logged.
     fixture.failOwnerLookup(new Error("registry unreadable"));
@@ -667,6 +685,7 @@ test(
     assert.equal(crashed.schema, "fleet.error/v1");
     if (crashed.schema === "fleet.error/v1") assert.equal(crashed.code, "handler_failed");
     assert.equal(fixture.transportErrors.length, 1);
+    console.log("tls-session-checkpoint: handler-crash");
     assert.match(String((fixture.transportErrors[0] as { error: unknown }).error), /registry unreadable/u);
     const unknownUpload = await peer.request({
       schema: "fleet.upload.chunk/v1",
@@ -678,6 +697,7 @@ test(
     });
     assert.equal(unknownUpload.schema, "fleet.error/v1");
     if (unknownUpload.schema === "fleet.error/v1") assert.equal(unknownUpload.code, "upload_unknown");
+    console.log("tls-session-checkpoint: unknown-upload");
     for (let index = 0; index < 9; index += 1) {
       const response = await peer.request({
         schema: "fleet.upload.begin/v1",
@@ -695,8 +715,10 @@ test(
         }
       }
     }
+    console.log("tls-session-checkpoint: ninth-upload");
     peer.close();
     peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret");
+    console.log("tls-session-checkpoint: second-peer");
     const declared = Buffer.from("abc"),
       ready = await peer.request({
         schema: "fleet.upload.begin/v1",

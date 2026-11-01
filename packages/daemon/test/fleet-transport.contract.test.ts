@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   FLEET_CHUNK_BYTES,
   FLEET_FRAME_BYTES,
+  FLEET_TRANSFER_CHUNK_BYTES,
   FLEET_KEY_SEND_WINDOW_BYTES,
   FLEET_SESSION_SEND_WINDOW_BYTES,
   FleetContractError,
@@ -11,6 +12,8 @@ import {
   parseFleetFrame,
   serializeFleetFrame,
 } from "../src/fleet/command-protocol.ts";
+import { encodeFleetFrames, FleetTransferAssembler, FleetTransferError } from "../src/fleet/command-transfer.ts";
+import { createResourceBudget } from "../src/fleet/resource-budget.ts";
 
 const cut = {
   revision: 7,
@@ -19,6 +22,96 @@ const cut = {
 } as const;
 const ledgerCut = { repoId: "repo", revision: cut.revision, headDigest: cut.headDigest } as const;
 const blob = { sha256: "c".repeat(64), size: 3, mediaType: "text/markdown" } as const;
+test("large logical frames use ordered digest-checked envelopes and reassemble atomically", async () => {
+  const frame = {
+      schema: "fleet.operational.read.result/v1" as const,
+      messageId: "large-result",
+      inReplyTo: "large-request",
+      result: { payload: "x".repeat(1024 * 1024) },
+    },
+    assembler = new FleetTransferAssembler({ direction: "response" }),
+    lines: ReturnType<typeof parseFleetFrame>[] = [];
+  for await (const encoded of encodeFleetFrames(frame, "response", "repo")) {
+    assert.ok(Buffer.byteLength(JSON.stringify(encoded)) <= FLEET_FRAME_BYTES);
+    const logical = assembler.push(parseFleetFrame(encoded));
+    if (logical) lines.push(logical);
+  }
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0]!.schema, frame.schema);
+  assert.equal((lines[0]!.schema === frame.schema ? lines[0]!.result.payload : "").length, 1024 * 1024);
+});
+
+test("transfer assembler rejects a changed chunk before exposing a logical frame", async () => {
+  const frame = {
+      schema: "fleet.operational.read.result/v1" as const,
+      messageId: "tampered-result",
+      inReplyTo: "tampered-request",
+      result: { payload: "x".repeat(1024 * 1024) },
+    },
+    encoded: unknown[] = [];
+  for await (const part of encodeFleetFrames(frame, "response", "repo")) encoded.push(part);
+  const chunk = encoded.find(
+    (part): part is Extract<ReturnType<typeof parseFleetFrame>, { schema: "fleet.transfer.chunk/v1" }> =>
+      typeof part === "object" && part !== null && "schema" in part && part.schema === "fleet.transfer.chunk/v1",
+  );
+  assert.ok(chunk);
+  const assembler = new FleetTransferAssembler({ direction: "response" });
+  assembler.push(parseFleetFrame(encoded[0]!));
+  for (const part of encoded.slice(1)) {
+    const parsed = parseFleetFrame(part),
+      current =
+        parsed.schema === "fleet.transfer.chunk/v1" && parsed.sequence === chunk.sequence
+          ? { ...parsed, dataBase64: Buffer.alloc(FLEET_TRANSFER_CHUNK_BYTES, 0x78).toString("base64") }
+          : parsed;
+    if (current.schema === "fleet.transfer.end/v1") assert.throws(() => assembler.push(current), /digest/u);
+    else assert.equal(assembler.push(current), null);
+  }
+});
+
+test("an in-progress transfer holds per-node bytes while another node remains admissible", () => {
+  const limits = {
+      global: { bulkTransfers: 4, memoryBytes: 400_000 },
+      node: { bulkTransfers: 2, memoryBytes: 100_000 },
+      session: { bulkTransfers: 2, memoryBytes: 100_000 },
+      repository: { bulkTransfers: 4, memoryBytes: 400_000 },
+    } as const,
+    budget = createResourceBudget(limits),
+    begin = (id: string, repoId: string) => ({
+      schema: "fleet.transfer.begin/v1" as const,
+      messageId: id,
+      correlationId: `${id}-request`,
+      direction: "request" as const,
+      repoId,
+      totalBytes: 100_000,
+      sha256: "a".repeat(64),
+    }),
+    assembler = (nodeId: string, sessionId: string) =>
+      new FleetTransferAssembler({
+        direction: "request",
+        reserve: (repoId, bytes) =>
+          budget.reserve({ nodeId, sessionId, repoId }, { memoryBytes: bytes, bulkTransfers: 1 }),
+      });
+  const stalled = assembler("node-a", "session-a"),
+    otherSession = assembler("node-a", "session-b"),
+    otherNode = assembler("node-b", "session-c");
+  assert.equal(stalled.push(begin("transfer-a", "repo-a")), null);
+  assert.throws(
+    () => otherSession.push(begin("transfer-b", "repo-b")),
+    (error: unknown) =>
+      error instanceof FleetTransferError &&
+      error.code === "resource_exhausted" &&
+      /node memoryBytes/u.test(error.message) &&
+      /available=0/u.test(error.message),
+  );
+  assert.equal(otherNode.push(begin("transfer-c", "repo-c")), null);
+  assert.equal(budget.usage({ nodeId: "node-a", sessionId: "session-a", repoId: "repo-a" }).node.memoryBytes, 100_000);
+  stalled.reset();
+  otherNode.reset();
+  assert.equal(
+    budget.usage({ nodeId: "node-a", sessionId: "session-a", repoId: "repo-a" }).node.memoryBytes,
+    undefined,
+  );
+});
 test("fleet authentication metadata admits a standard JWT and remains separate from closed action fields", () => {
   const frame = {
     schema: "fleet.task.command/v1",

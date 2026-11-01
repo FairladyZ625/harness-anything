@@ -18,6 +18,7 @@ import {
   readFleetRuntimeSessionsPaged,
 } from "../src/fleet-edge-runtime.ts";
 import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
+import { readFleetOperationalClient } from "../src/fleet/peer.ts";
 import {
   fleetFixture,
   git,
@@ -32,7 +33,92 @@ import { readRuntimeExecutionPrincipal } from "../src/runtime-execution-principa
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { eventually, scheduleRuntimePorts, definition } from "./schedule-actions.fixtures.ts";
 import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
+import { FLEET_TRANSFER_CHUNK_BYTES } from "../src/fleet/command-protocol.ts";
 const replicaQuota = 64 * 1024 * 1024;
+test("Fleet operational replies transparently carry 1 MiB and 32 MiB results", { timeout: 120_000 }, async (t) => {
+  const fixture = await fleetFixture(t, [], [], "local", undefined, undefined, false),
+    sizes = [1024 * 1024, 32 * 1024 * 1024],
+    response = { payload: "" },
+    originalRead = fixture.host.read;
+  Object.defineProperty(fixture.host, "read", {
+    configurable: true,
+    value: async (...args: Parameters<typeof originalRead>) =>
+      args[1] === "repo.fleet.overview.read" ? response : originalRead(...args),
+  });
+  const center = await fixture.center();
+  t.after(() => fixture.close());
+  for (const size of sizes) {
+    response.payload = "x".repeat(size);
+    const result = await readFleetOperationalClient({
+      hostname: "127.0.0.1",
+      port: center.port,
+      ca: fixture.cert,
+      servername: "localhost",
+      nodeId: fixture.subject.nodeId,
+      credential: "machine-secret",
+      repoId: fixture.subject.repoId,
+      readAccessToken: fixture.owners.readAccessToken(fixture.subject.nodeId),
+      method: "repo.fleet.overview.read",
+      payload: {},
+    });
+    assert.deepEqual(result, { payload: response.payload });
+  }
+});
+test(
+  "an over-budget inbound transfer returns resource_exhausted and drains without cutting the session",
+  { timeout: 60_000 },
+  async (t) => {
+    const fixture = await fleetFixture(t, [], [], "local", undefined, undefined, false),
+      center = await fixture.center();
+    t.after(() => fixture.close());
+    const first = await rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret"),
+      second = await rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret"),
+      totalBytes = 40 * 1024 * 1024,
+      sha256 = "a".repeat(64),
+      begin = (transferId: string, correlationId: string) => ({
+        schema: "fleet.transfer.begin/v1",
+        messageId: transferId,
+        correlationId,
+        direction: "request",
+        repoId: fixture.subject.repoId,
+        totalBytes,
+        sha256,
+      });
+    first.write(begin("transfer-first", "large-request-first"));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    second.write(begin("transfer-second", "large-request-second"));
+    const refused = await second.receive();
+    assert.equal(refused.schema, "fleet.error/v1");
+    if (refused.schema !== "fleet.error/v1") throw new Error(JSON.stringify(refused));
+    assert.equal(refused.inReplyTo, "large-request-second");
+    assert.equal(refused.code, "resource_exhausted");
+    assert.match(refused.message, /actualBytes=41943040/u);
+    assert.match(refused.message, /limit=67108864/u);
+    second.write({
+      schema: "fleet.transfer.chunk/v1",
+      messageId: "transfer-second_0",
+      transferId: "transfer-second",
+      sequence: 0,
+      offset: 0,
+      dataBase64: Buffer.alloc(FLEET_TRANSFER_CHUNK_BYTES, 0).toString("base64"),
+    });
+    second.write({
+      schema: "fleet.transfer.end/v1",
+      messageId: "transfer-second_end",
+      transferId: "transfer-second",
+      totalBytes,
+      sha256,
+    });
+    const metadata = await second.request({
+      schema: "fleet.repo.metadata.get/v1",
+      messageId: "after-budget-denial",
+      repoId: fixture.subject.repoId,
+    });
+    assert.equal(metadata.schema, "fleet.repo.metadata.result/v1");
+    first.close();
+    second.close();
+  },
+);
 // A `node --test` timeout suspends the test body at its current await and never resumes it, so `try…finally`
 // teardown does not run on the timeout path. Every fixture therefore owns its OS resources and every test hands
 // `fixture.close` to `t.after`, which node:test does run after a timeout. Sockets and edge children are dropped

@@ -19,6 +19,7 @@ import { createIdentitySession } from "../src/authorization-provider.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { parseFleetFrame, serializeFleetFrame, type FleetFrameV1 } from "../src/fleet/command-protocol.ts";
+import { FleetTransferAssembler } from "../src/fleet/command-transfer.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 type FleetTestSubject = {
@@ -335,7 +336,7 @@ export async function rawPeer(
   ca: Buffer,
   nodeId: string,
   credential: string,
-  connection: { readonly host?: string } = {},
+  connection: { readonly host?: string; readonly buildCommit?: string } = {},
 ) {
   const socket = await new Promise<TLSSocket>((resolve, reject) => {
       const candidate = connect({ host: connection.host ?? "127.0.0.1", port, ca, servername: "localhost" }, () =>
@@ -351,13 +352,15 @@ export async function rawPeer(
   socket.on("error", () => undefined);
   const closed = new Promise<void>((resolve) => socket.once("close", () => resolve()));
   let buffer = "";
+  const transfers = new FleetTransferAssembler({ direction: "response" });
   socket.on("data", (chunk) => {
     buffer += chunk.toString("utf8");
     for (;;) {
       const end = buffer.indexOf("\n");
       if (end < 0) break;
-      const frame = parseFleetFrame(buffer.slice(0, end));
+      const frame = transfers.push(parseFleetFrame(buffer.slice(0, end)));
       buffer = buffer.slice(end + 1);
+      if (frame === null) continue;
       const waiter = waiters.shift();
       if (waiter) waiter(frame);
       else frames.push(frame);
@@ -365,6 +368,7 @@ export async function rawPeer(
   });
   const next = () =>
       frames.length ? Promise.resolve(frames.shift()!) : new Promise<FleetFrameV1>((resolve) => waiters.push(resolve)),
+    write = (frame: unknown) => socket.write(`${JSON.stringify(frame)}\n`),
     request = async (frame: FleetFrameV1) => {
       socket.write(serializeFleetFrame({ ...frame, accessToken: `device-token-${nodeId}` }));
       return next();
@@ -383,9 +387,20 @@ export async function rawPeer(
     protocolVersion: { major: 1, minor: 0 },
     nodeId,
     credential,
+    ...(connection.buildCommit === undefined ? {} : { buildCommit: connection.buildCommit }),
   });
   if (hello.schema === "fleet.error/v1") throw new Error(hello.code);
-  return { request, raw, split, receive: next, closed, close: () => socket.destroy() };
+  return {
+    request,
+    write,
+    raw,
+    split,
+    receive: next,
+    centerBuildCommit: hello.schema === "fleet.session.ready/v1" ? (hello.centerBuildCommit ?? null) : null,
+    versionWarning: hello.schema === "fleet.session.ready/v1" ? (hello.versionWarning ?? null) : null,
+    closed,
+    close: () => socket.destroy(),
+  };
 }
 export function splitWrite(socket: TLSSocket, frame: FleetFrameV1, marker: string): void {
   const bytes = Buffer.from(serializeFleetFrame(frame)),

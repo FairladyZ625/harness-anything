@@ -1073,7 +1073,6 @@ export function createDaemonHostRepositoryApi(
           readBinding,
         );
       }
-      if (auth.transportKind === "fleet-tls") assertFleetReadFits(result, method);
       return parseDaemonGuiReadResult(method, result);
     },
   };
