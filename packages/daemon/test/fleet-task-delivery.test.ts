@@ -14,7 +14,7 @@ import {
   workerPushFailureCode,
 } from "../src/runtime-worker-push.ts";
 
-for (const denialMode of ["permission", "cas"])
+for (const denialMode of ["permission", "holder", "cas"])
   test(`edge delivery checks permission and remote CAS (${denialMode})`, async (t) => {
     const root = mkdtempSync(path.join(tmpdir(), "ha-delivery-cas-"));
     t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -73,13 +73,25 @@ for (const denialMode of ["permission", "cas"])
         await release.promise;
         return "owner";
       },
-      verifyHolder: async () => undefined,
+      verifyHolder: async () => {
+        if (denialMode === "holder")
+          throw Object.assign(new Error("Delivery requires the current node, owner and execution lease."), {
+            code: "lease_holder_mismatch",
+          });
+      },
       action: { kind: "task-submit", taskId },
       readTask: async () => snapshot("old"),
     });
     // Attach the rejection observer before unblocking the operation.
-    const rejected = assert.rejects(old, denialMode === "permission" ? /authorization denied/u : /stale info/u);
-    if (denialMode === "permission") {
+    const rejected = assert.rejects(
+      old,
+      denialMode === "permission"
+        ? /authorization denied/u
+        : denialMode === "holder"
+          ? (error: unknown) => error instanceof Error && "code" in error && error.code === "lease_holder_mismatch"
+          : /stale info/u,
+    );
+    if (denialMode === "permission" || denialMode === "holder") {
       await rejected;
       assert.equal(git(first, "ls-remote", "--heads", "origin", taskId), "");
       return;
