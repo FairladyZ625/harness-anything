@@ -145,9 +145,7 @@ export async function planNodeRetirement(
   return {
     expect: { kind: "node" as const, nodeId, version: String((current?.revision ?? 0) + 1), state: "removed" as const },
     preview,
-    release: request.confirm === true ? retirement.fence(nodeId) : undefined,
     apply: async () => {
-      await retirement.drain(nodeId);
       await session.adapter.deleteNode(session.token, nodeId);
       return {
         summary: `Node retired.

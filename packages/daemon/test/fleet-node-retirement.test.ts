@@ -9,7 +9,7 @@ import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak"
 import { AccessAdminService } from "../src/access-admin-service.ts";
 import { createIdentitySession } from "../src/authorization-provider.ts";
 import { managedRbacReceiptJournal } from "../src/access-admin-state.ts";
-import { fakeKeycloak, keycloakUserRoot, keycloakUrl, keycloakRealm } from "./keycloak.fixtures.ts";
+import { fakeKeycloak, keycloakUserRoot, keycloakUrl, keycloakRealm, signInAt } from "./keycloak.fixtures.ts";
 
 function retirementFixture(t: TestContext, ownerExists = true) {
   const keycloak = fakeKeycloak(),
@@ -209,4 +209,43 @@ test("orphan slots with no registry client can be retired without making their o
     { code: "device_removed" },
   );
   await assert.rejects(admin.run({ operation: "node-unregister", nodeId: "typo-node" }), { code: "node_unknown" });
+});
+
+test("reconcile does not mistake a later rename for a failed retirement at the same revision", async (t) => {
+  const { provider, credential, userRoot, keycloak } = retirementFixture(t),
+    slots = openReplicationSlots(path.join(userRoot, "fleet", "replication-slots.sqlite")),
+    nodeId = "retired-test-node",
+    slot = slots.claim({ repoId: "repo-a", nodeId }, "history"),
+    before = slots.list();
+  t.after(() => slots.close());
+  let failDisable = true;
+  const fetchPort: typeof fetch = (input, init) =>
+      failDisable && init?.method === "PUT" && String(input).includes("/clients/")
+        ? Promise.resolve(new Response(null, { status: 503 }))
+        : keycloak.fetch(input, init),
+    admin = new AccessAdminService(createIdentitySession(userRoot, { fetch: fetchPort }), userRoot, {
+      fetch: fetchPort,
+    }),
+    operationId = "failed-retirement-before-disable";
+  await assert.rejects(
+    admin.run({ operation: "node-unregister", operationId, nodeId, expectedVersion: "1", confirm: true }),
+    { code: "keycloak_admin_rejected" },
+  );
+  assert.equal((await provider.readNode("center-token", nodeId))?.state, "active");
+  failDisable = false;
+  // A separate legitimate owner operation reaches the revision the failed removal expected.
+  signInAt(userRoot, "person-owner", []);
+  assert.equal(
+    (await admin.run({ operation: "device-rename", nodeId, expectedVersion: "1", displayName: "still in use" })).ok,
+    true,
+  );
+  signInAt(userRoot, "person-admin");
+  const result = await admin.run({ operation: "receipt-reconcile", operationId });
+  assert.equal(result.outcome, "failed", "an active node cannot satisfy a removed expectation");
+  assert.equal(result.ok, false);
+  assert.deepEqual(slots.list(), before, "failed reconciliation must preserve all active-node slots");
+  assert.equal(slots.current(slot), true);
+  assert.equal(await provider.authenticateNode(nodeId, credential), true);
+  const node = await provider.readNode("center-token", nodeId);
+  assert.deepEqual([node?.state, node?.revision, node?.revocation], ["active", 2, "complete"]);
 });

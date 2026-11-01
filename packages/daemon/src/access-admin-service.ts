@@ -51,7 +51,6 @@ type Expectation =
 interface Plan {
   readonly expect: Expectation;
   readonly preview?: Readonly<Record<string, unknown>>;
-  readonly release?: () => void;
   /** Whatever the write returns is handed to the caller once and never journaled. */
   readonly apply: () => Promise<Readonly<Record<string, unknown>> | void>;
   /** Releases local-only preparation when the write never started: its intent could not be recorded. */
@@ -603,6 +602,9 @@ ${JSON.stringify(planned.preview, null, 2)}`,
         this.#ports.journal.append(JSON.stringify(receipt));
         return { ok: false, code: "version_conflict", ...receipt };
       }
+      // All removal entry points share admission fencing, including owner device-remove.
+      const removed = removedNode(planned.expect),
+        release = removed ? this.#ports.nodeRetirement!.fence(removed) : undefined;
       try {
         // The intent lands before Keycloak changes, so a lost receipt can be reconciled without replaying the write.
         try {
@@ -619,6 +621,7 @@ ${JSON.stringify(planned.preview, null, 2)}`,
           planned.abandon?.();
           throw error;
         }
+        if (removed) await this.#ports.nodeRetirement!.drain(removed);
         const issued = await planned.apply();
         return {
           ...this.#settle(
@@ -628,7 +631,7 @@ ${JSON.stringify(planned.preview, null, 2)}`,
           ...issued,
         };
       } finally {
-        planned.release?.();
+        release?.();
       }
     });
   }
@@ -675,7 +678,11 @@ ${JSON.stringify(planned.preview, null, 2)}`,
         );
       case "node": {
         const node = await session.adapter.readNode(session.token, expect.nodeId);
-        return nodeVersion(node) === expect.version && node?.revocation === "complete";
+        return (
+          nodeVersion(node) === expect.version &&
+          node?.revocation === "complete" &&
+          (expect.state === undefined || node.state === expect.state)
+        );
       }
       case "devices":
         for (const expected of expect.nodes)
@@ -1026,7 +1033,7 @@ function credentialReservation(file: string): ReturnType<typeof reserveCredentia
   }
 }
 
-/** The one expectation a removal carries: an absent node, observed by its empty version. */
+/** Removal retains a disabled tombstone; only a removed-state expectation permits fleet cleanup. */
 function removedNode(expect: unknown): string | null {
   if (typeof expect !== "object" || expect === null || (expect as { kind?: unknown }).kind !== "node") return null;
   const node = expect as { nodeId?: unknown; state?: unknown };

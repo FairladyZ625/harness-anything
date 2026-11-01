@@ -275,74 +275,81 @@ test(
   },
 );
 
-test("forced retirement drains an admitted command before reporting success", { timeout: 60_000 }, async (t) => {
-  const fixture = await fleetFixture(t);
-  t.after(() => fixture.close());
-  const center = await fixture.center(),
-    { nodeId, repoId, taskId } = fixture.subject,
-    peer = await rawPeer(fixture.track, center.port, fixture.cert, nodeId, "machine-secret"),
-    assigned = await peer.request({ schema: "fleet.repo.metadata.get/v1", messageId: "epoch", repoId });
-  assert.equal(assigned.schema, "fleet.repo.metadata.result/v1");
-  if (assigned.schema !== "fleet.repo.metadata.result/v1") return;
-  const barrier = fixture.blockTaskRelease();
-  t.after(barrier.release);
-  const pending = peer.request({
-    schema: "fleet.task.command/v1",
-    messageId: "held-release",
-    opId: "held-release",
-    repoId,
-    taskId,
-    writerEpoch: assigned.writerEpoch,
-    action: { kind: "task-release", taskId },
-    docChanges: null,
-    mirrorBaseCut: null,
-  });
-  await barrier.started;
-  assert.equal(center.inspectNode(nodeId).inFlight, 1);
-  signInAt(fixture.userRoot, "person-admin");
-  const admin = fixture.admin(center),
-    preview = await admin.run({ operation: "node-unregister", nodeId });
-  assert.equal(preview.inFlight, 1);
-  let enteredFence!: () => void,
-    settled = false;
-  const fenced = new Promise<void>((resolve) => {
-      enteredFence = resolve;
-    }),
-    retirement = createNodeRetirement({
-      stateRoot: fixture.stateRoot,
-      center: () => center,
-      repositories: () => fixture.host.status().repos,
-    }),
-    controlledAdmin = new AccessAdminService(createIdentitySession(fixture.userRoot), fixture.userRoot, {
-      nodeRetirement: {
-        ...retirement,
-        fence: (id) => {
-          const release = retirement.fence(id);
-          enteredFence();
-          return release;
+for (const operation of ["node-unregister", "device-remove"] as const) {
+  test(`${operation} drains an admitted command before reporting success`, { timeout: 60_000 }, async (t) => {
+    const fixture = await fleetFixture(t);
+    t.after(() => fixture.close());
+    const center = await fixture.center(),
+      { nodeId, repoId, taskId } = fixture.subject,
+      peer = await rawPeer(fixture.track, center.port, fixture.cert, nodeId, "machine-secret"),
+      assigned = await peer.request({ schema: "fleet.repo.metadata.get/v1", messageId: "epoch", repoId });
+    assert.equal(assigned.schema, "fleet.repo.metadata.result/v1");
+    if (assigned.schema !== "fleet.repo.metadata.result/v1") return;
+    const barrier = fixture.blockTaskRelease();
+    t.after(barrier.release);
+    const pending = peer.request({
+      schema: "fleet.task.command/v1",
+      messageId: "held-release",
+      opId: "held-release",
+      repoId,
+      taskId,
+      writerEpoch: assigned.writerEpoch,
+      action: { kind: "task-release", taskId },
+      docChanges: null,
+      mirrorBaseCut: null,
+    });
+    await barrier.started;
+    assert.equal(center.inspectNode(nodeId).inFlight, 1);
+    signInAt(
+      fixture.userRoot,
+      operation === "device-remove" ? "person-owner" : "person-admin",
+      operation === "device-remove" ? [] : ["access-admin"],
+    );
+    let enteredFence!: () => void,
+      settled = false;
+    const fenced = new Promise<void>((resolve) => {
+        enteredFence = resolve;
+      }),
+      retirement = createNodeRetirement({
+        stateRoot: fixture.stateRoot,
+        center: () => center,
+        repositories: () => fixture.host.status().repos,
+      }),
+      controlledAdmin = new AccessAdminService(createIdentitySession(fixture.userRoot), fixture.userRoot, {
+        nodeRetirement: {
+          ...retirement,
+          fence: (id) => {
+            const release = retirement.fence(id);
+            enteredFence();
+            return release;
+          },
         },
-      },
-    });
-  const retiring = controlledAdmin
-    .run({
-      operation: "node-unregister",
-      nodeId,
-      expectedVersion: "1",
-      confirm: true,
-      force: true,
-    })
-    .then((result) => {
-      settled = true;
-      return result;
-    });
-  await fenced;
-  assert.equal(settled, false, "retirement cannot report success while an admitted write is parked");
-  assert.equal(center.inspectNode(nodeId).inFlight, 1);
-  // The command was admitted before the retirement fence; retirement waits for its canonical result.
-  barrier.release();
-  await pending;
-  const result = await retiring;
-  assert.equal(result.ok, true);
-  assert.equal(center.inspectNode(nodeId).inFlight, 0);
-  await peer.closed;
-});
+      });
+    const retiring = controlledAdmin
+      .run({
+        operation,
+        nodeId,
+        expectedVersion: "1",
+        ...(operation === "node-unregister" ? { confirm: true, force: true } : {}),
+      })
+      .then((result) => {
+        assert.equal(center.inspectNode(nodeId).inFlight, 0, "settlement requires every admitted write to finish");
+        settled = true;
+        return result;
+      });
+    assert.equal(
+      await Promise.race([fenced.then(() => "fenced"), retiring.then(() => "settled")]),
+      "fenced",
+      "every removal entry must fence before settlement",
+    );
+    assert.equal(settled, false, "retirement cannot report success while an admitted write is parked");
+    assert.equal(center.inspectNode(nodeId).inFlight, 1);
+    // The command was admitted before the retirement fence; retirement waits for its canonical result.
+    barrier.release();
+    await pending;
+    const result = await retiring;
+    assert.equal(result.ok, true);
+    assert.equal(center.inspectNode(nodeId).inFlight, 0);
+    await peer.closed;
+  });
+}
