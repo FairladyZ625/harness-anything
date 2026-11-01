@@ -4,10 +4,11 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
+import { managedRbacSessionStore } from "@harness-anything/authorization-keycloak/managed-rbac-service";
+import { createIdentitySession } from "../src/authorization-provider.ts";
 import { oidcCenterSelections } from "../src/oidc-center-selection.ts";
 
-export { OidcSessionService } from "../src/oidc-session-service.ts";
+export const IdentitySessionPort = createIdentitySession;
 
 export const keycloakUrl = "http://127.0.0.1:8080",
   keycloakRealm = "harness",

@@ -1,17 +1,20 @@
-import { DevicesTab } from "../components/identityAccess/DevicesTab.tsx";
-import { TeamsTab } from "../components/identityAccess/TeamsTab.tsx";
 import { useEffect, useState } from "react";
-import { AccessServiceTab } from "../components/identityAccess/AccessServiceTab.tsx";
-import { GrantsTab } from "../components/identityAccess/GrantsTab.tsx";
-import { PolicyGroupsTab } from "../components/identityAccess/PolicyGroupsTab.tsx";
-import { ReceiptsTab } from "../components/identityAccess/ReceiptsTab.tsx";
 import type { RepoMode } from "../components/RepoModeBadge.tsx";
 import { TabPanel } from "../components/primitives/EntryBoundary.tsx";
 import { Tabs } from "../components/primitives/Tabs.tsx";
 import { IdText } from "../components/IdText.tsx";
 import { guiHostBridge } from "../gui-transport.ts";
 import { t } from "../i18n/index.tsx";
-import { PermissionRequestsTab } from "../components/identityAccess/PermissionRequestsTab.tsx";
+import type { AuthorizationUiComponents } from "@harness-anything/authorization-gui/ui-component-contract";
+import {
+  AccessServiceTab,
+  DevicesTab,
+  GrantsTab,
+  PermissionRequestsTab,
+  PolicyGroupsTab,
+  ReceiptsTab,
+  TeamsTab,
+} from "../authorization-ui.tsx";
 
 type AccessTab = "devices" | "service" | "teams" | "groups" | "grants" | "requests" | "receipts";
 
@@ -24,9 +27,11 @@ export function IdentityAccessView({
   repos = [],
   repoId,
   rootDir,
+  components,
 }: {
   readonly repoId?: string;
   readonly rootDir?: string;
+  readonly components?: AuthorizationUiComponents;
   readonly repos?: readonly {
     readonly repoId: string;
     readonly displayName: string;
@@ -34,6 +39,7 @@ export function IdentityAccessView({
   }[];
 }) {
   const bridge = guiHostBridge(),
+    ui = components ?? bridge?.authorizationUi,
     auth = bridge?.auth && typeof bridge.auth.status === "function" ? bridge.auth : undefined,
     access = bridge?.access?.forRepository(repoId),
     [tab, setTab] = useState<AccessTab>("grants");
@@ -60,9 +66,13 @@ export function IdentityAccessView({
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="identity-access-view">
       <header className="flex flex-wrap items-baseline gap-3 px-5 py-3">
         <h1 className="text-xl font-semibold text-text">{t("identityAccess.title")}</h1>
-        <span data-testid="access-current-account" className="ui-body">
-          {t("accessControl.members.identity")}: <IdText value={identity} className="text-text" />
-        </span>
+        {ui?.UserIdentity ? (
+          <ui.UserIdentity personId={identity} />
+        ) : (
+          <span data-testid="access-current-account" className="ui-body">
+            {t("accessControl.members.identity")}: <IdText value={identity} className="text-text" />
+          </span>
+        )}
         <span className="min-w-0 truncate text-sm text-text-muted">{t("accessControl.tagline")}</span>
       </header>
       <div className="px-5">
@@ -92,14 +102,20 @@ export function IdentityAccessView({
         className="@container flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4"
       >
         {tab === "service" || !access ? (
-          <AccessServiceTab
-            key={repoId ?? "local"}
-            auth={auth}
-            access={access}
-            repoId={repoId}
-            rootDir={rootDir}
-            repoMode={repos.find((repo) => repo.repoId === repoId)?.mode}
-          />
+          ui?.Login ? (
+            <ui.Login auth={auth} repoId={repoId} rootDir={rootDir} />
+          ) : (
+            <AccessServiceTab
+              key={repoId ?? "local"}
+              auth={auth}
+              access={access}
+              repoId={repoId}
+              rootDir={rootDir}
+              repoMode={repos.find((repo) => repo.repoId === repoId)?.mode}
+            />
+          )
+        ) : ui?.AccessControl ? (
+          <ui.AccessControl auth={auth} access={access} repoId={repoId} rootDir={rootDir} repositories={repos} />
         ) : tab === "devices" ? (
           <DevicesTab access={access} />
         ) : tab === "teams" ? (

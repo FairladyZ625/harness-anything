@@ -1,4 +1,8 @@
-import type { AccessPolicyGroup, AccessReceipt, AccessRejection } from "../api/access-admin-contract.ts";
+import type {
+  AccessPolicyGroup,
+  AccessReceipt,
+  AccessRejection,
+} from "@harness-anything/authorization-gui/access-admin-contract";
 import { t, type MessageKey } from "./i18n/index.tsx";
 
 /** Actions a group gets from the groups it inherits, as the daemon expanded them. */
@@ -114,7 +118,7 @@ export function isPermissionRefusal(rejection: AccessRejection): boolean {
 /** A row per known account, including accounts without a direct grant. */
 export function grantsByPerson(
   people: readonly { readonly personId: string; readonly username: string }[],
-  grants: readonly import("../api/access-admin-contract.ts").AccessGrant[],
+  grants: readonly import("@harness-anything/authorization-gui/access-admin-contract").AccessGrant[],
   repoId = "",
 ) {
   return people.map((person) => ({

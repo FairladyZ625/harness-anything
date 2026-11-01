@@ -374,10 +374,16 @@ export async function openWriterSupervisor(
       case "releaseCurrentAccessToken":
         sessionTokens.delete(call.payload as string);
         return;
-      case "keycloakSession":
-        return input.keycloakSession!(call.payload as string);
-      case "keycloakCenter":
-        return input.keycloakCenter!(call.payload === null ? undefined : (call.payload as string));
+      case "keycloakSession": {
+        const { provider: _provider, ...session } = await input.keycloakSession!(call.payload as string);
+        return session;
+      }
+      case "keycloakCenter": {
+        const { provider: _provider, ...credential } = await input.keycloakCenter!(
+          call.payload === null ? undefined : (call.payload as string),
+        );
+        return credential;
+      }
       case "prepareRuntimeLaunch": {
         const payload = call.payload as {
           instanceId: string;

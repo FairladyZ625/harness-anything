@@ -1,8 +1,10 @@
 import {
+  authorizeWithAuthority as kernelAuthorizeWithAuthority,
   authorizationPort,
   type ActionEnvelope,
   type AuthorizationContext,
   type AuthorizationDecision,
+  type AuthorizationAuthority,
   type AuthorizationPort,
 } from "@harness-anything/kernel";
 
@@ -16,4 +18,13 @@ export function authorizeAction(
     ...context,
     evaluatedAtCut: context.evaluatedAtCut ?? "canonical:unknown",
   });
+}
+
+/** Async provider entry point: the provider evaluates, then the kernel validates its decision. */
+export function authorizeActionWithAuthority(
+  authority: AuthorizationAuthority,
+  action: ActionEnvelope,
+  context: AuthorizationContext,
+): Promise<AuthorizationDecision> {
+  return kernelAuthorizeWithAuthority(authority, action, context);
 }

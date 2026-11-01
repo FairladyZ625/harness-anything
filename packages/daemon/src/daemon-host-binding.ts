@@ -75,7 +75,10 @@ export function localDefaultBinding(
       : undefined;
   if (replicaPrincipal) auth = { ...auth, oidcPrincipal: undefined };
   else if (!auth.oidcPrincipal || auth.oidcPrincipal.expiresAt <= Date.now())
-    throw hostCodedError("authentication_required", "Sign in with Keycloak before performing this action.");
+    throw hostCodedError(
+      "authentication_required",
+      "Sign in with the configured identity provider before performing this action.",
+    );
   return withSessionEnvironment(
     {
       ...(auth.oidcPrincipal
@@ -96,6 +99,7 @@ function withSessionEnvironment(binding: RepoCellBinding, auth: DaemonAuthentica
       : {
           keycloakAuthorization: {
             session: {
+              provider: auth.oidcPrincipal.provider,
               personId: auth.oidcPrincipal.personId,
               accessToken: auth.oidcPrincipal.accessToken,
               ...(auth.localSessionAccessToken ? { currentAccessToken: auth.localSessionAccessToken } : {}),
@@ -126,6 +130,7 @@ async function nodeOwnerBinding(auth: DaemonAuthenticationContext): Promise<Repo
     source: { kind: "node", nodeId: owner.nodeId },
     keycloakAuthorization: {
       session: {
+        provider: auth.oidcPrincipal.provider,
         personId: owner.personId,
         accessToken: auth.oidcPrincipal.accessToken,
         ...(auth.localSessionAccessToken ? { currentAccessToken: auth.localSessionAccessToken } : {}),

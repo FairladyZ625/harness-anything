@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
-import { KeycloakPolicyAdapter } from "../../../packages/daemon/src/keycloak-policy-adapter.ts";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
 import { readFleetCenterConfig, saveFleetCenterConfig } from "../../../packages/daemon/src/fleet-center-config.ts";
 import { keycloakRealm, keycloakUrl } from "../../../packages/daemon/test/keycloak.fixtures.ts";
 

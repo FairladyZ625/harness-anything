@@ -20,7 +20,7 @@ import {
   OIDC_BOOTSTRAP_ADMIN_CHANNEL,
   OIDC_BINDING_STATUS_CHANNEL,
   OIDC_OPEN_CONSOLE_CHANNEL,
-} from "../src/api/oidc-auth-contract.ts";
+} from "@harness-anything/authorization-gui/oidc-auth-contract";
 
 test("a local repository keeps the original socket bootstrap status and a targeted administrator mutation is refused", async () => {
   const handlers = new Map<string, (event: IpcMainInvokeEvent, input?: unknown) => Promise<unknown>>();

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { coded } from "../agent-runtime-contract.ts";
-import type { OidcSessionService } from "../oidc-session-service.ts";
+import type { IdentitySessionPort } from "@harness-anything/kernel";
 import { createEdgeJoinStore, type EdgeJoinRecord } from "./edge-join.ts";
 
 export function restoreEdgeJoinStore(
@@ -32,7 +32,7 @@ export async function admitEdgeJoin(input: {
   readonly joinId: string;
   readonly inviteToken: string;
   readonly accessToken: string;
-  readonly oidc: OidcSessionService;
+  readonly oidc: IdentitySessionPort;
   readonly edgeJoins: ReturnType<typeof createEdgeJoinStore>;
   readonly validateSnapshot: (record: EdgeJoinRecord) => Promise<void>;
   readonly registerNode: (record: EdgeJoinRecord, nodeId: string) => Promise<string>;

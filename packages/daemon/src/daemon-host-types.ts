@@ -20,7 +20,7 @@ import { type RepoBootstrapRequest } from "./repo-bootstrap.ts";
 import { type RepoCell, type RepoCellStatus, type RepoTaskAction, type RuntimeIngressAction } from "./repo-cell.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import type { RemoteProxyManager } from "./remote-proxy.ts";
-import type { ManagedRbacRequest } from "./managed-rbac-service.ts";
+import type { ManagedRbacRequest } from "@harness-anything/kernel";
 import type { SkillEvalCaseDraft, SkillEvalCaseView, SkillEvalRecord, SkillEvalRunner } from "./skill-eval-runner.ts";
 
 export interface DaemonHost {

@@ -27,16 +27,13 @@
     "src/renderer/**/*.json",
     "src/api/entity-payload-hygiene.ts",
     "src/api/error-consumption.ts",
-    "src/api/access-admin-contract.ts",
     "src/api/center-settings-contract.ts",
     "src/api/app-command-contract.ts",
     "src/api/artifact-open-contract.ts",
     "src/api/connection-admin-contract.ts",
-    "src/api/edge-join-entry-contract.ts",
     "src/api/first-run-contract.ts",
     "src/api/html-artifact-policy.ts",
     "src/api/local-doc-contract.ts",
-    "src/api/oidc-auth-contract.ts",
     "src/api/project-directory-contract.ts",
     "src/api/project-window-contract.ts",
     "src/api/update-contract.ts",
@@ -51,6 +48,9 @@
     },
     {
       "path": "../daemon"
+    },
+    {
+      "path": "../authorization-keycloak-gui"
     }
   ]
 }

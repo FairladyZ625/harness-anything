@@ -1,0 +1,19 @@
+{
+  "name": "@harness-anything/authorization-keycloak-gui",
+  "version": "0.0.1",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@harness-anything/authorization-gui": "0.0.1"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  }
+}

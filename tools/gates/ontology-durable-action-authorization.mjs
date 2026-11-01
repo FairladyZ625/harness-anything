@@ -52,6 +52,7 @@ export function auditDurableActionAuthorization(rootDir = process.cwd(), durable
 function buildCallGraph(rootDir) {
   const files = [
     ...walkTypeScriptFiles(rootDir, "packages/daemon/src"),
+    ...walkTypeScriptFiles(rootDir, "packages/authorization-keycloak/src"),
     ...walkTypeScriptFiles(rootDir, "packages/application/src"),
   ];
   const sources = [];
@@ -113,12 +114,32 @@ function authorizationAuthority(rootDir, analysis) {
           ts.isCallExpression(node) &&
           ts.isPropertyAccessExpression(node.expression) &&
           node.expression.name.text === method &&
-          ts.isNewExpression(node.expression.expression) &&
-          ts.isIdentifier(node.expression.expression.expression) &&
-          node.expression.expression.expression.text === "KeycloakPolicyAdapter",
+          providerConstruction(node.expression.expression),
       ),
     );
   return { ok: typedPort && callsPort, keycloak };
+}
+
+function providerConstruction(expression) {
+  expression = unwrapExpression(expression);
+  if (ts.isNewExpression(expression))
+    return ts.isIdentifier(expression.expression) && expression.expression.text === "KeycloakPolicyAdapter";
+  if (
+    ts.isCallExpression(expression) &&
+    ts.isIdentifier(expression.expression) &&
+    expression.expression.text === "createAuthorizationProvider"
+  )
+    return true;
+  // The provider is now injected by the daemon composition root. Authorization must remain
+  // visible to this ontology gate when the evaluated session or center carries that provider,
+  // even though the consumer no longer constructs the Keycloak implementation.
+  if (ts.isIdentifier(expression)) return ["centerProvider", "decisionProvider", "provider"].includes(expression.text);
+  return (
+    ts.isPropertyAccessExpression(expression) &&
+    expression.name.text === "provider" &&
+    ts.isIdentifier(expression.expression) &&
+    expression.expression.text === "currentCenter"
+  );
 }
 
 function someNode(node, predicate) {
@@ -146,7 +167,7 @@ function bootstrapAuthority(analysis) {
     ?.find((definition) => definition.file === "packages/daemon/src/daemon-host-open.ts");
   const admin = analysis.functions
     .get("bootstrapAdmin")
-    ?.find((definition) => definition.file === "packages/daemon/src/oidc-session-service.ts");
+    ?.find((definition) => definition.file.endsWith("/oidc-session-service.ts"));
   if (!host || !admin || !ts.isBlock(host.body) || !host.body.statements[0]) return false;
   return (
     calls(host.body.statements[0], "localOnly") &&

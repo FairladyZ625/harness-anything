@@ -1,3 +1,5 @@
+import type { IdentityManagementPort } from "@harness-anything/kernel";
+import type { IdentitySessionPort } from "@harness-anything/kernel";
 import { readHomeOverview } from "./home/home-overview-read.ts";
 import { readFleetCenterConfig } from "./fleet-center-config.ts";
 import {
@@ -103,8 +105,8 @@ import { AccessAdminService } from "./access-admin-service.ts";
 import type { EdgeJoinSshTunnelManager } from "./fleet/edge-join-ssh-tunnel.ts";
 import type { createEdgeJoinStore } from "./fleet/edge-join.ts";
 import { accessAdminOperations } from "./protocol/daemon-protocol.contract.ts";
-import { ManagedRbacService } from "./managed-rbac-service.ts";
-import { OidcSessionService } from "./oidc-session-service.ts";
+import { createIdentityManagement } from "./authorization-provider.ts";
+import { createIdentitySession } from "./authorization-provider.ts";
 import type { SkillEvalCaseView, SkillEvalRecord, SkillEvalRunner } from "./skill-eval-runner.ts";
 import { openSkillEvalProduction, type SkillEvalProductionInput } from "./skill-eval-production.ts";
 import { runFleetReplicaSync, waitForFleetReplicaReady } from "./fleet/replica-sync.ts";
@@ -128,9 +130,9 @@ export interface DaemonHostOpenInput {
   readonly buildDraining?: () => boolean;
   readonly onRepoStatusChange?: () => void;
   /** The daemon's one OIDC session service; the transport binds requests through the same instance. */
-  readonly oidc?: OidcSessionService;
+  readonly oidc?: IdentitySessionPort;
   /** The managed identity center's lifecycle; a hermetic host substitutes it to stage its resume. */
-  readonly managedRbac?: Pick<ManagedRbacService, "run" | "resume" | "stop" | "loginListenerCertificate">;
+  readonly managedRbac?: Pick<IdentityManagementPort, "run" | "resume" | "stop" | "loginListenerCertificate">;
   readonly attachTimeoutMs?: number;
   readonly openCell?: (
     input: Parameters<typeof openRepoCell>[0] & { readonly onStatus?: (status: RepoCellStatus) => void },
@@ -216,7 +218,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     initialRegistry = readDaemonRegistry({ userRoot: input.userRoot }),
     buildObserver = observeDaemonBuild(input.runtimeFile),
     fleetEdgeRuntimes = new Map<string, ReturnType<typeof openFleetEdgeRuntime>>();
-  const oidc = input.oidc ?? new OidcSessionService(input.userRoot),
+  const oidc = input.oidc ?? createIdentitySession(input.userRoot),
     {
       writerEpochLease,
       writerEpochFence,
@@ -237,7 +239,12 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     await rbacResumed;
     const principal = (await oidc.bind({ transportKind: "unix-socket" }, rootDir)).oidcPrincipal;
     if (!principal) throw hostCodedError("authentication_required", "Sign in before continuing a runtime.");
-    return { personId: principal.personId, accessToken: principal.accessToken, ...principal.authority };
+    return {
+      provider: principal.provider,
+      personId: principal.personId,
+      accessToken: principal.accessToken,
+      ...principal.authority,
+    };
   };
   // The automatic disposition launches through the same local session source as a manual
   // `ha agent run`: the persisted dispatch binding has no credential of its own.
@@ -245,6 +252,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     providers: { list: decisionProviders.list, port: decisionProviders.port },
     now,
     keycloakSession,
+    keycloakCenter,
   });
   const hostBinding: DaemonHostApiContext["binding"] = async (
     rootDir,
@@ -637,7 +645,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     };
   };
   const accessAdminRef: { current: AccessAdminService | null } = { current: null };
-  const managedRbac = input.managedRbac ?? new ManagedRbacService(input.userRoot);
+  const managedRbac = input.managedRbac ?? createIdentityManagement(input.userRoot);
   const hostContext: DaemonHostApiContext = {
     remoteProxy,
     cells,

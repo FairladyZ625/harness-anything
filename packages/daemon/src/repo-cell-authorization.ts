@@ -28,7 +28,7 @@ import {
 } from "@harness-anything/kernel";
 import type { ExecutionDelegationRecord } from "@harness-anything/kernel";
 import { authorizeAction } from "./authorization.ts";
-import { KeycloakPolicyAdapter, type KeycloakPermissionDecision } from "./keycloak-policy-adapter.ts";
+import type { AuthorizationPermissionDecision } from "@harness-anything/kernel";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 const repositoryTarget: EntityRef = "settings/repository";
@@ -50,6 +50,7 @@ export async function evaluateRepoCellAction(input: {
       kind: input.action.kind,
       target,
       actor: input.binding.actor,
+      authorizationRef: authorizationRefForBinding(input.binding),
       idempotencyKey: typeof input.action.idempotencyKey === "string" ? input.action.idempotencyKey : input.actionId,
     });
   const credential = input.binding.keycloakAuthorization;
@@ -73,6 +74,7 @@ export async function evaluateRepoCellAction(input: {
     action: input.action.kind,
     resource,
     resourceAncestors,
+    policyRef: envelope.authorizationRef,
     fetchPort: input.fetchPort,
   });
   const decision = keycloakDecision(
@@ -81,6 +83,8 @@ export async function evaluateRepoCellAction(input: {
       result.outcome,
       result.reasonCode,
       resource,
+      result.policyRef,
+      result.authority,
     ),
     token = input.binding.delegatedExecutionToken;
   return token
@@ -133,42 +137,73 @@ export async function evaluateKeycloakPerson(input: {
   readonly action: string;
   readonly resource: AuthorizationResource;
   readonly resourceAncestors?: readonly AuthorizationResource[];
+  readonly policyRef?: string;
   readonly fetchPort?: typeof fetch;
-}): Promise<Pick<KeycloakPermissionDecision, "outcome" | "reasonCode">> {
-  const { session, center } = input.credential;
-  if (session?.personId !== input.personId) return { outcome: "denied", reasonCode: "keycloak_denied" };
-  const resourceAncestors = input.resourceAncestors ?? [];
-  if (center) {
-    const userToken = session.currentAccessToken ? await session.currentAccessToken() : session.accessToken,
-      userSession = new KeycloakPolicyAdapter(
-        { url: session.url, realm: session.realm, resourceServerClientId: session.clientId },
-        input.fetchPort,
-      );
-    if (!(await userSession.validateUserAccessToken(userToken, input.personId)))
-      return { outcome: "denied", reasonCode: "keycloak_denied" };
+}): Promise<
+  Pick<AuthorizationPermissionDecision, "outcome" | "reasonCode"> & {
+    readonly policyRef: string;
+    readonly authority: string;
   }
-  if (!center)
-    return new KeycloakPolicyAdapter(
-      { url: session.url, realm: session.realm, resourceServerClientId: session.clientId },
-      input.fetchPort,
-    ).authorize({
+> {
+  const { session, center } = input.credential;
+  if (session?.personId !== input.personId) {
+    const provider = session?.provider;
+    return {
+      outcome: "denied",
+      reasonCode: provider?.deniedReasonCode ?? "authentication_required",
+      policyRef: provider?.policyRef ?? input.policyRef ?? "authorization-provider@1",
+      authority: provider?.authority ?? "authorization-provider",
+    };
+  }
+  const currentCenter = center ? await center() : undefined,
+    provider = session?.provider ?? currentCenter?.provider;
+  if (!provider)
+    return {
+      outcome: "denied",
+      reasonCode: "authentication_required",
+      policyRef: input.policyRef ?? "authorization-provider@1",
+      authority: "authorization-provider",
+    };
+  const resourceAncestors = input.resourceAncestors ?? [];
+  const fetchPort = input.fetchPort ?? fetch,
+    decisionProvider = provider.withFetchPort ? provider.withFetchPort(fetchPort) : provider,
+    centerProvider = currentCenter
+      ? currentCenter.provider.withFetchPort
+        ? currentCenter.provider.withFetchPort(fetchPort)
+        : currentCenter.provider
+      : undefined;
+  if (currentCenter) {
+    const userToken = session.currentAccessToken ? await session.currentAccessToken() : session.accessToken,
+      valid = await decisionProvider.validateUserAccessToken(userToken, input.personId);
+    if (!valid)
+      return {
+        outcome: "denied",
+        reasonCode: provider.deniedReasonCode,
+        policyRef: decisionProvider.policyRef,
+        authority: decisionProvider.authority,
+      };
+  }
+  if (!currentCenter) {
+    const result = await decisionProvider.authorize({
       userAccessToken: session.currentAccessToken ? await session.currentAccessToken() : session.accessToken,
       action: input.action,
       resource: input.resource,
       resourceAncestors,
     });
-  const currentCenter = await center();
-  return new KeycloakPolicyAdapter(
-    { url: currentCenter.url, realm: currentCenter.realm, resourceServerClientId: currentCenter.clientId },
-    input.fetchPort,
-    async (rejectedAccessToken) => (await center(rejectedAccessToken)).accessToken,
-  ).authorizePerson({
+    return { ...result, policyRef: decisionProvider.policyRef, authority: decisionProvider.authority };
+  }
+  const result = await centerProvider!.authorizePerson({
     adminAccessToken: currentCenter.accessToken,
     personId: input.personId,
     action: input.action,
     resource: input.resource,
     resourceAncestors,
   });
+  return {
+    ...result,
+    policyRef: centerProvider!.policyRef,
+    authority: centerProvider!.authority,
+  };
 }
 
 export function authorizeRepoCellAction(input: {
@@ -185,6 +220,7 @@ export function authorizeRepoCellAction(input: {
       kind: input.action.kind,
       target,
       actor: input.binding.actor,
+      authorizationRef: authorizationRefForBinding(input.binding),
       idempotencyKey: typeof input.action.idempotencyKey === "string" ? input.action.idempotencyKey : input.actionId,
     }),
     decision = input.binding.authorizationDecision;
@@ -200,13 +236,15 @@ export function keycloakDecision(
   outcome: AuthorizationDecision["outcome"],
   reasonCode: string,
   resource?: AuthorizationResource,
+  policyRef = "authorization-provider@1",
+  authority = "authorization-provider",
 ): AuthorizationDecision {
   const groupId = actionDeclarations.find((declaration) => declaration.kind === action.kind)?.policyTier ?? "admin";
   return Object.freeze({
-    policyRef: "keycloak-policy@1",
+    policyRef,
     actor: action.actor,
     subject: action.target,
-    bindingsUsed: Object.freeze([{ authority: "keycloak", scope: action.kind }]),
+    bindingsUsed: Object.freeze([{ authority, scope: action.kind }]),
     outcome,
     reasonCodes: Object.freeze([reasonCode]),
     nextActions: Object.freeze(
@@ -215,11 +253,19 @@ export function keycloakDecision(
         : [
             resource
               ? `Request policy group ${groupId} on resource ${resourceName(resource)} from an access administrator; run ha bootstrap --operation grant --person-id ${action.actor.principal.personId} --group-id ${groupId} --resource ${resourceName(resource)} --operation-id <id>.`
-              : "Sign in with Keycloak and request an applicable policy group.",
+              : "Sign in with the configured authorization provider and request an applicable policy group.",
           ],
     ),
     evaluatedAtCut,
   });
+}
+
+function authorizationRefForBinding(binding: RepoCellBinding): string {
+  return (
+    binding.keycloakAuthorization?.session?.provider?.policyRef ??
+    binding.authorizationDecision?.policyRef ??
+    "authorization-provider@1"
+  );
 }
 
 function resourceName(resource: AuthorizationResource): string {

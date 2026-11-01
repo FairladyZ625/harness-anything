@@ -4,7 +4,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { OidcSessionService, type OidcSessionPorts } from "../src/oidc-session-service.ts";
+import { createIdentitySession } from "../src/authorization-provider.ts";
+import { type OidcSessionPorts } from "@harness-anything/kernel";
 import { localDefaultBinding } from "../src/daemon-host-binding.ts";
 
 // dec_F01770FD0DCF72683B7C4C7A47/CH6: the provider owns offline idle expiration.
@@ -61,7 +62,7 @@ function offlineFixture(refreshExpiresIn: number, t: TestContext) {
       return issue();
     },
   };
-  const open = () => new OidcSessionService(userRoot, ports);
+  const open = () => createIdentitySession(userRoot, ports);
   return { state, open, store: ports.sessionStore!(issuer, authority.realm), loginTarget };
 }
 

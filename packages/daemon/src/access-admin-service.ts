@@ -9,19 +9,18 @@ import {
   stableStringify,
   sha256Text,
 } from "@harness-anything/kernel";
-import {
-  KeycloakPolicyAdapter,
-  type KeycloakGrant,
-  type KeycloakNode,
-  type KeycloakPolicyGroup,
-} from "./keycloak-policy-adapter.ts";
-import { readSessionLifetime, sessionLifetimeBounds, writeSessionLifetime } from "./keycloak-session-lifetime.ts";
+import type {
+  AuthorizationProvider,
+  AuthorizationGrant,
+  AuthorizationNode,
+  AuthorizationPolicyGroup,
+} from "@harness-anything/kernel";
 import {
   managedPermissionRequestStore,
   managedRbacReceiptJournal,
   reserveCredentialFile,
-} from "./managed-rbac-service.ts";
-import type { OidcSessionService } from "./oidc-session-service.ts";
+} from "./access-admin-state.ts";
+import type { IdentitySessionPort } from "@harness-anything/kernel";
 import { type AccessAdminOperation, type AccessAdminPorts, type AccessAdminRequest } from "./access-admin-contract.ts";
 import { EdgeJoinAdminService } from "./access-admin-edge-join.ts";
 import { EdgeJoinSshTunnelManager } from "./fleet/edge-join-ssh-tunnel.ts";
@@ -39,7 +38,12 @@ type Expectation =
       readonly personId: string;
       readonly held: boolean;
     }
-  | { readonly kind: "node"; readonly nodeId: string; readonly version: string; readonly state?: KeycloakNode["state"] }
+  | {
+      readonly kind: "node";
+      readonly nodeId: string;
+      readonly version: string;
+      readonly state?: AuthorizationNode["state"];
+    }
   | { readonly kind: "devices"; readonly nodes: readonly { readonly nodeId: string; readonly version: string }[] }
   | { readonly kind: "session-lifetime"; readonly seconds: number };
 
@@ -60,7 +64,7 @@ interface Conflict {
 }
 
 interface Session {
-  readonly adapter: KeycloakPolicyAdapter;
+  readonly adapter: AuthorizationProvider;
   readonly token: string;
   readonly authority: { readonly url: string; readonly realm: string; readonly clientId: string };
   readonly realmAdmin: { readonly url: string; readonly realm: string; readonly accessToken: string };
@@ -90,13 +94,13 @@ interface PermissionRequest {
  * here is an audit trail that nothing evaluates.
  */
 export class AccessAdminService {
-  readonly #oidc: OidcSessionService;
+  readonly #oidc: IdentitySessionPort;
   readonly #ports: AccessAdminPorts;
   readonly #permissionRequests: ReturnType<typeof managedPermissionRequestStore>;
   readonly #edgeJoinAdmin: EdgeJoinAdminService;
   readonly #edgeJoinTunnels: EdgeJoinSshTunnelManager;
 
-  constructor(oidc: OidcSessionService, userRoot: string, ports: Partial<AccessAdminPorts> = {}) {
+  constructor(oidc: IdentitySessionPort, userRoot: string, ports: Partial<AccessAdminPorts> = {}) {
     this.#oidc = oidc;
     this.#permissionRequests = managedPermissionRequestStore(userRoot);
     this.#ports = {
@@ -409,13 +413,13 @@ export class AccessAdminService {
 
   async #sessionLifetime(): Promise<Record<string, unknown>> {
     const session = await this.#session(),
-      seconds = await readSessionLifetime(session.realmAdmin, this.#ports.fetch);
+      seconds = await session.adapter.readSessionLifetime(session.token);
     return {
       ok: true,
       seconds,
       version: String(seconds),
       authority: { url: session.realmAdmin.url, realm: session.realmAdmin.realm },
-      ...sessionLifetimeBounds,
+      ...session.adapter.sessionLifetimeBounds,
     };
   }
 
@@ -641,7 +645,7 @@ export class AccessAdminService {
           if (!(await this.#observed(session, { kind: "node", ...expected }))) return false;
         return true;
       case "session-lifetime":
-        return (await readSessionLifetime(session.realmAdmin, this.#ports.fetch)) === expect.seconds;
+        return (await session.adapter.readSessionLifetime(session.token)) === expect.seconds;
     }
   }
 
@@ -678,7 +682,7 @@ export class AccessAdminService {
           currentVersion: groupVersion(current),
         },
       };
-    const next: KeycloakPolicyGroup = {
+    const next: AuthorizationPolicyGroup = {
         id: groupId,
         base: false,
         displayName: request.displayName?.trim() || current?.displayName || groupId,
@@ -762,7 +766,7 @@ export class AccessAdminService {
   /** The lifetime is one number, so the value an administrator read is the version their change is made against. */
   async #planSessionLifetime(session: Session, request: AccessAdminRequest): Promise<Plan | Conflict> {
     const seconds = request.sessionLifetimeSeconds,
-      { minimumSeconds, maximumSeconds } = sessionLifetimeBounds;
+      { minimumSeconds, maximumSeconds } = session.adapter.sessionLifetimeBounds;
     if (!Number.isInteger(seconds) || seconds! < minimumSeconds || seconds! > maximumSeconds)
       throw coded(
         "session_lifetime_invalid",
@@ -774,11 +778,11 @@ export class AccessAdminService {
         "Access administration requires expectedVersion. Run `ha bootstrap --operation session-lifetime` and pass its version as --expected-version.",
       );
     const expectedVersion = text(request.expectedVersion, "expectedVersion"),
-      currentVersion = String(await readSessionLifetime(session.realmAdmin, this.#ports.fetch));
+      currentVersion = String(await session.adapter.readSessionLifetime(session.token));
     if (currentVersion !== expectedVersion) return { conflict: { expectedVersion, currentVersion } };
     return {
       expect: { kind: "session-lifetime", seconds: seconds! },
-      apply: () => writeSessionLifetime(session.realmAdmin, seconds!, this.#ports.fetch),
+      apply: () => session.adapter.writeSessionLifetime(session.token, seconds!),
     };
   }
 
@@ -807,7 +811,7 @@ export class AccessAdminService {
       return { conflict: { nodeId, expectedVersion: request.expectedVersion ?? "", currentVersion } };
     if (current) {
       if (current.state === "removed") throw coded("device_removed", "A removed device cannot be registered again.");
-      const moved: KeycloakNode = { ...current, personId, revision: current.revision + 1 };
+      const moved: AuthorizationNode = { ...current, personId, revision: current.revision + 1 };
       return {
         expect: { kind: "node", nodeId, version: String(moved.revision), state: moved.state },
         apply: () =>
@@ -879,7 +883,7 @@ export class AccessAdminService {
             : request.operation === "device-resume"
               ? "active"
               : node.state,
-      next: KeycloakNode = {
+      next: AuthorizationNode = {
         ...node,
         state,
         revision: node.revision + 1,
@@ -916,21 +920,19 @@ export class AccessAdminService {
   }
 
   async #grantHolders(session: Session, groupId: string, resource: string): Promise<readonly string[]> {
-    const grants: readonly KeycloakGrant[] = await session.adapter.readGrants(session.token);
+    const grants: readonly AuthorizationGrant[] = await session.adapter.readGrants(session.token);
     return grants.find((grant) => grant.groupId === groupId && grant.resource === resource)?.userIds ?? [];
   }
 
   async #session(): Promise<Session> {
     const center = await this.#oidc.center(),
-      authority = { url: center.url, realm: center.realm, clientId: resourceServerClientId };
+      authority = { url: center.url, realm: center.realm, clientId: resourceServerClientId },
+      adapter = center.provider.withFetchPort?.(this.#ports.fetch) ?? center.provider;
     return {
       authority,
       realmAdmin: center,
       token: center.accessToken,
-      adapter: new KeycloakPolicyAdapter(
-        { url: center.url, realm: center.realm, resourceServerClientId },
-        this.#ports.fetch,
-      ),
+      adapter,
     };
   }
 
@@ -942,7 +944,7 @@ export class AccessAdminService {
   }
 }
 
-function groupVersion(group: KeycloakPolicyGroup): string {
+function groupVersion(group: AuthorizationPolicyGroup): string {
   return createHash("sha256")
     .update(
       stableStringify({
@@ -956,15 +958,15 @@ function groupVersion(group: KeycloakPolicyGroup): string {
 }
 
 /** An unregistered node has the empty version, which is what a first registration expects. */
-function nodeVersion(node: KeycloakNode | undefined): string {
+function nodeVersion(node: AuthorizationNode | undefined): string {
   return node ? String(node.revision) : "";
 }
 
-function deviceListVersion(nodes: readonly KeycloakNode[]): string {
+function deviceListVersion(nodes: readonly AuthorizationNode[]): string {
   return JSON.stringify(nodes.map((node) => [node.nodeId, node.revision]));
 }
 
-function inheritedGroupIds(byId: ReadonlyMap<string, KeycloakPolicyGroup>, groupId: string): readonly string[] {
+function inheritedGroupIds(byId: ReadonlyMap<string, AuthorizationPolicyGroup>, groupId: string): readonly string[] {
   const seen = new Set<string>(),
     visit = (id: string): void => {
       if (seen.has(id)) return;

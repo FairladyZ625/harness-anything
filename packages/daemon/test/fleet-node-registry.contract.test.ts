@@ -7,15 +7,22 @@ import path from "node:path";
 import test from "node:test";
 import { keycloakNodeRegistry, prepareFleetCenterAdmission } from "../src/fleet-center-admission.ts";
 import { validateCertificateNames } from "../src/tls-listener-admission.ts";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
 import { fakeKeycloak, keycloakRealm, keycloakUrl } from "./keycloak.fixtures.ts";
 
 test("the node registry asks Keycloak who a node is and whether its credential is its own", async () => {
   const keycloak = fakeKeycloak(),
     credential = keycloak.node("edge-one", "operator-one"),
-    registry = keycloakNodeRegistry(
-      async () => ({ url: keycloakUrl, realm: keycloakRealm, clientId: "harness-center", accessToken: "center-token" }),
-      keycloak.fetch,
-    );
+    registry = keycloakNodeRegistry(async () => ({
+      url: keycloakUrl,
+      realm: keycloakRealm,
+      clientId: "harness-center",
+      accessToken: "center-token",
+      provider: new KeycloakPolicyAdapter(
+        { url: keycloakUrl, realm: keycloakRealm, resourceServerClientId: "harness-center" },
+        keycloak.fetch,
+      ),
+    }));
   assert.equal(await registry.authenticate("edge-one", credential), true);
   assert.equal(await registry.authenticate("edge-one", `${credential}-other`), false);
   assert.equal(await registry.authenticate("edge-unregistered", credential), false);

@@ -1,0 +1,32 @@
+{
+  "name": "@harness-anything/authorization-keycloak",
+  "version": "0.0.1",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "files": [
+    "dist",
+    "package.json"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./internal/keycloak-policy-adapter": "./src/keycloak-policy-adapter.ts",
+    "./internal/keycloak-login-client": "./src/keycloak-login-client.ts",
+    "./managed-rbac-service": "./src/managed-rbac-service.ts",
+    "./managed-rbac-listener-certificate": "./src/managed-rbac-listener-certificate.ts",
+    "./keycloak-session-lifetime": "./src/keycloak-session-lifetime.ts",
+    "./oidc-session-helpers": "./src/oidc-session-helpers.ts",
+    "./oidc-fleet-principal": "./src/oidc-fleet-principal.ts"
+  },
+  "scripts": {
+    "build:publish": "tsc -p tsconfig.publish.json",
+    "prepack": "npm run build:publish && node ../../tools/package-exports-lifecycle.mjs prepare",
+    "postpack": "node ../../tools/package-exports-lifecycle.mjs restore"
+  },
+  "dependencies": {
+    "@harness-anything/kernel": "0.0.1"
+  }
+}

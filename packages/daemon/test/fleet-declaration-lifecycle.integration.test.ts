@@ -15,7 +15,7 @@ import { applyFleetMirrorCut, locateFleetMirrorView } from "../src/fleet-edge-mi
 import { classifyTextualArtifactPath, openSqliteEventStore, isTaskEvent, sha256Text } from "@harness-anything/kernel";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { signInAt, signOutAt } from "./keycloak.fixtures.ts";
-import { OidcSessionService } from "../src/oidc-session-service.ts";
+import { createIdentitySession } from "../src/authorization-provider.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
 test(
@@ -56,7 +56,7 @@ test(
         path.join(edgeUser, "rbac/config.json"),
         readFileSync(path.join(fixture.userRoot, "rbac/config.json")),
       );
-      const oidc = new OidcSessionService(edgeUser);
+      const oidc = createIdentitySession(edgeUser);
       writeFileSync(
         path.join(edgeRoot, "fleet-edge.json"),
         JSON.stringify({

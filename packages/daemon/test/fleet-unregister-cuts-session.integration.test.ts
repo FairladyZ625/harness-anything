@@ -5,8 +5,8 @@ import { connect, type TLSSocket } from "node:tls";
 import { sha256Bytes } from "@harness-anything/kernel";
 import type { FleetTlsCenter } from "../src/fleet/center.ts";
 import { parseFleetFrame, serializeFleetFrame, type FleetFrameV1 } from "../src/fleet/command-protocol.ts";
-import { managedRbacReceiptJournal } from "../src/managed-rbac-service.ts";
-import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
+import { managedRbacReceiptJournal } from "../src/access-admin-state.ts";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
 import { signInAt } from "./keycloak.fixtures.ts";
 import { fleetFixture, rawPeer } from "./fleet-tls-session.fixture.ts";
 

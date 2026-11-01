@@ -21,8 +21,10 @@ function localBinding(personId = "person_owner_1"): RepoCellBinding {
 
 test("a persisted local binding regains the daemon's current operator session", async () => {
   const binding = localBinding(),
-    online = await withOnlineRuntimeSession(binding, async () => operatorSession);
+    center = async () => ({ accessToken: "test-center-access-token" }) as never,
+    online = await withOnlineRuntimeSession(binding, async () => operatorSession, center);
   assert.deepEqual(online.keycloakAuthorization?.session, operatorSession);
+  assert.equal(online.keycloakAuthorization?.center, center);
   assert.equal(online.actor, binding.actor);
   assert.equal(online.source, "local");
 });

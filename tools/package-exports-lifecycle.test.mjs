@@ -20,6 +20,40 @@ test("prepare publishes dist exports and restore reinstates the source manifest"
   });
 });
 
+test("prepare maps private source exports to dist without adding publish configuration", async () => {
+  const original = {
+    name: "private-fixture",
+    private: true,
+    exports: {
+      ".": "./src/index.ts",
+      "./internal/*": "./src/internal/*.ts",
+      "./conditional": { import: "./src/conditional.ts", default: "./src/fallback.ts" },
+    },
+  };
+  await withPackage((root) => {
+    preparePackageExports(root, 999_999_999);
+    assert.deepEqual(readPackage(root).exports, {
+      ".": "./dist/index.js",
+      "./internal/*": "./dist/internal/*.js",
+      "./conditional": { import: "./dist/conditional.js", default: "./dist/fallback.js" },
+    });
+    assert.equal("publishConfig" in readPackage(root), false);
+
+    restorePackageExports(root);
+    assert.deepEqual(readPackage(root), original);
+  }, original);
+});
+
+test("prepare still requires publish exports before packing a public package", async () => {
+  const original = { name: "public-fixture", exports: { ".": "./src/index.ts" } };
+  await withPackage((root) => {
+    assert.throws(() => preparePackageExports(root, 999_999_999), /must define publishConfig\.exports/u);
+    assert.deepEqual(readPackage(root), original);
+    assert.equal(existsSync(path.join(root, backupName)), false);
+    assert.equal(existsSync(path.join(root, ownerName)), false);
+  }, original);
+});
+
 test("prepare recovers a rewrite left by a dead pack before starting again", async () => {
   await withPackage((root, original) => {
     preparePackageExports(root, 999_999_999);
@@ -40,19 +74,25 @@ test("prepare rejects a concurrent pack owned by a live process", async () => {
   });
 });
 
-async function withPackage(fn) {
-  const root = await mkdtemp(path.join(tmpdir(), "ha-pack-exports-"));
-  const original = {
+async function withPackage(
+  fn,
+  original = {
     name: "fixture",
     exports: { ".": "./src/index.ts" },
     publishConfig: { exports: { ".": "./dist/index.js" } },
-  };
-  writeFileSync(path.join(root, "package.json"), `${JSON.stringify(original, null, 2)}\n`);
+  },
+) {
+  const root = await mkdtemp(path.join(tmpdir(), "ha-pack-exports-"));
+  writePackage(root, original);
   try {
     await fn(root, original);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+}
+
+function writePackage(root, value) {
+  writeFileSync(path.join(root, "package.json"), `${JSON.stringify(value, null, 2)}\n`);
 }
 
 function readPackage(root) {

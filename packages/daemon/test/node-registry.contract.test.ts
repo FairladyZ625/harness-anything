@@ -9,34 +9,41 @@ import test, { type TestContext } from "node:test";
 import { AccessAdminService, type AccessAdminRequest } from "../src/access-admin-service.ts";
 import { binding as deriveBinding } from "../src/daemon-host-binding.ts";
 import { keycloakNodeRegistry } from "../src/fleet-center-admission.ts";
-import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
-import { managedRbacReceiptJournal, reserveCredentialFile } from "../src/managed-rbac-service.ts";
-import { OidcSessionService } from "../src/oidc-session-service.ts";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
+import { managedRbacReceiptJournal, reserveCredentialFile } from "../src/access-admin-state.ts";
+import { createIdentitySession } from "../src/authorization-provider.ts";
 import { evaluateRepoCellAction } from "../src/repo-cell-authorization.ts";
 import type { RepoCellBinding, RepoTaskAction } from "../src/repo-cell-types.ts";
 import { fakeKeycloak, keycloakRealm, keycloakUrl, keycloakUserRoot } from "./keycloak.fixtures.ts";
 
-const center = { url: keycloakUrl, realm: keycloakRealm, clientId: "harness-center", accessToken: "center-token" },
-  centerAuthority = async () => center;
+const center = { url: keycloakUrl, realm: keycloakRealm, clientId: "harness-center", accessToken: "center-token" };
 
 async function fixture(t: TestContext) {
   const keycloak = fakeKeycloak(),
     user = keycloakUserRoot(),
-    oidc = new OidcSessionService(user.root, { fetch: keycloak.fetch }),
+    oidc = createIdentitySession(user.root, { fetch: keycloak.fetch }),
     admin = new AccessAdminService(oidc, user.root, { fetch: keycloak.fetch });
   t.after(user.cleanup);
-  await new KeycloakPolicyAdapter(
+  const provider = new KeycloakPolicyAdapter(
     { url: keycloakUrl, realm: keycloakRealm, resourceServerClientId: "harness-center" },
     keycloak.fetch,
-  ).syncBasePolicy("center-token");
+  );
+  await provider.syncBasePolicy("center-token");
   keycloak.writes.length = 0;
   const run = (request: AccessAdminRequest) => admin.run({ operationId: randomUUID(), ...request });
   return {
     keycloak,
     oidc,
+    provider,
     run,
     ...user,
-    registry: keycloakNodeRegistry(async () => center, keycloak.fetch),
+    registry: keycloakNodeRegistry(async () => ({
+      ...center,
+      provider: new KeycloakPolicyAdapter(
+        { url: keycloakUrl, realm: keycloakRealm, resourceServerClientId: center.clientId },
+        keycloak.fetch,
+      ),
+    })),
     nodes: async () =>
       (await admin.run({ operation: "node-list" })).nodes as {
         nodeId: string;
@@ -62,7 +69,10 @@ async function fixture(t: TestContext) {
 
 // The three entry points one person can act through: a signed-in local session, and two fleet nodes
 // registered to that person. Each entry holds a user session.
-const entries = (personId: string): Readonly<Record<string, RepoCellBinding>> => {
+const entries = (
+  personId: string,
+  provider: NonNullable<NonNullable<RepoCellBinding["keycloakAuthorization"]>["session"]>["provider"],
+): Readonly<Record<string, RepoCellBinding>> => {
   const actor = { principal: { personId }, executor: null };
   return {
     local: {
@@ -70,6 +80,7 @@ const entries = (personId: string): Readonly<Record<string, RepoCellBinding>> =>
       source: "local",
       keycloakAuthorization: {
         session: {
+          provider,
           personId,
           accessToken: `token-${personId}`,
           url: keycloakUrl,
@@ -83,6 +94,7 @@ const entries = (personId: string): Readonly<Record<string, RepoCellBinding>> =>
       source: { kind: "node", nodeId: "edge-a" },
       keycloakAuthorization: {
         session: {
+          provider,
           personId,
           accessToken: `token-${personId}`,
           url: keycloakUrl,
@@ -96,6 +108,7 @@ const entries = (personId: string): Readonly<Record<string, RepoCellBinding>> =>
       source: { kind: "node", nodeId: "edge-b" },
       keycloakAuthorization: {
         session: {
+          provider,
           personId,
           accessToken: `token-${personId}`,
           url: keycloakUrl,
@@ -178,7 +191,7 @@ test("a first registration puts the credential in the caller's file and keeps it
   // intent waiting: the outcome is not knowable from the refusal alone, so reconcile settles the
   // operation by what Keycloak shows, and once it shows nothing was created, removing the file
   // clears the way to register again.
-  const refusing = new AccessAdminService(new OidcSessionService(root, { fetch: keycloak.fetch }), root, {
+  const refusing = new AccessAdminService(createIdentitySession(root, { fetch: keycloak.fetch }), root, {
     fetch: ((input, init) =>
       init?.method === "POST" && String(input).endsWith("/clients")
         ? Promise.resolve(new Response("{}", { status: 500 }))
@@ -225,7 +238,7 @@ test("the credential is on disk before Keycloak is asked to store it", async (t)
     file = path.join(directory, "edge-a.credential");
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   keycloak.account("alice");
-  const ordered = new AccessAdminService(new OidcSessionService(root, { fetch: keycloak.fetch }), root, {
+  const ordered = new AccessAdminService(createIdentitySession(root, { fetch: keycloak.fetch }), root, {
     fetch: (async (input, init) => {
       if (init?.method === "POST" && String(input).endsWith("/clients")) {
         const secret = (JSON.parse(String(init.body)) as { secret?: unknown }).secret;
@@ -254,7 +267,7 @@ test("a registration whose answer is lost recovers through its file and a reconc
     file = path.join(directory, "edge-a.credential");
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   keycloak.account("alice");
-  const cutOff = new AccessAdminService(new OidcSessionService(root, { fetch: keycloak.fetch }), root, {
+  const cutOff = new AccessAdminService(createIdentitySession(root, { fetch: keycloak.fetch }), root, {
     fetch: (async (input, init) => {
       if (init?.method === "POST" && String(input).endsWith("/clients")) {
         await keycloak.fetch(input, init);
@@ -293,7 +306,7 @@ test("a registration whose intent cannot be journaled releases its reserved file
     file = path.join(directory, "edge-a.credential");
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   keycloak.account("alice");
-  const silent = new AccessAdminService(new OidcSessionService(root, { fetch: keycloak.fetch }), root, {
+  const silent = new AccessAdminService(createIdentitySession(root, { fetch: keycloak.fetch }), root, {
     fetch: keycloak.fetch,
     journal: {
       read: () => [],
@@ -333,7 +346,7 @@ test("creating a node reads nothing back after the write", async (t) => {
     if (written && (init?.method ?? "GET") === "GET") return new Response("{}", { status: 500 });
     return keycloak.fetch(input, init);
   };
-  const registered = await new AccessAdminService(new OidcSessionService(root, { fetch: keycloak.fetch }), root, {
+  const registered = await new AccessAdminService(createIdentitySession(root, { fetch: keycloak.fetch }), root, {
     fetch: afterTheWrite,
   }).run({
     operation: "node-register",
@@ -395,7 +408,7 @@ test("a failed old-owner consent revocation cannot publish a transferred device"
       init?.method === "DELETE" && String(input).includes("/consents/")
         ? Promise.resolve(new Response(null, { status: 503 }))
         : keycloak.fetch(input, init),
-    admin = new AccessAdminService(new OidcSessionService(user.root, { fetch: fetchPort }), user.root, {
+    admin = new AccessAdminService(createIdentitySession(user.root, { fetch: fetchPort }), user.root, {
       fetch: fetchPort,
     });
   await assert.rejects(
@@ -565,7 +578,7 @@ test("offline revocation failure leaves removal unsettled and never reports comp
     if (route.endsWith("/consents/harness-node-edge-a")) return new Response(null, { status: 503 });
     return keycloak.fetch(input, init);
   };
-  const admin = new AccessAdminService(new OidcSessionService(root, { fetch: keycloak.fetch }), root, {
+  const admin = new AccessAdminService(createIdentitySession(root, { fetch: keycloak.fetch }), root, {
     fetch: rejecting,
     onNodeRemoved: (nodeId) => removed.push(nodeId),
   });
@@ -594,7 +607,7 @@ test("a removal that settles applied reports the removed node, and nothing else 
     user = keycloakUserRoot(),
     directory = mkdtempSync(path.join(tmpdir(), "ha-node-credential-")),
     removed: string[] = [],
-    admin = new AccessAdminService(new OidcSessionService(user.root, { fetch: keycloak.fetch }), user.root, {
+    admin = new AccessAdminService(createIdentitySession(user.root, { fetch: keycloak.fetch }), user.root, {
       fetch: keycloak.fetch,
       onNodeRemoved: (nodeId) => removed.push(nodeId),
     }),
@@ -658,7 +671,7 @@ test("node registration needs an administrator, a known person, and a well-forme
 });
 
 test("one person gets one answer for one action on one object, through a local session or either node", async (t) => {
-  const { keycloak, run, evaluate } = await fixture(t);
+  const { keycloak, run, evaluate, provider } = await fixture(t);
   keycloak.account("alice");
   await run({ operation: "grant", personId: "alice", groupId: "contributor", resource: "repo-a" });
   await run({ operation: "grant", personId: "alice", groupId: "maintainer", resource: "repo-a:task/task-owned" });
@@ -670,7 +683,9 @@ test("one person gets one answer for one action on one object, through a local s
     ],
     table: Record<string, string[]> = {};
   for (const [label, action, expected] of cases) {
-    const outcomes = await Promise.all(Object.values(entries("alice")).map((binding) => evaluate(binding, action)));
+    const outcomes = await Promise.all(
+      Object.values(entries("alice", provider)).map((binding) => evaluate(binding, action)),
+    );
     table[label] = outcomes;
     assert.deepEqual(outcomes, [expected, expected, expected], label);
   }
@@ -679,7 +694,7 @@ test("one person gets one answer for one action on one object, through a local s
 });
 
 test("the answer follows the person a node is registered to, not the node", async (t) => {
-  const { keycloak, run, evaluate, nodes, registry } = await fixture(t),
+  const { keycloak, run, evaluate, nodes, registry, provider } = await fixture(t),
     directory = mkdtempSync(path.join(tmpdir(), "ha-node-credential-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   keycloak.account("alice");
@@ -694,7 +709,7 @@ test("the answer follows the person a node is registered to, not the node", asyn
   const through = async () => {
     const owner = await registry.nodeOwner("edge-a");
     assert.ok(owner);
-    return [owner, await evaluate(entries(owner)["edge-a"]!, { kind: "task-create" })];
+    return [owner, await evaluate(entries(owner, provider)["edge-a"]!, { kind: "task-create" })];
   };
   assert.deepEqual(await through(), ["alice", "allowed"]);
   assert.equal(
@@ -714,7 +729,7 @@ test("the answer follows the person a node is registered to, not the node", asyn
 });
 
 test("an actor reported by the frame never reaches the decision", async (t) => {
-  const { keycloak, run, evaluate, root } = await fixture(t);
+  const { keycloak, run, evaluate, root, provider } = await fixture(t);
   keycloak.account("alice");
   keycloak.account("root-admin");
   await run({ operation: "grant", personId: "root-admin", groupId: "admin", resource: "repo-a" });
@@ -723,7 +738,13 @@ test("an actor reported by the frame never reaches the decision", async (t) => {
       deriveBinding(root, {
         transportKind: "fleet-tls",
         nodePrincipal: { nodeId: "edge-a", personId: "alice" },
-        keycloakCenter: centerAuthority,
+        keycloakCenter: async () => ({
+          ...center,
+          provider: new KeycloakPolicyAdapter(
+            { url: keycloakUrl, realm: keycloakRealm, resourceServerClientId: center.clientId },
+            keycloak.fetch,
+          ),
+        }),
         oidcPrincipal: {
           personId: "alice",
           subject: "alice-user",
@@ -738,7 +759,7 @@ test("an actor reported by the frame never reaches the decision", async (t) => {
   assert.deepEqual(claimed, plain);
   assert.deepEqual(claimed.actor, { principal: { personId: "alice" }, executor: null });
   // root-admin holds the action; the node's owner does not, and the claim does not lend it to her.
-  assert.equal(await evaluate(entries("root-admin")["edge-a"]!, { kind: "people-delegate" }), "allowed");
+  assert.equal(await evaluate(entries("root-admin", provider)["edge-a"]!, { kind: "people-delegate" }), "allowed");
   assert.equal(await evaluate(claimed, { kind: "people-delegate" }), "denied");
   // A frame whose node has no registered owner is not carried by a claim either.
   await assert.rejects(
@@ -752,18 +773,21 @@ test("an actor reported by the frame never reaches the decision", async (t) => {
 });
 
 test("a device action needs its own user session and a Keycloak account", async (t) => {
-  const { keycloak, run, evaluate } = await fixture(t);
+  const { keycloak, run, evaluate, provider } = await fixture(t);
   keycloak.account("alice");
   await run({ operation: "grant", personId: "alice", groupId: "contributor", resource: "repo-a" });
-  const edge = entries("alice")["edge-a"]!;
+  const edge = entries("alice", provider)["edge-a"]!;
   assert.equal(await evaluate(edge, { kind: "task-create" }), "allowed");
   // A session that belongs to someone else does not speak for alice.
   assert.equal(
     await evaluate(
-      { ...edge, keycloakAuthorization: { session: { ...entries("bob").local!.keycloakAuthorization!.session! } } },
+      {
+        ...edge,
+        keycloakAuthorization: { session: { ...entries("bob", provider).local!.keycloakAuthorization!.session! } },
+      },
       { kind: "task-create" },
     ),
     "denied",
   );
-  assert.equal(await evaluate(entries("ghost")["edge-a"]!, { kind: "task-create" }), "denied");
+  assert.equal(await evaluate(entries("ghost", provider)["edge-a"]!, { kind: "task-create" }), "denied");
 });

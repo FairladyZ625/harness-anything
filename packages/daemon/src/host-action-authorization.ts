@@ -34,6 +34,10 @@ export async function evaluateFleetAction(input: {
       kind: input.kind,
       target: "settings/repository",
       actor: input.binding.actor,
+      authorizationRef:
+        input.binding.keycloakAuthorization?.session?.provider?.policyRef ??
+        input.binding.authorizationDecision?.policyRef ??
+        "authorization-provider@1",
     }),
     credential = input.binding.keycloakAuthorization;
   if (!credential) {
@@ -61,9 +65,18 @@ export async function evaluateFleetAction(input: {
     personId: input.binding.actor.principal.personId,
     action: input.kind,
     resource: input.repoId === undefined ? { kind: "fleet" } : { kind: "repository", repoId: input.repoId },
+    policyRef: envelope.authorizationRef,
     fetchPort: input.fetchPort,
   });
-  return keycloakDecision(envelope, input.evaluatedAtCut, result.outcome, result.reasonCode);
+  return keycloakDecision(
+    envelope,
+    input.evaluatedAtCut,
+    result.outcome,
+    result.reasonCode,
+    undefined,
+    result.policyRef,
+    result.authority,
+  );
 }
 
 /** Host-level authority: the daemon's socket owner locally, anyone else through a Keycloak fleet grant. */

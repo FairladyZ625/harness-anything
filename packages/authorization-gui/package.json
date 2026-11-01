@@ -1,0 +1,16 @@
+{
+  "name": "@harness-anything/authorization-gui",
+  "version": "0.0.1",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "exports": {
+    ".": "./src/index.ts",
+    "./access-admin-contract": "./src/access-admin-contract.ts",
+    "./edge-join-entry-contract": "./src/edge-join-entry-contract.ts",
+    "./oidc-auth-contract": "./src/oidc-auth-contract.ts",
+    "./ui-component-contract": "./src/ui-component-contract.ts"
+  },
+  "peerDependencies": { "react": "^19.0.0" }
+}

@@ -8,7 +8,7 @@ import { writeFileDurably } from "../durable-file.ts";
 import { readFleetEdgeConfig, writeFleetEdgeConfig } from "../client/fleet-edge-config.ts";
 import { runProcessTextAsync } from "../process-port.ts";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
-import type { OidcLoginAuthority } from "../oidc-session-service.ts";
+import type { OidcLoginAuthority } from "@harness-anything/kernel";
 import { decodeEdgeJoinLink } from "./edge-join.ts";
 import { probeFleetEdgeCenterAddress, requestFleetEdgeJoinPinned } from "./peer.ts";
 import { fetchWithTlsCa, systemCaCertificates } from "../tls-ca-certificate.ts";

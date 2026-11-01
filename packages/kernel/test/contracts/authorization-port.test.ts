@@ -75,7 +75,8 @@ test("an authority decision cannot cross actor, action, target or write cut", ()
   const request = action("task-create"),
     allowed = decision(request.kind);
   for (const candidate of [
-    { ...allowed, policyRef: "default@5" },
+    { ...allowed, policyRef: "" },
+    { ...allowed, policyRef: "other-policy@1" },
     { ...allowed, actor: { principal: { personId: "another" }, executor: null } },
     { ...allowed, actor: { principal: actor.principal, executor: { kind: "agent" as const, id: "another-runtime" } } },
     { ...allowed, subject: "task/other" as const },

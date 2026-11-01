@@ -54,6 +54,11 @@ export interface RepoCellBinding {
    */
   readonly keycloakAuthorization?: {
     readonly session?: {
+      readonly provider: import("@harness-anything/kernel").AuthorizationDecisionPort &
+        Pick<
+          import("@harness-anything/kernel").AuthorizationProvider,
+          "policyRef" | "authority" | "deniedReasonCode" | "withFetchPort"
+        >;
       readonly currentAccessToken?: () => Promise<string>;
       readonly personId: string;
       readonly accessToken: string;

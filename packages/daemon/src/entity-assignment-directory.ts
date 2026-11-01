@@ -1,4 +1,3 @@
-import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 import { canonicalResourceAncestors, evaluateKeycloakPerson } from "./repo-cell-authorization.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
@@ -28,11 +27,7 @@ export async function readEntityAssignmentDirectory(
   if (decision.outcome !== "allowed")
     throw cellCodedError("authorization_denied", `Assignment directory denied: ${decision.reasonCode}.`);
   const center = await credential.center(),
-    adapter = new KeycloakPolicyAdapter({
-      url: center.url,
-      realm: center.realm,
-      resourceServerClientId: center.clientId,
-    }),
+    adapter = center.provider,
     [people, nodes, teams] = await Promise.all([
       adapter.readPeople(center.accessToken),
       adapter.readNodes(center.accessToken),
