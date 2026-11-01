@@ -390,6 +390,7 @@ test("environment-borne permission modes reach the provider environment and ACP 
       userRoot,
       discover: () => [observed, dsh],
       env: { HOME: "/Users/operator", PATH: "/usr/bin" },
+      resolveGithubToken: async () => "github-token",
       subscriptionReady: () => ({ status: "ready", code: null, hint: null }),
     });
     store.create({
@@ -420,6 +421,9 @@ test("environment-borne permission modes reach the provider environment and ACP 
     assert.deepEqual(bypass.args, ["--profile", "acp"]);
     assert.equal(bypass.env.DSH_PERMISSION_MODE, "danger-full-access");
     assert.equal(bypass.env.HOME, "/Users/operator", "operator environment keeps the App's $DSH_HOME reachable");
+    assert.equal(bypass.env.GH_TOKEN, undefined, "DSH drops credential-shaped names from tool environments");
+    assert.equal(bypass.env.GIT_CONFIG_COUNT, undefined, "DSH must not receive partial numbered Git config");
+    assert.equal(bypass.githubCredentialNotice, undefined, "daemon-side settlement does not need a worker token");
     assert.equal(bypass.model, '["deepseek-account","deepseek-flash"]');
     assert.equal(write.env.DSH_PERMISSION_MODE, "workspace-write");
     assert.equal(readOnly.env.DSH_PERMISSION_MODE, "read-only");

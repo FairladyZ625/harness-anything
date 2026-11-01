@@ -360,12 +360,14 @@ export function openRuntimeInstanceStore(input: {
               ...(request.handshakeTimeoutMs !== undefined ? { handshakeTimeoutMs: request.handshakeTimeoutMs } : {}),
             }
           : {},
-      // The one GitHub injection point for both isolation states and both auth modes. `env` is
-      // already resolved (isolated HOME or the operator environment); the credential rides beside
-      // it. A store opened without a resolver deliberately injects nothing and owes no notice.
-      githubCredentialNotice = resolveGithubToken
-        ? applyGithubLaunchCredential(env, await resolveGithubToken(operatorEnvironment))
-        : undefined;
+      // The one GitHub injection point for both isolation states and both auth modes. DSH removes
+      // credential-shaped names before spawning tools, so its workers do not receive the helper;
+      // settlement pushes from the daemon. Other `env` values are already resolved (isolated HOME
+      // or the operator environment). A store without a resolver injects nothing and owes no notice.
+      githubCredentialNotice =
+        resolveGithubToken && config.kindId !== "deepseek-harness"
+          ? applyGithubLaunchCredential(env, await resolveGithubToken(operatorEnvironment))
+          : undefined;
     if (config.auth.mode === "subscription") {
       const readiness = rememberAuthReadiness(
         config.instanceId,
