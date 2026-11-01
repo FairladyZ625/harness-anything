@@ -1,8 +1,8 @@
 import type { PoolClient } from "pg";
 import {
   emptyTaskLifecycleSnapshot,
+  initializeTaskLifecycleSnapshot,
   reduceTaskEvent,
-  type TaskCreatedEvent,
   type TaskLifecycleSnapshot,
 } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract.ts";
 import {
@@ -25,9 +25,6 @@ import {
 } from "@harness-anything/kernel/internal/domain/decision-event.ts";
 import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { PG_PROJECTION_SCHEMA_VERSION } from "./pg-projection-schema.ts";
-import { currentTaskForWrite } from "@harness-anything/kernel/internal/domain/task.ts";
-import type { ActorAxes, TaskV2 } from "@harness-anything/kernel/internal/domain/task.ts";
-import type { WriteSource } from "@harness-anything/kernel/internal/domain/write-chain.contract.ts";
 import { slugifyTaskTitle } from "@harness-anything/kernel/internal/layout/index.ts";
 import {
   isTaskBootstrapEvent,
@@ -408,16 +405,7 @@ async function storeTaskBootstrap(
   event: Extract<PersistedCanonicalEventV1, { readonly schema: "task-bootstrap-event/v1" }>,
   tables: Set<string>,
 ): Promise<TaskLifecycleSnapshot> {
-  const snapshot = seedTaskSnapshot({
-    task: currentTaskForWrite(event.payload.task),
-    taskId: event.taskId,
-    workspaceRevision: event.workspaceRevision,
-    eventId: event.eventId,
-    opId: event.opId,
-    actor: event.actor,
-    source: event.source,
-    occurredAt: event.occurredAt,
-  });
+  const snapshot = initializeTaskLifecycleSnapshot(event);
   const packagePath = taskBootstrapPackagePath(event);
   await client.query(
     `INSERT INTO ha_task_snapshots
@@ -456,16 +444,7 @@ async function storeMigrationImport(
 ): Promise<{ readonly taskId: string | null; readonly snapshot: TaskLifecycleSnapshot | null }> {
   const entity = event.payload.entity;
   if (entity.kind === "task") {
-    const snapshot = seedTaskSnapshot({
-      task: currentTaskForWrite(entity.task),
-      taskId: entity.task.taskId,
-      workspaceRevision: event.workspaceRevision,
-      eventId: event.eventId,
-      opId: event.opId,
-      actor: entity.task.createdBy,
-      source: event.source,
-      occurredAt: event.occurredAt,
-    });
+    const snapshot = initializeTaskLifecycleSnapshot(event);
     await client.query(
       `INSERT INTO ha_task_snapshots
          (tenant_id, project_id, policy_epoch, readers, task_id, workspace_revision, snapshot,
@@ -777,31 +756,6 @@ async function relationEventWithTargetWitness(
     ...event,
     payload: { ...event.payload, relation: { ...event.payload.relation, targetObservedVersion: currentVersion } },
   } as unknown as typeof event;
-}
-
-function seedTaskSnapshot(input: {
-  readonly task: TaskV2;
-  readonly taskId: string;
-  readonly workspaceRevision: number;
-  readonly eventId: string;
-  readonly opId: string;
-  readonly actor: ActorAxes;
-  readonly source: WriteSource;
-  readonly occurredAt: string;
-}): TaskLifecycleSnapshot {
-  const created: TaskCreatedEvent = {
-    schema: "task-event/v1",
-    eventId: input.eventId,
-    workspaceRevision: input.workspaceRevision,
-    opId: input.opId,
-    taskId: input.taskId,
-    type: "task_created",
-    actor: input.actor,
-    source: input.source,
-    occurredAt: input.occurredAt,
-    payload: { task: input.task },
-  };
-  return reduceTaskEvent(emptyTaskLifecycleSnapshot(input.workspaceRevision - 1), created);
 }
 
 async function relationTargetVersion(

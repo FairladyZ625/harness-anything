@@ -80,8 +80,8 @@ function presentSnapshot(snapshot: TaskLifecycleSnapshot, status: string): TaskL
 }
 
 /**
- * Async PG read source. The public synchronous `TaskProjectionQueries` port is bridged by the RepoWriter worker;
- * this object owns only SQL and transaction boundaries and is safe to call from that bridge.
+ * Async PG projection primitives. Full synchronous `TaskProjectionQueries` composition and
+ * RepoWriter session bridging belong to the subsequent query-port delivery.
  */
 export interface PgTaskProjectionSource {
   readonly path: string;

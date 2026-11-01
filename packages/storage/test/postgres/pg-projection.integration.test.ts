@@ -839,6 +839,17 @@ test("PG task projection materializes reduceTaskEvent snapshots and scopes reade
       scope: { tenantId: "tenant-b", projectId: "project-a", policyEpoch: 7, readers: ["reader-a"] },
     });
     assert.equal((await hidden.read(event.taskId)).snapshot.task, null);
+    for (const scope of [
+      { ...projectionScope, projectId: "project-b" },
+      { ...projectionScope, policyEpoch: 8 },
+    ]) {
+      const hiddenScope = createPgTaskProjectionSource({ pool: runtimePool, repoId, scope }),
+        hiddenEntities = createPgEntityStore({ pool: runtimePool, scope });
+      assert.equal((await hiddenScope.read(event.taskId)).snapshot.task, null);
+      assert.equal(await hiddenEntities.get("agent", "replay-agent"), null);
+      await hiddenScope.close();
+      await hiddenEntities.close();
+    }
     await entities.persist({
       kind: "agent",
       id: "codex",

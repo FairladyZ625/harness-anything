@@ -9,6 +9,8 @@ import type { WriteSource } from "./write-chain.contract.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";
 import { TaskLifecycleContractError, validateTaskEvent } from "./task-lifecycle-event.ts";
 import type { ExecutionAnnotatedEvent, ExecutionExecutorDeclaredEvent, TaskEventV1 } from "./task-lifecycle-event.ts";
+import type { TaskBootstrapEventV1 } from "./task-bootstrap-event.ts";
+import type { MigrationImportEventV1 } from "./migration-import-event.ts";
 import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
 import { completionGateIds } from "./closeout-readiness.ts";
 import { gateAppliesToSubmission } from "./completion-contract.ts";
@@ -23,6 +25,7 @@ import type {
 import { validateTaskLifecycleCommandEnvelope } from "./task-lifecycle-contract-commands.ts";
 import {
   errorCode,
+  emptyTaskLifecycleSnapshot,
   execution,
   executionExecutorDeclarationCandidates,
   lifecycleContractIssue,
@@ -354,7 +357,35 @@ export function compileExecutionAnnotation(input: {
     };
   return { event, snapshot: reduceTaskEvent(input.snapshot, event) };
 }
-export function reduceTaskEvent(snapshot: TaskLifecycleSnapshot, event: TaskEventV1): TaskLifecycleSnapshot {
+/** Initialize from an already admitted canonical seed, without manufacturing a task event. */
+export function initializeTaskLifecycleSnapshot(
+  event: TaskBootstrapEventV1 | MigrationImportEventV1,
+): TaskLifecycleSnapshot {
+  return reduceTaskEvent(emptyTaskLifecycleSnapshot(), event);
+}
+
+export function reduceTaskEvent(
+  snapshot: TaskLifecycleSnapshot,
+  event: TaskEventV1 | TaskBootstrapEventV1 | MigrationImportEventV1,
+): TaskLifecycleSnapshot {
+  if (event.schema !== "task-event/v1") {
+    const task =
+      event.schema === "task-bootstrap-event/v1"
+        ? event.payload.task
+        : event.payload.entity.kind === "task"
+          ? event.payload.entity.task
+          : null;
+    if (
+      task === null ||
+      snapshot.task !== null ||
+      event.workspaceRevision <= snapshot.revision ||
+      (event.schema === "task-bootstrap-event/v1" && event.taskId !== task.taskId)
+    )
+      throw new TaskLifecycleContractError("invalid_transition", [
+        lifecycleContractIssue("invalid_transition", "event revision or aggregate identity is not replayable"),
+      ]);
+    return { ...snapshot, revision: event.workspaceRevision, task: currentTaskForWrite(task) };
+  }
   const issues = validateTaskEvent(event);
   if (issues.length) throw new TaskLifecycleContractError("invalid_schema", issues);
   if (
