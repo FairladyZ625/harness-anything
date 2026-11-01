@@ -350,6 +350,76 @@ test("an optional lockfile entry the installed tree skips never blocks the rebui
   }
 });
 
+test("ha gui passes one explicit parent origin to its browser broker", async () => {
+  const fixture = guiSourceFixture();
+  try {
+    for (const parentOrigin of [undefined, "http://127.0.0.1:43123", "https://dsh.example", "dsh-app://app"]) {
+      let launched = 0;
+      const status = await runGuiLaunch(
+        [
+          "gui",
+          "--browser",
+          "--root",
+          fixture.checkoutRoot,
+          ...(parentOrigin ? ["--parent-origin", parentOrigin] : []),
+        ],
+        {
+          guiPackageRoot: fixture.guiRoot,
+          sourceBuildId: () => null,
+          ensureDaemon: async () => ({ ok: true, hint: "reachable", attempts: 0 }),
+          startBrowserBroker: async (guiRoot, root, allowedParent) => {
+            launched += 1;
+            assert.equal(guiRoot, fixture.guiRoot);
+            assert.equal(root, fixture.checkoutRoot);
+            assert.equal(allowedParent, parentOrigin);
+            return { url: "http://127.0.0.1:1234/", close: async () => undefined };
+          },
+          waitForBrowserClose: async () => undefined,
+        },
+        () => undefined,
+      );
+      assert.equal(status, 0);
+      assert.equal(launched, 1);
+    }
+  } finally {
+    rmSync(fixture.checkoutRoot, { recursive: true, force: true });
+  }
+});
+
+test("ha gui rejects invalid parent origins before acquiring a daemon", async () => {
+  for (const argv of [
+    ["gui", "--parent-origin", "dsh-app://app"],
+    ["gui", "--browser", "--parent-origin"],
+    ["gui", "--browser", "--parent-origin", "dsh-app://app", "--parent-origin", "dsh-app://app"],
+    ...[
+      "*",
+      "null",
+      "http://127.0.0.1:*",
+      "https://*.example",
+      "https://example/path",
+      "https://user@example",
+      "https://example?x",
+      "https://example#x",
+      "https://example;",
+      "https://a https://b",
+      "https://a\n",
+      "file://app",
+      "dsh-app://other",
+    ].map((origin) => ["gui", "--browser", "--parent-origin", origin]),
+  ]) {
+    const receipts: Receipt[] = [];
+    const status = await runGuiLaunch(
+      argv,
+      {
+        ensureDaemon: async () => assert.fail("invalid input must not acquire a daemon"),
+      },
+      (receipt) => receipts.push(receipt as Receipt),
+    );
+    assert.equal(status, 2);
+    assert.ok(["invalid_field", "missing_field"].includes(receipts.at(-1)?.code ?? ""));
+  }
+});
+
 function guiSourceFixture(): { readonly checkoutRoot: string; readonly guiRoot: string } {
   // Stands in for a source checkout: <root>/packages/gui carries the bundles plus the src tree
   // whose commit the bundle's dist marker is compared against, and the lockfiles live at the

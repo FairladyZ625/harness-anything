@@ -13,7 +13,7 @@ import { parseDaemonGuiActionResponse } from "@harness-anything/daemon/internal/
 const MAX_BODY_BYTES = 1024 * 1024;
 const CSP =
   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
-  "img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
+  "img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors ";
 type JsonObject = { readonly [key: string]: unknown };
 
 export interface BrowserGuiBroker {
@@ -21,10 +21,23 @@ export interface BrowserGuiBroker {
   readonly close: () => Promise<void>;
 }
 
-export async function startBrowserGuiBroker(guiPackageRoot: string, rootDir: string): Promise<BrowserGuiBroker> {
-  const token = randomBytes(32).toString("base64url"),
+/** Only one serialized HTTP(S) origin or DSH's privileged application origin is a CSP source. */
+export function isBrowserGuiParentOrigin(value: string): boolean {
+  if (value === "dsh-app://app") return true;
+  return /^https?:\/\/[a-z0-9.-]+(?::[0-9]+)?$/u.test(value) && URL.canParse(value) && new URL(value).origin === value;
+}
+
+export async function startBrowserGuiBroker(
+  guiPackageRoot: string,
+  rootDir: string,
+  parentOrigin?: string,
+): Promise<BrowserGuiBroker> {
+  if (parentOrigin !== undefined && !isBrowserGuiParentOrigin(parentOrigin))
+    throw new TypeError("Browser GUI parent origin must be one exact HTTP(S) origin or dsh-app://app.");
+  const csp = CSP + (parentOrigin ?? "'none'"),
+    token = randomBytes(32).toString("base64url"),
     buildRoot = path.join(guiPackageRoot, "dist"),
-    server = createServer((request, response) => void handleRequest(request, response, buildRoot, rootDir, token));
+    server = createServer((request, response) => void handleRequest(request, response, buildRoot, rootDir, token, csp));
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", resolve);
@@ -47,12 +60,13 @@ async function handleRequest(
   buildRoot: string,
   rootDir: string,
   token: string,
+  csp: string,
 ) {
   const address = request.socket.address();
   if (!address || typeof address === "string" || !("port" in address)) return reject(response, 403);
   const expectedHost = `127.0.0.1:${address.port}`;
   if (request.headers.host !== expectedHost) return reject(response, 403);
-  response.setHeader("Content-Security-Policy", CSP);
+  response.setHeader("Content-Security-Policy", csp);
   response.setHeader("Referrer-Policy", "no-referrer");
   response.setHeader("X-Content-Type-Options", "nosniff");
   if (request.url === "/rpc") return handleRpc(request, response, rootDir, token, expectedHost);

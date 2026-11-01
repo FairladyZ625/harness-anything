@@ -58,10 +58,13 @@ export const clientLocalCommands = [
   {
     id: "gui",
     path: ["gui"],
-    usage: "ha gui [--root <path>]",
-    summary: "Launch the attach-only Electron GUI.",
+    usage: "ha gui [--browser [--parent-origin <origin>]] [--root <path>]",
+    summary: "Launch the Electron GUI or serve it through a loopback browser broker.",
     help: [
       "    GUI code comes from the optional @harness-anything/gui package; the CLI handles daemon autostart.",
+      "    --browser serves the GUI while this process runs; embedding is denied by default.",
+      "    --parent-origin permits one exact serialized HTTP(S) origin or dsh-app://app to embed it (requires --browser).",
+      "    Parent permission changes only frame-ancestors, never RPC authentication; paths and wildcards are rejected.",
       "    --root selects the repository context; it defaults to the current directory.",
       "    In a source checkout, a GUI bundle older than the sources is rebuilt before the window opens.",
       "    Closing the GUI never stops the daemon, and the GUI never respawns a stopped daemon.",
