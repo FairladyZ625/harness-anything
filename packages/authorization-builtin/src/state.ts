@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { type AuthorizationPolicyGroup, type AuthorizationGrant } from "@harness-anything/kernel";
+import { type AuthorizationGrant } from "@harness-anything/kernel";
 
 export interface BuiltinUser {
   readonly userId: string;
@@ -25,7 +25,6 @@ export interface BuiltinState {
   readonly schema: "harness-builtin-identity/v1";
   readonly centerTokenHashes: readonly string[];
   readonly users: readonly BuiltinUser[];
-  readonly groups: readonly AuthorizationPolicyGroup[];
   readonly grants: readonly AuthorizationGrant[];
   readonly sessions: readonly BuiltinSessionRecord[];
   readonly repositoryOwners: Readonly<Record<string, string>>;
@@ -75,7 +74,6 @@ export function defaultState(): BuiltinState {
     schema: "harness-builtin-identity/v1",
     centerTokenHashes: [],
     users: [],
-    groups: [],
     grants: [],
     sessions: [],
     repositoryOwners: {},
@@ -85,26 +83,9 @@ export function defaultState(): BuiltinState {
 export function readState(userRoot: string): BuiltinState {
   const file = stateFile(userRoot);
   if (!existsSync(file)) return defaultState();
-  const parsed = JSON.parse(readFileSync(file, "utf8")) as BuiltinState & {
-    readonly users?: readonly (BuiltinUser & { readonly teamIds?: readonly string[] })[];
-  };
+  const parsed = JSON.parse(readFileSync(file, "utf8")) as BuiltinState;
   if (parsed.schema !== "harness-builtin-identity/v1") return defaultState();
-  const {
-    teams: _teams,
-    nodes: _nodes,
-    users = [],
-    ...state
-  } = parsed as BuiltinState & {
-    readonly teams?: unknown;
-    readonly nodes?: unknown;
-  };
-  return {
-    ...state,
-    users: users.map((candidate) => {
-      const { teamIds: _teamIds, ...user } = candidate as BuiltinUser & { readonly teamIds?: readonly string[] };
-      return user;
-    }),
-  };
+  return parsed;
 }
 export function writeState(userRoot: string, state: BuiltinState): void {
   const root = path.join(userRoot, "rbac"),

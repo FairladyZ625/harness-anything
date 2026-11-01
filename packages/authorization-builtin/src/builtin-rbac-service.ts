@@ -11,7 +11,7 @@ export class BuiltinIdentityManagement implements IdentityManagementPort {
   }
   run(request: ManagedRbacRequest = {}): Promise<Record<string, unknown>> {
     const run = this.#lifecycle.then(() => this.#run(request));
-    this.#lifecycle = run.catch(() => undefined);
+    this.#lifecycle = Promise.allSettled([run]).then(() => undefined);
     return run;
   }
   async resume(): Promise<void> {

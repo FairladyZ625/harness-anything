@@ -49,7 +49,8 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
     this.#root = userRoot;
     this.#adapter = new BuiltinPolicyAdapter({ userRoot });
   }
-  async begin(redirectUri: string): Promise<Record<string, unknown>> {
+  async begin(redirectUri: string, loginTarget?: string): Promise<Record<string, unknown>> {
+    this.#assertLocalLoginTarget(loginTarget);
     const url = new URL(redirectUri);
     if (url.protocol !== "http:" || !["127.0.0.1", "localhost"].includes(url.hostname))
       return Promise.reject(coded("oidc_redirect_invalid", "OIDC callback must use a loopback HTTP address."));
@@ -77,10 +78,11 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
     });
   }
   async beginDevice(
-    _loginTarget?: string,
+    loginTarget?: string,
     _authorityOverride?: OidcLoginAuthority,
     expiresAtLimit?: number,
   ): Promise<Record<string, unknown>> {
+    this.#assertLocalLoginTarget(loginTarget);
     const now = Date.now(),
       expiresAt = Math.min(now + 10 * 60_000, expiresAtLimit ?? Number.POSITIVE_INFINITY),
       userCode = randomCode(),
@@ -89,7 +91,8 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
     const verificationUri = await this.#loginPageUrl("device", userCode);
     return { ok: true, pending: true, verificationUri, userCode, interval: 1, expiresAt };
   }
-  async deviceApproval(userCode: string): Promise<Record<string, unknown>> {
+  async deviceApproval(userCode: string, loginTarget?: string): Promise<Record<string, unknown>> {
+    this.#assertLocalLoginTarget(loginTarget);
     const pending = [...this.#pending.values()].find((item) => item.userCode === userCode);
     if (!pending) throw coded("oidc_device_missing", "Unknown or expired built-in device code.");
     const user = this.#adapter.users().find((item) => item.roles.includes("access-admin")) ?? this.#adapter.users()[0];
@@ -117,7 +120,8 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
       return this.#acceptUser(user);
     });
   }
-  async status(): Promise<Record<string, unknown>> {
+  async status(loginTarget?: string): Promise<Record<string, unknown>> {
+    this.#assertLocalLoginTarget(loginTarget);
     const session = this.#readSession();
     if (!session) return { ok: true, authenticated: false };
     return {
@@ -127,10 +131,12 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
       expiresAt: session.sessionExpiresAt,
     };
   }
-  async bindingHealth(_loginTarget: string): Promise<Record<string, unknown>> {
+  async bindingHealth(loginTarget: string): Promise<Record<string, unknown>> {
+    this.#assertLocalLoginTarget(loginTarget);
     return this.health();
   }
-  logout(): Promise<Record<string, unknown>> {
+  logout(loginTarget?: string): Promise<Record<string, unknown>> {
+    this.#assertLocalLoginTarget(loginTarget);
     ++this.#sessionGeneration;
     return this.serialize(async () => {
       const session = this.#readSession();
@@ -158,9 +164,10 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
   }
   async bind<T extends IdentityAuthenticationContext>(
     auth: T,
-    _loginTarget?: string,
+    loginTarget?: string,
     replicaRead = false,
   ): Promise<T & IdentityAuthenticationContext> {
+    this.#assertLocalLoginTarget(loginTarget);
     const session = this.#readSession();
     if (!session) return auth;
     if (
@@ -198,25 +205,24 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
   discovery(_nodeId: string): OidcLoginAuthority | null {
     return null;
   }
-  async requireRole(role: string): Promise<StoredSession> {
-    const session = await this.requireSession();
+  async requireRole(role: string, loginTarget?: string): Promise<StoredSession> {
+    const session = await this.requireSession(loginTarget);
     if (!session.roles.includes(role)) throw coded("authorization_denied", `Built-in role ${role} is required.`);
     return session;
   }
-  async requireSession(): Promise<StoredSession> {
+  async requireSession(loginTarget?: string): Promise<StoredSession> {
+    this.#assertLocalLoginTarget(loginTarget);
     const session = this.#readSession();
     if (!session) throw coded("authentication_required", "Sign in with the built-in identity provider first.");
     return session;
   }
   serialize<T>(operation: () => Promise<T>): Promise<T> {
     const run = this.#writes.current.then(operation);
-    this.#writes.current = run.then(
-      () => undefined,
-      () => undefined,
-    );
+    this.#writes.current = Promise.allSettled([run]).then(() => undefined);
     return run;
   }
-  configureAuthority<T>(operation: () => Promise<T>): Promise<T> {
+  configureAuthority<T>(operation: () => Promise<T>, loginTarget?: string): Promise<T> {
+    this.#assertLocalLoginTarget(loginTarget);
     return this.serialize(async () => {
       ensureBuiltinConfig(this.#root);
       return operation();
@@ -264,6 +270,9 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
   }
   #provider(): BuiltinPolicyAdapter {
     return this.#adapter;
+  }
+  #assertLocalLoginTarget(loginTarget?: string): void {
+    if (loginTarget && existsSync(path.join(loginTarget, "fleet-edge.json"))) throw identityPluginRequired();
   }
   async #loginPageUrl(kind: "login" | "device", value: string): Promise<string> {
     if (!this.#loginServer) {

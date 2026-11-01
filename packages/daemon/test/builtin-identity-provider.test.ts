@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -134,6 +134,27 @@ test("builtin authority URLs reject malformed or non-absolute roots", () => {
   assert.equal(userRootFromBuiltinUrl("https://identity.example.invalid"), undefined);
 });
 
+test("builtin sessions reject remote edge targets at the identity boundary", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-remote-target-")),
+    edgeRoot = mkdtempSync(path.join(tmpdir(), "ha-builtin-edge-target-"));
+  t.after(() => {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(edgeRoot, { recursive: true, force: true });
+  });
+  writeFileSync(path.join(edgeRoot, "fleet-edge.json"), "{}\n");
+  const session = new BuiltinIdentitySession(root),
+    pluginRequired = (error: unknown) => (error as { code?: string }).code === "identity_plugin_required";
+  await assert.rejects(session.beginDevice(edgeRoot), pluginRequired);
+  await assert.rejects(session.deviceApproval("123456", edgeRoot), pluginRequired);
+  await assert.rejects(session.status(edgeRoot), pluginRequired);
+  await assert.rejects(session.bindingHealth(edgeRoot), pluginRequired);
+  assert.throws(() => session.logout(edgeRoot), pluginRequired);
+  await assert.rejects(session.bind({ transportKind: "unix-socket" }, edgeRoot), pluginRequired);
+  await assert.rejects(session.requireSession(edgeRoot), pluginRequired);
+  await assert.rejects(session.requireRole("access-admin", edgeRoot), pluginRequired);
+  assert.throws(() => session.configureAuthority(async () => ({ ok: true }), edgeRoot), pluginRequired);
+});
+
 test("builtin collaboration entry points require the Keycloak plugin", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-collaboration-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -147,6 +168,11 @@ test("builtin collaboration entry points require the Keycloak plugin", async (t)
   });
   assert.throws(() => center.requireCollaboration(), { code: "identity_plugin_required" });
   await assert.rejects(center.interactiveAuthority(), { code: "identity_plugin_required" });
+  const authority = await center.center(),
+    centerToken = authority.accessToken;
+  await assert.rejects(authority.provider.readPolicyGroups(centerToken), { code: "identity_plugin_required" });
+  await assert.rejects(authority.provider.readGrants(centerToken), { code: "identity_plugin_required" });
+  await assert.rejects(authority.provider.readPeople(centerToken), { code: "identity_plugin_required" });
   const store = createEdgeJoinStore({ randomToken: () => "builtin-edge-invite" }),
     created = store.create({
       centerOrigin: "https://center.example.invalid:7545",
