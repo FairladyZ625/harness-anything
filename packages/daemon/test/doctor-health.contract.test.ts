@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { readDaemonRegistry } from "@harness-anything/kernel";
-import { doctorHealth } from "../src/repo-cell-doctor.ts";
+import { doctorHealth, fleetVersionDoctorCheck } from "../src/repo-cell-doctor.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
@@ -68,6 +68,22 @@ test("doctor health reports the eight checks and degrades to indeterminate witho
     await cell?.close();
     await removeTemporaryDirectory(rootDir);
   }
+});
+
+test("doctor health reports a stable actionable Fleet build warning", () => {
+  assert.deepEqual(
+    fleetVersionDoctorCheck([
+      "Fleet build differs (center=aaaaaaaaaaaa, edge=bbbbbbbbbbbb); upgrade with ha update.",
+      "Fleet build differs (center=aaaaaaaaaaaa, edge=bbbbbbbbbbbb); upgrade with ha update.",
+    ]),
+    {
+      id: "fleet-version",
+      status: "warn",
+      count: 1,
+      summary: "Fleet build differs (center=aaaaaaaaaaaa, edge=bbbbbbbbbbbb); upgrade with ha update.",
+      next: "Run ha update on the center and edge, then reconnect the Fleet session.",
+    },
+  );
 });
 
 test("doctor reports active typed relation cycles with type, node chain, and relation ids", async (t) => {
@@ -193,7 +209,7 @@ test("doctor host composes loaded/disk identities and remote edge never reports 
       const receipt = (await host.run("doctor-host", { kind: "doctor-health" }, auth)) as Record<string, unknown>;
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
       const checks = receipt.checks as { id: string; status: string; summary: string; next: string }[];
-      assert.equal(checks.length, 10);
+      assert.equal(checks.length, 11);
       assert.deepEqual(JSON.parse(String(receipt.evidence)).checks, checks);
       assert.equal(checks.find((check) => check.id === "build-drift")?.status, expected);
       // The host check reads the repository's selected provider and the machine-local record.
@@ -205,16 +221,20 @@ test("doctor host composes loaded/disk identities and remote edge never reports 
       // The fixture repository has no origin remote, so the hosted-credential check cannot
       // identify a provider and stays indeterminate instead of guessing.
       assert.equal(checks.find((check) => check.id === "hosted-credential")?.status, "indeterminate");
+      assert.equal(checks.find((check) => check.id === "fleet-version")?.status, "ok");
     }
     const receipt = (await host.run("doctor-edge", { kind: "doctor-health" }, auth)) as Record<string, unknown>;
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     const edgeChecks = receipt.checks as { id: string; status: string }[];
-    assert.equal(edgeChecks.length, 8);
+    assert.equal(edgeChecks.length, 9);
     assert.equal(edgeChecks.find((check) => check.id === "edge-replica")?.status, "fail");
     assert.equal(receipt.failureCode, "fleet_edge_config_invalid");
     assert.ok(
-      edgeChecks.filter((check) => check.id !== "edge-replica").every((check) => check.status === "indeterminate"),
+      edgeChecks
+        .filter((check) => check.id !== "edge-replica" && check.id !== "fleet-version")
+        .every((check) => check.status === "indeterminate"),
     );
+    assert.equal(edgeChecks.find((check) => check.id === "fleet-version")?.status, "ok");
     assert.match(JSON.stringify(receipt.scope), /Local replica observations/u);
   } finally {
     await host.close();

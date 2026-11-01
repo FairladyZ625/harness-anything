@@ -244,6 +244,7 @@ export interface DaemonHost {
       readonly endpoint?: string;
     }[];
     readonly repos: readonly RepoCellStatus[];
+    readonly fleetVersionWarnings?: readonly string[];
     readonly summary: string;
   };
   readonly pendingFleetDeliveries: () => number;

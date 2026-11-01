@@ -273,6 +273,7 @@
   "collaboration.fleetNote": "Fleet topology: nodes, replica channels and what is happening; served by a daemon read-only query",
   "collaboration.fleetSummary": "{nodes} nodes · {executing} executing · {events} events",
   "collaboration.readFailed": "The fleet overview could not be read: {error}",
+  "collaboration.versionWarning": "Center and local builds differ. Upgrade before continuing: {command}.",
   "collaboration.topologyTitle": "Fleet topology",
   "collaboration.topologyNote": "Click a node to see what it is doing and its internal state",
   "collaboration.eventsTitle": "Event stream",

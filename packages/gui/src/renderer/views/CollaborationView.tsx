@@ -88,6 +88,15 @@ export function CollaborationView({
         actions={<RepoModeBadge mode={mode} />}
       />
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-5 py-4">
+        {shownOverview?.versionWarning ? (
+          <p
+            data-testid="collaboration-version-warning"
+            className="border-l-2 border-status-blocked bg-surface-raised px-3 py-2 ui-meta text-status-blocked"
+            title={`${shownOverview.versionWarning.centerBuildCommit} / ${shownOverview.versionWarning.localBuildCommit}`}
+          >
+            {t("collaboration.versionWarning", { command: shownOverview.versionWarning.upgradeCommand })}
+          </p>
+        ) : null}
         {mode === "local" ? (
           <p
             data-testid="collaboration-center-notice"

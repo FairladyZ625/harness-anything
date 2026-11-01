@@ -7,6 +7,7 @@ import type { DaemonBuildObserver } from "./build-identity.ts";
 import type { DaemonHostOpenInput } from "./daemon-host-open.ts";
 import type { DaemonHost } from "./daemon-host-types.ts";
 import type { FleetEdgeRuntimeRequest, openFleetEdgeRuntime } from "./fleet-edge-runtime.ts";
+import type { FleetVersionWarning } from "./fleet/peer.ts";
 import type { FleetTlsCenter } from "./fleet/center.ts";
 import type { DaemonControlReceipt } from "./gui-s3-control.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
@@ -185,6 +186,7 @@ export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionConte
   readonly replicaSyncControllers: Map<string, { readonly controller: AbortController; readonly config: string }>;
   /** Starts, restarts (changed fleet-edge.json) or stops each remote-edge replica stream. */
   readonly startReplicaSyncs: () => void;
+  readonly fleetVersionWarnings: Map<string, FleetVersionWarning>;
   readonly settleControl: (pending: DaemonControlReceipt, ok: boolean, error?: unknown) => void;
   readonly buildObserver: DaemonBuildObserver;
   readonly startInitialAttachments: () => Promise<void>;

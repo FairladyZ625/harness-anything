@@ -207,6 +207,22 @@ test("fleet status render keeps honest three-state fields and never-acked visibl
   );
 });
 
+test("fleet status prints the center and local build identities with the upgrade command", () => {
+  const data = {
+    ...overview(),
+    versionWarning: {
+      centerBuildCommit: "a".repeat(40),
+      localBuildCommit: "b".repeat(40),
+      upgradeCommand: "ha update" as const,
+    },
+  };
+  const text = renderDaemonFleetStatus(data as unknown as Record<string, unknown>);
+  assert.match(
+    text,
+    /WARNING version mismatch center=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa local=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb; upgrade with ha update/u,
+  );
+});
+
 test("a node with no replica row states the gap once, on the reason line", () => {
   const data = overview();
   data.nodes = [

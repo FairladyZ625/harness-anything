@@ -71,8 +71,8 @@ export class FleetRemoteError extends Error {
   readonly code: string;
   readonly retryable: boolean;
   readonly resumeOffset: number | null;
-  constructor(frame: Extract<FleetFrameV1, { schema: "fleet.error/v1" }>) {
-    super(`${frame.code}: ${frame.message}`);
+  constructor(frame: Extract<FleetFrameV1, { schema: "fleet.error/v1" }>, versionWarning?: string | null) {
+    super(`${frame.code}: ${frame.message}${versionWarning ? ` ${versionWarning}` : ""}`);
     this.code = frame.code;
     this.retryable = frame.retryable;
     this.resumeOffset = frame.resumeOffset;
@@ -98,6 +98,13 @@ export interface FleetReplicaStreamOptions extends FleetPeerOptions {
     position: import("@harness-anything/storage").ReplicationPosition,
     changedPaths?: readonly string[],
   ) => void | Promise<void>;
+  readonly onVersionWarning?: (warning: FleetVersionWarning | null) => void;
+}
+export interface FleetVersionWarning {
+  readonly centerBuildCommit: string;
+  readonly localBuildCommit: string;
+  readonly upgradeCommand: "ha update";
+  readonly message: string;
 }
 export interface FleetEdgeView {
   readonly current: (repoId: string, viewId: string) => Readonly<Record<string, unknown>> | null;
@@ -170,6 +177,17 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
         for (const line of commandDecoder.push(chunk)) {
           const frame = parseFleetFrame(line);
           if (frame.schema !== "fleet.session.ready/v1") continue;
+          const localBuildCommit = daemonBuildStamp().commit;
+          options.onVersionWarning?.(
+            frame.versionWarning && frame.centerBuildCommit && localBuildCommit
+              ? {
+                  centerBuildCommit: frame.centerBuildCommit,
+                  localBuildCommit,
+                  upgradeCommand: "ha update",
+                  message: frame.versionWarning,
+                }
+              : null,
+          );
           socket.off("data", onData);
           socket.off("close", onClose);
           socket.on("data", (data: Buffer) => {
@@ -196,6 +214,7 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
           protocolVersion: currentFleetProtocolVersion,
           nodeId: options.nodeId,
           credential: options.credential,
+          buildCommit: daemonBuildStamp().commit,
           ...(accessToken ? { accessToken } : {}),
         }),
       );
@@ -525,7 +544,16 @@ export async function readFleetOperationalClient(
       options.method === "repo.agentRuntime.sessions.await" ? null : (options.timeoutMs ?? 5_000),
     );
     if (response.schema !== "fleet.operational.read.result/v1") throw new Error("repository read result expected");
-    return response.result;
+    if (options.method !== "repo.fleet.overview.read" || !session.versionWarning) return response.result;
+    if (!session.centerBuildCommit || !daemonBuildStamp().commit) return response.result;
+    return {
+      ...response.result,
+      versionWarning: {
+        centerBuildCommit: session.centerBuildCommit,
+        localBuildCommit: daemonBuildStamp().commit,
+        upgradeCommand: "ha update",
+      },
+    };
   } finally {
     options.connectionSignal?.removeEventListener("abort", close);
     session.close();
@@ -686,11 +714,13 @@ export async function openPeer(options: Omit<FleetPeerOptions, "repoId">) {
     peer = peerFor(socket, options.timeoutMs ?? 5_000),
     prefix = `${options.nodeId}_${Date.now().toString(36)}`;
   let sequence = 0;
+  let versionWarning: string | null = null;
   const messageId = () => `${prefix}_${sequence++}`,
     next = async (responseTimeoutMs?: number | null) => {
       const frame = await peer.next(responseTimeoutMs);
       options.onFrame?.(frame);
-      if (frame.schema === "fleet.error/v1") throw new FleetRemoteError(frame);
+      if (frame.schema === "fleet.session.ready/v1") versionWarning = frame.versionWarning ?? null;
+      if (frame.schema === "fleet.error/v1") throw new FleetRemoteError(frame, versionWarning);
       return frame;
     },
     send = async (frame: FleetFrameV1) => {
@@ -729,7 +759,7 @@ export async function openPeer(options: Omit<FleetPeerOptions, "repoId">) {
       request,
       loginAuthority: ready.loginAuthority,
       centerBuildCommit: ready.centerBuildCommit ?? null,
-      versionWarning: ready.versionWarning ?? null,
+      versionWarning,
       close: peer.close,
     };
   } catch (error) {

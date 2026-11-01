@@ -70,6 +70,8 @@ export interface FleetCenterOptions {
     readonly messageId: string | null;
     readonly error: unknown;
   }) => void;
+  /** Records the informational build mismatch from a command or replica hello. */
+  readonly onVersionWarning?: (nodeId: string, warning: string | null) => void;
   readonly onReplicationStart?: (
     nodeId: string,
     accessToken: string | undefined,
@@ -116,6 +118,7 @@ export interface FleetTlsCenter {
   readonly status: () => {
     readonly replicas: readonly FleetReplicaStatus[];
     readonly uploads: FleetUploadWindow;
+    readonly versionWarnings: readonly string[];
   };
 }
 

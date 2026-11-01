@@ -71,7 +71,14 @@ export function createDaemonHostLifecycleApi(
               "no `ha daemon stop` is required. ",
               "The next command finds the disk build running or autostarts it.",
             ].join("")
-          : base;
+          : base,
+        fleetWarnings = [
+          ...(context.fleetCenter?.status().versionWarnings ?? []),
+          ...[...context.fleetVersionWarnings.values()].map((warning) => warning.message),
+        ],
+        statusSummary = fleetWarnings.length
+          ? `${summary}\nFleet version warning: ${fleetWarnings.join(" | ")} Run ha update.`
+          : summary;
       return {
         daemonId: context.input.daemonId,
         pid: process.pid,
@@ -89,7 +96,8 @@ export function createDaemonHostLifecycleApi(
           ...proxyRepos,
           ...disabledRepos,
         ].sort((a, b) => a.repoId.localeCompare(b.repoId)),
-        summary,
+        fleetVersionWarnings: fleetWarnings,
+        summary: statusSummary,
       };
     },
     pendingFleetDeliveries: () => context.fleetCenter?.pendingDeliveries() ?? 0,

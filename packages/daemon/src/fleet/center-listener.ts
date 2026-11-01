@@ -41,6 +41,7 @@ import { createHelloRateLimiter } from "./center-hello-guard.ts";
 import type { Delivery, FleetCenterOptions, FleetTlsCenter, SessionWindow } from "./center-types.ts";
 import { FleetFault } from "./center-types.ts";
 import { type FleetFrameV1 } from "./command-protocol.ts";
+import type { FleetOverviewResult } from "./fleet-overview-read.ts";
 import {
   makeTaskEventReader,
   makeTaskProjection,
@@ -440,6 +441,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   }
   const persist = () => writeCenterDurableJson(stateFile, state),
     auth = writerAuth;
+  const versionWarnings = new Map<string, string>();
   // Every frame after the hello belongs to one TLS session, and that session's hello named the
   // interactive client Keycloak minted its human token under. Carrying it here means each branch
   // inherits the session's client instead of re-deriving one per frame (the center audits `azp`).
@@ -1073,11 +1075,16 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         if (frame.method === "repo.task.dispatches" || frame.method === "repo.fleet.overview.read") {
           if (frame.method === "repo.fleet.overview.read") {
             result = await options.host.read(a.repoId, frame.method, frame.payload as JsonObject, binding);
+            const warning = versionWarnings.get(nodeId);
+            const overview = result as unknown as FleetOverviewResult;
             return immediate({
               schema: "fleet.operational.read.result/v1",
               messageId: mid(frame.messageId, "runtime-read"),
               inReplyTo: frame.messageId,
-              result: result as unknown as Readonly<Record<string, unknown>>,
+              result: {
+                ...overview,
+                ...(warning === undefined ? {} : { warnings: [...new Set([...overview.warnings, warning])] }),
+              },
             });
           }
           const errors = validateTaskDispatchesPayload(frame.payload);
@@ -1138,7 +1145,17 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   const server: Server = createServer({ key: options.key, cert: options.cert }, (socket) =>
     serve(
       socket,
-      { ...options, commandResourceBudget: resourceBudget, authenticate: guardedAuthenticate, onReplicationStart },
+      {
+        ...options,
+        commandResourceBudget: resourceBudget,
+        authenticate: guardedAuthenticate,
+        onReplicationStart,
+        onVersionWarning: (nodeId, warning) => {
+          if (warning === null) versionWarnings.delete(nodeId);
+          else versionWarnings.set(nodeId, warning);
+          options.onVersionWarning?.(nodeId, warning);
+        },
+      },
       (nodeId, ...args) => nodeAdmission.run(nodeId, () => handle(nodeId, ...args)),
       sessions,
       replicationOwners,
@@ -1170,6 +1187,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     fenceNode: nodeAdmission.fence,
     removeNode: (nodeId) => {
       nodeAdmission.remove(nodeId);
+      versionWarnings.delete(nodeId);
       for (const socket of sessions.get(nodeId) ?? []) socket.destroy();
       sessions.delete(nodeId);
       replicationSlots.removeNode(nodeId);
@@ -1208,6 +1226,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     replicaReceipt: () => {
       throw new Error("replica receipt is retired");
     },
-    status: () => ({ replicas: replicaStatus.snapshot(), uploads: uploadWindow(state) }),
+    status: () => ({
+      replicas: replicaStatus.snapshot(),
+      uploads: uploadWindow(state),
+      versionWarnings: [...versionWarnings.values()],
+    }),
   };
 }

@@ -370,3 +370,22 @@ export function doctorBuildDrift(build: Pick<DaemonBuildStatus, "loadedBuildId" 
             : "Let the center daemon drain, or restart it with ha daemon start --service.",
       };
 }
+
+export function fleetVersionDoctorCheck(warnings: readonly string[]): DoctorCheck {
+  const observed = [...new Set(warnings.filter((warning) => warning.length > 0))];
+  return observed.length === 0
+    ? {
+        id: "fleet-version",
+        status: "ok",
+        count: 0,
+        summary: "Fleet peers report matching build identities.",
+        next: "Nothing to do.",
+      }
+    : {
+        id: "fleet-version",
+        status: "warn",
+        count: observed.length,
+        summary: observed.join(" | "),
+        next: "Run ha update on the center and edge, then reconnect the Fleet session.",
+      };
+}

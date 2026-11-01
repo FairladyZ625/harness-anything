@@ -273,6 +273,7 @@
   "collaboration.fleetNote": "舰队拓扑：节点、副本通道与正在发生的事情；数据来自 daemon 只读查询",
   "collaboration.fleetSummary": "{nodes} 节点 · {executing} 执行中 · {events} 事件",
   "collaboration.readFailed": "舰队拓扑读取失败：{error}",
+  "collaboration.versionWarning": "中心与本机构建版本不一致，请先升级：{command}。",
   "collaboration.topologyTitle": "舰队拓扑",
   "collaboration.topologyNote": "点击节点查看在做什么与内部状态",
   "collaboration.eventsTitle": "事件流",

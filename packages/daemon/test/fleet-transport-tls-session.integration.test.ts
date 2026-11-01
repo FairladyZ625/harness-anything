@@ -45,6 +45,7 @@ test("Fleet sessions stay connected across build identities and return an upgrad
   assert.equal(peer.centerBuildCommit, daemonBuildStamp().commit);
   assert.match(peer.versionWarning ?? "", /build differs/u);
   assert.match(peer.versionWarning ?? "", /ha update/u);
+  assert.ok(center.status().versionWarnings.some((warning) => warning.includes("ha update")));
 });
 test(
   "fact record from the real CLI parser crosses TLS and reaches the canonical ledger",
