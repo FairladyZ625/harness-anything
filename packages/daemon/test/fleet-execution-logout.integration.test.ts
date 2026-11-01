@@ -65,6 +65,11 @@ test(
     const edgeRoot = path.join(f.root, "edge"),
       userRoot = path.join(f.root, "edge-user"),
       viewRoot = path.join(f.root, "view");
+    mkdirSync(path.join(userRoot, "rbac"), { recursive: true });
+    writeFileSync(
+      path.join(userRoot, "rbac", "config.json"),
+      JSON.stringify({ schema: "harness-managed-rbac/v1", mode: "external" }),
+    );
     const remote = path.join(f.root, "delivery.git");
     // Preserve the pre-publication code cut without publishing a fixture branch.
     const codeBaseline = git(f.repo, "log", "--reverse", "--format=%H").split("\n")[1]!;
@@ -260,7 +265,12 @@ test(
       readRuntimeExecutionPrincipal(edgeRoot, env.HARNESS_EXECUTION_CREDENTIAL, Number.MAX_SAFE_INTEGER),
       null,
     );
-    assert.equal(existsSync(path.join(userRoot, "rbac/config.json")), false);
+    const edgeProviderConfig = JSON.parse(readFileSync(path.join(userRoot, "rbac/config.json"), "utf8")) as {
+      readonly mode: string;
+      readonly url?: string;
+    };
+    assert.equal(edgeProviderConfig.mode, "external");
+    assert.equal(edgeProviderConfig.url, undefined, "the edge needs a provider selector, not center configuration");
     assert.equal(existsSync(path.join(userRoot, "rbac/center-client-secret")), false);
     const worktree = path.join(edgeRoot, ".worktrees", taskId);
     const cli = async (args: string[]) => {
@@ -449,6 +459,11 @@ test(
     const reviewRoot = path.join(f.root, "review-edge"),
       reviewUser = path.join(f.root, "review-user"),
       reviewView = path.join(f.root, "review-view");
+    mkdirSync(path.join(reviewUser, "rbac"), { recursive: true });
+    writeFileSync(
+      path.join(reviewUser, "rbac", "config.json"),
+      JSON.stringify({ schema: "harness-managed-rbac/v1", mode: "external" }),
+    );
     git(f.root, "clone", remote, reviewRoot);
     const reviewConfig = { ...config, nodeId: "node-slow", viewRoot: reviewView };
     const { schema: _schema, ...reviewRoute } = reviewConfig;
@@ -569,7 +584,12 @@ test(
     );
     assert.ok(reviewEnv.HARNESS_EXECUTION_CREDENTIAL);
     assert.notEqual(reviewEnv.HARNESS_EXECUTION_CREDENTIAL, secret);
-    assert.equal(existsSync(path.join(reviewUser, "rbac/config.json")), false);
+    const reviewProviderConfig = JSON.parse(readFileSync(path.join(reviewUser, "rbac/config.json"), "utf8")) as {
+      readonly mode: string;
+      readonly url?: string;
+    };
+    assert.equal(reviewProviderConfig.mode, "external");
+    assert.equal(reviewProviderConfig.url, undefined, "the edge needs a provider selector, not center configuration");
     const savedReviewSession = keycloakSessionStore(reviewUser, loginIssuer).read()!;
     assert.equal((await reviewRpc("daemon.rbac.manage", { operation: "logout", rootDir: reviewRoot })).ok, true);
     await IdentitySessionPort(path.join(f.root, "user")).logout();

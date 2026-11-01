@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -22,6 +22,11 @@ test("edge binding health reads the selected login authority through fleet disco
     keyFile = path.join(root, "key.pem"),
     certFile = path.join(root, "cert.pem");
   t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(path.join(userRoot, "rbac"), { recursive: true });
+  writeFileSync(
+    path.join(userRoot, "rbac", "config.json"),
+    JSON.stringify({ schema: "harness-managed-rbac/v1", mode: "external" }),
+  );
   execFileSync(
     "openssl",
     [
@@ -168,7 +173,12 @@ test("edge binding health reads the selected login authority through fleet disco
   assert.equal(binding.clientId, "harness-node-node-one");
   assert.equal(JSON.stringify(binding).includes("secret"), false);
   assert.equal("clientSecret" in binding || "accessToken" in binding || "refreshToken" in binding, false);
-  assert.equal(existsSync(path.join(userRoot, "rbac", "config.json")), false);
+  const providerConfig = JSON.parse(readFileSync(path.join(userRoot, "rbac", "config.json"), "utf8")) as {
+    readonly mode: string;
+    readonly url?: string;
+  };
+  assert.equal(providerConfig.mode, "external");
+  assert.equal(providerConfig.url, undefined, "login authority still comes from fleet discovery");
   assert.deepEqual(await request({ operation: "bootstrap-status", repoId: "node-one" }), {
     ...binding,
     required: false,

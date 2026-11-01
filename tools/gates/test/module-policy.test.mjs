@@ -42,6 +42,8 @@ test("module-policy keeps its ordered budget catalog and tooling policy", () => 
   assert.equal(classifyModule("packages/daemon/src/index.ts"), "daemon");
   assert.equal(classifyModule("packages/storage/src/index.ts"), "storage");
   assert.equal(classifyModule("packages/authority-write-path/src/index.ts"), "authority-write-path");
+  assert.equal(classifyModule("packages/authorization-builtin/src/index.ts"), "identity-rbac");
+  assert.equal(classifyModule("packages/authorization-keycloak/src/index.ts"), "identity-rbac");
   assert.equal(classifyModule("packages/daemon/src/identity/authorization.ts"), "identity-rbac");
   assert.equal(classifyModule("packages/agent-runtime/src/index.ts"), "agent-runtime");
   assert.equal(classifyModule("packages/gui/src/renderer/agent-runtime-view.tsx"), "agent-runtime");
