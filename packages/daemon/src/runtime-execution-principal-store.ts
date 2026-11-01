@@ -1,20 +1,8 @@
 import { createHash } from "node:crypto";
-import type { WriteSource } from "@harness-anything/kernel";
+import type { RuntimeExecutionPrincipal } from "./runtime-execution-credential.ts";
 import { appendRuntimeWorkerRecord, readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
 
-export interface PersistedRuntimeExecutionPrincipal {
-  readonly personId: string;
-  readonly repoId: string;
-  readonly runtimeSessionId: string;
-  readonly dispatchId: string;
-  readonly taskId: string;
-  readonly executionId: string;
-  readonly role: "implementation" | "reviewer";
-  readonly reviewDecisionId?: string;
-  readonly reviewTaskId?: string;
-  readonly source: WriteSource;
-  readonly expiresAt: string;
-}
+export type PersistedRuntimeExecutionPrincipal = RuntimeExecutionPrincipal;
 
 export function recordRuntimeExecutionPrincipal(
   rootDir: string,
@@ -25,8 +13,7 @@ export function recordRuntimeExecutionPrincipal(
   expiresAt: string,
 ): void {
   const header = readDispatchStreamHeaders(rootDir).find((entry) => entry.runtimeSessionId === runtimeSessionId);
-  if (!header?.taskId || !header.executionId || !header.binding)
-    throw new Error(`Task-bound runtime dispatch stream for ${runtimeSessionId} is unavailable.`);
+  if (!header?.binding) throw new Error(`Runtime dispatch stream for ${runtimeSessionId} is unavailable.`);
   appendRuntimeWorkerRecord(rootDir, header.dispatchId, {
     kind: "execution_principal",
     grantFingerprint: executionCredentialDigest(credential),
@@ -35,8 +22,14 @@ export function recordRuntimeExecutionPrincipal(
     runtimeSessionId,
     dispatchId: header.dispatchId,
     taskId: header.taskId,
-    executionId: header.executionId,
-    role: header.role === "reviewer" ? "reviewer" : "implementation",
+    executionId: header.executionId ?? null,
+    role: header.taskId
+      ? header.role === "reviewer"
+        ? "reviewer"
+        : "implementation"
+      : header.role === "read-only"
+        ? "read-only"
+        : "session",
     ...(header.reviewTarget?.kind === "decision" ? { reviewDecisionId: header.reviewTarget.decisionId } : {}),
     ...(header.reviewTarget?.kind === "task" ? { reviewTaskId: header.reviewTarget.taskId } : {}),
     source: header.binding.source,
@@ -69,9 +62,11 @@ function isPersistedPrincipal(
     typeof value.repoId === "string" &&
     typeof value.runtimeSessionId === "string" &&
     typeof value.dispatchId === "string" &&
-    typeof value.taskId === "string" &&
-    typeof value.executionId === "string" &&
-    (value.role === "implementation" || value.role === "reviewer") &&
+    (value.role === "session" || value.role === "read-only"
+      ? value.taskId === null && value.executionId === null
+      : (value.role === "implementation" || value.role === "reviewer") &&
+        typeof value.taskId === "string" &&
+        typeof value.executionId === "string") &&
     (value.reviewDecisionId === undefined || typeof value.reviewDecisionId === "string") &&
     (value.reviewTaskId === undefined || typeof value.reviewTaskId === "string") &&
     (value.source === "local" || (typeof value.source === "object" && value.source !== null)) &&

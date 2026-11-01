@@ -28,6 +28,7 @@ import {
 } from "./fleet-runtime-recovery.fixtures.ts";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { signOutAt } from "./keycloak.fixtures.ts";
+import { readRuntimeExecutionPrincipal } from "../src/runtime-execution-principal-store.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { eventually, scheduleRuntimePorts, definition } from "./schedule-actions.fixtures.ts";
 import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
@@ -164,6 +165,7 @@ test(
           onErrorOutput: () => undefined,
           onExit: (listener) => {
             exit = listener;
+            if (prepared.prompt.includes("Unbound fleet session")) return;
             queueMicrotask(async () => {
               if (launchIndex === 0)
                 await runFleetEdgeTask(
@@ -535,6 +537,79 @@ test(
       ).includes("edge runtime done"),
       true,
       "the accepted center archive must be recoverable through the edge mirror",
+    );
+    await t.test(
+      "an unbound edge session receives its center-issued principal and writes only through the center",
+      async () => {
+        const unbound = await edgeHost.fleet.edgeRuntime(
+          {
+            host: "127.0.0.1",
+            port: center.port,
+            caPath: fixture.certFile,
+            nodeId: fixture.subject.nodeId,
+            credential: "machine-secret",
+            repoId: fixture.subject.repoId,
+            viewRoot,
+            quotaBytes: replicaQuota,
+            workspaceRoot: edgeRoot,
+            method: "repo.agentRuntime.spawn",
+            action: {
+              runtimeInstanceId: runtimeDefinition.instanceId,
+              cwd: { scope: "repo-root" },
+              taskId: null,
+              prompt: "Unbound fleet session",
+              dispatchKey: "unbound-fleet-session",
+            },
+          },
+          localAuth,
+        );
+        assert.equal(unbound.outcome, "applied", JSON.stringify(unbound));
+        assert.equal(launchedEnv?.HARNESS_DAEMON_USER_ROOT, edgeUserRoot);
+        assert.equal(launchedEnv?.HARNESS_DAEMON_ID, "fleet-runtime-edge");
+        assert.equal(launchedEnv?.HARNESS_DAEMON_REPO_ID, fixture.subject.repoId);
+        assert.ok(launchedEnv?.HARNESS_EXECUTION_CREDENTIAL);
+        const principal = readRuntimeExecutionPrincipal(edgeRoot, launchedEnv!.HARNESS_EXECUTION_CREDENTIAL!);
+        assert.equal(principal?.role, "session");
+        assert.equal(principal?.taskId, null);
+        assert.equal(principal?.executionId, null);
+        assert.deepEqual(principal?.source, { kind: "node", nodeId: fixture.subject.nodeId });
+        const created = await runFleetEdgeTask(
+          {
+            payload: {
+              host: "127.0.0.1",
+              port: center.port,
+              caPath: fixture.certFile,
+              nodeId: fixture.subject.nodeId,
+              credential: "machine-secret",
+              repoId: fixture.subject.repoId,
+              executionCredential: launchedEnv!.HARNESS_EXECUTION_CREDENTIAL!,
+              principalId: principal!.personId,
+              viewRoot,
+              quotaBytes: replicaQuota,
+              workspaceRoot: edgeRoot,
+              action: {
+                kind: "task-create",
+                taskId: "task-unbound-edge",
+                title: "Unbound edge task",
+                presetId: "docs-task",
+                riskTier: "low",
+              },
+            },
+          },
+          async () => `device-token-${fixture.subject.nodeId}`,
+        );
+        assert.equal(created.outcome, "applied", JSON.stringify(created));
+        const event = makeTaskEventReader({ repoId: fixture.subject.repoId, rootDir: fixture.repo })
+          .read()
+          .events.find((entry) => entry.type === "task_bootstrapped" && entry.taskId === "task-unbound-edge");
+        assert.equal(event?.actor.principal.personId, principal!.personId);
+        assert.deepEqual(event?.source, principal!.source);
+        assert.ok(
+          !readFileSync(dispatchStreamPath(edgeRoot, String(unbound.dispatchId)), "utf8").includes(
+            launchedEnv!.HARNESS_EXECUTION_CREDENTIAL!,
+          ),
+        );
+      },
     );
   },
 );

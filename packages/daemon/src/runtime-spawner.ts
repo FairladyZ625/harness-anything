@@ -392,15 +392,12 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         targetAgentId,
       );
     if (agent) assertAgentDispatchable(agent);
-    // A dispatch of an agent that DECLARES read-only (the bundled ask-agent surface) is
-    // daemon-bound like a task dispatch: it gets the daemon route and, in prepareBoundRuntimeLaunch,
-    // an allowlist-only execution credential — without one it would reach the daemon unauthenticated
-    // through its relay. Instance-configured modes and per-dispatch overrides change only the
-    // sandbox; they do not make a dispatch daemon-bound.
+    // Every daemon-spawned runtime returns to that daemon. Task bindings constrain writes;
+    // they do not determine whether the runtime needs a route or an authenticated principal.
     const unboundReadOnlyAgent =
         !taskId && !trustedSchedule && !reviewerBinding && agent !== null && agent.permissionMode === "read-only",
-      daemonRoute =
-        taskId || trustedSchedule || reviewerBinding || unboundReadOnlyAgent ? input.runtimeDaemonRoute : undefined;
+      daemonRoute = input.runtimeDaemonRoute,
+      dispatchRole = unboundReadOnlyAgent ? "read-only" : role;
     if ((taskId || trustedSchedule || reviewerBinding || unboundReadOnlyAgent) && !daemonRoute)
       throw runtimeSpawnError(
         "runtime_preconditions_unavailable",
@@ -843,7 +840,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             ? { resumedFromDispatchId: requestedDispatchId }
             : {}),
         ...(onExitCommand ? { onExitCommand } : {}),
-        ...(role ? { role } : {}),
+        ...(dispatchRole ? { role: dispatchRole } : {}),
         ...(agent ? { agentId: agent.id, agentName: agent.name } : {}),
         ...(squad ? { squadId: squad.squadId } : {}),
         publicationOwner,
@@ -930,7 +927,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         runtimeActor,
         taskId,
         trustedSchedule,
-        reviewerBinding: Boolean(reviewerBinding),
         // A read-only attach mints no execution credential: it executes nothing, and a principal
         // labeled implementation or reviewer would misstate the session's authority either way.
         ...(taskId && !readOnlyAttach
@@ -947,10 +943,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               },
             }
           : {}),
-        // An unbound read-only agent dispatch (the ask-agent surface) gets the daemon route and
-        // an allowlist-only credential instead of reaching the daemon unauthenticated through its
-        // relay. Edge repos keep today's behavior; their credential path requires a task lease.
-        ...(unboundReadOnlyAgent && !input.remote
+        // Unbound sessions retain the spawning person and use ordinary repository RBAC.
+        // A declared read-only agent keeps its allowlist-only credential.
+        ...(!taskId && !reviewerBinding && !decisionReviewTarget && daemonRoute
           ? {
               execution: {
                 repoId: input.repoId,
@@ -960,7 +955,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 dispatchId: newDispatchId,
                 taskId: null,
                 executionId: null,
-                role: "read-only" as const,
+                role: unboundReadOnlyAgent ? ("read-only" as const) : ("session" as const),
               },
             }
           : {}),
@@ -1053,7 +1048,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             ...(agent ? { agent } : {}),
             ...(squad ? { squadId: squad.squadId } : {}),
             cwd,
-            ...(role ? { role } : {}),
+            ...(dispatchRole ? { role: dispatchRole } : {}),
             ...(decisionReviewTarget ? { decisionReviewTarget } : {}),
             ...(reviewerBinding && (reviewTarget?.submission ?? remoteTask?.reviewerSubmission)
               ? { reviewerSubmission: (reviewTarget?.submission ?? remoteTask?.reviewerSubmission)! }
@@ -1064,7 +1059,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         binding,
         definitionArtifact.body,
         {
-          role: role ?? null,
+          role: dispatchRole ?? null,
           taskId: taskBinding?.taskId ?? null,
           executionId: taskBinding?.executionId ?? null,
         },
@@ -1144,7 +1139,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       resolvedProviderDirectory: resolvedProviderDirectory ?? null,
       permissionMode: launchedPermissionMode ?? null,
       agent,
-      role: role ?? null,
+      role: dispatchRole ?? null,
       delegatedBy,
       squadId: squad?.squadId ?? null,
       publicationOwner,

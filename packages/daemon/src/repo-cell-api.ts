@@ -14,6 +14,7 @@ import {
   runtimeExecutionLifetimeMs,
   readRuntimeExecutionPrincipal,
   runtimeExecutionActor,
+  type RuntimeExecutionPrincipal,
 } from "./runtime-execution-credential.ts";
 import { assertWriterEpochFenceDescriptor } from "@harness-anything/storage";
 import { executeBuiltinScheduleOccurrence, type BuiltinExecutorCell } from "./schedule-builtin-executor.ts";
@@ -858,10 +859,10 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
           action.type === "runtime_session_started" && typeof action.payload.runtimeSessionId === "string"
             ? context.projection.readRuntimeDispatch(action.payload.runtimeSessionId)
             : null;
-        const execution =
+        const execution: RuntimeExecutionPrincipal | null =
           receipt.outcome === "applied" &&
-          dispatch?.payload.taskId &&
-          dispatch.payload.executionId &&
+          dispatch &&
+          (dispatch.payload.taskId || !dispatch.payload.reviewTarget) &&
           typeof authorizedBinding.source === "object" &&
           authorizedBinding.source.kind === "node" &&
           authorizedBinding.keycloakAuthorization?.center
@@ -870,9 +871,15 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
                 repoId: context.input.repoId,
                 runtimeSessionId: dispatch.payload.runtimeSessionId,
                 dispatchId: dispatch.payload.dispatchId,
-                taskId: dispatch.payload.taskId,
-                executionId: dispatch.payload.executionId,
-                role: dispatch.payload.role === "reviewer" ? ("reviewer" as const) : ("implementation" as const),
+                taskId: dispatch.payload.taskId ?? null,
+                executionId: dispatch.payload.executionId ?? null,
+                role: dispatch.payload.taskId
+                  ? dispatch.payload.role === "reviewer"
+                    ? "reviewer"
+                    : "implementation"
+                  : dispatch.payload.role === "read-only"
+                    ? "read-only"
+                    : "session",
                 source: dispatch.source,
                 ...(dispatch.payload.reviewTarget?.kind === "decision"
                   ? { reviewDecisionId: dispatch.payload.reviewTarget.decisionId }
@@ -884,7 +891,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
             : null;
         if (execution)
           requireCurrentExecutionScope({
-            action: { kind: "task-show", taskId: execution.taskId },
+            action: execution.taskId ? { kind: "task-show", taskId: execution.taskId } : { kind: "runtime-status" },
             binding: { ...authorizedBinding, actor: runtimeExecutionActor(execution), executionPrincipal: execution },
             projection: context.projection,
             now: context.now(),

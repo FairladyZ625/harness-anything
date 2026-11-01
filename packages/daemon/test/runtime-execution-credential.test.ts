@@ -8,6 +8,7 @@ import {
   authenticateRuntimeExecutionCredential,
   issueRuntimeExecutionCredential,
   runtimeExecutionLifetimeMs,
+  runtimeExecutionActor,
   verifyRuntimeExecutionPrincipal,
 } from "../src/runtime-execution-credential.ts";
 import {
@@ -43,6 +44,72 @@ const principal = () => ({
   role: "implementation" as const,
   source: "local" as const,
   expiresAt: new Date(Date.now() + runtimeExecutionLifetimeMs - 1000).toISOString(),
+});
+
+test("unbound session credentials preserve the person, repository and live dispatch without granting a lease", async () => {
+  const realm = fakeKeycloak(),
+    p = { ...principal(), role: "session" as const, taskId: null, executionId: null },
+    credential = await issueRuntimeExecutionCredential(center, p, realm.fetch),
+    actor = runtimeExecutionActor(p);
+  assert.deepEqual(await authenticateRuntimeExecutionCredential(center, credential, realm.fetch), p);
+  for (const action of [{ kind: "task-create", title: "Session task" }, { kind: "runtime-spawn" }])
+    assert.doesNotThrow(() => requireExecutionActionScope(p, action));
+  for (const method of ["daemon.stop", "daemon.runtimeInstance.create"])
+    assert.throws(() => requireExecutionRequestScope(p, method, {}), { code: "execution_credential_rejected" });
+  assert.throws(
+    () =>
+      requireExecutionRequestScope(p, "repo.task.run", {
+        repo: { repoId: "other-repository" },
+        payload: { action: { kind: "task-create" } },
+      }),
+    { code: "execution_credential_rejected" },
+  );
+  let liveness = "live",
+    dispatchId = p.dispatchId;
+  const projection = {
+    readRuntimeSession: () => ({ liveness, outcome: null, taskBindings: [] }),
+    readRuntimeDispatch: () => ({ actor, source: p.source, payload: { dispatchId } }),
+  } as never;
+  const input = {
+    action: { kind: "task-create", title: "Session task", executor: actor.executor },
+    binding: { actor, source: p.source, executionPrincipal: p },
+    projection,
+    now: new Date().toISOString(),
+  };
+  assert.deepEqual(bindVerifiedExecutorClaim(input).binding.actor, actor);
+  assert.throws(
+    () =>
+      bindVerifiedExecutorClaim({
+        ...input,
+        action: {
+          ...input.action,
+          executor: { kind: "agent", id: "runtime-session:other" },
+        },
+      }),
+    { code: "executor_binding_invalid" },
+  );
+  dispatchId = "superseding-dispatch";
+  assert.throws(() => requireCurrentExecutionScope(input), { code: "execution_credential_rejected" });
+  dispatchId = p.dispatchId;
+  liveness = "exited";
+  assert.throws(() => requireCurrentExecutionScope(input), { code: "execution_credential_rejected" });
+  liveness = "live";
+  assert.throws(
+    () => requireCurrentExecutionScope({ ...input, now: new Date(Date.parse(p.expiresAt) + 1).toISOString() }),
+    { code: "execution_credential_rejected" },
+  );
+  await assert.rejects(
+    authenticateRuntimeExecutionCredential(
+      center,
+      await issueRuntimeExecutionCredential(
+        center,
+        { ...p, dispatchId: "invalid-bound-session", taskId: "task-one" },
+        realm.fetch,
+      ),
+      realm.fetch,
+    ),
+    { code: "execution_credential_rejected" },
+  );
 });
 
 test("independent Keycloak client authenticates only its secret, expiry, and current enabled state", async () => {
