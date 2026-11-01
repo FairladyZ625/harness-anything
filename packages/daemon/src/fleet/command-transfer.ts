@@ -127,6 +127,8 @@ export class FleetTransferAssembler {
       const active = this.#active.get(transferId);
       if (!active) return;
       this.#active.delete(transferId);
+      this.#rememberRejected(transferId);
+      clearTimeout(active.timer);
       active.release?.();
       this.#onTimeout?.({
         correlationId: active.correlationId,
@@ -145,6 +147,23 @@ export class FleetTransferAssembler {
     const timer = setTimeout(() => this.#rejected.delete(transferId), this.#timeoutMs);
     timer.unref();
     this.#rejected.set(transferId, timer);
+  }
+
+  #forgetRejected(transferId: string): boolean {
+    const timer = this.#rejected.get(transferId);
+    if (!timer) return false;
+    clearTimeout(timer);
+    this.#rejected.delete(transferId);
+    return true;
+  }
+
+  #releaseActive(transferId: string, remember = true): void {
+    const active = this.#active.get(transferId);
+    if (!active) return;
+    this.#active.delete(transferId);
+    clearTimeout(active.timer);
+    active.release?.();
+    if (remember) this.#rememberRejected(transferId);
   }
 
   push(frame: FleetFrameV1): FleetFrameV1 | null {
@@ -201,24 +220,29 @@ export class FleetTransferAssembler {
       if (this.#rejected.has(frame.transferId)) return null;
       const active = this.#active.get(frame.transferId),
         bytes = Buffer.from(frame.dataBase64, "base64");
-      if (
-        !active ||
-        frame.transferId !== active.transferId ||
-        frame.sequence !== active.sequence ||
-        frame.offset !== active.offset
-      )
-        throw new FleetContractError("Fleet transfer sequence or offset differs");
-      if (active.offset + bytes.byteLength > active.totalBytes)
-        throw new FleetContractError("Fleet transfer exceeds declared size");
-      bytes.copy(active.buffer, active.offset);
-      active.offset += bytes.byteLength;
-      active.sequence += 1;
-      clearTimeout(active.timer);
-      active.timer = this.#armTimeout(active.transferId);
+      try {
+        if (
+          !active ||
+          frame.transferId !== active.transferId ||
+          frame.sequence !== active.sequence ||
+          frame.offset !== active.offset
+        )
+          throw new FleetContractError("Fleet transfer sequence or offset differs");
+        if (active.offset + bytes.byteLength > active.totalBytes)
+          throw new FleetContractError("Fleet transfer exceeds declared size");
+        bytes.copy(active.buffer, active.offset);
+        active.offset += bytes.byteLength;
+        active.sequence += 1;
+        clearTimeout(active.timer);
+        active.timer = this.#armTimeout(active.transferId);
+      } catch (error) {
+        if (active) this.#releaseActive(active.transferId);
+        throw error;
+      }
       return null;
     }
     if (frame.schema === "fleet.transfer.end/v1") {
-      if (this.#rejected.delete(frame.transferId)) return null;
+      if (this.#forgetRejected(frame.transferId)) return null;
       const active = this.#active.get(frame.transferId);
       if (!active || frame.transferId !== active.transferId)
         throw new FleetContractError("Fleet transfer completion differs");
@@ -240,6 +264,9 @@ export class FleetTransferAssembler {
         )
           throw new FleetContractError("Fleet transfer correlation differs");
         return logical;
+      } catch (error) {
+        this.#rememberRejected(frame.transferId);
+        throw error;
       } finally {
         clearTimeout(active.timer);
         active.release?.();
