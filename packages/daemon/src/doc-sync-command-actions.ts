@@ -537,6 +537,7 @@ function publishTaskArtifactBytes(
     tracked,
     sameUntrackedSource,
   } = target;
+  const authored = path.relative(input.rootDir, authoredTarget).split(path.sep).join("/");
   const projectedEdit =
     projected.document !== null &&
     existsSync(authoredTarget) &&
@@ -565,7 +566,8 @@ function publishTaskArtifactBytes(
     // authorized update route, and the receipt names it instead of leaving a dead end.
     throw docSyncError(
       "artifact_collision",
-      `artifact destination already exists: ${destination}; update it with ha doc sync --submit --path ${destination}`,
+      `artifact destination already exists: ${destination}; the published copy ${authored} is the source of truth. ` +
+        `Edit it in place, then update it with ha doc sync --submit --path ${destination}`,
     );
   }
   if (projected.watermark !== projected.sourceRevision)
