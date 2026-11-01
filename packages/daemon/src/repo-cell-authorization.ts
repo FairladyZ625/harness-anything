@@ -106,7 +106,11 @@ export async function evaluateRepoCellAction(input: {
     : decision;
 }
 
-/** Resolve the shared pin ingress to the base action scope of its actual EntityRef kind. */
+/**
+ * Resolve a shared ingress to the Policy action it actually exercises. Pin/unpin name the base
+ * Action of the target EntityRef's kind; the four artifact CRUD routes name the built-in `entity`
+ * kind's Action family, which every runtime Artifact kind projects onto its own target.
+ */
 export function policyActionForTarget(action: RepoTaskAction, target: EntityRef): string {
   if (
     action.kind === "runtime-spawn" &&
@@ -116,6 +120,13 @@ export function policyActionForTarget(action: RepoTaskAction, target: EntityRef)
     action.executionRuntimeIngress.kind === "runtime-run"
   )
     return "runtime-run";
+  if (
+    action.kind === "entity-import" ||
+    action.kind === "entity-update" ||
+    action.kind === "entity-archive" ||
+    action.kind === "entity-delete"
+  )
+    return `entity/${action.kind.slice("entity-".length)}`;
   if (action.kind !== "entity-pin" && action.kind !== "entity-unpin") return action.kind;
   const parsed = parseEntityRef(target);
   if (!parsed) return action.kind;

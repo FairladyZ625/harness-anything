@@ -390,12 +390,16 @@ export const actionDeclarations = Object.freeze([
   local("doc-materialize", "repo-write", hostResidency),
   canonical("doc-retire", "document/retire", "repo-write"),
   canonical("doc-submit", "document/submit", "repo-write"),
-  canonical("entity-archive", null, "repo-write"),
-  canonical("entity-delete", null, "repo-write"),
-  canonical("entity-import", null, "repo-write"),
+  // dec_2446BC2F8C68630F71AE3E3BD7/CH4: the four artifact CRUD ingress routes write one governed
+  // artifact instance. The built-in `entity` kind owns the Action family; the runtime Artifact kind
+  // contract projects the same four action ids onto its own target, so Policy grants the base
+  // `entity/<action>` scope instead of a per-route null catalog row.
+  canonicalWithPolicyAction("entity-archive", "entity/archive", "repo-write", "entity/archive"),
+  canonicalWithPolicyAction("entity-delete", "entity/delete", "repo-write", "entity/delete"),
+  canonicalWithPolicyAction("entity-import", "entity/import", "repo-write", "entity/import"),
   canonicalWithPolicyAction("entity-pin", "task/pin", "repo-write", "task/pin"),
   canonicalWithPolicyAction("entity-unpin", "task/unpin", "repo-write", "task/unpin"),
-  canonical("entity-update", null, "repo-write"),
+  canonicalWithPolicyAction("entity-update", "entity/update", "repo-write", "entity/update"),
   canonical("fact-archive", "fact/archive", "repo-write"),
   canonical("fact-assign", "fact/assign", "repo-write"),
   canonical("fact-unassign", "fact/unassign", "repo-write"),

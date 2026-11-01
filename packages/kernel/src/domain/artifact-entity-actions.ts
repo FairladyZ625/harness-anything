@@ -1,3 +1,4 @@
+import { getActionDeclarationByCatalogId } from "./action-declaration.ts";
 import {
   noSdkExposure,
   entityAction,
@@ -45,9 +46,18 @@ export const artifactEntityImportActionInput = input([
   attributesInputField,
 ]);
 
+/** The base `entity` kind owns the declared Action and its Policy scope; a runtime Artifact kind
+ * projects the same Action id onto its own target (dec_2446BC2F8C68630F71AE3E3BD7/CH4). */
+const basePolicyAction = (id: string): string => {
+  const declaration = getActionDeclarationByCatalogId(`entity/${id}`);
+  if (declaration === undefined) throw new Error(`Artifact Action entity/${id} has no ActionDeclaration to bind.`);
+  return declaration.policyAction;
+};
+
 const action = (kind: string, identity: EntityKindContract["id"], id: string, ingress: string): EntityActionContract =>
   Object.freeze({
     ...entityAction(kind, identity, id, noSdkExposure, execution(ingress)),
+    policy: Object.freeze({ ref: "keycloak-policy@1", action: basePolicyAction(id) }),
     concurrency: Object.freeze({
       expectedVersion: Object.freeze({ authority: "entity-aggregate-revision", required: true }),
       leasePolicy: Object.freeze({ authority: "center-repo-cell-single-writer" }),

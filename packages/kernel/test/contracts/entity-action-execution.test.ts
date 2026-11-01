@@ -2,6 +2,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { explainEntityKind, getExecutableEntityAction } from "../../src/domain/entity-kind-registry.ts";
+import { artifactEntityActionCatalog } from "../../src/domain/artifact-entity-actions.ts";
+import { getActionDeclarationByCatalogId } from "../../src/domain/action-declaration.ts";
 
 const ingressKinds = [
   "agent-install",
@@ -81,6 +83,33 @@ test("Agent, Decision, Fact, Relation, RuntimeSession, Schedule, and Settings in
   }
   assert.equal(getExecutableEntityAction("fact-undeclared"), undefined);
   assert.equal(getExecutableEntityAction("schedule-fire"), undefined);
+});
+
+test("runtime artifact kinds project the four CRUD Actions onto the base entity declarations", () => {
+  const kind = "entity-kind/KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94",
+    catalog = artifactEntityActionCatalog(kind, {
+      field: "entityId",
+      pattern: "^ADR-[a-f0-9]{32}$",
+      refTemplate: `${kind}/{id}`,
+    });
+  for (const id of ["import", "update", "archive", "delete"] as const) {
+    const action = catalog.actions.find((candidate) => candidate.id === id),
+      declaration = getActionDeclarationByCatalogId(`entity/${id}`);
+    assert.ok(action?.execution, id);
+    assert.equal(action.execution.ingress, `entity-${id}`, id);
+    assert.equal(action.target.kind, kind, id);
+    assert.equal(action.policy.action, `entity/${id}`, id);
+    assert.ok(declaration, id);
+    assert.equal(declaration.kind, `entity-${id}`, id);
+    assert.equal(declaration.policyAction, action.policy.action, id);
+    assert.equal(declaration.residency.scope, "canonical", id);
+  }
+  for (const id of ["import", "update", "archive", "delete"] as const) {
+    const action = getExecutableEntityAction(`entity-${id}`);
+    assert.equal(action?.id, id, id);
+    assert.equal(action?.target.kind, "entity", id);
+    assert.equal(action?.policy.action, `entity/${id}`, id);
+  }
 });
 
 test("Decision and Fact catalog-runtime writes retain their declared ingress and target", () => {

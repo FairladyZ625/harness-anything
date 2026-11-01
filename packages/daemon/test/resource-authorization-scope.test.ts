@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { canonicalResourceAncestors } from "../src/repo-cell-authorization.ts";
+import { canonicalResourceAncestors, policyActionForTarget } from "../src/repo-cell-authorization.ts";
 
 function projection(
   tasks: Record<string, { taskId: string; taskClass: "work" | "standard"; parentTaskId: string | null }>,
@@ -54,4 +54,18 @@ test("drops every ancestor when a Work chain contains a cycle", async () => {
     { kind: "entity", repoId: "repo", entityRef: "task/child" },
   );
   assert.deepEqual(ancestors, []);
+});
+
+test("the four artifact CRUD ingress kinds resolve to the base entity Action scope", () => {
+  const target = "entity-kind/KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94/ADR-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94" as const;
+  for (const [kind, suffix] of [
+    ["entity-import", "import"],
+    ["entity-update", "update"],
+    ["entity-archive", "archive"],
+    ["entity-delete", "delete"],
+  ] as const)
+    assert.equal(
+      policyActionForTarget({ kind } as Parameters<typeof policyActionForTarget>[0], target),
+      `entity/${suffix}`,
+    );
 });
