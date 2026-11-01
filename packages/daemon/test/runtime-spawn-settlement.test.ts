@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -595,6 +595,56 @@ test("a read-only task attach requires its dispatch report, while a reviewer sti
         );
       }
     }
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("remote settlement reads a ruling from the worker cwd before the mirrored package", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-remote-ruling-worker-cwd-")),
+    workerCwd = path.join(rootDir, "worker"),
+    packagePath = "tasks/task-remote-ruling",
+    dispatchId = "dispatch_0123456789abcdef01234567",
+    rulingPath = path.join(workerCwd, "harness", ...packagePath.split("/"), "artifacts", "rulings", `${dispatchId}.md`),
+    outcomes: Record<string, unknown>[] = [],
+    bodies: string[] = [];
+  try {
+    mkdirSync(path.dirname(rulingPath), { recursive: true });
+    writeFileSync(rulingPath, "---\nruling: awaiting\nquestion: Need the owner\n---\n");
+    const runtime = {
+        ...tasklessSettlementRuntime(workerCwd, "stopped"),
+        dispatchId,
+        cwd: workerCwd,
+        task: { taskId: "task-remote-ruling", executionId: "execution-remote-ruling" },
+      } as ActiveRuntime,
+      context = {
+        exiting: new Set<string>(),
+        processes: new Map([[runtime.runtimeSessionId, runtime]]),
+        input: {
+          repoId: "canonical",
+          rootDir,
+          now: () => "2026-10-07T00:01:00.000Z",
+          stream: { publish: () => ({}) },
+          remote: {
+            archive: async () => ({ outcome: "applied" }),
+            taskContext: async () => ({ packageRoot: path.join(rootDir, "harness", ...packagePath.split("/")) }),
+          },
+        },
+        resultMediaType: "text/markdown",
+        runtimeResultText: () => "worker stopped",
+        markProtocolError: () => undefined,
+        publishRuntimeEvent: async (type: string, payload: Record<string, unknown>, ...args: unknown[]) => {
+          if (type === "runtime_session_outcome_observed") outcomes.push(payload);
+          const body = args.at(-1);
+          if (type === "runtime_session_outcome_observed" && typeof body === "string") bodies.push(body);
+          return {};
+        },
+        settleFallback: async () => undefined,
+      } as unknown as RuntimeSpawnerContext;
+    await publishExit(context, runtime, 1);
+    assert.equal(outcomes[0]?.outcome, "stopped");
+    assert.equal((outcomes[0]?.attempt as { readonly classification?: string })?.classification, "awaiting_ruling");
+    assert.match(bodies[0] ?? "", /artifacts\/rulings\/dispatch_0123456789abcdef01234567\.md/u);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
