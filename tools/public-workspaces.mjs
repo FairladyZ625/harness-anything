@@ -114,5 +114,7 @@ function readJson(file) {
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(import.meta.filename)) {
-  for (const name of publicWorkspaceNamesTopologically()) console.log(name);
+  const names = publicWorkspaceNamesTopologically();
+  if (names.length === 0) throw new Error("no public workspaces were found; refusing an empty publish set");
+  for (const name of names) console.log(name);
 }

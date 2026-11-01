@@ -1,5 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -87,6 +88,25 @@ test("a public package depending on a private workspace is rejected with the exa
     assert.throws(
       () => assertPublicDependencyClosure(root),
       /public workspace @harness-anything\/daemon declares dependencies\.@harness-anything\/adapter but @harness-anything\/adapter is private/u,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("an empty public workspace set is refused instead of publishing nothing", () => {
+  const root = fixture();
+  try {
+    writeManifest(root, "package.json", { workspaces: ["packages/*"] });
+    writeManifest(root, "packages/adapter/package.json", { name: "@harness-anything/adapter", private: true });
+
+    assert.throws(
+      () =>
+        execFileSync(process.execPath, [path.resolve(import.meta.dirname, "public-workspaces.mjs")], {
+          cwd: root,
+          stdio: "pipe",
+        }),
+      /no public workspaces were found/u,
     );
   } finally {
     rmSync(root, { recursive: true, force: true });

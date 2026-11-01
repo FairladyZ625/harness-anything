@@ -10,6 +10,7 @@ const rootDirectory = path.resolve(process.env.RELEASE_ROOT ?? process.cwd());
 const root = JSON.parse(readFileSync(path.join(rootDirectory, "package.json"), "utf8"));
 const packages = readWorkspacePackages(rootDirectory);
 const publicNames = new Set(publicWorkspaceNamesTopologically(rootDirectory));
+if (publicNames.size === 0) throw new Error("no public workspaces were found; refusing an empty release");
 const manifestsByName = new Map(packages.map((entry) => [entry.manifest.name, entry.manifest]));
 const mismatches = [];
 if (root.version !== version) mismatches.push(`package.json=${root.version}`);
