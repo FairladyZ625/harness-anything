@@ -138,11 +138,15 @@ export function assertRuntimeRecoveryReady(
   context: RuntimeSpawnerContext,
   runtimeSessionId: string,
   dispatchId?: string | null,
+  observedLiveness?: RuntimeSessionSelection["liveness"],
 ): boolean {
   const recovery = recoveries.get(context)?.get(runtimeSessionId);
   if (dispatchId === null || recovery?.result?.outcome === "foreign" || recovery?.result?.outcome === "settled")
     return false;
-  if (recovery?.result?.outcome === "failed") throw recovery.result.error;
+  if (recovery?.result?.outcome === "failed") {
+    if (observedLiveness === "exited" && !hasLocalRuntimeOwner(context, runtimeSessionId)) return false;
+    throw recovery.result.error;
+  }
   if (recovery && !recovery.result)
     throw context.runtimeSpawnError("runtime_recovery_pending", `Runtime ${runtimeSessionId} is still recovering.`);
   return true;
@@ -478,7 +482,7 @@ function isBinding(value: unknown): value is RuntimeBinding {
   );
 }
 
-/** Instance load is an owner-process observation, never the last canonical live report. */
+/** Local PID evidence can refine a live report, but cannot erase a canonical exit observation. */
 export function locallyObservedRuntimeSessions(
   sessions: readonly RuntimeSessionSelection[],
   processes: ReadonlyMap<string, Pick<ActiveRuntime, "process">>,
@@ -488,7 +492,11 @@ export function locallyObservedRuntimeSessions(
     return {
       ...session,
       liveness:
-        session.outcome !== null ? session.liveness : process && runtimePidIsAlive(process.pid) ? "live" : "unknown",
+        session.outcome !== null || session.liveness === "exited"
+          ? session.liveness
+          : process && runtimePidIsAlive(process.pid)
+            ? "live"
+            : "unknown",
     };
   });
 }

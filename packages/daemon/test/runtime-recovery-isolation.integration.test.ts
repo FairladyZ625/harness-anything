@@ -208,6 +208,108 @@ test("a session without a dispatch never holds its instance, while a dispatched 
   await assert.rejects(spawn(), { code: "runtime_recovery_missing_dispatch" });
 });
 
+test("a failed recovery for an exited owner without a local process releases instance capacity", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-exited-failed-recovery-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  const prepared = Object.assign(new Error("selection reached the launch port"), { code: "fixture_prepared" }),
+    dispatchId = "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa",
+    recoveryError = new Error("terminal publication unavailable"),
+    session = {
+      runtimeSessionId: "runtime_44510389bdda9a99ff61d7a1",
+      instanceId: definition.instanceId,
+      providerSessionId: null,
+      liveness: "exited" as const,
+      outcome: null as "succeeded" | "failed" | "unknown" | "cancelled" | "stopped" | null,
+    },
+    lifecycle: unknown[] = [];
+  const spawner = makeRuntimeSpawner({
+    rootDir,
+    repoId: "exited-failed-recovery",
+    daemonGeneration: 1,
+    runtimeNode: { nodeId: "node-a" },
+    now: () => "2026-11-01T00:01:00.000Z",
+    stream: { publish: () => ({}) as never },
+    runtimeInstances: scheduleRuntimePorts().runtimeInstances,
+    readSettings: () => ({ runtime: { allowedInstances: [definition.instanceId] } }) as never,
+    prepareLaunch: async () => {
+      throw prepared;
+    },
+    schedule: () => undefined,
+    recordLifecycle: (event) => lifecycle.push(event),
+    remote: {
+      taskContext: async () => {
+        throw new Error("taskless probe must not request task context");
+      },
+      readRuntimeSessions: async () => [session],
+      readRuntimeDispatch: async () => ({
+        payload: { dispatchId },
+        actor: { principal: { personId: "owner" }, executor: null },
+        source: { kind: "node", nodeId: "node-a" },
+      }),
+      publish: async (draft) => {
+        if (draft.type === "runtime_session_outcome_observed") throw recoveryError;
+        return { event: { type: draft.type } as never, receipt: { outcome: "applied" } };
+      },
+      archive: async () => ({ outcome: "applied" }),
+    },
+  });
+  t.after(() => spawner.close());
+  const recovery = await spawner.adopt();
+  assert.equal(recovery[0]?.outcome, "failed");
+  assert.equal(recovery[0]?.error, recoveryError);
+  assert.ok(lifecycle.some((entry) => (entry as { event?: string }).event === "runtime_recovery_failed"));
+  await assert.rejects(
+    spawner.spawn(
+      {
+        runtimeInstanceId: definition.instanceId,
+        prompt: "select",
+        cwd: { scope: "repo-root" },
+        dispatchKey: "probe-after-failed-recovery",
+      },
+      { actor: { principal: { personId: "owner" }, executor: null }, source: { kind: "node", nodeId: "node-a" } },
+    ),
+    prepared,
+  );
+});
+
+test("an exited session with a process still owned locally retains instance capacity", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-exited-process-owner-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  const runtimeSessionId = "runtime-exited-process-owner",
+    dispatchId = "dispatch_bbbbbbbbbbbbbbbbbbbbbbbb",
+    session = {
+      runtimeSessionId,
+      instanceId: definition.instanceId,
+      providerSessionId: null,
+      liveness: "exited" as const,
+      outcome: null,
+    },
+    context = {
+      input: {
+        rootDir,
+        runtimeNode: { nodeId: "node-a" },
+        now: () => "2026-11-01T00:01:00.000Z",
+        remote: {
+          readRuntimeSessions: async () => [session],
+          readRuntimeDispatch: async () => ({
+            payload: { dispatchId },
+            actor: { principal: { personId: "owner" }, executor: null },
+            source: { kind: "node", nodeId: "node-a" },
+          }),
+        },
+      },
+      processes: new Map([[runtimeSessionId, { process: { pid: process.pid } }]]),
+      exiting: new Set(),
+      runtimeSpawnError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+    } as unknown as RuntimeSpawnerContext;
+  const recovery = await adoptRuntimes(context);
+  assert.equal(recovery[0]?.outcome, "failed");
+  assert.throws(
+    () => assertRuntimeRecoveryReady(context, runtimeSessionId, dispatchId, session.liveness),
+    (error) => error === recovery[0]?.error,
+  );
+});
+
 test("an exited owner session with a dispatch but no stream header settles and frees its instance", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-recovery-missing-header-"));
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));

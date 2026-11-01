@@ -86,10 +86,11 @@ export async function cancelRuntime(
             ? await context.input.remote.readRuntimeSessions()
             : context.requiredRuntimeProjection(context.input).readRuntimeSessions()
           ).find((value) => value.runtimeSessionId === runtimeSessionId);
-  if (session && session.liveness !== "exited" && session.outcome === null) {
+  if (session && session.outcome === null) {
     const instanceId = matchingHeader?.instanceId ?? canonicalDispatch?.instanceId;
     if (
       matchingHeader === undefined &&
+      session.liveness !== "exited" &&
       (!Number.isSafeInteger(canonicalDispatch?.processGroupPid) ||
         Number(canonicalDispatch?.processGroupPid) <= 1 ||
         probeProcessGroup({

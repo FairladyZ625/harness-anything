@@ -475,7 +475,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 dispatchId = dispatch?.payload.dispatchId ?? null;
                 if (dispatch && !ownedByRuntimeSpawner(dispatch, input.runtimeNode)) continue;
               }
-              if (!assertRuntimeRecoveryReady(extracted, session.runtimeSessionId, dispatchId)) continue;
+              if (!assertRuntimeRecoveryReady(extracted, session.runtimeSessionId, dispatchId, session.liveness))
+                continue;
               if (!processes.has(session.runtimeSessionId))
                 throw runtimeSpawnError(
                   "runtime_recovery_pending",
