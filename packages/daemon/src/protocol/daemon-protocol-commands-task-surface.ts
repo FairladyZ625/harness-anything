@@ -181,16 +181,18 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "task-pin",
+    actionKind: "entity-pin",
     phase: "W3",
     path: ["task", "pin", "<task-id>"],
     summary: `Pin a task only when it is ${AGENDA_PIN_CRITERIA}.`,
     method: "repo.task.run",
     inputs: [],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "task-unpin",
+    actionKind: "entity-unpin",
     phase: "W3",
     path: ["task", "unpin", "<task-id>"],
     summary: "Remove a task pin so its agenda group uses the standard order.",

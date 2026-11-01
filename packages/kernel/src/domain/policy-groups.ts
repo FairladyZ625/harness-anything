@@ -1,5 +1,6 @@
 import { actionDeclarations, type ActionDeclaration, type ActionPolicyTier } from "./action-declaration.ts";
 import { parseEntityRef, type EntityRef } from "./entity-ref.ts";
+import { baseEntityPolicyActions } from "./entity-kind-registry.ts";
 
 export const basePolicyGroupIds = Object.freeze(["viewer", "contributor", "maintainer", "admin"] as const);
 export type BasePolicyGroupId = (typeof basePolicyGroupIds)[number];
@@ -25,15 +26,15 @@ export function deriveBasePolicyGroups(
   for (const declaration of declarations) {
     if (!Object.hasOwn(tierRank, declaration.policyTier))
       throw new Error(`Action ${declaration.kind} has unknown policy tier ${String(declaration.policyTier)}.`);
-    if (declaration.policyAction !== declaration.kind)
-      throw new Error(`Action ${declaration.kind} must use its kind as the Keycloak scope.`);
   }
   const exactScopes = (tier: ActionPolicyTier) =>
     Object.freeze(
-      declarations
-        .filter((item) => item.policyTier === tier)
-        .map((item) => item.policyAction)
-        .sort(),
+      [
+        ...new Set([
+          ...declarations.filter((item) => item.policyTier === tier).map((item) => item.policyAction),
+          ...(tier === "contributor" ? baseEntityPolicyActions : []),
+        ]),
+      ].sort(),
     );
   return Object.freeze([
     Object.freeze({ id: "viewer", base: true, scopes: exactScopes("viewer"), composites: Object.freeze([]) }),

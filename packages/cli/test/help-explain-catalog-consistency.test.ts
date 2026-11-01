@@ -17,11 +17,17 @@ test("help, explain, and the router describe one Task Action catalog", () => {
       usage: taskActionCommandUsage,
     }).catalog(),
     helpRows = new Set(
-      [renderThinHelp([], "task"), renderThinHelp([], "preset")]
+      [renderThinHelp([], "task"), renderThinHelp([], "preset"), renderThinHelp([], "pin"), renderThinHelp([], "unpin")]
         .join("\n")
         .split("\n")
         .map((line) => line.trim())
-        .filter((line) => line.startsWith("ha task ") || line.startsWith("ha preset ")),
+        .filter(
+          (line) =>
+            line.startsWith("ha task ") ||
+            line.startsWith("ha preset ") ||
+            line.startsWith("ha pin ") ||
+            line.startsWith("ha unpin "),
+        ),
     );
   assert.ok(explain.subjects[0]!.actions.length > 0);
   for (const row of explain.subjects[0]!.actions) {

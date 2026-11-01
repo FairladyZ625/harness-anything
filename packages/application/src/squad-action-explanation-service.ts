@@ -165,6 +165,7 @@ function evaluateCriterion(
   input: SquadActionExplanationObjectInput,
   missingMembers: readonly string[],
 ): Pick<EntityActionCriterionExplanationV1, "status" | "nextActions"> {
+  if (criterionRef === "entity-pin/target") return { status: "met", nextActions: [] };
   if (criterionRef === "squad/entity-present" || criterionRef === "squad/declaration-schema")
     return { status: "met", nextActions: [] };
   if (criterionRef === "squad/roster-ready")

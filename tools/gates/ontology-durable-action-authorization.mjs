@@ -457,7 +457,7 @@ function queuedTaskWrite(analysis) {
     evaluate = definition(analysis, "repo-cell-authorization", "evaluateRepoCellAction");
   if (!runner || !current || !enqueue || !evaluate) return false;
   const durable = findVariable(runner, "durable")?.initializer;
-  if (syntax(durable) !== "(durablePolicyActionsasreadonlystring[]).includes(action.kind)") return false;
+  if (syntax(durable) !== "(durableActionKindsasreadonlystring[]).includes(action.kind)") return false;
   if (
     !syntax(current).includes("revision=context.store.readHead()?.revision??0") ||
     !syntax(current).includes(
@@ -623,7 +623,7 @@ function repoActionWiring(analysis) {
       syntax(open).includes("executeAction:extracted.executeAction") &&
       importsBinding(api, "./repo-cell-command-run.ts", "makeRepoCellCommandRunner", "makeRepoCellCommandRunner") &&
       syntax(api).includes("run=makeRepoCellCommandRunner(context)") &&
-      importsBinding(runner, "@harness-anything/kernel", "durablePolicyActions", "durablePolicyActions") &&
+      importsBinding(runner, "@harness-anything/kernel", "durableActionKinds", "durableActionKinds") &&
       importsBinding(runner, "./repo-cell-authorization.ts", "evaluateRepoCellAction", "evaluateRepoCellAction"),
   );
 }

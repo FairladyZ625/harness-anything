@@ -147,6 +147,7 @@ test("canonical-stream kind bindings resolve to declared Actions on their stream
   assert.deepEqual(
     explainEntityKind("runtime-session").transitions.actions.map(({ id }) => id),
     [
+      "run",
       "runtime_session_started",
       "runtime_session_provider_bound",
       "runtime_session_task_bound",
@@ -154,9 +155,11 @@ test("canonical-stream kind bindings resolve to declared Actions on their stream
       "runtime_session_cancelled",
       "runtime_session_exited",
       "runtime_session_outcome_observed",
-      "run",
+      "pin",
+      "unpin",
     ],
   );
+  assert.equal(explainEntityKind("runtime-session").transitions.actions.filter(({ id }) => id === "run").length, 1);
 });
 
 test("entity explanations expose action identity but keep runtime compile hooks private", () => {
@@ -179,10 +182,12 @@ test("Agent catalog exposes reads while install owns its write contracts", () =>
     "inspect",
     "assign",
     "unassign",
+    "pin",
+    "unpin",
   ]);
   assert.deepEqual(
     explanation.transitions.actions.map(({ id }) => id),
-    ["install", "delete", "retire", "validate", "list", "inspect", "assign", "unassign"],
+    ["install", "delete", "retire", "validate", "list", "inspect", "assign", "unassign", "pin", "unpin"],
   );
   assert.ok(action?.execution?.compile);
   assert.equal(action.execution.implementation, "compiled-event");
@@ -259,6 +264,8 @@ test("Schedule explanations expose revision, single-flight, assignment, claim-fe
     "show",
     "assign",
     "unassign",
+    "pin",
+    "unpin",
   ]);
   assert.equal(byId.has("fire"), false);
   assert.equal(
@@ -276,8 +283,11 @@ test("Schedule explanations expose revision, single-flight, assignment, claim-fe
 
 test("RuntimeSession explains adoption, operation replay, center arbitration, and dispatch-owned artifacts", () => {
   const explanation = explainEntityKind("runtime-session"),
-    byId = new Map(explanation.transitions.actions.map((action) => [action.id, action]));
+    byId = new Map(explanation.transitions.actions.map((action) => [action.id, action])),
+    run = byId.get("run"),
+    runtimeRun = getExecutableEntityAction("runtime-run");
   assert.deepEqual(explanation.transitions.available, [
+    "run",
     "runtime_session_started",
     "runtime_session_provider_bound",
     "runtime_session_task_bound",
@@ -285,12 +295,18 @@ test("RuntimeSession explains adoption, operation replay, center arbitration, an
     "runtime_session_cancelled",
     "runtime_session_exited",
     "runtime_session_outcome_observed",
-    "run",
+    "pin",
+    "unpin",
   ]);
+  assert.equal(explanation.transitions.available.filter((id) => id === "run").length, 1);
   assert.deepEqual(explanation.canonicalProjection, {
     embeddedEvents: [],
     row: { idField: "runtimeSessionId", ownerField: null },
   });
+  assert.equal(run?.target.kind, "runtime-session");
+  assert.equal(run?.policy.action, "runtime-run");
+  assert.equal(runtimeRun?.execution?.ingress, "runtime-run");
+  assert.equal(runtimeRun?.execution?.implementation, "catalog-runtime");
   const started = byId.get("runtime_session_started"),
     outcome = byId.get("runtime_session_outcome_observed");
   assert.equal(started?.concurrency.expectedVersion.startFence, "launchGeneration");

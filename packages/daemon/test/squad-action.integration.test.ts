@@ -71,7 +71,20 @@ test("Squad Action catalog owns install, read surfaces, and exact rejected crite
     assert.ok(catalog);
     assert.deepEqual(
       catalog.actions.map(({ id }) => id),
-      ["install", "delete", "validate", "list", "inspect", "run", "status", "cancel", "assign", "unassign"],
+      [
+        "install",
+        "delete",
+        "validate",
+        "list",
+        "inspect",
+        "run",
+        "status",
+        "cancel",
+        "assign",
+        "unassign",
+        "pin",
+        "unpin",
+      ],
     );
     assert.deepEqual(
       catalog.actions.filter(({ execution }) => execution?.read).map(({ id }) => id),
@@ -141,12 +154,35 @@ test("Squad Action catalog owns install, read surfaces, and exact rejected crite
       );
     assert.deepEqual(
       explainedCatalog.subjects[0]!.actions.map(({ action }) => action.id),
-      ["install", "delete", "validate", "list", "inspect", "run", "status", "cancel", "assign", "unassign"],
+      [
+        "install",
+        "delete",
+        "validate",
+        "list",
+        "inspect",
+        "run",
+        "status",
+        "cancel",
+        "assign",
+        "unassign",
+        "pin",
+        "unpin",
+      ],
     );
     assert.equal(
       explainedCatalog.subjects[0]!.actions.every(({ available }) => available === null),
       true,
     );
+    for (const actionId of ["pin", "unpin"]) {
+      const row = explainedCatalog.subjects[0]!.actions.find(({ action }) => action.id === actionId);
+      assert.equal(row?.action.syntax.usage, `ha ${actionId} squad/<squad-id>`);
+      assert.equal(
+        explainedObject.subjects[0]!.actions.find(({ action }) => action.id === actionId)?.criteria.find(
+          ({ ref }) => ref === "entity-pin/target",
+        )?.status,
+        "met",
+      );
+    }
     assert.equal(explainedObject.subjects[0]!.ref, `squad/${squad.id}`);
     assert.equal(
       explainedObject.subjects[0]!.actions.find(({ action }) => action.id === "run")?.criteria.find(

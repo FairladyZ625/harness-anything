@@ -57,6 +57,8 @@ test("Entity catalogs omit actions that decisions assign to another owner or no 
     "inspect",
     "assign",
     "unassign",
+    "pin",
+    "unpin",
   ]);
   assert.deepEqual(declared("agent"), [
     "install",
@@ -67,8 +69,11 @@ test("Entity catalogs omit actions that decisions assign to another owner or no 
     "inspect",
     "assign",
     "unassign",
+    "pin",
+    "unpin",
   ]);
   assert.deepEqual(catalogs["runtime-session"]?.transitions.available, [
+    "run",
     "runtime_session_started",
     "runtime_session_provider_bound",
     "runtime_session_task_bound",
@@ -76,10 +81,12 @@ test("Entity catalogs omit actions that decisions assign to another owner or no 
     "runtime_session_cancelled",
     "runtime_session_exited",
     "runtime_session_outcome_observed",
-    // dec_6C9E3399972A2F06C046BA89DC/CH3: the shared canonical target of ha runtime run / ha agent run.
-    "run",
+    "pin",
+    "unpin",
   ]);
+  assert.equal(catalogs["runtime-session"]?.transitions.available.filter((id) => id === "run").length, 1);
   assert.deepEqual(declared("runtime-session"), [
+    "run",
     "runtime_session_started",
     "runtime_session_provider_bound",
     "runtime_session_task_bound",
@@ -87,9 +94,10 @@ test("Entity catalogs omit actions that decisions assign to another owner or no 
     "runtime_session_cancelled",
     "runtime_session_exited",
     "runtime_session_outcome_observed",
-    // dec_6C9E3399972A2F06C046BA89DC/CH3: the shared canonical target of ha runtime run / ha agent run.
-    "run",
+    "pin",
+    "unpin",
   ]);
+  assert.equal(declared("runtime-session").filter((id) => id === "run").length, 1);
 });
 
 test("public receipts require the structured AuthorizationDecision", () => {

@@ -2,7 +2,7 @@
 import { compileExecutionDelegation } from "../../src/domain/execution-delegation.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getExecutableEntityAction, personActionUsage } from "../../src/index.ts";
+import { getEntityKindContract, getExecutableEntityAction, personActionUsage } from "../../src/index.ts";
 import { explainEntityKind } from "../../src/domain/entity-kind-registry.ts";
 import {
   validateExecutionDelegationEvent,
@@ -28,7 +28,12 @@ const now = "2026-09-19T10:00:00.000Z",
   };
 
 test("Person exposes center private delegation and retires roster mutations", () => {
-  assert.deepEqual(explainEntityKind("person").transitions.available, ["delegate", "revoke-delegation"]);
+  assert.deepEqual(explainEntityKind("person").transitions.available, [
+    "delegate",
+    "revoke-delegation",
+    "pin",
+    "unpin",
+  ]);
   assert.equal(getExecutableEntityAction("people-add"), undefined);
   assert.equal(getExecutableEntityAction("people-remove"), undefined);
   const delegate = getExecutableEntityAction("people-delegate");
@@ -36,6 +41,9 @@ test("Person exposes center private delegation and retires roster mutations", ()
   assert.equal(delegate.concurrency.expectedVersion.arbitration, "center-single-write-queue");
   assert.equal(delegate.concurrency.artifactOwnership.record, "execution-delegations/v1");
   assert.match(personActionUsage(delegate), /^ha people delegate /u);
+  const personActions = getEntityKindContract("person")?.actionCatalog?.actions ?? [];
+  assert.equal(personActionUsage(personActions.find(({ id }) => id === "pin")!), "ha pin person/<person-id>");
+  assert.equal(personActionUsage(personActions.find(({ id }) => id === "unpin")!), "ha unpin person/<person-id>");
 });
 
 test("delegation compiler binds issuer, source, runtime and expiry and rejects reuse", () => {

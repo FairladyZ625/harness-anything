@@ -505,6 +505,65 @@ const catalogRuntimeAction = (
   });
 };
 
+const baseEntityAction = (
+  kind: string,
+  identity: EntityKindContract["id"],
+  id: "pin" | "unpin",
+): EntityActionContract =>
+  Object.freeze({
+    ...entityAction(kind, identity, id, noSdkExposure),
+    input: Object.freeze({
+      schema: "entity-action-input/v1" as const,
+      fields: Object.freeze([{ field: "entityRef", type: "string" as const, required: true }]),
+      exactlyOneOf: Object.freeze([]),
+    }),
+    policy: Object.freeze({ ref: "keycloak-policy@1", action: `${kind}/${id}` }),
+    criteria: Object.freeze([
+      Object.freeze({
+        ref: "entity-pin/target",
+        failureCode: "entity_not_found",
+        explain: "The target EntityRef must identify an existing local entity before its pin state changes.",
+      }),
+    ]),
+    failureCodes: Object.freeze([
+      Object.freeze({
+        code: "entity_not_found",
+        source: "criterion" as const,
+        explain: "The target EntityRef does not resolve to an existing local entity.",
+        nextCapabilityRef: "entity.read",
+      }),
+    ]),
+    effects: Object.freeze([{ ref: "entity-pin-event/v1", projection: "EntityPinProjection" }]),
+    explain: `${kind}.${id} changes the shared Entity pin state through the canonical writer.`,
+    execution: Object.freeze({
+      ingress: id === "pin" ? "entity-pin" : "entity-unpin",
+      compile: null,
+      read: false,
+      implementation: "catalog-runtime" as const,
+      topology: "center-forward-write" as const,
+      remoteEdgeAdmission: "via-center-forward" as const,
+      targetIdField: "entityRef",
+    }),
+  });
+
+const withBaseEntityActions = <T extends readonly EntityKindContract[]>(contracts: T): T =>
+  Object.freeze(
+    contracts.map((contract) => {
+      const actionCatalog = contract.actionCatalog;
+      if (actionCatalog === null || actionCatalog.reason !== undefined) return contract;
+      const existing = new Set(actionCatalog.actions.map(({ id }) => id)),
+        actions = [
+          ...actionCatalog.actions,
+          ...(existing.has("pin") ? [] : [baseEntityAction(contract.kind, contract.id, "pin")]),
+          ...(existing.has("unpin") ? [] : [baseEntityAction(contract.kind, contract.id, "unpin")]),
+        ];
+      return Object.freeze({
+        ...contract,
+        actionCatalog: Object.freeze({ ...actionCatalog, actions: Object.freeze(actions) }),
+      });
+    }),
+  ) as unknown as T;
+
 const taskActionCatalog = createTaskActionCatalog((id) => entityAction("task", taskIdentity, id, taskExposure));
 const assignmentCatalogFor = (kind: string, identity: EntityKindContract["id"], exposure: EntitySdkExposure) =>
   createAssignmentActionCatalog(kind, identity.refTemplate, (id) => entityAction(kind, identity, id, exposure));
@@ -519,30 +578,10 @@ const agentActionCatalog = createAgentActionCatalog(
   DEFAULT_ENTITY_ACTION_RETURNS_CONTRACT,
 );
 
-const runtimeSessionActionCatalog = createRuntimeSessionActionCatalog(
-    (id) => entityAction("runtime-session", runtimeSessionIdentity, id),
-    DEFAULT_ENTITY_ACTION_RETURNS_CONTRACT,
-  ),
-  // dec_6C9E3399972A2F06C046BA89DC/CH3: the shared canonical target for `ha runtime run` and
-  // `ha agent run`. The command's dispatch still goes through the runtime publication queue; this
-  // catalog action names the new RuntimeSession the ingress creates, with Policy action runtime-run.
-  runtimeSessionRunAction = Object.freeze({
-    ...catalogRuntimeAction(
-      "runtime-session",
-      runtimeSessionIdentity,
-      "run",
-      "runtime-run",
-      noSdkExposure,
-      "center-forward-write",
-      "via-center-forward",
-    ),
-    explain:
-      "Request one runtime dispatch and its canonical RuntimeSession (shared by ha runtime run and ha agent run).",
-  }),
-  runtimeSessionCatalog = Object.freeze({
-    ...runtimeSessionActionCatalog,
-    actions: Object.freeze([...runtimeSessionActionCatalog.actions, runtimeSessionRunAction]),
-  });
+const runtimeSessionCatalog = createRuntimeSessionActionCatalog(
+  (id) => entityAction("runtime-session", runtimeSessionIdentity, id),
+  DEFAULT_ENTITY_ACTION_RETURNS_CONTRACT,
+);
 
 const settingsActionCatalog = createSettingsActionCatalog(
   (id) => entityAction("settings", settingsIdentity, id),
@@ -888,7 +927,8 @@ const documentActionCatalog = Object.freeze({
     ]),
   });
 
-export const entityKindContracts = withDeclaredEntityActions([
+// prettier-ignore
+export const entityKindContracts = withBaseEntityActions(withDeclaredEntityActions([
   {
     kind: "task",
     ...entityTypeContractFields("task"),
@@ -1236,7 +1276,12 @@ export const entityKindContracts = withDeclaredEntityActions([
     authoring: null,
     sdkExposure: noSdkExposure,
   },
-] as const satisfies readonly EntityKindContract[]);
+] as const satisfies readonly EntityKindContract[]));
+
+/** Policy scopes for the shared base pin actions, including runtime-local entity kinds. */
+export const baseEntityPolicyActions = Object.freeze(
+  entityKindContracts.flatMap(({ kind }) => [`${kind}/pin`, `${kind}/unpin`]),
+);
 
 const entityKindContractByKind = new Map<string, EntityKindContract>(
   entityKindContracts.map((contract) => [contract.kind, contract]),

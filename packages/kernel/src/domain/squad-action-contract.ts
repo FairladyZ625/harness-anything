@@ -403,6 +403,7 @@ export function compileSquadDeleteAction(input: EntityActionCompileInput): Squad
 }
 
 export function squadActionUsage(action: EntityActionContract, squadId = "<squad-id>"): string {
+  if (action.id === "pin" || action.id === "unpin") return `ha ${action.id} squad/${squadId}`;
   if (action.id === "assign")
     return `ha squad assign ${squadId} --person <person-id>|--node <node-id>|--team <team-id> --expected-version <revision>`;
   if (action.id === "unassign") return `ha squad unassign ${squadId} --expected-version <revision>`;
