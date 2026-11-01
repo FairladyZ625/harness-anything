@@ -36,8 +36,6 @@ export function assertFleetDeliveryHolder(
 /** Publish before submit, with a compare-and-swap on the cut this workspace last published. */
 export async function prepareEdgeTaskDelivery(input: {
   readonly workspaceRoot: string;
-  readonly nodeId: string;
-
   readonly action: FleetTaskAction;
   readonly authorize: () => Promise<string>;
   readonly readTask: () => Promise<FleetDeliveryTask>;
@@ -57,13 +55,7 @@ export async function prepareEdgeTaskDelivery(input: {
     };
   const taskId = String(input.action.taskId),
     expectedRemoteCommit = await readPublishedTaskCut(input.workspaceRoot, taskId),
-    current = await input.readTask(),
     personId = await input.authorize(),
-    executionId = assertFleetDeliveryHolder(current, {
-      ...input,
-      personId,
-      executionId: typeof input.action.executionId === "string" ? input.action.executionId : undefined,
-    }),
     cwd = path.join(input.workspaceRoot, initial.workspace.path),
     head = makeGitReadinessSource().run(cwd, ["rev-parse", "HEAD"]);
   if (!head.ok || (input.action.commitSha !== undefined && input.action.commitSha !== head.stdout))
@@ -82,5 +74,6 @@ export async function prepareEdgeTaskDelivery(input: {
     throw Object.assign(new Error(push.attempted ? push.detail : push.reason), {
       code: workerPushFailureCode(push),
     });
-  return { ...input.action, executionId, commitSha: head.stdout };
+  // The replica lease can lag; the center resolves the canonical execution and checks its holder.
+  return { ...input.action, commitSha: head.stdout };
 }

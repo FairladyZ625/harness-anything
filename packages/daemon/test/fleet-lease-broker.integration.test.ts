@@ -1,7 +1,8 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { sha256Bytes } from "@harness-anything/kernel";
@@ -141,6 +142,99 @@ test(
     assert.equal(taken.task.assignment.expiresAt, expiry);
   },
 );
+
+test("task owner on another node can take over and submit the current execution", { timeout: 60_000 }, async (t) => {
+  const taskId = "task-owner-cross-node",
+    executionId = "exe-owner-cross-node",
+    f = await fleetNodeClaimFixture(t);
+  const git = (cwd: string, ...args: string[]) =>
+      execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" }).trim(),
+    mainBranch = git(f.repo, "branch", "--show-current"),
+    origin = path.join(f.root, "task-origin.git");
+  git(f.root, "clone", "--bare", "--no-local", f.repo, origin);
+  git(f.repo, "remote", "add", "origin", origin);
+  git(f.repo, "fetch", "origin");
+  git(f.repo, "remote", "set-head", "origin", mainBranch);
+  const created = await f.command("node-one", { kind: "task-create", taskId, title: "Cross-node takeover" });
+  assert.equal(created.outcome, "applied", JSON.stringify(created));
+  const started = await f.command("node-one", { kind: "task-start", taskId, executionId });
+  assert.equal(started.outcome, "applied", JSON.stringify(started));
+
+  const foreign = await f.command("center-node", {
+    kind: "task-release",
+    taskId,
+    forceTakeover: true,
+    reason: "Reject a principal other than the task owner.",
+  });
+  assert.equal(foreign.code, "lease_conflict", JSON.stringify(foreign));
+  const released = await f.command("node-two", {
+    kind: "task-release",
+    taskId,
+    forceTakeover: true,
+    reason: "Worker process exited on node one; owner continues the existing execution.",
+  });
+  assert.equal(released.outcome, "applied", JSON.stringify(released));
+  const rejoined = await f.command("node-two", { kind: "task-start", taskId, executionId });
+  assert.equal(rejoined.outcome, "applied", JSON.stringify(rejoined));
+
+  const shown = await f.host.run("lease-repo", { kind: "task-show", taskId }, f.owners.auth({ nodeId: "node-two" }));
+  const current = JSON.parse(String(shown.evidence));
+  assert.equal(current.lease.source.nodeId, "node-two");
+  assert.equal(current.lease.executionId, executionId);
+  const staleWorker = await f.command("node-one", {
+    kind: "task-progress-append",
+    taskId,
+    text: "stale worker write after owner takeover",
+  });
+  assert.equal(staleWorker.outcome, "op_rejected", JSON.stringify(staleWorker));
+
+  const packagePath = String(created.receipt?.packagePath),
+    closeoutPath = `${packagePath}/closeout.md`,
+    closeout =
+      "## Summary\nOwner took over after worker exit.\n" +
+      "## Verification\nCross-node release and rejoin were accepted.\n" +
+      "## Residual Risk\nNo live worker remained.\n" +
+      "## Same Mechanism Elsewhere\nThe lease fences every node.\n";
+  const workerRoot = path.join(f.root, "node-two-worker");
+  git(f.root, "clone", "--no-checkout", "--no-local", origin, workerRoot);
+  git(workerRoot, "checkout", "-b", taskId, `origin/${mainBranch}`);
+  git(workerRoot, "config", "user.name", "person-one");
+  git(workerRoot, "config", "user.email", "person-one@users.noreply.github.com");
+  writeFileSync(path.join(workerRoot, "delivery.txt"), "Owner takeover delivery.\n");
+  git(workerRoot, "add", "delivery.txt");
+  git(workerRoot, "commit", "-qm", "feat: deliver after owner takeover");
+  const commitSha = git(workerRoot, "rev-parse", "HEAD");
+  git(workerRoot, "push", "origin", taskId);
+  const [closeoutCandidate] = await runFleetUploadClient({
+    ...f.peer("node-two"),
+    changes: [{ path: closeoutPath, body: Buffer.from(closeout), mediaType: "text/markdown" }],
+  });
+  const closeoutBase = sha256Bytes(readFileSync(path.join(f.repo, "harness", closeoutPath)));
+  const submitted = await runFleetTaskCommandClient({
+    ...f.peer("node-two"),
+    opId: randomUUID(),
+    taskId,
+    action: { kind: "task-submit", taskId, executionId, commitSha },
+    waitMs: 5_000,
+    docChanges: [
+      {
+        path: closeoutPath,
+        baseBlobSha256: closeoutBase,
+        policyId: "markdown-body-replaceable/v1",
+        candidate: closeoutCandidate!,
+      },
+    ],
+  });
+  assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+  const final = await f.host.run("lease-repo", { kind: "task-show", taskId }, f.owners.auth({ nodeId: "node-two" }));
+  const snapshot = JSON.parse(String(final.evidence));
+  assert.equal(snapshot.executions[0].state, "submitted");
+  assert.equal(
+    snapshot.executions[0].actor.executor,
+    null,
+    "owner takeover submits the current execution without a manual executor declaration",
+  );
+});
 
 test("permission revocation rejects task start without an accepted write", { timeout: 60_000 }, async (t) => {
   const f = await fleetNodeClaimFixture(t);

@@ -373,7 +373,6 @@ export async function runFleetEdgeTask(
     if (action.kind === "task-submit" && workspaceRoot !== null && taskId !== null)
       action = await prepareEdgeTaskDelivery({
         workspaceRoot,
-        nodeId: payload.nodeId,
         action,
         authorize: async () => {
           const metadata = await readFleetRepositoryMetadataClient({ ...peer, actionKind: "task-submit", taskId });
