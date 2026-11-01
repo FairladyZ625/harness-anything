@@ -59,7 +59,7 @@ export type { FleetDeviceLoginNotice } from "@harness-anything/kernel";
 import type { FleetDeviceLoginNotice } from "@harness-anything/kernel";
 
 export type FleetFrameV1 =
-  | Msg<"fleet.edge.join/v1", { joinId: string; inviteToken: string }>
+  | Msg<"fleet.edge.join/v1", { joinId: string; inviteToken: string; accessToken: string }>
   | Msg<
       "fleet.edge.join.result/v1",
       {
@@ -668,7 +668,7 @@ const docChange = shape({ path: logicalPath, baseBlobSha256: nullable(sha64), po
 const common = { schema: text, messageId: id } as const,
   reply = { ...common, inReplyTo: id } as const;
 const schemas: Readonly<Record<string, Check>> = {
-  "fleet.edge.join/v1": shape({ ...common, joinId: id, inviteToken: text }),
+  "fleet.edge.join/v1": shape({ ...common, joinId: id, inviteToken: text, accessToken: text }),
   "fleet.edge.join.result/v1": shape({
     ...reply,
     joinId: id,
@@ -861,6 +861,7 @@ export function parseFleetFrame(input: string | unknown): FleetFrameV1 {
   if (
     !record(value) ||
     (value.accessToken !== undefined && !accessToken(value.accessToken)) ||
+    (value.schema === "fleet.edge.join/v1" && typeof value.accessToken !== "string") ||
     (value.humanClientId !== undefined &&
       (typeof value.humanClientId !== "string" || value.humanClientId.length === 0)) ||
     typeof value.schema !== "string" ||

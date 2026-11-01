@@ -141,6 +141,7 @@ export function readArtifactActionScopes(userRoot: string): () => Promise<readon
     }
     return [...byKind.values()].flat().sort();
   };
+}
 function readProviderMode(userRoot: string): "builtin" | "managed" | "external" | "legacy" {
   const file = path.join(userRoot, "rbac", "config.json");
   if (!existsSync(file)) return "builtin";

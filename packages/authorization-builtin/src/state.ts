@@ -1,8 +1,6 @@
 import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { type AuthorizationGrant } from "@harness-anything/kernel";
-
 export interface BuiltinUser {
   readonly userId: string;
   readonly personId: string;
@@ -11,7 +9,6 @@ export interface BuiltinUser {
   readonly displayName: string;
   readonly passwordSalt: string;
   readonly passwordHash: string;
-  readonly roles: readonly string[];
 }
 export interface BuiltinSessionRecord {
   readonly tokenHash: string;
@@ -22,10 +19,9 @@ export interface BuiltinSessionRecord {
   readonly roles: readonly string[];
 }
 export interface BuiltinState {
-  readonly schema: "harness-builtin-identity/v1";
+  readonly schema: "harness-builtin-identity/v2";
   readonly centerTokenHashes: readonly string[];
-  readonly users: readonly BuiltinUser[];
-  readonly grants: readonly AuthorizationGrant[];
+  readonly owner?: BuiltinUser;
   readonly sessions: readonly BuiltinSessionRecord[];
   readonly repositoryOwners: Readonly<Record<string, string>>;
   readonly sessionLifetimeSeconds: number;
@@ -71,10 +67,8 @@ export function sessionFile(userRoot: string): string {
 }
 export function defaultState(): BuiltinState {
   return {
-    schema: "harness-builtin-identity/v1",
+    schema: "harness-builtin-identity/v2",
     centerTokenHashes: [],
-    users: [],
-    grants: [],
     sessions: [],
     repositoryOwners: {},
     sessionLifetimeSeconds: builtinSessionLifetimeBounds.defaultSeconds,
@@ -84,7 +78,10 @@ export function readState(userRoot: string): BuiltinState {
   const file = stateFile(userRoot);
   if (!existsSync(file)) return defaultState();
   const parsed = JSON.parse(readFileSync(file, "utf8")) as BuiltinState;
-  if (parsed.schema !== "harness-builtin-identity/v1") return defaultState();
+  if (parsed.schema !== "harness-builtin-identity/v2")
+    throw Object.assign(new Error("The built-in identity state format is unsupported."), {
+      code: "rbac_state_invalid",
+    });
   return parsed;
 }
 export function writeState(userRoot: string, state: BuiltinState): void {

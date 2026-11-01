@@ -10,12 +10,12 @@ import {
   userRootFromBuiltinUrl,
 } from "@harness-anything/authorization-builtin";
 import { OidcSessionService } from "@harness-anything/authorization-keycloak";
+import { AccessAdminService } from "../src/access-admin-service.ts";
 import {
   createAuthorizationProvider,
   createIdentityManagement,
   createIdentitySession,
 } from "../src/authorization-provider.ts";
-import { admitEdgeJoin } from "../src/fleet/edge-join-admission.ts";
 import { createEdgeJoinStore } from "../src/fleet/edge-join.ts";
 
 test("clean user roots select built-in identity without a managed runtime", async (t) => {
@@ -33,7 +33,7 @@ test("clean user roots select built-in identity without a managed runtime", asyn
   assert.equal(JSON.parse(readFileSync(path.join(root, "rbac", "config.json"), "utf8")).mode, "builtin");
   assert.equal(
     JSON.parse(readFileSync(path.join(root, "rbac", "builtin-state.json"), "utf8")).schema,
-    "harness-builtin-identity/v1",
+    "harness-builtin-identity/v2",
   );
   const session = createIdentitySession(root);
   assert.ok(session instanceof BuiltinIdentitySession);
@@ -186,17 +186,17 @@ test("builtin collaboration entry points require the Keycloak plugin", async (t)
       createdBy: "person-owner",
       ttlMs: 60_000,
     });
+  const admin = new AccessAdminService(center, root, { edgeJoins: store });
+  await assert.rejects(admin.run({ operation: "team-create", teamName: "Builders" }), (error: unknown) => {
+    assert.equal((error as { code?: string }).code, "identity_plugin_required");
+    assert.match((error as Error).message, /Keycloak/);
+    return true;
+  });
   await assert.rejects(
-    admitEdgeJoin({
+    admin.admitEdgeJoin({
       joinId: created.record.joinId,
       inviteToken: created.link.token!,
-      oidc: center,
-      edgeJoins: store,
-      validateSnapshot: async () => undefined,
-      registerNode: async (record) => {
-        assert.equal(record.personId, "person-owner");
-        return "node-credential";
-      },
+      accessToken: "unused-builtin-token",
     }),
     (error: unknown) => {
       assert.equal((error as { code?: string }).code, "identity_plugin_required");
@@ -205,4 +205,5 @@ test("builtin collaboration entry points require the Keycloak plugin", async (t)
     },
   );
   assert.equal(store.status(created.record.joinId).state, "pending");
+  await admin.close();
 });

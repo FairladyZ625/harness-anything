@@ -112,11 +112,6 @@ export class EdgeJoinAdminService {
 
     const login = await this.#oidc.interactiveAuthority();
     try {
-      if (sshTarget && login.url === "builtin://local")
-        throw coded(
-          "edge_join_invalid",
-          "Built-in identity invitations use the pinned center channel; SSH login tunnels require an HTTPS authority.",
-        );
       const loginAddress = new URL(login.url),
         serviceHosts = sshServiceHosts(config.bind, login.url),
         tunnel = sshTarget
@@ -196,7 +191,7 @@ export class EdgeJoinAdminService {
     }
   }
 
-  async admit(input: { readonly joinId: string; readonly inviteToken: string; readonly accessToken?: string }) {
+  async admit(input: { readonly joinId: string; readonly inviteToken: string; readonly accessToken: string }) {
     const result = await admitEdgeJoin({
       ...input,
       oidc: this.#oidc,
