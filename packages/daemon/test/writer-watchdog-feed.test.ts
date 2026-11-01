@@ -34,11 +34,11 @@ test("an unchanged catch-up watermark does not feed the ready watchdog", async (
   context.mock.timers.enable({ apis: ["setTimeout"] });
   const writer = new FakeWriter(),
     opening = openWriterSupervisor(supervisorInput, { createWorker: () => writer as unknown as Worker }),
-    rejected = assert.rejects(opening, /30000ms without progress/u),
+    rejected = assert.rejects(opening, /120000ms without progress/u),
     progress = { phase: "catching-up", applied: 256, total: 512, watermark: 256 } as const;
 
   writer.publish(writerStatus("attach-progress", progress));
-  context.mock.timers.tick(29_999);
+  context.mock.timers.tick(119_999);
   writer.publish(writerStatus("attach-progress", progress));
   context.mock.timers.tick(1);
 
@@ -52,7 +52,7 @@ test("segmented recovery progress keeps a writer alive beyond the ready threshol
     opening = openWriterSupervisor(supervisorInput, { createWorker: () => writer as unknown as Worker });
 
   for (const applied of [256, 512, 768]) {
-    context.mock.timers.tick(29_999);
+    context.mock.timers.tick(119_999);
     writer.publish(
       writerStatus("attach-progress", {
         phase: "recovering",
@@ -75,9 +75,9 @@ test("a warming status carrying attach data is not itself a watchdog feed", asyn
   context.mock.timers.enable({ apis: ["setTimeout"] });
   const writer = new FakeWriter(),
     opening = openWriterSupervisor(supervisorInput, { createWorker: () => writer as unknown as Worker }),
-    rejected = assert.rejects(opening, /30000ms without progress/u);
+    rejected = assert.rejects(opening, /120000ms without progress/u);
 
-  context.mock.timers.tick(29_999);
+  context.mock.timers.tick(119_999);
   writer.publish(
     writerStatus("status", {
       phase: "recovering",
@@ -96,7 +96,7 @@ test("a regressing attach phase does not feed the ready watchdog", async (contex
   context.mock.timers.enable({ apis: ["setTimeout"] });
   const writer = new FakeWriter(),
     opening = openWriterSupervisor(supervisorInput, { createWorker: () => writer as unknown as Worker }),
-    rejected = assert.rejects(opening, /30000ms without progress/u);
+    rejected = assert.rejects(opening, /120000ms without progress/u);
 
   writer.publish(
     writerStatus("attach-progress", {
@@ -106,7 +106,7 @@ test("a regressing attach phase does not feed the ready watchdog", async (contex
       watermark: 256,
     }),
   );
-  context.mock.timers.tick(29_999);
+  context.mock.timers.tick(119_999);
   writer.publish(
     writerStatus("attach-progress", {
       phase: "recovering",
