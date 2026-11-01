@@ -11,6 +11,7 @@ import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
 import { parseFleetFrame, serializeFleetFrame, type FleetFrameV1 } from "../src/fleet/command-protocol.ts";
+import { FleetTransferAssembler } from "../src/fleet/command-transfer.ts";
 import {
   fleetHostWriterOptions,
   fleetLedgerRevision,
@@ -308,13 +309,15 @@ export async function rawPeer(
     waiters: Array<(frame: FleetFrameV1) => void> = [];
   track(() => socket.destroy());
   let buffer = "";
+  const transfers = new FleetTransferAssembler({ direction: "response" });
   socket.on("data", (chunk) => {
     buffer += chunk.toString("utf8");
     for (;;) {
       const end = buffer.indexOf("\n");
       if (end < 0) break;
-      const frame = parseFleetFrame(buffer.slice(0, end));
+      const frame = transfers.push(parseFleetFrame(buffer.slice(0, end)));
       buffer = buffer.slice(end + 1);
+      if (frame === null) continue;
       const waiter = waiters.shift();
       if (waiter) waiter(frame);
       else frames.push(frame);
@@ -322,6 +325,7 @@ export async function rawPeer(
   });
   const next = () =>
       frames.length ? Promise.resolve(frames.shift()!) : new Promise<FleetFrameV1>((resolve) => waiters.push(resolve)),
+    write = (frame: unknown) => socket.write(`${JSON.stringify(frame)}\n`),
     request = async (frame: FleetFrameV1) => {
       socket.write(serializeFleetFrame({ ...frame, accessToken: `device-token-${nodeId}` }));
       return next();
@@ -342,7 +346,7 @@ export async function rawPeer(
     credential,
   });
   if (hello.schema === "fleet.error/v1") throw new Error(hello.code);
-  return { request, raw, split, close: () => socket.destroy() };
+  return { request, raw, write, split, receive: next, close: () => socket.destroy() };
 }
 export function splitWrite(socket: TLSSocket, frame: FleetFrameV1, marker: string): void {
   const bytes = Buffer.from(serializeFleetFrame(frame)),

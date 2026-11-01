@@ -40,7 +40,7 @@ import { digestId, immediate, loadState, mid, ownedUpload, serve, writeCenterDur
 import { createHelloRateLimiter } from "./center-hello-guard.ts";
 import type { Delivery, FleetCenterOptions, FleetTlsCenter, SessionWindow } from "./center-types.ts";
 import { FleetFault } from "./center-types.ts";
-import { FLEET_CHUNK_BYTES, type FleetFrameV1 } from "./command-protocol.ts";
+import { type FleetFrameV1 } from "./command-protocol.ts";
 import {
   makeTaskEventReader,
   makeTaskProjection,
@@ -908,27 +908,15 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             inReplyTo: frame.messageId,
             ...result,
           };
-          if (command.kind === "doc-show" && receipt.outcome === "applied") {
-            const { evidence, ...metadata } = result.receipt,
-              bytes = Buffer.from(evidence as string);
+          if (reservation)
             return {
               key: null,
-              onComplete: () => reservation?.release(),
-              onFailure: () => reservation?.release(),
+              onComplete: () => reservation.release(),
+              onFailure: () => reservation.release(),
               frames: (async function* () {
-                for (let offset = 0; offset < bytes.length; offset += FLEET_CHUNK_BYTES) {
-                  yield {
-                    schema: "fleet.task.evidence/v1" as const,
-                    messageId: mid(frame.messageId, `evidence-${offset}`),
-                    inReplyTo: frame.messageId,
-                    dataBase64: bytes.subarray(offset, offset + FLEET_CHUNK_BYTES).toString("base64"),
-                  };
-                }
-                yield { ...response, receipt: metadata };
+                yield response;
               })(),
             };
-          }
-          reservation?.release();
           return immediate(response);
         } catch (error) {
           reservation?.release();
@@ -1150,7 +1138,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   const server: Server = createServer({ key: options.key, cert: options.cert }, (socket) =>
     serve(
       socket,
-      { ...options, authenticate: guardedAuthenticate, onReplicationStart },
+      { ...options, commandResourceBudget: resourceBudget, authenticate: guardedAuthenticate, onReplicationStart },
       (nodeId, ...args) => nodeAdmission.run(nodeId, () => handle(nodeId, ...args)),
       sessions,
       replicationOwners,

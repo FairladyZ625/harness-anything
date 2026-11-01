@@ -17,6 +17,7 @@ export const currentFleetProtocolVersion = CONTRACT_VERSION_1_0;
 
 export const FLEET_FRAME_BYTES = 96 * 1024,
   FLEET_CHUNK_BYTES = 64 * 1024,
+  FLEET_TRANSFER_CHUNK_BYTES = 48 * 1024,
   /** An upload declaration larger than this is an invalid frame; chunks may never write past it. */
   FLEET_UPLOAD_MAX_BYTES = 64 * 1024 * 1024,
   /** An unauthenticated connection is cut when its hello has not been admitted within this window. */
@@ -82,7 +83,10 @@ export type FleetFrameV1 =
   | Msg<"fleet.device.sessions.revoked/v1", { inReplyTo: string }>
   | Msg<"fleet.device.login/v1", FleetDeviceLoginNotice>
   | Msg<"fleet.device.login.result/v1", { inReplyTo: string }>
-  | Msg<"fleet.session.hello/v1", { protocolVersion: ContractVersion; nodeId: string; credential: string }>
+  | Msg<
+      "fleet.session.hello/v1",
+      { protocolVersion: ContractVersion; nodeId: string; credential: string; buildCommit?: string | null }
+    >
   | Msg<
       "fleet.session.ready/v1",
       {
@@ -90,6 +94,8 @@ export type FleetFrameV1 =
         sessionId: string;
         maxFrameBytes: number;
         chunkBytes: number;
+        centerBuildCommit?: string | null;
+        versionWarning?: string;
         loginAuthority?: FleetLoginAuthority | null;
       }
     >
@@ -184,7 +190,6 @@ export type FleetFrameV1 =
         mirrorBaseCut: FleetMirrorBaseCut | null;
       }
     >
-  | Msg<"fleet.task.evidence/v1", { inReplyTo: string; dataBase64: string }>
   | Msg<
       "fleet.task.result/v1",
       {
@@ -260,6 +265,18 @@ export type FleetFrameV1 =
       }
     >
   | Msg<"fleet.operational.read.result/v1", { inReplyTo: string; result: Readonly<Record<string, unknown>> }>
+  | Msg<
+      "fleet.transfer.begin/v1",
+      {
+        correlationId: string;
+        direction: "request" | "response";
+        repoId: string;
+        totalBytes: number;
+        sha256: string;
+      }
+    >
+  | Msg<"fleet.transfer.chunk/v1", { transferId: string; sequence: number; offset: number; dataBase64: string }>
+  | Msg<"fleet.transfer.end/v1", { transferId: string; totalBytes: number; sha256: string }>
   | Msg<
       "fleet.error/v1",
       { inReplyTo: string; code: string; message: string; retryable: boolean; resumeOffset: number | null }
@@ -691,13 +708,24 @@ const schemas: Readonly<Record<string, Check>> = {
   "fleet.device.sessions.revoked/v1": shape(reply),
   "fleet.device.login/v1": shape({ ...common, userCode: text, createdAt: uint, expiresAt: uint, pending: boolean }),
   "fleet.device.login.result/v1": shape(reply),
-  "fleet.session.hello/v1": shape({ ...common, protocolVersion: isContractVersion, nodeId: id, credential: text }),
+  "fleet.session.hello/v1": optionalShape(
+    {
+      ...common,
+      protocolVersion: isContractVersion,
+      nodeId: id,
+      credential: text,
+      buildCommit: nullable(gitCommitSha),
+    },
+    ["schema", "messageId", "protocolVersion", "nodeId", "credential"],
+  ),
   "fleet.session.ready/v1": optionalShape(
     {
       ...reply,
       sessionId: id,
       maxFrameBytes: one(FLEET_FRAME_BYTES),
       chunkBytes: one(FLEET_CHUNK_BYTES),
+      centerBuildCommit: nullable(gitCommitSha),
+      versionWarning: text,
       loginAuthority: nullable(loginAuthority),
     },
     ["schema", "messageId", "inReplyTo", "sessionId", "maxFrameBytes", "chunkBytes"],
@@ -782,7 +810,6 @@ const schemas: Readonly<Record<string, Check>> = {
     },
     ["schema", "messageId", "writerEpoch", "opId", "repoId", "taskId", "action", "docChanges", "mirrorBaseCut"],
   ),
-  "fleet.task.evidence/v1": shape({ ...common, inReplyTo: id, dataBase64: base64 }),
   "fleet.task.result/v1": optionalShape(
     {
       ...reply,
@@ -838,6 +865,26 @@ const schemas: Readonly<Record<string, Check>> = {
     payload: record,
   }),
   "fleet.operational.read.result/v1": shape({ ...reply, result: record }),
+  "fleet.transfer.begin/v1": shape({
+    ...common,
+    correlationId: id,
+    direction: one("request", "response"),
+    repoId: id,
+    totalBytes: (value) => uint(value) && Number(value) > FLEET_FRAME_BYTES && Number(value) <= FLEET_UPLOAD_MAX_BYTES,
+    sha256: sha64,
+  }),
+  "fleet.transfer.chunk/v1": shape({
+    ...common,
+    transferId: id,
+    sequence: uint,
+    offset: uint,
+    dataBase64: (value) =>
+      typeof value === "string" &&
+      value.length > 0 &&
+      Buffer.from(value, "base64").byteLength <= FLEET_TRANSFER_CHUNK_BYTES &&
+      Buffer.from(value, "base64").toString("base64") === value,
+  }),
+  "fleet.transfer.end/v1": shape({ ...common, transferId: id, totalBytes: uint, sha256: sha64 }),
   "fleet.error/v1": shape({
     ...reply,
     code: text,
@@ -846,15 +893,7 @@ const schemas: Readonly<Record<string, Check>> = {
     resumeOffset: nullable(uint),
   }),
 };
-export function parseFleetFrame(input: string | unknown): FleetFrameV1 {
-  if (typeof input === "string" && Buffer.byteLength(input) > FLEET_FRAME_BYTES)
-    throw new FleetContractError("Fleet frame exceeds 98304 bytes");
-  let value: unknown;
-  try {
-    value = typeof input === "string" ? JSON.parse(input) : input;
-  } catch {
-    throw new FleetContractError("Fleet frame is not valid JSON");
-  }
+function validateFleetFrame(value: unknown): FleetFrameV1 {
   const payload = record(value)
     ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== "accessToken" && key !== "humanClientId"))
     : value;
@@ -869,8 +908,6 @@ export function parseFleetFrame(input: string | unknown): FleetFrameV1 {
     throw new FleetContractError(
       `Fleet frame violates closed schema ${record(value) ? String(value.schema) : "unknown"}`,
     );
-  if (Buffer.byteLength(JSON.stringify(value)) > FLEET_FRAME_BYTES)
-    throw new FleetContractError("Fleet frame exceeds 98304 bytes");
   if (
     record(value) &&
     [
@@ -889,6 +926,39 @@ export function parseFleetFrame(input: string | unknown): FleetFrameV1 {
   }
   return value as FleetFrameV1;
 }
+export function parseFleetFrame(input: string | unknown): FleetFrameV1 {
+  if (typeof input === "string" && Buffer.byteLength(input) > FLEET_FRAME_BYTES)
+    throw new FleetContractError("Fleet frame exceeds 98304 bytes");
+  let value: unknown;
+  try {
+    value = typeof input === "string" ? JSON.parse(input) : input;
+  } catch {
+    throw new FleetContractError("Fleet frame is not valid JSON");
+  }
+  const parsed = validateFleetFrame(value);
+  if (Buffer.byteLength(JSON.stringify(value)) > FLEET_FRAME_BYTES)
+    throw new FleetContractError("Fleet frame exceeds 98304 bytes");
+  return parsed;
+}
 export function serializeFleetFrame(value: unknown): string {
   return `${JSON.stringify(parseFleetFrame(value))}\n`;
+}
+
+/** Serializes one validated logical frame before it is encoded as transfer envelopes. */
+export function serializeFleetTransferPayload(value: FleetFrameV1): Buffer {
+  const payload = Buffer.from(JSON.stringify(validateFleetFrame(value)));
+  if (payload.byteLength > FLEET_UPLOAD_MAX_BYTES)
+    throw new FleetContractError("Fleet transfer payload exceeds 64 MiB");
+  return payload;
+}
+export function parseFleetTransferPayload(input: Uint8Array): FleetFrameV1 {
+  if (input.byteLength <= FLEET_FRAME_BYTES || input.byteLength > FLEET_UPLOAD_MAX_BYTES)
+    throw new FleetContractError("Fleet transfer payload size is outside the permitted range");
+  let value: unknown;
+  try {
+    value = JSON.parse(Buffer.from(input).toString("utf8"));
+  } catch {
+    throw new FleetContractError("Fleet transfer payload is not valid JSON");
+  }
+  return validateFleetFrame(value);
 }

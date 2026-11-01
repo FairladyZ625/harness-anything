@@ -1,5 +1,6 @@
 // dec_9284BD6119D453EEECEED62450: authenticated command transport; replication uses its own stream.
 import { uploadFleetChange } from "./upload-client.ts";
+import { encodeFleetFrames, FleetTransferAssembler } from "./command-transfer.ts";
 import { connect, type TLSSocket } from "node:tls";
 import { createHash, X509Certificate } from "node:crypto";
 import { isIP } from "node:net";
@@ -33,6 +34,7 @@ import {
   type FleetFrameV1,
   type FleetTaskAction,
 } from "./command-protocol.ts";
+import { daemonBuildStamp } from "../build-identity.ts";
 export interface FleetEdgeChange {
   readonly path: string;
   readonly body: string | Buffer;
@@ -574,7 +576,6 @@ export async function runFleetTaskCommandClient(
         })
       : null;
     let result: FleetFrameV1;
-    const evidence: Buffer[] = [];
     try {
       result = await session.request({
         schema: "fleet.task.command/v1",
@@ -590,11 +591,6 @@ export async function runFleetTaskCommandClient(
         mirrorBaseCut: options.mirrorBaseCut ?? null,
         ...(options.accessToken ? { accessToken: options.accessToken } : {}),
       });
-      // Bytes advance on each chunk; the result frame is the reader's completion signal.
-      while (result.schema === "fleet.task.evidence/v1") {
-        evidence.push(Buffer.from(result.dataBase64, "base64"));
-        result = await session.next();
-      }
     } catch (error) {
       if (error instanceof FleetRemoteError && error.code === "writer_epoch_stale") {
         const queried = await session.request({
@@ -619,9 +615,7 @@ export async function runFleetTaskCommandClient(
       throw error;
     }
     if (result.schema !== "fleet.task.result/v1") throw new Error("task result expected");
-    return options.action.kind === "doc-show" && result.receipt?.outcome === "applied"
-      ? { ...result, receipt: { ...result.receipt, evidence: Buffer.concat(evidence).toString("utf8") } }
-      : result;
+    return result;
   } finally {
     session.close();
   }
@@ -706,12 +700,13 @@ export async function openPeer(options: Omit<FleetPeerOptions, "repoId">) {
         frame.schema === "fleet.device.sessions.revoke/v1"
           ? undefined
           : await options.readAccessToken?.();
-      return socket.write(
-        serializeFleetFrame({
-          ...frame,
-          ...(token ? { accessToken: token } : {}),
-        }),
-      );
+      for await (const encoded of encodeFleetFrames(
+        { ...frame, ...(token ? { accessToken: token } : {}) },
+        "request",
+        "repoId" in frame && typeof frame.repoId === "string" ? frame.repoId : "transport",
+      )) {
+        if (!socket.write(`${JSON.stringify(encoded)}\n`)) await once(socket, "drain");
+      }
     },
     request = async (frame: FleetFrameV1, responseTimeoutMs?: number | null) => {
       await send(frame);
@@ -724,9 +719,19 @@ export async function openPeer(options: Omit<FleetPeerOptions, "repoId">) {
       protocolVersion: currentFleetProtocolVersion,
       nodeId: options.nodeId,
       credential: options.credential,
+      buildCommit: daemonBuildStamp().commit,
     });
     if (ready.schema !== "fleet.session.ready/v1") throw new Error("session ready expected");
-    return { messageId, next, send, request, loginAuthority: ready.loginAuthority, close: peer.close };
+    return {
+      messageId,
+      next,
+      send,
+      request,
+      loginAuthority: ready.loginAuthority,
+      centerBuildCommit: ready.centerBuildCommit ?? null,
+      versionWarning: ready.versionWarning ?? null,
+      close: peer.close,
+    };
   } catch (error) {
     peer.close();
     throw error;
@@ -912,6 +917,27 @@ function peerFor(socket: TLSSocket, timeoutMs: number) {
       readonly reject: (error: Error) => void;
       readonly timer: NodeJS.Timeout | undefined;
     }> = [],
+    deliver = (frame: FleetFrameV1): void => {
+      const waiter = waiting.shift();
+      if (waiter) {
+        clearTimeout(waiter.timer);
+        waiter.resolve(frame);
+      } else queue.push(frame);
+    },
+    transfers = new FleetTransferAssembler({
+      direction: "response",
+      onTimeout: (transfer) => {
+        deliver({
+          schema: "fleet.error/v1",
+          messageId: `transfer_timeout_${Date.now()}`,
+          inReplyTo: transfer.correlationId,
+          code: "transfer_timeout",
+          message: `Fleet response transfer timed out (actualBytes=${transfer.totalBytes}).`,
+          retryable: true,
+          resumeOffset: null,
+        });
+      },
+    }),
     settleWaiters = (error: Error): void => {
       for (const waiter of waiting.splice(0)) {
         clearTimeout(waiter.timer);
@@ -920,12 +946,9 @@ function peerFor(socket: TLSSocket, timeoutMs: number) {
     };
   socket.on("data", (chunk) => {
     for (const line of reader.push(chunk)) {
-      const frame = parseFleetFrame(line),
-        waiter = waiting.shift();
-      if (waiter) {
-        clearTimeout(waiter.timer);
-        waiter.resolve(frame);
-      } else queue.push(frame);
+      const frame = transfers.push(parseFleetFrame(line));
+      if (frame === null) continue;
+      deliver(frame);
     }
   });
   socket.on("end", () => {

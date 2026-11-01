@@ -58,7 +58,6 @@ import {
   validateRepoAllPurge,
 } from "./repo-all-purge.ts";
 import { removeFileDurably } from "../../storage/src/durable-file.ts";
-import { assertFleetReadFits } from "./dispatch-read.ts";
 
 function isRepoCellReadMethod(method: DaemonGuiRpcReadMethod): method is RepoCellReadMethod {
   return (
@@ -984,7 +983,6 @@ export function createDaemonHostRepositoryApi(
           readBinding,
         );
       }
-      if (auth.transportKind === "fleet-tls") assertFleetReadFits(result, method);
       return parseDaemonGuiReadResult(method, result);
     },
   };

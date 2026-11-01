@@ -7,8 +7,10 @@ import type { ReplicationSlotKey, ReplicaDeliveryKey } from "@harness-anything/s
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import type { FleetDeviceLoginNotice, FleetLoginAuthority } from "./command-protocol.ts";
 import type { ReplicationFrame, ReplicationPeer } from "./protocol.ts";
+import type { ResourceBudget } from "./resource-budget.ts";
 
 export interface FleetCenterOptions {
+  readonly commandResourceBudget?: ResourceBudget;
   readonly host: Pick<
     DaemonHost,
     | "replica"
@@ -136,6 +138,7 @@ export type State = { uploads: Record<string, Upload> };
 export type SessionWindow = {
   readonly holderId: string;
   readonly drainedBytes: () => number;
+  readonly requestRepos: Map<string, string>;
   readonly uploads: Set<string>;
   readonly keys: Set<string>;
   readonly offers: Map<

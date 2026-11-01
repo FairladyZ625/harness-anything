@@ -31,10 +31,10 @@ export interface ResourceBudget {
 
 /** Initial doc-show concurrency policy. Other resources require explicit policy before admission. */
 export const DOC_SHOW_BUDGET_LIMITS: ResourceBudgetLimits = {
-  global: { bulkTransfers: 8 },
-  node: { bulkTransfers: 2 },
-  session: { bulkTransfers: 2 },
-  repository: { bulkTransfers: 4 },
+  global: { bulkTransfers: 8, memoryBytes: 256 * 1024 * 1024 },
+  node: { bulkTransfers: 2, memoryBytes: 64 * 1024 * 1024 },
+  session: { bulkTransfers: 2, memoryBytes: 64 * 1024 * 1024 },
+  repository: { bulkTransfers: 4, memoryBytes: 128 * 1024 * 1024 },
 };
 
 export class ResourceBudgetExceeded extends Error {
@@ -43,12 +43,18 @@ export class ResourceBudgetExceeded extends Error {
   readonly resource: BudgetResource;
   readonly required: number;
   readonly available: number;
-  constructor(scope: BudgetScope, resource: BudgetResource, required: number, available: number) {
-    super(`${scope} ${resource} budget exhausted (required=${required}, available=${available}).`);
+  readonly limit: number;
+  readonly used: number;
+  constructor(scope: BudgetScope, resource: BudgetResource, required: number, available: number, limit: number) {
+    super(
+      `${scope} ${resource} budget exhausted (required=${required}, used=${limit - available}, limit=${limit}, available=${available}).`,
+    );
     this.scope = scope;
     this.resource = resource;
     this.required = required;
     this.available = available;
+    this.limit = limit;
+    this.used = limit - available;
   }
 }
 
@@ -83,8 +89,9 @@ export function createResourceBudget(input: ResourceBudgetLimits): ResourceBudge
       for (const level of scopes) {
         const used = counters.get(owners[level]);
         for (const [resource, amount] of charges) {
-          const available = (limits[level][resource] ?? 0) - (used?.[resource] ?? 0);
-          if (amount > available) throw new ResourceBudgetExceeded(level, resource, amount, available);
+          const limit = limits[level][resource] ?? 0,
+            available = limit - (used?.[resource] ?? 0);
+          if (amount > available) throw new ResourceBudgetExceeded(level, resource, amount, available, limit);
         }
       }
       for (const level of scopes) {
