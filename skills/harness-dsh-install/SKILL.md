@@ -15,13 +15,13 @@ description: 在 macOS 的 DeepSeek Harness 桌面端安装 Harness Anything、�
 
 1. 检查 `uname -s`、`node --version`、`npm --version`、`git --version`、`command -v ha`，并核对已有 Harness 来源与版本。Node 要求取 Harness 根 `package.json` 的 `engines`，不能只满足插件较低的 Node 下限。
 2. DSH CLI 通常不在 PATH。先查用户已给的 App 位置，否则检查 `/Applications/DeepSeek Harness.app` 和 `~/Applications/DeepSeek Harness.app`。实际入口是 `<DSH App>/Contents/Resources/runtime/cli/bin/dsh`。使用完整引号路径运行 `--version` 和 `plugin --help`，不要依赖 shell alias。App 或 CLI 不存在时请用户先安装 macOS 桌面 DSH；本技能不代装或降级为 web profile。
-3. 获取同一版本技能包对应的持久源码（复用 harness-download 的源码发现/获取步骤）。读取插件的 `engines.dsh`，用 semver 对比上一步实测版本，包含 prerelease，与 DSH 自己的兼容规则相同。可以在已装依赖的源码根运行下列检查，将占位值替换为实测版本：
+3. 获取同一版本技能包对应的持久源码（复用 harness-download 的源码发现/获取步骤）。读取插件的 `engines.dsh`，用 SemVer CLI 对比上一步实测版本，包含 prerelease，与 DSH 自己的兼容规则相同。将占位值替换为该字段的实际范围和实测版本；`npm exec` 可临时取得工具，不要求先安装 Harness 依赖：
 
    ```bash
-   node -e 'const m=require("./packages/dsh-plugin/package.json");const s=require("semver");const v=process.argv[1];console.log({installed:v,required:m.engines.dsh});if(!s.satisfies(v,m.engines.dsh,{includePrerelease:true}))process.exit(1)' '<实测 DSH 版本>'
+   npm exec --yes --package=semver@7 -- semver --include-prerelease --range '<实际 engines.dsh 范围>' '<实测 DSH 版本>'
    ```
 
-   不满足时停止安装，明确列出实际版本与所需范围，请用户升级；不改 engines、不添加版本豁免。
+   匹配时输出该版本并成功退出；不匹配时停止安装，列出实际版本与所需范围，请用户升级。若 npm 未能取得工具，保留原始错误并停在环境检查，不把获取失败说成版本过旧；不改 engines、不添加版本豁免。
 4. 列出实际 DSH home 下的 profile **名称**，不打印配置正文或凭据。默认 home 是 `~/.dsh`，设置了 `DSH_HOME` 时尊重它：
 
    ```bash
