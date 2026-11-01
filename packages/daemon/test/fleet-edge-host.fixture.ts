@@ -51,6 +51,11 @@ export async function fleetEdgeHostFixture(
     edgeRoot = path.join(root, name),
     edgeUser = path.join(root, `${name}-user`),
     viewRoot = options.viewRoot ?? path.join(root, `${name}-view`);
+  mkdirSync(path.join(edgeUser, "rbac"), { recursive: true });
+  writeFileSync(
+    path.join(edgeUser, "rbac", "config.json"),
+    JSON.stringify({ schema: "harness-managed-rbac/v1", mode: "external" }),
+  );
   mkdirSync(path.join(edgeRoot, "harness"), { recursive: true });
   writeFileSync(path.join(edgeRoot, "harness/harness.yaml"), readFileSync(path.join(f.repo, "harness/harness.yaml")));
   execFileSync("git", ["init", "-q", edgeRoot]);

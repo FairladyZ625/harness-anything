@@ -5,6 +5,10 @@ import { classifyPath, normalizeRepoPath, productionDeltaFromNumstat } from "../
 
 test("production path policy classifies source, tests, and non-source files consistently", () => {
   assert.deepEqual(classifyPath("packages/kernel/src/domain/task.ts"), { module: "kernel", kind: "production" });
+  assert.deepEqual(classifyPath("packages/authorization-builtin/src/index.ts"), {
+    module: "identity-rbac",
+    kind: "production",
+  });
   assert.deepEqual(classifyPath("tools/gates/rule.test.mjs"), { module: null, kind: "test" });
   assert.deepEqual(classifyPath("README.md"), { module: null, kind: "other" });
   assert.equal(normalizeRepoPath("../outside.ts"), null);

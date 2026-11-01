@@ -569,7 +569,10 @@ export function keycloakUserRoot(
   const root = mkdtempSync(path.join(tmpdir(), "ha-access-admin-")),
     signIn = (who: string, held?: readonly string[]) => signInAt(root, who, held);
   mkdirSync(path.join(root, "rbac"), { recursive: true });
-  writeFileSync(path.join(root, "rbac", "config.json"), JSON.stringify({ url: keycloakUrl, realm: keycloakRealm }));
+  writeFileSync(
+    path.join(root, "rbac", "config.json"),
+    JSON.stringify({ schema: "harness-managed-rbac/v1", mode: "external", url: keycloakUrl, realm: keycloakRealm }),
+  );
   writeFileSync(path.join(root, "rbac", "center-client-secret"), "fixture-secret");
   signIn(personId, roles);
   // Callers hand this to their test lifecycle hook; t.after keeps cleanup running after a timeout.
@@ -619,7 +622,10 @@ export async function serveKeycloak(): Promise<{
     url,
     bind: (userRoot) => {
       mkdirSync(path.join(userRoot, "rbac"), { recursive: true });
-      writeFileSync(path.join(userRoot, "rbac", "config.json"), JSON.stringify({ url, realm: keycloakRealm }));
+      writeFileSync(
+        path.join(userRoot, "rbac", "config.json"),
+        JSON.stringify({ schema: "harness-managed-rbac/v1", mode: "external", url, realm: keycloakRealm }),
+      );
       writeFileSync(path.join(userRoot, "rbac", "center-client-secret"), "fixture-secret");
     },
     // Fixtures register their teardown more than once; closing an already closed server is not a failure.
@@ -680,7 +686,12 @@ export async function spawnKeycloak(): Promise<{
       mkdirSync(path.join(userRoot, "rbac"), { recursive: true });
       writeFileSync(
         path.join(userRoot, "rbac", "config.json"),
-        JSON.stringify({ url: ready.url, realm: keycloakRealm }),
+        JSON.stringify({
+          schema: "harness-managed-rbac/v1",
+          mode: "external",
+          url: ready.url,
+          realm: keycloakRealm,
+        }),
       );
       writeFileSync(path.join(userRoot, "rbac", "center-client-secret"), "fixture-secret");
     },
