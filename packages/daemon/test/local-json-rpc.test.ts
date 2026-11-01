@@ -768,6 +768,36 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
     assert.equal(declaration?.policyAction, kind, kind);
     assert.equal(declaration?.policyTier, "contributor", kind);
   }
+  // dec_2446BC2F8C68630F71AE3E3BD7/CH4: runtime control is host ingress. The canonical events these
+  // commands cause are appended by the RuntimeSession event actions or the auxiliary runtime ingress,
+  // so the commands themselves stay local; their receipts still accept the canonical outcome.
+  for (const [kind, scope] of [
+    ["runtime-spawn", "runtime-local"],
+    ["runtime-cancel", "runtime-local"],
+    ["runtime-batch", "host-local"],
+    ["runtime-handoff-export", "host-local"],
+    ["runtime-handoff-claim", "host-local"],
+    ["runtime-handoff-revoke", "host-local"],
+    ["runtime-steer", "runtime-local"],
+  ] as const) {
+    const declaration = actionDeclarations.find((candidate) => candidate.kind === kind);
+    assert.equal(declaration?.residency.scope, scope, kind);
+    assert.equal(declaration?.receiptSettlement, "canonical-acceptance", kind);
+    assert.equal(declaration?.policyTier, "contributor", kind);
+    assert.equal(declaration?.catalogId, null, kind);
+  }
+  // dec_6C9E3399972A2F06C046BA89DC/CH3: runtime-run is the shared canonical target of the two dispatch
+  // entry points, so it keeps a catalog binding instead of a local classification.
+  const runDeclaration = actionDeclarations.find(({ kind }) => kind === "runtime-run");
+  assert.equal(runDeclaration?.catalogId, "runtime-session/run");
+  assert.equal(runDeclaration?.residency.scope, "canonical");
+  assert.equal(runDeclaration?.receiptSettlement, "canonical-acceptance");
+  // The incident dismissal appends one decision_action record to the dispatch stream and settles no
+  // canonical event; the preserved maintainer tier proves reclassification did not widen who may dismiss.
+  const dismissDeclaration = actionDeclarations.find(({ kind }) => kind === "runtime-incident-dismiss");
+  assert.equal(dismissDeclaration?.residency.scope, "host-local");
+  assert.equal(dismissDeclaration?.receiptSettlement, "none");
+  assert.equal(dismissDeclaration?.policyTier, "maintainer");
   // Standard GUI command receipts must carry committed acceptance. The daemon control bridge is a
   // host-local long-running operation, and terminal control acts on the runtime host; each has a
   // dedicated receipt schema rather than the canonical command receipt.

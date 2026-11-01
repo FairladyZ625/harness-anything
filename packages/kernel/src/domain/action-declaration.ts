@@ -281,15 +281,18 @@ const local = (
   kind: keyof typeof actionPresentation,
   executionClass: ActionExecutionClass,
   residency: Exclude<ActionResidency, { readonly scope: "canonical" }>,
+  overrides: { readonly policyTier?: ActionPolicyTier; readonly receiptSettlement?: ReceiptSettlementClass } = {},
 ): ActionDeclaration =>
   Object.freeze({
     kind,
     catalogId: null,
     executionClass,
     policyAction: kind,
-    policyTier: policyTierFor(executionClass),
+    policyTier: overrides.policyTier ?? policyTierFor(executionClass),
     residency,
-    receiptSettlement: "none",
+    // A local writer has no canonical command outcome unless it says otherwise; the one caller that
+    // settles a declared no-write keeps canonical-acceptance so the receipt reads settled_no_write.
+    receiptSettlement: overrides.receiptSettlement ?? "none",
   });
 
 const hostAdmin = (
@@ -374,11 +377,11 @@ export const actionDeclarations = Object.freeze([
   local("distill-candidate", "repo-write", hostResidency),
   canonical("distill-promote", "fact/promote", "repo-write"),
   local("doc-conflict-discard-local", "repo-write", hostResidency),
-  canonical("doc-conflict-overwrite-center", null, "repo-write"),
-  canonical("doc-conflict-resolve", null, "repo-write"),
+  canonical("doc-conflict-overwrite-center", "document/conflict-overwrite-center", "repo-write"),
+  canonical("doc-conflict-resolve", "document/conflict-resolve", "repo-write"),
   local("doc-materialize", "repo-write", hostResidency),
-  canonical("doc-retire", null, "repo-write"),
-  canonical("doc-submit", null, "repo-write"),
+  canonical("doc-retire", "document/retire", "repo-write"),
+  canonical("doc-submit", "document/submit", "repo-write"),
   canonical("entity-archive", null, "repo-write"),
   canonical("entity-delete", null, "repo-write"),
   canonical("entity-import", null, "repo-write"),
@@ -393,7 +396,7 @@ export const actionDeclarations = Object.freeze([
   canonical("fact-record", "fact/record", "repo-write"),
   canonical("fact-rematerialize", "fact/rematerialize", "repo-write"),
   canonical("fact-type-register", "fact/type-register", "repo-write"),
-  canonical("migrate-import", null, "repo-write"),
+  canonical("migrate-import", "migration/import", "repo-write"),
   canonical("people-delegate", "person/delegate", "admin"),
   canonical("people-revoke-delegation", "person/revoke-delegation", "admin"),
   local("preset-install", "repo-write", hostResidency),
@@ -413,15 +416,27 @@ export const actionDeclarations = Object.freeze([
   canonical("relation-relate", "relation/relate", "repo-write"),
   canonical("relation-unrelate", "relation/unrelate", "repo-write"),
   hostAdmin("repo-bootstrap", "workspace.bootstrap", false),
-  canonical("runtime-batch", null, "repo-write"),
-  canonical("runtime-cancel", null, "repo-write"),
-  canonical("runtime-steer", null, "repo-write"),
-  canonical("runtime-handoff-export", null, "repo-write"),
-  canonical("runtime-handoff-claim", null, "repo-write"),
-  canonical("runtime-handoff-revoke", null, "repo-write"),
-  // Owner adjudication of an escalated incident receipt: the dismiss settles the receipt's visible
-  // disposition on the dispatch's own durable stream, so it settles no canonical event.
-  canonical("runtime-incident-dismiss", null, "repo-write", "none", "maintainer"),
+  // Runtime control is host ingress, not entity-catalog write actions: the canonical events these
+  // commands cause are appended by the RuntimeSession event actions (runtime_session_*), by the
+  // auxiliary runtime ingress, or by the dispatch writer, each under its own canonical action. The
+  // command's own state is the process/checkpoint state on the host that owns the runtime, so it
+  // stays local (dec_2446BC2F8C68630F71AE3E3BD7/CH4 "no write path of its own"). Receipt settlement
+  // is unchanged: these receipts still accept the canonical outcome produced by that writer.
+  local("runtime-batch", "repo-write", hostResidency, { receiptSettlement: "canonical-acceptance" }),
+  local("runtime-cancel", "repo-write", runtimeResidency, { receiptSettlement: "canonical-acceptance" }),
+  // The steer's only durable effect is a dispatch-stream record; it appends no ledger event
+  // (runtime-spawn-control.ts, settled_no_write receipt). Its receipt still settles through the
+  // declared no-write path, so the GUI command keeps canonical-acceptance.
+  local("runtime-steer", "repo-write", runtimeResidency, { receiptSettlement: "canonical-acceptance" }),
+  local("runtime-handoff-export", "repo-write", hostResidency, {
+    receiptSettlement: "canonical-acceptance",
+  }),
+  local("runtime-handoff-claim", "repo-write", hostResidency, { receiptSettlement: "canonical-acceptance" }),
+  local("runtime-handoff-revoke", "repo-write", hostResidency, { receiptSettlement: "canonical-acceptance" }),
+  // Owner adjudication of an escalated incident receipt: the dismiss appends one decision_action
+  // record to the dispatch's own stream and settles no canonical event, so its state stays on the
+  // daemon host. The maintainer tier is preserved: reclassification must not widen who may dismiss.
+  local("runtime-incident-dismiss", "repo-write", hostResidency, { policyTier: "maintainer" }),
   runtimeAdmin("runtime-instance-create"),
   runtimeAdmin("runtime-instance-delete"),
   runtimeAdmin("runtime-instance-hosting-credential-set"),
@@ -431,8 +446,10 @@ export const actionDeclarations = Object.freeze([
   local("runtime-instance-logout", "repo-write", runtimeResidency),
   runtimeAdmin("runtime-instance-show"),
   runtimeAdmin("runtime-instance-update"),
-  canonical("runtime-run", null, "repo-write"),
-  canonical("runtime-spawn", null, "repo-write"),
+  // dec_6C9E3399972A2F06C046BA89DC/CH3: ha runtime run and ha agent run share the canonical
+  // runtime-session/run target; Policy action stays runtime-run and the command behavior is unchanged.
+  canonical("runtime-run", "runtime-session/run", "repo-write"),
+  local("runtime-spawn", "repo-write", runtimeResidency, { receiptSettlement: "canonical-acceptance" }),
   canonical("todo-add", "todo/add", "repo-write"),
   canonical("todo-done", "todo/done", "repo-write"),
   canonical("todo-archive", "todo/archive", "repo-write"),
@@ -451,7 +468,7 @@ export const actionDeclarations = Object.freeze([
   canonical("schedule-settle", "schedule/settle", "repo-write"),
   canonical("schedule-unassign", "schedule/unassign", "repo-write"),
   canonical("schedule-update", "schedule/update", "repo-write"),
-  canonical("script-run", null, "repo-write"),
+  canonical("script-run", "script-execution/run", "repo-write"),
   canonical("settings-update", "settings/update", "repo-write"),
   canonical("squad-cancel", "squad/cancel", "repo-write"),
   canonical("squad-assign", "squad/assign", "repo-write"),
@@ -503,10 +520,10 @@ export const actionDeclarations = Object.freeze([
   local("terminal-resize", "repo-write", runtimeResidency),
   local("terminal-spawn", "repo-write", runtimeResidency),
   local("terminal-terminate", "repo-write", runtimeResidency),
-  canonical("vertical-declaration-migrate", null, "repo-write"),
-  canonical("vertical-kind-publish-schema", null, "repo-write"),
-  canonical("vertical-kind-retire", null, "repo-write"),
-  canonical("vertical-kind-upsert", null, "repo-write"),
+  canonical("vertical-declaration-migrate", "vertical-declaration/migrate", "repo-write"),
+  canonical("vertical-kind-publish-schema", "vertical-declaration/publish-kind-schema", "repo-write"),
+  canonical("vertical-kind-retire", "vertical-declaration/retire-kind", "repo-write"),
+  canonical("vertical-kind-upsert", "vertical-declaration/upsert-kind", "repo-write"),
 ] as const satisfies readonly ActionDeclaration[]);
 
 const actionKinds = new Set(actionDeclarations.map(({ kind }) => kind)),

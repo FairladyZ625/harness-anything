@@ -73,6 +73,20 @@ export function executeRepoAction(
   binding: RepoCellBinding,
 ): WriteReceipt | Promise<WriteReceipt> {
   validateCanonicalIdentityInputs(cell, action);
+  // doc sync has one writer: publishing a DocEventIntent. Its catalog binding (document/*) names the
+  // stream for Policy and explanations, never a second compile path, so it stays ahead of the generic
+  // catalog runtime below.
+  if (isDocAction(action.kind))
+    return runDocAction({
+      action,
+      binding,
+      workspaceId: cell.input.repoId,
+      rootDir: cell.rootDir,
+      store: cell.store,
+      projection: cell.projection,
+      now: cell.now,
+      killpoint: cell.input.killpoint,
+    });
   if (["runtime-handoff-export", "runtime-handoff-claim", "runtime-handoff-revoke"].includes(action.kind))
     return runRuntimeHandoffAction(cell, action, binding);
   if (
@@ -422,17 +436,6 @@ export function executeRepoAction(
       };
     });
   }
-  if (isDocAction(action.kind))
-    return runDocAction({
-      action,
-      binding,
-      workspaceId: cell.input.repoId,
-      rootDir: cell.rootDir,
-      store: cell.store,
-      projection: cell.projection,
-      now: cell.now,
-      killpoint: cell.input.killpoint,
-    });
   if (action.kind === "task-artifact-add")
     return runArtifactAdd({
       action,

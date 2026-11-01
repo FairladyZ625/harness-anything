@@ -520,9 +520,29 @@ const agentActionCatalog = createAgentActionCatalog(
 );
 
 const runtimeSessionActionCatalog = createRuntimeSessionActionCatalog(
-  (id) => entityAction("runtime-session", runtimeSessionIdentity, id),
-  DEFAULT_ENTITY_ACTION_RETURNS_CONTRACT,
-);
+    (id) => entityAction("runtime-session", runtimeSessionIdentity, id),
+    DEFAULT_ENTITY_ACTION_RETURNS_CONTRACT,
+  ),
+  // dec_6C9E3399972A2F06C046BA89DC/CH3: the shared canonical target for `ha runtime run` and
+  // `ha agent run`. The command's dispatch still goes through the runtime publication queue; this
+  // catalog action names the new RuntimeSession the ingress creates, with Policy action runtime-run.
+  runtimeSessionRunAction = Object.freeze({
+    ...catalogRuntimeAction(
+      "runtime-session",
+      runtimeSessionIdentity,
+      "run",
+      "runtime-run",
+      noSdkExposure,
+      "center-forward-write",
+      "via-center-forward",
+    ),
+    explain:
+      "Request one runtime dispatch and its canonical RuntimeSession (shared by ha runtime run and ha agent run).",
+  }),
+  runtimeSessionCatalog = Object.freeze({
+    ...runtimeSessionActionCatalog,
+    actions: Object.freeze([...runtimeSessionActionCatalog.actions, runtimeSessionRunAction]),
+  });
 
 const settingsActionCatalog = createSettingsActionCatalog(
   (id) => entityAction("settings", settingsIdentity, id),
@@ -703,6 +723,170 @@ const relationActionCatalog = Object.freeze({
     ),
   ]),
 });
+
+/**
+ * Canonical-stream kinds (dec_2446BC2F8C68630F71AE3E3BD7/CH4). Each row owns one ledger stream that
+ * had no registered kind, so its write roads could only declare a null catalogId. The rows carry no
+ * entity store and no projection: they name the stream, its identity and the executable Actions the
+ * daemon already implements (the same declared-only shape as relation/migrate-assignment).
+ */
+const documentKindSchema: EntityDocumentJsonSchema = {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    $id: "document/v1",
+    type: "object",
+    additionalProperties: false,
+    required: ["path", "policyId"],
+    properties: {
+      path: { type: "string", minLength: 1 },
+      policyId: { type: "string", minLength: 1 },
+      blobSha256: { type: "string", pattern: "^[0-9a-f]{64}$" },
+      size: { type: "number" },
+      retirementReason: { type: "string", minLength: 1 },
+    },
+  },
+  migrationKindSchema: EntityDocumentJsonSchema = {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    $id: "migration/v1",
+    type: "object",
+    additionalProperties: false,
+    required: ["repositoryId", "migratedFrom"],
+    properties: {
+      repositoryId: { type: "string", const: "repository" },
+      migratedFrom: { type: "string", minLength: 1 },
+      generation: { type: "string", enum: ["v0"] },
+      entityKind: { type: "string", minLength: 1 },
+    },
+  },
+  scriptExecutionKindSchema: EntityDocumentJsonSchema = {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    $id: "script-execution/v1",
+    type: "object",
+    additionalProperties: false,
+    required: ["scriptId", "mode"],
+    properties: {
+      scriptId: { type: "string", minLength: 1 },
+      mode: { type: "string", enum: ["dry-run", "apply"] },
+      status: { type: "string", minLength: 1 },
+      planDigest: { type: "string", "x-nullable": true },
+    },
+  },
+  verticalDeclarationKindSchema: EntityDocumentJsonSchema = {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    $id: "vertical-declaration/v1",
+    type: "object",
+    additionalProperties: false,
+    required: ["declarationId", "revision"],
+    properties: {
+      declarationId: { type: "string", const: "default" },
+      revision: { type: "number" },
+      verticalId: { type: "string", minLength: 1 },
+      kindId: { type: "string", pattern: "^KND-[0-9a-f]{32}$" },
+    },
+  };
+
+const documentIdentity = requireEntityTypeContract("document").id,
+  migrationIdentity = requireEntityTypeContract("migration").id,
+  scriptExecutionIdentity = requireEntityTypeContract("script-execution").id,
+  verticalDeclarationIdentity = requireEntityTypeContract("vertical-declaration").id,
+  // The daemon executes these roads directly; the catalog entry names the stream and the ingress only.
+  declaredStreamAction = (
+    kind: string,
+    identity: EntityKindContract["id"],
+    id: string,
+    ingress: string,
+    explain: string,
+  ) => Object.freeze({ ...executableAction(kind, identity, id, ingress, null, noSdkExposure), explain });
+
+const documentActionCatalog = Object.freeze({
+    ref: "kernel/doc-event/v1",
+    actions: Object.freeze([
+      declaredStreamAction(
+        "document",
+        documentIdentity,
+        "submit",
+        "doc-submit",
+        "Publish authored document bytes as one canonical doc-event/v1 write.",
+      ),
+      declaredStreamAction(
+        "document",
+        documentIdentity,
+        "retire",
+        "doc-retire",
+        "Retire a canonical document by appending a document deletion with a reason.",
+      ),
+      declaredStreamAction(
+        "document",
+        documentIdentity,
+        "conflict-resolve",
+        "doc-conflict-resolve",
+        "Resolve a local doc conflict by publishing the merged canonical document.",
+      ),
+      declaredStreamAction(
+        "document",
+        documentIdentity,
+        "conflict-overwrite-center",
+        "doc-conflict-overwrite-center",
+        "Resolve a local doc conflict by publishing the local scratch copy over the center document.",
+      ),
+    ]),
+  }),
+  migrationActionCatalog = Object.freeze({
+    ref: "kernel/migration-import-event/v1",
+    actions: Object.freeze([
+      declaredStreamAction(
+        "migration",
+        migrationIdentity,
+        "import",
+        "migrate-import",
+        "Import v0 ledger entities as migration-import-event/v1 records.",
+      ),
+    ]),
+  }),
+  scriptExecutionActionCatalog = Object.freeze({
+    ref: "kernel/vertical-script-action/v1",
+    actions: Object.freeze([
+      declaredStreamAction(
+        "script-execution",
+        scriptExecutionIdentity,
+        "run",
+        "script-run",
+        "Run one vertical script; its document changes publish as canonical doc events.",
+      ),
+    ]),
+  }),
+  verticalDeclarationActionCatalog = Object.freeze({
+    ref: "kernel/vertical-declaration-event/v1",
+    actions: Object.freeze([
+      declaredStreamAction(
+        "vertical-declaration",
+        verticalDeclarationIdentity,
+        "migrate",
+        "vertical-declaration-migrate",
+        "Seed the canonical vertical declaration from the bundled default.",
+      ),
+      declaredStreamAction(
+        "vertical-declaration",
+        verticalDeclarationIdentity,
+        "upsert-kind",
+        "vertical-kind-upsert",
+        "Create or update one Artifact kind inside the canonical vertical declaration.",
+      ),
+      declaredStreamAction(
+        "vertical-declaration",
+        verticalDeclarationIdentity,
+        "publish-kind-schema",
+        "vertical-kind-publish-schema",
+        "Append a schema version to one Artifact kind in the canonical vertical declaration.",
+      ),
+      declaredStreamAction(
+        "vertical-declaration",
+        verticalDeclarationIdentity,
+        "retire-kind",
+        "vertical-kind-retire",
+        "Retire one Artifact kind in the canonical vertical declaration.",
+      ),
+    ]),
+  });
 
 export const entityKindContracts = withDeclaredEntityActions([
   {
@@ -943,7 +1127,7 @@ export const entityKindContracts = withDeclaredEntityActions([
         words: ["running", "succeeded", "failed", "cancelled", "stopped", "ended-indeterminate", "unavailable"],
       },
     ],
-    actionCatalog: runtimeSessionActionCatalog,
+    actionCatalog: runtimeSessionCatalog,
     entityStore: null,
     authoring: { kind: "agent-runtime-event", contractRef: "agent-runtime-event/v1" },
     sdkExposure: noSdkExposure,
@@ -1004,6 +1188,50 @@ export const entityKindContracts = withDeclaredEntityActions([
     relations: { directions: [], edges: [] },
     canonicalProjection: null,
     actionCatalog: personActionCatalog,
+    entityStore: null,
+    authoring: null,
+    sdkExposure: noSdkExposure,
+  },
+  {
+    kind: "document",
+    ...entityTypeContractFields("document"),
+    schema: documentKindSchema,
+    relations: { directions: [], edges: [] },
+    canonicalProjection: null,
+    actionCatalog: documentActionCatalog,
+    entityStore: null,
+    authoring: null,
+    sdkExposure: noSdkExposure,
+  },
+  {
+    kind: "migration",
+    ...entityTypeContractFields("migration"),
+    schema: migrationKindSchema,
+    relations: { directions: [], edges: [] },
+    canonicalProjection: null,
+    actionCatalog: migrationActionCatalog,
+    entityStore: null,
+    authoring: null,
+    sdkExposure: noSdkExposure,
+  },
+  {
+    kind: "script-execution",
+    ...entityTypeContractFields("script-execution"),
+    schema: scriptExecutionKindSchema,
+    relations: { directions: [], edges: [] },
+    canonicalProjection: null,
+    actionCatalog: scriptExecutionActionCatalog,
+    entityStore: null,
+    authoring: null,
+    sdkExposure: noSdkExposure,
+  },
+  {
+    kind: "vertical-declaration",
+    ...entityTypeContractFields("vertical-declaration"),
+    schema: verticalDeclarationKindSchema,
+    relations: { directions: [], edges: [] },
+    canonicalProjection: null,
+    actionCatalog: verticalDeclarationActionCatalog,
     entityStore: null,
     authoring: null,
     sdkExposure: noSdkExposure,

@@ -29,6 +29,10 @@ const identityByKind: Readonly<Record<EntityKind, string>> = {
   settings: "repository",
   person: "person_baseentity",
   relation: "rel_b75516c583945a52",
+  document: "tasks/task_example/closeout.md",
+  migration: "repository",
+  "script-execution": "vertical:software:catalog",
+  "vertical-declaration": "default",
 };
 
 test("all registered kinds are referenceable relation endpoints from one type contract", () => {
@@ -48,7 +52,7 @@ test("all registered kinds are referenceable relation endpoints from one type co
     if (isRelationEndpointKind(contract.kind)) endpointKinds.push(contract.kind);
   }
 
-  assert.equal(registeredKinds.length, 14);
+  assert.equal(registeredKinds.length, 18);
   assert.deepEqual(referenceableKinds.sort(), registeredKinds);
   assert.deepEqual(endpointKinds.sort(), registeredKinds);
   assert.deepEqual(parseEntityRef("relation/rel_b75516c583945a52"), {
@@ -61,6 +65,13 @@ test("all registered kinds are referenceable relation endpoints from one type co
   assert.equal(parseEntityRef("agent/bad/id"), null);
   assert.throws(() => formatEntityRef("unknown", "id"), /no ref authority/u);
   assert.throws(() => formatEntityRef("agent", "bad/id"), /not a valid agent/u);
+  // A document identity is a portable logical path: dot segments are not addressable.
+  assert.equal(
+    formatEntityRef("document", "tasks/task_example/closeout.md"),
+    "document/tasks/task_example/closeout.md",
+  );
+  assert.throws(() => formatEntityRef("document", "../escape.md"), /not a valid document/u);
+  assert.throws(() => formatEntityRef("document", "tasks/../escape.md"), /not a valid document/u);
 });
 
 test("BaseEntity hot projection and cold rebuild retain late occurredAt at the later canonical revision", () => {

@@ -487,7 +487,8 @@ function handoffSnapshot(t) {
     true,
   );
   const source = readFileSync(path.join(root, declarationFile), "utf8"),
-    anchor = '  canonical("runtime-cancel", null, "repo-write"),',
+    anchor =
+      '  local("runtime-cancel", "repo-write", runtimeResidency, { receiptSettlement: "canonical-acceptance" }),',
     declarations = handoffKinds.map((kind) => `  canonical("${kind}", null, "repo-write"),`);
   assert.equal(source.split(anchor).length - 1, 1);
   writeRepoFile(root, declarationFile, source.replace(anchor, [anchor, ...declarations].join("\n")));

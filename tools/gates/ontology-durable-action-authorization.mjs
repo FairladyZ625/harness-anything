@@ -584,13 +584,17 @@ function queuedDispatchAuthorization(rootDir, analysis, authority) {
     for (const kind of condition.expression.expression.elements) {
       if (
         ts.isStringLiteral(kind) &&
-        inventory.elements.some(
-          (entry) =>
-            ts.isCallExpression(entry) &&
-            entry.expression.getText() === "canonical" &&
-            syntax(entry.arguments[0]) === syntax(kind) &&
-            syntax(entry.arguments[2]) === '"repo-write"',
-        )
+        inventory.elements.some((entry) => {
+          if (!ts.isCallExpression(entry) || syntax(entry.arguments[0]) !== syntax(kind)) return false;
+          // The dispatch route is the authorized RepoCell runner either way. The declaration helper
+          // names where the action's own state lives: canonical for a ledger write, local when the
+          // command is host ingress whose canonical events another action appends (runtime handoff).
+          const helper = entry.expression.getText();
+          return (
+            (helper === "canonical" && syntax(entry.arguments[2]) === '"repo-write"') ||
+            (helper === "local" && syntax(entry.arguments[1]) === '"repo-write"')
+          );
+        })
       )
         rows.add(kind.text);
     }
