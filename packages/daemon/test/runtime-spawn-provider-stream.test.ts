@@ -1530,6 +1530,39 @@ test("a canonical file_change records a stray write and publishes the warning on
   }
 });
 
+test("a relative traversal into the canonical checkout records a stray write", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-stray-relative-")),
+    published: unknown[] = [],
+    worker = path.join(rootDir, ".worktrees/task_a"),
+    relative = path.relative(worker, path.join(rootDir, "packages/cli/src/index.ts"));
+  try {
+    assert.equal(path.isAbsolute(relative), false, "the fixture must exercise a relative report");
+    const runtime = active("codex", {} as never, { cwd: worker }),
+      stray = { ...context(rootDir, published), parseProviderFrame } as never;
+    await consumeProviderLine(
+      stray,
+      runtime,
+      JSON.stringify({
+        type: "item.completed",
+        item: {
+          id: "write",
+          type: "file_change",
+          status: "completed",
+          changes: [{ path: relative, kind: "update" }],
+        },
+      }),
+    );
+
+    assert.deepEqual(runtime.strayWritePaths, [path.join(rootDir, "packages/cli/src/index.ts")]);
+    assert.equal(
+      published.filter((signal) => JSON.stringify(signal).includes("Stray write outside the worker worktree")).length,
+      1,
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("a worktree-relative file_change records no stray write", async () => {
   const published: unknown[] = [],
     runtime = active(),

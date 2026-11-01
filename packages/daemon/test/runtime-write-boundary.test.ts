@@ -21,8 +21,15 @@ test("an absolute canonical path is a stray write; worktree, ledger, runtime and
   assert.equal(escapesWorkerWorktree(path.join(rootDir, ".harness/cache/task.sqlite"), boundary), false);
   assert.equal(escapesWorkerWorktree(path.join(rootDir, ".git/index"), boundary), false);
   assert.equal(escapesWorkerWorktree("packages/cli/src/index.ts", boundary), false);
+  assert.equal(escapesWorkerWorktree("./packages/cli/src/index.ts", boundary), false);
   assert.equal(escapesWorkerWorktree(path.join(tmpdir(), "outside.ts"), boundary), false);
   assert.equal(escapesWorkerWorktree(path.join(rootDir, "..", "outside.ts"), boundary), false);
+});
+
+test("a relative traversal is resolved against the worker root, not trusted as already scoped", () => {
+  assert.equal(escapesWorkerWorktree("../../packages/cli/src/index.ts", boundary), true);
+  assert.equal(escapesWorkerWorktree("../task_b/src/index.ts", boundary), true);
+  assert.equal(escapesWorkerWorktree("../../harness/tasks/x/artifacts/rulings/a.md", boundary), false);
 });
 
 test("a dispatch rooted in the canonical checkout has no stray writes", () => {

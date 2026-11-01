@@ -12,16 +12,17 @@ export interface WorkerWriteBoundary {
 
 /**
  * Whether a provider-reported file path leaves the dispatch's own checkout and lands in the
- * canonical checkout. Relative paths are resolved by the provider against its cwd, so they are
- * never reported here as escapes; only an absolute path can bypass that boundary.
+ * canonical checkout. A relative path is resolved against the worker root, because that is the
+ * process cwd the provider edits from; `..` can still climb out, so both forms are judged by the
+ * same containment rule.
  *
  * The comparison is lexical: it answers "which checkout would this path open", not "where does a
  * symlink inside it point". A provider that writes through an absolute symlink outside the root
  * is out of scope for this observation and remains a permission-boundary decision.
  */
 export function escapesWorkerWorktree(filePath: string, boundary: WorkerWriteBoundary): boolean {
-  if (!path.isAbsolute(filePath)) return false;
-  const target = path.resolve(filePath),
+  if (filePath === "") return false;
+  const target = path.isAbsolute(filePath) ? path.resolve(filePath) : path.resolve(boundary.workerRoot, filePath),
     root = path.resolve(boundary.rootDir),
     worker = path.resolve(boundary.workerRoot),
     ledger = path.resolve(boundary.ledgerRoot);

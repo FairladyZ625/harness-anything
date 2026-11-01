@@ -172,9 +172,12 @@ function observeStrayWrites(
     known = new Set(active.strayWritePaths ?? []),
     fresh: string[] = [];
   for (const candidate of paths) {
-    if (known.has(candidate) || !escapesWorkerWorktree(candidate, boundary)) continue;
-    known.add(candidate);
-    fresh.push(candidate);
+    // Resolve once so an absolute report and a `../..` report of the same file dedupe together,
+    // and the warning names the file the provider actually opens.
+    const target = path.isAbsolute(candidate) ? path.resolve(candidate) : path.resolve(active.cwd, candidate);
+    if (known.has(target) || !escapesWorkerWorktree(target, boundary)) continue;
+    known.add(target);
+    fresh.push(target);
   }
   if (fresh.length === 0) return;
   (active.strayWritePaths ??= []).push(...fresh);

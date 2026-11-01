@@ -362,8 +362,8 @@ function codexToolItemSucceeded(itemType: string, item: Record<string, unknown>)
 }
 
 /** The paths a Codex file_change reported. The provider may send a mix of relative and absolute
- * paths in one item; only the absolute ones can bypass the process cwd, so keep the raw list and
- * let the write-boundary check decide. */
+ * paths in one item; a relative path is resolved against the dispatch cwd but can still climb out
+ * with `..`, so keep the raw list and let the write-boundary check decide. */
 function fileWritePaths(item: Record<string, unknown>): readonly string[] {
   const changes = Array.isArray(item.changes) ? item.changes : [];
   return changes.flatMap((change) =>
