@@ -112,6 +112,49 @@ test("an in-progress transfer holds per-node bytes while another node remains ad
     undefined,
   );
 });
+
+test("a malformed transfer releases its reservation and drains trailing chunks", () => {
+  let releases = 0;
+  const assembler = new FleetTransferAssembler({
+    direction: "request",
+    reserve: () => ({ release: () => (releases += 1) }),
+  });
+  const begin = {
+    schema: "fleet.transfer.begin/v1" as const,
+    messageId: "malformed-transfer",
+    correlationId: "malformed-request",
+    direction: "request" as const,
+    repoId: "repo",
+    totalBytes: FLEET_FRAME_BYTES + 1,
+    sha256: "a".repeat(64),
+  };
+  assert.equal(assembler.push(begin), null);
+  assert.throws(
+    () =>
+      assembler.push({
+        schema: "fleet.transfer.chunk/v1",
+        messageId: "malformed-transfer_1",
+        transferId: begin.messageId,
+        sequence: 1,
+        offset: 0,
+        dataBase64: Buffer.from("x").toString("base64"),
+      }),
+    /sequence or offset/u,
+  );
+  assert.equal(releases, 1);
+  assert.equal(
+    assembler.push({
+      schema: "fleet.transfer.chunk/v1",
+      messageId: "malformed-transfer_0",
+      transferId: begin.messageId,
+      sequence: 0,
+      offset: 0,
+      dataBase64: Buffer.from("x").toString("base64"),
+    }),
+    null,
+  );
+  assembler.reset();
+});
 test("fleet authentication metadata admits a standard JWT and remains separate from closed action fields", () => {
   const frame = {
     schema: "fleet.task.command/v1",

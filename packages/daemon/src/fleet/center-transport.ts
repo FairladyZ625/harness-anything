@@ -316,7 +316,30 @@ export async function serve(
             else replicationFrames.push(frame);
           }
         } else {
-          const parsed = parseFleetFrame(line);
+          let parsed: FleetFrameV1;
+          try {
+            parsed = parseFleetFrame(line);
+          } catch (error) {
+            let messageId = "invalid";
+            try {
+              const candidate = JSON.parse(line) as { messageId?: unknown };
+              if (typeof candidate.messageId === "string") messageId = candidate.messageId;
+            } catch (parseError) {
+              consumeKnownError(parseError);
+            }
+            void enqueue(
+              immediate({
+                schema: "fleet.error/v1",
+                messageId: mid(messageId, "invalid-frame"),
+                inReplyTo: messageId,
+                code: "invalid_frame",
+                message: error instanceof Error ? error.message : String(error),
+                retryable: false,
+                resumeOffset: null,
+              }),
+            ).catch((enqueueError) => consumeKnownError(enqueueError));
+            continue;
+          }
           let frame: FleetFrameV1 | null;
           try {
             frame = transfers.push(parsed);
