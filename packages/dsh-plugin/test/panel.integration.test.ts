@@ -13,7 +13,7 @@ import { BROKER_ROUTE, createBrokerManager } from "../src/broker.ts";
 
 const require = createRequire(import.meta.url);
 
-test("main tabs retain the iframe, share the Host process, and expose failure recovery and the browser alternative", async (t) => {
+test("open here asks once for the default view, keeps the board alive, and shares the Host process with open beside session", async (t) => {
   const scratch = mkdtempSync(path.join(tmpdir(), "ha-dsh-panel-"));
   const resources: { browser?: Awaited<ReturnType<typeof chromium.launch>> } = {};
   let origin = "";
@@ -79,7 +79,7 @@ test("main tabs retain the iframe, share the Host process, and expose failure re
       sidebarRight: { openTab: () => { document.body.dataset.browserOpened = 'true'; } },
     };
     createRoot(document.getElementById('root')).render(createElement(HarnessPanel, {
-      tutorialTab: "教程", copy: tutorialCopy.zh, onOpen: () => void openHarnessBrowser(ctx),
+      copy: tutorialCopy.zh, onOpenBeside: () => void openHarnessBrowser(ctx),
     }));
   `,
   );
@@ -102,30 +102,34 @@ test("main tabs retain the iframe, share the Host process, and expose failure re
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(origin);
-  const tabs = page.getByRole("tablist", { name: "Harness", exact: true });
-  assert.equal(await tabs.getByRole("tab").count(), 2);
-  assert.equal(await tabs.getByRole("tab", { name: "教程", exact: true }).getAttribute("aria-selected"), "true");
-  await tabs.getByRole("tab", { name: "Harness", exact: true }).click();
+  const tutorial = page.getByTestId("harness-tutorial-view");
+  const board = page.getByTestId("harness-board-view");
+  assert.equal(await board.isVisible(), false, "first open shows the tutorial");
+  await tutorial.getByRole("button", { name: "在这里打开", exact: true }).click();
   const frame = page.frameLocator('iframe[title="Harness GUI"]');
   await frame.getByRole("textbox", { name: "Frame state" }).fill("retained");
-  await tabs.getByRole("tab", { name: "教程", exact: true }).click();
-  await tabs.getByRole("tab", { name: "教程", exact: true }).press("ArrowRight");
+  const ask = board.getByRole("group", { name: "以后点开插件，直接显示看板？" });
+  await ask.getByRole("button", { name: "是，默认看板", exact: true }).click();
+  assert.equal(await ask.count(), 0, "the default-view question is asked once");
+  await board.getByRole("button", { name: "← 教程", exact: true }).click();
+  assert.equal(await tutorial.isVisible(), true);
+  await tutorial.getByRole("button", { name: "在这里打开", exact: true }).click();
   assert.equal(await frame.getByRole("textbox", { name: "Frame state" }).inputValue(), "retained");
   assert.equal(launches, 1);
 
   await manager.dispose();
   fail = true;
   await page.reload();
-  await tabs.getByRole("tab", { name: "Harness", exact: true }).click();
-  await page.getByRole("alert").waitFor();
-  assert.match(await page.getByRole("alert").innerText(), /invalid_field: Upgrade the CLI, then retry\./u);
+  await board.getByRole("alert").waitFor();
+  assert.equal(await tutorial.isVisible(), false, "the saved preference opens the board directly");
+  assert.match(await board.getByRole("alert").innerText(), /invalid_field: Upgrade the CLI, then retry\./u);
   assert.equal(launches, 2);
   fail = false;
-  await page.getByRole("button", { name: "在内置浏览器打开", exact: true }).click();
+  await board.getByRole("button", { name: "在会话旁打开", exact: true }).click();
   await page.waitForFunction(() => document.body.dataset.browserOpened === "true");
   assert.equal(await page.locator("body").getAttribute("data-selected-panel"), "null");
-  await page.getByRole("button", { name: "重试", exact: true }).click();
+  await board.getByRole("button", { name: "重试", exact: true }).click();
   await frame.getByRole("textbox", { name: "Frame state" }).waitFor();
-  assert.equal(launches, 3, "retry and browser alternative share the recovered Host process");
+  assert.equal(launches, 3, "retry and the beside-session browser share the recovered Host process");
   assert.deepEqual(errors, []);
 });

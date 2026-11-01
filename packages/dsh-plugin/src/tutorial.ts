@@ -40,6 +40,9 @@ body[data-ds-dark-theme] .hat-tag{color:var(--dsw-static-deepseek-300);backgroun
 .hat-snippet-say pre{font-family:var(--dsw-font-family)}
 .hat-btn{appearance:none;border:0;cursor:pointer;font:inherit;font-weight:500;border-radius:var(--dsw-radius-sm);transition:background var(--ds-transition-duration-fast) var(--ds-ease-in-out)}
 .hat-btn-primary{padding:9px 20px;font-size:15px;background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-inverted)}
+.hat-head-buttons{display:flex;gap:8px}
+.hat-btn-secondary{padding:8px 18px;font-size:15px;background:transparent;color:var(--dsw-alias-label-primary);border:1px solid var(--dsw-alias-border-l3)}
+.hat-btn-secondary:hover{background:var(--dsw-alias-button-ghost-active-fill)}
 .hat-btn-primary:hover{background:var(--dsw-alias-button-primary-hover)}
 .hat-btn-ghost{flex:none;padding:2px 10px;font-size:13px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary);border:1px solid var(--dsw-alias-border-l3)}
 .hat-btn-ghost:hover{background:var(--dsw-alias-button-ghost-active-fill)}
@@ -142,7 +145,15 @@ function Section({ section, span, copy }: { section: TutorialSection; span: numb
   );
 }
 
-export function Tutorial({ copy, onOpen }: { copy: TutorialCopy; onOpen: () => void }): ReactNode {
+export function Tutorial({
+  copy,
+  onOpenHere,
+  onOpenBeside,
+}: {
+  copy: TutorialCopy;
+  onOpenHere: () => void;
+  onOpenBeside: () => void;
+}): ReactNode {
   const [active, setActive] = useState(0);
   const tab = Math.min(active, TUTORIAL_LAYOUT.length - 1);
   const row = TUTORIAL_LAYOUT[tab]!;
@@ -159,7 +170,16 @@ export function Tutorial({ copy, onOpen }: { copy: TutorialCopy; onOpen: () => v
       h(
         "div",
         { className: "hat-head-action" },
-        h("button", { type: "button", className: "hat-btn hat-btn-primary", onClick: onOpen }, copy.open),
+        h(
+          "div",
+          { className: "hat-head-buttons" },
+          h("button", { type: "button", className: "hat-btn hat-btn-primary", onClick: onOpenHere }, copy.openHere),
+          h(
+            "button",
+            { type: "button", className: "hat-btn hat-btn-secondary", onClick: onOpenBeside },
+            copy.openBeside,
+          ),
+        ),
         h("p", { className: "hat-hint" }, copy.openHint),
       ),
     ),

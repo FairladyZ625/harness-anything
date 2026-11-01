@@ -42,9 +42,13 @@ function nextFrame(): Promise<void> {
   });
 }
 
-function consumeKnownError(error: unknown): void {
-  if (!(error instanceof Error) || error.message !== "no session surface is mounted") throw error;
+/** Rethrow everything except the one failure the caller expects. */
+function consumeKnownError(error: unknown, isKnown: (error: unknown) => boolean): void {
+  if (!isKnown(error)) throw error;
 }
+
+const isSessionNotMounted = (error: unknown): boolean =>
+  error instanceof Error && error.message === "no session surface is mounted";
 
 /**
  * Sidebar-right is session-scoped: after `selectPanel(null)` the session seat
@@ -57,7 +61,7 @@ async function openTabWhenSessionMounts(ctx: ClientContext, url: string): Promis
       ctx.sidebarRight.openTab("browser", { params: { url } });
       return;
     } catch (error) {
-      consumeKnownError(error);
+      consumeKnownError(error, isSessionNotMounted);
       if (frame >= SESSION_MOUNT_FRAMES) throw error;
       await nextFrame();
     }
@@ -103,8 +107,8 @@ function createSnapshotStore<T>(initial: T): SnapshotStore<T> {
 }
 
 const messages = {
-  en: { panel: "Harness Anything", language: "en", tutorialTab: "Tutorial" },
-  zh: { panel: "Harness Anything", language: "zh", tutorialTab: "教程" },
+  en: { panel: "Harness Anything", language: "en" },
+  zh: { panel: "Harness Anything", language: "zh" },
 };
 
 function isBrokerResponse(value: unknown): value is BrokerResponse {
@@ -193,36 +197,51 @@ function reportOpenFailure(
 }
 
 const panelStyle = `
-.ha-panel{height:100%;min-height:0;display:flex;flex-direction:column;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family)}
-.ha-panel-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:calc(var(--dsh-frame-top-clearance, 0px) + 8px) 16px 8px;border-bottom:1px solid var(--dsw-alias-border-l2)}
-.ha-panel-tabs{display:flex;gap:4px;margin-right:auto}
-.ha-panel-bar button,.ha-panel-status button{font:inherit;cursor:pointer;border:1px solid var(--dsw-alias-border-l2);border-radius:var(--dsw-radius-sm);padding:6px 12px;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary)}
-.ha-panel-tabs button[aria-selected=true]{background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-inverted)}
-.ha-panel-body{flex:1;min-height:0;overflow:auto;--dsh-frame-top-clearance:0px}
+.ha-panel{height:100%;min-height:0;display:flex;flex-direction:column;background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);font-family:var(--dsw-font-family);font-size:14px}
+.ha-panel-body{flex:1;min-height:0;overflow:auto}
 .ha-panel-body[hidden]{display:none}
-.ha-panel-embed{position:relative;display:flex;flex-direction:column;overflow:hidden}
+.ha-panel-bar{flex:none;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:calc(var(--dsh-frame-top-clearance,0px) + 8px) 16px 8px;border-bottom:1px solid var(--dsw-alias-border-l2)}
+.ha-panel-bar .ha-spacer{flex:1}
+.ha-panel button{font:inherit;cursor:pointer;border:1px solid var(--dsw-alias-border-l3);border-radius:var(--dsw-radius-sm);padding:5px 12px;background:transparent;color:var(--dsw-alias-label-primary)}
+.ha-panel button:hover{background:var(--dsw-alias-button-ghost-active-fill)}
+.ha-panel button.ha-primary{border-color:transparent;background:var(--dsw-alias-button-primary-fill);color:var(--dsw-alias-label-primary-inverted)}
+.ha-ask{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:var(--dsw-radius-sm);background:var(--dsw-alias-bg-module-platform)}
+.ha-ask span{color:var(--dsw-alias-label-secondary)}
+.ha-panel-embed{display:flex;flex-direction:column;overflow:hidden}
 .ha-panel-embed iframe{width:100%;flex:1;min-height:0;border:0;background:var(--dsw-alias-bg-base)}
 .ha-panel-status{padding:16px;color:var(--dsw-alias-label-secondary)}
 `;
 
-/** The Host owns the process; hiding a tab keeps its iframe and in-frame state alive. */
+type PanelView = "tutorial" | "harness";
+const DEFAULT_VIEW_KEY = "harness-anything.dsh.defaultView";
+
+/** Per-viewer preference kept in DSH's renderer storage. */
+function readDefaultView(): PanelView | null {
+  const value = globalThis.localStorage?.getItem(DEFAULT_VIEW_KEY);
+  return value === "harness" || value === "tutorial" ? value : null;
+}
+
+function writeDefaultView(view: PanelView): void {
+  globalThis.localStorage?.setItem(DEFAULT_VIEW_KEY, view);
+}
+
+/** The Host owns the broker process; leaving the board keeps its iframe and in-frame state alive. */
 export function HarnessPanel({
-  tutorialTab,
   copy,
-  onOpen,
+  onOpenBeside,
 }: {
-  readonly tutorialTab: string;
   readonly copy: TutorialCopy;
-  readonly onOpen: () => void;
+  readonly onOpenBeside: () => void;
 }): ReactNode {
-  const [tab, setTab] = useState<"tutorial" | "harness">("tutorial");
+  const [preference, setPreference] = useState<PanelView | null>(readDefaultView);
+  const [view, setView] = useState<PanelView>(preference ?? "tutorial");
   const [retry, setRetry] = useState(0);
   const [broker, setBroker] = useState<{ readonly url: string; readonly error: BrokerFailureDetails | null }>({
     url: "",
     error: null,
   });
   useEffect(() => {
-    if (tab !== "harness") return;
+    if (view !== "harness" || broker.url) return;
     let current = true;
     void fetchHarnessBroker().then(
       (value) => {
@@ -235,79 +254,62 @@ export function HarnessPanel({
     return () => {
       current = false;
     };
-  }, [tab, retry]);
-  const tabButton = (value: "tutorial" | "harness", label: string): ReactNode =>
-    createElement(
-      "button",
-      {
-        type: "button",
-        role: "tab",
-        id: `ha-tab-${value}`,
-        "aria-controls": `ha-page-${value}`,
-        "aria-selected": tab === value,
-        tabIndex: tab === value ? 0 : -1,
-        onClick: () => setTab(value),
-        onKeyDown: (event: import("react").KeyboardEvent<HTMLButtonElement>) => {
-          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-          event.preventDefault();
-          const next =
-            event.key === "Home"
-              ? "tutorial"
-              : event.key === "End"
-                ? "harness"
-                : value === "tutorial"
-                  ? "harness"
-                  : "tutorial";
-          setTab(next);
-          event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`#ha-tab-${next}`)?.focus();
-        },
-      },
-      label,
-    );
+  }, [view, retry, broker.url]);
+  const choose = (next: PanelView): void => {
+    writeDefaultView(next);
+    setPreference(next);
+  };
   return createElement(
     "div",
     { className: "ha-panel", "data-testid": "harness-main-panel" },
     createElement("style", null, panelStyle),
     createElement(
       "div",
-      { className: "ha-panel-bar" },
+      { className: "ha-panel-body", hidden: view !== "tutorial", "data-testid": "harness-tutorial-view" },
+      createElement(Tutorial, { copy, onOpenHere: () => setView("harness"), onOpenBeside }),
+    ),
+    createElement(
+      "div",
+      { className: "ha-panel-body ha-panel-embed", hidden: view !== "harness", "data-testid": "harness-board-view" },
       createElement(
         "div",
-        { role: "tablist", "aria-label": "Harness", className: "ha-panel-tabs" },
-        tabButton("tutorial", tutorialTab),
-        tabButton("harness", "Harness"),
+        { className: "ha-panel-bar" },
+        createElement("button", { type: "button", onClick: () => setView("tutorial") }, copy.backToTutorial),
+        preference === null
+          ? createElement(
+              "div",
+              { className: "ha-ask", role: "group", "aria-label": copy.askDefault },
+              createElement("span", null, copy.askDefault),
+              createElement(
+                "button",
+                { type: "button", className: "ha-primary", onClick: () => choose("harness") },
+                copy.askYes,
+              ),
+              createElement("button", { type: "button", onClick: () => choose("tutorial") }, copy.askNo),
+            )
+          : null,
+        createElement("span", { className: "ha-spacer" }),
+        createElement("button", { type: "button", onClick: onOpenBeside }, copy.openBeside),
       ),
-      createElement("button", { type: "button", onClick: onOpen }, "在内置浏览器打开"),
-    ),
-    createElement(
-      "div",
-      {
-        className: "ha-panel-body",
-        role: "tabpanel",
-        id: "ha-page-tutorial",
-        "aria-labelledby": "ha-tab-tutorial",
-        hidden: tab !== "tutorial",
-      },
-      createElement(Tutorial, { copy, onOpen }),
-    ),
-    createElement(
-      "div",
-      {
-        className: "ha-panel-body ha-panel-embed",
-        role: "tabpanel",
-        id: "ha-page-harness",
-        "aria-labelledby": "ha-tab-harness",
-        hidden: tab !== "harness",
-      },
       broker.error
         ? createElement(
             "div",
             { role: "alert", className: "ha-panel-status" },
             createElement("p", null, `${broker.error.code}: ${broker.error.hint}`),
-            createElement("button", { type: "button", onClick: () => setRetry((value) => value + 1) }, "重试"),
+            createElement(
+              "button",
+              {
+                type: "button",
+                onClick: () => {
+                  setBroker({ url: "", error: null });
+                  setRetry((value) => value + 1);
+                },
+              },
+              copy.retry,
+            ),
           )
         : !broker.url
-          ? createElement("div", { role: "status", className: "ha-panel-status" }, "正在打开 Harness…")
+          ? createElement("div", { role: "status", className: "ha-panel-status" }, copy.opening)
           : null,
       broker.url
         ? createElement("iframe", { src: broker.url, title: "Harness GUI", referrerPolicy: "no-referrer" })
@@ -358,9 +360,8 @@ export function apply(ctx: ClientContext): void {
   ctx.slots.inject("main", () =>
     ctx.slots.register({ name: "main", key: PANEL_ID, locale: LOCALE_NAMESPACE }, (() =>
       createElement(HarnessPanel, {
-        tutorialTab: t("tutorialTab"),
         copy: t("language") === "zh" ? tutorialCopy.zh : tutorialCopy.en,
-        onOpen: () => {
+        onOpenBeside: () => {
           void openHarnessBrowser(ctx).catch(reportFailure);
         },
       })) as (props: never) => ReactNode),

@@ -30,8 +30,17 @@ export interface TutorialSection {
 export interface TutorialCopy {
   readonly title: string;
   readonly lead: string;
-  readonly open: string;
+  /** Show the board inside this plugin page. */
+  readonly openHere: string;
+  /** Show the board in DSH's built-in browser beside the session. */
+  readonly openBeside: string;
   readonly openHint: string;
+  readonly backToTutorial: string;
+  readonly opening: string;
+  readonly retry: string;
+  readonly askDefault: string;
+  readonly askYes: string;
+  readonly askNo: string;
   readonly copy: string;
   readonly copied: string;
   readonly sayLabel: string;
@@ -46,8 +55,15 @@ export interface TutorialCopy {
 const zh: TutorialCopy = {
   title: "Harness Anything",
   lead: "让 Agent 把需求拆成任务、派人去做、交付后验收，每一步都记在仓库的台账里。这一页从零教你用起来，照着做就行。",
-  open: "打开 Harness 面板",
-  openHint: "看板会在右侧打开，显示的是当前会话文件夹里的台账。需要更大空间可点右上角全屏。",
+  openHere: "在这里打开",
+  openBeside: "在会话旁打开",
+  openHint: "看板显示当前会话文件夹里的台账。想一边对话一边看，选「在会话旁打开」。",
+  backToTutorial: "← 教程",
+  opening: "正在打开 Harness…",
+  retry: "重试",
+  askDefault: "以后点开插件，直接显示看板？",
+  askYes: "是，默认看板",
+  askNo: "不，先看教程",
   copy: "复制",
   copied: "已复制",
   sayLabel: "发给 Agent",
@@ -176,7 +192,7 @@ const zh: TutorialCopy = {
         },
         {
           title: "打开看板看任务",
-          body: "点本页顶部「打开 Harness 面板」，右侧会出现看板，刚建的任务就在里面。任务往下走，看板会跟着变。",
+          body: "点本页右上角「在这里打开」，看板就显示在这一页；想一边对话一边看，点「在会话旁打开」。刚建的任务就在里面，任务往下走，看板会跟着变。",
         },
         {
           title: "同意计划，让它派工",
@@ -238,7 +254,7 @@ const zh: TutorialCopy = {
         },
         {
           title: "面板提示 `broker_unavailable`",
-          body: "插件后台没响应。重启 DeepSeek Harness 再点一次「打开 Harness 面板」。",
+          body: "插件后台没响应。重启 DeepSeek Harness 再点一次「在这里打开」。",
         },
         {
           title: "Agent 说找不到 `ha` 命令",
@@ -270,7 +286,7 @@ const zh: TutorialCopy = {
         },
         {
           title: "右侧没有打开，或是空白",
-          body: "再点一次「打开 Harness 面板」。仍然空白就重启 DeepSeek Harness。",
+          body: "再点一次「在这里打开」。仍然空白就重启 DeepSeek Harness。",
         },
       ],
     },
@@ -325,9 +341,16 @@ const zh: TutorialCopy = {
 const en: TutorialCopy = {
   title: "Harness Anything",
   lead: "Let an Agent turn requests into tasks, hand them out, and check the results, with every step recorded in your repository's ledger. This page takes you from zero to your first finished task.",
-  open: "Open Harness panel",
+  openHere: "Open here",
+  openBeside: "Open beside session",
   openHint:
-    "The board opens on the right and shows the ledger of this session's folder. Use the full-screen button in the top-right corner for more room.",
+    "The board shows the ledger of this session's folder. To chat and watch it side by side, choose “Open beside session”.",
+  backToTutorial: "← Tutorial",
+  opening: "Opening Harness…",
+  retry: "Retry",
+  askDefault: "Show the board right away next time you open the plugin?",
+  askYes: "Yes, board by default",
+  askNo: "No, tutorial first",
   copy: "Copy",
   copied: "Copied",
   sayLabel: "Send to Agent",
@@ -457,7 +480,7 @@ const en: TutorialCopy = {
         },
         {
           title: "Open the board",
-          body: "Click “Open Harness panel” at the top of this page. The board opens on the right with the new task, and it updates as the task moves.",
+          body: "Click “Open here” at the top right to show the board on this page, or “Open beside session” to watch it while you chat. The new task is there, and the board updates as it moves.",
         },
         {
           title: "Approve the plan",
@@ -525,7 +548,7 @@ const en: TutorialCopy = {
         },
         {
           title: "The panel shows `broker_unavailable`",
-          body: "The plugin's background service did not answer. Restart DeepSeek Harness and click “Open Harness panel” again.",
+          body: "The plugin's background service did not answer. Restart DeepSeek Harness and click “Open here” again.",
         },
         {
           title: "The Agent cannot find the `ha` command",
@@ -557,7 +580,7 @@ const en: TutorialCopy = {
         },
         {
           title: "Nothing opens on the right, or it is blank",
-          body: "Click “Open Harness panel” again. If it stays blank, restart DeepSeek Harness.",
+          body: "Click “Open here” again. If it stays blank, restart DeepSeek Harness.",
         },
       ],
     },

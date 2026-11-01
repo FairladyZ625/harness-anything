@@ -250,8 +250,10 @@ test("client displays broker code and hint in the shell overlay on failure", asy
   applyClient(ctx as never);
   const mainRegistration = registrations.find((entry) => entry.options.name === "main");
   assert.ok(mainRegistration);
-  const tutorial = mainRegistration.component({} as never) as { readonly props: { readonly onOpen: () => void } };
-  const openButton = { props: { onClick: tutorial.props.onOpen } };
+  const tutorial = mainRegistration.component({} as never) as {
+    readonly props: { readonly onOpenBeside: () => void };
+  };
+  const openButton = { props: { onClick: tutorial.props.onOpenBeside } };
   const previousFetch = globalThis.fetch;
   const receipts = [
     { code: "ha_unavailable", hint: "Install ha CLI and retry." },
