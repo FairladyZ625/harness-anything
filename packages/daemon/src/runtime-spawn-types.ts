@@ -350,10 +350,8 @@ export interface RemoteRuntimePersistence {
     readonly worktree: TaskWorktreeBindingV1 | null;
   }>;
   readonly readRuntimeSessions: () => Promise<readonly RuntimeSessionSelection[]>;
-  readonly readRuntimeDispatch: (runtimeSessionId: string) => Promise<{
-    readonly payload: { readonly dispatchId: string };
-    readonly source: RuntimeBinding["source"];
-  } | null>;
+  /** Read the canonical dispatch owner when a daemon-local stream is unavailable. */
+  readonly readRuntimeDispatch: (runtimeSessionId: string) => Promise<RuntimeDispatchOwnerEvidence | null>;
   readonly publish: (draft: {
     readonly type: AgentRuntimeEventV1["type"];
     readonly payload: Readonly<Record<string, unknown>>;
@@ -365,6 +363,14 @@ export interface RemoteRuntimePersistence {
     readonly receipt: JsonObject;
   }>;
   readonly archive: (archive: RuntimeDispatchArchive) => Promise<{ readonly outcome: string }>;
+}
+
+export interface RuntimeDispatchOwnerEvidence {
+  readonly actor: ActorIdentity;
+  readonly source: WriteSource;
+  readonly payload: { readonly dispatchId: string };
+  readonly instanceId: string;
+  readonly processGroupPid: number | null;
 }
 
 export interface RuntimeSpawnerInput {

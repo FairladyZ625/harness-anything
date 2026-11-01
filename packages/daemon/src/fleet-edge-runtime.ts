@@ -52,7 +52,9 @@ import { readScheduleAction, dispatchClaimedSchedule } from "./schedule-action-r
 import { prepareScheduleOccurrenceWorkspace, scheduleSettlementDetail } from "./schedule-occurrence-workspace.ts";
 import { taskMissionSections, taskPlanSection, runtimeMissionName } from "./runtime-spawn-mission.ts";
 import { reconcileProcessGroup } from "./runtime/process-group-reconciler.ts";
+import { readRuntimeDispatchOwnerEvidence } from "./runtime-spawn-control.ts";
 import { orchestrateRuntimeSessionsAwait } from "./runtime-orchestration.ts";
+import { assertFleetEdgeRepositoryGit } from "./fleet-edge-git-preflight.ts";
 
 export interface FleetEdgeRuntimeRequest {
   readonly payload: {
@@ -114,7 +116,6 @@ function waitForLocalReplicaChange(
   return new Promise<void>((resolve, reject) => {
     let settled = false;
     let watcher: ReturnType<typeof watch> | undefined;
-    let timer: ReturnType<typeof setTimeout>;
     const cleanup = (): void => {
       clearTimeout(timer);
       watcher?.close();
@@ -128,17 +129,19 @@ function waitForLocalReplicaChange(
       else reject(error);
     };
     const onAbort = (): void => finish(signal?.reason ?? new Error("The connection that parked this wait closed."));
-    timer = setTimeout(() => finish(), localReplicaWaitBackstopMs);
+    const timer = setTimeout(() => finish(), localReplicaWaitBackstopMs);
     timer.unref?.();
     signal?.addEventListener("abort", onAbort, { once: true });
-    try {
-      watcher = watch(viewDir, { persistent: false }, (_event, filename) => {
-        if (filename === undefined || String(filename) === "current.json") finish();
-      });
-      watcher.on("error", () => finish());
-    } catch {
-      // The first replica generation may not exist yet. The backstop lets the caller retry the
-      // read without turning a transient missing directory into a permanent wait failure.
+    if (existsSync(viewDir)) {
+      try {
+        watcher = watch(viewDir, { persistent: false }, (_event, filename) => {
+          if (filename === undefined || String(filename) === "current.json") finish();
+        });
+        watcher.on("error", () => finish());
+      } catch (error) {
+        cleanup();
+        throw error;
+      }
     }
   });
 }
@@ -483,10 +486,15 @@ export function openFleetEdgeRuntime(input: {
       },
       readRuntimeSessions: () =>
         readFleetRuntimeSessionsPaged(async (payload) => readReplica("repo.agentRuntime.overview", payload)),
-      readRuntimeDispatch: async (id) =>
+      readRuntimeDispatch: async (runtimeSessionId) =>
         withEdgeReadModel(
-          { ...request, principalId: (await input.readBinding()).actor.principal.personId },
-          (projection) => projection.readRuntimeDispatch(id),
+          {
+            viewRoot: request.viewRoot,
+            repoId: request.repoId,
+            nodeId: request.nodeId,
+            principalId: (await input.readBinding()).actor.principal.personId,
+          },
+          (projection) => readRuntimeDispatchOwnerEvidence(projection, runtimeSessionId),
         ),
       publish: async (draft) => {
         let response: Awaited<ReturnType<typeof runFleetRuntimeEventClient>>;
@@ -779,6 +787,7 @@ export function openFleetEdgeRuntime(input: {
       if (method === "repo.squad.control" && action.kind === "squad-cancel") return squad.run(action);
       if (method === "repo.agentRuntime.cancel") return spawner.cancel(action, await input.readBinding());
       if (method === "repo.agentRuntime.steer") return spawner.steer(action, await input.readBinding());
+      if (method === "repo.agentRuntime.spawn" && typeof action.taskId !== "string") await preflightRuntimeWorkspace();
       if (method === "repo.agentRuntime.spawn" && typeof action.taskId === "string")
         await prepareRuntimeWorkspace(action.taskId);
       await ensureReady();
@@ -847,6 +856,12 @@ export function openFleetEdgeRuntime(input: {
     const actionKind = requiredScheduleText(action.kind, "kind"),
       assigned = await readFleetRepositoryMetadataClient(writePeer),
       scheduleId = typeof action.scheduleId === "string" ? action.scheduleId : request.repoId;
+    if (actionKind === "schedule-run-now")
+      await assertFleetEdgeRepositoryGit({
+        rootDir: request.workspaceRoot,
+        center: await readFleetRepositoryMetadataClient({ ...writePeer, includeGitMetadata: true }),
+        operation: "runtime dispatch",
+      });
     const operationKey =
         typeof action.idempotencyKey === "string" && action.idempotencyKey
           ? action.idempotencyKey
@@ -959,6 +974,7 @@ export function openFleetEdgeRuntime(input: {
   }
 
   async function prepareRuntimeWorkspace(taskId?: string): Promise<void> {
+    await preflightRuntimeWorkspace();
     const pulled = await pullRuntimeReplica();
     if (taskId !== undefined) {
       const view = locateFleetMirrorView(request.viewRoot, request.repoId, request.nodeId, {
@@ -982,6 +998,15 @@ export function openFleetEdgeRuntime(input: {
         "pull_blocked",
         "The runtime workspace cannot materialize the canonical cut because local changes conflict.",
       );
+  }
+
+  async function preflightRuntimeWorkspace(): Promise<void> {
+    const centerGit = await readFleetRepositoryMetadataClient({ ...writePeer, includeGitMetadata: true });
+    await assertFleetEdgeRepositoryGit({
+      rootDir: request.workspaceRoot,
+      center: centerGit,
+      operation: "runtime dispatch",
+    });
   }
 }
 

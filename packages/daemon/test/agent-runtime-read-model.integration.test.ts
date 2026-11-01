@@ -134,6 +134,47 @@ test("historical runtime sessions with no snapshot event degrade without failing
     assert.deepEqual(validateAgentRuntimeOverview(overview), []);
   }));
 
+test("runtime status reports unknown without local process evidence, for local and remote owners", () =>
+  withRuntime(({ rootDir, store, projection }) => {
+    const dispatchId = "dispatch_abcdefabcdefabcdefabcdef",
+      projectionForDispatch = (source?: { readonly kind: "node"; readonly nodeId: string }) =>
+        new Proxy(projection, {
+          get: (target, property, receiver) => {
+            if (property === "readRuntimeDispatch")
+              return (runtimeSessionId: string, snapshotRef?: string) => {
+                const dispatch = target.readRuntimeDispatch(runtimeSessionId, snapshotRef);
+                return dispatch
+                  ? {
+                      ...dispatch,
+                      source: source ?? dispatch.source,
+                      payload: { ...dispatch.payload, dispatchId },
+                    }
+                  : null;
+              };
+            const value = Reflect.get(target, property, receiver);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        });
+    const localReads = makeAgentRuntimeReadModel({ store, projection: projectionForDispatch(), rootDir }),
+      remoteReads = makeAgentRuntimeReadModel({
+        store,
+        projection: projectionForDispatch({ kind: "node", nodeId: "another-edge" }),
+        rootDir,
+      });
+    assert.equal(localReads.overview({}).sessions[0]?.liveness, "unknown");
+    assert.equal(remoteReads.session({ runtimeSessionId: "runtime-session" }).session.liveness, "unknown");
+
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: null,
+      executionId: null,
+      runtimeSessionId: "runtime-session",
+      instanceId: "instance-runtime",
+    });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: process.pid });
+    assert.equal(localReads.overview({}).sessions[0]?.liveness, "live");
+  }));
+
 test("unscoped overview hides exited history and short session ids resolve or list candidates", () =>
   withRuntime(({ store, projection }) => {
     // The shared event() builder stamps seconds from the revision digit, which breaks past 9;
@@ -767,7 +808,7 @@ function fixture(rootDir: string) {
       canAttach: ({ attachable }) => attachable,
       now: () => fixedNow,
     });
-  return { store, projection, stream, events, session };
+  return { rootDir, store, projection, stream, events, session };
 }
 function runtimeWritePlan(event: AgentRuntimeEventV1): FrozenWritePlan {
   return Object.freeze({

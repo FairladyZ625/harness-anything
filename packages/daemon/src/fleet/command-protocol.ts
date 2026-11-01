@@ -68,7 +68,13 @@ export type FleetFrameV1 =
         nodeId: string;
         personId: string;
         credential: string;
-        repositories: readonly { readonly repoId: string; readonly harnessYaml: string }[];
+        repositories: readonly {
+          readonly repoId: string;
+          readonly harnessYaml: string;
+          readonly originUrl?: string | null;
+          readonly defaultBranch?: string | null;
+          readonly defaultBranchCommit?: string | null;
+        }[];
       }
     >
   | Msg<"fleet.device.sessions.revoke/v1">
@@ -88,7 +94,13 @@ export type FleetFrameV1 =
     >
   | Msg<
       "fleet.repo.metadata.get/v1",
-      { executionCredential?: string; repoId: string; actionKind?: string; taskId?: string }
+      {
+        executionCredential?: string;
+        includeGitMetadata?: boolean;
+        repoId: string;
+        actionKind?: string;
+        taskId?: string;
+      }
     >
   | Msg<
       "fleet.repo.metadata.result/v1",
@@ -101,6 +113,10 @@ export type FleetFrameV1 =
         replicationSequence: number | null;
         personId: string;
         actionAllowed: boolean | null;
+        /** Git facts used by an edge before it materializes a task worktree. Older centers omit these fields. */
+        originUrl?: string | null;
+        defaultBranch?: string | null;
+        defaultBranchCommit?: string | null;
       }
     >
   | Msg<"fleet.receipt.get/v1", { repoId: string; opId: string }>
@@ -285,7 +301,8 @@ type Check = (value: unknown) => boolean;
 const id: Check = (value) => typeof value === "string" && /^[A-Za-z0-9_-]{1,96}$/u.test(value),
   text: Check = (value) => typeof value === "string" && value.length > 0 && value.length <= 512;
 const uint: Check = (value) => Number.isSafeInteger(value) && Number(value) >= 0,
-  sha64: Check = (value) => typeof value === "string" && /^[0-9a-f]{64}$/u.test(value);
+  sha64: Check = (value) => typeof value === "string" && /^[0-9a-f]{64}$/u.test(value),
+  gitCommitSha: Check = (value) => typeof value === "string" && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u.test(value);
 // Document bodies (task plans, schedule missions) cross the wire whole; their
 // upper bound is the body budget, with the frame cap as the outer limit.
 const bodyText: Check = (value) => typeof value === "string" && value.length > 0 && value.length <= 32 * 1024;
@@ -656,7 +673,19 @@ const schemas: Readonly<Record<string, Check>> = {
     nodeId: id,
     personId: id,
     credential: text,
-    repositories: array(shape({ repoId: id, harnessYaml: bodyText }), 64),
+    repositories: array(
+      optionalShape(
+        {
+          repoId: id,
+          harnessYaml: bodyText,
+          originUrl: nullable(text),
+          defaultBranch: nullable(text),
+          defaultBranchCommit: nullable(gitCommitSha),
+        },
+        ["repoId", "harnessYaml"],
+      ),
+      64,
+    ),
   }),
   "fleet.device.sessions.revoke/v1": shape(common),
   "fleet.device.sessions.revoked/v1": shape(reply),
@@ -678,20 +707,37 @@ const schemas: Readonly<Record<string, Check>> = {
       ...common,
       repoId: id,
       executionCredential: text,
+      includeGitMetadata: boolean,
       actionKind: (value) => typeof value === "string" && actionDeclarations.some((action) => action.kind === value),
       taskId: id,
     },
     ["schema", "messageId", "repoId"],
   ),
-  "fleet.repo.metadata.result/v1": shape({
-    ...reply,
-    personId: id,
-    actionAllowed: nullable(boolean),
-    repoId: id,
-    baseLedgerSha: ledgerCut,
-    writerEpoch: uint,
-    replicationSequence: uint,
-  }),
+  "fleet.repo.metadata.result/v1": optionalShape(
+    {
+      ...reply,
+      personId: id,
+      actionAllowed: nullable(boolean),
+      repoId: id,
+      baseLedgerSha: ledgerCut,
+      writerEpoch: uint,
+      replicationSequence: uint,
+      originUrl: nullable(text),
+      defaultBranch: nullable(text),
+      defaultBranchCommit: nullable(gitCommitSha),
+    },
+    [
+      "schema",
+      "messageId",
+      "inReplyTo",
+      "personId",
+      "actionAllowed",
+      "repoId",
+      "baseLedgerSha",
+      "writerEpoch",
+      "replicationSequence",
+    ],
+  ),
   "fleet.receipt.get/v1": shape({ ...common, repoId: id, opId: id }),
   "fleet.receipt.result/v1": shape({ ...reply, opId: id, receipt: record }),
   "fleet.upload.begin/v1": shape({ ...common, repoId: id, opId: id, content: blob }),

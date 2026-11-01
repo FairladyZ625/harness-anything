@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:https";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -10,6 +10,7 @@ import test from "node:test";
 import { createEdgeJoinProgressTap, joinFleetEdge, type EdgeJoinClientPorts } from "../src/fleet/edge-join-client.ts";
 import { readFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
 import { createEdgeJoinStore, encodeEdgeJoinLink } from "../src/fleet/edge-join.ts";
+import { normalizeFleetGitRemote } from "../src/fleet-edge-git-preflight.ts";
 
 test("one invitation creates and syncs an independent workspace for every repository", async (t) => {
   const temp = mkdtempSync(path.join(tmpdir(), "ha-edge-join-client-")),
@@ -138,6 +139,57 @@ test("one invitation creates and syncs an independent workspace for every reposi
     assert.equal(syncs[index]?.credential, "machine-credential");
   }
   assert.equal(JSON.stringify(result).includes("machine-credential"), false);
+
+  const mismatchWorkspace = path.join(temp, "mismatched-origin"),
+    mismatchRepository = path.join(mismatchWorkspace, "repo-a"),
+    wrongOrigin = path.join(temp, "wrong-origin.git"),
+    centerOrigin = path.join(temp, "center-origin.git");
+  mkdirSync(mismatchWorkspace, { recursive: true });
+  execFileSync("git", ["init", "-q", "-b", "main", mismatchRepository]);
+  execFileSync("git", ["-C", mismatchRepository, "remote", "add", "origin", wrongOrigin]);
+  execFileSync("git", [
+    "-C",
+    mismatchRepository,
+    "-c",
+    "user.name=Edge Test",
+    "-c",
+    "user.email=edge@example.invalid",
+    "commit",
+    "--allow-empty",
+    "-qm",
+    "initial",
+  ]);
+  let mismatchRegistered = false;
+  const mismatch = await joinFleetEdge(
+    { link: encodeEdgeJoinLink(invite.link), workspaceRoot: mismatchWorkspace },
+    {
+      ...ports,
+      join: async (input) => {
+        const admitted = await ports.join!(input);
+        return {
+          ...admitted,
+          repositories: [
+            {
+              repoId: "repo-a",
+              harnessYaml: "schema: harness-anything/v1\nname: A\n",
+              originUrl: normalizeFleetGitRemote(centerOrigin),
+              defaultBranch: "main",
+              defaultBranchCommit: "a".repeat(40),
+            },
+          ],
+        };
+      },
+      register: async () => {
+        mismatchRegistered = true;
+        return { ok: true };
+      },
+      sync: async () => assert.fail("a mismatched origin must stop before sync"),
+    },
+  );
+  assert.equal(mismatch.ok, false);
+  assert.equal((mismatch.repositories as Array<{ code?: string }>)[0]?.code, "edge_origin_mismatch");
+  assert.equal(mismatchRegistered, false, "a mismatched workspace must not register with the edge daemon");
+
   let loginAuthority: Record<string, unknown> | undefined, loginTarget: string | undefined;
   const mismatchedSessionPorts: EdgeJoinClientPorts = {
       ...ports,

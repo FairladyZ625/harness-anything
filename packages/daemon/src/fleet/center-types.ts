@@ -176,5 +176,11 @@ export interface EdgeJoinAdmission {
   readonly nodeId: string;
   readonly personId: string;
   readonly credential: string;
-  readonly repositories: readonly { readonly repoId: string; readonly harnessYaml: string }[];
+  readonly repositories: readonly {
+    readonly repoId: string;
+    readonly harnessYaml: string;
+    readonly originUrl?: string | null;
+    readonly defaultBranch?: string | null;
+    readonly defaultBranchCommit?: string | null;
+  }[];
 }

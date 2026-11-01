@@ -70,8 +70,18 @@ export function makeAgentRuntimeReadModel(input: {
     installation: RuntimeInstallation | null | undefined,
     definition: { readonly snapshot: AgentDefinitionSnapshot | null; readonly persisted: boolean },
     detail: { readonly attemptChain?: boolean; readonly context?: boolean } = {},
+    dispatch = input.projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef),
   ): AgentRuntimeSessionDto => {
-    const observedSession = publicRuntimeSession(session),
+    const observedSession = publicRuntimeSession(
+        input.rootDir === undefined
+          ? session
+          : sessionWithActivityEvidence(
+              session,
+              dispatch === null
+                ? undefined
+                : readRuntimeSessionActivityEvidence(input.rootDir, dispatch.payload.dispatchId),
+            ),
+      ),
       outcome = input.projection
         .readRuntimeSessionEvents(session.runtimeSessionId, 0, Number.MAX_SAFE_INTEGER)
         .findLast(

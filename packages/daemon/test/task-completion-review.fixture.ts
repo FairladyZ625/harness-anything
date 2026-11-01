@@ -145,6 +145,8 @@ export async function fixture(
     /** Override reviewer catalog and declaration model spellings for runtime-resolution tests. */
     readonly catalogModel?: string;
     readonly agentModel?: string;
+    /** A stopped process-group identity used by owner-loss recovery tests. */
+    readonly runtimePid?: number;
     /** Repository setup steps used to prove runtime admission precedes worktree preparation. */
     readonly worktreeSetup?: readonly string[];
     /** Migration-window fixture: install the default reviewer in the pre-runtimes declaration
@@ -271,14 +273,14 @@ export async function fixture(
         appendRuntimeWorkerRecord(persistence.rootDir, persistence.dispatchId, {
           kind: "process_started",
           occurredAt: new Date().toISOString(),
-          pid: process.pid,
+          pid: options.runtimePid ?? process.pid,
         });
         const pending: (typeof pendingProviders)[number] = {};
         pendingProviders.push(pending);
         return {
-          // The fake provider never exits, so it reports a genuinely live pid: after a reopen,
-          // adoption must keep the session live instead of settling it lost.
-          pid: process.pid,
+          // The default fake pid is live; a selected stopped pid lets owner-loss tests reproduce
+          // a worker whose process group has already disappeared.
+          pid: options.runtimePid ?? process.pid,
           onOutput: (listener) => {
             pending.output = listener;
             if (options.autoProviderSession) {

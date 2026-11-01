@@ -12,6 +12,7 @@ import type { OidcLoginAuthority } from "@harness-anything/kernel";
 import { decodeEdgeJoinLink } from "./edge-join.ts";
 import { probeFleetEdgeCenterAddress, requestFleetEdgeJoinPinned } from "./peer.ts";
 import { fetchWithTlsCa, systemCaCertificates } from "../tls-ca-certificate.ts";
+import { fleetEdgeRepositoryGitFailure } from "../fleet-edge-git-preflight.ts";
 
 const DEFAULT_QUOTA_FRACTION = 0.4;
 
@@ -175,6 +176,21 @@ export async function joinFleetEdge(
         ports.onProgress?.({ joinId: admitted.joinId, repository: { repoId: repository.repoId, phase } });
     report("workspace");
     await prepareWorkspace(root, repository.harnessYaml);
+    const preflightFailure = await fleetEdgeRepositoryGitFailure({
+      rootDir: root,
+      center: repository,
+      operation: "edge sync",
+    });
+    if (preflightFailure) {
+      report("failed");
+      repositories.push({
+        repoId: repository.repoId,
+        workspaceRoot: root,
+        ok: false,
+        ...edgeJoinSyncFailure(repository.repoId, preflightFailure),
+      });
+      continue;
+    }
     // The pinned certificate is public; it becomes the trust anchor every later connection verifies against.
     writeFileDurably(caPath, certificate);
     report("register");
