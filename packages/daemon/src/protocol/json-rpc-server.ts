@@ -666,7 +666,7 @@ export function createJsonRpcProtocolServer(options: {
         if (
           fleetAction.kind === "task-escalate" &&
           relayedExecutionPrincipal !== undefined &&
-          result.outcome === "applied"
+          (result.outcome === "applied" || result.outcome === "no_changes")
         ) {
           const cancel = await options.host.fleet.edgeRuntime(
             {
