@@ -107,7 +107,7 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
       viewRoot = path.join(fixture.root, "worker-edge-view"),
       remote = path.join(fixture.root, "worker-remote.git"),
       localAuth = localAuthFixture();
-    const edgeKeycloakAvailable = true;
+    let edgeKeycloakAvailable = true;
     let interactiveSessionAvailable = true;
     const edgeFetch: typeof fetch = (...args) =>
       edgeKeycloakAvailable
@@ -346,9 +346,12 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
       if (scenario === "offline") {
         const sessionStore = managedRbacSessionStore(edgeUserRoot, `${fixture.owners.url}/realms/harness`, "harness"),
           session = JSON.parse(sessionStore.read()!);
+        // The offline grant has no locally known deadline. Expire only the access token so an
+        // unreachable Keycloak yields the persisted replica identity for this read.
         sessionStore.write(
           JSON.stringify({ ...session, expiresAt: Date.now() - 1, sessionExpiresAt: Date.now() + 3_600_000 }),
         );
+        edgeKeycloakAvailable = false;
         interactiveSessionAvailable = false;
         const activeAwaitRouteCount = edgeAwaitRouteCount + 1;
         const sessionPrincipalCallCount = sessionPrincipalMethods.length;
@@ -397,6 +400,9 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
           "offline read identity must not append a runtime steer",
         );
         assert.equal(awaitRequests, 0, "offline cancellation must not reach the center");
+        sessionStore.write(JSON.stringify(session));
+        edgeKeycloakAvailable = true;
+        interactiveSessionAvailable = true;
         finish!();
       } else {
         waiting = invoke(["runtime", "status", receipt.runtimeSessionId, "--wait", "--no-stream"]);
