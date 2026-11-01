@@ -37,6 +37,10 @@ function fixture(t: TestContext, options: FixtureOptions = {}) {
   mkdirSync(localRoot);
   mkdirSync(localSiblingRoot);
   mkdirSync(edgeRoot);
+  writeFileSync(
+    path.join(userRoot, "rbac", "config.json"),
+    JSON.stringify({ schema: "harness-managed-rbac/v1", mode: "external" }),
+  );
   const legacyFile = path.join(userRoot, "rbac", "oidc-session.json");
   if (options.legacySession) writeFileSync(legacyFile, JSON.stringify({ schema: "harness-oidc-session/v2" }));
   let serial = 0;

@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:https";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -11,6 +11,11 @@ import { createIdentitySession } from "../src/authorization-provider.ts";
 test("edge device login trusts only the invitation's self-signed Keycloak certificate", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-oidc-login-trust-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(path.join(root, "rbac"), { recursive: true });
+  writeFileSync(
+    path.join(root, "rbac", "config.json"),
+    JSON.stringify({ schema: "harness-managed-rbac/v1", mode: "external" }),
+  );
   const certificate = (name: string) => {
     const keyFile = path.join(root, `${name}.key`),
       certFile = path.join(root, `${name}.pem`);

@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -12,6 +12,11 @@ import { localDefaultBinding } from "../src/daemon-host-binding.ts";
 function offlineFixture(refreshExpiresIn: number, t: TestContext) {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-oidc-offline-"));
   t.after(() => rmSync(userRoot, { recursive: true, force: true }));
+  mkdirSync(path.join(userRoot, "rbac"), { recursive: true });
+  writeFileSync(
+    path.join(userRoot, "rbac", "config.json"),
+    JSON.stringify({ schema: "harness-managed-rbac/v1", mode: "external" }),
+  );
   let stored: string | undefined;
   const state = { now: Date.now(), reachable: true, discoveryReachable: true, revoked: false, refreshes: 0, serial: 0 };
   const authority = { url: "http://127.0.0.1:8080", realm: "isolated", clientId: "harness-node-a" },
