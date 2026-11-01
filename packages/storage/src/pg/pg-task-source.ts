@@ -1062,7 +1062,7 @@ async function readEventRowsInTransaction(
       `SELECT revision::text, op_id, event_json FROM ha_events
        WHERE tenant_id = $1 AND project_id = $2 AND repo_id = $3 AND policy_epoch = $4
          AND (cardinality($5::text[]) = 0 OR readers && $5::text[]) AND ${predicate}
-       ORDER BY revision ${order} ${suffix} ${limitClause}`,
+       ORDER BY ha_events.revision ${order} ${suffix} ${limitClause}`,
       parameters,
     )
   ).rows;

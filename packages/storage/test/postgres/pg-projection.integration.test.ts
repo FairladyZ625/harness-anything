@@ -793,7 +793,8 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
           pgRead.executionLease,
           sqliteProjection.currentLeaseForExecution(leaseCase.executionId, "2026-08-11T00:30:00.000Z"),
         );
-        assert.deepEqual(pgRead.canonicalEvents, sqliteProjection.readCanonicalEvents(0, 500));
+        const sqliteCanonicalEvents = sqliteProjection.readCanonicalEvents(0, 500);
+        assert.deepEqual(pgRead.canonicalEvents, sqliteCanonicalEvents);
         assert.deepEqual(pgRead.scheduleEvents, sqliteProjection.readScheduleEvents());
         assert.deepEqual(
           pgRead.reckoningEvents,
