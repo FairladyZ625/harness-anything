@@ -487,6 +487,15 @@ export function readTaskLineageDispatches(input: {
   return rows.sort((left, right) => left.startedAt.localeCompare(right.startedAt));
 }
 
+/** Reviewer identity is canonical in the dispatch event, including rows whose projected role is absent. */
+export function isReviewerDispatch(
+  projection: Pick<TaskProjectionQueries, "readRuntimeDispatchById">,
+  dispatchId: string,
+): boolean {
+  const payload = projection.readRuntimeDispatchById(dispatchId)?.event.payload;
+  return payload?.role === "reviewer" || payload?.reviewTarget !== undefined;
+}
+
 export function readSessionGroupDispatches(input: {
   readonly sessions: readonly RuntimeSession[];
   readonly events: readonly DispatchEvent[];
