@@ -24,6 +24,7 @@ export const BUDGETED_MODULES = Object.freeze([
   "agent-runtime",
   "decision",
   "fact",
+  "dsh-plugin",
 ]);
 
 const BUDGETED_PRODUCTION = Object.freeze({ production: true, budgetExempt: false });
