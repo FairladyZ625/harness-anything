@@ -281,15 +281,24 @@ test("declare-executor traces the authoring dispatch across executions and never
     git(workerRoot, "commit", "--quiet", "-am", "recovery delivery");
     const recoveryCommit = git(workerRoot, "rev-parse", "HEAD");
     writeCloseout(rootDir, packagePath);
-    assert.equal(
-      submissionOutcome(
-        await cell.run(
-          { kind: "task-submit", taskId, executionId: recoveryExecutionId, commitSha: recoveryCommit },
-          owner,
-        ),
-      ),
-      "applied",
-    );
+    const recoverySubmit = (await cell.run(
+      { kind: "task-submit", taskId, executionId: recoveryExecutionId, commitSha: recoveryCommit },
+      owner,
+    )) as Record<string, unknown>;
+    assert.equal(submissionOutcome(recoverySubmit), "applied", JSON.stringify(recoverySubmit));
+    const recovered = makeTaskProjection({
+      rootDir,
+      eventStore: makeTaskEventReader({ repoId, rootDir }),
+    });
+    try {
+      assert.deepEqual(
+        recovered.read(taskId).snapshot.executions.find((execution) => execution.executionId === recoveryExecutionId)
+          ?.actor.executor,
+        { kind: "agent", id: `runtime-session:${author.runtimeSessionId}` },
+      );
+    } finally {
+      recovered.close();
+    }
 
     const recoveryReviewer = await cell.spawnRuntime(
       {
@@ -312,24 +321,19 @@ test("declare-executor traces the authoring dispatch across executions and never
         event.payload.executionId === recoveryExecutionId,
     );
 
-    const declared = (await cell.run(
-      {
-        kind: "task-declare-executor",
-        taskId,
-        executionId: recoveryExecutionId,
-        reason: "Restore the author omitted by the bare recovery round.",
-      },
-      owner,
-    )) as Record<string, unknown>;
-    assert.equal(declared.outcome, "applied", JSON.stringify(declared));
-    const event = makeTaskEventReader({ repoId, rootDir }).readEvent(String(declared.opId));
-    assert.equal(event?.type, "execution_executor_declared");
-    if (event?.type === "execution_executor_declared") {
-      assert.deepEqual(event.payload.execution.actor.executor, {
+    const events = makeTaskEventReader({ repoId, rootDir }).read().events,
+      declaration = events.find(
+        (event) =>
+          event.type === "execution_executor_declared" && event.payload.execution.executionId === recoveryExecutionId,
+      );
+    assert.equal(declaration?.type, "execution_executor_declared");
+    if (declaration?.type === "execution_executor_declared") {
+      assert.deepEqual(declaration.payload.execution.actor.executor, {
         kind: "agent",
         id: `runtime-session:${author.runtimeSessionId}`,
       });
-      assert.equal(event.payload.dispatchTaskId, taskId);
+      assert.equal(declaration.payload.dispatchTaskId, taskId);
+      assert.match(declaration.payload.reason, /Automatically attributed/u);
     }
   } finally {
     await cell?.close();

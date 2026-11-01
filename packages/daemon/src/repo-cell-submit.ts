@@ -30,6 +30,7 @@ import { readTaskTransitionDocument } from "./transition-document-access.ts";
 import { dispatchInReviewCutReview } from "./task-review-dispatch.ts";
 import { presetSnapshotReader, taskOutputShape, taskWorktreeBinding } from "./task-worktree.ts";
 import { taskWorktreeCandidateInventory, taskWorktreeRoot } from "./task-worktree-candidates.ts";
+import { readTaskLineageDispatches } from "./dispatch-read.ts";
 import { assessTaskRiskTier, type TaskRiskTierScriptInput } from "./task-risk-tier.ts";
 
 /** Git resolves the empty-tree object id virtually; it exists in every repository. */
@@ -413,6 +414,54 @@ function freezeCompletionContract(
   };
 }
 
+function autoDeclareSubmittedExecutor(
+  cell: RepoCellOperationalContext,
+  taskId: string,
+  executionId: string,
+  binding: RepoCellBinding,
+): WriteReceiptDraft | null {
+  const snapshot = cell.projection.read(taskId).snapshot,
+    execution = snapshot.executions.find((candidate) => candidate.executionId === executionId);
+  if (
+    snapshot.task?.currentNode !== "review" ||
+    snapshot.task.status !== "in_review" ||
+    execution?.state !== "submitted" ||
+    execution.actor.executor !== null ||
+    execution.submission?.completionContract.closeoutGates.review !== true
+  )
+    return null;
+  const rows = readTaskLineageDispatches({ projection: cell.projection, taskId }).filter(
+      (dispatch) => dispatch.role !== "reviewer",
+    ),
+    exact = rows.filter((dispatch) => dispatch.executionId === executionId),
+    candidates = new Map(
+      (exact.length > 0 ? exact : rows).map((dispatch) => [
+        dispatch.runtimeSessionId,
+        { executorId: `runtime-session:${dispatch.runtimeSessionId}` },
+      ]),
+    );
+  if (candidates.size !== 1) return null;
+  const [candidate] = candidates.values();
+  if (!candidate) return null;
+  return cell.declareExecutionExecutor(
+    {
+      kind: "task-declare-executor",
+      taskId,
+      executionId,
+      agent: candidate.executorId,
+      reason: "Automatically attributed from the unique implementation dispatch for this execution at submission.",
+    },
+    binding,
+  );
+}
+
+function submissionSteps(
+  executor: WriteReceiptDraft | null,
+  review: { readonly steps: readonly WriteReceiptDraft[]; readonly warnings: readonly string[] },
+): readonly WriteReceiptDraft[] {
+  return [...(executor ? [executor] : []), ...review.steps];
+}
+
 function riskTierCloseoutGates(
   gates: SubmissionV1["completionContract"]["closeoutGates"],
   assessment: SubmissionV1["riskTierAssessment"],
@@ -714,11 +763,12 @@ export async function submitTask(
       binding,
     );
     if (receipt.outcome !== "applied") return receipt;
+    const executor = autoDeclareSubmittedExecutor(cell, taskId, executionId, binding);
     const review = await submittedCutReview(cell, taskId, action, binding, receipt);
     return {
       ...receipt,
       ...(review.warnings.length ? { warnings: review.warnings } : {}),
-      steps: review.steps,
+      steps: submissionSteps(executor, review),
     } as WriteReceiptDraft;
   }
   // Assignment callers carry their changed documents above. With no carried changes,
@@ -805,23 +855,25 @@ export async function submitTask(
       } as WriteReceiptDraft;
     const receipt = cell.receiptForOperation(event!.opId, binding);
     if (receipt.outcome !== "applied") return receipt;
+    const executor = autoDeclareSubmittedExecutor(cell, taskId, executionId, binding);
     const review = await submittedCutReview(cell, taskId, action, binding, receipt);
     return {
       ...receipt,
       ...(review.warnings.length ? { warnings: review.warnings } : {}),
-      steps: review.steps,
+      steps: submissionSteps(executor, review),
     } as WriteReceiptDraft;
   }
   if (selected.submission && submissionDigest(selected.submission) === submissionDigest(submission))
     return submitTask(cell, { ...action, amend: false }, binding);
   const receipt = await cell.lifecycleAction({ ...action, executionId, submission }, binding);
   if (receipt.outcome !== "applied") return receipt;
-  const review = await submittedCutReview(cell, taskId, action, binding, receipt),
+  const executor = autoDeclareSubmittedExecutor(cell, taskId, executionId, binding),
+    review = await submittedCutReview(cell, taskId, action, binding, receipt),
     warnings = [...anchorDriftWarnings, ...review.warnings];
   return {
     ...receipt,
     ...(warnings.length ? { warnings } : {}),
-    steps: [...(synced ? [synced] : []), ...review.steps],
+    steps: [...(synced ? [synced] : []), ...submissionSteps(executor, review)],
   } as WriteReceiptDraft;
 }
 
