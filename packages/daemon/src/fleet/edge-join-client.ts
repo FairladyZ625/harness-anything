@@ -8,7 +8,7 @@ import { writeFileDurably } from "@harness-anything/storage";
 import { readFleetEdgeConfig, writeFleetEdgeConfig } from "../client/fleet-edge-config.ts";
 import { runProcessTextAsync } from "../process-port.ts";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
-import type { OidcLoginAuthority, StoredSession } from "@harness-anything/kernel";
+import type { OidcLoginAuthority } from "@harness-anything/kernel";
 import { decodeEdgeJoinLink } from "./edge-join.ts";
 import { probeFleetEdgeCenterAddress, requestFleetEdgeJoinPinned } from "./peer.ts";
 import { fetchWithTlsCa, systemCaCertificates } from "../tls-ca-certificate.ts";
@@ -64,7 +64,6 @@ export interface EdgeJoinClientPorts {
     | undefined
   >;
   readonly beginLogin: (authority: OidcLoginAuthority, loginTarget: string) => Promise<Record<string, unknown>>;
-  readonly importSession?: (session: StoredSession) => Promise<void>;
   readonly register: (rootDir: string, repoId: string) => Promise<unknown>;
   readonly sync: (payload: JsonObject) => Promise<Record<string, unknown>>;
   readonly join?: typeof requestFleetEdgeJoinPinned;
@@ -172,21 +171,6 @@ export async function joinFleetEdge(
       readonly code?: unknown;
       readonly error?: unknown;
     }[];
-
-  if (admitted.accessToken && ports.importSession) {
-    await ports.importSession({
-      schema: "harness-oidc-session/v3",
-      issuer: authority.url,
-      accessToken: admitted.accessToken,
-      refreshToken: "builtin-edge-session",
-      subject: `builtin-subject-${admitted.personId}`,
-      personId: admitted.personId,
-      expiresAt: admitted.sessionExpiresAt ?? Date.now() + 15 * 60_000,
-      sessionExpiresAt: admitted.sessionExpiresAt ?? null,
-      roles: [],
-      authority,
-    });
-  }
 
   for (const repository of admitted.repositories) {
     const root = edgeWorkspaceRoot(repository.repoId, request.workspaceRoot, ports.homeDir ?? homedir()),

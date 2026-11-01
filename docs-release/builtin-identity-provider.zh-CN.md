@@ -13,9 +13,17 @@ ha bootstrap --operation login-poll
 
 团队、额外账号、组和授权管理、节点凭据、edge join、Fleet 中心/边缘传输、远程 GUI 登录和远程会话续期都属于协作功能。内置 provider 会统一拒绝这些入口，并提示安装 Keycloak 插件；系统没有第二条授权路径。
 
+<a id="keycloak-plugin"></a>
+
 ## Keycloak 插件
 
-需要组织级身份时，显式切换到已有 Keycloak：
+需要协作能力时，先安装 Keycloak provider 包：
+
+```bash
+npm install --global @harness-anything/authorization-keycloak@0.1.0
+```
+
+该包提供 Keycloak 身份 provider；部署仍需自行提供并配置 Keycloak 服务和 realm。daemon、GUI 和授权接口保持不变，只切换选中的身份 provider。然后显式切换到已有 Keycloak：
 
 ```bash
 ha bootstrap --mode external --url https://identity.example.com \
