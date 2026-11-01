@@ -585,7 +585,13 @@ export class AccessAdminService {
         planned = await plan(session),
         base = { schema: "harness-access-receipt/v1", operationId, operation, actor, authority: session.authority };
       if (!("conflict" in planned) && planned.preview && request.confirm !== true)
-        return { ok: true, dryRun: true, ...planned.preview };
+        return {
+          ok: true,
+          dryRun: true,
+          summary: `Dry run: planned node retirement.
+${JSON.stringify(planned.preview, null, 2)}`,
+          ...planned.preview,
+        };
       if ("conflict" in planned) {
         const receipt = {
           ...base,

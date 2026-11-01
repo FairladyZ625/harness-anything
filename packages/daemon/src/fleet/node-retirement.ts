@@ -149,6 +149,10 @@ export async function planNodeRetirement(
     apply: async () => {
       await retirement.drain(nodeId);
       await session.adapter.deleteNode(session.token, nodeId);
+      return {
+        summary: `Node retired.
+${JSON.stringify(preview, null, 2)}`,
+      };
     },
   };
 }

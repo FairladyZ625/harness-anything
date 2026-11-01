@@ -2,6 +2,7 @@
 import path from "node:path";
 import { createReplicationRetention, openReplicationSlots } from "@harness-anything/storage";
 import { createReplicaStatusTracker } from "../src/fleet/replica-status.ts";
+import { renderCliReceipt } from "@harness-anything/cli/internal/cli/receipt-render-registry";
 import assert from "node:assert/strict";
 import test, { type TestContext } from "node:test";
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
@@ -73,6 +74,11 @@ test("retirement preview enumerates all repository slots; confirmed removal fenc
   const before = slots.list().filter((slot) => slot.nodeId === "other-node"),
     preview = await admin.run({ operation: "node-unregister", nodeId: "retired-test-node" });
   assert.equal(preview.dryRun, true);
+  const humanPreview = renderCliReceipt(preview).text;
+  assert.match(humanPreview, /Dry run/u);
+  assert.match(humanPreview, /retired-test-node/u, "default CLI text must show the selected node");
+  assert.match(humanPreview, /repo-a/u, "default CLI text must show the affected repository slots");
+  assert.match(humanPreview, /expectedVersion/u, "default CLI text must show the version required for confirmation");
   assert.deepEqual(
     (preview.slots as { repoId: string }[]).map((slot) => slot.repoId),
     ["repo-a", "repo-b"],
@@ -85,6 +91,9 @@ test("retirement preview enumerates all repository slots; confirmed removal fenc
     confirm: true,
   });
   assert.equal(result.ok, true);
+  assert.match(renderCliReceipt(result).text, /Node retired/u);
+  assert.match(renderCliReceipt(result).text, /retired-test-node/u);
+  assert.match(renderCliReceipt(result).text, /repo-b/u);
   assert.deepEqual(slots.list(), before);
   assert.equal(slots.current(old), false);
   assert.throws(() => slots.acknowledge(old, ack, position), /fenced/u);
