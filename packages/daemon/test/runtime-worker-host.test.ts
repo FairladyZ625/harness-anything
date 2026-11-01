@@ -288,19 +288,25 @@ test("full provider environment inherits operator hosting credentials", () => {
 test("DeepSeek drops shell-side Git credentials before its environment scrub", () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-dsh-git-credential-")),
     home = path.join(parent, "home"),
+    repository = path.join(parent, "repository"),
     staleHelper = path.join(parent, "stale-helper"),
     staleMarker = path.join(parent, "stale-helper-called"),
     nullDevice = process.platform === "win32" ? "NUL" : "/dev/null";
   mkdirSync(home);
+  mkdirSync(repository);
+  const init = spawnSync("git", ["init", "--quiet", repository], { encoding: "utf8" });
+  assert.equal(init.status, 0, init.stderr);
   writeFileSync(
     staleHelper,
-    `#!/bin/sh\nprintf 'called\\n' >> '${staleMarker}'\ncat >/dev/null\nprintf 'username=x-access-token\\npassword=stale-token\\n'\n`,
+    `#!/bin/sh\nprintf 'called\\n' >> '${staleMarker}'\ncat >/dev/null\nprintf 'username=fixture-user\\npassword=fixture-password\\n'\n`,
   );
   chmodSync(staleHelper, 0o755);
-  writeFileSync(
-    path.join(home, ".gitconfig"),
-    `[credential "https://github.com"]\n\thelper = !${staleHelper} auth git-credential\n`,
+  const localHelper = spawnSync(
+    "git",
+    ["-C", repository, "config", "credential.https://github.com.helper", `!${staleHelper}`],
+    { encoding: "utf8" },
   );
+  assert.equal(localHelper.status, 0, localHelper.stderr);
   const source: NodeJS.ProcessEnv = {
     PATH: process.env.PATH,
     HOME: home,
@@ -329,6 +335,11 @@ test("DeepSeek drops shell-side Git credentials before its environment scrub", (
       assert.equal(providerEnvironment.GH_TOKEN, undefined, permissionMode);
       assert.equal(providerEnvironment.GIT_CONFIG_COUNT, undefined, permissionMode);
       assert.equal(
+        providerEnvironment.GIT_CONFIG_PARAMETERS,
+        permissionMode === "restricted" ? "'credential.helper'=''" : undefined,
+        permissionMode,
+      );
+      assert.equal(
         Object.keys(providerEnvironment).some((name) => /^GIT_CONFIG_(?:KEY|VALUE)_\d+$/u.test(name)),
         false,
         permissionMode,
@@ -337,14 +348,14 @@ test("DeepSeek drops shell-side Git credentials before its environment scrub", (
     }
 
     if (process.platform !== "win32") {
-      // Prove the isolated HOME fixture would return a stale credential if its Git config were read.
-      const staleHomeControl = spawnSync("git", ["credential", "fill"], {
+      // Prove a repository-local helper can return credentials even when global config is disabled.
+      const staleLocalControl = spawnSync("git", ["-C", repository, "credential", "fill"], {
         env: { PATH: process.env.PATH, HOME: home, GIT_CONFIG_SYSTEM: nullDevice, GIT_CONFIG_NOSYSTEM: "1" },
         input: "protocol=https\nhost=github.com\n\n",
         encoding: "utf8",
       });
-      assert.equal(staleHomeControl.status, 0, staleHomeControl.stderr);
-      assert.match(staleHomeControl.stdout, /password=stale-token/u);
+      assert.equal(staleLocalControl.status, 0, staleLocalControl.stderr);
+      assert.match(staleLocalControl.stdout, /password=fixture-password/u);
       assert.equal(existsSync(staleMarker), true);
       rmSync(staleMarker);
 
@@ -357,15 +368,16 @@ test("DeepSeek drops shell-side Git credentials before its environment scrub", (
         filteredRestrictedEnvironment = Object.fromEntries(
           Object.entries(restrictedEnvironment).filter(([name]) => !/(?:KEY|PASSWORD|SECRET|TOKEN)/iu.test(name)),
         ),
-        fill = spawnSync("git", ["credential", "fill"], {
+        fill = spawnSync("git", ["-C", repository, "credential", "fill"], {
           env: filteredRestrictedEnvironment,
           input: "protocol=https\nhost=github.com\n\n",
           encoding: "utf8",
         });
+      assert.equal(filteredRestrictedEnvironment.GIT_CONFIG_PARAMETERS, "'credential.helper'=''");
       assert.equal(fill.status, 128);
       assert.match(fill.stderr, /could not read Username.*terminal prompts disabled/u);
       assert.doesNotMatch(fill.stdout, /password=/u);
-      assert.equal(existsSync(staleMarker), false, "restricted DSH must not call the isolated HOME's stale helper");
+      assert.equal(existsSync(staleMarker), false, "restricted DSH must not call the repository's local helper");
     }
 
     // The same complete source environment still reproduces the failure for a provider that does not scrub names.
