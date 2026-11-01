@@ -73,6 +73,25 @@ test("a writer with no messages is terminated after 30 seconds of ready inactivi
   assert.equal(writer.terminateCalls, 1);
 });
 
+test("an attach status heartbeat keeps a slow projection open alive beyond 30 seconds", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const writer = new FakeWriter(),
+    opening = openWriterSupervisor(supervisorInput, { createWorker: () => writer as unknown as Worker }),
+    heartbeat = warmingStatus({ phase: "opening", applied: null, total: null, watermark: null });
+
+  writer.publish(writerStatus("attach-progress", heartbeat));
+  writer.publish(writerStatus("status", heartbeat));
+  context.mock.timers.tick(29_999);
+  writer.publish(writerStatus("status", heartbeat));
+  context.mock.timers.tick(29_999);
+
+  assert.equal(writer.terminateCalls, 0);
+  writer.publish(writerStatus("ready", attachedStatus()));
+  const supervisor = await opening;
+  assert.equal(supervisor.status().state, "attached");
+  await supervisor.close();
+});
+
 test("a failed first open does not prevent a later supervisor from opening", async (context) => {
   context.mock.timers.enable({ apis: ["setTimeout"] });
   const first = new FakeWriter(true),

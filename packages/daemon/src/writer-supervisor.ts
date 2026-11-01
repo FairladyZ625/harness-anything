@@ -256,6 +256,14 @@ export async function openWriterSupervisor(
               lastAttachProgress = published.attach;
               armReadyWatchdog();
             }
+            if (
+              !settled &&
+              attaching &&
+              message.kind === "status" &&
+              published.attach !== undefined &&
+              attachProgressAllowsWatchdog(lastAttachProgress, published.attach)
+            )
+              armReadyWatchdog();
           }
           if (message.bootstrapReceipt !== undefined) {
             publishedBootstrapReceipt = message.bootstrapReceipt;
@@ -583,6 +591,16 @@ function attachProgressAdvanced(previous: RepoCellAttachProgress | null, next: R
   if (next.phase === "catching-up")
     return next.watermark !== null && (previous.watermark === null || next.watermark > previous.watermark);
   return false;
+}
+
+function attachProgressAllowsWatchdog(previous: RepoCellAttachProgress | null, next: RepoCellAttachProgress): boolean {
+  if (previous === null) return false;
+  if (attachPhaseOrder(next.phase) < attachPhaseOrder(previous.phase)) return false;
+  if (next.phase !== previous.phase || next.phase === "opening") return true;
+  const nextApplied = next.phase === "catching-up" ? next.watermark : next.applied,
+    previousApplied = previous.phase === "catching-up" ? previous.watermark : previous.applied;
+  if (nextApplied === null || previousApplied === null) return nextApplied === previousApplied;
+  return nextApplied >= previousApplied;
 }
 
 function attachPhaseOrder(phase: RepoCellAttachProgress["phase"]): number {
