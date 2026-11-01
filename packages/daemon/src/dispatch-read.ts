@@ -33,6 +33,7 @@ import { runtimeResumeAdmission } from "./runtime-resume-admission.ts";
 import { dispatchActivityIdleMinutes, dispatchActivityStatus } from "./dispatch-activity.ts";
 import { FLEET_FRAME_BYTES } from "./fleet/command-protocol.ts";
 import { FleetFault } from "./fleet/center-types.ts";
+import { cursorStep } from "./paginated-read.ts";
 
 // The operational-read envelope has two ASCII ids of at most 96 characters.
 const READ_REPLY_BYTES = FLEET_FRAME_BYTES - 1024;
@@ -123,8 +124,54 @@ function boundedDispatchPage(result: DispatchBatchRead, state: DispatchCursor, c
     } else high = count - 1;
   }
   if (fitting) return fitting;
-  assertFleetReadFits(rows.length ? prefix(1) : page, "repo.task.dispatches");
+  assertFleetReadFits(page, "repo.task.dispatches");
   return page;
+}
+
+/** Internal consumers that need a complete verdict must drain the same public pages. */
+export async function readAllTaskDispatchPages(
+  readPage: (facets: { readonly cursor?: string }) => Promise<DaemonTaskDispatchesResult>,
+): Promise<DispatchBatchRead> {
+  const rows = new Map<string, TaskDispatchRow>(),
+    taskIds = new Set<string>(),
+    unavailable = new Set<string>();
+  const cursors = new Set<string>();
+  let cursor: string | undefined,
+    pending = false,
+    watermark = Infinity,
+    sourceRevision = 0;
+  while (true) {
+    const result = await readPage(cursor === undefined ? {} : { cursor });
+    if (!("page" in result)) throw new Error("Task dispatch batch read returned no page receipt.");
+    for (const row of result.dispatches) rows.set(row.dispatchId, row);
+    for (const taskId of result.taskIds) taskIds.add(taskId);
+    for (const taskId of result.unavailableTaskIds) unavailable.add(taskId);
+    pending ||= result.status === "pending";
+    watermark = Math.min(watermark, result.watermark);
+    sourceRevision = Math.max(sourceRevision, result.sourceRevision);
+    const next = cursorStep(result.page, cursors, "task dispatches");
+    if (next === undefined) {
+      const dispatches = [...rows.values()].sort(
+        (left, right) =>
+          left.startedAt.localeCompare(right.startedAt) || left.dispatchId.localeCompare(right.dispatchId),
+      );
+      return {
+        ...result,
+        dispatches,
+        taskIds: [...taskIds],
+        unavailableTaskIds: [...unavailable],
+        ...taskDispatchesOutcome(
+          dispatches,
+          new Map(dispatches.flatMap((row) => (row.nextDispatchId ? [[row.dispatchId, row.nextDispatchId]] : []))),
+        ),
+        status: pending ? "pending" : "ready",
+        watermark,
+        sourceRevision,
+        page: { ...result.page, cursor: null, nextCursor: null },
+      };
+    }
+    cursor = next;
+  }
 }
 
 type DispatchEvent = Extract<AgentRuntimeEventV1, { type: "runtime_dispatch_requested" }>;
@@ -305,7 +352,7 @@ function readMemberTaskDispatches(input: {
       dispatches.flatMap((row) => (row.nextDispatchId ? [[row.dispatchId, row.nextDispatchId]] : [])),
     ),
     terminal = taskDispatchesOutcome(dispatches, resumed);
-  return {
+  const result: DaemonTaskDispatchesResult = {
     ok: true,
     status: cut.status,
     dispatches,
@@ -319,6 +366,12 @@ function readMemberTaskDispatches(input: {
     totals: agentRuntimeSessionGroupTotals(member.sessions),
     truncated: member.truncated,
   };
+  // Member windows have no cursor. Rebuild a smaller newest-row window so groups,
+  // titles and full-history totals remain authoritative at the same reduced limit.
+  if (Buffer.byteLength(JSON.stringify(result)) > READ_REPLY_BYTES && input.limit > 1)
+    return readMemberTaskDispatches({ ...input, limit: Math.max(1, Math.floor(input.limit / 2)) });
+  assertFleetReadFits(result, "repo.task.dispatches");
+  return result;
 }
 
 /** The aggregate terminal verdict for a task's dispatch list, computed once beside the rows so

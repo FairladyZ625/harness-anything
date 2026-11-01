@@ -339,17 +339,29 @@ test("the host assembly maps task snapshots, dispatch rows, the event tail and r
       return {
         ok: true,
         status: "ready",
-        dispatches: [
-          {
-            dispatchId: "dispatch_local",
-            taskId: "task_local",
-            runtimeSessionId: "runtime_local",
-            agentId: "agent_ceo",
-            agentName: "CEO",
-            startedAt: "2026-10-06T00:10:00.000Z",
-            status: "running",
-          },
-        ],
+        taskIds: payload?.taskIds,
+        unavailableTaskIds: [],
+        page: {
+          limit: payload?.limit,
+          cursor: payload?.cursor ?? null,
+          nextCursor: payload?.cursor === undefined ? "dispatch-tail" : null,
+        },
+        watermark: 164,
+        sourceRevision: 164,
+        dispatches:
+          payload?.cursor === undefined
+            ? []
+            : [
+                {
+                  dispatchId: "dispatch_local",
+                  taskId: "task_local",
+                  runtimeSessionId: "runtime_local",
+                  agentId: "agent_ceo",
+                  agentName: "CEO",
+                  startedAt: "2026-10-06T00:10:00.000Z",
+                  status: "running",
+                },
+              ],
       };
     },
     observeTail: async () => ({

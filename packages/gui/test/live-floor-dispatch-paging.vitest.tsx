@@ -12,6 +12,8 @@ import type { TaskRow } from "../src/renderer/model/types.ts";
 import type { TaskDispatchProjectionRow } from "../src/api/renderer-dto.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { FIXTURE_RUNTIME_OVERVIEW, fixtureTaskRow } from "./entityIdGateFixtures.ts";
+import { readAllTaskDispatches } from "../src/renderer/task-dispatch-client.ts";
+import { useRelatedDispatches } from "../src/renderer/components/runtime/useRuntimeWorkspace.ts";
 
 vi.mock("../src/renderer/agenda-data.ts", () => ({
   useAgendaQuery: () => ({ data: undefined, isPending: false, error: null }),
@@ -149,4 +151,64 @@ it("the task timeline shows a read error instead of an empty dispatch history", 
       "Center unavailable for timeline",
     ),
   );
+});
+
+it("complete dispatch reads split more than 500 task ids and follow empty pages with a continuation", async () => {
+  const read = vi
+    .spyOn(harnessClient, "getTaskDispatches")
+    .mockImplementation(async (payload) =>
+      page([], payload.cursor ?? null, payload.cursor === undefined ? "tail" : null),
+    );
+  const taskIds = Array.from({ length: 501 }, (_, index) => `task-${String(index).padStart(4, "0")}`);
+  expect(await readAllTaskDispatches({ repoId: "repo-one", taskIds })).toEqual({ dispatches: [] });
+  expect(read).toHaveBeenCalledTimes(Math.ceil(taskIds.length / 16) * 2);
+  expect(read.mock.calls.every(([payload]) => (payload.taskIds?.length ?? 0) <= 16 && payload.limit === 16)).toBe(true);
+  expect(new Set(read.mock.calls.flatMap(([payload]) => payload.taskIds)).size).toBe(501);
+  expect(read.mock.calls.every(([payload], index) => payload.cursor === (index % 2 === 0 ? undefined : "tail"))).toBe(
+    true,
+  );
+});
+
+it("a later dispatch page failure rejects the whole refresh", async () => {
+  vi.spyOn(harnessClient, "getTaskDispatches")
+    .mockResolvedValueOnce(page(dispatches().slice(0, 1), null, "next"))
+    .mockRejectedValueOnce(new Error("Second page unavailable"));
+  await expect(readAllTaskDispatches({ repoId: "repo-one", taskId: "task-one" })).rejects.toThrow(
+    "Second page unavailable",
+  );
+});
+
+it("member windows expose truncation without offering a load-more request past the byte bound", async () => {
+  vi.spyOn(harnessClient, "getTaskDispatches").mockResolvedValue({
+    ok: true,
+    status: "ready",
+    agentId: "member-one",
+    dispatches: dispatches().slice(0, 2),
+    groups: [],
+    taskLabels: [],
+    totals: { groups: 1, sessions: 500 },
+    truncated: true,
+    outcome: "succeeded",
+    exitCode: 0,
+    watermark: 1,
+    sourceRevision: 1,
+  });
+  function MemberProbe() {
+    const read = useRelatedDispatches("repo-one", { kind: "agent", id: "member-one" });
+    return createElement(
+      "span",
+      { "data-testid": "member-window" },
+      read.pending
+        ? "pending"
+        : JSON.stringify({ more: read.hasMore, truncated: read.truncated, rows: read.dispatchRows.length }),
+    );
+  }
+  const container = document.createElement("div");
+  document.body.append(container);
+  root = createRoot(container);
+  client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  await act(async () =>
+    root!.render(createElement(QueryClientProvider, { client: client! }, createElement(MemberProbe))),
+  );
+  await vi.waitFor(() => expect(container.textContent).toBe('{"more":false,"truncated":true,"rows":2}'));
 });

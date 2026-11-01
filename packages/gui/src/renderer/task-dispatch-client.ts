@@ -2,6 +2,7 @@ import type { DaemonTaskDispatchesPayload } from "@harness-anything/daemon/proto
 import type { TaskDispatchProjectionRow } from "../api/renderer-dto.ts";
 import { harnessClient, type TaskDispatchBatchRead } from "./api-client.ts";
 import { drainCursorPages } from "./paginated-read.ts";
+const TASK_DISPATCH_PAGE_LIMIT = 16;
 
 type TaskDispatchSelection = { readonly repoId: string } & Pick<DaemonTaskDispatchesPayload, "advisorySurface"> &
   (
@@ -16,13 +17,13 @@ export async function readAllTaskDispatches(payload: TaskDispatchSelection): Pro
 }> {
   const taskIds = [...new Set(payload.taskId === undefined ? payload.taskIds : [payload.taskId])].sort();
   const rows = new Map<string, TaskDispatchProjectionRow>();
-  for (let offset = 0; offset < taskIds.length; offset += 500) {
+  for (let offset = 0; offset < taskIds.length; offset += TASK_DISPATCH_PAGE_LIMIT) {
     const pages = await drainCursorPages(
       async (facets) =>
         (await harnessClient.getTaskDispatches({
           repoId: payload.repoId,
-          taskIds: taskIds.slice(offset, offset + 500),
-          limit: 16,
+          taskIds: taskIds.slice(offset, offset + TASK_DISPATCH_PAGE_LIMIT),
+          limit: TASK_DISPATCH_PAGE_LIMIT,
           ...(payload.advisorySurface === undefined ? {} : { advisorySurface: payload.advisorySurface }),
           ...facets,
         })) as TaskDispatchBatchRead,

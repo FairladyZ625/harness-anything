@@ -6,7 +6,7 @@ import { pollSessionEventsOnce, runtimeQueryKeys } from "../../agent-runtime-cli
 import { runtimeCommandClient } from "../../runtime-command-client.ts";
 import { resumeRuntimeSpawnInput } from "../../runtime-control.ts";
 import { dispatchRole } from "../../model/lineage-tree.ts";
-import { harnessClient } from "../../api-client.ts";
+import { readAllTaskDispatches } from "../../task-dispatch-client.ts";
 import { t } from "../../i18n/index.tsx";
 import type { TaskRow } from "../../model/types.ts";
 import type { TaskDispatchProjectionRow } from "../../../api/renderer-dto.ts";
@@ -54,7 +54,7 @@ export function TaskExecutionPanel({ task }: { readonly task: TaskRow }) {
   // 与派工链同族读键:两个面板共享一次读与缓存,台账 cut 的扇出失效一并刷新。
   const dispatches = useQuery({
     queryKey: runtimeQueryKeys.dispatches(task.projectId, task.taskId),
-    queryFn: () => harnessClient.getTaskDispatches({ repoId: task.projectId, taskId: task.taskId }),
+    queryFn: () => readAllTaskDispatches({ repoId: task.projectId, taskId: task.taskId }),
     staleTime: 4_000,
     refetchInterval: (query) =>
       (query.state.data?.dispatches ?? []).some((row) => row.status === "running") ? 4_000 : false,

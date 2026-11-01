@@ -750,6 +750,10 @@ function LiveFloorTaskTimeline({
       </h3>
       {dispatches.isPending ? (
         <p className="ui-meta text-text-muted">{t("views.liveFloor.loading")}</p>
+      ) : dispatches.isError ? (
+        <p role="alert" className="ui-meta text-status-blocked">
+          {t("views.liveFloor.readError", { message: dispatches.error.message })}
+        </p>
       ) : rows.length === 0 ? (
         <p className="ui-meta text-text-faint">{t("views.liveFloor.drawerNoDispatches")}</p>
       ) : (

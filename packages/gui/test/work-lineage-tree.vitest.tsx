@@ -234,4 +234,38 @@ describe("WorkView lineage tree", () => {
       expect(byTestId(container, "work-lineage-tree-work-root-error").textContent).toContain("bridge unavailable"),
     );
   });
+
+  it("loads descendants beyond the first 500 tasks instead of cutting off their dispatch history", async () => {
+    getTaskDispatches.mockImplementation(async (payload) => ({
+      ok: true,
+      status: "ready",
+      taskIds: payload.taskIds,
+      unavailableTaskIds: [],
+      dispatches: [],
+      outcome: "unknown",
+      exitCode: 0,
+      watermark: 1,
+      sourceRevision: 1,
+      page: { limit: 16, cursor: null, nextCursor: null },
+    }));
+    const tasks = [
+      task("work-root"),
+      ...Array.from({ length: 501 }, (_, index) =>
+        task(`child-${index}`, {
+          parentTaskId: "work-root",
+          workId: "work-root",
+          taskClass: "standard",
+        }),
+      ),
+    ];
+    const container = await mountWork(tasks, { onOpenTask: vi.fn(), onNavigateEntity: vi.fn() });
+    await act(async () => byTestId(container, "work-lineage-toggle-work-root").click());
+    await vi.waitFor(
+      () => expect(new Set(getTaskDispatches.mock.calls.flatMap(([payload]) => payload.taskIds)).size).toBe(502),
+      { timeout: 10_000 },
+    );
+    expect(
+      getTaskDispatches.mock.calls.every(([payload]) => payload.taskIds.length <= 500 && payload.limit === 16),
+    ).toBe(true);
+  });
 });

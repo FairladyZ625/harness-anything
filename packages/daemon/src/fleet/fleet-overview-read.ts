@@ -6,6 +6,7 @@ import { taskStatusWords } from "../protocol/daemon-protocol-vocabulary.ts";
 import { daemonBuildStamp } from "../build-identity.ts";
 import type { KeycloakCenterAuthority } from "../transport/auth-context.ts";
 import type { DaemonTaskSnapshotListResult } from "../protocol/daemon-protocol-gui-types.ts";
+import { readAllTaskDispatchPages } from "../dispatch-read.ts";
 
 /**
  * 协作页舰队拓扑的只读聚合(task_8ce646d94):一次 typed read 回答「舰队有哪些节点、
@@ -588,20 +589,27 @@ export async function readFleetOverviewFromHost(input: {
       });
     }
     const taskIds = [...new Set(leases.map((lease) => lease.taskId))];
-    const dispatches =
-      taskIds.length === 0
-        ? []
-        : (await input.cell.read("repo.task.dispatches", { taskIds, limit: 200 }, input.binding)).dispatches.map(
-            (row) => ({
-              dispatchId: row.dispatchId,
-              taskId: row.taskId,
-              runtimeSessionId: row.runtimeSessionId,
-              agentId: row.agentId ?? null,
-              agentName: row.agentName ?? null,
-              startedAt: row.startedAt,
-              status: row.status,
-            }),
-          );
+    const dispatches: FleetDispatchFact[] = [];
+    for (let offset = 0; offset < taskIds.length; offset += 500) {
+      const read = await readAllTaskDispatchPages((facets) =>
+        input.cell.read(
+          "repo.task.dispatches",
+          { taskIds: taskIds.slice(offset, offset + 500), limit: 200, ...facets },
+          input.binding,
+        ),
+      );
+      dispatches.push(
+        ...read.dispatches.map((row) => ({
+          dispatchId: row.dispatchId,
+          taskId: row.taskId,
+          runtimeSessionId: row.runtimeSessionId,
+          agentId: row.agentId ?? null,
+          agentName: row.agentName ?? null,
+          startedAt: row.startedAt,
+          status: row.status,
+        })),
+      );
+    }
     return { leases, dispatches };
   });
   const events = await input.cell.observeTail(

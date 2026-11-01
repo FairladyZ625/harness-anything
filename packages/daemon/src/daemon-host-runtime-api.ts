@@ -24,6 +24,7 @@ import type { FleetEdgeRuntimeRequest } from "./fleet-edge-runtime.ts";
 import { canonicalRoot, commandDescriptorForAction } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { DaemonHostApiContext } from "./daemon-host-context.ts";
+import { readAllTaskDispatchPages } from "./dispatch-read.ts";
 import {
   evaluateFleetAction,
   requireAuthorizedFleetAction,
@@ -147,7 +148,14 @@ export function createDaemonHostRuntimeApi(
         readSession: (runtimeSessionId) =>
           context.host.read(repoId, "repo.agentRuntime.sessions.read", { runtimeSessionId }, auth),
         readTaskDispatches: (taskIds) =>
-          context.host.read(repoId, "repo.task.dispatches", { taskIds: taskIds as string[] }, auth),
+          readAllTaskDispatchPages((facets) =>
+            context.host.read(
+              repoId,
+              "repo.task.dispatches",
+              { taskIds: taskIds as string[], limit: 16, ...facets },
+              auth,
+            ),
+          ),
         awaitSignal: async () => {
           await context.waitForWarming(repoId);
           return context.requiredCell(context.cells, context.warming, context.unavailable, repoId).awaitRuntimeSignal();

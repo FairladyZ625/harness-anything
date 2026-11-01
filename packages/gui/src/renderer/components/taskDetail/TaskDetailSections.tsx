@@ -6,6 +6,7 @@ import type { AgentRuntimeEventsResult, AgentRuntimeSessionResult } from "@harne
 import type { RelationFactRow, TaskDispatchProjectionRow } from "../../../api/renderer-dto.ts";
 import { agentRuntimeClient, runtimeQueryKeys } from "../../agent-runtime-client.ts";
 import { harnessClient } from "../../api-client.ts";
+import { readAllTaskDispatches } from "../../task-dispatch-client.ts";
 import { useTaskDocumentQuery } from "../../task-data.ts";
 import { buildTriadicRendererData, useCompleteRelationGraphQuery, triadicQueryKeys } from "../../triadic-data.ts";
 import { useFactArchiveVisibility } from "../../fact-archive-preferences.tsx";
@@ -215,7 +216,7 @@ export function TaskDispatchTab({
 }) {
   const dispatches = useQuery({
     queryKey: runtimeQueryKeys.dispatches(task.projectId, task.taskId),
-    queryFn: () => harnessClient.getTaskDispatches({ repoId: task.projectId, taskId: task.taskId }),
+    queryFn: () => readAllTaskDispatches({ repoId: task.projectId, taskId: task.taskId }),
     staleTime: 4_000,
   });
   const rows = dispatches.data?.dispatches ?? [];
