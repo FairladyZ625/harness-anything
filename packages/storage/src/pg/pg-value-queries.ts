@@ -5,8 +5,10 @@ import type {
   RuntimeSession,
   LeaseInterval,
   SquadRunProjectionRow,
+  CanonicalEventV1,
 } from "@harness-anything/kernel";
 import type { DocumentState } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
+import { normalizeHistoricalEvent } from "@harness-anything/kernel/internal/domain/historical-event-normalization.ts";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
 import { readCutInTransaction, readEventRowsInTransaction } from "./pg-event-queries.ts";
 import { getPgProjectionValue, listPgProjectionValues } from "./pg-projection-values.ts";
@@ -142,8 +144,8 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
           documents: await documents(client, ""),
-          headEvent: head[0] ? JSON.parse(head[0].event_json) : null,
-          events: rows.map(({ event_json }) => JSON.parse(event_json)),
+          headEvent: head[0] ? (normalizeHistoricalEvent(JSON.parse(head[0].event_json)) as CanonicalEventV1) : null,
+          events: rows.map(({ event_json }) => normalizeHistoricalEvent(JSON.parse(event_json)) as CanonicalEventV1),
         };
       }),
     taskIdForDocumentPath: (path) =>

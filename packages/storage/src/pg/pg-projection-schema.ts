@@ -17,7 +17,7 @@ export const PG_PROJECTION_TABLES = Object.freeze([
   "ha_projection_values",
 ] as const);
 
-export const PG_PROJECTION_SCHEMA_VERSION = 2;
+export const PG_PROJECTION_SCHEMA_VERSION = 3;
 
 /** Rebuildable cache generations are admitted before either reads or incremental writes. */
 export function assertPgProjectionSchemaVersion(version: number | undefined): void {

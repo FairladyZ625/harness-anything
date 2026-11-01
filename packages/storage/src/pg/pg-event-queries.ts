@@ -1,6 +1,7 @@
 import { assertPgProjectionSchemaVersion } from "./pg-projection-schema.ts";
 import type { AgentRuntimeEventV1, CanonicalEventV1 } from "@harness-anything/kernel";
 import { canonicalEventEntityRefs } from "@harness-anything/kernel";
+import { normalizeHistoricalEvent } from "@harness-anything/kernel/internal/domain/historical-event-normalization.ts";
 import { isAgentRuntimeEvent } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import {
   privateRuntimeEventTypes,
@@ -250,7 +251,12 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
             opId,
             cut.watermark,
           ]);
-        return rows[0] ? { event: JSON.parse(rows[0].event_json) as CanonicalEventV1, watermark: cut.watermark } : null;
+        return rows[0]
+          ? {
+              event: normalizeHistoricalEvent(JSON.parse(rows[0].event_json)) as CanonicalEventV1,
+              watermark: cut.watermark,
+            }
+          : null;
       },
       claims,
       { isolationLevel: "repeatable read" },
@@ -308,7 +314,7 @@ async function readEventsInTransaction(
       suffix,
       suffixValues,
     )
-  ).map(({ event_json }) => JSON.parse(event_json) as CanonicalEventV1);
+  ).map(({ event_json }) => normalizeHistoricalEvent(JSON.parse(event_json)) as CanonicalEventV1);
 }
 
 interface PgEventRow {

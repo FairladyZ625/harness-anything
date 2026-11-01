@@ -784,6 +784,19 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
         allQueries.withSession((queries) => assertTaskEventQueryParity(queries, sqliteProjection));
         allQueries.withSession((queries) => assertValueQueryParity(queries, sqliteProjection));
         allQueries.withSession((queries) => assertCompleteQueryParity(queries, sqliteProjection));
+        await withPostgresTransaction(
+          runtimePool,
+          async (client) => {
+            const { rows } = await client.query<{ event_json: string }>(
+              "SELECT event_json FROM ha_events WHERE op_id='operation-legacy-review-0'",
+            );
+            assert.equal(
+              JSON.parse(rows[0]!.event_json).payload.dispatchKey,
+              `task-review:task-parity:execution-parity:2:sha256:${"a".repeat(64)}`,
+            );
+          },
+          projectionScope,
+        );
         await assertPgReaderBridge(
           queryReader,
           sqliteProjection,

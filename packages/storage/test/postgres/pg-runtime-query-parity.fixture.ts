@@ -111,6 +111,56 @@ export async function appendRuntimeQueryFixtures(
       },
     };
     await append({ event, plan: canonicalEventWritePlan(event, "agent-runtime/v1", event.opId), blobs: [] });
+    if (id === "runtime-query-c") {
+      for (const [ordinal, suffix] of ["", ":attempt2", ":fallback:3", ":attempt2:fallback:3"].entries()) {
+        const dispatchId = `legacy-review-${ordinal}`,
+          legacy: AgentRuntimeEventV1 = {
+            ...event,
+            eventId: `event-${dispatchId}`,
+            opId: `operation-${dispatchId}`,
+            workspaceRevision: revision(),
+            occurredAt: "2025-09-01T00:00:00.000Z",
+            payload: {
+              ...event.payload,
+              dispatchId,
+              runtimeSessionId: `session-${dispatchId}`,
+              startedAt: "2025-09-01T00:00:00.000Z",
+              dispatchKey: `task-review:task-parity:execution-parity:2:sha256:${"a".repeat(64)}${suffix}`,
+              role: "reviewer",
+              agentId: "reviewer-b",
+              reviewTarget: {
+                kind: "task",
+                taskId: "task-parity",
+                executionId: "execution-parity",
+                digest: `sha256:${"a".repeat(64)}`,
+              },
+            },
+          };
+        await append({
+          event: legacy,
+          plan: canonicalEventWritePlan(legacy, "agent-runtime/v1", legacy.opId),
+          blobs: [],
+        });
+        if (ordinal === 0) {
+          const duplicate = {
+            ...legacy,
+            workspaceRevision: revision(),
+            eventId: "event-review-duplicate",
+            opId: "operation-review-duplicate",
+            payload: {
+              ...legacy.payload,
+              dispatchId: "legacy-review-duplicate",
+              runtimeSessionId: "session-legacy-review-duplicate",
+            },
+          };
+          await append({
+            event: duplicate,
+            plan: canonicalEventWritePlan(duplicate, "agent-runtime/v1", duplicate.opId),
+            blobs: [],
+          });
+        }
+      }
+    }
   }
   const outcome: AgentRuntimeEventV1 = {
     schema: "agent-runtime-event/v1",
@@ -151,12 +201,17 @@ function dispatchContract(
       | "readRuntimeDispatchesByAttemptGroup"
       | "readRuntimeDispatchesByDecision"
       | "readRuntimeDispatchPage"
+      | "readRuntimeDispatchesByMember"
+      | "readRuntimeSessionEvents"
+      | "readCanonicalEvents"
+      | "readOperation"
+      | "readReplicaBasis"
     >
   >,
 ) {
   const all = queries.readRuntimeDispatches(),
     byId = queries.readRuntimeDispatchById("runtime-query-a");
-  assert.equal(all.length, 3);
+  assert.equal(all.length, 8);
   assert.equal(byId?.outcome, "failed");
   assert.equal(byId?.endedAt, "2026-09-02T01:00:00.000Z");
   assert.equal(queries.readRuntimeDispatchById("missing"), null);
@@ -185,8 +240,37 @@ function dispatchContract(
   );
   assert.throws(() => queries.readRuntimeDispatchPage({ startedAtGte: "", limit: 0 }), /limit/);
   assert.throws(() => queries.readRuntimeDispatchPage({ startedAtGte: "", limit: 501 }), /limit/);
+  const historical = ["", ":attempt2", ":fallback:3", ":attempt2:fallback:3"].map((suffix, ordinal) => {
+    const oldKey = `task-review:task-parity:execution-parity:2:sha256:${"a".repeat(64)}${suffix}`,
+      key = `task-review:task-parity:execution-parity:2:sha256:${"a".repeat(64)}:reviewer:reviewer-b${suffix}`,
+      row = queries.readRuntimeDispatchByDispatchKey(key);
+    assert.ok(row, `historical reviewer lookup ${suffix}`);
+    assert.equal(queries.readRuntimeDispatchByDispatchKey(oldKey), null);
+    assert.equal(row.event.opId, `operation-legacy-review-${ordinal}`);
+    assert.equal(row.event.eventId, `event-legacy-review-${ordinal}`);
+    assert.equal(row.event.payload.dispatchId, `legacy-review-${ordinal}`);
+    assert.equal(row.event.payload.runtimeSessionId, `session-legacy-review-${ordinal}`);
+    assert.equal(row.event.payload.dispatchKey, key);
+    assert.deepEqual(row, queries.readRuntimeDispatchById(row.event.payload.dispatchId));
+    assert.deepEqual(row.event, queries.readRuntimeDispatch(row.event.payload.runtimeSessionId));
+    assert.deepEqual([row], queries.readRuntimeDispatchesBySession(row.event.payload.runtimeSessionId));
+    assert.deepEqual([row.event], queries.readRuntimeSessionEvents(row.event.payload.runtimeSessionId, 0, 100));
+    assert.deepEqual(row.event, queries.readOperation(row.event.opId)?.event);
+    assert.deepEqual(
+      row.event,
+      queries.readCanonicalEvents(0, 500).events.find(({ eventId }) => eventId === row.event.eventId),
+    );
+    assert.deepEqual(
+      row.event,
+      queries.readReplicaBasis(0).events.find(({ eventId }) => eventId === row.event.eventId),
+    );
+    return row;
+  });
   return {
     all,
+    historical,
+    historicalPage: queries.readRuntimeDispatchPage({ startedAtGte: "2025-01-01T00:00:00.000Z", limit: 500 }),
+    reviewers: queries.readRuntimeDispatchesByMember({ agentId: "reviewer-b", limit: 500 }),
     byId,
     pages,
     dispatch: queries.readRuntimeDispatch("runtime-query-session"),

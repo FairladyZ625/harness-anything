@@ -6,6 +6,7 @@ import type {
   RuntimeSession,
 } from "@harness-anything/kernel";
 import { publicRuntimeDispatch } from "@harness-anything/kernel/internal/domain/runtime-public-query.ts";
+import { normalizeHistoricalEvent } from "@harness-anything/kernel/internal/domain/historical-event-normalization.ts";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
 import type { PgTaskProjectionSourceOptions } from "./pg-task-source.ts";
 
@@ -52,7 +53,9 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
        AND ${predicate} ORDER BY ${order}${limit === undefined ? "" : ` LIMIT $${parameters.length}`}`,
       parameters,
     );
-    return result.rows.map(({ event_json }) => JSON.parse(event_json) as Dispatch);
+    return result.rows.map(
+      ({ event_json }) => normalizeHistoricalEvent(JSON.parse(event_json) as Dispatch) as Dispatch,
+    );
   };
   const projected = async (client: PoolClient, event: Dispatch): Promise<RuntimeDispatchProjectionRow> => {
     const result = await client.query<{ event_json: string }>(
@@ -102,7 +105,20 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
     readRuntimeDispatches: () =>
       transaction(async (client) => (await readDispatchRows(client, "true")).map(publicRuntimeDispatch)),
     readRuntimeDispatchById: async (id) => (await byField("dispatchId", id, true))[0] ?? null,
-    readRuntimeDispatchByDispatchKey: async (key) => (await byField("dispatchKey", key, true))[0] ?? null,
+    readRuntimeDispatchByDispatchKey: (key) =>
+      transaction(async (client) => {
+        const [event] = await readDispatchRows(
+          client,
+          `revision = (SELECT min(workspace_revision) FROM ha_projection_values
+            WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$4
+              AND model='runtime-dispatch-key' AND entity_id=$6
+              AND (cardinality($5::text[])=0 OR readers && $5::text[]))`,
+          [key],
+          "ha_events.revision",
+          1,
+        );
+        return event ? projected(client, event) : null;
+      }),
     readRuntimeDispatchByResumeSource: async (id) => (await byField("resumedFromDispatchId", id, true))[0] ?? null,
     readRuntimeDispatchesBySession: (id) => byField("runtimeSessionId", id, false),
     readRuntimeDispatchesByAttemptGroup: (id) => byField("attemptGroupId", id, false),
