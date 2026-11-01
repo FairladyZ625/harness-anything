@@ -47,7 +47,10 @@ test("main tabs retain the iframe, share the Host process, and expose failure re
       void manager.handle(request, response);
       return;
     }
-    response.setHeader("Content-Type", request.url === "/fixture.js" ? "text/javascript" : "text/html");
+    response.setHeader(
+      "Content-Type",
+      request.url === "/fixture.js" ? "text/javascript; charset=utf-8" : "text/html; charset=utf-8",
+    );
     response.end(
       request.url === "/fixture.js"
         ? readFileSync(path.join(scratch, "dist/fixture.js"))
