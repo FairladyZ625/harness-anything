@@ -80,6 +80,12 @@ export interface ManagedRbacPorts {
   readonly arch: string;
 }
 
+export interface ManagedPostgresBinaries {
+  readonly initdb: string;
+  readonly postgres: string;
+  readonly pgCtl: string;
+}
+
 const defaultPorts: ManagedRbacPorts = {
   fetch,
   spawn,
@@ -180,6 +186,22 @@ export class ManagedRbacService {
     if (config.stopped) this.#writeConfig({ ...config, stopped: false });
     await this.#startPostgres();
     await this.#startKeycloak();
+  }
+
+  /** Install and resolve only the managed PostgreSQL artifact for isolated storage integration tests. */
+  async ensurePostgresBinaries(): Promise<ManagedPostgresBinaries> {
+    const platform = supportedPlatform(this.#ports.platform, this.#ports.arch),
+      runtime = path.join(this.#root, "runtime"),
+      postgresArtifact = artifactManifest(platform).find((artifact) => artifact.name === "postgres");
+    if (!postgresArtifact)
+      throw managedRbacError("rbac_artifact_missing", "The managed artifact manifest has no PostgreSQL entry.");
+    mkdirSync(runtime, { recursive: true, mode: 0o700 });
+    await this.#installArtifact(postgresArtifact, runtime);
+    return {
+      initdb: managedExecutable(this.#root, "runtime/postgres/bin/initdb", this.#ports.platform),
+      postgres: managedExecutable(this.#root, "runtime/postgres/bin/postgres", this.#ports.platform),
+      pgCtl: managedExecutable(this.#root, "runtime/postgres/bin/pg_ctl", this.#ports.platform),
+    };
   }
 
   async stop(): Promise<Record<string, unknown>> {
