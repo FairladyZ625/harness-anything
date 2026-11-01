@@ -184,10 +184,12 @@ function validateDecisionEventFields(value: unknown, allowUnknownFields: boolean
           ) &&
           isNonEmptyString(finding.findingId) &&
           isNonEmptyString(finding.text) &&
-          Object.entries(REVIEW_FINDING_V1_OPTIONAL_FIELD_CONTRACTS).every(
-            ([field, contract]) =>
-              finding[field] === undefined || isValidReviewFindingOptionalFieldValue(contract, finding[field]),
-          ),
+          (finding.anchor === undefined || isNonEmptyString(finding.anchor)) &&
+          (allowUnknownFields ||
+            Object.entries(REVIEW_FINDING_V1_OPTIONAL_FIELD_CONTRACTS).every(
+              ([field, contract]) =>
+                finding[field] === undefined || isValidReviewFindingOptionalFieldValue(contract, finding[field]),
+            )),
       ) &&
       Array.isArray(payload.evidenceChecked) &&
       payload.evidenceChecked.every(isNonEmptyString) &&

@@ -401,6 +401,19 @@ test("Decision review current writer preserves the declared finding metadata and
   }
   const future = { ...review, payload: { ...review.payload, findings: [{ ...finding, futureField: true }] } };
   assert.deepEqual(validateDecisionEvent(future), [], "historical readers still admit additive fields");
+  const historical = {
+    ...review,
+    payload: { ...review.payload, findings: [{ ...finding, category: "historical-report-category" }] },
+  };
+  assert.deepEqual(validateDecisionEvent(historical), [], "admitted report metadata is not rewritten or narrowed");
+  assert.deepEqual(parseCanonicalEvent(serializePersistedCanonicalEvent(historical as typeof review)), historical);
+  assert.notDeepEqual(validateCurrentDecisionEvent(historical), [], "new findings require the current vocabulary");
+  assert.throws(() => serializeCanonicalEvent(historical as typeof review), /decision review payload is invalid/u);
+  assert.notDeepEqual(
+    validateDecisionEvent({ ...review, payload: { ...review.payload, findings: [{ ...finding, anchor: " " }] } }),
+    [],
+    "historical readers retain the original anchor validation",
+  );
   for (const invalid of [
     { ...review, actor: { principal: { personId: "" }, executor: null } },
     { ...review, source: { kind: "node", nodeId: "" } },
