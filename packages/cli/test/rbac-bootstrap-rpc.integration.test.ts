@@ -131,15 +131,13 @@ test("bootstrap CLI sends the password file contents only in transient local RPC
         await closed;
       }
     }
-    assert.deepEqual(requests.at(-1), {
-      method: "daemon.rbac.manage",
-      params: {
-        operation: "node-unregister",
-        nodeId: "retired-node",
-        expectedVersion: "1",
-        confirm: true,
-        force: true,
-      },
+    assert.equal(requests.at(-1)?.method, "daemon.rbac.manage");
+    assert.deepEqual(requests.at(-1)?.params, {
+      operation: "node-unregister",
+      nodeId: "retired-node",
+      expectedVersion: "1",
+      confirm: true,
+      force: true,
     });
     assert.equal(argv.includes(password), false, "credentials stay off argv");
     assert.equal(output.includes(password), false, "credentials stay out of CLI receipts and diagnostics");
