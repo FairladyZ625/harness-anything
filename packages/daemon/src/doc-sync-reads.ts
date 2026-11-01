@@ -31,7 +31,7 @@ import {
 } from "./doc-sync-files.ts";
 import { scanReceipt, scopeTouches } from "./doc-sync-settlement.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
-import { readSubmissionArtifact, submissionArtifactPath } from "./submission-artifacts.ts";
+import { readSubmissionArtifact, readSubmissionArtifactRange, submissionArtifactPath } from "./submission-artifacts.ts";
 import { renderWorkExplainer } from "./work-read.ts";
 
 export function readAction(input: Input): WriteReceipt {
@@ -68,6 +68,31 @@ export function readAction(input: Input): WriteReceipt {
       );
     // Submitted artifacts retain their frozen bytes; other reads use the shared live projection.
     if (task.packagePath && anchor) {
+      if (ranged && input.store.readContentBlobRange) {
+        const offset = Number(input.action.offset),
+          length = Number(input.action.length),
+          artifact = readSubmissionArtifactRange(
+            { store: input.store, cellCodedError: docSyncError },
+            task.packagePath,
+            anchor.path,
+            anchor.revision,
+            anchor.blobSha256,
+            offset,
+            length,
+          );
+        return {
+          outcome: "applied",
+          opId: artifact.acceptance,
+          revision: anchor.revision,
+          evidence: Buffer.from(artifact.bytes).toString("base64"),
+          evidenceEncoding: "base64",
+          evidenceOffset: offset,
+          evidenceSize: artifact.size,
+          evidenceDone: offset + artifact.bytes.byteLength >= artifact.size,
+          visibility: "center",
+          proof: proof(anchor.revision, anchor.revision, true, false),
+        } as unknown as WriteReceipt;
+      }
       const artifact = readSubmissionArtifact(
         { store: input.store, cellCodedError: docSyncError },
         task.packagePath,
@@ -134,10 +159,6 @@ export function readAction(input: Input): WriteReceipt {
       `${rawDocument.path} is a raw task artifact of ${rawDocument.size} bytes; ` +
         `read the materialized file or content object ${rawDocument.blobSha256}`,
     );
-  const evidence =
-    input.action.kind === "doc-show"
-      ? (reads[0]?.document?.body ?? "document:not-found")
-      : `document-cut:${current.headDigest}`;
   const rangeOffset =
       input.action.kind === "doc-show" && Number.isSafeInteger(input.action.offset) && Number(input.action.offset) >= 0
         ? Number(input.action.offset)
@@ -151,6 +172,42 @@ export function readAction(input: Input): WriteReceipt {
         : null;
   if ((rangeOffset === null) !== (rangeLength === null))
     throw docSyncError("invalid_command", "doc-show range requires both offset and length");
+  if (rangeOffset !== null && rangeLength !== null && input.store.readContentBlobRange && reads[0]?.document) {
+    const document = reads[0].document,
+      bytes = input.store.readContentBlobRange(document.blobSha256, rangeOffset, rangeLength);
+    if (bytes === null) throw docSyncError("document_not_found", "document content is unavailable");
+    const rangeReceipt = (
+      ready
+        ? {
+            outcome: "applied",
+            opId: `read:${input.action.kind}:${current.headDigest}`,
+            revision,
+            visibility: "center",
+            proof: proof(revision, revision, true, worktreeVisible),
+            detail: receiptDetail,
+          }
+        : {
+            outcome: "pending",
+            opId: `read:${input.action.kind}:${current.headDigest}`,
+            revision,
+            visibility: "center",
+            proof: proof(revision, Math.min(...reads.map((read) => read.watermark)), false, worktreeVisible),
+            detail: receiptDetail,
+          }
+    ) as WriteReceipt;
+    return {
+      ...rangeReceipt,
+      evidence: Buffer.from(bytes).toString("base64"),
+      evidenceEncoding: "base64",
+      evidenceOffset: rangeOffset,
+      evidenceSize: document.size,
+      evidenceDone: rangeOffset + bytes.byteLength >= document.size,
+    } as unknown as WriteReceipt;
+  }
+  const evidence =
+    input.action.kind === "doc-show"
+      ? (reads[0]?.document?.body ?? "document:not-found")
+      : `document-cut:${current.headDigest}`;
   const baseReceipt = (
     ready
       ? {

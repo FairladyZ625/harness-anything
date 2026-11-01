@@ -53,6 +53,7 @@ test("reviewer doc-show preserves frozen submitted artifacts and permits other r
   const packagePath = "tasks/task-one",
     text = Buffer.from(`HEAD\n${"evidence\n".repeat(40000)}TAIL\n`),
     binary = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0xff]),
+    rangeReads = { count: 0 },
     bodies = new Map([
       [`${packagePath}/artifacts/report.md`, text],
       [`${packagePath}/artifacts/image.png`, binary],
@@ -104,11 +105,25 @@ test("reviewer doc-show preserves frozen submitted artifacts and permits other r
             workspaceRevision: 7,
             opId: "accepted-seven",
             payload: {
-              changes: artifacts.map((anchor) => ({ path: anchor.path, candidate: { sha256: anchor.blobSha256 } })),
+              changes: artifacts.map((anchor) => ({
+                path: anchor.path,
+                candidate: {
+                  sha256: anchor.blobSha256,
+                  size: bodies.get(anchor.path)!.byteLength,
+                  mediaType: "text/markdown",
+                },
+              })),
             },
           };
         },
         readContentBlob: (blob: string) => [...bodies.values()].find((bytes) => digest(bytes) === blob),
+        readContentBlobRange: (blob: string, offset: number, maxBytes: number) =>
+          (() => {
+            rangeReads.count += 1;
+            return (
+              [...bodies.values()].find((bytes) => digest(bytes) === blob)?.subarray(offset, offset + maxBytes) ?? null
+            );
+          })(),
       } as never,
     };
   for (const source of ["local", { kind: "node", nodeId: "edge-one" }] as const) {
@@ -133,6 +148,7 @@ test("reviewer doc-show preserves frozen submitted artifacts and permits other r
       }
     }
   }
+  assert.equal(rangeReads.count, 2);
   const otherTask = runDocAction({
     ...input,
     action: { kind: "doc-show", path: "tasks/task-other/artifacts/report.md" },
