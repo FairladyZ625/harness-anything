@@ -40,7 +40,7 @@ export interface WriterSupervisor {
 /** Node-local override for the ready watchdog (dec_9DBB2EB3 CH3: machine-speed thresholds stay off the shared
  * settings); a cold rebuild on a large repository or slow disk can outlive the default without being dead. */
 export const WRITER_READY_WATCHDOG_MS_ENV = "HARNESS_WRITER_READY_WATCHDOG_MS";
-export const WRITER_READY_WATCHDOG_MS = 120_000;
+export const WRITER_READY_WATCHDOG_MS = 30_000;
 
 /** Effective watchdog: the environment override, else the default. An invalid override fails closed. */
 export function resolveWriterReadyWatchdogMs(env: NodeJS.ProcessEnv = process.env): number {

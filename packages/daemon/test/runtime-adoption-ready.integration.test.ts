@@ -147,7 +147,11 @@ test("the real writer relays completed runtime restorations before ready without
     try {
       // The first runtime publication waits on a real worker capability. The worker's four-second
       // status heartbeat must remain in the same monotonic attach phase until that call settles.
-      await restoredRuntimeHeartbeat.promise;
+      assert.equal(
+        await Promise.race([restoredRuntimeHeartbeat.promise.then(() => "heartbeat"), opening.then(() => "ready")]),
+        "heartbeat",
+        "runtime adoption must remain pending while the live writer continues its startup heartbeat",
+      );
     } finally {
       adoptionGate = null;
       releaseAdoption.resolve();
