@@ -1,6 +1,6 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import type { ScheduleV1 } from "@harness-anything/kernel";
+import { readSettingsFacet, resolveHarnessLayout, type ScheduleV1 } from "@harness-anything/kernel";
 import { makeGitReadinessSource, runProcessExitAsync, runProcessTextAsync } from "./process-port.ts";
 import type { TrustedScheduleRuntime } from "./runtime-spawn-types.ts";
 import {
@@ -160,11 +160,23 @@ export function remoteDefaultBranch(rootDir: string): string | null {
 }
 
 /**
- * dec_8B3FCCD256CAC5B0BF3CCEDE58 CH2: a new worktree starts from the repository's own default branch — its published
- * copy, else the branch the main checkout has out. Null when none of them resolves: a Git-less edge or a repository
- * before its first commit has no worktree to give.
+ * An explicit delivery.targetRef is the repository's work baseline, regardless of origin's history. An unavailable
+ * declaration fails rather than choosing a different history. Without one, dec_8B3FCCD256CAC5B0BF3CCEDE58 CH2 uses
+ * the repository's default branch: its published copy, else the main checkout's branch. Null when none resolves.
  */
 export function repositoryBaseRef(rootDir: string): string | null {
+  // Task checkouts mirror only their task package, so read the declaration from the primary worktree.
+  const primary = gitOrNull(rootDir, "worktree", "list", "--porcelain", "-z")
+    ?.split("\0")[0]
+    ?.slice("worktree ".length);
+  if (!primary) return null;
+  const { configPath } = resolveHarnessLayout(primary),
+    targetRef = configPath && readSettingsFacet(readFileSync(configPath, "utf8")).delivery.targetRef;
+  if (targetRef) {
+    if (!gitOrNull(rootDir, "rev-parse", "--verify", "--quiet", `${targetRef}^{commit}`))
+      throw new Error(`Configured delivery.targetRef ${targetRef} does not resolve to a commit in ${rootDir}.`);
+    return targetRef;
+  }
   return firstCommitRef(rootDir, defaultBranchCandidates(rootDir));
 }
 
