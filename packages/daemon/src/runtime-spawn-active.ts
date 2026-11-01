@@ -3,7 +3,7 @@ import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import type { DispatchStallEvidence } from "./dispatch-stream.ts";
 import { statSync, watch, type FSWatcher } from "node:fs";
 import path from "node:path";
-import { consumeKnownError, DEFAULT_RUNTIME_STALL_TIMEOUT_MS, resolveHarnessLayout } from "@harness-anything/kernel";
+import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS, resolveHarnessLayout } from "@harness-anything/kernel";
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
 
 type ActiveRuntimeBase = Omit<
@@ -215,7 +215,10 @@ function armStallDeadline(
   handles.timer.unref();
 }
 
-function attachRuntimeObservations(context: RuntimeSpawnerContext, active: ActiveRuntime): void {
+function attachRuntimeObservations(
+  context: RuntimeSpawnerContext,
+  active: ActiveRuntime,
+): "watching" | "workspace-removed" {
   const handles: RuntimeObservationHandles = { timer: null, watcher: null, disposed: false };
   const localRoot =
       typeof context.input.rootDir === "string" ? resolveHarnessLayout(context.input.rootDir).localRoot : null,
@@ -254,7 +257,10 @@ function attachRuntimeObservations(context: RuntimeSpawnerContext, active: Activ
       if ((error.code !== "ENOENT" && error.code !== "EPERM") || !workspaceRemoved()) throw error;
     };
   const workspaceChanged = (eventType: string, filename: string | Buffer | null): void => {
-    if (eventType === "rename" && workspaceRemoved()) return;
+    if (eventType === "rename" && workspaceRemoved()) {
+      active.recordWorkspaceProgress = null;
+      return;
+    }
     const relative = typeof filename === "string" ? filename : String(filename ?? "");
     // The daemon's own stream/cache writes are observations about the dispatch, not worker
     // progress. Ignoring the local runtime root also prevents appendWorkspaceActivity from
@@ -268,17 +274,21 @@ function attachRuntimeObservations(context: RuntimeSpawnerContext, active: Activ
       return;
     active.recordWorkspaceProgress?.();
   };
+  if (active.stalledAt === null) armStallDeadline(context, active, handles);
   try {
     handles.watcher = watch(active.cwd, { recursive: true }, workspaceChanged);
-    handles.watcher.on("error", watchError);
+    handles.watcher.on("error", (error: NodeJS.ErrnoException) => {
+      watchError(error);
+      active.recordWorkspaceProgress = null;
+    });
     handles.watcher.unref?.();
   } catch (error) {
     // Check the directory after watch refuses it as well: deletion can race registration.
     // Other watcher errors, including ENOENT below a workspace that still exists, stay faults.
     watchError(error as NodeJS.ErrnoException);
-    consumeKnownError(error);
+    return "workspace-removed";
   }
-  if (active.stalledAt === null) armStallDeadline(context, active, handles);
+  return "watching";
 }
 
 export function attachActiveRuntime(
@@ -322,7 +332,7 @@ export function attachActiveRuntime(
   // open is a real fault: it travels out of here, and the launcher's failed-launch path terminates
   // the process and retires the dispatch.
   try {
-    attachRuntimeObservations(context, active);
+    if (attachRuntimeObservations(context, active) === "workspace-removed") active.recordWorkspaceProgress = null;
   } catch (error) {
     disposeActiveRuntimeObservations(active);
     throw error;

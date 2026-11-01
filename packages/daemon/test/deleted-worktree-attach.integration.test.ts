@@ -17,7 +17,7 @@ import { signInPolicyTestUser, withPolicyGroup } from "./keycloak-policy.fixture
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
 import { definition, installation } from "./fixtures/runtime-ingress.ts";
 
-for (const deletion of ["git-remove", "direct-rm"] as const) {
+for (const deletion of ["pr-merge-remove", "direct-rm"] as const) {
   test(`canonical survives ${deletion} of an observed task worktree in the same daemon`, async (t) => {
     const parent = mkdtempSync(path.join(tmpdir(), "ha-deleted-worktree-")),
       rootDir = path.join(parent, "repo"),
@@ -123,9 +123,21 @@ for (const deletion of ["git-remove", "direct-rm"] as const) {
     assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
     appendRuntimeWorkerRecord(rootDir, String(spawned.dispatchId), { kind: "process_started", pid: child.pid! });
     // Delete outside the daemon while its canonical cell and workspace watcher are open.
-    if (deletion === "git-remove")
-      execFileSync("git", ["-C", rootDir, "worktree", "remove", checkout.cwd], { stdio: "pipe" });
-    else
+    if (deletion === "pr-merge-remove") {
+      // tools/pr-merge.mjs removeLocalBranch runs exactly this pair from the main checkout.
+      execFileSync("git", ["worktree", "remove", checkout.cwd], { cwd: rootDir, stdio: "pipe" });
+      execFileSync("git", ["branch", "-D", checkout.branch], { cwd: rootDir, stdio: "pipe" });
+      assert.equal(
+        execFileSync("git", ["branch", "--list", checkout.branch], { cwd: rootDir, encoding: "utf8" }).trim(),
+        "",
+      );
+      assert.equal(
+        execFileSync("git", ["worktree", "list", "--porcelain"], { cwd: rootDir, encoding: "utf8" }).includes(
+          checkout.cwd,
+        ),
+        false,
+      );
+    } else
       execFileSync(process.execPath, [
         "-e",
         "require('node:fs').rmSync(process.argv[1], {recursive:true, force:true})",

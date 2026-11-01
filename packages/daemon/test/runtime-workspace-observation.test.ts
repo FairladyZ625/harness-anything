@@ -68,6 +68,7 @@ for (const notification of ["rename", "ENOENT", "EPERM"] as const) {
       if (notification === "rename") changed!("rename", null);
       else watcher.emit("error", Object.assign(new Error("workspace removed"), { code: notification }));
       assert.equal(closed, 1);
+      assert.equal(runtime.recordWorkspaceProgress, null, "the removed workspace has no progress source");
       assert.equal(runtime.workspaceActivityCount, 0, "removal is not worker progress");
       assert.equal(typeof runtime.recordProviderProgress, "function");
       runtime.recordProviderProgress!();
@@ -77,3 +78,38 @@ for (const notification of ["rename", "ENOENT", "EPERM"] as const) {
     assert.equal(closed, 1, "disposal does not retain the removed workspace's watcher");
   });
 }
+
+test("an already removed workspace has no progress callback while provider observation remains attached", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-workspace-already-removed-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  let exitRegistrations = 0;
+  const runtime = active({
+      cwd: path.join(root, "removed-workspace"),
+      runtimeSessionId: "runtime-workspace-removed",
+      stalledAt: null,
+      lastProgressAtMs: Date.now(),
+      process: {
+        pid: process.pid,
+        onOutput: () => undefined,
+        onErrorOutput: () => undefined,
+        onExit: () => {
+          exitRegistrations += 1;
+        },
+        terminate: () => assert.fail("workspace absence must not terminate the provider"),
+      },
+    }),
+    context = {
+      input: { rootDir: root, now: () => new Date().toISOString(), schedule: () => undefined },
+      processes: new Map([[runtime.runtimeSessionId, runtime]]),
+      exiting: new Set(),
+    } as unknown as RuntimeSpawnerContext;
+  try {
+    attachActiveRuntime(context, runtime);
+    assert.equal(runtime.recordWorkspaceProgress, null);
+    assert.equal(typeof runtime.recordProviderProgress, "function");
+    runtime.recordProviderProgress!();
+    assert.equal(exitRegistrations, 1);
+  } finally {
+    disposeActiveRuntimeObservations(runtime);
+  }
+});
