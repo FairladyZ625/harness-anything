@@ -232,7 +232,7 @@ export interface RuntimeHealthAssessment {
 
 /**
  * 唯一判定入口。顺序即优先级:
- * 1. daemon 无响应 / 仓不可用 = down;
+ * 1. daemon 无响应 = down;单仓不可用只降级仓库健康;
  * 2. 隔离行是真不完整,哪怕 lag 刚出现也是 degraded;
  * 3. 挂载/水合是中性 starting(挂载失败会落到 unavailable,不靠 warming 超时猜);
  * 4. 落后与「无结论」先按瞬时状态给中性档,跨过 TRANSIENT_GRACE_SEC 才降级。
@@ -242,7 +242,7 @@ export function runtimeHealthAssessment(health: RuntimeHealth): RuntimeHealthAss
     return { level: "down", cause: { kind: "daemon-unresponsive" } };
   }
   if (health.cell.state === "unavailable") {
-    return { level: "down", cause: { kind: "cell-unavailable", problem: health.cell.problem } };
+    return { level: "degraded", cause: { kind: "cell-unavailable", problem: health.cell.problem } };
   }
   const isolatedRows = health.projection.isolatedRows ?? 0;
   if (isolatedRows > 0) {
