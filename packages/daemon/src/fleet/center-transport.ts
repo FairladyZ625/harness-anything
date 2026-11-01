@@ -3,11 +3,7 @@ import { randomUUID } from "node:crypto";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { type TLSSocket } from "node:tls";
-import {
-  consumeKnownError,
-  isContractVersionCompatible,
-  TASK_EVENT_SHAPE_COMPAT_VERSION,
-} from "@harness-anything/kernel";
+import { consumeKnownError, TASK_EVENT_SHAPE_COMPAT_VERSION } from "@harness-anything/kernel";
 import { daemonBuildStamp } from "../build-identity.ts";
 import { writeFileDurably } from "@harness-anything/storage";
 import type { Delivery, FleetCenterOptions, SessionWindow, State, Upload } from "./center-types.ts";
