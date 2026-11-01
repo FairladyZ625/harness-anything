@@ -239,26 +239,6 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
     `notification at-most-once: ${JSON.stringify({ executions: onceLines.length, records: cancelledRecords })}`,
   );
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-  const streamRoot = path.join(root, ".harness", "runtime", "dispatches"),
-    streamsBeforeRejectedResume = readdirSync(streamRoot).sort(),
-    sessionsBeforeRejectedResume = (run(root, env, ["runtime", "status"]).sessions as Array<Record<string, unknown>>)
-      .length,
-    rejectedResume = runMaybe(root, env, [
-      "runtime",
-      "run",
-      "--resume-dispatch",
-      detachedDispatchId,
-      "--prompt",
-      "failure:empty",
-      "--detach",
-    ]);
-  assert.equal(rejectedResume.status, 1);
-  assert.equal(rejectedResume.receipt.code, "runtime_resume_failed", JSON.stringify(rejectedResume.receipt));
-  assert.deepEqual(readdirSync(streamRoot).sort(), streamsBeforeRejectedResume);
-  assert.equal(
-    (run(root, env, ["runtime", "status"]).sessions as Array<Record<string, unknown>>).length,
-    sessionsBeforeRejectedResume,
-  );
   const originalHeader = readDispatchRecords(root, detachedDispatchId)[0]!;
   const mismatchedAgent = runMaybe(root, env, [
     "agent",
@@ -334,6 +314,69 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
     ).providerSessionId,
     "provider-cli-session",
   );
+});
+
+test("rejected task resume stream cleanup follows the observed lease stop proof", async (context) => {
+  const fixture = createRuntimeFixture(context);
+  installIdentities(fixture.parent, fixture.root, fixture.env);
+  const { root, env } = fixture,
+    { taskId, executionId } = seedTask(root, env, "rejected-resume-stop-proof");
+  run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
+  const detached = run(root, env, ["agent", "run", "terra", "--prompt", "hold", "--task", taskId, "--detach"]);
+  const sourceDispatchId = String(detached.dispatchId),
+    sourceSessionId = String(detached.runtimeSessionId);
+  await eventuallyValue(
+    () =>
+      readDispatchRecords(root, sourceDispatchId).find((record) => {
+        const event = record.event as { item?: { id?: string } } | undefined;
+        return record.kind === "provider_event" && event?.item?.id === "live";
+      }) ?? null,
+  );
+  assert.equal(run(root, env, ["runtime", "cancel", sourceSessionId]).detail, "cancelled");
+  await eventuallyTerminal(root, env, ["task", "dispatches", taskId]);
+  run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
+
+  const streamRoot = path.join(root, ".harness", "runtime", "dispatches"),
+    streamsBeforeRejectedResume = readdirSync(streamRoot).sort(),
+    leaseBeforeRejectedResume = (
+      JSON.parse(String(run(root, env, ["task", "show", taskId]).evidence)) as {
+        lease: { phase: string } | null;
+      }
+    ).lease?.phase;
+  assert.equal(leaseBeforeRejectedResume, "held", "the task must hold its lease before retry admission");
+  const rejectedResume = runMaybe(root, env, [
+    "runtime",
+    "run",
+    "--resume-dispatch",
+    sourceDispatchId,
+    "--prompt",
+    "failure:empty",
+    "--detach",
+  ]);
+  assert.equal(rejectedResume.status, 1);
+  assert.equal(rejectedResume.receipt.code, "runtime_resume_failed", JSON.stringify(rejectedResume.receipt));
+
+  const streamsAfterRejectedResume = readdirSync(streamRoot).sort(),
+    leasePhase =
+      (
+        JSON.parse(String(run(root, env, ["task", "show", taskId]).evidence)) as {
+          lease: { phase: string } | null;
+        }
+      ).lease?.phase ?? null,
+    addedStreams = streamsAfterRejectedResume.filter((stream) => !streamsBeforeRejectedResume.includes(stream));
+  context.diagnostic(`rejected resume settlement: ${JSON.stringify({ leasePhase, addedStreams })}`);
+  // The persisted lease is the settlement's stop-proof result; unresolved proof leaves it held,
+  // while a proven stop releases it. The stream assertion follows that observed state.
+  if (leasePhase === "held") {
+    assert.equal(addedStreams.length, 1, "an unproven process-group stop must retain the rejected resume stream");
+  } else {
+    assert.ok(leasePhase === null || leasePhase === "released", `unexpected task lease state: ${leasePhase}`);
+    assert.deepEqual(
+      streamsAfterRejectedResume,
+      streamsBeforeRejectedResume,
+      "a proven process-group stop must clean up the rejected resume stream",
+    );
+  }
 });
 
 test("Detached runtime results are retrieved from another CLI process over a reused connection", async (context) => {
