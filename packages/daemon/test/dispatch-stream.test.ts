@@ -455,7 +455,7 @@ test("adoption skips a stream above Node's string limit while runtime cancel sti
       context = {
         input: { rootDir, repoId: "oversized-read" },
         requiredRuntimeProjection: () => ({
-          readRuntimeDispatch: () => ({ payload: { dispatchId } }),
+          readRuntimeDispatch: () => ({ source: "local", payload: { dispatchId } }),
           readRuntimeSessions: () => [
             {
               runtimeSessionId: "runtime_777777777777777777777777",
@@ -633,7 +633,7 @@ test("fleet adoption does not probe a dispatch owned by another node", async () 
           repoId: "node-owner",
           runtimeNode: { nodeId: "node-b" },
           remote: {
-            readRuntimeDispatchId: async () => dispatchId,
+            readRuntimeDispatch: async () => ({ payload: { dispatchId }, source: { kind: "node", nodeId: "node-a" } }),
             readRuntimeSessions: async () => [
               { runtimeSessionId, instanceId: "instance-1", providerSessionId: null, liveness: "live", outcome: null },
             ],
@@ -679,7 +679,7 @@ test("runtime cancel settles a live projection whose recorded process already ex
       context = {
         input: { rootDir, repoId: "cancel-exited", now: () => "2026-09-11T00:00:00.000Z" },
         requiredRuntimeProjection: () => ({
-          readRuntimeDispatch: () => ({ payload: { dispatchId } }),
+          readRuntimeDispatch: () => ({ source: "local", payload: { dispatchId } }),
           readRuntimeSessions: () => [
             { runtimeSessionId, instanceId: "instance-1", providerSessionId: null, liveness: "live", outcome: null },
           ],

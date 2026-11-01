@@ -7,7 +7,7 @@ import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { adoptRuntimes } from "../src/runtime-spawn-adoption.ts";
+import { adoptRuntimes, assertRuntimeRecoveryReady } from "../src/runtime-spawn-adoption.ts";
 import { openDispatchStream, appendRuntimeWorkerRecord, archiveDispatchStream } from "../src/dispatch-stream.ts";
 import { currentWorktreeHead } from "../src/runtime-continuation-context.ts";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
@@ -55,6 +55,7 @@ function fixture(t: test.TestContext, settle: (active: ActiveRuntime) => Promise
     requiredRuntimeProjection: () => ({
       readRuntimeSessions: () => sessions,
       readRuntimeDispatch: (id: string) => ({
+        source: "local",
         payload: { dispatchId: sessions.find((s) => s.runtimeSessionId === id)!.dispatchId },
       }),
     }),
@@ -138,7 +139,7 @@ test("one unresolved recovery does not hold another runtime or the repository wr
 
 for (const fault of ["pending", "rejected"] as const) {
   test(`one ${fault} remote dispatch lookup does not hold another runtime`, async (t) => {
-    const lookup = Promise.withResolvers<string | null>(),
+    const lookup = Promise.withResolvers<{ payload: { dispatchId: string }; source: "local" }>(),
       second = Promise.withResolvers<void>();
     const { context } = fixture(t, async (active) => {
       if (active.runtimeSessionId === "runtime-1") second.resolve();
@@ -150,9 +151,9 @@ for (const fault of ["pending", "rejected"] as const) {
         ...context.input,
         remote: {
           readRuntimeSessions: async () => projection.readRuntimeSessions(),
-          readRuntimeDispatchId: async (id: string) => {
+          readRuntimeDispatch: async (id: string) => {
             if (id === "runtime-0") return lookup.promise;
-            return projection.readRuntimeDispatch(id)!.payload.dispatchId;
+            return projection.readRuntimeDispatch(id);
           },
         },
       },
@@ -162,10 +163,38 @@ for (const fault of ["pending", "rejected"] as const) {
     try {
       await second.promise;
     } finally {
-      lookup.resolve("dispatch_111111111111111111111111");
+      lookup.resolve({ payload: { dispatchId: "dispatch_111111111111111111111111" }, source: "local" });
       const result = await recovery;
       assert.equal(result[1]!.outcome, "ready");
       assert.equal(result[0]!.outcome, fault === "rejected" ? "failed" : "ready");
     }
   });
 }
+
+test("canonical dispatch ownership excludes another node without requiring its local header", async (t) => {
+  const { context } = fixture(t, async () => {
+    throw new Error("foreign runtime cannot settle here");
+  });
+  const projection = context.requiredRuntimeProjection(context.input);
+  const foreign = {
+    ...context,
+    input: {
+      ...context.input,
+      runtimeNode: { nodeId: "node-b" },
+      remote: {
+        readRuntimeSessions: async () => projection.readRuntimeSessions(),
+        readRuntimeDispatch: async (id: string) => ({
+          ...projection.readRuntimeDispatch(id)!,
+          source: { kind: "node", nodeId: "node-a" },
+        }),
+      },
+    },
+  } as RuntimeSpawnerContext;
+  const results = await adoptRuntimes(foreign);
+  assert.deepEqual(
+    results.map((result) => result.outcome),
+    ["foreign", "foreign"],
+  );
+  assert.equal(assertRuntimeRecoveryReady(foreign, "runtime-0"), false);
+  assert.equal(foreign.processes.size, 0);
+});

@@ -91,7 +91,12 @@ import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { assertReviewerTarget, selectReadOnlyAttachTarget, selectReviewTarget } from "./review-dispatch-admission.ts";
 import { assertContextBudget, ModelSlotQueue } from "./runtime/model-slot-queue.ts";
 import { relayBudgetMicrosOf } from "./runtime/cloud-dispatch-relay.ts";
-import { initialFallbackAttempt, reconcileFallback, requiredRuntimeFast } from "./runtime-spawn-fallback.ts";
+import {
+  initialFallbackAttempt,
+  reconcileFallback,
+  requiredRuntimeFast,
+  restoreFallbackSchedules,
+} from "./runtime-spawn-fallback.ts";
 import {
   resolveRuntimeResume,
   assertNativeResumeNotExported,
@@ -461,7 +466,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           if (!dryRun)
             for (const session of localRuntimeSessions) {
               if (session.outcome !== null || session.instanceId !== runtimeInstanceId) continue;
-              assertRuntimeRecoveryReady(extracted, session.runtimeSessionId);
+              if (!assertRuntimeRecoveryReady(extracted, session.runtimeSessionId)) continue;
               if (!processes.has(session.runtimeSessionId))
                 throw runtimeSpawnError(
                   "runtime_recovery_pending",
@@ -1329,6 +1334,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         onPrepared,
       ),
     adopt: (onProgress?: (completed: number) => void) => {
+      input.schedule(() => restoreFallbackSchedules(extracted));
       input.schedule(() => sweepSettledRuntimeTempDirectories(extracted));
       return adoptRuntimes(extracted, onProgress);
     },

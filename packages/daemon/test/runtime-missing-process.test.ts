@@ -29,7 +29,7 @@ test("adoption settles an owned live session whose dispatch never recorded a pro
         input: { rootDir, repoId: "missing-process", now: () => "2026-09-13T00:01:00.000Z" },
         requiredRuntimeProjection: () => ({
           readRuntimeSessions: () => [liveSession(runtimeSessionId)],
-          readRuntimeDispatch: () => ({ payload: { dispatchId } }),
+          readRuntimeDispatch: () => ({ source: "local", payload: { dispatchId } }),
         }),
         processes: new Map(),
         exiting: new Set<string>(),
@@ -64,7 +64,7 @@ test("adoption replays an archived dead dispatch whose canonical outcome was not
         input: { rootDir, repoId: "archived-dead-process", now: () => "2026-10-31T04:00:00.000Z" },
         requiredRuntimeProjection: () => ({
           readRuntimeSessions: () => [liveSession(runtimeSessionId)],
-          readRuntimeDispatch: () => ({ payload: { dispatchId } }),
+          readRuntimeDispatch: () => ({ source: "local", payload: { dispatchId } }),
         }),
         processes: new Map(),
         exiting: new Set<string>(),
@@ -95,7 +95,7 @@ test("recovery adoption preserves a runtime already owned by this daemon", async
       input: { rootDir, repoId: "owned-runtime", now: () => "2026-09-13T00:01:00.000Z" },
       requiredRuntimeProjection: () => ({
         readRuntimeSessions: () => [liveSession(runtimeSessionId)],
-        readRuntimeDispatch: () => ({ payload: { dispatchId } }),
+        readRuntimeDispatch: () => ({ source: "local", payload: { dispatchId } }),
       }),
       processes,
       exiting: new Set<string>(),
@@ -128,7 +128,7 @@ for (const failurePoint of ["liveness", "settlement", "in-flight"] as const) {
         input: { rootDir, repoId: "retry-adoption", now: () => "2026-09-13T00:01:00.000Z" },
         requiredRuntimeProjection: () => ({
           readRuntimeSessions: () => [{ ...liveSession(runtimeSessionId), liveness: "unknown" }],
-          readRuntimeDispatch: () => ({ payload: { dispatchId } }),
+          readRuntimeDispatch: () => ({ source: "local", payload: { dispatchId } }),
         }),
         processes: new Map(),
         exiting: new Set(failurePoint === "in-flight" ? [runtimeSessionId] : []),
@@ -182,6 +182,7 @@ test("adoption reports completed restores independently of a pending or failed s
       requiredRuntimeProjection: () => ({
         readRuntimeSessions: () => sessions,
         readRuntimeDispatch: (id: string) => ({
+          source: "local",
           payload: {
             dispatchId: `dispatch_${String(sessions.findIndex((s) => s.runtimeSessionId === id)).repeat(24)}`,
           },
@@ -228,7 +229,7 @@ test("runtime cancel settles a live projection whose dispatch never recorded a p
         input: { rootDir, repoId: "cancel-missing-process" },
         requiredRuntimeProjection: () => ({
           readRuntimeSessions: () => [liveSession(runtimeSessionId)],
-          readRuntimeDispatch: () => ({ payload: { dispatchId } }),
+          readRuntimeDispatch: () => ({ source: "local", payload: { dispatchId } }),
         }),
         processes: new Map(),
         exiting: new Set<string>(),

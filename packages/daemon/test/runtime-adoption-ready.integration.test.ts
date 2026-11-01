@@ -306,7 +306,7 @@ test("owner adoption checks dead PID before publishing live and preserves live c
       } as unknown as RuntimeSession,
       projection = {
         readRuntimeSession: () => accepted,
-        readRuntimeDispatch: () => ({ payload: { dispatchId } }),
+        readRuntimeDispatch: () => ({ source: "local", payload: { dispatchId } }),
       } as never,
       hub = makeAgentRuntimeStreamHub({
         readSession: () => readObservedRuntimeSession(projection, rootDir, runtimeSessionId),
@@ -348,7 +348,7 @@ test("owner adoption checks dead PID before publishing live and preserves live c
       },
       remote: {
         readRuntimeSessions: async () => [accepted],
-        readRuntimeDispatchId: async () => dispatchId,
+        readRuntimeDispatch: async () => ({ payload: { dispatchId }, source: { kind: "node", nodeId: "owner" } }),
         publish: async (draft) => {
           published.push(`${draft.type}:${String(draft.payload.liveness ?? "")}`);
           throw new Error("center unavailable");

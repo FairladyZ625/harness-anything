@@ -27,7 +27,7 @@ import { isRuntimeKindId } from "./runtime-inventory.ts";
 export interface RuntimeRecoveryResult {
   readonly runtimeSessionId: string;
   readonly dispatchId: string | null;
-  readonly outcome: "ready" | "failed";
+  readonly outcome: "ready" | "failed" | "foreign";
   readonly error?: unknown;
 }
 
@@ -70,10 +70,11 @@ export async function adoptRuntimes(
       const entry: { promise: Promise<RuntimeRecoveryResult>; result?: RuntimeRecoveryResult } = {
         promise: Promise.resolve()
           .then(async () => {
-            dispatchId = context.input.remote
-              ? await context.input.remote.readRuntimeDispatchId(runtimeSessionId)
-              : (context.requiredRuntimeProjection(context.input).readRuntimeDispatch(runtimeSessionId)?.payload
-                  .dispatchId ?? null);
+            const dispatch = context.input.remote
+              ? await context.input.remote.readRuntimeDispatch(runtimeSessionId)
+              : context.requiredRuntimeProjection(context.input).readRuntimeDispatch(runtimeSessionId);
+            dispatchId = dispatch?.payload.dispatchId ?? null;
+            if (dispatch && !ownedByRuntimeSpawner(dispatch, context.input.runtimeNode)) return "foreign" as const;
             const header = dispatchId ? readDispatchStreamHeader(context.input.rootDir, dispatchId) : null;
             if (!header)
               throw context.runtimeSpawnError(
@@ -81,12 +82,13 @@ export async function adoptRuntimes(
                 `Runtime ${runtimeSessionId} has no readable dispatch.`,
               );
             await restoreRuntime(context, header, session);
+            return "ready" as const;
           })
           .then(
-            () => ({
+            (outcome) => ({
               runtimeSessionId,
               dispatchId,
-              outcome: "ready" as const,
+              outcome,
             }),
             (error: unknown) => {
               context.input.recordLifecycle?.({
@@ -117,11 +119,13 @@ export async function adoptRuntimes(
 }
 
 /** Admission never waits while holding the writer: an unresolved owner cannot look idle. */
-export function assertRuntimeRecoveryReady(context: RuntimeSpawnerContext, runtimeSessionId: string): void {
+export function assertRuntimeRecoveryReady(context: RuntimeSpawnerContext, runtimeSessionId: string): boolean {
   const recovery = recoveries.get(context)?.get(runtimeSessionId);
+  if (recovery?.result?.outcome === "foreign") return false;
   if (recovery?.result?.outcome === "failed") throw recovery.result.error;
   if (recovery && !recovery.result)
     throw context.runtimeSpawnError("runtime_recovery_pending", `Runtime ${runtimeSessionId} is still recovering.`);
+  return true;
 }
 
 async function restoreRuntime(
@@ -352,7 +356,7 @@ function logRuntimeTempReclaimFailure(instanceId: string, runtimeSessionId: stri
 }
 
 export function ownedByRuntimeSpawner(
-  binding: RuntimeBinding,
+  binding: Pick<RuntimeBinding, "source">,
   runtimeNode: RuntimeSpawnerInput["runtimeNode"],
 ): boolean {
   if (runtimeNode === undefined) return binding.source === "local";

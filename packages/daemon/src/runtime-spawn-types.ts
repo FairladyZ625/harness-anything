@@ -348,7 +348,10 @@ export interface RemoteRuntimePersistence {
     readonly worktree: TaskWorktreeBindingV1 | null;
   }>;
   readonly readRuntimeSessions: () => Promise<readonly RuntimeSessionSelection[]>;
-  readonly readRuntimeDispatchId: (runtimeSessionId: string) => Promise<string | null>;
+  readonly readRuntimeDispatch: (runtimeSessionId: string) => Promise<{
+    readonly payload: { readonly dispatchId: string };
+    readonly source: RuntimeBinding["source"];
+  } | null>;
   readonly publish: (draft: {
     readonly type: AgentRuntimeEventV1["type"];
     readonly payload: Readonly<Record<string, unknown>>;

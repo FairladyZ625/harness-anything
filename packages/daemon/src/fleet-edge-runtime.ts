@@ -433,10 +433,10 @@ export function openFleetEdgeRuntime(input: {
       },
       readRuntimeSessions: () =>
         readFleetRuntimeSessionsPaged(async (payload) => readReplica("repo.agentRuntime.overview", payload)),
-      readRuntimeDispatchId: async (id) =>
+      readRuntimeDispatch: async (id) =>
         withEdgeReadModel(
           { ...request, principalId: (await input.readBinding()).actor.principal.personId },
-          (projection) => projection.readRuntimeDispatch(id)?.payload.dispatchId ?? null,
+          (projection) => projection.readRuntimeDispatch(id),
         ),
       publish: async (draft) => {
         let response: Awaited<ReturnType<typeof runFleetRuntimeEventClient>>;
