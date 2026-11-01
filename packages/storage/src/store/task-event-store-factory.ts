@@ -6,7 +6,7 @@ import {
 import { activateEmptyCanonicalGeneration, resolveActiveGeneration } from "./sqlite-event-store.ts";
 import { resolveStorageBackend, unsupportedStorageBackendError } from "../storage-backend.ts";
 import type { LedgerEventStorePort as KernelLedgerEventStorePort } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
-import type { PGliteStorageBackendConfig, PostgresStorageBackendConfig } from "../storage-backend.ts";
+import type { PostgresStorageBackendConfig } from "../storage-backend.ts";
 
 // Ordinary attachment cannot bypass activation with an explicit old generation.
 // Offline conversion opens its source through the read-only SQLite storage port.
@@ -21,14 +21,7 @@ const selectGeneration = (options: SqliteTaskEventStoreOptions): SqliteTaskEvent
 export type PostgresTaskEventStoreOptions = Omit<SqliteTaskEventStoreOptions, "storage"> & {
   readonly storage: PostgresStorageBackendConfig;
 };
-export type PGliteTaskEventStoreOptions = Omit<SqliteTaskEventStoreOptions, "storage"> & {
-  readonly storage: PGliteStorageBackendConfig;
-};
-
-type TaskEventStoreFactoryOptions =
-  | SqliteTaskEventStoreOptions
-  | PostgresTaskEventStoreOptions
-  | PGliteTaskEventStoreOptions;
+type TaskEventStoreFactoryOptions = SqliteTaskEventStoreOptions | PostgresTaskEventStoreOptions;
 
 function selectBackend(options: TaskEventStoreFactoryOptions): asserts options is SqliteTaskEventStoreOptions {
   const backend = resolveStorageBackend(options);
@@ -36,7 +29,6 @@ function selectBackend(options: TaskEventStoreFactoryOptions): asserts options i
 }
 
 export function makeTaskEventStore(options: PostgresTaskEventStoreOptions): KernelLedgerEventStorePort;
-export function makeTaskEventStore(options: PGliteTaskEventStoreOptions): KernelLedgerEventStorePort;
 export function makeTaskEventStore(options: SqliteTaskEventStoreOptions): SqliteCanonicalEventStore;
 export function makeTaskEventStore(
   options: TaskEventStoreFactoryOptions,
@@ -51,7 +43,6 @@ export function makeTaskEventStore(
   });
 }
 export function makeTaskEventReader(options: PostgresTaskEventStoreOptions): KernelLedgerEventStorePort;
-export function makeTaskEventReader(options: PGliteTaskEventStoreOptions): KernelLedgerEventStorePort;
 export function makeTaskEventReader(options: SqliteTaskEventStoreOptions): SqliteCanonicalEventStore;
 export function makeTaskEventReader(
   options: TaskEventStoreFactoryOptions,

@@ -22,8 +22,6 @@ export {
 export type {
   TaskProjectionFactoryOptions,
   TaskProjectionReaderFactoryOptions,
-  PGliteTaskProjectionFactoryOptions,
-  PGliteTaskProjectionReaderFactoryOptions,
   PostgresTaskProjectionFactoryOptions,
   PostgresTaskProjectionReaderFactoryOptions,
 } from "./rebuildable-task-projection-factory.ts";

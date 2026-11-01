@@ -20,7 +20,6 @@ import type { CanonicalEventStore } from "@harness-anything/kernel/internal/port
 import {
   resolveStorageBackend,
   unsupportedStorageBackendError,
-  type PGliteStorageBackendConfig,
   type PostgresStorageBackendConfig,
   type SqliteStorageBackendConfig,
   type StorageBackendOptions,
@@ -56,7 +55,6 @@ type SqliteEntityStoreOptions = Omit<StorageBackendOptions, "storage"> & {
   readonly storage?: SqliteStorageBackendConfig;
 };
 export type PostgresEntityDeclarationStoreOptions = { readonly storage: PostgresStorageBackendConfig };
-export type PGliteEntityDeclarationStoreOptions = { readonly storage: PGliteStorageBackendConfig };
 
 const entityEventCaches = new WeakMap<
   EntityEventSource,
@@ -115,10 +113,6 @@ function entityEventCache(source: EntityEventSource): Map<string, Map<string, St
 export function createEntityStore(
   source: EntityEventSource,
   options: PostgresEntityDeclarationStoreOptions,
-): EntityDeclarationStorePort;
-export function createEntityStore(
-  source: EntityEventSource,
-  options: PGliteEntityDeclarationStoreOptions,
 ): EntityDeclarationStorePort;
 export function createEntityStore(
   source: EntityEventSource,
@@ -210,10 +204,6 @@ export function createEntityStore(
 export function openEntityStore(
   rootInput: HarnessLayoutInput,
   options: PostgresEntityDeclarationStoreOptions,
-): EntityDeclarationStorePort;
-export function openEntityStore(
-  rootInput: HarnessLayoutInput,
-  options: PGliteEntityDeclarationStoreOptions,
 ): EntityDeclarationStorePort;
 export function openEntityStore(rootInput: HarnessLayoutInput, options?: SqliteEntityStoreOptions): EntityStore;
 export function openEntityStore(

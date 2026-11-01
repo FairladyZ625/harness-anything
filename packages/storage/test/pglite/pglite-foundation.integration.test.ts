@@ -4,8 +4,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { createPGlitePool, createPGliteStorage, withPGliteTransaction } from "../../src/pglite/index.ts";
+import { createPgDialectStorageBackend, createPGliteStorage } from "../../src/index.ts";
+import { withPostgresTransaction } from "../../src/postgres/transaction.ts";
 import { resolveStorageBackend } from "../../src/storage-backend.ts";
+import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
+import { bundle, eventAt, initRepo } from "../store/task-event-store.fixtures.ts";
 
 const claims = { tenantId: "tenant-a", projectId: "project-a", policyEpoch: 7 } as const;
 
@@ -13,22 +16,22 @@ test("PGlite storage persists PostgreSQL transactions and clears local scope cla
   const root = mkdtempSync(path.join(tmpdir(), "ha-pglite-foundation-"));
   const storage = createPGliteStorage({ dataDir: root });
   try {
-    await withPGliteTransaction(
-      storage.db,
-      async (transaction) => {
-        await transaction.query("CREATE TABLE pglite_probe (id text PRIMARY KEY, payload text NOT NULL)");
-        const scoped = await transaction.query<{ tenantId: string; projectId: string; policyEpoch: string }>(
+    await withPostgresTransaction(
+      storage.pool,
+      async (client) => {
+        await client.query("CREATE TABLE pglite_probe (id text PRIMARY KEY, payload text NOT NULL)");
+        const scoped = await client.query<{ tenantId: string; projectId: string; policyEpoch: string }>(
           'SELECT current_setting($1) AS "tenantId", current_setting($2) AS "projectId", current_setting($3) AS "policyEpoch"',
           ["ha.tenant_id", "ha.project_id", "ha.policy_epoch"],
         );
         assert.deepEqual(scoped.rows[0], { tenantId: claims.tenantId, projectId: claims.projectId, policyEpoch: "7" });
-        await transaction.query("INSERT INTO pglite_probe (id, payload) VALUES ($1, $2)", ["one", "committed"]);
+        await client.query("INSERT INTO pglite_probe (id, payload) VALUES ($1, $2)", ["one", "committed"]);
       },
       claims,
     );
     await assert.rejects(
-      withPGliteTransaction(storage.db, async (transaction) => {
-        await transaction.query("INSERT INTO pglite_probe (id, payload) VALUES ($1, $2)", ["two", "rolled-back"]);
+      withPostgresTransaction(storage.pool, async (client) => {
+        await client.query("INSERT INTO pglite_probe (id, payload) VALUES ($1, $2)", ["two", "rolled-back"]);
         throw new Error("rollback witness");
       }),
       /rollback witness/u,
@@ -52,24 +55,24 @@ test("PGlite storage persists PostgreSQL transactions and clears local scope cla
   }
 });
 
-test("PGlite node-postgres bridge exposes one connection and the same transaction contract", async () => {
-  const pool = createPGlitePool({ dataDir: "memory://ha-pglite-pool-contract" });
+test("PGlite node-postgres bridge exposes one connection and the shared transaction contract", async () => {
+  const storage = createPGliteStorage({ dataDir: "memory://ha-pglite-pool-contract" });
   try {
-    assert.equal(pool.options.max, 1);
-    assert.equal(pool.pglite.closed, false);
-    await withPGliteTransaction(
-      pool,
+    assert.equal(storage.pool.options.max, 1);
+    assert.equal(storage.db.closed, false);
+    await withPostgresTransaction(
+      storage.pool,
       async (client) => {
         await client.query("CREATE TABLE pglite_pool_probe (value integer NOT NULL)");
         await client.query("INSERT INTO pglite_pool_probe VALUES ($1)", [7]);
       },
       claims,
     );
-    assert.deepEqual((await pool.query("SELECT value FROM pglite_pool_probe")).rows, [{ value: 7 }]);
+    assert.deepEqual((await storage.pool.query("SELECT value FROM pglite_pool_probe")).rows, [{ value: 7 }]);
   } finally {
-    await pool.closePGlite();
+    await storage.close();
   }
-  assert.equal(pool.pglite.closed, true);
+  assert.equal(storage.db.closed, true);
 });
 
 test("PGlite records its deliberate single-user/RLS boundary instead of claiming PG role isolation", async () => {
@@ -91,9 +94,9 @@ test("PGlite records its deliberate single-user/RLS boundary instead of claiming
       "tenant-b",
       "superuser-visible",
     ]);
-    const rows = await withPGliteTransaction(
-      storage.db,
-      (transaction) => transaction.query("SELECT tenant_id, payload FROM pglite_rls_probe ORDER BY tenant_id"),
+    const rows = await withPostgresTransaction(
+      storage.pool,
+      (client) => client.query("SELECT tenant_id, payload FROM pglite_rls_probe ORDER BY tenant_id"),
       claims,
     );
     assert.equal(rows.rows.length, 2);
@@ -111,4 +114,67 @@ test("pglite backend config resolves without leaking a PostgreSQL connection str
       scope: claims,
     },
   );
+});
+
+test("PGlite composes the PG ledger and projection ports with SQLite cut parity", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-pglite-contract-")),
+    dataDir = mkdtempSync(path.join(tmpdir(), "ha-pglite-ledger-")),
+    repoId = "pglite-contract-repo",
+    storageConfig = { backend: "pglite", dataDir, scope: { ...claims, readers: ["reader-a"] } } as const;
+  initRepo(root);
+  const sqlite = makeTaskEventStore({ repoId, rootDir: root }),
+    write = bundle(eventAt(1));
+  const sqliteReceipt = sqlite.append(write);
+  let backend = await createPgDialectStorageBackend({ repoId, storage: storageConfig });
+  try {
+    const receipt = await backend.eventStore.append(write, 0, { repoId, holderId: "center", epoch: 1 });
+    assert.deepEqual(receipt.cut, sqliteReceipt.cut);
+    assert.deepEqual(
+      (await backend.eventStore.append(write, 0, { repoId, holderId: "center", epoch: 1 })).cut,
+      receipt.cut,
+    );
+    const conflictingWrite = bundle({
+      ...write.event,
+      payload: { task: { ...write.event.payload.task, title: "Conflicting intent" } },
+    });
+    await assert.rejects(backend.eventStore.append(conflictingWrite, 1, { repoId, holderId: "center", epoch: 1 }), {
+      code: "op_conflict",
+    });
+    assert.deepEqual(await backend.eventStore.execute({ operation: "events" }), [eventAt(1)]);
+    assert.equal((await backend.projection.readCut()).status, "ready");
+    assert.equal((await backend.projection.readSnapshot("task-00001"))?.task?.title, "Task 00001");
+    assert.equal((await backend.projection.readCut()).watermark, 1);
+    await backend.entities.persist({
+      kind: "agent",
+      id: "pglite-agent",
+      value: {
+        schema: "agent-declaration/v1",
+        id: "pglite-agent",
+        name: "PGlite Agent",
+        instructions: "work",
+        runtimes: [{ type: "codex" }],
+      },
+      workspaceRevision: 1,
+      extensionMetadata: { source: "pglite-contract" },
+    });
+    assert.deepEqual((await backend.entities.get("agent", "pglite-agent"))?.extensionMetadata, {
+      source: "pglite-contract",
+    });
+  } finally {
+    await backend.close();
+  }
+
+  backend = await createPgDialectStorageBackend({ repoId, storage: storageConfig });
+  try {
+    assert.equal((await backend.eventStore.readHead())?.revision, 1);
+    assert.equal((await backend.projection.readCut()).status, "ready");
+    assert.equal((await backend.projection.readSnapshot("task-00001"))?.task?.title, "Task 00001");
+    assert.deepEqual((await backend.entities.get("agent", "pglite-agent"))?.extensionMetadata, {
+      source: "pglite-contract",
+    });
+  } finally {
+    await backend.close();
+    rmSync(root, { recursive: true, force: true });
+    rmSync(dataDir, { recursive: true, force: true });
+  }
 });

@@ -19,8 +19,6 @@ export {
   ProjectionIdentityMismatchError,
 } from "./projection/rebuildable-task-projection.ts";
 export type {
-  PGliteTaskProjectionFactoryOptions,
-  PGliteTaskProjectionReaderFactoryOptions,
   PostgresTaskProjectionFactoryOptions,
   PostgresTaskProjectionReaderFactoryOptions,
   TaskProjectionFactoryOptions,

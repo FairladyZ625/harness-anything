@@ -84,7 +84,6 @@ import { readStateDigest, readProjectionCut, watermark } from "./rebuildable-tas
 import {
   resolveStorageBackend,
   unsupportedStorageBackendError,
-  type PGliteStorageBackendConfig,
   type PostgresStorageBackendConfig,
   type SqliteStorageBackendConfig,
   type StorageBackendOptions,
@@ -114,12 +113,6 @@ export interface PostgresTaskProjectionFactoryOptions
   readonly storage: PostgresStorageBackendConfig;
   readonly eventStore: LedgerEventStorePort;
 }
-export interface PGliteTaskProjectionFactoryOptions
-  extends Omit<TaskProjectionFactoryOptions, "eventStore" | "storage"> {
-  readonly storage: PGliteStorageBackendConfig;
-  readonly eventStore: LedgerEventStorePort;
-}
-
 function requireSqliteBackend<Options extends StorageBackendOptions>(
   options: Options,
 ): asserts options is Options & { readonly storage?: SqliteStorageBackendConfig } {
@@ -134,10 +127,9 @@ export function defaultLifecycleTaskProjectionPath(rootDir: string): string {
   return resolveHarnessLayout(rootDir).taskProjectionPath;
 }
 export function makeTaskProjection(options: PostgresTaskProjectionFactoryOptions): TaskProjectionPort;
-export function makeTaskProjection(options: PGliteTaskProjectionFactoryOptions): TaskProjectionPort;
 export function makeTaskProjection(options: TaskProjectionFactoryOptions): TaskProjection;
 export function makeTaskProjection(
-  options: TaskProjectionFactoryOptions | PostgresTaskProjectionFactoryOptions | PGliteTaskProjectionFactoryOptions,
+  options: TaskProjectionFactoryOptions | PostgresTaskProjectionFactoryOptions,
 ): TaskProjection | TaskProjectionPort {
   requireSqliteBackend(options);
   const projectionPath = options.projectionPath ?? defaultLifecycleTaskProjectionPath(options.rootDir);
@@ -291,20 +283,10 @@ export interface PostgresTaskProjectionReaderFactoryOptions
   readonly storage: PostgresStorageBackendConfig;
   readonly rootDir?: string;
 }
-export interface PGliteTaskProjectionReaderFactoryOptions
-  extends Omit<TaskProjectionReaderFactoryOptions, "rootDir" | "storage"> {
-  readonly storage: PGliteStorageBackendConfig;
-  readonly rootDir?: string;
-}
-
 export function makeTaskProjectionReader(options: PostgresTaskProjectionReaderFactoryOptions): TaskProjectionReaderPort;
-export function makeTaskProjectionReader(options: PGliteTaskProjectionReaderFactoryOptions): TaskProjectionReaderPort;
 export function makeTaskProjectionReader(options: TaskProjectionReaderFactoryOptions): TaskProjectionReader;
 export function makeTaskProjectionReader(
-  options:
-    | TaskProjectionReaderFactoryOptions
-    | PostgresTaskProjectionReaderFactoryOptions
-    | PGliteTaskProjectionReaderFactoryOptions,
+  options: TaskProjectionReaderFactoryOptions | PostgresTaskProjectionReaderFactoryOptions,
 ): TaskProjectionReader | TaskProjectionReaderPort {
   requireSqliteBackend(options);
   const projectionPath = options.projectionPath ?? defaultLifecycleTaskProjectionPath(options.rootDir ?? ""),
