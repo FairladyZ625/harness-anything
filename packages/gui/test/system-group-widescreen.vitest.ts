@@ -407,6 +407,11 @@ describe("Settings kind renderer consumes daemon fields and keeps locale local",
     await act(async () => languageTab.click());
     const language = container.querySelector("select") as HTMLSelectElement;
     await act(async () => {
+      language.value = "zh-CN";
+      language.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(container.querySelector("[data-i18n-locale]")?.getAttribute("data-i18n-locale")).toBe("zh-CN");
+    await act(async () => {
       language.value = "en-US";
       language.dispatchEvent(new Event("change", { bubbles: true }));
     });
