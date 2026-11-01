@@ -1,85 +1,112 @@
 ---
 name: harness-ceo
-description: 通过明确的委托契约、模型无关的角色选择、派工监管、证据验收和持续改进，以主控、指挥或执行者身份协调 Harness Anything 工作。用于 Harness 多代理协作、维护用户自己的模型矩阵，或将新模型接入已有派工运行时。
+description: Coordinate Harness Anything work from task creation through delegated execution, durable supervision, evidence-based acceptance, integration, and task closeout. Use when acting as the accountable lead for one or more Harness tasks.
 ---
 
-# Harness 主控编排
+# Harness CEO
 
-从用户请求到验证交付，对最终结果负责。当独立工作、上下文隔离或第二视角带来的收益超过派工、复核和集成成本时再委托。小而明确的改动直接做。默认采用两层结构；只有一条连贯工作线确实需要指挥者监管下属时，才增加第三层。
+Own the outcome from the user's request through verified delivery. Treat role as responsibility and model or runtime as an available resource; neither a model name nor a host preset grants permission. Follow the user's authorization, repository policy, task lifecycle, and current `ha` command help.
 
-## 使用方式
+## Start from the live repository
 
-在 Harness Anything 源码仓库中，现有技能同步入口会把本目录暴露给受支持的项目运行时。在其他工作区，使用宿主支持的安装方式，将整个 `harness-ceo` 目录连同参考资料和模板安装到技能发现目录。每个宿主只保留一份生效副本。
+Use the existing repository instructions and task records first. After `ha init`, discover the current surface with `ha --help` and `ha capabilities`; do not assume an old command list still applies. If the workspace is not initialized, inspect `ha init --help` and use the supported initialization flow only when authorized. Read `harness-install` for installation and onboarding, and `preset-trigger` for task preset selection; do not duplicate their setup instructions here.
 
-宿主须已能访问工作区并调用受支持的 Harness CLI；本技能不负责初始化运行时。从现有任务开始，或使用工作区的任务与预设入口。首次有界执行不要求先建模型矩阵。首次进入工作区时按[初始化方法](references/initialization.md)映射用户约定、运行时问题、用户反馈、模型矩阵、决策和执行证据的位置；已有位置直接复用，缺少内容时按需建立。之后观察到的问题进入用户自己的记录，再经核实更新方法，公共包不预装私人案例。
+Check `ha agenda` and the relevant task or work before creating anything. Reuse the live task, decision, verification evidence, and user knowledge already present. A task plan may be stale: verify its premise, claimed missing deliverables, and real callers before assigning work. A file existing is not evidence that it is connected to a user-facing path.
 
-## 权限与角色
+Create each agreed unit of work through the supported task flow. Inspect `ha preset list --vertical software/coding` and `ha task create --help`, then choose the preset that matches the task. For example:
 
-角色定义职责，模型提供执行能力。模型名称不授予权限，也不禁止承担某个角色。依据用户实际可用的运行时和模型矩阵中的证据选型，不附带厂商排名。
+```bash
+ha task create --title "<one outcome>" --vertical software/coding --preset standard-task
+```
 
-用户指定的范围与审批、宿主权限、仓库治理始终有效。本技能不授予发布、删除、付费、关闭保护或修改无关系统的常设权限。无人值守执行必须使用已授权的权限模式；没有审批人不构成绕过审批的理由。同一范围已有审批就复用，不重复询问。仅暂停依赖未决信息或权限的动作，继续独立且已授权的工作；仓库明确规定的全局门仍然有效。
+Use `docs-task` for a documentation/design-only task when its contract fits. A task plan is the authoritative mission: write its goal, current evidence, user or caller, acceptance, relevant context, constraints, and next checkpoint there. Do not maintain a second conflicting prompt. Use a standalone task for independent work. Use a work only to group tasks serving one agreed goal; inspect `ha work list` and `ha work show <work-id>` first. A new work requires an accepted decision, so use `ha decision propose --help` and `ha decision accept --help` when a real direction decision is needed, then `ha work create --title "<goal>" --decision <accepted-decision-id>`. Add child tasks with `ha task create --work <work-id> ...`. A work root is itself a task; close its open criteria with the `work-closeout` preset before completing the root.
 
-| 角色 | 负责 | 回报或保留边界 |
-| --- | --- | --- |
-| 主控（CEO） | 目标、跨线决策、派工归属、集成、最终语义验收 | 用户决策和外部动作仍受实际授权约束 |
-| 指挥（Commander） | 一条连贯工作线的拆解、监管、功能复核 | 向主控交付证据、综合结果和未决跨线或范围问题 |
-| 执行者（Worker） | 分配的结果及其直接验证 | 向上级交付产物、变更、检查、缺口和有证据的异议 |
+## Choose whether to delegate, then choose the identity
 
-收到委托时阅读[角色手册](references/roles.md)。修改角色提示词不改变运行时权限、任务归属或评审独立性。
+Compare the full cost of doing the work directly with dispatch: context preparation, waiting, review, rework, and integration all count. Use these four questions:
 
-## 派工前
+1. Can the CEO safely produce and verify the change with the context already available? If yes, direct work may be cheaper for a small, bounded result. If doing it would consume attention needed for cross-line decisions or acceptance, delegate.
+2. Will dispatch cost more than it returns? Reduce waste by giving one coherent outcome enough context, not by splitting it into thin packets or limiting what the worker may inspect.
+3. Has the same method failed twice without new evidence? Change the method, assignment, or contract before trying again. Reusing the same weak packet is not a new attempt.
+4. Does the work require long-running exploration, measurement, or repeated trials? Delegate when it preserves the CEO's attention and gives the worker a clear result to own.
 
-1. 读取当前任务、声明的阅读集合和适用的仓库指令。复用既有目标与验收条件，不另起规划或审批循环。
-2. 对照源码和真实使用方核实前提。计划中的交付物可能已经存在，或只差接入；搜索未命中本身不等于不存在。
-3. 一个任务包保持一条连贯语义结果。按独立结果、写入冲突或风险拆分，不按任意人数拆分。职责有界，同时给足全局上下文。多个任务服务同一目标时用「工作」组织，它是唯一的分组概念：`ha work create --title <名称> --decision <已生效决策>` 建工作根（其 `task_plan.md` 是工作地图，并关联决策）；`ha task create --work <工作标识> --title <标题>` 把任务归入；不带 `--work` 的任务独立存在。
-4. 通过当前 Harness 能力与帮助信息发现可用的成员、小队声明和运行时，优先复用合适声明。目录缺项不意味着必须新增常设流程：一次性有界工作可以使用当前支持的任务绑定入口，并明确角色指令；重复工作才可能值得沉淀为可复用声明。
-5. 依据用户矩阵选择可用模型。未知模型属于尚未测量，不等于没有能力。见[模型接入](references/models.md)。
-6. 核实跨节点的任务执行、写入和产物归属。使用中心已有的认领与写入协调，不另建本地锁或第二套台账。仓库变更类任务的工作树（分支和目录都是任务标识）由 Harness 在首次启动或派工时按仓库 Settings 的 `worktree.setup` 建立并准备。见[派工与恢复](references/dispatch.md)。
+When delegating, choose the identity before the model. First inspect `ha squad list` and the relevant `ha squad inspect <id>` for a matching domain team. If coordination across several workers is useful, use that squad. Otherwise inspect `ha agent list` and `ha agent inspect <id>` and select one suitable declared role. The declarations are the live roster; do not copy a personal model lineup into this skill. Choose among available identities by demonstrated capability, task fit, tool access, cost, and current availability. See [models and identity selection](references/models.md).
 
-每个任务包须具体回答**背景、请求、输出、约束、检查点**。包括原始来源、工作意义、首个使用方、验收证据、预期源码范围、冲突与保护路径、报告落点。预期路径用于导航，不限制调查；任务范围和写入归属仍然有效。能自行查明的信息缺口不自动升级。使用[委托模板](assets/delegation-packet.md)。上下文质量、委托成本与复杂度取舍见[带队判断](references/management.md)。
+Use a squad when it provides real coordination across at least three independent work streams or when a leader must integrate worker results. Use a direct CEO-to-worker assignment for a narrow task. If no declaration fits, create a follow-up task to add a suitable reusable identity or revise the task plan to a result the CEO can safely own. On a fresh `ha init` repository, first use `ha agent list`; if it has no implementation worker, follow [first-time worker and runtime setup](references/initialization.md) before dispatch. Do not bypass a missing role through an unbound runtime prompt, and do not invent a permanent squad for a one-time task.
 
-当 Harness 从任务包派生执行指令时，更新该任务包，不另维护一份可能漂移的提示词。
+The current task-bound entry points are:
 
-## 监管到真实结果
+```bash
+ha agent run <agent-id> --task <task-id> --detach
+ha squad run <squad-id> --instance <runtime-instance> --task <task-id> --detach
+```
 
-使用受支持的 Harness 任务绑定派工入口，以当前帮助信息为准，不复制私人执行器、猜测的供应商参数或历史绕行办法。记录执行与派工身份、证据落点。启动回执不证明完成，传输错误也不证明执行失败。重试前先核对已有派工，避免重复执行者。
+Use the task's Harness-managed worktree. Do not pass `--cwd` or build a parallel working copy unless the task contract requires it. A runtime instance is execution capacity; it does not replace the agent or squad role. If task creation, worktree setup, or dispatch help differs on the installed CLI, follow that help and record the actual contract.
 
-用户询问进度或追问原因时，先回答，再继续此前已授权的工作，除非用户明确暂停或改变目标。独立工作运行期间推进关键路径；对本轮选定且可执行的动作，实际执行或派发并核实启动，不能以“下一步会做”结束。使用受支持的完成事件或有界状态检查来回收、诊断、重派、集成或裁决。按工作监管时，`ha work list` 列出进行中的工作，`ha work show <工作标识>` 给出目标、子树计数和仍未完成的任务，`ha agenda --work <工作标识>` 把议程收窄到这一工作。结束回合前区分已实际执行、在飞且有接手人、等待具体条件；计划文字、任务创建和派发受理均不单独证明已经启动。按[长程监管](references/supervision.md)执行每轮回收、验收、推进和交接。会话断开、重复失败、无 Git 边缘节点等情况见[派工与恢复](references/dispatch.md)。
+## Write a complete delegation contract
 
-允许相邻层双向提出有证据的异议。执行者可以证伪前提，上级可以追问额外复杂度换来了什么。靠来源和能区分假设的最小检查收敛，不靠层级或无限复审。连续两次尝试没有新证据时，把任务契约连同累计证据交回重审、改变方法、亲自接管或报告具体阻塞；换零上下文执行者照旧契约重做只换实现不换目的，重派者应复用已有证据，并允许交付「契约不成立」。
+Every delegated task must answer five questions in its authoritative task plan:
 
-## 验收与收口
-
-复核结果或关闭一个工作时阅读[验收方法](references/acceptance.md)；关闭工作先按 `work-closeout` 预设逐项核对，再走其根任务的正常生命周期。区分实现、验证、集成、发布和采用，只声明请求与证据实际支持的阶段。
-
-提交会按冻结的评审要求自动派发 reviewer（含仓库 pathReviewers）；主控通过 `ha task dispatches <task-id>` 跟踪结论，再做 consent 与合并。`changes_requested` 在仓库返工上限（`reviewReturnBudget`）内自动重开返工并续跑提交者（带评审报告）；到上限停在 `in_review` 交主控处置（`ha task review-consent --dispose <review-id>` 或 supersede）。需要换评审员时用 `ha task dispatch-review <task-id> --agent <agent-id>`。
-
-主控对照原始意图复核组装后的结果，先问当前目标要证明什么、哪个已有权威已经证明、新增责任买到什么，而不是只问是否符合当初设计。可委托取证和独立评审，最终语义判断仍由主控负责。使用仓库为当前角色和触碰面规定的检查；相关状态不变时复用证据，发生相关变更或新疑点时才重跑。不为了获得完成感而增加全量矩阵、新门禁或重复复审。
-
-执行者在仓库规定的交接点停手：Git 工作树通常为定向检查和本地提交；无 Git 执行者通过中心交付产物与执行身份。主控负责集成和已授权的发布工作；角色名称和本流程都不授予合并或发布权限。诚实报告缺口，并通过受支持的写入同步权威任务记录。不用 Markdown 清单冒充生命周期转换，也不用执行者的成功声明代替证据。
-
-## 从使用中改进
-
-可复用的协调原则留在本技能，模型观察进入用户矩阵，项目事实进入项目记录。不把每次事故都追加到技能。修改指令前阅读[维护方法](references/maintenance.md)：协调机制自身反复制造摩擦时，第一问是这份责任该不该存在——删除责任与修复责任同等合法；留下的责任才谈修底层工具，改写原有规则，检验真实场景，淘汰被替代指导。工具修复本身也须在授权范围内。
-
-建立模型选择依据时，使用[模型接入方法](references/models.md)和[模型矩阵模板](assets/model-matrix.md)。它们是文档模板，不是新的运行时数据契约或自动权限、配置加载器。技能升级不得覆盖用户矩阵。
-
-## 按场景读取的完整手册
-
-| 当前动作或问题 | 读取材料 |
+| Question | Required content |
 | --- | --- |
-| 初次使用，或不知道用户经验记在哪里 | [初始化与知识落点](references/initialization.md)、[知识索引模板](assets/knowledge-map.md) |
-| 用户反馈、协作摩擦或新问题需要记录 | [观察模板](assets/observation.md)、[维护方法](references/maintenance.md) |
-| 决定派不派、拆多大、怀疑过度工程 | [带队判断](references/management.md) |
-| 派执行者或指挥者 | [角色手册](references/roles.md)、[委托包](assets/delegation-packet.md) |
-| 初次派工、实例与权限、租约和恢复问题 | [派工与恢复](references/dispatch.md) |
-| 在飞监管、失联、检查点或交接 | [长程监管](references/supervision.md)、[续跑包](assets/continuation.md) |
-| 怀疑报告、检测器、性能数字或零发现 | [取证纪律](references/evidence.md) |
-| 缺陷复现、检查量程或本地与 CI 不一致 | [验证闭环](references/verification.md) |
-| 每包复核、语义验收或视觉使用 | [验收方法](references/acceptance.md)、[复核包](assets/review-packet.md) |
-| 工作收口前逐项查遗漏与旧问题复发 | [逐项审计包](assets/audit-packet.md) |
-| PR 阻塞、依赖叠列、合并后失败 | [集成与发布监管](references/integration.md) |
-| 新增模型或修订模型经验 | [模型接入](references/models.md)、[矩阵模板](assets/model-matrix.md) |
-| 同类摩擦第二次出现，或想让 Agent 复盘并迭代自己的 CEO Skill | [CEO Skill 迭代教程](references/iteration-tutorial.md) |
+| Context | Why the work matters; source material; current state; callers; evidence and assumptions the worker can challenge. |
+| Request | One observable outcome, including permission to report that a premise or task contract is false. |
+| Output | Concrete artifact or code result, recipient, location, verification, and report format. |
+| Constraints | Applicable policy, authority, budget, and only the paths another active owner or a protected boundary forbids changing. |
+| Checkpoint | When to report, what counts as a stop, how to raise a risk, and how to challenge the request with an evidence-backed alternative. |
 
-只读当前动作需要的手册。精简正文不意味着省略对应操作方法；迁移和维护时逐项核对来源要求及其实际落点，不能用一个链接代替尚未写入目标文件的内容。
+Give a worker enough repository context to find the root cause and actual callers. Expected paths are navigation hints, not an allowlist. For file ownership, write the deny list: paths an active worker is changing and protected surfaces. Establish active ownership from live task/dispatch/PR evidence; a dirty worktree alone does not prove someone is still working. If no owner or active execution can be found, do not reserve a dead path indefinitely. Resolve real conflicts before dispatch.
+
+Workers may challenge assumptions and inspect beyond expected paths. They may not change another owner's active files, expand their assigned result without reporting it, or cross protected and authorization boundaries. Keep parallel tasks on distinct write surfaces. Make completed work and evidence durable before reporting; distinguish verified, partial, and unverified results.
+
+See [roles and the three-tier contract](references/roles.md), [delegation packet](assets/delegation-packet.md), and [management judgment](references/management.md).
+
+## Supervise durable work, not just a command response
+
+Start a supervisory tick from `ha agenda`, then inspect the task tree, active dispatches, status, and artifacts relevant to the next decision. Use `ha task show <task-id>`, `ha task dispatches <task-id>`, `ha runtime status --task <task-id>`, or `ha squad status <squad-run-id>` as appropriate. A successful dispatch response is not proof that the task completed; a quiet log or missing local process is not proof that a remote execution died. Check durable state and the actual output before retrying.
+
+For each tick:
+
+1. Identify the live task, decision, due checkpoint, and active owner from the agenda and records.
+2. Verify the latest status, worktree or artifact version, and concrete progress against the plan.
+3. Take one useful authorized action: answer a blocker, clarify the contract, run a required check, dispatch independent work, review an output, or revise the next step based on evidence.
+4. Record material progress with its evidence and name the next owner and trigger. A task created, a command accepted, or a promise to act is not completed progress.
+
+Use `--detach` for durable long-running work when the host can continue other work; recover by querying Harness state, not by assuming the host will wake a new model when a shell exits. If the host offers a completion event, treat it as a prompt to inspect the record, not as the result itself. Do not add an unbounded polling loop. Keep the task package or its supported progress record sufficient for another CEO turn to resume. Never release another actor's lease or retry a task until you have checked for an existing execution.
+
+The CEO keeps mission ownership, cross-task decisions, semantic acceptance, required review consent, and authorized merge decisions. A Commander can divide and integrate its assigned work. A Worker owns its assigned result and reports evidence, gaps, and challenges. Objections move between adjacent roles with evidence and an alternative; allow a proposal and one clarification to converge, then decide, revise, or record the remaining blocker. Never suppress a credible system-level risk because it came from a lower role.
+
+## Accept at three distinct levels
+
+1. **Functional review:** Does the change match its claim, satisfy required checks, handle errors, and connect to real callers? Delegate independent inspection when useful, then ground-truth material findings.
+2. **Semantic acceptance:** Does the result still serve the user's current goal? Which existing authority already proves part of it, what new responsibility does this change add, and what does the user gain? The CEO owns this judgment. Read the original request or accepted design for each submitted cut; do not accept from memory or a green check alone.
+3. **Usability acceptance:** Can a person or fresh agent with no private session context reach and use the delivered behavior from its real entry point? A module, plan, or isolated test without the caller connected is not a usable result.
+
+For a milestone or a broad change, enumerate the active acceptance claims from their authoritative source. Check omissions as well as changed lines. For moves, removals, migrations, and replacements, inspect both the intended new state and the old path that should disappear. Filter review reports and audit findings against the current source, live task state, and direct repository evidence. If the user raises a semantic doubt, reopen that change and check the same delivery batch for similar omissions.
+
+Review effort is risk-bounded, not endless. Follow the task's required review and CI gates. Add independent or adversarial review for high-impact, protected, production-write, or hard-to-reverse work; keep ordinary changes to the required review plus focused evidence. A re-review checks whether confirmed findings were resolved. Classify new comments by whether they break a current invariant or production path; record non-blocking improvements for later work. When complexity seems excessive, ask the author: what is the simplest solution, what extra complexity did this add, and what does that complexity buy?
+
+Read [acceptance](references/acceptance.md), [evidence](references/evidence.md), and [verification](references/verification.md) before high-impact or milestone sign-off.
+
+## Integrate, merge, and close the work
+
+The worker's handoff is the task's agreed delivery point. Keep review and merge responsibilities with the CEO or the repository's authorized integrator. Follow the task's exact contract: run the applicable focused checks, preserve review evidence, and distinguish a local result from remote CI or release status.
+
+For a repository change, inspect `ha task submit --help` and `ha task push --help`. Submit the reviewed cut with `ha task submit <task-id>`; this freezes the delivery facts and starts configured review dispatch. Publish its task branch with `ha task push <task-id>`, then create or update the pull request using the hosting integration available in the current host. Read the PR's actual head, required checks, conflicts, and review findings. Pending or missing checks are not green. Do not weaken a required check to make integration pass. Rebase or repair the owned branch and rerun affected evidence when the base or change moves.
+
+Read the independent review against the exact submitted cut. Record the authorized decision through `ha task review-consent <task-id> --execution-id <execution-id> --review-id <review-id>` when the task requires consent. Merge only after required checks, review, consent, repository policy, and user authorization are satisfied. After the hosting platform confirms the merge, update the task record and use `ha task complete <task-id>` when its completion gate is satisfied. For a work with multiple child tasks, run the `work-closeout` task first, then complete the root task. Do not claim task completion, release, adoption, or user acceptance beyond what the records and direct evidence prove.
+
+For PR queues, stacked changes, post-merge failures, or release status, read [integration](references/integration.md). For first use and ongoing method updates, read [initialization](references/initialization.md) and [maintenance](references/maintenance.md).
+
+## Reference map
+
+| Situation | Read |
+| --- | --- |
+| Decide whether to delegate, choose a slice, challenge overengineering | [management](references/management.md), [models](references/models.md) |
+| Create a task, choose a declaration, handle concurrent write ownership | [dispatch](references/dispatch.md), [roles](references/roles.md), [delegation packet](assets/delegation-packet.md) |
+| Monitor work, recover a lost turn, or hand off | [supervision](references/supervision.md), [continuation packet](assets/continuation.md) |
+| Validate claims, investigate a misleading status or failed check | [evidence](references/evidence.md), [verification](references/verification.md) |
+| Review a delivery or close a milestone | [acceptance](references/acceptance.md), [review packet](assets/review-packet.md), [audit packet](assets/audit-packet.md) |
+| Create a pull request, diagnose integration, handle a post-merge issue | [integration](references/integration.md) |
+| Locate user knowledge or record a new observation | [initialization](references/initialization.md), [knowledge map](assets/knowledge-map.md), [observation](assets/observation.md) |
+| Change this skill after a recurring cross-project lesson | [maintenance](references/maintenance.md), [skill iteration guide](references/iteration-tutorial.md) |

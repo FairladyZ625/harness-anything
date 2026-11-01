@@ -1,51 +1,58 @@
-# 初始化：给用户自己的经验留出固定位置
+# First use in a repository
 
-适用：首次在一个 Harness 工作区使用本技能，或既有记录位置无法找到时。初始化的结果是一份“在哪里记、什么时候读、谁能更新”的知识落点图，不是预先填满一套空文档。
+## Discover before adding records
 
-公共包提供记录概念、模板和读写方法；用户自己的偏好、故障、模型表现、裁决与经验保留在工作区。不要把公共模板当成用户事实，也不要把一次经验写成适用于所有人的规则。
+Start with the repository instructions, `ha --help`, `ha capabilities`, and `ha agenda`. Confirm which repository and initialized Harness workspace the CLI is connected to. If initialization is absent, inspect `ha init --help` and follow the approved setup flow. Do not initialize over an existing workspace or treat a downloaded skill as a configured runtime.
 
-## 第一次使用
+Read existing tasks, decisions, presets, agent and squad declarations, project instructions, verification commands, and known issues before creating new ones. Reuse existing knowledge locations and current task records. Do not create a private model matrix or duplicate issue tracker merely because the skill has an optional template.
 
-1. 阅读工作区的上下文入口、治理约定和当前任务，用 `ha work list` 看有哪些进行中的工作（一个根任务及其子树）。查找已有模型矩阵、问题记录、决策、任务、执行产物和使用反馈位置。
-2. 按下表把这些概念映射到真实路径或受支持的实体查询入口。已有位置直接复用，即使文件名与示例不同也不另建副本。
-3. 若缺少统一入口，在工作区允许的上下文位置按[知识落点模板](../assets/knowledge-map.md)建立一份索引。示例为 `<authored-root>/context/harness-ceo/index.md`；实际路径服从仓库约定。索引记录真实落点，不成为第二份任务状态表。
-4. 暂无内容的类别标“首次出现时建立”，不要生成整套空文件。已有任务包可以先承载首次观察，再由有权负责人整合。
-5. 告知用户入口位置及之后的读取时机。日常执行不逐次请求初始化批准；需要新增写入权限、改变既有记录结构时才在对应边界确认。
+## Make the first worker dispatch possible
 
-初始化不授予新的持久化范围。用户要求只读或禁止落盘时，在本次结果中给出落点建议，不写文件。工作不依赖这些历史资料时可以继续；索引不完整本身不阻塞有界任务。
+After `ha init`, inspect the declared identities before assigning implementation work:
 
-## 保留的知识位置
+```bash
+ha agent list
+```
 
-| 概念位置 | 记录什么 | 什么时候读 | 如何更新 |
-| --- | --- | --- | --- |
-| 用户协作约定 | 用户明确表达的偏好、审批范围、交付习惯；区分已确认与待确认解释 | 接任务、准备澄清或外部动作前 | 记录来源与适用范围；观察不能自行升级为用户授权 |
-| 模型矩阵 | 模型、运行时、工具能力、建议任务类型、实测表现及局限 | 选模型、新模型接入、质量或可用性变化时 | 经运行证据修订原条目，不按厂商固化角色 |
-| 成员与小队声明 | 可复用职责、手册、阅读集合、输出与停止点 | 选派工身份、同类任务反复出现时 | 使用当前声明验证与安装入口，不重复维护角色提示词 |
-| 运行时问题记录 | 调用、认证、权限、恢复、回调、报告落盘等实测故障 | 首次使用实例、派工失败或准备采用历史变通办法时 | 标明版本、环境、证据和临时办法的失效条件；修复后撤掉旧建议 |
-| 项目已知问题与接受风险 | 缺陷症状、复现、已处理任务、明确接受的限制 | 判定新发现、同机制搜索、工作收口时 | 优先关联已有问题；分别核实状态和诊断，不只改状态标签 |
-| 用户反馈与协作摩擦 | 用户遇到的实际问题、错误理解、重复确认、卡点及影响 | 改进派工、交付和本技能前 | 先记录观察再归因，核实后送到模型、工具、任务或通用方法的对应落点 |
-| 决策与承重事实 | 为什么选择或拒绝方案、支撑判断的可复核观察 | 定方案、出现冲突、验收是否符合原意时 | 使用工作区原生实体与关系；事实、决策和执行结果不混写 |
-| 执行证据与交接 | 本次指令、结果、日志、验证、未完成项和在飞身份 | 监管、续跑、复核和接手时 | 每次执行独立产物，不能共写一个跨执行报告 |
-| 仓库验证与发布约定 | 当前验证入口、环境、审批与合并策略 | 派工写验收条件、集成和故障归因时 | 链接已有权威规范，不在索引复制易过时的门清单 |
-| 已验证的通用方法 | 可跨任务复用的判断、模板与操作方法 | 更新角色手册、公共技能或本地指导时 | 先对照原规则改写，保留证据来源，移除私人事实与过时办法 |
+If the list has no suitable implementation worker, read the repository's [`create-agent` skill](../../create-agent/SKILL.md). Use it to declare two reusable identities: one `worker` responsible for implementation and one `reviewer` responsible for independent review. Follow that skill's declaration and authoring rules; do not treat a model name as an Agent. If the declarations use an empty `runtimes` list, they accept any compatible runtime kind; a declaration pinned to a runtime kind must be validated only after that kind is available. Validate and install each declaration through the CLI:
 
-这些是稳定的概念位置，不强制对应十个文件。项目问题可以由原生任务查询提供；用户约定可以已在上下文入口；运行时问题和反馈可以共用已有问题系统。索引只负责让下一位代理找得到。
+```bash
+ha agent validate --source <implementation-worker-declaration>
+ha agent install --source <implementation-worker-declaration>
+ha agent validate --source <reviewer-declaration>
+ha agent install --source <reviewer-declaration>
+```
 
-## 一条新观察如何流转
+An Agent declaration supplies role and task instructions; a runtime instance supplies execution capacity. Check the node's enabled instances and witnessed installations:
 
-以“用户反馈派出去后一直没有结果”为例：
+```bash
+ha runtime instance list
+```
 
-1. 在本次执行证据或工作区允许的反馈位置记录用户实际反馈、观察到的状态、运行身份与时间，不先断言模型失效。
-2. 查询运行时问题记录，核实是否已有相同症状、适用版本及修复任务。
-3. 按[取证纪律](evidence.md)区分仍在执行、已到检查点、报告落盘失败或消息未送达。证据不足就标未验证。
-4. 已有问题则补充新证据与差异；确认新缺陷且在范围内，走原生问题或任务入口。范围外先记候选，不自动承诺修复。
-5. 如果是运行时缺陷，更新运行时问题；如果是上下文缺口，修改委托模板或声明；如果是模型能力观察，更新矩阵。只有跨项目仍成立的方法才进入技能。
-6. 修复完成后回读原场景，记录结果并撤销临时变通建议。不要只留“已修复”状态，让错误诊断继续指导下一次执行。
+Reuse an enabled instance compatible with the worker. If none is available, create one for an installed runtime. For a DeepSeek Harness desktop installation, the current documented ACP runtime kind is `deepseek-harness`; the release guide shows `deepseek-v4.1-flash` as a model. The current built-in provider id is `deepseek`. For example, when that installation and subscription are available:
 
-这个例子只说明记录与判断方法，不是已发生在当前用户工作区的事实。
+```bash
+ha runtime instance create --id <instance-id> --name "DeepSeek Harness ACP" --kind deepseek-harness --provider deepseek --model deepseek-v4.1-flash --auth subscription
+```
 
-## 多节点与升级
+Use an installation identifier reported by `ha runtime instance list` with `--installation <installation-id>` when the node has multiple witnessed installations. If no compatible installation is listed, make the runtime available on the node before creating an instance. Keep authentication material out of declarations and task records; for API-key authentication, follow `ha runtime instance create --help` and the repository's provider-credential documentation.
 
-知识索引、矩阵和已知问题均由指定负责人通过中心支持的写入路径维护。边缘节点把新观察放在各自执行产物，并提交引用；负责人核实后归并。以执行身份和观察差异避免重复，不能各节点同时覆盖共享记录。
+Once a declared worker and a compatible instance are available, assign the task through the task-bound Agent entry point:
 
-公共技能升级只更新公共方法与模板，不覆盖用户记录。新模板多了一个概念时，先检查它是否已有对应落点，再按需补索引。用户的历史内容无需复制进公共仓库。
+```bash
+ha agent run <agent-id> --task <task-id> --detach
+```
+
+Do not substitute `ha runtime run` for task-bound assignment. If several instances can serve the worker, resolve the choice through its runtime target or preference before dispatch.
+
+## Map user-owned knowledge only when needed
+
+The user's workspace may already have places for collaboration preferences, capability observations, recurring runtime failures, accepted project risks, decisions, verification policy, and per-run evidence. Record their real paths or native queries in [knowledge map](../assets/knowledge-map.md) only if that helps the next session find them. Create a new location only when a real observation needs one and the user has authorized that kind of record.
+
+Roles describe duties; runtime configuration supplies tools and permissions; the user's observations support resource choices. Keep these separate. Never copy credential material into a skill, matrix, task plan, or report.
+
+## Begin with the user's actual request
+
+Use the first real task as the first workflow. Read the relevant instructions, verify its premise and consumers, select the task preset, create or reuse its task, and define the acceptance evidence. Do not run an unrelated demo or require every optional template to be filled out before useful work can begin.
+
+After a run, put project facts and execution evidence in their authorized project records; put a capability observation in the user's existing matrix only if it can guide another choice; put a cross-project coordination method in this public skill only after verifying it is general. See [maintenance](maintenance.md).
