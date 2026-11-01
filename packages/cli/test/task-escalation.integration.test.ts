@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
@@ -85,6 +86,30 @@ test("a worker escalation blocks its task until the owner answers and resumes wi
   assert.deepEqual(agendaRow?.options, ["Keep boundary", "Expand scope"]);
   assert.match(String(agenda.summary), /待你处理/u);
 
+  const rulingPath = path.join(root, "harness", task.packagePath, "artifacts", "rulings", `${dispatchId}.md`),
+    resolutionSource = path.join(parent, "owner-resolution.json");
+  writeFileSync(rulingPath, "");
+  run(root, env, ["doc", "sync", "--submit", "--path", `${task.packagePath}/artifacts/rulings/${dispatchId}.md`]);
+  writeFileSync(
+    resolutionSource,
+    JSON.stringify({
+      schema: "worker-escalation-resolution/v1",
+      dispatchId,
+      taskId: task.taskId,
+      answer,
+      answeredAt: "2026-11-02T00:00:00.000Z",
+    }),
+  );
+  run(root, env, [
+    "task",
+    "artifact",
+    "add",
+    task.taskId,
+    "--source",
+    resolutionSource,
+    "--destination",
+    `artifacts/rulings/${dispatchId}.resolution.md`,
+  ]);
   run(root, env, ["task", "escalation", "resolve", task.taskId, "--dispatch-id", dispatchId, "--answer", answer]);
   const shownAfterResolution = run(root, env, ["task", "show", task.taskId]);
   assert.equal(JSON.parse(String(shownAfterResolution.evidence)).task.status, "planned");
