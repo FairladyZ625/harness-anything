@@ -181,7 +181,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "task-pin",
     actionKind: "entity-pin",
     phase: "W3",
@@ -190,7 +190,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     method: "repo.task.run",
     inputs: [],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "task-unpin",
     actionKind: "entity-unpin",
     phase: "W3",

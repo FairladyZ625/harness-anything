@@ -98,11 +98,10 @@ test("B13 accepts the action-catalog null allowlist and its decision citations r
     source: `action-catalog-null.json:entries.catalogNulls[${index}].ref`,
     ref: entry.ref,
   }));
-  // dec_2446BC2F8C68630F71AE3E3BD7 CH3 authorizes the convergence batches: 63 → 27 → 8.
+  // dec_2446BC2F8C68630F71AE3E3BD7 CH6 and dec_6C9E3399972A2F06C046BA89DC CH1/CH3 remove the four
+  // remaining pin rows on this target branch (8 → 4); runtime-run was already bound on main.
   // dec_2BF45FF7 CH1 keeps repo-read out of the gate set because it is a read-only admission.
-  // The second batch removes the 19 doc-sync, migration/script, runtime and vertical rows; the
-  // remaining 8 are the dynamic-artifact and pin roads owned by their own follow-up tasks.
-  assert.equal(refs.length, 8);
+  assert.equal(refs.length, 4);
   assert.equal(
     allowlist.entries.catalogNulls.some(({ value }) => value === "repository-read"),
     false,

@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { durablePolicyActions } from "../../src/domain/action-declaration.ts";
+import { durableActionKinds, durablePolicyActions } from "../../src/domain/action-declaration.ts";
 import { authorizationPort } from "../../src/ports/authorization-port.ts";
 import { currentActionEnvelopeVersion, type AuthorizationDecision } from "../../src/index.ts";
 
@@ -71,6 +71,12 @@ test("every durable action requires a matching authority decision", () => {
       "allowed",
     );
   }
+});
+test("durable action kinds stay distinct from their policy scope aliases", () => {
+  assert.equal(durableActionKinds.includes("entity-pin"), true);
+  assert.equal(durableActionKinds.includes("entity-unpin"), true);
+  assert.equal(durablePolicyActions.includes("entity-pin"), false);
+  assert.equal(durablePolicyActions.includes("entity-unpin"), false);
 });
 test("an authority decision cannot cross actor, action, target or write cut", () => {
   const request = action("task-create"),

@@ -57,6 +57,8 @@ test("Task explanations distinguish lifecycle state, actor capability, invocatio
         "preset-upgrade",
         "assign",
         "unassign",
+        "pin",
+        "unpin",
       ],
     );
     assert.equal(plannedStart.available, true);

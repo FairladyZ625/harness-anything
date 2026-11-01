@@ -6,7 +6,7 @@ import { isCurrentSubmittedWorkerWrite, requireCurrentExecutionScope } from "./r
 import { composeDurableActionEnvelope } from "@harness-anything/application/internal/durable-action-envelope";
 import path from "node:path";
 import {
-  durablePolicyActions,
+  durableActionKinds,
   actionDeclarations,
   isSameExecution,
   parseEntityRef,
@@ -300,7 +300,7 @@ function resourceName(resource: AuthorizationResource): string {
 
 /**
  * Concrete durable routes. Every case reaches the same port; no route grants authority here.
- * The exhaustive per-action cases look like duplication of durablePolicyActions, but they are
+ * The exhaustive per-action cases look like duplication of durableActionKinds, but they are
  * the static witness tools/gates/ontology-durable-action-authorization.mjs traces: each kind's
  * literal must sit in a region that provably reaches AuthorizationPort. Collapsing this into an
  * inventory-membership check breaks that trace for every action routed only here.
@@ -651,8 +651,7 @@ export function bindVerifiedExecutorClaim(input: {
   }
   // Runtime identities are durable authority only when the action itself is durable. Reads may
   // reuse an already-running daemon but must not fail merely because no task binding is projected.
-  if (!(durablePolicyActions as readonly string[]).includes(input.action.kind))
-    return { action, binding: input.binding };
+  if (!(durableActionKinds as readonly string[]).includes(input.action.kind)) return { action, binding: input.binding };
   const match = /^runtime-session:([A-Za-z0-9][A-Za-z0-9._-]*)$/u.exec(raw.id);
   if (!match || Object.keys(raw).some((field) => field !== "kind" && field !== "id"))
     throw invalidExecutorBindingFor(input, raw, "Executor claims must use runtime-session:<runtime-id>.");

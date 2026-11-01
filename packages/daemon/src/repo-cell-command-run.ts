@@ -4,7 +4,7 @@ import { executionDelegationPath, readExecutionDelegations } from "./execution-d
 import {
   assertCurrentWriter,
   stableStringify,
-  durablePolicyActions,
+  durableActionKinds,
   getExecutableEntityAction,
   parseEntityRef,
   normalizeCommandEnvelope,
@@ -78,14 +78,22 @@ function failAction(
 // resolution at runner ingress — before executor-claim binding and opId derivation. Missing and
 // ambiguous ids stay unresolved until authorization succeeds, so rejected callers cannot use
 // lookup errors to learn whether a task id exists. `task-create` is excluded: its taskId names
-// the task to create. A lagging cut stays the action's own pending case.
+// the task to create. Shared EntityRef pin ingress is excluded because its canonical catalog
+// representative is Task, while its reference may address any registered entity kind.
+// A lagging cut stays the action's own pending case.
 function resolveTaskWriteTarget(
   context: RepoCellApiContext,
   action: RepoTaskAction,
   options: { deferInvalidTarget?: boolean } = {},
 ): { action: RepoTaskAction; resolved: boolean } {
   const contract = getExecutableEntityAction(action.kind);
-  if (action.kind === "task-create" || contract?.target.kind !== "task" || !contract.execution)
+  if (
+    action.kind === "task-create" ||
+    action.kind === "entity-pin" ||
+    action.kind === "entity-unpin" ||
+    contract?.target.kind !== "task" ||
+    !contract.execution
+  )
     return { action, resolved: true };
   const field = contract.execution.targetIdField ?? "taskId",
     requested = action[field];
@@ -133,7 +141,7 @@ export function makeRepoCellCommandRunner(
     if (context.state !== "attached")
       await context.attemptRecovery(recoveryCommandPolicy(action.kind, context.causeClass)?.settlesLatch === true);
     const requested = { action, binding },
-      durable = (durablePolicyActions as readonly string[]).includes(action.kind),
+      durable = (durableActionKinds as readonly string[]).includes(action.kind),
       // A durable executor claim is verified in the publication turn that authorizes and executes it.
       claimAtPublication = durable && (action.executor != null || binding.executionPrincipal !== undefined),
       bindExecutorClaim = async (): Promise<WriteReceipt | null> => {

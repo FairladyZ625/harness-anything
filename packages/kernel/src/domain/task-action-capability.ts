@@ -53,9 +53,12 @@ const revisionCurrent: Evaluation = ({ snapshot }) =>
   } as TaskLifecycleCommand).length === 0
     ? "met"
     : "unmet";
+const taskTargetExists: Evaluation = ({ snapshot }) => (snapshot.task === null ? "unmet" : "met");
 
 const taskCapabilityEvaluators = Object.freeze(
   new Map<string, Evaluation>([
+    [key("pin", "entity-pin/target"), taskTargetExists],
+    [key("unpin", "entity-pin/target"), taskTargetExists],
     ...["claim", "settle", "revoke", "rerun"].map((operation): [string, Evaluation] => [
       key(`witness-${operation}`, `repo-cell-task-mutation/witness-${operation}`),
       mutationInvocation,

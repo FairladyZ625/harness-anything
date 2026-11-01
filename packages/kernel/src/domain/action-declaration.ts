@@ -553,3 +553,8 @@ export const durablePolicyActions = Object.freeze(
     executionClass === "repo-read" ? [] : [policyAction],
   ),
 );
+
+/** Durable command kinds derive from the same declarations as policy scopes, but remain distinct from them. */
+export const durableActionKinds = Object.freeze(
+  actionDeclarations.flatMap(({ kind, executionClass }) => (executionClass === "repo-read" ? [] : [kind])),
+);

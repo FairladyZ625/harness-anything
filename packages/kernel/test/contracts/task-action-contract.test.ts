@@ -6,7 +6,8 @@ import { projectActionState, validateEntityActionDescriptor } from "../../src/do
 import { REVIEW_V1_SCHEMA } from "../../src/domain/review.ts";
 import { TASK_LIFECYCLE_TRANSITIONS } from "../../src/domain/task-lifecycle-transitions.ts";
 import { TASK_LIFECYCLE_COMMAND_CATALOG } from "../../src/domain/task-lifecycle-contract-catalog.ts";
-import { lifecycleFixture } from "../store/task-lifecycle-fixture.ts";
+import { evaluateTaskActionCapability, taskActionUsage } from "../../src/domain/task-action-capability.ts";
+import { implementer, lifecycleFixture } from "../store/task-lifecycle-fixture.ts";
 
 const concurrencyFields = [
   "expectedVersion",
@@ -150,6 +151,22 @@ test("all public Task writes are complete executable Action contracts", () => {
     "pin",
     "unpin",
   ]);
+});
+
+test("Task base pin Actions explain their real EntityRef target and reject a missing Task", () => {
+  const task = getEntityKindContract("task"),
+    snapshot = lifecycleFixture().snapshot;
+  assert.ok(task?.actionCatalog);
+  for (const id of ["pin", "unpin"] as const) {
+    const action = task.actionCatalog.actions.find((candidate) => candidate.id === id);
+    assert.ok(action);
+    assert.equal(taskActionUsage(action, "task-1"), `ha ${id} task/task-1`);
+    assert.equal(evaluateTaskActionCapability({ action, snapshot, actor: implementer })[0]?.status, "met");
+    assert.equal(
+      evaluateTaskActionCapability({ action, snapshot: { ...snapshot, task: null }, actor: implementer })[0]?.status,
+      "unmet",
+    );
+  }
 });
 
 test("named lifecycle specifications preserve every execution metadata field", () => {

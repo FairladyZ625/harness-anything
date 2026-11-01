@@ -34,7 +34,7 @@ import {
   buildVerticalDeclarationRead,
   buildEntityKindCatalog,
   deriveUseCaseProjectionInputs,
-  durablePolicyActions,
+  durableActionKinds,
   relationDirections,
   relationStates,
   relationTypes,
@@ -217,7 +217,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
   const builtinRuns = new Map<string, Promise<WriteReceipt>>();
   const context = apiContext;
   const bindExecutorClaimAtWriterCut = (action: RepoTaskAction, binding: RepoCellBinding) => {
-    if (action.executor == null || !(durablePolicyActions as readonly string[]).includes(action.kind))
+    if (action.executor == null || !(durableActionKinds as readonly string[]).includes(action.kind))
       return {
         queued: false as const,
         result: bindVerifiedExecutorClaim({ action, binding, projection: context.projection, now: context.now() }),
@@ -289,7 +289,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
                 onSettled,
                 admitProduce: (kind: string) => {
                   try {
-                    return (durablePolicyActions as readonly string[]).includes(kind);
+                    return (durableActionKinds as readonly string[]).includes(kind);
                   } catch {
                     return false;
                   }
