@@ -375,7 +375,12 @@ export async function runFleetEdgeTask(
         workspaceRoot,
         action,
         authorize: async () => {
-          const metadata = await readFleetRepositoryMetadataClient({ ...peer, actionKind: "task-submit", taskId });
+          const metadata = await readFleetRepositoryMetadataClient({
+            ...peer,
+            actionKind: "task-submit",
+            taskId,
+            ...(typeof action.executionId === "string" ? { executionId: action.executionId } : {}),
+          });
           if (metadata.actionAllowed !== true)
             throw new FleetEdgeTaskError(
               "authorization_denied",

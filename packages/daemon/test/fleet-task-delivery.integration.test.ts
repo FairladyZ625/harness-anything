@@ -317,6 +317,57 @@ test(
       readAccessToken: config.readAccessToken,
       repoId: config.repoId,
     };
+    const remoteRef = (): string | null => {
+      try {
+        return git(remote, "rev-parse", `refs/heads/${created.taskId}`);
+      } catch {
+        return null;
+      }
+    };
+    const preflight = async (
+      requestPeer: typeof peer,
+      action: { readonly kind: "task-submit"; readonly taskId: string; readonly executionId?: string },
+    ) =>
+      prepareEdgeTaskDelivery({
+        workspaceRoot: edgeRoot,
+        action,
+        authorize: async () => {
+          const metadata = await readFleetRepositoryMetadataClient({
+            ...requestPeer,
+            actionKind: "task-submit",
+            taskId: created.taskId,
+            ...(action.executionId ? { executionId: action.executionId } : {}),
+          });
+          assert.equal(metadata.actionAllowed, true, JSON.stringify(metadata));
+          return metadata.personId;
+        },
+        readTask: async () => stale,
+      });
+    assert.equal(remoteRef(), null, "negative preflight starts with no published task ref");
+    await assert.rejects(
+      preflight(peer, { kind: "task-submit", taskId: created.taskId, executionId: "exe-forged-before-push" }),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "lease_holder_mismatch",
+    );
+    assert.equal(remoteRef(), null, "wrong execution is rejected before creating a task ref");
+    const otherNode = fixture.channel("node-two");
+    fixture.owners.reassign("node-two", "person-node-one");
+    const oldNodePeer = {
+      ...otherNode,
+      ca: readFileSync(otherNode.caPath, "utf8"),
+      readAccessToken: otherNode.readAccessToken,
+    };
+    await assert.rejects(
+      preflight(oldNodePeer, { kind: "task-submit", taskId: created.taskId }),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "lease_holder_mismatch",
+    );
+    assert.equal(remoteRef(), null, "same-owner old node is rejected before creating a task ref");
+    git(cwd, "push", "origin", `HEAD:refs/heads/${created.taskId}`);
+    assert.equal(remoteRef(), commitSha, "negative case also covers an expected ref already equal to remote");
+    await assert.rejects(
+      preflight(peer, { kind: "task-submit", taskId: created.taskId, executionId: "exe-forged-after-ref" }),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "lease_holder_mismatch",
+    );
+    assert.equal(remoteRef(), commitSha, "wrong execution cannot update an existing expected ref");
     const prepared = await prepareEdgeTaskDelivery({
       workspaceRoot: edgeRoot,
       action: { kind: "task-submit", taskId: created.taskId },
@@ -333,7 +384,6 @@ test(
     });
     assert.equal(prepared.executionId, undefined);
     assert.equal(prepared.commitSha, commitSha);
-    const otherNode = fixture.channel("node-two");
     await assert.rejects(
       runFleetTaskCommandClient({
         ...peer,

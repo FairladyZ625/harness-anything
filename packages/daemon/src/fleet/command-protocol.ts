@@ -97,6 +97,7 @@ export type FleetFrameV1 =
       "fleet.repo.metadata.get/v1",
       {
         executionCredential?: string;
+        executionId?: string;
         includeGitMetadata?: boolean;
         repoId: string;
         actionKind?: string;
@@ -714,6 +715,7 @@ const schemas: Readonly<Record<string, Check>> = {
       ...common,
       repoId: id,
       executionCredential: text,
+      executionId: id,
       includeGitMetadata: boolean,
       actionKind: (value) => typeof value === "string" && actionDeclarations.some((action) => action.kind === value),
       taskId: id,
