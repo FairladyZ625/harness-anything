@@ -266,6 +266,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     let readerProfile: { personId: string; nodeId: string };
     try {
       ({ readerProfile } = await admitReplica(nodeId, frame.repoId, accessToken));
+      nodeAdmission.assertOpen(nodeId);
     } catch (error) {
       if (error instanceof FleetFault && error.code === "authorization_denied") {
         await peer.send({ type: "replica.resync", reason: "authorization_denied" });

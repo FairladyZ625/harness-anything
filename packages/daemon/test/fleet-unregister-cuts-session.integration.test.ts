@@ -8,6 +8,9 @@ import { parseFleetFrame, serializeFleetFrame, type FleetFrameV1 } from "../src/
 import { managedRbacReceiptJournal } from "../src/access-admin-state.ts";
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
 import { signInAt } from "./keycloak.fixtures.ts";
+import { createNodeRetirement } from "../src/fleet/node-retirement.ts";
+import { AccessAdminService } from "../src/access-admin-service.ts";
+import { createIdentitySession } from "../src/authorization-provider.ts";
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
 import { fleetFixture, rawPeer } from "./fleet-tls-session.fixture.ts";
 
@@ -300,13 +303,41 @@ test("forced retirement drains an admitted command before reporting success", { 
   const admin = fixture.admin(center),
     preview = await admin.run({ operation: "node-unregister", nodeId });
   assert.equal(preview.inFlight, 1);
-  const retiring = admin.run({
-    operation: "node-unregister",
-    nodeId,
-    expectedVersion: "1",
-    confirm: true,
-    force: true,
-  });
+  let enteredFence!: () => void,
+    settled = false;
+  const fenced = new Promise<void>((resolve) => {
+      enteredFence = resolve;
+    }),
+    retirement = createNodeRetirement({
+      stateRoot: fixture.stateRoot,
+      center: () => center,
+      repositories: () => fixture.host.status().repos,
+    }),
+    controlledAdmin = new AccessAdminService(createIdentitySession(fixture.userRoot), fixture.userRoot, {
+      nodeRetirement: {
+        ...retirement,
+        fence: (id) => {
+          const release = retirement.fence(id);
+          enteredFence();
+          return release;
+        },
+      },
+    });
+  const retiring = controlledAdmin
+    .run({
+      operation: "node-unregister",
+      nodeId,
+      expectedVersion: "1",
+      confirm: true,
+      force: true,
+    })
+    .then((result) => {
+      settled = true;
+      return result;
+    });
+  await fenced;
+  assert.equal(settled, false, "retirement cannot report success while an admitted write is parked");
+  assert.equal(center.inspectNode(nodeId).inFlight, 1);
   // The command was admitted before the retirement fence; retirement waits for its canonical result.
   barrier.release();
   await pending;
