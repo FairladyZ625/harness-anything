@@ -6,7 +6,7 @@ import {
   spawn,
   type ChildProcess,
 } from "node:child_process";
-import { terminateRuntimePid } from "./runtime-spawn-process.ts";
+import { terminateRuntimePid } from "./runtime-process-signals.ts";
 import { closeDaemonOutputFd, openDaemonOutputFd } from "./lifecycle-log.ts";
 
 /** POSIX terminal fallback declared at the process-capability boundary. */

@@ -35,7 +35,6 @@ import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import { type WriterEpochFenceDescriptor } from "@harness-anything/storage";
 
 export { causeClassOf, latchReprobeThrottleMs } from "./repo-cell-lock.ts";
-export { openRepoCell } from "./repo-cell-open.ts";
 export type {
   RepoCell,
   RepoCellBinding,

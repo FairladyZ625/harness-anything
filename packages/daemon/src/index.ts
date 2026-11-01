@@ -61,13 +61,8 @@ export type {
 } from "./protocol/daemon-protocol.contract.ts";
 export { currentDaemonProtocolVersion } from "./protocol/version.ts";
 export type { JsonObject, JsonRpcRequest, JsonRpcResponse, JsonValue } from "./protocol/json-rpc-types.ts";
-export {
-  openRepoCell,
-  type RepoCell,
-  type RepoCellBinding,
-  type RepoCellStatus,
-  type RepoTaskAction,
-} from "./repo-cell.ts";
+export { openRepoCell } from "./repo-cell-open.ts";
+export { type RepoCell, type RepoCellBinding, type RepoCellStatus, type RepoTaskAction } from "./repo-cell.ts";
 export {
   DAEMON_REQUEST_LOG_SCHEMA,
   daemonRequestLogPath,

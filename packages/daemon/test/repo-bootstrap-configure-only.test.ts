@@ -14,7 +14,7 @@ import {
   type RepoBootstrapReceipt,
   type RepoBootstrapRequest,
 } from "../src/repo-bootstrap.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openRepoCell } from "../src/repo-cell-open.ts";
 import type { DaemonAuthenticationContext } from "../src/transport/auth-context.ts";
 
 const repoId = "configure-only";

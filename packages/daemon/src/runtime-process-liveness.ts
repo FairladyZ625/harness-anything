@@ -1,4 +1,4 @@
-import { childProcessErrorCode } from "./runtime-spawn-process.ts";
+import { childProcessErrorCode } from "./runtime-process-signals.ts";
 
 /** Whether one runtime worker process is still around, asked of the operating system rather than of
  * any record the daemon keeps. Adoption, cancel, the dispatch read face and the shutdown drain all

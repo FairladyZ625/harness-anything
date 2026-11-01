@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { openSqliteEventStore, sqliteLedgerPath } from "@harness-anything/storage";
 import { readDaemonRegistry } from "@harness-anything/kernel";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openRepoCell } from "../src/repo-cell-open.ts";
 import { readReplicaHealth } from "../src/fleet/replica-health.ts";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";

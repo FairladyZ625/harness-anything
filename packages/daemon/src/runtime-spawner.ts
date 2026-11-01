@@ -101,10 +101,8 @@ import {
 import { installHandoffRollout } from "./runtime-handoff-native.ts";
 import { taskWorktreeCheckoutNote, verifyHandoffWorktree, type TaskWorktreeCheckout } from "./task-worktree.ts";
 import { assertTaskDispatchPrerequisites, taskDispatchLeaseQualifies } from "./task-dispatch-admission.ts";
-export const resultMediaType = "text/plain; charset=utf-8" as const,
-  providerErrorLimit = 64 * 1024,
-  resumeAdmissionTimeoutMs = 30_000,
-  exitNotificationTimeoutMs = 30_000;
+import { providerErrorLimit } from "./runtime-spawn-limits.ts";
+export const resultMediaType = "text/plain; charset=utf-8" as const;
 // Captured at module level: spawnAttempt's local `process` names the launched RuntimeProcess.
 const hostPlatform = process.platform;
 export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {

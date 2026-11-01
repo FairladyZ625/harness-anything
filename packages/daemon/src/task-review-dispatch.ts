@@ -19,6 +19,9 @@ import { decisionLifecycleProtocolCommands } from "./protocol/daemon-protocol-co
 import { isAgentDeclarationInvalid, readAgentDeclarationResolution } from "./agent-entities.ts";
 import { agentDeclaresExplicitModels } from "./agent-runtime-contract.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
+import { reviewDispatchKey } from "./review-dispatch-key.ts";
+
+export { reviewDispatchKey } from "./review-dispatch-key.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { reviewFindingCategoryPrompt, reviewFindingScopePrompt } from "./review-prompt-guidance.ts";
 import { selectReviewSeat, type ReviewSeat, type ReviewSeatSelection } from "./review-panel.ts";
@@ -53,13 +56,6 @@ export function reviewSeatForCut(input: {
 }
 
 /** Cut-review keys are qualified by reviewer so rerouting cannot reuse another reviewer's session. */
-export function reviewDispatchKey(taskId: string, execution: ExecutionV1, reviewerId?: string): string {
-  const key = `task-review:${taskId}:${execution.executionId}:${execution.iteration}:${submissionDigest(
-    execution.submission!,
-  )}`;
-  return reviewerId ? `${key}:reviewer:${reviewerId}` : key;
-}
-
 export function decisionReviewDispatchKey(decisionId: string, digest: string): string {
   return `decision-review:${decisionId}:${digest}`;
 }

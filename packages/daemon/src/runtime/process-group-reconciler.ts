@@ -1,5 +1,5 @@
 import type { RuntimeKind } from "@harness-anything/kernel";
-import { childProcessErrorCode } from "../runtime-spawn-process.ts";
+import { childProcessErrorCode } from "../runtime-process-signals.ts";
 
 /** The only terminal proof accepted for a detached runtime lease. */
 export type ProviderGroupSweepVerdict = "running" | "proven_stopped" | "unknown_unreachable";

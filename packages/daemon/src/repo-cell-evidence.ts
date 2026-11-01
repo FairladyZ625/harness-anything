@@ -1,19 +1,6 @@
-import { consumeKnownError } from "@harness-anything/kernel";
+export { decodeEvidencePayload } from "./evidence-payload.ts";
 import { renderTaskIndexPayload } from "./task-index-query.ts";
 import { renderWorkPayload } from "./work-read.ts";
-
-export function decodeEvidencePayload(evidence: string): unknown {
-  const tag = evidence.indexOf(":");
-  for (const candidate of tag > 0 ? [evidence, evidence.slice(tag + 1)] : [evidence]) {
-    if (!/^[[{]/u.test(candidate)) continue;
-    try {
-      return JSON.parse(candidate);
-    } catch (error) {
-      consumeKnownError(error);
-    }
-  }
-  return undefined;
-}
 
 export function renderEvidencePayload(payload: unknown): string {
   const taskIndex = renderTaskIndexPayload(payload);

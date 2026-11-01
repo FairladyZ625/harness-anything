@@ -1,8 +1,4 @@
-import {
-  spawn,
-  /* @gate-identity check-sync-subprocess/sync-subprocess-010 */
-  spawnSync,
-} from "node:child_process";
+import { spawn } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
@@ -21,6 +17,7 @@ import {
 } from "./dispatch-stream.ts";
 import { removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
+import { childProcessErrorCode, terminateRuntimePid, terminateRuntimeProcess } from "./runtime-process-signals.ts";
 import { runtimeErrorCode, runtimeErrorMessage, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { parseProviderFrame } from "./runtime-spawn-provider-frames.ts";
 import type {
@@ -30,7 +27,7 @@ import type {
   RuntimeLauncher,
   RuntimeProcess,
 } from "./runtime-spawn-types.ts";
-import { exitNotificationTimeoutMs, providerErrorLimit, resumeAdmissionTimeoutMs } from "./runtime-spawner.ts";
+import { exitNotificationTimeoutMs, providerErrorLimit, resumeAdmissionTimeoutMs } from "./runtime-spawn-limits.ts";
 import { runProcessTextAsync } from "./process-port.ts";
 
 export function requiredRuntimeStore(input: { readonly store?: () => CanonicalEventStore }): CanonicalEventStore {
@@ -220,37 +217,6 @@ export function observeResumeProcess(
       for (const event of pending) sink(event);
     },
   };
-}
-
-// A runtime is not always the process we spawned. On Windows an executable discovered as a `.cmd`
-// shim runs under cmd.exe, so the agent itself is a grandchild; SIGTERM there terminates only
-// cmd.exe, and the surviving grandchild holds the inherited stdio pipes open, which keeps the
-// daemon -- or a test process -- alive with a runtime it believes it stopped. taskkill /T ends the
-// tree. Windows has no graceful signal to lose here: SIGTERM already terminates unconditionally.
-export function terminateRuntimeProcess(child: Pick<ReturnType<typeof spawn>, "killed" | "pid" | "kill">): void {
-  if (child.killed || child.pid === undefined) return;
-  if (process.platform === "win32") {
-    /* @gate-identity check-sync-subprocess/sync-subprocess-011 */
-    spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
-      windowsHide: true,
-    });
-    return;
-  }
-  child.kill("SIGTERM");
-}
-
-export function terminateRuntimePid(pid: number): void {
-  if (!Number.isInteger(pid) || pid < 1) return;
-  if (process.platform === "win32") {
-    terminateRuntimeProcess({ killed: false, pid, kill: () => false });
-    return;
-  }
-  try {
-    process.kill(-pid, "SIGTERM");
-  } catch (error) {
-    if (childProcessErrorCode(error) !== "ESRCH") throw error;
-    consumeKnownError(error);
-  }
 }
 
 type PosixProcessRow = {
@@ -512,12 +478,6 @@ export function exitNotificationCommand(
     args: ["/d", "/s", "/c", `""${command}""`],
     windowsVerbatimArguments: true,
   };
-}
-
-export function childProcessErrorCode(error: unknown): string {
-  return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
-    ? error.code
-    : "spawn_failed";
 }
 
 export function launchNative(

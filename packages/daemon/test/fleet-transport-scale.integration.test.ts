@@ -11,7 +11,7 @@ import { openSqliteEventStore } from "@harness-anything/storage";
 
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openRepoCell } from "../src/repo-cell-open.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 

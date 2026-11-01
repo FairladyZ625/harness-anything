@@ -1,10 +1,15 @@
 import { runtimeEffortValues } from "@harness-anything/kernel/runtime-effort";
 import { isCredentialReferenceText } from "./agent-runtime-credential-port.ts";
+import {
+  identifier,
+  isRuntimeInstanceRecord,
+  requiredRuntimeInstanceText,
+  runtimeInstanceError,
+} from "./agent-runtime-instance-values.ts";
 import type {
   AgyRuntimeInstanceConfig,
   ClaudeRuntimeInstanceConfig,
   CodexRuntimeInstanceConfig,
-  RuntimeAuthReadiness,
   RuntimeInstanceAuth,
   RuntimeInstanceCommon,
   RuntimeInstanceConfig,
@@ -12,6 +17,15 @@ import type {
 } from "./agent-runtime-instance-types.ts";
 import { runtimeProviderConfig } from "./agent-runtime-instance-types.ts";
 import { secureRuntimeBaseUrl } from "./agent-runtime-launch-config.ts";
+
+export {
+  available,
+  identifier,
+  isRuntimeInstanceRecord,
+  requiredRuntimeInstanceText,
+  runtimeInstanceError,
+  unavailable,
+} from "./agent-runtime-instance-values.ts";
 import { runtimeIsolationState, runtimePermissionMode } from "./runtime-permissions.ts";
 import { agentRuntimeModelSpelling } from "./agent-runtime-contract.ts";
 import {
@@ -463,13 +477,6 @@ export function runtimeInstanceId(value: unknown): string {
   return id;
 }
 
-export function identifier(value: unknown, field: string): string {
-  const text = requiredRuntimeInstanceText(value, field);
-  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,239}$/u.test(text))
-    throw runtimeInstanceError("invalid_runtime_instance", `${field} is invalid.`);
-  return text;
-}
-
 export function credentialReference(value: unknown, field = "credentialRef"): string {
   const text = requiredRuntimeInstanceText(value, field);
   if (!isCredentialReferenceText(text))
@@ -478,25 +485,4 @@ export function credentialReference(value: unknown, field = "credentialRef"): st
       `${field} must be an opaque credential:v1 reference (legacy keychain: references resolve on macOS only).`,
     );
   return text;
-}
-
-export function requiredRuntimeInstanceText(value: unknown, field: string): string {
-  if (typeof value === "string" && value.trim().length) return value.trim();
-  throw runtimeInstanceError("invalid_runtime_instance", `${field} is required.`);
-}
-
-export function isRuntimeInstanceRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-export function runtimeInstanceError(code: string, message: string): Error {
-  return Object.assign(new Error(message), { code });
-}
-
-export function available(): RuntimeAuthReadiness {
-  return { status: "ready", code: null, hint: null };
-}
-
-export function unavailable(code: string, hint: string): RuntimeAuthReadiness {
-  return { status: "not-ready", code, hint };
 }

@@ -15,7 +15,7 @@ import {
   runtimeInstanceError,
   available,
   unavailable,
-} from "./agent-runtime-instance-config.ts";
+} from "./agent-runtime-instance-values.ts";
 import { runtimeKindForId, type RuntimeProviderDeclaration } from "./runtime-inventory.ts";
 
 // Platform-derived isolation environment. POSIX keeps HOME/TMPDIR/XDG_RUNTIME_DIR
