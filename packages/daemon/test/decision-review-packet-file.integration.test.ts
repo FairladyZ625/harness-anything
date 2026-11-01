@@ -112,27 +112,37 @@ test("decision review registers the finding category required by its dispatch mi
       decision = receiptJson(await cell.run({ kind: "decision-show", decisionId }, owner)).decision as {
         readonly currentReviewContentDigest: `sha256:${string}`;
       },
-      reportRef = `decisions/decision-${decisionId}/artifacts/reports/category.md`;
+      reportRef = `decisions/decision-${decisionId}/artifacts/reports/category.md`,
+      packetRef = `decisions/decision-${decisionId}/artifacts/reports/category.json`,
+      finding = {
+        findingId: "F1",
+        text: "Claim C1 has no evidence.",
+        anchor: "claim/C1",
+        category: "correctness",
+        label: "Important",
+        evidenceDigest: `sha256:${"a".repeat(64)}`,
+        priorFindingRefs: ["review/prior/F1"],
+      };
     writePackage(rootDir, reportRef, "# Review\n\nClaim C1 has no evidence.\n");
-    const reviewed = await cell.run(
-      {
-        kind: "decision-review",
-        decisionId,
+    writePackage(
+      rootDir,
+      packetRef,
+      JSON.stringify({
         reviewId: "review-category",
         reviewContentDigest: decision.currentReviewContentDigest,
         verdict: "changes_requested",
         reason: "The claim lacks evidence.",
-        findings: [{ findingId: "F1", text: "Claim C1 has no evidence.", category: "correctness" }],
+        findings: [finding],
         evidenceChecked: [],
         reportRef,
-      },
-      reviewer,
+      }),
     );
+    const reviewed = await cell.run({ kind: "decision-review", decisionId, fromFile: packetRef }, reviewer);
     assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
     const readback = receiptJson(await cell.run({ kind: "decision-show", decisionId }, owner)).decision as {
-      readonly reviews: readonly { readonly findings: readonly { readonly category?: string }[] }[];
+      readonly reviews: readonly { readonly findings: readonly unknown[] }[];
     };
-    assert.equal(readback.reviews[0]?.findings[0]?.category, "correctness");
+    assert.deepEqual(readback.reviews[0]?.findings[0], finding);
   } finally {
     await cell.close();
   }
