@@ -55,6 +55,7 @@ import type { DaemonBuildObserver, DaemonBuildStamp } from "../build-identity.ts
 import { diagnosticForError } from "../receipt-guidance.ts";
 import { remoteProxyEventMethod } from "../remote-proxy.ts";
 import { daemonBuildStaleNotice, withDaemonDrainSummary } from "../daemon-build-drain.ts";
+import { quoteAgentRuntimeBudget } from "../runtime/cloud-dispatch-relay.ts";
 import type { SkillEvalCaseDraft } from "../skill-eval-runner.ts";
 export interface JsonRpcProtocolServer {
   readonly handle: (
@@ -334,6 +335,19 @@ export function createJsonRpcProtocolServer(options: {
         }
         const result = await remoteProxy.request(remoteRepoId, method, params);
         return reply(method, result as DaemonRpcResult<typeof method>);
+      } catch (error) {
+        return reply(method, protocolFailure(method, error));
+      }
+    }
+    if (method === "repo.agentRuntime.quote") {
+      try {
+        // Pricing is a daemon-local authority. Fleet TLS callers must use their local daemon
+        // rather than asking an edge to invent a second price-table cut.
+        if (options.authContext.transportKind !== "unix-socket" || options.authContext.nodePrincipal)
+          throw Object.assign(new Error("Runtime quotes are available only through the local daemon socket."), {
+            code: "local_transport_required",
+          });
+        return reply(method, quoteAgentRuntimeBudget(params as Parameters<typeof quoteAgentRuntimeBudget>[0]));
       } catch (error) {
         return reply(method, protocolFailure(method, error));
       }

@@ -34,6 +34,7 @@ import type { RpcEnumRule, RpcShape } from "./daemon-protocol-gui-types.ts";
 import type { JsonObject, JsonValue } from "./json-rpc-types.ts";
 import { daemonGuiActionSchemas, daemonGuiReadSchemas } from "./daemon-protocol-schema-registry.ts";
 import type { DaemonStatusResult } from "./daemon-status-contract.ts";
+import type { AgentRuntimeQuote } from "../runtime/cloud-dispatch-relay.ts";
 export type { DaemonRepoAttachProgress, DaemonStatusResult } from "./daemon-status-contract.ts";
 import {
   AGENDA_PIN_CRITERIA,
@@ -169,6 +170,13 @@ type DaemonRpcParamOverrides = {
     readonly reportStaleBuild?: boolean;
     readonly invokingCommand?: string;
   };
+  readonly "repo.agentRuntime.quote": {
+    readonly model: string;
+    readonly inputTokens?: number;
+    readonly inputBytes?: number;
+    readonly outputCapTokens?: number;
+    readonly codeRun?: boolean;
+  };
   readonly "daemon.fleet.task.run": { readonly payload: DaemonFleetTaskPayload };
   readonly "daemon.fleet.doc.sync": { readonly payload: DaemonFleetDocSyncPayload };
   readonly "daemon.fleet.conflict.exit": { readonly payload: DaemonFleetConflictExitPayload };
@@ -237,11 +245,13 @@ type DaemonRpcSuccessResult<Method extends DaemonRpcMethod> =
           ? DaemonStatusResult
           : Method extends "daemon.stop"
             ? DaemonStopResult
-            : Method extends "repo.preset.run.start" | "repo.preset.run.status"
-              ? object
-              : Method extends import("./daemon-protocol-gui-types.ts").DaemonGuiActionMethod
-                ? import("./daemon-protocol-gui-types.ts").DaemonGuiActionResult
-                : Readonly<Record<string, unknown>>;
+            : Method extends "repo.agentRuntime.quote"
+              ? AgentRuntimeQuote
+              : Method extends "repo.preset.run.start" | "repo.preset.run.status"
+                ? object
+                : Method extends import("./daemon-protocol-gui-types.ts").DaemonGuiActionMethod
+                  ? import("./daemon-protocol-gui-types.ts").DaemonGuiActionResult
+                  : Readonly<Record<string, unknown>>;
 
 /**
  * Authoritative method dictionary shared by the daemon dispatcher and every client.

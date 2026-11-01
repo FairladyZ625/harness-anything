@@ -74,6 +74,7 @@ export type {
   AgentRuntimeUnattributedGroupKey,
   RuntimeInstallationState,
 } from "../agent-runtime-contract.ts";
+export type { AgentRuntimeQuote } from "../runtime/cloud-dispatch-relay.ts";
 export type {
   AgentEntityGuiAvailableRow,
   AgentEntityGuiDetail,
