@@ -8,7 +8,7 @@ import {
   taskArtifactSubtreePath,
 } from "./artifact-text-classification.ts";
 import { DOC_CODEC_ID, DOC_POLICY_ID } from "./doc-sync-types.ts";
-import { MIGRATION_DOCUMENT_POLICY_ID } from "./migration-import-event.ts";
+import { MIGRATION_DOCUMENT_POLICY_ID } from "./document-policy-ids.ts";
 import type { LedgerCutIdentity, LedgerIdentity } from "./receipt-domain-registry.ts";
 import {
   hasOnlyFields,
@@ -18,7 +18,7 @@ import {
   validateEventEnvelopeIdentity,
 } from "./write-chain.contract.ts";
 
-import { docClaimRef } from "./doc-sync-codec.ts";
+import { docClaimRef } from "./doc-claim-ref.ts";
 
 export function validateDocEvent(value: unknown): readonly string[] {
   return validateDocEventIdentity(value, ledgerIdentity, true);

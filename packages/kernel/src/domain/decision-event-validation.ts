@@ -13,7 +13,7 @@ import { decisionEventTypes, decisionFulfillmentModes, type DecisionEventV1 } fr
 import { claimId, decisionId, includes, uniqueFactStrings } from "./decision-event-validation-shared.ts";
 import { codePoints, requiredWithOptional } from "./event-validation.ts";
 import { timestamp } from "./timestamp.ts";
-import { isValidDocEventChange } from "./doc-sync.contract.ts";
+import { isValidDocEventChange } from "./doc-sync-writer.ts";
 import {
   isNonEmptyString,
   isRecord,

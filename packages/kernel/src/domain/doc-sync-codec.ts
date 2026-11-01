@@ -6,11 +6,12 @@ import {
   type PortableDocumentPath,
 } from "../layout/portable-path.ts";
 import { DocSyncContractError } from "./doc-sync-types.ts";
+import { docClaimRef } from "./doc-claim-ref.ts";
+export { docClaimRef } from "./doc-claim-ref.ts";
 import type {
   ContentClaim,
   CurrentDocEventV1,
   DocByteLength,
-  DocClaimRef,
   DocWriteIntent,
   LedgerCommitSha,
 } from "./doc-sync-types.ts";
@@ -70,13 +71,6 @@ export function ledgerCommitSha(repoId: string, sha: string): LedgerCommitSha {
   if (!/^[a-z][a-z0-9-]{0,62}$/u.test(repoId) || !commitSha(sha))
     throw new DocSyncContractError("ledger commit requires a canonical repoId and Git SHA");
   return Object.freeze({ repoId, sha }) as LedgerCommitSha;
-}
-
-export function docClaimRef(value: string): DocClaimRef {
-  const normalized = normalizeRelativeDocumentPath(value);
-  if (normalized !== value || !normalized.startsWith("doc-sync-claims/"))
-    throw new DocSyncContractError("claim ref must be a canonical doc-sync-claims path");
-  return normalized as unknown as DocClaimRef;
 }
 
 export function docByteLength(value: number): DocByteLength {

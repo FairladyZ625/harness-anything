@@ -1,5 +1,5 @@
-import { isNativeCommitSha, submissionDigest } from "./execution.ts";
-import type { ExecutionV1, ProjectedExecution, SubmissionDigest } from "./execution.ts";
+import { isNativeCommitSha, submissionDigest, type SubmissionDigest } from "./submission-digest.ts";
+import type { ExecutionV1, ProjectedExecution } from "./execution.ts";
 import { digest } from "./digest.ts";
 import { hasOnlyFields, isNonEmptyString, isRecord, validateActorAxes } from "./task.ts";
 import type { ActorAxes, ContractValidationIssue } from "./task.ts";

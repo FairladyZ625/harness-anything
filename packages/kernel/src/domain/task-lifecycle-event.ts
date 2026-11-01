@@ -40,7 +40,8 @@ import {
 } from "./write-chain.contract.ts";
 import type { EventEnvelope } from "./write-chain.contract.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
-import { isValidDocEventChange, type DocEventChange } from "./doc-sync.contract.ts";
+import { isValidDocEventChange } from "./doc-sync-writer.ts";
+import type { DocEventChange } from "./doc-sync-types.ts";
 import { timestamp } from "./timestamp.ts";
 import { validFactStillHoldsAttestation, type FactStillHoldsAttestation } from "./fact-retirement-readiness.ts";
 import { isValidCloseoutGateRecord, type CloseoutGate } from "./settings-closeout.ts";

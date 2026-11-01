@@ -20,7 +20,8 @@ import type { TaskClass } from "./task.ts";
 import type { LeaseV1 } from "./execution.ts";
 import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
 import { isTaskBoundRuntimeWriter, type TaskBoundRuntimeBinding } from "./task-bound-runtime-authority.ts";
-import { isValidDocEventChange, type DocEventChange } from "./doc-sync.contract.ts";
+import { isValidDocEventChange } from "./doc-sync-writer.ts";
+import type { DocEventChange } from "./doc-sync-types.ts";
 
 export const TASK_PROGRESS_POLICY_ID = "typed-machine-writer/v1" as const;
 export interface TaskProgressEvidence {

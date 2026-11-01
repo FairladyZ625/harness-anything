@@ -27,7 +27,7 @@ import type {
   RuntimeArchiveWriteScope,
 } from "./doc-sync-types.ts";
 import { policyMatchesClaim, taskArtifactPath, taskFromPath, validDocEventChange } from "./doc-sync-validation.ts";
-import { MIGRATION_DOCUMENT_POLICY_ID } from "./migration-import-event.ts";
+import { MIGRATION_DOCUMENT_POLICY_ID } from "./document-policy-ids.ts";
 import type { DocSyncDifference, DocSyncUnresolvedTouch } from "./receipt-domain-registry.ts";
 import { isSameExecution } from "./actor-domain-services.ts";
 import { isTaskBoundRuntimeWriter, runtimeSessionIdFromActor } from "./task-bound-runtime-authority.ts";

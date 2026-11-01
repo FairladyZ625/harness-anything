@@ -12,11 +12,8 @@ import type {
   EntityActionInputContract,
   EntityActionInputField,
 } from "./entity-kind-registry.ts";
-import {
-  attributeEntityActionCriterion,
-  type EntityActionCompileHook,
-  type EntityActionCompileInput,
-} from "./entity-action-execution.ts";
+import { attributeEntityActionCriterion } from "./entity-action-criterion.ts";
+import type { EntityActionCompileHook, EntityActionCompileInput } from "./entity-action-execution.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
 import { consumeKnownError } from "../error-consumption.ts";
 

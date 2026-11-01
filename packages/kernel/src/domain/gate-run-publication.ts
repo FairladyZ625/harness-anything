@@ -13,7 +13,7 @@ import { compileTaskLifecycleWrite, type LifecycleDocumentState } from "./task-l
 import type { GateRunChangedEvent } from "./task-lifecycle-event.ts";
 import { validateTaskEvent } from "./task-lifecycle-event.ts";
 import type { TaskLifecycleSnapshot } from "./task-lifecycle.contract.ts";
-import { TaskLifecycleContractError } from "./task-lifecycle.contract.ts";
+import { TaskLifecycleContractError } from "./task-lifecycle-event.ts";
 import type { ActorAxes } from "./task.ts";
 import type { WriteSource } from "./write-chain.contract.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";

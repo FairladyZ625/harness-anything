@@ -1,11 +1,13 @@
 import { packageDispositions, type PackageDisposition } from "./package-disposition.ts";
 import { timestamp } from "./timestamp.ts";
 import { validateActorIdentity, type ActorIdentity } from "./actor-identity.ts";
-import { isRecord, validateWriteSource, type WriteSource } from "./write-chain.contract.ts";
+import { isRecord } from "./contract-validation.ts";
+import { validateWriteSource, type WriteSource } from "./write-source.ts";
 import { entityFreshnesses, type EntityFreshness } from "./entity-freshness.ts";
-import { compiledPattern } from "./entity-json-schema.ts";
+import { compiledPattern } from "./compiled-pattern.ts";
+import { ENTITY_ID_PATTERN } from "./entity-id-pattern.ts";
 
-export const ENTITY_ID_PATTERN = "^[a-z0-9][a-z0-9-]{0,63}$";
+export { ENTITY_ID_PATTERN } from "./entity-id-pattern.ts";
 /** Policy id every typed entity document is written under; shared below the kind registry assembly. */
 export const ENTITY_DOCUMENT_POLICY_ID = "typed-entity/v1";
 export const entityDispositions = packageDispositions;
