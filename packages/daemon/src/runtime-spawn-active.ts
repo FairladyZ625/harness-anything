@@ -275,6 +275,8 @@ function attachRuntimeObservations(
     active.recordWorkspaceProgress?.();
   };
   if (active.stalledAt === null) armStallDeadline(context, active, handles);
+  // Recursive backends can return an empty watcher for an absent root without throwing.
+  if (workspaceRemoved()) return "workspace-removed";
   try {
     handles.watcher = watch(active.cwd, { recursive: true }, workspaceChanged);
     handles.watcher.on("error", (error: NodeJS.ErrnoException) => {
