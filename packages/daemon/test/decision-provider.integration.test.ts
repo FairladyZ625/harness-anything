@@ -545,6 +545,174 @@ test("DecisionPort reports the HTTP status, SDK error class, and provider messag
   }
 });
 
+test("a model removed from the free tier is a configuration fault with an operator command", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-decision-provider-model-removed-")),
+    calls: number[] = [],
+    providerMessage =
+      "This model is unavailable for free. The paid version is available now - use this slug instead: baseten/elephant-1",
+    vault: CredentialPort = {
+      issue: () => "credential:v1:test-key",
+      store: async () => undefined,
+      resolve: async () => "test-key",
+      remove: async () => undefined,
+    },
+    service = openDecisionProviderService({
+      userRoot: parent,
+      vault,
+      now: () => "2026-11-01T00:00:00.000Z",
+      sleep: async () => {
+        throw new Error("a model-unavailable 404 must not be retried");
+      },
+      invokeDecision: async () => {
+        calls.push(calls.length + 1);
+        const providerErrorBody = { error: { code: 404, message: providerMessage } };
+        throw Object.assign(new Error(providerMessage), {
+          name: "NotFoundResponseError",
+          statusCode: 404,
+          error: providerErrorBody.error,
+          data$: { ...providerErrorBody, body$: JSON.stringify(providerErrorBody) },
+        });
+      },
+    });
+  try {
+    await service.command({
+      kind: "provider-create",
+      type: "decisions",
+      providerId: "decision-a",
+      name: "Decision A",
+      model: "baseten/elephant-1:free",
+      credentialRef: "credential:v1:test-key",
+    });
+    await assert.rejects(
+      service.port.decide({
+        subjectRef: "dispatch/model-removed",
+        providerId: "decision-a",
+        questionSetVersion: "noul/v1",
+        state: ["text"],
+        question: { type: "noul", prompt: "Choose", criteria: { true: "yes", false: "no" } },
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.equal((error as Error & { code?: string }).code, "decision_model_unavailable");
+        assert.equal((error as Error & { retries?: number }).retries, 0);
+        assert.match(error.message, /HTTP 404/u);
+        assert.match(error.message, /baseten\/elephant-1:free/u);
+        assert.match(error.message, /ha provider update decision-a --model/u);
+        assert.match(error.message, /unavailable for free/u);
+        assert.doesNotMatch(error.message, /test-key/u);
+        return true;
+      },
+    );
+    assert.equal(calls.length, 1, "a removed model is terminal and must not be retried");
+    const expectedProbe = {
+      state: "failed",
+      checkedAt: "2026-11-01T00:00:00.000Z",
+      code: "decision_model_unavailable",
+    };
+    assert.deepEqual(service.read()[0]?.probe, expectedProbe);
+    const persisted = JSON.parse(readFileSync(path.join(parent, "decision-providers.json"), "utf8")) as {
+      providers: { readonly probe: unknown }[];
+    };
+    assert.deepEqual(persisted.providers[0]?.probe, expectedProbe);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("a provider model update changes the model the next decision sends", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-decision-provider-model-update-")),
+    models: string[] = [],
+    vault: CredentialPort = {
+      issue: () => "credential:v1:test-key",
+      store: async () => undefined,
+      resolve: async () => "test-key",
+      remove: async () => undefined,
+    },
+    service = openDecisionProviderService({
+      userRoot: parent,
+      vault,
+      invokeDecision: async (input) => {
+        models.push(input.model);
+        return {
+          model: input.model,
+          usage: { inputTokens: 1, outputTokens: 1 },
+          answers: { decision: { type: "noul", noul: 0.5 } },
+        };
+      },
+    });
+  const request = {
+    subjectRef: "dispatch/model-update",
+    providerId: "decision-a",
+    questionSetVersion: "noul/v1",
+    state: ["text"] as const,
+    question: { type: "noul" as const, prompt: "Choose", criteria: { true: "yes", false: "no" } },
+  };
+  try {
+    await service.command({
+      kind: "provider-create",
+      type: "decisions",
+      providerId: "decision-a",
+      name: "Decision A",
+      model: "model-a",
+      credentialRef: "credential:v1:test-key",
+    });
+    await service.port.decide(request);
+    const updated = await service.command({ kind: "provider-update", providerId: "decision-a", model: "model-b" });
+    assert.equal((updated.provider as { model: string }).model, "model-b");
+    assert.deepEqual((updated.provider as { probe: unknown }).probe, { state: "unknown" });
+    await service.port.decide(request);
+    assert.deepEqual(models, ["model-a", "model-b"]);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("a decision failure does not mark a newer provider configuration as failed", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-decision-provider-model-race-")),
+    providerMessage = "This model is unavailable for free. Use this slug instead: baseten/elephant-1",
+    vault: CredentialPort = {
+      issue: () => "credential:v1:test-key",
+      store: async () => undefined,
+      resolve: async () => "test-key",
+      remove: async () => undefined,
+    };
+  const service = openDecisionProviderService({
+    userRoot: parent,
+    vault,
+    invokeDecision: async () => {
+      // The operator changes the model while the old model's request is in flight.
+      await service.command({ kind: "provider-update", providerId: "decision-a", model: "model-b" });
+      throw Object.assign(new Error(providerMessage), { name: "NotFoundResponseError", statusCode: 404 });
+    },
+  });
+  try {
+    await service.command({
+      kind: "provider-create",
+      type: "decisions",
+      providerId: "decision-a",
+      name: "Decision A",
+      model: "model-a",
+      credentialRef: "credential:v1:test-key",
+    });
+    await assert.rejects(
+      service.port.decide({
+        subjectRef: "dispatch/model-race",
+        providerId: "decision-a",
+        questionSetVersion: "noul/v1",
+        state: ["text"],
+        question: { type: "noul", prompt: "Choose", criteria: { true: "yes", false: "no" } },
+      }),
+      (error: unknown) =>
+        error instanceof Error && (error as Error & { code?: string }).code === "decision_model_unavailable",
+    );
+    const current = service.read()[0];
+    assert.equal(current?.model, "model-b");
+    assert.deepEqual(current?.probe, { state: "unknown" });
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test("DecisionPort retries only failures with transient evidence and never echoes the API key", async (t) => {
   const apiKey = "sk-test-secret-value-12345",
     vault: CredentialPort = {

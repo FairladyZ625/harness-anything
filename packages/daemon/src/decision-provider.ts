@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { OpenRouter } from "@openrouter/sdk";
 import type { DecisionsResponse } from "@openrouter/sdk/models";
+import { consumeKnownError } from "@harness-anything/kernel";
 import type {
   AdvisoryDecision,
   DecisionOption,
@@ -265,6 +266,7 @@ export function openDecisionProviderService(input: {
           model: current.model,
           state: [probeState],
           question: probeQuestion,
+          providerId: current.providerId,
         });
       } catch (error) {
         const failed = {
@@ -286,6 +288,24 @@ export function openDecisionProviderService(input: {
     }
     throw providerError("invalid_provider", `Unsupported provider command: ${kind}.`);
   }
+
+  const recordProbeFailure = (
+    providerId: string,
+    code: DecisionPortFailureCode,
+    configurationRevision: number,
+  ): void => {
+    const current = read().find((entry) => entry.providerId === providerId);
+    // A configuration update races the in-flight decision; its probe was reset to `unknown` for
+    // the new model, so an old model's failure must not label the new configuration as failed.
+    if (!current || current.configurationRevision !== configurationRevision) return;
+    persist(
+      read().map((entry) =>
+        entry.providerId === providerId
+          ? { ...entry, probe: { state: "failed" as const, checkedAt: now(), code } }
+          : entry,
+      ),
+    );
+  };
 
   const port: DecisionPort = {
     decide: async (request) => {
@@ -309,15 +329,29 @@ export function openDecisionProviderService(input: {
         return { provider, apiKey };
       });
       const startedAt = Date.now();
-      const response = await invokeDecisionWithRetry({
-        invokeDecision,
-        sleep,
-        apiKey: selected.apiKey,
-        serverURL: serverUrl(selected.provider),
-        model: selected.provider.model,
-        state: request.state,
-        question: toOpenRouterQuestion(request.question),
-      });
+      let response: DecisionsResponse;
+      try {
+        response = await invokeDecisionWithRetry({
+          invokeDecision,
+          sleep,
+          apiKey: selected.apiKey,
+          serverURL: serverUrl(selected.provider),
+          model: selected.provider.model,
+          state: request.state,
+          question: toOpenRouterQuestion(request.question),
+          providerId: selected.provider.providerId,
+        });
+      } catch (error) {
+        // A provider that cannot serve its configured model or credential stays broken until the
+        // operator edits the machine-local provider file; record it so `ha doctor health` shows the
+        // same fault instead of only the dispatch receipt that happened to observe it.
+        const code = decisionFailureCode(error);
+        if (code === "decision_model_unavailable" || code === "provider_credential_unavailable")
+          await enqueue(() =>
+            recordProbeFailure(selected.provider.providerId, code, selected.provider.configurationRevision),
+          ).catch(consumeKnownError);
+        throw error;
+      }
       return decodeDecision(response, request, selected.provider, Math.max(0, Date.now() - startedAt));
     },
   };
@@ -328,6 +362,7 @@ function invokeDecisionWithRetry(
   input: Parameters<DecisionInvoker>[0] & {
     readonly invokeDecision: DecisionInvoker;
     readonly sleep: DecisionSleep;
+    readonly providerId: string;
   },
   retries = 0,
 ): Promise<DecisionsResponse> {
@@ -341,7 +376,7 @@ function invokeDecisionWithRetry(
     })
     .catch((error: unknown) => {
       const code = decisionFailureCode(error),
-        mapped = mapOpenRouterFailure(error, input.apiKey),
+        mapped = mapOpenRouterFailure(error, input.apiKey, input.providerId, input.model),
         retryable = retryableDecisionFailure(error, code);
       if (!retryable || retries >= decisionRetryMaxRetries) {
         if (retryable && retries > 0)
@@ -635,10 +670,14 @@ function completeDistributionByCount(
 
 const decisionFailureDetailMaxLength = 400;
 
-function mapOpenRouterFailure(error: unknown, apiKey?: string): Error {
+function mapOpenRouterFailure(error: unknown, apiKey?: string, providerId?: string, model?: string): Error {
   const code = decisionFailureCode(error),
     detail = decisionFailureDetail(error, apiKey),
-    withDetail = (summary: string): string => (detail === "" ? summary : `${summary} ${detail}`);
+    withDetail = (summary: string): string => (detail === "" ? summary : `${summary} ${detail}`),
+    provider =
+      providerId === undefined || model === undefined
+        ? "the configured Decisions provider"
+        : `Decisions provider ${providerId} (model ${model})`;
   if (code === "provider_credential_unavailable")
     return providerError(code, withDetail("OpenRouter rejected the configured Decisions API key."), 0);
   if (code === "decision_rate_limited")
@@ -646,6 +685,16 @@ function mapOpenRouterFailure(error: unknown, apiKey?: string): Error {
   if (code === "decision_timeout") return providerError(code, withDetail("The Decisions request timed out."), 0);
   if (code === "decision_protocol_invalid")
     return providerError(code, withDetail("OpenRouter returned an invalid Decisions response."), 0);
+  if (code === "decision_model_unavailable")
+    return providerError(
+      code,
+      withDetail(
+        `${provider} cannot serve its configured model; update it with: ` +
+          `ha provider update ${providerId ?? "<provider-id>"} --model <available-model>, ` +
+          `then ha provider probe ${providerId ?? "<provider-id>"}.`,
+      ),
+      0,
+    );
   if (code === "decision_transport")
     return providerError(code, withDetail("The OpenRouter Decisions request could not be completed."), 0);
   if (error instanceof Error) return error;
@@ -713,6 +762,26 @@ function redactDecisionSecret(text: string, apiKey?: string): string {
     : redacted;
 }
 
+/** A 404 is a model-configuration fault only when the provider names the model as unavailable. */
+const modelUnavailablePattern =
+  /(?:model[^.\n]{0,80}unavailable|unavailable for free|use this slug instead|model not found|no such model|unknown model)/iu;
+
+function nestedProviderMessage(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object") return null;
+  const row = value as { readonly message?: unknown; readonly error?: unknown };
+  if (typeof row.message === "string") return row.message;
+  return nestedProviderMessage(row.error);
+}
+
+function modelUnavailableMessage(error: object): boolean {
+  const row = error as { readonly message?: unknown; readonly error?: unknown; readonly data$?: unknown },
+    body = row.data$ && typeof row.data$ === "object" ? (row.data$ as { readonly body$?: unknown }).body$ : null;
+  return [row.message, nestedProviderMessage(row.error), nestedProviderMessage(row.data$), body].some(
+    (message) => typeof message === "string" && modelUnavailablePattern.test(message),
+  );
+}
+
 function decisionFailureCode(error: unknown): DecisionPortFailureCode {
   if (!error || typeof error !== "object") return "decision_transport";
   const row = error as {
@@ -724,6 +793,7 @@ function decisionFailureCode(error: unknown): DecisionPortFailureCode {
     name = typeof row.name === "string" ? row.name : "",
     status = typeof row.statusCode === "number" ? row.statusCode : typeof row.status === "number" ? row.status : null;
   if (status === 401 || status === 403) return "provider_credential_unavailable";
+  if (status === 404 && modelUnavailableMessage(error)) return "decision_model_unavailable";
   if (status === 429 || name.includes("TooManyRequests")) return "decision_rate_limited";
   if (status === 408 || status === 524 || name.includes("Timeout") || name.includes("Aborted"))
     return "decision_timeout";
@@ -732,6 +802,7 @@ function decisionFailureCode(error: unknown): DecisionPortFailureCode {
   if (row.code === "provider_credential_unavailable") return "provider_credential_unavailable";
   if (row.code === "decision_timeout") return "decision_timeout";
   if (row.code === "decision_rate_limited") return "decision_rate_limited";
+  if (row.code === "decision_model_unavailable") return "decision_model_unavailable";
   if (row.code === "decision_protocol_invalid") return "decision_protocol_invalid";
   if (row.code === "decision_transport") return "decision_transport";
   return "decision_transport";

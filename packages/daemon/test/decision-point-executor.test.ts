@@ -993,6 +993,41 @@ test("a delivered cut retains a terminal provider cause while defaulting to no_a
   assert.match(String(stored[0]?.action?.reason), /HTTP 404 NotFoundResponseError: Invalid URL/u);
 });
 
+test("a removed model keeps the model and its update command in the settled receipt", async (t) => {
+  const rootDir = isolatedRoot();
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  seedIncidentStream(rootDir);
+  const providerMessage =
+    "This model is unavailable for free. The paid version is available now - use this slug instead: baseten/elephant-1";
+  const decisionProvider = openTestDecisionProvider(rootDir, async () => {
+    throw Object.assign(new Error(providerMessage), {
+      name: "NotFoundResponseError",
+      statusCode: 404,
+      data$: { error: { code: 404, message: providerMessage } },
+    });
+  });
+  await configureTestDecisionProvider(decisionProvider);
+  const executor = openTestExecutor({
+      rootDir,
+      providers: { list: decisionProvider.list, port: decisionProvider.port },
+      now: () => "2026-10-19T00:00:01.000Z",
+    }),
+    { cell, spawns } = fakeIncidentCell({
+      rootDir,
+      submission: { commitSha: "b".repeat(40) },
+      resume: { dispatchId, agentId: "terra" },
+    });
+  await executor.settle(cell, incidentOutcomeEvent());
+  assert.equal(spawns.length, 0, "a delivered cut must not be rerun by a fallback");
+  const stored = await openDecisionAnnotationStore(rootDir).export(),
+    reason = String(stored[0]?.action?.reason);
+  assert.match(reason, /decision_model_unavailable after 0 retries/u);
+  assert.match(reason, new RegExp(`ha provider update ${provider.providerId} --model`, "u"));
+  assert.match(reason, new RegExp(provider.model.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
+  assert.match(reason, /HTTP 404 NotFoundResponseError/u);
+  assert.match(reason, /unavailable for free/u);
+});
+
 test("the deterministic default still escalates when a guard forbids every automatic action", async (t) => {
   const rootDir = isolatedRoot();
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));

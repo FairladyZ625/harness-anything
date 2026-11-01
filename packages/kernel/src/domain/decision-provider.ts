@@ -105,5 +105,6 @@ export type DecisionPortFailureCode =
   | "invalid_decision_request"
   | "decision_timeout"
   | "decision_rate_limited"
+  | "decision_model_unavailable"
   | "decision_transport"
   | "decision_protocol_invalid";
