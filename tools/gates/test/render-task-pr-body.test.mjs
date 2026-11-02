@@ -100,20 +100,6 @@ test("PR renderer names every missing closeout section and invents no placeholde
   const partial = "# Closeout\n\n## Summary\n\nOnly a summary.\n";
   assert.throws(
     () => render(codeSubmission, { closeout: partial }),
-    /closeout\.md is missing required section\(s\): Verification, Residual Risk/u,
-  );
-  assert.throws(
-    () =>
-      render(
-        {
-          commitSha,
-          deliverables: [],
-          changedFiles: [],
-          outputs: [],
-          productionDelta: { baseSha, added: 0, deleted: 0, changed: [], unclassified: [] },
-        },
-        { closeout: partial },
-      ),
     /closeout\.md is missing required section\(s\): What Changed, Verification, Residual Risk/u,
   );
 });
@@ -138,11 +124,12 @@ test("re-rendering a body refreshes delivery facts but keeps authored sections",
   assertPassesPrBodyCheck(refreshed);
 });
 
-test("a historical closeout without What Changed uses the frozen changed paths", () => {
+test("a closeout without What Changed is rejected instead of silently falling back", () => {
   const historical = closeout.replace(/## What Changed[\s\S]*?(?=## Verification)/u, "");
-  const body = render(codeSubmission, { closeout: historical });
-  assert.match(body, /## What Changed\n\n- 3 changed paths; production delta \+5\/-2 \(net \+3\)\./u);
-  assertPassesPrBodyCheck(body);
+  assert.throws(
+    () => render(codeSubmission, { closeout: historical }),
+    /closeout\.md is missing required section\(s\): What Changed/u,
+  );
 });
 
 test("PR renderer recognises the Chinese closeout section names", () => {
@@ -189,13 +176,10 @@ test("PR renderer refuses to publish private task ids from authored closeout pro
 });
 
 test("PR renderer labels artifact-only submissions without inventing commit facts", () => {
-  const body = render(
-    { commitSha: null, deliverables: ["tasks/private/artifacts/report.md"], outputs: [] },
-    { closeout: closeout.replace(/## What Changed[\s\S]*?(?=## Verification)/u, "") },
-  );
+  const body = render({ commitSha: null, deliverables: ["tasks/private/artifacts/report.md"], outputs: [] });
   assert.match(body, /artifact-only; no public Git commit/u);
   assert.match(body, /Delivered artifacts: 1 center-accepted artifact/u);
-  assert.match(body, /## What Changed\n\n- Artifact-only delivery; no public repository paths change\./u);
+  assert.match(body, /## What Changed\n\n- Read the closeout sections\./u);
   assert.doesNotMatch(
     body,
     /tasks\/private\/artifacts\/report\.md/u,
@@ -206,29 +190,23 @@ test("PR renderer labels artifact-only submissions without inventing commit fact
 
 test("PR renderer keeps unusual file paths on one literal Markdown line", () => {
   const filePath = "src/backtick`and\n- injected.md",
-    body = render(
-      {
-        commitSha,
-        deliverables: [],
-        changedFiles: [filePath],
-        outputs: [],
-        productionDelta: { baseSha, added: 0, deleted: 0, changed: [], unclassified: [filePath] },
-      },
-      { closeout: closeout.replace(/## What Changed[\s\S]*?(?=## Verification)/u, "") },
-    );
+    body = render({
+      commitSha,
+      deliverables: [],
+      changedFiles: [filePath],
+      outputs: [],
+      productionDelta: { baseSha, added: 0, deleted: 0, changed: [], unclassified: [filePath] },
+    });
   assert.match(body, /  - ``"src\/backtick`and\\n- injected\.md"``/u);
   assert.doesNotMatch(body, /src\/backtick`and\n- injected/u);
 });
 
 test("PR renderer labels legacy facts and rejects broken markers", () => {
-  const legacy = render(
-    {
-      commitSha,
-      deliverables: ["README.md", "packages/kernel/old.ts"],
-      outputs: ["Deleted-Production-Paths: packages/kernel/retired.ts"],
-    },
-    { closeout: closeout.replace(/## What Changed[\s\S]*?(?=## Verification)/u, "") },
-  );
+  const legacy = render({
+    commitSha,
+    deliverables: ["README.md", "packages/kernel/old.ts"],
+    outputs: ["Deleted-Production-Paths: packages/kernel/retired.ts"],
+  });
   assert.match(legacy, /Legacy submission facts/u);
   assert.match(legacy, /Production delta: unavailable on this legacy cut/u);
   assert.match(legacy, /README\.md/u);

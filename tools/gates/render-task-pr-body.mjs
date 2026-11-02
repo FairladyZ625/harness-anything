@@ -119,20 +119,6 @@ function deliveryFacts(submission) {
   ].join("\n");
 }
 
-/** A historical cut has no authored What Changed section yet; its frozen path count is real evidence. */
-function machineWhatChanged(submission) {
-  const facts = readSubmissionFacts(submission);
-  if (facts.kind === "artifact-only") return "- Artifact-only delivery; no public repository paths change.";
-  const count = facts.changedFiles.length;
-  if (count === 0) return undefined;
-  const paths = count === 1 ? "1 changed path" : `${count} changed paths`;
-  if (facts.kind === "legacy")
-    return `- ${paths} stored in the legacy cut; production delta unavailable. The complete stored path list is in Delivery Facts.`;
-  const { added, deleted } = facts.productionDelta,
-    net = added - deleted;
-  return `- ${paths}; production delta +${added}/-${deleted} (net ${net >= 0 ? "+" : ""}${net}). The complete frozen path list is in Delivery Facts.`;
-}
-
 function findSection(sections, aliases) {
   for (const alias of aliases) if (sections.has(alias)) return sections.get(alias);
   for (const [heading, content] of sections)
@@ -141,11 +127,9 @@ function findSection(sections, aliases) {
   return undefined;
 }
 
-function authoredSources(closeout, submission) {
-  const sections = markdownSections(closeout),
-    sources = Object.fromEntries(PR_SECTIONS.map(({ title, aliases }) => [title, findSection(sections, aliases)]));
-  sources["What Changed"] ??= machineWhatChanged(submission);
-  return sources;
+function authoredSources(closeout) {
+  const sections = markdownSections(closeout);
+  return Object.fromEntries(PR_SECTIONS.map(({ title, aliases }) => [title, findSection(sections, aliases)]));
 }
 
 function escapeRegExp(value) {
@@ -210,7 +194,7 @@ export function renderTaskPrBody({ taskId, receipt, template, body = template, c
     facts = deliveryFacts(submission),
     stripped = withoutFacts(body),
     baseline = withoutFacts(template),
-    sources = authoredSources(typeof closeout === "string" ? closeout : "", submission);
+    sources = authoredSources(typeof closeout === "string" ? closeout : "");
   let rendered = stripped;
   const missing = [];
   for (const { title } of PR_SECTIONS) {
