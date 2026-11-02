@@ -53,11 +53,11 @@ import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { readReplicaGeneration } from "./fleet/replica-generation.ts";
 import { runFleetEdgeWrite, transientFleetReceipt } from "./fleet-edge-write.ts";
 import { readScheduleAction, dispatchClaimedSchedule } from "./schedule-action-runtime.ts";
+import { orchestrateRuntimeSessionsAwait } from "./runtime-orchestration.ts";
 import { prepareScheduleOccurrenceWorkspace, scheduleSettlementDetail } from "./schedule-occurrence-workspace.ts";
 import { taskMissionSections, taskPlanSection, runtimeMissionName } from "./runtime-spawn-mission.ts";
 import { reconcileProcessGroup } from "./runtime/process-group-reconciler.ts";
 import { readRuntimeDispatchOwnerEvidence } from "./runtime-spawn-control.ts";
-import { orchestrateRuntimeSessionsAwait } from "./runtime-orchestration.ts";
 import { assertFleetEdgeRepositoryGit } from "./fleet-edge-git-preflight.ts";
 
 export interface FleetEdgeRuntimeRequest {
@@ -104,10 +104,7 @@ const runtimeOverviewPageLimit = 16;
 const localReplicaWaitBackstopMs = 1_000;
 
 /**
- * The edge replica publishes a new generation by atomically replacing current.json. Watching
- * the view directory catches both the rename and the follow-up metadata write; the backstop
- * keeps the wait live on filesystems that coalesce or drop a native watch event. This is only a
- * wake-up signal: the next read remains the authority and validates the published generation.
+ * Replica changes are a wake hint; each wake re-reads settlement from the edge view.
  */
 function waitForLocalReplicaChange(
   viewRoot: string,
@@ -150,7 +147,6 @@ function waitForLocalReplicaChange(
     }
   });
 }
-
 export async function readFleetRuntimeSessionsPaged(readPage: (payload: JsonObject) => Promise<unknown>): Promise<
   readonly {
     readonly runtimeSessionId: string;
@@ -942,6 +938,14 @@ export function openFleetEdgeRuntime(input: {
       const failed = recovered.find((result) => result.outcome === "failed");
       if (failed) throw failed.error;
     },
+    awaitCanonicalRuntimeSessions: async (action: JsonObject, connectionSignal?: AbortSignal): Promise<JsonObject> =>
+      (await readFleetOperationalClient({
+        ...runtimeReadPeer,
+        repoId: request.repoId,
+        method: "repo.agentRuntime.sessions.await",
+        payload: action,
+        connectionSignal,
+      })) as JsonObject,
     run: async (
       method: FleetEdgeRuntimeRequest["payload"]["method"],
       action: JsonObject,

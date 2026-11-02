@@ -448,11 +448,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         ),
         runtimeSessionId = typeof receipt.runtimeSessionId === "string" ? receipt.runtimeSessionId : null;
       if (!runtimeSessionId) throw new Error("runtime spawn did not return a runtimeSessionId");
-      await runtime.run(
-        "repo.agentRuntime.sessions.await",
-        { runtimeSessionIds: [runtimeSessionId], mode: "all" },
-        signal,
-      );
+      await runtime.awaitCanonicalRuntimeSessions({ runtimeSessionIds: [runtimeSessionId], mode: "all" }, signal);
     },
     onDiagnostic: (row: NodeAutoClaimDiagnosticRow) => {
       recordNodeAutoClaimDiagnostic(input.userRoot, {
