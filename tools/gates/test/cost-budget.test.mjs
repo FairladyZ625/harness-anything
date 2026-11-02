@@ -22,6 +22,7 @@ import {
   measureCatalogBatch,
   measureEntityPins,
   measureTaskReviewDispatchBatch,
+  measureTaskWitnessGates,
   COLLECTION_PROBES,
 } from "../../../packages/daemon/test/fixtures/g38-collection-cost.mjs";
 import { measureTaskReviewResponses } from "../../../packages/daemon/test/fixtures/g38-lifecycle-cost.mjs";
@@ -403,6 +404,15 @@ test("task-submit scaling measures the production orchestration and one acceptan
   assert.equal(evaluateCollectionCosts({ submit: measured }).ok, true);
 });
 
+test("task-witness-run scans the selected execution's frozen gate collection linearly", async () => {
+  const measured = {
+    small: await measureTaskWitnessGates(process.cwd(), 100),
+    large: await measureTaskWitnessGates(process.cwd(), 2000),
+  };
+  assert.deepEqual([measured.small.counts.gateMembersRead, measured.large.counts.gateMembersRead], [200, 4000]);
+  assert.equal(evaluateCollectionCosts({ "task-witness-run:frozen-gates": measured }).ok, true);
+});
+
 test("task review response probe exposes repeated scans of prior responses", async () => {
   const measured = {
       small: await measureTaskReviewResponses(process.cwd(), 100),
@@ -531,12 +541,13 @@ test("Decision writes compile their actual publication against one entity's grow
   }
 });
 
-test("Decision review responses expose nested finding searches in the production compiler", async () => {
+test("Decision review responses scan finding collections linearly in the production compiler", async () => {
   const small = await measureDecisionCollection(process.cwd(), 100, "decision-respond-review", "review-findings"),
     large = await measureDecisionCollection(process.cwd(), 2000, "decision-respond-review", "review-findings"),
     result = evaluateCollectionCosts({ "decision-respond-review:review-findings": { small, large } });
-  assert.equal(result.ok, false);
-  assert.match(result.errors.join("\n"), /membersExamined: 5152 at 100 grew to 2003002 at 2000/u);
+  assert.equal(small.counts.membersExamined, 202);
+  assert.equal(large.counts.membersExamined, 4002);
+  assert.deepEqual(result.errors, []);
 });
 
 test("pin and unpin scale with the real repository pin collection", async () => {

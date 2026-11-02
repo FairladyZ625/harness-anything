@@ -94,6 +94,60 @@ export async function measureTaskSubmitArtifacts(rootDir, size) {
   return { size, counts };
 }
 
+// Exercise the canonical task-witness-run catalog writer. Its input is one task execution's
+// frozen command-gate collection; the request must find the requested gate and validate it.
+export async function measureTaskWitnessGates(rootDir, size) {
+  const [{ readTaskWitnessRequest }, { completionSnapshot }] = await Promise.all([
+      load(rootDir, "packages/daemon/src/task-witness-request.ts"),
+      load(rootDir, "packages/kernel/test/domain/completion.fixtures.ts"),
+    ]),
+    gates = Array.from({ length: size }, (_, index) => ({
+      gateId: `gate-${String(index).padStart(4, "0")}`,
+      appliesTo: "submission",
+      witness: { kind: "command", adapterId: `adapter-${index}`, adapterOptions: {} },
+    })),
+    execution = {
+      schema: "execution/v1",
+      executionId: "execution-cost",
+      iteration: 1,
+      submission: {
+        ...completionSnapshot,
+        completionContract: { ...completionSnapshot.completionContract, gates },
+        commitSha: "a".repeat(40),
+        artifacts: [],
+      },
+      gateRuns: [],
+    },
+    counts = { gateMembersRead: 0 },
+    task = {
+      status: "submitted",
+      iteration: 1,
+      taskId: "task-cost",
+    },
+    projection = {
+      read(taskId) {
+        assert.equal(taskId, "task-cost");
+        return { snapshot: { task, executions: [execution], gateWitnesses: [] } };
+      },
+    },
+    cell = {
+      projection,
+      cellCodedError(code, message) {
+        return Object.assign(new Error(message), { code });
+      },
+    };
+  execution.submission.completionContract.gates = counted(gates, () => {
+    counts.gateMembersRead += 1;
+  });
+  const result = readTaskWitnessRequest(cell, {
+    taskId: "task-cost",
+    executionId: "execution-cost",
+    gateId: gates.at(-1).gateId,
+  });
+  assert.equal(result.result.gateId, gates.at(-1).gateId);
+  return { size, counts };
+}
+
 // Synchronous scopes keep probe work and setup out of the measured window. Hash.update counts
 // bytes as well as calls: a fixed number of hashes over a quadratic-size event must still fail.
 function measureHashes(run) {
@@ -492,6 +546,11 @@ export const COLLECTION_PROBES = Object.freeze({
     action: "task-dispatch-review",
     dimension: "task-ids",
     run: measureTaskReviewDispatchBatch,
+  },
+  "task-witness-run:frozen-gates": {
+    action: "task-witness-run",
+    dimension: "frozen-gates",
+    run: measureTaskWitnessGates,
   },
   "decision-respond-review:review-findings": {
     action: "decision-respond-review",

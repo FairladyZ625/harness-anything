@@ -413,6 +413,11 @@
           "measurements": [
             "task-dispatch-review:task-ids"
           ]
+        },
+        "task-witness-run": {
+          "measurements": [
+            "task-witness-run:frozen-gates"
+          ]
         }
       },
       "notApplicable": [
