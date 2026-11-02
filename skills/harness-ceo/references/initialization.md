@@ -14,11 +14,12 @@ After `ha init`, inspect the declared identities before assigning implementation
 ha agent list
 ```
 
-If the list has no suitable implementation worker, read the repository's [`create-agent` skill](../../create-agent/SKILL.md). Use it to declare two reusable identities: one `worker` responsible for implementation and one `reviewer` responsible for independent review. Follow that skill's declaration and authoring rules; do not treat a model name as an Agent. If the declarations use an empty `runtimes` list, they accept any compatible runtime kind; a declaration pinned to a runtime kind must be validated only after that kind is available. Validate and install each declaration through the CLI:
+If the list has no suitable implementation worker, read the repository's [`create-agent` skill](../../create-agent/SKILL.md). Use it to declare a reusable `worker` identity responsible for implementation. Declare a second `reviewer` identity for independent review only when the repository's closeout review gate is on (`ha settings show` reports `closeout.overrides.review`). Follow that skill's declaration and authoring rules; do not treat a model name as an Agent. If the declarations use an empty `runtimes` list, they accept any compatible runtime kind; a declaration pinned to a runtime kind must be validated only after that kind is available. Validate and install each declaration through the CLI:
 
 ```bash
 ha agent validate --source <implementation-worker-declaration>
 ha agent install --source <implementation-worker-declaration>
+# only when the review gate is on
 ha agent validate --source <reviewer-declaration>
 ha agent install --source <reviewer-declaration>
 ```
