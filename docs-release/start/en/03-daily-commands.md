@@ -33,6 +33,7 @@ ha agenda --work <id>                         # the agenda narrowed to one work
 ```
 
 **Check & navigate**
+
 ```bash
 ha status          # what state am I in?
 ha check           # is everything healthy?
@@ -79,6 +80,48 @@ or dispatch again; only the steps that have not succeeded run again.
 Worktrees created before this naming (`codex/<slug>-<id8>`) are renamed once by
 `ha task contract migrate --apply`. One with uncommitted changes or a live
 worker is left in place and listed for you to handle.
+
+## Start with the built-in identities
+
+Harness ships three general-purpose identities: `worker` implements assigned
+work, `reviewer` independently checks a delivery, and `commander` coordinates
+tasks and dependencies. All three have empty `skills` and `runtimes` lists:
+they bind no provider, model, machine instance, or repository-specific files.
+Repository rules and task context come from dispatch.
+
+After configuring a provider and its runtime instance, enable it for the
+current repository and dispatch an identity directly:
+
+```bash
+ha runtime instance list
+ha settings update --runtime-allowed-instance <instance-id>
+ha task start <ready-task-id>
+ha agent run worker --task <ready-task-id> --instance <instance-id>
+ha task dispatch-review <submitted-task-id> --agent reviewer --instance <instance-id>
+ha agent run commander --task <planning-task-id> --instance <instance-id> --prompt "Plan the next steps for this repository."
+```
+
+Repeat `--runtime-allowed-instance` for every instance the repository should
+allow. Start the planning task before dispatching its commander, and use a
+submitted task for review. With `--instance` omitted, the existing runtime
+selection chooses an
+enabled allowed instance and its default model; `--model` selects another
+model that instance supports. Add `--dry-run` to preview a dispatch.
+
+To use these identities as the repository's preferred roles:
+
+```bash
+ha settings update --roles '{"defaultWorker":"worker","defaultReviewer":"reviewer","defaultCommander":"commander"}'
+```
+
+No installation is required for the built-ins. `ha agent list` and
+`ha agent inspect` show installed declarations. To customize an identity,
+write an `agent-declaration/v1` JSON file and install it with
+`ha agent install --source <file>`; an installed declaration with the same id
+takes precedence over the built-in. Installation belongs to the selected
+repository's ledger, with a materialized view at `harness/agents/<id>.json`;
+it is separate from machine-level provider configuration. Existing identities
+and role preferences remain in place until you change them.
 
 ## Which runtime instance a dispatch uses
 

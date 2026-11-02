@@ -31,6 +31,7 @@ ha agenda --work <id>                         # 只看这一个工作的议程
 ```
 
 **检查和导航**
+
 ```bash
 ha status          # 我在什么状态？
 ha check           # 一切健康吗？
@@ -63,6 +64,31 @@ ha settings read                                              # 显示 worktree.
 某一步失败时，工作树保留，启动或派工被拒绝。提示会写明失败的步骤和日志位置（工作树 Git 目录下的 `harness-setup/step-<n>.log`）。修复原因后再次执行同一个 `ha task start` 或派工，只有尚未成功的步骤会重跑。
 
 旧命名（`codex/<slug>-<id8>`）下建立的工作树，由 `ha task contract migrate --apply` 一次性改名。有未提交改动或仍有在飞执行者的工作树不会被移动，而是列出来交给你处理。
+
+## 从内置身份开始
+
+Harness 提供三个通用身份：`worker` 完成指派的工作，`reviewer` 独立检查交付，`commander` 协调任务与依赖。三者的 `skills` 与 `runtimes` 列表均为空，不绑定 Provider、模型、机器实例或特定仓库文件。仓库规则与任务上下文由派工注入。
+
+配好 Provider 及其运行时实例后，先允许当前仓库使用该实例，再直接派工：
+
+```bash
+ha runtime instance list
+ha settings update --runtime-allowed-instance <instance-id>
+ha task start <ready-task-id>
+ha agent run worker --task <ready-task-id> --instance <instance-id>
+ha task dispatch-review <submitted-task-id> --agent reviewer --instance <instance-id>
+ha agent run commander --task <planning-task-id> --instance <instance-id> --prompt "规划这个仓库的下一步工作。"
+```
+
+仓库需要允许多个实例时，逐个重复 `--runtime-allowed-instance`。派 commander 前先启动规划任务，评审使用已提交的任务。省略 `--instance` 时，现有运行时选择器选择已启用且仓库允许的实例及其默认模型；`--model` 可选择该实例支持的其他模型。加 `--dry-run` 可预览派工。
+
+将这三个身份设为仓库的首选角色：
+
+```bash
+ha settings update --roles '{"defaultWorker":"worker","defaultReviewer":"reviewer","defaultCommander":"commander"}'
+```
+
+内置身份无需安装。`ha agent list` 和 `ha agent inspect` 展示已安装声明。需要定制时，编写 `agent-declaration/v1` JSON 文件并执行 `ha agent install --source <file>`；安装的同 ID 声明优先于内置声明。安装属于所选仓库的台账，物化视图位于 `harness/agents/<id>.json`，与机器级 Provider 配置分开。现有身份与角色偏好由用户自行修改。
 
 ## 派工记录保留期
 

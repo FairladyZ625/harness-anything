@@ -35,6 +35,8 @@ AppImage 自动更新，deb 手动升级。
 
 `ha init` 从当前目录推导仓库 ID，从 `git config user.name` 推导 owner 身份。daemon 状态默认写到 `~/.harness`，仓库账本保留在所选仓库。
 
+配好 Provider 运行时实例后，可直接使用内置的 `worker`、`reviewer`、`commander` 三个身份。启用实例与首次派工见[从内置身份开始](03-daily-commands.md#从内置身份开始)。
+
 ## 卸载
 
 不再需要时可删除源码 checkout。Daemon state 与代码分开保存在 `~/.harness`；只有明确要删除 registry 与 cache state 时才删除它。
