@@ -1231,5 +1231,6 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       uploads: uploadWindow(state),
       versionWarnings: [...versionWarnings.values()],
     }),
+    versionWarnings: () => [...versionWarnings.values()],
   };
 }

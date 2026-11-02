@@ -198,6 +198,8 @@ function resolveSubmissionArtifact(
   if (!blobSha256) return invalid("revision did not accept this path");
   if (expectedBlob !== undefined && expectedBlob !== blobSha256)
     return invalid("frozen identity does not match the accepted content");
-  if (!Number.isSafeInteger(claim.size) || claim.size < 0) return invalid("accepted content claim has an invalid size");
-  return { artifact, blobSha256, size: claim.size, acceptance: event.opId };
+  const size =
+    claim.size ?? cell.store.readContentBlobSize?.(blobSha256) ?? cell.store.readContentBlob(blobSha256)?.byteLength;
+  if (!Number.isSafeInteger(size) || size! < 0) return invalid("accepted content object has no valid size");
+  return { artifact, blobSha256, size: size!, acceptance: event.opId };
 }

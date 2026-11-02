@@ -59,6 +59,7 @@ import {
   persistContentObjects,
   readContentObject,
   readContentObjectRange,
+  contentObjectSize,
 } from "./content-objects.ts";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import { configureLedgerConnection, registerLedgerClose } from "./sqlite-ledger-connections.ts";
@@ -536,6 +537,7 @@ function openSqliteEventStoreInternal(
     },
     readContentObject: (sha256) => readContentObject(objectRoot, sha256),
     readContentObjectRange: (sha256, offset, maxBytes) => readContentObjectRange(objectRoot, sha256, offset, maxBytes),
+    readContentObjectSize: (sha256) => contentObjectSize(objectRoot, sha256),
     contentObjectDigests: () => listContentObjectDigests(objectRoot),
     revision: () => readRevision(db),
     events: () =>

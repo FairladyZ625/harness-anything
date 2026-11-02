@@ -171,6 +171,28 @@ test("missing or changed frozen content cannot be replaced by latest workspace c
   assert.throws(() => readSubmissionArtifact(cell, packagePath, path, 7), { code: "invalid_submission" });
 });
 
+test("historical accepted claims without size remain readable from content object metadata", () => {
+  const { cell: source, store, bytes, blobSha256 } = fixture(),
+    historical = {
+      ...source,
+      store: {
+        ...store,
+        readEventAtRevision: (revision: number) =>
+          revision === 7
+            ? {
+                ...store.readEventAtRevision(7),
+                payload: { changes: [{ path, candidate: { sha256: blobSha256 } }] },
+              }
+            : null,
+        readContentBlobSize: (digest: string) => (digest === blobSha256 ? bytes.byteLength : null),
+      },
+    } as unknown as Parameters<typeof readSubmissionArtifact>[0];
+  assert.equal(readSubmissionArtifact(historical, packagePath, path, 7).body, bytes.toString());
+  const range = readSubmissionArtifactRange(historical, packagePath, path, 7, blobSha256, 0, 8);
+  assert.equal(range.size, bytes.byteLength);
+  assert.deepEqual(range.bytes, bytes.subarray(0, 8));
+});
+
 test("range reads reject an accepted object whose bytes were changed at the same size", () => {
   const bytes = Buffer.from("accepted bytes that must remain immutable\n"),
     { cell, store, blobSha256 } = fixture(bytes);

@@ -45,6 +45,11 @@ export function readContentObject(objectRoot: string, sha256: string): Uint8Arra
   return localContentObjectFileSystem.exists(target) ? localContentObjectFileSystem.readBytes(target) : null;
 }
 
+export function contentObjectSize(objectRoot: string, sha256: string): number | null {
+  const target = objectPath(objectRoot, sha256);
+  return localContentObjectFileSystem.exists(target) ? localContentObjectFileSystem.sizeBytes(target) : null;
+}
+
 /** Read one bounded window without materializing the complete content object. */
 export function readContentObjectRange(
   objectRoot: string,

@@ -73,7 +73,7 @@ export function createDaemonHostLifecycleApi(
             ].join("")
           : base,
         fleetWarnings = [
-          ...(context.fleetCenter?.status().versionWarnings ?? []),
+          ...(context.fleetCenter?.versionWarnings() ?? []),
           ...[...context.fleetVersionWarnings.values()].map((warning) => warning.message),
         ],
         statusSummary = fleetWarnings.length

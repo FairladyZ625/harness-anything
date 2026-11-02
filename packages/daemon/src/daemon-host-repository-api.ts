@@ -824,7 +824,7 @@ export function createDaemonHostRepositoryApi(
             }),
             await hostedCredentialDoctorCheck(cell.status().rootDir, { instances: context.instances.list() }),
             fleetVersionDoctorCheck([
-              ...(context.fleetCenter?.status().versionWarnings ?? []),
+              ...(context.fleetCenter?.versionWarnings() ?? []),
               ...[...context.fleetVersionWarnings.values()].map((warning) => warning.message),
             ]),
           ];
