@@ -94,7 +94,16 @@ for (const role of [undefined, "worker"] as const)
     assert.match(prompt, /a link resolves its parent directory first/u);
     assert.match(
       prompt,
-      /Push early and often: after each coherent piece of change, commit and publish it through the task delivery commands, even if a local test is still red/u,
+      /For repository changes, push early and often: after each coherent piece of code change, commit and publish it through the task delivery commands, even if a local test is still red/u,
+    );
+    assert.match(
+      prompt,
+      /Task-package documents belong to the ledger: task submit accepts them independently of code Git/u,
+    );
+    assert.match(prompt, /Never force-add ignored ledger paths/u);
+    assert.match(
+      prompt,
+      /for ledger-only work, record the checkpoint in the task package and submit it without a code commit, push or PR/u,
     );
     assert.match(prompt, /CI is the complete authority and cannot be read before a push/u);
     assert.match(prompt, /Waiting for green before the first push is a deadlock/u);
@@ -135,6 +144,11 @@ test("the bundled reviewer stays read-only and bound to its exact review cut", (
   assert.match(prompt, /code repository is read-only.*Do not modify code, stage files, create commits/u);
   assert.match(prompt, /For a Task.*pinned execution.*For a Decision.*reviewContentDigest/su);
   assert.match(prompt, /read the PR head with `gh pr view <task-id> --json headRefOid`, then the checks with/u);
+  assert.match(prompt, /For a Task delivery with a repository commit/u);
+  assert.match(
+    prompt,
+    /For a ledger-only Task delivery, review its frozen accepted artifacts and applicable gates; no repository PR, CI or merge is required/u,
+  );
   assert.match(prompt, /both reads must equal the pinned delivery commit/u);
   assert.match(prompt, /Pending checks are not green/u);
   assert.match(prompt, /dispatch-assigned artifacts\/reports paths/u);

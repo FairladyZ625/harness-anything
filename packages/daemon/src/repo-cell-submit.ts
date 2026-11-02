@@ -32,6 +32,7 @@ import { presetSnapshotReader, taskOutputShape, taskWorktreeBinding } from "./ta
 import { taskWorktreeCandidateInventory, taskWorktreeRoot } from "./task-worktree-candidates.ts";
 import { isReviewerDispatch, readTaskLineageDispatches } from "./dispatch-read.ts";
 import { assessTaskRiskTier, type TaskRiskTierScriptInput } from "./task-risk-tier.ts";
+import { assertNoIgnoredLedgerDelivery } from "./ignored-ledger-delivery.ts";
 
 /** Git resolves the empty-tree object id virtually; it exists in every repository. */
 const EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
@@ -938,7 +939,7 @@ export async function settleTask(
   return { ...submitted, steps: mergedSteps } as WriteReceiptDraft;
 }
 
-const submissionStopCodes = ["invalid_submission", "gate_mapping_invalid"];
+const submissionStopCodes = ["invalid_submission", "gate_mapping_invalid", "ignored_ledger_delivery"];
 
 /** A stop guard that knows its own remedy attaches it to the error it throws; the closeout default covers the rest. */
 function submissionStopNextAction(error: Error): string | null {
@@ -987,8 +988,14 @@ export async function readCloseoutSubmission(
     const deriveArgs = args.slice(0, 8) as Parameters<typeof deriveCloseoutSubmission>,
       preserveLegacyCut = args[8] === true,
       [cell, taskId, executionId, snapshot] = deriveArgs,
-      derived = deriveCloseoutSubmissionData(...deriveArgs),
-      frozen = snapshot.executions.find((execution) => execution.executionId === executionId)?.submission,
+      derived = deriveCloseoutSubmissionData(...deriveArgs);
+    if (derived.submission.productionDelta && derived.submission.commitSha)
+      await assertNoIgnoredLedgerDelivery(
+        derived.rootDir,
+        derived.submission.productionDelta.baseSha,
+        derived.submission.commitSha,
+      );
+    const frozen = snapshot.executions.find((execution) => execution.executionId === executionId)?.submission,
       sameCut = sameFrozenSubmissionCut(derived.submission, frozen),
       legacyFrozenCut = preserveLegacyCut && isLegacyFrozenSubmissionCut(derived.submission, frozen),
       riskDelivery =

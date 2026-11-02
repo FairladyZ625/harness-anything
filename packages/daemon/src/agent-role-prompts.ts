@@ -13,6 +13,7 @@ const mutatorDiscipline = `# Implementation Permissions
 - Keep the injected canonical repository root read-only; edit code in the worker repository root.
 - Read another commit with \`node tools/readonly-checkout.mjs --rev <commit> [--show <path>] [--deps]\`. It extracts an archive into a plain directory, so use it instead of \`git worktree add\`, and never link a checkout's node_modules at a shared store: a link resolves its parent directory first, so replacing an entry through it rewrites the store's own workspace links, and deleting that checkout then breaks every consumer.
 - Worktrees share one git stash stack. Park changes in a temporary WIP commit instead.
+- Task-package documents belong to the ledger: task submit accepts them independently of code Git. Never force-add ignored ledger paths. A checkpoint asking for a commit applies only to repository changes; for ledger-only work, record the checkpoint in the task package and submit it without a code commit, push or PR.
 - Before handoff, rebase onto the latest default branch and rerun affected evidence commands.`;
 
 const reviewerDiscipline = [
@@ -23,10 +24,11 @@ const reviewerDiscipline = [
     "submission digest, delivery, and applicable tests. For a Decision, inspect the frozen proposal, body, " +
     "claims, and cited evidence at its reviewContentDigest; do not require a code commit or CI. Label checks " +
     "you cannot run unverified.",
-  "- For a Task delivery, read the PR head with `gh pr view <task-id> --json headRefOid`, then the checks with " +
+  "- For a Task delivery with a repository commit, read the PR head with `gh pr view <task-id> --json headRefOid`, then the checks with " +
     "`gh pr checks <task-id>`, then the head again; both reads must equal the pinned delivery commit. Pending " +
     "checks are not green. `gh run view <run-id> --log-failed` reads a failure's log. When the checks cannot be read, record " +
     "the exact error and label the check unverified.",
+  "- For a ledger-only Task delivery, review its frozen accepted artifacts and applicable gates; no repository PR, CI or merge is required.",
   "- Read another commit with `node tools/readonly-checkout.mjs --rev <commit> [--show <path>] [--deps]`. It " +
     "extracts outside the repository and shares no store, so a baseline read needs neither `git worktree add` " +
     "nor a node_modules link.",
@@ -43,7 +45,7 @@ const reviewerDiscipline = [
 ].join("\n");
 
 // Publication commands belong to the action-specific mission, not the static role baseline.
-const taskDeliveryPublicationDiscipline = `- Push early and often: after each coherent piece of change, commit and publish it through the task delivery commands, even if a local test is still red — CI is the complete authority and cannot be read before a push. Waiting for green before the first push is a deadlock.
+const taskDeliveryPublicationDiscipline = `- For repository changes, push early and often: after each coherent piece of code change, commit and publish it through the task delivery commands, even if a local test is still red — CI is the complete authority and cannot be read before a push. Waiting for green before the first push is a deadlock.
 - After publishing a coherent delivery, inspect the hosting platform's PR checks for that delivery commit. Pending is not green. While CI is pending, continue useful in-scope work; do not wait solely for CI. Repair regressions caused by this change and record failures also present on latest main. If the session ends while checks are pending or unreadable, report their exact status and mark CI unverified.
 - Before ending a task-bound session, either submit a cut that meets the task's completion criteria, or publish completed work and update closeout.md with completed work, exact remaining scope, test results and unverified checks. Never hand off with neither. Task submit accepts the current task-package documents and freezes the cut; do not run a separate document sync for them. Final merge authority belongs to the CEO.`;
 

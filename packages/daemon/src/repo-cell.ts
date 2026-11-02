@@ -52,12 +52,12 @@ const coldAttachCatchUpLimit = 32;
 /** Read judgments bound to one projection cut: the closeout verdict follows the effective gate set. */
 export function repoCellTaskQueryJudgmentsFor(projection: TaskProjectionQueries): TaskQueryJudgments {
   return {
-    closeout: (snapshot, availability) =>
+    closeout: (snapshot, availability, _gates, _delivery, rootDir) =>
       closeoutReadiness(
         snapshot,
         availability,
         readEffectiveCloseoutGates(projection, snapshot),
-        readCompletionDeliveryStatus(projection, snapshot),
+        readCompletionDeliveryStatus(projection, snapshot, rootDir),
       ),
     blocking: (tasks, relations, state) => blockingOf(tasks, relations, state),
   };
