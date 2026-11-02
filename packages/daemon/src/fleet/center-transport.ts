@@ -248,7 +248,17 @@ export async function serve(
             if (waiter) waiter(frame);
             else replicationFrames.push(frame);
           }
-        } else void dispatch(line);
+        } else
+          void dispatch(line).catch((error: unknown) => {
+            // `dispatch` is fire-and-forget: a handler error it could not answer (the peer
+            // closed while the error frame waited for TCP drain) has nowhere left to go.
+            if (!peerDisconnected(socket, error))
+              (options.onError ?? ((entry) => console.error("[fleet-center] dispatch failed", entry)))({
+                nodeId,
+                messageId: null,
+                error,
+              });
+          });
       }
     } catch (error) {
       consumeKnownError(error);
@@ -412,12 +422,7 @@ export function wireCut(cut: { readonly revision: number; readonly headDigest: s
 
 async function untilAborted<T>(operation: () => Promise<T>, signal: AbortSignal): Promise<T> {
   signal.throwIfAborted();
-  try {
-    return await operation();
-  } catch (error) {
-    if (signal.aborted) throw new FleetFault("connection_closed", "Replica connection closed", true);
-    throw error;
-  }
+  return await operation();
 }
 
 export function digestId(...parts: string[]): string {

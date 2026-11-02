@@ -225,6 +225,13 @@ test("PKCE login validates state, keeps tokens daemon-side, and binds the Keyclo
   );
 });
 
+test("missing external Keycloak URL or realm reports that a center is required", async (t) => {
+  const { service, root } = fixture(1_000, {}, t),
+    configFile = path.join(root, "rbac", "config.json");
+  writeFileSync(configFile, JSON.stringify({ mode: "external" }));
+  await assert.rejects(service.begin("http://127.0.0.1:43123/callback"), { code: "oidc_center_required" });
+});
+
 test("under a listener the browser signs in at its hostname while the daemon keeps to loopback", async (t) => {
   const { service, requests, root } = fixture(1_000, {}, t);
   writeFileSync(path.join(root, "rbac", "listener.pem"), "public listener certificate");

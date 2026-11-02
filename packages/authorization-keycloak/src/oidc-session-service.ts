@@ -965,6 +965,8 @@ export class OidcSessionService {
       };
     }
     const config = this.#config();
+    if (!config.url || !config.realm)
+      throw coded("oidc_center_required", "Select a repository connected to a center before signing in.");
     return {
       url: config.url,
       realm: config.realm,
