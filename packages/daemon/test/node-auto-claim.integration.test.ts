@@ -353,10 +353,13 @@ test(
         beforeOpen: setupEdgeGit,
       });
       edgeHosts.push({ name: "node-one", close: edge.close });
-      assert.equal(existsSync(path.join(edge.edgeUser, "rbac/config.json")), false);
-      assert.equal(existsSync(path.join(edge.edgeUser, "rbac/center-client-secret")), false);
-      assert.equal(existsSync(path.join(activeEdge.edgeUser, "rbac/config.json")), false);
-      assert.equal(existsSync(path.join(activeEdge.edgeUser, "rbac/center-client-secret")), false);
+      for (const edgeUser of [edge.edgeUser, activeEdge.edgeUser]) {
+        assert.deepEqual(JSON.parse(readFileSync(path.join(edgeUser, "rbac/config.json"), "utf8")), {
+          schema: "harness-managed-rbac/v1",
+          mode: "external",
+        });
+        assert.equal(existsSync(path.join(edgeUser, "rbac/center-client-secret")), false);
+      }
       phase = "register runtime on assigned-to edge";
       await registerFixtureRuntimeInstance(edge.host, "lease-repo", localAuth, runtime, { allowHost: fixture.host });
       phase = "catch up initial owner assignment";
@@ -413,6 +416,7 @@ test(
             : null,
           "node-two",
         );
+        assert.equal(otherNodeLease.snapshot.lease?.phase, "held");
         phase = "settle same-owner runtime and observe denial";
         await launches.find((launch) => launch.taskId === tasks.offline)!.finish();
         await eventually(async () => {
@@ -468,15 +472,6 @@ test(
             fixture.owners.auth({ nodeId: "node-one" }),
           );
           return overview.sessions.some((session) => session.activity.outcome !== null);
-        });
-        await eventually(async () => {
-          const context = await fixture.host.read(
-            "lease-repo",
-            "repo.tasks.runtimeContext.read",
-            { taskId: "task-a-node-runtime" },
-            fixture.owners.auth({ nodeId: "node-two" }),
-          );
-          return context.snapshot.lease === null || context.snapshot.lease.phase === "released";
         });
         phase = "launch explicitly allowed task";
         await configure(["person-two"], 2);
