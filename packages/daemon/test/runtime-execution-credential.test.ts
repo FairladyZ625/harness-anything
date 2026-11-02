@@ -25,10 +25,16 @@ import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts"
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { executeRepoAction } from "../src/repo-cell-action-dispatch.ts";
 import { bindVerifiedExecutorClaim } from "../src/repo-cell-authorization.ts";
+import { BuiltinPolicyAdapter } from "@harness-anything/authorization-builtin";
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
 
 const center = {
+  provider: new KeycloakPolicyAdapter({
+    url: "http://realm.invalid",
+    realm: "harness",
+    resourceServerClientId: "harness-center",
+  }),
   url: "http://realm.invalid",
   realm: "harness",
   clientId: "harness-center",
@@ -44,6 +50,78 @@ const principal = () => ({
   role: "implementation" as const,
   source: "local" as const,
   expiresAt: new Date(Date.now() + runtimeExecutionLifetimeMs - 1000).toISOString(),
+});
+
+test("built-in execution credentials use the identity provider without a Keycloak request", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "builtin-execution-credential-"));
+  try {
+    const provider = new BuiltinPolicyAdapter({ userRoot });
+    provider.addUser({
+      username: "owner",
+      personId: "person-worker",
+      email: "owner@example.invalid",
+      displayName: "Owner",
+      password: "fixture-password",
+    });
+    const localCenter = {
+      provider,
+      url: "builtin://local",
+      realm: "local",
+      clientId: "harness-center",
+      accessToken: provider.issueCenterToken(),
+    };
+    const p = principal();
+    const noNetwork: typeof fetch = async () => {
+      throw new Error("Built-in execution credentials must not call Keycloak");
+    };
+    const credential = await issueRuntimeExecutionCredential(localCenter, p, noNetwork);
+    assert.match(credential, /^harness-execution-dispatch-worker:[A-Za-z0-9_-]{43}$/u);
+    assert.deepEqual(await authenticateRuntimeExecutionCredential(localCenter, credential, noNetwork), p);
+    await verifyRuntimeExecutionPrincipal(localCenter, p, noNetwork);
+    await assert.rejects(authenticateRuntimeExecutionCredential(localCenter, `${credential}x`, noNetwork), {
+      code: "execution_credential_rejected",
+    });
+    await assert.rejects(verifyRuntimeExecutionPrincipal(localCenter, { ...p, taskId: "other-task" }, noNetwork), {
+      code: "execution_credential_rejected",
+    });
+    assert.equal(
+      await provider.validateUserAccessToken(credential, p.personId),
+      false,
+      "execution credentials never become owner login sessions",
+    );
+    const reopened = new BuiltinPolicyAdapter({ userRoot });
+    assert.deepEqual(
+      await authenticateRuntimeExecutionCredential({ ...localCenter, provider: reopened }, credential, noNetwork),
+      p,
+      "a restarted provider authenticates the durable execution credential",
+    );
+    const sibling = { ...p, dispatchId: "dispatch-sibling", runtimeSessionId: "runtime-sibling" };
+    const siblingCredential = await issueRuntimeExecutionCredential(localCenter, sibling, noNetwork);
+    assert.deepEqual(await authenticateRuntimeExecutionCredential(localCenter, credential, noNetwork), p);
+    assert.deepEqual(await authenticateRuntimeExecutionCredential(localCenter, siblingCredential, noNetwork), sibling);
+    const rotated = await issueRuntimeExecutionCredential(localCenter, p, noNetwork);
+    await assert.rejects(authenticateRuntimeExecutionCredential(localCenter, credential, noNetwork), {
+      code: "execution_credential_rejected",
+    });
+    provider.removeSession(rotated);
+    await assert.rejects(verifyRuntimeExecutionPrincipal(localCenter, p, noNetwork), {
+      code: "execution_credential_rejected",
+    });
+    const expired = { ...p, dispatchId: "dispatch-expired", expiresAt: new Date(0).toISOString() };
+    const expiredCredential = await issueRuntimeExecutionCredential(localCenter, expired, noNetwork);
+    await assert.rejects(authenticateRuntimeExecutionCredential(localCenter, expiredCredential, noNetwork), {
+      code: "execution_credential_rejected",
+    });
+    await assert.rejects(issueRuntimeExecutionCredential(localCenter, { ...p, personId: "other-owner" }, noNetwork), {
+      code: "execution_credential_rejected",
+    });
+    await assert.rejects(
+      issueRuntimeExecutionCredential(localCenter, { ...p, source: { kind: "node", nodeId: "edge" } }, noNetwork),
+      { code: "identity_plugin_required" },
+    );
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
 });
 
 test("unbound session credentials preserve the person, repository and live dispatch without granting a lease", async () => {

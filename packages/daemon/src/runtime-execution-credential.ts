@@ -1,193 +1,42 @@
-import { stableStringify, type WriteSource } from "@harness-anything/kernel";
-import { randomBytes } from "node:crypto";
+import { stableStringify, executionCredentialRejected, type RuntimeExecutionPrincipal } from "@harness-anything/kernel";
 import type { KeycloakCenterCredential } from "./transport/auth-context.ts";
+export { runtimeExecutionLifetimeMs, executionCredentialRejected } from "@harness-anything/kernel";
+export type { RuntimeExecutionPrincipal } from "@harness-anything/kernel";
 
-/** One runtime dispatch, twelve hours, no renewal. Keycloak owns the secret and its revocation. */
-export const runtimeExecutionLifetimeMs = 12 * 60 * 60 * 1000;
-const clientPrefix = "harness-execution-";
-
-export interface RuntimeExecutionPrincipal {
-  readonly personId: string;
-  readonly repoId: string;
-  readonly runtimeSessionId: string;
-  readonly dispatchId: string;
-  /**
-   * Unbound sessions hold no task lease. A session retains the spawning person's repository
-   * permissions; a read-only dispatch is limited to allowlisted reads.
-   */
-  readonly taskId: string | null;
-  readonly executionId: string | null;
-  readonly role: "implementation" | "reviewer" | "read-only" | "session";
-  /** Decision review dispatches bind reads to this canonical decision id. */
-  readonly reviewDecisionId?: string;
-  /** Task review dispatches bind reads to this canonical task id. */
-  readonly reviewTaskId?: string;
-  readonly source: WriteSource;
-  readonly expiresAt: string;
+function executionProvider(center: KeycloakCenterCredential, fetchPort?: typeof fetch) {
+  if (fetchPort !== undefined && center.provider.withFetchPort) return center.provider.withFetchPort(fetchPort);
+  return center.provider;
 }
 
-export function executionCredentialRejected(
-  reason:
-    | "scope"
-    | "write-other-task"
-    | "self-approval"
-    | "read-only-allowlist"
-    | "expired"
-    | "revoked"
-    | "authentication" = "scope",
-): Error {
-  const message = {
-    scope:
-      "Execution request is outside its dispatch scope. Read requests are available; writes are limited to this task. Use `ha task show` or `ha task read-set` to inspect task data.",
-    "write-other-task":
-      "Execution write was rejected because it targets another task or repository. Writes are limited to this task; use `ha task show` to inspect other tasks.",
-    "self-approval":
-      "Execution write was rejected because it requires human approval or access administration. Use the corresponding human review or access command.",
-    "read-only-allowlist":
-      "This read-only dispatch may only run the allowlisted ledger queries " +
-      "(ha work list/show, ha task list/show, ha agenda, ha runtime status, ha schedule list/runs); " +
-      "the daemon rejected this command outside that allowlist.",
-    expired: "Execution credential is expired.",
-    revoked: "Execution credential is revoked.",
-    authentication: "Execution credential authentication was rejected.",
-  }[reason];
-  return Object.assign(new Error(message), {
-    code: "execution_credential_rejected",
-  });
-}
-
-/** The center creates a role-less service account; no person's or center's token leaves the daemon. */
-export async function issueRuntimeExecutionCredential(
+export function issueRuntimeExecutionCredential(
   center: KeycloakCenterCredential,
   principal: RuntimeExecutionPrincipal,
-  fetchPort: typeof fetch = fetch,
+  fetchPort?: typeof fetch,
 ): Promise<string> {
-  const clientId = `${clientPrefix}${principal.dispatchId}`,
-    secret = randomBytes(32).toString("base64url");
-  await adminRequest(center, "/clients", fetchPort, {
-    method: "POST",
-    body: JSON.stringify({
-      clientId,
-      secret,
-      enabled: true,
-      publicClient: false,
-      serviceAccountsEnabled: true,
-      standardFlowEnabled: false,
-      directAccessGrantsEnabled: false,
-      fullScopeAllowed: false,
-      defaultClientScopes: [],
-      optionalClientScopes: [],
-      attributes: { harness_execution: JSON.stringify(principal) },
-    }),
-  });
-  return `${clientId}:${secret}`;
+  return executionProvider(center, fetchPort).issueExecutionCredential(center.accessToken, principal);
 }
-
-/** Authenticate anew on every request. Never accept metadata from the worker or cache a grant. */
-export async function authenticateRuntimeExecutionCredential(
+export function authenticateRuntimeExecutionCredential(
   center: KeycloakCenterCredential,
   credential: string,
-  fetchPort: typeof fetch = fetch,
+  fetchPort?: typeof fetch,
 ): Promise<RuntimeExecutionPrincipal> {
-  const match = /^(harness-execution-[A-Za-z0-9._-]+):([A-Za-z0-9_-]{43})$/u.exec(credential);
-  if (!match) throw executionCredentialRejected("authentication");
-  const principal = await readRuntimeExecutionPrincipal(center, match[1]!.slice(clientPrefix.length), fetchPort);
-  const response = await fetchPort(
-    `${center.url}/realms/${encodeURIComponent(center.realm)}/protocol/openid-connect/token`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ grant_type: "client_credentials", client_id: match[1]!, client_secret: match[2]! }),
-      signal: AbortSignal.timeout(10_000),
-    },
-  );
-  if (!response.ok) throw executionCredentialRejected("authentication");
-  // The token proves client authentication; scope comes from the authoritative client above.
-  await response.arrayBuffer();
-  return principal;
+  return executionProvider(center, fetchPort).authenticateExecutionCredential(center.accessToken, credential);
 }
-
-/** A publication queued before revocation must also observe the current Keycloak client. */
+export function readRuntimeExecutionPrincipal(
+  center: KeycloakCenterCredential,
+  dispatchId: string,
+  fetchPort?: typeof fetch,
+): Promise<RuntimeExecutionPrincipal> {
+  return executionProvider(center, fetchPort).readExecutionPrincipal(center.accessToken, dispatchId);
+}
+/** A queued publication must still match its provider's current execution identity. */
 export async function verifyRuntimeExecutionPrincipal(
   center: KeycloakCenterCredential,
   principal: RuntimeExecutionPrincipal,
-  fetchPort: typeof fetch = fetch,
+  fetchPort?: typeof fetch,
 ): Promise<void> {
   const current = await readRuntimeExecutionPrincipal(center, principal.dispatchId, fetchPort);
   if (stableStringify(current) !== stableStringify(principal)) throw executionCredentialRejected();
-}
-
-export async function readRuntimeExecutionPrincipal(
-  center: KeycloakCenterCredential,
-  dispatchId: string,
-  fetchPort: typeof fetch = fetch,
-): Promise<RuntimeExecutionPrincipal> {
-  const clientId = `${clientPrefix}${dispatchId}`;
-  const clients: unknown = await (
-    await adminRequest(center, `/clients?clientId=${encodeURIComponent(clientId)}&max=2`, fetchPort)
-  ).json();
-  if (!Array.isArray(clients) || clients.length !== 1) throw executionCredentialRejected("revoked");
-  const client = clients[0];
-  if (client.enabled !== true) throw executionCredentialRejected("revoked");
-  if (client.clientId !== clientId || typeof client.attributes?.harness_execution !== "string")
-    throw executionCredentialRejected();
-  const principal: unknown = JSON.parse(client.attributes.harness_execution);
-  if (!validPrincipal(principal) || `${clientPrefix}${principal.dispatchId}` !== clientId)
-    throw executionCredentialRejected();
-  if (Date.parse(principal.expiresAt) <= Date.now()) throw executionCredentialRejected("expired");
-  if (typeof principal.source === "object" && principal.source.kind === "node") {
-    const node = await center.provider.readNode(center.accessToken, principal.source.nodeId);
-    if (node?.personId !== principal.personId) throw executionCredentialRejected();
-  }
-  return principal;
-}
-
-function validPrincipal(value: unknown): value is RuntimeExecutionPrincipal {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const p = value as Record<string, unknown>;
-  const source = p.source;
-  if (
-    source !== "local" &&
-    (!source ||
-      typeof source !== "object" ||
-      Array.isArray(source) ||
-      !("kind" in source) ||
-      source.kind !== "node" ||
-      !("nodeId" in source) ||
-      typeof source.nodeId !== "string" ||
-      !source.nodeId)
-  )
-    return false;
-  return (
-    ["personId", "repoId", "runtimeSessionId", "dispatchId"].every(
-      (key) => typeof p[key] === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/u.test(p[key]),
-    ) &&
-    (p.role === "implementation" || p.role === "reviewer" || p.role === "read-only" || p.role === "session") &&
-    (p.role === "read-only" || p.role === "session"
-      ? p.taskId === null && p.executionId === null
-      : typeof p.taskId === "string" &&
-        /^[A-Za-z0-9][A-Za-z0-9._:-]*$/u.test(p.taskId) &&
-        typeof p.executionId === "string" &&
-        /^[A-Za-z0-9][A-Za-z0-9._:-]*$/u.test(p.executionId)) &&
-    (p.reviewTaskId === undefined || typeof p.reviewTaskId === "string") &&
-    typeof p.expiresAt === "string" &&
-    Date.parse(p.expiresAt) <= Date.now() + runtimeExecutionLifetimeMs
-  );
-}
-
-async function adminRequest(
-  center: KeycloakCenterCredential,
-  suffix: string,
-  fetchPort: typeof fetch,
-  init: RequestInit = {},
-): Promise<Response> {
-  const response = await fetchPort(`${center.url}/admin/realms/${encodeURIComponent(center.realm)}${suffix}`, {
-    ...init,
-    headers: { authorization: `Bearer ${center.accessToken}`, "content-type": "application/json" },
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (!response.ok) throw executionCredentialRejected("authentication");
-  return response;
 }
 
 /** Preserve the existing node-held lease; local workers hold their runtime's agent lease. */

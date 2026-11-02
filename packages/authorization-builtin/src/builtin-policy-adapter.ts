@@ -1,5 +1,7 @@
 import {
   actionDeclarations,
+  executionCredentialRejected,
+  type RuntimeExecutionPrincipal,
   assertAcyclicPolicyGroups,
   deriveBasePolicyGroups,
   effectivePolicyGroupScopes,
@@ -16,7 +18,7 @@ import {
   type AuthorizationDecisionPort,
   type PolicyGroup,
 } from "@harness-anything/kernel";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import {
   builtinSessionLifetimeBounds,
   findSession,
@@ -63,6 +65,41 @@ export class BuiltinPolicyAdapter
   }
   withFetchPort(): BuiltinPolicyAdapter {
     return new BuiltinPolicyAdapter({ userRoot: this.#root, readArtifactActionScopes: this.#readArtifactActionScopes });
+  }
+  async issueExecutionCredential(token: string, principal: RuntimeExecutionPrincipal): Promise<string> {
+    this.#assertCenter(token);
+    if (principal.source !== "local") throw identityPluginRequired();
+    if (this.owner()?.personId !== principal.personId) throw executionCredentialRejected();
+    const credential = `harness-execution-${principal.dispatchId}:${randomBytes(32).toString("base64url")}`;
+    this.#writeUnchecked((state) => ({
+      ...state,
+      sessions: [
+        ...state.sessions.filter((session) => session.executionPrincipal?.dispatchId !== principal.dispatchId),
+        {
+          tokenHash: hashToken(credential),
+          personId: principal.personId,
+          subject: `execution:${principal.dispatchId}`,
+          expiresAt: Date.parse(principal.expiresAt),
+          sessionExpiresAt: null,
+          roles: [],
+          executionPrincipal: principal,
+        },
+      ],
+    }));
+    return credential;
+  }
+  async authenticateExecutionCredential(token: string, credential: string): Promise<RuntimeExecutionPrincipal> {
+    this.#assertCenter(token);
+    const session = readState(this.#root).sessions.find((entry) => entry.tokenHash === hashToken(credential));
+    if (!session?.executionPrincipal) throw executionCredentialRejected("authentication");
+    return this.readExecutionPrincipal(token, session.executionPrincipal.dispatchId);
+  }
+  async readExecutionPrincipal(token: string, dispatchId: string): Promise<RuntimeExecutionPrincipal> {
+    this.#assertCenter(token);
+    const session = readState(this.#root).sessions.find((entry) => entry.executionPrincipal?.dispatchId === dispatchId);
+    if (!session?.executionPrincipal) throw executionCredentialRejected("revoked");
+    if (session.expiresAt <= Date.now()) throw executionCredentialRejected("expired");
+    return session.executionPrincipal;
   }
   readSessionLifetime(token: string): Promise<number> {
     this.#assertCenter(token);

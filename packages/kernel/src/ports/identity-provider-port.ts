@@ -1,3 +1,4 @@
+import type { RuntimeExecutionPrincipal } from "./runtime-execution-credential.ts";
 import type { AuthorizationResource } from "../domain/policy-groups.ts";
 import type { PolicyGroup } from "../domain/policy-groups.ts";
 
@@ -114,11 +115,25 @@ export interface AuthorizationDecisionPort {
   readonly validateUserAccessToken: (token: string, personId: string) => Promise<boolean>;
 }
 
+/** Dispatch credentials use the same identity authority as repository authorization. */
+export interface AuthorizationExecutionCredentialPort {
+  readonly issueExecutionCredential: (
+    adminAccessToken: string,
+    principal: RuntimeExecutionPrincipal,
+  ) => Promise<string>;
+  readonly authenticateExecutionCredential: (
+    adminAccessToken: string,
+    credential: string,
+  ) => Promise<RuntimeExecutionPrincipal>;
+  readonly readExecutionPrincipal: (adminAccessToken: string, dispatchId: string) => Promise<RuntimeExecutionPrincipal>;
+}
+
 /** Online identity capabilities, bound by the trusted process composition root. */
 export type AuthorizationProvider = AuthorizationPolicyAdministrationPort &
   AuthorizationIdentityDirectoryPort &
   AuthorizationNodeCredentialPort &
-  AuthorizationDecisionPort & {
+  AuthorizationDecisionPort &
+  AuthorizationExecutionCredentialPort & {
     readonly policyRef: string;
     readonly authority: string;
     readonly deniedReasonCode: string;

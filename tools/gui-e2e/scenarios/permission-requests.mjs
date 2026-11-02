@@ -18,7 +18,17 @@ export default {
     // daemon list query; repository-scoped grants do not authorize this read.
     fixture.keycloak.permit("person-gui", "@fleet", ["permission-request-decide"]);
     const resource = `${fixture.repoId}:task/task-gui-smoke`,
-      center = { url: keycloakUrl, realm: keycloakRealm, clientId: "harness-center", accessToken: "center-token" },
+      center = {
+        provider: new KeycloakPolicyAdapter({
+          url: keycloakUrl,
+          realm: keycloakRealm,
+          resourceServerClientId: "harness-center",
+        }),
+        url: keycloakUrl,
+        realm: keycloakRealm,
+        clientId: "harness-center",
+        accessToken: "center-token",
+      },
       credential = await issueRuntimeExecutionCredential(
         center,
         {

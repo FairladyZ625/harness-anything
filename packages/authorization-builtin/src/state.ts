@@ -1,3 +1,4 @@
+import type { RuntimeExecutionPrincipal } from "@harness-anything/kernel";
 import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -11,6 +12,8 @@ export interface BuiltinUser {
   readonly passwordHash: string;
 }
 export interface BuiltinSessionRecord {
+  /** Present only for a dispatch credential, never an interactive owner session. */
+  readonly executionPrincipal?: RuntimeExecutionPrincipal;
   readonly tokenHash: string;
   readonly personId: string;
   readonly subject: string;
@@ -129,7 +132,7 @@ export function opaqueToken(prefix: string): string {
 }
 export function findSession(state: BuiltinState, token: string): BuiltinSessionRecord | undefined {
   const hash = hashToken(token),
-    found = state.sessions.find((session) => session.tokenHash === hash);
+    found = state.sessions.find((session) => session.executionPrincipal === undefined && session.tokenHash === hash);
   return found &&
     found.expiresAt > Date.now() &&
     (found.sessionExpiresAt === null || found.sessionExpiresAt > Date.now())

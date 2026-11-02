@@ -1,3 +1,8 @@
+import {
+  issueRuntimeExecutionCredential,
+  authenticateRuntimeExecutionCredential,
+  readRuntimeExecutionPrincipal,
+} from "./keycloak-execution-credential.ts";
 import { sessionLifetimeBounds, readSessionLifetime, writeSessionLifetime } from "./keycloak-session-lifetime.ts";
 import {
   actionDeclarations,
@@ -14,6 +19,7 @@ import {
   type AuthorizationNodeCredentialPort,
   type AuthorizationPolicyAdministrationPort,
   type PolicyGroup,
+  type RuntimeExecutionPrincipal,
 } from "@harness-anything/kernel";
 import { keycloakLoginAttributes, keycloakLoginMappers } from "./keycloak-login-client.ts";
 
@@ -112,6 +118,27 @@ export class KeycloakPolicyAdapter
     AuthorizationNodeCredentialPort,
     AuthorizationDecisionPort
 {
+  issueExecutionCredential(token: string, principal: RuntimeExecutionPrincipal): Promise<string> {
+    return issueRuntimeExecutionCredential(
+      { ...this.#config, accessToken: token, provider: this },
+      principal,
+      this.#fetch,
+    );
+  }
+  authenticateExecutionCredential(token: string, credential: string): Promise<RuntimeExecutionPrincipal> {
+    return authenticateRuntimeExecutionCredential(
+      { ...this.#config, accessToken: token, provider: this },
+      credential,
+      this.#fetch,
+    );
+  }
+  readExecutionPrincipal(token: string, dispatchId: string): Promise<RuntimeExecutionPrincipal> {
+    return readRuntimeExecutionPrincipal(
+      { ...this.#config, accessToken: token, provider: this },
+      dispatchId,
+      this.#fetch,
+    );
+  }
   readonly sessionLifetimeBounds = sessionLifetimeBounds;
   readSessionLifetime(token: string): Promise<number> {
     return readSessionLifetime({ ...this.#config, accessToken: token }, this.#fetch);
