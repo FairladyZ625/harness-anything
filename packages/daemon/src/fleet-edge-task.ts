@@ -100,7 +100,7 @@ async function verifyFleetTaskSubmitHolder(input: {
     ...input.peer,
     actionKind: "task-submit",
     taskId: input.taskId,
-    ...(input.executionId ? { executionId: input.executionId } : {}),
+    executionId: input.executionId ?? null,
   });
   if (metadata.actionAllowed !== true)
     throw new FleetEdgeTaskError(

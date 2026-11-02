@@ -278,7 +278,11 @@ test(
   "delivery preflight preserves task-scoped submit grants and rejects revocation and changed owner",
   { timeout: 60_000 },
   async (t) => {
-    const f = await fleetNodeClaimFixture(t);
+    const taskReads: string[] = [];
+    const f = await fleetNodeClaimFixture(t, (run) => async (...args) => {
+      if (args[1].kind === "task-show") taskReads.push(String(args[1].taskId));
+      return run(...args);
+    });
     const peer = f.peer("node-one");
     f.owners.keycloak.revoke("person-one", "lease-repo", ["task-submit"]);
     f.owners.keycloak.permit("person-one", "lease-repo:task/task-delivery", ["task-submit"]);
@@ -289,6 +293,18 @@ test(
     });
     assert.equal(allowed.personId, "person-one");
     assert.equal(allowed.actionAllowed, true);
+    assert.deepEqual(taskReads, [], "permission admission must not read a task or require a lease");
+    await assert.rejects(
+      readFleetRepositoryMetadataClient({
+        ...peer,
+        actionKind: "task-submit",
+        taskId: "task-delivery",
+        executionId: null,
+      }),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "task_read_failed",
+      "explicit current-holder proof still requires a canonical task",
+    );
+    assert.deepEqual(taskReads, ["task-delivery"]);
     assert.equal(
       (await readFleetRepositoryMetadataClient({ ...peer, actionKind: "task-submit", taskId: "task-other" }))
         .actionAllowed,
@@ -300,6 +316,19 @@ test(
         .actionAllowed,
       false,
     );
+    assert.equal(
+      (
+        await readFleetRepositoryMetadataClient({
+          ...peer,
+          actionKind: "task-submit",
+          taskId: "task-delivery",
+          executionId: null,
+        })
+      ).actionAllowed,
+      false,
+      "revoked permission refuses holder proof before reading task state",
+    );
+    assert.deepEqual(taskReads, ["task-delivery"]);
     f.owners.reassign("node-one", "person-replacement");
     assert.equal((await readFleetRepositoryMetadataClient(peer)).personId, "person-replacement");
     assert.throws(() =>

@@ -359,7 +359,7 @@ test(
             ...requestPeer,
             actionKind: "task-submit",
             taskId: created.taskId,
-            ...(action.executionId ? { executionId: action.executionId } : {}),
+            executionId: action.executionId ?? null,
           });
         },
         readTask: async () => stale,
@@ -428,6 +428,7 @@ test(
           ...peer,
           actionKind: "task-submit",
           taskId: created.taskId,
+          executionId: null,
         });
       },
       readTask: async () => stale,
