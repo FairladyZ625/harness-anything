@@ -52,6 +52,16 @@ test("a Keycloak transport failure keeps the real cause but is not a generic dae
   );
 });
 
+test("a typed session failure keeps its code instead of inheriting a nested fetch failure", () => {
+  const sessionFailure = Object.assign(
+    new Error("Keycloak could not be reached to renew the session.", {
+      cause: new TypeError("fetch failed", { cause: { code: "ECONNREFUSED" } }),
+    }),
+    { code: "oidc_session_unavailable" },
+  );
+  assert.equal(isKeycloakTransportFailure(sessionFailure), false);
+});
+
 test("a cold center token before execution-credential verification is a retryable identity outage", async () => {
   const provider = new KeycloakPolicyAdapter(
       { url, realm: "harness", resourceServerClientId: "harness-center" },

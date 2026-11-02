@@ -17,6 +17,7 @@ export function isKeycloakTransportFailure(error: unknown): boolean {
     ["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "ENOTFOUND", "EHOSTUNREACH"].includes(code)
   )
     return true;
+  if (typeof code === "string") return false;
   if (name === "AbortError" || (typeof message === "string" && message === "fetch failed")) return true;
   const cause = (error as { readonly cause?: unknown }).cause;
   return cause !== undefined && cause !== error && isKeycloakTransportFailure(cause);
