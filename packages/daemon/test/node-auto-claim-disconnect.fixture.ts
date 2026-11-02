@@ -8,7 +8,7 @@ import { currentFleetProtocolVersion, parseFleetFrame, serializeFleetFrame } fro
 import type { FleetCenterOptions } from "../src/fleet/center-types.ts";
 
 const mode = process.argv[2];
-assert.ok(mode === "drain" || mode === "close");
+assert.ok(mode === "drain" || mode === "close" || mode === "error-close" || mode === "error-write");
 
 class Socket extends EventEmitter {
   destroyed = false;
@@ -19,9 +19,12 @@ class Socket extends EventEmitter {
   readonly written = Promise.withResolvers<void>();
   setKeepAlive() {}
   write(line: string) {
-    assert.equal(parseFleetFrame(line).schema, "fleet.session.ready/v1");
+    const frame = parseFleetFrame(line);
+    assert.equal(frame.schema, mode.startsWith("error-") ? "fleet.error/v1" : "fleet.session.ready/v1");
+    if (frame.schema === "fleet.error/v1") assert.equal(frame.code, "authentication_failed");
     this.writes += 1;
     this.written.resolve();
+    if (mode === "error-write") throw new Error("fixture error reply failure");
     globalThis.setImmediate(() => {
       if (mode === "drain") this.emit("drain");
       else this.destroy();
@@ -45,7 +48,7 @@ for (let round = 0; round < 30; round += 1) {
   await serve(
     socket as unknown as TLSSocket,
     {
-      authenticate: () => true,
+      authenticate: () => !mode.startsWith("error-"),
       nodeOwner: () => "person-one",
       onError: (entry) => errors.push(entry),
     } as FleetCenterOptions,
@@ -68,11 +71,11 @@ for (let round = 0; round < 30; round += 1) {
     ),
   );
   await socket.written.promise;
-  await once(socket, mode);
+  if (mode !== "error-write") await once(socket, mode === "drain" ? "drain" : "close");
   // Cross Node's unhandled-rejection checkpoint after the controlled event. The parent runs
   // this child in strict mode, so any escaped rejection fails instead of being filtered.
   await setImmediate();
-  assert.equal(socket.writes, 1, "the ready reply must neither retry nor dispatch a command");
+  assert.equal(socket.writes, 1, "the reply must neither retry nor dispatch a command");
   assert.equal(errors.length, mode === "close" ? round + 1 : 0);
   if (mode === "close") {
     const entry = errors[round]!;

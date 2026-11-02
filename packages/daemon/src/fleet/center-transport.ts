@@ -364,6 +364,7 @@ export async function serve(
           error,
         });
       if (socket.destroyed) return;
+      // The peer can also close while its error reply is waiting for drain.
       await enqueue(
         immediate({
           schema: "fleet.error/v1",
@@ -374,7 +375,10 @@ export async function serve(
           retryable: fault.retryable,
           resumeOffset: fault.resumeOffset,
         }),
-      );
+      ).catch((deliveryError: unknown) => {
+        if (peerDisconnected(socket, deliveryError)) return;
+        throw deliveryError;
+      });
       if (fault.code === "authentication_failed") socket.end();
     }
   };

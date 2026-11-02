@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync, spawn, type ChildProcess } from "node:child_process";
+import { execFileSync, spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -15,9 +15,9 @@ import { fleetNodeClaimFixture, localAuthFixture } from "./fleet-node-claim.fixt
 import { eventually } from "./fixtures/runtime-ingress.ts";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 
-test("Fleet ready reply owns disconnects while awaiting drain (30 controlled interleavings)", () => {
+test("Fleet replies own disconnects while awaiting drain (30 controlled interleavings each)", () => {
   const fixture = fileURLToPath(new URL("./node-auto-claim-disconnect.fixture.ts", import.meta.url));
-  for (const mode of ["drain", "close"]) {
+  for (const mode of ["drain", "close", "error-close"]) {
     const output = execFileSync(process.execPath, ["--unhandled-rejections=strict", fixture, mode], {
       encoding: "utf8",
       timeout: 30_000,
@@ -30,6 +30,12 @@ test("Fleet ready reply owns disconnects while awaiting drain (30 controlled int
     });
     console.log(output.trim());
   }
+  const failed = spawnSync(process.execPath, ["--unhandled-rejections=strict", fixture, "error-write"], {
+    encoding: "utf8",
+    timeout: 30_000,
+  });
+  assert.equal(failed.status, 1, "an error reply failure on a live peer must still surface");
+  assert.match(failed.stderr, /Error: fixture error reply failure/u);
 });
 
 test("two same-owner nodes auto-claim through one canonical task lease", { timeout: 60_000 }, async (t) => {
