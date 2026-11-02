@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { activeCutReviewDispatches } from "../src/review-dispatch-state.ts";
 import { grantTestPolicyGroups, revokeTestPolicyActions, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 
 /** The principal that records rework-driving verdicts: a person of its own, so denying its
@@ -29,7 +30,6 @@ import {
 } from "./task-completion-review.fixture.ts";
 import { makeDaemonCommandReceipt } from "../src/protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiActionResult } from "../src/protocol/gui-result-validation.ts";
-import { activeCutReviewDispatches } from "../src/task-review-dispatch.ts";
 
 // The JSON-RPC exit for repo.decision.dispatchReview: the cell receipt wrapped and re-validated.
 const overGuiWire = (receipt: object) =>

@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
@@ -13,6 +14,24 @@ import { readNodeAutoClaimDiagnostics, writeNodeAutoClaimPolicy } from "../src/n
 import { fleetNodeClaimFixture, localAuthFixture } from "./fleet-node-claim.fixtures.ts";
 import { eventually } from "./fixtures/runtime-ingress.ts";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
+
+test("Fleet replies own disconnects while awaiting drain (30 controlled interleavings each)", () => {
+  const fixture = fileURLToPath(new URL("./node-auto-claim-disconnect.fixture.ts", import.meta.url));
+  // error-write: an error reply failure on a live peer must still surface, through onError.
+  for (const mode of ["drain", "close", "error-close", "error-write"]) {
+    const output = execFileSync(process.execPath, ["--unhandled-rejections=strict", fixture, mode], {
+      encoding: "utf8",
+      timeout: 30_000,
+    });
+    assert.deepEqual(JSON.parse(output), {
+      mode,
+      rounds: 30,
+      handlerErrors: mode === "close" || mode === "error-write" ? 30 : 0,
+      unhandledRejections: 0,
+    });
+    console.log(output.trim());
+  }
+});
 
 test("two same-owner nodes auto-claim through one canonical task lease", { timeout: 60_000 }, async (t) => {
   const fixture = await fleetNodeClaimFixture(t),
@@ -528,7 +547,22 @@ test(
           false,
         );
         phase = "settle first concurrency slot";
+        const predecessor = await fixture.host.read(
+          "lease-repo",
+          "repo.agentRuntime.overview",
+          { taskId: tasks.next },
+          fixture.owners.auth({ nodeId: "node-one" }),
+        );
+        assert.equal(predecessor.sessions.length, 1);
+        // Provider exit only starts Fleet settlement. Join its canonical terminal event before
+        // applying the launch wait's budget to the successor; do not manually wake auto-claim.
+        const settled = fixture.host.awaitRuntimeSessions(
+          "lease-repo",
+          { runtimeSessionIds: predecessor.sessions.map((session) => session.runtimeSessionId), mode: "all" },
+          localAuth,
+        );
         await launches.find((launch) => launch.taskId === tasks.next)!.finish();
+        assert.equal((await settled).status, "ready");
         await waitForLaunch(edge, "task-50-waits-for-b-slot");
         let startedOnB: Awaited<ReturnType<typeof fixture.host.read>>;
         try {

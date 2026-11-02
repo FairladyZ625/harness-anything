@@ -57,8 +57,15 @@ test("edge binding health reads the selected login authority through fleet disco
       delete: () => void (session = undefined),
       retireBootstrap: () => undefined,
     }),
-    fetch: async (input) => {
+    fetch: async (input, init) => {
       const url = String(input);
+      const form = new URLSearchParams(String(init?.body ?? ""));
+      if (form.get("grant_type") === "urn:ietf:params:oauth:grant-type:uma-ticket") {
+        assert.match(url, /\/realms\/node-one\/protocol\/openid-connect\/token$/u);
+        assert.equal(form.get("permission"), "@fleet#access-manage");
+        assert.match(new Headers(init?.headers).get("authorization") ?? "", /^Bearer header\./u);
+        return Response.json({ result: false });
+      }
       if (url.endsWith("/.well-known/openid-configuration")) {
         const issuer = url.slice(0, -"/.well-known/openid-configuration".length);
         return Response.json({ issuer });
@@ -162,7 +169,9 @@ test("edge binding health reads the selected login authority through fleet disco
     true,
   );
   assert.equal((await request({ operation: "session", repoId: "node-one" })).authenticated, true);
-  await assert.rejects(oidc.requireRole("access-admin", path.join(root, "node-one")), {
+  assert.equal((await oidc.requireSession(path.join(root, "node-one"))).personId, "ordinary-person");
+  // An edge login is usable; its user's fleet grant decides access management without a center credential.
+  await assert.rejects(oidc.requireAccessManagement(path.join(root, "node-one")), {
     code: "authorization_denied",
   });
   const binding = await request({ operation: "health", repoId: "node-one" });
@@ -255,4 +264,46 @@ test("local and center repository health still reads the daemon's managed RBAC b
     assert.equal(binding.clientId, "local-client");
     assert.equal(binding.source, undefined);
   }
+});
+
+test("built-in sessions bootstrap and sign in before any repository exists", async (t) => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-builtin-first-login-")),
+    userRoot = path.join(parent, "user"),
+    host = await openDaemonHost({ userRoot, daemonId: "builtin-first-login", runtimeDiscover: () => [] });
+  t.after(async () => {
+    await host.close();
+    rmSync(parent, { recursive: true, force: true });
+  });
+  const request = (params: Parameters<typeof host.manageRbac>[0]) => host.manageRbac(params, auth);
+  assert.equal(host.status().repos.length, 0);
+  assert.equal((await request({ operation: "session" })).authenticated, false);
+  const health = await request({ operation: "health" });
+  assert.equal(health.mode, "builtin");
+  assert.equal(health.ready, true, "the GUI enables sign-in only for a ready provider");
+  assert.equal((await request({ operation: "bootstrap-status" })).required, true);
+  await request({
+    operation: "bootstrap-admin",
+    username: "owner",
+    email: "owner@example.invalid",
+    displayName: "Owner",
+    password: "synthetic-first-login",
+    personId: "person-owner",
+  });
+  assert.equal((await request({ operation: "bootstrap-status" })).required, false);
+  const login = await request({ operation: "login-begin", redirectUri: "http://127.0.0.1:43123/callback" }),
+    response = await fetch(String(login.authorizationUrl), {
+      method: "POST",
+      redirect: "manual",
+      body: new URLSearchParams({ username: "owner", password: "synthetic-first-login", state: String(login.state) }),
+    }),
+    callback = new URL(response.headers.get("location")!);
+  await request({ operation: "login-complete", code: callback.searchParams.get("code")!, state: String(login.state) });
+  assert.equal((await request({ operation: "session" })).authenticated, true);
+  await request({ operation: "logout" });
+  assert.equal((await request({ operation: "session" })).authenticated, false);
+  const device = await request({ operation: "login" });
+  assert.equal(device.pending, true);
+  assert.equal((await request({ operation: "device-approval", code: String(device.userCode) })).pending, true);
+  await assert.rejects(request({ operation: "session", repoId: "unknown" }), { code: "repo_namespace_unknown" });
+  assert.equal(host.status().repos.length, 0);
 });

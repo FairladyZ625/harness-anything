@@ -117,7 +117,7 @@ export function IdentityAccessView({
         ) : ui?.AccessControl ? (
           <ui.AccessControl auth={auth} access={access} repoId={repoId} rootDir={rootDir} repositories={repos} />
         ) : tab === "devices" ? (
-          <DevicesTab access={access} />
+          <DevicesTab access={access} auth={auth} repoId={repoId} rootDir={rootDir} />
         ) : tab === "teams" ? (
           <TeamsTab access={access} />
         ) : tab === "groups" ? (

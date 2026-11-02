@@ -101,6 +101,7 @@ test(
     // is active and answered before the cut.
     const before = fixture.eventCount();
 
+    fixture.owners.keycloak.accessAdmin();
     signInAt(fixture.userRoot, "person-admin");
     await unregisterNodeOne(fixture, center, "unregister-cut-connected");
 
@@ -159,6 +160,7 @@ test("an unregistration that lands mid-handshake leaves no live connection behin
   await hold.started;
   const before = fixture.eventCount();
 
+  fixture.owners.keycloak.accessAdmin();
   signInAt(fixture.userRoot, "person-admin");
   await unregisterNodeOne(fixture, center, "unregister-mid-handshake");
   // The verdict this handshake awaited was read before the removal; it arrives late.
@@ -186,6 +188,7 @@ test("a removal whose receipt never settled cuts through reconcile", { timeout: 
   // The write reached the registry but the settle did not — the shape a center that died
   // between apply and settle leaves behind. The reconcile operation is the authority that
   // settles it, so that is where the cut has to come from too.
+  fixture.owners.keycloak.accessAdmin();
   signInAt(fixture.userRoot, "person-admin");
   const operationId = "unregister-external-write";
   // dec_F01770FD0DCF72683B7C4C7A47/CH5: removal persists a disabled device tombstone.
@@ -226,6 +229,7 @@ test(
     const center = await fixture.center(),
       nodeId = fixture.subject.nodeId,
       peer = await rawPeer(fixture.track, center.port, fixture.cert, nodeId, "machine-secret");
+    fixture.owners.keycloak.accessAdmin();
     signInAt(fixture.userRoot, "person-admin");
     const admin = fixture.admin(center);
     const command = async (flags: string[]) => {
@@ -300,6 +304,7 @@ for (const operation of ["node-unregister", "device-remove"] as const) {
     });
     await barrier.started;
     assert.equal(center.inspectNode(nodeId).inFlight, 1);
+    fixture.owners.keycloak.accessAdmin();
     signInAt(
       fixture.userRoot,
       operation === "device-remove" ? "person-owner" : "person-admin",

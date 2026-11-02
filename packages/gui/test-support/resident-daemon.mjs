@@ -8,6 +8,7 @@ import { startDaemon } from "@harness-anything/daemon/internal/runtime";
 import { openPersistentWriterEpoch, readLedgerWriterEpoch } from "@harness-anything/storage";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { registerDaemonRepo } from "@harness-anything/storage";
+import { BuiltinIdentitySession } from "@harness-anything/authorization-builtin";
 import { serveKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { copyHarnessLedgerWithCow, copyHarnessRuntimeLedgerWithCow } from "./harness-copy.mjs";
@@ -23,6 +24,7 @@ export async function startGuiResidentDaemonFixture({
   shutdownDeadlineMs,
   task,
   keycloakSetup,
+  identityProvider = "keycloak",
   beforeStop,
   beforeRestart,
   afterRestart,
@@ -73,11 +75,30 @@ export async function startGuiResidentDaemonFixture({
       })()
     : undefined;
   try {
-    realm = await serveKeycloak();
-    realm.keycloak.account("person-gui");
-    realm.keycloak.permit("person-gui", repoId, effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"));
-    realm.bind(userRoot);
-    signInAt(userRoot, "person-gui");
+    if (identityProvider === "builtin") {
+      const session = new BuiltinIdentitySession(userRoot);
+      await session.bootstrapAdmin({
+        username: "owner",
+        personId: "person-gui",
+        email: "owner@example.invalid",
+        displayName: "GUI Owner",
+        password: "synthetic-gui-owner",
+      });
+      const login = await session.begin("http://127.0.0.1:43123/callback");
+      const response = await fetch(String(login.authorizationUrl), {
+        method: "POST",
+        redirect: "manual",
+        body: new URLSearchParams({ username: "owner", password: "synthetic-gui-owner", state: String(login.state) }),
+      });
+      const callback = new URL(response.headers.get("location"));
+      await session.complete(callback.searchParams.get("code"), String(login.state));
+    } else {
+      realm = await serveKeycloak();
+      realm.keycloak.account("person-gui");
+      realm.keycloak.permit("person-gui", repoId, effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"));
+      realm.bind(userRoot);
+      signInAt(userRoot, "person-gui");
+    }
     if (sourceLedgerRoot) {
       registerDaemonRepo({
         canonicalRoot: rootDir,
@@ -116,7 +137,7 @@ export async function startGuiResidentDaemonFixture({
     attachDurationMs = Date.now() - startedAt;
   } catch (error) {
     try {
-      await realm.close();
+      await realm?.close();
     } finally {
       rmSync(parent, { recursive: true, force: true });
       if (ambientExecutionCredential !== undefined)
@@ -153,7 +174,7 @@ export async function startGuiResidentDaemonFixture({
       await daemon.stop();
     } finally {
       try {
-        await realm.close();
+        await realm?.close();
       } finally {
         rmSync(parent, { recursive: true, force: true });
         if (ambientExecutionCredential !== undefined)
@@ -258,7 +279,7 @@ export async function startGuiResidentDaemonFixture({
       await afterRestart?.(daemon.endpoint, repoId);
     }
     return {
-      keycloak: realm.keycloak,
+      keycloak: realm?.keycloak,
       rootDir,
       userRoot,
       daemonId,

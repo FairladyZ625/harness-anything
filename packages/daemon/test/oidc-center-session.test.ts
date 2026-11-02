@@ -97,10 +97,7 @@ test("logging into an edge center leaves local-center repository authorization o
   assert.equal(local.oidcPrincipal?.personId, "person:local-token.example.test");
   assert.equal(sibling.oidcPrincipal?.personId, "person:local-token.example.test");
   assert.equal(edge.oidcPrincipal?.personId, "person:edge-token.example.test");
-  assert.equal(
-    (await active.service.requireRole("access-admin", active.localRoot)).personId,
-    "person:local-token.example.test",
-  );
+  assert.equal((await active.service.requireSession(active.localRoot)).personId, "person:local-token.example.test");
 });
 
 test("a token issued by another center is rejected without writing a center session", async (t) => {

@@ -992,7 +992,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       localOnly(auth);
       return (async () => {
         if (request.operation === "edge-join-progress") {
-          oidc.requireCollaboration();
           return { ok: true, command: "edge-join", ...edgeJoinProgress.read() };
         }
         const loginTarget =
@@ -1008,7 +1007,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             return loginTarget;
           };
         if (request.operation === "edge-join") {
-          oidc.requireCollaboration();
           return joinFleetEdge(
             {
               link: String(request.link ?? ""),
@@ -1030,7 +1028,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         if (request.repoId && !loginTarget)
           throw hostCodedError("repo_namespace_unknown", "Select a registered repository for login.");
         if (request.operation === "listener" && loginTarget) {
-          oidc.requireCollaboration();
           const edge = readFleetEdgeConfig(loginTarget);
           if (edge?.loginUrl && edge.loginBrowserUrl && edge.loginCertificate) {
             const browser = new URL(edge.loginBrowserUrl),
@@ -1059,7 +1056,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             .then((health) => (request.operation === "bootstrap-status" ? { ...health, required: false } : health));
         if (request.operation === "login")
           return oidc.beginDevice(
-            requireLoginTarget(),
+            loginTarget,
             request.loginUrl && request.loginRealm && request.loginClientId
               ? { url: request.loginUrl, realm: request.loginRealm, clientId: request.loginClientId }
               : undefined,
@@ -1067,17 +1064,16 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         if (request.operation === "login-poll") return oidc.pollDevice();
         if (request.operation === "login-begin") {
           if (!request.redirectUri) throw hostCodedError("oidc_redirect_required", "Login requires redirectUri.");
-          return oidc.begin(request.redirectUri, requireLoginTarget());
+          return oidc.begin(request.redirectUri, loginTarget);
         }
         if (request.operation === "login-complete") {
           if (!request.code || !request.state)
             throw hostCodedError("oidc_callback_invalid", "Login completion requires code and state.");
           return oidc.complete(request.code, request.state);
         }
-        if (request.operation === "device-approval")
-          return oidc.deviceApproval(request.code ?? "", requireLoginTarget());
-        if (request.operation === "session") return oidc.status(requireLoginTarget());
-        if (request.operation === "logout") return oidc.logout(requireLoginTarget());
+        if (request.operation === "device-approval") return oidc.deviceApproval(request.code ?? "", loginTarget);
+        if (request.operation === "session") return oidc.status(loginTarget);
+        if (request.operation === "logout") return oidc.logout(loginTarget);
         if (request.operation === "bootstrap-status") return oidc.bootstrapStatus();
         if (request.operation === "bootstrap-admin") {
           const required = [request.username, request.email, request.displayName, request.password, request.personId];
@@ -1092,7 +1088,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           });
         }
         if (request.operation === "invite") {
-          oidc.requireCollaboration();
           const required = [request.username, request.email, request.displayName, request.personId];
           if (required.some((value) => typeof value !== "string" || value.trim() === ""))
             throw hostCodedError("invite_invalid", "Invitation fields must be non-empty strings.");
@@ -1111,11 +1106,9 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           const accessAction =
             request.operation === "permission-request-create"
               ? "permission-request-create"
-              : request.operation === "permission-request-decide"
-                ? "permission-request-decide"
-                : request.operation === "permission-request-withdraw"
-                  ? "permission-request-withdraw"
-                  : undefined;
+              : request.operation === "permission-request-withdraw"
+                ? "permission-request-withdraw"
+                : undefined;
           if (accessAction)
             await requireAuthorizedFleetAction({
               kind: accessAction,
@@ -1131,7 +1124,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           );
         }
         if (request.operation === "listener-set") {
-          oidc.requireCollaboration();
           return oidc.configureAuthority(() => managedRbac.run(request), requireLoginTarget());
         }
         return requireAuthorizedHostAction({

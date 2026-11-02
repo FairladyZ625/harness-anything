@@ -31,7 +31,10 @@ const reviewerDiscipline = [
     "extracts outside the repository and shares no store, so a baseline read needs neither `git worktree add` " +
     "nor a node_modules link.",
   "- Write only the structured review report and input at the dispatch-assigned artifacts/reports paths. " +
-    "For a Task use ha task review-execution; for a Decision use ha decision review. Record approved or " +
+    "For a Task use ha task review-execution <task-id> --execution-id <execution-id> " +
+    "--review-id review-<this-dispatch-id> --from-file <dispatch-assigned-json-path>; use the exact " +
+    "Register with command in this dispatch's mission, never an earlier review's identity. " +
+    "For a Decision use ha decision review. Record approved or " +
     "changes_requested against the pinned target and digest, and stop if that cut changes. " +
     "If ha task review-execution returns error code review_cut_superseded, the cut has been replaced; " +
     "this error is terminal and must not be retried.",
@@ -53,6 +56,7 @@ const workerDiscipline = `# Worker Role
 - Record progress as the work advances; record a fact only when an observation is worth preserving or a decision needs evidence — facts are not a completion quota. Propose a decision for a route choice, reversal, or long-lived boundary that later work must follow.
 - A Squad child hands its local commits to the Commander and stops; its branch is not published at settlement. For a task-bound delivery:
 ${taskDeliveryPublicationDiscipline}
+- Fill closeout.md and finish task-package edits before ha task submit. Submit accepts those documents and releases the implementation write lease. For later document changes, ask the CEO to sync them or return the task for rework; do not run a separate doc sync after submit. If automatic reviewer dispatch fails, give the submit receipt to the CEO; workers cannot run ha task dispatch-review.
 - Hand back delivery, verification, residual risks and same-mechanism evidence in the package's closeout.md; use a separate report only for material it cannot hold.
 - Write each checkpoint's conclusions into the report or progress log, then continue; a checkpoint is not a stop. After three consecutive failures with no new evidence, report the blocker and attempted paths.`;
 

@@ -32,6 +32,7 @@ import {
 async function fixture(
   t: TestContext,
   ports: {
+    readonly withoutAdmin?: boolean;
     readonly now?: () => number;
     readonly wrapFetch?: (inner: typeof fetch) => typeof fetch;
   } = {},
@@ -45,6 +46,7 @@ async function fixture(
   t.after(user.cleanup);
   const provider = new KeycloakPolicyAdapter(config, keycloak.fetch);
   await provider.syncBasePolicy("center-token");
+  if (!ports.withoutAdmin) keycloak.accessAdmin();
   keycloak.writes.length = 0;
   return {
     keycloak,
@@ -139,7 +141,7 @@ async function edgeJoinCenter(t: TestContext, base: Awaited<ReturnType<typeof fi
     stateRoot: path.join(work, "fleet-state"),
     quotaBytes: 1024 * 1024,
   });
-  base.keycloak.account("person-admin");
+
   await base.run({
     operation: "group-create",
     groupId: "edge-source",
@@ -173,7 +175,7 @@ test("a group granted on repository A allows there and denies on repository B", 
   // Every permission the grant wrote names exactly one resource.
   assert.deepEqual(
     [...keycloak.permissions.values()].map((permission) => permission.resources.length),
-    [1],
+    [1, 1],
   );
 
   // Negative control: the unbound Base scope permission this slice removed would let repository B through.
@@ -287,7 +289,7 @@ test("custom groups compose Base groups, re-expand their grants, and trace every
 });
 
 test("two administrators editing one group from the same version: one applied, one version_conflict", async (t) => {
-  const { admin, run, signIn, oidc } = await fixture(t),
+  const { admin, run, signIn, oidc, keycloak } = await fixture(t),
     read = async () =>
       (
         (await admin.run({ operation: "group-list" })).groups as { id: string; version: string; scopes: string[] }[]
@@ -295,14 +297,15 @@ test("two administrators editing one group from the same version: one applied, o
   await run({ operation: "group-create", groupId: "release", scopes: ["task-review-execution"] });
   const version = (await read()).version,
     firstSession = Promise.withResolvers<void>(),
-    requireRole = oidc.requireRole.bind(oidc);
-  t.mock.method(oidc, "requireRole", async (...args: Parameters<typeof oidc.requireRole>) => {
-    const session = await requireRole(...args);
+    requireAccessManagement = oidc.requireAccessManagement.bind(oidc);
+  t.mock.method(oidc, "requireAccessManagement", async (...args: Parameters<typeof oidc.requireAccessManagement>) => {
+    const session = await requireAccessManagement(...args);
     firstSession.resolve();
     return session;
   });
   // Capture the first administrator before replacing the shared fixture session; writes still overlap.
-  signIn("admin-one");
+  keycloak.accessAdmin("admin-one");
+  signIn("admin-one", []);
   const first = run({
     operation: "group-update",
     groupId: "release",
@@ -310,7 +313,8 @@ test("two administrators editing one group from the same version: one applied, o
     expectedVersion: version,
   });
   await firstSession.promise;
-  signIn("admin-two");
+  keycloak.accessAdmin("admin-two");
+  signIn("admin-two", []);
   const second = run({
       operation: "group-update",
       groupId: "release",
@@ -445,6 +449,7 @@ test("the read side lists every action facet, every held grant by person, and th
   assert.deepEqual(listed.people, [
     { personId: "alice", username: "alice" },
     { personId: "bob", username: "bob" },
+    { personId: "person-admin", username: "person-admin" },
   ]);
   assert.deepEqual(
     (listed.grants as { personId: string; groupId: string; resource: string }[])
@@ -479,10 +484,11 @@ test("the read side lists every action facet, every held grant by person, and th
   assert.deepEqual([newest!.operationId, newest!.phase, settled], ["lost", "intent", 4]);
 });
 
-test("access administration requires the access-admin role before anything reaches Keycloak", async (t) => {
+test("access administration requires fleet policy even when the session has the legacy realm role", async (t) => {
   const { keycloak, run, signIn } = await fixture(t);
   keycloak.account("alice");
-  signIn("person-member", ["offline_access"]);
+  keycloak.account("person-member");
+  signIn("person-member", ["access-admin"]);
   for (const operation of [
     "group-list",
     "grant",
@@ -514,6 +520,20 @@ test("permission requests retain the authenticated task requester instead of the
   const request = { operation: "permission-request-create", groupId: "viewer", resource: "repo-a:task/task-worker" };
   const result = await admin.run(request, "worker");
   assert.equal((result.request as { personId: string }).personId, "worker");
+  const created = result.request as { requestId: string; version: number };
+  for (const decision of ["approve", "reject"])
+    await assert.rejects(
+      admin.run(
+        {
+          operation: "permission-request-decide",
+          requestId: created.requestId,
+          requestVersion: created.version,
+          decision,
+        },
+        "worker",
+      ),
+      { code: "human_confirmation_required" },
+    );
   await assert.rejects(admin.run({ ...request, personId: "another" }, "worker"), { code: "authorization_denied" });
 });
 
@@ -538,6 +558,8 @@ test("permission requests bind exact versions and settle one concurrent decision
   const { keycloak, run, signIn } = await fixture(t);
   keycloak.account("alice");
   keycloak.account("admin");
+  keycloak.accessAdmin("admin");
+  keycloak.permit("admin", "repo-a", ["permission-request-decide"]);
   signIn("alice", ["offline_access"]);
   const created = await run({
     operation: "permission-request-create",
@@ -570,6 +592,8 @@ test("permission requests require an independent approver and unchanged action s
   const { keycloak, run, signIn, admin } = await fixture(t);
   keycloak.account("alice");
   keycloak.account("admin");
+  keycloak.accessAdmin("admin");
+  keycloak.permit("admin", "repo-a", ["permission-request-decide"]);
   await run({ operation: "group-create", groupId: "release", scopes: ["task-create"] });
   signIn("alice", ["offline_access"]);
   const created = await run({ operation: "permission-request-create", groupId: "release", resource: "repo-a" }),
@@ -611,6 +635,8 @@ test("permission approval evaluates the approver's requested scope and permits d
   const { keycloak, run, signIn, evaluate } = await fixture(t);
   keycloak.account("alice");
   keycloak.account("admin");
+  keycloak.accessAdmin("admin");
+  keycloak.permit("admin", "repo-a", ["permission-request-decide"]);
   await run({ operation: "group-create", groupId: "release", scopes: ["task-create"] });
   signIn("alice", ["offline_access"]);
   const created = await run({ operation: "permission-request-create", groupId: "release", resource: "repo-a" }),
@@ -643,6 +669,8 @@ test("a permission request takes effect only after Keycloak accepts its grant", 
   const { keycloak, run, signIn, oidc, root, evaluate } = await fixture(t);
   keycloak.account("alice");
   keycloak.account("admin");
+  keycloak.accessAdmin("admin");
+  keycloak.permit("admin", "repo-a", ["permission-request-decide"]);
   keycloak.permit("admin", "@fleet", ["permission-request-decide"]);
   signIn("alice", ["offline_access"]);
   const created = await run({ operation: "permission-request-create", groupId: "contributor", resource: "repo-a" }),
@@ -758,7 +786,7 @@ test("the session lifetime is read from and written to the realm, within bounds,
 });
 
 test("first-administrator bootstrap with two different usernames creates exactly one administrator", async (t) => {
-  const { keycloak, oidc } = await fixture(t),
+  const { keycloak, oidc } = await fixture(t, { withoutAdmin: true }),
     person = (name: string) => ({
       username: name,
       email: `${name}@example.invalid`,
@@ -771,7 +799,8 @@ test("first-administrator bootstrap with two different usernames creates exactly
     outcomes.map((outcome) => (outcome.status === "fulfilled" ? "created" : (outcome.reason as { code: string }).code)),
     ["created", "bootstrap_admin_closed"],
   );
-  assert.equal(keycloak.realmRoles.get("access-admin")!.members.size, 1);
+  assert.equal(keycloak.realmRoles.has("access-admin"), false);
+  assert.equal((await oidc.bootstrapStatus()).required, false);
   assert.deepEqual(
     [...keycloak.users.values()].map((user) => user.attributes.harness_person_id),
     [["first"]],

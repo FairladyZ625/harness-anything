@@ -35,8 +35,6 @@ export interface IdentitySessionPort {
   }>;
   /** Whether a Keycloak authority exists at all; without one no request can ever authorize, so callers guide to ha bootstrap. */
   configured(): boolean;
-  /** Rejects collaboration-only operations when the selected provider is single-machine builtin. */
-  requireCollaboration(): void;
   /** Whether the daemon has the center service credential needed for ownership claims. */
   centerConfigured(): boolean;
   /**
@@ -51,7 +49,8 @@ export interface IdentitySessionPort {
   ): Promise<T & IdentityAuthenticationContext>;
   /** Public metadata comes from the center; an edge never writes a second Keycloak configuration. */
   discovery(nodeId: string): OidcLoginAuthority | null;
-  requireRole(role: string, loginTarget?: string): Promise<StoredSession>;
+  /** Global administration follows the person's @fleet access-manage policy, never realm roles. */
+  requireAccessManagement(loginTarget?: string, withinWriter?: boolean): Promise<StoredSession>;
   /** Device administration must observe external session revocation before using center Admin REST. */
   requireSession(loginTarget?: string): Promise<StoredSession>;
   /**

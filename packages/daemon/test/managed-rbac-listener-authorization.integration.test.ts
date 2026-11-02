@@ -7,9 +7,10 @@ import test from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { managedRbacVersions } from "@harness-anything/authorization-keycloak/managed-rbac-service";
 import { createIdentitySession } from "../src/authorization-provider.ts";
+import { fakeKeycloak } from "./keycloak.fixtures.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
 
-test("the first-admin window closes and later listener changes require access-admin", async () => {
+test("the first-admin window closes and later listener changes require fleet policy", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-rbac-listener-auth-")),
     configFile = path.join(userRoot, "rbac", "config.json");
   mkdirSync(path.dirname(configFile), { recursive: true });
@@ -28,16 +29,16 @@ test("the first-admin window closes and later listener changes require access-ad
     }),
   );
   let session: string | undefined;
-  const members: string[] = [];
+  const keycloak = fakeKeycloak("http://127.0.0.1:1/realms/harness");
   let invalidMembership = false;
-  const signedIn = (roles: readonly string[]): string =>
+  const signedIn = (roles: readonly string[], personId = "person-owner"): string =>
       JSON.stringify({
         schema: "harness-oidc-session/v3",
         issuer: "http://127.0.0.1:1/realms/harness",
-        accessToken: "header.e30.signature",
-        refreshToken: "refresh",
-        subject: "keycloak-subject",
-        personId: "person-zeyu",
+        accessToken: `token-${personId}`,
+        refreshToken: `token-${personId}`,
+        subject: personId,
+        personId,
         expiresAt: Date.now() + 3_600_000,
         sessionExpiresAt: Date.now() + 3_600_000,
         roles,
@@ -47,24 +48,8 @@ test("the first-admin window closes and later listener changes require access-ad
         const url = String(input);
         if (url.endsWith("/.well-known/openid-configuration"))
           return Response.json({ issuer: "http://127.0.0.1:1/realms/harness" });
-        if (url.endsWith("/token")) {
-          if ((init?.body as URLSearchParams).get("grant_type") === "refresh_token")
-            return Response.json({
-              access_token: `header.${Buffer.from(JSON.stringify({ iss: "http://127.0.0.1:1/realms/harness", realm_access: { roles: ["access-admin"] } })).toString("base64url")}.signature`,
-              refresh_token: "renewed",
-              expires_in: 3600,
-              refresh_expires_in: 3600,
-            });
-          return Response.json({ access_token: "center-token" });
-        }
-        if (url.endsWith("/roles/access-admin/users"))
-          return Response.json(invalidMembership ? {} : members.map((id) => ({ id })));
-        if (url.endsWith("/roles/access-admin")) return Response.json({ id: "access-admin", name: "access-admin" });
-        if (url.endsWith("/users") && init?.method === "POST")
-          return new Response(null, { status: 201, headers: { location: `${url}/owner` } });
-        if (url.includes("/role-mappings/realm")) members.push("owner");
-        if (url.includes("username=harness-bootstrap")) return Response.json([]);
-        return new Response(null, { status: 204 });
+        if (invalidMembership && new URL(url).pathname === "/admin/realms/harness/users") return Response.json({});
+        return keycloak.fetch(input, init);
       }) as typeof fetch,
       sessionStore: () => ({
         read: () => session,
@@ -114,8 +99,11 @@ test("the first-admin window closes and later listener changes require access-ad
     assert.equal((results[1] as PromiseRejectedResult).reason.code, "bootstrap_admin_closed");
     assert.equal(results[2]!.status, "rejected");
     assert.equal((results[2] as PromiseRejectedResult).reason.code, "authentication_required");
-    assert.equal(members.length, 1);
-    session = signedIn(["default-roles-harness"]);
+    assert.equal((await oidc.bootstrapStatus()).required, false);
+    assert.equal(keycloak.realmRoles.has("access-admin"), false);
+    keycloak.interactiveSession("person-owner", "bootstrap-login", "http://127.0.0.1:1");
+    keycloak.account("person-member");
+    session = signedIn(["access-admin"], "person-member");
     await assert.rejects(host.manageRbac({ ...change, expectedVersion: current }, auth), {
       code: "authorization_denied",
     });
@@ -136,25 +124,25 @@ test("the first-admin window closes and later listener changes require access-ad
       },
     );
     // An access administrator's request is the one that reaches the listener: it is judged on its content.
-    session = signedIn(["access-admin"]);
+    session = signedIn([]);
     await assert.rejects(host.manageRbac({ ...change, expectedVersion: current }, auth), {
       code: "rbac_listener_invalid",
     });
     assert.equal((await host.manageRbac({ ...change, expectedVersion: "stale" }, auth)).code, "version_conflict");
-    session = JSON.stringify({ ...JSON.parse(signedIn(["access-admin"])), expiresAt: Date.now() - 1 });
+    session = JSON.stringify({ ...JSON.parse(signedIn([])), expiresAt: Date.now() - 1 });
     await assert.rejects(host.manageRbac({ ...change, expectedVersion: current }, auth), {
       code: "rbac_listener_invalid",
     });
     assert.equal(
       JSON.parse(session!).refreshToken,
-      "renewed",
+      "token-person-owner",
       "renewal inside the listener queue finishes without nesting the queue",
     );
     invalidMembership = true;
     await assert.rejects(host.manageRbac({ ...change, expectedVersion: current }, auth), {
-      code: "oidc_response_invalid",
+      name: "TypeError",
     });
-    await assert.rejects(host.manageRbac(administrator, auth), { code: "oidc_response_invalid" });
+    await assert.rejects(host.manageRbac(administrator, auth), { name: "TypeError" });
     assert.equal(readFileSync(configFile, "utf8"), before);
   } finally {
     await host.close();

@@ -41,7 +41,7 @@ export interface KeycloakSessionHost {
   readonly fetchWithTlsCa: (
     fetcher: typeof fetch,
     ca: string | readonly string[],
-    input: string | URL,
+    input: string | URL | Request,
     init?: RequestInit,
     servername?: string,
   ) => Promise<Response>;

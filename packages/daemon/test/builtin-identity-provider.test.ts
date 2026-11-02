@@ -23,6 +23,8 @@ test("clean user roots select built-in identity without a managed runtime", asyn
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const management = createIdentityManagement(root);
   assert.ok(management instanceof BuiltinIdentityManagement);
+  assert.deepEqual(await management.run({ operation: "health" }), await management.health());
+  assert.equal((await management.run({ operation: "health" })).ready, true);
   assert.deepEqual(await management.run({ operation: "bootstrap" }), {
     ok: true,
     command: "rbac-bootstrap",
@@ -387,13 +389,22 @@ test("builtin sessions reject remote edge targets at the identity boundary", asy
   const session = new BuiltinIdentitySession(root),
     pluginRequired = (error: unknown) => (error as { code?: string }).code === "identity_plugin_required";
   await assert.rejects(session.beginDevice(edgeRoot), pluginRequired);
+  await assert.rejects(
+    session.beginDevice(undefined, {
+      url: "https://center.example.invalid",
+      realm: "harness",
+      clientId: "harness-gui",
+    }),
+    pluginRequired,
+  );
+  await assert.rejects(session.bind({ transportKind: "fleet-tls" }), pluginRequired);
   await assert.rejects(session.deviceApproval("123456", edgeRoot), pluginRequired);
   await assert.rejects(session.status(edgeRoot), pluginRequired);
   await assert.rejects(session.bindingHealth(edgeRoot), pluginRequired);
   assert.throws(() => session.logout(edgeRoot), pluginRequired);
   await assert.rejects(session.bind({ transportKind: "unix-socket" }, edgeRoot), pluginRequired);
   await assert.rejects(session.requireSession(edgeRoot), pluginRequired);
-  await assert.rejects(session.requireRole("access-admin", edgeRoot), pluginRequired);
+  await assert.rejects(session.requireAccessManagement(edgeRoot), pluginRequired);
   assert.throws(() => session.configureAuthority(async () => ({ ok: true }), edgeRoot), pluginRequired);
 });
 
@@ -477,6 +488,26 @@ test("legacy edge roots reopen through Keycloak without a selector and preserve 
   assert.equal(readFileSync(path.join(root, "rbac", "oidc-session.json"), "utf8"), legacySession);
 });
 
+test("builtin owner membership reads are empty while team administration still requires the plugin", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-owner-teams-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const session = new BuiltinIdentitySession(root);
+  await session.bootstrapAdmin({
+    username: "owner",
+    email: "owner@example.invalid",
+    displayName: "Owner",
+    password: "correct horse",
+    personId: "person-owner",
+  });
+  const { provider, accessToken } = await session.center();
+  assert.deepEqual(await provider.readPersonTeams(accessToken, "person-owner"), []);
+  await assert.rejects(provider.readPersonTeams("invalid-token", "person-owner"), { code: "rbac_admin_unavailable" });
+  await assert.rejects(provider.readPersonTeams(accessToken, "person-other"), { code: "access_person_unknown" });
+  assert.deepEqual(await provider.readTeams(accessToken), []);
+  await assert.rejects(provider.createTeam(accessToken, "Builders"), { code: "identity_plugin_required" });
+  await assert.rejects(provider.readTeamMembers(accessToken, "builders"), { code: "identity_plugin_required" });
+});
+
 test("builtin collaboration entry points require the Keycloak plugin", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-collaboration-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -488,13 +519,19 @@ test("builtin collaboration entry points require the Keycloak plugin", async (t)
     password: "correct horse",
     personId: "person-owner",
   });
-  assert.throws(() => center.requireCollaboration(), { code: "identity_plugin_required" });
   await assert.rejects(center.interactiveAuthority(), { code: "identity_plugin_required" });
   const authority = await center.center(),
     centerToken = authority.accessToken;
-  await assert.rejects(authority.provider.readPolicyGroups(centerToken), { code: "identity_plugin_required" });
-  await assert.rejects(authority.provider.readGrants(centerToken), { code: "identity_plugin_required" });
-  await assert.rejects(authority.provider.readPeople(centerToken), { code: "identity_plugin_required" });
+  assert.ok((await authority.provider.readPolicyGroups(centerToken)).some((group) => group.id === "admin"));
+  assert.equal((await authority.provider.readGrants(centerToken))[0]?.resource, "@fleet");
+  assert.equal((await authority.provider.readPeople(centerToken))[0]?.personId, "person-owner");
+  const login = await center.begin("http://127.0.0.1:43123/callback");
+  const response = await fetch(String(login.authorizationUrl), {
+    method: "POST",
+    redirect: "manual",
+    body: new URLSearchParams({ username: "owner", password: "correct horse", state: String(login.state) }),
+  });
+  await center.complete(new URL(response.headers.get("location")!).searchParams.get("code")!, String(login.state));
   const store = createEdgeJoinStore({ randomToken: () => "builtin-edge-invite" }),
     created = store.create({
       centerOrigin: "https://center.example.invalid:7545",
@@ -528,4 +565,101 @@ test("builtin collaboration entry points require the Keycloak plugin", async (t)
   );
   assert.equal(store.status(created.record.joinId).state, "pending");
   await admin.close();
+});
+
+test("local sign-in pages are bilingual, reject expiry and deliver readable results", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-device-pages-")),
+    session = new BuiltinIdentitySession(root);
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  await session.bootstrapAdmin({
+    username: "owner",
+    email: "owner@example.invalid",
+    displayName: "Owner",
+    personId: "person-owner",
+    password: "synthetic-page-password",
+  });
+  const begin = await session.beginDevice(),
+    uri = String(begin.verificationUri),
+    page = await fetch(uri);
+  assert.equal(page.status, 200);
+  assert.equal(page.headers.get("cache-control"), "no-store");
+  const formPage = await page.text();
+  assert.match(formPage, /登录 Harness/u);
+  assert.match(formPage, /Sign in to Harness/u);
+  assert.match(formPage, /<html lang="zh-CN">/u);
+  assert.match(formPage, /用户名.*Username/u);
+  assert.match(formPage, /密码.*Password/u);
+  assert.match(formPage, /内置身份.*仅限本机/u);
+  assert.match(formPage, /请使用本机账号登录。/u);
+  assert.doesNotMatch(formPage, /<script|https?:\/\//u, "the sign-in page has no external assets or scripts");
+  const submit = (password: string, userCode = String(begin.userCode)) =>
+    fetch(uri, {
+      method: "POST",
+      body: new URLSearchParams({ username: "owner", password, userCode }),
+    });
+  const rejected = await submit("wrong-page-password");
+  assert.equal(rejected.status, 401);
+  const rejectedPage = await rejected.text();
+  assert.match(rejectedPage, /请检查登录信息.*Check your sign-in details/su);
+  assert.match(rejectedPage, /用户名或密码不正确，请重试。/u);
+  assert.equal((await session.pollDevice()).pending, true);
+  const accepted = await submit("synthetic-page-password");
+  assert.equal((await session.pollDevice()).authenticated, true);
+  const successPage = await accepted.text();
+  assert.match(successPage, /已登录.*You're signed in/su, "the complete response arrives after approval is consumed");
+  assert.match(successPage, /设备已授权。请返回 Harness 继续操作，可以关闭此页面。/u);
+  assert.equal((await fetch(uri)).status, 410, "a used device link cannot approve again");
+
+  await session.logout();
+  const expiring = await session.beginDevice(),
+    expiryUri = String(expiring.verificationUri),
+    now = Date.now;
+  assert.equal((await fetch(expiryUri)).status, 200);
+  Date.now = () => Number(expiring.expiresAt) + 1;
+  try {
+    const expired = await fetch(expiryUri, {
+      method: "POST",
+      body: new URLSearchParams({
+        username: "owner",
+        password: "synthetic-page-password",
+        userCode: String(expiring.userCode),
+      }),
+    });
+    assert.equal(expired.status, 410);
+    assert.match(await expired.text(), /登录链接已过期.*Sign-in link expired/su);
+    await assert.rejects(session.deviceApproval(String(expiring.userCode)), { code: "oidc_device_missing" });
+    await assert.rejects(session.pollDevice(), { code: "oidc_device_expired" });
+    assert.equal((await session.status()).authenticated, false);
+  } finally {
+    Date.now = now;
+  }
+
+  const browserLogin = await session.begin("http://127.0.0.1:43123/callback"),
+    loginUri = String(browserLogin.authorizationUrl),
+    loginForm = await fetch(loginUri, { headers: { "accept-language": "zh-CN" } });
+  assert.match(await loginForm.text(), /登录 Harness.*Sign in to Harness/su);
+  const loginPost = (password: string) =>
+    fetch(loginUri, {
+      method: "POST",
+      body: new URLSearchParams({ username: "owner", password, state: String(browserLogin.state) }),
+      redirect: "manual",
+    });
+  const refusedLogin = await loginPost("wrong-page-password");
+  assert.equal(refusedLogin.status, 401);
+  assert.match(await refusedLogin.text(), /用户名或密码不正确，请重试。/u);
+  const invalidStateUri = new URL(loginUri);
+  invalidStateUri.searchParams.set("value", "invalid-state");
+  const invalidState = await fetch(invalidStateUri);
+  assert.equal(invalidState.status, 410);
+  assert.match(await invalidState.text(), /此链接已过期或已使用。请返回 Harness 重新发起登录。/u);
+  const missing = await fetch(new URL("/missing", loginUri));
+  assert.equal(missing.status, 404);
+  assert.match(await missing.text(), /找不到页面.*请从 Harness 打开登录链接。/su);
+  const loginRedirect = await loginPost("synthetic-page-password");
+  assert.equal(loginRedirect.status, 302, "browser login still redirects to the GUI callback");
+  const callback = new URL(loginRedirect.headers.get("location")!);
+  assert.equal(
+    (await session.complete(callback.searchParams.get("code")!, callback.searchParams.get("state")!)).authenticated,
+    true,
+  );
 });
