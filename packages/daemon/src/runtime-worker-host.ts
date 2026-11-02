@@ -42,9 +42,8 @@ type RuntimeWorkerManifest = {
 // continues the same thread while the worker still owes an action.
 //
 // What a worker owes is an action, never prose: `ha task submit` for a delivery, the review
-// registration for a reviewer, or the ruling file an unattended turn must write instead of
-// stopping. Each leaves a machine-readable trace in the stream (a command item, a file change), so
-// this judgment never reads the model's text.
+// registration for a reviewer, or `ha task escalate` when it needs an owner ruling. The last
+// action writes a structured ruling; a legacy ruling-file edit remains a stop signal for recovery.
 //
 // A turn is only continued when the dispatch has run a *command*: that is the shape of a worker
 // that spent the dispatch's provider time on the task (dispatch_2ae120ca: 48 commands before the
@@ -63,8 +62,8 @@ const continuationPrompt = "Continue the current task from where it left off.",
 // reached through a wrapper (`npx harness-anything task submit …`, a compound shell line). The
 // verb plus a task id is the stable part; a worker that only *read* about the verb (`--help`, a
 // grep) has not attempted the action.
-const settleCommand = /\btask\s+(?:submit|review-execution)\s+task_[0-9A-Za-z]{6,}/u,
-  // The blocking exit of an unattended turn, written into the task package.
+const settleCommand = /\btask\s+(?:submit|review-execution|escalate)\s+task_[0-9A-Za-z]{6,}/u,
+  // Legacy file-based ruling requests remain a stop signal; the CLI is the supported write path.
   rulingArtifactPath = /(?:^|[\\/])artifacts[\\/]rulings[\\/][^\\/]+$/u;
 
 // `exec` drops the app-server's ContextCompaction item (`map_completed_item_mut` has no arm
@@ -443,9 +442,8 @@ function codexAgentMessageText(value: Record<string, unknown>): string {
     : "";
 }
 
-/** Whether a completed Codex item is one of the worker's settle actions: the CLI delivery/review
- * offer, or the ruling artifact an unattended turn writes instead of stopping. Both are actions,
- * so both are readable from the item alone — the assistant's own message never decides this. */
+/** Whether a completed Codex item is one of the worker's settle actions: delivery, review, owner
+ * escalation, or a legacy ruling artifact. The assistant's own message never decides this. */
 function codexSettleAction(value: Record<string, unknown>): boolean {
   const item = value.item as Record<string, unknown> | undefined;
   if (value.type !== "item.completed" || item === null || item === undefined) return false;

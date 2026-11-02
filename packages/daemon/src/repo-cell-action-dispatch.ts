@@ -45,6 +45,7 @@ import { runIncidentDismissAction } from "./runtime-incident-dismiss-action.ts";
 import { readWork } from "./work-read.ts";
 import { runAssignmentMigrationAction } from "./assignment-migration-action.ts";
 import { readVerticalKindAction } from "./vertical-kind-read.ts";
+import { parseRulingArtifact, runtimeRulingPath, runtimeRulingResolutionPath } from "./runtime-ruling.ts";
 
 export async function executeAction(
   cell: RepoCellOperationalContext,
@@ -277,6 +278,9 @@ export function executeRepoAction(
       {
         ...cell.entityActionRuntimes,
         task: async (contract, catalogAction, catalogBinding) => {
+          if (catalogAction.kind === "task-escalate") return runTaskEscalation(cell, catalogAction, catalogBinding);
+          if (catalogAction.kind === "task-escalation-resolve")
+            return resolveTaskEscalation(cell, catalogAction, catalogBinding);
           if (catalogAction.kind === "task-submit") return submitTask(cell, catalogAction, catalogBinding);
           if (Array.isArray(catalogAction.docChanges))
             return cell.runTaskCommandWithDocs(catalogAction as TaskCommandWithDocsAction, catalogBinding);
@@ -466,6 +470,165 @@ export function executeRepoAction(
   if (action.kind === "task-attest") return attestGateWitness(cell, action, binding);
   if (action.kind === "task-declare-executor") return cell.declareExecutionExecutor(action, binding);
   return cell.lifecycleAction(action, binding);
+}
+
+async function runTaskEscalation(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+): Promise<WriteReceipt> {
+  const principal = binding.executionPrincipal,
+    taskId = cell.requiredCellText(action.taskId, "taskId"),
+    dispatchId = principal?.dispatchId,
+    question = cell.requiredCellText(action.question, "question"),
+    options = Array.isArray(action.options)
+      ? action.options
+          .filter((value): value is string => typeof value === "string" && value.trim() !== "")
+          .map((value) => value.trim())
+      : [],
+    recommendation = typeof action.recommendation === "string" ? action.recommendation.trim() : "",
+    reason = typeof action.reason === "string" ? action.reason.trim() : "";
+  if (principal?.role !== "implementation" || principal.taskId !== taskId || !dispatchId)
+    throw cell.cellCodedError(
+      "execution_credential_rejected",
+      "Escalation requires the implementation credential for this task dispatch.",
+    );
+  const expectedDispatch = /^dispatch_[a-f0-9]{24}$/u.test(dispatchId);
+  if (!expectedDispatch)
+    throw cell.cellCodedError("invalid_escalation", "The dispatch credential has no valid dispatch id.");
+  const body = JSON.stringify(
+    {
+      schema: "worker-escalation/v1",
+      status: "awaiting",
+      taskId,
+      dispatchId,
+      executionId: principal.executionId,
+      question,
+      options,
+      ...(recommendation ? { recommendation } : {}),
+      ...(reason ? { reason } : {}),
+      createdAt: cell.now(),
+    },
+    null,
+    2,
+  );
+  const artifact = runArtifactAdd({
+    action: { kind: "task-artifact-add", taskId, content: body, destination: `rulings/${dispatchId}.md` },
+    binding,
+    workspaceId: cell.input.repoId,
+    rootDir: cell.rootDir,
+    store: cell.store,
+    projection: cell.projection,
+    now: cell.now,
+    killpoint: cell.input.killpoint,
+  });
+  // A center-forwarded edge action cannot cancel through the center's local spawner: the runtime
+  // owner is the edge node. The edge RPC route performs the owner-local cancel after this artifact
+  // is durably accepted. Local dispatches still stop through their resident spawner here.
+  const remoteOwner = typeof binding.source === "object" && binding.source !== null && binding.source.kind === "node",
+    cancel = remoteOwner
+      ? null
+      : await cell.runtimeSpawner.cancel({ runtimeSessionId: principal.runtimeSessionId, escalation: true }, binding);
+  return {
+    ...artifact,
+    evidence: JSON.stringify({
+      escalation: JSON.parse(body),
+      artifact: artifact.evidence ?? null,
+      cancel,
+      ...(remoteOwner ? { cancelOwner: "edge" } : {}),
+    }),
+  };
+}
+
+async function resolveTaskEscalation(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+): Promise<WriteReceipt> {
+  const taskId = cell.requiredCellText(action.taskId, "taskId"),
+    dispatchId = cell.requiredCellText(action.dispatchId, "dispatchId"),
+    answer = cell.requiredCellText(action.answer, "answer"),
+    task = cell.projection.read(taskId),
+    packagePath = task.packagePath;
+  if (!packagePath) throw cell.cellCodedError("task_not_found", `Task ${taskId} is not ready.`);
+  const dispatch = cell.projection.readRuntimeDispatchById(dispatchId)?.event;
+  if (dispatch?.payload.taskId !== taskId)
+    throw cell.cellCodedError(
+      "invalid_escalation_resolution",
+      `Dispatch ${dispatchId} does not belong to Task ${taskId}.`,
+    );
+  if (task.snapshot.task?.status !== "blocked" || task.snapshot.lease !== null)
+    throw cell.cellCodedError("invalid_escalation_resolution", `Task ${taskId} is not waiting for an owner ruling.`);
+  const path = `${packagePath}/${runtimeRulingPath(dispatchId)}`,
+    rulingDocument = cell.projection.readDocument(path).document,
+    existing = rulingDocument?.body ?? null;
+  if (rulingDocument === undefined || rulingDocument === null)
+    throw cell.cellCodedError("entity_not_found", `Escalation ${dispatchId} was not found for Task ${taskId}.`);
+  const ruling = parseRulingArtifact(existing ?? "", path),
+    resolutionPath = `${packagePath}/${runtimeRulingResolutionPath(dispatchId)}`;
+  if (ruling?.kind === "valid" && ruling.dispatchId !== undefined) {
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(existing ?? "") as Record<string, unknown>;
+    } catch {
+      throw cell.cellCodedError("invalid_escalation_resolution", `Escalation ${dispatchId} is not structured.`);
+    }
+    if (parsed.taskId !== taskId || parsed.dispatchId !== dispatchId || parsed.status !== "awaiting")
+      throw cell.cellCodedError(
+        "invalid_escalation_resolution",
+        `Escalation ${dispatchId} is not awaiting for Task ${taskId}.`,
+      );
+  }
+  const existingResolution = cell.projection.readDocument(resolutionPath).document,
+    existingResolutionBody = existingResolution?.body ?? null;
+  let artifact: WriteReceipt | null = null;
+  if (existingResolution !== undefined && existingResolution !== null) {
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(existingResolutionBody ?? "") as Record<string, unknown>;
+    } catch {
+      throw cell.cellCodedError(
+        "invalid_escalation_resolution",
+        `Escalation ${dispatchId} has an invalid answer record.`,
+      );
+    }
+    if (
+      parsed.schema !== "worker-escalation-resolution/v1" ||
+      parsed.dispatchId !== dispatchId ||
+      parsed.taskId !== taskId ||
+      parsed.answer !== answer
+    )
+      throw cell.cellCodedError("invalid_escalation_resolution", `Escalation ${dispatchId} has already been answered.`);
+  } else {
+    const updated = JSON.stringify(
+      { schema: "worker-escalation-resolution/v1", dispatchId, taskId, answer, answeredAt: cell.now() },
+      null,
+      2,
+    );
+    artifact = runArtifactAdd({
+      action: {
+        kind: "task-artifact-add",
+        taskId,
+        content: updated,
+        destination: `rulings/${runtimeRulingResolutionPath(dispatchId).slice("artifacts/rulings/".length)}`,
+      },
+      binding,
+      workspaceId: cell.input.repoId,
+      rootDir: cell.rootDir,
+      store: cell.store,
+      projection: cell.projection,
+      now: cell.now,
+      killpoint: cell.input.killpoint,
+    });
+  }
+  const transitioned = await cell.lifecycleAction(
+    { kind: "task-transition", taskId, status: "planned", reason: `Owner answered escalation ${dispatchId}.` },
+    binding,
+  );
+  return {
+    ...transitioned,
+    evidence: JSON.stringify({ answer, dispatchId, artifact: artifact?.evidence ?? null, retried: artifact === null }),
+  };
 }
 
 export function executeRepoReadAction(

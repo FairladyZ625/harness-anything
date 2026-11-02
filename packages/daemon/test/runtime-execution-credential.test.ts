@@ -186,6 +186,21 @@ test("execution requests exclude other tasks, repos, controls, and human consent
   );
 });
 
+test("only an implementation dispatch can escalate its own task", () => {
+  const p = principal(),
+    action = { kind: "task-escalate", taskId: p.taskId };
+  assert.doesNotThrow(() => requireExecutionActionScope(p, action));
+  assert.throws(() => requireExecutionActionScope(p, { ...action, taskId: "task-other" }), {
+    code: "execution_credential_rejected",
+  });
+  assert.throws(() => requireExecutionActionScope({ ...p, role: "reviewer" }, action), {
+    code: "execution_credential_rejected",
+  });
+  assert.throws(() => requireExecutionActionScope({ ...p, role: "read-only", taskId: null }, action), {
+    code: "execution_credential_rejected",
+  });
+});
+
 test("execution credentials resolve GUI spawn through its declared runtime-spawn scope", () => {
   const p = principal(),
     request = (taskId: string) =>

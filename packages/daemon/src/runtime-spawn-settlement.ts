@@ -43,24 +43,40 @@ export async function publishExit(
   code: number | null,
   resumePublishedExit = false,
 ): Promise<void> {
+  if (active.exitSettlement) return active.exitSettlement;
   if (context.exiting.has(active.runtimeSessionId)) return;
-  context.exiting.add(active.runtimeSessionId);
-  disposeActiveRuntimeObservations(active);
-  // Every terminal path — success, failure, cancellation, and the daemon-restart loss
-  // settlement — flows through here, so the run's own temp directory goes with it. A
-  // filesystem refusal (a dying provider can still hold a lock) is recorded below in the
-  // terminal body; the next daemon start's settled-session sweep is the retry.
-  const tempReclaimFailure =
-    context.input.reclaimRuntimeTempDirectory?.(active.instanceId, active.runtimeSessionId) ?? null;
-  if (tempReclaimFailure)
-    console.error(
-      `[runtime-temp] ${active.instanceId}/${active.runtimeSessionId} could not be reclaimed: ${tempReclaimFailure.message}`,
-    );
-  const cancelled = active.cancelRequested,
-    cancelBinding = cancelled && active.cancelBinding ? active.cancelBinding : active.binding,
-    terminalBinding = runtimeSessionBinding(active.binding, active.runtimeSessionId),
-    squadLeaderControl = active.squadId !== null && active.delegatedBy === null;
+  let resolveSettlement!: () => void, rejectSettlement!: (error: unknown) => void;
+  const settlement = new Promise<void>((resolve, reject) => {
+    resolveSettlement = resolve;
+    rejectSettlement = reject;
+  });
+  void settlement.catch(() => undefined);
+  active.exitSettlement = settlement;
+  let settlementFailed = false;
+  const escalationStop = active.cancelRequested && active.cancelOpId?.endsWith(":escalation") === true;
   try {
+    context.exiting.add(active.runtimeSessionId);
+    if (escalationStop) {
+      // The escalation action returns its pending receipt before the CLI child can exit. Yield
+      // that response first, then make terminal settlement own the complete process-tree stop.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      await active.process.terminateTree?.();
+    }
+    disposeActiveRuntimeObservations(active);
+    // Every terminal path — success, failure, cancellation, and the daemon-restart loss
+    // settlement — flows through here, so the run's own temp directory goes with it. A
+    // filesystem refusal (a dying provider can still hold a lock) is recorded below in the
+    // terminal body; the next daemon start's settled-session sweep is the retry.
+    const tempReclaimFailure =
+      context.input.reclaimRuntimeTempDirectory?.(active.instanceId, active.runtimeSessionId) ?? null;
+    if (tempReclaimFailure)
+      console.error(
+        `[runtime-temp] ${active.instanceId}/${active.runtimeSessionId} could not be reclaimed: ${tempReclaimFailure.message}`,
+      );
+    const cancelled = active.cancelRequested && !escalationStop,
+      cancelBinding = cancelled && active.cancelBinding ? active.cancelBinding : active.binding,
+      terminalBinding = runtimeSessionBinding(active.binding, active.runtimeSessionId),
+      squadLeaderControl = active.squadId !== null && active.delegatedBy === null;
     const persistedTerminal = readDispatchStream(context.input.rootDir, active.dispatchId)?.terminalOutcome;
     // A non-failed terminal snapshot follows successful lease settlement and can replay
     // while the replica still shows an earlier liveness. Failed snapshots can include a
@@ -129,7 +145,7 @@ export async function publishExit(
     // One read of the worker's own ruling artifact feeds both the settlement classification and
     // the receipt body: the file is worktree-local at exit time, so settlement must not re-read it
     // from the projection.
-    const ruling = runtimeRulingRequest(context, active);
+    const ruling = await runtimeRulingRequest(context, active);
     let remoteReviewArtifacts: ReviewerReviewArtifacts | null = null;
     if (active.role === "reviewer" && active.task && context.input.remote?.readReviewerArtifacts) {
       try {
@@ -498,19 +514,22 @@ export async function publishExit(
         cancelBinding,
       );
     }
-    context.processes.delete(active.runtimeSessionId);
-    active.process.release?.();
     const completedTask = active.task,
       terminalTask =
         completedTask &&
         [...context.processes.values()].some(
           (candidate) =>
+            candidate !== active &&
             candidate.task?.taskId === completedTask.taskId &&
             candidate.task.executionId === completedTask.executionId &&
             candidate.task.leaseVersion === completedTask.leaseVersion,
         )
           ? null
           : completedTask;
+    if (!escalationStop) {
+      context.processes.delete(active.runtimeSessionId);
+      active.process.release?.();
+    }
     const processGroupPid =
       Number.isSafeInteger(active.process.pid) && active.process.pid > 1 && active.process.pid !== process.pid
         ? active.process.pid
@@ -551,6 +570,11 @@ export async function publishExit(
         if (active.schedule && (error as { readonly retryable?: unknown }).retryable !== false) throw error;
         consumeKnownError(error);
         const settlementCode = runtimeErrorCode(error) || "runtime_settlement_failed";
+        if (
+          escalationStop &&
+          ["runtime_process_group_unproven", "runtime_lease_release_failed"].includes(settlementCode)
+        )
+          throw error;
         // A remote owner rejection is an authorization boundary, not a worker failure. Leave the
         // dispatch unresolved so recovery can re-adopt it under the original owner. Likewise, an
         // unproven process group must stay unknown: publishing a failed outcome would make the
@@ -575,6 +599,10 @@ export async function publishExit(
           resultRef = `artifact:runtime-result/sha256/${sha256}`;
         }
       });
+    if (escalationStop) {
+      context.processes.delete(active.runtimeSessionId);
+      active.process.release?.();
+    }
     const terminalOutcome: DispatchTerminalOutcome = {
       payload: {
         runtimeSessionId: active.runtimeSessionId,
@@ -605,11 +633,21 @@ export async function publishExit(
     await publishTerminalOutcome(context, active, terminalBinding, terminalOutcome);
     context.input.remote?.releaseExecutionCredential?.(active.runtimeSessionId);
   } catch (error) {
-    if (context.processes.get(active.runtimeSessionId) === active) context.processes.delete(active.runtimeSessionId);
-    active.process.release?.();
+    const settlementCode = runtimeErrorCode(error);
+    const stopProofPending =
+      escalationStop &&
+      (settlementCode === "runtime_process_group_unproven" || settlementCode === "runtime_lease_release_failed");
+    if (!stopProofPending) {
+      if (context.processes.get(active.runtimeSessionId) === active) context.processes.delete(active.runtimeSessionId);
+      active.process.release?.();
+    }
+    settlementFailed = true;
+    if (active.exitSettlement === settlement) active.exitSettlement = undefined;
+    rejectSettlement(error);
     throw error;
   } finally {
     context.exiting.delete(active.runtimeSessionId);
+    if (!settlementFailed) resolveSettlement();
   }
 }
 
@@ -738,8 +776,59 @@ function runtimeSessionBinding(binding: ActiveRuntime["binding"], runtimeSession
  * fallback below can only serve an artifact the worker itself published. An edge settles by the
  * same ordinary classification it always had.
  */
-function runtimeRulingRequest(context: RuntimeSpawnerContext, active: ActiveRuntime) {
-  if (!active.task || !context.input.projection) return null;
+async function runtimeRulingRequest(context: RuntimeSpawnerContext, active: ActiveRuntime) {
+  if (!active.task) return null;
+  if (context.input.remote && typeof context.input.remote.taskContext === "function") {
+    // The execution credential writes the escalation at the center. Pull the serving cut before
+    // edge settlement reads the mirrored package, otherwise the edge would archive an ordinary
+    // stop and the center could not distinguish a waiting worker from a failed one.
+    let remoteTask: Awaited<ReturnType<NonNullable<RuntimeSpawnerContext["input"]["remote"]>["taskContext"]>>;
+    try {
+      remoteTask = await context.input.remote.taskContext(
+        active.task.taskId,
+        undefined,
+        active.role === "reviewer" ? { executionId: active.task.executionId } : undefined,
+      );
+    } catch (error) {
+      if (
+        runtimeErrorCode(error) !== "execution_missing" ||
+        active.role === "reviewer" ||
+        active.cancelOpId?.endsWith(":escalation") === true
+      )
+        throw error;
+      // A late ordinary edge callback can outlive the task execution that launched it. It no longer
+      // has an active execution to block, so preserve its ordinary terminal outcome.
+      consumeKnownError(error);
+      return null;
+    }
+    const packagePath = path
+      .relative(context.input.rootDir, remoteTask.packageRoot)
+      .replaceAll(path.sep, "/")
+      .replace(/^harness\//u, "");
+    // A freshly written ruling lives in the worker worktree until the next mirror pull. Check that
+    // serving cwd first, then the mirrored package and finally the canonical root fallback.
+    return (
+      readDispatchRulingFromWorker({
+        cwd: active.cwd,
+        rootDir: context.input.rootDir,
+        packagePath,
+        dispatchId: active.dispatchId,
+      }) ??
+      readDispatchRulingFromWorker({
+        cwd: remoteTask.packageRoot,
+        rootDir: context.input.rootDir,
+        packagePath: "",
+        dispatchId: active.dispatchId,
+      }) ??
+      readDispatchRulingFromWorker({
+        cwd: context.input.rootDir,
+        rootDir: context.input.rootDir,
+        packagePath,
+        dispatchId: active.dispatchId,
+      })
+    );
+  }
+  if (!context.input.projection) return null;
   const projection = context.requiredRuntimeProjection(context.input),
     packagePath = projection.read(active.task.taskId).packagePath;
   if (typeof packagePath !== "string") return null;

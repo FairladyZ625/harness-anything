@@ -8,6 +8,7 @@ import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
 import { classifyRuntimeExit } from "../src/runtime-provider-fault.ts";
 import { recordedRuling, recordedStream } from "./fixtures/task-936005e1-ruling.ts";
 import {
+  parseRulingArtifact,
   parseRulingRequest,
   readDispatchRuling,
   readDispatchRulingFromWorker,
@@ -19,7 +20,22 @@ const { question, options, body: rulingBody } = recordedRuling,
   dispatchRecord = recordedStream.find((record) => record.kind === "dispatch")!,
   exitRecord = recordedStream.find((record) => record.kind === "process_exit")!,
   attemptRecord = recordedStream.find((record) => record.kind === "attempt_outcome")!,
-  terminalRecord = recordedStream.find((record) => record.kind === "terminal_outcome")!;
+  terminalRecord = recordedStream.find((record) => record.kind === "terminal_outcome")!,
+  a24RulingBody = [
+    "# Blocking decision：G2 仍需共享关闭接线交接",
+    "",
+    "dispatch_fe494d7c69556ef6228888d7 按本轮允许的“提交交付或报告 blocking decision”选择后者。没有提交新的完整修复，F1 仍成立。",
+    "",
+    "## 当前证据与边界",
+    "",
+    "观察时间 2026-11-01T12:27:14.319737+00:00。已检查当前工作树、任务包 closeout/前序裁决、任务 projection、read-set 及真实关闭源码；沿用本会话已读的五张必选技能和根规范。",
+    "",
+    "- 本轮任务书仍明确排除 daemon-host-open.ts 等共享文件。owner task_96477eb1200576afd890105a29 仍 active。",
+    "",
+    "## 请求裁决与建议",
+    "",
+    "**A（推荐）：CEO 与原 owner 明确交接最小范围。** 将 daemon-host-open.ts 的 close、stream 启动、initial continuation 的收尾 ownership 交给本任务。",
+  ].join("\n");
 
 function active(overrides: Partial<ActiveRuntime> = {}): ActiveRuntime {
   return {
@@ -65,7 +81,7 @@ test("a ruling artifact parses its question and ordered options", () => {
 });
 
 test("only the declared awaiting shape is a ruling; anything else is absent", () => {
-  // A prose report is not a machine-readable ask: the mission's channel is this frontmatter.
+  // A prose report is not a machine-readable ask; legacy frontmatter remains supported.
   assert.equal(parseRulingRequest("## Checkpoint\n\nI need a ruling on the GUI acceptance question.", "x"), null);
   assert.equal(parseRulingRequest("---\nruling: done\nquestion: q\n---\n", "x"), null);
   assert.equal(
@@ -78,6 +94,44 @@ test("only the declared awaiting shape is a ruling; anything else is absent", ()
     [],
     "options are optional: a yes/no ruling writes none",
   );
+});
+
+test("an a24-shaped ruling file is detected as malformed instead of disappearing as an absent ask", () => {
+  assert.deepEqual(
+    parseRulingArtifact(a24RulingBody, "tasks/a24/artifacts/rulings/dispatch_d2c417018144246db421e440.md"),
+    {
+      kind: "malformed",
+      path: "tasks/a24/artifacts/rulings/dispatch_d2c417018144246db421e440.md",
+      reason: "missing ruling frontmatter",
+    },
+  );
+  assert.deepEqual(parseRulingArtifact(rulingBody, "tasks/t/artifacts/rulings/dispatch_x.md"), {
+    kind: "valid",
+    question,
+    options,
+    path: "tasks/t/artifacts/rulings/dispatch_x.md",
+  });
+  assert.deepEqual(parseRulingArtifact("", "x"), { kind: "malformed", path: "x", reason: "ruling artifact is empty" });
+});
+
+test("a present malformed ruling is an awaiting-owner stop with a visible file reason", () => {
+  const parsed = parseRulingArtifact(a24RulingBody, "tasks/a24/artifacts/rulings/dispatch_d2c417018144246db421e440.md"),
+    malformed =
+      parsed?.kind === "malformed"
+        ? {
+            question: `Ruling artifact is not machine-readable: ${parsed.reason}`,
+            options: [],
+            path: parsed.path,
+            malformedReason: parsed.reason,
+          }
+        : null,
+    stopped = classifyRuntimeExit(active(), 2, malformed);
+  assert.equal(stopped.classification, "awaiting_ruling");
+  assert.equal(stopped.outcome, "stopped");
+  assert.match(stopped.reason, /not machine-readable/u);
+  assert.equal(malformed?.path, "tasks/a24/artifacts/rulings/dispatch_d2c417018144246db421e440.md");
+  assert.match(rulingReceiptText(malformed!), /missing ruling frontmatter/u);
+  assert.ok(rulingReceiptText(malformed!).includes("artifacts/rulings/dispatch_d2c417018144246db421e440.md"));
 });
 
 test("the ruling path is keyed by dispatch id so two dispatches never overwrite each other", () => {
@@ -142,6 +196,17 @@ test("the worker's own filesystem is the read path: a worktree-local artifact is
       })?.question,
       question,
     );
+    // The remote edge reader receives an absolute packageRoot and must also support the package
+    // itself as cwd, where the logical path is simply artifacts/rulings/<dispatch>.md.
+    assert.equal(
+      readDispatchRulingFromWorker({
+        cwd: path.join(cwd, "harness", ...packagePath.split("/")),
+        rootDir: root,
+        packagePath: "",
+        dispatchId: String(dispatchRecord.dispatchId),
+      })?.path,
+      runtimeRulingPath(String(dispatchRecord.dispatchId)),
+    );
     // No artifact anywhere: the ordinary classification survives.
     assert.equal(
       readDispatchRulingFromWorker({ cwd, rootDir: root, packagePath, dispatchId: "dispatch_absent" }),
@@ -166,7 +231,7 @@ test("a ruling settles stopped/awaiting_ruling instead of gate_red, and carries 
   assert.equal(awaiting.provider.kind, "codex");
 });
 
-test("the receipt text carries the question, every option in order, and the resume path", () => {
+test("the receipt text carries the question, every option in order, and the resolution command", () => {
   const text = rulingReceiptText({
     question,
     options,
@@ -177,7 +242,7 @@ test("the receipt text carries the question, every option in order, and the resu
   assert.match(text, /^ {2}1\. 保留 GUI 验收（推荐）$/mu);
   assert.match(text, /^ {2}2\. low 档不要求 GUI 验收$/mu);
   assert.match(text, /Ruling artifact: tasks\/t\/artifacts\/rulings\/dispatch_25716c64031a31cc45f5e1d1\.md/u);
-  assert.match(text, /--resume-dispatch <dispatch-id>/u);
+  assert.match(text, /ha task escalation resolve <task-id> --dispatch-id <dispatch-id>/u);
   // A yes/no ask writes no options block at all rather than an empty heading.
   assert.doesNotMatch(
     rulingReceiptText({ question: "Ship it?", options: [], path: "tasks/t/artifacts/rulings/d.md" }),
@@ -185,8 +250,33 @@ test("the receipt text carries the question, every option in order, and the resu
   );
 });
 
-test("a cancellation still outranks a written ruling: the operator stopped the run", () => {
-  const cancelled = classifyRuntimeExit(active({ cancelRequested: true }), 2, { question, options });
+test("a cancellation after escalation preserves the owner-ruling classification", () => {
+  const cancelled = classifyRuntimeExit(
+    active({ cancelRequested: true, cancelOpId: "runtime-cancel-test:escalation" }),
+    2,
+    { question, options },
+  );
+  assert.equal(cancelled.classification, "awaiting_ruling");
+  assert.equal(cancelled.outcome, "stopped");
+});
+
+test("an ordinary owner cancellation remains a worker stop even when a ruling file exists", () => {
+  const cancelled = classifyRuntimeExit(active({ cancelRequested: true, cancelOpId: "runtime-cancel-test" }), 2, {
+    question,
+    options,
+  });
   assert.equal(cancelled.classification, "worker_stop");
   assert.equal(cancelled.outcome, "cancelled");
+});
+
+test("observation and spend-cap stops keep their terminal semantics when a ruling file is present", () => {
+  const observed = classifyRuntimeExit(active({ observationError: new Error("reader lost") }), 2, {
+      question,
+      options,
+    }),
+    capped = classifyRuntimeExit(active({ spendCapExceeded: true }), 2, { question, options });
+  assert.equal(observed.classification, "worker_stop");
+  assert.equal(observed.outcome, "failed");
+  assert.equal(capped.classification, "worker_stop");
+  assert.equal(capped.outcome, "failed");
 });

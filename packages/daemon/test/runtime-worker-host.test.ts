@@ -1074,6 +1074,35 @@ test("a turn that wrote the ruling artifact is a real stop", { timeout: 20_000 }
   }
 });
 
+test("a task escalation command is a real stop", { timeout: 20_000 }, async () => {
+  const read = await driveCodexWorker(
+    "escalation-command",
+    () => [
+      codexToolCompleted,
+      {
+        type: "item.completed",
+        item: {
+          id: "escalate",
+          type: "command_execution",
+          command:
+            'ha task escalate task_074ecb459989ae394b77c7cf70 --question "May I change the shared host?" --option "Keep scope"',
+          status: "completed",
+          exit_code: 0,
+        },
+      },
+      codexAgentMessage("message-1", "已提交业主裁决请求。"),
+      { type: "turn.completed", usage: { input_tokens: 1000, output_tokens: 100 } },
+    ],
+    { taskId: "task_074ecb459989ae394b77c7cf70" },
+  );
+  try {
+    assert.equal(read.invocations.length, 1);
+    assert.equal(read.records.filter((record) => record.kind === "turn_continued").length, 0);
+  } finally {
+    read.cleanup();
+  }
+});
+
 test("a squad or taskless turn delivers without a settle action and is not resumed", { timeout: 20_000 }, async () => {
   const narration = () => [
     codexToolCompleted,

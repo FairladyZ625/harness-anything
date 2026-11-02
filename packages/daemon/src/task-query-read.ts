@@ -628,15 +628,26 @@ export function makeTaskQueryReadModel(input: {
           const packagePath = row.packagePath;
           if (typeof packagePath === "string")
             for (const { path } of projection.readDocuments(`${packagePath}/artifacts/rulings/`).documents) {
-              if (!path.endsWith(".md")) continue;
+              if (!path.endsWith(".md") || path.endsWith(".resolution.md")) continue;
               const dispatchId = path.slice(path.lastIndexOf("/") + 1, -".md".length),
+                resolved = readDispatchRuling(
+                  (relative) => projection.readDocument(relative).document?.body ?? null,
+                  packagePath,
+                  `${dispatchId}.resolution`,
+                ),
                 ruling = readDispatchRuling(
                   (relative) => (relative === path ? (projection.readDocument(relative).document?.body ?? null) : null),
                   packagePath,
                   dispatchId,
                 ),
                 dispatch = ruling === null ? null : (projection.readRuntimeDispatchById(dispatchId)?.event ?? null);
-              if (ruling === null || dispatch === null || !dispatch.payload.executionId || isResumed(dispatch))
+              if (
+                resolved !== null ||
+                ruling === null ||
+                dispatch === null ||
+                !dispatch.payload.executionId ||
+                isResumed(dispatch)
+              )
                 continue;
               rows.set(dispatchId, {
                 taskId: row.taskId,

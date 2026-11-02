@@ -325,6 +325,8 @@ test("all thirteen bundled packages resolve through one valid catalog", async ()
         /queued checks remain pending|keep waiting for a verdict|检查仍在等待时继续等|排队的检查/u,
         `${locale}:no-ci-wait-loop`,
       );
+      assert.match(workerFlow, /ha task escalate <task-id>/u, `${locale}:worker-escalation-command`);
+      assert.match(workerFlow, /Repeat `--option`|每个选项重复一次 `--option`/u, `${locale}:repeatable-options`);
     }
     for (const presetId of ["subtask-expansion"]) {
       const result = await resolver.resolve({ ...common, presetId });
