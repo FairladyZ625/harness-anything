@@ -37,7 +37,7 @@ import { remoteDefaultBranch, repositoryBaseRef } from "./schedule-occurrence-wo
 import { readDispatchStreamHeader } from "./dispatch-stream.ts";
 import { readTaskLineageDispatches, unsettledCutReviewDispatches } from "./dispatch-read.ts";
 import { reviewDispatchKey } from "./review-dispatch-key.ts";
-import { presetSnapshotReader, taskWorktreeBinding } from "./task-worktree.ts";
+import { presetSnapshotReader, taskWorktreeBinding, taskOutputShape } from "./task-worktree.ts";
 import type { PublicPublication, RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { leaseTtlMs } from "./repo-cell-types.ts";
 import { reviewActorsIndependent } from "./decision-review-authorization.ts";
@@ -57,13 +57,18 @@ const COMPLETE_VALIDATION_CRITERION = "task-lifecycle-review-transitions/complet
  * the default branch at one commit, and that fork is the comparison cut: freezing it keeps the
  * baseline an ancestor of every delivery the branch can produce, however far main advances between
  * rework rounds. A task with no readable branch here (no worktree yet, an artifact task, another
- * node's checkout) observes the project HEAD instead. Only an unborn repository (no commit on
- * any ref) may freeze `empty-tree`; a repository whose baseline cannot be read fails closed rather
+ * node's checkout) observes the project HEAD instead. An artifact-only task outside Git has no code
+ * comparison point and freezes `empty-tree`, as does an unborn repository. A repository whose baseline cannot be read fails closed rather
  * than guessing from the default branch or a moving `HEAD`.
  */
-export function observeDeliveryBaseline(rootDir: string, deliveryBranch?: string): ExecutionDeliveryBaseline {
+export function observeDeliveryBaseline(
+  rootDir: string,
+  deliveryBranch?: string,
+  outputShape?: string | null,
+): ExecutionDeliveryBaseline {
   const git = makeGitReadinessSource(),
     top = git.run(rootDir, ["rev-parse", "--show-toplevel"]);
+  if ((!top.ok || !top.stdout) && outputShape === "task-package-artifact") return { kind: "empty-tree" };
   if (!top.ok || !top.stdout)
     throw cellCriterionError(
       "invalid_proof",
@@ -189,6 +194,7 @@ export async function proofFor(
             observeDeliveryBaseline(
               rootDir,
               taskWorktreeBinding(snapshot.task, presetSnapshotReader(projection))?.branch,
+              taskOutputShape(snapshot.task, presetSnapshotReader(projection)),
             )),
       reservation: {
         taskId: command.taskId,

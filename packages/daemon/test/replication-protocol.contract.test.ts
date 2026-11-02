@@ -76,6 +76,7 @@ test("backup frames carry whole-package identity and reject damaged members", ()
     { ...backup, size: -1 },
     { ...backup, size: 1.5 },
     { ...backup, metadata: { ...metadata, schema: "fleet-basebackup/v1" } },
+    { ...backup, metadata: { ...metadata, schema: "fleet-basebackup/v2" } },
     { ...backup, metadata: { ...metadata, position: { history: "h", sequence: 9 } } },
     { ...backup, metadata: { ...metadata, position: { history: "h", sequence: 9, revision: 7, extra: 1 } } },
     { ...backup, metadata: { ...metadata, readerProfile: { personId: "", nodeId: "node" } } },

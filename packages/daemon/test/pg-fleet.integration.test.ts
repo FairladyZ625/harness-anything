@@ -42,8 +42,26 @@ for (const gitFollower of [undefined, { branch: "main" }])
         const workspaceRoot = path.join(fixture.root, `${nodeId}-workspace`),
           viewRoot = path.join(fixture.root, `${nodeId}-views`),
           viewDir = path.join(viewRoot, "repos", replicationRepoId, "views", nodeId),
-          controller = new AbortController(),
-          running = runFleetReplicaSync({
+          controller = new AbortController();
+        if (!existsSync(path.join(viewDir, "current.json"))) {
+          mkdirSync(viewDir, { recursive: true });
+          writeFileSync(
+            path.join(viewDir, "current.json"),
+            JSON.stringify({
+              id: "old-v2",
+              metadata: {
+                schema: "fleet-basebackup/v2",
+                repoId: replicationRepoId,
+                position: { history: "old-history", sequence: 1, revision: 1 },
+                ledgerGeneration: 3,
+                projectionSchema: 38,
+                readerProfile: { personId: "person-owner", nodeId },
+              },
+            }),
+          );
+          assert.equal(readReplicaGeneration(viewDir), null, "a frozen v2 cache is refused before resnapshot");
+        }
+        const running = runFleetReplicaSync({
             hostname: "127.0.0.1",
             port: fixture.centerPort(),
             ca: fixture.cert,
@@ -124,8 +142,17 @@ for (const gitFollower of [undefined, { branch: "main" }])
 
         await one.stop();
         const note = Buffer.from("# PG outage catchup\n\nAn edge authored this while the other node was offline.\n"),
-          submitted = await fixture.edgeDocSubmit("edge-two", "harness/notes/pg.md", note);
+          submitted = await fixture.edgeDocSubmit("edge-two", "notes/pg.md", note);
         assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+        const documents = fixture.centerReader();
+        try {
+          assert.equal(
+            documents.withSession((queries) => queries.readDocument("notes/pg.md")).document?.body,
+            note.toString(),
+          );
+        } finally {
+          documents.close();
+        }
         const restarted = start("edge-one");
         await converge(restarted);
         await waitForState(
