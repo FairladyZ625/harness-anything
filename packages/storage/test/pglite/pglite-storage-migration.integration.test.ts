@@ -11,6 +11,7 @@ import { startManagedPostgresFixture } from "../postgres/managed-postgres.fixtur
 import { ensurePgProjectionSchema } from "../../src/pg/pg-projection-schema.ts";
 import { POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS } from "../../src/postgres/event-ledger-schema.ts";
 import { withPostgresTransaction } from "../../src/postgres/transaction.ts";
+import { createPgStorageBackend } from "../../src/pg/backend.ts";
 import { bundle, docBundle, eventAt } from "../store/task-event-store.fixtures.ts";
 import { pgliteIntegrationSuite } from "./pglite-runtime.fixture.ts";
 import { test } from "node:test";
@@ -72,6 +73,14 @@ pgliteIntegrationSuite("PGlite/PostgreSQL cold storage migration", () => {
         backend: "pglite",
         identity: "source",
       });
+      await assert.rejects(
+        createPgStorageBackend({
+          pool: a.pool,
+          repoId,
+          scope: { ...scope, tenantId: "unseen-after-reopen" },
+        }).eventStore.append(bundle(eventAt(1)), 0, { repoId, holderId: "late", epoch: 100 }),
+        /storage_migration_read_only/,
+      );
       await migrateStorage({ ...forwardInput, source: reopenedSource, mode: "resume" });
       assert.equal(before[0]!.blobs.length, 1);
       assert.deepEqual(await pg.export("pglite-pg"), before);

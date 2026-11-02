@@ -43,13 +43,19 @@ export async function openPgMigrationEndpoint(input: {
     ).rows[0]!.identity,
     key = [scope.tenantId, scope.projectId, repoId],
     transact = <T>(f: (client: PoolClient) => Promise<T>) => withPostgresTransaction(pool, f, scope),
+    authority = async (client: PoolClient, lock = false) =>
+      (
+        await client.query<{
+          migration_control: StorageMigrationRecord | null;
+          activation_markers: Record<string, unknown>;
+          writer_epoch: string;
+        }>(`SELECT * FROM ha_repo_writer_epochs WHERE repo_id=$1${lock ? " FOR UPDATE" : ""}`, [repoId])
+      ).rows[0],
     head = async (client: PoolClient, lock = false) =>
       (
         await client.query<{
           tenant_id: string;
           project_id: string;
-          migration_control: StorageMigrationRecord | null;
-          activation_markers: Record<string, unknown>;
           writer_epoch: string;
           revision: string;
           head_op_id: string;
@@ -226,29 +232,35 @@ export async function openPgMigrationEndpoint(input: {
   return {
     id: `${backend}:${input.identity ?? identity}:${repoId}`,
     backend,
-    state: () =>
-      transact(async (client) => {
-        const rows = await head(client),
-          state = rows[0]?.migration_control ?? null;
-        for (const row of rows) assertMigrationValue(row.migration_control, state, "scope migration states disagree");
-        return state;
-      }),
-    marker: (runId) =>
-      transact(async (client) => (await head(client)).some((row) => Boolean(row.activation_markers[runId]))),
+    state: () => transact(async (client) => (await authority(client))?.migration_control ?? null),
+    marker: (runId) => transact(async (client) => Boolean((await authority(client))?.activation_markers[runId])),
     epoch: () =>
-      transact(async (client) => Math.max(0, ...(await head(client)).map((row) => Number(row.writer_epoch)))),
+      transact(async (client) =>
+        Math.max(
+          Number((await authority(client))?.writer_epoch ?? 0),
+          ...(await head(client)).map((row) => Number(row.writer_epoch)),
+        ),
+      ),
     export: exportTuples,
     change: (expected, next, activate) =>
       transact(async (client) => {
         await client.query("SET LOCAL synchronous_commit=on");
+        await client.query("INSERT INTO ha_repo_writer_epochs(repo_id) VALUES($1) ON CONFLICT DO NOTHING", [repoId]);
+        const control = (await authority(client, true))!;
+        assertMigrationValue(
+          control.migration_control,
+          expected,
+          "PostgreSQL repository authority changed concurrently",
+        );
         await client.query(
           "INSERT INTO ha_repo_heads(tenant_id,project_id,repo_id,readers,policy_epoch) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING",
           [...key, scope.readers, scope.policyEpoch],
         );
         const rows = await head(client, true);
-        for (const row of rows)
-          assertMigrationValue(row.migration_control, expected, "PostgreSQL migration state changed concurrently");
-        if (["freezing", "prepared"].includes(next.phase) && rows.some((row) => next.epoch <= Number(row.writer_epoch)))
+        if (
+          ["freezing", "prepared"].includes(next.phase) &&
+          next.epoch <= Math.max(Number(control.writer_epoch), ...rows.map((row) => Number(row.writer_epoch)))
+        )
           throw new StorageMigrationError("storage_migration_conflict", "writer epoch advanced before takeover");
         if (next.role === "target" && next.phase === "prepared") {
           if (
@@ -278,9 +290,14 @@ export async function openPgMigrationEndpoint(input: {
           );
         }
         await client.query(
-          "UPDATE ha_repo_heads SET migration_control=$2::jsonb,writer_epoch=$3,writer_holder_id=$4,activation_markers=CASE WHEN $5 THEN activation_markers || jsonb_build_object($6::text,$2::jsonb) ELSE activation_markers END WHERE repo_id=$1",
+          "UPDATE ha_repo_writer_epochs SET migration_control=$2::jsonb,writer_epoch=$3,writer_holder_id=$4,activation_markers=CASE WHEN $5 THEN activation_markers || jsonb_build_object($6::text,$2::jsonb) ELSE activation_markers END WHERE repo_id=$1",
           [repoId, JSON.stringify(next), next.epoch, `migration:${next.runId}`, !!activate, next.runId],
         );
+        await client.query("UPDATE ha_repo_heads SET writer_epoch=$2,writer_holder_id=$3 WHERE repo_id=$1", [
+          repoId,
+          next.epoch,
+          `migration:${next.runId}`,
+        ]);
       }),
     import: async (manifest) => {
       validateStorageManifest(manifest);
@@ -288,7 +305,7 @@ export async function openPgMigrationEndpoint(input: {
         await withPostgresTransaction(
           pool,
           async (client) => {
-            const current = (await head(client, true))[0]?.migration_control;
+            const current = (await authority(client, true))?.migration_control;
             if (
               current?.runId !== manifest.runId ||
               current.role !== "target" ||

@@ -40,6 +40,11 @@ test("real PG: session_user grant prevents claims/run-id spoofing and grants exp
     try {
       const role = (await grant.pool.query("SELECT session_user,current_user")).rows[0];
       assert.equal(role.session_user, grant.role);
+      await assert.rejects(grant.pool.query("SELECT * FROM ha_repo_writer_epochs"), { code: "42501" });
+      await assert.rejects(grant.pool.query("UPDATE ha_repo_writer_epochs SET migration_control=NULL"), {
+        code: "42501",
+      });
+      await assert.rejects(grant.pool.query("SELECT public.ha_inherit_repo_writer_epoch()"), { code: "42501" });
       await withPostgresTransaction(grant.pool, async (client) => {
         await client.query(
           "SELECT set_config('ha.tenant_id','tenant-b',true),set_config('ha.project_id','project-a',true),set_config('ha.policy_epoch','0',true),set_config('ha.run_id','forged-run',true)",

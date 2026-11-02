@@ -25,7 +25,6 @@ export const POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS: readonly string[] = Object
     writer_epoch bigint NOT NULL DEFAULT 0 CHECK (writer_epoch >= 0),
     ${scopeColumns()},
     migration_control jsonb,
-    activation_markers jsonb NOT NULL DEFAULT '{}'::jsonb,
     updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     PRIMARY KEY (tenant_id, project_id, repo_id),
     CHECK ((revision = 0 AND head_op_id IS NULL AND head_event_digest IS NULL AND head_digest IS NULL)

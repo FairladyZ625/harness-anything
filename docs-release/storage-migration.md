@@ -42,6 +42,10 @@ PostgreSQL export uses a temporary read-only login with no role memberships or B
 
 The durable order is `prepared` → `source_sealed` → target activation marker. Marker persistence transfers authority. Source and target refuse ordinary append while frozen or prepared, including append with a higher epoch. After the marker the old source stays read-only. The command never edits production configuration; after a successful receipt, the operator selects the activated backend and starts a writer with a fresh epoch. Production cutover still requires the operator's authorization.
 
+For PostgreSQL and PGlite, this fence covers the entire repository, including tenant/project tuples that do not yet exist. A management-owned `ha_repo_writer_epochs` row holds the repository epoch, migration state and activation markers. Every ordinary append or rejection locks that row before its scoped head; migration locks the same row before comparing cuts and committing a state transition. Scoped heads inherit its state and epoch floor. A tuple committed before takeover must appear in the frozen cut; a concurrent change makes takeover fail so the operator can rerun preflight. After activation, new tuples are accepted only by the current authority with a fresh writer epoch.
+
+Runtime and export logins receive no privileges on this management table or its trigger function. The schema owner installs the trigger with a fixed search path; it only copies the repository fence into the caller's scoped head. Existing event, blob and projection RLS policies still apply.
+
 A destination uses a new replication history. Existing edge cursors must perform a full snapshot rebuild; do not copy old replication positions or acknowledgements to the destination.
 
 ## Recovery
