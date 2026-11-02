@@ -111,6 +111,10 @@ test(
   { timeout: 180_000 },
   async (t) => {
     let phase = "create production center and edge fixtures";
+    const monitor = (error: Error, origin: string) =>
+      console.error(`[node-auto-claim integration uncaught during ${phase}; origin=${origin}]`, error);
+    process.on("uncaughtExceptionMonitor", monitor);
+    t.after(() => process.off("uncaughtExceptionMonitor", monitor));
     try {
       const installation: RuntimeInstallationWitness = {
           installationId: "auto-claim-codex-installation",
