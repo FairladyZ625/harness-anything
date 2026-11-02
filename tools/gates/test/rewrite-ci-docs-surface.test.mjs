@@ -33,10 +33,12 @@ test("a failed change detector never turns a lane green: skips need an explicit 
   // then skip every lane and report the PR green without running anything.
   assert.doesNotMatch(workflow, /needs\.install\.outputs\.(?:code|gui) [!=]= 'true'/u);
   const narrowing = [...workflow.matchAll(/needs\.install\.outputs\.code == 'false'/gu)];
-  assert.equal(narrowing.length, 1, "only the boundaries documentation step may run on code == 'false'");
+  assert.equal(narrowing.length, 1, "only the boundaries documentation narrowing may read code == 'false'");
+  const boundaries = jobs.get("boundaries") ?? "";
+  assert.match(boundaries, /DOCS_ONLY_BASE: \$\{\{ needs\.install\.outputs\.code == 'false' && .+ \|\| '' \}\}/u);
   assert.match(
-    jobs.get("boundaries") ?? "",
-    /if: needs\.install\.outputs\.code == 'false'\n\s+run: node tools\/run-manifest-gates\.mjs --workflow-job boundaries --changed /u,
+    boundaries,
+    /run: node tools\/run-manifest-gates\.mjs --workflow-job boundaries \$\{DOCS_ONLY_BASE:\+--changed "\$DOCS_ONLY_BASE"\}/u,
   );
 });
 

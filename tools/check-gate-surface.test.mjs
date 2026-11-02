@@ -23,19 +23,9 @@ test("rewrite CI runs the integration tier on every PR and scopes baseline retir
   // one step and one exclusion. Both facts are asserted exactly, not by membership:
   // re-excluding a gate, or re-splitting the job by base branch so a gate can be
   // satisfied by a lane no pull request travels, has to be a deliberate edit here.
-  // The one second invocation allowed is a documentation-only change narrowed by the manifest's own
-  // localPathGlobs (`--changed`, owner request 2026-11-02); it splits by changed surface, never by base.
-  const boundaryCommands = [
-    ...workflow.matchAll(/--workflow-job boundaries(?:\s+--exclude\s+(\S+))?(\s+--changed\s)?/gu),
-  ];
-  assert.equal(boundaryCommands.length, 2, "boundaries must run one gate set for every base branch");
-  assert.deepEqual(
-    boundaryCommands.map((match) => [match[1], match[2] !== undefined]),
-    [
-      [undefined, false],
-      [undefined, true],
-    ],
-  );
+  const boundaryCommands = [...workflow.matchAll(/--workflow-job boundaries(?:\s+--exclude\s+(\S+))?/gu)];
+  assert.equal(boundaryCommands.length, 1, "boundaries must run one gate set for every base branch");
+  assert.equal(boundaryCommands[0][1], undefined);
 
   for (const job of [
     "typecheck",

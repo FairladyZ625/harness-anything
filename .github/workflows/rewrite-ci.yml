@@ -374,17 +374,15 @@ jobs:
           name: node-modules-${{ hashFiles('package-lock.json') }}
           path: ${{ runner.temp }}
       - run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
+      # A documentation-only change narrows this one invocation to the boundary gates whose manifest
+      # localPathGlobs match a changed path (private boundary, docs-release map, runtime release
+      # readiness, ...): the selector `npm run check:static -- --changed` uses, not a second list.
+      # DOCS_ONLY_BASE is empty unless install reported code == 'false', so a failed detector runs all.
       - name: Run boundary gates
-        if: needs.install.outputs.code != 'false'
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: node tools/run-manifest-gates.mjs --workflow-job boundaries
-      # A documentation-only change runs the boundary gates whose manifest localPathGlobs match a
-      # changed path (private boundary, docs-release map, runtime release readiness, ...): the same
-      # selector `npm run check:static -- --changed` uses, not a second list.
-      - name: Run the boundary gates that read the changed documents
-        if: needs.install.outputs.code == 'false'
-        run: node tools/run-manifest-gates.mjs --workflow-job boundaries --changed ${{ github.event.pull_request.base.sha || github.event.before }}
+          DOCS_ONLY_BASE: ${{ needs.install.outputs.code == 'false' && (github.event.pull_request.base.sha || github.event.before) || '' }}
+        run: node tools/run-manifest-gates.mjs --workflow-job boundaries ${DOCS_ONLY_BASE:+--changed "$DOCS_ONLY_BASE"}
 
   # dec_F5B2CBF8B45042B6DA2824A7FA/CH3: this lane is nightly-only now. Neither of its two
   # advisory gates ever blocked a PR (the job is continue-on-error and not a required context):
