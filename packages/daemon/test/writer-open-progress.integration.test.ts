@@ -41,7 +41,8 @@ test("cold writer open publishes committed cuts before a large projection batch 
     await store.drain();
     rmSync(path.join(rootDir, ".harness/cache"), { recursive: true, force: true });
     for (const cold of [true, false]) {
-      const cuts: number[] = [],
+      const phases: string[] = [],
+        cuts: number[] = [],
         recoveryProgress: number[] = [];
       const cell = await openRepoWriterCell(
         {
@@ -49,6 +50,7 @@ test("cold writer open publishes committed cuts before a large projection batch 
           rootDir: canonicalRoot(rootDir),
           ownerId: "writer-open-test",
           onOpenProgress(progress) {
+            phases.push(progress.phase);
             if (progress.phase === "recovering" && progress.applied !== null) recoveryProgress.push(progress.applied);
             if (progress.phase === "catching-up") {
               assert.equal(progress.total, 513);
@@ -67,7 +69,11 @@ test("cold writer open publishes committed cuts before a large projection batch 
           assert.equal(cuts.at(-1), 513);
           assert.ok(cuts.length > 3);
           assert.ok(cuts.every((watermark, index) => index === 0 || watermark > cuts[index - 1]!));
-        } else assert.deepEqual(cuts, []);
+          assert.deepEqual([...new Set(phases)], ["recovering", "catching-up", "restoring-runtimes"]);
+        } else {
+          assert.deepEqual(cuts, []);
+          assert.deepEqual([...new Set(phases)], ["recovering", "restoring-runtimes"]);
+        }
       } finally {
         await cell.close();
       }

@@ -271,7 +271,7 @@ if(args[0]==="-C" && args[1]===${JSON.stringify(path.join(rootDir, "runtime-head
         statuses.length = 0;
         cell = await openRepoCell(input);
         assert.equal(
-          statuses.some((status) => status.attach?.phase === "restoring-runtimes"),
+          statuses.some((status) => status.attach?.phase === "restoring-runtimes" && (status.attach.applied ?? 0) > 0),
           false,
           "terminal sessions do not settle twice",
         );
