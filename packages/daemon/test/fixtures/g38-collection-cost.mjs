@@ -4,6 +4,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { durableActionKinds, getExecutableEntityAction } from "@harness-anything/kernel";
 import { DECISION_PROBES, measureDecisionCollection } from "./g38-decision-cost.mjs";
+import { measureTaskReviewResponses } from "./g38-lifecycle-cost.mjs";
 
 export const COLLECTION_SCALES = Object.freeze({ small: 100, large: 2000 });
 
@@ -190,6 +191,81 @@ export async function measureRelations(rootDir, size) {
     });
   assert.equal(witness, null);
   assert.ok(counts.rowsExamined >= size, "admission must visit all related edges");
+  return { size, counts };
+}
+
+export async function measureEntityPins(rootDir, size, actionKind) {
+  const { runEntityPinAction } = await load(rootDir, "packages/daemon/src/entity-pin-action.ts"),
+    entityRef = "task/task_cost",
+    counts = { pinsExamined: 0, appendedEvents: 0 },
+    rows = Array.from({ length: size }, (_, index) => ({
+      entityRef: actionKind === "entity-unpin" && index === size - 1 ? entityRef : `task/task_pin_${index}`,
+    })),
+    actor = { principal: { personId: "pin-cost" }, executor: null },
+    revision = 7000,
+    cell = {
+      input: { repoId: "g38-pin" },
+      projection: {
+        readEntityVersionWitness: () => ({ currentVersion: 1 }),
+        listPinnedEntities: () =>
+          counted(rows, () => {
+            counts.pinsExamined += 1;
+          }),
+        apply() {},
+        readOperation: () => ({ watermark: revision + 1 }),
+      },
+      store: {
+        readHead: () => ({ revision }),
+        append(bundle) {
+          counts.appendedEvents += 1;
+          return { revision: bundle.event.workspaceRevision };
+        },
+      },
+      settings: { readRepository: () => ({ agenda: { pinLimit: size + 1 } }) },
+      operationId: () => `pin-${actionKind}`,
+      cellCodedError: (code, message) => Object.assign(new Error(message), { code }),
+      publicPublication: () => ({}),
+      now: () => "2026-11-02T00:00:00.000Z",
+    },
+    result = runEntityPinAction(cell, { kind: actionKind, entityRef }, { actor, source: "local" });
+  assert.equal(result.outcome, "applied", JSON.stringify(result));
+  assert.equal(counts.appendedEvents, 1);
+  assert.ok(counts.pinsExamined >= size, "pin write must scan the existing pin collection");
+  return { size, counts };
+}
+
+export async function measureTaskReviewDispatchBatch(rootDir, size) {
+  const { dispatchTaskReview } = await load(rootDir, "packages/daemon/src/task-review-dispatch.ts"),
+    ids = Array.from({ length: size }, (_, index) => `task_review_${index}`),
+    counts = { taskIdsRead: 0, taskProjectionsRead: 0, dispatchSteps: 0 },
+    taskIds = new Proxy(ids, {
+      get(target, property, receiver) {
+        if (typeof property === "string" && /^(0|[1-9]\d*)$/u.test(property)) counts.taskIdsRead += 1;
+        return Reflect.get(target, property, receiver);
+      },
+    }),
+    cell = {
+      cellCodedError: (code, message) => Object.assign(new Error(message), { code }),
+      operationId: () => "g38-review-dispatch",
+      input: { repoId: "g38-review-dispatch" },
+      store: { readHead: () => ({ revision: 1 }) },
+      projection: {
+        read(taskId) {
+          counts.taskProjectionsRead += 1;
+          return {
+            watermark: 1,
+            sourceRevision: 1,
+            packagePath: `tasks/${taskId}`,
+            snapshot: { task: { status: "submitted", reviewer: "closeout-reviewer" }, executions: [] },
+          };
+        },
+      },
+    },
+    result = await dispatchTaskReview(cell, { kind: "task-dispatch-review", taskIds }, {});
+  counts.dispatchSteps = result.dispatches.length;
+  assert.equal(result.dispatches.length, size);
+  assert.equal(counts.taskProjectionsRead, size);
+  assert.equal(counts.dispatchSteps, size);
   return { size, counts };
 }
 
@@ -397,6 +473,26 @@ export async function measureCollectionCosts(rootDir, scales = COLLECTION_SCALES
 
 export const COLLECTION_PROBES = Object.freeze({
   ...DECISION_PROBES,
+  "entity-pin:agenda-pins": {
+    action: "entity-pin",
+    dimension: "agenda-pins",
+    run: (root, n) => measureEntityPins(root, n, "entity-pin"),
+  },
+  "entity-unpin:agenda-pins": {
+    action: "entity-unpin",
+    dimension: "agenda-pins",
+    run: (root, n) => measureEntityPins(root, n, "entity-unpin"),
+  },
+  "task-respond-review:responses": {
+    action: "task-respond-review",
+    dimension: "review-responses",
+    run: (root, n) => measureTaskReviewResponses(root, n),
+  },
+  "task-dispatch-review:task-ids": {
+    action: "task-dispatch-review",
+    dimension: "task-ids",
+    run: measureTaskReviewDispatchBatch,
+  },
   "decision-respond-review:review-findings": {
     action: "decision-respond-review",
     dimension: "review-findings",

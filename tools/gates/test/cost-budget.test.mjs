@@ -20,8 +20,11 @@ import {
   measureRelations,
   measureAssignmentHistory,
   measureCatalogBatch,
+  measureEntityPins,
+  measureTaskReviewDispatchBatch,
   COLLECTION_PROBES,
 } from "../../../packages/daemon/test/fixtures/g38-collection-cost.mjs";
+import { measureTaskReviewResponses } from "../../../packages/daemon/test/fixtures/g38-lifecycle-cost.mjs";
 import { signReceipt } from "../receipt-verify.mjs";
 import {
   DECISION_PROBES,
@@ -400,6 +403,21 @@ test("task-submit scaling measures the production orchestration and one acceptan
   assert.equal(evaluateCollectionCosts({ submit: measured }).ok, true);
 });
 
+test("task review response probe exposes repeated scans of prior responses", async () => {
+  const measured = {
+      small: await measureTaskReviewResponses(process.cwd(), 100),
+      large: await measureTaskReviewResponses(process.cwd(), 2000),
+    },
+    result = evaluateCollectionCosts({ "task-respond-review:responses": measured });
+  assert.equal(measured.small.counts.priorResponsesExamined, 10000);
+  assert.equal(measured.large.counts.priorResponsesExamined, 4000000);
+  assert.equal(result.ok, false);
+  assert.match(
+    result.errors.join("\n"),
+    /priorResponsesExamined: 10000 at 100 grew to 4000000 at 2000.*exceeding the 22x/u,
+  );
+});
+
 test("coverage includes canonical entity catalog writers without a public permission declaration", async (t) => {
   const rootDir = g1Setup(t),
     measured = g1Measured(
@@ -519,4 +537,22 @@ test("Decision review responses expose nested finding searches in the production
     result = evaluateCollectionCosts({ "decision-respond-review:review-findings": { small, large } });
   assert.equal(result.ok, false);
   assert.match(result.errors.join("\n"), /membersExamined: 5152 at 100 grew to 2003002 at 2000/u);
+});
+
+test("pin and unpin scale with the real repository pin collection", async () => {
+  for (const action of ["entity-pin", "entity-unpin"]) {
+    const measured = {
+      small: await measureEntityPins(process.cwd(), 100, action),
+      large: await measureEntityPins(process.cwd(), 2000, action),
+    };
+    assert.deepEqual(evaluateCollectionCosts({ [action]: measured }).errors, []);
+  }
+});
+
+test("task review dispatch batch scales with the supplied task id collection", async () => {
+  const measured = {
+    small: await measureTaskReviewDispatchBatch(process.cwd(), 100),
+    large: await measureTaskReviewDispatchBatch(process.cwd(), 2000),
+  };
+  assert.deepEqual(evaluateCollectionCosts({ "task-dispatch-review:task-ids": measured }).errors, []);
 });

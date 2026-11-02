@@ -217,109 +217,704 @@
     "actionCoverage": {
       "measured": {
         "task-create": {
-          "measurements": ["task-create:ledger-events", "task-create:work-tasks"]
+          "measurements": [
+            "task-create:ledger-events",
+            "task-create:work-tasks"
+          ]
         },
         "doc-submit": {
-          "measurements": ["doc-submit:ledger-events", "doc-submit:documents", "doc-submit:event-bytes"]
+          "measurements": [
+            "doc-submit:ledger-events",
+            "doc-submit:documents",
+            "doc-submit:event-bytes"
+          ]
         },
         "task-start": {
-          "measurements": ["task-start:ledger-events"]
+          "measurements": [
+            "task-start:ledger-events"
+          ]
         },
         "task-progress-append": {
-          "measurements": ["task-progress-append:ledger-events"]
+          "measurements": [
+            "task-progress-append:ledger-events"
+          ]
         },
         "fact-record": {
-          "measurements": ["fact-record:ledger-events"]
+          "measurements": [
+            "fact-record:ledger-events"
+          ]
         },
         "decision-propose": {
-          "measurements": ["decision-propose:ledger-events", "decision-propose:claims"]
+          "measurements": [
+            "decision-propose:ledger-events",
+            "decision-propose:claims"
+          ]
         },
         "decision-reject": {
-          "measurements": ["decision-reject:ledger-events", "decision-reject:claims"]
+          "measurements": [
+            "decision-reject:ledger-events",
+            "decision-reject:claims"
+          ]
         },
         "relation-relate": {
-          "measurements": ["relation-relate:ledger-events", "relation-relate:owner-relations"]
+          "measurements": [
+            "relation-relate:ledger-events",
+            "relation-relate:owner-relations"
+          ]
         },
         "decision-reckon": {
-          "measurements": ["decision-reckon:ledger-events"]
+          "measurements": [
+            "decision-reckon:ledger-events"
+          ]
         },
         "task-submit": {
-          "measurements": ["task-submit:task-artifacts"]
+          "measurements": [
+            "task-submit:task-artifacts"
+          ]
         },
         "decision-repin": {
-          "measurements": ["decision-repin:decisions", "decision-repin:claims"]
+          "measurements": [
+            "decision-repin:decisions",
+            "decision-repin:claims"
+          ]
         },
         "fact-archive": {
-          "measurements": ["fact-archive:facts"]
+          "measurements": [
+            "fact-archive:facts"
+          ]
         },
         "agent-assign": {
-          "measurements": ["agent-assign:assignment-history"]
+          "measurements": [
+            "agent-assign:assignment-history"
+          ]
         },
         "agent-unassign": {
-          "measurements": ["agent-unassign:assignment-history"]
+          "measurements": [
+            "agent-unassign:assignment-history"
+          ]
         },
         "decision-assign": {
-          "measurements": ["decision-assign:assignment-history"]
+          "measurements": [
+            "decision-assign:assignment-history"
+          ]
         },
         "decision-unassign": {
-          "measurements": ["decision-unassign:assignment-history"]
+          "measurements": [
+            "decision-unassign:assignment-history"
+          ]
         },
         "fact-assign": {
-          "measurements": ["fact-assign:assignment-history"]
+          "measurements": [
+            "fact-assign:assignment-history"
+          ]
         },
         "fact-unassign": {
-          "measurements": ["fact-unassign:assignment-history"]
+          "measurements": [
+            "fact-unassign:assignment-history"
+          ]
         },
         "schedule-assign": {
-          "measurements": ["schedule-assign:assignment-history"]
+          "measurements": [
+            "schedule-assign:assignment-history"
+          ]
         },
         "schedule-unassign": {
-          "measurements": ["schedule-unassign:assignment-history"]
+          "measurements": [
+            "schedule-unassign:assignment-history"
+          ]
         },
         "squad-assign": {
-          "measurements": ["squad-assign:assignment-history"]
+          "measurements": [
+            "squad-assign:assignment-history"
+          ]
         },
         "squad-unassign": {
-          "measurements": ["squad-unassign:assignment-history"]
+          "measurements": [
+            "squad-unassign:assignment-history"
+          ]
         },
         "task-assign": {
-          "measurements": ["task-assign:assignment-history"]
+          "measurements": [
+            "task-assign:assignment-history"
+          ]
         },
         "task-unassign": {
-          "measurements": ["task-unassign:assignment-history"]
+          "measurements": [
+            "task-unassign:assignment-history"
+          ]
         },
         "decision-accept": {
-          "measurements": ["decision-accept:claims"]
+          "measurements": [
+            "decision-accept:claims"
+          ]
         },
         "decision-defer": {
-          "measurements": ["decision-defer:claims"]
+          "measurements": [
+            "decision-defer:claims"
+          ]
         },
         "decision-retire": {
-          "measurements": ["decision-retire:claims"]
+          "measurements": [
+            "decision-retire:claims"
+          ]
         },
         "decision-amend": {
-          "measurements": ["decision-amend:claims"]
+          "measurements": [
+            "decision-amend:claims"
+          ]
         },
         "decision-claim-add": {
-          "measurements": ["decision-claim-add:claims"]
+          "measurements": [
+            "decision-claim-add:claims"
+          ]
         },
         "decision-claim-fulfill": {
-          "measurements": ["decision-claim-fulfill:claims"]
+          "measurements": [
+            "decision-claim-fulfill:claims"
+          ]
         },
         "decision-review": {
-          "measurements": ["decision-review:claims"]
+          "measurements": [
+            "decision-review:claims"
+          ]
         },
         "decision-respond-review": {
-          "measurements": ["decision-respond-review:claims", "decision-respond-review:review-findings"]
+          "measurements": [
+            "decision-respond-review:claims",
+            "decision-respond-review:review-findings"
+          ]
+        },
+        "entity-pin": {
+          "measurements": [
+            "entity-pin:agenda-pins"
+          ]
+        },
+        "entity-unpin": {
+          "measurements": [
+            "entity-unpin:agenda-pins"
+          ]
+        },
+        "task-respond-review": {
+          "measurements": [
+            "task-respond-review:responses"
+          ]
         },
         "decision-override-review": {
-          "measurements": ["decision-override-review:claims"]
+          "measurements": [
+            "decision-override-review:claims"
+          ]
         },
         "decision-transition": {
-          "measurements": ["decision-transition:claims"]
+          "measurements": [
+            "decision-transition:claims"
+          ]
+        },
+        "task-dispatch-review": {
+          "measurements": [
+            "task-dispatch-review:task-ids"
+          ]
         }
       },
-      "notApplicable": []
+      "notApplicable": [
+        {
+          "actions": [
+            "entity-archive"
+          ],
+          "reason": "artifact entity mutation targets one entity version and emits one archive event; the mutation boundary has no collection input."
+        },
+        {
+          "actions": [
+            "entity-delete"
+          ],
+          "reason": "artifact entity mutation targets one entity id and emits one delete event; no entity collection is enumerated."
+        },
+        {
+          "actions": [
+            "entity-import"
+          ],
+          "reason": "artifact entity import processes one submitted artifact entity; imported payload membership is outside this event writer."
+        },
+        {
+          "actions": [
+            "entity-update"
+          ],
+          "reason": "artifact entity mutation updates one entity version; it has no collection or batch input."
+        },
+        {
+          "actions": [
+            "agent-delete"
+          ],
+          "reason": "compiled entity-delete event has one agent id and scalar reason; packages/daemon/src/entity-action-catalog-executor.ts does not enumerate an agent collection."
+        },
+        {
+          "actions": [
+            "agent-install"
+          ],
+          "reason": "compiled entity upsert has one agent document; the catalog compiler consumes one target and has no collection input."
+        },
+        {
+          "actions": [
+            "agent-retire"
+          ],
+          "reason": "compiled agent-retired event reads one current entity revision; no collection is traversed."
+        },
+        {
+          "actions": [
+            "assignment-migrate"
+          ],
+          "reason": "relation assignment migration is a single relation event; assignment-history growth is measured by the assign/unassign probes."
+        },
+        {
+          "actions": [
+            "decision-dispatch-review"
+          ],
+          "reason": "dispatch-review is a single Decision catalog runtime request; the action payload has no collection field or batch traversal."
+        },
+        {
+          "actions": [
+            "decision-rematerialize"
+          ],
+          "reason": "rematerialize targets one Decision document and emits one catalog event; no collection is traversed by the writer."
+        },
+        {
+          "actions": [
+            "distill-promote"
+          ],
+          "reason": "fact promotion is a single declared-only event with scalar fact id and target fields; no collection is read at this boundary."
+        },
+        {
+          "actions": [
+            "doc-conflict-overwrite-center"
+          ],
+          "reason": "declared-only document conflict overwrite emits one conflict event for one path; document-count and body-size dimensions are measured on doc-submit."
+        },
+        {
+          "actions": [
+            "doc-conflict-resolve"
+          ],
+          "reason": "declared-only document conflict resolution addresses one path and emits one event; it has no collection input."
+        },
+        {
+          "actions": [
+            "doc-retire"
+          ],
+          "reason": "declared-only document retirement addresses one document path and emits one event; no document collection is scanned."
+        },
+        {
+          "actions": [
+            "fact-reclassify"
+          ],
+          "reason": "fact reclassification reads one fact and compiles one fact event; it does not enumerate facts."
+        },
+        {
+          "actions": [
+            "fact-rematerialize"
+          ],
+          "reason": "fact rematerialization targets one fact document; the batch fact collection dimension is measured by fact-archive."
+        },
+        {
+          "actions": [
+            "fact-type-register"
+          ],
+          "reason": "fact type registration appends one scalar type declaration; no fact collection is traversed."
+        },
+        {
+          "actions": [
+            "fact-unarchive"
+          ],
+          "reason": "fact unarchive reads one fact and compiles one event; it has no collection input."
+        },
+        {
+          "actions": [
+            "migrate-import"
+          ],
+          "reason": "migration import is a declared-only ingress for one import request; imported member counts are outside this canonical event writer."
+        },
+        {
+          "actions": [
+            "people-delegate"
+          ],
+          "reason": "person delegation runtime targets one principal and one delegation edge; it has no collection or batch field."
+        },
+        {
+          "actions": [
+            "people-revoke-delegation"
+          ],
+          "reason": "delegation revoke targets one principal and one edge; the runtime does not enumerate a collection."
+        },
+        {
+          "actions": [
+            "preset-upgrade"
+          ],
+          "reason": "preset upgrade is a single task catalog runtime mutation with scalar preset data; no collection is read by the write boundary."
+        },
+        {
+          "actions": [
+            "relation-reconfirm"
+          ],
+          "reason": "relation reconfirm compiles one relation event identified by relationId; owner relation traversal is measured by relation-relate."
+        },
+        {
+          "actions": [
+            "relation-unrelate"
+          ],
+          "reason": "relation unrelate compiles one relation retirement event; it does not scan the owner relation collection."
+        },
+        {
+          "actions": [
+            "runtime-run"
+          ],
+          "reason": "runtime-session run targets one runtime session and emits one event; session history is not enumerated by this catalog action."
+        },
+        {
+          "actions": [
+            "runtime_session_cancelled"
+          ],
+          "reason": "runtime-session lifecycle event records one session state change with scalar payload; no collection is traversed."
+        },
+        {
+          "actions": [
+            "runtime_session_exited"
+          ],
+          "reason": "runtime-session exit event records one session outcome; no collection is traversed."
+        },
+        {
+          "actions": [
+            "runtime_session_liveness_changed"
+          ],
+          "reason": "runtime-session liveness event records one status update; no collection is traversed."
+        },
+        {
+          "actions": [
+            "runtime_session_outcome_observed"
+          ],
+          "reason": "runtime-session outcome event records one observation; no collection is traversed."
+        },
+        {
+          "actions": [
+            "runtime_session_provider_bound"
+          ],
+          "reason": "runtime-session provider binding records one provider reference; no collection is traversed."
+        },
+        {
+          "actions": [
+            "runtime_session_started"
+          ],
+          "reason": "runtime-session start event records one session; no collection is traversed."
+        },
+        {
+          "actions": [
+            "runtime_session_task_bound"
+          ],
+          "reason": "runtime-session task binding records one task reference; no collection is traversed."
+        },
+        {
+          "actions": [
+            "schedule-claim"
+          ],
+          "reason": "schedule claim runtime updates one occurrence lease; it has no collection or batch input."
+        },
+        {
+          "actions": [
+            "schedule-create"
+          ],
+          "reason": "schedule create runtime inserts one schedule definition; recurring occurrences are generated separately and are not read here."
+        },
+        {
+          "actions": [
+            "schedule-delete"
+          ],
+          "reason": "schedule delete runtime removes one schedule definition; it does not enumerate schedules."
+        },
+        {
+          "actions": [
+            "schedule-disable"
+          ],
+          "reason": "schedule disable runtime updates one schedule definition; no schedule collection is traversed."
+        },
+        {
+          "actions": [
+            "schedule-dispatch-link"
+          ],
+          "reason": "schedule dispatch-link runtime updates one link; no collection is traversed."
+        },
+        {
+          "actions": [
+            "schedule-enable"
+          ],
+          "reason": "schedule enable runtime updates one schedule definition; no collection is traversed."
+        },
+        {
+          "actions": [
+            "schedule-missed"
+          ],
+          "reason": "schedule missed runtime records one occurrence; no occurrence collection is traversed."
+        },
+        {
+          "actions": [
+            "schedule-run-now"
+          ],
+          "reason": "schedule run-now runtime targets one schedule occurrence; no schedule collection is traversed."
+        },
+        {
+          "actions": [
+            "schedule-settle"
+          ],
+          "reason": "schedule settle runtime updates one occurrence; no collection is traversed."
+        },
+        {
+          "actions": [
+            "schedule-update"
+          ],
+          "reason": "schedule update runtime updates one schedule definition; no collection is traversed."
+        },
+        {
+          "actions": [
+            "script-run"
+          ],
+          "reason": "script execution is a declared-only event for one execution request; script output collection is outside this writer."
+        },
+        {
+          "actions": [
+            "settings-update"
+          ],
+          "reason": "settings update runtime replaces one repository settings record; it has no collection input."
+        },
+        {
+          "actions": [
+            "squad-cancel"
+          ],
+          "reason": "squad cancel runtime updates one squad; no squad member collection is read by this writer."
+        },
+        {
+          "actions": [
+            "squad-delete"
+          ],
+          "reason": "compiled entity-delete event has one squad id and scalar reason; no squad collection is enumerated."
+        },
+        {
+          "actions": [
+            "squad-install"
+          ],
+          "reason": "compiled entity upsert has one squad document; the catalog compiler consumes one target."
+        },
+        {
+          "actions": [
+            "squad-run"
+          ],
+          "reason": "squad run runtime targets one squad run; it has no collection or batch field."
+        },
+        {
+          "actions": [
+            "task-amend"
+          ],
+          "reason": "task amend runtime applies one task patch; collection dimensions are owned by task-submit and task review probes."
+        },
+        {
+          "actions": [
+            "task-annotate"
+          ],
+          "reason": "task annotation runtime appends one scalar annotation to one execution; it does not enumerate annotations."
+        },
+        {
+          "actions": [
+            "task-archive"
+          ],
+          "reason": "task archive runtime updates one task record; no task collection is traversed."
+        },
+        {
+          "actions": [
+            "task-artifact-add"
+          ],
+          "reason": "artifact-add runtime writes one named artifact; the task-submit artifact collection dimension covers multi-artifact publication."
+        },
+        {
+          "actions": [
+            "task-attest"
+          ],
+          "reason": "task attestation runtime records one gate witness; it has no collection input."
+        },
+        {
+          "actions": [
+            "task-complete"
+          ],
+          "reason": "completion validation consumes the fixed closeout gate set for one execution; gate receipt cardinality is contract-bounded and not a user collection."
+        },
+        {
+          "actions": [
+            "task-contract-migrate"
+          ],
+          "reason": "contract migration targets one task package and one schema version; no task collection is traversed."
+        },
+        {
+          "actions": [
+            "task-declare-executor"
+          ],
+          "reason": "executor declaration updates one execution identity; no collection is traversed."
+        },
+        {
+          "actions": [
+            "task-delete"
+          ],
+          "reason": "task delete runtime removes one task aggregate; it has no collection or batch field."
+        },
+        {
+          "actions": [
+            "task-escalate"
+          ],
+          "reason": "escalation writes one task escalation record with scalar options; no collection is traversed."
+        },
+        {
+          "actions": [
+            "task-escalation-resolve"
+          ],
+          "reason": "escalation resolution writes one response for one dispatch; no collection is traversed."
+        },
+        {
+          "actions": [
+            "task-push"
+          ],
+          "reason": "task push forwards one branch publication request; repository file enumeration is outside the canonical event writer."
+        },
+        {
+          "actions": [
+            "task-release"
+          ],
+          "reason": "task release updates one lease holder; no task collection is traversed."
+        },
+        {
+          "actions": [
+            "task-rematerialize"
+          ],
+          "reason": "task rematerialize targets one task package; artifact collection scaling is measured by task-submit."
+        },
+        {
+          "actions": [
+            "task-reopen"
+          ],
+          "reason": "task reopen updates one task status; no collection is traversed."
+        },
+        {
+          "actions": [
+            "task-review-consent"
+          ],
+          "reason": "review consent selects one review and fixed consent/disposition ids; response and finding collection scaling is measured by task-respond-review."
+        },
+        {
+          "actions": [
+            "task-review-execution"
+          ],
+          "reason": "execution review records one review packet; finding cardinality is bounded by the submitted review packet and is not scanned by this writer."
+        },
+        {
+          "actions": [
+            "task-rework"
+          ],
+          "reason": "rework updates one execution and task iteration; no collection is traversed."
+        },
+        {
+          "actions": [
+            "task-settle"
+          ],
+          "reason": "task settle records one execution settlement; no collection is traversed."
+        },
+        {
+          "actions": [
+            "task-supersede"
+          ],
+          "reason": "task supersede links one old task to one replacement; no task collection is traversed."
+        },
+        {
+          "actions": [
+            "task-transition"
+          ],
+          "reason": "task transition updates one task status; execution history is not enumerated by the status validator."
+        },
+        {
+          "actions": [
+            "task-witness-claim"
+          ],
+          "reason": "witness claim records one gate run claim; no collection is traversed."
+        },
+        {
+          "actions": [
+            "task-witness-rerun"
+          ],
+          "reason": "witness rerun records one new gate run; no collection is traversed."
+        },
+        {
+          "actions": [
+            "task-witness-revoke"
+          ],
+          "reason": "witness revoke records one gate run revocation; no collection is traversed."
+        },
+        {
+          "actions": [
+            "task-witness-settle"
+          ],
+          "reason": "witness settle records one gate result; no collection is traversed."
+        },
+        {
+          "actions": [
+            "todo-add"
+          ],
+          "reason": "todo add runtime creates one todo item; no todo collection is traversed."
+        },
+        {
+          "actions": [
+            "todo-archive"
+          ],
+          "reason": "todo archive runtime updates one todo item; no todo collection is traversed."
+        },
+        {
+          "actions": [
+            "todo-done"
+          ],
+          "reason": "todo done runtime updates one todo item; no todo collection is traversed."
+        },
+        {
+          "actions": [
+            "todo-promote"
+          ],
+          "reason": "todo promote runtime updates one todo item and target reference; no collection is traversed."
+        },
+        {
+          "actions": [
+            "todo-relate"
+          ],
+          "reason": "todo relate runtime writes one relation edge; owner relation traversal is measured by relation-relate."
+        },
+        {
+          "actions": [
+            "todo-reopen"
+          ],
+          "reason": "todo reopen runtime updates one todo item; no collection is traversed."
+        },
+        {
+          "actions": [
+            "vertical-declaration-migrate"
+          ],
+          "reason": "vertical declaration migration writes one declaration; no collection is traversed."
+        },
+        {
+          "actions": [
+            "vertical-kind-publish-schema"
+          ],
+          "reason": "vertical kind schema publication targets one kind; no collection is traversed."
+        },
+        {
+          "actions": [
+            "vertical-kind-retire"
+          ],
+          "reason": "vertical kind retirement targets one kind; no collection is traversed."
+        },
+        {
+          "actions": [
+            "vertical-kind-upsert"
+          ],
+          "reason": "vertical kind upsert targets one kind definition; no collection is traversed."
+        }
+      ]
     }
   }
 }
