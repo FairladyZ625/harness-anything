@@ -235,6 +235,7 @@ test(
             );
           throw new Error(
             `waiting for ${taskId}: ${error instanceof Error ? error.message : String(error)}; ` +
+              `launches=${JSON.stringify(launches.map((launch) => launch.taskId))}; ` +
               `auto-claim=${JSON.stringify(detail)}; lease=${JSON.stringify(centerTask.snapshot.lease)}; ` +
               `runtime=${JSON.stringify(centerRuntime.sessions)}`,
           );
