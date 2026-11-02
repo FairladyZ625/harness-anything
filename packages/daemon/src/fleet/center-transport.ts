@@ -327,7 +327,8 @@ export async function serve(
           pendingReplicationStart = null;
           startReplication(nodeId, start);
         }
-        return enqueue(
+        // Await inside this try so a disconnect during ready delivery reaches its catch.
+        await enqueue(
           immediate({
             schema: "fleet.session.ready/v1",
             messageId: mid(frame.messageId, "session"),
@@ -338,6 +339,7 @@ export async function serve(
             loginAuthority: (await options.loginAuthority?.(nodeId)) ?? null,
           }),
         );
+        return;
       }
       if (frame.schema === "fleet.session.hello/v1")
         throw new FleetFault("hello_replayed", "Session hello is only valid as the first frame.");
@@ -372,6 +374,7 @@ export async function serve(
           error,
         });
       if (socket.destroyed) return;
+      // The peer can also close while its error reply is waiting for drain.
       await enqueue(
         immediate({
           schema: "fleet.error/v1",
@@ -382,7 +385,10 @@ export async function serve(
           retryable: fault.retryable,
           resumeOffset: fault.resumeOffset,
         }),
-      );
+      ).catch((deliveryError: unknown) => {
+        if (peerDisconnected(socket, deliveryError)) return;
+        throw deliveryError;
+      });
       if (fault.code === "authentication_failed") socket.end();
     }
   };
