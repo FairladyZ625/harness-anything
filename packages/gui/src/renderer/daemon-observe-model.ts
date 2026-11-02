@@ -1,3 +1,4 @@
+import { daemonProtocolCommands } from "@harness-anything/daemon/internal/protocol/daemon-protocol-commands";
 import type { ObserveTailPayload, ObserveTailRead } from "../api/renderer-dto.ts";
 
 /**
@@ -594,7 +595,7 @@ export function observeLogRow(record: Readonly<Record<string, unknown>>, seq: nu
 
 /**
  * 日志行的读写分类:请求日志自带的 commandClass(repo-read/repo-write/arbiter/admin,
- * 见 daemon 端 commandClassForAction)是权威;conn-log 等无该字段的记录退化为方法名
+ * 见 daemon 端 commandClassForAction)是权威;缺省先查 canonical command 声明，未知记录再用方法名
  * 分段启发(run/write/sync/amend…→写,read/list/tail/status…→读),识别不了返回
  * null(不计入读写比分母)。
  */
@@ -602,11 +603,21 @@ export function observeLogOpClass(method: string, commandClass: string | null): 
   if (commandClass === "repo-read") return "read";
   if (commandClass === "repo-write" || commandClass === "arbiter" || commandClass === "admin") return "write";
   if (commandClass !== null) return null;
+  const declared = declaredCommandClasses.get(method);
+  if (declared) return declared === "repo-read" ? "read" : "write";
   const segments = method.toLowerCase().split(".");
   if (segments.some((segment) => READ_METHOD_SEGMENTS.has(segment))) return "read";
   if (segments.some((segment) => WRITE_METHOD_SEGMENTS.has(segment))) return "write";
   return null;
 }
+
+const declaredCommandClasses = new Map(
+  daemonProtocolCommands.flatMap((command) =>
+    [...new Set([command.id, ...("actionKind" in command ? [command.actionKind] : [])])].map(
+      (name) => [name, command.commandClass] as const,
+    ),
+  ),
+);
 
 const READ_METHOD_SEGMENTS = new Set(["read", "list", "tail", "status", "snapshot", "dispatches", "hello", "catalog"]),
   WRITE_METHOD_SEGMENTS = new Set([

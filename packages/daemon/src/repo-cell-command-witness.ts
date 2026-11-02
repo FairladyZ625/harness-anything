@@ -14,7 +14,7 @@ import {
 import type { PresetProcessService, PresetSnapshotV1 } from "@harness-anything/preset";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { Snapshot } from "./repo-cell-types.ts";
-import { readSubmissionArtifact, submissionArtifactPath } from "./submission-artifacts.ts";
+import { createSubmissionArtifactReader, submissionArtifactPath } from "./submission-artifacts.ts";
 import { runProcessTextAsync } from "./process-port.ts";
 
 /** Runs accepted package bytes against the exact submitted input, outside the single writer queue. */
@@ -41,8 +41,9 @@ export async function collectCommandWitness(
     );
   const inputs: Record<string, Uint8Array> = {},
     accepted = new Map<string, Uint8Array>(),
+    readArtifact = createSubmissionArtifactReader(cell),
     allSubjects = (submission.artifacts ?? []).map((anchor, index) => {
-      const document = readSubmissionArtifact(cell, packagePath, anchor.path, anchor.revision, anchor.blobSha256),
+      const document = readArtifact(packagePath, anchor.path, anchor.revision, anchor.blobSha256),
         bytes = Buffer.from(document.body, document.encoding),
         file = `artifact-${index}`;
       inputs[file] = bytes;
