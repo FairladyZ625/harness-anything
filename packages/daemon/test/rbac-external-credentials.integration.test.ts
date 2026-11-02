@@ -7,6 +7,7 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fakeKeycloak } from "./keycloak.fixtures.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
@@ -19,8 +20,8 @@ test("external credentials enter through CLI stdin, failed replacement preserves
     daemonId = "external-credentials",
     secret = randomBytes(24).toString("hex"),
     password = randomBytes(24).toString("hex");
-  let hasAdmin = false,
-    rejectedCandidate = false;
+  const keycloak = fakeKeycloak();
+  let rejectedCandidate = false;
   const authority = createServer(async (request, response) => {
     const url = new URL(request.url!, "http://localhost");
     let body = "";
@@ -38,18 +39,18 @@ test("external credentials enter through CLI stdin, failed replacement preserves
     }
     if (url.pathname === "/realms/fleet") return json({ realm: "fleet" });
     if (request.headers.authorization !== "Bearer fixture-service-token") return json({}, 403);
-    if (url.pathname.endsWith("/roles/access-admin/users")) return json(hasAdmin ? [{ id: "owner" }] : []);
-    if (url.pathname.endsWith("/roles/access-admin")) return json({ id: "admin-role", name: "access-admin" });
-    if (url.pathname.endsWith("/users") && request.method === "POST") {
+    if (url.pathname.endsWith("/users") && request.method === "POST")
       assert.equal(JSON.parse(body).credentials[0].value === password, true);
-      return response.writeHead(201, { location: "/users/owner" }).end();
-    }
-    if (url.pathname.endsWith("/role-mappings/realm")) {
-      hasAdmin = true;
-      return response.writeHead(204).end();
-    }
-    if (url.pathname.endsWith("/users")) return json([]);
-    return json({}, 404);
+    const answer = await keycloak.fetch(
+      `${url.origin}${url.pathname.replace("/admin/realms/fleet", "/admin/realms/harness")}${url.search}`,
+      { method: request.method, headers: request.headers as Record<string, string>, ...(body ? { body } : {}) },
+    );
+    response
+      .writeHead(answer.status, {
+        "content-type": "application/json",
+        ...(answer.headers.get("location") ? { location: answer.headers.get("location")! } : {}),
+      })
+      .end(await answer.text());
   });
   await new Promise<void>((resolve) => authority.listen(0, "127.0.0.1", resolve));
   const address = authority.address();

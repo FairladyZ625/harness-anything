@@ -220,7 +220,7 @@ test(
     assert.equal(answer(await progress("progress-while-registered")), "applied");
     const before = fixture.eventCount();
 
-    signInAt(fixture.userRoot, "person-admin");
+    signInAt(fixture.userRoot, "person-owner");
     const admin = fixture.admin(center),
       listed = (await admin.run({ operation: "node-list" })).nodes as { nodeId: string; version: string }[],
       removed = await admin.run({

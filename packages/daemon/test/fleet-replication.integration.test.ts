@@ -398,6 +398,7 @@ test("revoking a node's registration cuts its replication session", { timeout: 1
   await edge.waitForEvent("installed");
   const replicationStatus = () => center.status().replicas.find((replica) => replica.nodeId === "edge-three");
   assert.equal(replicationStatus()?.connected, true, "the installed edge owns a live replication session");
+  fixture.owners.keycloak.accessAdmin("person-local");
   const admin = new AccessAdminService(createIdentitySession(fixture.userRoot), fixture.userRoot, {
       nodeRetirement: createNodeRetirement({
         stateRoot: fixture.stateRoot,

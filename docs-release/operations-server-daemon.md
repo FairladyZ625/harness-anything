@@ -42,12 +42,19 @@ Prepare the password in a file readable only by its owner (for example, mode
 one trailing newline as a file terminator and sends the password only through
 the center's original local socket. Remove the password file after use.
 
-Before any `access-admin` member exists, that socket's owner may set the
-existing HTTPS listener. Read its version first and use a certificate trusted
-by the browser device. Listener changes and first-administrator creation share
-one queue: only one first administrator succeeds, and subsequent listener
-changes require a signed-in `access-admin`, even after logout. Fleet and remote
-GUI connections cannot perform first-administrator bootstrap or open this window.
+Before any person holds `access-manage` on `@fleet`, that socket's owner may
+set the existing HTTPS listener. Read its version first and use a certificate
+trusted by the browser device. Listener changes and first-administrator creation
+share one queue: only one first administrator succeeds. Bootstrap writes an
+`admin` policy grant on `@fleet`; subsequent listener changes require a signed-in
+person with that management permission. Logout does not remove the grant.
+Fleet and remote GUI connections cannot perform first-administrator bootstrap.
+
+Groups, grants, teams, nodes, account invitations and identity configuration use
+the same `access-manage` permission on `@fleet`. The old `access-admin` realm role
+confers no authority; existing deployments must explicitly provision policy
+grants. Repository access and request approval still require permission on the
+requested repository or entity; a repository administrator cannot manage the fleet.
 
 `login` displays a verification URL, a one-time code and its expiry, then waits
 for browser approval. Open that URL on another device and sign in as the first
@@ -69,8 +76,8 @@ The secret is accepted only through redirected stdin and the original local
 socket. It is stored in the center user root with owner-only file permissions,
 never returned in health/status or receipts. A failed realm or credential check
 leaves the existing configuration unchanged. Other client IDs are refused.
-After the first administrator exists, replacing this configuration requires an
-`access-admin` session against the current authority.
+After the first administrator exists, replacing this configuration requires a
+session against the current authority with `access-manage` on `@fleet`.
 
 In the local GUI, open **Identity & access → Connect external Keycloak**, enter
 the URL, realm and center client secret, then apply. The password field clears

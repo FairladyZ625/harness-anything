@@ -133,6 +133,11 @@ test("edge device login trusts only the invitation's self-signed Keycloak certif
     true,
     "userinfo must trust only the invitation certificate too",
   );
+  await assert.rejects(
+    service.requireAccessManagement(loginTarget),
+    { code: "authorization_denied" },
+    "management must reach the pinned authority and deny its missing grant without needing a local center secret",
+  );
   managedVerificationUrl = undefined;
   await assert.rejects(fetch(String(accepted.managedVerificationUri)), /fetch failed/u);
   now = 280_000;
@@ -141,7 +146,7 @@ test("edge device login trusts only the invitation's self-signed Keycloak certif
     true,
     "a private-CA session renews without environment CA setup",
   );
-  assert.equal(tokenRequests, 2, "device exchange and refresh both use the invitation CA");
+  assert.equal(tokenRequests, 3, "device exchange, policy authorization and refresh all use the invitation CA");
   await assert.rejects(service.beginDevice(loginTarget, { ...authority, certificate: wrong.cert }), /fetch failed/u);
 
   defaultRoots.push(listener.cert);
@@ -151,5 +156,5 @@ test("edge device login trusts only the invitation's self-signed Keycloak certif
   assert.equal((await service.pollDevice()).authenticated, true);
   now = 560_000;
   assert.equal((await service.status(loginTarget)).authenticated, true, "a no-CA session renews through system trust");
-  assert.equal(tokenRequests, 4, "the public-trust login and its refresh use no invite CA");
+  assert.equal(tokenRequests, 5, "the public-trust login and its refresh use no invite CA");
 });

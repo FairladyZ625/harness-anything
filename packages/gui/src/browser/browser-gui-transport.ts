@@ -1,5 +1,6 @@
 import type { DaemonRpcMethodMap, DaemonRpcResult } from "@harness-anything/daemon/protocol";
 import type { GuiTransport } from "../renderer/gui-transport.ts";
+import { reportCollaborationResponse } from "../api/collaboration-response.ts";
 
 const browserTokenStorageKey = "harness.browser.access-token";
 
@@ -32,9 +33,12 @@ export function createBrowserGuiTransport(token: string): GuiTransport {
         } catch {
           throw new Error(fallback);
         }
+        reportCollaborationResponse(detail);
         throw browserTransportError(detail, fallback);
       }
-      return (await response.json()) as DaemonRpcResult<Method>;
+      const reply = await response.json();
+      reportCollaborationResponse(reply);
+      return reply as DaemonRpcResult<Method>;
     },
     capabilities: () => ({
       stream: unavailable,

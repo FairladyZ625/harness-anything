@@ -203,3 +203,18 @@ it("reads the stored motion preference and falls back to following the system", 
   expect(storedMotionPreference()).toBe("system");
   localStorage.removeItem(MOTION_PREFERENCE_STORAGE_KEY);
 });
+
+it("shows the shared collaboration explanation only for its domain code and resets on navigation", async () => {
+  const { reportCollaborationResponse } = await import("../src/api/collaboration-response.ts");
+  render("identity");
+  act(() => reportCollaborationResponse({ code: "authorization_denied", message: "identity_plugin_required" }));
+  expect(host.querySelector('[data-testid="collaboration-explanation"]')).toBeNull();
+  const refusal = { ok: false, error: { code: "identity_plugin_required", message: "requires collaboration" } };
+  act(() => reportCollaborationResponse(refusal));
+  expect(host.querySelector('[data-testid="collaboration-explanation"]')).not.toBeNull();
+  expect(refusal.ok).toBe(false);
+  expect(host.querySelector('[role="tabpanel"]')).toBeNull();
+  render("work-briefs");
+  expect(host.querySelector('[data-testid="collaboration-explanation"]')).toBeNull();
+  expect(host.querySelector('[role="tabpanel"]')).not.toBeNull();
+});

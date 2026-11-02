@@ -29,6 +29,7 @@ test("work teams use native membership, reject stale edits, and do not grant bus
     run = (request: Parameters<typeof admin.run>[0]) => admin.run({ operationId: randomUUID(), ...request });
   t.after(teamCleanup);
   kc.account("alice");
+  kc.accessAdmin();
   await adapter.syncBasePolicy("center-token");
   assert.equal((await run({ operation: "team-create", teamName: "Builders" })).outcome, "applied");
   const list = async () =>

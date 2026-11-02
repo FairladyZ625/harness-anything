@@ -286,7 +286,6 @@ export function createDaemonHostRuntimeApi(
     },
     fleet: {
       readCenterExternalAddress: async (auth) => {
-        context.oidc.requireCollaboration();
         const config = readFleetCenterConfig(context.input.userRoot, context.input.daemonId);
         if (!config) return { ok: true, externalUrl: null };
         await authorizeCenterConfiguration(config.repoId, auth);
@@ -296,7 +295,6 @@ export function createDaemonHostRuntimeApi(
       // listener, not the saved config) plus the fields the panel displays. A saved config whose
       // restore failed reports running=false — that machine still needs an authorized start.
       readCenterState: async (auth) => {
-        context.oidc.requireCollaboration();
         const config = readFleetCenterConfig(context.input.userRoot, context.input.daemonId);
         if (!config)
           return {
@@ -326,7 +324,6 @@ export function createDaemonHostRuntimeApi(
         };
       },
       setCenterExternalAddress: async (payload, auth) => {
-        context.oidc.requireCollaboration();
         if (centerStarting)
           throw context.hostCodedError(
             "fleet_center_running",
@@ -363,7 +360,6 @@ export function createDaemonHostRuntimeApi(
         }
       },
       startCenter: async (payload, auth) => {
-        context.oidc.requireCollaboration();
         if (centerStarting)
           throw context.hostCodedError(
             "fleet_center_running",
@@ -514,7 +510,6 @@ export function createDaemonHostRuntimeApi(
         }
       },
       edgeSync: async (payload, auth) => {
-        context.oidc.requireCollaboration();
         const request = payload as unknown as FleetEdgeSyncRequest["payload"],
           registered = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
             (repo) => repo.repoId === request.repoId && repo.state === "enabled",
@@ -541,7 +536,6 @@ export function createDaemonHostRuntimeApi(
         return receipt;
       },
       edgeRuntime: async (payload, auth) => {
-        context.oidc.requireCollaboration();
         context.localOnly(auth);
         const request = payload as unknown as FleetEdgeRuntimeRequest["payload"],
           registered = readDaemonRegistry({
