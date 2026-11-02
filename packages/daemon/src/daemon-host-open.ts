@@ -909,14 +909,18 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   });
   accessAdminRef.current = accessAdmin;
   const lifecycle = createDaemonHostLifecycleApi(hostContext);
-  // The resume failure is recorded, not surfaced: a center that cannot come back still fails
-  // every consultation honestly through oidc.center(), without a second error shape.
-  rbacResumed = managedRbac.resume().catch((error: unknown) =>
+  // Every center consultation awaits this start barrier. A failed resume is therefore not absorbed:
+  // the same rejection refuses the request with the real cause instead of letting it reach a center
+  // whose policy sync never completed. The recording handler only observes the failure; it does not
+  // turn the barrier into a resolved promise.
+  const resumed = managedRbac.resume();
+  rbacResumed = resumed;
+  void resumed.catch((error: unknown) => {
     input.recordLifecycle?.({
       event: "rbac_resume_failed",
       error: error instanceof Error ? error.message : String(error),
-    }),
-  );
+    });
+  });
   const parkedWaitController = new AbortController(),
     edgeJoinProgress = createEdgeJoinProgressTap();
   const host: DaemonHost = {
@@ -1141,7 +1145,9 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       await autoClaimLoop.close();
       for (const { controller } of replicaSyncControllers.values()) controller.abort();
       replicaSyncControllers.clear();
-      await rbacResumed;
+      // A failed resume is already refused at every request; cleanup still stops whatever the
+      // failed attempt launched before the host reports itself closed.
+      await rbacResumed.catch(consumeKnownError);
       await accessAdmin.close();
       await managedRbac.stop();
       await lifecycle.close();

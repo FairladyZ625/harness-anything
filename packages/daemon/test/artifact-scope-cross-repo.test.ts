@@ -1,11 +1,12 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { writeDaemonRegistryRepo } from "@harness-anything/kernel/daemon-registry";
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
+import { migrateCompletion } from "@harness-anything/preset/internal/preset-resolver";
 import { readArtifactActionScopes } from "../src/authorization-provider.ts";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
 
@@ -43,6 +44,35 @@ function register(userRoot: string, repos: readonly { readonly repoId: string; r
       mode: "local",
     });
 }
+
+test("a retired completion default fails policy sync until the completion conversion runs", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-retired-code-doc-")),
+    userRoot = path.join(parent, "user"),
+    definition = structuredClone(bundled) as {
+      entityKinds: Record<string, unknown>[];
+      completion: { closeoutDefaults: Record<string, boolean> };
+    };
+  definition.completion.closeoutDefaults.codeDoc = true;
+  const root = materializeRepo(parent, "repo-retired-code-doc", definition),
+    source = path.join(root, "harness", "vertical.json");
+  try {
+    register(userRoot, [{ repoId: "repo-retired-code-doc", root }]);
+    // managedRbac.resume() reaches this function while syncing the center's Base policy. A retired
+    // declaration must fail it with the migration instruction rather than let the center start with
+    // a policy that silently omits the repository.
+    await assert.rejects(readArtifactActionScopes(userRoot)(), (error: unknown) => {
+      assert.equal((error as { readonly code?: string }).code, "vertical_declaration_outdated");
+      assert.match((error as Error).message, /completion\.closeoutDefaults\.codeDoc/u);
+      return true;
+    });
+    const candidate = path.join(parent, "candidate.json");
+    assert.equal(migrateCompletion({ source, destination: candidate, dryRun: false }).changed, true);
+    copyFileSync(candidate, source);
+    assert.ok((await readArtifactActionScopes(userRoot)()).length > 0);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
 
 test("one repository retiring a shared kind cannot revoke another repository's import scope", async () => {
   for (const order of [
