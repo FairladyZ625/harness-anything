@@ -437,6 +437,7 @@ test("runtime cancel settles the task lease before closing a missing-process tas
         outcome: "cancelled",
         reason: "Runtime session cancelled after its worker process was no longer available.",
         endedAt: "2026-11-02T00:00:00.000Z",
+        processGroupPid: 2_147_483_646,
         binding: {
           actor: { ...binding.actor, executor: { kind: "agent", id: `runtime-session:${runtimeSessionId}` } },
           source: "local",
@@ -529,7 +530,8 @@ for (const scenario of [
       runtimeSessionId = "runtime_161616161616161616161616",
       dispatchId = "dispatch_161616161616161616161616",
       published: string[] = [],
-      reclaimed: string[] = [];
+      reclaimed: string[] = [],
+      probes: Array<[number, unknown]> = [];
     let processGroupPid = 2_147_483_645;
     t.after(() => rmSync(rootDir, { recursive: true, force: true }));
     openMissingProcessStream(rootDir, dispatchId, runtimeSessionId, "stream-group-proof");
@@ -550,8 +552,7 @@ for (const scenario of [
       assert.equal(process.kill(processGroupPid, 0), true);
     } else {
       t.mock.method(process, "kill", (pid: number, signal: unknown) => {
-        assert.equal(pid, -processGroupPid);
-        assert.equal(signal, 0, "an unproven group may only be probed, never killed");
+        probes.push([pid, signal]);
         throw Object.assign(new Error(scenario === "EPERM" ? "denied" : "stopped"), {
           code: scenario === "EPERM" ? "EPERM" : "ESRCH",
         });
@@ -586,6 +587,12 @@ for (const scenario of [
     assert.deepEqual(reclaimed, [], "the missing record cannot authorize reclaiming the worker workspace");
     assert.equal(readDispatchStream(rootDir, dispatchId)!.records.length, 0);
     if (scenario === "live") assert.equal(process.kill(processGroupPid, 0), true, "the live worker stays protected");
+    else
+      assert.deepEqual(
+        probes,
+        scenario === "EPERM" ? [[-processGroupPid, 0]] : [],
+        "only an identified owner group may be probed, without a termination signal",
+      );
   });
 }
 

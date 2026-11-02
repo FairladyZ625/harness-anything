@@ -118,18 +118,19 @@ export async function cancelRuntime(
           ).find((value) => value.runtimeSessionId === runtimeSessionId);
   if (session && session.outcome === null) {
     const instanceId = matchingHeader?.instanceId ?? canonicalDispatch?.instanceId;
+    let processGroupPid: number | null = null;
     if (matchingHeader !== undefined || session.liveness !== "exited") {
       const ownerEvidence =
-          canonicalDispatch ??
-          (context.input.remote?.readRuntimeDispatch
-            ? await context.input.remote.readRuntimeDispatch(runtimeSessionId)
-            : readLocalRuntimeDispatchOwner(context, runtimeSessionId)),
-        processGroupPid =
-          ownerEvidence?.actor.principal.personId === ownerBinding.actor.principal.personId &&
-          sameWriteSource(ownerEvidence.source, ownerBinding.source) &&
-          (matchingHeader === undefined || ownerEvidence.payload.dispatchId === matchingHeader.dispatchId)
-            ? ownerEvidence.processGroupPid
-            : null;
+        canonicalDispatch ??
+        (context.input.remote?.readRuntimeDispatch
+          ? await context.input.remote.readRuntimeDispatch(runtimeSessionId)
+          : readLocalRuntimeDispatchOwner(context, runtimeSessionId));
+      processGroupPid =
+        ownerEvidence?.actor.principal.personId === ownerBinding.actor.principal.personId &&
+        sameWriteSource(ownerEvidence.source, ownerBinding.source) &&
+        (matchingHeader === undefined || ownerEvidence.payload.dispatchId === matchingHeader.dispatchId)
+          ? ownerEvidence.processGroupPid
+          : null;
       if (probeProcessGroup({ pgid: processGroupPid ?? undefined }) !== "proven_stopped")
         throw runtimeSpawnError(
           "runtime_process_group_unproven",
@@ -165,6 +166,7 @@ export async function cancelRuntime(
         reason: "Runtime session cancelled after its worker process was no longer available.",
         endedAt: context.input.now(),
         binding: terminalBinding,
+        ...(processGroupPid === null ? {} : { processGroupPid }),
       });
       if (settlement?.outcome === "lease_unproven") throw runtimeSpawnError(settlement.code, settlement.reason);
     }
