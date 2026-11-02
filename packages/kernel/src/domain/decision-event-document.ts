@@ -615,21 +615,20 @@ export function decisionAcceptReviewReadiness(
     reviewRequired =
       requirement === "all" ||
       (requirement === "high" && current.riskTier === "high") ||
-      (requirement === "medium_and_high" && current.riskTier !== "low"),
-    unanswered = approved
-      ? []
-      : current.reviews
-          .filter(({ verdict }) => verdict === "changes_requested")
-          .flatMap((review) =>
-            review.findings
-              .filter(
-                ({ findingId }) =>
-                  !current.reviewResponses.some(
-                    (response) => response.reviewId === review.reviewId && response.findingId === findingId,
-                  ),
-              )
-              .map(({ findingId }) => ({ reviewId: review.reviewId, findingId })),
-          );
+      (requirement === "medium_and_high" && current.riskTier !== "low");
+  const changedReviews = approved ? [] : current.reviews.filter(({ verdict }) => verdict === "changes_requested"),
+    respondedFindings = new Map<string, Set<string>>();
+  if (changedReviews.length > 0)
+    for (const { reviewId, findingId } of current.reviewResponses) {
+      const ids = respondedFindings.get(reviewId) ?? new Set<string>();
+      ids.add(findingId);
+      respondedFindings.set(reviewId, ids);
+    }
+  const unanswered = changedReviews.flatMap((review) =>
+    review.findings
+      .filter(({ findingId }) => !respondedFindings.get(review.reviewId)?.has(findingId))
+      .map(({ findingId }) => ({ reviewId: review.reviewId, findingId })),
+  );
   if (!approved && reviewRequired)
     return {
       ready: false,
@@ -773,11 +772,13 @@ export function assertDecisionReviewMutation(
     return;
   }
   if (event.type === "decision_review_responded") {
-    for (const response of event.payload.responses) {
-      const review = current.reviews.find((candidate) => candidate.reviewId === response.reviewId);
-      if (!review?.findings.some((finding) => finding.findingId === response.findingId))
+    const findingsByReview = new Map<string, Set<string>>();
+    for (const review of current.reviews)
+      if (!findingsByReview.has(review.reviewId))
+        findingsByReview.set(review.reviewId, new Set(review.findings.map(({ findingId }) => findingId)));
+    for (const response of event.payload.responses)
+      if (!findingsByReview.get(response.reviewId)?.has(response.findingId))
         invalidDecision(`Decision review finding ${response.reviewId}/${response.findingId} does not exist.`);
-    }
     return;
   }
   if (event.type === "decision_review_overridden") {
