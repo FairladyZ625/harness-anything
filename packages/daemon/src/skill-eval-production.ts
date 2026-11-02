@@ -45,6 +45,10 @@ interface CatalogDocument {
 
 const EMPTY_CATALOG: CatalogDocument = { skills: [], cases: {}, evaluations: [] };
 
+function casesForSkill(catalog: CatalogDocument, skillId: string): SkillEvalCase[] {
+  return Object.hasOwn(catalog.cases, skillId) ? (catalog.cases[skillId] ?? []) : [];
+}
+
 /** The daemon-owned catalog is deliberately append-only at the case boundary. */
 export function openSkillEvalCatalogStore(userRoot: string): SkillEvalStore {
   const target = path.join(userRoot, "skill-eval", "catalog.json");
@@ -93,10 +97,10 @@ export function openSkillEvalCatalogStore(userRoot: string): SkillEvalStore {
       const skills = (await readCatalog()).skills.filter((skill) => skill.skillId === skillId);
       return skills.at(-1) ?? null;
     },
-    listCases: async (skillId) => (await readCatalog()).cases[skillId] ?? [],
+    listCases: async (skillId) => casesForSkill(await readCatalog(), skillId),
     appendCase: (skillId, item) =>
       updateCatalog((catalog) => {
-        const cases = [...(catalog.cases[skillId] ?? [])];
+        const cases = [...casesForSkill(catalog, skillId)];
         if (cases.some((candidate) => candidate.id === item.id))
           throw Object.assign(new Error(`evaluation case ${item.id} already exists`), { code: "CONFLICT" });
         cases.push(item);

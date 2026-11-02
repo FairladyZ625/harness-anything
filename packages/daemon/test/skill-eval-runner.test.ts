@@ -367,6 +367,35 @@ test("registration shares the catalog queue and survives reopening without lost 
   }
 });
 
+for (const skillId of ["constructor", "toString"]) {
+  test(`registered ${skillId} supports empty cases, append and reopening`, async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "skill-case-key-"));
+    try {
+      const runtime: SkillEvalRuntimePort = { dispatch: async () => ({ status: "failed" }) },
+        runner = new SkillEvalRunner(openSkillEvalCatalogStore(root), runtime, { runRoot: root, binding: null }),
+        drafter = { principalId: "author", role: "drafter" as const },
+        curator = { principalId: "operator", role: "operator" as const },
+        draft = { skillId, version: "1", body: "Return evidence." };
+      await runner.registerVersion(drafter, draft);
+      assert.deepEqual(await runner.listCases(drafter, skillId), []);
+      const added = await runner.addCase(curator, skillId, { id: "public", input: skillId });
+      const reopened = new SkillEvalRunner(openSkillEvalCatalogStore(root), runtime, { runRoot: root, binding: null });
+      assert.deepEqual(await reopened.listCases(drafter, skillId), [added]);
+      await assert.rejects(reopened.addCase(curator, skillId, { id: "public", input: "overwrite" }), {
+        code: "CONFLICT",
+      });
+      await reopened.addCase(curator, skillId, { id: "second", input: "second" });
+      assert.deepEqual(
+        (await runner.listCases(drafter, skillId)).map(({ id }) => id),
+        ["public", "second"],
+      );
+      assert.deepEqual(await runner.listCases(drafter, "other"), []);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+}
+
 test("runs every case in a contained sandbox, releases slots, and emits a gate witness", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "skill-eval-"));
   try {

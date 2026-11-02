@@ -119,6 +119,24 @@ test("authenticated drafters register immutable versions with server-owned attri
   t.diagnostic(JSON.stringify({ registered, duplicate, denied }));
 });
 
+test("registered prototype-named skills list empty cases over a real socket and retain curator admission", async (t) => {
+  const { request } = await fixture(t);
+  for (const skillId of ["constructor", "toString"]) {
+    const registered = await request("daemon.skillEval.version.register", {
+      skillId,
+      version: "1",
+      body: "Return evidence.",
+    });
+    assert.equal(registered.ok, true, JSON.stringify(registered));
+    const listed = await request("daemon.skillEval.cases.list", { skillId });
+    assert.equal(listed.ok, true, JSON.stringify(listed));
+    assert.deepEqual(listed.cases, []);
+    const denied = await request("daemon.skillEval.case.add", { skillId, id: "public", input: "evidence" });
+    assert.equal(denied.code, "FORBIDDEN");
+    t.diagnostic(JSON.stringify({ skillId, registered, listed, denied }));
+  }
+});
+
 test("repository reads refuse readers without the repository grant", async (t) => {
   const { request, userRoot } = await fixture(t);
   signInPolicyTestUser(userRoot, "outsider", ["other"], "viewer");
