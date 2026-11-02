@@ -143,6 +143,7 @@ test(
           finish: () => Promise<void>;
           readonly child: ChildProcess;
         }> = [],
+        launchWaiters = new Map<string, Set<() => void>>(),
         edgeHosts: { readonly name: string; readonly close: () => Promise<void> }[] = [];
       phase = "migrate center repository vertical declaration";
       const vertical = await fixture.host.run("lease-repo", { kind: "vertical-declaration-migrate" }, localAuth);
@@ -195,6 +196,8 @@ test(
           };
         if (!child.pid) throw new Error("fixture runtime process did not expose a pid");
         launches.push(launch);
+        for (const resolve of launchWaiters.get(taskId) ?? []) resolve();
+        launchWaiters.delete(taskId);
         return {
           pid: child.pid,
           onOutput: (listener: (chunk: string) => void) => {
@@ -216,9 +219,24 @@ test(
           },
         };
       };
+      const registeredLaunch = (taskId: string): Promise<void> => {
+        if (launches.some((candidate) => candidate.taskId === taskId)) return Promise.resolve();
+        return new Promise<void>((resolve) => {
+          const waiters = launchWaiters.get(taskId) ?? new Set<() => void>(),
+            done = () => {
+              waiters.delete(done);
+              if (waiters.size === 0) launchWaiters.delete(taskId);
+              resolve();
+            };
+          waiters.add(done);
+          launchWaiters.set(taskId, waiters);
+          // Close the gap between the first check and waiter registration.
+          if (launches.some((candidate) => candidate.taskId === taskId)) done();
+        });
+      };
       const waitForLaunch = async (edge: Awaited<ReturnType<typeof fleetEdgeHostFixture>>, taskId: string) => {
         try {
-          await eventually(() => launches.some((candidate) => candidate.taskId === taskId));
+          await registeredLaunch(taskId);
           await launches.find((candidate) => candidate.taskId === taskId)!.ready;
         } catch (error) {
           const detail = readNodeAutoClaimDiagnostics(edge.edgeUser).slice(-20),
