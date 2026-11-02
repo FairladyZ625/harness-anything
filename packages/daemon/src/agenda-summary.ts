@@ -69,7 +69,10 @@ export function renderAgendaSummary(
     | "waitingOnOthers"
     | "dispatchable"
     | "todos"
-  > & { readonly unanchoredWorks?: readonly { readonly taskId: string; readonly title: string }[] },
+  > & {
+    readonly unanchoredWorks?: readonly { readonly taskId: string; readonly title: string }[];
+    readonly undispatchedReviews?: readonly { readonly taskId: string; readonly title: string }[];
+  },
 ): string {
   const workLabel = (row: AgendaTaskRow | AgendaExecutionRow) => (row.work ? ` [工作 ${row.work.title}]` : ""),
     attentionLine = (row: DaemonAgendaResult["attentionItems"][number], index: number) =>
@@ -114,6 +117,11 @@ export function renderAgendaSummary(
     section = (title: string, filter: string, rows: readonly string[], total = rows.length) =>
       `${title} (${total}) — ${filter}\n${rows.length ? rows.join("\n") : "- 无"}`;
   return [
+    section(
+      "评审派发待 CEO 处理",
+      "已提交的当前 cut 没有有效评审或在飞 reviewer；worker 无权重派",
+      (groups.undispatchedReviews ?? []).map((row) => `- ${row.taskId} ${row.title}`),
+    ),
     section(
       "注意力顺序（前 7 条）",
       "daemon 中心打分；CLI 与 GUI 使用同一顺序",

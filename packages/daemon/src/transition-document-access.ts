@@ -189,6 +189,24 @@ export function readTaskTransitionDocument(input: {
   };
 }
 
+/** Advisory only: authored closeout prose remains admissible, including an unchanged scaffold. */
+export function taskCloseoutTemplateWarnings(input: {
+  readonly projection: TaskProjectionQueries;
+  readonly taskId: string;
+  readonly bodyOverrides?: ReadonlyMap<string, string>;
+}): readonly string[] {
+  const located = locateTaskTransitionDocument({ ...input, slot: "task.closeout" });
+  if (!located.descriptor || !located.path) return [];
+  const scaffold = catalogScaffoldBody(located.contract, located.descriptor),
+    body = input.bodyOverrides?.get(located.path) ?? input.projection.readDocument(located.path).document?.body;
+  if (scaffold === null || body === undefined || scaffold.trim() !== body.trim()) return [];
+  return [
+    `closeout.md still contains the materialized template for ${input.taskId}. ` +
+      "This submission retains template prose. Submit accepts task-package documents and ends the implementation " +
+      "write lease; ask the CEO to sync a corrected closeout and amend the cut, or return the task for rework.",
+  ];
+}
+
 export function assertTaskTransitionDocumentReady(input: {
   readonly rootDir: string;
   readonly projection: TaskProjection;
