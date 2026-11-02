@@ -891,6 +891,14 @@ test("Fleet reader credentials retain closed-frame validation", () => {
     accessToken: "owner-session",
   };
   assert.deepEqual(parseFleetFrame(serializeFleetFrame(frame)), frame);
+  const command = frames.find((candidate) => candidate.schema === "fleet.task.command/v1")!;
+  const rangeCommand = {
+    ...command,
+    opId: "range-read-0",
+    action: { kind: "doc-show", path: "tasks/task/task_plan.md", offset: 0, length: FLEET_CHUNK_BYTES },
+    accessToken: "owner-session",
+  };
+  assert.deepEqual(parseFleetFrame(serializeFleetFrame(rangeCommand)), rangeCommand);
   for (const accessToken of [null, 42, {}, "", "a".repeat(16 * 1024 + 1)])
     assert.throws(() => parseFleetFrame({ ...frame, accessToken }), FleetContractError);
   assert.throws(() => parseFleetFrame({ ...frame, unknownCredential: "no" }), FleetContractError);

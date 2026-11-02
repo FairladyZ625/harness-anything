@@ -10,6 +10,7 @@ export interface ContentBlobRangeReader {
   readContentBlobSize(sha256: string): number | null | Promise<number | null>;
 }
 
+/** Shared backend-neutral assertions for content object range and size reads. */
 export async function assertContentBlobRangeContract(
   t: TestContext,
   reader: ContentBlobRangeReader,

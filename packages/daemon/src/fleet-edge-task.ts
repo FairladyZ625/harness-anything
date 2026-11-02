@@ -132,7 +132,7 @@ export async function runFleetDocShowRange(options: {
       const offset = sinkHandle ? (await sinkHandle.sink.status(new AbortController().signal)).durableOffset : 0,
         result = await request({
           ...options.peer,
-          opId: `${options.opId}:range:${offset}`,
+          opId: `${options.opId}-range-${offset}`,
           action: {
             ...options.action,
             offset,

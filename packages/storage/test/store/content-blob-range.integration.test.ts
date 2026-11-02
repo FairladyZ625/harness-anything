@@ -7,7 +7,7 @@ import { sha256Bytes } from "@harness-anything/kernel/internal/integrity/stable-
 import { sqliteLedgerPath } from "../../src/store/sqlite-event-store.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
 import { objectPath } from "../../src/store/content-objects.ts";
-import { assertContentBlobRangeContract } from "../content-blob-range.contract.ts";
+import { assertContentBlobRangeContract } from "../content-blob-range.assertions.ts";
 import { initRepo } from "./task-event-store.fixtures.ts";
 
 test("SQLite content blob storage fulfills the shared range-read contract", async (t) => {

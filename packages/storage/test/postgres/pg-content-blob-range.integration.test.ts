@@ -5,7 +5,7 @@ import { Pool } from "pg";
 import { sha256Bytes } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS } from "../../src/postgres/event-ledger-schema.ts";
 import { makePostgresTaskEventStore } from "../../src/postgres/pg-task-event-store.ts";
-import { assertContentBlobRangeContract } from "../content-blob-range.contract.ts";
+import { assertContentBlobRangeContract } from "../content-blob-range.assertions.ts";
 import { startManagedPostgresFixture } from "./managed-postgres.fixture.ts";
 
 test("managed PostgreSQL content blob storage fulfills the shared range-read contract", async (t) => {

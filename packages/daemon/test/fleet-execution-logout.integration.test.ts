@@ -607,7 +607,9 @@ test(
     writeFileSync(path.join(reviewRoot, "harness", frozenEvidencePath), "Changed local evidence.\n");
     const fullEvidence = await reviewCli(["doc", "show", "--path", frozenEvidencePath]);
     assert.equal(fullEvidence.outcome, "applied", JSON.stringify(fullEvidence));
-    assert.equal(fullEvidence.evidence, frozenEvidence);
+    assert.equal(fullEvidence.evidenceContentEncoding, "utf8");
+    assert.equal(typeof fullEvidence.evidenceFile, "string");
+    assert.equal(readFileSync(String(fullEvidence.evidenceFile), "utf8"), frozenEvidence);
     t.diagnostic(`Frozen evidence read ${Buffer.byteLength(frozenEvidence)} bytes through center chunk frames.`);
     const rawEvidence = await spawnCli(["--root", reviewRoot, "doc", "show", "--path", frozenEvidencePath, "--raw"], {
       ...process.env,
@@ -615,7 +617,9 @@ test(
     });
     assert.equal(rawEvidence.stdout, frozenEvidence);
     const binaryEvidence = await reviewCli(["doc", "show", "--path", "tasks/task-fleet-fleet/artifacts/evidence.bin"]);
-    assert.equal(binaryEvidence.evidence, artifactBytes.toString("base64"));
+    assert.equal(binaryEvidence.evidenceContentEncoding, "base64");
+    assert.equal(typeof binaryEvidence.evidenceFile, "string");
+    assert.deepEqual(readFileSync(String(binaryEvidence.evidenceFile)), artifactBytes);
     // dec_CF96A3C910B31D2D7498F32DDD/CH2: unfrozen reads use the shared live document view.
     for (const readablePath of [
       "tasks/task-other/artifacts/full-evidence.txt",
