@@ -76,10 +76,7 @@ export function validateDaemonRpcCall(value: unknown): readonly string[] {
   const errors = validateShape(value.params === undefined ? {} : value.params, method.params, "params");
   if (!errors.length && value.method === "protocol.hello")
     errors.push(...validateSessionEnvironment((value.params as JsonObject).sessionEnvironment));
-  if (
-    !errors.length &&
-    value.method === "repo.agentRuntime.quote"
-  )
+  if (!errors.length && value.method === "repo.agentRuntime.quote")
     errors.push(...validateAgentRuntimeQuoteParams(value.params));
   if (
     !errors.length &&
