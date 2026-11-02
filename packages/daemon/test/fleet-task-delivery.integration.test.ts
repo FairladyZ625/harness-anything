@@ -371,6 +371,11 @@ test(
     git(cwd, "push", "origin", `HEAD:refs/heads/${created.taskId}`);
     assert.equal(remoteRef(), commitSha, "negative case also covers an expected ref already equal to remote");
     await assert.rejects(
+      preflight(oldNodePeer, { kind: "task-submit", taskId: created.taskId }),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "lease_holder_mismatch",
+    );
+    assert.equal(remoteRef(), commitSha, "same-owner old node cannot update an existing expected ref");
+    await assert.rejects(
       preflight(peer, { kind: "task-submit", taskId: created.taskId, executionId: "exe-forged-after-ref" }),
       (error: unknown) => error instanceof Error && "code" in error && error.code === "lease_holder_mismatch",
     );
