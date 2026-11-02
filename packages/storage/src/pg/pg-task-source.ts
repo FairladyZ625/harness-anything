@@ -1,4 +1,15 @@
+import { pgGraphQueries, type PgGraphQueries } from "./pg-graph-queries.ts";
+import { pgKnowledgeQueries, type PgKnowledgeQueries } from "./pg-knowledge-queries.ts";
+import { pgAggregateQueries, type PgAggregateQueries } from "./pg-aggregate-queries.ts";
+import { pgValueQueries, type PgValueQueries } from "./pg-value-queries.ts";
+import { pgTaskEventQueries, type PgTaskEventQueries } from "./pg-task-event-queries.ts";
+import { pgRelationPortQueries, type PgRelationPortQueries } from "./pg-relation-port-queries.ts";
+import { pgTaskIndexQueries, type PgTaskIndexQueries } from "./pg-task-index-queries.ts";
+import { readRelationsInTransaction } from "./pg-relation-queries.ts";
+import { checkedPageLimit } from "./pg-query-page.ts";
+import { pgRuntimeDispatchQueries, type PgRuntimeDispatchQueries } from "./pg-runtime-dispatch-queries.ts";
 import type { Pool } from "pg";
+import { pgEventQueries, readCutInTransaction } from "./pg-event-queries.ts";
 import type {
   DecisionAgendaProjectionPageRead,
   DecisionProjectionListRead,
@@ -6,6 +17,7 @@ import type {
   FactProjectionRead,
   FactProjectionSearchRead,
   LeaseV1,
+  TaskProjectionQueries,
   TaskProjectionListQuery,
   TaskProjectionListRead,
   TaskProjectionRead,
@@ -18,20 +30,9 @@ import type {
 import type { FactSearchFilters } from "@harness-anything/kernel/internal/ports/projection-contracts.ts";
 import type { TaskLifecycleSnapshot } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract.ts";
 import { emptyTaskLifecycleSnapshot } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract.ts";
-import type {
-  FactProjectionRow,
-  TaskRelationProjectionRow,
-} from "@harness-anything/kernel/internal/ports/projection-contracts.ts";
-import type { EntityVersionWitness } from "@harness-anything/kernel/internal/domain/entity-freshness.ts";
-import {
-  relationFreshnessAnchorForType,
-  type RelationType,
-} from "@harness-anything/kernel/internal/domain/entity-relation.ts";
-import { relationFreshnessAtCut } from "@harness-anything/kernel/internal/domain/entity-freshness.ts";
-import { keycloakPersonIdentityWitness } from "@harness-anything/kernel/internal/domain/entity-freshness.ts";
-import { parseEntityRef } from "@harness-anything/kernel/internal/domain/entity-ref.ts";
+import type { FactProjectionRow } from "@harness-anything/kernel/internal/ports/projection-contracts.ts";
+import type { EventListPage, EventListQuery } from "@harness-anything/kernel/internal/domain/event-list.ts";
 import { factInvalidated, factLiveness } from "@harness-anything/kernel/internal/domain/fact-liveness.ts";
-import { relationOwnerRef } from "@harness-anything/kernel/internal/domain/entity-relation.ts";
 import { readPgDecisionRows } from "./pg-decision-reads.ts";
 import { filterLiteralTextRows } from "./pg-text-search.ts";
 import { effectiveLeaseValue } from "../projection/rebuildable-task-projection-runtime.ts";
@@ -47,6 +48,7 @@ export interface PgTaskProjectionSourceOptions {
   readonly path?: string;
   readonly maxItems?: number;
   readonly ownsPool?: boolean;
+  readonly now?: () => string;
 }
 
 export interface PgProjectionCut {
@@ -70,22 +72,24 @@ const presentationStatusSql = (readersParameter: number) => `CASE
   ) SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM members WHERE status NOT IN ('done','cancelled')) THEN CASE WHEN EXISTS (SELECT 1 FROM members) THEN CASE WHEN EXISTS (SELECT 1 FROM members WHERE status='done') THEN 'done' ELSE 'cancelled' END END WHEN ha_task_snapshots.snapshot #>> '{task,status}'='planned' AND EXISTS (SELECT 1 FROM members WHERE status NOT IN ('planned','cancelled')) THEN 'active' END), ha_task_snapshots.snapshot #>> '{task,status}')
   ELSE ha_task_snapshots.snapshot #>> '{task,status}' END`;
 
-function checkedPageLimit(value: number, maximum = 500): number {
-  if (!Number.isSafeInteger(value) || value < 1 || value > maximum)
-    throw new Error(`query page limit must be an integer between 1 and ${maximum}`);
-  return value;
-}
-
 function presentSnapshot(snapshot: TaskLifecycleSnapshot, status: string): TaskLifecycleSnapshot {
   if (!snapshot.task || snapshot.task.status === status) return snapshot;
   return { ...snapshot, task: { ...snapshot.task, status: status as typeof snapshot.task.status } };
 }
 
 /**
- * Async PG projection primitives. Full synchronous `TaskProjectionQueries` composition and
- * RepoWriter session bridging belong to the subsequent query-port delivery.
+ * Native asynchronous PG queries. The synchronous reader worker composes these methods
+ * inside one pinned transaction without changing the public TaskProjectionQueries port.
  */
-export interface PgTaskProjectionSource {
+export interface PgTaskProjectionSource
+  extends PgRuntimeDispatchQueries,
+    PgTaskIndexQueries,
+    PgRelationPortQueries,
+    PgTaskEventQueries,
+    PgValueQueries,
+    PgAggregateQueries,
+    PgKnowledgeQueries,
+    PgGraphQueries {
   readonly path: string;
   readonly readCut: () => Promise<PgProjectionCut>;
   readonly read: (taskId: string, presentationStatus?: boolean) => Promise<TaskProjectionRead>;
@@ -110,11 +114,34 @@ export interface PgTaskProjectionSource {
   readonly listDecisionAgendaPage: (query: DecisionPageQuery) => Promise<DecisionAgendaProjectionPageRead>;
   readonly currentLease: (taskId: string, now?: string) => Promise<LeaseV1 | null>;
   readonly currentLeaseForExecution: (executionId: string, now?: string) => Promise<LeaseV1 | null>;
+  readonly readCanonicalEvents: (
+    ...args: Parameters<TaskProjectionQueries["readCanonicalEvents"]>
+  ) => Promise<ReturnType<TaskProjectionQueries["readCanonicalEvents"]>>;
+  readonly readScheduleEvents: (
+    ...args: Parameters<TaskProjectionQueries["readScheduleEvents"]>
+  ) => Promise<ReturnType<TaskProjectionQueries["readScheduleEvents"]>>;
+  readonly readReckoningEvents: (
+    ...args: Parameters<TaskProjectionQueries["readReckoningEvents"]>
+  ) => Promise<ReturnType<TaskProjectionQueries["readReckoningEvents"]>>;
+  readonly readScheduleOutputEvents: (
+    ...args: Parameters<TaskProjectionQueries["readScheduleOutputEvents"]>
+  ) => Promise<ReturnType<TaskProjectionQueries["readScheduleOutputEvents"]>>;
+  readonly readRuntimeSessionEvents: (
+    ...args: Parameters<TaskProjectionQueries["readRuntimeSessionEvents"]>
+  ) => Promise<ReturnType<TaskProjectionQueries["readRuntimeSessionEvents"]>>;
+  readonly readEventList: (query: EventListQuery) => Promise<EventListPage>;
+  readonly readEventWitness: (revision: number) => Promise<ReturnType<TaskProjectionQueries["readEventWitness"]>>;
+  readonly readEventSummaries: (
+    ...args: Parameters<TaskProjectionQueries["readEventSummaries"]>
+  ) => Promise<ReturnType<TaskProjectionQueries["readEventSummaries"]>>;
+  readonly readOperation: (opId: string) => Promise<ReturnType<TaskProjectionQueries["readOperation"]>>;
+  readonly readTaskOperation: (opId: string) => Promise<ReturnType<TaskProjectionQueries["readTaskOperation"]>>;
   readonly close: () => Promise<void>;
 }
 
 export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOptions): PgTaskProjectionSource {
-  const maxItems = options.maxItems ?? 4096;
+  const maxItems = options.maxItems ?? 4096,
+    now = options.now ?? (() => new Date().toISOString());
   if (!Number.isSafeInteger(maxItems) || maxItems < 1 || maxItems > 4096)
     throw new Error("postgres task projection maxItems must be between 1 and 4096");
   const claims: PostgresScopeClaims = options.scope,
@@ -142,7 +169,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           [claims.tenantId, claims.projectId, claims.policyEpoch, taskId, readers],
         );
         const snapshot = result.rows[0]?.snapshot;
-        return snapshot ? (await hydrateSnapshots(client, options.scope, [snapshot]))[0]! : null;
+        return snapshot ? (await hydrateSnapshots(client, options.scope, [snapshot], now()))[0]! : null;
       },
       claims,
       { isolationLevel: "repeatable read" },
@@ -163,7 +190,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
             [claims.tenantId, claims.projectId, claims.policyEpoch, taskId, readers],
           ),
           snapshot = result.rows[0]?.snapshot
-            ? (await hydrateSnapshots(client, options.scope, [result.rows[0].snapshot]))[0]!
+            ? (await hydrateSnapshots(client, options.scope, [result.rows[0].snapshot], now()))[0]!
             : null;
         return {
           status: cut.status,
@@ -176,7 +203,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           packagePath: result.rows[0]?.package_path ?? null,
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
-          warnings: snapshot === null && cut.sourceRevision > 0 ? ["projection_missing"] : [],
+          warnings: [],
           catchUp: { maxItems, reducedItems: 0, storeTransactions: 0 },
         };
       },
@@ -270,8 +297,8 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           }
         }
         const paged = query.limit !== undefined || query.cursor !== undefined,
-          limit = paged ? checkedPageLimit(query.limit ?? 100) : maxItems;
-        values.push(limit + 1);
+          limit = paged ? checkedPageLimit(query.limit ?? 100) : null;
+        if (limit !== null) values.push(limit + 1);
         const result = await client.query<{
           task_id: string;
           package_path: string | null;
@@ -284,16 +311,17 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           updated_at: string;
         }>(
           `SELECT task_id, package_path, generation, workspace_revision::text, snapshot, created_at::text, completed_at::text, updated_at::text, ${presentationStatusSql(4)} AS presentation_status FROM ha_task_snapshots
-           WHERE ${where.join(" AND ")} ORDER BY ${query.pinnedFirst ? "COALESCE((snapshot #>> '{task,pinned}')::boolean, false) DESC, " : ""}task_id LIMIT $${values.length}`,
+           WHERE ${where.join(" AND ")} ORDER BY ${query.pinnedFirst ? "COALESCE((snapshot #>> '{task,pinned}')::boolean, false) DESC, " : ""}task_id${limit === null ? "" : ` LIMIT $${values.length}`}`,
           values,
         );
-        const truncated = result.rows.length > limit,
+        const truncated = limit !== null && result.rows.length > limit,
           hydrated = await hydrateSnapshots(
             client,
             options.scope,
             result.rows.map((row) => row.snapshot),
+            now(),
           ),
-          rows = (truncated ? result.rows.slice(0, limit) : result.rows).map((row, index) => ({
+          rows = (limit === null ? result.rows : result.rows.slice(0, limit)).map((row, index) => ({
             taskId: row.task_id,
             packagePath: row.package_path,
             generation: row.generation,
@@ -311,7 +339,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
           warnings: [],
-          ...(query.limit !== undefined || query.cursor !== undefined || truncated
+          ...(limit !== null
             ? {
                 page: {
                   limit,
@@ -602,9 +630,9 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
       claims,
       { isolationLevel: "repeatable read" },
     );
-  const currentLease = (taskId: string, now = new Date().toISOString()) => readLease("task_id", taskId, now);
-  const currentLeaseForExecution = (executionId: string, now = new Date().toISOString()) =>
-    readLease("raw_lease->>'executionId'", executionId, now);
+  const currentLease = (taskId: string, at = now()) => readLease("task_id", taskId, at);
+  const currentLeaseForExecution = (executionId: string, at = now()) =>
+    readLease("raw_lease->>'executionId'", executionId, at);
   const listDecisions = (filters: DecisionListFilters): Promise<DecisionProjectionListRead> =>
     withPostgresTransaction(
       options.pool,
@@ -688,6 +716,15 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
     );
   return {
     path,
+    ...pgEventQueries(options),
+    ...pgRuntimeDispatchQueries(options),
+    ...pgTaskIndexQueries(options, { read, list }),
+    ...pgRelationPortQueries(options),
+    ...pgTaskEventQueries(options),
+    ...pgValueQueries(options),
+    ...pgAggregateQueries(options),
+    ...pgKnowledgeQueries(options, { readDecision, searchFacts }),
+    ...pgGraphQueries(options),
     readCut,
     read,
     list,
@@ -706,30 +743,6 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
       if (options.ownsPool === true) await options.pool.end();
     },
   };
-}
-
-async function readCutInTransaction(
-  client: import("pg").PoolClient,
-  claims: PostgresScopeClaims,
-  readers: readonly string[],
-  repoId: string,
-): Promise<PgProjectionCut> {
-  const result = await client.query<{ watermark: string }>(
-    `SELECT watermark::text FROM ha_projection_meta
-     WHERE tenant_id = $1 AND project_id = $2 AND policy_epoch = $3 AND projection_name = 'task/v1'`,
-    [claims.tenantId, claims.projectId, claims.policyEpoch],
-  );
-  const head = await client.query<{ readonly revision: string }>(
-    `SELECT revision::text FROM ha_repo_heads
-     WHERE tenant_id = $1 AND project_id = $2 AND repo_id = $3 AND policy_epoch = $4
-       AND (cardinality($5::text[]) = 0 OR readers && $5::text[])`,
-    [claims.tenantId, claims.projectId, repoId, claims.policyEpoch, readers],
-  );
-  const watermark = Number(result.rows[0]?.watermark ?? 0),
-    sourceRevision = Number(head.rows[0]?.revision ?? 0);
-  if (watermark > sourceRevision)
-    throw new Error(`projection watermark ${watermark} exceeds ledger head ${sourceRevision}`);
-  return { status: watermark === sourceRevision ? "ready" : "pending", watermark, sourceRevision };
 }
 
 function toIsoTimestamp(value: string): string {
@@ -760,91 +773,6 @@ function decodeFactCursor(value: string): readonly [string, string] {
   return [parsed[0] as string, parsed[1] as string];
 }
 
-async function readEntityVersionWitnesses(
-  client: import("pg").PoolClient,
-  claims: PostgresScopeClaims,
-  readers: readonly string[],
-  refs: readonly string[],
-): Promise<ReadonlyMap<string, EntityVersionWitness>> {
-  const result = new Map<string, EntityVersionWitness>();
-  for (const ref of refs) {
-    const parsed = parseEntityRef(ref);
-    if (parsed === null || parsed.externalHarness) {
-      result.set(ref, { entityRef: ref, freshness: "unknown", currentVersion: null });
-      continue;
-    }
-    const { kind, id } = parsed;
-    if (kind === "execution") {
-      const executions = await client.query<{ source_version: string }>(
-        `SELECT value->>'sourceObservedVersion' AS source_version FROM ha_relations
-         WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND source_ref=$4 AND relation_type='executes'
-           AND value ? 'sourceObservedVersion'
-           AND (cardinality($5::text[])=0 OR readers && $5::text[])
-         ORDER BY (value->>'sourceObservedVersion')::bigint DESC LIMIT 1`,
-        [claims.tenantId, claims.projectId, claims.policyEpoch, ref, readers],
-      );
-      result.set(
-        ref,
-        executions.rows.length === 0
-          ? { entityRef: ref, freshness: "unknown", currentVersion: null }
-          : {
-              entityRef: ref,
-              freshness: "current",
-              currentVersion: Number(executions.rows[0]!.source_version),
-            },
-      );
-      continue;
-    }
-    const table =
-      kind === "task"
-        ? "ha_task_snapshots"
-        : kind === "decision"
-          ? "ha_decisions"
-          : kind === "fact"
-            ? "ha_facts"
-            : kind === "agent"
-              ? "ha_agents"
-              : kind === "squad"
-                ? "ha_squads"
-                : null;
-    const idColumn =
-      kind === "task"
-        ? "task_id"
-        : kind === "decision"
-          ? "decision_id"
-          : kind === "fact"
-            ? "fact_id"
-            : kind === "agent"
-              ? "agent_id"
-              : kind === "squad"
-                ? "squad_id"
-                : null;
-    if (!table || !idColumn) {
-      result.set(ref, { entityRef: ref, freshness: "unknown", currentVersion: null });
-      continue;
-    }
-    const row = await client.query<{
-      workspace_revision: string;
-      value?: Record<string, unknown>;
-      snapshot?: TaskLifecycleSnapshot;
-    }>(
-      `SELECT workspace_revision::text, ${kind === "decision" || kind === "fact" ? "value" : kind === "task" ? "snapshot" : "declaration AS value"} FROM ${table} WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND ${idColumn}=$4 AND (cardinality($5::text[])=0 OR readers && $5::text[])`,
-      [claims.tenantId, claims.projectId, claims.policyEpoch, id, readers],
-    );
-    if (!row.rows[0]) result.set(ref, { entityRef: ref, freshness: "orphaned", currentVersion: null });
-    else {
-      const value = row.rows[0].value;
-      result.set(ref, {
-        entityRef: ref,
-        freshness: "current",
-        currentVersion: Number(row.rows[0].workspace_revision),
-        ...(value?.state ? { state: String(value.state) } : {}),
-      });
-    }
-  }
-  return result;
-}
-
 function emptySnapshot(): TaskLifecycleSnapshot {
   return emptyTaskLifecycleSnapshot(0);
 }
@@ -869,107 +797,16 @@ function decodeTaskListCursor(value: string, expected: number): readonly string[
   return parsed;
 }
 
-interface PgRelationQuery {
-  readonly source?: string;
-  readonly taskOwned?: boolean;
-  readonly target?: string;
-  readonly targets?: readonly string[];
-  readonly relationType?: string;
-  readonly limit?: number;
-}
-
-async function readRelationsInTransaction(
-  client: import("pg").PoolClient,
-  claims: PgProjectionScope,
-  readers: readonly string[],
-  query: PgRelationQuery,
-): Promise<readonly TaskRelationProjectionRow[]> {
-  const values: unknown[] = [claims.tenantId, claims.projectId, claims.policyEpoch, readers],
-    where = [
-      "tenant_id = $1",
-      "project_id = $2",
-      "policy_epoch = $3",
-      "(cardinality($4::text[]) = 0 OR readers && $4::text[])",
-    ];
-  if (query.taskOwned === true) where.push("starts_with(source_ref, 'task/')");
-  if (query.source !== undefined) {
-    values.push(query.source);
-    where.push(`source_ref = $${values.length}`);
-  }
-  if (query.targets !== undefined) {
-    values.push(query.targets);
-    where.push(`target_ref = ANY($${values.length}::text[])`);
-  }
-  if (query.target !== undefined) {
-    values.push(query.target);
-    where.push(`target_ref = $${values.length}`);
-  }
-  if (query.relationType !== undefined) {
-    values.push(query.relationType);
-    where.push(`relation_type = $${values.length}`);
-  }
-  if (query.limit !== undefined) values.push(checkedPageLimit(query.limit, 4096));
-  const result = await client.query<{
-    relation_id: string;
-    source_ref: string;
-    target_ref: string;
-    relation_type: string;
-    relation_state: string;
-    workspace_revision: string;
-    value: Record<string, unknown>;
-  }>(
-    `SELECT relation_id, source_ref, target_ref, relation_type, relation_state, workspace_revision::text, value
-           FROM ha_relations WHERE ${where.join(" AND ")} ORDER BY relation_id${query.limit === undefined ? "" : ` LIMIT $${values.length}`}`,
-    values,
-  );
-  const refs = [...new Set(result.rows.flatMap((row) => [row.source_ref, row.target_ref]))],
-    witnesses = await readEntityVersionWitnesses(client, claims, readers, refs);
-  return result.rows.map((row) => {
-    const targetObservedVersion = (row.value.targetObservedVersion as never) ?? null,
-      target = keycloakPersonIdentityWitness(row.target_ref, targetObservedVersion) ??
-        witnesses.get(row.target_ref) ?? {
-          entityRef: row.target_ref,
-          freshness: "unknown" as const,
-          currentVersion: null,
-        };
-    return {
-      relationId: row.relation_id,
-      workspaceRevision: Number(row.workspace_revision),
-      sourceRef: row.source_ref,
-      targetRef: row.target_ref,
-      relationType: row.relation_type as TaskRelationProjectionRow["relationType"],
-      direction: String(row.value.direction ?? "directed") as never,
-      strength: String(row.value.strength ?? "strong") as never,
-      origin: String(row.value.origin ?? "event") as never,
-      state: row.relation_state as never,
-      targetObservedVersion,
-      currentTargetVersion: target.currentVersion,
-      freshness: relationFreshnessAtCut({
-        anchor: relationFreshnessAnchorForType(row.relation_type as RelationType),
-        target,
-        targetObservedVersion,
-        ...(relationFreshnessAnchorForType(row.relation_type as RelationType) === "source"
-          ? { source: witnesses.get(row.source_ref) }
-          : {}),
-      }),
-      rationale: String(row.value.rationale ?? ""),
-      ownerRef: String(row.value.ownerRef ?? relationOwnerRef(row.source_ref)),
-      sourcePath: String(row.value.sourcePath ?? "event:unknown"),
-      recordIndex: Number(row.value.recordIndex ?? 0),
-    } as TaskRelationProjectionRow;
-  });
-}
-
 async function hydrateSnapshots(
   client: import("pg").PoolClient,
   scope: PgProjectionScope,
   snapshots: readonly TaskLifecycleSnapshot[],
+  now: string,
 ): Promise<readonly TaskLifecycleSnapshot[]> {
   if (!snapshots.length) return [];
   const relations = await readRelationsInTransaction(client, scope, [...(scope.readers ?? [])], {
     targets: snapshots.flatMap(({ task }) => (task ? [`task/${task.taskId}`] : [])),
   });
-  const now = new Date().toISOString();
   return snapshots.map((snapshot) => {
     const effective = effectiveLeaseValue(snapshot.lease, now),
       lease = effective?.phase === "released" ? null : effective;

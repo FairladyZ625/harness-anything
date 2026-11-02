@@ -285,7 +285,7 @@ export function listFactDomainTypeRows(db: DatabaseSync): readonly FactDomainTyp
     db,
     "SELECT domain_type AS domainType, registered_by_fact_id AS registeredByFactId," +
       " workspace_revision AS workspaceRevision FROM fact_domain_type ORDER BY domain_type",
-  );
+  ).map((row) => ({ ...row }));
 }
 
 /** Paged variant of the Fact search: the unparameterized filters keep returning every match;

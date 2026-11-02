@@ -306,6 +306,7 @@ export type TaskProjectionQueries = Omit<
   | "apply"
   | "rebuild"
   | "catchUp"
+  | "catchUpAsync"
   | "admitFact"
   | "admitDecision"
   | "reserveLease"

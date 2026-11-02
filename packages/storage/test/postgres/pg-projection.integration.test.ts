@@ -1,5 +1,18 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { assertPgReaderBridge } from "./pg-reader-bridge.fixture.ts";
+import { appendGraphQueryFixtures, assertCompleteQueryParity } from "./pg-complete-query-parity.fixture.ts";
+import { assertValueQueryParity } from "./pg-value-query-parity.fixture.ts";
+import { existsSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import {
+  appendTaskEventQueryFixtures,
+  assertTaskEventQueryParity,
+  QUERY_SETTINGS_BASE,
+} from "./pg-task-event-parity.fixture.ts";
+import { assertRelationQueryParity } from "./pg-relation-query-parity.fixture.ts";
+import { assertTaskIndexQueryParity } from "./pg-task-index-parity.fixture.ts";
+import { appendRuntimeQueryFixtures, assertRuntimeQueryParity } from "./pg-runtime-query-parity.fixture.ts";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
 import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixture.ts";
@@ -56,7 +69,7 @@ import {
   makePostgresTaskEventStore,
   withPostgresTransaction,
 } from "../../src/postgres/index.ts";
-import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
+import { makeTaskProjection, makeTaskProjectionReader } from "../../src/projection/rebuildable-task-projection.ts";
 import { createEntityStore } from "../../src/store/entity-store.ts";
 import { makeTaskEventStore, type CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
 import { POSTGRES_SCOPE_SCHEMA_CONTRACT } from "../../src/postgres/scope-schema.ts";
@@ -97,10 +110,8 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
     const adminPool = new Pool({ host: "127.0.0.1", port: fixture.port, user: "postgres", database, max: 1 });
     pools.push(adminPool);
     const runtimePassword = randomUUID().replaceAll("-", ""),
-      runtimePool = createPostgresPool(
-        `postgres://${POSTGRES_SCOPE_SCHEMA_CONTRACT.roles.runtime}:${runtimePassword}@127.0.0.1:${fixture.port}/${database}`,
-        { max: 4 },
-      );
+      runtimeConnectionString = `postgres://${POSTGRES_SCOPE_SCHEMA_CONTRACT.roles.runtime}:${runtimePassword}@127.0.0.1:${fixture.port}/${database}`,
+      runtimePool = createPostgresPool(runtimeConnectionString, { max: 4 });
     pools.push(runtimePool);
     const { roles, roleAttributes } = POSTGRES_SCOPE_SCHEMA_CONTRACT;
     await adminPool.query(`CREATE ROLE "${roles.schemaOwner}" ${roleAttributes.schemaOwner}`);
@@ -147,6 +158,15 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
         repoId,
         scope: ledgerScope,
         project: projectEvent,
+        readAuthoredDocument: (path) =>
+          path === "harness.yaml"
+            ? {
+                body: QUERY_SETTINGS_BASE,
+                sha256: sha256Text(QUERY_SETTINGS_BASE),
+                size: Buffer.byteLength(QUERY_SETTINGS_BASE),
+                nodeKind: "file",
+              }
+            : null,
       });
     await eventStore.append(bundle(event), 0, { repoId, holderId: "projection-test", epoch: 1 });
     const appendCanonical = async (value: CanonicalWriteBundle) => {
@@ -712,6 +732,9 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
     await interleavingSource.close();
 
     await appendQueryParityFixtures(appendCanonical, () => expectedRevision);
+    await appendRuntimeQueryFixtures(appendCanonical, () => expectedRevision);
+    await appendTaskEventQueryFixtures(appendCanonical, () => expectedRevision);
+    await appendGraphQueryFixtures(appendCanonical, () => expectedRevision);
     const leaseCases = await appendLeaseReplayFixtures(appendCanonical, () => expectedRevision);
     let releasedLeases: readonly import("@harness-anything/kernel").LeaseV1[] = [];
     const entities = createPgEntityStore({ pool: runtimePool, scope: projectionScope });
@@ -722,6 +745,7 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
     const postgresSnapshotsBeforeRebuild = await source.list(),
       postgresSnapshot = await source.readSnapshot("task-parity");
     assert.ok(postgresSnapshot);
+    const nativeDigestBeforeRebuild = await source.readStateDigest();
     const beforeRebuildDigest = await withPostgresTransaction(
       runtimePool,
       async (client) => {
@@ -734,10 +758,152 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
     );
     await withTempStoreAsync(async (rootDir) => {
       initRepo(rootDir);
+      writeFileSync(join(rootDir, "harness", "harness.yaml"), QUERY_SETTINGS_BASE);
       const sqliteEvents = makeTaskEventStore({ repoId: "projection-parity", rootDir });
       for (const value of canonicalBundles) sqliteEvents.append(value);
       const sqliteProjection = makeTaskProjection({ rootDir, eventStore: sqliteEvents });
       sqliteProjection.catchUp();
+      const pgRoot = join(rootDir, "postgres-only");
+      const queryReader = makeTaskProjectionReader({
+        rootDir: pgRoot,
+        repoId,
+        storage: { backend: "postgres", connectionString: runtimeConnectionString, scope: projectionScope },
+      });
+      const allQueries = makeTaskProjectionReader({
+        repoId,
+        storage: {
+          backend: "postgres",
+          connectionString: runtimeConnectionString,
+          scope: { ...projectionScope, readers: [] },
+        },
+      });
+      try {
+        queryReader.withSession((queries) => assertRuntimeQueryParity(queries, sqliteProjection));
+        allQueries.withSession((queries) => assertTaskIndexQueryParity(queries, sqliteProjection));
+        allQueries.withSession((queries) => assertRelationQueryParity(queries, sqliteProjection));
+        allQueries.withSession((queries) => assertTaskEventQueryParity(queries, sqliteProjection));
+        allQueries.withSession((queries) => assertValueQueryParity(queries, sqliteProjection));
+        allQueries.withSession((queries) => assertCompleteQueryParity(queries, sqliteProjection));
+        await withPostgresTransaction(
+          runtimePool,
+          async (client) => {
+            const { rows } = await client.query<{ event_json: string }>(
+              "SELECT event_json FROM ha_events WHERE op_id='operation-legacy-review-0'",
+            );
+            assert.equal(
+              JSON.parse(rows[0]!.event_json).payload.dispatchKey,
+              `task-review:task-parity:execution-parity:2:sha256:${"a".repeat(64)}`,
+            );
+          },
+          projectionScope,
+        );
+        await assertPgReaderBridge(
+          queryReader,
+          sqliteProjection,
+          runtimePool,
+          runtimeConnectionString,
+          projectionScope,
+          repoId,
+        );
+        assert.equal(existsSync(pgRoot), false);
+        const leaseCase = leaseCases[0]!;
+        const pgRead = queryReader.withSession((queries) => ({
+          cut: queries.readCut(),
+          snapshot: queries.read("task-parity").snapshot,
+          tasks: queries.list({ taskIds: ["task-parity"] }).rows,
+          decision: queries.readDecision("dec_PG_PARITY"),
+          fact: queries.readFact("F-11111111"),
+          decisions: queries.readDecisions(["dec_PG_PARITY"]),
+          decisionList: queries.listDecisions({}),
+          facts: queries.searchFacts({ query: "alpha" }),
+          agenda: queries.listDecisionAgendaPage({ state: "in_effect", limit: 10 }),
+          taskLease: queries.currentLease(leaseCase.taskId, "2026-08-11T00:30:00.000Z"),
+          executionLease: queries.currentLeaseForExecution(leaseCase.executionId, "2026-08-11T00:30:00.000Z"),
+          canonicalEvents: queries.readCanonicalEvents(0, 500),
+          scheduleEvents: queries.readScheduleEvents(),
+          reckoningEvents: queries.readReckoningEvents({
+            type: "fact_recorded",
+            after: "2026-01-01T00:00:00.000Z",
+            before: "2026-12-31T23:59:59.999Z",
+          }),
+          scheduleOutputEvents: queries.readScheduleOutputEvents(["missing-runtime-session"]),
+          runtimeSessionEvents: queries.readRuntimeSessionEvents("missing-runtime-session", 0, 50),
+          eventList: queries.readEventList({
+            type: event.type,
+            actor: event.actor.principal.personId,
+            after: event.occurredAt,
+            limit: 10,
+          }),
+          eventListByExecutor: queries.readEventList({ actor: event.actor.executor!.id, limit: 10 }),
+          eventListByFullEntityRef: queries.readEventList({ entity: `task/${event.taskId}`, limit: 10 }),
+          eventListByEntityId: queries.readEventList({ entity: event.taskId, limit: 10 }),
+          eventWitness: queries.readEventWitness(event.workspaceRevision),
+          eventSummaries: queries.readEventSummaries(0, expectedRevision),
+          operation: queries.readOperation(event.opId),
+          taskOperation: queries.readTaskOperation(event.opId),
+        }));
+        assert.deepEqual(pgRead.cut, sqliteProjection.readCut());
+        assert.deepEqual(pgRead.snapshot, sqliteProjection.read("task-parity").snapshot);
+        assert.deepEqual(pgRead.tasks, sqliteProjection.list({ taskIds: ["task-parity"] }).rows);
+        assert.deepEqual(pgRead.decision, sqliteProjection.readDecision("dec_PG_PARITY"));
+        assert.deepEqual(pgRead.fact, sqliteProjection.readFact("F-11111111"));
+        assert.deepEqual(pgRead.decisions, sqliteProjection.readDecisions(["dec_PG_PARITY"]));
+        assert.deepEqual(pgRead.decisionList, sqliteProjection.listDecisions({}));
+        assert.deepEqual(pgRead.facts, sqliteProjection.searchFacts({ query: "alpha" }));
+        assert.deepEqual(pgRead.agenda, sqliteProjection.listDecisionAgendaPage({ state: "in_effect", limit: 10 }));
+        assert.deepEqual(pgRead.taskLease, sqliteProjection.currentLease(leaseCase.taskId, "2026-08-11T00:30:00.000Z"));
+        assert.deepEqual(
+          pgRead.executionLease,
+          sqliteProjection.currentLeaseForExecution(leaseCase.executionId, "2026-08-11T00:30:00.000Z"),
+        );
+        const sqliteCanonicalEvents = sqliteProjection.readCanonicalEvents(0, 500);
+        assert.deepEqual(pgRead.canonicalEvents, sqliteCanonicalEvents);
+        assert.deepEqual(pgRead.scheduleEvents, sqliteProjection.readScheduleEvents());
+        assert.deepEqual(
+          pgRead.reckoningEvents,
+          sqliteProjection.readReckoningEvents({
+            type: "fact_recorded",
+            after: "2026-01-01T00:00:00.000Z",
+            before: "2026-12-31T23:59:59.999Z",
+          }),
+        );
+        assert.deepEqual(
+          pgRead.scheduleOutputEvents,
+          sqliteProjection.readScheduleOutputEvents(["missing-runtime-session"]),
+        );
+        assert.deepEqual(
+          pgRead.runtimeSessionEvents,
+          sqliteProjection.readRuntimeSessionEvents("missing-runtime-session", 0, 50),
+        );
+        assert.deepEqual(
+          pgRead.eventList,
+          sqliteProjection.readEventList({
+            type: event.type,
+            actor: event.actor.principal.personId,
+            after: event.occurredAt,
+            limit: 10,
+          }),
+        );
+        assert.deepEqual(
+          pgRead.eventListByExecutor,
+          sqliteProjection.readEventList({ actor: event.actor.executor!.id, limit: 10 }),
+        );
+        assert.deepEqual(
+          pgRead.eventListByFullEntityRef,
+          sqliteProjection.readEventList({ entity: `task/${event.taskId}`, limit: 10 }),
+        );
+        assert.deepEqual(
+          pgRead.eventListByEntityId,
+          sqliteProjection.readEventList({ entity: event.taskId, limit: 10 }),
+        );
+        assert.deepEqual(pgRead.eventWitness, sqliteProjection.readEventWitness(event.workspaceRevision));
+        assert.deepEqual(pgRead.eventSummaries, sqliteProjection.readEventSummaries(0, expectedRevision));
+        assert.deepEqual(pgRead.operation, sqliteProjection.readOperation(event.opId));
+        assert.deepEqual(pgRead.taskOperation, sqliteProjection.readTaskOperation(event.opId));
+      } finally {
+        allQueries.close();
+        queryReader.close();
+      }
       const sqliteEntities = createEntityStore(sqliteEvents),
         sqliteSnapshots = sqliteProjection.list({
           taskIds: postgresSnapshotsBeforeRebuild.rows.map((row) => row.taskId),
@@ -903,6 +1069,7 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
       projectionScope,
     );
     assert.equal(rebuiltMeta.rows[0]?.state_digest, beforeRebuildDigest);
+    assert.equal(await source.readStateDigest(), nativeDigestBeforeRebuild);
     await withPostgresTransaction(
       runtimePool,
       (client) =>
