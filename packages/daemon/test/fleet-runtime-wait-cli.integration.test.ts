@@ -155,6 +155,11 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
       quotaBytes: replicaQuota,
     };
     writeFileSync(path.join(edgeRoot, "fleet-edge.json"), JSON.stringify(config));
+    mkdirSync(path.join(edgeUserRoot, "rbac"), { recursive: true });
+    writeFileSync(
+      path.join(edgeUserRoot, "rbac", "config.json"),
+      JSON.stringify({ schema: "harness-managed-rbac/v1", mode: "external" }),
+    );
     managedRbacSessionStore(edgeUserRoot, `${fixture.owners.url}/realms/harness`, "harness").write(
       JSON.stringify({
         schema: "harness-oidc-session/v3",

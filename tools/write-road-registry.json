@@ -117,6 +117,8 @@
     "packages/daemon/src/lifecycle-log.ts",
     "packages/authorization-keycloak/src/managed-rbac-listener-certificate.ts",
     "packages/authorization-keycloak/src/managed-rbac-service.ts",
+    "packages/authorization-builtin/src/builtin-session-service.ts",
+    "packages/authorization-builtin/src/state.ts",
     "packages/daemon/src/access-admin-state.ts",
     "packages/daemon/src/migration-import-oracle-rebuild.ts",
     "packages/daemon/src/observe-jsonl-tail.ts",

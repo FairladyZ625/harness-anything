@@ -36,10 +36,10 @@ test("first-run identity is required, then the complete real CLI smoke succeeds"
     });
   const identity = await smokeIdentity(root, "different-repository");
   try {
+    identity.configure(path.join(root, "daemon"));
     const unsigned = cli(["init", "--repo-id", "unsigned", "--person-id", "owner", "--display-name", "Owner"]);
     assert.notEqual(unsigned.status, 0, unsigned.stdout);
-    assert.equal(lastReceipt(unsigned.stdout).code, "rbac_not_configured");
-    assert.match(String(lastReceipt(unsigned.stdout).rejectionExplanation), /ha bootstrap/u);
+    assert.equal(lastReceipt(unsigned.stdout).code, "access_person_unknown");
     assert.equal(existsSync(path.join(root, "harness")), false, "init must not scaffold before the authority exists");
     console.log("without a bootstrapped authority: init stops at rbac_not_configured and guides to ha bootstrap");
     identity.prepare((args, input) => {

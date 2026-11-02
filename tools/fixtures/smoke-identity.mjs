@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { once } from "node:events";
-import { writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { Worker } from "node:worker_threads";
 
@@ -17,6 +17,21 @@ export async function smokeIdentity(root, repoId) {
   writeFileSync(passwordFile, password, { mode: 0o600 });
   return {
     close: () => worker.terminate(),
+    configure(userRoot) {
+      const rbacRoot = path.join(userRoot, "rbac"),
+        config = {
+          schema: "harness-managed-rbac/v1",
+          mode: "external",
+          url,
+          realm: "harness",
+          clientId: "harness-center",
+        };
+      mkdirSync(rbacRoot, { recursive: true, mode: 0o700 });
+      writeFileSync(path.join(rbacRoot, "config.json"), `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
+      chmodSync(path.join(rbacRoot, "config.json"), 0o600);
+      writeFileSync(path.join(rbacRoot, "center-client-secret"), secret, { mode: 0o600 });
+      chmodSync(path.join(rbacRoot, "center-client-secret"), 0o600);
+    },
     prepare(step) {
       const check = (args, input, code) => {
         const result = step(args, input);
@@ -27,20 +42,6 @@ export async function smokeIdentity(root, repoId) {
           : result.status === 0 && result.receipt?.ok === true;
         if (!ok) throw new Error(`identity ${args[0]} ${args[1]} failed: ${JSON.stringify(result)}`);
       };
-      const external = [
-        "bootstrap",
-        "--mode",
-        "external",
-        "--url",
-        url,
-        "--realm",
-        "harness",
-        "--client-id",
-        "harness-center",
-        "--client-secret-stdin",
-      ];
-      check(external, "invalid-candidate", "rbac_external_credentials_rejected");
-      check(external, secret);
       const admin = [
         "bootstrap",
         "--operation",

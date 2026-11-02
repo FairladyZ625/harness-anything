@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -196,6 +197,11 @@ test(
     assert.equal(launches.length, 2, "the same daemon must receive the detached child dispatch");
     const child = await authenticateRuntimeExecutionCredential(
       {
+        provider: new KeycloakPolicyAdapter({
+          url: realm.url,
+          realm: "harness",
+          resourceServerClientId: "harness-center",
+        }),
         url: realm.url,
         realm: "harness",
         clientId: "harness-center",

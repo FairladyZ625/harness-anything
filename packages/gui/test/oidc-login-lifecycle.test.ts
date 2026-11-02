@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -18,6 +18,11 @@ const authority = { url: "https://center.example.test", realm: "harness", client
 function fixture(ports: Partial<OidcSessionPorts> = {}) {
   const root = mkdtempSync(path.join(tmpdir(), "gui-oidc-lifecycle-")),
     repoRoot = path.join(root, "repo");
+  mkdirSync(path.join(root, "rbac"));
+  writeFileSync(
+    path.join(root, "rbac", "config.json"),
+    JSON.stringify({ schema: "harness-managed-rbac/v1", mode: "external" }),
+  );
   const urls: string[] = [];
   let navigation = Promise.withResolvers<string>();
   const handlers = new Map<string, (event: IpcMainInvokeEvent, input?: unknown) => Promise<unknown>>();

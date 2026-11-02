@@ -44,13 +44,13 @@ export async function admitEdgeJoin(input: {
   readonly repoIds: readonly string[];
 }> {
   const initial = input.edgeJoins.assertConsumable(input.joinId, input.inviteToken),
-    nodeId = randomUUID(),
-    auth = await input.oidc.bind({
-      transportKind: "fleet-tls",
-      humanAccessToken: input.accessToken,
-      fleetExpectedAzps: [{ clientId: initial.loginClientId, personId: initial.personId }],
-      nodePrincipal: { nodeId, personId: initial.personId },
-    });
+    nodeId = randomUUID();
+  const auth = await input.oidc.bind({
+    transportKind: "fleet-tls",
+    humanAccessToken: input.accessToken,
+    fleetExpectedAzps: [{ clientId: initial.loginClientId, personId: initial.personId }],
+    nodePrincipal: { nodeId, personId: initial.personId },
+  });
   if (auth.oidcPrincipal?.personId !== initial.personId)
     throw coded("person_mismatch", "The signed-in person does not match the invitation.");
   return input.oidc.serialize(async () => {

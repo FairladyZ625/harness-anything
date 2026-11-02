@@ -13,6 +13,7 @@ export type {
   AuthorizationIdentityDirectoryPort,
   AuthorizationNodeCredentialPort,
   AuthorizationDecisionPort,
+  AuthorizationExecutionCredentialPort,
   AuthorizationPermissionDecision,
   AuthorizationNode,
   AuthorizationGrant,
@@ -47,3 +48,6 @@ export * from "./projection-types.ts";
 export * from "./task-event-store.ts";
 export * from "./task-projection.ts";
 export * from "./version-control-system.ts";
+
+export { runtimeExecutionLifetimeMs, executionCredentialRejected } from "./runtime-execution-credential.ts";
+export type { RuntimeExecutionPrincipal } from "./runtime-execution-credential.ts";

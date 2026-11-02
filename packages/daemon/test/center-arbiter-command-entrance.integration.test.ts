@@ -327,14 +327,14 @@ test("the center admits no unauthenticated arbiter and the edge admits no local 
       createConvenienceLinks: false,
     });
   }
-  const host = await openDaemonHost({ daemonId: "center-arbiter", userRoot }),
-    // The node is registered to a person who holds no grant on the center repository.
-    owners = await fleetNodeOwners({
+  // The node is registered to a person who holds no grant on the center repository.
+  const owners = await fleetNodeOwners({
       userRoot,
       owners: { "edge-one": "writer" },
       repoIds: ["center"],
       grantAll: false,
-    });
+    }),
+    host = await openDaemonHost({ daemonId: "center-arbiter", userRoot });
   signInAt(userRoot, "writer");
   try {
     await host.attachmentsSettled();

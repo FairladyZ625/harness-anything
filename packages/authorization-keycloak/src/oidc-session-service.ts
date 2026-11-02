@@ -1,3 +1,4 @@
+/** @slice-activation Identity provider plugin keeps the provider-neutral daemon composition root on the Keycloak implementation boundary. */
 import type { ManagedRbacListener } from "@harness-anything/kernel";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -555,6 +556,10 @@ export class OidcSessionService {
   /** Whether a Keycloak authority exists at all; without one no request can ever authorize, so callers guide to ha bootstrap. */
   configured(): boolean {
     return existsSync(path.join(this.#rbacRoot, "config.json"));
+  }
+
+  requireCollaboration(): void {
+    // Keycloak is the collaboration-capable provider; this is a no-op gate.
   }
 
   /** Whether the daemon has the center service credential needed for ownership claims. */

@@ -7,8 +7,7 @@ import assert from "node:assert/strict";
 import { EventEmitter, once } from "node:events";
 import type { ChildProcess } from "node:child_process";
 import { createHash, X509Certificate } from "node:crypto";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { createServer } from "node:https";
 import test from "node:test";
@@ -178,7 +177,9 @@ test(
 
     const join = async (nodeId: string, invitation: string, sshReverse = false) => {
       const edge = await fleetEdgeHostFixture(t, f, {
-          name: nodeId,
+          // The join client resolves the repository as workspaceRoot/repoId. Keep the
+          // fixture directory aligned with the lease-repo id while nodeId remains unique.
+          name: "lease-repo",
           nodeId,
           registerBeforeOpen: false,
           writeEdgeConfig: false,
@@ -192,7 +193,7 @@ test(
             }),
           },
         }),
-        workspaceRoot = path.join(mkdtempSync(path.join(tmpdir(), "ha-edge-join-")), "workspace");
+        workspaceRoot = path.dirname(edge.edgeRoot);
       const response = await edge.rpc.handle({
         jsonrpc: "2.0",
         id: 1,

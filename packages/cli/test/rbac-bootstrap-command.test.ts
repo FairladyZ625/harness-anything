@@ -292,6 +292,17 @@ test("ha edge join is one operation of the managed RBAC surface and accepts a qu
     /Base backup exceeds disk quota/u,
     "the CLI prints the failed repository's sync reason",
   );
+  const refusal = renderCliReceipt({
+    ok: false,
+    command: "edge-join",
+    code: "identity_plugin_required",
+    rejectionExplanation:
+      "需要安装身份插件（Keycloak）后使用协作功能。请参阅 docs-release/builtin-identity-provider.md#keycloak-plugin。",
+  });
+  assert.equal(refusal.stream, "stderr");
+  assert.match(refusal.text, /identity_plugin_required/u);
+  assert.match(refusal.text, /Keycloak/u);
+  assert.match(refusal.text, /builtin-identity-provider\.md#keycloak-plugin/u);
 });
 
 test("ha bootstrap parses one external Keycloak through the same command", () => {
