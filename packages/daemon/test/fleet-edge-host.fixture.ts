@@ -175,7 +175,11 @@ export async function fleetEdgeHostFixture(
     }),
   });
   t.after(async () => {
-    await host.close();
+    try {
+      await host.close();
+    } catch (cause) {
+      throw new Error(`edge host ${name} failed to close`, { cause });
+    }
     rmSync(root, { recursive: true, force: true });
   });
   if (options.waitForAttachments !== false) await host.attachmentsSettled();
