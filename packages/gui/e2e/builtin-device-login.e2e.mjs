@@ -41,12 +41,14 @@ test(
       const page = await app.firstWindow();
       page.setDefaultTimeout(5_000);
       await page.waitForLoadState("load");
-      await page.screenshot({ path: path.join(runRoot, "device-form.png") });
-      await page.getByLabel("Username", { exact: true }).fill("owner");
-      await page.getByLabel("Password", { exact: true }).fill(password);
+      await page.screenshot({ fullPage: true, path: path.join(runRoot, "device-form.png") });
+      assert.match(await page.locator("body").innerText(), /登录 Harness/u);
+      assert.equal(await page.locator("html").getAttribute("lang"), "zh-CN");
+      await page.getByLabel("用户名 / Username", { exact: true }).fill("owner");
+      await page.getByLabel("密码 / Password", { exact: true }).fill(password);
       const delivered = page.waitForResponse((response) => response.request().method() === "POST");
       const started = Date.now();
-      await page.getByRole("button", { name: "Sign in", exact: true }).click();
+      await page.getByRole("button", { name: "登录 / Sign in", exact: true }).click();
       const response = await delivered;
       assert.equal(response.status(), 200);
       const approved = await session.pollDevice();
@@ -68,33 +70,52 @@ test(
           2,
         ),
       );
-      await page.screenshot({ path: path.join(runRoot, "device-success.png") });
-      await page.getByRole("heading", { name: "You're signed in", exact: true }).waitFor();
+      await page.screenshot({ fullPage: true, path: path.join(runRoot, "device-success.png") });
+      await page.getByRole("heading", { name: "已登录 / You're signed in", exact: true }).waitFor();
       await page.emulateMedia({ colorScheme: "dark" });
-      await page.screenshot({ path: path.join(runRoot, "device-success-dark.png") });
+      await page.screenshot({ fullPage: true, path: path.join(runRoot, "device-success-dark.png") });
       await page.emulateMedia({ colorScheme: "light" });
       const failed = await session.beginDevice();
       await page.goto(String(failed.verificationUri));
-      await page.getByLabel("Username", { exact: true }).fill("owner");
-      await page.getByLabel("Password", { exact: true }).fill("incorrect-fixture-password");
+      await page.getByLabel("用户名 / Username", { exact: true }).fill("owner");
+      await page.getByLabel("密码 / Password", { exact: true }).fill("incorrect-fixture-password");
       const refused = page.waitForResponse((response) => response.request().method() === "POST");
-      await page.getByRole("button", { name: "Sign in", exact: true }).click();
+      await page.getByRole("button", { name: "登录 / Sign in", exact: true }).click();
       assert.equal((await refused).status(), 401);
-      await page.getByRole("heading", { name: "Check your sign-in details" }).waitFor();
-      assert.equal(await page.getByLabel("Password", { exact: true }).inputValue(), "");
+      await page.getByRole("heading", { name: "请检查登录信息 / Check your sign-in details" }).waitFor();
+      assert.equal(await page.getByLabel("密码 / Password", { exact: true }).inputValue(), "");
       assert.equal((await session.pollDevice()).pending, true);
-      await page.screenshot({ path: path.join(runRoot, "device-failure.png") });
+      await page.screenshot({ fullPage: true, path: path.join(runRoot, "device-failure.png") });
       const expired = await session.beginDevice(undefined, undefined, Date.now() - 1);
       const expiry = await page.goto(String(expired.verificationUri));
       assert.equal(expiry.status(), 410);
-      await page.getByRole("heading", { name: "Sign-in link expired" }).waitFor();
-      assert.equal(await page.getByRole("button", { name: "Sign in", exact: true }).count(), 0);
-      await page.screenshot({ path: path.join(runRoot, "device-expired.png") });
+      await page.getByRole("heading", { name: "登录链接已过期 / Sign-in link expired" }).waitFor();
+      assert.equal(await page.getByRole("button", { name: "登录 / Sign in", exact: true }).count(), 0);
+      await page.screenshot({ fullPage: true, path: path.join(runRoot, "device-expired.png") });
       const expiredPost = await page.request.post(String(expired.verificationUri), {
         form: { username: "owner", password, userCode: String(expired.userCode) },
       });
       assert.equal(expiredPost.status(), 410);
       await assert.rejects(session.pollDevice(), { code: "oidc_device_expired" });
+
+      // The GUI browser-login path uses the same Chinese-readable form and errors.
+      const browserLogin = await session.begin("http://127.0.0.1:43123/callback");
+      await page.goto(String(browserLogin.authorizationUrl));
+      await page.getByRole("heading", { name: "登录 Harness / Sign in to Harness", exact: true }).waitFor();
+      await page.screenshot({ fullPage: true, path: path.join(runRoot, "login-form.png") });
+      await page.getByLabel("用户名 / Username", { exact: true }).fill("owner");
+      await page.getByLabel("密码 / Password", { exact: true }).fill("incorrect-fixture-password");
+      const refusedLogin = page.waitForResponse((response) => response.request().method() === "POST");
+      await page.getByRole("button", { name: "登录 / Sign in", exact: true }).click();
+      assert.equal((await refusedLogin).status(), 401);
+      await page.getByRole("alert").filter({ hasText: "用户名或密码不正确，请重试。" }).waitFor();
+      assert.equal(await page.getByLabel("密码 / Password", { exact: true }).inputValue(), "");
+      await page.screenshot({ fullPage: true, path: path.join(runRoot, "login-failure.png") });
+      const expiredLoginUrl = new URL(String(browserLogin.authorizationUrl));
+      expiredLoginUrl.searchParams.set("value", "expired-test-state");
+      assert.equal((await page.goto(expiredLoginUrl.toString())).status(), 410);
+      await page.getByRole("alert").filter({ hasText: "此链接已过期或已使用。" }).waitFor();
+      await page.screenshot({ fullPage: true, path: path.join(runRoot, "login-expired.png") });
       const windows = await app.evaluate(({ BrowserWindow }) =>
         BrowserWindow.getAllWindows().map((window) => ({ visible: window.isVisible(), focused: window.isFocused() })),
       );

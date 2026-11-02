@@ -532,7 +532,7 @@ test("builtin collaboration entry points require the Keycloak plugin", async (t)
   await admin.close();
 });
 
-test("device sign-in pages reject expiry at approval and deliver readable results", async (t) => {
+test("local sign-in pages are bilingual, reject expiry and deliver readable results", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-device-pages-")),
     session = new BuiltinIdentitySession(root);
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -549,7 +549,13 @@ test("device sign-in pages reject expiry at approval and deliver readable result
   assert.equal(page.status, 200);
   assert.equal(page.headers.get("cache-control"), "no-store");
   const formPage = await page.text();
-  assert.match(formPage, /<h1>Sign in to Harness<\/h1>/u);
+  assert.match(formPage, /登录 Harness/u);
+  assert.match(formPage, /Sign in to Harness/u);
+  assert.match(formPage, /<html lang="zh-CN">/u);
+  assert.match(formPage, /用户名.*Username/u);
+  assert.match(formPage, /密码.*Password/u);
+  assert.match(formPage, /内置身份.*仅限本机/u);
+  assert.match(formPage, /请使用本机账号登录。/u);
   assert.doesNotMatch(formPage, /<script|https?:\/\//u, "the sign-in page has no external assets or scripts");
   const submit = (password: string, userCode = String(begin.userCode)) =>
     fetch(uri, {
@@ -558,11 +564,15 @@ test("device sign-in pages reject expiry at approval and deliver readable result
     });
   const rejected = await submit("wrong-page-password");
   assert.equal(rejected.status, 401);
-  assert.match(await rejected.text(), /Check your sign-in details/u);
+  const rejectedPage = await rejected.text();
+  assert.match(rejectedPage, /请检查登录信息.*Check your sign-in details/su);
+  assert.match(rejectedPage, /用户名或密码不正确，请重试。/u);
   assert.equal((await session.pollDevice()).pending, true);
   const accepted = await submit("synthetic-page-password");
   assert.equal((await session.pollDevice()).authenticated, true);
-  assert.match(await accepted.text(), /You're signed in/u, "the complete response arrives after approval is consumed");
+  const successPage = await accepted.text();
+  assert.match(successPage, /已登录.*You're signed in/su, "the complete response arrives after approval is consumed");
+  assert.match(successPage, /设备已授权。请返回 Harness 继续操作，可以关闭此页面。/u);
   assert.equal((await fetch(uri)).status, 410, "a used device link cannot approve again");
 
   await session.logout();
@@ -581,11 +591,40 @@ test("device sign-in pages reject expiry at approval and deliver readable result
       }),
     });
     assert.equal(expired.status, 410);
-    assert.match(await expired.text(), /Sign-in link expired/u);
+    assert.match(await expired.text(), /登录链接已过期.*Sign-in link expired/su);
     await assert.rejects(session.deviceApproval(String(expiring.userCode)), { code: "oidc_device_missing" });
     await assert.rejects(session.pollDevice(), { code: "oidc_device_expired" });
     assert.equal((await session.status()).authenticated, false);
   } finally {
     Date.now = now;
   }
+
+  const browserLogin = await session.begin("http://127.0.0.1:43123/callback"),
+    loginUri = String(browserLogin.authorizationUrl),
+    loginForm = await fetch(loginUri, { headers: { "accept-language": "zh-CN" } });
+  assert.match(await loginForm.text(), /登录 Harness.*Sign in to Harness/su);
+  const loginPost = (password: string) =>
+    fetch(loginUri, {
+      method: "POST",
+      body: new URLSearchParams({ username: "owner", password, state: String(browserLogin.state) }),
+      redirect: "manual",
+    });
+  const refusedLogin = await loginPost("wrong-page-password");
+  assert.equal(refusedLogin.status, 401);
+  assert.match(await refusedLogin.text(), /用户名或密码不正确，请重试。/u);
+  const invalidStateUri = new URL(loginUri);
+  invalidStateUri.searchParams.set("value", "invalid-state");
+  const invalidState = await fetch(invalidStateUri);
+  assert.equal(invalidState.status, 410);
+  assert.match(await invalidState.text(), /此链接已过期或已使用。请返回 Harness 重新发起登录。/u);
+  const missing = await fetch(new URL("/missing", loginUri));
+  assert.equal(missing.status, 404);
+  assert.match(await missing.text(), /找不到页面.*请从 Harness 打开登录链接。/su);
+  const loginRedirect = await loginPost("synthetic-page-password");
+  assert.equal(loginRedirect.status, 302, "browser login still redirects to the GUI callback");
+  const callback = new URL(loginRedirect.headers.get("location")!);
+  assert.equal(
+    (await session.complete(callback.searchParams.get("code")!, callback.searchParams.get("state")!)).authenticated,
+    true,
+  );
 });

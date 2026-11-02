@@ -366,8 +366,8 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
           if (!response.headersSent)
             response.writeHead(500, loginPageHeaders).end(
               builtinLoginPage({
-                title: "Sign-in could not be completed",
-                message: "Return to Harness and start sign-in again.",
+                title: "无法完成登录 / Sign-in could not be completed",
+                message: "请返回 Harness 重新发起登录。\nReturn to Harness and start sign-in again.",
                 error: true,
               }),
             );
@@ -397,8 +397,8 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
         status: 404,
         headers: loginPageHeaders,
         body: builtinLoginPage({
-          title: "Page not found",
-          message: "Open the sign-in link from Harness.",
+          title: "找不到页面 / Page not found",
+          message: "请从 Harness 打开登录链接。\nOpen the sign-in link from Harness.",
           error: true,
         }),
       };
@@ -416,8 +416,9 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
         status: 410,
         headers: loginPageHeaders,
         body: builtinLoginPage({
-          title: "Sign-in link expired",
-          message: "This link has expired or was already used. Return to Harness and start sign-in again.",
+          title: "登录链接已过期 / Sign-in link expired",
+          message:
+            "此链接已过期或已使用。请返回 Harness 重新发起登录。\nThis link has expired or was already used. Return to Harness and start sign-in again.",
           error: true,
         }),
       };
@@ -426,8 +427,8 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
         status: 200,
         headers: loginPageHeaders,
         body: builtinLoginPage({
-          title: "Sign in to Harness",
-          message: "Use your local account to sign in on this computer.",
+          title: "登录 Harness / Sign in to Harness",
+          message: "请使用本机账号登录。\nUse your local account to sign in on this computer.",
           kind,
           value,
         }),
@@ -439,8 +440,8 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
         status: 401,
         headers: loginPageHeaders,
         body: builtinLoginPage({
-          title: "Check your sign-in details",
-          message: "The username or password was not accepted. Please try again.",
+          title: "请检查登录信息 / Check your sign-in details",
+          message: "用户名或密码不正确，请重试。\nThe username or password was not accepted. Please try again.",
           kind,
           value,
           error: true,
@@ -453,8 +454,9 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
         status: 200,
         headers: loginPageHeaders,
         body: builtinLoginPage({
-          title: "You're signed in",
-          message: "Device approved. Return to Harness to continue. You can close this page.",
+          title: "已登录 / You're signed in",
+          message:
+            "设备已授权。请返回 Harness 继续操作，可以关闭此页面。\nDevice approved. Return to Harness to continue. You can close this page.",
         }),
       };
     }

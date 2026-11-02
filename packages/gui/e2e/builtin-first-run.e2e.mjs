@@ -79,6 +79,11 @@ test("built-in GUI first account, login and first repository with an empty HOME"
     const guestId = await app.evaluate(
       ({ webContents }) => webContents.getAllWebContents().find((content) => content.getType() === "webview").id,
     );
+    const loginText = await app.evaluate(
+      ({ webContents }, guestId) => webContents.fromId(guestId).executeJavaScript("document.body.innerText"),
+      guestId,
+    );
+    assert.match(loginText, /登录 Harness.*用户名.*密码.*内置身份/su);
     await app.evaluate(
       ({ webContents }, { guestId, password }) =>
         webContents.fromId(guestId).executeJavaScript(`
