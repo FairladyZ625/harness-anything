@@ -15,6 +15,7 @@ import { actor, evidence, initRepo } from "./task-surface.fixtures.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 
 const binding = withPolicyGroup({ actor, source: "local" as const }, "contributor");
+const adminBinding = withPolicyGroup({ actor, source: "local" as const }, "admin");
 test("repository todos: concurrent completion, archive and recovery", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-todo-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
@@ -113,6 +114,55 @@ test("todos relate both ways, promote atomically once, publish and survive reope
       reopenedAgenda.attentionItems.some((item) => JSON.stringify(item).includes(todoId)),
       false,
     );
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("todo add keeps writing past the soft limit and only the receipt advises cleanup", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-todo-soft-limit-"));
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    cell = await openRepoCell({
+      repoId: workspaceId("todo-soft-limit"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "todo-soft-limit-test",
+    });
+    // Below the default 30: the write is applied and the receipt stays quiet.
+    const first = await cell.run({ kind: "todo-add", text: "first open todo" }, binding);
+    assert.equal(first.outcome, "applied", JSON.stringify(first));
+    assert.equal(first.warnings, undefined);
+
+    const readRevision = async () =>
+      ((await cell!.run({ kind: "settings-read" }, adminBinding)) as unknown as { entityRevision: number })
+        .entityRevision;
+    const tightened = await cell.run(
+      { kind: "settings-update", todoSoftLimit: 1, expectedVersion: await readRevision() },
+      adminBinding,
+    );
+    assert.equal(tightened.outcome, "applied", JSON.stringify(tightened));
+
+    // Above the limit: still written, and the receipt names the count, the limit and the cleanup route.
+    const second = await cell.run({ kind: "todo-add", text: "second open todo" }, binding);
+    assert.equal(second.outcome, "applied", JSON.stringify(second));
+    const warning = second.warnings?.[0] ?? "";
+    assert.match(warning, /2 unfinished todos exceed the soft limit of 1 \(settings\.todos\.softLimit\)/u);
+    assert.match(warning, /ha todo list/u);
+    assert.match(warning, /ha todo done <todo-id>/u);
+    assert.match(warning, /ha task create/u);
+
+    // 0 disables the reminder entirely, even with more open todos than the old limit.
+    const disabled = await cell.run(
+      { kind: "settings-update", todoSoftLimit: 0, expectedVersion: await readRevision() },
+      adminBinding,
+    );
+    assert.equal(disabled.outcome, "applied", JSON.stringify(disabled));
+    const third = await cell.run({ kind: "todo-add", text: "third open todo" }, binding);
+    assert.equal(third.outcome, "applied", JSON.stringify(third));
+    assert.equal(third.warnings, undefined);
+    assert.equal((evidence(await cell.run({ kind: "todo-list" }, binding)) as { todos: unknown[] }).todos.length, 3);
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });

@@ -43,6 +43,10 @@ describe("Settings 字段声明投影覆盖 GUI", () => {
     expect(rows.find((row) => row.field === "wipLimit")).toMatchObject({ widget: "number" });
     expect(rows.find((row) => row.field === "rootThreshold")).toMatchObject({ widget: "number" });
   });
+
+  it("待办软上限从声明表自动成为 number 行,0 是合法值", () => {
+    expect(rows.find((row) => row.field === "todoSoftLimit")).toMatchObject({ widget: "number" });
+  });
 });
 
 describe("Settings 自描述文案 chokepoint(两个 locale 都要有,缺一项即红)", () => {

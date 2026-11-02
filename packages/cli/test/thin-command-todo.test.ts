@@ -1,6 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
+import { todoSoftLimitAdvisory } from "@harness-anything/kernel";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 
 test("todo list renders one readable line with relation title and short id", () => {
@@ -25,4 +26,19 @@ test("todo list renders one readable line with relation title and short id", () 
 
 test("todo list prints a compact empty state", () => {
   assert.equal(renderCliReceipt({ ok: true, command: "todo-list", evidence: '{"todos":[]}' }).text, "No todos.");
+});
+
+test("todo add prints the daemon's stacking advisory on the warning line", () => {
+  const warning = todoSoftLimitAdvisory(31, 30);
+  assert.ok(warning);
+  assert.equal(
+    renderCliReceipt({
+      ok: true,
+      command: "todo-add",
+      outcome: "applied",
+      summary: "Added todo 修 CI",
+      warnings: [warning],
+    }).text,
+    `Added todo 修 CI\nwarning: ${warning}`,
+  );
 });
