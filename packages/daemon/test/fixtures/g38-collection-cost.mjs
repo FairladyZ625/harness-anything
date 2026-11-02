@@ -1,0 +1,449 @@
+import assert from "node:assert/strict";
+import { createHash, Hash } from "node:crypto";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { durableActionKinds, getExecutableEntityAction } from "@harness-anything/kernel";
+import { DECISION_PROBES, measureDecisionCollection } from "./g38-decision-cost.mjs";
+
+export const COLLECTION_SCALES = Object.freeze({ small: 100, large: 2000 });
+
+function counted(values, count) {
+  return new Proxy(values, {
+    get(target, property, receiver) {
+      if (typeof property === "string" && /^(0|[1-9]\d*)$/u.test(property)) count();
+      return Reflect.get(target, property, receiver);
+    },
+  });
+}
+
+const load = (rootDir, relative) => import(pathToFileURL(path.join(rootDir, relative)).href);
+
+// Exercise the production submission orchestration, including its reader lifetime. A reader-only
+// benchmark misses moving createSubmissionArtifactReader inside the per-artifact loop (#4207).
+export async function measureTaskSubmitArtifacts(rootDir, size) {
+  const [{ deriveCloseoutSubmission }, { completionSnapshot }] = await Promise.all([
+    load(rootDir, "packages/daemon/src/repo-cell-submit.ts"),
+    load(rootDir, "packages/kernel/test/domain/completion.fixtures.ts"),
+  ]);
+  const packagePath = "tasks/task-artifact",
+    content = Buffer.from("Accepted task output.\n"),
+    blobSha256 = createHash("sha256").update(content).digest("hex"),
+    paths = Array.from(
+      { length: size },
+      (_, index) => `${packagePath}/artifacts/file-${String(index).padStart(4, "0")}.md`,
+    ),
+    pathSet = new Set(paths),
+    counts = { acceptanceReads: 0, claimsExamined: 0, blobReads: 0 },
+    claims = counted(
+      paths.map((target) => ({ path: target, candidate: { sha256: blobSha256 } })),
+      () => {
+        counts.claimsExamined += 1;
+      },
+    ),
+    body =
+      "## Summary\nMeasured submission.\n## Verification\nCounted production work.\n## Residual Risk\nNone identified.\n## Same Mechanism Elsewhere\nChecked sibling.\n",
+    event = { schema: "doc-event/v1", workspaceRevision: 7, opId: "accepted-7", payload: { changes: claims } },
+    cell = {
+      rootDir: "/nonexistent",
+      cellCodedError: (code, message) => Object.assign(new Error(message), { code }),
+      settings: { readRepository: () => ({ gates: [] }) },
+      store: {
+        readEventAtRevision: () => {
+          counts.acceptanceReads += 1;
+          return event;
+        },
+        readContentBlob: () => {
+          counts.blobReads += 1;
+          return content;
+        },
+      },
+      projection: {
+        readPresetSnapshot: () => ({ snapshot: completionSnapshot }),
+        readDocuments: () => ({ documents: paths.map((target) => ({ path: target })) }),
+        readRuntimeDispatchesByTaskExecution: () => [],
+        read: () => ({ watermark: 7, sourceRevision: 7, snapshot: { task: {} }, packagePath }),
+        readDocument: (target) => ({
+          watermark: 7,
+          sourceRevision: 7,
+          document: {
+            workspaceRevision: pathSet.has(target) ? 7 : undefined,
+            body: target.endsWith("task-contract.json")
+              ? JSON.stringify({
+                  documents: [
+                    {
+                      slot: "task.closeout",
+                      path: "closeout.md",
+                      templateRef: "template://planning/closeout@1",
+                      locale: "en-US",
+                    },
+                  ],
+                })
+              : body,
+          },
+        }),
+      },
+    },
+    submission = deriveCloseoutSubmission(cell, "task-artifact", "execution", {
+      task: { presetSnapshotDigest: completionSnapshot.digest, completionGateIds: [] },
+      executions: [],
+      reviews: [],
+    });
+  assert.equal(submission.artifacts.length, size, "submit must freeze every artifact");
+  assert.deepEqual(submission.deliverables, paths);
+  return { size, counts };
+}
+
+// Synchronous scopes keep probe work and setup out of the measured window. Hash.update counts
+// bytes as well as calls: a fixed number of hashes over a quadratic-size event must still fail.
+function measureHashes(run) {
+  const counts = { sha256Calls: 0, sha256Bytes: 0 },
+    update = Hash.prototype.update;
+  Hash.prototype.update = function (chunk, encoding) {
+    counts.sha256Calls += 1;
+    counts.sha256Bytes += typeof chunk === "string" ? Buffer.byteLength(chunk, encoding) : chunk.byteLength;
+    return update.call(this, chunk, encoding);
+  };
+  try {
+    run();
+    return counts;
+  } finally {
+    Hash.prototype.update = update;
+  }
+}
+
+export async function measureDocuments(rootDir, size, bodyUnits = 1) {
+  const { decide, claim, baseLedgerSha } = await load(rootDir, "packages/kernel/test/contracts/doc-sync.fixtures.ts"),
+    { DOC_POLICY_ID } = await load(rootDir, "packages/kernel/src/domain/doc-sync.contract.ts"),
+    body = "Measured prose. ".repeat(bodyUnits) + "\n",
+    candidate = claim(body),
+    changes = Array.from({ length: size }, (_, index) => ({
+      path: `context/cost-${String(index).padStart(4, "0")}.md`,
+      baseBlobSha256: null,
+      policyId: DOC_POLICY_ID,
+      candidate,
+    }));
+  let arrayItems = 0;
+  const visit = () => {
+      arrayItems += 1;
+    },
+    hashes = measureHashes(() => {
+      const result = decide(changes[0], null, Buffer.from(body), {
+        intent: {
+          schema: "doc-write-intent/v1",
+          executionId: "execution-1",
+          baseLedgerSha,
+          changes: counted(changes, visit),
+        },
+        documents: counted(Array(size).fill(null), visit),
+        claims: counted(Array(size).fill(Buffer.from(body)), visit),
+      });
+      assert.equal(result.accepted, true, JSON.stringify(result));
+      assert.equal(result.event.payload.changes.length, size, "doc write must accept every document");
+    });
+  return { size: bodyUnits === 1 ? size : bodyUnits, counts: { arrayItems, ...hashes } };
+}
+
+export async function measureRelations(rootDir, size) {
+  const { readRelationCycleWitnessAtCut } = await load(rootDir, "packages/daemon/src/entity-action-relation.ts"),
+    counts = { queries: 0, rowsExamined: 0 },
+    // A single owner has N outgoing edges; each target is a distinct leaf. This crosses the
+    // production page boundary (100), unlike seeding N unrelated one-edge owners.
+    rows = Array.from({ length: size }, (_, index) => ({
+      relationId: `edge-${index}`,
+      sourceRef: "task/target",
+      targetRef: `task/leaf-${index}`,
+      relationType: "depends-on",
+      direction: "directed",
+      state: "active",
+    })),
+    witness = readRelationCycleWitnessAtCut({
+      headRevision: 7,
+      candidate: {
+        relationId: "candidate",
+        sourceRef: "task/source",
+        targetRef: "task/target",
+        relationType: "depends-on",
+        direction: "directed",
+        state: "active",
+      },
+      projection: {
+        readRelationQuery(query) {
+          counts.queries += 1;
+          const offset = Number(query.cursor ?? 0),
+            page = query.source === "task/target" ? rows.slice(offset, offset + query.limit) : [];
+          return {
+            status: "ready",
+            watermark: 7,
+            sourceRevision: 7,
+            rows: counted(page, () => {
+              counts.rowsExamined += 1;
+            }),
+            page: {
+              limit: query.limit,
+              cursor: query.cursor ?? null,
+              nextCursor:
+                query.source === "task/target" && offset + page.length < size ? String(offset + page.length) : null,
+            },
+          };
+        },
+      },
+    });
+  assert.equal(witness, null);
+  assert.ok(counts.rowsExamined >= size, "admission must visit all related edges");
+  return { size, counts };
+}
+
+// Keep one active assignment and grow that subject's retired assignment history. Growing N
+// unrelated subjects would leave this production scan at size 1 and conceal its cost entirely.
+export async function measureAssignmentHistory(rootDir, size, actionKind) {
+  const [{ makeEntityActionCatalogExecutor }, { deriveRelationId }] = await Promise.all([
+      load(rootDir, "packages/daemon/src/entity-action-catalog-executor.ts"),
+      load(rootDir, "packages/kernel/src/domain/entity-relation.ts"),
+    ]),
+    contract = getExecutableEntityAction(actionKind),
+    subject = `${contract.target.kind}/${contract.target.kind === "decision" ? "dec_0123456789ABCDEFGHJKMNPQRS" : contract.target.kind === "fact" ? "F-00000001" : contract.target.kind === "task" ? "task_cost" : "subject"}`,
+    counts = { rowsExamined: 0, queries: 0, appendedEvents: 0 },
+    rows = Array.from({ length: size }, (_, index) => ({
+      relationId: deriveRelationId({
+        source: subject,
+        target: `person/previous-${index}`,
+        type: "assigned-to",
+        direction: "directed",
+      }),
+      sourceRef: subject,
+      targetRef: `person/previous-${index}`,
+      relationType: "assigned-to",
+      workspaceRevision: index + 1,
+      state: index === size - 1 ? "active" : "retired",
+    })),
+    headRevision = 5000,
+    actor = { principal: { personId: "cost-writer" }, executor: null };
+  let written;
+  const executor = makeEntityActionCatalogExecutor({
+      store: {
+        readHead: () => ({ revision: headRevision }),
+        readEvent: () => null,
+        append(bundle) {
+          written = bundle.event;
+          counts.appendedEvents += 1 + (bundle.preceding?.length ?? 0);
+          return { revision: written.workspaceRevision };
+        },
+      },
+      projection: {
+        currentLease: () => null,
+        readDecision: () => ({ decision: { reviews: [], state: "proposed" } }),
+        readCut: () => ({ status: "ready", watermark: headRevision }),
+        readRelationQuery() {
+          counts.queries += 1;
+          return {
+            rows: counted(rows, () => {
+              counts.rowsExamined += 1;
+            }),
+          };
+        },
+        readEntityVersionWitness: (entityRef) => ({ entityRef, currentVersion: 1 }),
+        readRelationEdge(id) {
+          if (written && id === written.relationId)
+            return { state: written.type === "relation_retired" ? "retired" : "active" };
+          return id === rows.at(-1).relationId ? rows.at(-1) : null;
+        },
+        apply() {},
+      },
+      now: () => "2026-11-02T00:00:00.000Z",
+      sessionIdentity: () => null,
+      readSettings: () => ({ tasks: { assignmentTtlMs: 60000 } }),
+    }),
+    hashes = measureHashes(() => {
+      const result = executor.run(
+        {
+          kind: actionKind,
+          entityRef: subject,
+          [contract.execution.targetIdField]: subject.slice(subject.indexOf("/") + 1),
+          personId: "new-assignee",
+          expectedVersion: size,
+        },
+        { actor, source: "local", authorizationDecision: { outcome: "allowed" } },
+        "assignment-cost",
+      );
+      assert.equal(result.outcome, "applied", JSON.stringify(result));
+    });
+  assert.ok(counts.rowsExamined >= size, "must examine this subject's assignment history");
+  assert.equal(counts.appendedEvents, contract.id === "assign" ? 2 : 1);
+  return { size, counts: { ...counts, ...hashes } };
+}
+
+export async function measureCatalogBatch(rootDir, size, actionKind) {
+  const [{ makeEntityActionCatalogExecutor }, { reduceDecisionDocument }] = await Promise.all([
+      load(rootDir, "packages/daemon/src/entity-action-catalog-executor.ts"),
+      load(rootDir, "packages/kernel/src/domain/decision-event.ts"),
+    ]),
+    actor = { principal: { personId: "cost-writer" }, executor: null },
+    occurredAt = "2026-11-02T00:00:00.000Z",
+    decision = reduceDecisionDocument(null, {
+      decisionId: "dec_COST0000",
+      type: "decision_proposed",
+      actor,
+      occurredAt,
+      workspaceRevision: 1,
+      payload: {
+        title: "Measured decision",
+        question: "Does batch repinning stay linear?",
+        riskTier: "low",
+        urgency: "medium",
+        vertical: "software/coding",
+        preset: "standard-task",
+        decisionClass: "ordinary",
+        appliesTo: { modules: ["daemon"], productLines: [] },
+        chosen: [{ id: "CH1", text: "Measure batch writes." }],
+        rejected: [],
+        claims: [],
+        fulfillments: [],
+        relations: [],
+        provenance: [],
+      },
+    }),
+    ids = Array.from({ length: size }, (_, index) =>
+      actionKind === "decision-repin"
+        ? `dec_COST${String(index).padStart(4, "0")}`
+        : `F-${index.toString(16).toUpperCase().padStart(8, "0")}`,
+    ),
+    counts = { rowsExamined: 0, factReads: 0, decisionReads: 0, documentReads: 0, appendedEvents: 0, appliedEvents: 0 },
+    body = "---\nschema: decision-package/v1\n---\n\nMeasured decision body.\n",
+    document = { body, blobSha256: createHash("sha256").update(body).digest("hex") };
+  let revision = 5000,
+    appended = false;
+  const executor = makeEntityActionCatalogExecutor({
+      now: () => occurredAt,
+      sessionIdentity: () => ({ runtime: "unavailable", sessionId: null, transcriptReachability: "unavailable" }),
+      readSettings: () => ({ decisionReviewRequirement: "off" }),
+      store: {
+        readHead: () => ({ revision: 5000 }),
+        readEvent: () => null,
+        readCommandOutcome: () =>
+          appended ? { status: "accepted_durable", firstRevision: 5001, lastRevision: revision } : null,
+        append(bundle) {
+          counts.appendedEvents += 1 + (bundle.preceding?.length ?? 0);
+          revision = bundle.event.workspaceRevision;
+          appended = true;
+          return { revision };
+        },
+      },
+      projection: {
+        readCut: () => ({ status: "ready", watermark: revision }),
+        listDecisions: () => ({
+          decisions: counted(
+            ids.map((decisionId) => ({ decisionId })),
+            () => {
+              counts.rowsExamined += 1;
+            },
+          ),
+        }),
+        readDecision(decisionId) {
+          counts.decisionReads += 1;
+          return { watermark: 5000, sourceRevision: 5000, decision: { ...decision, decisionId } };
+        },
+        readDecisionIncomingRelations: () => [],
+        readFact(factId) {
+          counts.factReads += 1;
+          return {
+            fact: {
+              factId,
+              statement: "Measured fact.",
+              evidenceSource: "g38:batch",
+              observedAt: occurredAt,
+              confidence: "high",
+              memoryClass: "semantic",
+              memoryTags: [],
+              archived: false,
+            },
+          };
+        },
+        readDocument() {
+          counts.documentReads += 1;
+          return { watermark: 5000, sourceRevision: 5000, document };
+        },
+        apply() {
+          counts.appliedEvents += 1;
+        },
+      },
+    }),
+    hashes = measureHashes(() => {
+      const result = executor.run(
+        actionKind === "decision-repin"
+          ? { kind: actionKind, all: true, migrationEvidence: "task/task-cost/artifacts/evidence.md" }
+          : {
+              kind: actionKind,
+              factIds: counted(ids, () => {
+                counts.rowsExamined += 1;
+              }),
+              reason: "Measured archive batch.",
+            },
+        { actor, source: "local", authorizationDecision: { outcome: "allowed" } },
+        "batch-cost",
+      );
+      assert.equal(result.outcome, "applied", JSON.stringify(result));
+    });
+  assert.equal(counts.appendedEvents, size, "batch must publish every selected member");
+  assert.equal(counts.appliedEvents, size, "batch must project every selected member");
+  return { size, counts: { ...counts, ...hashes } };
+}
+
+export async function measureCollectionCosts(rootDir, scales = COLLECTION_SCALES) {
+  const measured = {};
+  for (const [id, { run }] of Object.entries(COLLECTION_PROBES))
+    measured[id] = { small: await run(rootDir, scales.small), large: await run(rootDir, scales.large) };
+  return measured;
+}
+
+export const COLLECTION_PROBES = Object.freeze({
+  ...DECISION_PROBES,
+  "decision-respond-review:review-findings": {
+    action: "decision-respond-review",
+    dimension: "review-findings",
+    run: (root, n) => measureDecisionCollection(root, n, "decision-respond-review", "review-findings"),
+  },
+  "decision-repin:decisions": {
+    action: "decision-repin",
+    dimension: "decisions",
+    run: (root, n) => measureCatalogBatch(root, n, "decision-repin"),
+  },
+  "fact-archive:facts": {
+    action: "fact-archive",
+    dimension: "facts",
+    run: (root, n) => measureCatalogBatch(root, n, "fact-archive"),
+  },
+  ...Object.fromEntries(
+    durableActionKinds.flatMap((kind) => {
+      const contract = getExecutableEntityAction(kind);
+      return contract && ["assign", "unassign"].includes(contract.id)
+        ? [
+            [
+              `${kind}:assignment-history`,
+              {
+                action: kind,
+                dimension: "assignment-history",
+                run: (rootDir, size) => measureAssignmentHistory(rootDir, size, kind),
+              },
+            ],
+          ]
+        : [];
+    }),
+  ),
+  "task-submit:task-artifacts": { action: "task-submit", dimension: "task-artifacts", run: measureTaskSubmitArtifacts },
+  "doc-submit:documents": { action: "doc-submit", dimension: "documents", run: measureDocuments },
+  "doc-submit:event-bytes": {
+    action: "doc-submit",
+    dimension: "event-bytes",
+    run: (rootDir, size) => measureDocuments(rootDir, 1, size),
+  },
+  "relation-relate:owner-relations": { action: "relation-relate", dimension: "owner-relations", run: measureRelations },
+  "task-create:work-tasks": {
+    action: "task-create",
+    dimension: "work-tasks",
+    async run(rootDir, size) {
+      const { measureWriteCostScaling } = await load(rootDir, "packages/daemon/test/fixtures/g1-write-cost-scaling.ts"),
+        result = await measureWriteCostScaling(3000, { workTaskCount: size });
+      return { size, counts: result.counts["task-create"] };
+    },
+  },
+});

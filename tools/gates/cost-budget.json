@@ -213,6 +213,113 @@
         "fileReadBytes": 0
       }
     },
-    "knownScaling": []
+    "knownScaling": [],
+    "actionCoverage": {
+      "measured": {
+        "task-create": {
+          "measurements": ["task-create:ledger-events", "task-create:work-tasks"]
+        },
+        "doc-submit": {
+          "measurements": ["doc-submit:ledger-events", "doc-submit:documents", "doc-submit:event-bytes"]
+        },
+        "task-start": {
+          "measurements": ["task-start:ledger-events"]
+        },
+        "task-progress-append": {
+          "measurements": ["task-progress-append:ledger-events"]
+        },
+        "fact-record": {
+          "measurements": ["fact-record:ledger-events"]
+        },
+        "decision-propose": {
+          "measurements": ["decision-propose:ledger-events", "decision-propose:claims"]
+        },
+        "decision-reject": {
+          "measurements": ["decision-reject:ledger-events", "decision-reject:claims"]
+        },
+        "relation-relate": {
+          "measurements": ["relation-relate:ledger-events", "relation-relate:owner-relations"]
+        },
+        "decision-reckon": {
+          "measurements": ["decision-reckon:ledger-events"]
+        },
+        "task-submit": {
+          "measurements": ["task-submit:task-artifacts"]
+        },
+        "decision-repin": {
+          "measurements": ["decision-repin:decisions", "decision-repin:claims"]
+        },
+        "fact-archive": {
+          "measurements": ["fact-archive:facts"]
+        },
+        "agent-assign": {
+          "measurements": ["agent-assign:assignment-history"]
+        },
+        "agent-unassign": {
+          "measurements": ["agent-unassign:assignment-history"]
+        },
+        "decision-assign": {
+          "measurements": ["decision-assign:assignment-history"]
+        },
+        "decision-unassign": {
+          "measurements": ["decision-unassign:assignment-history"]
+        },
+        "fact-assign": {
+          "measurements": ["fact-assign:assignment-history"]
+        },
+        "fact-unassign": {
+          "measurements": ["fact-unassign:assignment-history"]
+        },
+        "schedule-assign": {
+          "measurements": ["schedule-assign:assignment-history"]
+        },
+        "schedule-unassign": {
+          "measurements": ["schedule-unassign:assignment-history"]
+        },
+        "squad-assign": {
+          "measurements": ["squad-assign:assignment-history"]
+        },
+        "squad-unassign": {
+          "measurements": ["squad-unassign:assignment-history"]
+        },
+        "task-assign": {
+          "measurements": ["task-assign:assignment-history"]
+        },
+        "task-unassign": {
+          "measurements": ["task-unassign:assignment-history"]
+        },
+        "decision-accept": {
+          "measurements": ["decision-accept:claims"]
+        },
+        "decision-defer": {
+          "measurements": ["decision-defer:claims"]
+        },
+        "decision-retire": {
+          "measurements": ["decision-retire:claims"]
+        },
+        "decision-amend": {
+          "measurements": ["decision-amend:claims"]
+        },
+        "decision-claim-add": {
+          "measurements": ["decision-claim-add:claims"]
+        },
+        "decision-claim-fulfill": {
+          "measurements": ["decision-claim-fulfill:claims"]
+        },
+        "decision-review": {
+          "measurements": ["decision-review:claims"]
+        },
+        "decision-respond-review": {
+          "measurements": ["decision-respond-review:claims", "decision-respond-review:review-findings"]
+        },
+        "decision-override-review": {
+          "measurements": ["decision-override-review:claims"]
+        },
+        "decision-transition": {
+          "measurements": ["decision-transition:claims"]
+        }
+      },
+      "notApplicable": []
+    }
   }
 }

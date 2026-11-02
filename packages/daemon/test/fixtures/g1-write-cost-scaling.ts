@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 // G1 write-cost-scaling gate fixture: builds a ledger of a given size with a realistic mix of
-// event kinds, then drives every durable write kind and hot read twice through the production
+// event kinds, then drives the historical sampled writes and hot reads twice through the production
 // daemon request path (a warm-up call, then the steady-state call the gate judges), measuring
 // deterministic cost (SQL rows read, sha256 calls/bytes, git subprocess count, file-read bytes)
 // at the point each operation actually executes:
@@ -9,11 +9,12 @@
 //   - task-list/task-show/agenda/workspace-summary are intercepted host-side by the RepoCell
 //     proxy (packages/daemon/src/repo-cell-proxy.ts) and are instrumented in this process directly.
 // No production hook is added anywhere; every patch lives in g1-cost-probe.mjs.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { Worker } from "node:worker_threads";
+import assert from "node:assert/strict";
 import {
   compileDecisionWrite,
   compileFactWrite,
@@ -34,6 +35,7 @@ import type { TaskCreatedEvent } from "@harness-anything/kernel/internal/domain/
 import { canonicalRoot, workspaceId } from "../../src/protocol/daemon-protocol.contract.ts";
 import {
   makeTaskEventStore,
+  makeTaskProjection,
   openPersistentWriterEpoch,
   type WriterEpochFenceDescriptor,
 } from "@harness-anything/storage";
@@ -46,19 +48,15 @@ import { realizedDecisionBody, realizedTaskPlan } from "../../../../tools/fixtur
 import { installCostProbe, resetCostProbe, snapshotCostProbe } from "./g1-cost-probe.mjs";
 
 export const G1_METRICS = Object.freeze(["sqlRowsRead", "sha256Calls", "sha256Bytes", "gitProcesses", "fileReadBytes"]);
-export const G1_WRITE_OPERATIONS = Object.freeze([
-  "task-create",
-  "doc-submit",
-  "task-start",
-  "task-progress-append",
-  "fact-record",
-  "decision-propose",
-  "decision-reject",
-  "relation-relate",
-  "decision-reckon",
-  "receipt-show",
-]);
+const legacyBudgets = JSON.parse(
+  readFileSync(new URL("../../../../tools/gates/cost-budget.json", import.meta.url), "utf8"),
+).writeCostScaling.baseline;
 export const G1_READ_OPERATIONS = Object.freeze(["task-list", "task-show", "agenda", "runtime-overview"]);
+// These are the historical absolute ratchets, not the canonical write inventory. G38 derives
+// that inventory from ActionDeclaration and separately requires coverage for every new action.
+export const G1_WRITE_OPERATIONS = Object.freeze(
+  Object.keys(legacyBudgets).filter((action) => !G1_READ_OPERATIONS.includes(action)),
+);
 export const G1_OPERATIONS = Object.freeze([...G1_WRITE_OPERATIONS, ...G1_READ_OPERATIONS]);
 
 const actor = {
@@ -84,7 +82,12 @@ function factIdFor(index: number): string {
 
 const bulkActor = { principal: { personId: "person-g1-bulk" }, executor: { kind: "agent" as const, id: "g1-bulk" } };
 
-function bulkTask(taskId: string, title: string, status: "planned" | "cancelled"): TaskCreatedEvent["payload"]["task"] {
+function bulkTask(
+  taskId: string,
+  title: string,
+  status: "planned" | "cancelled",
+  parentTaskId?: string,
+): TaskCreatedEvent["payload"]["task"] {
   return {
     schema: "task/v2",
     taskId,
@@ -99,10 +102,28 @@ function bulkTask(taskId: string, title: string, status: "planned" | "cancelled"
     presetSnapshotDigest: null,
     pinned: false,
     packageDisposition: "active",
+    ...(parentTaskId
+      ? {
+          metadata: {
+            parentTaskId,
+            idempotencyKey: null,
+            workKind: null,
+            riskTier: null,
+            urgency: null,
+            verticalId: "software/coding",
+            presetId: "standard-task",
+            profileId: "standard",
+            moduleKey: null,
+            slug: taskId,
+            surfaces: [],
+            fromLegacyId: null,
+          },
+        }
+      : {}),
   };
 }
 
-function taskCreatedEvent(revision: number, taskId: string, title: string): TaskCreatedEvent {
+function taskCreatedEvent(revision: number, taskId: string, title: string, parentTaskId?: string): TaskCreatedEvent {
   return {
     schema: "task-event/v1",
     eventId: `event-${taskId}`,
@@ -113,14 +134,14 @@ function taskCreatedEvent(revision: number, taskId: string, title: string): Task
     actor: bulkActor,
     source: "local",
     occurredAt: "2026-08-11T00:00:00.000Z",
-    payload: { task: bulkTask(taskId, title, "planned") },
+    payload: { task: bulkTask(taskId, title, "planned", parentTaskId) },
   };
 }
 
 /** A lifecycle transition shaped the way the kernel's cancel transition emits it
  * (task-lifecycle-command-transitions.ts transitionTask): the whole task at its new status. Cancelled
  * rather than blocked: a blocked task occupies a WIP slot, and the measured task-start needs one. */
-function taskCancelledEvent(revision: number, taskId: string, title: string): TaskEventV1 {
+function taskCancelledEvent(revision: number, taskId: string, title: string, parentTaskId?: string): TaskEventV1 {
   return {
     schema: "task-event/v1",
     eventId: `event-${taskId}-cancelled`,
@@ -132,7 +153,7 @@ function taskCancelledEvent(revision: number, taskId: string, title: string): Ta
     source: "local",
     occurredAt: "2026-08-11T00:00:00.000Z",
     payload: {
-      task: bulkTask(taskId, title, "cancelled"),
+      task: bulkTask(taskId, title, "cancelled", parentTaskId),
       mutation: { command: "transition", reason: "G1 bulk lifecycle transition.", fields: ["status"] },
       documentClaims: [],
     },
@@ -288,6 +309,7 @@ async function seedLedger(
   repoId: string,
   eventCount: number,
   fence: WriterEpochFenceDescriptor,
+  workTaskCount?: number,
 ): Promise<{ readonly editedPath: string }> {
   const store = makeTaskEventStore({
     repoId,
@@ -301,15 +323,30 @@ async function seedLedger(
       decisionCount = Math.max(1, Math.floor(eventCount * 0.02)),
       factCount = Math.max(1, eventCount - taskCount - cancelledCount - docCount - decisionCount),
       bulkTaskId = (index: number) => `g1-bulk-task-${String(index).padStart(6, "0")}`;
+    if (
+      workTaskCount !== undefined &&
+      (!Number.isSafeInteger(workTaskCount) || workTaskCount < 1 || workTaskCount >= taskCount)
+    )
+      throw new Error(`G38 work-task collection ${workTaskCount} does not fit ${taskCount} seeded tasks`);
     let revision = store.read().revision;
     for (let index = 0; index < taskCount; index += 1) {
       revision += 1;
-      const event = taskCreatedEvent(revision, bulkTaskId(index), `G1 bulk task ${index}`);
+      const event = taskCreatedEvent(
+        revision,
+        bulkTaskId(index),
+        `G1 bulk task ${index}`,
+        workTaskCount !== undefined && index > 0 && index <= workTaskCount ? bulkTaskId(0) : undefined,
+      );
       store.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
     }
     for (let index = 0; index < cancelledCount; index += 1) {
       revision += 1;
-      const event = taskCancelledEvent(revision, bulkTaskId(index), `G1 bulk task ${index}`);
+      const event = taskCancelledEvent(
+        revision,
+        bulkTaskId(index),
+        `G1 bulk task ${index}`,
+        workTaskCount !== undefined && index > 0 && index <= workTaskCount ? bulkTaskId(0) : undefined,
+      );
       store.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
     }
     let editedPath = "";
@@ -339,6 +376,19 @@ async function seedLedger(
         currentDocument: null,
       });
       store.append({ event: compiled.event, plan: compiled.plan, blobs: compiled.blobs });
+    }
+    if (workTaskCount !== undefined) {
+      const projection = makeTaskProjection({ rootDir, eventStore: store });
+      try {
+        projection.rebuild();
+        assert.equal(
+          projection.readTaskChildCounts([bulkTaskId(0)])[bulkTaskId(0)],
+          workTaskCount,
+          "the collection scale must be the number of tasks in one work, including cancelled tasks",
+        );
+      } finally {
+        projection.close();
+      }
     }
     return { editedPath };
   } finally {
@@ -437,7 +487,10 @@ export interface G1ScaleMeasurement {
   readonly firstCall: Record<string, Counters>;
 }
 
-export async function measureWriteCostScaling(eventCount: number): Promise<G1ScaleMeasurement> {
+export async function measureWriteCostScaling(
+  eventCount: number,
+  options: { workTaskCount?: number } = {},
+): Promise<G1ScaleMeasurement> {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-g1-cost-")),
     repoDir = path.join(parent, "repo"),
     stateRoot = path.join(parent, "writer-epochs"),
@@ -500,7 +553,7 @@ export async function measureWriteCostScaling(eventCount: number): Promise<G1Sca
     await (
       await openBootstrappedRepoCell({ repoId, rootDir, ownerId: "g1-cost-seed", defaultWriterEpochFence: fence })
     ).close();
-    const seeded = await seedLedger(repoDir, repoId, eventCount, fence);
+    const seeded = await seedLedger(repoDir, repoId, eventCount, fence, options.workTaskCount);
     // A ledger-owned prose file carries an unsubmitted local edit when the writer attaches, and
     // keeps it through warmup and every measured write: the state a daemon (re)starts into on a
     // live ledger. The follower must leave the edit alone without replaying history around it;
@@ -529,7 +582,13 @@ export async function measureWriteCostScaling(eventCount: number): Promise<G1Sca
       await each(
         "task-create",
         measure,
-        (subject) => run({ kind: "task-create", taskId: subject.taskId, title: subject.taskId }),
+        (subject) =>
+          run({
+            kind: "task-create",
+            taskId: subject.taskId,
+            title: subject.taskId,
+            ...(options.workTaskCount !== undefined ? { parentTaskId: "g1-bulk-task-000000" } : {}),
+          }),
         (result, subject) => {
           assertApplied("task-create", result);
           const created = result as { readonly opId: string; readonly packagePath: string };
@@ -537,6 +596,7 @@ export async function measureWriteCostScaling(eventCount: number): Promise<G1Sca
           subject.packagePath = created.packagePath;
         },
       );
+      if (options.workTaskCount !== undefined) return { eventCount, counts, firstCall };
       await each("doc-submit", measure, (subject) => {
         const planPath = `${subject.packagePath}/task_plan.md`;
         mkdirSync(path.dirname(path.join(repoDir, "harness", planPath)), { recursive: true });
