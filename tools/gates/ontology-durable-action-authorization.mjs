@@ -32,9 +32,15 @@ export function auditDurableActionAuthorization(rootDir = process.cwd(), durable
     authorizationPort:
       kind === "rbac-bootstrap"
         ? bootstrapAuthority(analysis)
-        : taskWrites.has(kind)
-          ? taskWrites.get(kind)
-          : actionReachesAuthorization(kind, analysis, authority) || queuedWrites.has(kind) || preparedWrites.has(kind),
+        : kind === "access-manage"
+          ? accessManagementAuthority(analysis)
+          : kind === "permission-request-decide"
+            ? permissionRequestAuthority(analysis)
+            : taskWrites.has(kind)
+              ? taskWrites.get(kind)
+              : actionReachesAuthorization(kind, analysis, authority) ||
+                queuedWrites.has(kind) ||
+                preparedWrites.has(kind),
     receiptAuthorizationDecision: receipt.nonNullable,
   }));
   const findings = [
@@ -91,7 +97,12 @@ function namedFunction(node) {
     (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer))
   )
     return { name: node.name.text, body: node.initializer.body };
-  if (ts.isMethodDeclaration(node) && node.name && ts.isIdentifier(node.name) && node.body) {
+  if (
+    ts.isMethodDeclaration(node) &&
+    node.name &&
+    (ts.isIdentifier(node.name) || ts.isPrivateIdentifier(node.name)) &&
+    node.body
+  ) {
     return { name: node.name.text, body: node.body };
   }
   return null;
@@ -202,6 +213,65 @@ function bootstrapAuthority(analysis) {
             someNode(child, (literal) => ts.isStringLiteral(literal) && literal.text === "bootstrap_admin_closed"),
         ),
     )
+  );
+}
+
+// CH1: all global management consumers ask the same session boundary for fleet policy authority.
+function accessManagementAuthority(analysis) {
+  const session = analysis.functions
+      .get("requireAccessManagement")
+      ?.find((entry) => entry.file === "packages/authorization-keycloak/src/oidc-session-service.ts")?.body,
+    run = definition(analysis, "access-admin-service", "run");
+  return Boolean(
+    session &&
+      run &&
+      calls(run, "requireAccessManagement") &&
+      calls(session, "requireSession") &&
+      syntax(session).includes(
+        'center.provider.authorizePerson({adminAccessToken:center.accessToken,personId:session.personId,action:"access-manage",resource:{kind:"fleet"},})',
+      ) &&
+      someNode(
+        session,
+        (node) =>
+          ts.isIfStatement(node) &&
+          syntax(node.expression) === 'decision.outcome!=="allowed"' &&
+          someNode(node.thenStatement, (child) => ts.isThrowStatement(child) && calls(child, "coded")),
+      ),
+  );
+}
+
+// dec_2C72644059ACA2D4BE30C07786/CH2: request decisions are authorized inside the
+// service's serial queue against the stored request resource, never a socket-owner shortcut.
+function permissionRequestAuthority(analysis) {
+  const host = definition(analysis, "daemon-host-open", "manageRbac"),
+    run = definition(analysis, "access-admin-service", "run"),
+    decide = definition(analysis, "access-admin-service", "#decidePermissionRequest"),
+    permission = definition(analysis, "access-admin-service", "#canDecide");
+  if (!host || !run || !decide || !permission) return false;
+  return (
+    calls(host, "localOnly") &&
+    calls(host, "run") &&
+    calls(run, "requireSession") &&
+    someNode(
+      run,
+      (node) =>
+        ts.isCaseClause(node) &&
+        syntax(node.expression) === '"permission-request-decide"' &&
+        calls(node, "#decidePermissionRequest"),
+    ) &&
+    calls(decide, "serialize") &&
+    someNode(
+      decide,
+      (node) =>
+        ts.isIfStatement(node) &&
+        syntax(node.expression) === "!(awaitthis.#canDecide(session,actor,current.resource))" &&
+        someNode(node.thenStatement, (child) => ts.isThrowStatement(child) && calls(child, "coded")),
+    ) &&
+    syntax(permission).includes("target=decodeAuthorizationResource(resource)") &&
+    syntax(permission).includes(
+      'session.adapter.authorizePerson({adminAccessToken:session.token,personId:actor,action:"permission-request-decide",resource:target,',
+    ) &&
+    syntax(permission).includes('returndecision.outcome==="allowed";')
   );
 }
 

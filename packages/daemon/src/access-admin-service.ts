@@ -150,6 +150,8 @@ export class AccessAdminService {
   async run(request: AccessAdminRequest, requester?: string): Promise<Record<string, unknown>> {
     if (request.operation !== "session-lifetime" && request.operation !== "session-lifetime-set")
       this.#oidc.requireCollaboration();
+    if (request.operation === "permission-request-decide" && requester !== undefined)
+      throw coded("human_confirmation_required", "An execution credential cannot decide permission requests.");
     if (request.operation === "permission-request-create" && requester !== undefined)
       return this.#createPermissionRequest(request, requester);
     const ownDevices = request.operation?.startsWith("device-") === true,
@@ -161,7 +163,7 @@ export class AccessAdminService {
         request.operation === "permission-request-list" ||
         request.operation === "permission-request-decide"
           ? this.#oidc.requireSession(request.rootDir)
-          : this.#oidc.requireRole("access-admin", request.rootDir))
+          : this.#oidc.requireAccessManagement(request.rootDir))
       ).personId;
     switch (request.operation as AccessAdminOperation) {
       case "group-list":
@@ -274,18 +276,29 @@ export class AccessAdminService {
   async #listPermissionRequests(actor: string): Promise<Record<string, unknown>> {
     const rows = this.#permissionRequests.read().map((line) => JSON.parse(line) as PermissionRequest),
       session = await this.#session(),
+      permitted = new Set<string>();
+    for (const resource of new Set(rows.filter((row) => row.state === "pending").map((row) => row.resource))) {
+      if (await this.#canDecide(session, actor, resource)) permitted.add(resource);
+    }
+    return {
+      ok: true,
+      canDecide: rows.some((row) => row.personId !== actor && row.state === "pending" && permitted.has(row.resource)),
+      requests: rows.filter(
+        (row) => row.personId === actor || (row.state === "pending" && permitted.has(row.resource)),
+      ),
+    };
+  }
+
+  async #canDecide(session: Session, actor: string, resource: string): Promise<boolean> {
+    const target = decodeAuthorizationResource(resource),
       decision = await session.adapter.authorizePerson({
         adminAccessToken: session.token,
         personId: actor,
         action: "permission-request-decide",
-        resource: { kind: "fleet" },
-      }),
-      canDecide = decision.outcome === "allowed";
-    return {
-      ok: true,
-      canDecide,
-      requests: rows.filter((item) => item.personId === actor || (canDecide && item.state === "pending")),
-    };
+        resource: target,
+        resourceAncestors: target.kind === "entity" ? [{ kind: "repository", repoId: target.repoId }] : [],
+      });
+    return decision.outcome === "allowed";
   }
 
   async #decidePermissionRequest(request: AccessAdminRequest, actor: string): Promise<Record<string, unknown>> {
@@ -313,6 +326,8 @@ export class AccessAdminService {
         stableStringify(effectivePolicyGroupScopes(groups, current.groupId)) !== stableStringify(current.actions)
       )
         throw coded("permission_request_changed", "The policy group changed; submit a new permission request.");
+      if (!(await this.#canDecide(session, actor, current.resource)))
+        throw coded("authorization_denied", `Approver ${actor} cannot decide requests on ${current.resource}.`);
       if (request.decision === "approve") {
         const approverResource = decodeAuthorizationResource(current.resource),
           resourceAncestors =

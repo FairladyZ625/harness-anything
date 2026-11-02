@@ -3,7 +3,7 @@ import type { ManagedRbacListener } from "@harness-anything/kernel";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { consumeKnownError } from "@harness-anything/kernel";
+import { consumeKnownError, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import type {
   DeviceLoginRequest,
   OidcLoginAuthority,
@@ -674,15 +674,26 @@ export class OidcSessionService {
     };
   }
 
-  async requireRole(role: string, loginTarget?: string): Promise<StoredSession> {
-    const { sessionStore } = await this.#centerIdentity(loginTarget);
-    return this.#requireRole(role, await this.#live(sessionStore));
+  async requireAccessManagement(loginTarget?: string, withinWriter = false): Promise<StoredSession> {
+    const session = await this.requireSession(loginTarget, withinWriter),
+      center = await this.center(),
+      decision = await center.provider.authorizePerson({
+        adminAccessToken: center.accessToken,
+        personId: session.personId,
+        action: "access-manage",
+        resource: { kind: "fleet" },
+      });
+    if (decision.outcome !== "allowed")
+      throw coded("authorization_denied", "Access management requires an access-manage grant on @fleet.");
+    return session;
   }
 
   /** Device administration must observe external session revocation before using center Admin REST. */
-  async requireSession(loginTarget?: string): Promise<StoredSession> {
+  async requireSession(loginTarget?: string, withinWriter = false): Promise<StoredSession> {
     const { sessionStore } = await this.#centerIdentity(loginTarget),
-      session = await this.#live(sessionStore);
+      use = withinWriter ? await this.#useCurrent(sessionStore) : undefined,
+      session = withinWriter ? use?.session : await this.#live(sessionStore);
+    if (use?.unavailable) throw use.unavailable;
     if (!session) throw coded("authentication_required", "Sign in with Keycloak first.");
     const authority = session.authority ?? (await this.#loginAuthority(session.loginTarget)),
       response = await this.#fetchAuthority(
@@ -696,12 +707,6 @@ export class OidcSessionService {
     const identity = (await response.json()) as { sub?: string; harness_person_id?: string };
     if (identity.sub !== session.subject || identity.harness_person_id !== session.personId)
       throw coded("authentication_required", "This device session no longer identifies the signed-in person.");
-    return session;
-  }
-
-  #requireRole(role: string, session: StoredSession | undefined): StoredSession {
-    if (!session) throw coded("authentication_required", "Sign in with Keycloak first.");
-    if (!session.roles.includes(role)) throw coded("authorization_denied", `Keycloak role ${role} is required.`);
     return session;
   }
 
@@ -725,25 +730,24 @@ export class OidcSessionService {
         !(await this.#bootstrapRequired(await this.#centerToken()))
       ) {
         if (!sessionStore) throw coded("authentication_required", "Sign in with the selected center first.");
-        await this.#requireRoleInWriter("access-admin", sessionStore);
+        await this.requireAccessManagement(loginTarget, true);
       }
       return operation();
     });
   }
 
-  /** Role check for a caller already inside the write queue: renewal runs directly, never queued behind itself. */
-  async #requireRoleInWriter(role: string, sessionStore: OidcSessionStorePort): Promise<StoredSession> {
-    const { session, unavailable } = await this.#useCurrent(sessionStore);
-    if (unavailable) throw unavailable;
-    return this.#requireRole(role, session);
-  }
-
   async #bootstrapRequired(token: string): Promise<boolean> {
-    const members = await this.#adminJson("GET", "/roles/access-admin/users", token, undefined, true);
-    if (members === undefined) return true;
-    if (!Array.isArray(members))
-      throw coded("oidc_response_invalid", "Keycloak returned invalid administrator membership.");
-    return members.length === 0;
+    const { provider } = await this.center();
+    for (const person of await provider.readPeople(token)) {
+      const decision = await provider.authorizePerson({
+        adminAccessToken: token,
+        personId: person.personId,
+        action: "access-manage",
+        resource: { kind: "fleet" },
+      });
+      if (decision.outcome === "allowed") return false;
+    }
+    return true;
   }
 
   async center(rejectedAccessToken?: string): Promise<{
@@ -776,10 +780,15 @@ export class OidcSessionService {
         token = await this.#centerToken();
       if (!(await this.#bootstrapRequired(token)))
         throw coded("bootstrap_admin_closed", "The first Harness administrator already exists.");
-      await this.#ensureAccessAdminRole(token);
+      const { provider } = await this.center();
+      await provider.syncBasePolicy(token);
       const userId = await this.#createUser(token, input, false),
-        role = await this.#adminJson("GET", "/roles/access-admin", token);
-      await this.#adminJson("POST", `/users/${encodeURIComponent(userId)}/role-mappings/realm`, token, [role]);
+        groups = await provider.readPolicyGroups(token);
+      await provider.writeGrant(
+        token,
+        { groupId: "admin", resource: "@fleet", userIds: [userId] },
+        effectivePolicyGroupScopes(groups, "admin"),
+      );
       await this.#removeBootstrapAdministrator(token, sessionStore);
       return { ok: true, created: true, personId: input.personId };
     });
@@ -795,10 +804,7 @@ export class OidcSessionService {
     withinWriter = false,
     loginTarget?: string,
   ): Promise<Record<string, unknown>> {
-    const { sessionStore } = await this.#centerIdentity(loginTarget);
-    // A caller already inside the write queue must not re-queue its own session renewal.
-    if (withinWriter) await this.#requireRoleInWriter("access-admin", sessionStore);
-    else await this.requireRole("access-admin", loginTarget);
+    await this.requireAccessManagement(loginTarget, withinWriter);
     const token = await this.#centerToken(),
       userId = await this.#createUser(token, input, true);
     await this.#adminJson("PUT", `/users/${encodeURIComponent(userId)}/execute-actions-email`, token, [
@@ -858,15 +864,6 @@ export class OidcSessionService {
         issuer,
       };
     return accessToken;
-  }
-
-  async #ensureAccessAdminRole(token: string): Promise<void> {
-    const existing = await this.#adminJson("GET", "/roles/access-admin", token, undefined, true);
-    if (existing !== undefined) return;
-    await this.#adminJson("POST", "/roles", token, {
-      name: "access-admin",
-      description: "Harness account administrator",
-    });
   }
 
   async #createUser(

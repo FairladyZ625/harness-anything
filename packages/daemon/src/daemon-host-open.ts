@@ -1116,11 +1116,9 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           const accessAction =
             request.operation === "permission-request-create"
               ? "permission-request-create"
-              : request.operation === "permission-request-decide"
-                ? "permission-request-decide"
-                : request.operation === "permission-request-withdraw"
-                  ? "permission-request-withdraw"
-                  : undefined;
+              : request.operation === "permission-request-withdraw"
+                ? "permission-request-withdraw"
+                : undefined;
           if (accessAction)
             await requireAuthorizedFleetAction({
               kind: accessAction,

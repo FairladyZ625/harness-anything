@@ -24,6 +24,7 @@ async function fixture(t: TestContext) {
     oidc = createIdentitySession(user.root, { fetch: keycloak.fetch }),
     admin = new AccessAdminService(oidc, user.root, { fetch: keycloak.fetch });
   t.after(user.cleanup);
+  keycloak.accessAdmin();
   const provider = new KeycloakPolicyAdapter(
     { url: keycloakUrl, realm: keycloakRealm, resourceServerClientId: "harness-center" },
     keycloak.fetch,
@@ -400,6 +401,7 @@ test("a failed old-owner consent revocation cannot publish a transferred device"
   const user = keycloakUserRoot(),
     keycloak = fakeKeycloak();
   t.after(user.cleanup);
+  keycloak.accessAdmin();
   keycloak.account("alice");
   keycloak.account("bob");
   keycloak.node("edge-a", "alice");
@@ -429,9 +431,9 @@ test("two registrations of one node from the same version: one applied, one vers
   const { keycloak, run, nodes, signIn, oidc } = await fixture(t),
     directory = mkdtempSync(path.join(tmpdir(), "ha-node-credential-")),
     firstSession = Promise.withResolvers<void>(),
-    requireRole = oidc.requireRole.bind(oidc);
-  t.mock.method(oidc, "requireRole", async (...args: Parameters<typeof oidc.requireRole>) => {
-    const session = await requireRole(...args);
+    requireAccessManagement = oidc.requireAccessManagement.bind(oidc);
+  t.mock.method(oidc, "requireAccessManagement", async (...args: Parameters<typeof oidc.requireAccessManagement>) => {
+    const session = await requireAccessManagement(...args);
     firstSession.resolve();
     return session;
   });
@@ -440,7 +442,8 @@ test("two registrations of one node from the same version: one applied, one vers
   keycloak.account("bob");
   // Capture each administrator's session before replacing it; the queued writes still overlap.
   // Whichever wins reserves its own file; the loser answers the conflict before reserving anything.
-  signIn("admin-one");
+  keycloak.accessAdmin("admin-one");
+  signIn("admin-one", []);
   const first = run({
     operation: "node-register",
     nodeId: "edge-a",
@@ -448,7 +451,8 @@ test("two registrations of one node from the same version: one applied, one vers
     credentialFile: path.join(directory, "admin-one.credential"),
   });
   await firstSession.promise;
-  signIn("admin-two");
+  keycloak.accessAdmin("admin-two");
+  signIn("admin-two", []);
   const second = run({
       operation: "node-register",
       nodeId: "edge-a",
@@ -629,6 +633,7 @@ test("a removal that settles applied reports the removed node, and nothing else 
     run = (request: AccessAdminRequest) => admin.run({ operationId: randomUUID(), ...request });
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   t.after(user.cleanup);
+  keycloak.accessAdmin();
   keycloak.account("alice");
   keycloak.account("bob");
   await run({
@@ -687,7 +692,8 @@ test("node registration needs an administrator, a known person, and a well-forme
   await assert.rejects(run({ operation: "node-register", nodeId: "edge a/../b", personId: "alice" }), {
     code: "node_invalid",
   });
-  signIn("person-member", ["offline_access"]);
+  keycloak.account("person-member");
+  signIn("person-member", ["access-admin"]);
   for (const operation of ["node-list", "node-register", "node-unregister"])
     await assert.rejects(
       run({ operation, nodeId: "edge-a", personId: "alice", expectedVersion: "any" }),

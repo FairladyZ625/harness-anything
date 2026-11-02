@@ -51,7 +51,8 @@ export interface IdentitySessionPort {
   ): Promise<T & IdentityAuthenticationContext>;
   /** Public metadata comes from the center; an edge never writes a second Keycloak configuration. */
   discovery(nodeId: string): OidcLoginAuthority | null;
-  requireRole(role: string, loginTarget?: string): Promise<StoredSession>;
+  /** Global administration follows the person's @fleet access-manage policy, never realm roles. */
+  requireAccessManagement(loginTarget?: string, withinWriter?: boolean): Promise<StoredSession>;
   /** Device administration must observe external session revocation before using center Admin REST. */
   requireSession(loginTarget?: string): Promise<StoredSession>;
   /**

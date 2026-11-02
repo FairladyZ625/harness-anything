@@ -395,7 +395,7 @@ test("builtin sessions reject remote edge targets at the identity boundary", asy
   assert.throws(() => session.logout(edgeRoot), pluginRequired);
   await assert.rejects(session.bind({ transportKind: "unix-socket" }, edgeRoot), pluginRequired);
   await assert.rejects(session.requireSession(edgeRoot), pluginRequired);
-  await assert.rejects(session.requireRole("access-admin", edgeRoot), pluginRequired);
+  await assert.rejects(session.requireSession(edgeRoot), pluginRequired);
   assert.throws(() => session.configureAuthority(async () => ({ ok: true }), edgeRoot), pluginRequired);
 });
 

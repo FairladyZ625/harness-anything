@@ -56,7 +56,7 @@ test("GUI assignment carries the read version and preserves assignment through a
       new AccessAdminService(createIdentitySession(fixture.userRoot), fixture.userRoot).run({
         operation: "node-list",
       }),
-      /access-admin/,
+      /access-manage/,
     );
     fixture.keycloak.revoke("person-gui", fixture.repoId, ["task-assign"]);
     const deniedDirectory = await bridge.invoke("getTaskAssignmentDirectory", scope);
