@@ -62,6 +62,7 @@ test("release workflow keeps write permissions on the jobs that need them", () =
     ],
     ["github-release", new Map([["contents", "write"]])],
     ["upload-update-feed", new Map([["contents", "read"]])],
+    ["update-feed-access", new Map([["contents", "read"]])],
   ]);
   const parsed = jobs();
   for (const [jobId, permissions] of expected) {
@@ -75,17 +76,23 @@ test("release workflow keeps write permissions on the jobs that need them", () =
   }
 });
 
-test("workflow_dispatch is a rehearsal: only validate runs", () => {
+test("workflow_dispatch is a rehearsal: it builds and checks access but never publishes", () => {
   const parsed = jobs();
-  for (const jobId of ["build-app", "publish-npm", "github-release", "upload-update-feed"]) {
+  for (const jobId of ["publish-npm", "github-release", "upload-update-feed"]) {
     const job = parsed.get(jobId);
     assert.ok(job, `release workflow must define job ${jobId}`);
     assert.equal(jobDetails(job).ifExpression, "github.event_name == 'push'", `${jobId} must run only for tag pushes`);
   }
-
-  const validate = parsed.get("validate");
-  assert.ok(validate, "release workflow must define validate");
-  assert.equal(jobDetails(validate).ifExpression, null, "validate must run for both rehearsal and tag push");
+  for (const jobId of ["validate", "build-app"]) {
+    const job = parsed.get(jobId);
+    assert.ok(job, `release workflow must define job ${jobId}`);
+    assert.equal(jobDetails(job).ifExpression, null, `${jobId} must run for both rehearsal and tag push`);
+  }
+  const feedAccess = parsed.get("update-feed-access");
+  assert.ok(feedAccess, "release workflow must define update-feed-access");
+  const feedAccessDetails = jobDetails(feedAccess);
+  assert.equal(feedAccessDetails.ifExpression, "github.event_name == 'workflow_dispatch'");
+  assert.doesNotMatch(feedAccessDetails.body, /rsync -a/u, "the rehearsal feed check must not upload");
 });
 
 test("release validate checks out the exact tag and runs the declared PR gate", () => {

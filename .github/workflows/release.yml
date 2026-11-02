@@ -3,9 +3,10 @@ name: release
 on:
   push:
     tags: ["v*"]
-  # Manual runs are rehearsals. They validate the selected ref or tag and never publish,
-  # because every publishing job is gated on the push event. Leave release_tag empty to
-  # rehearse the dispatch ref; supply it to rehearse that tag.
+  # Manual runs are rehearsals. They validate the selected ref or tag, build and sign the
+  # installers, and check update-feed access, but never publish: every publishing job is
+  # gated on the push event. Leave release_tag empty to rehearse the dispatch ref; supply
+  # it to rehearse that tag.
   workflow_dispatch:
     inputs:
       release_tag:
@@ -163,7 +164,7 @@ jobs:
           done
 
   build-app:
-    if: github.event_name == 'push'
+    # Runs for rehearsals too, so signing and notarization are proven before a tag exists.
     needs: validate
     runs-on: ${{ matrix.os }}
     permissions:
@@ -184,7 +185,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ needs.validate.outputs.tag }}
+          ref: ${{ needs.validate.outputs.tag || github.ref }}
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -242,6 +243,31 @@ jobs:
           args=(--title "Harness Anything ${TAG#v}" --notes-file release-notes.md --target "$GITHUB_SHA")
           [[ "$PRERELEASE" == "true" ]] && args+=(--prerelease)
           gh release create "$TAG" "${args[@]}" dist/release/*
+
+  update-feed-access:
+    # Rehearsal counterpart of upload-update-feed: proves the deploy key can write the feed
+    # root without uploading anything.
+    if: github.event_name == 'workflow_dispatch'
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check update feed write access
+        env:
+          UPDATE_SSH_KEY: ${{ secrets.UPDATE_FEED_SSH_KEY }}
+          UPDATE_SSH_USER: ${{ secrets.UPDATE_FEED_SSH_USER }}
+          UPDATE_SSH_HOST: ${{ secrets.UPDATE_FEED_SSH_HOST }}
+        run: |
+          set -euo pipefail
+          test -n "$UPDATE_SSH_KEY" || { echo "UPDATE_FEED_SSH_KEY secret is required for feed upload" >&2; exit 1; }
+          test -n "$UPDATE_SSH_USER" || { echo "UPDATE_FEED_SSH_USER secret is required for feed upload" >&2; exit 1; }
+          test -n "$UPDATE_SSH_HOST" || { echo "UPDATE_FEED_SSH_HOST secret is required for feed upload" >&2; exit 1; }
+          install -m 700 -d ~/.ssh
+          printf '%s' "$UPDATE_SSH_KEY" > ~/.ssh/update-feed
+          chmod 600 ~/.ssh/update-feed
+          ssh -i ~/.ssh/update-feed -o BatchMode=yes -o StrictHostKeyChecking=accept-new "$UPDATE_SSH_USER@$UPDATE_SSH_HOST" \
+            'test -w /srv/harness-update && command -v rsync >/dev/null'
 
   upload-update-feed:
     if: github.event_name == 'push'
