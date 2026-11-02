@@ -11,6 +11,7 @@ import { managedRbacSessionStore } from "@harness-anything/authorization-keycloa
 import { createIdentitySession } from "../src/authorization-provider.ts";
 import { type OidcSessionPorts, type OidcLoginAuthority } from "@harness-anything/kernel";
 import { evaluateKeycloakPerson } from "../src/repo-cell-authorization.ts";
+import { fakeKeycloak } from "./keycloak.fixtures.ts";
 import { localDefaultBinding } from "../src/daemon-host-binding.ts";
 import type { DaemonHost } from "../src/daemon-host.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
@@ -202,7 +203,7 @@ test("PKCE login validates state, keeps tokens daemon-side, and binds the Keyclo
       authority: { url: "http://127.0.0.1:8080", realm: "harness", clientId: "harness-center" },
     },
   );
-  assert.equal((await service.requireRole("access-admin")).personId, "person-zeyu");
+  assert.equal((await service.requireSession()).personId, "person-zeyu");
   assert.equal("accessToken" in completed, false);
   assert.equal("refreshToken" in completed, false);
   // The refresh token stays in the daemon's own session file, readable by the daemon's user only.
@@ -316,7 +317,7 @@ test("a session in use outlives its access token without signing in again", asyn
     const bound = (await active.service.bind({ transportKind: "unix-socket" })).oidcPrincipal;
     assert.equal(serialOf(bound?.accessToken), cycle + 1);
     assert.equal(bound!.expiresAt > active.clock.now, true);
-    assert.equal((await active.service.requireRole("access-admin")).personId, "person-zeyu");
+    assert.equal((await active.service.requireSession()).personId, "person-zeyu");
   }
   assert.equal(active.keycloak.refreshes, 3);
 });
@@ -342,7 +343,7 @@ test("concurrent uses of a session whose access token lapsed renew it once", asy
   const [status, bound, session] = await Promise.all([
     active.service.status(),
     active.service.bind({ transportKind: "unix-socket" }),
-    active.service.requireRole("access-admin"),
+    active.service.requireSession(),
   ]);
   assert.equal(status.authenticated, true);
   assert.equal(serialOf(bound.oidcPrincipal?.accessToken), 2);
@@ -360,7 +361,7 @@ test("a session idle past the session lifetime is signed out, and not retried", 
   assert.deepEqual(await active.service.status(), { ok: true, authenticated: false });
   assert.equal(sessionStore(active.root).read(), undefined);
   assert.equal((await active.service.bind({ transportKind: "unix-socket" })).oidcPrincipal, undefined);
-  await assert.rejects(active.service.requireRole("access-admin"), { code: "authentication_required" });
+  await assert.rejects(active.service.requireSession(), { code: "authentication_required" });
   assert.equal(active.keycloak.refreshes, 2);
 });
 
@@ -372,7 +373,7 @@ test("a session whose refresh token Keycloak revoked is signed out instead of le
   active.clock.now += (accessTokenSeconds + 5) * 1_000;
   assert.equal((await active.service.bind({ transportKind: "unix-socket" })).oidcPrincipal, undefined);
   assert.deepEqual(await active.service.status(), { ok: true, authenticated: false });
-  await assert.rejects(active.service.requireRole("access-admin"), { code: "authentication_required" });
+  await assert.rejects(active.service.requireSession(), { code: "authentication_required" });
   assert.equal(active.keycloak.refreshes, 1);
 });
 
@@ -382,7 +383,7 @@ test("an unreachable Keycloak fails the renewal without ending the session", asy
   active.clock.now += (accessTokenSeconds + 5) * 1_000;
   active.keycloak.reachable = false;
   await assert.rejects(active.service.status(), { code: "oidc_session_unavailable" });
-  await assert.rejects(active.service.requireRole("access-admin"), { code: "oidc_session_unavailable" });
+  await assert.rejects(active.service.requireSession(), { code: "oidc_session_unavailable" });
   // A request is bound without a principal, so it fails closed while lifecycle operations still run.
   assert.equal((await active.service.bind({ transportKind: "unix-socket" })).oidcPrincipal, undefined);
   active.keycloak.reachable = true;
@@ -476,19 +477,18 @@ test("repository actions fail closed without a live OIDC principal", () => {
   );
 });
 
-test("first administrator closes after one success and access-admin can invite", async (t) => {
+test("first administrator closes after one success and fleet policy admin without realm roles can invite", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-oidc-admin-")),
     rbac = path.join(root, "rbac"),
-    users: string[] = [];
+    keycloak = fakeKeycloak();
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(rbac, { recursive: true });
   writeFileSync(path.join(rbac, "config.json"), JSON.stringify({ url: "http://127.0.0.1:8080", realm: "harness" }));
   writeFileSync(path.join(rbac, "center-client-secret"), "fixture-secret");
-  const jwt = `x.${Buffer.from(JSON.stringify({ iss: testIssuer, realm_access: { roles: ["access-admin"] } })).toString("base64url")}.x`,
+  const jwt = `x.${Buffer.from(JSON.stringify({ iss: testIssuer, realm_access: { roles: [] } })).toString("base64url")}.x`,
     service = createIdentitySession(root, {
       fetch: (async (input, init) => {
-        const url = String(input),
-          method = init?.method ?? "GET";
+        const url = String(input);
         if (url.endsWith("/.well-known/openid-configuration")) return Response.json({ issuer: testIssuer });
         if (url.endsWith("/protocol/openid-connect/token")) {
           const body = String(init?.body ?? "");
@@ -498,21 +498,7 @@ test("first administrator closes after one success and access-admin can invite",
         }
         if (url.endsWith("/protocol/openid-connect/userinfo"))
           return Response.json({ sub: "owner-subject", harness_person_id: "person-owner" });
-        if (url.endsWith("/roles/access-admin/users")) return Response.json(users.map((id) => ({ id })));
-        if (url.endsWith("/roles/access-admin") && method === "GET")
-          return users.length === 0
-            ? new Response(null, { status: 404 })
-            : Response.json({ id: "role-access-admin", name: "access-admin" });
-        if (url.endsWith("/roles") && method === "POST") return new Response(null, { status: 201 });
-        if (url.endsWith("/users") && method === "POST") {
-          const id = `user-${users.length + 1}`;
-          users.push(id);
-          return new Response(null, { status: 201, headers: { location: `${url}/${id}` } });
-        }
-        if (url.includes("/role-mappings/realm")) return new Response(null, { status: 204 });
-        if (url.includes("username=harness-bootstrap")) return Response.json([]);
-        if (url.endsWith("/execute-actions-email")) return new Response(null, { status: 204 });
-        return new Response(null, { status: 204 });
+        return keycloak.fetch(input, init);
       }) as typeof fetch,
     });
   const admin = {
@@ -545,6 +531,8 @@ test("an invitation inside the OIDC write queue renews a lapsing session in plac
   writeFileSync(path.join(rbac, "config.json"), JSON.stringify({ url: "http://127.0.0.1:8080", realm: "harness" }));
   writeFileSync(path.join(rbac, "center-client-secret"), "fixture-secret");
   let refreshes = 0;
+  const keycloak = fakeKeycloak();
+  keycloak.accessAdmin("person-admin");
   const adminJwt = `x.${Buffer.from(JSON.stringify({ iss: testIssuer, realm_access: { roles: ["access-admin"] } })).toString("base64url")}.x`,
     service = createIdentitySession(root, {
       fetch: (async (input, init) => {
@@ -567,7 +555,9 @@ test("an invitation inside the OIDC write queue renews a lapsing session in plac
         if (url.endsWith("/users") && method === "POST")
           return new Response(null, { status: 201, headers: { location: `${url}/user-invited` } });
         if (url.endsWith("/execute-actions-email")) return new Response(null, { status: 204 });
-        return new Response(null, { status: 204 });
+        if (url.endsWith("/userinfo"))
+          return Response.json({ sub: "admin-subject", harness_person_id: "person-admin" });
+        return keycloak.fetch(input, init);
       }) as typeof fetch,
     });
   // The stored session sits inside the 30s renewal margin, so its next use must renew before authorizing.
@@ -1088,7 +1078,7 @@ test("a listener change retires the cached center token from the previous issuer
         tokenCalls += 1;
         return Response.json({ access_token: `center-${tokenCalls}`, expires_in: 300 });
       }
-      if (url.endsWith("/roles/access-admin/users")) {
+      if (new URL(url).pathname === "/admin/realms/harness/users") {
         const authorization = new Headers(init?.headers).get("authorization") ?? "";
         adminTokens.push(authorization);
         // Keycloak rejects tokens minted under the issuer it no longer serves.
@@ -1125,7 +1115,7 @@ test("the first administrator deletes the bootstrap user before retiring its pas
   writeFileSync(path.join(rbac, "config.json"), JSON.stringify({ url: "http://127.0.0.1:8080", realm: "harness" }));
   writeFileSync(path.join(rbac, "center-client-secret"), "fixture-secret");
   writeFileSync(passwordFile, "bootstrap-secret", { mode: 0o600 });
-  let created = false;
+  const keycloak = fakeKeycloak();
   const store = sessionStore(root),
     retire = store.retireBootstrap,
     service = createIdentitySession(root, {
@@ -1134,23 +1124,12 @@ test("the first administrator deletes the bootstrap user before retiring its pas
           method = init?.method ?? "GET";
         if (url.endsWith("/.well-known/openid-configuration")) return Response.json({ issuer: testIssuer });
         if (url.endsWith("/protocol/openid-connect/token")) return Response.json({ access_token: "center-token" });
-        if (url.endsWith("/roles/access-admin/users")) return Response.json([]);
-        if (url.endsWith("/roles/access-admin") && method === "GET")
-          return created
-            ? Response.json({ id: "role-access-admin", name: "access-admin" })
-            : new Response(null, { status: 404 });
-        if (url.endsWith("/roles") && method === "POST") return new Response(null, { status: 201 });
-        if (url.endsWith("/users") && method === "POST") {
-          created = true;
-          return new Response(null, { status: 201, headers: { location: `${url}/owner` } });
-        }
-        if (url.includes("/role-mappings/realm")) return new Response(null, { status: 204 });
         if (url.includes("username=harness-bootstrap")) return Response.json([{ id: "bootstrap-user" }]);
         if (url.endsWith("/users/bootstrap-user") && method === "DELETE") {
           calls.push("delete");
           return new Response(null, { status: 204 });
         }
-        return new Response(null, { status: 204 });
+        return keycloak.fetch(input, init);
       }) as typeof fetch,
       sessionStore: () => ({
         ...store,

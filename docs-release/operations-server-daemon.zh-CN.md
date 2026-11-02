@@ -26,7 +26,9 @@ ha bootstrap --operation node-register --operation-id <unique-id> --node-id <nod
 
 密码文件只允许所有者读取（例如 `0600`），argv 只放路径；CLI 去掉文件末尾一个换行，仅通过中心原始本地 socket 发送密码。使用后删除密码文件。
 
-尚无 `access-admin` 成员时，socket 所有者可配置既有 HTTPS listener；先读取版本，使用浏览器设备信任的证书。listener 设置与首管理员创建共用队列，只有一个首管理员能成功，之后排队的未登录设置也会被拒。管理员存在后，即使无人登录也不能重新开放窗口，必须以 `access-admin` 身份登录才能修改。边缘与远程 GUI 不能执行首次引导。
+尚无人持有 `@fleet` 上的 `access-manage` 权限时，socket 所有者可配置既有 HTTPS listener；先读取版本，使用浏览器设备信任的证书。listener 设置与首管理员创建共用队列，只有一个首管理员能成功。初始化写入 `admin/@fleet` 策略授权，之后须以拥有该管理权限的人登录才能修改；登出不会移除授权。边缘与远程 GUI 不能执行首次引导。
+
+组、授权、团队、节点、账号邀请与身份配置统一要求 `access-manage @fleet`。旧 `access-admin` realm 角色不再提供管理权，已有部署须显式补齐策略授权。仓库访问和申请审批仍按申请的仓库或实体资源授权；仓库管理员不能因此管理整个 fleet。
 
 `login` 在另一台有浏览器的设备完成授权，中心和边缘复用同一入口。随后节点登记只将一次性机器凭据写入新的受控文件。
 
@@ -38,7 +40,7 @@ ha bootstrap --operation node-register --operation-id <unique-id> --node-id <nod
 ha bootstrap --mode external --url https://identity.example.com --realm fleet --client-id harness-center --client-secret-stdin < /path/to/protected-client-secret
 ```
 
-密钥只从重定向 stdin 输入并经中心原始本地 socket 传输，保存在中心 user root 中仅所有者可读的文件；health/status 和回执不读回密钥。realm 或凭据校验失败保留旧配置。其他 client ID 会被拒绝。首管理员已存在后，更换配置必须先在当前权威登录为 `access-admin`。
+密钥只从重定向 stdin 输入并经中心原始本地 socket 传输，保存在中心 user root 中仅所有者可读的文件；health/status 和回执不读回密钥。realm 或凭据校验失败保留旧配置。其他 client ID 会被拒绝。首管理员已存在后，更换配置必须先在当前权威登录，并持有 `access-manage @fleet` 策略授权。
 
 本地 GUI 的「账号与访问控制 → 改接外部 Keycloak」提供相同入口。输入 URL、realm 和中心客户端密钥后验证并应用；密码框在提交时清空，包括失败情况。外接 realm 需要首次引导时也显示首管理员表单。边缘节点和 remote-proxy 连接不能配置中心凭据。
 

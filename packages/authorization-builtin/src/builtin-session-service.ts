@@ -251,12 +251,11 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
     if (external) return external.discovery(_nodeId);
     return null;
   }
-  async requireRole(role: string, loginTarget?: string): Promise<StoredSession> {
+  async requireAccessManagement(loginTarget?: string, withinWriter = false): Promise<StoredSession> {
     const external = this.#externalSession(loginTarget);
-    if (external) return external.requireRole(role, loginTarget);
-    const session = await this.requireSession(loginTarget);
-    if (!session.roles.includes(role)) throw coded("authorization_denied", `Built-in role ${role} is required.`);
-    return session;
+    if (external) return external.requireAccessManagement(loginTarget, withinWriter);
+    this.#assertLocalLoginTarget(loginTarget);
+    return this.#requireOwnerSession();
   }
   async requireSession(loginTarget?: string): Promise<StoredSession> {
     const external = this.#externalSession(loginTarget);
@@ -438,7 +437,7 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
   #requireOwnerSession(): StoredSession {
     const owner = this.#adapter.owner(),
       session = this.#readSession();
-    if (!owner || !session || session.personId !== owner.personId || !session.roles.includes("access-admin"))
+    if (!owner || !session || session.personId !== owner.personId)
       throw coded("authentication_required", "Sign in as the built-in owner before changing identity authority.");
     return session;
   }
@@ -484,7 +483,7 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
         personId: user.personId,
         expiresAt: sessionExpiresAt,
         sessionExpiresAt,
-        roles: ["access-admin"],
+        roles: [],
         authority: { url: builtinAuthorityUrl(this.#root), realm: "local", clientId: "harness-center" },
       };
     this.#adapter.registerSession(accessToken, {

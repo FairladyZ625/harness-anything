@@ -23,7 +23,7 @@ ha bootstrap --mode external --url https://identity.example.com \
   --realm fleet --client-id harness-center --client-secret-stdin < ./client-secret
 ```
 
-Switching does not silently migrate local credentials or authorization. Create the required accounts, roles, and grants in the Keycloak realm, then run the normal login command. Switching back requires an explicit `mode: builtin` configuration and a new local login.
+Switching does not silently migrate local credentials or authorization. Create the required accounts and policy grants in the Keycloak realm, then run the normal login command. Global access administration requires `access-manage` on `@fleet`; an `admin/@fleet` policy grant provides it, while the legacy `access-admin` realm role does not. Switching back requires an explicit `mode: builtin` configuration and a new local login.
 
 ### Existing edge roots
 

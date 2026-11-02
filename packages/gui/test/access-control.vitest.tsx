@@ -81,6 +81,7 @@ async function stack() {
     });
   fixtureCleanups.push(userCleanup);
   await provider.syncBasePolicy("center-token");
+  keycloak.accessAdmin();
   keycloak.writes.length = 0;
   let requestId = 1;
   await server.handle({
@@ -219,9 +220,8 @@ describe("账号与访问控制页", () => {
     const f = await stack();
     f.keycloak.account("requester");
     f.keycloak.account("approver");
-    f.keycloak.permit("approver", "@fleet", ["permission-request-decide"]);
+    f.keycloak.permit("approver", "repo-a", ["permission-request-decide"]);
     f.keycloak.permit("approver", "repo-a", ["task-create"]);
-    f.signIn("approver");
     const group = await f.access.createGroup({
       groupId: "task-reader",
       displayName: "Task reader",
@@ -473,7 +473,8 @@ describe("账号与访问控制页", () => {
   });
 
   it("reads an ordinary signed-in account's legal denial as a permission note, not a failure", async () => {
-    const { access, signIn } = await stack();
+    const { access, signIn, keycloak } = await stack();
+    keycloak.account("alice");
     signIn("alice", []);
     await openTab(access, "服务与会话");
     // The service is healthy and the account is signed in; only the administration read is refused.

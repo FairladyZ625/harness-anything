@@ -30,7 +30,7 @@ ha bootstrap --mode external --url https://identity.example.com \
   --realm fleet --client-id harness-center --client-secret-stdin < ./client-secret
 ```
 
-切换不会自动迁移本地凭据或授权。请先在 Keycloak realm 中创建需要的账号、角色和授权，再执行 `ha bootstrap --operation login`。回切内置 provider 需要显式写入 `mode: builtin` 并重新登录。
+切换不会自动迁移本地凭据或授权。请先在 Keycloak realm 中创建需要的账号和策略授权，再执行 `ha bootstrap --operation login`。全局访问管理要求 `access-manage @fleet`；`admin/@fleet` 策略授权包含该权限，旧 `access-admin` realm 角色不提供该权限。回切内置 provider 需要显式写入 `mode: builtin` 并重新登录。
 
 ### 旧 edge 根目录恢复
 

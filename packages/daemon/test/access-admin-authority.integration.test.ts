@@ -53,10 +53,11 @@ async function keycloakFixture(t: TestContext, fleetGrant = true) {
   return { ...user, realm, session, run, request };
 }
 
-test("Keycloak policy admin without the realm role approves a request but cannot list groups or grants", async (t) => {
+test("Keycloak policy admin without the realm role approves a request and lists groups and grants", async (t) => {
   const f = await keycloakFixture(t);
   f.signIn("policy-admin", []);
   assert.deepEqual((await f.session.requireSession()).roles, []);
+  assert.equal((await f.session.bootstrapStatus()).required, false);
   const listed = await f.run({ operation: "permission-request-list" });
   assert.equal(listed.canDecide, true);
   assert.equal((listed.requests as unknown[]).length, 1);
@@ -79,19 +80,27 @@ test("Keycloak policy admin without the realm role approves a request but cannot
     ).outcome,
     "allowed",
   );
-  for (const operation of ["group-list", "grant-list"])
-    await assert.rejects(f.run({ operation }), {
-      code: "authorization_denied",
-      message: "Keycloak role access-admin is required.",
-    });
-  t.diagnostic("OBSERVED policy-only: approval=allowed; group-list/grant-list=authorization_denied (access-admin).");
+  for (const operation of ["group-list", "grant-list"]) assert.equal((await f.run({ operation })).ok, true);
 });
 
-test("Keycloak realm role without policy grants lists groups but cannot approve a request", async (t) => {
+test("Keycloak realm role without policy grants cannot manage access or approve a request", async (t) => {
   const f = await keycloakFixture(t);
   f.signIn("role-admin", ["access-admin"]);
-  assert.ok(Array.isArray((await f.run({ operation: "group-list" })).groups));
-  assert.ok(Array.isArray((await f.run({ operation: "grant-list" })).grants));
+  for (const operation of ["group-list", "grant-list"])
+    await assert.rejects(f.run({ operation }, true), { code: "authorization_denied" });
+  await assert.rejects(
+    f.session.invite({
+      username: "invited",
+      personId: "invited",
+      displayName: "Invited",
+      email: "invited@example.invalid",
+    }),
+    { code: "authorization_denied" },
+  );
+  await assert.rejects(
+    f.session.configureAuthority(async () => ({ ok: true }), f.root),
+    { code: "authorization_denied" },
+  );
   assert.equal((await f.run({ operation: "permission-request-list" })).canDecide, false);
   await assert.rejects(
     f.run({
@@ -102,27 +111,100 @@ test("Keycloak realm role without policy grants lists groups but cannot approve 
     }),
     { code: "authorization_denied" },
   );
-  t.diagnostic("OBSERVED role-only: group-list/grant-list=allowed; approval=authorization_denied (policy).");
+  t.diagnostic("VERIFIED role-only: group-list/grant-list/approval=authorization_denied (policy).");
 });
 
-test("repository admin without a fleet grant cannot see a request the socket-owner approval path can approve", async (t) => {
+test("repository admin sees and approves only its repository requests without a fleet grant", async (t) => {
   const f = await keycloakFixture(t, false);
   f.signIn("policy-admin", []);
+  assert.equal((await f.session.bootstrapStatus()).required, true);
   const listed = await f.run({ operation: "permission-request-list" }, true);
-  assert.equal(listed.canDecide, false);
-  assert.deepEqual(listed.requests, []);
+  assert.equal(listed.canDecide, true);
+  assert.equal((listed.requests as unknown[]).length, 1);
   const decision = {
     operation: "permission-request-decide",
     requestId: f.request.requestId,
     requestVersion: f.request.version,
     decision: "approve",
   };
-  await assert.rejects(f.run(decision), { code: "authorization_denied" });
-  const settled = await f.run(decision, true);
+  for (const operation of ["group-list", "grant-list"])
+    await assert.rejects(f.run({ operation }, true), { code: "authorization_denied" });
+  const settled = await f.run(decision);
   assert.equal((settled.request as { state: string }).state, "approved");
-  t.diagnostic(
-    "OBSERVED repository-only: canDecide=false; approval without socket-owner=denied; with socket-owner=approved.",
-  );
+  t.diagnostic("VERIFIED repository-only: canDecide=true; approval=allowed; global administration=denied.");
+});
+
+for (const decision of ["approve", "reject"] as const) {
+  test(`socket ownership and a legacy realm role cannot ${decision} without a policy grant`, async (t) => {
+    const f = await keycloakFixture(t);
+    f.signIn("role-admin", ["access-admin"]);
+    await assert.rejects(
+      f.run(
+        {
+          operation: "permission-request-decide",
+          requestId: f.request.requestId,
+          requestVersion: f.request.version,
+          decision,
+        },
+        true,
+      ),
+      { code: "authorization_denied" },
+    );
+    assert.equal((await f.run({ operation: "permission-request-list" }, true)).canDecide, false);
+  });
+
+  test(`repository approval scope cannot be spoofed to ${decision} another repository's request`, async (t) => {
+    const f = await keycloakFixture(t, false);
+    f.signIn("requester", []);
+    const created = await f.run(
+        { operation: "permission-request-create", groupId: "viewer", resource: "repo-b" },
+        true,
+      ),
+      foreign = created.request as { requestId: string; version: number };
+    f.signIn("policy-admin", []);
+    const listed = await f.run({ operation: "permission-request-list" }, true);
+    assert.deepEqual(
+      (listed.requests as { requestId: string }[]).map((row) => row.requestId),
+      [f.request.requestId],
+    );
+    await assert.rejects(
+      f.run(
+        {
+          operation: "permission-request-decide",
+          requestId: foreign.requestId,
+          requestVersion: foreign.version,
+          decision,
+          resource: "repo-a",
+          repoId: "repo-a",
+        },
+        true,
+      ),
+      { code: "authorization_denied" },
+    );
+  });
+}
+
+test("a repository admin can reject an entity request through its repository ancestor", async (t) => {
+  const f = await keycloakFixture(t, false);
+  f.signIn("requester", []);
+  const created = await f.run(
+      {
+        operation: "permission-request-create",
+        groupId: "viewer",
+        resource: "repo-a:task/task-test",
+      },
+      true,
+    ),
+    entity = created.request as { requestId: string; version: number };
+  f.signIn("policy-admin", []);
+  assert.equal((await f.run({ operation: "permission-request-list" })).canDecide, true);
+  const result = await f.run({
+    operation: "permission-request-decide",
+    requestId: entity.requestId,
+    requestVersion: entity.version,
+    decision: "reject",
+  });
+  assert.equal((result.request as { state: string }).state, "rejected");
 });
 
 test("builtin owner has repository admin scopes but permission requests require the collaboration plugin", async (t) => {
@@ -148,7 +230,7 @@ test("builtin owner has repository admin scopes but permission requests require 
     }),
     callback = new URL(response.headers.get("location")!);
   await session.complete(callback.searchParams.get("code")!, String(login.state));
-  assert.equal((await session.requireRole("access-admin")).personId, "person-owner");
+  assert.equal((await session.requireSession()).personId, "person-owner");
   const center = await session.center();
   await center.provider.claimRepositoryOwner(center.accessToken, "repo-a", "person-owner");
   assert.ok(effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin").includes("permission-request-decide"));

@@ -162,8 +162,10 @@ test("edge binding health reads the selected login authority through fleet disco
     true,
   );
   assert.equal((await request({ operation: "session", repoId: "node-one" })).authenticated, true);
-  await assert.rejects(oidc.requireRole("access-admin", path.join(root, "node-one")), {
-    code: "authorization_denied",
+  assert.equal((await oidc.requireSession(path.join(root, "node-one"))).personId, "ordinary-person");
+  // An edge login is usable, but this edge has no center credential for global administration.
+  await assert.rejects(oidc.requireAccessManagement(path.join(root, "node-one")), {
+    code: "rbac_admin_unavailable",
   });
   const binding = await request({ operation: "health", repoId: "node-one" });
   assert.equal(binding.ok, true);
@@ -183,7 +185,7 @@ test("edge binding health reads the selected login authority through fleet disco
     ...binding,
     required: false,
   });
-  assert.equal((await request({ operation: "session-lifetime", repoId: "node-one" })).code, "authorization_denied");
+  assert.equal((await request({ operation: "session-lifetime", repoId: "node-one" })).code, "rbac_admin_unavailable");
   session = undefined;
   assert.equal((await request({ operation: "session" })).code, "oidc_center_required");
   assert.equal((await request({ operation: "health", repoId: "node-two" })).realm, "node-two");
