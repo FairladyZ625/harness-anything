@@ -479,6 +479,26 @@ test("legacy edge roots reopen through Keycloak without a selector and preserve 
   assert.equal(readFileSync(path.join(root, "rbac", "oidc-session.json"), "utf8"), legacySession);
 });
 
+test("builtin owner membership reads are empty while team administration still requires the plugin", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-owner-teams-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const session = new BuiltinIdentitySession(root);
+  await session.bootstrapAdmin({
+    username: "owner",
+    email: "owner@example.invalid",
+    displayName: "Owner",
+    password: "correct horse",
+    personId: "person-owner",
+  });
+  const { provider, accessToken } = await session.center();
+  assert.deepEqual(await provider.readPersonTeams(accessToken, "person-owner"), []);
+  await assert.rejects(provider.readPersonTeams("invalid-token", "person-owner"), { code: "rbac_admin_unavailable" });
+  await assert.rejects(provider.readPersonTeams(accessToken, "person-other"), { code: "identity_plugin_required" });
+  await assert.rejects(provider.readTeams(accessToken), { code: "identity_plugin_required" });
+  await assert.rejects(provider.createTeam(accessToken, "Builders"), { code: "identity_plugin_required" });
+  await assert.rejects(provider.readTeamMembers(accessToken, "builders"), { code: "identity_plugin_required" });
+});
+
 test("builtin collaboration entry points require the Keycloak plugin", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-collaboration-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
