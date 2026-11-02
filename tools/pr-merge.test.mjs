@@ -207,9 +207,12 @@ function fixture(t, { branch = "codex/pr-123", haState = { fail: true }, rejectP
   writeFileSync(path.join(seed, "base.txt"), "base\n");
   git(seed, "add", "base.txt");
   git(seed, "commit", "-m", "base");
+  const baseSha = git(seed, "rev-parse", "HEAD");
   git(seed, "remote", "add", "origin", remote);
   git(seed, "push", "-u", "origin", "main");
   git(root, "clone", remote, main);
+  git(main, "config", "user.name", "PR Merge Test");
+  git(main, "config", "user.email", "pr-merge@example.test");
 
   git(seed, "checkout", "-b", branch);
   writeFileSync(path.join(seed, "feature.txt"), "feature\n");
@@ -270,6 +273,7 @@ function fixture(t, { branch = "codex/pr-123", haState = { fail: true }, rejectP
     remote,
     seed,
     statePath,
+    baseSha,
     upstreamHead,
     buildLogPath,
     annotateLogPath: path.join(root, "annotate.log"),
@@ -503,6 +507,7 @@ function reviewChainWithDeliveryBlockerHaState({
   staleConsent = false,
   closeoutOverrides,
   commitSha = `5a1f${"0".repeat(36)}`,
+  productionBaseSha,
 } = {}) {
   const submission = {
       commitSha,
@@ -512,6 +517,17 @@ function reviewChainWithDeliveryBlockerHaState({
       verificationNotes: ["node --test tools/pr-merge.test.mjs"],
       knownGaps: [],
       residualRisks: [],
+      ...(productionBaseSha
+        ? {
+            productionDelta: {
+              baseSha: productionBaseSha,
+              added: 1,
+              deleted: 0,
+              changed: [],
+              unclassified: [],
+            },
+          }
+        : {}),
       completionContract: {
         gates: [
           {
@@ -666,6 +682,79 @@ test("refuses a task PR whose rebased head is not the frozen delivery commit", (
   assert.equal(git(setup.main, "rev-parse", "HEAD"), initialHead);
   assert.equal(existsSync(setup.prWorktree), true);
   assert.notEqual(git(setup.main, "ls-remote", "--heads", "origin", `refs/heads/${TASK_BRANCH}`), "");
+});
+
+test("merges a task PR whose rebased head has the same stable patch and records the equivalence", (t) => {
+  const setup = fixture(t, { branch: TASK_BRANCH }),
+    reviewedCommit = setup.headRefOid;
+  git(setup.prWorktree, "fetch", "origin");
+  git(setup.prWorktree, "rebase", "origin/main");
+  const rebasedHead = git(setup.prWorktree, "rev-parse", "HEAD");
+  git(setup.prWorktree, "push", "--force", "origin", TASK_BRANCH);
+  const prState = JSON.parse(readFileSync(setup.statePath, "utf8"));
+  writeFileSync(setup.statePath, JSON.stringify({ ...prState, headRefOid: rebasedHead }));
+  writeFileSync(
+    setup.env.HA_STATE_PATH,
+    JSON.stringify(
+      reviewChainWithDeliveryBlockerHaState({
+        commitSha: reviewedCommit,
+        productionBaseSha: setup.baseSha,
+      }),
+    ),
+  );
+
+  const result = run(process.execPath, [helper, "123"], { cwd: setup.main, env: setup.env });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /accepted a rebase-equivalent delivery patch/u);
+  const annotations = readFileSync(setup.annotateLogPath, "utf8").trim().split("\n");
+  assert.equal(annotations.length, 2);
+  assert.match(
+    annotations[0],
+    new RegExp(
+      `rebase-equivalent:${reviewedCommit}->${rebasedHead}:base=${setup.upstreamHead}:patch-id=[0-9a-f]{40}`,
+      "u",
+    ),
+  );
+  assert.match(annotations[1], /merge_commit_sha:b{40}/u);
+  assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "MERGED");
+});
+
+test("refuses a rebased task PR when conflict resolution changes the reviewed patch", (t) => {
+  const setup = fixture(t, { branch: TASK_BRANCH }),
+    reviewedCommit = setup.headRefOid;
+  git(setup.prWorktree, "fetch", "origin");
+  git(setup.prWorktree, "rebase", "origin/main");
+  writeFileSync(path.join(setup.prWorktree, "feature.txt"), "feature resolved differently\n");
+  git(setup.prWorktree, "add", "feature.txt");
+  git(setup.prWorktree, "commit", "-m", "resolve conflict differently");
+  const rebasedHead = git(setup.prWorktree, "rev-parse", "HEAD");
+  git(setup.prWorktree, "push", "--force", "origin", TASK_BRANCH);
+  const prState = JSON.parse(readFileSync(setup.statePath, "utf8"));
+  writeFileSync(setup.statePath, JSON.stringify({ ...prState, headRefOid: rebasedHead }));
+  writeFileSync(
+    setup.env.HA_STATE_PATH,
+    JSON.stringify(
+      reviewChainWithDeliveryBlockerHaState({
+        commitSha: reviewedCommit,
+        productionBaseSha: setup.baseSha,
+      }),
+    ),
+  );
+  const initialHead = git(setup.main, "rev-parse", "HEAD"),
+    result = run(process.execPath, [helper, "123"], {
+      cwd: setup.main,
+      env: setup.env,
+      allowFailure: true,
+    });
+
+  assert.equal(result.status, 1, result.stdout);
+  assert.match(result.stderr, new RegExp(`froze its delivery at ${reviewedCommit}`, "u"));
+  assert.match(result.stderr, /Re-freeze the cut at the PR head/u);
+  assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "OPEN");
+  assert.equal(git(setup.main, "rev-parse", "HEAD"), initialHead);
+  assert.equal(existsSync(setup.prWorktree), true);
+  assert.equal(existsSync(setup.annotateLogPath), false);
 });
 
 test("merges a task PR whose receipt exceeds the spawnSync default maxBuffer", (t) => {
