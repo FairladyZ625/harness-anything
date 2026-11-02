@@ -50,8 +50,9 @@ test("retired People mutations are absent from the durable authorization invento
   // dec_E369B8616F50A6208B293997E7/CH5 (W2-2) deletes task-adjudicate: the manual forward/return
   // commands retire with the automatic review loop. Both deletions land in one inventory.
   // task_8c579f0d2c896668e2fd92ab85 adds six durable Todo writes through ActionDeclaration.
-  // dec_6C9E3399972A2F06C046BA89DC/CH1 removes the task-pin/unpin-only authorization paths.
-  assert.equal(durablePolicyActions.length, 166);
+  // dec_6C9E3399972A2F06C046BA89DC/CH1 removes task-pin/unpin-only authorization paths.
+  // task_c42e93a6c384624aba591b9b8b adds the worker escalation and owner resolution writes.
+  assert.equal(durablePolicyActions.length, 168);
   assert.equal(durablePolicyActions.includes("task-adjudicate"), false);
   assert.equal(durablePolicyActions.includes("task-code-doc-reconcile"), false);
   assert.equal(durablePolicyActions.includes("task-code-doc-repoint"), false);
@@ -61,6 +62,8 @@ test("retired People mutations are absent from the durable authorization invento
   assert.equal(durablePolicyActions.includes("task-pr"), false);
   assert.equal(durablePolicyActions.includes("people-add"), false);
   assert.equal(durablePolicyActions.includes("people-remove"), false);
+  assert.equal(durablePolicyActions.includes("task-escalate"), true);
+  assert.equal(durablePolicyActions.includes("task-escalation-resolve"), true);
 });
 test("every durable action requires a matching authority decision", () => {
   assert.equal(new Set(durablePolicyActions).size, durablePolicyActions.length);

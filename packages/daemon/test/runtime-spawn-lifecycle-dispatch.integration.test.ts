@@ -206,7 +206,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
           "code" in error &&
           error.code === "invalid_runtime_cancel" &&
           error.message ===
-            'Runtime cancel payload contains an unknown field "force"; allowed fields: "runtimeSessionId".',
+            'Runtime cancel payload contains an unknown field "force"; allowed fields: "runtimeSessionId", "escalation".',
       );
       const receipt = await cell.spawnRuntime(
         {

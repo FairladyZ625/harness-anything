@@ -611,7 +611,13 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
   // decision-supersede's deprecated Action declaration is removed with its CLI command, and
   // dec_E369B8616F50A6208B293997E7/CH5 (W2-2) deletes task-adjudicate with the manual
   // forward/return commands; CH1 adds task-respond-review.
-  assert.equal(actionDeclarations.length, 167);
+  // task_c42e93a6c384624aba591b9b8b adds worker escalation and owner resolution.
+  assert.equal(actionDeclarations.length, 169);
+  for (const kind of ["task-escalate", "task-escalation-resolve"])
+    assert.ok(
+      actionDeclarations.some((declaration) => declaration.kind === kind),
+      kind,
+    );
   assert.equal(
     actionDeclarations.some(({ kind }) => kind === "task-code-doc-reconcile" || kind === "task-code-doc-repoint"),
     false,

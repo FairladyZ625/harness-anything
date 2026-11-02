@@ -570,7 +570,11 @@ export async function publishExit(
         if (active.schedule && (error as { readonly retryable?: unknown }).retryable !== false) throw error;
         consumeKnownError(error);
         const settlementCode = runtimeErrorCode(error) || "runtime_settlement_failed";
-        if (escalationStop && settlementCode === "runtime_process_group_unproven") throw error;
+        if (
+          escalationStop &&
+          ["runtime_process_group_unproven", "runtime_lease_release_failed"].includes(settlementCode)
+        )
+          throw error;
         // A remote owner rejection is an authorization boundary, not a worker failure. Leave the
         // dispatch unresolved so recovery can re-adopt it under the original owner. Likewise, an
         // unproven process group must stay unknown: publishing a failed outcome would make the

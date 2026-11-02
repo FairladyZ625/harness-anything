@@ -514,7 +514,7 @@ export const actionDeclarations = Object.freeze([
   canonical("task-delete", "task/delete", "repo-write"),
   canonical("task-dispatch-review", "task/dispatch-review", "repo-write", "none"),
   canonical("task-escalate", "task/escalate", "repo-write"),
-  canonical("task-escalation-resolve", "task/escalation-resolve", "repo-write"),
+  closure("task-escalation-resolve", "task/escalation-resolve"),
   canonical("task-rematerialize", "task/rematerialize", "repo-write"),
   canonical("task-progress-append", "task/progress-append", "repo-write"),
   canonical("task-push", "task/push", "repo-write", "none"),

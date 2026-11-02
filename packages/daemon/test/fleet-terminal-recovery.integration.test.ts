@@ -156,7 +156,8 @@ test("edge terminal task settlement rejects a changed node owner", { timeout: 60
           event.payload.runtimeSessionId === launched.runtimeSessionId,
       )
       .map((event) => event.payload);
-  // The Fleet owner fence rejects the stale node before checking its runtime credential.
+  // The Fleet owner fence rejects the stale replacement node before checking its runtime
+  // credential or attempting the original owner's lease settlement.
   assert.equal(((await denial) as { code?: string }).code, "authorization_denied");
   assert.deepEqual(outcomes(), [], "the replacement owner cannot publish the original owner's terminal outcome");
   const shown = await fixture.host.run(

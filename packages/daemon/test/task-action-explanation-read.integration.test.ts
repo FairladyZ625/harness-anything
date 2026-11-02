@@ -95,7 +95,7 @@ test("typed Entity Action read preserves one cut for 1..500 refs and has no writ
     // dec_4352DFAC7C16D1624944D780D7/CH1 adds task-respond-review.
     // The catalog-runtime mutation set contributes ten invocation-validated Task actions.
     // dec_6C9E3399972A2F06C046BA89DC/CH1 adds the shared EntityRef pin and unpin actions.
-    assert.equal(one.subjects[0]!.actions.length, 34);
+    assert.equal(one.subjects[0]!.actions.length, 36);
     assert.equal(
       one.subjects[0]!.actions.some(({ action }) => action.kind.startsWith("task-code-doc-")),
       false,
