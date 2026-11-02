@@ -200,6 +200,13 @@ export const settingsFieldProtocolProjection = {
       required: false,
     },
     {
+      field: "todoSoftLimit",
+      description:
+        "Unfinished todos at which adding one more is worth a reminder to clean up (0 turns the reminder off).",
+      type: "number",
+      required: false,
+    },
+    {
       field: "worktreeSetup",
       description: "Steps run in order in each new task worktree before work starts, such as installing dependencies.",
       type: "string-array",
@@ -596,6 +603,18 @@ export const settingsFieldProtocolProjection = {
       name: "--root-threshold",
       kind: "single",
       regex: "^[1-9][0-9]*$",
+      projection: "number",
+    },
+    {
+      field: "todoSoftLimit",
+      description:
+        "Unfinished todos at which adding one more is worth a reminder to clean up (0 turns the reminder off).",
+      group: "capacity-agenda",
+      effect:
+        "Adding past this many still writes; the receipt gives the count and cleanup route. Writing is never blocked.",
+      name: "--todo-soft-limit",
+      kind: "single",
+      regex: "^[0-9]+$",
       projection: "number",
     },
     {

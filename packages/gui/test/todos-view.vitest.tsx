@@ -150,4 +150,38 @@ describe("TodosView", () => {
     expect(document.activeElement).toBe(document.querySelector("[data-testid='todo-text']"));
     expect(document.body.textContent).toContain("没有未完成待办");
   });
+
+  it("shows the daemon's stacking reminder from the add receipt without recomputing it", async () => {
+    const client = mount();
+    await settle(client);
+    const added = Promise.withResolvers<void>();
+    const add = vi.spyOn(todosClient, "add").mockImplementation(async () => {
+      added.resolve();
+      return {
+        schema: "command-receipt/v2",
+        ok: true,
+        command: "todo-add",
+        outcome: "applied",
+        opId: "op_todo_add",
+        warnings: ["31 unfinished todos exceed the soft limit of 30 (settings.todos.softLimit)."],
+      };
+    });
+    await act(async () => {
+      const input = document.querySelector("[data-testid='todo-text']") as HTMLInputElement,
+        setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+      setValue.call(input, "再来一条待办");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      document.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      await added.promise;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await settle(client);
+    expect(add).toHaveBeenCalledWith("repo", "再来一条待办", undefined);
+    expect(document.querySelector("[data-testid='todo-stack-warning']")!.textContent).toContain(
+      "31 unfinished todos exceed the soft limit of 30",
+    );
+  });
 });

@@ -25,6 +25,9 @@ type TaskSettings = {
     readonly wipLimit: number;
     readonly rootThreshold: number;
   };
+  readonly todos: {
+    readonly softLimit: number;
+  };
 };
 /** Effective WIP limit: environment override, then the canonical Settings entity. Invalid overrides fail closed. */
 export function resolveTaskWipLimit(settings: TaskSettings, env: NodeJS.ProcessEnv = process.env): TaskWipLimitSetting {

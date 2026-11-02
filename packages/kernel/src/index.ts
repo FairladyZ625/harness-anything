@@ -317,6 +317,7 @@ export type {
 export { compileGateRunChange } from "./domain/gate-run-publication.ts";
 
 export { todoIsOpen, changeTodo, type Todo } from "./domain/todo.ts";
+export { todoSoftLimitAdvisory } from "./domain/todo-soft-limit.ts";
 
 export { compileRelationCreatedEvent } from "./domain/relation-event.ts";
 

@@ -2,6 +2,7 @@ import type { EntityActionInputField } from "./entity-kind-registry.ts";
 import type { GateWitnessMappingV1 } from "./completion-contract.ts";
 import { closeoutProfiles } from "./settings-closeout.ts";
 import { DEFAULT_TASK_ROOT_THRESHOLD, DEFAULT_TASK_WIP_LIMIT } from "./task-wip-policy.ts";
+import { DEFAULT_TODO_SOFT_LIMIT } from "./todo-soft-limit.ts";
 
 export type SettingsFieldOwnership = "repository" | "local";
 export type SettingsFieldValueKind = "string" | "enum" | "integer" | "boolean" | "string-array" | "gate-mappings";
@@ -584,6 +585,20 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     group: "capacity-agenda",
     action: { field: "rootThreshold", type: "number" },
     cli: { name: "--root-threshold", kind: "single", regex: "^[1-9][0-9]*$" },
+  }),
+  defineSettingsField({
+    path: ["todos", "softLimit"],
+    ownership: repository,
+    valueKind: "integer",
+    defaultValue: DEFAULT_TODO_SOFT_LIMIT,
+    minimum: 0,
+    description:
+      "Unfinished todos at which adding one more is worth a reminder to clean up (0 turns the reminder off).",
+    effect:
+      "Adding past this many still writes; the receipt gives the count and cleanup route. Writing is never blocked.",
+    group: "capacity-agenda",
+    action: { field: "todoSoftLimit", type: "number" },
+    cli: { name: "--todo-soft-limit", kind: "single", regex: "^[0-9]+$" },
   }),
   defineSettingsField({
     path: ["worktree", "setup"],
