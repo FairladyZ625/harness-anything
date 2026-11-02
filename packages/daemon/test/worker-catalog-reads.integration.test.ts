@@ -214,5 +214,18 @@ test(
     // The per-dispatch relay socket lives only while the provider runs, so the worker completes
     // on this marker after the CLI reads; the early cleanup hook then stops the fixture daemon.
     writeFileSync(path.join(parent, `${runtime}.finish`), "finish");
+    const terminal = await eventuallyValue(
+      async () => {
+        const value = await rpc("repo.agentRuntime.sessions.read", {
+          repo: { repoId },
+          payload: { runtimeSessionId: runtime },
+        });
+        const session = value.session as { readonly activity?: { readonly outcome?: string | null } } | undefined;
+        return session?.activity?.outcome ? session : null;
+      },
+      60_000,
+      `runtime session ${runtime} to finish before fixture cleanup`,
+    );
+    assert.ok(terminal.activity?.outcome);
   },
 );

@@ -298,9 +298,8 @@ test(
     t.after(async () => scheduler.close());
     await scheduler.start();
     await fixture.finish(state.leaderTurns[0]!.dispatchId, "Leader returned an invalid decision; retry this turn.");
-    assert.equal(
-      await eventually(() => latestSquadStates(fixture.root).get(state.squadRunId)?.leaderTurns.length === 2),
-      true,
+    await eventually(
+      () => latestSquadStates(fixture.root).get(state.squadRunId)?.leaderTurns.length === 2,
       "an invalid first decision dispatches a second leader under the same claim",
     );
     await scheduler.refresh();
@@ -318,26 +317,21 @@ test(
       secondLeader.dispatchId,
       JSON.stringify({ schema: "squad-decision/v1", action: "converged", report: "Schedule Squad converged." }),
     );
-    assert.equal(
-      await eventually(() => latestSquadStates(fixture.root).get(state.squadRunId)?.phase === "converged"),
-      true,
+    await eventually(
+      () => latestSquadStates(fixture.root).get(state.squadRunId)?.phase === "converged",
       "the scheduled Squad reaches a terminal converged state",
     );
-    assert.equal(
-      await eventually(async () => {
-        const receipt = (await fixture.cell.run({ kind: "schedule-show", scheduleId }, binding)) as unknown as {
-          readonly schedule: {
-            readonly status: {
-              readonly activeRun: unknown;
-              readonly lastRun: { readonly outcome: string } | null;
-            };
+    await eventually(async () => {
+      const receipt = (await fixture.cell.run({ kind: "schedule-show", scheduleId }, binding)) as unknown as {
+        readonly schedule: {
+          readonly status: {
+            readonly activeRun: unknown;
+            readonly lastRun: { readonly outcome: string } | null;
           };
         };
-        return receipt.schedule.status.activeRun === null && receipt.schedule.status.lastRun?.outcome === "succeeded";
-      }),
-      true,
-      "the Squad terminal state settles its occurrence claim",
-    );
+      };
+      return receipt.schedule.status.activeRun === null && receipt.schedule.status.lastRun?.outcome === "succeeded";
+    }, "the Squad terminal state settles its occurrence claim");
     assert.equal(existsSync(occurrenceCwd), false, "settlement reclaims the remediation occurrence worktree");
   },
 );
@@ -405,12 +399,9 @@ for (const restart of [false, true])
       // The child callback only proves the child outcome event projected. The targeting dispatch
       // settles on its own process exit (scheduled after provider.exit returns), so wait for its
       // canonical outcome before asserting the row or reading its settlement report.
-      assert.equal(
-        await eventually(
-          async () =>
-            ((await fixture.cell.read("repo.task.dispatches", { taskId })).dispatches[0]?.outcome ?? null) !== null,
-        ),
-        true,
+      await eventually(
+        async () =>
+          ((await fixture.cell.read("repo.task.dispatches", { taskId })).dispatches[0]?.outcome ?? null) !== null,
         "targeting dispatch records a terminal outcome",
       );
       await fixture.cell.settlePendingMaterialization("publication owner");

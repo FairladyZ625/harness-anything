@@ -13,6 +13,7 @@ import { renderDispatchPrompt } from "@harness-anything/daemon/internal/runtime-
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { localUserDaemonEndpoint } from "../src/daemon/client.ts";
 import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
+import { waitForValue } from "../../../tools/fixtures/wait-for-condition.ts";
 
 const realm = await spawnKeycloak();
 after(() => realm.close());
@@ -348,46 +349,53 @@ export async function runtimeInvariantEvidence(
 }
 export function readDispatchRecords(root: string, dispatchId: string): Record<string, unknown>[] {
   const live = path.join(root, ".harness", "runtime", "dispatches", `${dispatchId}.jsonl`),
-    archived = path.join(root, ".harness", "runtime", "dispatches", "archive", `${dispatchId}.jsonl`);
-  return readFileSync(existsSync(live) ? live : archived, "utf8")
-    .trim()
-    .split(/\r?\n/u)
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as Record<string, unknown>);
+    archived = path.join(root, ".harness", "runtime", "dispatches", "archive", `${dispatchId}.jsonl`),
+    contents = readFileSync(existsSync(live) ? live : archived, "utf8"),
+    lines = contents.split(/\r?\n/u);
+  if (!contents.endsWith("\n")) lines.pop();
+  return lines.filter(Boolean).map((line) => JSON.parse(line) as Record<string, unknown>);
 }
 export async function eventuallyNotification(
   root: string,
   dispatchId: string,
 ): Promise<{ readonly started: Record<string, unknown> | undefined; readonly finished: Record<string, unknown> }> {
-  let records: Record<string, unknown>[] = [];
-  for (let attempt = 0; attempt < 500; attempt += 1) {
-    records = readDispatchRecords(root, dispatchId).filter((record) => record.kind === "exit_notification");
-    const finished = records.find((record) => record.phase === "finished");
-    if (finished) return { started: records.find((record) => record.phase === "started"), finished };
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  throw new Error(`notification did not settle: ${JSON.stringify(records)}`);
+  let lastRecords: Record<string, unknown>[] = [];
+  const notification = await waitForValue(
+    () => {
+      lastRecords = readDispatchRecords(root, dispatchId).filter((record) => record.kind === "exit_notification");
+      const finished = lastRecords.find((record) => record.phase === "finished");
+      return finished ? { records: lastRecords, finished } : null;
+    },
+    `dispatch ${dispatchId} notification to finish`,
+    {
+      timeoutMs: 60_000,
+      describeLast: () => JSON.stringify(lastRecords),
+    },
+  );
+  return {
+    started: notification.records.find((record) => record.phase === "started"),
+    finished: notification.finished,
+  };
 }
 export async function readPublishedDispatch(target: string): Promise<string> {
   await eventuallyFile(target);
   return readFileSync(target, "utf8");
 }
 export async function eventuallyFile(target: string): Promise<void> {
-  for (let attempt = 0; attempt < 500; attempt += 1) {
-    if (existsSync(target)) return;
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  throw new Error(`file did not appear: ${target}`);
+  await waitForValue(() => (existsSync(target) ? target : null), `file ${target} to appear`, { timeoutMs: 60_000 });
 }
 export async function eventually<T>(read: () => T): Promise<T> {
-  let last: T | undefined;
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    last = read();
-    const rows = (last as Record<string, unknown>).dispatches;
-    if (Array.isArray(rows) && rows.some((row) => (row as Record<string, unknown>).status === "cancelled")) return last;
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  throw new Error(`dispatch did not settle: ${JSON.stringify(last)}`);
+  return waitForValue(
+    () => {
+      const last = read(),
+        rows = (last as Record<string, unknown>).dispatches;
+      return Array.isArray(rows) && rows.some((row) => (row as Record<string, unknown>).status === "cancelled")
+        ? last
+        : null;
+    },
+    "dispatch to reach cancelled state",
+    { timeoutMs: 60_000 },
+  );
 }
 export async function eventuallyTerminal(
   root: string,
@@ -395,13 +403,17 @@ export async function eventuallyTerminal(
   args: readonly string[],
 ): Promise<Record<string, unknown>> {
   let last: Record<string, unknown> = {};
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    last = runMaybe(root, env, args).receipt;
-    const rows = last.dispatches;
-    if (Array.isArray(rows) && rows.some((row) => (row as Record<string, unknown>).status === "cancelled")) return last;
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  throw new Error(`dispatch did not settle: ${JSON.stringify(last)}`);
+  return waitForValue(
+    () => {
+      last = runMaybe(root, env, args).receipt;
+      const rows = last.dispatches;
+      return Array.isArray(rows) && rows.some((row) => (row as Record<string, unknown>).status === "cancelled")
+        ? last
+        : null;
+    },
+    "dispatch to reach cancelled state",
+    { timeoutMs: 60_000, describeLast: () => JSON.stringify(last) },
+  );
 }
 export async function eventuallyRuntimeStatus(
   root: string,
@@ -410,13 +422,18 @@ export async function eventuallyRuntimeStatus(
   liveness: string,
 ): Promise<{ readonly session: Record<string, unknown> & { readonly activity: Record<string, unknown> } }> {
   let last: Record<string, unknown> = {};
-  for (let attempt = 0; attempt < 500; attempt += 1) {
-    last = run(root, env, ["runtime", "status", runtimeSessionId]);
-    const session = last.session as Record<string, unknown> & { readonly activity: Record<string, unknown> };
-    if (session.liveness === liveness) return { session };
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  throw new Error(`runtime status did not reach ${liveness}: ${JSON.stringify(last)}`);
+  return waitForValue(
+    () => {
+      last = run(root, env, ["runtime", "status", runtimeSessionId]);
+      const session = last.session as Record<string, unknown> & { readonly activity: Record<string, unknown> };
+      return session.liveness === liveness ? { session } : null;
+    },
+    `runtime ${runtimeSessionId} liveness ${liveness}`,
+    {
+      timeoutMs: 60_000,
+      describeLast: () => JSON.stringify(last),
+    },
+  );
 }
 export function processAlive(pid: number): boolean {
   if (!Number.isInteger(pid) || pid < 1) return false;
@@ -432,39 +449,47 @@ export async function eventuallyRuntimeReaderReuse(
   daemonId: string,
 ): Promise<{ readonly conn: string; readonly helloCount: number; readonly statusReads: number }> {
   let observed: Record<string, string[]> = {};
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    observed = {};
-    const logRoot = path.join(userRoot, "logs"),
-      names = existsSync(logRoot)
-        ? readdirSync(logRoot).filter((name) => name.startsWith(`daemon-${daemonId}-conn-`) && name.endsWith(".jsonl"))
-        : [];
-    for (const name of names)
-      for (const line of readFileSync(path.join(logRoot, name), "utf8").trim().split("\n").filter(Boolean)) {
-        const record = JSON.parse(line) as Record<string, unknown>;
-        if (record.event !== "request" || typeof record.conn !== "string" || typeof record.method !== "string")
-          continue;
-        const key = `${String(record.pid)}:${record.conn}`;
-        (observed[key] ??= []).push(record.method);
-      }
-    // The wait is one parked sessions.await on one connection; the retired sessions.read polling
-    // pattern (2+ reads on a single connection) must not appear anywhere.
-    const parked = Object.entries(observed).find(
-        ([, methods]) =>
-          methods.filter((method) => method === "repo.agentRuntime.sessions.await").length === 1 &&
-          methods.filter((method) => method === "protocol.hello").length === 1,
-      ),
-      polled = Object.entries(observed).find(
-        ([, methods]) => methods.filter((method) => method === "repo.agentRuntime.sessions.read").length >= 2,
-      );
-    if (parked && !polled)
-      return {
-        conn: parked[0],
-        helloCount: 1,
-        awaits: parked[1].filter((method) => method === "repo.agentRuntime.sessions.await").length,
-      };
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
-  throw new Error(`runtime status wait did not park one daemon await: ${JSON.stringify(observed)}`);
+  return waitForValue(
+    () => {
+      observed = {};
+      const logRoot = path.join(userRoot, "logs"),
+        names = existsSync(logRoot)
+          ? readdirSync(logRoot).filter(
+              (name) => name.startsWith(`daemon-${daemonId}-conn-`) && name.endsWith(".jsonl"),
+            )
+          : [];
+      for (const name of names)
+        for (const line of readFileSync(path.join(logRoot, name), "utf8").trim().split("\n").filter(Boolean)) {
+          const record = JSON.parse(line) as Record<string, unknown>;
+          if (record.event !== "request" || typeof record.conn !== "string" || typeof record.method !== "string")
+            continue;
+          const key = `${String(record.pid)}:${record.conn}`;
+          (observed[key] ??= []).push(record.method);
+        }
+      // The wait is one parked sessions.await on one connection; the retired sessions.read polling
+      // pattern (2+ reads on a single connection) must not appear anywhere.
+      const parked = Object.entries(observed).find(
+          ([, methods]) =>
+            methods.filter((method) => method === "repo.agentRuntime.sessions.await").length === 1 &&
+            methods.filter((method) => method === "protocol.hello").length === 1,
+        ),
+        polled = Object.entries(observed).find(
+          ([, methods]) => methods.filter((method) => method === "repo.agentRuntime.sessions.read").length >= 2,
+        );
+      if (parked && !polled)
+        return {
+          conn: parked[0],
+          helloCount: 1,
+          awaits: parked[1].filter((method) => method === "repo.agentRuntime.sessions.await").length,
+        };
+      return null;
+    },
+    "runtime status wait to park one daemon await",
+    {
+      timeoutMs: 60_000,
+      describeLast: () => JSON.stringify(observed),
+    },
+  );
 }
 /** The archived mission is the prompt as the worker received it, so the ruling artifact path's
  * dispatch token is already rendered to the dispatch id (runtime-spawn-prompt renders at launch). */
