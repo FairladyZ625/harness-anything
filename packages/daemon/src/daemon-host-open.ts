@@ -31,9 +31,9 @@ import { daemonBuildStamp, observeDaemonBuild } from "./build-identity.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import {
   openNodeAutoClaimLoop,
-  nodeAutoClaimLeaseKey,
   type NodeAutoClaimCandidate,
-  parseNodeAutoClaimCandidates,
+  parseNodeAutoClaimSnapshot,
+  type NodeAutoClaimSnapshot,
   type NodeAutoClaimDiagnosticRow,
 } from "./node-auto-claim.ts";
 import {
@@ -355,6 +355,11 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     readonly mode: DaemonRepoMode;
     readonly cell: RepoCell;
   };
+  const autoClaimSnapshots = new Map<string, NodeAutoClaimSnapshot>();
+  const autoClaimRepos = (): AutoClaimRepo[] =>
+    [...cells.entries()]
+      .map(([repoId, cell]) => ({ repoId, rootDir: cell.status().rootDir, mode: cell.status().mode, cell }))
+      .filter((repo): repo is AutoClaimRepo => repo.mode === "remote-edge");
   const autoClaimBinding = async (repo: AutoClaimRepo): Promise<RepoCellBinding | null> => {
     if (repo.mode !== "remote-edge") return null;
     const config = readFleetEdgeConfig(repo.rootDir);
@@ -367,62 +372,43 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     await repo.cell.readNodeAutoClaimAssignments(binding);
     return binding;
   };
+  const readAutoClaimSnapshot = async (repo: AutoClaimRepo): Promise<NodeAutoClaimSnapshot> => {
+    const binding = await autoClaimBinding(repo);
+    if (!binding) return { candidates: [], activeTaskIds: [] };
+    const edge = readFleetEdgeConfig(repo.rootDir);
+    if (!edge || edge.repoId !== repo.repoId) return { candidates: [], activeTaskIds: [] };
+    return parseNodeAutoClaimSnapshot(
+      await edgeRuntimeFor({
+        ...edge,
+        caPath: path.isAbsolute(edge.caPath) ? edge.caPath : path.resolve(repo.rootDir, edge.caPath),
+        viewRoot: path.isAbsolute(edge.viewRoot) ? edge.viewRoot : path.resolve(repo.rootDir, edge.viewRoot),
+        workspaceRoot: repo.rootDir,
+        method: "repo.tasks.autoClaimCandidates",
+        action: {},
+      }).run("repo.tasks.autoClaimCandidates", {}, undefined),
+    );
+  };
   const autoClaimLoop = openNodeAutoClaimLoop<AutoClaimRepo, NodeAutoClaimCandidate>({
     userRoot: input.userRoot,
     now,
-    repos: () =>
-      [...cells.entries()]
-        .map(([repoId, cell]) => ({ repoId, rootDir: cell.status().rootDir, mode: cell.status().mode, cell }))
-        .filter((repo): repo is AutoClaimRepo => repo.mode === "remote-edge"),
+    repos: autoClaimRepos,
     repoIdOf: (repo) => repo.repoId,
     ownerPersonIdFor: async (repo) => (await autoClaimBinding(repo))?.actor.principal.personId ?? null,
     candidates: async (repo) => {
-      const binding = await autoClaimBinding(repo);
-      if (!binding) return [];
-      const edge = readFleetEdgeConfig(repo.rootDir);
-      if (!edge || edge.repoId !== repo.repoId) return [];
-      const centerCandidates = parseNodeAutoClaimCandidates(
-        await edgeRuntimeFor({
-          ...edge,
-          caPath: path.isAbsolute(edge.caPath) ? edge.caPath : path.resolve(repo.rootDir, edge.caPath),
-          viewRoot: path.isAbsolute(edge.viewRoot) ? edge.viewRoot : path.resolve(repo.rootDir, edge.viewRoot),
-          workspaceRoot: repo.rootDir,
-          method: "repo.tasks.autoClaimCandidates",
-          action: {},
-        }).run("repo.tasks.autoClaimCandidates", {}, undefined),
-      );
-      return centerCandidates;
+      return (autoClaimSnapshots.get(repo.repoId) ?? (await readAutoClaimSnapshot(repo))).candidates;
     },
     taskIdOf: (candidate) => candidate.taskId,
     assignmentOf: async (candidate) => {
       return candidate.autoAssignment;
     },
     activeTaskKeys: async () => {
+      autoClaimSnapshots.clear();
+      if (!readNodeAutoClaimPolicy(input.userRoot).policy.enabled) return [];
       const active = new Set<string>();
-      for (const repo of [...cells.entries()]
-        .map(([repoId, cell]) => ({ repoId, rootDir: cell.status().rootDir, mode: cell.status().mode, cell }))
-        .filter((entry): entry is AutoClaimRepo => entry.mode === "remote-edge")) {
-        const binding = await autoClaimBinding(repo);
-        if (!binding) continue;
-        const overview = await repo.cell.read("repo.agentRuntime.overview", {}, binding);
-        for (const session of overview.sessions) {
-          if (session.liveness === "exited") continue;
-          for (const association of session.associations)
-            if (association.taskId) {
-              const task = await repo.cell.read(
-                  "repo.tasks.runtimeContext.read",
-                  { taskId: association.taskId },
-                  binding,
-                ),
-                lease = task.snapshot.lease,
-                nodeId =
-                  typeof binding.source === "object" && binding.source.kind === "node" ? binding.source.nodeId : null,
-                key = nodeId
-                  ? nodeAutoClaimLeaseKey({ repoId: repo.repoId, taskId: association.taskId, nodeId, lease })
-                  : null;
-              if (key) active.add(key);
-            }
-        }
+      for (const repo of autoClaimRepos()) {
+        const snapshot = await readAutoClaimSnapshot(repo);
+        autoClaimSnapshots.set(repo.repoId, snapshot);
+        for (const taskId of snapshot.activeTaskIds) active.add(`${repo.repoId}:${taskId}`);
       }
       return [...active];
     },

@@ -122,6 +122,7 @@ test("A: registry attached recovery wakes a skipped due builtin without refreshi
     unavailable: new Map(),
     closing: false,
     scheduleScheduler: scheduler,
+    onAutoClaimTrigger: () => undefined,
     writerEpochFence: () => undefined,
     runtimePorts: {},
     settleWarming: () => {},

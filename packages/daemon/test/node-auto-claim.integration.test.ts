@@ -142,7 +142,8 @@ test(
           readonly ready: Promise<void>;
           finish: () => Promise<void>;
           readonly child: ChildProcess;
-        }> = [];
+        }> = [],
+        edgeHosts: { readonly name: string; readonly close: () => Promise<void> }[] = [];
       phase = "migrate center repository vertical declaration";
       const vertical = await fixture.host.run("lease-repo", { kind: "vertical-declaration-migrate" }, localAuth);
       assert.equal(vertical.outcome, "applied", JSON.stringify(vertical));
@@ -316,6 +317,7 @@ test(
         runtimeLaunch,
         beforeOpen: setupEdgeGit,
       });
+      edgeHosts.push({ name: "node-two", close: activeEdge.close });
       const catchUpEdge = async (
         edge: Awaited<ReturnType<typeof fleetEdgeHostFixture>>,
         nodeId: string,
@@ -350,6 +352,7 @@ test(
         runtimeLaunch,
         beforeOpen: setupEdgeGit,
       });
+      edgeHosts.push({ name: "node-one", close: edge.close });
       assert.equal(existsSync(path.join(edge.edgeUser, "rbac/config.json")), false);
       assert.equal(existsSync(path.join(edge.edgeUser, "rbac/center-client-secret")), false);
       assert.equal(existsSync(path.join(activeEdge.edgeUser, "rbac/config.json")), false);
@@ -371,6 +374,7 @@ test(
         );
 
       phase = "configure policy and launch same-owner assignment";
+      let bodyFailure: unknown = null;
       try {
         await configure([], 2);
         await waitForLaunch(edge, tasks.offline);
@@ -464,6 +468,15 @@ test(
             fixture.owners.auth({ nodeId: "node-one" }),
           );
           return overview.sessions.some((session) => session.activity.outcome !== null);
+        });
+        await eventually(async () => {
+          const context = await fixture.host.read(
+            "lease-repo",
+            "repo.tasks.runtimeContext.read",
+            { taskId: "task-a-node-runtime" },
+            fixture.owners.auth({ nodeId: "node-two" }),
+          );
+          return context.snapshot.lease === null || context.snapshot.lease.phase === "released";
         });
         phase = "launch explicitly allowed task";
         await configure(["person-two"], 2);
@@ -560,13 +573,30 @@ test(
           );
           return overview.sessions.some((session) => session.activity.outcome !== null);
         });
+        await eventually(async () => {
+          const context = await fixture.host.read(
+            "lease-repo",
+            "repo.tasks.runtimeContext.read",
+            { taskId: "task-50-waits-for-b-slot" },
+            fixture.owners.auth({ nodeId: "node-one" }),
+          );
+          return context.snapshot.lease === null || context.snapshot.lease.phase === "released";
+        });
         await catchUpEdge(edge, "node-one", "post-settlement assignment");
         await Promise.allSettled(launches.map((launch) => launch.finish()));
       } catch (cause) {
-        throw new Error(`production edge auto-claim failed during ${phase}`, { cause });
-      } finally {
-        await Promise.allSettled(launches.map((launch) => launch.finish()));
+        bodyFailure = cause;
       }
+      await Promise.allSettled(launches.map((launch) => launch.finish()));
+      const closeResults = await Promise.allSettled(edgeHosts.map((edgeHost) => edgeHost.close())),
+        failedIndex = closeResults.findIndex((result) => result.status === "rejected"),
+        closeFailure = closeResults[failedIndex];
+      if (bodyFailure !== null)
+        throw new Error(`production edge auto-claim failed during ${phase}`, { cause: bodyFailure });
+      if (closeFailure?.status === "rejected")
+        throw new Error(`edge host ${edgeHosts[failedIndex]?.name ?? "unknown"} failed to close`, {
+          cause: closeFailure.reason,
+        });
     } catch (cause) {
       throw new Error(`production edge auto-claim failed during ${phase}`, { cause });
     }

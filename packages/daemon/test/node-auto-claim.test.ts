@@ -11,6 +11,7 @@ import {
   nodeAutoClaimLeaseKey,
   openNodeAutoClaimLoop,
   parseNodeAutoClaimCandidates,
+  parseNodeAutoClaimSnapshot,
 } from "../src/node-auto-claim.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
@@ -32,7 +33,8 @@ const policy = {
 
 test("Fleet auto-claim candidate witnesses must match their task and assignment revision", () => {
   const candidate = {
-    schema: "node-auto-claim-candidates/v1",
+    schema: "node-auto-claim-candidates/v2",
+    activeTaskIds: ["task-active"],
     candidates: [
       {
         taskId: "task-a",
@@ -44,6 +46,8 @@ test("Fleet auto-claim candidate witnesses must match their task and assignment 
     ],
   };
   assert.equal(parseNodeAutoClaimCandidates(candidate)[0]?.autoAssignment?.taskId, "task-a");
+  assert.deepEqual(parseNodeAutoClaimSnapshot(candidate).activeTaskIds, ["task-active"]);
+  assert.throws(() => parseNodeAutoClaimSnapshot({ ...candidate, activeTaskIds: ["", 2] }), /snapshot is invalid/u);
   assert.throws(
     () =>
       parseNodeAutoClaimCandidates({

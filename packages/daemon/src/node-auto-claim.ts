@@ -23,16 +23,25 @@ export interface NodeAutoClaimCandidate {
   readonly autoAssignment: NodeAutoClaimAssignment | null;
 }
 
-export function parseNodeAutoClaimCandidates(value: unknown): readonly NodeAutoClaimCandidate[] {
+export interface NodeAutoClaimSnapshot {
+  readonly candidates: readonly NodeAutoClaimCandidate[];
+  readonly activeTaskIds: readonly string[];
+}
+
+export function parseNodeAutoClaimSnapshot(value: unknown): NodeAutoClaimSnapshot {
   if (
     value === null ||
     typeof value !== "object" ||
     Array.isArray(value) ||
-    (value as { readonly schema?: unknown }).schema !== "node-auto-claim-candidates/v1" ||
-    !Array.isArray((value as { readonly candidates?: unknown }).candidates)
+    (value as { readonly schema?: unknown }).schema !== "node-auto-claim-candidates/v2" ||
+    !Array.isArray((value as { readonly candidates?: unknown }).candidates) ||
+    !Array.isArray((value as { readonly activeTaskIds?: unknown }).activeTaskIds) ||
+    !(value as { readonly activeTaskIds: unknown[] }).activeTaskIds.every(
+      (taskId) => typeof taskId === "string" && taskId.length > 0,
+    )
   )
-    throw new Error("Fleet auto-claim candidate response is invalid.");
-  return (value as { readonly candidates: unknown[] }).candidates.map((candidate) => {
+    throw new Error("Fleet auto-claim snapshot is invalid.");
+  const candidates = (value as { readonly candidates: unknown[] }).candidates.map((candidate) => {
     if (
       candidate === null ||
       typeof candidate !== "object" ||
@@ -71,6 +80,14 @@ export function parseNodeAutoClaimCandidates(value: unknown): readonly NodeAutoC
       autoAssignment: assignment as NodeAutoClaimAssignment,
     };
   });
+  const activeTaskIds = (value as { readonly activeTaskIds: string[] }).activeTaskIds;
+  if (new Set(activeTaskIds).size !== activeTaskIds.length)
+    throw new Error("Fleet auto-claim active task list contains duplicates.");
+  return { candidates, activeTaskIds };
+}
+
+export function parseNodeAutoClaimCandidates(value: unknown): readonly NodeAutoClaimCandidate[] {
+  return parseNodeAutoClaimSnapshot(value).candidates;
 }
 
 export interface NodeAutoClaimDecision {

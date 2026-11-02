@@ -8,6 +8,7 @@ import type { RepositoryReadFrame } from "./protocol/repository-read-frame.ts";
 import { repositoryReadDescriptor } from "./repository-read-contract.ts";
 import { readFleetOverviewFromHost } from "./fleet/fleet-overview-read.ts";
 import { readClaimableTasks } from "./task-claimable-read.ts";
+import { nodeAutoClaimLeaseKey } from "./node-auto-claim.ts";
 import { readEntityAssignmentDirectory } from "./entity-assignment-directory.ts";
 import { parseAssignmentExpiry } from "@harness-anything/kernel";
 import { doctorBuildDrift, type DoctorCheck } from "./repo-cell-doctor.ts";
@@ -155,7 +156,19 @@ export function createDaemonHostRepositoryApi(
             };
           }),
       );
-      return { schema: "node-auto-claim-candidates/v1", candidates };
+      const overview = await cell.read("repo.agentRuntime.overview", {}, binding),
+        activeTaskIds = new Set<string>();
+      for (const session of overview.sessions) {
+        if (session.liveness === "exited") continue;
+        for (const association of session.associations) {
+          const taskId = association.taskId;
+          if (!taskId) continue;
+          const task = await cell.read("repo.tasks.runtimeContext.read", { taskId }, binding),
+            key = nodeAutoClaimLeaseKey({ repoId, taskId, nodeId, lease: task.snapshot.lease });
+          if (key) activeTaskIds.add(taskId);
+        }
+      }
+      return { schema: "node-auto-claim-candidates/v2", candidates, activeTaskIds: [...activeTaskIds] };
     },
     bootstrap: async (request, auth) => {
       const requestedRoot = canonicalRoot(request.rootDir, true),

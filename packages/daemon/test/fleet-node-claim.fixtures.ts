@@ -223,6 +223,14 @@ export async function fleetNodeClaimFixture(
 }
 
 function isExpectedStaleWriterClose(reason: unknown): boolean {
+  const code =
+    reason instanceof Error && "code" in reason ? (reason as Error & { readonly code?: unknown }).code : null;
+  if (
+    code === "client_disconnected" ||
+    code === "ABORT_ERR" ||
+    (reason instanceof Error && reason.name === "AbortError")
+  )
+    return true;
   return (
     reason instanceof Error &&
     "code" in reason &&
