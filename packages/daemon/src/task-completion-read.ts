@@ -108,7 +108,26 @@ export function readCompletionDeliveryStatus(
             ?.findLast((entry) => /^merge_commit_sha:[0-9a-f]{40}$/u.test(entry.note))
             ?.note.slice(17)
         : undefined,
-    deliveryCommitSha = execution?.submission?.commitSha ?? undefined,
+    submissionCommitSha = execution?.submission?.commitSha ?? undefined,
+    rebaseEquivalent =
+      execution?.schema === "execution/v1"
+        ? execution.annotations
+            ?.filter((entry) => entry.kind === "correction")
+            .map((entry) => {
+              const match =
+                /^rebase-equivalent:([0-9a-f]{40})->([0-9a-f]{40}):base=([0-9a-f]{40}):patch-id=([0-9a-f]{40})$/u.exec(
+                  entry.note,
+                );
+              return match === null ? undefined : { frozen: match[1], head: match[2] };
+            })
+            .findLast((value) => value !== undefined)
+        : undefined,
+    deliveryCommitSha =
+      rebaseEquivalent !== undefined && rebaseEquivalent.frozen === submissionCommitSha
+        ? rootDir !== undefined && localGitObjectRefStore.hasCommit(rootDir, rebaseEquivalent.head)
+          ? rebaseEquivalent.head
+          : undefined
+        : submissionCommitSha,
     baseline = execution?.deliveryBaseline,
     baselineRef = baseline === undefined ? null : baseline.kind === "empty-tree" ? EMPTY_TREE_SHA : baseline.commitSha,
     targetRef = deliveryTargetRef(delivery);

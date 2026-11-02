@@ -254,6 +254,19 @@ function patchId(root, base, commit) {
   return result.length === 0 ? null : result.split(/\s+/u, 1)[0];
 }
 
+// Stable patch-id intentionally ignores whitespace. Keep it as a useful patch-shape check, but
+// also compare a zero-context diff whose hunk positions and blob ids are normalized away. The
+// remaining paths, modes, and exact added/removed bytes are the reviewed content.
+function patchContent(root, base, commit) {
+  const patch = run("git", ["diff", "--no-ext-diff", "--no-renames", "--binary", "--unified=0", base, commit, "--"], {
+    cwd: root,
+  }).stdout;
+  if (!patch) return null;
+  return patch
+    .replace(/^index [0-9a-f]+\.\.[0-9a-f]+( .*)?$/gmu, (_line, mode = "") => `index${mode}`)
+    .replace(/^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@.*$/gmu, "@@ @@");
+}
+
 // `gh pr merge --merge` makes the PR head the merge commit's second parent, so completion's
 // deliveryContainment() proves the submitted delivery from that ancestry only when the head *is*
 // the frozen delivery commit. A rebase changes the commit identity without necessarily changing
@@ -288,8 +301,16 @@ function equivalentRebasedCut(cut, pr, root) {
         cwd: root,
       }),
       reviewedPatchId = patchId(root, base, frozen),
-      rebasedPatchId = patchId(root, rebasedBase, pr.headRefOid);
-    if (reviewedPatchId === null || reviewedPatchId !== rebasedPatchId) return null;
+      rebasedPatchId = patchId(root, rebasedBase, pr.headRefOid),
+      reviewedPatchContent = patchContent(root, base, frozen),
+      rebasedPatchContent = patchContent(root, rebasedBase, pr.headRefOid);
+    if (
+      reviewedPatchId === null ||
+      reviewedPatchId !== rebasedPatchId ||
+      reviewedPatchContent === null ||
+      reviewedPatchContent !== rebasedPatchContent
+    )
+      return null;
     return { frozen, head: pr.headRefOid, base: rebasedBase, patchId: reviewedPatchId };
   } catch {
     // Missing objects or an unavailable remote cannot prove equivalence; keep the merge fail closed.

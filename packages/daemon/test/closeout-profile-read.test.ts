@@ -29,6 +29,7 @@ function codeDelivery(
   commitSha: string | null,
   mergeSha?: string,
   baselineSha?: string,
+  rebaseEquivalent?: { frozen: string; head: string; base: string },
 ): TaskLifecycleSnapshot {
   return {
     ...snapshot,
@@ -40,6 +41,16 @@ function codeDelivery(
         ? {
             annotations: [
               ...(execution.annotations ?? []),
+              ...(rebaseEquivalent
+                ? [
+                    {
+                      kind: "correction" as const,
+                      note: `rebase-equivalent:${rebaseEquivalent.frozen}->${rebaseEquivalent.head}:base=${rebaseEquivalent.base}:patch-id=${"a".repeat(40)}`,
+                      actor: execution.actor,
+                      annotatedAt: "2026-10-18T00:00:00.000Z",
+                    },
+                  ]
+                : []),
               {
                 kind: "correction" as const,
                 note: `merge_commit_sha:${mergeSha}`,
@@ -412,6 +423,59 @@ test("delivery merge evidence proves the annotated commit contains the frozen de
   const cherryPickSha = git(root, "rev-parse", "HEAD");
   git(root, "update-ref", "refs/heads/release", cherryPickSha);
   assert.equal(read(cherryPickSha).merged, true, "a cherry-pick with the delivered tree entries is accepted");
+});
+
+test("equivalent rebases bind completion to the rebased head when main changed the same file", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-rebase-equivalent-completion-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "-q", "-b", "main");
+  git(root, "config", "user.name", "Test");
+  git(root, "config", "user.email", "test@example.com");
+  const shared = path.join(root, "shared.txt");
+  writeFileSync(shared, Array.from({ length: 30 }, (_, index) => `line ${index}\n`).join(""));
+  git(root, "add", "shared.txt");
+  git(root, "commit", "-qm", "base");
+  const baseline = git(root, "rev-parse", "HEAD");
+
+  git(root, "switch", "-qc", "delivery");
+  const reviewedLines = Array.from({ length: 30 }, (_, index) => `line ${index}\n`);
+  reviewedLines[2] = "reviewed change\n";
+  writeFileSync(shared, reviewedLines.join(""));
+  git(root, "commit", "-qam", "reviewed delivery");
+  const frozen = git(root, "rev-parse", "HEAD");
+
+  git(root, "switch", "-q", "main");
+  const mainLines = Array.from({ length: 30 }, (_, index) => `line ${index}\n`);
+  mainLines[25] = "independent main change\n";
+  writeFileSync(shared, mainLines.join(""));
+  git(root, "commit", "-qam", "advance main");
+  git(root, "switch", "-q", "delivery");
+  git(root, "rebase", "main");
+  const rebasedHead = git(root, "rev-parse", "HEAD"),
+    rebasedBase = git(root, "merge-base", "main", rebasedHead);
+
+  git(root, "switch", "-q", "main");
+  git(root, "merge", "--no-ff", "-qm", "merge delivery", "delivery");
+  const merge = git(root, "rev-parse", "HEAD");
+  git(root, "update-ref", "refs/heads/release", merge);
+  const delivery = {
+      ...INITIAL_SETTINGS_V1.delivery,
+      targetRef: "refs/heads/release",
+    } as typeof INITIAL_SETTINGS_V1.delivery & { readonly targetRef: string },
+    projection = {
+      getEntity: () => ({ value: { delivery } }),
+      readPresetSnapshot: () => ({ status: "ready", snapshot: { profile: { outputShape: "repository-diff" } } }),
+    } as unknown as TaskProjectionQueries,
+    snapshot = codeDelivery(strictSubmitted, frozen, merge, baseline, {
+      frozen,
+      head: rebasedHead,
+      base: rebasedBase,
+    }),
+    result = readCompletionDeliveryStatus(projection, snapshot, root);
+
+  assert.notEqual(frozen, rebasedHead);
+  assert.notEqual(rebasedBase, baseline);
+  assert.equal(result.merged, true);
 });
 
 test("an explicit local delivery ref verifies a local-only repository baseline", (t) => {

@@ -720,6 +720,43 @@ test("merges a task PR whose rebased head has the same stable patch and records 
   assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "MERGED");
 });
 
+test("refuses a rebased task PR when whitespace changes reviewed content", (t) => {
+  const setup = fixture(t, { branch: TASK_BRANCH }),
+    reviewedCommit = setup.headRefOid;
+  git(setup.prWorktree, "fetch", "origin");
+  git(setup.prWorktree, "rebase", "origin/main");
+  // Stable patch-id strips this whitespace, although it changes the delivered text.
+  writeFileSync(path.join(setup.prWorktree, "feature.txt"), "fea ture\n");
+  git(setup.prWorktree, "add", "feature.txt");
+  git(setup.prWorktree, "commit", "--amend", "--no-edit");
+  const rebasedHead = git(setup.prWorktree, "rev-parse", "HEAD");
+  git(setup.prWorktree, "push", "--force", "origin", TASK_BRANCH);
+  const prState = JSON.parse(readFileSync(setup.statePath, "utf8"));
+  writeFileSync(setup.statePath, JSON.stringify({ ...prState, headRefOid: rebasedHead }));
+  writeFileSync(
+    setup.env.HA_STATE_PATH,
+    JSON.stringify(
+      reviewChainWithDeliveryBlockerHaState({
+        commitSha: reviewedCommit,
+        productionBaseSha: setup.baseSha,
+      }),
+    ),
+  );
+  const initialHead = git(setup.main, "rev-parse", "HEAD"),
+    result = run(process.execPath, [helper, "123"], {
+      cwd: setup.main,
+      env: setup.env,
+      allowFailure: true,
+    });
+
+  assert.equal(result.status, 1, result.stdout);
+  assert.match(result.stderr, new RegExp(`froze its delivery at ${reviewedCommit}`, "u"));
+  assert.match(result.stderr, /Re-freeze the cut at the PR head/u);
+  assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "OPEN");
+  assert.equal(git(setup.main, "rev-parse", "HEAD"), initialHead);
+  assert.equal(existsSync(setup.annotateLogPath), false);
+});
+
 test("refuses a rebased task PR when conflict resolution changes the reviewed patch", (t) => {
   const setup = fixture(t, { branch: TASK_BRANCH }),
     reviewedCommit = setup.headRefOid;
