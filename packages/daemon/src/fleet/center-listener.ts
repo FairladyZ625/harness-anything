@@ -124,8 +124,12 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         nodeAdmission.assertOpen(node.nodeId);
         return principal;
       } catch (error) {
-        if (typeof error === "object" && error !== null && "code" in error && typeof error.code === "string")
-          throw new FleetFault(error.code, error instanceof Error ? error.message : "Device session was rejected.");
+        if (typeof error === "object" && error !== null && "code" in error && typeof error.code === "string") {
+          // `daemon_error` is the Keycloak adapters' transport sentinel; a fleet session check that
+          // could not reach the identity authority is a retryable outage, not an unclassified fault.
+          const code = error.code === "daemon_error" ? "keycloak_unavailable" : error.code;
+          throw new FleetFault(code, error instanceof Error ? error.message : "Device session was rejected.");
+        }
         throw error;
       }
     },

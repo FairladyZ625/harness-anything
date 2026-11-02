@@ -240,8 +240,9 @@ test("a Keycloak authorization that never answers times out and releases the rep
     assert.ok(connections >= 1, "the authorization never reached the hanging Keycloak");
     assert.equal(hangingPolicies, 1, "the warm authorization must reach policy/evaluate");
     assert.equal(receipt.outcome, "op_rejected", JSON.stringify(receipt));
-    // The decision-covered Admin REST path preserves its infrastructure error code.
-    assert.equal(receipt.code, "daemon_error", JSON.stringify(receipt));
+    // The decision-covered Admin REST path preserves its infrastructure classification, but a
+    // transport failure is the retryable identity-unavailable refusal, not a generic daemon error.
+    assert.equal(receipt.code, "keycloak_unavailable", JSON.stringify(receipt));
     // Wait for this request's socket. A pooled warm-up connection may close first, so one event
     // loop turn after the receipt is not a reliable observation boundary.
     await policySocketClosed;

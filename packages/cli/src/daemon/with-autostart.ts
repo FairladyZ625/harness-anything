@@ -18,7 +18,8 @@ export async function withAutostart(
     readonly commandCategory: "operation" | "daemon-lifecycle";
   },
 ): Promise<JsonObject> {
-  const startedAt = Date.now();
+  const startedAt = Date.now(),
+    budgetMs = options.restartBudgetMs ?? 30_000;
   // The pid before the request is the only daemon this request can legitimately be answered by.
   // Reading it after a daemon_stopping answer instead races the replacement: a build-superseded
   // handoff answers a parked request and its successor rewrites the pid file within milliseconds,
@@ -27,7 +28,18 @@ export async function withAutostart(
   const { readDaemonPid } = await import("@harness-anything/daemon/internal/daemon-singleton"),
     outgoingPid = options.userRoot && options.daemonId ? readDaemonPid(options.userRoot, options.daemonId) : null;
   try {
-    const result = await request();
+    let result = await request();
+    // The successor binds its socket before its Keycloak identity authority is ready. In that window
+    // authorization is refused before any write; the first attempt has already waited out the
+    // authority's own connect deadline, so resend the same pre-apply request once here — the single
+    // reconnect/retry path — instead of leaving every caller to grow its own retry loop.
+    if (isRetryableIdentityRefusal(result) && options.commandCategory !== "daemon-lifecycle") {
+      await delay(250);
+      result = await request();
+      if (isKeycloakUnavailable(result)) return result;
+      if (!isDaemonStopping(result))
+        result = { ...result, daemonRestart: { waitedMs: Date.now() - startedAt, retries: 1 } };
+    }
     if (
       !isDaemonStopping(result) ||
       options.commandCategory === "daemon-lifecycle" ||
@@ -38,7 +50,6 @@ export async function withAutostart(
     const { DaemonAutostartError, ensureLocalDaemonRunning, waitForDaemonGenerationChange } = await import(
         "@harness-anything/daemon/internal/client/daemon-autostart"
       ),
-      budgetMs = options.restartBudgetMs ?? 30_000,
       changed = await waitForDaemonGenerationChange({
         previousPid: outgoingPid,
         readPid: () => readDaemonPid(options.userRoot!, options.daemonId!),
@@ -123,6 +134,24 @@ function isDaemonStopping(result: JsonObject): boolean {
       ? (result.error as JsonObject)
       : null;
   return result.code === "daemon_stopping" || error?.code === "daemon_stopping";
+}
+
+/** The daemon refused before applying the action because Keycloak did not answer in the startup window. */
+function isKeycloakUnavailable(result: JsonObject): boolean {
+  const error =
+    result.error && typeof result.error === "object" && !Array.isArray(result.error)
+      ? (result.error as JsonObject)
+      : null;
+  return result.code === "keycloak_unavailable" || error?.code === "keycloak_unavailable";
+}
+
+/** A refusal that proves the action never reached the ledger, so replaying it cannot duplicate a write. */
+function isRetryableIdentityRefusal(result: JsonObject): boolean {
+  return isKeycloakUnavailable(result) && (result.outcome === undefined || result.outcome === "op_rejected");
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function daemonRestartingReceipt(waitedMs: number, retries: number): JsonObject {

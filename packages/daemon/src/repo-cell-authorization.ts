@@ -183,10 +183,20 @@ export async function canonicalResourceAncestors(
   return ancestors;
 }
 
+type KeycloakPersonEvaluation = Pick<AuthorizationPermissionDecision, "outcome" | "reasonCode"> & {
+  readonly policyRef: string;
+  readonly authority: string;
+};
+
 /**
  * One evaluation for every entry point: the acting person's Keycloak grants on one action and one
  * resource. Every caller evaluates its acting person, so center administration cannot substitute
  * for a missing or mismatched user session.
+ *
+ * A transport failure is not a policy decision and not an unclassified programming error: it means
+ * the identity authority did not answer while this action was being authorized, so nothing was
+ * applied. It is reported as `keycloak_unavailable` with its original cause, which is the same code
+ * the read faces already use for a temporarily unreachable center.
  */
 export async function evaluateKeycloakPerson(input: {
   readonly credential: NonNullable<RepoCellBinding["keycloakAuthorization"]>;
@@ -196,71 +206,89 @@ export async function evaluateKeycloakPerson(input: {
   readonly resourceAncestors?: readonly AuthorizationResource[];
   readonly policyRef?: string;
   readonly fetchPort?: typeof fetch;
-}): Promise<
-  Pick<AuthorizationPermissionDecision, "outcome" | "reasonCode"> & {
-    readonly policyRef: string;
-    readonly authority: string;
-  }
-> {
-  const { session, center } = input.credential;
-  if (session?.personId !== input.personId) {
-    const provider = session?.provider;
-    return {
-      outcome: "denied",
-      reasonCode: provider?.deniedReasonCode ?? "authentication_required",
-      policyRef: provider?.policyRef ?? input.policyRef ?? "authorization-provider@1",
-      authority: provider?.authority ?? "authorization-provider",
-    };
-  }
-  const currentCenter = center ? await center() : undefined,
-    provider = session?.provider ?? currentCenter?.provider;
-  if (!provider)
-    return {
-      outcome: "denied",
-      reasonCode: "authentication_required",
-      policyRef: input.policyRef ?? "authorization-provider@1",
-      authority: "authorization-provider",
-    };
-  const resourceAncestors = input.resourceAncestors ?? [];
-  const fetchPort = input.fetchPort ?? fetch,
-    decisionProvider = provider.withFetchPort ? provider.withFetchPort(fetchPort) : provider,
-    centerProvider = currentCenter
-      ? currentCenter.provider.withFetchPort
-        ? currentCenter.provider.withFetchPort(fetchPort)
-        : currentCenter.provider
-      : undefined;
-  if (currentCenter) {
-    const userToken = session.currentAccessToken ? await session.currentAccessToken() : session.accessToken,
-      valid = await decisionProvider.validateUserAccessToken(userToken, input.personId);
-    if (!valid)
+}): Promise<KeycloakPersonEvaluation> {
+  try {
+    const { session, center } = input.credential;
+    if (session?.personId !== input.personId) {
+      const provider = session?.provider;
       return {
         outcome: "denied",
-        reasonCode: provider.deniedReasonCode,
-        policyRef: decisionProvider.policyRef,
-        authority: decisionProvider.authority,
+        reasonCode: provider?.deniedReasonCode ?? "authentication_required",
+        policyRef: provider?.policyRef ?? input.policyRef ?? "authorization-provider@1",
+        authority: provider?.authority ?? "authorization-provider",
       };
-  }
-  if (!currentCenter) {
-    const result = await decisionProvider.authorize({
-      userAccessToken: session.currentAccessToken ? await session.currentAccessToken() : session.accessToken,
+    }
+    const currentCenter = center ? await center() : undefined,
+      provider = session?.provider ?? currentCenter?.provider;
+    if (!provider)
+      return {
+        outcome: "denied",
+        reasonCode: "authentication_required",
+        policyRef: input.policyRef ?? "authorization-provider@1",
+        authority: "authorization-provider",
+      };
+    const resourceAncestors = input.resourceAncestors ?? [];
+    const fetchPort = input.fetchPort ?? fetch,
+      decisionProvider = provider.withFetchPort ? provider.withFetchPort(fetchPort) : provider,
+      centerProvider = currentCenter
+        ? currentCenter.provider.withFetchPort
+          ? currentCenter.provider.withFetchPort(fetchPort)
+          : currentCenter.provider
+        : undefined;
+    if (currentCenter) {
+      const userToken = session.currentAccessToken ? await session.currentAccessToken() : session.accessToken,
+        valid = await decisionProvider.validateUserAccessToken(userToken, input.personId);
+      if (!valid)
+        return {
+          outcome: "denied",
+          reasonCode: provider.deniedReasonCode,
+          policyRef: decisionProvider.policyRef,
+          authority: decisionProvider.authority,
+        };
+    }
+    if (!currentCenter) {
+      const result = await decisionProvider.authorize({
+        userAccessToken: session.currentAccessToken ? await session.currentAccessToken() : session.accessToken,
+        action: input.action,
+        resource: input.resource,
+        resourceAncestors,
+      });
+      return { ...result, policyRef: decisionProvider.policyRef, authority: decisionProvider.authority };
+    }
+    const result = await centerProvider!.authorizePerson({
+      adminAccessToken: currentCenter.accessToken,
+      personId: input.personId,
       action: input.action,
       resource: input.resource,
       resourceAncestors,
     });
-    return { ...result, policyRef: decisionProvider.policyRef, authority: decisionProvider.authority };
+    return {
+      ...result,
+      policyRef: centerProvider!.policyRef,
+      authority: centerProvider!.authority,
+    };
+  } catch (error) {
+    if (!keycloakTransportFailure(error)) throw error;
+    throw Object.assign(
+      new Error(
+        "The daemon could not reach the Keycloak identity authority while authorizing this action " +
+          "(the daemon may still be starting its managed identity services), so the request was not applied. " +
+          `${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      ),
+      { code: "keycloak_unavailable" },
+    );
   }
-  const result = await centerProvider!.authorizePerson({
-    adminAccessToken: currentCenter.accessToken,
-    personId: input.personId,
-    action: input.action,
-    resource: input.resource,
-    resourceAncestors,
-  });
-  return {
-    ...result,
-    policyRef: centerProvider!.policyRef,
-    authority: centerProvider!.authority,
-  };
+}
+
+function keycloakTransportFailure(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const code = (error as { readonly code?: unknown }).code;
+  return (
+    code === "daemon_error" ||
+    (typeof code === "string" &&
+      ["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "ENOTFOUND", "EHOSTUNREACH"].includes(code))
+  );
 }
 
 export function authorizeRepoCellAction(input: {
