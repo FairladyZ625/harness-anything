@@ -145,7 +145,7 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
             "COALESCE(event_json::jsonb#>>'{payload,startedAt}',event_json::jsonb->>'occurredAt') DESC,event_json::jsonb#>>'{payload,dispatchId}' DESC",
             limit + 1,
           ),
-          sessions = await client.query<{ event_json: string; session: RuntimeSession }>(
+          sessions = await client.query<{ event_json: string; session: string }>(
             `SELECT DISTINCT ON (d.event_json::jsonb#>>'{payload,runtimeSessionId}') d.event_json, p.value AS session
            FROM ha_events d JOIN ha_projection_values p ON p.tenant_id=d.tenant_id AND p.project_id=d.project_id AND p.policy_epoch=d.policy_epoch
              AND p.model='runtime-session' AND p.entity_id=d.event_json::jsonb#>>'{payload,runtimeSessionId}'
@@ -159,8 +159,9 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
         return {
           rows: raw.slice(0, limit).map(publicRuntimeDispatch),
           truncated: raw.length > limit,
-          sessions: sessions.rows.map(({ event_json, session }) => {
-            const event = JSON.parse(event_json) as Dispatch;
+          sessions: sessions.rows.map(({ event_json, session: serializedSession }) => {
+            const event = JSON.parse(event_json) as Dispatch,
+              session = JSON.parse(serializedSession) as RuntimeSession;
             return {
               runtimeSessionId: session.runtimeSessionId,
               taskIds: [...new Set(session.taskBindings.map(({ taskId }) => taskId))].sort(),

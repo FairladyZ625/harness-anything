@@ -16,6 +16,7 @@ import { withPostgresTransaction } from "../postgres/transaction.ts";
 import { readCutInTransaction, readEventRowsInTransaction } from "./pg-event-queries.ts";
 import { readRelationsInTransaction } from "./pg-relation-queries.ts";
 import { PG_PROJECTION_TABLES } from "./pg-projection-schema.ts";
+import { listPgProjectionValues } from "./pg-projection-values.ts";
 import type { PgTaskProjectionSourceOptions } from "./pg-task-source.ts";
 import type { AsyncQueries } from "./pg-runtime-dispatch-queries.ts";
 
@@ -93,12 +94,7 @@ export function pgAggregateQueries(options: PgTaskProjectionSourceOptions): PgAg
            AND (cardinality($4::text[])=0 OR readers && $4::text[]) AND task_id=ANY($5::text[]) ORDER BY task_id`,
             [...parameters, taskIds],
           ),
-          sessions = await client.query<{ task_id: string; value: RuntimeSession }>(
-            `SELECT binding->>'taskId' AS task_id, projection.value FROM ha_projection_values projection CROSS JOIN LATERAL jsonb_array_elements(projection.value->'taskBindings') AS binding
-           WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model='runtime-session' AND (cardinality($4::text[])=0 OR readers && $4::text[])
-           AND binding->>'taskId'=ANY($5::text[]) ORDER BY binding->>'taskId',entity_id,binding->>'boundAt',binding->>'executionId'`,
-            [...parameters, taskIds],
-          );
+          sessions = await listPgProjectionValues<RuntimeSession>(client, scope, "runtime-session");
         return {
           ...(await readCutInTransaction(client, scope, readers, repoId)),
           taskIds,
@@ -106,9 +102,9 @@ export function pgAggregateQueries(options: PgTaskProjectionSourceOptions): PgAg
             taskId: task_id,
             title,
             packagePath: package_path,
-            sessions: sessions.rows
-              .filter((row) => row.task_id === task_id)
-              .map(({ value }) => publicRuntimeSession(value)),
+            sessions: sessions
+              .filter((session) => session.taskBindings.some(({ taskId }) => taskId === task_id))
+              .map(publicRuntimeSession),
           })),
           page: {
             limit,

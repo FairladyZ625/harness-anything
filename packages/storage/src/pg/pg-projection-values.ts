@@ -1,7 +1,12 @@
 import type { PoolClient } from "pg";
+import { canonicalJson } from "../projection/rebuildable-task-projection-sql.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 
-/** Named read models share the projection lifecycle, transaction, scope and revision fence. */
+/**
+ * Named read models share the projection lifecycle, transaction, scope and revision fence.
+ * Serialized JSON is text: JSONB cannot represent the NUL characters legal in document bodies.
+ * Decode in this adapter, without passing the stored text through PostgreSQL JSON processing.
+ */
 export async function putPgProjectionValue(
   client: PoolClient,
   scope: PgProjectionScope,
@@ -14,7 +19,7 @@ export async function putPgProjectionValue(
   await client.query(
     `INSERT INTO ha_projection_values
     (tenant_id,project_id,policy_epoch,readers,model,entity_id,owner_id,workspace_revision,value)
-    VALUES ($1,$2,$3,$4::text[],$5,$6,$7,$8,$9::jsonb)
+    VALUES ($1,$2,$3,$4::text[],$5,$6,$7,$8,$9)
     ON CONFLICT (tenant_id,project_id,policy_epoch,model,owner_id,entity_id) DO UPDATE SET
       readers=excluded.readers, workspace_revision=excluded.workspace_revision, value=excluded.value
     WHERE ha_projection_values.workspace_revision <= excluded.workspace_revision`,
@@ -27,7 +32,7 @@ export async function putPgProjectionValue(
       id,
       owner,
       revision,
-      JSON.stringify(value),
+      canonicalJson(value),
     ],
   );
 }
@@ -49,7 +54,7 @@ export async function listPgProjectionValues<Value>(
   model: string,
   owner?: string,
 ): Promise<readonly Value[]> {
-  const result = await client.query<{ value: Value }>(
+  const result = await client.query<{ value: string }>(
     `SELECT value FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model=$4
      AND (cardinality($5::text[])=0 OR readers && $5::text[])${owner === undefined ? "" : " AND owner_id=$6"} ORDER BY entity_id,owner_id`,
     [
@@ -61,7 +66,7 @@ export async function listPgProjectionValues<Value>(
       ...(owner === undefined ? [] : [owner]),
     ],
   );
-  return result.rows.map(({ value }) => value);
+  return result.rows.map(({ value }) => JSON.parse(value) as Value);
 }
 export async function getPgProjectionValue<Value>(
   client: PoolClient,
@@ -70,10 +75,10 @@ export async function getPgProjectionValue<Value>(
   id: string,
   owner: string | null = "",
 ): Promise<Value | null> {
-  const result = await client.query<{ value: Value }>(
+  const result = await client.query<{ value: string }>(
     `SELECT value FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model=$4 AND entity_id=$5 AND ($6::text IS NULL OR owner_id=$6)
      AND (cardinality($7::text[])=0 OR readers && $7::text[]) ORDER BY owner_id DESC LIMIT 1`,
     [scope.tenantId, scope.projectId, scope.policyEpoch, model, id, owner, [...(scope.readers ?? [])]],
   );
-  return result.rows[0]?.value ?? null;
+  return result.rows[0] ? (JSON.parse(result.rows[0].value) as Value) : null;
 }
