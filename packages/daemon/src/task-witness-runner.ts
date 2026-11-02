@@ -14,6 +14,7 @@ import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { chainRepoCellWrite } from "./repo-cell.ts";
 import { centerWitnessAction } from "./task-witness-action.ts";
 import { witnessAdapters } from "./repo-cell-witness-adapters.ts";
+import { readTaskWitnessRequest, type TaskWitnessRequest } from "./task-witness-request.ts";
 
 /** Source execution owns no queue: claims and publication enter the RepoCell's existing writer. */
 export async function runCompletionSources(
@@ -21,12 +22,15 @@ export async function runCompletionSources(
   taskId: string,
   authority: Pick<RepoCellBinding, "withWriterEpochFence" | "writerEpochFence">,
   requestedRunId?: string,
+  request?: TaskWitnessRequest,
 ): Promise<readonly string[]> {
   const initial = context.projection.read(taskId).snapshot,
-    execution = initial.executions.find(
-      (value) =>
-        value.schema === "execution/v1" && value.iteration === initial.task?.iteration && value.submission !== null,
-    );
+    execution = request
+      ? readTaskWitnessRequest(context.extracted, request).execution
+      : initial.executions.find(
+          (value) =>
+            value.schema === "execution/v1" && value.iteration === initial.task?.iteration && value.submission !== null,
+        );
   if (
     !execution ||
     execution.schema !== "execution/v1" ||
@@ -38,6 +42,7 @@ export async function runCompletionSources(
   const warnings: string[] = [];
   for (const requirement of execution.submission.completionContract.gates) {
     if (
+      (request && requirement.gateId !== request.gateId) ||
       !gateAppliesToSubmission(requirement, execution.submission) ||
       isRetiredCiRequirement(requirement.gateId, requirement) ||
       requirement.witness.kind !== "command"

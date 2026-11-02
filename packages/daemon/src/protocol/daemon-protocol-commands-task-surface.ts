@@ -10,6 +10,17 @@ import {
 import { AGENDA_PIN_CRITERIA } from "./daemon-protocol-vocabulary.ts";
 
 export const taskSurfaceProtocolCommands = Object.freeze([
+  defineCenterForwardWriteCommand({
+    id: "task-witness-run",
+    phase: "W3",
+    path: ["task", "witness-run", "<task-id>"],
+    summary: "Request the center to execute one declared completion source; no caller-supplied result is accepted.",
+    method: "repo.task.witness.run",
+    inputs: [
+      cliInput("--execution-id", "single", true, { code: "missing_field" }),
+      cliInput("--gate", "single", true, { code: "missing_field" }, { field: "gateId" }),
+    ],
+  }),
   ...["claim", "settle", "revoke", "rerun"].map((operation) =>
     (operation === "revoke" || operation === "rerun" ? defineCenterForwardWriteCommand : defineLedgerWriteCommand)({
       id: `task-witness-${operation}`,

@@ -351,6 +351,7 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
       "witness-settle",
       "witness-revoke",
       "witness-rerun",
+      "witness-run",
       "create",
       "start",
       "transition",

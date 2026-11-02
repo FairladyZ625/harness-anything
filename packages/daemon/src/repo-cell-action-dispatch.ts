@@ -1,6 +1,7 @@
 import { runStorageMigrationAction } from "./storage-migration-action.ts";
 import { runTodoAction } from "./todo-action.ts";
 import { runTaskWitnessAction } from "./task-witness-action.ts";
+import { readTaskWitnessRequest } from "./task-witness-request.ts";
 import { runRuntimeHandoffAction } from "./runtime-handoff-store.ts";
 import { settleTask, submitTask } from "./repo-cell-submit.ts";
 import { doctorHealth } from "./repo-cell-doctor.ts";
@@ -301,6 +302,20 @@ export function executeRepoAction(
           if (catalogAction.kind === "task-progress-append") return cell.appendProgress(catalogAction, catalogBinding);
           if (catalogAction.kind === "task-annotate") return cell.annotateExecution(catalogAction, catalogBinding);
           if (catalogAction.kind === "task-attest") return attestGateWitness(cell, catalogAction, catalogBinding);
+          if (catalogAction.kind === "task-witness-run") {
+            const request = {
+                taskId: cell.requiredCellText(catalogAction.taskId, "taskId"),
+                executionId: cell.requiredCellText(catalogAction.executionId, "executionId"),
+                gateId: cell.requiredCellText(catalogAction.gateId, "gateId"),
+              },
+              read = readTaskWitnessRequest(cell, request);
+            return {
+              outcome: "no_changes",
+              opId: cell.operationId(catalogAction, catalogBinding, cell.input.repoId, read.snapshot.revision),
+              revision: read.snapshot.revision,
+              witness: read.result,
+            };
+          }
           if (catalogAction.kind === "task-declare-executor")
             return cell.declareExecutionExecutor(catalogAction, catalogBinding);
           if (contract.execution?.implementation === "catalog-runtime") {

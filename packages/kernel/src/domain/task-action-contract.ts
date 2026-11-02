@@ -364,6 +364,16 @@ export const declarations: readonly Declaration[] = Object.freeze([
       `Apply the ${operation} transition to an Execution gate run through its owning Task.`,
     ),
   ),
+  mutation(
+    "witness-run",
+    input([taskId, cli("executionId", "string", true, "--execution-id"), cli("gateId", "string", true, "--gate")]),
+    "gate_run_stale",
+    "The current submitted execution declares an applicable command completion source.",
+    "Request the center source host to run one frozen completion gate.",
+    "taskId",
+    "center-forward-write",
+    "via-center-forward",
+  ),
   lifecycle("create", {
     input: createInput,
     criteria: Object.freeze([
