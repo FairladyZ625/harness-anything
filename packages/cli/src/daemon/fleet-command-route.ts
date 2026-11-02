@@ -165,6 +165,8 @@ export async function fleetTaskRoute(
     fromFile,
     jsonInput,
     planFile,
+    bodyFile,
+    idsFile,
     ...action
   } = command.action as Record<string, unknown> & {
     executor?: unknown;
@@ -174,6 +176,8 @@ export async function fleetTaskRoute(
     fromFile?: unknown;
     jsonInput?: unknown;
     planFile?: unknown;
+    bodyFile?: unknown;
+    idsFile?: unknown;
   };
   // Migration/import/admin creation is intentionally
   // outside the remote-edge surface. Falling through produces the existing,
@@ -198,6 +202,13 @@ export async function fleetTaskRoute(
       );
     }
   }
+  // Source files belong to the addressed edge; only decoded authored values cross TLS.
+  if (typeof bodyFile === "string") action.body = readFileSync(path.resolve(command.rootDir, bodyFile), "utf8");
+  if (typeof idsFile === "string")
+    action.factIds = readFileSync(path.resolve(command.rootDir, idsFile), "utf8")
+      .split(/\r?\n/u)
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith("#"));
   const payload: Record<string, unknown> = {
     host: config.host,
     port: config.port,

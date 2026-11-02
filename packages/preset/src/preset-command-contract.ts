@@ -417,7 +417,7 @@ export const presetCommands = Object.freeze([
     positional: "presetId",
     inputs: [cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" })],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "preset-upgrade",
     phase: "Preset-A",
     path: ["preset", "upgrade", "<task-id>"],
@@ -474,7 +474,7 @@ export const presetCommands = Object.freeze([
     positional: "scriptId",
     inputs: [],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "script-run",
     phase: "Preset-A",
     path: ["script", "run", "<id>"],

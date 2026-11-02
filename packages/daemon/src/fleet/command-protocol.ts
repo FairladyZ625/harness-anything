@@ -421,6 +421,7 @@ const fieldName = (name: string) => name.slice(2).replace(/-([a-z])/gu, (_, lett
       const declaration = input as typeof input & {
         readonly field?: string;
         readonly projection?: string;
+        readonly codec?: string;
         readonly maxLength?: number;
         readonly wire?: EntityActionInputField["wire"];
       };
@@ -442,7 +443,7 @@ const fieldName = (name: string) => name.slice(2).replace(/-([a-z])/gu, (_, lett
               ? "number"
               : input.kind === "repeated"
                 ? "string-array"
-                : declaration.projection === "json-object"
+                : declaration.projection === "json-object" || declaration.codec === "json"
                   ? "json-object"
                   : "string",
         required: input.required,
@@ -457,16 +458,24 @@ const fieldName = (name: string) => name.slice(2).replace(/-([a-z])/gu, (_, lett
     for (const input of entity?.input.fields ?? []) add(input);
     if ("payloadFields" in command)
       for (const field of command.payloadFields as readonly EntityActionInputField[]) add(field);
+    const positional = "positional" in command && typeof command.positional === "string" ? command.positional : null;
+    if ("positionalFields" in command && Array.isArray(command.positionalFields))
+      for (const field of command.positionalFields) add({ field, type: "string", required: true });
+    else if (positional) add({ field: positional, type: "string", required: true });
     for (const token of command.syntaxPath ?? command.path) {
       const match = token.match(/^<([a-z][a-z0-9-]*)>$/u);
       if (match) {
-        const name = fieldName(`--${match[1]}`);
+        const name =
+          positional ?? (match[1] === "id" && entity ? `${entity.target.kind}Id` : fieldName(`--${match[1]}`));
         if (!fields.has(name)) add({ field: name, type: "string", required: true });
       }
     }
     if ("actionDefaults" in command && command.actionDefaults)
       for (const [field, value] of Object.entries(command.actionDefaults))
         if (typeof value === "string") add({ field, type: "string", required: false, enum: [value] });
+        else if (value === null) add({ field, type: "string", required: false, wire: { nullable: true } });
+        else if (record(value)) add({ field, type: "json-object", required: false });
+        else if (typeof value === "boolean") add({ field, type: "boolean", required: false });
     return [...fields.values()].filter((field) => !field.wire?.omit);
   };
 // Declaration-derived patterns are static, so each compiles once per module instance.

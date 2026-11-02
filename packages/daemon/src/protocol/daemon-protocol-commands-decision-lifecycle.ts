@@ -7,7 +7,6 @@ import {
   decisionProposalJsonFields,
   decisionProposalRequiredJsonFields,
   defineLedgerWriteCommand,
-  defineLocalArbiterCommand,
   workspacePathFormat,
 } from "@harness-anything/preset/internal/preset-command-contract";
 
@@ -113,6 +112,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
   }),
   defineCenterForwardWriteCommand({
     id: "decision-repin",
+    payloadFields: [{ field: "decisionId", type: "string", required: false }],
     phase: "DecisionFact-B",
     path: ["decision", "repin", "[id]"],
     summary: "Append current v1 content pins to one Decision or every Decision in a migration batch.",
@@ -134,6 +134,18 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
   }),
   defineCenterForwardWriteCommand({
     id: "decision-propose",
+    payloadFields: [
+      ...decisionProposalJsonFields.map((field) => ({
+        field,
+        type: ["chosen", "rejected", "claims", "fulfillments"].includes(field)
+          ? ("json-object-array" as const)
+          : field === "appliesTo"
+            ? ("json-object" as const)
+            : ("string" as const),
+        required: false,
+        wire: { maxLength: 32 * 1024 },
+      })),
+    ],
     phase: "DecisionFact-B",
     path: ["decision", "propose"],
     summary: "Propose an immutable Decision from one structured packet.",
@@ -179,6 +191,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         {
           requiresAny: ["--from-file", "--json-input"],
           conflictsWith: ["--body-file"],
+          maxLength: 32 * 1024,
         },
       ),
       cliInput(
@@ -192,12 +205,14 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
           requiresAny: ["--from-file", "--json-input"],
           format: workspacePathFormat,
           conflictsWith: ["--body"],
+          wire: { omit: true },
         },
       ),
     ],
   }),
   defineCenterForwardWriteCommand({
     id: "decision-transition",
+    payloadFields: [{ field: "targetState", type: "string", required: true, enum: ["superseded", "outcome_retired"] }],
     phase: "DecisionFact-B",
     path: ["decision", "transition", "<superseded|outcome_retired>", "<id>"],
     summary: "Bookkeeping transition of an in_effect Decision; adjudication uses decision accept/reject/defer.",
@@ -237,7 +252,12 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { requires: ["--rationale"], regex: "^[\\s\\S]{1,199}$" },
+        {
+          requires: ["--rationale"],
+          regex: "^[\\s\\S]{1,199}$",
+          field: "judgmentOnlyRationale",
+          wire: { nullable: true },
+        },
       ),
       cliInput("--review-id", "single", false, { code: "invalid_field" }),
       cliInput("--expected-digest", "single", false, { code: "invalid_field" }),
@@ -277,7 +297,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { regex: "^[\\s\\S]{1,199}$" },
+        { field: "reason", regex: "^[\\s\\S]{1,199}$" },
       ),
       cliInput(
         "--consent-by",
@@ -315,7 +335,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { regex: "^[\\s\\S]{1,199}$" },
+        { field: "reason", regex: "^[\\s\\S]{1,199}$" },
       ),
       cliInput(
         "--consent-by",
@@ -336,6 +356,15 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
   }),
   defineCenterForwardArbiterCommand({
     id: "decision-review",
+    payloadFields: [
+      { field: "reviewId", type: "string", required: true },
+      { field: "reviewContentDigest", type: "string", required: true },
+      { field: "verdict", type: "string", required: true },
+      { field: "reason", type: "string", required: true },
+      { field: "findings", type: "json-object-array", required: true },
+      { field: "evidenceChecked", type: "string-array", required: true },
+      { field: "reportRef", type: "string", required: true },
+    ],
     phase: "DecisionFact-B",
     path: ["decision", "review", "<id>"],
     summary:
@@ -350,6 +379,15 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         { code: "invalid_field" },
         {
           format: workspacePathFormat,
+          jsonAllowedFields: [
+            "reviewId",
+            "reviewContentDigest",
+            "verdict",
+            "reason",
+            "findings",
+            "evidenceChecked",
+            "reportRef",
+          ],
           jsonFields: [
             "reviewId",
             "reviewContentDigest",
@@ -372,8 +410,8 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
       "reviewContentDigest and runtime to wait for.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--agent", "single", false, { code: "invalid_field" }),
-      cliInput("--instance", "single", false, { code: "invalid_field" }),
+      cliInput("--agent", "single", false, { code: "invalid_field" }, { field: "agentId" }),
+      cliInput("--instance", "single", false, { code: "invalid_field" }, { field: "runtimeInstanceId" }),
       cliInput("--model", "single", false, { code: "invalid_field" }),
       cliInput("--effort", "single", false, { code: "invalid_runtime_effort" }),
       cliInput("--expected-digest", "single", false, { code: "invalid_field" }),
@@ -381,6 +419,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
   }),
   defineCenterForwardWriteCommand({
     id: "decision-respond-review",
+    payloadFields: [{ field: "responses", type: "json-object-array", required: true }],
     phase: "DecisionFact-B",
     path: ["decision", "respond-review", "<id>"],
     summary:
@@ -395,6 +434,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         { code: "invalid_field" },
         {
           format: workspacePathFormat,
+          jsonAllowedFields: ["responses"],
           jsonFields: ["responses"],
         },
       ),
@@ -402,6 +442,11 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
   }),
   defineCenterForwardArbiterCommand({
     id: "decision-override-review",
+    payloadFields: [
+      { field: "reviewContentDigest", type: "string", required: true },
+      { field: "reviewIds", type: "string-array", required: true },
+      { field: "reason", type: "string", required: true },
+    ],
     phase: "DecisionFact-B",
     path: ["decision", "override-review", "<id>"],
     summary:
@@ -416,6 +461,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         { code: "invalid_field" },
         {
           format: workspacePathFormat,
+          jsonAllowedFields: ["reviewContentDigest", "reviewIds", "reason"],
           jsonFields: ["reviewContentDigest", "reviewIds", "reason"],
         },
       ),
@@ -456,6 +502,20 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
   }),
   defineCenterForwardWriteCommand({
     id: "decision-amend",
+    payloadFields: [
+      { field: "fulfillments", type: "json-object-array", required: false },
+      {
+        field: "loadBearing",
+        type: "json-object",
+        required: false,
+        fields: [
+          { field: "claimId", type: "string", required: true },
+          { field: "value", type: "boolean", required: true },
+        ],
+      },
+      { field: "nonLoadBearing", type: "string", required: false, wire: { omit: true } },
+      { field: "body", type: "string", required: false, wire: { maxLength: 32 * 1024 } },
+    ],
     phase: "DecisionFact-B",
     path: ["decision", "amend", "<id>"],
     summary: "Replace or append declared Decision content with an audit reason; in_effect requires owner consent.",
@@ -475,7 +535,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { regex: "^C[A-Za-z0-9_-]+:(?:evidenced|delivered|standing_policy)$" },
+        { regex: "^C[A-Za-z0-9_-]+:(?:evidenced|delivered|standing_policy)$", wire: { omit: true } },
       ),
       cliInput("--load-bearing", "single", false, {
         code: "invalid_field",
@@ -483,12 +543,8 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
       cliInput("--non-load-bearing", "single", false, {
         code: "invalid_field",
       }),
-      cliInput("--set", "repeated", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--append", "repeated", false, {
-        code: "invalid_field",
-      }),
+      cliInput("--set", "repeated", false, { code: "invalid_field" }, { field: "sets" }),
+      cliInput("--append", "repeated", false, { code: "invalid_field" }, { field: "appends" }),
       cliInput("--body", "single", false, {
         code: "invalid_field",
       }),
@@ -499,7 +555,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { format: workspacePathFormat },
+        { format: workspacePathFormat, wire: { omit: true } },
       ),
       cliInput(
         "--consent-by",

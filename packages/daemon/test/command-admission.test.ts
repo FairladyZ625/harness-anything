@@ -72,6 +72,78 @@ test("fleet forwarded writes use their declared entity identity", () => {
   }
 });
 
+test("authored fleet payloads retain domain fields without accepting source paths or actor claims", () => {
+  const actions = [
+    { kind: "fact-reclassify", factId: "F-0000EDGE", domainTypes: ["closeout"], rationale: "Verified classification." },
+    { kind: "fact-archive", factId: "F-0000EDGE", reason: "Archive." },
+    { kind: "fact-archive", factIds: ["F-0000EDGE"], reason: "Batch archive." },
+    { kind: "fact-unarchive", factId: "F-0000EDGE", reason: "Restore." },
+    {
+      kind: "decision-propose",
+      title: "Edge proposal",
+      question: "Single writer?",
+      riskTier: "low",
+      urgency: "medium",
+      decisionClass: "ordinary",
+      chosen: [{ id: "CH1", text: "Center" }],
+      rejected: [],
+      claims: [],
+      body: "Authored prose",
+    },
+    { kind: "decision-accept", decisionId: "dec_edge", rationale: "Approved.", judgmentOnlyRationale: null },
+    { kind: "decision-reject", decisionId: "dec_edge", reason: "Reject the proposal." },
+    { kind: "decision-defer", decisionId: "dec_edge", reason: "Defer the proposal." },
+    {
+      kind: "decision-amend",
+      decisionId: "dec_edge",
+      reason: "Clarify.",
+      sets: [],
+      appends: [],
+      fulfillments: [],
+      standingPolicy: false,
+    },
+    { kind: "decision-claim-add", decisionId: "dec_edge", claimId: "C1", text: "One writer.", loadBearing: false },
+    { kind: "decision-claim-fulfill", decisionId: "dec_edge", claimId: "C1", mode: "evidenced" },
+    {
+      kind: "decision-review",
+      decisionId: "dec_edge",
+      reviewId: "review-edge",
+      reviewContentDigest: `sha256:${"a".repeat(64)}`,
+      verdict: "approved",
+      reason: "Independently checked.",
+      findings: [],
+      evidenceChecked: [],
+      reportRef: "decisions/decision-dec_edge/artifacts/reports/edge.md",
+    },
+    {
+      kind: "decision-respond-review",
+      decisionId: "dec_edge",
+      responses: [
+        {
+          reviewId: "review-edge",
+          findingId: "G1",
+          disposition: "adopt",
+          rationale: "Corrected.",
+          amendmentRef: "decision-amend:clarify",
+        },
+      ],
+    },
+    {
+      kind: "decision-override-review",
+      decisionId: "dec_edge",
+      reviewContentDigest: `sha256:${"a".repeat(64)}`,
+      reviewIds: ["review-edge"],
+      reason: "Owner approved the tradeoff.",
+    },
+  ];
+  for (const action of actions) {
+    assert.equal(isFleetTaskAction(action), true, action.kind);
+    assert.equal(isFleetTaskAction({ ...action, actor: { principal: { personId: "spoofed" } } }), false, action.kind);
+    assert.equal(isFleetTaskAction({ ...action, fromFile: "/center/private.json" }), false, action.kind);
+    assert.equal(isFleetTaskAction({ ...action, bodyFile: "/center/private.md" }), false, action.kind);
+  }
+});
+
 test("forwarded command positional tokens name their canonical payload field", () => {
   for (const command of daemonProtocolCommands) {
     if (command.admission["remote-edge"] !== "via-center-forward" || !("positional" in command)) continue;

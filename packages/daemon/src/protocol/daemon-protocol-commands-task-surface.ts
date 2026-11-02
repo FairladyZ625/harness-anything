@@ -134,9 +134,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       "fail of an allowOverride gate with --mode override --rationale. Runtime executors cannot attest.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--gate", "single", true, {
-        code: "missing_field",
-      }),
+      cliInput("--gate", "single", true, { code: "missing_field" }, { field: "gateId" }),
       cliInput(
         "--result",
         "single",
