@@ -107,7 +107,7 @@ for (const owner of ["node-a", "node-b", null]) {
           owner === null
             ? null
             : {
-                payload: { dispatchId: "late-dispatch" },
+                payload: { dispatchId: "dispatch_1234567890abcdef12345678" },
                 source: { kind: "node", nodeId: owner },
               },
         publish: async () => {

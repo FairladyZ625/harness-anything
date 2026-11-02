@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createServer } from "node:http";
@@ -286,6 +286,7 @@ for (const exitCode of [0, 1]) {
         refreshes = 0;
       try {
         initRepo(rootDir);
+        mkdirSync(path.join(root, "worker"));
         supervisor = await openWriterSupervisor({
           repoId,
           rootDir,
@@ -362,12 +363,18 @@ for (const exitCode of [0, 1]) {
         const spawn = (dispatchKey: string) =>
           supervisor!.request<{ runtimeSessionId: string; dispatchId: string }>(
             "spawnRuntime",
-            { runtimeInstanceId: definition.instanceId, cwd: { scope: "repo-root" }, prompt: "work", dispatchKey },
+            {
+              runtimeInstanceId: definition.instanceId,
+              cwd: { scope: "repo-relative", path: "worker" },
+              prompt: "work",
+              dispatchKey,
+            },
             binding,
           );
         const first = await spawn("finished"),
           live = await spawn("still-live");
-        assert.equal(supervisor.status().queueDepth, 0, "both initiating RPCs have returned");
+        assert.notEqual(first.runtimeSessionId, live.runtimeSessionId, "both spawn RPCs returned distinct sessions");
+        assert.equal(callbacks.size, 2, "both workers registered before the exit signal");
         const atReceipt = refreshes,
           completed = callbacks.get(first.dispatchId)!;
         assert.deepEqual(readDispatchStreamHeader(rootDir, first.dispatchId)?.binding?.source, binding.source);

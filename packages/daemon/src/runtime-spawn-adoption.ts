@@ -390,6 +390,7 @@ function attachAdoptedObservations(context: RuntimeSpawnerContext, active: Activ
     context.processes.delete(active.runtimeSessionId);
     active.process.terminate();
     active.process.release?.();
+    active.releaseAuthorization?.();
     return error;
   }
 }
