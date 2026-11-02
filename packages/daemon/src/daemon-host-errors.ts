@@ -56,11 +56,8 @@ export function code(error: unknown): string {
     case "TaskNotFoundError":
     case "InvalidWritePlanError":
     case "ProtocolVersionMismatchError":
-      return normalized.code;
     case "OtherCodedError":
-      // Keycloak transport failures are the coded `daemon_error` sentinel; at this boundary they
-      // are a retryable identity outage, while a truly unclassified error stays daemon_error.
-      return normalized.code === "daemon_error" ? "keycloak_unavailable" : normalized.code;
+      return normalized.code;
     case "UnclassifiedError":
       return "daemon_error";
   }

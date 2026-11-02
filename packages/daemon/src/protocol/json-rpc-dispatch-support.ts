@@ -142,14 +142,9 @@ export function rpcError(id: JsonRpcId, errorCode: number, message: string): Jso
   return { jsonrpc: "2.0", id, error: { code: errorCode, message } };
 }
 export function rpcServerErrorCode(error: unknown): string {
-  const code =
-    typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
-      ? error.code
-      : "bootstrap_failed";
-  // `daemon_error` is the Keycloak adapters' transport sentinel (userinfo, policy/evaluate and
-  // center-token acquisition all use it). At the wire boundary it is the retryable identity outage
-  // the CLI already knows how to wait out, not an unclassified daemon failure.
-  return code === "daemon_error" ? "keycloak_unavailable" : code;
+  return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+    ? error.code
+    : "bootstrap_failed";
 }
 
 type ProtocolDispatchError =

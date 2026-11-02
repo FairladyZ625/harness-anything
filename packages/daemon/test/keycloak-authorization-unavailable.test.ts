@@ -2,6 +2,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
+import { code as hostErrorCode } from "../src/daemon-host-errors.ts";
+import { rpcServerErrorCode } from "../src/protocol/json-rpc-dispatch-support.ts";
 import { evaluateKeycloakPerson } from "../src/repo-cell-authorization.ts";
 
 const url = "http://127.0.0.1:1";
@@ -47,4 +49,14 @@ test("a Keycloak transport failure keeps the real cause but is not a generic dae
       return true;
     },
   );
+});
+
+test("a Keycloak Admin write transport failure keeps its non-retryable daemon_error code", () => {
+  const error = Object.assign(new Error("Keycloak Admin REST /groups could not be reached."), {
+    code: "daemon_error",
+  });
+  // Admin REST writes are not authorization reads: a lost response may mean Keycloak already applied
+  // the change. Only the authorization-stage wrapper may turn this sentinel into a retryable code.
+  assert.equal(rpcServerErrorCode(error), "daemon_error");
+  assert.equal(hostErrorCode(error), "daemon_error");
 });

@@ -27,26 +27,28 @@ export async function withAutostart(
   // never observe a change.
   const { readDaemonPid } = await import("@harness-anything/daemon/internal/daemon-singleton"),
     outgoingPid = options.userRoot && options.daemonId ? readDaemonPid(options.userRoot, options.daemonId) : null;
+  // Every request on every recovery branch passes through this one state machine. A successor may
+  // bind its socket before its Keycloak identity authority is ready; that refusal proves nothing was
+  // applied, so resend it once. The previous version only wrapped the first request, which let the
+  // same refusal escape after a daemon_stopping handoff or an autostart reconnect.
+  const requestWithIdentityRecovery = async (): Promise<{ result: JsonObject; identityRetries: number }> => {
+    const first = await request();
+    if (options.commandCategory === "daemon-lifecycle" || !isRetryableIdentityRefusal(first))
+      return { result: first, identityRetries: 0 };
+    await delay(250);
+    return { result: await request(), identityRetries: 1 };
+  };
   try {
-    let result = await request();
-    // The successor binds its socket before its Keycloak identity authority is ready. In that window
-    // authorization is refused before any write; the first attempt has already waited out the
-    // authority's own connect deadline, so resend the same pre-apply request once here — the single
-    // reconnect/retry path — instead of leaving every caller to grow its own retry loop.
-    if (isRetryableIdentityRefusal(result) && options.commandCategory !== "daemon-lifecycle") {
-      await delay(250);
-      result = await request();
-      if (isKeycloakUnavailable(result)) return result;
-      if (!isDaemonStopping(result))
-        result = { ...result, daemonRestart: { waitedMs: Date.now() - startedAt, retries: 1 } };
-    }
+    const attempt = await requestWithIdentityRecovery();
+    let result = attempt.result,
+      identityRetries = attempt.identityRetries;
     if (
       !isDaemonStopping(result) ||
       options.commandCategory === "daemon-lifecycle" ||
       !options.userRoot ||
       !options.daemonId
     )
-      return result;
+      return withIdentityRetryMetadata(result, identityRetries, startedAt);
     const { DaemonAutostartError, ensureLocalDaemonRunning, waitForDaemonGenerationChange } = await import(
         "@harness-anything/daemon/internal/client/daemon-autostart"
       ),
@@ -86,9 +88,12 @@ export async function withAutostart(
       }
     }
     try {
-      const retried = await request();
-      if (isDaemonStopping(retried)) return daemonRestartingReceipt(Date.now() - startedAt, 1);
-      return { ...retried, daemonRestart: { waitedMs: Date.now() - startedAt, retries: 1 } };
+      const successor = await requestWithIdentityRecovery();
+      result = successor.result;
+      identityRetries += successor.identityRetries;
+      if (isDaemonStopping(result))
+        return daemonRestartingReceipt(Date.now() - startedAt, 1 + successor.identityRetries);
+      return withIdentityRetryMetadata(result, 1 + identityRetries, startedAt);
     } catch (error) {
       const { isDaemonUnreachable } = await import("@harness-anything/daemon/internal/client/daemon-autostart");
       if (options.autostart && isDaemonUnreachable(error)) return daemonRestartingReceipt(Date.now() - startedAt, 1);
@@ -124,8 +129,15 @@ export async function withAutostart(
       onProgress: (progress) => process.stderr.write(`${progress.message}\n`),
     });
     if (!started.ok) throw new DaemonAutostartError(started);
-    return await request();
+    const recovered = await requestWithIdentityRecovery();
+    return withIdentityRetryMetadata(recovered.result, recovered.identityRetries, startedAt);
   }
+}
+
+/** Report a successful identity retry the same way a successful daemon restart is reported. */
+function withIdentityRetryMetadata(result: JsonObject, retries: number, startedAt: number): JsonObject {
+  if (retries === 0 || isKeycloakUnavailable(result) || isDaemonStopping(result)) return result;
+  return { ...result, daemonRestart: { waitedMs: Date.now() - startedAt, retries } };
 }
 
 function isDaemonStopping(result: JsonObject): boolean {
