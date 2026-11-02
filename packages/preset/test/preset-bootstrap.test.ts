@@ -578,7 +578,7 @@ test("an authored plan rides the bootstrap write while readiness keeps deriving 
     // carries no readiness contract because submit never compares it to a scaffold. The plan keeps one.
     assert.deepEqual(
       [...closeout.body.matchAll(/^## .+$/gmu)].map((match) => match[0]),
-      ["## Summary", "## Verification", "## Residual Risk", "## Same Mechanism Elsewhere"],
+      ["## Summary", "## What Changed", "## Verification", "## Residual Risk", "## Same Mechanism Elsewhere"],
     );
     const contract = JSON.parse(
         compiled.documents.find((document) => document.relativePath === "task-contract.json")!.body,
