@@ -141,6 +141,10 @@ export async function fleetTaskRoute(
 ): Promise<Record<string, unknown> | null> {
   const actionKind = command.action.kind;
   if (!hasCommandDescriptor(actionKind)) return null;
+  // Document conflict exits have a dedicated route carrying the conflict action
+  // and id. Keep them out of the generic task payload so the center receives
+  // the conflict protocol frame rather than a repo.task.run action.
+  if (actionKind.startsWith("doc-conflict-")) return null;
   const descriptor = commandDescriptorForAction(actionKind);
   if (
     !("path" in descriptor) ||
