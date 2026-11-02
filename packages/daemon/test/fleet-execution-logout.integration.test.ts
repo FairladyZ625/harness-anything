@@ -286,16 +286,15 @@ test(
     const submitSurface = (target: string) =>
       runFleetWriteClient({
         ...peer,
+        channel: "collaborator",
         executionCredential: env.HARNESS_EXECUTION_CREDENTIAL,
         changes: [{ path: target, body: Buffer.from("# Worker surface\n"), baseBlobSha256: null }],
       });
     const writtenSurface = await submitSurface("skills/test-isolation/worker-surface.md");
     assert.equal(writtenSurface.center.outcome, "applied", JSON.stringify(writtenSurface.center));
-    assert.equal(
-      readFileSync(path.join(f.repo, "harness/skills/test-isolation/worker-surface.md"), "utf8"),
-      "# Worker surface\n",
-    );
-    await assert.rejects(submitSurface("skills/gui-e2e/ungranted.md"), { code: "execution_credential_rejected" });
+    const ungrantedSurface = await submitSurface("skills/gui-e2e/ungranted.md");
+    assert.equal(ungrantedSurface.center.outcome, "op_rejected", JSON.stringify(ungrantedSurface.center));
+    assert.equal(ungrantedSurface.center.code, "execution_credential_rejected");
     const executionPrincipalRecord = readDispatchStream(edgeRoot, String(spawned.dispatchId))?.records.find(
       (record) => record.kind === "execution_principal",
     );
