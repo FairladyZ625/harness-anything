@@ -11,7 +11,7 @@ import { attributeEntityActionCriterion } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { connectSocket, JsonRpcLineClient } from "../src/client/local-json-rpc-client.ts";
-import { fatalCellError } from "../src/repo-cell-errors.ts";
+import { DecisionReviewContentConflictError, fatalCellError } from "../src/repo-cell-errors.ts";
 import { ArtifactEntityServiceError } from "@harness-anything/application/internal/artifact-entity-service";
 import {
   SettingsActionError,
@@ -305,6 +305,14 @@ test("real SQLite writer divergence remains fatal while rejected entity CAS is r
     assert.equal(fatalCellError(new SettingsActionError("revision_conflict", "stale settings revision")), false);
     assert.equal(fatalCellError(new SettingsActionError("invalid_command", "invalid settings input")), false);
     assert.equal(fatalCellError(new SettingsProjectionError("canonical settings projection is unavailable")), true);
+    const contentConflict = new DecisionReviewContentConflictError("old-digest", "current-digest");
+    assert.equal(contentConflict.code, "version_conflict");
+    assert.equal(fatalCellError(contentConflict), false);
+    assert.equal(
+      fatalCellError(Object.assign(new Error(contentConflict.message), { code: "version_conflict" })),
+      true,
+      "the code and message alone do not supply the content conflict's domain type",
+    );
     for (const actionId of ["install", "delete"]) {
       for (const kind of ["agent", "squad"]) {
         const conflict = attributeEntityActionCriterion(

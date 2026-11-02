@@ -132,6 +132,10 @@ test(
       rpc("repo.decision.propose", proposal("Edge decision")),
     );
     const decisionId = String(evidence(proposed).decisionId);
+    const original = evidence(
+      await f.host.run("lease-repo", { kind: "decision-show", decisionId }, localAuthFixture()),
+    );
+    const originalDigest = String((original.decision as Record<string, unknown>).currentReviewContentDigest);
     for (const action of [
       {
         kind: "decision-amend",
@@ -163,10 +167,20 @@ test(
     assert.equal((await rpc("repo.decision.dispatchReview", dispatchPayload)).code, "authorization_denied");
     assert.equal(f.eventCount(), beforeDispatch);
     f.owners.keycloak.permit("person-one", "lease-repo", ["decision-dispatch-review"]);
+    assert.notEqual(originalDigest, reviewContentDigest, "the amendment invalidates the original content cut");
+    const stale = await rpc("repo.decision.dispatchReview", { decisionId, expectedDigest: originalDigest });
+    assert.equal(stale.outcome, "op_rejected", JSON.stringify(stale));
+    assert.equal(stale.code, "version_conflict", JSON.stringify(stale));
+    assert.equal(f.eventCount(), beforeDispatch, "stale content must not record a dispatch");
+    // Keep this center Cell and edge connection: a business refusal must leave its writer usable.
+    const afterStale = await rpc("repo.decision.propose", proposal("Valid write after stale digest"));
+    assert.equal(afterStale.outcome, "applied", JSON.stringify(afterStale));
+    assert.ok(f.eventCount() > beforeDispatch, "the same center writer must accept the next valid write");
+    const beforeCurrentDispatch = f.eventCount();
     const dispatch = await rpc("repo.decision.dispatchReview", dispatchPayload);
     assert.equal(dispatch.code, "runtime_instance_not_allowed", JSON.stringify(dispatch));
     assert.match(String(dispatch.rejectionExplanation), /No runtime instance is allowed/u);
-    assert.equal(f.eventCount(), beforeDispatch, "the center requires an allowed runtime before dispatch");
+    assert.equal(f.eventCount(), beforeCurrentDispatch, "the center requires an allowed runtime before dispatch");
     for (const operation of ["reject", "defer"]) {
       const other = await rpc("repo.decision.propose", proposal(`Edge GUI ${operation}`));
       assert.equal(other.outcome, "applied", JSON.stringify(other));

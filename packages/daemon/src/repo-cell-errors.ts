@@ -17,6 +17,14 @@ import { scrubSecretText } from "./secret-scrub.ts";
 
 export type CellActionCriterionFailure = EntityActionCriterionFailure;
 
+export class DecisionReviewContentConflictError extends Error {
+  readonly code = "version_conflict";
+
+  constructor(expectedDigest: string, currentDigest: string) {
+    super(`Decision review content changed: expected=${expectedDigest} current=${currentDigest}.`);
+  }
+}
+
 export function cellCodedError(code: string, text: string, diagnostic?: ReceiptDiagnostic): Error {
   const error = new Error(text) as Error & { code: string; diagnostic?: ReceiptDiagnostic };
   error.code = code;
@@ -123,6 +131,8 @@ export function publishGeneratedArtifact(input: {
 }
 
 export function fatalCellError(error: unknown): boolean {
+  // A stale review content cut rejects only this command, not the repository writer.
+  if (error instanceof DecisionReviewContentConflictError) return false;
   if (error instanceof SettingsProjectionError) return true;
   // Settings compiler judgments are expected command outcomes. Store revision/writer divergence
   // still latches below; the source type keeps both uses of revision_conflict distinct.
