@@ -1,14 +1,11 @@
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
-import { localGitObjectRefStore, localGitText } from "@harness-anything/storage";
+import { localGitObjectRefStore } from "@harness-anything/storage";
 import { runProcessText } from "./process-port.ts";
 
 export const EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
 export type DeliveryContainment = "contained" | "missing" | "unavailable";
 
-/** Prove that the frozen patch, replayed onto the rebased base, produces the annotated head tree. */
+/** Prove that the frozen patch, replayed in Git's object database, produces the annotated head tree. */
 export function rebaseEquivalentDelivery(
   rootDir: string,
   frozenBase: string,
@@ -28,41 +25,16 @@ export function rebaseEquivalentDelivery(
     !localGitObjectRefStore.isAncestor(rootDir, rebasedBase, rebasedHead)
   )
     return false;
-  const temporaryRoot = mkdtempSync(path.join(tmpdir(), "ha-rebase-equivalence-")),
-    patchPath = path.join(temporaryRoot, "frozen.patch"),
-    indexPath = path.join(temporaryRoot, "index");
   try {
-    // Git writes the binary patch directly, without a stdout cap or text normalization.
-    localGitText(
-      rootDir,
-      "diff",
-      "--no-ext-diff",
-      "--no-renames",
-      "--binary",
-      `--output=${patchPath}`,
-      frozenBase,
-      frozenCommit,
-      "--",
-    );
-    // The index is disposable, but GIT_INDEX_FILE is process-scoped. These synchronous calls
-    // run without an event-loop yield, so no other operation can observe the temporary index.
-    const previousIndex = process.env.GIT_INDEX_FILE;
-    process.env.GIT_INDEX_FILE = indexPath;
-    let replayedTree: string;
-    try {
-      localGitText(rootDir, "read-tree", rebasedBase);
-      localGitText(rootDir, "apply", "--cached", "--3way", patchPath);
-      replayedTree = localGitText(rootDir, "write-tree").trim();
-    } finally {
-      if (previousIndex === undefined) delete process.env.GIT_INDEX_FILE;
-      else process.env.GIT_INDEX_FILE = previousIndex;
-    }
-    const headTree = runProcessText("git", ["rev-parse", `${rebasedHead}^{tree}`], rootDir).trim();
+    const replayedTree = runProcessText(
+        "git",
+        ["merge-tree", "--write-tree", "--merge-base", frozenBase, rebasedBase, frozenCommit],
+        rootDir,
+      ).trim(),
+      headTree = runProcessText("git", ["rev-parse", `${rebasedHead}^{tree}`], rootDir).trim();
     return replayedTree === headTree;
   } catch {
     return false;
-  } finally {
-    rmSync(temporaryRoot, { recursive: true, force: true });
   }
 }
 

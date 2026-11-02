@@ -1,8 +1,5 @@
 #!/usr/bin/env node
-import { mkdtempSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import process from "node:process";
 import {
   approvedReviewHistoryForExecution,
@@ -232,28 +229,19 @@ function currentTaskCuts(taskId, evidence) {
   }
 }
 
-// Replay the exact frozen patch onto the new base and compare the complete head tree.
-// Git writes the patch directly so output helpers cannot alter its size or trailing content.
+// Replay the exact frozen patch in Git's object database and compare the complete head tree.
+// merge-tree avoids lossy patch transport and does not mutate the worktree or index.
 function replayEquivalentPatch(root, frozenBase, frozenCommit, rebasedBase, rebasedHead) {
-  const temporaryRoot = mkdtempSync(path.join(tmpdir(), "pr-merge-rebase-equivalence-")),
-    patchPath = path.join(temporaryRoot, "frozen.patch"),
-    indexPath = path.join(temporaryRoot, "index"),
-    env = { GIT_INDEX_FILE: indexPath };
   try {
-    run(
-      "git",
-      ["diff", "--no-ext-diff", "--no-renames", "--binary", `--output=${patchPath}`, frozenBase, frozenCommit, "--"],
-      { cwd: root },
-    );
-    run("git", ["-C", root, "read-tree", rebasedBase], { env });
-    run("git", ["-C", root, "apply", "--cached", "--3way", patchPath], { env });
-    const replayedTree = run("git", ["-C", root, "write-tree"], { env }).stdout.trim(),
+    const replayedTree = output(
+        "git",
+        ["merge-tree", "--write-tree", "--merge-base", frozenBase, rebasedBase, frozenCommit],
+        { cwd: root },
+      ),
       headTree = output("git", ["rev-parse", `${rebasedHead}^{tree}`], { cwd: root });
     return replayedTree === headTree;
   } catch {
     return false;
-  } finally {
-    rmSync(temporaryRoot, { recursive: true, force: true });
   }
 }
 
