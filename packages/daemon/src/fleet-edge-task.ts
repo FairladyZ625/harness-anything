@@ -20,6 +20,7 @@ import { reviewReportRelativePath } from "./reviewer-artifact-publication.ts";
 import { readFileSync, statSync } from "node:fs";
 import { isUtf8 } from "node:buffer";
 import path from "node:path";
+import { tmpdir } from "node:os";
 import {
   consumeKnownError,
   RAW_ARTIFACT_MAX_BYTES,
@@ -47,6 +48,12 @@ import {
 export { fleetEdgeBackoffMs } from "./fleet-edge-write.ts";
 import type { FleetDescriptor } from "./fleet/command-protocol.ts";
 import type { FleetTaskAction } from "./fleet/command-protocol.ts";
+import { createResourceBudget, DOC_SHOW_BUDGET_LIMITS } from "./fleet/resource-budget.ts";
+import {
+  openFleetDocContentSink,
+  readFleetDocContentMetadata,
+  type FleetDocContentMetadata,
+} from "./fleet-edge-content.ts";
 import {
   applyFleetMirrorCut,
   cacheFleetMirrorDirtyBases,
@@ -173,6 +180,140 @@ export async function forwardRegisteredFleetAction(input: {
 }
 
 type EdgeWriteCut = { readonly revision: number; readonly headDigest: string };
+const DOC_SHOW_RANGE_BYTES = 48 * 1024;
+const DOC_SHOW_MEMORY_BYTES = 64 * 1024;
+const edgeDocShowBudget = createResourceBudget(DOC_SHOW_BUDGET_LIMITS);
+
+export async function runFleetDocShowRange(options: {
+  readonly peer: Parameters<typeof runFleetTaskCommandClient>[0];
+  readonly action: FleetTaskAction;
+  readonly opId: string;
+  readonly workspaceRoot: string | null;
+  readonly nodeId: string;
+  readonly repoId: string;
+  readonly request?: (
+    input: Parameters<typeof runFleetTaskCommandClient>[0],
+  ) => ReturnType<typeof runFleetTaskCommandClient>;
+}): Promise<Awaited<ReturnType<typeof runFleetTaskCommandClient>>> {
+  const transferRoot = options.workspaceRoot
+      ? path.join(resolveHarnessLayout(options.workspaceRoot).localRoot, "fleet-transfers")
+      : path.join(tmpdir(), "harness-fleet-transfers"),
+    transferKey = `doc-${options.opId}`;
+  let metadata = readFleetDocContentMetadata(transferRoot, transferKey),
+    sinkHandle = metadata
+      ? openFleetDocContentSink({
+          rootDir: transferRoot,
+          key: transferKey,
+          metadata,
+          nodeId: options.nodeId,
+          repoId: options.repoId,
+          opId: options.opId,
+        })
+      : null,
+    reservation: ReturnType<typeof edgeDocShowBudget.reserve> | null = null;
+  if (sinkHandle && (await sinkHandle.sink.status(new AbortController().signal)).sealed) {
+    // A prior process may have sealed before publishing its command result. The receipt is
+    // not durable in this local transfer record, so restart the read rather than appending
+    // at a sealed offset or manufacturing a receipt with missing operation metadata.
+    sinkHandle.cleanup();
+    metadata = null;
+    sinkHandle = null;
+  }
+  const request = options.request ?? runFleetTaskCommandClient;
+  try {
+    for (;;) {
+      const offset = sinkHandle ? (await sinkHandle.sink.status(new AbortController().signal)).durableOffset : 0,
+        result = await request({
+          ...options.peer,
+          opId: `${options.opId}-range-${offset}`,
+          action: {
+            ...options.action,
+            offset,
+            length: DOC_SHOW_RANGE_BYTES,
+            ...(metadata ? { contentSha256: metadata.sha256, contentRevision: metadata.workspaceRevision } : {}),
+          },
+        });
+      if (result.outcome !== "applied") return result;
+      const receipt = result.receipt as Readonly<Record<string, unknown>> | null,
+        encoding = receipt?.evidenceContentEncoding;
+      if (
+        receipt?.evidenceEncoding !== "base64" ||
+        typeof receipt.evidence !== "string" ||
+        !Number.isSafeInteger(receipt.evidenceOffset) ||
+        receipt.evidenceOffset !== offset ||
+        typeof receipt.evidenceSize !== "number" ||
+        !Number.isSafeInteger(receipt.evidenceSize) ||
+        receipt.evidenceSize < 0 ||
+        !Number.isSafeInteger(receipt.evidenceWorkspaceRevision) ||
+        typeof receipt.evidenceBlobSha256 !== "string" ||
+        (encoding !== "utf8" && encoding !== "base64") ||
+        typeof receipt.evidenceDone !== "boolean"
+      )
+        throw new Error("Fleet doc-show range response is malformed");
+      const nextMetadata: FleetDocContentMetadata = {
+        path: String(options.action.path),
+        sha256: String(receipt.evidenceBlobSha256),
+        size: Number(receipt.evidenceSize),
+        workspaceRevision: Number(receipt.evidenceWorkspaceRevision),
+        encoding,
+      };
+      if (metadata && JSON.stringify(metadata) !== JSON.stringify(nextMetadata))
+        throw new Error("Fleet doc-show range content identity changed during read");
+      metadata ??= nextMetadata;
+      sinkHandle ??= openFleetDocContentSink({
+        rootDir: transferRoot,
+        key: transferKey,
+        metadata,
+        nodeId: options.nodeId,
+        repoId: options.repoId,
+        opId: options.opId,
+      });
+      reservation ??= edgeDocShowBudget.reserve(
+        { nodeId: options.nodeId, repoId: options.repoId, sessionId: options.opId },
+        // The durable sink owns the object on disk. Only the current wire chunk is
+        // resident, so a large document must not consume the whole object budget.
+        { bulkTransfers: 1, memoryBytes: DOC_SHOW_MEMORY_BYTES },
+      );
+      const chunk = Buffer.from(String(receipt.evidence), "base64");
+      await sinkHandle.sink.write(offset, chunk, new AbortController().signal);
+      await sinkHandle.sink.flush(new AbortController().signal);
+      if (!receipt.evidenceDone) {
+        const durable = (await sinkHandle.sink.status(new AbortController().signal)).durableOffset;
+        if (chunk.byteLength === 0 || durable <= offset || durable >= metadata.size)
+          throw new Error("Fleet doc-show range did not advance");
+        continue;
+      }
+      await sinkHandle.sink.seal(new AbortController().signal);
+      const cleanReceipt = {
+        ...(result.receipt ?? {}),
+        evidenceFile: sinkHandle.sealedPath,
+        evidenceSize: metadata.size,
+        evidenceContentEncoding: metadata.encoding,
+      } as Record<string, unknown>;
+      for (const field of [
+        "evidence",
+        "evidenceEncoding",
+        "evidenceOffset",
+        "evidenceSize",
+        "evidenceDone",
+        "evidenceBlobSha256",
+        "evidenceSourceRevision",
+        "evidenceWorkspaceRevision",
+        "evidenceContentEncoding",
+      ])
+        delete cleanReceipt[field];
+      cleanReceipt.evidenceFile = sinkHandle.sealedPath;
+      cleanReceipt.evidenceSize = metadata.size;
+      cleanReceipt.evidenceContentEncoding = metadata.encoding;
+      return { ...result, receipt: cleanReceipt };
+    }
+  } finally {
+    reservation?.release();
+    // Keep both partial and sealed files durable across a dropped RPC. A later
+    // call resumes the partial prefix or reclaims a sealed handoff after the CLI
+    // has consumed its descriptor.
+  }
+}
 const recentAppliedCuts = new Map<string, EdgeWriteCut>();
 
 function edgeReadStateKey(viewRoot: string, repoId: string, nodeId: string): string {
@@ -459,18 +600,26 @@ export async function runFleetEdgeTask(
         readOnly,
         write: async () => {
           const remaining = Math.max(1, deadline - Date.now());
-          return runFleetTaskCommandClient({
+          const commandPeer = {
             ...peer,
-            opId,
             repoId: payload.repoId,
             taskId,
-            action,
             ...(artifact ? { artifact } : {}),
             waitMs,
             timeoutMs: remaining + 10_000,
             docChanges: bundle === null ? undefined : bundle.docChanges,
             mirrorBaseCut: bundle === null ? undefined : bundle.mirrorBaseCut,
-          });
+          } as Parameters<typeof runFleetTaskCommandClient>[0];
+          return action.kind === "doc-show"
+            ? runFleetDocShowRange({
+                peer: commandPeer,
+                action,
+                opId,
+                workspaceRoot,
+                nodeId: payload.nodeId,
+                repoId: payload.repoId,
+              })
+            : runFleetTaskCommandClient({ ...commandPeer, opId, action });
         },
         settle: async () => {
           const remaining = Math.max(1, deadline - Date.now());

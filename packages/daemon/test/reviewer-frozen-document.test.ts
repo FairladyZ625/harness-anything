@@ -6,40 +6,39 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { runDocAction } from "../src/doc-sync-actions.ts";
-import {
-  isFleetTaskAction,
-  FLEET_CHUNK_BYTES,
-  FleetUtf8LineDecoder,
-  parseFleetFrame,
-  serializeFleetFrame,
-} from "../src/fleet/command-protocol.ts";
+import { isFleetTaskAction, type FleetFrameV1 } from "../src/fleet/command-protocol.ts";
+import { encodeFleetFrames, FleetTransferAssembler } from "../src/fleet/command-transfer.ts";
 
-test("several bounded evidence frames share a transport chunk while an oversized evidence frame is rejected", () => {
-  const frame = {
-    schema: "fleet.task.evidence/v1" as const,
-    messageId: "part-one",
-    inReplyTo: "read-one",
-    dataBase64: Buffer.alloc(FLEET_CHUNK_BYTES, 97).toString("base64"),
-  };
-  const decoder = new FleetUtf8LineDecoder();
-  const lines = decoder.push(
-    Buffer.from(serializeFleetFrame(frame) + serializeFleetFrame({ ...frame, messageId: "part-two" })),
-  );
-  assert.equal(lines.length, 2);
-  assert.deepEqual(
-    lines.map((line) => parseFleetFrame(line).schema),
-    ["fleet.task.evidence/v1", "fleet.task.evidence/v1"],
-  );
-  decoder.finish();
-  assert.throws(
-    () => parseFleetFrame({ ...frame, dataBase64: Buffer.alloc(FLEET_CHUNK_BYTES + 1).toString("base64") }),
-    /closed schema/,
-  );
+test("large doc-show evidence uses the generic transfer envelope", async () => {
+  const frame: Extract<FleetFrameV1, { schema: "fleet.task.result/v1" }> = {
+      schema: "fleet.task.result/v1",
+      messageId: "result-one",
+      inReplyTo: "read-one",
+      outcome: "applied",
+      opId: "op-one",
+      revision: 7,
+      replicationSequence: 9,
+      appliedCut: null,
+      code: null,
+      receipt: { outcome: "applied", evidence: "evidence\n".repeat(20000) },
+    },
+    encoded: FleetFrameV1[] = [];
+  for await (const part of encodeFleetFrames(frame, "response", "repo-one")) encoded.push(part);
+  assert.equal(encoded[0]?.schema, "fleet.transfer.begin/v1");
+  assert.equal(encoded.at(-1)?.schema, "fleet.transfer.end/v1");
+  const assembler = new FleetTransferAssembler({ direction: "response" });
+  let result: FleetFrameV1 | null = null;
+  for (const part of encoded) result = assembler.push(part) ?? result;
+  assert.deepEqual(result, frame);
 });
 
 test("Fleet accepts the declared doc-show fields for center-owned frozen reads", () => {
   assert.equal(isFleetTaskAction({ kind: "doc-show", path: "tasks/task-one/artifacts/report.md", raw: true }), true);
   assert.equal(isFleetTaskAction({ kind: "doc-show", path: "tasks/task-one/artifacts/report.md" }), true);
+  assert.equal(
+    isFleetTaskAction({ kind: "doc-show", path: "tasks/task-one/artifacts/report.md", offset: 0, length: 1024 }),
+    true,
+  );
   assert.equal(
     isFleetTaskAction({ kind: "doc-show", path: "tasks/task-one/artifacts/report.md", revision: 99 }),
     false,
@@ -54,6 +53,7 @@ test("reviewer doc-show preserves frozen submitted artifacts and permits other r
   const packagePath = "tasks/task-one",
     text = Buffer.from(`HEAD\n${"evidence\n".repeat(40000)}TAIL\n`),
     binary = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0xff]),
+    rangeReads = { count: 0 },
     bodies = new Map([
       [`${packagePath}/artifacts/report.md`, text],
       [`${packagePath}/artifacts/image.png`, binary],
@@ -105,11 +105,25 @@ test("reviewer doc-show preserves frozen submitted artifacts and permits other r
             workspaceRevision: 7,
             opId: "accepted-seven",
             payload: {
-              changes: artifacts.map((anchor) => ({ path: anchor.path, candidate: { sha256: anchor.blobSha256 } })),
+              changes: artifacts.map((anchor) => ({
+                path: anchor.path,
+                candidate: {
+                  sha256: anchor.blobSha256,
+                  size: bodies.get(anchor.path)!.byteLength,
+                  mediaType: "text/markdown",
+                },
+              })),
             },
           };
         },
         readContentBlob: (blob: string) => [...bodies.values()].find((bytes) => digest(bytes) === blob),
+        readContentBlobRange: (blob: string, offset: number, maxBytes: number) =>
+          (() => {
+            rangeReads.count += 1;
+            return (
+              [...bodies.values()].find((bytes) => digest(bytes) === blob)?.subarray(offset, offset + maxBytes) ?? null
+            );
+          })(),
       } as never,
     };
   for (const source of ["local", { kind: "node", nodeId: "edge-one" }] as const) {
@@ -123,8 +137,27 @@ test("reviewer doc-show preserves frozen submitted artifacts and permits other r
       assert.equal(receipt.outcome, "applied");
       assert.equal(receipt.revision, 7);
       assert.equal(receipt.evidence, bytes.toString(path.endsWith(".png") ? "base64" : "utf8"));
+      if (path.endsWith("report.md")) {
+        const ranged = runDocAction({
+          ...input,
+          binding: { ...input.binding, source },
+          action: { kind: "doc-show", path, offset: 2, length: 5 },
+        }) as { readonly evidence: string; readonly evidenceEncoding?: string };
+        assert.equal(ranged.evidenceEncoding, "base64");
+        assert.deepEqual(Buffer.from(ranged.evidence, "base64"), bytes.subarray(2, 7));
+      }
+      if (path.endsWith("image.png")) {
+        const ranged = runDocAction({
+          ...input,
+          binding: { ...input.binding, source },
+          action: { kind: "doc-show", path, offset: 1, length: 3 },
+        }) as { readonly evidence: string; readonly evidenceEncoding?: string };
+        assert.equal(ranged.evidenceEncoding, "base64");
+        assert.deepEqual(Buffer.from(ranged.evidence, "base64"), bytes.subarray(1, 4));
+      }
     }
   }
+  assert.equal(rangeReads.count, 11);
   const otherTask = runDocAction({
     ...input,
     action: { kind: "doc-show", path: "tasks/task-other/artifacts/report.md" },
@@ -193,6 +226,109 @@ test("implementer doc-show reads repository documents through the live projectio
       };
       assert.equal(other.outcome, "applied");
     }
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("pinned range reads reject a same-size document update between windows", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-pin-")),
+    pathName = "context/pinned.md",
+    first = Buffer.from("AAAA1111"),
+    second = Buffer.from("BBBB2222"),
+    firstDigest = digest(first),
+    secondDigest = digest(second);
+  let version = { bytes: first, workspaceRevision: 10, blobSha256: firstDigest },
+    repositoryRevision = 10;
+  try {
+    const input = {
+      workspaceId: "repo-one",
+      rootDir,
+      now: () => new Date().toISOString(),
+      binding: {
+        actor: { principal: { personId: "reader" }, executor: null },
+        source: "local" as const,
+        executionPrincipal: {
+          personId: "reader",
+          repoId: "repo-one",
+          runtimeSessionId: "runtime-one",
+          dispatchId: "dispatch-one",
+          taskId: null,
+          executionId: null,
+          role: "implementation" as const,
+          source: "local" as const,
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        },
+      },
+      projection: {
+        readDocument: () => ({
+          status: "ready",
+          document: {
+            path: pathName,
+            body: version.bytes.toString(),
+            blobSha256: version.blobSha256,
+            size: 8,
+            workspaceRevision: version.workspaceRevision,
+          },
+          watermark: repositoryRevision,
+          sourceRevision: repositoryRevision,
+        }),
+      } as never,
+      store: {
+        currentCut: () => ({
+          repoId: "repo-one",
+          revision: repositoryRevision,
+          headDigest: `head-${repositoryRevision}`,
+        }),
+        readContentBlobRange: (blob: string, offset: number, maxBytes: number) => {
+          const bytes = blob === firstDigest ? first : blob === secondDigest ? second : null;
+          return bytes?.subarray(offset, offset + maxBytes) ?? null;
+        },
+      } as never,
+    };
+    const initial = runDocAction({ ...input, action: { kind: "doc-show", path: pathName, offset: 0, length: 4 } }) as {
+      readonly evidenceBlobSha256: string;
+      readonly evidenceSourceRevision: number;
+      readonly evidenceWorkspaceRevision: number;
+    };
+    assert.equal(initial.evidenceBlobSha256, firstDigest);
+    assert.equal(initial.evidenceWorkspaceRevision, 10);
+    assert.equal(initial.evidenceSourceRevision, 10);
+    repositoryRevision = 11;
+    const afterUnrelatedEvent = runDocAction({
+      ...input,
+      action: {
+        kind: "doc-show",
+        path: pathName,
+        offset: 4,
+        length: 4,
+        contentSha256: initial.evidenceBlobSha256,
+        contentRevision: initial.evidenceWorkspaceRevision,
+      },
+    }) as {
+      readonly evidence: string;
+      readonly evidenceSourceRevision: number;
+      readonly evidenceWorkspaceRevision: number;
+    };
+    assert.deepEqual(Buffer.from(afterUnrelatedEvent.evidence, "base64"), first.subarray(4));
+    assert.equal(afterUnrelatedEvent.evidenceSourceRevision, 11);
+    assert.equal(afterUnrelatedEvent.evidenceWorkspaceRevision, 10);
+    version = { bytes: second, workspaceRevision: 11, blobSha256: secondDigest };
+    assert.throws(
+      () =>
+        runDocAction({
+          ...input,
+          action: {
+            kind: "doc-show",
+            path: pathName,
+            offset: 4,
+            length: 4,
+            contentSha256: initial.evidenceBlobSha256,
+            contentRevision: initial.evidenceWorkspaceRevision,
+          },
+        }),
+      { code: "content_changed" },
+    );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

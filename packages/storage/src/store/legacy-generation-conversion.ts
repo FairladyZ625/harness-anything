@@ -20,6 +20,7 @@ import {
   type StoppedLegacySourceEvidenceV1,
 } from "./legacy-generation-source.ts";
 import { assertNoPendingHistoricalRewrites, planLegacyGenerationConversion } from "./event-shape-migration.ts";
+import { readFileWindow } from "../durable-file.ts";
 import { openSqliteEventStore, sqliteLedgerPath, type SqliteWriterFence } from "./sqlite-event-store.ts";
 import { publishConvertedGeneration, readCertifiedGitFollower } from "./sqlite-task-event-publication.ts";
 import {
@@ -334,10 +335,18 @@ function snapshotStore(snapshot: ImmutableLegacySnapshotV2, snapshotPath: string
     events = snapshot.eventBytes.map(
       (body, index) => decodeLegacyEventBytes(body, `snapshot revision ${index + 1}`).event,
     );
-  return arraySnapshotStore(events, (sha256) => {
-    const object = objects.get(sha256);
-    return object ? readSnapshotObject(snapshotPath, sha256, object.size) : null;
-  });
+  return arraySnapshotStore(
+    events,
+    (sha256) => {
+      const object = objects.get(sha256);
+      return object ? readSnapshotObject(snapshotPath, sha256, object.size) : null;
+    },
+    (sha256, offset, maxBytes) => {
+      const object = objects.get(sha256);
+      return object ? readSnapshotObjectRange(snapshotPath, sha256, object.size, offset, maxBytes) : null;
+    },
+    (sha256) => objects.get(sha256)?.size ?? null,
+  );
 }
 
 function writeRawSnapshot(input: {
@@ -384,7 +393,12 @@ function writeRawSnapshot(input: {
 }
 
 function sqliteSnapshotStore(store: ReturnType<typeof openSqliteEventStore>): CanonicalEventStore {
-  return arraySnapshotStore(store.events(), (sha256) => store.readContentObject(sha256));
+  return arraySnapshotStore(
+    store.events(),
+    (sha256) => store.readContentObject(sha256),
+    (sha256, offset, maxBytes) => store.readContentObjectRange(sha256, offset, maxBytes),
+    (sha256) => store.readContentObjectSize(sha256),
+  );
 }
 
 function snapshotSourceDigest(
@@ -505,11 +519,27 @@ function readSnapshotObject(snapshotPath: string, sha256: string, size: number):
   return bytes;
 }
 
+function readSnapshotObjectRange(
+  snapshotPath: string,
+  sha256: string,
+  size: number,
+  offset: number,
+  maxBytes: number,
+): Uint8Array | null {
+  if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(maxBytes) || maxBytes <= 0)
+    throw new RangeError("content object range must have a non-negative offset and positive maxBytes");
+  const objectPath = path.join(snapshotObjectsPath(snapshotPath), sha256);
+  if (!localEvidenceFileSystem.exists(objectPath)) return null;
+  if (offset >= size) return Buffer.alloc(0);
+  return readFileWindow(objectPath, offset, Math.min(maxBytes, size - offset));
+}
+
 function arraySnapshotStore(
   events: readonly CanonicalEventV1[],
-  objects: ReadonlyMap<string, Uint8Array> | ((sha256: string) => Uint8Array | null),
+  readContent: (sha256: string) => Uint8Array | null,
+  readRange: (sha256: string, offset: number, maxBytes: number) => Uint8Array | null,
+  readSize: (sha256: string) => number | null,
 ): CanonicalEventStore {
-  const readContent = typeof objects === "function" ? objects : (sha256: string) => objects.get(sha256) ?? null;
   return {
     read: () => ({ revision: events.length, events }),
     readHead: () =>
@@ -533,5 +563,7 @@ function arraySnapshotStore(
         ),
     }),
     readContentBlob: readContent,
+    readContentBlobRange: readRange,
+    readContentBlobSize: readSize,
   } as unknown as CanonicalEventStore;
 }

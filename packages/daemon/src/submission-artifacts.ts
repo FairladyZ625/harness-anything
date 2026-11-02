@@ -1,4 +1,6 @@
 import { isUtf8 } from "node:buffer";
+import { createHash } from "node:crypto";
+import { consumeKnownError } from "@harness-anything/kernel";
 import {
   isDocEvent,
   isTaskBootstrapEvent,
@@ -21,7 +23,8 @@ type SubmissionArtifact = {
   readonly encoding: "utf8" | "base64";
   readonly acceptance: string;
 };
-/** One read operation owns its acceptance indexes; nothing survives the operation. */
+
+/** One read operation owns its acceptance index; no acceptance state survives the operation. */
 export function createSubmissionArtifactReader(cell: Pick<RepoCellOperationalContext, "store" | "cellCodedError">) {
   const acceptances = new Map<
     number,
@@ -49,7 +52,6 @@ export function createSubmissionArtifactReader(cell: Pick<RepoCellOperationalCon
     }
     return acceptances.get(revision);
   };
-  // Resolve only center-accepted bytes; current workspace files never prove a historical cut.
   return (packagePath: string, path: string, revision: number, expectedBlob?: string): SubmissionArtifact => {
     const invalid = (reason: string): never => {
       throw cell.cellCodedError(
@@ -66,9 +68,7 @@ export function createSubmissionArtifactReader(cell: Pick<RepoCellOperationalCon
           `Artifact path is invalid: ${path}. Sync deliverables with ha doc sync --submit --task <task-id> before submitting.`,
           { cause },
         ),
-        {
-          code: "invalid_submission",
-        },
+        { code: "invalid_submission" },
       );
     }
     const artifact = submissionArtifactPath(packagePath, normalized);
@@ -82,16 +82,165 @@ export function createSubmissionArtifactReader(cell: Pick<RepoCellOperationalCon
     const bytes = cell.store.readContentBlob(blobSha256);
     if (!bytes || sha256Bytes(bytes) !== blobSha256 || (expectedBlob !== undefined && expectedBlob !== blobSha256))
       return invalid("accepted content is unavailable or does not match its frozen identity");
-    const encoding = isUtf8(bytes) ? "utf8" : "base64",
-      body = Buffer.from(bytes).toString(encoding);
-    return { anchor: { path: artifact, revision, blobSha256 }, body, encoding, acceptance: acceptance.opId };
+    const encoding = isUtf8(bytes) ? "utf8" : "base64";
+    return {
+      anchor: { path: artifact, revision, blobSha256 },
+      body: Buffer.from(bytes).toString(encoding),
+      encoding,
+      acceptance: acceptance.opId,
+    };
   };
 }
 
-/** A single-artifact read uses the same identity checks without retaining an index. */
+/** Resolve only center-accepted bytes; current workspace files are never evidence for a historical cut. */
 export function readSubmissionArtifact(
   cell: Pick<RepoCellOperationalContext, "store" | "cellCodedError">,
-  ...args: Parameters<ReturnType<typeof createSubmissionArtifactReader>>
+  packagePath: string,
+  path: string,
+  revision: number,
+  expectedBlob?: string,
 ): SubmissionArtifact {
-  return createSubmissionArtifactReader(cell)(...args);
+  return createSubmissionArtifactReader(cell)(packagePath, path, revision, expectedBlob);
+}
+
+export function readSubmissionArtifactRange(
+  cell: Pick<RepoCellOperationalContext, "store" | "cellCodedError">,
+  packagePath: string,
+  path: string,
+  revision: number,
+  expectedBlob: string | undefined,
+  offset: number,
+  maxBytes: number,
+): {
+  readonly anchor: ArtifactDelivery;
+  readonly bytes: Uint8Array;
+  readonly size: number;
+  readonly encoding: "utf8" | "base64";
+  readonly acceptance: string;
+} {
+  const resolved = resolveSubmissionArtifact(cell, packagePath, path, revision, expectedBlob);
+  if (
+    !Number.isSafeInteger(offset) ||
+    offset < 0 ||
+    !Number.isSafeInteger(maxBytes) ||
+    maxBytes <= 0 ||
+    maxBytes > 64 * 1024
+  )
+    throw cell.cellCodedError("invalid_submission", `Artifact ${path}@${revision}: invalid range.`);
+  const encoding = verifyAcceptedContent(cell, resolved.blobSha256, resolved.size);
+  const bytes = cell.store.readContentBlobRange(resolved.blobSha256, offset, maxBytes);
+  if (!bytes)
+    throw cell.cellCodedError(
+      "invalid_submission",
+      `Artifact ${path}@${revision}: accepted content is unavailable. ` +
+        "Sync deliverables with ha doc sync --submit --task <task-id> before submitting.",
+    );
+  return {
+    anchor: { path: resolved.artifact, revision, blobSha256: resolved.blobSha256 },
+    bytes,
+    size: resolved.size,
+    encoding,
+    acceptance: resolved.acceptance,
+  };
+}
+
+const verifiedContent = new Map<string, "utf8" | "base64">();
+
+/** Verify a frozen claim through the storage port's bounded range reads. */
+export function verifyAcceptedContent(
+  cell: Pick<RepoCellOperationalContext, "store" | "cellCodedError">,
+  blobSha256: string,
+  size: number,
+): "utf8" | "base64" {
+  const key = `${blobSha256}:${size}`;
+  const cached = verifiedContent.get(key);
+  if (cached) return cached;
+  const hash = createHash("sha256");
+  let offset = 0;
+  let utf8 = true;
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  while (offset < size) {
+    const bytes = cell.store.readContentBlobRange(blobSha256, offset, Math.min(64 * 1024, size - offset));
+    if (!bytes || bytes.byteLength === 0 || bytes.byteLength > size - offset)
+      throw cell.cellCodedError(
+        "content_claim_mismatch",
+        `Content object ${blobSha256} is shorter than its accepted size.`,
+      );
+    hash.update(bytes);
+    if (utf8) {
+      try {
+        decoder.decode(bytes, { stream: true });
+      } catch (error) {
+        consumeKnownError(error);
+        utf8 = false;
+      }
+    }
+    offset += bytes.byteLength;
+  }
+  if (utf8) {
+    try {
+      decoder.decode();
+    } catch (error) {
+      consumeKnownError(error);
+      utf8 = false;
+    }
+  }
+  if (offset !== size || hash.digest("hex") !== blobSha256)
+    throw cell.cellCodedError(
+      "content_claim_mismatch",
+      `Content object ${blobSha256} does not match its accepted digest.`,
+    );
+  const encoding = utf8 ? "utf8" : "base64";
+  verifiedContent.set(key, encoding);
+  return encoding;
+}
+
+function resolveSubmissionArtifact(
+  cell: Pick<RepoCellOperationalContext, "store" | "cellCodedError">,
+  packagePath: string,
+  path: string,
+  revision: number,
+  expectedBlob: string | undefined,
+): { readonly artifact: string; readonly blobSha256: string; readonly size: number; readonly acceptance: string } {
+  const invalid = (reason: string): never => {
+    throw cell.cellCodedError(
+      "invalid_submission",
+      `Artifact ${path}@${revision}: ${reason}. Sync deliverables with ha doc sync --submit --task <task-id> before submitting.`,
+    );
+  };
+  let normalized: string;
+  try {
+    normalized = normalizeRelativeDocumentPath(path);
+  } catch (cause) {
+    throw Object.assign(
+      new Error(
+        `Artifact path is invalid: ${path}. Sync deliverables with ha doc sync --submit --task <task-id> before submitting.`,
+        { cause },
+      ),
+      {
+        code: "invalid_submission",
+      },
+    );
+  }
+  const artifact = submissionArtifactPath(packagePath, normalized);
+  if (normalized !== path || !artifact.startsWith(`${packagePath}/artifacts/`))
+    return invalid("path must belong to this task's artifacts");
+  if (!Number.isSafeInteger(revision) || revision < 1) invalid("revision must be a positive safe integer");
+  const event = cell.store.readEventAtRevision?.(revision);
+  if (!event || event.workspaceRevision !== revision) return invalid("revision is not a document acceptance");
+  const claims = isDocEvent(event)
+    ? event.payload.changes
+    : isTaskEvent(event) || isTaskProgressEvent(event)
+      ? (event.payload.carriedDocumentClaims ?? [])
+      : [];
+  const claim = isTaskBootstrapEvent(event)
+    ? event.payload.initialDocumentClaims.find((candidate) => candidate.path === artifact)
+    : claims.find((candidate) => candidate.path === artifact)?.candidate;
+  const blobSha256 = claim?.sha256;
+  if (!blobSha256) return invalid("revision did not accept this path");
+  if (expectedBlob !== undefined && expectedBlob !== blobSha256)
+    return invalid("frozen identity does not match the accepted content");
+  const size = claim.size ?? cell.store.readContentBlobSize(blobSha256);
+  if (!Number.isSafeInteger(size) || size! < 0) return invalid("accepted content object has no valid size");
+  return { artifact, blobSha256, size: size!, acceptance: event.opId };
 }

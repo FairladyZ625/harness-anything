@@ -48,7 +48,14 @@ export interface PostgresAppendResult {
   readonly replicationSequence: string | null;
   readonly replayed: boolean;
 }
-export type PostgresReadOperation = "head" | "events" | "event" | "outcome" | "content-blob";
+export type PostgresReadOperation =
+  | "head"
+  | "events"
+  | "event"
+  | "outcome"
+  | "content-blob"
+  | "content-blob-range"
+  | "content-blob-size";
 
 export async function executePostgresRead(
   pool: Pool,
@@ -77,6 +84,12 @@ export async function executePostgresRead(
           return readOutcome(client, scope, payload as ReadOutcomePayload);
         case "content-blob":
           return readContentBlob(client, scope, payload as ReadContentBlobPayload);
+        case "content-blob-range":
+          return readContentBlobRange(client, scope, payload as ReadContentBlobRangePayload);
+        case "content-blob-size":
+          return readContentBlobSize(client, scope, payload as ReadContentBlobPayload);
+        default:
+          return assertNever(operation);
       }
     },
     scope,
@@ -116,6 +129,10 @@ interface ReadOutcomePayload {
 }
 interface ReadContentBlobPayload {
   readonly sha256: string;
+}
+interface ReadContentBlobRangePayload extends ReadContentBlobPayload {
+  readonly offset: number;
+  readonly maxBytes: number;
 }
 
 export async function executePostgresAppend(
@@ -582,6 +599,50 @@ async function readContentBlob(client: PoolClient, scope: PostgresEventStoreScop
   if (!row) return null;
   const body = Buffer.from(row.body);
   return body.toString("base64");
+}
+
+async function readContentBlobRange(
+  client: PoolClient,
+  scope: PostgresEventStoreScope,
+  input: ReadContentBlobRangePayload,
+): Promise<Uint8Array | null> {
+  validateContentRange(input.offset, input.maxBytes);
+  const row = (
+    await client.query<{ readonly body: Buffer }>(
+      `SELECT CASE WHEN $4::bigint >= size THEN ''::bytea
+                   ELSE substring(body FROM ($4::bigint + 1)::integer FOR LEAST($5::bigint, size - $4::bigint)::integer)
+              END AS body
+         FROM ha_content_blobs WHERE tenant_id=$1 AND project_id=$2 AND sha256=$3`,
+      [scope.tenantId, scope.projectId, input.sha256, input.offset, input.maxBytes],
+    )
+  ).rows[0];
+  return row ? Uint8Array.from(row.body) : null;
+}
+
+async function readContentBlobSize(
+  client: PoolClient,
+  scope: PostgresEventStoreScope,
+  input: ReadContentBlobPayload,
+): Promise<number | null> {
+  const row = (
+    await client.query<{ readonly size: string }>(
+      "SELECT size FROM ha_content_blobs WHERE tenant_id=$1 AND project_id=$2 AND sha256=$3",
+      [scope.tenantId, scope.projectId, input.sha256],
+    )
+  ).rows[0];
+  if (!row) return null;
+  const size = Number(row.size);
+  if (!Number.isSafeInteger(size) || size < 0) throw new RangeError("stored content object size is invalid");
+  return size;
+}
+
+function validateContentRange(offset: number, maxBytes: number): void {
+  if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(maxBytes) || maxBytes <= 0)
+    throw new RangeError("content object range must have a non-negative offset and positive maxBytes");
+}
+
+function assertNever(value: never): never {
+  throw new TypeError(`unsupported PostgreSQL read operation: ${value}`);
 }
 
 function required(value: string | undefined, label: string): string {

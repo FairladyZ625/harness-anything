@@ -56,14 +56,18 @@ export type PostgresTaskEventStoreRequest =
     }
   | { readonly operation: "event"; readonly key: "op_id" | "event_id" | "revision"; readonly value: string | number }
   | { readonly operation: "outcome"; readonly opId: string }
-  | { readonly operation: "content"; readonly sha256: string };
+  | { readonly operation: "content"; readonly sha256: string }
+  | { readonly operation: "content-range"; readonly sha256: string; readonly offset: number; readonly maxBytes: number }
+  | { readonly operation: "content-size"; readonly sha256: string };
 export type PostgresTaskEventStoreResult =
   | CanonicalEventAppendReceipt
   | CanonicalCommandOutcome
   | ReturnType<CanonicalEventStore["readHead"]>
   | readonly CanonicalEventV1[]
   | CanonicalEventV1
-  | Uint8Array;
+  | Uint8Array
+  | number
+  | null;
 
 export interface PostgresTaskEventCapabilityOptions extends PostgresAppendHooks {
   /** Borrowed from the async host. A4 owns pool creation, drain, and close. */
@@ -152,9 +156,19 @@ export function makePostgresTaskEventStore(options: PostgresTaskEventCapabilityO
         const body = (await executePostgresRead(pool, scope, "content-blob", request)) as string | null;
         return body === null ? null : Uint8Array.from(Buffer.from(body, "base64"));
       }
+      case "content-range":
+        return (await executePostgresRead(pool, scope, "content-blob-range", request)) as Uint8Array | null;
+      case "content-size":
+        return (await executePostgresRead(pool, scope, "content-blob-size", request)) as number | null;
+      default:
+        return assertNever(request);
     }
   };
   return { append, readHead, execute, currentCut: async () => canonicalLedgerCut(repoId, await readHead()) };
+}
+
+function assertNever(value: never): never {
+  throw new TypeError(`unsupported PostgreSQL event store operation: ${JSON.stringify(value)}`);
 }
 
 function commandOutcome(row: OutcomeRow): CanonicalCommandOutcome {

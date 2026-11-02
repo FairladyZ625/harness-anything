@@ -607,14 +607,9 @@ test("doc show --raw writes the document body verbatim and keeps decorated outpu
     execFileSync("git", ["-C", root, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", ...args]);
   seedSettingsEvent({ rootDir: root, repoId });
   registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });
-  const receipt = {
-      schema: "command-receipt/v2",
-      ok: true,
-      command: "doc-show",
-      outcome: "applied",
-      evidence: body,
-    },
-    actions: Record<string, unknown>[] = [];
+  let transfer = 0;
+  const descriptorFiles: string[] = [];
+  const actions: Record<string, unknown>[] = [];
   const server = createServer((socket) => {
     let buffered = "";
     socket.on("data", (chunk) => {
@@ -628,7 +623,29 @@ test("doc show --raw writes the document body verbatim and keeps decorated outpu
         buffered = buffered.slice(newline + 1);
         if (request.method === "repo.task.read" && request.params?.payload?.action)
           actions.push(request.params.payload.action);
-        const result = request.method === "protocol.hello" ? { protocolVersion: { major: 1, minor: 0 } } : receipt;
+        const result =
+          request.method === "protocol.hello"
+            ? { protocolVersion: { major: 1, minor: 0 } }
+            : (() => {
+                const evidenceFile = path.join(parent, `doc-${transfer++}.sealed`);
+                writeFileSync(evidenceFile, body);
+                writeFileSync(evidenceFile.replace(/\.sealed$/u, ".json"), "{}\n");
+                descriptorFiles.push(evidenceFile);
+                return {
+                  schema: "command-receipt/v2",
+                  ok: true,
+                  command: "doc-show",
+                  outcome: "applied",
+                  evidenceFile,
+                  evidenceSize: Buffer.byteLength(body),
+                  evidenceContentEncoding: "utf8",
+                  versionWarning: {
+                    centerBuildCommit: "center-build",
+                    localBuildCommit: "edge-build",
+                    upgradeCommand: "ha update",
+                  },
+                };
+              })();
         socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`);
       }
     });
@@ -666,6 +683,9 @@ test("doc show --raw writes the document body verbatim and keeps decorated outpu
     const raw = await spawnRaw(["doc", "show", "--path", "context/raw.md", "--raw"]);
     assert.equal(raw.status, 0, `${raw.stderr}\n${raw.stdout}`);
     assert.equal(raw.stdout, body, "raw output must be the body byte-for-byte, no receipt decoration");
+    assert.match(raw.stderr, /WARNING version mismatch center=center-build local=edge-build; upgrade with ha update/u);
+    assert.equal(existsSync(descriptorFiles[0]!), false, "raw consumption removes the sealed descriptor");
+    assert.equal(existsSync(descriptorFiles[0]!.replace(/\.sealed$/u, ".json")), false);
     assert.equal(
       createHash("sha256").update(raw.stdout).digest("hex"),
       createHash("sha256").update(readFileSync(target)).digest("hex"),
@@ -674,8 +694,27 @@ test("doc show --raw writes the document body verbatim and keeps decorated outpu
 
     const decorated = await spawnRaw(["doc", "show", "--path", "context/raw.md"]);
     assert.equal(decorated.status, 0, `${decorated.stderr}\n${decorated.stdout}`);
-    assert.equal(decorated.stdout, `${body}\n`, "plain doc show still renders through the receipt path");
+    assert.equal(
+      decorated.stdout,
+      `${body}\nWARNING version mismatch center=center-build local=edge-build; upgrade with ha update\n`,
+      "plain doc show streams the body and keeps the version warning",
+    );
+    assert.equal(decorated.stderr, "");
+    assert.equal(existsSync(descriptorFiles[1]!), false, "plain consumption removes the sealed descriptor");
+    assert.equal(existsSync(descriptorFiles[1]!.replace(/\.sealed$/u, ".json")), false);
     assert.deepEqual(actions[1], { kind: "doc-show", path: "context/raw.md" });
+
+    const json = await spawnRaw(["--json", "doc", "show", "--path", "context/raw.md"]);
+    assert.equal(json.status, 0, `${json.stderr}\n${json.stdout}`);
+    const receipt = JSON.parse(json.stdout) as {
+      readonly evidenceFile?: unknown;
+      readonly versionWarning?: { readonly centerBuildCommit?: unknown };
+    };
+    assert.equal(receipt.evidenceFile, descriptorFiles[2]);
+    assert.equal(receipt.versionWarning?.centerBuildCommit, "center-build");
+    assert.equal(existsSync(descriptorFiles[2]!), true, "JSON mode hands the descriptor to its caller");
+    assert.equal(existsSync(descriptorFiles[2]!.replace(/\.sealed$/u, ".json")), true);
+    assert.deepEqual(actions[2], { kind: "doc-show", path: "context/raw.md" });
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     rmSync(parent, { recursive: true, force: true });

@@ -33,7 +33,7 @@ import {
   runCommandThroughDaemon,
 } from "./daemon/client.ts";
 import { runOfflineCommandThroughDaemonBin } from "./daemon/offline-command.ts";
-import { readFileSync, realpathSync } from "node:fs";
+import { createReadStream, readFileSync, realpathSync, unlinkSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 export { resolveCliVersion } from "./cli-meta.ts";
 
@@ -183,7 +183,13 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
     dispatchMeasured = true;
     cliPhaseEnd("dispatch", dispatchStartedAt);
     const renderStartedAt = cliPhaseStart();
-    if (typedCommand.action.kind === "template-render" && typedCommand.action.raw === true && receipt.ok === true)
+    if (typedCommand.action.kind === "doc-show" && receipt.ok === true && typeof receipt.evidenceFile === "string") {
+      await renderDocumentDescriptor(receipt, typedCommand);
+    } else if (
+      typedCommand.action.kind === "template-render" &&
+      typedCommand.action.raw === true &&
+      receipt.ok === true
+    )
       process.stdout.write(rawTemplateBody(receipt));
     else if (typedCommand.action.kind === "doc-show" && typedCommand.action.raw === true && receipt.ok === true)
       process.stdout.write(rawDocumentBody(receipt));
@@ -229,8 +235,39 @@ export function emit(receipt: Record<string, unknown>, json: boolean, explainRef
   if (json) console.log(JSON.stringify(receipt));
   else {
     const rendered = renderCliReceipt(receipt, explainRefs);
-    console[rendered.stream === "stderr" ? "error" : "log"](rendered.text);
+    const warning = versionWarningText(receipt);
+    const text = warning ? `${rendered.text}\n${warning}` : rendered.text;
+    console[rendered.stream === "stderr" ? "error" : "log"](text);
   }
+}
+
+function versionWarningText(receipt: Record<string, unknown>): string | null {
+  const warning =
+    typeof receipt.versionWarning === "object" && receipt.versionWarning !== null
+      ? (receipt.versionWarning as {
+          readonly centerBuildCommit?: unknown;
+          readonly localBuildCommit?: unknown;
+          readonly upgradeCommand?: unknown;
+        })
+      : null;
+  return warning && typeof warning.centerBuildCommit === "string" && typeof warning.localBuildCommit === "string"
+    ? `WARNING version mismatch center=${warning.centerBuildCommit} local=${warning.localBuildCommit}; upgrade with ${String(warning.upgradeCommand ?? "ha update")}`
+    : null;
+}
+
+function writeDescriptorVersionWarning(receipt: Record<string, unknown>, raw: boolean): void {
+  const warning = versionWarningText(receipt);
+  if (warning) (raw ? process.stderr : process.stdout).write(`${warning}\n`);
+}
+
+async function renderDocumentDescriptor(receipt: Record<string, unknown>, command: ThinCommand): Promise<void> {
+  if (command.json) {
+    emit(receipt, true, explainRequestRefs(command));
+    return;
+  }
+  const raw = command.action.raw === true;
+  await streamDocumentFile(receipt, raw);
+  writeDescriptorVersionWarning(receipt, raw);
 }
 
 // Failure subjects for invalid refs carry ref: null by contract, so the renderer needs the refs the
@@ -265,6 +302,48 @@ export function rawDocumentBody(receipt: Record<string, unknown>): string {
   if (receipt.ok !== true || typeof receipt.evidence !== "string")
     throw new TypeError("Raw document output requires a successful doc-show receipt.");
   return receipt.evidence;
+}
+
+/** Stream an edge-owned sealed document without materializing the full receipt in the CLI. */
+async function streamDocumentFile(receipt: Record<string, unknown>, raw: boolean): Promise<void> {
+  const file = String(receipt.evidenceFile),
+    encoding = receipt.evidenceContentEncoding;
+  if (encoding !== "utf8" && encoding !== "base64")
+    throw new TypeError("Fleet document descriptor has an invalid content encoding.");
+  let carry = Buffer.alloc(0);
+  let completed = false;
+  try {
+    for await (const chunk of createReadStream(file, { highWaterMark: 64 * 1024 })) {
+      const bytes = Buffer.concat([carry, Buffer.from(chunk)]);
+      if (encoding === "utf8") {
+        if (!process.stdout.write(bytes)) await new Promise<void>((resolve) => process.stdout.once("drain", resolve));
+        continue;
+      }
+      const complete = bytes.byteLength - (bytes.byteLength % 3);
+      carry = bytes.subarray(complete);
+      if (complete > 0) {
+        const encoded = bytes.subarray(0, complete).toString("base64");
+        if (!process.stdout.write(encoded)) await new Promise<void>((resolve) => process.stdout.once("drain", resolve));
+      }
+    }
+    if (encoding === "base64" && carry.byteLength > 0) process.stdout.write(carry.toString("base64"));
+    if (!raw) process.stdout.write("\n");
+    completed = true;
+  } finally {
+    if (completed) cleanupConsumedDocumentDescriptor(file);
+  }
+}
+
+function cleanupConsumedDocumentDescriptor(file: string): void {
+  const metadata = file.endsWith(".sealed") ? `${file.slice(0, -".sealed".length)}.json` : `${file}.json`;
+  for (const candidate of [file, metadata]) {
+    try {
+      /* @gate-identity check-bypass-write-boundary/bypass-write-139 */ unlinkSync(candidate);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw error;
+    }
+  }
 }
 
 function isCliEntrypoint(): boolean {

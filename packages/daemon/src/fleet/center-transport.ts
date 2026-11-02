@@ -12,6 +12,7 @@ import { daemonBuildStamp } from "../build-identity.ts";
 import { writeFileDurably } from "@harness-anything/storage";
 import type { Delivery, FleetCenterOptions, SessionWindow, State, Upload } from "./center-types.ts";
 import { FleetFault } from "./center-types.ts";
+import { ResourceBudgetExceeded } from "./resource-budget.ts";
 import { replicationSlotKey } from "@harness-anything/storage";
 import {
   FLEET_CHUNK_BYTES,
@@ -23,10 +24,10 @@ import {
   FleetUtf8LineDecoder,
   FleetContractError,
   parseFleetFrame,
-  serializeFleetFrame,
   type FleetCut,
   type FleetFrameV1,
 } from "./command-protocol.ts";
+import { encodeFleetFrames, FleetTransferAssembler, FleetTransferError } from "./command-transfer.ts";
 import {
   parseReplicationFrame,
   serializeReplicationFrame,
@@ -43,6 +44,29 @@ function peerDisconnected(socket: TLSSocket, error: unknown): boolean {
   const code =
     typeof error === "object" && error !== null && "code" in error ? (error as { code?: unknown }).code : null;
   return typeof code === "string" && PEER_GONE_CODES.includes(code);
+}
+function reserveFleetTransfer(
+  options: FleetCenterOptions,
+  nodeId: string,
+  sessionId: string,
+  repoId: string,
+  bytes: number,
+) {
+  const scope = { nodeId, repoId, sessionId };
+  try {
+    return (
+      options.commandResourceBudget?.reserve(scope, { memoryBytes: bytes, bulkTransfers: 1 }) ?? {
+        release: () => undefined,
+      }
+    );
+  } catch (error) {
+    if (!(error instanceof ResourceBudgetExceeded)) throw error;
+    throw new FleetFault(
+      "resource_exhausted",
+      `Fleet transfer refused (actualBytes=${bytes}, used=${error.used}, limit=${error.limit}, available=${error.available}, scope=${error.scope}, resource=${error.resource}, required=${error.required}); recommendation=retry after an active transfer finishes or request a smaller result.`,
+      true,
+    );
+  }
 }
 
 export async function serve(
@@ -74,19 +98,35 @@ export async function serve(
   socket.once("close", () => {
     helloAdmitted();
     disconnected.abort();
+    transfers.reset();
   });
   let nodeId: string | null = null,
     accessToken: string | undefined,
     pumping = false;
+  let onTransferTimeout: (transfer: {
+    readonly correlationId: string;
+    readonly direction: "request" | "response";
+    readonly repoId: string;
+    readonly totalBytes: number;
+  }) => void = () => undefined;
   let pendingReplicationStart: Extract<ReplicationFrame, { readonly type: "replica.start" }> | null = null;
   let replicationMode = false;
   const replicationFrames: ReplicationFrame[] = [];
   const replicationWaiters: ((frame: ReplicationFrame) => void)[] = [];
   const reader = new FleetUtf8LineDecoder(),
+    transfers = new FleetTransferAssembler({
+      direction: "request",
+      reserve: (repoId, bytes) => {
+        if (!nodeId) throw new FleetFault("authentication_required", "Authenticate before starting a Fleet transfer.");
+        return reserveFleetTransfer(options, nodeId, window.holderId, repoId, bytes);
+      },
+      onTimeout: (transfer) => onTransferTimeout(transfer),
+    }),
     window: SessionWindow = {
       holderId: randomUUID(),
       // bytesWritten includes queued writes; subtract the bytes still held by the writable.
       drainedBytes: () => socket.bytesWritten - socket.writableLength,
+      requestRepos: new Map(),
       uploads: new Set(),
       keys: new Set(),
       offers: new Map(),
@@ -103,22 +143,36 @@ export async function serve(
         if (delivery?.key === null) return;
         throw new FleetFault("connection_closed", "Replica connection closed", true);
       }
-      const line = serializeFleetFrame(frame),
-        bytes = Buffer.byteLength(line);
-      if (bytes > FLEET_KEY_SEND_WINDOW_BYTES)
-        throw new FleetFault(
-          "busy",
-          `Per-key send window is full (frameBytes=${bytes}, bufferedBytes=${socket.writableLength}, limit=${FLEET_KEY_SEND_WINDOW_BYTES}).`,
-          true,
-        );
       const signal = delivery?.signal ?? disconnected.signal;
       signal.throwIfAborted();
-      if (socket.writableLength + bytes > FLEET_SESSION_SEND_WINDOW_BYTES)
-        await untilAborted(() => once(socket, "drain", { signal }), signal);
-      delivery?.beforeSend?.();
-      const sent = socket.write(line);
-      delivery?.onSent?.(bytes);
-      if (!sent) await untilAborted(() => once(socket, "drain", { signal }), signal);
+      for await (const encoded of encodeFleetFrames(
+        frame,
+        "response",
+        "repoId" in frame && typeof frame.repoId === "string"
+          ? frame.repoId
+          : "inReplyTo" in frame
+            ? (window.requestRepos.get(frame.inReplyTo) ?? "transport")
+            : "transport",
+        (repoId, bytes) => {
+          if (!nodeId) throw new FleetFault("authentication_required", "Authenticate before sending a Fleet transfer.");
+          return reserveFleetTransfer(options, nodeId, window.holderId, repoId, bytes);
+        },
+      )) {
+        const line = `${JSON.stringify(encoded)}\n`,
+          bytes = Buffer.byteLength(line);
+        if (bytes > FLEET_KEY_SEND_WINDOW_BYTES)
+          throw new FleetFault(
+            "busy",
+            `Per-key send window is full (frameBytes=${bytes}, bufferedBytes=${socket.writableLength}, limit=${FLEET_KEY_SEND_WINDOW_BYTES}).`,
+            true,
+          );
+        if (socket.writableLength + bytes > FLEET_SESSION_SEND_WINDOW_BYTES)
+          await untilAborted(() => once(socket, "drain", { signal }), signal);
+        delivery?.beforeSend?.();
+        const sent = socket.write(line);
+        delivery?.onSent?.(bytes);
+        if (!sent) await untilAborted(() => once(socket, "drain", { signal }), signal);
+      }
     },
     enqueue = (delivery: Delivery) =>
       new Promise<void>((resolve, reject) => {
@@ -173,6 +227,20 @@ export async function serve(
         });
       });
     },
+  };
+  onTransferTimeout = (transfer) => {
+    if (transfer.direction !== "request" || socket.destroyed) return;
+    void enqueue(
+      immediate({
+        schema: "fleet.error/v1",
+        messageId: mid(transfer.correlationId, "transfer-timeout"),
+        inReplyTo: transfer.correlationId,
+        code: "transfer_timeout",
+        message: `Fleet request transfer timed out (actualBytes=${transfer.totalBytes}); retry the same operation.`,
+        retryable: true,
+        resumeOffset: null,
+      }),
+    ).catch((error) => consumeKnownError(error));
   };
   // Keep the live owner: replacing it on every start lets two resident reconnect loops endlessly
   // evict each other. Command sessions and other node/repository pairs remain independent.
@@ -248,17 +316,66 @@ export async function serve(
             if (waiter) waiter(frame);
             else replicationFrames.push(frame);
           }
-        } else
-          void dispatch(line).catch((error: unknown) => {
-            // `dispatch` is fire-and-forget: a handler error it could not answer (the peer
-            // closed while the error frame waited for TCP drain) has nowhere left to go.
-            if (!peerDisconnected(socket, error))
-              (options.onError ?? ((entry) => console.error("[fleet-center] dispatch failed", entry)))({
-                nodeId,
-                messageId: null,
-                error,
-              });
-          });
+        } else {
+          let parsed: FleetFrameV1;
+          try {
+            parsed = parseFleetFrame(line);
+          } catch (error) {
+            let messageId = "invalid";
+            try {
+              const candidate = JSON.parse(line) as { messageId?: unknown };
+              if (typeof candidate.messageId === "string") messageId = candidate.messageId;
+            } catch (parseError) {
+              consumeKnownError(parseError);
+            }
+            void enqueue(
+              immediate({
+                schema: "fleet.error/v1",
+                messageId: mid(messageId, "invalid-frame"),
+                inReplyTo: messageId,
+                code: "invalid_frame",
+                message: error instanceof Error ? error.message : String(error),
+                retryable: false,
+                resumeOffset: null,
+              }),
+            ).catch((enqueueError) => consumeKnownError(enqueueError));
+            continue;
+          }
+          let frame: FleetFrameV1 | null;
+          try {
+            frame = transfers.push(parsed);
+          } catch (error) {
+            if (!(error instanceof FleetTransferError)) {
+              consumeKnownError(error);
+              throw error;
+            }
+            void enqueue(
+              immediate({
+                schema: "fleet.error/v1",
+                messageId: mid(error.correlationId, "transfer-error"),
+                inReplyTo: error.correlationId,
+                code: error.code,
+                message: error.message,
+                retryable: error.retryable,
+                resumeOffset: null,
+              }),
+            ).catch((enqueueError) => {
+              consumeKnownError(enqueueError);
+            });
+            continue;
+          }
+          if (frame !== null)
+            void dispatch(frame).catch((error: unknown) => {
+              // dispatch is fire-and-forget; a peer closing during an error reply is a normal session end.
+              if (!peerDisconnected(socket, error))
+                (options.onError ?? ((entry) => console.error("[fleet-center] dispatch failed", entry)))({
+                  nodeId,
+                  // A failed error reply belongs to the session, not to the handled request.
+                  messageId: null,
+                  error,
+                });
+            });
+        }
       }
     } catch (error) {
       consumeKnownError(error);
@@ -273,10 +390,8 @@ export async function serve(
       socket.destroy(error instanceof Error ? error : new Error(String(error)));
     }
   });
-  const dispatch = async (line: string) => {
-    let frame: FleetFrameV1 | null = null;
+  const dispatch = async (frame: FleetFrameV1) => {
     try {
-      frame = parseFleetFrame(line);
       if (nodeId === null) {
         if (frame.schema === "fleet.edge.join/v1") {
           if (!options.edgeJoin) throw new FleetFault("edge_join_unavailable", "Edge join is unavailable.");
@@ -327,7 +442,15 @@ export async function serve(
           pendingReplicationStart = null;
           startReplication(nodeId, start);
         }
-        // Await inside this try so a disconnect during ready delivery reaches its catch.
+        const centerBuildCommit = daemonBuildStamp().commit,
+          versionWarning =
+            frame.buildCommit !== undefined &&
+            frame.buildCommit !== null &&
+            centerBuildCommit !== null &&
+            frame.buildCommit !== centerBuildCommit
+              ? `Fleet build differs (center=${centerBuildCommit.slice(0, 12)}, edge=${frame.buildCommit.slice(0, 12)}); upgrade with ha update.`
+              : undefined;
+        options.onVersionWarning?.(nodeId, versionWarning ?? null);
         await enqueue(
           immediate({
             schema: "fleet.session.ready/v1",
@@ -336,6 +459,8 @@ export async function serve(
             sessionId: digestId(nodeId, String(Date.now())),
             maxFrameBytes: FLEET_FRAME_BYTES,
             chunkBytes: FLEET_CHUNK_BYTES,
+            centerBuildCommit,
+            ...(versionWarning === undefined ? {} : { versionWarning }),
             loginAuthority: (await options.loginAuthority?.(nodeId)) ?? null,
           }),
         );
@@ -343,6 +468,7 @@ export async function serve(
       }
       if (frame.schema === "fleet.session.hello/v1")
         throw new FleetFault("hello_replayed", "Session hello is only valid as the first frame.");
+      if ("repoId" in frame && typeof frame.repoId === "string") window.requestRepos.set(frame.messageId, frame.repoId);
       await enqueue(
         await handle(
           nodeId,
@@ -374,7 +500,6 @@ export async function serve(
           error,
         });
       if (socket.destroyed) return;
-      // The peer can also close while its error reply is waiting for drain.
       await enqueue(
         immediate({
           schema: "fleet.error/v1",
@@ -391,6 +516,7 @@ export async function serve(
       });
       if (fault.code === "authentication_failed") socket.end();
     }
+    window.requestRepos.delete(frame.messageId);
   };
 }
 

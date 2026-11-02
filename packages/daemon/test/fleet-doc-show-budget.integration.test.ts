@@ -113,14 +113,11 @@ test(
     assert.equal(refused.retryable, true);
     assert.match(refused.message, /node.*bulkTransfers/u);
     // Another node and the receipt control path progress while node-one's readers are parked.
-    const evidence = await healthy.request(command("healthy", healthyPath));
-    assert.equal(evidence.schema, "fleet.task.evidence/v1");
-    if (evidence.schema !== "fleet.task.evidence/v1") throw new Error(JSON.stringify(evidence));
-    assert.equal(Buffer.from(evidence.dataBase64, "base64").toString("utf8"), healthyBody);
-    const completed = await healthy.receive();
+    const completed = await healthy.request(command("healthy", healthyPath));
     assert.equal(completed.schema, "fleet.task.result/v1");
     if (completed.schema !== "fleet.task.result/v1") throw new Error(JSON.stringify(completed));
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
+    assert.equal(completed.receipt?.evidence, healthyBody);
     const control = await peers[2]!.request({
       schema: "fleet.receipt.get/v1",
       messageId: "control",
@@ -135,12 +132,10 @@ test(
     release.resolve();
     await disconnectedSettled.promise;
     void first; // This closed raw peer has no response waiter completion; server settlement is observed above.
-    assert.equal((await second).schema, "fleet.task.evidence/v1");
-    assert.equal((await peers[1]!.receive()).schema, "fleet.task.result/v1");
+    assert.equal((await second).schema, "fleet.task.result/v1");
     // Both successful delivery and disconnected preparation release their leases.
     const again = await peers[2]!.request(command("again"));
-    assert.equal(again.schema, "fleet.task.evidence/v1");
-    assert.equal((await peers[2]!.receive()).schema, "fleet.task.result/v1");
+    assert.equal(again.schema, "fleet.task.result/v1");
     assert.equal(calls, 3);
     // Failed preparation must release too: two failures cannot consume both node slots.
     failRead = true;
@@ -159,7 +154,6 @@ test(
       if (missing.schema !== "fleet.task.result/v1") throw new Error(JSON.stringify(missing));
       assert.equal(missing.outcome, "op_rejected");
     }
-    assert.equal((await peers[2]!.request(command("after-failure"))).schema, "fleet.task.evidence/v1");
-    assert.equal((await peers[2]!.receive()).schema, "fleet.task.result/v1");
+    assert.equal((await peers[2]!.request(command("after-failure"))).schema, "fleet.task.result/v1");
   },
 );

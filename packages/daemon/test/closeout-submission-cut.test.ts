@@ -82,6 +82,9 @@ function artifactStore() {
             }
           : null,
       readContentBlob: () => bytes,
+      readContentBlobRange: (_hash: string, offset: number, maxBytes: number) =>
+        bytes.subarray(offset, offset + maxBytes),
+      readContentBlobSize: () => bytes.byteLength,
     },
   };
 }
@@ -1103,6 +1106,18 @@ test("documentation amendments pin new accepted bytes while unrelated publicatio
     readContentBlob: (hash: string) => {
       for (const documents of bodies.values())
         for (const body of documents.values()) if (sha256Bytes(Buffer.from(body)) === hash) return Buffer.from(body);
+      return null;
+    },
+    readContentBlobRange: (hash: string, offset: number, maxBytes: number) => {
+      for (const documents of bodies.values())
+        for (const body of documents.values())
+          if (sha256Bytes(Buffer.from(body)) === hash) return Buffer.from(body).subarray(offset, offset + maxBytes);
+      return null;
+    },
+    readContentBlobSize: (hash: string) => {
+      for (const documents of bodies.values())
+        for (const body of documents.values())
+          if (sha256Bytes(Buffer.from(body)) === hash) return Buffer.byteLength(body);
       return null;
     },
   } as unknown as Parameters<typeof deriveCloseoutSubmission>[0]["store"];

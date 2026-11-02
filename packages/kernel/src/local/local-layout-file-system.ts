@@ -155,6 +155,7 @@ export const localContentObjectFileSystem = {
   readNames: (inputPath: string) => readdirSync(inputPath),
   exists: (inputPath: string) => existsSync(inputPath),
   readBytes: (inputPath: string): Uint8Array => readFileSync(inputPath),
+  sizeBytes: (inputPath: string) => statSync(inputPath).size,
   replaceMany: (entries: readonly { readonly path: string; readonly body: string | Uint8Array }[]): void => {
     const directories = new Set<string>(),
       temporaryObjects: { readonly temporary: string; readonly target: string }[] = [];
