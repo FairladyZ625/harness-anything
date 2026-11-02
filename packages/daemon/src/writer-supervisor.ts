@@ -104,7 +104,7 @@ export async function openWriterSupervisor(
       }
     >(),
     runtimeProcesses = new Map<string, RuntimeProcess>(),
-    sessionTokens = new Map<string, () => Promise<string>>();
+    sessionTokens = new Map<string, { readonly resolve: () => Promise<string>; references: number }>();
 
   ready = startWriterWorker();
   await ready;
@@ -147,7 +147,7 @@ export async function openWriterSupervisor(
           cleanup = () => signal?.removeEventListener("abort", cancel);
         signal?.addEventListener("abort", cancel, { once: true });
         const currentAccessToken = binding?.keycloakAuthorization?.session?.currentAccessToken;
-        if (currentAccessToken) sessionTokens.set(requestId, currentAccessToken);
+        if (currentAccessToken) sessionTokens.set(requestId, { resolve: currentAccessToken, references: 1 });
         pending.set(requestId, {
           resolve: resolve as (value: unknown) => void,
           reject,
@@ -237,7 +237,7 @@ export async function openWriterSupervisor(
             message.outcome !== "ok" ||
             (message.value as { outcome?: string } | undefined)?.outcome !== "started"
           )
-            sessionTokens.delete(message.requestId);
+            releaseSessionToken(message.requestId);
           operation.cleanup();
           status = { ...status, queueDepth: Math.max(0, (status.queueDepth ?? 1) - 1) };
           if (message.outcome === "ok") operation.resolve(message.value);
@@ -393,12 +393,18 @@ export async function openWriterSupervisor(
           resolver =
             requestId === null
               ? input.bootstrap?.keycloakAuthorization?.session?.currentAccessToken
-              : sessionTokens.get(requestId);
+              : sessionTokens.get(requestId)?.resolve;
         if (!resolver) throw new Error("Writer session token resolver is unavailable");
         return resolver();
       }
+      case "retainCurrentAccessToken": {
+        const session = sessionTokens.get(call.payload as string);
+        if (!session) throw new Error("Writer session token resolver is unavailable");
+        session.references += 1;
+        return;
+      }
       case "releaseCurrentAccessToken":
-        sessionTokens.delete(call.payload as string);
+        releaseSessionToken(call.payload as string);
         return;
       case "keycloakSession": {
         const { provider: _provider, ...session } = await input.keycloakSession!(call.payload as string);
@@ -484,6 +490,11 @@ export async function openWriterSupervisor(
         input.recordLifecycle?.(call.payload as never);
         return null;
     }
+  }
+
+  function releaseSessionToken(requestId: string): void {
+    const session = sessionTokens.get(requestId);
+    if (session && --session.references === 0) sessionTokens.delete(requestId);
   }
 
   function activePost(event: Omit<RuntimeProcessEventV1, "schema">): void {

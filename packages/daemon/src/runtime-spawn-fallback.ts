@@ -570,7 +570,11 @@ export function reconcileFallback(args: {
  * or treats the terminal attempt as a process that needs adoption. */
 export function restoreFallbackSchedules(context: RuntimeSpawnerContext): void {
   for (const header of readDispatchStreamHeaders(context.input.rootDir)) {
-    if (!header.fallbackAttempt || !header.binding || !ownedByRuntimeSpawner(header.binding, context.input.runtimeNode))
+    if (
+      !header.fallbackAttempt ||
+      !header.binding ||
+      !ownedByRuntimeSpawner(header.binding, context.input.runtimeNode, header)
+    )
       continue;
     const stream = readDispatchStreamSummary(context.input.rootDir, header.dispatchId);
     if (stream?.fallbackState === "scheduled") context.reconcileFallback(stream);

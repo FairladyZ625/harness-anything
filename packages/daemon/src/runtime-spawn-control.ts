@@ -42,7 +42,8 @@ export async function cancelRuntime(
     owned =
       ownerBinding !== null &&
       ownerBinding !== undefined &&
-      ownedByRuntimeSpawner(ownerBinding, context.input.runtimeNode) &&
+      ownerBinding.actor?.principal.personId === binding.actor.principal.personId &&
+      ownedByRuntimeSpawner(ownerBinding, context.input.runtimeNode, matchingHeader) &&
       (canonicalDispatch === null ||
         canonicalDispatch === undefined ||
         (canonicalDispatch.actor.principal.personId === binding.actor.principal.personId && sameSource)),
@@ -51,7 +52,7 @@ export async function cancelRuntime(
       !context.processes.has(runtimeSessionId) &&
       (matchingHeader === undefined ||
         (matchingHeader.binding !== undefined &&
-          ownedByRuntimeSpawner(matchingHeader.binding, context.input.runtimeNode) &&
+          ownedByRuntimeSpawner(matchingHeader.binding, context.input.runtimeNode, matchingHeader) &&
           !readDispatchStreamSummary(context.input.rootDir, matchingHeader.dispatchId)?.process));
   if (!owned) {
     const sessions = context.input.remote
@@ -65,9 +66,10 @@ export async function cancelRuntime(
       "This runtime has no owner dispatch on this node; cancel it through its owner.",
     );
   }
-  if (!missingOwnedProcess) assertRuntimeRecoveryReady(context, runtimeSessionId);
   if (!context.processes.has(runtimeSessionId) && !missingOwnedProcess) {
-    const [adoption] = await Promise.allSettled([adoptRuntimes(context, undefined, { runtimeSessionId })]);
+    const [adoption] = await Promise.allSettled([
+      adoptRuntimes(context, undefined, { runtimeSessionId, authorizationBinding: binding }),
+    ]);
     if (adoption.status === "rejected" && !context.processes.has(runtimeSessionId)) throw adoption.reason;
   }
   if (!missingOwnedProcess) assertRuntimeRecoveryReady(context, runtimeSessionId);
@@ -104,8 +106,8 @@ export async function cancelRuntime(
     await context.publishExit(active, null);
     return context.controlReceipt(opId, runtimeSessionId);
   }
-  // A session with a dispatch record belongs to adoption above; only a session the projection
-  // knows without any dispatch record is settled from the projection alone.
+  // A missing process record still needs canonical owner evidence; a local header alone
+  // cannot prove that the worker or its descendants stopped.
   const recorded = headers.some((header) => header.runtimeSessionId === runtimeSessionId),
     session =
       recorded && !missingOwnedProcess
@@ -116,20 +118,25 @@ export async function cancelRuntime(
           ).find((value) => value.runtimeSessionId === runtimeSessionId);
   if (session && session.outcome === null) {
     const instanceId = matchingHeader?.instanceId ?? canonicalDispatch?.instanceId;
-    if (
-      matchingHeader === undefined &&
-      session.liveness !== "exited" &&
-      (!Number.isSafeInteger(canonicalDispatch?.processGroupPid) ||
-        Number(canonicalDispatch?.processGroupPid) <= 1 ||
-        probeProcessGroup({
-          pid: Number(canonicalDispatch?.processGroupPid),
-          pgid: Number(canonicalDispatch?.processGroupPid),
-        }) !== "proven_stopped")
-    )
-      throw runtimeSpawnError(
-        "runtime_process_group_unproven",
-        `Owner process group ${String(canonicalDispatch?.processGroupPid ?? "unknown")} could not be proven stopped.`,
-      );
+    let processGroupPid: number | null = null;
+    if (matchingHeader !== undefined || session.liveness !== "exited") {
+      const ownerEvidence =
+        canonicalDispatch ??
+        (context.input.remote?.readRuntimeDispatch
+          ? await context.input.remote.readRuntimeDispatch(runtimeSessionId)
+          : readLocalRuntimeDispatchOwner(context, runtimeSessionId));
+      processGroupPid =
+        ownerEvidence?.actor.principal.personId === ownerBinding.actor.principal.personId &&
+        sameWriteSource(ownerEvidence.source, ownerBinding.source) &&
+        (matchingHeader === undefined || ownerEvidence.payload.dispatchId === matchingHeader.dispatchId)
+          ? ownerEvidence.processGroupPid
+          : null;
+      if (probeProcessGroup({ pgid: processGroupPid ?? undefined }) !== "proven_stopped")
+        throw runtimeSpawnError(
+          "runtime_process_group_unproven",
+          `Owner process group ${String(processGroupPid ?? "unknown")} could not be proven stopped.`,
+        );
+    }
     if (typeof instanceId === "string") {
       const failure = context.input.reclaimRuntimeTempDirectory?.(instanceId, runtimeSessionId) ?? null;
       if (failure)
@@ -139,6 +146,7 @@ export async function cancelRuntime(
     }
     const terminalBinding = {
       ...binding,
+      source: ownerBinding.source,
       actor: {
         principal: binding.actor.principal,
         executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
@@ -158,6 +166,7 @@ export async function cancelRuntime(
         reason: "Runtime session cancelled after its worker process was no longer available.",
         endedAt: context.input.now(),
         binding: terminalBinding,
+        ...(processGroupPid === null ? {} : { processGroupPid }),
       });
       if (settlement?.outcome === "lease_unproven") throw runtimeSpawnError(settlement.code, settlement.reason);
     }
@@ -268,7 +277,7 @@ export async function steerRuntime(
     header = current;
   }
   const runtimeSessionId = header.runtimeSessionId;
-  if (!header?.binding || !ownedByRuntimeSpawner(header.binding, context.input.runtimeNode))
+  if (!header?.binding || !ownedByRuntimeSpawner(header.binding, context.input.runtimeNode, header))
     throw runtimeSpawnError("execution_scope_mismatch", "This runtime is owned by another node.");
   assertRuntimeRecoveryReady(context, runtimeSessionId);
   let active = context.processes.get(runtimeSessionId);
@@ -323,5 +332,6 @@ export function closeRuntimes(context: RuntimeSpawnerContext): void {
   for (const entry of active) {
     disposeActiveRuntimeObservations(entry);
     entry.process.release?.();
+    entry.releaseAuthorization?.();
   }
 }

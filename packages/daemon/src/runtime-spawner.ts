@@ -17,6 +17,7 @@ import { assertAgentDispatchable } from "./agent-entities.ts";
 import { sharedProviderDirectory } from "./agent-runtime-instance-storage.ts";
 import {
   openDispatchStream,
+  readDispatchStreamHeader,
   removeDispatchStream,
   scrubProviderValue,
   type DispatchStreamWriter,
@@ -473,7 +474,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                   ? await input.remote.readRuntimeDispatch(session.runtimeSessionId)
                   : projection!.readRuntimeDispatch(session.runtimeSessionId);
                 dispatchId = dispatch?.payload.dispatchId ?? null;
-                if (dispatch && !ownedByRuntimeSpawner(dispatch, input.runtimeNode)) continue;
+                const header = dispatchId ? readDispatchStreamHeader(input.rootDir, dispatchId) : null;
+                if (dispatch && !ownedByRuntimeSpawner(dispatch, input.runtimeNode, header)) continue;
               }
               if (!assertRuntimeRecoveryReady(extracted, session.runtimeSessionId, dispatchId, session.liveness))
                 continue;
@@ -819,6 +821,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         kindId: definition.kindId,
         permissionMode: launchedPermissionMode ?? null,
         binding: runtimeBindingForDispatch(activeBinding),
+        executionOwner: input.runtimeNode ?? "local",
         cwd,
         prompt: scrubProviderValue(prompt) as string,
         mission: scrubProviderValue(mission) as string,
@@ -853,6 +856,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       if (callbackRelay) removeRuntimeCallbackRelay(newDispatchId);
     };
     const cleanupFailedLaunch = async (error: unknown): Promise<void> => {
+      processes.get(runtimeSessionId)?.releaseAuthorization?.();
       process?.terminate();
       process?.release?.();
       releaseModelSlot();
