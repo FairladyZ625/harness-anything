@@ -402,6 +402,17 @@ for (const restart of [false, true])
       await fixture.finish(String(direct.dispatchId), "direct delivery", 0, restart);
       if (restart) await fixture.reopen();
       await fixture.waitStatus((state) => state.workerCallbackCount >= 1);
+      // The child callback only proves the child outcome event projected. The targeting dispatch
+      // settles on its own process exit (scheduled after provider.exit returns), so wait for its
+      // canonical outcome before asserting the row or reading its settlement report.
+      assert.equal(
+        await eventually(
+          async () =>
+            ((await fixture.cell.read("repo.task.dispatches", { taskId })).dispatches[0]?.outcome ?? null) !== null,
+        ),
+        true,
+        "targeting dispatch records a terminal outcome",
+      );
       await fixture.cell.settlePendingMaterialization("publication owner");
       const rows = (await fixture.cell.read("repo.task.dispatches", { taskId })).dispatches;
       assert.equal(rows[0]?.outcome, "succeeded");
