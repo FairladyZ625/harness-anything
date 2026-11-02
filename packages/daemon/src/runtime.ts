@@ -1,5 +1,5 @@
 import { requireExecutionRequestScope } from "./runtime-execution-scope.ts";
-import { authenticateRuntimeExecutionCredential } from "./runtime-execution-credential.ts";
+import { authenticateRuntimeExecutionPrincipal } from "./runtime-execution-credential.ts";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel";
@@ -211,7 +211,7 @@ export async function startDaemon(input: {
             const edgeRepo = host!.status().repos.find((repo) => repo.repoId === repoId && repo.mode === "remote-edge");
             const principal = edgeRepo
               ? readRuntimeExecutionPrincipal(edgeRepo.rootDir, credential)
-              : await authenticateRuntimeExecutionCredential(await host!.keycloakCenter(), credential);
+              : await authenticateRuntimeExecutionPrincipal(() => host!.keycloakCenter(), credential);
             if (!principal)
               throw Object.assign(new Error("Execution credential is unknown or expired on this edge runtime."), {
                 code: "authorization_denied",

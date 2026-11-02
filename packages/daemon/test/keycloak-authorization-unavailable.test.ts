@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
 import { code as hostErrorCode } from "../src/daemon-host-errors.ts";
+import { isKeycloakTransportFailure } from "../src/keycloak-transport-failure.ts";
 import { rpcServerErrorCode } from "../src/protocol/json-rpc-dispatch-support.ts";
-import { evaluateKeycloakPerson } from "../src/repo-cell-authorization.ts";
+import { evaluateKeycloakPerson, evaluateRepoCellAction } from "../src/repo-cell-authorization.ts";
 
 const url = "http://127.0.0.1:1";
 
@@ -48,6 +49,66 @@ test("a Keycloak transport failure keeps the real cause but is not a generic dae
       assert.ok(error.cause instanceof Error, "the original transport failure remains attached");
       return true;
     },
+  );
+});
+
+test("a cold center token before execution-credential verification is a retryable identity outage", async () => {
+  const provider = new KeycloakPolicyAdapter(
+      { url, realm: "harness", resourceServerClientId: "harness-center" },
+      connectionRefusedFetch(),
+    ),
+    centerFailure = Object.assign(new Error("Keycloak could not be reached to acquire a center token."), {
+      code: "daemon_error",
+      cause: Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }),
+    });
+  await assert.rejects(
+    evaluateRepoCellAction({
+      action: { kind: "task-create", taskId: "task-f3", title: "F3" },
+      binding: {
+        actor: { principal: { personId: "person-f3" }, executor: null },
+        source: "local",
+        executionPrincipal: {
+          personId: "person-f3",
+          repoId: "repo-f3",
+          runtimeSessionId: "runtime-f3",
+          dispatchId: "dispatch-f3",
+          taskId: "task-f3",
+          executionId: "exec-f3",
+          role: "implementation",
+          source: "local",
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        } as never,
+        keycloakAuthorization: {
+          session: {
+            provider,
+            personId: "person-f3",
+            accessToken: "user-token",
+            url,
+            realm: "harness",
+            clientId: "harness-center",
+          },
+          center: async () => {
+            throw centerFailure;
+          },
+        },
+      },
+      actionId: "action-f3",
+      repoId: "repo-f3",
+      revision: 1,
+      now: "2026-11-02T00:00:00.000Z",
+    }),
+    (error: Error & { readonly code?: string }) => {
+      // The execution credential is verified before any task action. A cold center token here is
+      // still pre-execution and must use the same recoverable identity classification.
+      assert.equal(error.code, "keycloak_unavailable");
+      assert.match(error.message, /verifying the runtime execution credential/u);
+      return true;
+    },
+  );
+  assert.equal(
+    isKeycloakTransportFailure(new TypeError("fetch failed", { cause: { code: "ECONNREFUSED" } })),
+    true,
+    "a raw fetch rejection is recognized by the shared classifier",
   );
 });
 

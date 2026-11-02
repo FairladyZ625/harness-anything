@@ -2,6 +2,7 @@ import { requireSquadBusinessAction } from "./squad-runtime-ingress.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import { scrubSecretText } from "./secret-scrub.ts";
 import { verifyRuntimeExecutionPrincipal, executionCredentialRejected } from "./runtime-execution-credential.ts";
+import { isKeycloakTransportFailure, keycloakUnavailableFailure } from "./keycloak-transport-failure.ts";
 import { isCurrentSubmittedWorkerWrite, requireCurrentExecutionScope } from "./runtime-execution-scope.ts";
 import { composeDurableActionEnvelope } from "@harness-anything/application/internal/durable-action-envelope";
 import path from "node:path";
@@ -82,7 +83,16 @@ export async function evaluateRepoCellAction(input: {
     });
   if (input.binding.executionPrincipal) {
     if (!credential.center) throw executionCredentialRejected();
-    await verifyRuntimeExecutionPrincipal(await credential.center(), input.binding.executionPrincipal, input.fetchPort);
+    try {
+      await verifyRuntimeExecutionPrincipal(
+        await credential.center(),
+        input.binding.executionPrincipal,
+        input.fetchPort,
+      );
+    } catch (error) {
+      if (!isKeycloakTransportFailure(error)) throw error;
+      throw keycloakUnavailableFailure(error, "verifying the runtime execution credential");
+    }
   }
   const resourceAncestors = await canonicalResourceAncestors(input.readTask, resource);
   const result = await evaluateKeycloakPerson({
@@ -268,27 +278,9 @@ export async function evaluateKeycloakPerson(input: {
       authority: centerProvider!.authority,
     };
   } catch (error) {
-    if (!keycloakTransportFailure(error)) throw error;
-    throw Object.assign(
-      new Error(
-        "The daemon could not reach the Keycloak identity authority while authorizing this action " +
-          "(the daemon may still be starting its managed identity services), so the request was not applied. " +
-          `${error instanceof Error ? error.message : String(error)}`,
-        { cause: error },
-      ),
-      { code: "keycloak_unavailable" },
-    );
+    if (!isKeycloakTransportFailure(error)) throw error;
+    throw keycloakUnavailableFailure(error, "authorizing this action");
   }
-}
-
-function keycloakTransportFailure(error: unknown): boolean {
-  if (typeof error !== "object" || error === null) return false;
-  const code = (error as { readonly code?: unknown }).code;
-  return (
-    code === "daemon_error" ||
-    (typeof code === "string" &&
-      ["ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "ENOTFOUND", "EHOSTUNREACH"].includes(code))
-  );
 }
 
 export function authorizeRepoCellAction(input: {

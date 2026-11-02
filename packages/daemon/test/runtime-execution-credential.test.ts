@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   authenticateRuntimeExecutionCredential,
+  authenticateRuntimeExecutionPrincipal,
   issueRuntimeExecutionCredential,
   runtimeExecutionLifetimeMs,
   runtimeExecutionActor,
@@ -1049,4 +1050,22 @@ test("execution credentials keep validator sources inside the dispatched reposit
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
+});
+
+test("a cold center token before runtime execution authentication is a retryable identity outage", async () => {
+  const cold = Object.assign(new Error("Keycloak could not be reached to acquire a center token."), {
+    code: "daemon_error",
+    cause: Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }),
+  });
+  await assert.rejects(
+    authenticateRuntimeExecutionPrincipal(async () => {
+      throw cold;
+    }, "harness-execution-dispatch-worker:secret"),
+    (error: Error & { readonly code?: string }) => {
+      assert.equal(error.code, "keycloak_unavailable");
+      assert.match(error.message, /authenticating the runtime execution credential/u);
+      assert.equal(error.cause, cold);
+      return true;
+    },
+  );
 });
