@@ -412,7 +412,12 @@ export function wireCut(cut: { readonly revision: number; readonly headDigest: s
 
 async function untilAborted<T>(operation: () => Promise<T>, signal: AbortSignal): Promise<T> {
   signal.throwIfAborted();
-  return await operation();
+  try {
+    return await operation();
+  } catch (error) {
+    if (signal.aborted) throw new FleetFault("connection_closed", "Replica connection closed", true);
+    throw error;
+  }
 }
 
 export function digestId(...parts: string[]): string {
