@@ -22,7 +22,9 @@ test("escalation settlement waits for full tree cleanup before releasing the tas
   let finishTreeCleanup!: () => void,
     treeCleanupStarted = false,
     treeCleaned = false,
-    released = false;
+    released = false,
+    stopProofAvailable = false,
+    settlementAttempts = 0;
   const treeCleanup = new Promise<void>((resolve) => {
       finishTreeCleanup = () => {
         treeCleaned = true;
@@ -87,6 +89,11 @@ test("escalation settlement waits for full tree cleanup before releasing the tas
       },
       settleFallback: async (_runtime: ActiveRuntime, _attempt: unknown, terminal: RuntimeAttemptTerminal) => {
         assert.equal(treeCleaned, true, "the lease must not be released before descendants stop");
+        settlementAttempts += 1;
+        if (!stopProofAvailable)
+          throw Object.assign(new Error("process group stop proof is not available yet"), {
+            code: "runtime_process_group_unproven",
+          });
         terminals.push(terminal);
       },
     } as unknown as RuntimeSpawnerContext,
@@ -101,8 +108,20 @@ test("escalation settlement waits for full tree cleanup before releasing the tas
     assert.equal(released, false, "the process owner stays available until release is safe");
 
     finishTreeCleanup();
-    await settlement;
+    await assert.rejects(
+      settlement,
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
+    );
+    assert.equal(settlementAttempts, 1);
+    assert.equal(terminals.length, 0, "an unavailable stop proof must not publish unknown or retire the runtime");
+    assert.deepEqual(published, []);
+    assert.equal(contextValue.processes.has(runtime.runtimeSessionId), true);
+    assert.equal(released, false);
 
+    stopProofAvailable = true;
+    await publishExit(contextValue, runtime, null);
+
+    assert.equal(settlementAttempts, 2);
     assert.equal(terminals.length, 1);
     assert.equal(terminals[0]?.waitingOnOwner, true);
     assert.equal(contextValue.processes.has(runtime.runtimeSessionId), false);
