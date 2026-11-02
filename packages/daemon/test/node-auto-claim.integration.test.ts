@@ -552,7 +552,22 @@ test(
           false,
         );
         phase = "settle first concurrency slot";
+        const predecessor = await fixture.host.read(
+          "lease-repo",
+          "repo.agentRuntime.overview",
+          { taskId: tasks.next },
+          fixture.owners.auth({ nodeId: "node-one" }),
+        );
+        assert.equal(predecessor.sessions.length, 1);
+        // Provider exit only starts Fleet settlement. Join its canonical terminal event before
+        // applying the launch wait's budget to the successor; do not manually wake auto-claim.
+        const settled = fixture.host.awaitRuntimeSessions(
+          "lease-repo",
+          { runtimeSessionIds: predecessor.sessions.map((session) => session.runtimeSessionId), mode: "all" },
+          localAuth,
+        );
         await launches.find((launch) => launch.taskId === tasks.next)!.finish();
+        assert.equal((await settled).status, "ready");
         await waitForLaunch(edge, "task-50-waits-for-b-slot");
         let startedOnB: Awaited<ReturnType<typeof fixture.host.read>>;
         try {
