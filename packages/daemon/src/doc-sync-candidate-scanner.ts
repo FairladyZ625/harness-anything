@@ -4,7 +4,11 @@ import {
 } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { findLedgerGitLayout, localGitWorktreeSettlement } from "@harness-anything/storage";
+import {
+  findCanonicalLedgerGitLayout,
+  findLedgerGitLayout,
+  localGitWorktreeSettlement,
+} from "@harness-anything/storage";
 import {
   artifactSubtreePath,
   decideDocWriteCriteria,
@@ -92,7 +96,7 @@ export function scanDocCandidates(input: {
   readonly inventory?: AuthoredCandidateInventoryV1;
 }): DocCandidateScan {
   const layout = resolveHarnessLayout(input.rootDir),
-    ledger = input.store.currentCommit() === null ? null : findLedgerGitLayout(input.rootDir),
+    ledger = findCanonicalLedgerGitLayout(input.rootDir, input.store),
     task = input.taskId === undefined ? null : input.projection.read(input.taskId),
     taskPrefix =
       input.taskId === undefined

@@ -1,6 +1,7 @@
 import path from "node:path";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "@harness-anything/kernel/internal/layout/index.ts";
 import { makeLocalVersionControlSystem } from "./local-version-control-system.ts";
+import type { CanonicalEventStore } from "@harness-anything/kernel";
 export interface LedgerGitLayout {
   readonly rootDir: string;
   readonly authoredRoot: string;
@@ -36,6 +37,15 @@ export function findLedgerGitLayout(input: HarnessLayoutInput): LedgerGitLayout 
   if (ledgerTopLevelCache.size >= 64) ledgerTopLevelCache.clear();
   ledgerTopLevelCache.set(authoredRoot, layout);
   return layout;
+}
+/** A settled follower already proves Git is configured; avoid resolving its ref for every scan. */
+export function findCanonicalLedgerGitLayout(
+  input: HarnessLayoutInput,
+  store: Pick<CanonicalEventStore, "followerStatus" | "currentCommit">,
+): LedgerGitLayout | null {
+  return store.followerStatus().git.commitSha !== null || store.currentCommit() !== null
+    ? findLedgerGitLayout(input)
+    : null;
 }
 export function ledgerGitPath(layout: LedgerGitLayout, authoredRelativePath: string): string {
   return layout.authoredPrefix ? `${layout.authoredPrefix}/${authoredRelativePath}` : authoredRelativePath;
