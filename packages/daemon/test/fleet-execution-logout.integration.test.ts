@@ -747,7 +747,9 @@ test(
     // CH2 preserves repository reads after amendment; only the stale receipt and success settlement are fenced.
     const supersededEvidence = await reviewCli(["doc", "show", "--path", frozenEvidencePath]);
     assert.equal(supersededEvidence.outcome, "applied", JSON.stringify(supersededEvidence));
-    assert.equal(supersededEvidence.evidence, frozenEvidence);
+    assert.equal(supersededEvidence.evidenceContentEncoding, "utf8");
+    assert.equal(typeof supersededEvidence.evidenceFile, "string");
+    assert.equal(readFileSync(String(supersededEvidence.evidenceFile), "utf8"), frozenEvidence);
     const staleReceipt = await reviewCli([
       "task",
       "review-execution",

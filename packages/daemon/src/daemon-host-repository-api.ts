@@ -61,7 +61,6 @@ import {
 } from "./repo-all-purge.ts";
 import { removeFileDurably } from "../../storage/src/durable-file.ts";
 import { readPolicyMetadata } from "./policy-metadata-read.ts";
-import { assertFleetReadFits } from "./dispatch-read.ts";
 
 function isRepoCellReadMethod(method: DaemonGuiRpcReadMethod): method is RepoCellReadMethod {
   return (
