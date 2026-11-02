@@ -218,6 +218,31 @@ test("task create publishes complete metadata and first-class relations survive 
       surfaces: ["ha task create", "packages/kernel"],
       fromLegacyId: null,
     });
+    const surfaceGrant = await cell.run(
+      {
+        kind: "task-amend",
+        taskId: "task_surface",
+        patches: [{ field: "surfaces", value: '["harness/skills/test-isolation/**"]' }],
+      },
+      binding,
+    );
+    assert.equal(surfaceGrant.outcome, "applied", JSON.stringify(surfaceGrant));
+    const grantEvent = makeTaskEventReader({ repoId: "task-surface", rootDir })
+      .read()
+      .events.find(
+        (candidate) =>
+          candidate.schema === "task-event/v1" &&
+          candidate.type === "task_amended" &&
+          candidate.taskId === "task_surface",
+      );
+    assert.ok(grantEvent && grantEvent.schema === "task-event/v1" && grantEvent.type === "task_amended");
+    assert.deepEqual(grantEvent.payload.task.metadata?.surfaces, ["harness/skills/test-isolation/**"]);
+    const invalidSurfaceGrant = await cell.run(
+      { kind: "task-amend", taskId: "task_surface", patches: [{ field: "surfaces", value: "not-json" }] },
+      binding,
+    );
+    assert.equal(invalidSurfaceGrant.outcome, "op_rejected", JSON.stringify(invalidSurfaceGrant));
+    assert.equal(invalidSurfaceGrant.code, "invalid_amend");
     const runtimeContext = await cell.read("repo.tasks.runtimeContext.read", { taskId: "task_surface" }, binding);
     assert.equal(runtimeContext.schema, "task-runtime-context-read/v3");
     assert.equal(runtimeContext.riskTierFlowVersion, 1);

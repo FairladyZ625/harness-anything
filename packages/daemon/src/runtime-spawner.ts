@@ -90,6 +90,7 @@ import { runtimeDispatchRequestedPayload } from "./runtime-spawn-event.ts";
 import { daemonCliBinDirectory, prepareBoundRuntimeLaunch } from "./runtime-spawn-context.ts";
 import type { RuntimeEventOf, RuntimeEventType, RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
+import { taskExecutionSurfaces } from "./runtime-execution-scope.ts";
 import { assertReviewerTarget, selectReadOnlyAttachTarget, selectReviewTarget } from "./review-dispatch-admission.ts";
 import { assertContextBudget, ModelSlotQueue } from "./runtime/model-slot-queue.ts";
 import { relayBudgetMicrosOf } from "./runtime/cloud-dispatch-relay.ts";
@@ -941,6 +942,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 taskId,
                 executionId: taskBinding!.executionId,
                 role: reviewerBinding ? "reviewer" : "implementation",
+                surfaces: taskExecutionSurfaces(
+                  taskSnapshot?.task ?? null,
+                  reviewerBinding ? "reviewer" : "implementation",
+                ),
               },
             }
           : {}),

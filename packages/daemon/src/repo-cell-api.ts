@@ -8,7 +8,7 @@ import { resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
 import { writeFileDurably, removeFileDurably } from "../../storage/src/durable-file.ts";
 import { queryPayloadFacets as sharedQueryPayloadFacets, taskListQueryFromPayload } from "./repo-query-payload.ts";
 import { runRuntimeHandoff } from "./runtime-handoff.ts";
-import { requireCurrentExecutionScope } from "./runtime-execution-scope.ts";
+import { requireCurrentExecutionScope, taskExecutionSurfaces } from "./runtime-execution-scope.ts";
 import {
   issueRuntimeExecutionCredential,
   runtimeExecutionLifetimeMs,
@@ -889,6 +889,16 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
                   : dispatch.payload.role === "read-only"
                     ? "read-only"
                     : "session",
+                surfaces: taskExecutionSurfaces(
+                  dispatch.payload.taskId ? context.projection.read(dispatch.payload.taskId).snapshot.task : null,
+                  dispatch.payload.taskId
+                    ? dispatch.payload.role === "reviewer"
+                      ? "reviewer"
+                      : "implementation"
+                    : dispatch.payload.role === "read-only"
+                      ? "read-only"
+                      : "session",
+                ),
                 source: dispatch.source,
                 ...(dispatch.payload.reviewTarget?.kind === "decision"
                   ? { reviewDecisionId: dispatch.payload.reviewTarget.decisionId }
@@ -918,6 +928,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
                 executionCredential,
                 executionExpiresAt: execution!.expiresAt,
                 executionPrincipalId: execution!.personId,
+                executionSurfaces: execution!.surfaces ?? [],
               }
             : {}),
         } as unknown as JsonObject;
