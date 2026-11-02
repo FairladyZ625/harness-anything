@@ -138,6 +138,7 @@
     "packages/daemon/src/worktree-node-modules-mirror.ts",
     "packages/daemon/src/worktree-setup-node-modules.ts",
     "packages/daemon/src/worktree-setup.ts",
+    "packages/cli/src/index.ts",
     "packages/storage/src/writer-epoch.ts",
     "packages/gui/src/main/artifact-open-ipc.ts",
     "packages/gui/src/main/desktop-first-run.ts",
