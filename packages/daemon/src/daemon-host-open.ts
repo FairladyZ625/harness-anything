@@ -7,7 +7,7 @@ import {
   startFleetCenterAdmission,
 } from "./fleet-center-admission.ts";
 import {
-  authenticateRuntimeExecutionCredential,
+  authenticateRuntimeExecutionPrincipal,
   executionCredentialRejected,
   runtimeExecutionActor,
 } from "./runtime-execution-credential.ts";
@@ -294,7 +294,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     // Session authorization also consults Keycloak, without using the center supplier.
     await rbacResumed;
     const execution = auth.executionCredential
-      ? await authenticateRuntimeExecutionCredential(await keycloakCenter(), auth.executionCredential)
+      ? await authenticateRuntimeExecutionPrincipal(keycloakCenter, auth.executionCredential)
       : auth.executionPrincipal;
     if (execution) {
       if (

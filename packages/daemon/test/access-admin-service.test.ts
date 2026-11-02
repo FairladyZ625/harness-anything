@@ -393,6 +393,45 @@ test("the journal holds receipts only, and a lost receipt is reconciled without 
   );
 });
 
+test("a lost Keycloak response leaves the admin write unsettled and a retry does not repeat it", async (t) => {
+  let loseResponse = true;
+  const f = await fixture(t, {
+      wrapFetch: (inner) => async (input, init) => {
+        const response = await inner(input, init);
+        if (
+          loseResponse &&
+          init?.method === "POST" &&
+          new URL(String(input)).pathname.endsWith("/groups") &&
+          response.ok
+        ) {
+          loseResponse = false;
+          throw new TypeError("fetch failed", {
+            cause: Object.assign(new Error("socket hang up"), { code: "ECONNRESET" }),
+          });
+        }
+        return response;
+      },
+    }),
+    operationId = randomUUID(),
+    request = { operation: "team-create" as const, teamName: "Lost response", operationId };
+  await assert.rejects(f.admin.run(request), (error: Error & { readonly code?: string }) => {
+    assert.equal(error.code, "daemon_error", "an admin write transport failure is not a retryable identity code");
+    return true;
+  });
+  // Keycloak applied the write before the response was lost; the intent is the reconcile anchor.
+  assert.ok((await f.provider.readTeams("center-token")).some((team) => team.name === "Lost response"));
+  assert.deepEqual(
+    f.journal().map((record) => record.phase),
+    ["intent"],
+  );
+  f.keycloak.writes.length = 0;
+  await assert.rejects(f.admin.run(request), { code: "access_receipt_unsettled" });
+  assert.deepEqual(f.keycloak.writes, [], "the retry does not repeat the Keycloak write");
+  const reconciled = await f.admin.run({ operation: "receipt-reconcile", operationId });
+  assert.deepEqual([reconciled.ok, reconciled.outcome], [true, "applied"]);
+  assert.deepEqual(f.keycloak.writes, [], "reconciliation reads the realm; it does not replay the write");
+});
+
 test("a write without an operationId generates one and journals the same id", async (t) => {
   const { keycloak, admin, journal } = await fixture(t);
   keycloak.account("alice");

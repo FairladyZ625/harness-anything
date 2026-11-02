@@ -511,7 +511,7 @@ test("unreachable Keycloak refuses task-start without an accepted canonical writ
   });
   assert.equal(denied.outcome, "op_rejected", JSON.stringify(denied));
   // Center token acquisition fails before RepoCell authorization when the realm is offline.
-  assert.equal(denied.code, "daemon_error", JSON.stringify(denied));
+  assert.equal(denied.code, "keycloak_unavailable", JSON.stringify(denied));
   assert.equal(f.eventCount(), before);
 });
 
