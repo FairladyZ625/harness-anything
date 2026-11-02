@@ -216,7 +216,7 @@ function taskSnapshot(t) {
   return root;
 }
 
-test("G0-2 traces all 175 declared writes, including repository Todo actions", () => {
+test("G0-2 traces all 176 declared writes, including repository Todo actions", () => {
   const result = auditDurableActionAuthorization(repoRoot);
   // dec_4190D5EA63D9DD208CE946F133 and dec_5EC2631352B17EE2BF4979E37E authorize four Task GateRun writes.
   // dec_2AAF1D0612D3295C80F87E49FE CH1 authorizes daemon-mediated task push.
@@ -235,9 +235,16 @@ test("G0-2 traces all 175 declared writes, including repository Todo actions", (
   // dec_D90F19C8AAAF39747F8F0D6698/CH20 adds the queued migration admin action.
   // dec_2C72644059ACA2D4BE30C07786/CH1 adds access-manage to the protocol inventory.
   // task_6569c05452127015cf461219de adds the node-local auto-claim host action.
-  assert.equal(result.rows.length, 175);
+  // task_b61f743f47a04298a7a96704e0 adds the declared-source witness-run action.
+  assert.equal(result.rows.length, 176);
   assert.equal(result.rows.find(({ action }) => action === "task-respond-review")?.authorizationPort, true);
-  for (const action of ["task-escalate", "task-escalation-resolve", "daemon-node-auto-claim", "migrate-storage"])
+  for (const action of [
+    "task-escalate",
+    "task-escalation-resolve",
+    "daemon-node-auto-claim",
+    "migrate-storage",
+    "task-witness-run",
+  ])
     assert.equal(result.rows.find((row) => row.action === action)?.authorizationPort, true, action);
   assert.equal(
     result.rows.some(

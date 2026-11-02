@@ -771,6 +771,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "task-witness-claim",
       "task-witness-rerun",
       "task-witness-revoke",
+      "task-witness-run",
       "task-witness-settle",
     ],
     template: ["template-list", "template-render"],
