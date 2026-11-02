@@ -53,8 +53,10 @@ test("retired People mutations are absent from the durable authorization invento
   // dec_6C9E3399972A2F06C046BA89DC/CH1 removes task-pin/unpin-only authorization paths.
   // task_c42e93a6c384624aba591b9b8b adds the worker escalation and owner resolution writes.
   // dec_D90F19C8AAAF39747F8F0D6698/CH3/CH20 adds the admin storage migration Action.
-  assert.equal(durablePolicyActions.length, 169);
+  // task_6569c05452127015cf461219de adds the node-local auto-claim host action.
+  assert.equal(durablePolicyActions.length, 170);
   assert.equal(durablePolicyActions.includes("migrate-storage"), true);
+  assert.equal(durablePolicyActions.includes("daemon-node-auto-claim"), true);
   assert.equal(durablePolicyActions.includes("task-adjudicate"), false);
   assert.equal(durablePolicyActions.includes("task-code-doc-reconcile"), false);
   assert.equal(durablePolicyActions.includes("task-code-doc-repoint"), false);
