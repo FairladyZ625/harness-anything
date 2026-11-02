@@ -1,6 +1,7 @@
 import {
   defineEdgeReplicaQueryOnlyReadCommand,
   defineCenterForwardWriteCommand,
+  defineCliCommand,
   cliInput,
   decisionProposalDefaultJsonFields,
   decisionProposalJsonFields,
@@ -9,6 +10,25 @@ import {
   defineLocalArbiterCommand,
   workspacePathFormat,
 } from "@harness-anything/preset/internal/preset-command-contract";
+
+const defineCenterForwardArbiterCommand = <
+  const Command extends {
+    readonly path: readonly string[];
+    readonly inputs: readonly ReturnType<typeof cliInput>[];
+  },
+>(
+  declaration: Command,
+) =>
+  defineCliCommand({
+    ...declaration,
+    commandClass: "arbiter" as const,
+    admission: {
+      local: "direct" as const,
+      "remote-proxy": "rejected" as const,
+      "remote-center": "direct" as const,
+      "remote-edge": "via-center-forward" as const,
+    },
+  });
 
 export const decisionLifecycleProtocolCommands = Object.freeze([
   ...["assign", "unassign"].map((operation) =>
@@ -91,7 +111,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "decision-repin",
     phase: "DecisionFact-B",
     path: ["decision", "repin", "[id]"],
@@ -112,7 +132,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "decision-propose",
     phase: "DecisionFact-B",
     path: ["decision", "propose"],
@@ -176,7 +196,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "decision-transition",
     phase: "DecisionFact-B",
     path: ["decision", "transition", "<superseded|outcome_retired>", "<id>"],
@@ -191,7 +211,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "decision-accept",
     phase: "DecisionFact-B",
     path: ["decision", "accept", "<id>"],
@@ -243,7 +263,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineLocalArbiterCommand({
+  defineCenterForwardArbiterCommand({
     id: "decision-reject",
     phase: "DecisionFact-B",
     path: ["decision", "reject", "<id>"],
@@ -281,7 +301,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "decision-defer",
     phase: "DecisionFact-B",
     path: ["decision", "defer", "<id>"],
@@ -314,7 +334,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineLocalArbiterCommand({
+  defineCenterForwardArbiterCommand({
     id: "decision-review",
     phase: "DecisionFact-B",
     path: ["decision", "review", "<id>"],
@@ -343,7 +363,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "decision-dispatch-review",
     phase: "DecisionFact-B",
     path: ["decision", "dispatch-review", "<id>"],
@@ -359,7 +379,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
       cliInput("--expected-digest", "single", false, { code: "invalid_field" }),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "decision-respond-review",
     phase: "DecisionFact-B",
     path: ["decision", "respond-review", "<id>"],
@@ -380,7 +400,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineLocalArbiterCommand({
+  defineCenterForwardArbiterCommand({
     id: "decision-override-review",
     phase: "DecisionFact-B",
     path: ["decision", "override-review", "<id>"],
@@ -416,7 +436,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "decision-retire",
     phase: "DecisionFact-B",
     path: ["decision", "retire", "<id>"],
@@ -434,7 +454,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "decision-amend",
     phase: "DecisionFact-B",
     path: ["decision", "amend", "<id>"],

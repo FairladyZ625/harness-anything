@@ -1,11 +1,11 @@
 import {
   cliInput,
-  defineLedgerWriteCommand,
+  defineCenterForwardWriteCommand,
   defineEdgeReplicaQueryOnlyReadCommand,
 } from "@harness-anything/preset/internal/preset-command-contract";
 
 export const decisionRelationProtocolCommands = Object.freeze([
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "decision-claim-add",
     phase: "DecisionFact-B",
     path: ["decision", "claim", "add", "<id>"],
@@ -29,7 +29,7 @@ export const decisionRelationProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "decision-claim-fulfill",
     phase: "DecisionFact-B",
     path: ["decision", "claim", "fulfill", "<id>"],
@@ -56,7 +56,7 @@ export const decisionRelationProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "decision-reckon",
     phase: "DecisionFact-B",
     path: ["decision", "reckon", "<id>"],
@@ -134,7 +134,7 @@ export const decisionRelationProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "distill-candidate",
     phase: "DecisionFact-B",
     path: ["distill", "candidate"],
@@ -153,7 +153,7 @@ export const decisionRelationProtocolCommands = Object.freeze([
     ],
     actionConstraints: [["inputPath", "entityRef"]],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "distill-promote",
     phase: "DecisionFact-B",
     path: ["distill", "promote"],

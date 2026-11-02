@@ -124,7 +124,7 @@ export const docFactProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "doc-retire",
     phase: "DocSync-B",
     path: ["doc", "retire"],
@@ -167,7 +167,7 @@ export const docFactProtocolCommands = Object.freeze([
     method: "repo.task.run",
     inputs: [],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "fact-reclassify",
     phase: "DecisionFact-A",
     path: ["fact", "reclassify"],
@@ -189,7 +189,7 @@ export const docFactProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "fact-archive",
     phase: "DecisionFact-A",
     path: ["fact", "archive"],
@@ -216,7 +216,7 @@ export const docFactProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "fact-unarchive",
     phase: "DecisionFact-A",
     path: ["fact", "unarchive"],
