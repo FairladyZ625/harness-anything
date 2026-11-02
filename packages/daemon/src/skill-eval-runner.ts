@@ -6,6 +6,7 @@ import {
   SKILL_EVAL_PREDICATE,
   SKILL_EVAL_SOURCE,
   consumeKnownError,
+  stableStringify,
   evaluateSkillCase,
   judgeSkillEvaluation,
   type SkillEvalCaseInput,
@@ -42,6 +43,15 @@ export interface SkillEvalSkill extends SkillEvalDraftContract {
   readonly promptTemplate?: string;
 }
 
+export interface SkillEvalVersionDraft {
+  readonly skillId: string;
+  readonly version: string;
+  readonly body: string;
+  readonly name?: string;
+  readonly usageMarker?: string;
+  readonly requiredText?: readonly string[];
+}
+
 export interface SkillEvalCase {
   readonly id: string;
   readonly input: string;
@@ -68,6 +78,7 @@ export interface SkillEvalCaseView {
 }
 
 export interface SkillEvalStore {
+  readonly registerSkill: (skill: SkillEvalSkill) => Promise<void> | void;
   readonly getSkill: (skillId: string, version: string) => Promise<SkillEvalSkill | null> | SkillEvalSkill | null;
   readonly getLatestSkill?: (skillId: string) => Promise<SkillEvalSkill | null> | SkillEvalSkill | null;
   readonly listCases: (skillId: string) => Promise<readonly SkillEvalCase[]> | readonly SkillEvalCase[];
@@ -193,6 +204,34 @@ export class SkillEvalRunner {
     }
     if (!this.#options || !path.isAbsolute(this.#options.runRoot))
       throw skillEvalRunnerError("VALIDATION_ERROR", "skill evaluation runRoot must be an absolute path");
+  }
+
+  async registerVersion(scope: SkillEvalScope, input: SkillEvalVersionDraft): Promise<SkillEvalSkill> {
+    if (!scope.principalId) throw skillEvalRunnerError("FORBIDDEN", "skill registration requires a principal");
+    if (
+      ![input.skillId, input.version].every(
+        (value) => typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,95}$/u.test(value),
+      ) ||
+      typeof input.body !== "string" ||
+      !input.body.trim() ||
+      input.body.length > 100_000 ||
+      (input.name !== undefined && (typeof input.name !== "string" || !input.name.trim() || input.name.length > 200)) ||
+      (input.usageMarker !== undefined &&
+        (typeof input.usageMarker !== "string" || !input.usageMarker.trim() || input.usageMarker.length > 1_000)) ||
+      (input.requiredText !== undefined &&
+        (!Array.isArray(input.requiredText) ||
+          input.requiredText.length > 100 ||
+          input.requiredText.some((value) => typeof value !== "string" || !value.trim() || value.length > 1_000)))
+    )
+      throw skillEvalRunnerError("VALIDATION_ERROR", "skill version draft is invalid");
+    const skill: SkillEvalSkill = {
+      ...input,
+      digest: sha256(stableStringify(input)),
+      status: "draft",
+      createdBy: scope.principalId,
+    };
+    await this.#store.registerSkill(skill);
+    return skill;
   }
 
   async addCase(scope: SkillEvalScope, skillId: string, input: SkillEvalCaseDraft): Promise<SkillEvalCaseView> {

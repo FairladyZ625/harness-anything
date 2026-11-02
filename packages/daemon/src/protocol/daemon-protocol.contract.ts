@@ -10,6 +10,7 @@ import {
   runtimeInstanceMethods,
 } from "./daemon-protocol-gui-actions.ts";
 import { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
+import { daemonRepositoryReadMethods } from "./daemon-protocol-commands.ts";
 import type { DaemonSessionEnvironment } from "./daemon-protocol-identifiers.ts";
 import {
   allDaemonProtocolMethods,
@@ -234,8 +235,28 @@ export interface DaemonStopResult {
   readonly pid: number;
 }
 
-type DaemonRpcSuccessResult<Method extends DaemonRpcMethod> =
-  Method extends keyof import("./daemon-protocol-gui-types.ts").DaemonGuiReadResultMap
+type SkillEvalResults = {
+  readonly "daemon.skillEval.version.register": {
+    readonly ok: true;
+    readonly skill: import("../skill-eval-runner.ts").SkillEvalSkill;
+  };
+  readonly "daemon.skillEval.case.add": {
+    readonly ok: true;
+    readonly case: import("../skill-eval-runner.ts").SkillEvalCaseView;
+  };
+  readonly "daemon.skillEval.cases.list": {
+    readonly ok: true;
+    readonly cases: readonly import("../skill-eval-runner.ts").SkillEvalCaseView[];
+  };
+  readonly "daemon.skillEval.run": {
+    readonly ok: true;
+    readonly evaluation: import("../skill-eval-runner.ts").SkillEvalRunResult;
+  };
+};
+
+type DaemonRpcSuccessResult<Method extends DaemonRpcMethod> = Method extends keyof SkillEvalResults
+  ? SkillEvalResults[Method]
+  : Method extends keyof import("./daemon-protocol-gui-types.ts").DaemonGuiReadResultMap
     ? import("./daemon-protocol-gui-types.ts").DaemonGuiReadResultMap[Method]
     : Method extends keyof import("./daemon-protocol-gui-types.ts").DaemonStreamResultMap
       ? import("./daemon-protocol-gui-types.ts").DaemonStreamResultMap[Method]
@@ -347,6 +368,7 @@ export default Object.freeze({
     ...runtimeInstanceAuthMethods,
     ...fleetProtocolMethods,
     ...daemonGuiReadMethods,
+    ...daemonRepositoryReadMethods,
     ...daemonGuiActionMethods,
     ...daemonStreamFacets,
   ]),

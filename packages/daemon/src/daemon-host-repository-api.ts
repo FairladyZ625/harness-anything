@@ -58,6 +58,7 @@ import {
   validateRepoAllPurge,
 } from "./repo-all-purge.ts";
 import { removeFileDurably } from "../../storage/src/durable-file.ts";
+import { readPolicyMetadata } from "./policy-metadata-read.ts";
 import { assertFleetReadFits } from "./dispatch-read.ts";
 
 function isRepoCellReadMethod(method: DaemonGuiRpcReadMethod): method is RepoCellReadMethod {
@@ -69,6 +70,7 @@ function isRepoCellReadMethod(method: DaemonGuiRpcReadMethod): method is RepoCel
     method !== "daemon.gui.control.receipt" &&
     method !== "observe.tail" &&
     method !== "repo.fleet.overview.read" &&
+    method !== "repo.policy.metadata.read" &&
     method !== "repo.gui.catalog.snapshot" &&
     method !== "repo.gui.catalog.preset.read" &&
     method !== "repo.terminal.sessions.list"
@@ -822,7 +824,11 @@ export function createDaemonHostRepositoryApi(
         );
       if (edge && edge.canonicalRoot) {
         // Advisory annotations live only at the center. GUI and CLI share this read route.
-        if (method === "repo.task.dispatches" || method === "repo.fleet.overview.read") {
+        if (
+          method === "repo.task.dispatches" ||
+          method === "repo.fleet.overview.read" ||
+          method === "repo.policy.metadata.read"
+        ) {
           const config = readFleetEdgeConfig(edge.canonicalRoot);
           if (!config)
             throw context.hostCodedError("fleet_edge_config_missing", "Center reads require fleet-edge.json.");
@@ -924,7 +930,8 @@ export function createDaemonHostRepositoryApi(
           evaluatedAtCut: `repository:${repoId}:current`,
         });
       let result: unknown;
-      if (method === "repo.tasks.claimable")
+      if (method === "repo.policy.metadata.read") result = await readPolicyMetadata(await context.keycloakCenter());
+      else if (method === "repo.tasks.claimable")
         result = await readClaimableTasks({
           repoId,
           binding,

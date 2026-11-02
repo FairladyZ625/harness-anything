@@ -19,6 +19,7 @@ import {
 import { assertWriterEpochFenceDescriptor } from "@harness-anything/storage";
 import { executeBuiltinScheduleOccurrence, type BuiltinExecutorCell } from "./schedule-builtin-executor.ts";
 import { readTaskCompletion } from "./task-completion-read.ts";
+import { readReckoningSignals } from "./reckoning-signals.ts";
 import { readTaskRuntimeContext } from "./task-runtime-context-read.ts";
 import { enqueueRuntimePublication } from "./runtime-publication-queue.ts";
 import { isSquadControlCommand, isSquadControlResult, squadControlRejected } from "./squad-control-result.ts";
@@ -331,6 +332,14 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
       }
     | undefined;
   const readHandlers = {
+    "repo.reckoning.signals.read": (payload: Readonly<Record<string, unknown>>) => ({
+      ok: true as const,
+      ...readReckoningSignals(
+        context.projection,
+        typeof payload.generatedAt === "string" ? payload.generatedAt : context.now(),
+        typeof payload.windowHours === "number" ? payload.windowHours : 24,
+      ),
+    }),
     // settings 原样返回(含 locale);values 为 kernel 拍平的动作值面(键 = 契约字段)。
     // revision 是与写路径同源的乐观并发令牌;lastChanged 只作归因展示。
     "repo.settings.read": () =>

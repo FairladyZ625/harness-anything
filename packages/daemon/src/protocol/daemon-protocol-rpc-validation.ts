@@ -85,6 +85,8 @@ export function validateDaemonRpcCall(value: unknown): readonly string[] {
       value.method === "repo.artifacts.list")
   )
     errors.push(...validateDaemonQueryPayload(value.method, (value.params as JsonObject).payload));
+  if (!errors.length && value.method === "repo.reckoning.signals.read")
+    errors.push(...validateReckoningQuery((value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.agenda.read")
     errors.push(...validateAgendaQueryPayload((value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.work.topology.read")
@@ -127,6 +129,21 @@ export function validateDaemonRpcCall(value: unknown): readonly string[] {
     if (!integer(afterSeq) || Number(afterSeq) < 0) errors.push("terminal attach sequence is invalid");
   }
   return errors;
+}
+
+function validateReckoningQuery(value: unknown): readonly string[] {
+  if (!isJsonObject(value)) return ["reckoning query must be an object"];
+  if (value.generatedAt !== undefined && !Number.isFinite(Date.parse(String(value.generatedAt))))
+    return ["reckoning generatedAt must be a timestamp"];
+  if (
+    value.windowHours !== undefined &&
+    (typeof value.windowHours !== "number" ||
+      !Number.isFinite(value.windowHours) ||
+      value.windowHours <= 0 ||
+      value.windowHours > 24 * 366)
+  )
+    return ["reckoning windowHours must be in (0, 8784]"];
+  return [];
 }
 
 function validateAgentRuntimeQuoteParams(value: unknown): string[] {

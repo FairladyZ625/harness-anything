@@ -376,6 +376,10 @@ type DaemonGuiReadDataMap = {
   readonly "repo.entity.locator.read": import("../entity-locator-read.ts").EntityLocatorReadV1;
   readonly "repo.entity.content.read": import("../entity-content-read.ts").EntityContentReadV1;
   readonly "repo.settings.read": import("./daemon-settings-read-types.ts").DaemonSettingsRead;
+  readonly "repo.reckoning.signals.read": import("../reckoning-signals.ts").ReckoningResult & { readonly ok: true };
+  readonly "repo.policy.metadata.read": Awaited<
+    ReturnType<typeof import("../policy-metadata-read.ts").readPolicyMetadata>
+  >;
   readonly "repo.workspace.summary.read": DaemonWorkspaceSummaryResult;
   readonly "repo.workspace.scope.read": import("../workspace-scope-read.ts").WorkspaceScopeRead;
   readonly "repo.agenda.read": DaemonAgendaResult;
@@ -443,7 +447,7 @@ export type DaemonGuiReadResultMap = {
 };
 
 /** Host-owned aggregate reads (fleet topology needs the center handle + daemon build facts). */
-export type DaemonHostOnlyGuiReadMethod = "observe.tail" | "repo.fleet.overview.read";
+export type DaemonHostOnlyGuiReadMethod = "observe.tail" | "repo.fleet.overview.read" | "repo.policy.metadata.read";
 
 /** Historical cell-routable read union. Host-owned aggregate reads use the full RPC union below. */
 export type DaemonGuiReadMethod = Exclude<keyof DaemonGuiReadResultMap, DaemonHostOnlyGuiReadMethod>;
@@ -480,6 +484,8 @@ export type DaemonGuiReadPayloadMap = {
     readonly path?: string;
   };
   readonly "repo.settings.read": Readonly<Record<string, never>>;
+  readonly "repo.reckoning.signals.read": { readonly generatedAt?: string; readonly windowHours?: number };
+  readonly "repo.policy.metadata.read": Readonly<Record<string, never>>;
   readonly "repo.workspace.summary.read": Readonly<Record<string, never>>;
   readonly "repo.workspace.scope.read": {
     readonly rootTaskId: string;

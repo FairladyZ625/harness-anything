@@ -32,6 +32,7 @@ export interface SkillEvalProductionInput {
 }
 
 export interface SkillEvalProduction {
+  readonly service: import("./daemon-host-types.ts").DaemonHost["skillEval"];
   readonly runner: SkillEvalRunner;
   readonly policy: SkillEvalPolicy;
 }
@@ -43,6 +44,10 @@ interface CatalogDocument {
 }
 
 const EMPTY_CATALOG: CatalogDocument = { skills: [], cases: {}, evaluations: [] };
+
+function casesForSkill(catalog: CatalogDocument, skillId: string): SkillEvalCase[] {
+  return Object.hasOwn(catalog.cases, skillId) ? (catalog.cases[skillId] ?? []) : [];
+}
 
 /** The daemon-owned catalog is deliberately append-only at the case boundary. */
 export function openSkillEvalCatalogStore(userRoot: string): SkillEvalStore {
@@ -76,16 +81,26 @@ export function openSkillEvalCatalogStore(userRoot: string): SkillEvalStore {
     return operation;
   };
   return {
+    registerSkill: (skill) =>
+      updateCatalog((catalog) => {
+        if (
+          catalog.skills.some((candidate) => candidate.skillId === skill.skillId && candidate.version === skill.version)
+        )
+          throw Object.assign(new Error(`skill ${skill.skillId}@${skill.version} already exists`), {
+            code: "CONFLICT",
+          });
+        return { ...catalog, skills: [...catalog.skills, skill] };
+      }),
     getSkill: async (skillId, version) =>
       (await readCatalog()).skills.find((skill) => skill.skillId === skillId && skill.version === version) ?? null,
     getLatestSkill: async (skillId) => {
       const skills = (await readCatalog()).skills.filter((skill) => skill.skillId === skillId);
       return skills.at(-1) ?? null;
     },
-    listCases: async (skillId) => (await readCatalog()).cases[skillId] ?? [],
+    listCases: async (skillId) => casesForSkill(await readCatalog(), skillId),
     appendCase: (skillId, item) =>
       updateCatalog((catalog) => {
-        const cases = [...(catalog.cases[skillId] ?? [])];
+        const cases = [...casesForSkill(catalog, skillId)];
         if (cases.some((candidate) => candidate.id === item.id))
           throw Object.assign(new Error(`evaluation case ${item.id} already exists`), { code: "CONFLICT" });
         cases.push(item);
@@ -132,16 +147,24 @@ const defaultPolicy: SkillEvalPolicy = {
 };
 
 export function openSkillEvalProduction(input: SkillEvalProductionInput): SkillEvalProduction {
-  const runtime = input.runtime ?? unavailableRuntime;
-  return {
-    policy: input.policy ?? defaultPolicy,
-    runner:
+  const runtime = input.runtime ?? unavailableRuntime,
+    policy = input.policy ?? defaultPolicy,
+    runner =
       input.runner ??
       new SkillEvalRunner(input.store ?? openSkillEvalCatalogStore(input.userRoot), runtime, {
         runRoot: input.runRoot ?? path.join(input.userRoot, "skill-eval", "runs"),
         binding: input.binding ?? (input.runtime ? { runtime: "daemon-admitted" } : null),
         queue: input.queue ?? openSkillEvalModelSlotQueue(),
-      }),
+      });
+  return {
+    policy,
+    runner,
+    service: {
+      registerVersion: async (auth, draft) => runner.registerVersion(await policy.scope(auth), draft),
+      addCase: async (auth, skillId, draft) => runner.addCase(await policy.scope(auth), skillId, draft),
+      listCases: async (auth, skillId) => runner.listCases(await policy.scope(auth), skillId),
+      run: async (auth, skillId, version, options) => runner.run(await policy.scope(auth), skillId, version, options),
+    },
   };
 }
 

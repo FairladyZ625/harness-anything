@@ -56,7 +56,7 @@ import { diagnosticForError } from "../receipt-guidance.ts";
 import { remoteProxyEventMethod } from "../remote-proxy.ts";
 import { daemonBuildStaleNotice, withDaemonDrainSummary } from "../daemon-build-drain.ts";
 import { quoteAgentRuntimeBudget } from "../runtime/cloud-dispatch-relay.ts";
-import type { SkillEvalCaseDraft } from "../skill-eval-runner.ts";
+import { isSkillEvalCall, dispatchSkillEvalCall } from "./skill-eval-rpc.ts";
 export interface JsonRpcProtocolServer {
   readonly handle: (
     message: JsonRpcRequest | JsonRpcRequest[],
@@ -377,42 +377,11 @@ export function createJsonRpcProtocolServer(options: {
         return reply(method, protocolFailure("bootstrap", error));
       }
     }
-    if (method === "daemon.skillEval.case.add") {
+    if (isSkillEvalCall(call)) {
       try {
-        const draft: SkillEvalCaseDraft = {
-          id: params.id,
-          input: params.input,
-          ...(params.hidden === undefined ? {} : { hidden: params.hidden }),
-          ...(params.expect === undefined ? {} : { expect: params.expect as SkillEvalCaseDraft["expect"] }),
-        };
-        return reply(method, {
-          ok: true,
-          case: await options.host.skillEval.addCase(options.authContext, params.skillId, draft),
-        });
+        return reply(call.method, await dispatchSkillEvalCall(call, options.host.skillEval, options.authContext));
       } catch (error) {
-        return reply(method, protocolFailure(method, error));
-      }
-    }
-    if (method === "daemon.skillEval.cases.list") {
-      try {
-        return reply(method, {
-          ok: true,
-          cases: await options.host.skillEval.listCases(options.authContext, params.skillId),
-        });
-      } catch (error) {
-        return reply(method, protocolFailure(method, error));
-      }
-    }
-    if (method === "daemon.skillEval.run") {
-      try {
-        return reply(method, {
-          ok: true,
-          evaluation: await options.host.skillEval.run(options.authContext, params.skillId, params.version, {
-            ...(params.threshold === undefined ? {} : { threshold: params.threshold }),
-          }),
-        });
-      } catch (error) {
-        return reply(method, protocolFailure(method, error));
+        return reply(call.method, protocolFailure(call.method, error));
       }
     }
     switch (call.method) {
