@@ -128,14 +128,21 @@ test("a binding consults the identity center only after the managed resume has s
   }
 });
 
-// A resume that cannot bring the center back must not park consultations forever: the wait is for
-// the startup transient only, and a genuinely down center still fails every fetch honestly.
-test("a failed resume does not swallow the identity center's real failure", async () => {
+// A failed resume is a startup barrier that never completed. The daemon must refuse the request
+// with that real cause even when the center is reachable: proceeding would authorize writes against
+// a center whose policy sync (for example, an outdated vertical declaration) never ran.
+test("a failed resume refuses repository writes with the resume's real cause", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-host-rbac-resume-failed-")),
     userRoot = path.join(parent, "user"),
     rootDir = path.join(parent, "repo"),
     center = await gatedCenter((await policyTestCenter()).url),
-    records: Record<string, unknown>[] = [];
+    records: Record<string, unknown>[] = [],
+    resumeFailure = Object.assign(
+      new Error(
+        "This repository's vertical declaration (harness/vertical.json) still uses a retired construct: completion.closeoutDefaults.codeDoc.",
+      ),
+      { code: "vertical_declaration_outdated" },
+    );
   rosterRepo(rootDir, "rbac-resume-failed");
   registerDaemonRepo({ canonicalRoot: rootDir, repoId: "rbac-resume-failed", userRoot, createConvenienceLinks: false });
   signInPolicyTestUser(userRoot, "writer", ["rbac-resume-failed"], "admin");
@@ -146,14 +153,18 @@ test("a failed resume does not swallow the identity center's real failure", asyn
     recordLifecycle: (record) => records.push(record),
     managedRbac: {
       run: async () => ({ ok: true }),
-      resume: () => Promise.reject(new Error("the managed center did not start")),
+      resume: () => Promise.reject(resumeFailure),
       stop: async () => ({ ok: true }),
     },
   });
   try {
     await host.attachmentsSettled();
+    // The center answers, so only the failed resume stands between this write and success.
+    center.release();
     const receipt = await withHangGuard(host.run("rbac-resume-failed", { kind: "task-list" }, auth));
-    assert.notEqual(receipt.outcome, "applied");
+    assert.equal(receipt.outcome, "op_rejected", JSON.stringify(receipt));
+    assert.equal(receipt.code, "vertical_declaration_outdated", JSON.stringify(receipt));
+    assert.match(receipt.rejectionExplanation ?? "", /retired construct/u);
     assert.equal(
       records.some((record) => record.event === "rbac_resume_failed"),
       true,
