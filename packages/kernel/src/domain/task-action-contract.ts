@@ -571,6 +571,9 @@ export const declarations: readonly Declaration[] = Object.freeze([
       field("executionId", "string", false),
       field("reviewId", "string", false),
       cli("reason", "string", true, "--reason"),
+      cli("agentId", "string", false, "--agent"),
+      cli("runtimeInstanceId", "string", false, "--instance"),
+      cli("model", "string", false, "--model"),
     ]),
     criteria: Object.freeze([
       criterion(

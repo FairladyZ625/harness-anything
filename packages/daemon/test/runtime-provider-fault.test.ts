@@ -48,6 +48,42 @@ test("structured provider errors classify rate limits, server faults, quota, mod
   );
 });
 
+test("request_unavailable is retryable only before tool activity; other startup errors stay task failures", () => {
+  const fault = providerFaultFromFrame("codex", {
+      type: "turn.failed",
+      error: { code: "request_unavailable" },
+    }),
+    structuredDiagnostic = JSON.stringify({ error: { code: "request_unavailable" } });
+
+  assert.equal(fault?.code, "request_unavailable");
+  assert.equal(classifyRuntimeExit(active({ providerFault: fault }), 1).classification, "provider_fault");
+  assert.equal(
+    classifyRuntimeExit(active({ providerFault: fault, toolCallObserved: true }), 1).classification,
+    "gate_red",
+    "the startup-only error must not retry after tool activity",
+  );
+  assert.equal(
+    providerFaultFromStderr("codex", structuredDiagnostic)?.code,
+    "request_unavailable",
+    "the structured error in a drained diagnostic must enter the same retry path",
+  );
+  assert.equal(
+    classifyRuntimeExit(
+      active({
+        providerOutcome: "failed",
+        failureText: "invalid_request: malformed prompt",
+        providerFault: providerFaultFromFrame("codex", {
+          type: "turn.failed",
+          error: { code: "invalid_request", message: "malformed prompt" },
+        }),
+      }),
+      1,
+    ).classification,
+    "gate_red",
+    "non-transient request validation errors do not retry",
+  );
+});
+
 test("ACP serving capacity errors remain provider faults after tool activity", () => {
   const providerFault = providerFaultFromFrame("devin", {
       type: "acp.error",

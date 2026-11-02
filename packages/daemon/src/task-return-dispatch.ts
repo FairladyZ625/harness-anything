@@ -24,6 +24,12 @@ type ReworkContext = {
   readonly ownerReturnReason: string | null;
 };
 
+type WorkerIdentityOverrides = {
+  readonly agentId?: string;
+  readonly runtimeInstanceId?: string;
+  readonly model?: string;
+};
+
 // dec_E369B8616F50A6208B293997E7/CH3: a changes_requested verdict below the repository rework
 // budget reopens the implementation round in the same review write; this dispatch continues the
 // worker that submitted the returned cut, carrying the review report. The existing spawner still
@@ -34,6 +40,7 @@ export async function dispatchReviewRework(
     /** The review write's binding; the continuation runs as its principal. */
     readonly binding: RepoCellBinding;
     readonly opId: string;
+    readonly workerIdentity?: WorkerIdentityOverrides;
   },
 ): Promise<ReviewReworkStep> {
   return dispatchContinuation(cell, input, principalBinding(input.binding));
@@ -56,6 +63,7 @@ export async function continueReviewRework(
   command: Extract<TaskLifecycleCommand, { readonly type: "RecordReview" | "ReworkTask" }>,
   binding: RepoCellBinding,
   receipt: WriteReceiptDraft,
+  workerIdentity?: WorkerIdentityOverrides,
 ): Promise<WriteReceiptDraft> {
   // The applied command names the review it recorded or returned; a search over the projection
   // would be a different question (`snapshot.reviews` is ordered by entity id, not time) and would
@@ -92,6 +100,7 @@ export async function continueReviewRework(
       ownerReturnReason,
       binding,
       opId: receipt.opId ?? taskId,
+      ...(workerIdentity ? { workerIdentity } : {}),
     });
     return {
       ...receipt,
@@ -178,7 +187,11 @@ export async function continueReviewRework(
 
 async function dispatchContinuation(
   cell: RepoCellOperationalContext,
-  input: ReworkContext & { readonly binding: RepoCellBinding; readonly opId: string },
+  input: ReworkContext & {
+    readonly binding: RepoCellBinding;
+    readonly opId: string;
+    readonly workerIdentity?: WorkerIdentityOverrides;
+  },
   binding: RepoCellBinding,
 ): Promise<ReviewReworkStep> {
   const previous = submittingWorkerDispatch(cell, input.taskId, input.execution.executionId);
@@ -202,7 +215,8 @@ async function dispatchContinuation(
   // is not a stop — the fresh session carries the same report (dec_E369B861 CH3 checkpoint).
   for (let attempt = 0; ; attempt += 1) {
     const previous = submittingWorkerDispatch(cell, input.taskId, input.execution.executionId),
-      mode = attempt > 0 ? "fresh" : previous?.resume !== undefined ? "resume" : "fresh",
+      hasIdentityOverride = Object.values(input.workerIdentity ?? {}).some((value) => value !== undefined),
+      mode = attempt > 0 || hasIdentityOverride ? "fresh" : previous?.resume !== undefined ? "resume" : "fresh",
       continuation = prepareWorkerContinuation(cell, input, mode);
     try {
       const authorizationDecision = await evaluateRepoCellAction({
@@ -286,17 +300,25 @@ function submittingWorkerDispatch(
   );
 }
 
-function prepareWorkerContinuation(cell: RepoCellOperationalContext, input: ReworkContext, mode: "resume" | "fresh") {
+function prepareWorkerContinuation(
+  cell: RepoCellOperationalContext,
+  input: ReworkContext & { readonly workerIdentity?: WorkerIdentityOverrides },
+  mode: "resume" | "fresh",
+) {
   const snapshot = cell.projection.read(input.taskId).snapshot,
     execution = snapshot.executions.find((value) => value.executionId === input.execution.executionId)!,
     previous = submittingWorkerDispatch(cell, input.taskId, input.execution.executionId),
     submission = execution.submission!,
-    agentId = previous?.agentId ?? cell.settings.readRepository().roles?.defaultWorker;
+    agentId = input.workerIdentity?.agentId ?? previous?.agentId ?? cell.settings.readRepository().roles?.defaultWorker,
+    runtimeInstanceId = input.workerIdentity?.runtimeInstanceId ?? previous?.instanceId,
+    model = input.workerIdentity?.model ?? previous?.provider.model ?? undefined;
   return {
     mode,
     payload: {
       taskId: input.taskId,
       ...(agentId ? { agentId } : {}),
+      ...(runtimeInstanceId ? { runtimeInstanceId } : {}),
+      ...(model ? { model } : {}),
       ...(mode === "resume" && previous?.resume ? { dispatchId: previous.dispatchId } : {}),
       prompt: [
         `Continue task ${input.taskId}. Read its task package before ` +

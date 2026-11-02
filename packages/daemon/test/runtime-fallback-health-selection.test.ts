@@ -59,11 +59,39 @@ test("waiting for a cooling candidate past the provider wait budget exhausts ins
   assert.equal(result.terminal?.outcome, "failed");
 });
 
+test("a single provider retries request_unavailable with backoff, then settles as infrastructure failure", async () => {
+  const retry = await settle({
+      candidates: ["provider-a"],
+      rows: [],
+      maxRetries: 1,
+      retryRound: 0,
+      backoffBaseSeconds: 2,
+      reason: "request_unavailable before any tool call",
+    }),
+    exhausted = await settle({
+      candidates: ["provider-a"],
+      rows: [],
+      maxRetries: 1,
+      retryRound: 1,
+      backoffBaseSeconds: 2,
+      reason: "request_unavailable before any tool call",
+    });
+  assert.equal(retry.fallback?.state, "scheduled");
+  assert.equal(retry.fallback?.notBeforeAt, "2026-10-22T00:00:02.000Z");
+  assert.equal(retry.terminal, null, "the first startup fault remains retryable");
+  assert.equal(exhausted.fallback?.state, "exhausted");
+  assert.equal(exhausted.terminal?.outcome, "failed");
+  assert.match(String(exhausted.terminal?.reason), /Provider fallback exhausted after 2 attempt/u);
+});
+
 async function settle(options: {
   readonly candidates: readonly string[];
   readonly rows: readonly RuntimeProviderHealth[];
   readonly maxWaitSeconds?: number;
   readonly maxRetries?: number;
+  readonly retryRound?: number;
+  readonly backoffBaseSeconds?: number;
+  readonly reason?: string;
 }) {
   const rootDir = mkdtempSync(path.join(tmpdir(), "fallback-health-selection-"));
   let fallback: Record<string, unknown> | null = null;
@@ -72,9 +100,9 @@ async function settle(options: {
   try {
     const attempt: RuntimeFallbackAttempt = {
       attemptGroupId: "attempt-group",
-      attemptIndex: 0,
+      attemptIndex: options.retryRound ?? 0,
       candidateIndex: 0,
-      retryRound: 0,
+      retryRound: options.retryRound ?? 0,
       rootDispatchKey: "root",
       originalMission: "mission",
       candidates: options.candidates.map((instance) => ({ instance, model: "model-a" })),
@@ -86,8 +114,8 @@ async function settle(options: {
         readSettings: () => ({
           runtime: {
             providerMaxRetries: options.maxRetries ?? 0,
-            providerRoundBackoffBaseSeconds: 0,
-            providerRoundBackoffMaxSeconds: 0,
+            providerRoundBackoffBaseSeconds: options.backoffBaseSeconds ?? 0,
+            providerRoundBackoffMaxSeconds: options.backoffBaseSeconds ?? 0,
             providerMaxWaitSeconds: options.maxWaitSeconds ?? 300,
           },
         }),
@@ -117,7 +145,7 @@ async function settle(options: {
           },
         },
       } as unknown as ActiveRuntime,
-      outcome(),
+      outcome(options.reason),
       {
         runtimeSessionId: "runtime_0123456789abcdef01234567",
         dispatchId: "dispatch_0123456789abcdef01234567",
@@ -135,11 +163,11 @@ async function settle(options: {
   }
 }
 
-function outcome(): RuntimeAttemptOutcome {
+function outcome(reason = "provider fault"): RuntimeAttemptOutcome {
   return {
     outcome: "stopped",
     classification: "provider_fault",
-    reason: "provider fault",
+    reason,
     provider: { instance: "provider-a", model: "model-a", kind: "codex" },
     attemptGroupId: "attempt-group",
     attemptIndex: 0,

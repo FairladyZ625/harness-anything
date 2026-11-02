@@ -144,6 +144,23 @@ export async function cancelRuntime(
         executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
       },
     };
+    if (matchingHeader?.taskId && matchingHeader.executionId) {
+      const settlement = await context.input.onAttemptTerminal?.({
+        runtimeSessionId,
+        dispatchId: matchingHeader.dispatchId,
+        task: {
+          taskId: matchingHeader.taskId,
+          executionId: matchingHeader.executionId,
+          leaseVersion: matchingHeader.leaseVersion ?? null,
+        },
+        schedule: matchingHeader.schedule ?? null,
+        outcome: "cancelled",
+        reason: "Runtime session cancelled after its worker process was no longer available.",
+        endedAt: context.input.now(),
+        binding: terminalBinding,
+      });
+      if (settlement?.outcome === "lease_unproven") throw runtimeSpawnError(settlement.code, settlement.reason);
+    }
     await context.publishRuntimeEvent("runtime_session_cancelled", { runtimeSessionId }, `${opId}-cancelled`, binding);
     await context.publishRuntimeEvent(
       "runtime_session_exited",
