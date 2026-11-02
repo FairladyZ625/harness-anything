@@ -157,6 +157,8 @@ const validateTaskRuntimeContextRead: ResultValidator = (value) =>
   isJsonObject(value.snapshot)
     ? []
     : [validationError("task-runtime-context", "result", value, "must be a valid task runtime context read")];
+import { validatePolicyMetadataRead, validateReckoningRead } from "./daemon-protocol-repository-reads.ts";
+
 const resultValidators = {
   "daemon.gui.system.read": validateSystemStatus,
   "daemon.gui.home.read": validateHomeOverviewResult,
@@ -179,6 +181,8 @@ const resultValidators = {
   "repo.entity.locator.read": validateEntityLocatorRead,
   "repo.entity.content.read": validateEntityContentRead,
   "repo.settings.read": validateDaemonSettingsRead,
+  "repo.reckoning.signals.read": validateReckoningRead,
+  "repo.policy.metadata.read": validatePolicyMetadataRead,
   "repo.workspace.summary.read": validateDaemonWorkspaceSummary,
   "repo.workspace.scope.read": validateDaemonWorkspaceScope,
   "repo.agenda.read": validateDaemonAgenda,

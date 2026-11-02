@@ -109,7 +109,7 @@ import type { createEdgeJoinStore } from "./fleet/edge-join.ts";
 import { accessAdminOperations } from "./protocol/daemon-protocol.contract.ts";
 import { createIdentityManagement } from "./authorization-provider.ts";
 import { createIdentitySession } from "./authorization-provider.ts";
-import type { SkillEvalCaseView, SkillEvalRecord, SkillEvalRunner } from "./skill-eval-runner.ts";
+import type { SkillEvalRunner } from "./skill-eval-runner.ts";
 import { openSkillEvalProduction, type SkillEvalProductionInput } from "./skill-eval-production.ts";
 import { runFleetReplicaSync, waitForFleetReplicaReady } from "./fleet/replica-sync.ts";
 export interface DaemonHostOpenInput {
@@ -782,14 +782,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     edgeJoinProgress = createEdgeJoinProgressTap();
   const host: DaemonHost = {
     skillEvalRunner: skillEvalProduction.runner,
-    skillEval: {
-      addCase: async (auth, skillId, draft): Promise<SkillEvalCaseView> =>
-        skillEvalProduction.runner.addCase(await skillEvalProduction.policy.scope(auth), skillId, draft),
-      listCases: async (auth, skillId): Promise<readonly SkillEvalCaseView[]> =>
-        skillEvalProduction.runner.listCases(await skillEvalProduction.policy.scope(auth), skillId),
-      run: async (auth, skillId, version, options): Promise<SkillEvalRecord & { readonly runtime: unknown }> =>
-        skillEvalProduction.runner.run(await skillEvalProduction.policy.scope(auth), skillId, version, options),
-    },
+    skillEval: skillEvalProduction.service,
     remoteProxy,
     home,
     keycloakCenter,
@@ -826,8 +819,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         rootDir = requestedRoot ?? registered?.canonicalRoot;
       if (!rootDir && methodContract?.requiresRepo)
         throw hostCodedError("oidc_center_required", "Select a repository with a configured center before continuing.");
-      if (!rootDir) return undefined;
-      return (await oidc.bind(auth, rootDir)).oidcPrincipal;
+      if (!rootDir && !method.startsWith("daemon.skillEval.")) return undefined;
+      return (await oidc.bind(auth, rootDir ?? undefined)).oidcPrincipal;
     },
     parkedWaitSignal: parkedWaitController.signal,
     ...createDaemonHostRepositoryApi(hostContext),

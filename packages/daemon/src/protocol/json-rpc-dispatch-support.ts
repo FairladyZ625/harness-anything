@@ -19,12 +19,9 @@ type DaemonRpcCallFor<Method extends DaemonRpcMethod> = Extract<DaemonRpcCall, {
 type RuntimeInstanceMethod = Extract<DaemonRpcMethod, `daemon.runtimeInstance.${string}`>;
 type ProviderMethod = Extract<DaemonRpcMethod, `daemon.provider.${string}`>;
 type RuntimeInstanceAuthMethod = Extract<DaemonRpcMethod, `repo.runtimeInstance.auth.${string}`>;
-// repo.tasks.runtimeContext.read is a cell/fleet-internal read: it is served by
-// host.read and the fleet runtime-read channel, not by the socket RPC catalog,
-// so it is excluded here just as the runtime membership check excludes it.
 type RepoGuiReadMethod = Exclude<
   DaemonGuiRpcReadMethod,
-  "daemon.gui.system.read" | "daemon.gui.home.read" | "daemon.gui.control.receipt" | "repo.tasks.runtimeContext.read"
+  "daemon.gui.system.read" | "daemon.gui.home.read" | "daemon.gui.control.receipt"
 >;
 type TerminalActionMethod = "repo.gui.catalog.reread" | Extract<DaemonGuiActionMethod, `repo.terminal.${string}`>;
 type WithRepoPayload<Call> = Call extends {

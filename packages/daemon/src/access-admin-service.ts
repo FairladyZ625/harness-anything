@@ -1,8 +1,7 @@
+import { readPolicyMetadata } from "./policy-metadata-read.ts";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import path from "node:path";
 import {
-  actionDeclarations,
-  actionPresentation,
   decodeAuthorizationResource,
   effectivePolicyGroupScopes,
   encodeAuthorizationResource,
@@ -380,23 +379,11 @@ export class AccessAdminService {
 
   async #listGroups(): Promise<Record<string, unknown>> {
     const session = await this.#session(),
-      groups = await session.adapter.readPolicyGroups(session.token);
-    return {
-      ok: true,
-      groups: groups.map((group) => ({
-        ...group,
-        effectiveScopes: effectivePolicyGroupScopes(groups, group.id),
-        version: groupVersion(group),
-      })),
-      // The facets an action picker groups by, read from the declarations the Base groups derive from.
-      actions: actionDeclarations.map((declaration) => ({
-        action: declaration.policyAction,
-        presentation: actionPresentation[declaration.kind as keyof typeof actionPresentation],
-        executionClass: declaration.executionClass,
-        policyTier: declaration.policyTier,
-        residencyScope: declaration.residency.scope,
-      })),
-    };
+      { schema: _schema, ...metadata } = await readPolicyMetadata({
+        provider: session.adapter,
+        accessToken: session.token,
+      });
+    return { ...metadata, groups: metadata.groups.map((group) => ({ ...group, version: groupVersion(group) })) };
   }
 
   /** Every account that can hold a grant, and every `(person, group, resource)` grant held. */

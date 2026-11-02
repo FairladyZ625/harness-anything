@@ -49,6 +49,9 @@ function fixture() {
   ];
   const evaluations: unknown[] = [];
   const store: SkillEvalStore = {
+    registerSkill: () => {
+      throw Object.assign(new Error("duplicate"), { code: "CONFLICT" });
+    },
     getSkill: (_skillId, version) => (version === "latest" || version === skill.version ? skill : null),
     listCases: () => cases,
     appendCase: (_skillId, item) => {
@@ -320,6 +323,45 @@ test("serializes concurrent catalog appends and evaluation records", async () =>
       catalog.evaluations.map(({ id }) => id),
       ["evaluation-1", "evaluation-2"],
     );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("registration shares the catalog queue and survives reopening without lost versions", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "skill-register-"));
+  try {
+    const store = openSkillEvalCatalogStore(root),
+      runner = new SkillEvalRunner(
+        store,
+        { dispatch: async () => ({ status: "failed" }) },
+        { runRoot: root, binding: null },
+      ),
+      draft = { skillId: "report", version: "1", body: "Return verified evidence.", requiredText: ["Verified"] },
+      scope = { principalId: "author", role: "drafter" as const };
+    const results = await Promise.allSettled([
+      runner.registerVersion(scope, draft),
+      runner.registerVersion(scope, { ...draft, body: "conflicting body" }),
+      runner.registerVersion(scope, { ...draft, version: "2" }),
+    ]);
+    assert.deepEqual(
+      results.map(({ status }) => status),
+      ["fulfilled", "rejected", "fulfilled"],
+    );
+    assert.equal((results[1] as PromiseRejectedResult).reason.code, "CONFLICT");
+    const reopened = openSkillEvalCatalogStore(root),
+      first = await reopened.getSkill("report", "1");
+    assert.equal(first?.body, draft.body);
+    assert.equal(first?.createdBy, "author");
+    assert.equal(first?.status, "draft");
+    assert.equal((await reopened.getLatestSkill?.("report"))?.version, "2");
+    assert.equal((await reopened.getSkill("report", "2"))?.body, draft.body);
+    await assert.rejects(runner.registerVersion(scope, { ...draft, version: "3", requiredText: [1 as never] }), {
+      code: "VALIDATION_ERROR",
+    });
+    await assert.rejects(runner.registerVersion(scope, { ...draft, version: "3", body: " " }), {
+      code: "VALIDATION_ERROR",
+    });
   } finally {
     await rm(root, { recursive: true, force: true });
   }

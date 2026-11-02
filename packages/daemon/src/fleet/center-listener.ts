@@ -1082,8 +1082,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       };
       let result;
       try {
-        if (frame.method === "repo.task.dispatches" || frame.method === "repo.fleet.overview.read") {
-          if (frame.method === "repo.fleet.overview.read") {
+        if (frame.method !== "repo.agentRuntime.sessions.await") {
+          if (frame.method !== "repo.task.dispatches") {
             result = await options.host.read(a.repoId, frame.method, frame.payload as JsonObject, binding);
             return immediate({
               schema: "fleet.operational.read.result/v1",

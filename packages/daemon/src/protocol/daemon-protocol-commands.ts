@@ -240,7 +240,12 @@ export function commandDescriptorForAction(kind: string) {
 export function commandClassForAction(kind: string): "repo-read" | "repo-write" | "arbiter" | "admin" {
   const command = commandDescriptorByActionKind.get(kind),
     guiAction = guiActionDescriptorByKind.get(kind);
-  return command?.commandClass ?? guiAction?.commandClass ?? commandDescriptorForAction(kind).commandClass;
+  return (
+    command?.commandClass ??
+    guiAction?.commandClass ??
+    daemonRepositoryReadMethods.find((entry) => entry.id === kind)?.commandClass ??
+    commandDescriptorForAction(kind).commandClass
+  );
 }
 
 export function repoCellExecutionForAction(kind: string): "query-only" | "writer" {
@@ -282,6 +287,43 @@ export function actionForDaemonMethod(method: string, payload: JsonObject): Json
   return { ...defaults, kind: "actionKind" in descriptor ? descriptor.actionKind : descriptor.id, ...payload };
 }
 
+/** Socket reads share the host's repository-read admission without declaring GUI routes. */
+export const daemonRepositoryReadMethods = Object.freeze([
+  {
+    id: "tasks.runtimeContext.read",
+    phase: "W3",
+    method: "repo.tasks.runtimeContext.read",
+    requiresRepo: true,
+    repositoryRead: true,
+    commandClass: "repo-read",
+    params: shape({
+      repo: shape({ repoId: "string" }),
+      payload: shape({ taskId: "string", excludeDispatchId: "string?" }),
+    }),
+  },
+  {
+    id: "reckoning.signals.read",
+    phase: "W3",
+    method: "repo.reckoning.signals.read",
+    requiresRepo: true,
+    repositoryRead: true,
+    commandClass: "repo-read",
+    params: shape({
+      repo: shape({ repoId: "string" }),
+      payload: shape({ generatedAt: "string?", windowHours: "number?" }),
+    }),
+  },
+  {
+    id: "policy.metadata.read",
+    phase: "W3",
+    method: "repo.policy.metadata.read",
+    requiresRepo: true,
+    repositoryRead: true,
+    commandClass: "repo-read",
+    params: shape({ repo: shape({ repoId: "string" }) }),
+  },
+] as const);
+
 const commandDescriptorByActionKind: ReadonlyMap<string, (typeof daemonProtocolCommands)[number]> = new Map(
     [...daemonProtocolCommands].reverse().map((entry) => ["actionKind" in entry ? entry.actionKind : entry.id, entry]),
   ),
@@ -296,8 +338,12 @@ const commandDescriptorByActionKind: ReadonlyMap<string, (typeof daemonProtocolC
   ),
   actionDescriptorByMethod: ReadonlyMap<
     string,
-    (typeof presetMethods)[number] | (typeof daemonGuiActionMethods)[number]
-  > = new Map([...presetMethods, ...daemonGuiActionMethods].map((entry) => [entry.method, entry])),
+    | (typeof presetMethods)[number]
+    | (typeof daemonGuiActionMethods)[number]
+    | (typeof daemonRepositoryReadMethods)[number]
+  > = new Map(
+    [...presetMethods, ...daemonGuiActionMethods, ...daemonRepositoryReadMethods].map((entry) => [entry.method, entry]),
+  ),
   guiActionDescriptorByKind: ReadonlyMap<string, (typeof daemonGuiActionMethods)[number]> = new Map(
     daemonGuiActionMethods.map((entry) => [entry.actionKind, entry]),
   ),
@@ -313,7 +359,7 @@ export const daemonMethodNameSets: {
   readonly stream: ReadonlySet<string>;
 } = {
   preset: new Set(presetMethods.map((entry) => entry.method)),
-  guiRead: new Set(daemonGuiReadMethods.map((entry) => entry.method)),
+  guiRead: new Set([...daemonGuiReadMethods, ...daemonRepositoryReadMethods].map((entry) => entry.method)),
   guiAction: new Set(daemonGuiActionMethods.map((entry) => entry.method)),
   stream: new Set(daemonStreamFacets.map((entry) => entry.method)),
 };
@@ -393,6 +439,20 @@ export const daemonProtocolMethods = Object.freeze([
       inputBytes: "number?",
       outputCapTokens: "number?",
       codeRun: "boolean?",
+    }),
+  },
+  {
+    id: "daemon.skillEval.version.register",
+    phase: "W3",
+    method: "daemon.skillEval.version.register",
+    requiresRepo: false,
+    params: shape({
+      skillId: "string",
+      version: "string",
+      body: "string",
+      name: "string?",
+      usageMarker: "string?",
+      requiredText: "array?",
     }),
   },
   {
@@ -824,6 +884,7 @@ export const allDaemonProtocolMethods = Object.freeze([
   ...fleetProtocolMethods,
   ...presetMethods,
   ...daemonGuiReadMethods,
+  ...daemonRepositoryReadMethods,
   ...daemonGuiActionMethods,
   ...daemonStreamFacets,
 ]);
