@@ -47,7 +47,8 @@ export async function catchUpReplica(
     return code === "ABORT_ERR" || name === "AbortError";
   };
   const head = (await readFleetRepositoryMetadataClient(options)).replicationSequence;
-  let owned: { readonly controller: AbortController; readonly running: Promise<void> } | null = null;
+  let owned: { readonly controller: AbortController; readonly running: Promise<void> } | null = null,
+    cleanupError: unknown = null;
   try {
     await waitForFleetReplicaSequence(options, head);
   } catch (error) {
@@ -91,9 +92,10 @@ export async function catchUpReplica(
       // preserve failures from a stream that was not deliberately stopped.
       const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined,
         name = error instanceof Error ? error.name : undefined;
-      if (!owned?.controller.signal.aborted || (code !== "ABORT_ERR" && name !== "AbortError")) throw error;
+      if (!owned?.controller.signal.aborted || (code !== "ABORT_ERR" && name !== "AbortError")) cleanupError = error;
     }
   }
+  if (cleanupError !== null) throw cleanupError;
   const generation = readReplicaGeneration(viewDir);
   if (!generation) throw new Error("replica generation is unavailable after catch-up");
   return { replica: { viewId: options.nodeId, knownHead: generation.metadata.position } };
