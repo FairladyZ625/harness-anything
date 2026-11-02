@@ -167,6 +167,25 @@ test("permission defaults open and tightens through the instance record or a sin
       "claude-fable-5",
       "--bare",
     ]);
+    for (const providerSessionId of [undefined, "session-bypass-relay"]) {
+      const bypassRelay = await store.prepareLaunch("codex-open", {
+        cwd: "/workspace/repo",
+        prompt: "Bypass ignores the sandbox callback profile",
+        permissionMode: "bypass",
+        ...(providerSessionId ? { providerSessionId } : {}),
+        callbackRelayPath: "/tmp/harness-anything-501/r-0123456789abcdef01234567.sock",
+      });
+      assert.deepEqual(bypassRelay.args, [
+        "exec",
+        ...(providerSessionId ? ["resume"] : []),
+        "--json",
+        ...(providerSessionId ? ["--dangerously-bypass-approvals-and-sandbox"] : ["--sandbox", "danger-full-access"]),
+        "--model",
+        "gpt-5.6-sol",
+        ...(providerSessionId ? [providerSessionId] : []),
+        "-",
+      ]);
+    }
     const resumedBypass = await store.prepareLaunch("codex-open", {
         cwd: "/workspace/repo",
         prompt: "Resume open",
