@@ -538,6 +538,46 @@ test("runtime cancel cannot settle a remote owner's runtime from another node", 
   }
 });
 
+test("runtime cancel on a non-owner converges after the owner publishes a terminal outcome", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-cancel-terminal-remote-owner-"));
+  try {
+    const runtimeSessionId = "runtime_151515151515151515151515",
+      foreignBinding = { actor: binding.actor, source: { kind: "node" as const, nodeId: "edge-b" } },
+      published: string[] = [],
+      context = {
+        input: {
+          rootDir,
+          repoId: "cancel-terminal-remote-owner",
+          runtimeNode: { nodeId: "edge-b" },
+          remote: {
+            readRuntimeSessions: async () => [
+              { ...liveSession(runtimeSessionId), liveness: "exited", outcome: "succeeded" },
+            ],
+            readRuntimeDispatch: async () => ({
+              actor: binding.actor,
+              source: { kind: "node" as const, nodeId: "edge-a" },
+              payload: { dispatchId: "dispatch_151515151515151515151515" },
+              instanceId: "instance-terminal-owner",
+              processGroupPid: 2_147_483_646,
+            }),
+          },
+        },
+        processes: new Map(),
+        exiting: new Set<string>(),
+        publishRuntimeEvent: async (type: string) => {
+          published.push(type);
+          return {};
+        },
+        controlReceipt: (_opId: string, _runtimeSessionId: string, detail: string) => ({ detail }),
+      };
+    const receipt = await cancelRuntime(context as never, { runtimeSessionId }, foreignBinding);
+    assert.equal(receipt.detail, "already-exited");
+    assert.deepEqual(published, [], "a non-owner must observe terminal state without writing owner events");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("runtime steer records the requesting actor and prompt without settling the dispatch", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-steer-"));
   try {

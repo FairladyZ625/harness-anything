@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { perUserSocketRoot } from "../src/client/local-daemon-target.ts";
@@ -227,10 +227,16 @@ for (const distinctNode of [false, true])
           JSON.stringify(sequence),
         );
         assert.equal(existsSync(relay), true, "opening another subject preserves the owner's callback");
-        if (distinctNode)
+        if (distinctNode) {
           await assert.rejects(other.run("repo.agentRuntime.cancel", { runtimeSessionId: a.runtimeSessionId }), {
             code: "execution_scope_mismatch",
           });
+          assert.deepEqual(
+            counts.get(fixture.subject.taskId),
+            { archive: 0, release: 0, terminal: 0 },
+            "a live foreign runtime stays owned by its node",
+          );
+        }
         assert.equal(existsSync(relay), true, "cross-node cancellation preserves the owner's callback");
         const b = await other.run("repo.agentRuntime.spawn", {
           taskId: second.taskId,
@@ -293,9 +299,22 @@ for (const distinctNode of [false, true])
         if (distinctNode) {
           const reopened = open(second);
           await reopened.reconcile();
-          await assert.rejects(reopened.run("repo.agentRuntime.cancel", { runtimeSessionId: a.runtimeSessionId }), {
-            code: "execution_scope_mismatch",
-          });
+          const settledOwnerCounts = { ...counts.get(fixture.subject.taskId)! },
+            settledOwnerCallback = readFileSync(relay, "utf8"),
+            foreignTerminalCancel = await reopened.run("repo.agentRuntime.cancel", {
+              runtimeSessionId: a.runtimeSessionId,
+            });
+          assert.equal(foreignTerminalCancel.detail, "already-exited");
+          assert.deepEqual(
+            counts.get(fixture.subject.taskId),
+            settledOwnerCounts,
+            "terminal foreign cancellation is read-only and cannot settle the owner's lease",
+          );
+          assert.equal(
+            readFileSync(relay, "utf8"),
+            settledOwnerCallback,
+            "another node must not alter the terminal owner's callback",
+          );
           let repeated: Awaited<ReturnType<typeof reopened.run>> | undefined;
           assert.equal(
             await eventually(async () => {

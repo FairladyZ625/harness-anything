@@ -12,6 +12,7 @@ import {
 import { decisionEventTypes, decisionFulfillmentModes, type DecisionEventV1 } from "./decision-event-types.ts";
 import { claimId, decisionId, includes, uniqueFactStrings } from "./decision-event-validation-shared.ts";
 import { codePoints, requiredWithOptional } from "./event-validation.ts";
+import { REVIEW_FINDING_V1_OPTIONAL_FIELD_CONTRACTS, isValidReviewFindingOptionalFieldValue } from "./review.ts";
 import { timestamp } from "./timestamp.ts";
 import { isValidDocEventChange } from "./doc-sync-writer.ts";
 import {
@@ -175,10 +176,20 @@ function validateDecisionEventFields(value: unknown, allowUnknownFields: boolean
       payload.findings.every(
         (finding) =>
           isRecord(finding) &&
-          requiredWithOptional(finding, ["findingId", "text"], ["anchor"], allowUnknownFields) &&
+          requiredWithOptional(
+            finding,
+            ["findingId", "text"],
+            Object.keys(REVIEW_FINDING_V1_OPTIONAL_FIELD_CONTRACTS),
+            allowUnknownFields,
+          ) &&
           isNonEmptyString(finding.findingId) &&
           isNonEmptyString(finding.text) &&
-          (finding.anchor === undefined || isNonEmptyString(finding.anchor)),
+          (finding.anchor === undefined || isNonEmptyString(finding.anchor)) &&
+          (allowUnknownFields ||
+            Object.entries(REVIEW_FINDING_V1_OPTIONAL_FIELD_CONTRACTS).every(
+              ([field, contract]) =>
+                finding[field] === undefined || isValidReviewFindingOptionalFieldValue(contract, finding[field]),
+            )),
       ) &&
       Array.isArray(payload.evidenceChecked) &&
       payload.evidenceChecked.every(isNonEmptyString) &&

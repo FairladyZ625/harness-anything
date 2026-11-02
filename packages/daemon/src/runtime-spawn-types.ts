@@ -83,6 +83,21 @@ export type RuntimeBinding = {
   readonly authorizationDecision?: AuthorizationDecision;
 };
 
+export interface ReviewerReviewRecoveryInput {
+  readonly taskId: string;
+  readonly executionId: string;
+  readonly dispatchId: string;
+  readonly runtimeSessionId: string;
+  readonly binding: RuntimeBinding;
+  readonly packet: { readonly path: string; readonly body: string };
+  readonly report: { readonly path: string; readonly body: string };
+}
+
+export interface ReviewerReviewArtifacts {
+  readonly packet: { readonly path: string; readonly body: string };
+  readonly report: { readonly path: string; readonly body: string };
+}
+
 /** Persist only the runtime binding contract; RepoCell transport fences never cross a daemon restart. */
 export function runtimeBindingForDispatch(binding: RuntimeBinding): RuntimeBinding {
   return {
@@ -320,6 +335,22 @@ export interface RemoteRuntimePersistence {
     readonly credential: string;
     readonly expiresAt: string;
   };
+  /** Read only the task review artifacts named by this dispatch from its edge worktree. */
+  readonly readReviewerArtifacts?: (input: {
+    readonly taskId: string;
+    readonly dispatchId: string;
+    readonly cwd: string;
+  }) => Promise<ReviewerReviewArtifacts | null>;
+  /** Replays a carried packet through the center's existing, credential-checked Review Action. */
+  readonly recoverReviewerReview?: (input: ReviewerReviewRecoveryInput) => Promise<void>;
+  /** Drop the short-lived center-issued credential when this runtime finishes settlement. */
+  readonly releaseExecutionCredential?: (runtimeSessionId: string) => void;
+  /** Read the center-published Review through the edge replica after a Review Action settles. */
+  readonly reviewerReviewRegistered?: (input: {
+    readonly taskId: string;
+    readonly reviewId: string;
+    readonly runtimeSessionId: string;
+  }) => Promise<boolean>;
   readonly taskContext: (
     taskId: string,
     missionName?: string,
@@ -478,5 +509,9 @@ export interface RuntimeSpawnerInput {
     archive: RuntimeDispatchArchive,
     binding: RuntimeBinding,
   ) => RuntimeBinding | Promise<RuntimeBinding>;
+  /** Replays a reviewer-authored packet/report through the canonical Review Action before exit
+   * settlement. The callback owns authorization and the single-writer queue; settlement only
+   * supplies bytes read from the dispatch's worktree and rechecks the resulting projection. */
+  readonly recoverReviewerReview?: (input: ReviewerReviewRecoveryInput) => Promise<void>;
   readonly recordLifecycle?: DaemonLifecycleRecorder;
 }

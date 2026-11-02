@@ -52,11 +52,18 @@ export async function cancelRuntime(
         (matchingHeader.binding !== undefined &&
           ownedByRuntimeSpawner(matchingHeader.binding, context.input.runtimeNode) &&
           !readDispatchStreamSummary(context.input.rootDir, matchingHeader.dispatchId)?.process));
-  if (!owned)
+  if (!owned) {
+    const sessions = context.input.remote
+        ? await context.input.remote.readRuntimeSessions()
+        : context.requiredRuntimeProjection(context.input).readRuntimeSessions(),
+      session = sessions.find((value) => value.runtimeSessionId === runtimeSessionId);
+    if (session?.outcome !== null && session?.outcome !== undefined)
+      return context.controlReceipt(opId, runtimeSessionId, "already-exited");
     throw runtimeSpawnError(
       "execution_scope_mismatch",
       "This runtime has no owner dispatch on this node; cancel it through its owner.",
     );
+  }
   if (!missingOwnedProcess) assertRuntimeRecoveryReady(context, runtimeSessionId);
   if (!context.processes.has(runtimeSessionId) && !missingOwnedProcess) {
     const [adoption] = await Promise.allSettled([adoptRuntimes(context, undefined, { runtimeSessionId })]);

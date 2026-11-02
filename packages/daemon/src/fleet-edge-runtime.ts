@@ -13,10 +13,11 @@ import { readEdgeViewBlob, readEdgeRuntimeResult } from "./runtime-result-read.t
 import { runRuntimeHandoff } from "./runtime-handoff.ts";
 import { recordRuntimeExecutionPrincipal } from "./runtime-execution-principal-store.ts";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, readFileSync, watch } from "node:fs";
+import { existsSync, lstatSync, readFileSync, watch } from "node:fs";
 import path from "node:path";
 import {
   assertTransitionDocumentReady,
+  classifyTextualArtifactPath,
   entitySlug,
   readSettingsFacet,
   requireTransitionDocumentKind,
@@ -38,13 +39,15 @@ import {
   readFleetOperationalClient,
   runFleetScheduleCommandClient,
   runFleetTaskCommandClient,
+  runFleetEdgeUploadClient,
+  runFleetEdgeTaskCommand,
   type FleetPeerOptions,
 } from "./fleet-edge-write.ts";
 import { applyFleetMirrorCut, locateFleetMirrorView } from "./fleet-edge-mirror.ts";
 import { transitionDocumentReadinessContract } from "./transition-document-access.ts";
 import { validateAgentRuntimeOverview, type AgentRuntimeOverviewResult } from "./agent-runtime-contract.ts";
 import { makeRuntimeSpawner, type RuntimeDaemonRoute, type RuntimeLauncher } from "./runtime-spawn.ts";
-import type { RuntimeAgent } from "./runtime-spawn-types.ts";
+import type { ReviewerReviewRecoveryInput, RuntimeAgent } from "./runtime-spawn-types.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { readReplicaGeneration } from "./fleet/replica-generation.ts";
@@ -275,6 +278,11 @@ export function openFleetEdgeRuntime(input: {
       payload,
     );
   const executionCredentials = new Map<string, { credential: string; expiresAt: string; personId: string }>();
+  const discardExpiredExecutionCredentials = () => {
+    const nowMs = Date.now();
+    for (const [runtimeSessionId, execution] of executionCredentials)
+      if (Date.parse(execution.expiresAt) <= nowMs) executionCredentials.delete(runtimeSessionId);
+  };
   const trustedScheduleAgents = new Map<string, RuntimeAgent>();
   const workQueue = createFleetEdgeRuntimeWorkQueue((error) => {
     console.error("[fleet-edge-runtime] Pending runtime work failed:", error);
@@ -292,6 +300,155 @@ export function openFleetEdgeRuntime(input: {
       write: () => runFleetScheduleCommandClient(options),
     });
   };
+  const readEdgeReviewerArtifacts = async (artifact: {
+    readonly taskId: string;
+    readonly dispatchId: string;
+    readonly cwd: string;
+  }) => {
+    const view = locateFleetMirrorView(request.viewRoot, request.repoId, request.nodeId);
+    if (!view) return null;
+    const packagePaths = fleetMirrorTaskPaths(view, artifact.taskId)
+      .filter((logical) => logical.startsWith("tasks/") && logical.endsWith("/INDEX.md"))
+      .map((logical) => logical.slice(0, -"/INDEX.md".length))
+      .filter((packagePath) => {
+        try {
+          const index = readFileSync(
+            path.join(resolveHarnessLayout(request.workspaceRoot).authoredRoot, ...packagePath.split("/"), "INDEX.md"),
+            "utf8",
+          );
+          return index
+            .split(/\r?\n/u)
+            .some((line) => line === `task_id: ${artifact.taskId}` || line === `taskId: ${artifact.taskId}`);
+        } catch {
+          return false;
+        }
+      });
+    if (packagePaths.length !== 1) return null;
+    const reportPath = `${packagePaths[0]}/artifacts/reports/${artifact.dispatchId}.md`,
+      packetPath = `${packagePaths[0]}/artifacts/reports/${artifact.dispatchId}.json`,
+      authoredRoot = resolveHarnessLayout(request.workspaceRoot).authoredRoot,
+      artifactBody = (logical: string) => {
+        const relative = logical.split("/");
+        for (const candidate of [
+          path.join(artifact.cwd, "harness", ...relative),
+          path.join(artifact.cwd, ...relative),
+          path.join(artifact.cwd, "artifacts", "reports", path.basename(logical)),
+          path.join(authoredRoot, ...relative),
+        ]) {
+          if (!existsSync(candidate)) continue;
+          const entry = lstatSync(candidate);
+          if (!entry.isFile() || entry.isSymbolicLink() || entry.size > 2 * 1024 * 1024) continue;
+          return new TextDecoder("utf-8", { fatal: true }).decode(readFileSync(candidate));
+        }
+        return null;
+      },
+      packet = artifactBody(packetPath),
+      report = artifactBody(reportPath);
+    return packet === null || report === null
+      ? null
+      : { packet: { path: packetPath, body: packet }, report: { path: reportPath, body: report } };
+  };
+  const recoverEdgeReviewerReview = async (review: ReviewerReviewRecoveryInput) => {
+    discardExpiredExecutionCredentials();
+    const execution = executionCredentials.get(review.runtimeSessionId);
+    if (!execution || Date.parse(execution.expiresAt) <= Date.now())
+      throw edgeRuntimeError(
+        "execution_credential_rejected",
+        "Center did not issue a live review recovery credential.",
+      );
+    if (
+      review.binding.actor.executor?.id !== `runtime-session:${review.runtimeSessionId}` ||
+      review.binding.actor.principal.personId !== execution.personId ||
+      typeof review.binding.source !== "object" ||
+      review.binding.source.kind !== "node" ||
+      review.binding.source.nodeId !== request.nodeId
+    )
+      throw edgeRuntimeError(
+        "execution_credential_rejected",
+        "Review recovery binding does not name its runtime session.",
+      );
+    const reportSuffix = `/artifacts/reports/${review.dispatchId}.md`,
+      reportPackage = review.report.path.endsWith(reportSuffix)
+        ? review.report.path.slice(0, -reportSuffix.length)
+        : null,
+      packetPath = reportPackage ? `${reportPackage}/artifacts/reports/${review.dispatchId}.json` : null,
+      view = locateFleetMirrorView(request.viewRoot, request.repoId, request.nodeId),
+      reportClass = classifyTextualArtifactPath(review.report.path);
+    if (
+      !view ||
+      !reportClass ||
+      packetPath !== review.packet.path ||
+      review.report.path !== `${reportPackage}/artifacts/reports/${review.dispatchId}.md`
+    )
+      throw edgeRuntimeError("review_report_invalid", "Review recovery artifacts do not match the dispatch package.");
+    const [candidate] = await runFleetEdgeUploadClient({
+      ...writePeer,
+      timeoutMs: 60_000,
+      changes: [
+        {
+          path: review.report.path,
+          body: Buffer.from(review.report.body, "utf8"),
+          mediaType: reportClass.mediaType,
+        },
+      ],
+    });
+    if (!candidate) throw edgeRuntimeError("review_report_missing", "Review report upload returned no content claim.");
+    let packet: unknown;
+    try {
+      packet = JSON.parse(review.packet.body);
+    } catch {
+      throw edgeRuntimeError("review_report_invalid", "Review recovery packet is not valid JSON.");
+    }
+    if (typeof packet !== "object" || packet === null || Array.isArray(packet))
+      throw edgeRuntimeError("review_report_invalid", "Review recovery packet must be a JSON object.");
+    const action = {
+        ...packet,
+        kind: "task-review-execution",
+        taskId: review.taskId,
+        executionId: review.executionId,
+        reviewId: `review-${review.dispatchId}`,
+      } as const,
+      taskCommand = () =>
+        runFleetTaskCommandClient({
+          ...writePeer,
+          executionCredential: execution.credential,
+          opId: `runtime-review-recovery-${review.runtimeSessionId}`,
+          repoId: request.repoId,
+          taskId: review.taskId,
+          action,
+          waitMs: centerWriteWaitMs,
+          timeoutMs: centerWriteWaitMs + 10_000,
+          docChanges: [
+            {
+              path: review.report.path,
+              baseBlobSha256: view.entries.get(review.report.path)?.sha256 ?? null,
+              policyId: reportClass.policyId,
+              candidate,
+            },
+          ],
+          mirrorBaseCut: { revision: view.revision, headDigest: view.headDigest },
+        });
+    const result = await runFleetEdgeTaskCommand({
+      timeoutMs: centerWriteWaitMs + 60_000,
+      readOnly: false,
+      write: taskCommand,
+      settle: () =>
+        runFleetEdgeWrite({
+          viewRoot: request.viewRoot,
+          repoId: request.repoId,
+          nodeId: request.nodeId,
+          timeoutMs: centerWriteWaitMs,
+          write: taskCommand,
+        }),
+    });
+    const receiptOutcome =
+      result.receipt && typeof result.receipt.outcome === "string" ? result.receipt.outcome : result.outcome;
+    if (result.outcome !== "applied" || !["applied", "no_changes"].includes(receiptOutcome))
+      throw edgeRuntimeError(
+        result.code ?? "review_result_missing",
+        `Center did not accept Review ${`review-${review.dispatchId}`}: ${String(result.code ?? receiptOutcome)}.`,
+      );
+  };
   const spawner = makeRuntimeSpawner({
     repoId: request.repoId,
     rootDir: request.workspaceRoot,
@@ -300,10 +457,10 @@ export function openFleetEdgeRuntime(input: {
     runtimeDaemonRoute: input.daemonRoute,
     remote: {
       executionCredential: (runtimeSessionId) => {
+        discardExpiredExecutionCredentials();
         const execution = executionCredentials.get(runtimeSessionId);
         if (!execution)
           throw edgeRuntimeError("execution_credential_rejected", "Center did not issue this dispatch credential.");
-        executionCredentials.delete(runtimeSessionId);
         recordRuntimeExecutionPrincipal(
           request.workspaceRoot,
           request.repoId,
@@ -313,6 +470,24 @@ export function openFleetEdgeRuntime(input: {
           execution.expiresAt,
         );
         return { credential: execution.credential, expiresAt: execution.expiresAt };
+      },
+      readReviewerArtifacts: async ({ taskId, dispatchId, cwd }) =>
+        readEdgeReviewerArtifacts({
+          taskId,
+          dispatchId,
+          cwd,
+        }),
+      recoverReviewerReview: async (review) => recoverEdgeReviewerReview(review),
+      releaseExecutionCredential: (runtimeSessionId) => {
+        executionCredentials.delete(runtimeSessionId);
+      },
+      reviewerReviewRegistered: async ({ taskId, reviewId, runtimeSessionId }) => {
+        await pullRuntimeReplica();
+        const context = taskRuntimeContext(await readReplica("repo.tasks.runtimeContext.read", { taskId }), taskId);
+        return context.snapshot.reviews.some(
+          (review) =>
+            review.reviewId === reviewId || review.actor.executor?.id === `runtime-session:${runtimeSessionId}`,
+        );
       },
       taskContext: async (taskId, missionName, review) => {
         // Pull only in write preparation; repository values themselves use the shared local query.
@@ -552,6 +727,7 @@ export function openFleetEdgeRuntime(input: {
         // acknowledgement belongs to write preparation; subsequent reads remain offline.
         if (draft.type === "runtime_session_started") await pullRuntimeReplica();
         const { executionCredential, executionExpiresAt, executionPrincipalId, ...receipt } = response.receipt;
+        discardExpiredExecutionCredentials();
         if (
           typeof executionCredential === "string" &&
           typeof executionExpiresAt === "string" &&

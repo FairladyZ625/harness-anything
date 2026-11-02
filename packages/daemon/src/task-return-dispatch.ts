@@ -104,6 +104,10 @@ export async function continueReviewRework(
     } as WriteReceiptDraft;
   }
   if (!review) return receipt;
+  // An approved Review completes the review leg. It must never inherit the exhausted-rework
+  // warning used for changes_requested verdicts, even when the packet carries empty finding and
+  // resolution arrays (the normal wire shape for an approval).
+  if (command.type === "RecordReview" && review.verdict === "approved") return receipt;
   const resolutions = review.resolutions ?? [],
     priorReviews = read.snapshot.reviews.filter((value) => value.iteration < review.iteration),
     priorIteration = priorReviews.length ? Math.max(...priorReviews.map((value) => value.iteration)) : -1,
