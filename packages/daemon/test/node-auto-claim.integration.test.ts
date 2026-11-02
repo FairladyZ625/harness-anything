@@ -303,24 +303,17 @@ test(
         runtimeLaunch,
         beforeOpen: setupEdgeGit,
       });
-    const catchUpEdge = async (edge: Awaited<ReturnType<typeof fleetEdgeHostFixture>>, nodeId: string) => {
-      try {
-        return await catchUpReplica({
-          readAccessToken: async () => `device-token-${nodeId}`,
-          port: fixture.center.port,
-          ca: readFileSync(path.join(fixture.root, "tls.crt")),
-          nodeId,
-          credential: `secret-${nodeId}`,
-          repoId: "lease-repo",
-          viewRoot: edge.viewRoot,
-          diskQuotaBytes: 64 * 1024 * 1024,
-        });
-      } catch (error) {
-        throw new Error(`catch-up failed for ${nodeId}: ${error instanceof Error ? error.message : String(error)}`, {
-          cause: error,
-        });
-      }
-    };
+    const catchUpEdge = (edge: Awaited<ReturnType<typeof fleetEdgeHostFixture>>, nodeId: string) =>
+      catchUpReplica({
+        readAccessToken: async () => `device-token-${nodeId}`,
+        port: fixture.center.port,
+        ca: readFileSync(path.join(fixture.root, "tls.crt")),
+        nodeId,
+        credential: `secret-${nodeId}`,
+        repoId: "lease-repo",
+        viewRoot: edge.viewRoot,
+        diskQuotaBytes: 64 * 1024 * 1024,
+      });
     await registerFixtureRuntimeInstance(activeEdge.host, "lease-repo", localAuth, runtime, {
       allowHost: fixture.host,
     });
