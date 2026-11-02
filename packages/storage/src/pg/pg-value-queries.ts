@@ -69,12 +69,12 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
     getEntity: (kind, id) =>
       read(async (client) => {
         await ready(client);
-        const row = await client.query<{ value: EntityProjectionRow }>(
+        const row = await client.query<{ value: string }>(
           `SELECT value FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model=$4 AND entity_id=$5
          AND (cardinality($6::text[])=0 OR readers && $6::text[]) ORDER BY workspace_revision DESC LIMIT 1`,
           [scope.tenantId, scope.projectId, scope.policyEpoch, `entity:${kind}`, id, readers],
         );
-        return row.rows[0]?.value ?? null;
+        return row.rows[0] ? (JSON.parse(row.rows[0].value) as EntityProjectionRow) : null;
       }),
     listPinnedEntities: async () =>
       (await list<PinnedEntityProjectionRow>("pin")).toSorted((a, b) =>
