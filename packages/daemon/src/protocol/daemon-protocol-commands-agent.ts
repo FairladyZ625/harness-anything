@@ -171,6 +171,41 @@ export const agentProtocolCommands = Object.freeze([
       cliInput("--work", "single", false, { code: "invalid_field" }, { format: "<work root task id>" }),
     ],
   }),
+  defineHostAdminCommand({
+    id: "migrate-storage",
+    phase: "Migration-A",
+    path: ["migrate", "storage"],
+    summary:
+      "Cold-switch a frozen ledger between SQLite, PostgreSQL and PGlite; preserves source and never edits configuration.",
+    method: "repo.task.run",
+    inputs: [
+      cliInput(
+        "--from",
+        "single",
+        true,
+        { code: "missing_field" },
+        { enum: ["sqlite", "postgres", "pglite"], field: "from" },
+      ),
+      cliInput(
+        "--to",
+        "single",
+        true,
+        { code: "missing_field" },
+        { enum: ["sqlite", "postgres", "pglite"], field: "to" },
+      ),
+      cliInput("--source", "single", true, { code: "missing_field" }, { field: "sourceLocation" }),
+      cliInput("--target", "single", true, { code: "missing_field" }, { field: "targetLocation" }),
+      cliInput("--run-id", "single", true, { code: "missing_field" }, { field: "runId" }),
+      cliInput("--export-directory", "single", true, { code: "missing_field" }, { field: "exportDirectory" }),
+      cliInput(
+        "--mode",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { enum: ["preflight", "migrate", "resume", "abort"] },
+      ),
+    ],
+  }),
   agentRunProtocolCommand,
   defineLedgerWriteCommand({
     id: "migrate-import",

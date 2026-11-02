@@ -1,3 +1,4 @@
+import { migrationWritable, type StorageMigrationRecord } from "../migration/types.ts";
 import type { Pool, PoolClient } from "pg";
 import {
   serializePersistedCanonicalEvent,
@@ -142,13 +143,19 @@ export async function executePostgresAppend(
       );
       const locked = (
         await client.query<HeadRow>(
-          `SELECT revision, head_op_id, head_event_digest, head_digest, writer_holder_id, writer_epoch, replication_history
+          `SELECT revision, head_op_id, head_event_digest, head_digest, writer_holder_id, writer_epoch, replication_history, migration_control
            FROM ha_repo_heads WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 FOR UPDATE`,
           [scope.tenantId, scope.projectId, repoId],
         )
       ).rows[0];
       if (!locked)
         throw new TaskEventStoreError("revision_conflict", "PostgreSQL repository head is outside the active scope");
+
+      if (!migrationWritable(locked.migration_control ?? null))
+        throw new TaskEventStoreError(
+          "revision_conflict",
+          "storage_migration_read_only: recover the persisted migration before writing",
+        );
 
       // Validate the full declaration under the same lock as revision admission and every write.
       const prepared = input.bundle ? prepareBundle(input.bundle, repoId) : null,
@@ -434,7 +441,7 @@ async function authorizeReplacements(
   );
 }
 
-async function updateDocumentHeads(
+export async function updateDocumentHeads(
   client: PoolClient,
   scope: PostgresEventStoreScope,
   repoId: string,
@@ -476,6 +483,7 @@ async function updateDocumentHeads(
 }
 
 export interface HeadRow {
+  readonly migration_control?: StorageMigrationRecord | null;
   readonly revision: string | number;
   readonly head_op_id: string | null;
   readonly head_event_digest: string | null;

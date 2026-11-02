@@ -612,7 +612,8 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
   // dec_E369B8616F50A6208B293997E7/CH5 (W2-2) deletes task-adjudicate with the manual
   // forward/return commands; CH1 adds task-respond-review.
   // task_c42e93a6c384624aba591b9b8b adds worker escalation and owner resolution.
-  assert.equal(actionDeclarations.length, 169);
+  // dec_D90F19C8AAAF39747F8F0D6698/CH3/CH20 adds the admin storage migration Action.
+  assert.equal(actionDeclarations.length, 170);
   for (const kind of ["task-escalate", "task-escalation-resolve"])
     assert.ok(
       actionDeclarations.some((declaration) => declaration.kind === kind),

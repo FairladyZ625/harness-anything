@@ -206,7 +206,8 @@ test("an unknown command domain reports unknown with the available set instead o
     for (const domain of Object.keys(cliCapabilities)) assert.match(line, new RegExp(`\\b${domain}\\b`, "u"));
   }
   assert.equal(logs.length, 1);
-  assert.match(logs[0] ?? "", /Commands for migrate:\n {2}ha migrate import/u);
+  assert.match(logs[0] ?? "", /Commands for migrate:\n {2}ha migrate storage/u);
+  assert.match(logs[0] ?? "", /migrate import/u);
   assert.match(logs[0] ?? "", /migrate ledger/u);
   assert.match(logs[0] ?? "", /migrate writer-epoch/u);
 });
@@ -650,6 +651,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "migrate-completion",
       "migrate-import",
       "migrate-ledger",
+      "migrate-storage",
       "migrate-writer-epoch",
       "vertical-declaration-migrate",
     ],

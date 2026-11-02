@@ -52,7 +52,9 @@ test("retired People mutations are absent from the durable authorization invento
   // task_8c579f0d2c896668e2fd92ab85 adds six durable Todo writes through ActionDeclaration.
   // dec_6C9E3399972A2F06C046BA89DC/CH1 removes task-pin/unpin-only authorization paths.
   // task_c42e93a6c384624aba591b9b8b adds the worker escalation and owner resolution writes.
-  assert.equal(durablePolicyActions.length, 168);
+  // dec_D90F19C8AAAF39747F8F0D6698/CH3/CH20 adds the admin storage migration Action.
+  assert.equal(durablePolicyActions.length, 169);
+  assert.equal(durablePolicyActions.includes("migrate-storage"), true);
   assert.equal(durablePolicyActions.includes("task-adjudicate"), false);
   assert.equal(durablePolicyActions.includes("task-code-doc-reconcile"), false);
   assert.equal(durablePolicyActions.includes("task-code-doc-repoint"), false);

@@ -37,7 +37,9 @@ test("every declaration has one minimum Base tier and one unique Keycloak scope"
   // dec_E369B8616F50A6208B293997E7/CH5 (W2-2) deletes task-adjudicate with the manual forward/return commands.
   // task_8c579f0d2c896668e2fd92ab85 adds six Todo action declarations.
   // task_c42e93a6c384624aba591b9b8b adds task-escalate and task-escalation-resolve.
-  assert.equal(actionDeclarations.length, 169);
+  // dec_D90F19C8AAAF39747F8F0D6698/CH3/CH20: cold migration requires administrator authority.
+  assert.equal(actionDeclarations.length, 170);
+  assert.equal(actionDeclarations.find(({ kind }) => kind === "migrate-storage")?.policyTier, "admin");
   assert.equal(
     actionDeclarations.some(
       ({ kind }) => kind === "ci-observe-pull" || kind === "task-ci" || kind.startsWith("task-code-doc-"),

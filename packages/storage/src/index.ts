@@ -67,3 +67,6 @@ export * from "./durable-file.ts";
 
 export * from "./migration-projection-oracle.ts";
 export * from "./migration-values.ts";
+
+export { runStorageMigration } from "./migration/open.ts";
+export type { StorageMigrationLocation } from "./migration/open.ts";

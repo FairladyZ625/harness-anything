@@ -589,10 +589,12 @@ function queuedDispatchAuthorization(rootDir, analysis, authority) {
           // The dispatch route is the authorized RepoCell runner either way. The declaration helper
           // names where the action's own state lives: canonical for a ledger write, local when the
           // command is host ingress whose canonical events another action appends (runtime handoff).
+          // CH20 storage migration is also a queued durable Action, at the admin tier;
+          // it reaches the identical current-cut authorization guard before its handler.
           const helper = entry.expression.getText();
           return (
             (helper === "canonical" && syntax(entry.arguments[2]) === '"repo-write"') ||
-            (helper === "local" && syntax(entry.arguments[1]) === '"repo-write"')
+            (helper === "local" && ['"repo-write"', '"admin"'].includes(syntax(entry.arguments[1])))
           );
         })
       )
