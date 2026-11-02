@@ -19,6 +19,7 @@ import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
+import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 
 async function fixture(t: test.TestContext) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-studio-rpc-")),
@@ -148,26 +149,34 @@ test(
       title: "Canonical handoff",
     });
     assert.equal(created.outcome, "applied", JSON.stringify(created));
-    const firstFact = await f.command("center-node", {
-      kind: "fact-record",
-      factId: "F-STUDIO01",
-      statement: "Initial observation",
-      evidenceSource: "test:studio-rpc",
-      confidence: "high",
-      memoryClass: "semantic",
-    });
+    const firstFact = await f.host.run(
+      "lease-repo",
+      {
+        kind: "fact-record",
+        factId: "F-ABCDEF01",
+        statement: "Initial observation",
+        evidenceSource: "test:studio-rpc",
+        confidence: "high",
+        memoryClass: "semantic",
+      },
+      localAuthFixture(),
+    );
     assert.equal(firstFact.outcome, "applied", JSON.stringify(firstFact));
-    const corrected = await f.command("center-node", {
-      kind: "fact-record",
-      factId: "F-STUDIO02",
-      statement: "Corrected observation",
-      evidenceSource: "test:studio-rpc",
-      confidence: "high",
-      memoryClass: "semantic",
-      supersedes: "fact/F-STUDIO01",
-      rationale: "New evidence",
-    });
+    const corrected = await f.host.run(
+      "lease-repo",
+      {
+        kind: "fact-record",
+        factId: "F-ABCDEF02",
+        statement: "Corrected observation",
+        evidenceSource: "test:studio-rpc",
+        confidence: "high",
+        memoryClass: "semantic",
+        supersedes: { factRef: "fact/F-ABCDEF01", rationale: "New evidence" },
+      },
+      localAuthFixture(),
+    );
     assert.equal(corrected.outcome, "applied", JSON.stringify(corrected));
+    await waitForFleetPublication(f.host, "lease-repo", corrected.opId, localAuthFixture());
     const edges = [];
     for (const nodeId of ["node-one", "node-two"]) {
       const viewRoot = path.join(f.root, `view-${nodeId}`);
@@ -204,7 +213,7 @@ test(
       assert.equal(read.context.snapshot.task?.title, "Canonical handoff");
       assert.ok(read.context.cut && read.context.freshness);
       assert.ok(
-        read.signals.signals.some((signal) => signal.kind === "corrected-fact" && signal.key === "fact/F-STUDIO01"),
+        read.signals.signals.some((signal) => signal.kind === "corrected-fact" && signal.key === "fact/F-ABCDEF01"),
       );
       assert.ok(read.policy.groups.some((group) => group.id === "studio-readers"));
     }

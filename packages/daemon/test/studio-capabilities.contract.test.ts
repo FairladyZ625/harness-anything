@@ -4,9 +4,9 @@ import test from "node:test";
 import {
   actionForDaemonMethod,
   commandClassForAction,
-  parseDaemonGuiReadResult,
   parseDaemonRpcParams,
 } from "../src/protocol/daemon-protocol.contract.ts";
+import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 import { repositoryReadDescriptor } from "../src/repository-read-contract.ts";
 import { parseFleetFrame } from "../src/fleet/command-protocol.ts";
 
