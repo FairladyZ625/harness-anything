@@ -7,10 +7,12 @@ import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
 
 /** The receipt extension a rework continuation contributes to the recorded review's receipt. */
-type ReviewReworkStep = { readonly continuation: Readonly<Record<string, unknown>> } & (
-  | { readonly next: readonly { readonly command: string; readonly reason: string }[] }
-  | { readonly steps: readonly WriteReceiptDraft[] }
-);
+type ReviewReworkStep = {
+  readonly continuation: Readonly<Record<string, unknown>>;
+  readonly next?: readonly { readonly command: string; readonly reason: string }[];
+  readonly steps?: readonly WriteReceiptDraft[];
+  readonly warnings?: readonly string[];
+};
 
 type ReworkContext = {
   readonly taskId: string;
@@ -107,7 +109,10 @@ export async function continueReviewRework(
       ...step,
       ...("steps" in step
         ? {
-            steps: [...((receipt as { readonly steps?: readonly WriteReceiptDraft[] }).steps ?? []), ...step.steps],
+            steps: [
+              ...((receipt as { readonly steps?: readonly WriteReceiptDraft[] }).steps ?? []),
+              ...(step.steps ?? []),
+            ],
           }
         : {}),
     } as WriteReceiptDraft;
@@ -256,7 +261,24 @@ async function dispatchContinuation(
       )
         continue;
       const failure = cell.failed(input.opId, error);
-      return { continuation: { mode: continuation.mode, ...failure }, steps: [failure] };
+      return {
+        continuation: { mode: continuation.mode, ...failure },
+        steps: [failure],
+        warnings: [
+          `Task ${input.taskId}'s return to rework was recorded; only the worker dispatch failed. ` +
+            "Fix the cause, then run the next command to re-dispatch the worker.",
+        ],
+        ...(continuation.resumeCommand
+          ? {
+              next: [
+                {
+                  command: continuation.resumeCommand,
+                  reason: "continue the recorded rework without returning the task again",
+                },
+              ],
+            }
+          : {}),
+      };
     }
   }
 }
@@ -309,11 +331,22 @@ function prepareWorkerContinuation(
     execution = snapshot.executions.find((value) => value.executionId === input.execution.executionId)!,
     previous = submittingWorkerDispatch(cell, input.taskId, input.execution.executionId),
     submission = execution.submission!,
+    agentOverride = input.workerIdentity?.agentId !== undefined,
     agentId = input.workerIdentity?.agentId ?? previous?.agentId ?? cell.settings.readRepository().roles?.defaultWorker,
     runtimeInstanceId = input.workerIdentity?.runtimeInstanceId ?? previous?.instanceId,
-    model = input.workerIdentity?.model ?? previous?.provider.model ?? undefined;
+    // A selected Agent owns its model. When the owner names one, the continuation must not pin the
+    // previous dispatch's model: the runtime spawner resolves the declared Agent's model for the
+    // selected instance, exactly like `ha agent run` does. Only a plain continuation (and an
+    // instance-only resource move) inherits the previous dispatch's model.
+    model = input.workerIdentity?.model ?? (agentOverride ? undefined : (previous?.provider.model ?? undefined)),
+    resumeCommand = agentId
+      ? `ha agent run ${agentId} --task ${input.taskId}` +
+        (runtimeInstanceId ? ` --instance ${runtimeInstanceId}` : "") +
+        (model ? ` --model ${model}` : "")
+      : null;
   return {
     mode,
+    resumeCommand,
     payload: {
       taskId: input.taskId,
       ...(agentId ? { agentId } : {}),
