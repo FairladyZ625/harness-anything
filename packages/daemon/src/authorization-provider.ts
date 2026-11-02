@@ -16,6 +16,8 @@ import {
 import {
   artifactActionPoliciesByKind,
   decodeVerticalDefinition,
+  normalizeHistoricalVerticalDocument,
+  parseVerticalDeclarationDocument,
   readDaemonRegistry,
   type AuthorizationProvider,
 } from "@harness-anything/kernel";
@@ -104,9 +106,12 @@ export function readArtifactActionScopes(userRoot: string): () => Promise<readon
             raw !== null && typeof raw === "object" && "schema" in raw && "definition" in raw
               ? (raw as { readonly schema?: unknown; readonly definition?: unknown })
               : null;
-        return decodeVerticalDefinition(
-          envelope?.schema === "repository-vertical-declaration/v1" ? envelope.definition : raw,
-        );
+        // The accepted declaration reaches this policy sync as the same materialized document the
+        // canonical reader consumes. Historical retired defaults are normalized by that shared read
+        // path; rejecting them only here made a readable declaration fail the daemon's whole start.
+        return envelope?.schema === "repository-vertical-declaration/v1"
+          ? parseVerticalDeclarationDocument(normalizeHistoricalVerticalDocument(raw)).definition
+          : decodeVerticalDefinition(raw);
       },
       seed = readDefinition(path.join(defaultAssets, "vertical.json")),
       repos = readDaemonRegistry({ userRoot }).repos.filter(

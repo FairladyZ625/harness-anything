@@ -45,7 +45,7 @@ function register(userRoot: string, repos: readonly { readonly repoId: string; r
     });
 }
 
-test("a retired completion default fails policy sync until the completion conversion runs", async () => {
+test("policy sync normalizes a historical completion default to the converted declaration's scopes", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-retired-code-doc-")),
     userRoot = path.join(parent, "user"),
     definition = structuredClone(bundled) as {
@@ -57,18 +57,19 @@ test("a retired completion default fails policy sync until the completion conver
     source = path.join(root, "harness", "vertical.json");
   try {
     register(userRoot, [{ repoId: "repo-retired-code-doc", root }]);
-    // managedRbac.resume() reaches this function while syncing the center's Base policy. A retired
-    // declaration must fail it with the migration instruction rather than let the center start with
-    // a policy that silently omits the repository.
-    await assert.rejects(readArtifactActionScopes(userRoot)(), (error: unknown) => {
-      assert.equal((error as { readonly code?: string }).code, "vertical_declaration_outdated");
-      assert.match((error as Error).message, /completion\.closeoutDefaults\.codeDoc/u);
-      return true;
-    });
+    // managedRbac.resume() reaches this function while syncing the center's Base policy. The
+    // canonical declaration reader already normalizes historical retired defaults; policy sync must
+    // read the same accepted declaration, not reject the whole daemon start over the same bytes.
+    const normalized = await readArtifactActionScopes(userRoot)();
+    assert.ok(normalized.includes(sharedScope), "the active shared kind keeps its import scope");
     const candidate = path.join(parent, "candidate.json");
     assert.equal(migrateCompletion({ source, destination: candidate, dryRun: false }).changed, true);
     copyFileSync(candidate, source);
-    assert.ok((await readArtifactActionScopes(userRoot)()).length > 0);
+    assert.deepEqual(
+      await readArtifactActionScopes(userRoot)(),
+      normalized,
+      "the retired key is normalized away, so conversion changes no policy scope",
+    );
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }
