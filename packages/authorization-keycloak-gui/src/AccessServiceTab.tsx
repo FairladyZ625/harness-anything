@@ -136,11 +136,13 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
         }
       });
 
+    const builtin = binding?.mode === "builtin",
+      signInLabel = builtin ? "identityAccess.localSignIn" : "identityAccess.signIn";
     if (login)
       return (
         <section className="flex min-h-0 flex-1 flex-col" data-testid="account-login">
           <header className="flex items-center justify-between gap-2 px-2 py-1">
-            <span>{t(login.userCode ? "identityAccess.deviceApproval" : "identityAccess.signIn")}</span>
+            <span>{t(login.userCode ? "identityAccess.deviceApproval" : signInLabel)}</span>
             <Button testId="account-login-cancel" onClick={() => void auth.cancelLogin()}>
               {t(login.userCode ? "identityAccess.closeDeviceApproval" : "identityAccess.cancelLogin")}
             </Button>
@@ -222,12 +224,16 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
             ) : null}
             {bootstrapRequired ? (
               <BoardRegion region="bootstrap">
-                <BootstrapAdminForm busy={busy} submit={(input) => run(() => auth.bootstrapAdmin(input, rootDir))} />
+                <BootstrapAdminForm
+                  builtin={builtin}
+                  busy={busy}
+                  submit={(input) => run(() => auth.bootstrapAdmin(input, rootDir))}
+                />
               </BoardRegion>
             ) : null}
             <BoardRegion region="service" data-testid="access-service-card">
               <Region
-                title={t("accessControl.service.title")}
+                title={t(builtin ? "identityAccess.localService" : "accessControl.service.title")}
                 tag={
                   binding ? (
                     <StatusTag
@@ -239,7 +245,9 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
                 edge={binding && !ready ? "bad" : undefined}
                 footer={
                   <>
-                    <span className="min-w-0 truncate">{t("identityAccess.description")}</span>
+                    <span className="min-w-0 truncate">
+                      {t(builtin ? "identityAccess.localDescription" : "identityAccess.description")}
+                    </span>
                   </>
                 }
               >
@@ -259,7 +267,7 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
                         testId="account-session-action"
                         onClick={() => void (authenticated ? run(() => auth.logout(repoId, rootDir)) : signIn())}
                       >
-                        {authenticated ? t("identityAccess.signOut") : t("identityAccess.signIn")}
+                        {authenticated ? t("identityAccess.signOut") : t(signInLabel)}
                       </Button>
                     </span>
                   }
@@ -274,19 +282,27 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
                     <DenseRow
                       title={t("identityAccess.mode")}
                       time={t(
-                        binding.mode === "managed" ? "accessControl.service.managed" : "accessControl.service.external",
+                        builtin
+                          ? "identityAccess.localMode"
+                          : binding.mode === "managed"
+                            ? "accessControl.service.managed"
+                            : "accessControl.service.external",
                       )}
                     />
-                    <DenseRow title={t("identityAccess.url")} time={String(binding.url ?? "—")} />
-                    <DenseRow title={t("identityAccess.realm")} time={String(binding.realm ?? "—")} />
-                    <DenseRow
-                      title={t("identityAccess.version")}
-                      time={String(
-                        (binding.versions as RecordValue | undefined)?.keycloak ??
-                          binding.version ??
-                          t("identityAccess.unknown"),
-                      )}
-                    />
+                    {!builtin ? (
+                      <>
+                        <DenseRow title={t("identityAccess.url")} time={String(binding.url ?? "—")} />
+                        <DenseRow title={t("identityAccess.realm")} time={String(binding.realm ?? "—")} />
+                        <DenseRow
+                          title={t("identityAccess.version")}
+                          time={String(
+                            (binding.versions as RecordValue | undefined)?.keycloak ??
+                              binding.version ??
+                              t("identityAccess.unknown"),
+                          )}
+                        />
+                      </>
+                    ) : null}
                     {managedElsewhere ? (
                       <p
                         data-testid="binding-managed-elsewhere"
@@ -305,12 +321,12 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
             </BoardRegion>
             {access && authenticated ? (
               <BoardRegion region="lifetime" data-testid="access-session-lifetime">
-                <SessionLifetime access={access} />
+                <SessionLifetime access={access} builtin={builtin} />
               </BoardRegion>
             ) : null}
           </BoardColumn>
         </BoardMain>
-        {binding !== undefined && !managedElsewhere ? (
+        {binding !== undefined && !builtin && !managedElsewhere ? (
           <BoardSide region="binding">
             <Region
               title={t("accessControl.service.operations")}
@@ -351,7 +367,7 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
   }
 
   /** How long a signed-in session survives unused. The realm holds the only copy; a change is made against the value read. */
-  function SessionLifetime({ access }: { readonly access: AccessAdminApi }) {
+  function SessionLifetime({ access, builtin }: { readonly access: AccessAdminApi; readonly builtin: boolean }) {
     const { data, rejection, reload } = useAccessRead<AccessSessionLifetimeReply>(access.sessionLifetime),
       [minutes, setMinutes] = useState(""),
       [unit, setUnit] = useState(60),
@@ -379,9 +395,11 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
           <AccessNotice rejection={rejection} origin="read" testId="access-lifetime-unavailable" />
         ) : data ? (
           <div className="flex flex-col gap-2">
-            <p data-testid="access-lifetime-authority" className="text-text-muted ui-meta">
-              {t("accessControl.lifetime.authority", { url: data.authority.url, realm: data.authority.realm })}
-            </p>
+            {!builtin ? (
+              <p data-testid="access-lifetime-authority" className="text-text-muted ui-meta">
+                {t("accessControl.lifetime.authority", { url: data.authority.url, realm: data.authority.realm })}
+              </p>
+            ) : null}
             {refusal && <AccessNotice rejection={refusal} origin="write" testId="access-lifetime-refusal" />}
             <label className="flex flex-col gap-1 ui-meta text-text-muted">
               {t("accessControl.lifetime.label")}
@@ -505,9 +523,11 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
   }
 
   function BootstrapAdminForm({
+    builtin,
     busy,
     submit,
   }: {
+    readonly builtin: boolean;
     readonly busy: boolean;
     readonly submit: (input: {
       username: string;
@@ -532,7 +552,9 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
     return (
       <Region title={t("identityAccess.bootstrapTitle")} edge="wait" padded>
         <form className="flex flex-col gap-2" onSubmit={onSubmit} data-testid="bootstrap-admin-form">
-          <p className="text-text-muted ui-meta">{t("identityAccess.bootstrapDescription")}</p>
+          <p className="text-text-muted ui-meta">
+            {t(builtin ? "identityAccess.localBootstrapDescription" : "identityAccess.bootstrapDescription")}
+          </p>
           <div className="grid grid-cols-[repeat(auto-fit,minmax(13rem,1fr))] gap-2">
             <input required name="username" placeholder={t("identityAccess.username")} className={INPUT} />
             <input required name="email" type="email" placeholder={t("identityAccess.email")} className={INPUT} />

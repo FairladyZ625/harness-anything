@@ -20,6 +20,7 @@ import {
   type BuiltinUser,
 } from "./state.ts";
 import { identityPluginRequired } from "./collaboration.ts";
+import { builtinLoginPage } from "./login-page.ts";
 
 type Pending = {
   readonly userCode: string;
@@ -120,7 +121,8 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
     if (external) return external.deviceApproval(userCode, loginTarget);
     this.#assertLocalLoginTarget(loginTarget);
     const pending = [...this.#pending.values()].find((item) => item.userCode === userCode);
-    if (!pending) throw coded("oidc_device_missing", "Unknown or expired built-in device code.");
+    if (!pending || pending.expiresAt <= Date.now())
+      throw coded("oidc_device_missing", "Unknown or expired built-in device code.");
     const user = this.#adapter.owner();
     if (!user) throw coded("bootstrap_admin_required", "Create the first built-in administrator before signing in.");
     const authorizationUrl = await this.#loginPageUrl("device", userCode);
@@ -362,7 +364,13 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
       const server = createServer((request, response) => {
         void this.#serveLoginPage(request, response).then(undefined, () => {
           if (!response.headersSent)
-            response.writeHead(500, { "content-type": "text/plain" }).end("Built-in sign-in failed.");
+            response.writeHead(500, loginPageHeaders).end(
+              builtinLoginPage({
+                title: "无法完成登录 / Sign-in could not be completed",
+                message: "请返回 Harness 重新发起登录。\nReturn to Harness and start sign-in again.",
+                error: true,
+              }),
+            );
         });
       });
       await new Promise<void>((resolve, reject) => {
@@ -381,40 +389,79 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
   }
   async #loginResponse(request: IncomingMessage): Promise<LoginResponse> {
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
-    if (request.method === "GET" && (url.pathname === "/login" || url.pathname === "/device")) {
-      const field = url.pathname === "/device" ? "userCode" : "state";
+    if (
+      (request.method !== "GET" && request.method !== "POST") ||
+      (url.pathname !== "/login" && url.pathname !== "/device")
+    )
+      return {
+        status: 404,
+        headers: loginPageHeaders,
+        body: builtinLoginPage({
+          title: "找不到页面 / Page not found",
+          message: "请从 Harness 打开登录链接。\nOpen the sign-in link from Harness.",
+          error: true,
+        }),
+      };
+    const kind = url.pathname === "/device" ? "device" : "login",
+      field = kind === "device" ? "userCode" : "state",
+      form = request.method === "POST" ? new URLSearchParams(await readRequestBody(request)) : null,
+      value = form ? (form.get(field) ?? "") : (url.searchParams.get("value") ?? ""),
+      pending = kind === "device" ? [...this.#pending.values()].find((item) => item.userCode === value) : undefined;
+    if (
+      kind === "device"
+        ? !pending || pending.expiresAt <= Date.now()
+        : !value || !this.#loginRedirectUri || value !== this.#loginState
+    )
+      return {
+        status: 410,
+        headers: loginPageHeaders,
+        body: builtinLoginPage({
+          title: "登录链接已过期 / Sign-in link expired",
+          message:
+            "此链接已过期或已使用。请返回 Harness 重新发起登录。\nThis link has expired or was already used. Return to Harness and start sign-in again.",
+          error: true,
+        }),
+      };
+    if (!form)
       return {
         status: 200,
-        headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" },
-        body: `<!doctype html><title>Harness sign in</title><form method="post" action="/${url.pathname.slice(1)}"><label>Username <input name="username" autocomplete="username" required></label><label>Password <input name="password" type="password" autocomplete="current-password" required></label><input type="hidden" name="${field}" value="${escapeHtml(url.searchParams.get("value") ?? "")}"><button>Sign in</button></form>`,
+        headers: loginPageHeaders,
+        body: builtinLoginPage({
+          title: "登录 Harness / Sign in to Harness",
+          message: "请使用本机账号登录。\nUse your local account to sign in on this computer.",
+          kind,
+          value,
+        }),
       };
-    }
-    if (request.method !== "POST" || (url.pathname !== "/login" && url.pathname !== "/device")) return { status: 404 };
-    const body = await readRequestBody(request),
-      form = new URLSearchParams(body),
-      user = this.#adapter.userByUsername(form.get("username") ?? ""),
+    const user = this.#adapter.userByUsername(form.get("username") ?? ""),
       password = form.get("password");
     if (!user || password === null || !this.#adapter.verifyPassword(user, password)) {
       return {
         status: 401,
-        headers: { "content-type": "text/plain" },
-        body: "Built-in account credentials were rejected.",
+        headers: loginPageHeaders,
+        body: builtinLoginPage({
+          title: "请检查登录信息 / Check your sign-in details",
+          message: "用户名或密码不正确，请重试。\nThe username or password was not accepted. Please try again.",
+          kind,
+          value,
+          error: true,
+        }),
       };
     }
     if (url.pathname === "/device") {
-      const pending = [...this.#pending.values()].find((item) => item.userCode === form.get("userCode"));
-      if (!pending) return { status: 404, body: "Unknown or expired device code." };
-      this.#pending.set(pending.deviceCode, { ...pending, approvedPersonId: user.personId });
+      this.#pending.set(pending!.deviceCode, { ...pending!, approvedPersonId: user.personId });
       return {
         status: 200,
-        headers: { "content-type": "text/plain" },
-        body: "Device approved. Return to Harness.",
+        headers: loginPageHeaders,
+        body: builtinLoginPage({
+          title: "已登录 / You're signed in",
+          message:
+            "设备已授权。请返回 Harness 继续操作，可以关闭此页面。\nDevice approved. Return to Harness to continue. You can close this page.",
+        }),
       };
     }
-    const state = form.get("state"),
-      redirect = this.#loginRedirectUri;
-    if (!state || !redirect || state !== this.#loginState) return { status: 400, body: "Login state expired." };
-    const callback = new URL(redirect),
+    const state = value,
+      callback = new URL(this.#loginRedirectUri!),
       code = opaqueToken("builtin-code");
     this.#browserCodes.set(code, { state, user, expiresAt: Date.now() + 120_000 });
     callback.searchParams.set("code", code);
@@ -546,6 +593,4 @@ async function readRequestBody(request: IncomingMessage): Promise<string> {
   }
   return Buffer.concat(chunks).toString("utf8");
 }
-function escapeHtml(value: string): string {
-  return value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-}
+const loginPageHeaders = { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" };

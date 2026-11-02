@@ -97,15 +97,12 @@ export function AppSidebar({
   const [identity, setIdentity] = useState<{ readonly authenticated: boolean; readonly personId?: string }>({
     authenticated: false,
   });
+  const [identityMode, setIdentityMode] = useState<string | undefined>();
   const authCandidate = guiHostBridge()?.auth,
     auth = authCandidate && typeof authCandidate.status === "function" ? authCandidate : undefined;
   const refreshIdentity = () => {
     if (!auth) return;
-    if (!activeRepoId) {
-      setIdentity({ authenticated: false });
-      return;
-    }
-    const request = auth.status(activeRepoId, identityRoot);
+    const request = auth.status(activeRepoId ?? undefined, identityRoot);
     void request.then((value) => {
       if (identityTarget.current !== activeRepoId) return;
       const status = value as { readonly authenticated?: boolean; readonly personId?: string };
@@ -114,9 +111,14 @@ export function AppSidebar({
         ...(status.personId ? { personId: status.personId } : {}),
       });
     }, consumeKnownError);
+    void auth.bindingStatus(activeRepoId ?? undefined, identityRoot).then((value) => {
+      if (identityTarget.current !== activeRepoId) return;
+      setIdentityMode((value as { readonly mode?: string }).mode);
+    }, consumeKnownError);
   };
   useEffect(() => {
     setIdentity({ authenticated: false });
+    setIdentityMode(undefined);
     refreshIdentity();
   }, [activeRepoId, identityRoot]);
   useEffect(() => {
@@ -387,7 +389,9 @@ export function AppSidebar({
               {identity.authenticated ? identity.personId : t("identityAccess.signedOut")}
             </span>
             <span className="block truncate ui-micro text-text-faint">
-              {identity.authenticated ? t("identityAccess.keycloakIdentity") : t("identityAccess.signIn")}
+              {identity.authenticated
+                ? t(identityMode === "builtin" ? "identityAccess.localIdentity" : "identityAccess.keycloakIdentity")
+                : t(identityMode === "builtin" ? "identityAccess.localSignIn" : "identityAccess.signIn")}
             </span>
           </span>
         </button>

@@ -288,3 +288,55 @@ describe("device login requests", () => {
     expect(login).toHaveBeenCalledWith(undefined, expect.any(Function), "CCCC-DDDD", undefined);
   });
 });
+
+describe("device identity modes", () => {
+  it.each(["zh-CN", "en-US"] as const)(
+    "explains the single local device without requesting collaboration in %s",
+    async (locale) => {
+      setActiveLocale(locale);
+      const api = auth({ bindingStatus: vi.fn(async () => ({ ok: true, mode: "builtin", ready: true })) }),
+        devices = vi.fn(async () => ({ ok: true, nodes: [], version: "v1" }));
+      Object.defineProperty(window, "harness", {
+        configurable: true,
+        value: {
+          auth: api,
+          access: { forRepository: () => ({ devices }) },
+        },
+      });
+      await act(async () => root.render(createElement(IdentityAccessView)));
+      const tab = [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(
+        (tab) => tab.textContent === (locale === "zh-CN" ? "我的设备" : "My devices"),
+      );
+      await act(async () => tab!.click());
+      expect(container.querySelector('[data-testid="devices-local-mode"]')?.textContent).toContain(
+        locale === "zh-CN" ? "本机就是唯一设备" : "only device",
+      );
+      expect(container.textContent).toContain(
+        locale === "zh-CN" ? "需要多设备协作时" : "when you need multiple devices",
+      );
+      expect(container.querySelector('[data-testid="devices-security-boundary"]')).toBeNull();
+      expect(container.querySelector('[role="alert"]')).toBeNull();
+      expect(devices).not.toHaveBeenCalled();
+      expect(api.bindingStatus).toHaveBeenCalledWith(undefined, undefined);
+    },
+  );
+
+  it("retains the Keycloak device view and its security boundary", async () => {
+    const devices = vi.fn(async () => ({ ok: true, nodes: [], version: "v1" }));
+    Object.defineProperty(window, "harness", {
+      configurable: true,
+      value: {
+        auth: auth(),
+        access: { forRepository: () => ({ devices }) },
+      },
+    });
+    await act(async () => root.render(createElement(IdentityAccessView)));
+    const tab = [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(
+      (tab) => tab.textContent === "我的设备",
+    );
+    await act(async () => tab!.click());
+    expect(container.querySelector('[data-testid="devices-security-boundary"]')?.textContent).toContain("Keycloak");
+    expect(container.querySelector('[data-testid="devices-empty"]')).not.toBeNull();
+    expect(devices).toHaveBeenCalledOnce();
+  });
+});
