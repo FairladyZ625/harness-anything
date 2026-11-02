@@ -303,17 +303,26 @@ test(
         runtimeLaunch,
         beforeOpen: setupEdgeGit,
       });
-    const catchUpEdge = (edge: Awaited<ReturnType<typeof fleetEdgeHostFixture>>, nodeId: string) =>
-      catchUpReplica({
-        readAccessToken: async () => `device-token-${nodeId}`,
-        port: fixture.center.port,
-        ca: readFileSync(path.join(fixture.root, "tls.crt")),
-        nodeId,
-        credential: `secret-${nodeId}`,
-        repoId: "lease-repo",
-        viewRoot: edge.viewRoot,
-        diskQuotaBytes: 64 * 1024 * 1024,
-      });
+    const catchUpEdge = async (
+      edge: Awaited<ReturnType<typeof fleetEdgeHostFixture>>,
+      nodeId: string,
+      stage: string,
+    ) => {
+      try {
+        return await catchUpReplica({
+          readAccessToken: async () => `device-token-${nodeId}`,
+          port: fixture.center.port,
+          ca: readFileSync(path.join(fixture.root, "tls.crt")),
+          nodeId,
+          credential: `secret-${nodeId}`,
+          repoId: "lease-repo",
+          viewRoot: edge.viewRoot,
+          diskQuotaBytes: 64 * 1024 * 1024,
+        });
+      } catch (cause) {
+        throw new Error(`replica catch-up failed at ${stage} for ${nodeId}`, { cause });
+      }
+    };
     await registerFixtureRuntimeInstance(activeEdge.host, "lease-repo", localAuth, runtime, {
       allowHost: fixture.host,
     });
@@ -331,7 +340,7 @@ test(
     assert.equal(existsSync(path.join(activeEdge.edgeUser, "rbac/config.json")), false);
     assert.equal(existsSync(path.join(activeEdge.edgeUser, "rbac/center-client-secret")), false);
     await registerFixtureRuntimeInstance(edge.host, "lease-repo", localAuth, runtime, { allowHost: fixture.host });
-    await catchUpEdge(edge, "node-one");
+    await catchUpEdge(edge, "node-one", "initial owner assignment");
     const configure = (allowedPersonIds: readonly string[], maxConcurrent = 1) =>
       edge.host.configureNodeAutoClaim(
         {
@@ -344,6 +353,7 @@ test(
         localAuth,
       );
 
+    let phase = "configure policy and launch same-owner assignment";
     try {
       await configure([], 2);
       await waitForLaunch(edge, tasks.offline);
@@ -352,8 +362,9 @@ test(
         [tasks.offline],
       );
 
+      phase = "catch up and spawn foreign-node held lease";
       await createAssignedTask("task-a-node-runtime", "node-two", "node-two");
-      await catchUpEdge(activeEdge, "node-two");
+      await catchUpEdge(activeEdge, "node-two", "foreign-node held lease");
       const activeTask = await activeEdge.host.fleet.edgeRuntime(
         {
           ...activeEdge.config,
@@ -368,6 +379,7 @@ test(
         localAuth,
       );
       assert.equal(activeTask.outcome, "applied", JSON.stringify(activeTask));
+      phase = "read foreign-node lease and verify source denial";
       const otherNodeLease = await fixture.host.read(
         "lease-repo",
         "repo.tasks.runtimeContext.read",
@@ -380,6 +392,7 @@ test(
           : null,
         "node-two",
       );
+      phase = "settle same-owner runtime and observe denial";
       await launches.find((launch) => launch.taskId === tasks.offline)!.finish();
       await eventually(async () => {
         const status = await edge.host.system(localAuth);
@@ -435,6 +448,7 @@ test(
         );
         return overview.sessions.some((session) => session.activity.outcome !== null);
       });
+      phase = "launch explicitly allowed task";
       await configure(["person-two"], 2);
       await waitForLaunch(edge, tasks.denied);
       assert.deepEqual(
@@ -442,6 +456,7 @@ test(
         [tasks.offline, "task-a-node-runtime", tasks.denied],
         "B starts its own task while A's runtime is still active, without charging A's lease against B",
       );
+      phase = "settle foreign-node runtime";
       await launches.find((launch) => launch.taskId === "task-a-node-runtime")!.finish();
       await eventually(async () => {
         const overview = await fixture.host.read(
@@ -452,6 +467,7 @@ test(
         );
         return overview.sessions.some((session) => session.activity.outcome !== null);
       });
+      phase = "settle allowed runtime";
       await launches.find((launch) => launch.taskId === tasks.denied)!.finish();
       await eventually(async () => {
         const context = await fixture.host.read(
@@ -472,18 +488,21 @@ test(
         return overview.sessions.some((session) => session.activity.outcome !== null);
       });
 
+      phase = "fill first concurrency slot";
       await configure(["person-two"], 1);
       await createAssignedTask(tasks.next, "node-one", "node-one");
-      await catchUpEdge(edge, "node-one");
+      await catchUpEdge(edge, "node-one", "next queued assignment");
       await configure(["person-two"], 1);
       await waitForLaunch(edge, tasks.next);
+      phase = "queue second concurrency slot";
       await createAssignedTask("task-50-waits-for-b-slot", "node-one", "node-one");
-      await catchUpEdge(edge, "node-one");
+      await catchUpEdge(edge, "node-one", "concurrency-slot assignment");
       await configure(["person-two"], 1);
       assert.equal(
         launches.some((launch) => launch.taskId === "task-50-waits-for-b-slot"),
         false,
       );
+      phase = "settle first concurrency slot";
       await launches.find((launch) => launch.taskId === tasks.next)!.finish();
       await waitForLaunch(edge, "task-50-waits-for-b-slot");
       let startedOnB: Awaited<ReturnType<typeof fixture.host.read>>;
@@ -510,6 +529,7 @@ test(
         { phase: "held", nodeId: "node-one" },
         "Fleet terminal settlement released B's first lease and admitted the next assigned task",
       );
+      phase = "settle second concurrency slot";
       await launches.find((launch) => launch.taskId === "task-50-waits-for-b-slot")!.finish();
       await eventually(async () => {
         const overview = await fixture.host.read(
@@ -520,8 +540,10 @@ test(
         );
         return overview.sessions.some((session) => session.activity.outcome !== null);
       });
-      await catchUpEdge(edge, "node-one");
+      await catchUpEdge(edge, "node-one", "post-settlement assignment");
       await Promise.allSettled(launches.map((launch) => launch.finish()));
+    } catch (cause) {
+      throw new Error(`production edge auto-claim failed during ${phase}`, { cause });
     } finally {
       await Promise.allSettled(launches.map((launch) => launch.finish()));
     }
