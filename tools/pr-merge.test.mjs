@@ -189,7 +189,10 @@ function resolveRealGit() {
 // haState shapes the fake `ha` fixture: { fail: true } answers every task-show with an
 // unreachable-daemon exit, { receipt: <task-show evidence payload> } answers with that payload.
 // A fake ha always shadows any real one so tests never reach the production daemon.
-function fixture(t, { branch = "codex/pr-123", haState = { fail: true }, rejectPull = false } = {}) {
+function fixture(
+  t,
+  { branch = "codex/pr-123", haState = { fail: true }, rejectPull = false, duplicateBlocks = false } = {},
+) {
   const root = mkdtempSync(path.join(tmpdir(), "pr-merge-test-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const remote = path.join(root, "origin.git");
@@ -205,7 +208,17 @@ function fixture(t, { branch = "codex/pr-123", haState = { fail: true }, rejectP
   git(seed, "config", "user.name", "PR Merge Test");
   git(seed, "config", "user.email", "pr-merge@example.test");
   writeFileSync(path.join(seed, "base.txt"), "base\n");
-  git(seed, "add", "base.txt");
+  if (duplicateBlocks) {
+    const block = [
+      "// repeated policy block",
+      ...Array.from({ length: 8 }, (_, index) => `// padding ${index}`),
+      "enabled: false;",
+      ...Array.from({ length: 4 }, (_, index) => `// tail ${index}`),
+      "// end repeated policy block",
+    ].join("\n");
+    writeFileSync(path.join(seed, "policy.js"), `${block}\n\n${block}\n`);
+  }
+  git(seed, "add", ".");
   git(seed, "commit", "-m", "base");
   const baseSha = git(seed, "rev-parse", "HEAD");
   git(seed, "remote", "add", "origin", remote);
@@ -215,8 +228,15 @@ function fixture(t, { branch = "codex/pr-123", haState = { fail: true }, rejectP
   git(main, "config", "user.email", "pr-merge@example.test");
 
   git(seed, "checkout", "-b", branch);
-  writeFileSync(path.join(seed, "feature.txt"), "feature\n");
-  git(seed, "add", "feature.txt");
+  if (duplicateBlocks) {
+    const policyPath = path.join(seed, "policy.js"),
+      policy = readFileSync(policyPath, "utf8");
+    writeFileSync(policyPath, policy.replace("enabled: false;", "enabled: true;"));
+    git(seed, "add", "policy.js");
+  } else {
+    writeFileSync(path.join(seed, "feature.txt"), "feature\n");
+    git(seed, "add", "feature.txt");
+  }
   git(seed, "commit", "-m", "feature");
   const headRefOid = git(seed, "rev-parse", "HEAD");
   git(seed, "push", "-u", "origin", branch);
@@ -728,6 +748,48 @@ test("refuses a rebased task PR when whitespace changes reviewed content", (t) =
   // Stable patch-id strips this whitespace, although it changes the delivered text.
   writeFileSync(path.join(setup.prWorktree, "feature.txt"), "fea ture\n");
   git(setup.prWorktree, "add", "feature.txt");
+  git(setup.prWorktree, "commit", "--amend", "--no-edit");
+  const rebasedHead = git(setup.prWorktree, "rev-parse", "HEAD");
+  git(setup.prWorktree, "push", "--force", "origin", TASK_BRANCH);
+  const prState = JSON.parse(readFileSync(setup.statePath, "utf8"));
+  writeFileSync(setup.statePath, JSON.stringify({ ...prState, headRefOid: rebasedHead }));
+  writeFileSync(
+    setup.env.HA_STATE_PATH,
+    JSON.stringify(
+      reviewChainWithDeliveryBlockerHaState({
+        commitSha: reviewedCommit,
+        productionBaseSha: setup.baseSha,
+      }),
+    ),
+  );
+  const initialHead = git(setup.main, "rev-parse", "HEAD"),
+    result = run(process.execPath, [helper, "123"], {
+      cwd: setup.main,
+      env: setup.env,
+      allowFailure: true,
+    });
+
+  assert.equal(result.status, 1, result.stdout);
+  assert.match(result.stderr, new RegExp(`froze its delivery at ${reviewedCommit}`, "u"));
+  assert.match(result.stderr, /Re-freeze the cut at the PR head/u);
+  assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "OPEN");
+  assert.equal(git(setup.main, "rev-parse", "HEAD"), initialHead);
+  assert.equal(existsSync(setup.annotateLogPath), false);
+});
+
+test("refuses a rebased task PR when a duplicate code block changed instead", (t) => {
+  const setup = fixture(t, { branch: TASK_BRANCH, duplicateBlocks: true }),
+    reviewedCommit = setup.headRefOid;
+  git(setup.prWorktree, "fetch", "origin");
+  git(setup.prWorktree, "rebase", "origin/main");
+  const policyPath = path.join(setup.prWorktree, "policy.js"),
+    lines = readFileSync(policyPath, "utf8").split("\n"),
+    enabledLines = lines.flatMap((line, index) => (line.startsWith("enabled: ") ? [index] : []));
+  assert.equal(enabledLines.length, 2);
+  lines[enabledLines[0]] = "enabled: false;";
+  lines[enabledLines[1]] = "enabled: true;";
+  writeFileSync(policyPath, lines.join("\n"));
+  git(setup.prWorktree, "add", "policy.js");
   git(setup.prWorktree, "commit", "--amend", "--no-edit");
   const rebasedHead = git(setup.prWorktree, "rev-parse", "HEAD");
   git(setup.prWorktree, "push", "--force", "origin", TASK_BRANCH);

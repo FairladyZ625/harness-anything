@@ -35,7 +35,20 @@ function codeDelivery(
     ...snapshot,
     executions: snapshot.executions.map((execution) => ({
       ...execution,
-      submission: execution.submission ? { ...execution.submission, commitSha } : null,
+      submission: execution.submission
+        ? {
+            ...execution.submission,
+            commitSha,
+            ...(baselineSha
+              ? {
+                  productionDelta: {
+                    ...execution.submission.productionDelta,
+                    baseSha: baselineSha,
+                  },
+                }
+              : {}),
+          }
+        : null,
       ...(baselineSha ? { deliveryBaseline: { kind: "commit" as const, commitSha: baselineSha } } : {}),
       ...(mergeSha
         ? {
@@ -361,6 +374,18 @@ test("delivery merge evidence proves the annotated commit contains the frozen de
 
   const unrelated = read(unrelatedSha);
   assert.equal(unrelated.merged, false, "a target commit unrelated to the submitted diff must be rejected");
+  const forgedRebaseAnnotation = codeDelivery(
+    { ...lifted, task: { ...lifted.task!, closeoutOverrides: { review: false, consent: false } } },
+    deliverySha,
+    unrelatedSha,
+    baseline,
+    { frozen: deliverySha, head: unrelatedSha, base: unrelatedSha },
+  );
+  assert.equal(
+    readCompletionDeliveryStatus(deliveryProjection, forgedRebaseAnnotation, root).merged,
+    false,
+    "an ordinary annotation cannot replace the frozen delivery with an unrelated commit",
+  );
   const rejected = taskCompletionNext(cut(unrelatedSha), {
     closeout: "ready",
     closeoutPath: "tasks/task-1/closeout.md",

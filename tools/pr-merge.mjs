@@ -1,5 +1,8 @@
 #!/usr/bin/env node
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import process from "node:process";
 import {
   approvedReviewHistoryForExecution,
@@ -14,7 +17,7 @@ const REMOTE = "origin";
 const TASK_BRANCH_PATTERN = /^task_(?:[0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{26})$/u;
 const RUNTIME_BUILD_PACKAGES = ["@harness-anything/daemon", "@harness-anything/cli"];
 
-function run(command, args, { cwd, allowFailure = false } = {}) {
+function run(command, args, { cwd, allowFailure = false, env } = {}) {
   const invocation =
     process.platform === "win32" && (command === "gh" || command === "ha")
       ? {
@@ -31,6 +34,7 @@ function run(command, args, { cwd, allowFailure = false } = {}) {
     // (PR #3502's was 2.2 MiB). maxBuffer only caps collection, it does not preallocate.
     maxBuffer: 256 * 1024 * 1024,
     windowsHide: true,
+    ...(env ? { env: { ...process.env, ...env } } : {}),
     ...(invocation.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
   });
   if (result.error) {
@@ -254,17 +258,29 @@ function patchId(root, base, commit) {
   return result.length === 0 ? null : result.split(/\s+/u, 1)[0];
 }
 
-// Stable patch-id intentionally ignores whitespace. Keep it as a useful patch-shape check, but
-// also compare a zero-context diff whose hunk positions and blob ids are normalized away. The
-// remaining paths, modes, and exact added/removed bytes are the reviewed content.
-function patchContent(root, base, commit) {
-  const patch = run("git", ["diff", "--no-ext-diff", "--no-renames", "--binary", "--unified=0", base, commit, "--"], {
-    cwd: root,
-  }).stdout;
-  if (!patch) return null;
-  return patch
-    .replace(/^index [0-9a-f]+\.\.[0-9a-f]+( .*)?$/gmu, (_line, mode = "") => `index${mode}`)
-    .replace(/^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@.*$/gmu, "@@ @@");
+// Stable patch-id ignores whitespace and hunk location. Replay the frozen patch onto the new
+// base and compare its complete tree with the PR head so duplicate code blocks cannot alias.
+function replayEquivalentPatch(root, frozenBase, frozenCommit, rebasedBase, rebasedHead) {
+  const temporaryRoot = mkdtempSync(path.join(tmpdir(), "pr-merge-rebase-equivalence-")),
+    patchPath = path.join(temporaryRoot, "frozen.patch"),
+    indexPath = path.join(temporaryRoot, "index"),
+    env = { GIT_INDEX_FILE: indexPath };
+  try {
+    const patch = output("git", ["diff", "--no-ext-diff", "--no-renames", "--binary", frozenBase, frozenCommit, "--"], {
+      cwd: root,
+    });
+    if (!patch) return false;
+    writeFileSync(patchPath, `${patch}\n`);
+    run("git", ["-C", root, "read-tree", rebasedBase], { env });
+    run("git", ["-C", root, "apply", "--cached", "--3way", patchPath], { env });
+    const replayedTree = run("git", ["-C", root, "write-tree"], { env }).stdout.trim(),
+      headTree = output("git", ["rev-parse", `${rebasedHead}^{tree}`], { cwd: root });
+    return replayedTree === headTree;
+  } catch {
+    return false;
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
 }
 
 // `gh pr merge --merge` makes the PR head the merge commit's second parent, so completion's
@@ -301,14 +317,11 @@ function equivalentRebasedCut(cut, pr, root) {
         cwd: root,
       }),
       reviewedPatchId = patchId(root, base, frozen),
-      rebasedPatchId = patchId(root, rebasedBase, pr.headRefOid),
-      reviewedPatchContent = patchContent(root, base, frozen),
-      rebasedPatchContent = patchContent(root, rebasedBase, pr.headRefOid);
+      rebasedPatchId = patchId(root, rebasedBase, pr.headRefOid);
     if (
       reviewedPatchId === null ||
       reviewedPatchId !== rebasedPatchId ||
-      reviewedPatchContent === null ||
-      reviewedPatchContent !== rebasedPatchContent
+      !replayEquivalentPatch(root, base, frozen, rebasedBase, pr.headRefOid)
     )
       return null;
     return { frozen, head: pr.headRefOid, base: rebasedBase, patchId: reviewedPatchId };

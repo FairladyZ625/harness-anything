@@ -144,6 +144,7 @@
     "packages/gui/src/main/desktop-first-run.ts",
     "packages/gui/src/main/local-doc-ipc.ts",
     "packages/kernel/src/daemon/registry.ts",
+    "packages/daemon/src/task-delivery-containment.ts",
     "packages/kernel/src/local/local-layout-file-system.ts",
     "packages/storage/src/projection/rebuildable-task-projection-database.ts",
     "packages/storage/src/pg/pg-text-search.ts",
