@@ -71,6 +71,40 @@ test("worker push publishes only the dispatched task's own branch with force-wit
   assert.ok(remoteRef.startsWith(`${String(result.head)} `), `remote holds the pushed head: ${remoteRef}`);
 });
 
+for (const cleanup of [false, true])
+  test(`worker push rejects ignored ledger history even after cleanup=${cleanup}`, async (context) => {
+    const root = mkdtempSync(path.join(tmpdir(), "ha-worker-ledger-push-")),
+      bare = path.join(root, "remote.git"),
+      canonical = path.join(root, "project"),
+      worker = path.join(root, "worker"),
+      taskId = "task_ignored_ledger";
+    context.after(() => rmSync(root, { recursive: true, force: true }));
+    git(root, "init", "--bare", bare);
+    git(root, "init", "-q", "-b", "main", canonical);
+    git(canonical, "config", "user.email", "push-test@example.invalid");
+    git(canonical, "config", "user.name", "Push Test");
+    writeFileSync(path.join(canonical, ".gitignore"), "/harness/\n");
+    git(canonical, "add", ".gitignore");
+    git(canonical, "commit", "-qm", "test: ignored ledger");
+    git(canonical, "remote", "add", "origin", bare);
+    git(canonical, "push", "--quiet", "origin", "main");
+    git(canonical, "worktree", "add", "--quiet", worker, "-b", taskId);
+    mkdirSync(path.join(worker, "harness/tasks"), { recursive: true });
+    writeFileSync(path.join(worker, "harness/tasks/report.md"), "Private report\n");
+    git(worker, "add", "-f", "harness/tasks/report.md");
+    git(worker, "commit", "-qm", "test: forced ledger");
+    if (cleanup) {
+      git(worker, "rm", "--cached", "harness/tasks/report.md");
+      git(worker, "commit", "-qm", "test: remove ledger from tip");
+    }
+    const result = await pushTaskWorkerBranch({ cwd: worker, canonicalRoot: canonical, taskId });
+    assert.equal(result.ok, false, JSON.stringify(result));
+    assert.ok(result.attempted && !result.ok);
+    assert.equal(result.code, "ignored_ledger_delivery");
+    assert.match(result.detail, /harness\/tasks\/report\.md/u);
+    assert.equal(refExists(bare, `refs/heads/${taskId}`), false);
+  });
+
 test("worker push refuses the first commit outside the conventional identity and names both emails", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-identity-")),
     bare = path.join(root, "remote.git"),

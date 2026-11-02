@@ -1,4 +1,5 @@
 import type { DaemonTaskCompletionResult } from "./protocol/daemon-protocol-task-completion.ts";
+import path from "node:path";
 import { localGitObjectRefStore } from "@harness-anything/storage";
 import {
   assessFactRetirement,
@@ -6,6 +7,7 @@ import {
   currentExecutionCuts,
   deliveryTargetRef,
   INITIAL_SETTINGS_V1,
+  resolveHarnessLayout,
   type CloseoutSnapshot,
   type CompletionDeliveryStatus,
   taskCompletionNext,
@@ -81,12 +83,24 @@ export function readCompletionDeliveryStatus(
     delivery = projected?.delivery ?? INITIAL_SETTINGS_V1.delivery,
     cuts = currentExecutionCuts(snapshot),
     execution = cuts.length === 1 ? cuts[0] : undefined,
-    // Only a task-package-artifact delivery never waits for a merge: it hands back accepted
-    // artifacts and never receives a merge_commit_sha annotation. An unreadable shape keeps the
-    // requirement, so a degraded preset snapshot cannot silently pass an unmerged code delivery.
+    files = execution?.submission?.changedFiles,
+    packagePath =
+      files?.length && rootDir && snapshot.task?.taskId ? projection.read(snapshot.task.taskId).packagePath : undefined,
+    packagePrefix =
+      packagePath && rootDir
+        ? `${path
+            .relative(rootDir, path.join(resolveHarnessLayout(rootDir).authoredRoot, packagePath))
+            .split(path.sep)
+            .join("/")}/`
+        : undefined,
+    // Use the accepted manifest, never today's Git diff: old task-package-only cuts already
+    // reviewed and consented have no repository delivery to merge. Missing facts stay conservative.
+    packageOnly =
+      files !== undefined && files.every((file) => packagePrefix !== undefined && file.startsWith(packagePrefix)),
     required =
       delivery.requireMerged &&
       execution?.submission?.commitSha != null &&
+      !packageOnly &&
       taskOutputShape(snapshot.task, presetSnapshotReader(projection)) !== "task-package-artifact",
     mergeSha =
       execution?.schema === "execution/v1"

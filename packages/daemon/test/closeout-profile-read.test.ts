@@ -170,6 +170,55 @@ test("a factless cut completes under the standard profile: facts carry no comple
   assert.equal(taskCompletionNext(submitted, context).blocker, null);
 });
 
+test("a frozen cut confined to its own task package completes without a fabricated merge", () => {
+  const source = projection({ profile: "standard" }, 0, 0, true),
+    root = path.join(tmpdir(), "ha-package-only-read"),
+    packageSource = {
+      ...source,
+      read: () => ({ ...source.read("task-1"), packagePath: "tasks/task-1" }),
+    } as TaskProjectionQueries,
+    cut = (changedFiles: readonly string[] | undefined) => ({
+      ...submitted,
+      executions: submitted.executions.map((execution) => ({
+        ...execution,
+        submission: { ...execution.submission!, commitSha: "a".repeat(40), changedFiles },
+      })),
+    });
+  for (const files of [[], ["harness/tasks/task-1/artifacts/report.md", "harness/tasks/task-1/closeout.md"]]) {
+    const snapshot = cut(files),
+      context = readCompletionContext(packageSource, "task-1", snapshot, "ready", root);
+    assert.equal(context.delivery?.required, false, JSON.stringify(files));
+    assert.equal(taskCompletionNext(snapshot, context).blocker, null);
+    assert.equal(
+      repoCellTaskQueryJudgmentsFor(packageSource).closeout(
+        snapshot,
+        {
+          closeout: "ready",
+          closeoutPath: "tasks/task-1/closeout.md",
+          eligibleDirtyPaths: [],
+          projectionStatus: "ready",
+        },
+        undefined,
+        undefined,
+        root,
+      ).readiness,
+      "ready",
+    );
+  }
+  for (const files of [
+    undefined,
+    ["harness/tasks/task-1-other/artifacts/report.md"],
+    ["harness/tasks/task-2/artifacts/report.md"],
+    ["harness/tasks/task-1/artifacts/report.md", "src/code.ts"],
+    ["docs/research.md"],
+  ]) {
+    const snapshot = cut(files),
+      context = readCompletionContext(packageSource, "task-1", snapshot, "ready", root);
+    assert.equal(context.delivery?.required, true, JSON.stringify(files));
+    assert.equal(taskCompletionNext(snapshot, context).blocker?.code, "delivery_missing");
+  }
+});
+
 test("the task query closeout judgment follows the effective gate set", () => {
   const availability = { consents: "known", gateWitnesses: "known" } as const,
     standard = repoCellTaskQueryJudgmentsFor(projection({ profile: "standard" })).closeout(submitted, availability),

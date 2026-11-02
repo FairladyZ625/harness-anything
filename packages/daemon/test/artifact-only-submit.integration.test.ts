@@ -14,7 +14,10 @@ import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-sett
 import { git, initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
-async function submitBaselineTask(artifact: boolean, publicChange?: "add" | "delete" | "empty-commit") {
+async function submitBaselineTask(
+  artifact: boolean,
+  publicChange?: "add" | "delete" | "empty-commit" | "package" | "ignored",
+) {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-artifact-only-submit-")),
     ledger = path.join(rootDir, "harness"),
     taskId = "task-artifact-only",
@@ -29,7 +32,7 @@ async function submitBaselineTask(artifact: boolean, publicChange?: "add" | "del
     );
   initRepo(rootDir);
   git(rootDir, "branch", "-M", "main");
-  writeFileSync(path.join(rootDir, ".gitignore"), "harness/\n.worktrees/\n");
+  writeFileSync(path.join(rootDir, ".gitignore"), `${publicChange === "package" ? "" : "harness/\n"}.worktrees/\n`);
   git(rootDir, "add", ".gitignore");
   git(rootDir, "commit", "-qm", "test: fixture exclusions");
   git(rootDir, "checkout", "-qb", "other-task");
@@ -77,6 +80,12 @@ async function submitBaselineTask(artifact: boolean, publicChange?: "add" | "del
       git(worker, "commit", "-qm", "test: public deletion");
     } else if (publicChange === "empty-commit") {
       git(worker, "commit", "--allow-empty", "-qm", "test: empty delivery");
+    } else if (publicChange === "package" || publicChange === "ignored") {
+      const report = `harness/${packagePath}/artifacts/report.md`;
+      mkdirSync(path.dirname(path.join(worker, report)), { recursive: true });
+      writeFileSync(path.join(worker, report), "# Accepted report\n");
+      git(worker, "add", ...(publicChange === "ignored" ? ["-f"] : []), report);
+      git(worker, "commit", "-qm", "test: historical package-only cut");
     }
     const deliveryHead = git(worker, "rev-parse", "HEAD"),
       hasPublicDiff = publicChange === "add" || publicChange === "delete";
@@ -104,15 +113,36 @@ async function submitBaselineTask(artifact: boolean, publicChange?: "add" | "del
       await waitForFixturePublication(cell, submitted.opId, holder);
       submitted = await cell.run({ kind: "task-submit", taskId, executionId }, holder);
     }
+    if (publicChange === "ignored") {
+      assert.equal(submitted.outcome, "op_rejected", JSON.stringify(submitted));
+      assert.equal(submitted.code, "ignored_ledger_delivery");
+      assert.match(JSON.stringify(submitted), /Remove ignored ledger paths/u);
+      const shown = await cell.run({ kind: "task-show", taskId }, holder),
+        snapshot = JSON.parse(String(shown.evidence));
+      assert.equal(snapshot.task.status, "active");
+      assert.equal(snapshot.executions[0].submission, null);
+      assert.equal(git(worker, "rev-parse", "HEAD"), deliveryHead);
+      return;
+    }
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     await waitForFixturePublication(cell, submitted.opId, holder);
     const event = makeTaskEventReader({ repoId, rootDir })
       .read()
       .events.find((entry) => isTaskEvent(entry) && entry.type === "execution_submitted" && entry.taskId === taskId);
     assert.ok(event && isTaskEvent(event) && event.type === "execution_submitted");
-    assert.equal(event.payload.execution.submission?.commitSha, hasPublicDiff ? deliveryHead : null);
+    assert.equal(
+      event.payload.execution.submission?.commitSha,
+      hasPublicDiff || publicChange === "package" ? deliveryHead : null,
+    );
     assert.equal(git(worker, "rev-parse", "HEAD"), deliveryHead, "submission must not create an empty commit");
-    assert.deepEqual(event.payload.execution.submission?.deliverables, publicChange === "add" ? ["delivery.txt"] : []);
+    assert.deepEqual(
+      event.payload.execution.submission?.deliverables,
+      publicChange === "add"
+        ? ["delivery.txt"]
+        : publicChange === "package"
+          ? [`harness/${packagePath}/artifacts/report.md`]
+          : [],
+    );
     const explainerPath = `${packagePath}/artifacts/explainer.html`;
     assert.deepEqual(
       event.payload.execution.submission?.artifacts?.map(({ path }) => path),
@@ -204,6 +234,7 @@ async function submitBaselineTask(artifact: boolean, publicChange?: "add" | "del
     const execution = readFileSync(path.join(ledger, packagePath, "executions", `${executionId}.md`), "utf8"),
       section = execution.slice(execution.indexOf("## Deliverables"), execution.indexOf("## Outputs"));
     if (publicChange === "add") assert.match(section, /delivery\.txt/u);
+    else if (publicChange === "package") assert.match(section, /artifacts\/report\.md/u);
     else assert.match(section, /- none/u);
     assert.doesNotMatch(section, /foreign\.txt/u);
     console.log(`Observed execution Deliverables:\n${section}`);
@@ -216,6 +247,12 @@ async function submitBaselineTask(artifact: boolean, publicChange?: "add" | "del
 test("a real artifact-only task submits without claiming its baseline merge paths", () => submitBaselineTask(true));
 
 test("a closeout-only no-diff task completes after review and consent", () => submitBaselineTask(false));
+
+test("a frozen repository-diff cut containing only its own task package completes after review and consent", () =>
+  submitBaselineTask(true, "package"));
+
+test("real task submit rejects ignored ledger commits before freezing a delivery", () =>
+  submitBaselineTask(true, "ignored"));
 
 test("an empty public commit cannot force a merge requirement for a no-diff delivery", () =>
   submitBaselineTask(true, "empty-commit"));
