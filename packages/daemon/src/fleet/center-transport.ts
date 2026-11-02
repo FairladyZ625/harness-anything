@@ -370,7 +370,8 @@ export async function serve(
               if (!peerDisconnected(socket, error))
                 (options.onError ?? ((entry) => console.error("[fleet-center] dispatch failed", entry)))({
                   nodeId,
-                  messageId: frame?.messageId ?? null,
+                  // A failed error reply belongs to the session, not to the handled request.
+                  messageId: null,
                   error,
                 });
             });
