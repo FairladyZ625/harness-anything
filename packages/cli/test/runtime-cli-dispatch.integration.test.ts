@@ -30,6 +30,10 @@ import {
   seedTask,
 } from "./runtime-cli.fixtures.ts";
 
+// The write-boundary section every non-reviewer task-bound mission carries, immediately after the
+// ruling contract and before the reviewer note (see taskMissionSections).
+const workerWorktreeBoundary = "# 写入边界\n只写自己的 worktree，不改主分支；主分支现有环境可读，可用于对比。";
+
 test("Delegated dispatches archive identity, mission and separate reports and reject invalid delegates", async (context) => {
   const fixture = createRuntimeFixture(context);
   const { parent, root, env, userRoot, daemonId } = fixture;
@@ -77,7 +81,7 @@ test("Delegated dispatches archive identity, mission and separate reports and re
     daemonUserRoot: userRoot,
     daemonId,
     runtimeSessionId: String(bound.runtimeSessionId),
-    mission: `${taskPlanSection(realizedPlan("archive"))}\n\n${taskQueryGuidance(taskId)}\n\n${renderedRulingContract(boundDispatchId)}\n\n本任务的提交将由评审员 closeout-reviewer 审查（内置默认）。提交即自动派评审；预算未耗尽时 changes_requested 会回到本轮返工并携带评审报告，预算耗尽后由业主使用 ha task rework <task-id> --reason <why> 退回。\n\n${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nbound prompt`,
+    mission: `${taskPlanSection(realizedPlan("archive"))}\n\n${taskQueryGuidance(taskId)}\n\n${renderedRulingContract(boundDispatchId)}\n\n${workerWorktreeBoundary}\n\n本任务的提交将由评审员 closeout-reviewer 审查（内置默认）。提交即自动派评审；预算未耗尽时 changes_requested 会回到本轮返工并携带评审报告，预算耗尽后由业主使用 ha task rework <task-id> --reason <why> 退回。\n\n${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nbound prompt`,
     continuationContext: true,
   });
   assert.ok(
@@ -633,6 +637,7 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     String((promptFile.receipt.result as Record<string, unknown>).text).endsWith(
       `# Assigned Mission\n${taskPlanSection(realizedPlan("mission"))}\n\n${taskQueryGuidance(taskId)}\n\n` +
         `${renderedRulingContract(promptFileDispatchId)}\n\n` +
+        `${workerWorktreeBoundary}\n\n` +
         // dec_E369B861 CH3: explicit prompts and derived missions both name the reviewer.
         `本任务的提交将由评审员 closeout-reviewer 审查（内置默认）。提交即自动派评审；预算未耗尽时 changes_requested 会回到本轮返工并携带评审报告，预算耗尽后由业主使用 ha task rework <task-id> --reason <why> 退回。` +
         `\n\n${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nexisting mission` +
@@ -684,6 +689,7 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     mission:
       `${taskPlanSection(realizedPlan("mission"), path.join(realpathSync(root), "harness", packagePath))}\n\n` +
       `${taskQueryGuidance(taskId)}\n\n${renderedRulingContract(reusedDispatchId)}\n\n` +
+      `${workerWorktreeBoundary}\n\n` +
       // dec_E369B861 CH3: the worker mission names who reviews the next submitted cut.
       `本任务的提交将由评审员 closeout-reviewer 审查（内置默认）。提交即自动派评审；预算未耗尽时 changes_requested 会回到本轮返工并携带评审报告，预算耗尽后由业主使用 ha task rework <task-id> --reason <why> 退回。` +
       `\n\n${livingDeliverableProtocol("baseline")!}\n\n` +
@@ -700,6 +706,8 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
       taskQueryGuidance(taskId) +
       "\n\n" +
       renderedRulingContract(String((derived.receipt.spawn as Record<string, unknown>).dispatchId)) +
+      "\n\n" +
+      workerWorktreeBoundary +
       "\n\n" +
       // dec_E369B861 CH3: the derived worker mission names who reviews the next submitted cut.
       "本任务的提交将由评审员 closeout-reviewer 审查（内置默认）。提交即自动派评审；预算未耗尽时 changes_requested 会回到本轮返工并携带评审报告，预算耗尽后由业主使用 ha task rework <task-id> --reason <why> 退回。" +

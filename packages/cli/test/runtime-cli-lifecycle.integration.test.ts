@@ -35,6 +35,10 @@ import {
   writeIdentity,
 } from "./runtime-cli.fixtures.ts";
 
+// The write-boundary section every non-reviewer task-bound mission carries, immediately after the
+// ruling contract and before the reviewer note (see taskMissionSections).
+const workerWorktreeBoundary = "# 写入边界\n只写自己的 worktree，不改主分支；主分支现有环境可读，可用于对比。";
+
 function killProcessIfAlive(pid: number): void {
   if (!processAlive(pid)) return;
   try {
@@ -212,7 +216,7 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
     daemonUserRoot: userRoot,
     daemonId,
     runtimeSessionId: detachedSessionId,
-    mission: `${taskPlanSection(realizedPlan("cancel-resume"))}\n\n${taskQueryGuidance(taskId)}\n\n${renderedRulingContract(detachedDispatchId)}\n\n本任务的提交将由评审员 closeout-reviewer 审查（内置默认）。提交即自动派评审；预算未耗尽时 changes_requested 会回到本轮返工并携带评审报告，预算耗尽后由业主使用 ha task rework <task-id> --reason <why> 退回。\n\n${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nhold`,
+    mission: `${taskPlanSection(realizedPlan("cancel-resume"))}\n\n${taskQueryGuidance(taskId)}\n\n${renderedRulingContract(detachedDispatchId)}\n\n${workerWorktreeBoundary}\n\n本任务的提交将由评审员 closeout-reviewer 审查（内置默认）。提交即自动派评审；预算未耗尽时 changes_requested 会回到本轮返工并携带评审报告，预算耗尽后由业主使用 ha task rework <task-id> --reason <why> 退回。\n\n${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nhold`,
   });
   // A cancelled run authored no dispatch report; archiving its interrupted text as one left a
   // daemon-managed fragment the worker could not retire. The dispatch record and mission still
@@ -280,7 +284,7 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
     daemonUserRoot: userRoot,
     daemonId,
     runtimeSessionId: String(resumedDispatch.receipt.runtimeSessionId),
-    mission: `${taskPlanSection(realizedPlan("cancel-resume"))}\n\n${taskQueryGuidance(taskId)}\n\n${renderedRulingContract(resumedDispatchId)}\n\n本任务的提交将由评审员 closeout-reviewer 审查（内置默认）。提交即自动派评审；预算未耗尽时 changes_requested 会回到本轮返工并携带评审报告，预算耗尽后由业主使用 ha task rework <task-id> --reason <why> 退回。\n\n${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nfollow up`,
+    mission: `${taskPlanSection(realizedPlan("cancel-resume"))}\n\n${taskQueryGuidance(taskId)}\n\n${renderedRulingContract(resumedDispatchId)}\n\n${workerWorktreeBoundary}\n\n本任务的提交将由评审员 closeout-reviewer 审查（内置默认）。提交即自动派评审；预算未耗尽时 changes_requested 会回到本轮返工并携带评审报告，预算耗尽后由业主使用 ha task rework <task-id> --reason <why> 退回。\n\n${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nfollow up`,
     continuationContext: true,
   });
   const resumedRow = (
@@ -522,7 +526,7 @@ test("CLI installs identities, updates squads and assembles wildcard worker prom
   const wildcardDispatchId = String((wildcard.receipt.spawn as Record<string, unknown>).dispatchId);
   assert.ok(
     wildcardText.endsWith(
-      `# Assigned Mission\n${taskPlanSection(realizedPlan("identity"))}\n\n${taskQueryGuidance(taskId)}\n\n${renderedRulingContract(wildcardDispatchId)}\n\n本任务的提交将由评审员 closeout-reviewer 审查（内置默认）。提交即自动派评审；预算未耗尽时 changes_requested 会回到本轮返工并携带评审报告，预算耗尽后由业主使用 ha task rework <task-id> --reason <why> 退回。\n\n${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nwildcard prompt` +
+      `# Assigned Mission\n${taskPlanSection(realizedPlan("identity"))}\n\n${taskQueryGuidance(taskId)}\n\n${renderedRulingContract(wildcardDispatchId)}\n\n${workerWorktreeBoundary}\n\n本任务的提交将由评审员 closeout-reviewer 审查（内置默认）。提交即自动派评审；预算未耗尽时 changes_requested 会回到本轮返工并携带评审报告，预算耗尽后由业主使用 ha task rework <task-id> --reason <why> 退回。\n\n${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nwildcard prompt` +
         `\n\nTask ${taskId} is not submitted: the worker exited without a submitted delivery. ` +
         `Reopen the execution to re-dispatch with: ha task start ${taskId}`,
     ),

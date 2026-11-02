@@ -301,6 +301,20 @@ test("scheduled missions never carry the task-bound protocol", () => {
   assert.doesNotMatch(mission, /explainer\.html/u);
 });
 
+test("implementation missions name the worktree write boundary and reviewer missions do not", () => {
+  const boundary = "只写自己的 worktree，不改主分支；主分支现有环境可读，可用于对比。",
+    worker = explicitPromptMission("task_x", null, "Do the work.", "medium"),
+    reviewer = explicitPromptMission("task_x", null, "Review the submitted cut.", "medium", undefined, null, true);
+  assert.match(worker, /# 写入边界\n只写自己的 worktree，不改主分支；主分支现有环境可读，可用于对比。/u);
+  assert.equal(worker.match(/只写自己的 worktree/gu)?.length, 1, "the boundary is injected once");
+  assert.doesNotMatch(
+    reviewer,
+    /只写自己的 worktree|# 写入边界/u,
+    "a reviewer mission carries no implementation write boundary",
+  );
+  assert.ok(worker.indexOf(boundary) < worker.indexOf("Do the work."), "the boundary precedes the caller text");
+});
+
 test("the task mission wrapper still seals preconditions around the mission", () => {
   const mission = assembleTaskMission({
     mission: "Do the work.",
