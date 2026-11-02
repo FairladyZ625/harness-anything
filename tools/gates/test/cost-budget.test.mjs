@@ -413,19 +413,18 @@ test("task-witness-run scans the selected execution's frozen gate collection lin
   assert.equal(evaluateCollectionCosts({ "task-witness-run:frozen-gates": measured }).ok, true);
 });
 
-test("task review response probe exposes repeated scans of prior responses", async () => {
+test("task review response probe indexes prior responses and findings once", async () => {
   const measured = {
       small: await measureTaskReviewResponses(process.cwd(), 100),
       large: await measureTaskReviewResponses(process.cwd(), 2000),
     },
     result = evaluateCollectionCosts({ "task-respond-review:responses": measured });
-  assert.equal(measured.small.counts.priorResponsesExamined, 10000);
-  assert.equal(measured.large.counts.priorResponsesExamined, 4000000);
-  assert.equal(result.ok, false);
-  assert.match(
-    result.errors.join("\n"),
-    /priorResponsesExamined: 10000 at 100 grew to 4000000 at 2000.*exceeding the 22x/u,
+  assert.deepEqual(
+    [measured.small.counts.priorResponsesExamined, measured.large.counts.priorResponsesExamined],
+    [100, 2000],
   );
+  assert.deepEqual([measured.small.counts.findingsExamined, measured.large.counts.findingsExamined], [100, 2000]);
+  assert.deepEqual(result.errors, []);
 });
 
 test("coverage includes canonical entity catalog writers without a public permission declaration", async (t) => {

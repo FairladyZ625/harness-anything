@@ -58,7 +58,7 @@ export async function measureTaskReviewResponses(rootDir, size) {
     },
     issues = respondReview.validate(snapshot, command, proof);
   assert.deepEqual(issues, [], JSON.stringify(issues));
-  assert.equal(counts.priorResponsesExamined, size * size);
-  assert.equal(counts.findingsExamined, (size * (size + 1)) / 2);
+  assert.equal(counts.priorResponsesExamined, size);
+  assert.equal(counts.findingsExamined, size);
   return { size, counts };
 }
