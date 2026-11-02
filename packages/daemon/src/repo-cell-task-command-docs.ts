@@ -297,10 +297,13 @@ export async function runTaskCommandWithDocs(
         derived.error,
       );
     }
-    anchorDriftWarnings = submissionAnchorDriftWarnings(
-      current.snapshot.executions.find((execution) => execution.executionId === submittedExecutionId)?.submission,
-      derived.submission,
-    );
+    anchorDriftWarnings = [
+      ...derived.warnings,
+      ...submissionAnchorDriftWarnings(
+        current.snapshot.executions.find((execution) => execution.executionId === submittedExecutionId)?.submission,
+        derived.submission,
+      ),
+    ];
     submittedAction = { ...taskAction, executionId: submittedExecutionId, submission: derived.submission };
   }
   const normalized = cell.buildCommand(

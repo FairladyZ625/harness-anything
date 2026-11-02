@@ -57,8 +57,15 @@ test("edge binding health reads the selected login authority through fleet disco
       delete: () => void (session = undefined),
       retireBootstrap: () => undefined,
     }),
-    fetch: async (input) => {
+    fetch: async (input, init) => {
       const url = String(input);
+      const form = new URLSearchParams(String(init?.body ?? ""));
+      if (form.get("grant_type") === "urn:ietf:params:oauth:grant-type:uma-ticket") {
+        assert.match(url, /\/realms\/node-one\/protocol\/openid-connect\/token$/u);
+        assert.equal(form.get("permission"), "@fleet#access-manage");
+        assert.match(new Headers(init?.headers).get("authorization") ?? "", /^Bearer header\./u);
+        return Response.json({ result: false });
+      }
       if (url.endsWith("/.well-known/openid-configuration")) {
         const issuer = url.slice(0, -"/.well-known/openid-configuration".length);
         return Response.json({ issuer });
@@ -162,7 +169,9 @@ test("edge binding health reads the selected login authority through fleet disco
     true,
   );
   assert.equal((await request({ operation: "session", repoId: "node-one" })).authenticated, true);
-  await assert.rejects(oidc.requireRole("access-admin", path.join(root, "node-one")), {
+  assert.equal((await oidc.requireSession(path.join(root, "node-one"))).personId, "ordinary-person");
+  // An edge login is usable; its user's fleet grant decides access management without a center credential.
+  await assert.rejects(oidc.requireAccessManagement(path.join(root, "node-one")), {
     code: "authorization_denied",
   });
   const binding = await request({ operation: "health", repoId: "node-one" });

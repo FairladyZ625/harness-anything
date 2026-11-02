@@ -85,6 +85,7 @@ export const actionPresentation = {
   "migrate-import": { domain: "migrate", name: "迁移导入", description: "将既有数据迁移到当前台账。" },
   "people-delegate": { domain: "people", name: "委派人员权限", description: "登记人员间的权限委派。" },
   "people-revoke-delegation": { domain: "people", name: "撤销人员委派", description: "结束已经登记的人员权限委派。" },
+  "access-manage": { domain: "access", name: "管理访问权限", description: "管理全局策略、授权、账号与身份配置。" },
   "permission-request-create": { domain: "access", name: "申请权限", description: "请求授予指定资源范围的动作权限。" },
   "permission-request-decide": {
     domain: "access",
@@ -369,8 +370,9 @@ export const actionDeclarations = Object.freeze([
   hostAdmin("daemon-node-auto-claim"),
   hostAdmin("daemon-fleet-center-start", undefined, false),
   hostAdmin("daemon-fleet-edge-sync", undefined, false),
+  hostAdmin("access-manage", undefined, false),
   hostAdmin("permission-request-create"),
-  hostAdmin("permission-request-decide"),
+  hostAdmin("permission-request-decide", undefined, false),
   hostAdmin("permission-request-withdraw"),
   hostAdmin("daemon-repo-register", "workspace.bootstrap"),
   hostAdmin("repo-purge", "workspace.bootstrap"),

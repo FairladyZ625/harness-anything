@@ -67,6 +67,7 @@ test(
       edgeJoins: invites,
       sshTunnels,
     });
+    f.owners.keycloak.accessAdmin("lease-owner");
     assert.equal(
       (await f.command("center-node", { kind: "task-create", taskId: "joined-0", title: "Joined 0" })).outcome,
       "applied",

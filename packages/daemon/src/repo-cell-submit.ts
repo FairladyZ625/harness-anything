@@ -26,7 +26,7 @@ import { createSubmissionArtifactReader } from "./submission-artifacts.ts";
 import { runDocAction } from "./doc-sync-actions.ts";
 import { makeGitReadinessSource, runProcessText, runProcessTextAsync } from "./process-port.ts";
 import { repositoryBaseRef } from "./schedule-occurrence-workspace.ts";
-import { readTaskTransitionDocument } from "./transition-document-access.ts";
+import { readTaskTransitionDocument, taskCloseoutTemplateWarnings } from "./transition-document-access.ts";
 import { dispatchInReviewCutReview } from "./task-review-dispatch.ts";
 import { presetSnapshotReader, taskOutputShape, taskWorktreeBinding } from "./task-worktree.ts";
 import { taskWorktreeCandidateInventory, taskWorktreeRoot } from "./task-worktree-candidates.ts";
@@ -767,9 +767,10 @@ export async function submitTask(
     if (receipt.outcome !== "applied") return receipt;
     const executor = autoDeclareSubmittedExecutor(cell, taskId, executionId, binding);
     const review = await submittedCutReview(cell, taskId, action, binding, receipt);
+    const warnings = [...(receipt.warnings ?? []), ...review.warnings];
     return {
       ...receipt,
-      ...(review.warnings.length ? { warnings: review.warnings } : {}),
+      ...(warnings.length ? { warnings } : {}),
       steps: submissionSteps(executor, review),
     } as WriteReceiptDraft;
   }
@@ -835,7 +836,19 @@ export async function submitTask(
       synced ? [synced] : [],
     );
   const submission = derived.submission;
-  const anchorDriftWarnings = submissionAnchorDriftWarnings(selected.submission, submission);
+  const syncDetail = synced?.detail?.kind === "doc_sync" ? synced.detail : null,
+    unsynchronized = syncDetail ? [...syncDetail.unresolvedTouches, ...syncDetail.deletions] : [],
+    anchorDriftWarnings = [
+      ...derived.warnings,
+      ...(unsynchronized.length
+        ? [
+            `Task package has unsynchronized changes: ${unsynchronized.map(({ path }) => path).join(", ")}. ` +
+              "Ask the CEO to use each document's required route and amend the cut, or return the task for rework; " +
+              "the implementation write lease has ended.",
+          ]
+        : []),
+      ...submissionAnchorDriftWarnings(selected.submission, submission),
+    ];
   // A lost response resumes the stored cut only when the synchronized closeout still derives the same submission.
   if (selected.submission && action.amend !== true) {
     if (submissionDigest(selected.submission) !== submissionDigest(submission))
@@ -859,9 +872,10 @@ export async function submitTask(
     if (receipt.outcome !== "applied") return receipt;
     const executor = autoDeclareSubmittedExecutor(cell, taskId, executionId, binding);
     const review = await submittedCutReview(cell, taskId, action, binding, receipt);
+    const warnings = [...anchorDriftWarnings, ...review.warnings];
     return {
       ...receipt,
-      ...(review.warnings.length ? { warnings: review.warnings } : {}),
+      ...(warnings.length ? { warnings } : {}),
       steps: submissionSteps(executor, review),
     } as WriteReceiptDraft;
   }
@@ -965,7 +979,10 @@ export function submissionStopped(
 
 export async function readCloseoutSubmission(
   ...args: [...Parameters<typeof deriveCloseoutSubmission>, preserveLegacyCut?: boolean]
-): Promise<{ readonly ok: true; readonly submission: SubmissionV1 } | { readonly ok: false; readonly error: Error }> {
+): Promise<
+  | { readonly ok: true; readonly submission: SubmissionV1; readonly warnings: readonly string[] }
+  | { readonly ok: false; readonly error: Error }
+> {
   try {
     const deriveArgs = args.slice(0, 8) as Parameters<typeof deriveCloseoutSubmission>,
       preserveLegacyCut = args[8] === true,
@@ -997,7 +1014,11 @@ export async function readCloseoutSubmission(
         () => riskTierCompletionContract(derived.submission.completionContract, riskTierAssessment),
         preserveLegacyCut,
       );
-    return { ok: true, submission };
+    return {
+      ok: true,
+      submission,
+      warnings: taskCloseoutTemplateWarnings({ projection: cell.projection, taskId, bodyOverrides: deriveArgs[4] }),
+    };
   } catch (error) {
     if (!(error instanceof Error) || !("code" in error) || !submissionStopCodes.includes(String(error.code)))
       throw error;

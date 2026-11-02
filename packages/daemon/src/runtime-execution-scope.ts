@@ -91,6 +91,12 @@ export function requireExecutionActionScope(p: RuntimeExecutionPrincipal, action
     if (p.role === "reviewer" && action.taskId === p.taskId) return;
     throw executionCredentialRejected("write-other-task");
   }
+  if (action.kind === "task-dispatch-review" && p.role !== "session")
+    throw Object.assign(executionCredentialRejected("self-approval"), {
+      message:
+        `Ask the CEO to recover automatic review dispatch with ha task dispatch-review ${p.taskId}. ` +
+        "Workers cannot dispatch reviewers; report the submit receipt and its failed review step to the CEO.",
+    });
   if (selfApprovalActions.has(action.kind) || commandClass === "arbiter" || commandClass === "admin")
     throw executionCredentialRejected("self-approval");
   // A session is authenticated as its spawning person, not granted a task lease. The normal
@@ -269,14 +275,20 @@ export function requireCurrentExecutionScope(input: {
           (path.isAbsolute(fromFile) && fromFile.replace(/\\/gu, "/").endsWith(`/${reportPacket}`));
       if (
         input.action.reviewId !== `review-${p.dispatchId}` ||
-        (p.source === "local"
+        (input.action.docChanges === undefined
           ? !packetNamed
           : !Array.isArray(input.action.docChanges) ||
             input.action.docChanges.length !== 1 ||
             !isJsonObject(input.action.docChanges[0]) ||
             input.action.docChanges[0].path !== `${packagePath}/artifacts/reports/${p.dispatchId}.md`)
       )
-        throw executionCredentialRejected();
+        throw Object.assign(executionCredentialRejected(), {
+          message:
+            `Reviewer dispatch ${p.dispatchId} may register only its assigned review. Use ` +
+            `ha task review-execution ${p.taskId} --execution-id ${p.executionId} ` +
+            `--review-id review-${p.dispatchId} --from-file harness/${reportPacket}. ` +
+            "A carried review must contain only this dispatch's Markdown report.",
+        });
     } else if (ingress && !taskReview && !decisionReview) {
       throw executionCredentialRejected();
     }

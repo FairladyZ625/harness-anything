@@ -16,7 +16,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { existsSync } from "node:fs";
 import { readDaemonRegistry } from "@harness-anything/kernel";
-import { registerHarnessIpcHandlers } from "./ipc-handlers.ts";
+import { registerHarnessIpcHandlers, withIpcDomainErrors } from "./ipc-handlers.ts";
 import { createLoginWebviewSecurity } from "./login-webview-security.ts";
 import { registerOidcAuthIpc } from "./oidc-auth-ipc.ts";
 import { registerAccessAdminIpc } from "./access-admin-ipc.ts";
@@ -360,9 +360,10 @@ export async function startGuiApp(): Promise<void> {
         allowDevRenderer: Boolean(process.env.ELECTRON_RENDERER_URL),
       },
     };
-  registerHarnessIpcHandlers(ipcMain, controlled, trustPolicy);
+  const registrar = withIpcDomainErrors(ipcMain);
+  registerHarnessIpcHandlers(registrar, controlled, trustPolicy);
   registerProjectDirectoryIpc(
-    ipcMain,
+    registrar,
     {
       registeredRoot: (repoId) => {
         const repo = readDaemonRegistry({ userRoot: guiDaemonUserRoot() }).repos.find((row) => row.repoId === repoId);
@@ -372,7 +373,7 @@ export async function startGuiApp(): Promise<void> {
     },
     trustPolicy,
   );
-  registerOidcAuthIpc(ipcMain, trustPolicy, {
+  registerOidcAuthIpc(registrar, trustPolicy, {
     daemonRequest: (params) => requestDaemonAdminRpc("daemon.rbac.manage", params),
     openExternal: (url) => shell.openExternal(url),
     // A listener-backed sign-in loads in its own non-persistent partition whose certificate trust
@@ -380,11 +381,11 @@ export async function startGuiApp(): Promise<void> {
     // the default session and the in-app browser partition are never relaxed.
     openLoginWebview: loginWebviewSecurity.openLoginWebview,
   });
-  registerAccessAdminIpc(ipcMain, trustPolicy, {
+  registerAccessAdminIpc(registrar, trustPolicy, {
     daemonRequest: (params) => requestDaemonAdminRpc("daemon.rbac.manage", params),
     operationId: randomUUID,
   });
-  registerCenterSettingsIpc(ipcMain, trustPolicy, {
+  registerCenterSettingsIpc(registrar, trustPolicy, {
     daemonRequest: (params) => requestDaemonAdminRpc("daemon.rbac.manage", params),
     fleetRequest: (method, params) => requestDaemonAdminRpc(method, params),
     dialog: {
@@ -404,13 +405,13 @@ export async function startGuiApp(): Promise<void> {
   });
   // 边缘节点加入向导(task_0499bcc75d0f):只调用 daemon 既有 edge join,主进程收窄见
   // main/edge-join-entry-ipc.ts;「在浏览器打开」只开 daemon 返回的登录页。
-  registerEdgeJoinEntryIpc(ipcMain, trustPolicy, {
+  registerEdgeJoinEntryIpc(registrar, trustPolicy, {
     daemonRequest: (params) => requestDaemonAdminRpc("daemon.rbac.manage", params),
     openExternal: (url) => shell.openExternal(url),
   });
   // 「在默认浏览器打开」(task_7e713fee;W3 扩 remote-proxy 物化副本):主进程收窄见 artifact-open-ipc.ts。
   registerArtifactOpenIpc(
-    ipcMain,
+    registrar,
     {
       canonicalRootOf: (repoId) => {
         const target = resolveLocalDaemonTargetFromRepos(
@@ -460,7 +461,7 @@ export async function startGuiApp(): Promise<void> {
     trustPolicy,
   );
   // Settings → 仓库与连接(PLT-EdgeGUI-W3):连接/仓库 admin 全部经本机 daemon RPC,GUI 零远程 transport。
-  registerConnectionAdminIpc(ipcMain, { request: requestDaemonAdminRpc }, trustPolicy);
+  registerConnectionAdminIpc(registrar, { request: requestDaemonAdminRpc }, trustPolicy);
   // 首启安装失败不再挡住窗口(评审 2026-10-17):每一步的失败记成 setupFailures,由引导屏
   // 以「哪一步/为什么/怎么办」显示;窗口与 IPC 永远先于安装步骤存在。
   let desktopSetupFailures: readonly DesktopSetupFailure[] = [];
@@ -469,7 +470,7 @@ export async function startGuiApp(): Promise<void> {
     setupFailures: desktopSetupFailures,
   });
   registerFirstRunIpcHandlers(
-    ipcMain,
+    registrar,
     {
       chooseRepository: async () => {
         const selected = await dialog.showOpenDialog({
@@ -488,14 +489,14 @@ export async function startGuiApp(): Promise<void> {
     trustPolicy,
   );
   // GUI 内读本机文档(task_89d324b5):节点本地只读查询,主进程收窄见 local-doc-ipc.ts。
-  registerLocalDocIpc(ipcMain, { homeDir: () => homedir() }, trustPolicy);
-  registerProjectWindowIpc(ipcMain, projectWindows, trustPolicy);
+  registerLocalDocIpc(registrar, { homeDir: () => homedir() }, trustPolicy);
+  registerProjectWindowIpc(registrar, projectWindows, trustPolicy);
   projectWindows.newWindow(null);
   // Windows/Linux 协议激活在冷启动参数里;窗口已建,直接送达(macOS 冷启动走 open-url 暂存路径)。
   const argvLink = edgeJoinLinkFromArgv(process.argv);
   if (argvLink !== null) deliverEdgeJoinLink(argvLink);
   const updaterWindow = BrowserWindow.getAllWindows()[0];
-  if (updaterWindow) registerUpdaterIpc(ipcMain, updaterWindow, trustPolicy, autoUpdater, app.getVersion());
+  if (updaterWindow) registerUpdaterIpc(registrar, updaterWindow, trustPolicy, autoUpdater, app.getVersion());
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) projectWindows.newWindow(null);
   });

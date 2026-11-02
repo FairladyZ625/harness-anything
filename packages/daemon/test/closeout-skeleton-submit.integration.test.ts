@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -66,12 +66,34 @@ test("the closeout skeleton materialized with the task submits untouched", async
     await waitForFixturePublication(cell, started.opId, binding);
     mkdirSync(path.join(ledger, packagePath, "artifacts"), { recursive: true });
     writeFileSync(path.join(ledger, packagePath, "artifacts/report.md"), "# Evidence\n\nSkeleton boundary.\n");
+    const retainedArtifact = path.join(ledger, packagePath, "artifacts/retained.md");
+    writeFileSync(retainedArtifact, "# Retained evidence\n");
     const artifact = await cell.run({ kind: "doc-submit", taskId }, binding);
     assert.equal(artifact.outcome, "applied", JSON.stringify(artifact));
+    await waitForFixturePublication(cell, artifact.opId, binding);
 
+    // One eligible edit and one forbidden deletion exercise partial synchronization.
+    unlinkSync(retainedArtifact);
+    writeFileSync(
+      path.join(ledger, packagePath, "artifacts/report.md"),
+      "# Evidence\n\nUpdated artifact before submit.\n",
+    );
+    const pendingDocuments = await cell.run({ kind: "doc-status", taskId }, binding);
+    assert.equal(pendingDocuments.detail?.kind, "doc_sync", JSON.stringify(pendingDocuments));
+    assert.match(
+      JSON.stringify(pendingDocuments.detail?.kind === "doc_sync" ? pendingDocuments.detail.deletions : []),
+      /retained\.md/u,
+      JSON.stringify(pendingDocuments),
+    );
     // The untouched skeleton — prompt sentences and all — is a valid authored closeout.
     const submitted = await cell.run({ kind: "task-submit", taskId, executionId }, binding);
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    assert.match(JSON.stringify((submitted as unknown as { warnings: unknown }).warnings), /closeout.*template.*CEO/u);
+    assert.match(
+      JSON.stringify((submitted as unknown as { warnings: unknown }).warnings),
+      /unsynchronized.*retained\.md.*CEO/u,
+      JSON.stringify((submitted as unknown as { steps: unknown }).steps),
+    );
     await waitForFixturePublication(cell, submitted.opId, binding);
     const packet = makeTaskEventReader({ repoId, rootDir })
       .read()
@@ -88,6 +110,27 @@ test("the closeout skeleton materialized with the task submits untouched", async
     assert.equal(packet.completionClaim, skeleton.slice(summaryStart + "## Summary\n".length, summaryEnd).trim());
     assert.equal(packet.verificationNotes.length, 1);
     assert.deepEqual(packet.knownGaps, packet.residualRisks);
+
+    // Restore the locally deleted file before exercising an unrelated valid amendment.
+    assert.ok(packet.artifacts?.some((artifact) => artifact.path.endsWith("/artifacts/retained.md")));
+    writeFileSync(retainedArtifact, "# Retained evidence\n");
+    // Dirty package prose is accepted by submit itself; no later worker doc-sync is needed.
+    writeFileSync(
+      closeoutPath,
+      "# Closeout\n\n## Summary\nVerified delivery.\n\n## Verification\nDirected tests passed.\n\n## Residual Risk\nNone.\n\n## Same Mechanism Elsewhere\nTask-package writes share submit.\n",
+    );
+    const filled = await cell.run({ kind: "task-submit", taskId, executionId, amend: true }, binding);
+    assert.equal(filled.outcome, "applied", JSON.stringify(filled));
+    assert.doesNotMatch(
+      JSON.stringify((filled as unknown as { warnings?: unknown }).warnings ?? []),
+      /materialized template/u,
+    );
+    assert.equal(
+      (await cell.read("repo.tasks.list")).rows
+        .find((row) => row.taskId === taskId)
+        ?.snapshot.executions.find((execution) => execution.executionId === executionId)?.submission?.completionClaim,
+      "Verified delivery.",
+    );
 
     // Negative: every heading present but no prose in Summary derives no claim, so the Submission
     // schema rejects the cut. The refusal names the real defect, not a scaffold comparison.

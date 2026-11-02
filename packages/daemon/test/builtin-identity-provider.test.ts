@@ -389,13 +389,22 @@ test("builtin sessions reject remote edge targets at the identity boundary", asy
   const session = new BuiltinIdentitySession(root),
     pluginRequired = (error: unknown) => (error as { code?: string }).code === "identity_plugin_required";
   await assert.rejects(session.beginDevice(edgeRoot), pluginRequired);
+  await assert.rejects(
+    session.beginDevice(undefined, {
+      url: "https://center.example.invalid",
+      realm: "harness",
+      clientId: "harness-gui",
+    }),
+    pluginRequired,
+  );
+  await assert.rejects(session.bind({ transportKind: "fleet-tls" }), pluginRequired);
   await assert.rejects(session.deviceApproval("123456", edgeRoot), pluginRequired);
   await assert.rejects(session.status(edgeRoot), pluginRequired);
   await assert.rejects(session.bindingHealth(edgeRoot), pluginRequired);
   assert.throws(() => session.logout(edgeRoot), pluginRequired);
   await assert.rejects(session.bind({ transportKind: "unix-socket" }, edgeRoot), pluginRequired);
   await assert.rejects(session.requireSession(edgeRoot), pluginRequired);
-  await assert.rejects(session.requireRole("access-admin", edgeRoot), pluginRequired);
+  await assert.rejects(session.requireAccessManagement(edgeRoot), pluginRequired);
   assert.throws(() => session.configureAuthority(async () => ({ ok: true }), edgeRoot), pluginRequired);
 });
 
@@ -479,6 +488,26 @@ test("legacy edge roots reopen through Keycloak without a selector and preserve 
   assert.equal(readFileSync(path.join(root, "rbac", "oidc-session.json"), "utf8"), legacySession);
 });
 
+test("builtin owner membership reads are empty while team administration still requires the plugin", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-owner-teams-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const session = new BuiltinIdentitySession(root);
+  await session.bootstrapAdmin({
+    username: "owner",
+    email: "owner@example.invalid",
+    displayName: "Owner",
+    password: "correct horse",
+    personId: "person-owner",
+  });
+  const { provider, accessToken } = await session.center();
+  assert.deepEqual(await provider.readPersonTeams(accessToken, "person-owner"), []);
+  await assert.rejects(provider.readPersonTeams("invalid-token", "person-owner"), { code: "rbac_admin_unavailable" });
+  await assert.rejects(provider.readPersonTeams(accessToken, "person-other"), { code: "access_person_unknown" });
+  assert.deepEqual(await provider.readTeams(accessToken), []);
+  await assert.rejects(provider.createTeam(accessToken, "Builders"), { code: "identity_plugin_required" });
+  await assert.rejects(provider.readTeamMembers(accessToken, "builders"), { code: "identity_plugin_required" });
+});
+
 test("builtin collaboration entry points require the Keycloak plugin", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-collaboration-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -490,13 +519,19 @@ test("builtin collaboration entry points require the Keycloak plugin", async (t)
     password: "correct horse",
     personId: "person-owner",
   });
-  assert.throws(() => center.requireCollaboration(), { code: "identity_plugin_required" });
   await assert.rejects(center.interactiveAuthority(), { code: "identity_plugin_required" });
   const authority = await center.center(),
     centerToken = authority.accessToken;
-  await assert.rejects(authority.provider.readPolicyGroups(centerToken), { code: "identity_plugin_required" });
-  await assert.rejects(authority.provider.readGrants(centerToken), { code: "identity_plugin_required" });
-  await assert.rejects(authority.provider.readPeople(centerToken), { code: "identity_plugin_required" });
+  assert.ok((await authority.provider.readPolicyGroups(centerToken)).some((group) => group.id === "admin"));
+  assert.equal((await authority.provider.readGrants(centerToken))[0]?.resource, "@fleet");
+  assert.equal((await authority.provider.readPeople(centerToken))[0]?.personId, "person-owner");
+  const login = await center.begin("http://127.0.0.1:43123/callback");
+  const response = await fetch(String(login.authorizationUrl), {
+    method: "POST",
+    redirect: "manual",
+    body: new URLSearchParams({ username: "owner", password: "correct horse", state: String(login.state) }),
+  });
+  await center.complete(new URL(response.headers.get("location")!).searchParams.get("code")!, String(login.state));
   const store = createEdgeJoinStore({ randomToken: () => "builtin-edge-invite" }),
     created = store.create({
       centerOrigin: "https://center.example.invalid:7545",

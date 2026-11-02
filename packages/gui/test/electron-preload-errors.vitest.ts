@@ -1,4 +1,5 @@
 // harness-test-tier: fast
+// @vitest-environment happy-dom
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
 const electron = vi.hoisted(() => ({
@@ -32,4 +33,16 @@ describe("Electron preload IPC errors", () => {
     await expect(invocation).rejects.toThrow("bootstrap_failed: fetch failed");
     await expect(invocation).rejects.not.toThrow("Error invoking remote method");
   });
+});
+
+it("preserves a structured domain failure and signals collaboration without turning it into success", async () => {
+  const notified = vi.fn();
+  window.addEventListener("harness-collaboration-required", notified);
+  electron.invoke.mockResolvedValueOnce({
+    ipcFailure: { code: "identity_plugin_required", message: "Collaboration requires a provider" },
+  });
+  const auth = electron.exposed?.auth as { configure(input: unknown): Promise<unknown> };
+  await expect(auth.configure({ mode: "external" })).rejects.toMatchObject({ code: "identity_plugin_required" });
+  expect(notified).toHaveBeenCalledTimes(1);
+  window.removeEventListener("harness-collaboration-required", notified);
 });
