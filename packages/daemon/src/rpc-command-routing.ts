@@ -5,7 +5,11 @@ import {
   repoReadCommandTopology,
   type CommandTopology,
 } from "@harness-anything/preset/internal/preset-command-contract";
-import { allDaemonProtocolMethods, daemonProtocolCommands } from "./protocol/daemon-protocol-commands.ts";
+import {
+  allDaemonProtocolMethods,
+  daemonProtocolCommands,
+  daemonRepositoryReadMethods,
+} from "./protocol/daemon-protocol-commands.ts";
 import { daemonGuiReadMethods } from "./protocol/daemon-protocol-gui-reads.ts";
 import { daemonGuiActionMethods, daemonStreamFacets } from "./protocol/daemon-protocol-gui-actions.ts";
 import { daemonRepoModeWords } from "./protocol/daemon-protocol-vocabulary.ts";
@@ -33,6 +37,9 @@ export interface RpcRoutingDeclaration {
 // These host controls have no CLI action declaration. This is their ownership port,
 // consumed by protocol startup as well as the coverage gate; unknown methods have no default.
 const hostMethodTopology: ReadonlyMap<string, CommandTopology> = new Map([
+  // Version registration mutates the daemon's skill-evaluation catalog and has no
+  // repository payload; keep it on the host-admin route alongside the other skillEval writes.
+  ["daemon.skillEval.version.register", hostAdminCommandTopology],
   ["daemon.skillEval.case.add", hostAdminCommandTopology],
   ["daemon.skillEval.cases.list", repoReadCommandTopology],
   ["daemon.skillEval.run", hostAdminCommandTopology],
@@ -51,7 +58,7 @@ const hostMethodTopology: ReadonlyMap<string, CommandTopology> = new Map([
 // Read authorization admission is recorded here; replica/center/runtime read residency remains
 // owned by the existing read port. A new method cannot opt in merely by claiming repo-read.
 const readMethods = new Set<string>(
-  [...daemonGuiReadMethods, ...daemonGuiActionMethods, ...daemonStreamFacets]
+  [...daemonGuiReadMethods, ...daemonRepositoryReadMethods, ...daemonGuiActionMethods, ...daemonStreamFacets]
     .filter((method) => "commandClass" in method && method.commandClass === "repo-read")
     .map((method) => method.method),
 );
