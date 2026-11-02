@@ -399,6 +399,25 @@
             "task-respond-review:responses"
           ]
         },
+        "task-review-execution": {
+          "measurements": [
+            "task-review-execution:findings",
+            "task-review-execution:evidence-checked",
+            "task-review-execution:resolutions"
+          ]
+        },
+        "task-review-consent": {
+          "measurements": [
+            "task-review-consent:reviews",
+            "task-review-consent:consents",
+            "task-review-consent:dispositions"
+          ]
+        },
+        "task-amend": {
+          "measurements": [
+            "task-amend:patches"
+          ]
+        },
         "decision-override-review": {
           "measurements": [
             "decision-override-review:claims"
@@ -711,12 +730,6 @@
         },
         {
           "actions": [
-            "task-amend"
-          ],
-          "reason": "task amend runtime applies one task patch; collection dimensions are owned by task-submit and task review probes."
-        },
-        {
-          "actions": [
             "task-annotate"
           ],
           "reason": "task annotation runtime appends one scalar annotation to one execution; it does not enumerate annotations."
@@ -798,18 +811,6 @@
             "task-reopen"
           ],
           "reason": "task reopen updates one task status; no collection is traversed."
-        },
-        {
-          "actions": [
-            "task-review-consent"
-          ],
-          "reason": "review consent selects one review and fixed consent/disposition ids; response and finding collection scaling is measured by task-respond-review."
-        },
-        {
-          "actions": [
-            "task-review-execution"
-          ],
-          "reason": "execution review records one review packet; finding cardinality is bounded by the submitted review packet and is not scanned by this writer."
         },
         {
           "actions": [

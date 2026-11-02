@@ -22,10 +22,16 @@ import {
   measureCatalogBatch,
   measureEntityPins,
   measureTaskReviewDispatchBatch,
+  measureTaskAmendPatches,
+  assertTaskReviewDispatchMeasurement,
   measureTaskWitnessGates,
   COLLECTION_PROBES,
 } from "../../../packages/daemon/test/fixtures/g38-collection-cost.mjs";
-import { measureTaskReviewResponses } from "../../../packages/daemon/test/fixtures/g38-lifecycle-cost.mjs";
+import {
+  measureTaskReviewConsent,
+  measureTaskReviewExecution,
+  measureTaskReviewResponses,
+} from "../../../packages/daemon/test/fixtures/g38-lifecycle-cost.mjs";
 import { signReceipt } from "../receipt-verify.mjs";
 import {
   DECISION_PROBES,
@@ -565,4 +571,48 @@ test("task review dispatch batch scales with the supplied task id collection", a
     large: await measureTaskReviewDispatchBatch(process.cwd(), 2000),
   };
   assert.deepEqual(evaluateCollectionCosts({ "task-dispatch-review:task-ids": measured }).errors, []);
+});
+
+test("task review dispatch measurement rejects synthetic failed steps", () => {
+  assert.throws(
+    () =>
+      assertTaskReviewDispatchMeasurement(
+        {
+          outcome: "op_rejected",
+          dispatches: [{ taskId: "task-review-0", outcome: "failed" }],
+        },
+        1,
+        0,
+      ),
+    /successful write path/u,
+  );
+});
+
+test("task review execution and consent probes cover every declared collection", async () => {
+  const executionDimensions = ["findings", "evidenceChecked", "resolutions"],
+    consentDimensions = ["reviews", "consents", "dispositions"];
+  for (const dimension of executionDimensions) {
+    const id = `task-review-execution:${dimension}`,
+      measured = {
+        small: await measureTaskReviewExecution(process.cwd(), 100, dimension),
+        large: await measureTaskReviewExecution(process.cwd(), 2000, dimension),
+      };
+    assert.deepEqual(evaluateCollectionCosts({ [id]: measured }).errors, [], id);
+  }
+  for (const dimension of consentDimensions) {
+    const id = `task-review-consent:${dimension}`,
+      measured = {
+        small: await measureTaskReviewConsent(process.cwd(), 100, dimension),
+        large: await measureTaskReviewConsent(process.cwd(), 2000, dimension),
+      };
+    assert.deepEqual(evaluateCollectionCosts({ [id]: measured }).errors, [], id);
+  }
+});
+
+test("task amend applies every supplied patch through the production mutation", async () => {
+  const measured = {
+    small: await measureTaskAmendPatches(process.cwd(), 100),
+    large: await measureTaskAmendPatches(process.cwd(), 2000),
+  };
+  assert.deepEqual(evaluateCollectionCosts({ "task-amend:patches": measured }).errors, []);
 });

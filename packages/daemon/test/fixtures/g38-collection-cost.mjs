@@ -4,7 +4,11 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { durableActionKinds, getExecutableEntityAction } from "@harness-anything/kernel";
 import { DECISION_PROBES, measureDecisionCollection } from "./g38-decision-cost.mjs";
-import { measureTaskReviewResponses } from "./g38-lifecycle-cost.mjs";
+import {
+  measureTaskReviewConsent,
+  measureTaskReviewExecution,
+  measureTaskReviewResponses,
+} from "./g38-lifecycle-cost.mjs";
 
 export const COLLECTION_SCALES = Object.freeze({ small: 100, large: 2000 });
 
@@ -289,37 +293,161 @@ export async function measureEntityPins(rootDir, size, actionKind) {
 }
 
 export async function measureTaskReviewDispatchBatch(rootDir, size) {
-  const { dispatchTaskReview } = await load(rootDir, "packages/daemon/src/task-review-dispatch.ts"),
-    ids = Array.from({ length: size }, (_, index) => `task_review_${index}`),
-    counts = { taskIdsRead: 0, taskProjectionsRead: 0, dispatchSteps: 0 },
+  const [{ dispatchTaskReview, reviewDispatchIds }, { completionSnapshot }] = await Promise.all([
+      load(rootDir, "packages/daemon/src/task-review-dispatch.ts"),
+      load(rootDir, "packages/kernel/test/domain/completion.fixtures.ts"),
+    ]),
+    ids = Array.from({ length: size }, (_, index) => `task-review-${index}`),
+    events = new Map(),
+    counts = { taskIdsRead: 0, taskProjectionsRead: 0, dispatchSteps: 0, publications: 0 },
     taskIds = new Proxy(ids, {
       get(target, property, receiver) {
         if (typeof property === "string" && /^(0|[1-9]\d*)$/u.test(property)) counts.taskIdsRead += 1;
         return Reflect.get(target, property, receiver);
       },
     }),
+    executionFor = (taskId) => ({
+      schema: "execution/v1",
+      taskId,
+      executionId: `execution_${taskId}`,
+      iteration: 1,
+      state: "submitted",
+      actor: { principal: { personId: "cost-worker" }, executor: { kind: "agent", id: "worker-cost" } },
+      claimedAt: "2026-11-02T00:00:00.000Z",
+      submittedAt: "2026-11-02T00:01:00.000Z",
+      closedAt: null,
+      submission: {
+        ...completionSnapshot,
+        commitSha: "a".repeat(40),
+        artifacts: [],
+      },
+    }),
     cell = {
+      rootDir,
       cellCodedError: (code, message) => Object.assign(new Error(message), { code }),
       operationId: () => "g38-review-dispatch",
       input: { repoId: "g38-review-dispatch" },
-      store: { readHead: () => ({ revision: 1 }) },
+      store: {
+        readHead: () => ({ revision: 1 }),
+        readBatch: (cursor) => ({ sourceRevision: 1, events: [], cursor, done: true, accessedItems: 0 }),
+        readContentBlob: () => null,
+      },
       projection: {
         read(taskId) {
           counts.taskProjectionsRead += 1;
+          const execution = executionFor(taskId);
           return {
             watermark: 1,
             sourceRevision: 1,
             packagePath: `tasks/${taskId}`,
-            snapshot: { task: { status: "submitted", reviewer: "closeout-reviewer" }, executions: [] },
+            snapshot: {
+              task: {
+                taskId,
+                status: "in_review",
+                currentNode: "review",
+                iteration: 1,
+                completionGateIds: [],
+                reviewer: "closeout-reviewer",
+              },
+              executions: [execution],
+              reviews: [],
+            },
           };
+        },
+        readRuntimeDispatchByDispatchKey(key) {
+          const event = events.get(key);
+          return event ? { event } : null;
+        },
+        readRuntimeDispatchesByTaskExecution: () => [],
+        readRuntimeSessionEvents: () => [],
+      },
+      settings: { readRepository: () => ({ roles: { defaultReviewer: "closeout-reviewer" } }) },
+      now: () => "2026-11-02T00:00:00.000Z",
+      runtimeSpawner: {
+        prepareWorktree: async () => ({ path: rootDir, cleanup: async () => undefined }),
+        async spawn(payload) {
+          const dispatchIds = reviewDispatchIds("g38-review-dispatch", payload.dispatchKey);
+          counts.publications += 1;
+          events.set(payload.dispatchKey, {
+            opId: dispatchIds.dispatchOpId,
+            payload: {
+              ...dispatchIds,
+              taskId: payload.taskId,
+              executionId: payload.executionId,
+              agentId: payload.agentId,
+              role: "reviewer",
+              dispatchKey: payload.dispatchKey,
+              instanceId: "g38-isolated-runtime",
+            },
+          });
+          return { runtimeSelection: { instanceId: "g38-isolated-runtime" } };
         },
       },
     },
-    result = await dispatchTaskReview(cell, { kind: "task-dispatch-review", taskIds }, {});
+    binding = {
+      actor: { principal: { personId: "cost-owner" }, executor: null },
+      source: { kind: "node" },
+      keycloakAuthorization: {
+        session: {
+          personId: "cost-owner",
+          accessToken: "g38-token",
+          url: "https://g38.invalid",
+          realm: "g38",
+          clientId: "g38",
+          provider: {
+            policyRef: "g38-policy@1",
+            authority: "g38-isolated-authorization",
+            deniedReasonCode: "g38_denied",
+            authorize: async () => ({ outcome: "allowed", reasonCode: "g38_allowed" }),
+            validateUserAccessToken: async () => true,
+            withFetchPort() {
+              return this;
+            },
+          },
+        },
+      },
+    },
+    result = await dispatchTaskReview(cell, { kind: "task-dispatch-review", taskIds }, binding);
   counts.dispatchSteps = result.dispatches.length;
-  assert.equal(result.dispatches.length, size);
-  assert.equal(counts.taskProjectionsRead, size);
-  assert.equal(counts.dispatchSteps, size);
+  assertTaskReviewDispatchMeasurement(result, size, counts.publications);
+  assert.ok(counts.taskProjectionsRead >= size);
+  return { size, counts };
+}
+
+export function assertTaskReviewDispatchMeasurement(result, size, publications) {
+  assert.equal(
+    result.outcome,
+    "applied",
+    `dispatch measurement must reach the successful write path: ${JSON.stringify(result)}`,
+  );
+  assert.equal(result.dispatches?.length, size, "every task must produce a dispatch step");
+  assert.ok(
+    result.dispatches.every((step) => step.outcome === "dispatched"),
+    "every task must be dispatched",
+  );
+  assert.equal(publications, size, "every dispatch must publish through the isolated port");
+}
+
+export async function measureTaskAmendPatches(rootDir, size) {
+  const { taskMutation } = await load(rootDir, "packages/daemon/src/repo-cell-task-mutation.ts"),
+    counts = { patchesExamined: 0 },
+    patches = counted(
+      Array.from({ length: size }, () => ({ field: "reviewer", value: "closeout-reviewer" })),
+      () => (counts.patchesExamined += 1),
+    ),
+    task = { taskId: "task-amend-cost", reviewer: "previous-reviewer", metadata: null },
+    cell = {
+      requiredCellText(value, label) {
+        assert.equal(typeof value, "string", `${label} must be text`);
+        return value;
+      },
+      cellCodedError: (code, message) => Object.assign(new Error(message), { code }),
+    },
+    binding = { actor: { principal: { personId: "cost-owner" }, executor: null }, source: { kind: "node" } },
+    result = taskMutation(cell, { kind: "task-amend", taskId: task.taskId, patches }, task, { lease: null }, binding);
+  assert.equal(result.type, "task_amended");
+  assert.equal(result.audit.fields.length, size);
+  assert.ok(counts.patchesExamined >= size, "amend must examine every patch");
   return { size, counts };
 }
 
@@ -541,6 +669,41 @@ export const COLLECTION_PROBES = Object.freeze({
     action: "task-respond-review",
     dimension: "review-responses",
     run: (root, n) => measureTaskReviewResponses(root, n),
+  },
+  "task-review-execution:findings": {
+    action: "task-review-execution",
+    dimension: "findings",
+    run: (root, n) => measureTaskReviewExecution(root, n, "findings"),
+  },
+  "task-review-execution:evidence-checked": {
+    action: "task-review-execution",
+    dimension: "evidence-checked",
+    run: (root, n) => measureTaskReviewExecution(root, n, "evidenceChecked"),
+  },
+  "task-review-execution:resolutions": {
+    action: "task-review-execution",
+    dimension: "resolutions",
+    run: (root, n) => measureTaskReviewExecution(root, n, "resolutions"),
+  },
+  "task-review-consent:reviews": {
+    action: "task-review-consent",
+    dimension: "reviews",
+    run: (root, n) => measureTaskReviewConsent(root, n, "reviews"),
+  },
+  "task-review-consent:consents": {
+    action: "task-review-consent",
+    dimension: "consents",
+    run: (root, n) => measureTaskReviewConsent(root, n, "consents"),
+  },
+  "task-review-consent:dispositions": {
+    action: "task-review-consent",
+    dimension: "dispositions",
+    run: (root, n) => measureTaskReviewConsent(root, n, "dispositions"),
+  },
+  "task-amend:patches": {
+    action: "task-amend",
+    dimension: "patches",
+    run: measureTaskAmendPatches,
   },
   "task-dispatch-review:task-ids": {
     action: "task-dispatch-review",
