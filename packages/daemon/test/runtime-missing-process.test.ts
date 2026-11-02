@@ -369,6 +369,130 @@ test("runtime cancel settles a live projection whose dispatch never recorded a p
   }
 });
 
+test("runtime cancel settles the task lease before closing a missing-process task dispatch", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-cancel-missing-task-process-"));
+  try {
+    const dispatchId = "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa",
+      runtimeSessionId = "runtime_bbbbbbbbbbbbbbbbbbbbbbbb",
+      taskId = "task-canceled-task-without-process",
+      executionId = "execution-canceled-task-without-process",
+      terminals: unknown[] = [],
+      published: string[] = [],
+      order: string[] = [];
+    openMissingProcessStream(rootDir, dispatchId, runtimeSessionId, "dispatch-op-cancel-missing-task-process", {
+      taskId,
+      executionId,
+    });
+    const context = {
+      input: {
+        rootDir,
+        repoId: "cancel-missing-task-process",
+        now: () => "2026-11-02T00:00:00.000Z",
+        onAttemptTerminal: async (terminal: unknown) => {
+          order.push("settle-attempt");
+          terminals.push(terminal);
+        },
+      },
+      requiredRuntimeProjection: () => ({
+        readRuntimeSessions: () => [liveSession(runtimeSessionId)],
+        readRuntimeDispatch: () => ({ source: "local", payload: { dispatchId } }),
+      }),
+      processes: new Map(),
+      exiting: new Set<string>(),
+      publishRuntimeEvent: async (type: string) => {
+        order.push(type);
+        published.push(type);
+        return {};
+      },
+      controlReceipt: (_opId: string, _runtimeSessionId: string, detail: string) => ({ detail }),
+    };
+
+    const receipt = await cancelRuntime(
+      context as never,
+      { runtimeSessionId },
+      { actor: binding.actor, source: { kind: "node", nodeId: "edge-a" } },
+    );
+
+    assert.equal(receipt.detail, "cancelled");
+    assert.deepEqual(terminals, [
+      {
+        runtimeSessionId,
+        dispatchId,
+        task: { taskId, executionId, leaseVersion: null },
+        schedule: null,
+        outcome: "cancelled",
+        reason: "Runtime session cancelled after its worker process was no longer available.",
+        endedAt: "2026-11-02T00:00:00.000Z",
+        binding: {
+          actor: { ...binding.actor, executor: { kind: "agent", id: `runtime-session:${runtimeSessionId}` } },
+          source: { kind: "node", nodeId: "edge-a" },
+        },
+      },
+    ]);
+    assert.deepEqual(published, [
+      "runtime_session_cancelled",
+      "runtime_session_exited",
+      "runtime_session_outcome_observed",
+    ]);
+    assert.deepEqual(order, [
+      "settle-attempt",
+      "runtime_session_cancelled",
+      "runtime_session_exited",
+      "runtime_session_outcome_observed",
+    ]);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("runtime cancel leaves a missing-process task dispatch live when lease settlement is unproven", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-cancel-unproven-task-process-"));
+  try {
+    const dispatchId = "dispatch_cccccccccccccccccccccccc",
+      runtimeSessionId = "runtime_dddddddddddddddddddddddd",
+      published: string[] = [];
+    openMissingProcessStream(rootDir, dispatchId, runtimeSessionId, "unproven-task-cancel", {
+      taskId: "task-cancel-unproven",
+      executionId: "execution-cancel-unproven",
+    });
+    const context = {
+      input: {
+        rootDir,
+        repoId: "cancel-unproven-task-process",
+        now: () => "2026-11-02T00:00:00.000Z",
+        onAttemptTerminal: async () => ({
+          outcome: "lease_unproven" as const,
+          code: "runtime_process_group_unproven" as const,
+          reason: "Runtime process group is unknown; lease release waits for a stop proof.",
+        }),
+      },
+      requiredRuntimeProjection: () => ({
+        readRuntimeSessions: () => [liveSession(runtimeSessionId)],
+        readRuntimeDispatch: () => ({ source: "local", payload: { dispatchId } }),
+      }),
+      processes: new Map(),
+      exiting: new Set<string>(),
+      publishRuntimeEvent: async (type: string) => {
+        published.push(type);
+        return {};
+      },
+      controlReceipt: (_opId: string, _runtimeSessionId: string, detail: string) => ({ detail }),
+    };
+
+    await assert.rejects(
+      cancelRuntime(
+        context as never,
+        { runtimeSessionId },
+        { actor: binding.actor, source: { kind: "node", nodeId: "edge-a" } },
+      ),
+      { code: "runtime_process_group_unproven" },
+    );
+    assert.deepEqual(published, []);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("runtime cancel closes an exited session whose dispatch stream is missing", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-cancel-exited-missing-stream-"));
   try {
@@ -805,11 +929,17 @@ test("runtime steer refuses a dispatch whose worker host is already gone", async
   }
 });
 
-function openMissingProcessStream(rootDir: string, dispatchId: string, runtimeSessionId: string, dispatchOpId: string) {
+function openMissingProcessStream(
+  rootDir: string,
+  dispatchId: string,
+  runtimeSessionId: string,
+  dispatchOpId: string,
+  task: { readonly taskId: string; readonly executionId: string } | null = null,
+) {
   openDispatchStream(rootDir, {
     dispatchId,
-    taskId: null,
-    executionId: null,
+    taskId: task?.taskId ?? null,
+    executionId: task?.executionId ?? null,
     runtimeSessionId,
     instanceId: "instance-1",
     startedAt: "2026-09-13T00:00:00.000Z",

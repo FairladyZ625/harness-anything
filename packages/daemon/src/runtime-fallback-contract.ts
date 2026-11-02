@@ -24,6 +24,7 @@ export type RuntimeProviderFault = {
     | "quota_exhausted"
     | "unrecognized_model"
     | "auth_failed"
+    | "request_unavailable"
     | "provider_disconnected"
     | "pre_tool_exit";
   readonly reason: string;

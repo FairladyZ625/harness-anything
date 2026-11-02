@@ -109,6 +109,8 @@ export function providerFaultFromFrame(
 export function providerFaultFromStderr(kindId: RuntimeInstanceKind, stderr: string): RuntimeProviderFault | null {
   const normalized = stderr.trim();
   if (!normalized) return null;
+  if (kindId === "codex" && /"code"\s*:\s*"request_unavailable"/u.test(normalized))
+    return fault("request_unavailable", normalized);
   if (kindId === "claude") {
     const tagged = /^\[claude-code:([^\]]+)\]/imu.exec(normalized)?.[1] ?? null;
     if (tagged === "unrecognized_model") return fault("unrecognized_model", normalized);
@@ -181,6 +183,11 @@ export function classifyRuntimeExit(
     };
   if (ruling !== null) return { ...classified("awaiting_ruling", ruling.question), outcome: "stopped" };
   if (attemptFailed && providerFault?.code === "unrecognized_model")
+    return classified("gate_red", providerFault.reason);
+  // Codex can reject a request before it establishes a turn. Retry this one startup-only
+  // availability fault through the existing bounded provider fallback chain, but do not replay
+  // work after the worker has already called a tool.
+  if (attemptFailed && providerFault?.code === "request_unavailable" && active.toolCallObserved)
     return classified("gate_red", providerFault.reason);
   if (attemptFailed && providerFault)
     return {
@@ -321,6 +328,7 @@ function providerFaultFromDiagnostic(
 ): RuntimeProviderFault | null {
   const joined = [code, diagnostic].filter((value): value is string => value !== null).join(" "),
     reason = providerReason(responseCode, joined);
+  if (/^request_unavailable$/iu.test(code ?? "")) return fault("request_unavailable", reason);
   if (quota.test(joined)) return fault("quota_exhausted", reason, "quota_exhausted", resetAt);
   if (responseCode === 429 || /rate[_ -]?limit|too many requests/iu.test(joined))
     return fault("rate_limited", reason, "rate_limited", resetAt);

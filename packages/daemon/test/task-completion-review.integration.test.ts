@@ -381,6 +381,37 @@ test("automatic rework settles the submitting worker before launching its contin
         : undefined,
       "cancelled",
     );
+    const workerDispatches = events.filter(
+      (event) =>
+        event.type === "runtime_dispatch_requested" &&
+        event.payload.taskId === taskId &&
+        event.payload.role !== "reviewer",
+    ).length;
+    await assert.rejects(
+      f.cell().spawnRuntime(
+        {
+          agentId: "closeout-reviewer",
+          role: "worker",
+          taskId,
+          dispatchKey: "task-rework-duplicate-worker",
+          prompt: "This second worker must not start while rework is active.",
+        },
+        owner,
+      ),
+      { code: "runtime_task_lease_required" },
+    );
+    assert.equal(
+      f
+        .events()
+        .filter(
+          (event) =>
+            event.type === "runtime_dispatch_requested" &&
+            event.payload.taskId === taskId &&
+            event.payload.role !== "reviewer",
+        ).length,
+      workerDispatches,
+      "a duplicate task-bound run is rejected before recording another dispatch",
+    );
   } finally {
     await f.close();
   }
@@ -731,7 +762,11 @@ test("an owner returns an unreviewed cut to implementation", async () => {
 });
 
 test("an owner rework with no provider session falls back to a fresh worker dispatch", async () => {
-  const f = await fixture(false, true, false, false, false, { autoSubmit: false, autoProviderSession: true });
+  const f = await fixture(false, true, false, false, false, {
+    autoSubmit: false,
+    autoProviderSession: true,
+    additionalModels: ["alternate-model"],
+  });
   try {
     await f.install();
     const worker = await f.cell().spawnRuntime(
@@ -739,6 +774,8 @@ test("an owner rework with no provider session falls back to a fresh worker disp
         agentId: "closeout-reviewer",
         role: "worker",
         taskId,
+        runtimeInstanceId: "review-second",
+        model: "alternate-model",
         dispatchKey: "task-rework-missing-provider-session-worker",
         prompt: "Implement the first cut.",
       },
@@ -754,6 +791,8 @@ test("an owner rework with no provider session falls back to a fresh worker disp
       );
     assert.ok(source?.type === "runtime_dispatch_requested");
     assert.equal(source.payload.role, "worker");
+    const sourceHeader = readDispatchStream(f.root, source.payload.dispatchId)?.header;
+    assert.ok(sourceHeader);
     const sourceCwd = path.resolve(f.launches.at(-1)!.cwd);
     await f.waitForProviderBinding(source.payload.dispatchId, "review-provider-session");
     assert.equal(readDispatchStream(f.root, source.payload.dispatchId)?.providerSessionId, "review-provider-session");
@@ -813,12 +852,88 @@ test("an owner rework with no provider session falls back to a fresh worker disp
     assert.equal(fresh.type, "runtime_dispatch_requested");
     assert.equal(fresh.payload.resumedFromDispatchId, undefined, "fallback must be a new dispatch");
     assert.equal(fresh.payload.agentId, source.payload.agentId, "fallback keeps the submitting worker identity");
+    const freshHeader = readDispatchStream(f.root, fresh.payload.dispatchId)?.header;
+    assert.equal(freshHeader?.instanceId, sourceHeader.instanceId, "rework keeps the submitting worker instance");
+    assert.equal(freshHeader?.model, sourceHeader.model, "rework keeps the submitting worker model");
     assert.equal(readDispatchStream(f.root, fresh.payload.dispatchId)?.providerSessionId, null);
     assert.match(f.launches.at(-1)!.prompt, /# Owner return/u);
     assert.match(f.launches.at(-1)!.prompt, /Pre-merge CI is red/u);
     assert.match(f.launches.at(-1)!.prompt, /# Previous submitted conclusion/u);
     assert.equal(path.resolve(f.launches.at(-1)!.cwd), sourceCwd, "fallback keeps the submitting worker worktree");
     assert.deepEqual(await taskStatus(f), { status: "active", iteration: 1 });
+  } finally {
+    await f.close();
+  }
+});
+
+test("an owner can override the worker identity for a rework continuation", async () => {
+  const f = await fixture(false, true, false, false, false, {
+    autoSubmit: false,
+    autoProviderSession: true,
+    additionalModels: ["alternate-model"],
+  });
+  try {
+    await f.install();
+    const worker = await f.cell().spawnRuntime(
+      {
+        agentId: "closeout-reviewer",
+        role: "worker",
+        taskId,
+        runtimeInstanceId: "review-second",
+        model: "alternate-model",
+        dispatchKey: "task-rework-explicit-identity-source",
+        prompt: "Implement the first cut.",
+      },
+      owner,
+    );
+    assert.equal(worker.outcome, "applied", JSON.stringify(worker));
+    const source = f
+      .events()
+      .find(
+        (event) =>
+          event.type === "runtime_dispatch_requested" &&
+          event.payload.dispatchKey === "task-rework-explicit-identity-source",
+      );
+    assert.ok(source?.type === "runtime_dispatch_requested");
+    const workerBinding = withPolicyGroup(
+      {
+        actor: {
+          principal: owner.actor.principal,
+          executor: { kind: "agent" as const, id: `runtime-session:${source.payload.runtimeSessionId}` },
+        },
+        source: "local" as const,
+      },
+      "contributor",
+    );
+    const submitted = await f.submit(executionId, workerBinding);
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+
+    const returned = (await f.run({
+      kind: "task-rework",
+      taskId,
+      reason: "Use the explicitly selected runtime.",
+      agentId: "closeout-reviewer",
+      runtimeInstanceId: "review-first",
+      model: "review-model",
+    })) as Receipt;
+    assert.equal(returned.outcome, "applied", JSON.stringify(returned));
+    const continuation = f
+        .events()
+        .filter(
+          (event) =>
+            event.type === "runtime_dispatch_requested" &&
+            event.payload.taskId === taskId &&
+            event.payload.role !== "reviewer",
+        )
+        .at(-1),
+      header =
+        continuation?.type === "runtime_dispatch_requested"
+          ? readDispatchStream(f.root, continuation.payload.dispatchId)?.header
+          : null;
+    assert.equal(continuation?.type, "runtime_dispatch_requested");
+    assert.equal(continuation.payload.agentId, "closeout-reviewer");
+    assert.equal(header?.instanceId, "review-first");
+    assert.equal(header?.model, "review-model");
   } finally {
     await f.close();
   }

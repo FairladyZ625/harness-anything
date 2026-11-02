@@ -111,7 +111,10 @@ export function parseCodexFrame(value: Record<string, unknown>, providerSessionI
     return {};
   }
   if (value.type === "item.started") {
-    return {};
+    const item = value.item;
+    return isPlainRecord(item) && typeof item.type === "string" && codexToolItemTypes.has(item.type)
+      ? { toolCallObserved: true }
+      : {};
   }
   if (value.type === "item.completed" || value.type === "item.updated") {
     const item = value.item;

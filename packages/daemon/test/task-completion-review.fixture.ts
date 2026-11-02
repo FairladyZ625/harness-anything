@@ -146,6 +146,7 @@ export async function fixture(
     /** Override reviewer catalog and declaration model spellings for runtime-resolution tests. */
     readonly catalogModel?: string;
     readonly agentModel?: string;
+    readonly additionalModels?: readonly string[];
     /** A stopped process-group identity used by owner-loss recovery tests. */
     readonly runtimePid?: number;
     /** Repository setup steps used to prove runtime admission precedes worktree preparation. */
@@ -229,7 +230,7 @@ export async function fixture(
               ...(instancesAvailable
                 ? ["review-first", "review-second"].map((instanceId) => ({
                     ...instance(instanceId),
-                    models: [catalogModel],
+                    models: [...new Set([catalogModel, ...(options.additionalModels ?? [])])],
                     defaultModel: catalogModel,
                   }))
                 : []),

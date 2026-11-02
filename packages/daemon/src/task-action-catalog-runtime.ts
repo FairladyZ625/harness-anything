@@ -326,7 +326,21 @@ export async function runTaskActionCatalogRuntime(
     // names the review that was recorded or returned, so the continuation follows that review's
     // execution and dispatch identity instead of searching the projection.
     return command.type === "RecordReview" || command.type === "ReworkTask"
-      ? await continueReviewRework(cell, command, binding, receipt)
+      ? await continueReviewRework(
+          cell,
+          command,
+          binding,
+          receipt,
+          action.kind === "task-rework"
+            ? {
+                ...(typeof action.agentId === "string" ? { agentId: action.agentId } : {}),
+                ...(typeof action.runtimeInstanceId === "string"
+                  ? { runtimeInstanceId: action.runtimeInstanceId }
+                  : {}),
+                ...(typeof action.model === "string" ? { model: action.model } : {}),
+              }
+            : undefined,
+        )
       : receipt;
   }
   if (result.outcome === "pending")

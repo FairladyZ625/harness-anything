@@ -36,6 +36,7 @@ type Behavior =
   | "429"
   | "429-reset"
   | "429-rate"
+  | "request_unavailable"
   | "success"
   | "worker_stop"
   | "empty_success"
@@ -50,6 +51,7 @@ type Behavior =
 const behaviors = new Map<string, Behavior>([
   ["provider-rate-first", "429"],
   ["provider-success-second", "success"],
+  ["provider-unavailable-first", "request_unavailable"],
   ["provider-reset-first", "429-reset"],
   ["provider-reset-second", "success"],
   ["provider-rate-a", "429"],
@@ -137,10 +139,81 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     });
   let cell = await open();
   try {
+    // Keep this first chain independent from the repository's global allowlist order. The
+    // startup retry assertion is about retrying the declared successor, so expose only those
+    // two providers while it runs.
+    availableInstances = instances.filter((instance) =>
+      ["provider-unavailable-first", "provider-success-second"].includes(instance.instanceId),
+    );
+    await installAgent(cell, "fallback-request-unavailable", [
+      { instance: "provider-unavailable-first" },
+      { instance: "provider-success-second" },
+    ]);
+    const configuredStartupProviders = await cell.run(
+      {
+        kind: "settings-update",
+        runtimeAllowedInstances: ["provider-unavailable-first", "provider-success-second"],
+      },
+      binding,
+    );
+    assert.ok(["applied", "no_changes"].includes(String(configuredStartupProviders.outcome)));
+    const startupSettings = (await cell.read("repo.settings.read")) as {
+      readonly settings?: { readonly runtime?: { readonly allowedInstances?: readonly string[] } };
+    };
+    for (const instance of ["provider-unavailable-first", "provider-success-second"])
+      assert.ok(
+        startupSettings.settings?.runtime?.allowedInstances?.includes(instance),
+        `${instance} must be included in the startup-retry fixture allowlist`,
+      );
+    await startTask(cell, root, "task_provider_unavailable", "execution-provider-unavailable");
+    await cell.spawnRuntime(
+      {
+        agentId: "fallback-request-unavailable",
+        cwd: { scope: "repo-root" },
+        prompt: "Retry the provider startup rejection before any tool call.",
+        taskId: "task_provider_unavailable",
+        dispatchKey: "provider-fallback-request-unavailable",
+      },
+      binding,
+    );
+    const startupDispatch = (await cell.read("repo.task.dispatches", { taskId: "task_provider_unavailable" }))
+      .dispatches[0];
+    assert.deepEqual(
+      readDispatchStream(root, startupDispatch!.dispatchId)?.header.fallbackAttempt?.candidates.map(
+        ({ instance }) => instance,
+      ),
+      ["provider-unavailable-first", "provider-success-second"],
+      "the retry test must launch the declared chain without unrelated candidates",
+    );
+    let unavailableObserved: readonly TaskDispatchRow[] = [];
+    const unavailableRetried = await eventually(async () => {
+      const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_unavailable" })).dispatches;
+      unavailableObserved = rows;
+      if (rows.length === 2) assert.equal(rows[0]?.fallbackState, "dispatched", JSON.stringify(rows));
+      return rows.length === 2 && rows[1]?.outcome === "stopped" && taskDispatchRowsSettled(rows) ? rows : null;
+    }).catch((error: Error) => {
+      throw new Error(`${error.message}: ${JSON.stringify(unavailableObserved)}`);
+    });
+    assertAttemptChain(unavailableRetried, ["provider-unavailable-first", "provider-success-second"]);
+    assert.deepEqual(
+      unavailableRetried.map(({ classification }) => classification),
+      ["provider_fault", "worker_stop"],
+    );
+    assert.match(unavailableRetried[0]?.reason ?? "", /request_unavailable/u);
+
+    availableInstances = instances;
     await installAgent(cell, "fallback-success", [
       { instance: "provider-rate-first" },
       { instance: "provider-success-second" },
     ]);
+    const configuredFallbackProviders = await cell.run(
+      {
+        kind: "settings-update",
+        runtimeAllowedInstances: ["provider-rate-first", "provider-success-second"],
+      },
+      binding,
+    );
+    assert.ok(["applied", "no_changes"].includes(String(configuredFallbackProviders.outcome)));
     await startTask(cell, root, "task_provider_fallback_success", "execution-provider-fallback-success");
     await cell.spawnRuntime(
       {
@@ -151,6 +224,15 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
         dispatchKey: "provider-fallback-success",
       },
       binding,
+    );
+    const fallbackDispatch = (await cell.read("repo.task.dispatches", { taskId: "task_provider_fallback_success" }))
+      .dispatches[0];
+    assert.deepEqual(
+      readDispatchStream(root, fallbackDispatch!.dispatchId)?.header.fallbackAttempt?.candidates.map(
+        ({ instance }) => instance,
+      ),
+      ["provider-rate-first", "provider-success-second"],
+      "the quota fallback fixture must launch its declared provider chain",
     );
     // An opened stream can report status unknown before launch; wait for canonical settlement.
     const completed = await eventually(async () => {
@@ -173,12 +255,10 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     assert.match(completed[0]?.reason ?? "", /HTTP 429/u);
     assert.match(completed[1]?.reason ?? "", /without a submitted delivery/u);
     assert.doesNotMatch(JSON.stringify(completed), /sk-provider-fallback-secret/u);
-    assert.match(prompts.get("provider-success-second")?.[0] ?? "", /# Provider fallback continuation/u);
-    assert.match(
-      prompts.get("provider-success-second")?.[0] ?? "",
-      /上次 attempt 用 provider-rate-first\/provider-success-model 因/u,
-    );
-    assert.doesNotMatch(prompts.get("provider-success-second")?.[0] ?? "", /sk-provider-fallback-secret/u);
+    const fallbackPrompt = prompts.get("provider-success-second")?.at(-1) ?? "";
+    assert.match(fallbackPrompt, /# Provider fallback continuation/u);
+    assert.match(fallbackPrompt, /上次 attempt 用 provider-rate-first\/provider-success-model 因/u);
+    assert.doesNotMatch(fallbackPrompt, /sk-provider-fallback-secret/u);
     const runtimeStatus = await cell.read("repo.agentRuntime.sessions.read", {
       runtimeSessionId: completed[0]!.runtimeSessionId,
     });
@@ -193,6 +273,11 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
         { attemptIndex: 1, provider: "provider-success-second", classification: "worker_stop" },
       ],
     );
+    const restoredProviders = await cell.run(
+      { kind: "settings-update", runtimeAllowedInstances: instances.map(({ instanceId }) => instanceId) },
+      binding,
+    );
+    assert.ok(["applied", "no_changes"].includes(String(restoredProviders.outcome)));
 
     availableInstances = instances.filter((instance) =>
       ["provider-rate-a", "provider-rate-b"].includes(instance.instanceId),
@@ -1212,37 +1297,45 @@ function fakeProcess(pid: number, behavior: Behavior): RuntimeProcess {
         const frames =
           behavior === "empty_success"
             ? []
-            : behavior === "429" || behavior === "429-reset"
+            : behavior === "request_unavailable"
               ? [
                   { type: "thread.started", thread_id: `provider-${pid}` },
                   {
                     type: "turn.failed",
-                    error: {
-                      http_status: 429,
-                      code: "rate_limit",
-                      message: "quota exhausted OPENAI_API_KEY=sk-provider-fallback-secret",
-                      ...(behavior === "429-reset" ? { resetAt: "2099-01-01T00:00:00.000Z" } : {}),
-                    },
+                    error: { code: "request_unavailable", message: "request_unavailable" },
                   },
                 ]
-              : behavior === "429-rate"
+              : behavior === "429" || behavior === "429-reset"
                 ? [
                     { type: "thread.started", thread_id: `provider-${pid}` },
                     {
                       type: "turn.failed",
-                      error: { http_status: 429, code: "rate_limit", message: "rate limit reached" },
+                      error: {
+                        http_status: 429,
+                        code: "rate_limit",
+                        message: "quota exhausted OPENAI_API_KEY=sk-provider-fallback-secret",
+                        ...(behavior === "429-reset" ? { resetAt: "2099-01-01T00:00:00.000Z" } : {}),
+                      },
                     },
                   ]
-                : [
-                    { type: "thread.started", thread_id: `provider-${pid}` },
-                    ...(behavior === "success"
-                      ? [{ type: "item.completed", item: { id: "write", type: "file_change", status: "completed" } }]
-                      : []),
-                    { type: "item.completed", item: { id: "message", type: "agent_message", text: "done" } },
-                    { type: "turn.completed" },
-                  ];
+                : behavior === "429-rate"
+                  ? [
+                      { type: "thread.started", thread_id: `provider-${pid}` },
+                      {
+                        type: "turn.failed",
+                        error: { http_status: 429, code: "rate_limit", message: "rate limit reached" },
+                      },
+                    ]
+                  : [
+                      { type: "thread.started", thread_id: `provider-${pid}` },
+                      ...(behavior === "success"
+                        ? [{ type: "item.completed", item: { id: "write", type: "file_change", status: "completed" } }]
+                        : []),
+                      { type: "item.completed", item: { id: "message", type: "agent_message", text: "done" } },
+                      { type: "turn.completed" },
+                    ];
         if (frames.length) output?.(`${frames.map((frame) => JSON.stringify(frame)).join("\n")}\n`);
-        exit?.(behavior === "429" || behavior === "429-reset" ? 1 : 0);
+        exit?.(behavior === "429" || behavior === "429-reset" || behavior === "request_unavailable" ? 1 : 0);
       });
     },
     terminate: () => {

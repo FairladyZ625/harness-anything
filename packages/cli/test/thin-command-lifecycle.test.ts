@@ -381,6 +381,33 @@ test("task rework requires an owner-provided audit reason", () => {
   assert.equal(missingReason.ok, false, "owner return must require an auditable reason");
 });
 
+test("task rework accepts worker identity overrides for its continuation", () => {
+  const returned = parseThinCommand([
+    "task",
+    "rework",
+    "task-1",
+    "--reason",
+    "Continue with the prior worker identity.",
+    "--agent",
+    "worker-agent",
+    "--instance",
+    "codex-worker",
+    "--model",
+    "model-b",
+  ]);
+  assert.equal(returned.ok, true, JSON.stringify(returned));
+  if (returned.ok)
+    assert.deepEqual(returned.command.action, {
+      kind: "task-rework",
+      commandType: "ReworkTask",
+      taskId: "task-1",
+      reason: "Continue with the prior worker identity.",
+      agentId: "worker-agent",
+      runtimeInstanceId: "codex-worker",
+      model: "model-b",
+    });
+});
+
 test("the retired adjudicate command no longer routes", () => {
   // dec_E369B8616F50A6208B293997E7 CH5: the manual forward/return commands retired with the
   // automatic review loop; the CLI rejects the verb before any flag is parsed.

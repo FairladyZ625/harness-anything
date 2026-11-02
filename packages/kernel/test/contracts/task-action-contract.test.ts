@@ -17,6 +17,20 @@ const concurrencyFields = [
   "artifactOwnership",
 ] as const;
 
+test("owner rework exposes explicit worker identity overrides", () => {
+  const action = getEntityKindContract("task")?.actionCatalog?.actions.find(({ id }) => id === "rework");
+  assert.ok(action);
+  const fields = new Map(action.input.fields.map((field) => [field.field, field] as const));
+  for (const [field, flag] of [
+    ["agentId", "--agent"],
+    ["runtimeInstanceId", "--instance"],
+    ["model", "--model"],
+  ] as const) {
+    assert.equal(fields.get(field)?.required, false, field);
+    assert.equal(fields.get(field)?.cli?.name, flag, field);
+  }
+});
+
 test("all public Task writes are complete executable Action contracts", () => {
   const task = getEntityKindContract("task"),
     actions = task?.actionCatalog?.actions ?? [];
