@@ -22,7 +22,7 @@ import {
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { assertCurrentSubmittedExecution } from "./repo-cell-execution-selection.ts";
-import { readSubmissionArtifact } from "./submission-artifacts.ts";
+import { createSubmissionArtifactReader } from "./submission-artifacts.ts";
 import { runDocAction } from "./doc-sync-actions.ts";
 import { makeGitReadinessSource, runProcessText, runProcessTextAsync } from "./process-port.ts";
 import { repositoryBaseRef } from "./schedule-occurrence-workspace.ts";
@@ -80,8 +80,10 @@ function deriveCloseoutSubmissionData(
       document.packagePath,
       carried?.changes,
     );
+  const carriedByPath = new Map<string, DocEventChange>(carried?.changes.map((change) => [change.path, change])),
+    readArtifact = createSubmissionArtifactReader(cell);
   const freezeArtifact = (artifact: string) => {
-    const candidate = carried?.changes.find((change) => change.path === artifact)?.candidate;
+    const candidate = carriedByPath.get(artifact)?.candidate;
     if (candidate) {
       const body = bodyOverrides?.get(artifact);
       if (body === undefined || sha256Text(body) !== candidate.sha256)
@@ -94,7 +96,7 @@ function deriveCloseoutSubmissionData(
         "invalid_submission",
         `Artifact ${artifact}: no center-accepted revision exists. Keep it under the bound task package artifacts/ directory and retry task submit.`,
       );
-    return readSubmissionArtifact(cell, document.packagePath, artifact, acceptedRevision).anchor;
+    return readArtifact(document.packagePath, artifact, acceptedRevision).anchor;
   };
   const artifacts = artifactPaths.map(freezeArtifact);
   // The delivery falls to the task's own output shape, not its completion gates (dec_BBA713052997C3EF5F5D3DD952):

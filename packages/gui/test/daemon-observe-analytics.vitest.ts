@@ -1,5 +1,6 @@
 // harness-test-tier: fast
 import { describe, expect, it } from "vitest";
+import { daemonProtocolCommands } from "@harness-anything/daemon/internal/protocol/daemon-protocol-commands";
 import {
   applyObserveTailPage,
   initialObserveTail,
@@ -765,5 +766,59 @@ describe("5000 行上限滚动下的统计耗时(Evidence Protocol)", () => {
     expect(cache!.stats.total).toBe(state.rows.length);
     expect(average).toBeLessThan(5);
     expect(worst).toBeLessThan(15);
+  });
+});
+
+describe("canonical commands in retained request logs", () => {
+  it("counts slow hyphenated writes without commandClass and preserves wait/read exclusions", () => {
+    const commands = [
+        "task-submit",
+        "doc-sync-submit",
+        "task-artifact-add",
+        "task-review-consent",
+        "task-annotate",
+        "task-complete",
+      ],
+      durations = [870_000, 1_279_000, 1_189_000, 1_075_000, 955_000, 840_000],
+      state = applyObserveTailPage(
+        initialObserveTail(),
+        logPage(
+          [
+            ...commands.map((command, index) =>
+              logItem({ method: "repo.task.run", command, durationMs: durations[index]! }),
+            ),
+            logItem({ method: "repo.task.read", command: "task-show", durationMs: 1_300_000 }),
+            logItem({ method: "repo.task.run", command: "task-submit", durationMs: 1_400_000, wait: true }),
+          ],
+          "history",
+          0,
+        ),
+      ),
+      stats = observeStatsLog(state.rows, null).stats;
+    expect(stats.windows["1h"].writes.slowWrites).toBe(6);
+    expect(stats.windows["15m"].writes.slowWrites).toBe(6);
+    expect(stats.windows["1h"].writes.readOps).toBe(1);
+    expect(stats.windows["1h"].smells).toContainEqual({
+      kind: "slow_write_request",
+      label: "doc-sync-submit",
+      value: 1_279_000,
+      matchText: "doc-sync-submit",
+    });
+  });
+
+  it("derives missing classification from every declared command", () => {
+    const state = applyObserveTailPage(
+      initialObserveTail(),
+      logPage(
+        daemonProtocolCommands.map((command) =>
+          logItem({ method: command.method, command: command.id, durationMs: 900 }),
+        ),
+        "history",
+        0,
+      ),
+    );
+    expect([...state.rows].map((row) => row.opClass)).toEqual(
+      daemonProtocolCommands.map((command) => (command.commandClass === "repo-read" ? "read" : "write")),
+    );
   });
 });

@@ -61,6 +61,8 @@ export default {
       { method: "repo.agentRuntime.sessions.await", durationMs: 1_067_342, code: "provider_exit", wait: true },
       { method: "repo.task.run", durationMs: 22_049, code: null },
       { method: "repo.task.run", durationMs: 12_023, code: null, wait: true },
+      // Retained command-only request records from #4204 must count as slow writes.
+      { method: "repo.task.run", command: "task-submit", durationMs: 1_212_000, code: null },
     ].map((sample) => ({
       schema: "daemon-conn-log/v1",
       daemonId: fixture.daemonId,
@@ -147,6 +149,10 @@ export default {
     const sniffer = page.getByTestId("observe-sniffer-daemon-log");
     assert.match(await sniffer.textContent(), /慢写请求|slow write requests/u);
     assert.doesNotMatch(await sniffer.textContent(), /慢锁|锁争用|Contended/u);
+    assert.match(
+      await sniffer.getByTestId("observe-sniffer-daemon-log-writes").textContent(),
+      /(?:慢写请求 2 条|2 slow write requests)/u,
+    );
     assert.match(
       await sniffer.getByTestId("observe-sniffer-daemon-log-writes").getAttribute("title"),
       /原因未知|cause unknown/u,
