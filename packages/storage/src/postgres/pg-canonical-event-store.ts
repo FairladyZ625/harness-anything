@@ -68,14 +68,17 @@ export function makePgCanonicalEventStore(
   ): ReturnType<CanonicalEventStore["materialize"]> => {
     writable();
     const cut = canonicalLedgerCut(options.repoId, head()),
-      rootInput = options.rootInput ?? options.rootDir;
-    if (options.storage.materialize === false || rootInput === undefined) {
+      rootInput = options.rootInput ?? options.rootDir,
+      materializeTree = options.storage.materialize !== false;
+    if (!materializeTree && request)
+      throw new TaskEventStoreError("materialization_failed", "Authored tree materialization is disabled");
+    if (rootInput === undefined) {
       if (request)
         throw new TaskEventStoreError("materialization_failed", "No authored tree is configured for this repository");
       return { status: "visible", commitSha: null, settlements: [], conflicts: [] };
     }
     const layout = resolveHarnessLayout(rootInput),
-      documents = reader.withSession((q) => q.readDocuments("").documents),
+      documents = materializeTree ? reader.withSession((q) => q.readDocuments("").documents) : [],
       entries = new Map(documents.map((doc) => [doc.path, { sha256: doc.blobSha256 }])),
       restored =
         request?.paths && !request.preview
@@ -95,16 +98,18 @@ export function makePgCanonicalEventStore(
               killpoint: options.killpoint,
             })
           : null,
-      result = applyCanonicalTree({
-        authoredRoot: layout.authoredRoot,
-        markerPath: path.join(layout.localRoot, "fleet-materialized.json"),
-        generation: 3,
-        revision: cut.revision,
-        entries,
-        preview: request?.preview,
-        selectedPaths: request?.preview ? undefined : request?.paths,
-        readContent: (logical) => readContentBlob(entries.get(logical)!.sha256),
-      });
+      result = materializeTree
+        ? applyCanonicalTree({
+            authoredRoot: layout.authoredRoot,
+            markerPath: path.join(layout.localRoot, "fleet-materialized.json"),
+            generation: 3,
+            revision: cut.revision,
+            entries,
+            preview: request?.preview,
+            selectedPaths: request?.preview ? undefined : request?.paths,
+            readContent: (logical) => readContentBlob(entries.get(logical)!.sha256),
+          })
+        : { settlements: [], dirtyPaths: [] };
     if (request?.preview)
       return {
         status: "planned",
@@ -119,12 +124,14 @@ export function makePgCanonicalEventStore(
         ...(request?.paths ? (worktree.conflicts ?? []).filter((logical) => !request.paths!.includes(logical)) : []),
       ]),
     ];
-    worktree = {
-      status: conflicts.length === 0 ? "verified" : "pending",
-      cut,
-      commitSha: null,
-      conflicts,
-    };
+    worktree = materializeTree
+      ? {
+          status: conflicts.length === 0 ? "verified" : "pending",
+          cut,
+          commitSha: null,
+          conflicts,
+        }
+      : { status: "pending", cut: null, commitSha: null, reason: "Authored tree materialization is disabled" };
     const follower = options.storage.gitFollower;
     if (follower && git.cut?.revision !== cut.revision && cut.revision > 0) {
       const ledger = resolveLedgerGitLayout(rootInput),
@@ -141,10 +148,12 @@ export function makePgCanonicalEventStore(
           new Date().toISOString(),
         );
       finalizeRefs(ledger.rootDir, authoredRef, commit, parent, temporaryRef);
-      localGitWorktreeSettlement.index(ledger.rootDir, files);
-      // followerFiles puts its generated cut manifest last; authored documents were settled by
-      // the common tree owner above, which preserves concurrent edits instead of overwriting them.
-      localGitWorktreeSettlement.visible(ledger.rootDir, [files.at(-1)! as PublicationWrite]);
+      if (materializeTree) {
+        localGitWorktreeSettlement.index(ledger.rootDir, files);
+        // followerFiles puts its generated cut manifest last; authored documents were settled by
+        // the common tree owner above, which preserves concurrent edits instead of overwriting them.
+        localGitWorktreeSettlement.visible(ledger.rootDir, [files.at(-1)! as PublicationWrite]);
+      }
       git = { status: "verified", cut, commitSha: commit };
     }
     return {
@@ -225,13 +234,22 @@ export function makePgCanonicalEventStore(
       }) as CanonicalCommandOutcome;
     },
     materialize: follow,
-    materializationHealth: () => ({
-      state: lastMaterializationError ? "failed" : scheduled ? "retrying" : "ok",
-      lastCheckpointRevision: worktree.cut?.revision ?? 0,
-      lastCheckpointAt: null,
-      pendingWalEvents: (head()?.revision ?? 0) - (worktree.cut?.revision ?? 0),
-      ...(lastMaterializationError ? { reason: "deterministic_failure", lastError: lastMaterializationError } : {}),
-    }),
+    materializationHealth: () => {
+      const revision = head()?.revision ?? 0,
+        checkpoint =
+          options.storage.materialize === false
+            ? options.storage.gitFollower
+              ? (git.cut?.revision ?? 0)
+              : revision
+            : (worktree.cut?.revision ?? 0);
+      return {
+        state: lastMaterializationError ? "failed" : scheduled ? "retrying" : "ok",
+        lastCheckpointRevision: checkpoint,
+        lastCheckpointAt: null,
+        pendingWalEvents: revision - checkpoint,
+        ...(lastMaterializationError ? { reason: "deterministic_failure", lastError: lastMaterializationError } : {}),
+      };
+    },
     settlePendingMaterialization: async () => {
       await scheduled;
       follow();

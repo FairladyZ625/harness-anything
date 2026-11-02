@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readdirSync, existsSync } from "node:fs";
+import { readdirSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixture.ts";
 import { taskLifecycleWritePlan, type CanonicalEventStore } from "@harness-anything/kernel";
@@ -127,6 +127,23 @@ test("daemon PG storage factories expose canonical lifecycle ports without local
         slots.close();
       }
     });
+    await t.test("slot and epoch runtime connections reject schema-owner credentials", () => {
+      const unsafe = {
+          ...storage,
+          connectionString: fixture.managementConnectionString,
+          authorityConnectionString: fixture.managementConnectionString,
+        },
+        slots = openReplicationSlots(join(fixture.root, "unsafe-slots.sqlite"), { [repoId]: unsafe }),
+        authority = openPersistentWriterEpoch({ stateRoot: join(fixture.root, "unsafe-epochs"), storage: unsafe });
+      try {
+        const denied = (error: Error & { code?: string }) => error.code === "pg_runtime_role_unsafe";
+        assert.throws(() => slots.claim({ repoId, nodeId: "unsafe" }, "history"), denied);
+        assert.throws(() => authority.current(repoId), denied);
+      } finally {
+        slots.close();
+        authority.close();
+      }
+    });
     await t.test("Git following is optional and shares the existing VCS publication port", async () => {
       assert.equal(store!.currentCommit(), null);
       initRepo(rootDir);
@@ -145,6 +162,31 @@ test("daemon PG storage factories expose canonical lifecycle ports without local
           }).trim(),
           "",
         );
+      } finally {
+        await follower.drain();
+      }
+    });
+    await t.test("Git following can advance its cut while authored tree materialization is disabled", async () => {
+      const branch = execFileSync("git", ["-C", rootDir, "symbolic-ref", "--short", "HEAD"], {
+          encoding: "utf8",
+        }).trim(),
+        manifest = join(rootDir, "harness/events/segments/manifest.json"),
+        before = readFileSync(manifest, "utf8"),
+        follower = makeTaskEventStore({
+          rootDir,
+          repoId,
+          storage: { ...storage, materialize: false, gitFollower: { branch } },
+        });
+      try {
+        const event = createdAt("task-object-follower", store!.readHead()!.revision + 1);
+        follower.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
+        await follower.settlePendingMaterialization!("object-only Git follower");
+        assert.match(follower.currentCommit()!.sha, /^[0-9a-f]{40}$/u);
+        assert.equal(follower.followerStatus().git.status, "verified");
+        assert.equal(follower.followerStatus().worktree.status, "pending");
+        assert.equal(follower.materializationHealth().pendingWalEvents, 0);
+        assert.equal(readFileSync(manifest, "utf8"), before);
+        assert.throws(() => follower.materialize({ paths: ["harness.yaml"] }), /disabled/u);
       } finally {
         await follower.drain();
       }

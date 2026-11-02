@@ -1,19 +1,24 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { pgRuntimeFixture } from "../../storage/test/postgres/pg-runtime.fixture.ts";
 import { makeTaskEventReader, openFleetStorage } from "@harness-anything/storage";
-import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 import { fleetReplicationFixture, replicationRepoId, waitForState } from "./fleet-replication.fixture.ts";
 import { runFleetReplicaSync } from "../src/fleet/replica-sync.ts";
 import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
 import { applyFleetMirrorCut, locateFleetMirrorView, revokeFleetMirrorTree } from "../src/fleet-edge-mirror.ts";
+import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
 
-for (const gitFollower of [undefined, { branch: "main" }])
+for (const { gitFollower, materialize } of [
+  { gitFollower: undefined, materialize: true },
+  { gitFollower: { branch: "main" }, materialize: true },
+  { gitFollower: undefined, materialize: false },
+])
   test(
-    `PG daemon replicates, fences two nodes, submits, and withdraws revoked files (Git ${gitFollower ? "configured" : "unconfigured"})`,
+    `PG daemon replicates, fences two nodes, submits, and withdraws revoked files (Git ${gitFollower ? "configured" : "unconfigured"}, center tree ${materialize ? "enabled" : "disabled"})`,
     { timeout: 240_000 },
     async (t) => {
       const pg = await pgRuntimeFixture();
@@ -22,6 +27,7 @@ for (const gitFollower of [undefined, { branch: "main" }])
         connectionString: pg.connectionString,
         authorityConnectionString: pg.managementConnectionString,
         ...(gitFollower ? { gitFollower } : {}),
+        materialize,
         scope: { tenantId: "tenant", projectId: "project", readers: ["person-owner", "person-local"], policyEpoch: 1 },
       };
       const fixture = await fleetReplicationFixture(t, { storage, replicationKeepaliveMs: 100 }),
@@ -32,6 +38,7 @@ for (const gitFollower of [undefined, { branch: "main" }])
         await pg.pool.end();
         await pg.close();
       });
+      if (!materialize) rmSync(path.join(fixture.repo, "harness"), { recursive: true, force: true });
       const applied = async (action: Record<string, unknown>) => {
         const result = await fixture.centerRun(action);
         assert.equal(result.outcome, "applied", JSON.stringify(result));
@@ -85,7 +92,34 @@ for (const gitFollower of [undefined, { branch: "main" }])
             await running;
           };
         streams.push({ stop });
-        return { workspaceRoot, viewRoot, viewDir, stop };
+        return { nodeId, workspaceRoot, viewRoot, viewDir, stop };
+      };
+      const edgeRun = async (
+        edge: ReturnType<typeof start>,
+        action: Parameters<typeof runFleetEdgeTask>[0]["payload"]["action"],
+        expectApplied = true,
+      ) => {
+        const result = await runFleetEdgeTask(
+          {
+            payload: {
+              host: "127.0.0.1",
+              port: fixture.centerPort(),
+              caPath: fixture.certFile,
+              servername: "localhost",
+              nodeId: edge.nodeId,
+              credential: `secret-${edge.nodeId}`,
+              principalId: "person-owner",
+              repoId: replicationRepoId,
+              viewRoot: edge.viewRoot,
+              workspaceRoot: edge.workspaceRoot,
+              quotaBytes: 64 * 1024 * 1024,
+              action,
+            },
+          },
+          async () => `device-token-${edge.nodeId}`,
+        );
+        if (expectApplied) assert.equal(result.outcome, "applied", JSON.stringify(result));
+        return result;
       };
       const converge = async (edge: ReturnType<typeof start>) =>
         waitForState(
@@ -103,16 +137,14 @@ for (const gitFollower of [undefined, { branch: "main" }])
             riskTier: "low",
           }),
           packagePath = String(created.packagePath);
-        await realizeTaskPlanFixture(
-          fixture.repo,
-          packagePath,
-          (plan) => applied({ kind: "doc-submit", paths: [plan] }),
-          "PG two-node claim",
-        );
         await fixture.openCenter();
         const one = start("edge-one"),
           two = start("edge-two");
         await Promise.all([converge(one), converge(two)]);
+        await waitForState(
+          () => existsSync(path.join(one.workspaceRoot, "harness", packagePath, "task_plan.md")),
+          "agent task plan before authoring",
+        );
         const authoritative = makeTaskEventReader({
           rootDir: fixture.repo,
           repoId: replicationRepoId,
@@ -123,6 +155,11 @@ for (const gitFollower of [undefined, { branch: "main" }])
             const view = locateFleetMirrorView(edge.viewRoot, replicationRepoId)!;
             assert.equal(view.headDigest, authoritative.currentCut().headDigest);
             assert.equal(view.revision, authoritative.currentCut().revision);
+            for (const [logical, blob] of view.entries)
+              assert.deepEqual(
+                readFileSync(path.join(edge.workspaceRoot, "harness", logical)),
+                Buffer.from(authoritative.readContentBlob(blob.sha256)!),
+              );
           }
         } finally {
           await authoritative.drain();
@@ -131,10 +168,15 @@ for (const gitFollower of [undefined, { branch: "main" }])
           () => existsSync(path.join(one.workspaceRoot, "harness", packagePath, "task_plan.md")),
           "complete agent harness tree",
         );
+        for (const edge of [one, two])
+          writeFileSync(
+            path.join(edge.workspaceRoot, "harness", packagePath, "task_plan.md"),
+            realizedTaskPlan("PG two-node claim"),
+          );
+        const refusedPlan = await edgeRun(one, { kind: "doc-submit", taskId: "task-pg-race" }, false);
+        assert.equal(refusedPlan.code, "task_docs_require_task_command", JSON.stringify(refusedPlan));
         const results = await Promise.all(
-          ["edge-one", "edge-two"].map((nodeId) =>
-            fixture.edgeTaskCommand(nodeId as "edge-one" | "edge-two", { kind: "task-start", taskId: "task-pg-race" }),
-          ),
+          [one, two].map((edge) => edgeRun(edge, { kind: "task-start", taskId: "task-pg-race" }, false)),
         );
         assert.equal(results.filter((result) => result.outcome === "applied").length, 1, JSON.stringify(results));
         assert.equal(results.filter((result) => result.code === "lease_conflict").length, 1, JSON.stringify(results));
@@ -175,23 +217,30 @@ for (const gitFollower of [undefined, { branch: "main" }])
             riskTier: "low",
           }),
           docsPackage = String(docs.packagePath);
-        await realizeTaskPlanFixture(
-          fixture.repo,
-          docsPackage,
-          (plan) => applied({ kind: "doc-submit", paths: [plan] }),
-          "PG artifact delivery",
+        await converge(two);
+        await waitForState(
+          () => existsSync(path.join(two.workspaceRoot, "harness", docsPackage, "task_plan.md")),
+          "remote delivery package materialized",
         );
-        await applied({ kind: "task-start", taskId: "task-pg-docs", executionId: "execution-pg-docs" });
-        const artifact = `${docsPackage}/artifacts/report.md`;
-        mkdirSync(path.dirname(path.join(fixture.repo, "harness", artifact)), { recursive: true });
-        writeFileSync(path.join(fixture.repo, "harness", artifact), "PG artifact delivery evidence.\n");
         writeFileSync(
-          path.join(fixture.repo, "harness", docsPackage, "closeout.md"),
+          path.join(two.workspaceRoot, "harness", docsPackage, "task_plan.md"),
+          realizedTaskPlan("PG artifact delivery"),
+        );
+        await edgeRun(two, { kind: "task-start", taskId: "task-pg-docs", executionId: "execution-pg-docs" });
+        const artifact = `${docsPackage}/artifacts/report.md`;
+        mkdirSync(path.dirname(path.join(two.workspaceRoot, "harness", artifact)), { recursive: true });
+        writeFileSync(path.join(two.workspaceRoot, "harness", artifact), "PG artifact delivery evidence.\n");
+        writeFileSync(
+          path.join(two.workspaceRoot, "harness", docsPackage, "closeout.md"),
           "## Summary\nDelivered an accepted report.\n## Verification\nTrue PG with two TLS nodes.\n## Residual Risk\nNone in the fixture.\n## Same Mechanism Elsewhere\nExisting artifact delivery.\n",
         );
-        const cut = await applied({ kind: "task-submit", taskId: "task-pg-docs", executionId: "execution-pg-docs" });
+        const cut = await edgeRun(two, {
+          kind: "task-submit",
+          taskId: "task-pg-docs",
+          executionId: "execution-pg-docs",
+        });
         assert.equal(cut.commitSha, null);
-        await applied({ kind: "task-complete", taskId: "task-pg-docs" });
+        await edgeRun(two, { kind: "task-complete", taskId: "task-pg-docs" });
         const reader = fixture.centerReader();
         try {
           assert.equal(reader.withSession((queries) => queries.read("task-pg-docs").snapshot).task?.status, "done");
@@ -199,6 +248,12 @@ for (const gitFollower of [undefined, { branch: "main" }])
           reader.close();
         }
         assert.equal(existsSync(path.join(fixture.repo, ".git")), gitFollower !== undefined);
+        if (!materialize)
+          assert.equal(
+            existsSync(path.join(fixture.repo, "harness")),
+            false,
+            "a thin center needs no resident authored tree",
+          );
         for (const root of [fixture.repo, fixture.userRoot, fixture.stateRoot])
           assert.deepEqual(
             existsSync(root)
@@ -209,7 +264,7 @@ for (const gitFollower of [undefined, { branch: "main" }])
             [],
           );
         console.log(
-          `PG_DAEMON_LIFECYCLE status=done Git=${gitFollower ? "configured" : "unconfigured"} centerSQLiteFiles=0`,
+          `PG_DAEMON_LIFECYCLE status=done Git=${gitFollower ? "configured" : "unconfigured"} centerTree=${materialize ? "enabled" : "disabled"} submit=remoteRPC centerSQLiteFiles=0`,
         );
 
         await converge(restarted);

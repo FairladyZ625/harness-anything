@@ -23,6 +23,7 @@ export function openPgWriterEpoch(options: {
         reader = createPgTaskQueryReader({
           connectionString: options.storage.connectionString,
           authorityConnectionString: options.storage.authorityConnectionString,
+          requireRuntimeRole: true,
           scope: resolvePostgresEventStoreScope(options.storage.scope),
           repoId,
         });

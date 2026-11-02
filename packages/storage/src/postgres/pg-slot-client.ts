@@ -6,6 +6,7 @@ import type { PostgresStorageBackendConfig } from "../storage-backend.ts";
 export function openPgReplicationSlots(repoId: string, storage: PostgresStorageBackendConfig): ReplicationSlots {
   const reader = createPgTaskQueryReader({
       connectionString: storage.connectionString,
+      requireRuntimeRole: true,
       scope: resolvePostgresEventStoreScope(storage.scope),
       repoId,
     }),
