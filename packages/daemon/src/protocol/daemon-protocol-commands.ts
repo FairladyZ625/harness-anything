@@ -723,6 +723,16 @@ export const daemonProtocolMethods = Object.freeze([
     }),
   },
   {
+    id: "repo.task.witness.run",
+    phase: "W3",
+    method: "repo.task.witness.run",
+    requiresRepo: true,
+    params: shape({
+      repo: shape({ repoId: "string" }),
+      payload: shape({ taskId: "string", executionId: "string", gateId: "string" }),
+    }),
+  },
+  {
     id: "repo.agentRuntime.steer",
     phase: "Runtime-B",
     method: "repo.agentRuntime.steer",

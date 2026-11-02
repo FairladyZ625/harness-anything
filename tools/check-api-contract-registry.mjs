@@ -29,6 +29,7 @@ const expectedMethods = Object.freeze([
   { method: "daemon.connection.unregister", requiresRepo: false },
   { method: "daemon.connection.probe", requiresRepo: false },
   { method: "repo.task.run", requiresRepo: true },
+  { method: "repo.task.witness.run", requiresRepo: true },
   { method: "repo.agentRuntime.steer", requiresRepo: true },
   { method: "repo.task.read", requiresRepo: true },
 ]);

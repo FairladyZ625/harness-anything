@@ -39,6 +39,7 @@ import { readBeforeWriteQueue } from "./write-queue-external-reads.ts";
 import { inspectScheduleProjection } from "./schedule-projection.ts";
 import { resolveDecisionReviewAction } from "./repo-cell-action-parse.ts";
 import { candidateSample, resolveUniquePrefix } from "./unique-id-prefix.ts";
+import { requireCurrentExecutionScope } from "./runtime-execution-scope.ts";
 
 const taskWritesWithProjectionSpecificNotFound = new Set(["task-annotate", "task-attest", "task-declare-executor"]);
 
@@ -430,11 +431,25 @@ export function makeRepoCellCommandRunner(
             failAction(context, action, binding, error, durable ? await authorizeAtCurrentCut()! : undefined),
         );
     const externalRead: ReturnType<typeof readBeforeWriteQueue> =
-      action.kind === "task-complete" && typeof action.taskId === "string"
+      (action.kind === "task-complete" || action.kind === "task-witness-run") && typeof action.taskId === "string"
         ? authorizeAtCurrentCut()!.then(async (authorization) => {
+            if (action.kind === "task-witness-run" && authorization.outcome === "allowed")
+              requireCurrentExecutionScope({ action, binding, projection: context.projection, now: context.now() });
             const warnings =
               authorization.outcome === "allowed" && context.projection.read(action.taskId as string).snapshot.task
-                ? await runCompletionSources(context, action.taskId as string, binding)
+                ? await runCompletionSources(
+                    context,
+                    action.taskId as string,
+                    binding,
+                    undefined,
+                    action.kind === "task-witness-run"
+                      ? {
+                          taskId: action.taskId as string,
+                          executionId: String(action.executionId),
+                          gateId: String(action.gateId),
+                        }
+                      : undefined,
+                  )
                 : [];
             return async (nextAction, nextBinding) => {
               const receipt = await context.executeAction(nextAction, nextBinding);

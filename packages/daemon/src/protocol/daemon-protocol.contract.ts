@@ -235,7 +235,8 @@ export interface DaemonStopResult {
   readonly pid: number;
 }
 
-type SkillEvalResults = {
+type DaemonMethodResults = {
+  readonly "repo.task.witness.run": DaemonTaskWitnessRunResult;
   readonly "daemon.skillEval.version.register": {
     readonly ok: true;
     readonly skill: import("../skill-eval-runner.ts").SkillEvalSkill;
@@ -254,8 +255,26 @@ type SkillEvalResults = {
   };
 };
 
-type DaemonRpcSuccessResult<Method extends DaemonRpcMethod> = Method extends keyof SkillEvalResults
-  ? SkillEvalResults[Method]
+export interface DaemonTaskWitnessRunResult {
+  readonly schema: "command-receipt/v2";
+  readonly ok: true;
+  readonly command: "task-witness-run";
+  readonly outcome: "no_changes";
+  readonly witness: {
+    readonly taskId: string;
+    readonly executionId: string;
+    readonly gateId: string;
+    readonly witnessId: string | null;
+    readonly result: "pass" | "fail" | null;
+    readonly diagnostic: string;
+    readonly runId: string | null;
+    readonly state: import("@harness-anything/kernel").GateRun["state"] | null;
+    readonly availability: import("@harness-anything/kernel").GateRun["availability"];
+  };
+}
+
+type DaemonRpcSuccessResult<Method extends DaemonRpcMethod> = Method extends keyof DaemonMethodResults
+  ? DaemonMethodResults[Method]
   : Method extends keyof import("./daemon-protocol-gui-types.ts").DaemonGuiReadResultMap
     ? import("./daemon-protocol-gui-types.ts").DaemonGuiReadResultMap[Method]
     : Method extends keyof import("./daemon-protocol-gui-types.ts").DaemonStreamResultMap
