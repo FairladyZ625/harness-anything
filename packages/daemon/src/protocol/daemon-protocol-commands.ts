@@ -383,6 +383,19 @@ export const daemonProtocolMethods = Object.freeze([
     params: shape({}),
   },
   {
+    id: "agentRuntime.quote",
+    phase: "Runtime-B",
+    method: "repo.agentRuntime.quote",
+    requiresRepo: false,
+    params: shape({
+      model: "string",
+      inputTokens: "number?",
+      inputBytes: "number?",
+      outputCapTokens: "number?",
+      codeRun: "boolean?",
+    }),
+  },
+  {
     id: "daemon.skillEval.case.add",
     phase: "W3",
     method: "daemon.skillEval.case.add",

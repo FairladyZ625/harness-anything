@@ -39,6 +39,7 @@ test("the price table resolves exact, case-folded and missing ids", () => {
   assert.equal(modelPriceOf("swe2"), null);
   assert.equal(modelPriceOf(null), null);
   assert.equal(modelPriceOf(""), null);
+  for (const model of ["toString", "constructor", "__proto__"]) assert.equal(modelPriceOf(model), null, model);
   assert.match(modelPricingVersion, /^\d{4}-\d{2}-\d{2}$/u);
 });
 

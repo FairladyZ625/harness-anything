@@ -9,12 +9,16 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { request as httpsRequest } from "node:https";
-import { modelPriceOf } from "../agent-runtime-model-pricing.ts";
+import { modelPriceOf, modelPricingVersion, type ModelPrice } from "../agent-runtime-model-pricing.ts";
 import { RuntimeBoundaryError } from "./model-slot-queue.ts";
 
 export const MAX_BODY_BYTES = 2 * 1024 * 1024;
 export const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 export const OUTPUT_CAP_TOKENS = 32_768;
+/** Instructions, tool schemas and framing added by the runtime around a task prompt. */
+export const REQUEST_OVERHEAD_TOKENS = 20_000;
+/** Fixed lower bound for a code-run allowance; one run may issue multiple generations. */
+export const CLOUD_CODE_RESERVE_MICROS = 2_000_000;
 export const DEFAULT_MAX_GENERATIONS = 16;
 const UPSTREAM_TIMEOUT_MS = 600_000;
 const ROUTE = "/v1/responses";
@@ -271,8 +275,7 @@ export class AttemptLedger {
 
 /** Convert the daemon's versioned model table to the relay's inclusive price shape. */
 export function relayPriceOf(model: string): RelayPrice {
-  const standIn = model === "grok-4.6" ? "gpt-6.1-sol" : model;
-  const price = modelPriceOf(standIn);
+  const price = relayModelPriceOf(model)?.price;
   if (!price) throw new CloudDispatchRelayError("MODEL_UNPRICED", `no public price is registered for model ${model}`);
   return {
     inputPerMillion: price.inputPerMillion,
@@ -281,11 +284,84 @@ export function relayPriceOf(model: string): RelayPrice {
   };
 }
 
+/** The relay's conservative model aliases are shared by launch and quote paths. */
+export function relayModelPriceOf(model: string): { readonly sourceModel: string; readonly price: ModelPrice } | null {
+  const sourceModel = model === "grok-4.6" ? "gpt-6.1-sol" : model,
+    price = modelPriceOf(sourceModel);
+  return price === null ? null : { sourceModel, price };
+}
+
+export interface AgentRuntimeQuote {
+  readonly ok: true;
+  readonly model: string;
+  readonly pricing: ModelPrice & { readonly version: string };
+  /** Effective request input after the fixed runtime instruction overhead. */
+  readonly inputTokens: number;
+  /** Supplied byte estimate, or null when the caller supplied tokens. */
+  readonly inputBytes: number | null;
+  readonly outputCapTokens: number;
+  readonly codeRun: boolean;
+  readonly strategy: "single-request" | "code-run-floor";
+  readonly reserveMicros: string;
+}
+
+/**
+ * Pure, stateless reservation quote used by daemon consumers before dispatch.
+ * Input is either a token estimate or a UTF-8 byte estimate; the fixed runtime overhead
+ * is applied in one place so callers cannot silently under-reserve. Unknown prices throw
+ * MODEL_UNPRICED instead of being converted to a zero-cost quote.
+ */
+export function quoteAgentRuntimeBudget(input: {
+  readonly model: string;
+  readonly inputTokens?: number;
+  readonly inputBytes?: number;
+  readonly outputCapTokens?: number;
+  readonly codeRun?: boolean;
+}): AgentRuntimeQuote {
+  const priced = relayModelPriceOf(input.model);
+  if (priced === null)
+    throw new CloudDispatchRelayError("MODEL_UNPRICED", `no public price is registered for model ${input.model}`);
+  const hasTokens = input.inputTokens !== undefined,
+    hasBytes = input.inputBytes !== undefined;
+  if (hasTokens === hasBytes)
+    throw new CloudDispatchRelayError("RELAY_REFUSED", "quote requires inputTokens or inputBytes", 400);
+  const promptTokens = hasTokens ? input.inputTokens! : inputTokenEstimate(input.inputBytes!),
+    outputCapTokens = input.outputCapTokens ?? OUTPUT_CAP_TOKENS;
+  if (!Number.isSafeInteger(promptTokens) || promptTokens < 0)
+    throw new CloudDispatchRelayError("RELAY_REFUSED", "input estimate must be a non-negative safe integer", 400);
+  if (!Number.isSafeInteger(outputCapTokens) || outputCapTokens < 1 || outputCapTokens > OUTPUT_CAP_TOKENS)
+    throw new CloudDispatchRelayError(
+      "RELAY_REFUSED",
+      `output cap must be an integer from 1 to ${OUTPUT_CAP_TOKENS}`,
+      400,
+    );
+  const effectiveInputTokens = promptTokens + REQUEST_OVERHEAD_TOKENS;
+  if (!Number.isSafeInteger(effectiveInputTokens))
+    throw new CloudDispatchRelayError("RELAY_REFUSED", "input estimate is too large", 400);
+  const single = costMicros(relayPriceOf(input.model), {
+      input: effectiveInputTokens,
+      cachedInput: 0,
+      output: outputCapTokens,
+    }),
+    codeRun = input.codeRun === true,
+    reserveMicros = codeRun ? Math.max(single, CLOUD_CODE_RESERVE_MICROS) : single;
+  return {
+    ok: true,
+    model: input.model,
+    pricing: { ...priced.price, version: modelPricingVersion },
+    inputTokens: effectiveInputTokens,
+    inputBytes: hasBytes ? input.inputBytes! : null,
+    outputCapTokens,
+    codeRun,
+    strategy: codeRun ? "code-run-floor" : "single-request",
+    reserveMicros: String(reserveMicros),
+  };
+}
+
 /** Worst-case micro-USD budget used by the daemon launch boundary. */
 export function relayBudgetMicrosOf(model: string, inputTokens: number, outputCap = OUTPUT_CAP_TOKENS): number | null {
   if (!Number.isSafeInteger(inputTokens) || inputTokens < 1) return null;
-  const standIn = model === "grok-4.6" ? "gpt-6.1-sol" : model;
-  if (!modelPriceOf(standIn)) return null;
+  if (!relayModelPriceOf(model)) return null;
   return costMicros(relayPriceOf(model), { input: inputTokens, cachedInput: 0, output: outputCap });
 }
 
