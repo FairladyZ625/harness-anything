@@ -47,7 +47,12 @@ export interface AuthorizationKeycloakUi {
     readonly rootDir?: string;
     readonly repoMode?: "local" | "remote-proxy" | "remote-center" | "remote-edge";
   }>;
-  readonly DevicesTab: ComponentType<{ readonly access: AccessAdminApi }>;
+  readonly DevicesTab: ComponentType<{
+    readonly access: AccessAdminApi;
+    readonly auth: OidcAuthApi;
+    readonly repoId?: string;
+    readonly rootDir?: string;
+  }>;
   readonly GrantsTab: ComponentType<{
     readonly access: AccessAdminApi;
     readonly repos: readonly { readonly repoId: string; readonly displayName: string }[];

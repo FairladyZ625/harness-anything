@@ -116,3 +116,26 @@ describe("等待耗时与执行耗时", () => {
     expect(board).not.toContain("text-status-blocked");
   });
 });
+
+it.each(["zh-CN", "en-US"] as const)(
+  "%s: canonical slow writes reach the sniffer strip without commandClass",
+  (locale) => {
+    setActiveLocale(locale);
+    const stats = statsFor([
+      { event: "request", method: "repo.task.run", command: "task-submit", at: records[1]!.at, durationMs: 1_212_000 },
+    ]);
+    const strip = renderToStaticMarkup(
+      createElement(ObserveSnifferStrip, {
+        testId: "sniff",
+        stats,
+        window: "1h",
+        isLogPane: true,
+        onFocusSmell: () => {},
+      }),
+    );
+    expect(stats.windows["1h"].writes.slowWrites).toBe(1);
+    expect(strip).toContain('data-testid="sniff-smell"');
+    expect(strip).toContain("task-submit");
+    expect(strip).toContain(locale === "zh-CN" ? "慢写请求 1 条" : "1 slow write requests");
+  },
+);

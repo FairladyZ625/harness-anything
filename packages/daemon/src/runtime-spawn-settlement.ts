@@ -639,6 +639,7 @@ export async function publishExit(
     throw error;
   } finally {
     context.exiting.delete(active.runtimeSessionId);
+    if (context.processes.get(active.runtimeSessionId) !== active) active.releaseAuthorization?.();
     if (!settlementFailed) resolveSettlement();
   }
 }

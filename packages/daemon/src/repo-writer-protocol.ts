@@ -112,7 +112,10 @@ export type SerializableKeycloakAuthorization = Omit<KeycloakAuthorization, "ses
   };
   readonly center?: true;
 };
-export type SerializableRepoCellBindingV1 = Omit<RepoCellBinding, "withWriterEpochFence" | "keycloakAuthorization"> & {
+export type SerializableRepoCellBindingV1 = Omit<
+  RepoCellBinding,
+  "withWriterEpochFence" | "keycloakAuthorization" | "retainAuthorization"
+> & {
   readonly keycloakAuthorization?: SerializableKeycloakAuthorization;
 };
 
@@ -127,7 +130,12 @@ export function serializableKeycloakAuthorization(
 }
 
 export function serializableRepoCellBinding(binding: RepoCellBinding): SerializableRepoCellBindingV1 {
-  const { withWriterEpochFence: _fence, keycloakAuthorization, ...serializable } = binding;
+  const {
+    withWriterEpochFence: _fence,
+    retainAuthorization: _retain,
+    keycloakAuthorization,
+    ...serializable
+  } = binding;
   return {
     ...serializable,
     ...(keycloakAuthorization
@@ -154,6 +162,7 @@ export type RepoWriterCapabilityName =
   | "keycloakCenter"
   | "keycloakSession"
   | "currentAccessToken"
+  | "retainCurrentAccessToken"
   | "releaseCurrentAccessToken"
   | "prepareRuntimeLaunch"
   | "reclaimRuntimeTempDirectory"

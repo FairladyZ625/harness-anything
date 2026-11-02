@@ -55,9 +55,13 @@ test("a retained user-device binding uses its current session after token rotati
         now: "2026-10-09T00:00:00.000Z",
         fetchPort,
       }),
-    retained = await bindDaemonPrincipal("/unused", auth);
+    retained = {
+      ...(await bindDaemonPrincipal("/unused", auth)),
+      retainAuthorization: () => () => undefined,
+    };
 
   assert.equal(typeof retained.keycloakAuthorization?.session?.currentAccessToken, "function");
+  assert.equal("retainAuthorization" in structuredClone(serializableRepoCellBinding(retained)), false);
   assert.deepEqual(serializableRepoCellBinding(retained).keycloakAuthorization, {
     session: {
       personId: "person_rotation",

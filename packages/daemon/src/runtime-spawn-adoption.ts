@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS } from "@harness-anything/kernel";
+import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS, sameWriteSource } from "@harness-anything/kernel";
 import type { ActiveRuntime, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import {
   appendRuntimeWorkerRecord,
@@ -46,7 +46,7 @@ const recoveries = new WeakMap<
 export async function adoptRuntimes(
   context: RuntimeSpawnerContext,
   onProgress?: (completed: number) => void,
-  options?: { readonly runtimeSessionId?: string },
+  options?: { readonly runtimeSessionId?: string; readonly authorizationBinding?: RuntimeBinding },
 ): Promise<readonly RuntimeRecoveryResult[]> {
   const sessions = context.input.remote
     ? await context.input.remote.readRuntimeSessions()
@@ -73,8 +73,9 @@ export async function adoptRuntimes(
               ? await context.input.remote.readRuntimeDispatch(runtimeSessionId)
               : context.requiredRuntimeProjection(context.input).readRuntimeDispatch(runtimeSessionId);
             dispatchId = dispatch?.payload.dispatchId ?? null;
-            if (dispatch && !ownedByRuntimeSpawner(dispatch, context.input.runtimeNode)) return "foreign" as const;
             const header = dispatchId ? readDispatchStreamHeader(context.input.rootDir, dispatchId) : null;
+            if (dispatch && !ownedByRuntimeSpawner(dispatch, context.input.runtimeNode, header))
+              return "foreign" as const;
             if (!header) {
               if (session.outcome !== null) return "settled" as const;
               if (
@@ -94,7 +95,7 @@ export async function adoptRuntimes(
                 `Runtime ${runtimeSessionId} has no readable dispatch.`,
               );
             }
-            await restoreRuntime(context, header, session);
+            await restoreRuntime(context, header, session, options?.authorizationBinding);
             return session.outcome === null ? ("ready" as const) : ("settled" as const);
           })
           .then(
@@ -194,6 +195,7 @@ async function restoreRuntime(
   context: RuntimeSpawnerContext,
   header: DispatchStreamHeader,
   session: RuntimeSessionSelection | undefined,
+  authorizationBinding?: RuntimeBinding,
 ): Promise<void> {
   if (context.closed?.()) return;
   // Canonical publication precedes process registration. Recovery must not reclaim a
@@ -201,7 +203,15 @@ async function restoreRuntime(
   if (context.ownsModelSlot?.(header.runtimeSessionId)) return;
   if (context.processes.has(header.runtimeSessionId) || context.exiting.has(header.runtimeSessionId)) return;
   const metadata = adoptableMetadata(header);
-  if (!metadata || !ownedByRuntimeSpawner(metadata.binding, context.input.runtimeNode)) return;
+  if (!metadata || !ownedByRuntimeSpawner(metadata.binding, context.input.runtimeNode, header)) return;
+  if (
+    authorizationBinding &&
+    authorizationBinding.actor.principal.personId !== metadata.binding.actor.principal.personId
+  )
+    throw context.runtimeSpawnError(
+      "execution_scope_mismatch",
+      "Only the original runtime owner can authorize recovery.",
+    );
   const fallbackSummary = header.fallbackAttempt
     ? readDispatchStreamSummary(context.input.rootDir, header.dispatchId)
     : null;
@@ -255,7 +265,11 @@ async function restoreRuntime(
     squadId: stream.header.squadId ?? null,
     publicationOwner: stream.header.publicationOwner ?? "runtime",
     parentRuntimeSessionId: stream.header.parentRuntimeSessionId ?? null,
-    binding: metadata.binding,
+    // Explicit owner cancellation supplies fresh credentials, while the original actor/source
+    // remain the settlement fence. Startup recovery never borrows a local operator session.
+    binding: authorizationBinding
+      ? { ...authorizationBinding, ...metadata.binding, authorizationDecision: undefined }
+      : metadata.binding,
     task:
       stream.header.taskId && stream.header.executionId
         ? {
@@ -351,6 +365,7 @@ async function restoreRuntime(
     if (!processAlive) {
       if (context.processes.get(active.runtimeSessionId) === active) context.processes.delete(active.runtimeSessionId);
       active.process.release?.();
+      active.releaseAuthorization?.();
     }
     throw publication.reason;
   }
@@ -375,6 +390,7 @@ function attachAdoptedObservations(context: RuntimeSpawnerContext, active: Activ
     context.processes.delete(active.runtimeSessionId);
     active.process.terminate();
     active.process.release?.();
+    active.releaseAuthorization?.();
     return error;
   }
 }
@@ -423,9 +439,22 @@ function logRuntimeTempReclaimFailure(instanceId: string, runtimeSessionId: stri
 }
 
 export function ownedByRuntimeSpawner(
-  binding: Pick<RuntimeBinding, "source">,
+  binding: Pick<RuntimeBinding, "source"> & Partial<Pick<RuntimeBinding, "actor">>,
   runtimeNode: RuntimeSpawnerInput["runtimeNode"],
+  header?: DispatchStreamHeader | null,
 ): boolean {
+  if (header?.binding) {
+    if (!sameWriteSource(binding.source, header.binding.source)) return false;
+    if (binding.actor && binding.actor.principal.personId !== header.binding.actor.principal.personId) return false;
+    if (header.executionOwner !== undefined)
+      return header.executionOwner === "local"
+        ? runtimeNode === undefined
+        : header.executionOwner.nodeId === runtimeNode?.nodeId;
+    // Historical center-local streams predate executionOwner. This spool is written only
+    // by the local launcher, never replicated from a node. Its presence proves execution
+    // here even when the initiating request carried a node source.
+    if (runtimeNode === undefined) return true;
+  }
   if (runtimeNode === undefined) return binding.source === "local";
   const source: unknown = binding.source;
   if (source === null || typeof source !== "object" || Array.isArray(source)) return false;

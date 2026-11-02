@@ -48,6 +48,8 @@ export interface RepoCellAutoClaimAssignment {
 }
 
 export interface RepoCellBinding {
+  /** Worker-local session lifetime; stripped at every transport/persistence boundary. */
+  readonly retainAuthorization?: () => () => void;
   /** Daemon-established node identity for references to host-local files; never accepted from the Action. */
   readonly sourceNodeId?: string;
   readonly executionPrincipal?: import("./runtime-execution-credential.ts").RuntimeExecutionPrincipal;

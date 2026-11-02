@@ -275,6 +275,18 @@ async function startRepoWriterWorker(): Promise<void> {
               >,
           ),
       );
+      if (binding?.keycloakAuthorization?.session?.currentAccessToken)
+        Object.assign(binding, {
+          retainAuthorization: () => {
+            notify("retainCurrentAccessToken", request.requestId);
+            let released = false;
+            return () => {
+              if (released) return;
+              released = true;
+              notify("releaseCurrentAccessToken", request.requestId);
+            };
+          },
+        });
       // Reject a stale descriptor before any effect: runtime cancel terminates a process and a
       // resumed spawn launches one before their first ledger append reaches the append fence.
       if (request.method !== "canonicalStore") assertWriterEpoch(request.writerEpoch);

@@ -60,6 +60,7 @@ for (const ended of [false, true]) {
 }
 
 class FakeWriter extends EventEmitter {
+  beforeReceipt?: (request: RepoWriterRequestV1) => void;
   lastRequest?: RepoWriterRequestV1;
   replies = new Map<string, (result: RepoWriterCapabilityResultV1) => void>();
   sequence = 0;
@@ -71,6 +72,7 @@ class FakeWriter extends EventEmitter {
       return;
     }
     this.lastRequest = message;
+    this.beforeReceipt?.(message);
     this.emit("message", {
       schema: "harness-repo-writer-receipt/v1",
       protocolVersion: 1,
@@ -91,4 +93,54 @@ class FakeWriter extends EventEmitter {
   terminate(): Promise<number> {
     return Promise.resolve(0);
   }
+}
+
+for (const ended of [false, true]) {
+  test(`runtimes from one RPC retain independent references to their original session (ended=${ended})`, async () => {
+    const writer = new FakeWriter(),
+      opening = openWriterSupervisor(
+        { repoId: workspaceId("runtime-session"), rootDir: canonicalRoot(process.cwd()), ownerId: "test" },
+        { createWorker: () => writer as unknown as Worker },
+      );
+    writer.emit("message", { schema: "harness-repo-writer-status/v1", protocolVersion: 1, kind: "ready" });
+    const supervisor = await opening;
+    let calls = 0;
+    const binding = localDefaultBinding({
+      transportKind: "unix-socket",
+      oidcPrincipal: {
+        personId: "runtime-owner",
+        subject: "runtime-owner",
+        expiresAt: Date.now() + 60_000,
+        accessToken: "old-token",
+        authority: { url: "http://127.0.0.1:1", realm: "test", clientId: "test" },
+      },
+      localSessionAccessToken: async () => {
+        calls += 1;
+        if (ended) throw Object.assign(new Error("original session ended"), { code: "authentication_required" });
+        return "rotated-token";
+      },
+    });
+    writer.beforeReceipt = (request) => {
+      if (request.method !== "run") return;
+      void writer.call("retainCurrentAccessToken", request.requestId);
+      void writer.call("retainCurrentAccessToken", request.requestId);
+    };
+    try {
+      await supervisor.request("run", { action: { kind: "task-dispatch-review" } }, binding);
+      const requestId = writer.lastRequest!.requestId;
+      assert.equal(supervisor.status().queueDepth, 0);
+      const first = await writer.call("currentAccessToken", requestId);
+      assert.equal(first.outcome, ended ? "error" : "ok");
+      if (ended) assert.equal(first.error?.code, "authentication_required");
+      else assert.equal(first.value, "rotated-token");
+      await writer.call("releaseCurrentAccessToken", requestId);
+      assert.equal((await writer.call("currentAccessToken", requestId)).outcome, ended ? "error" : "ok");
+      assert.equal(calls, 2, "a sibling keeps the same original resolver, including its authentication failure");
+      await writer.call("releaseCurrentAccessToken", requestId);
+      assert.equal((await writer.call("currentAccessToken", requestId)).outcome, "error");
+      assert.equal(calls, 2, "the final runtime releases the resolver");
+    } finally {
+      await supervisor.close();
+    }
+  });
 }

@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
+import type { OidcAuthApi } from "@harness-anything/authorization-gui/oidc-auth-contract";
 import type {
   AccessAdminApi,
   AccessDevice,
@@ -14,7 +15,46 @@ export function createDevicesTab(host: KeycloakUiHost) {
   const { isRejection } = createAccessModel(host);
   const { AccessNotice, INPUT, asRejection, useAccessRead } = createAccessParts(host);
 
-  function DevicesTab({ access }: { readonly access: AccessAdminApi }) {
+  function DevicesTab({
+    access,
+    auth,
+    repoId,
+    rootDir,
+  }: {
+    readonly access: AccessAdminApi;
+    readonly auth: OidcAuthApi;
+    readonly repoId?: string;
+    readonly rootDir?: string;
+  }) {
+    const readBinding = useCallback(
+      async () => (await auth.bindingStatus(repoId, rootDir)) as { readonly ok: true; readonly mode?: string },
+      [auth, repoId, rootDir],
+    );
+    const { data, rejection, reload } = useAccessRead(readBinding);
+    if (data && data.mode !== "builtin") return <ManagedDevicesTab access={access} />;
+    return (
+      <Region
+        title={t("devices.title")}
+        padded
+        footer={<Button onClick={() => void reload()}>{t("devices.refresh")}</Button>}
+      >
+        <div data-testid="my-devices" className="flex flex-col gap-3">
+          {rejection ? (
+            <AccessNotice rejection={rejection} origin="read" />
+          ) : data ? (
+            <>
+              <p data-testid="devices-local-mode">{t("devices.localMode")}</p>
+              <p className="text-text-muted">{t("devices.localCollaboration")}</p>
+            </>
+          ) : (
+            <p role="status">{t("devices.loading")}</p>
+          )}
+        </div>
+      </Region>
+    );
+  }
+
+  function ManagedDevicesTab({ access }: { readonly access: AccessAdminApi }) {
     const { data, rejection, reload } = useAccessRead(access.devices),
       [busy, setBusy] = useState(false),
       [refusal, setRefusal] = useState<AccessRejection | null>(null),

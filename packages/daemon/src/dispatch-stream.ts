@@ -87,6 +87,8 @@ export interface DispatchStreamHeader extends RuntimeResumeHeader {
   readonly kindId?: string;
   readonly permissionMode?: RuntimePermissionMode | null;
   readonly binding?: { readonly actor: ActorIdentity; readonly source: WriteSource };
+  /** Execution host, independent of the request's write provenance. */
+  readonly executionOwner?: "local" | { readonly nodeId: string };
   readonly cwd?: string;
   readonly prompt?: string;
   readonly promptSource?: string;

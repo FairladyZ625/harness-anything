@@ -69,6 +69,7 @@ export function createActiveRuntime(base: ActiveRuntimeBase): ActiveRuntime {
     lastProgressAtMs = Number.isFinite(base.lastProgressAtMs) ? base.lastProgressAtMs : Date.now();
   return {
     ...base,
+    releaseAuthorization: base.binding.retainAuthorization?.(),
     stallTimeoutMs,
     fallbackAttempt: base.fallbackAttempt ?? null,
     buffer: "",
