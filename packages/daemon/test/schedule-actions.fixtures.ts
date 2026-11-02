@@ -10,6 +10,7 @@ import {
 import { initialRuntimeInstanceSettings } from "../src/runtime-spawn-allowlist.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
+import { waitForCondition } from "../../../tools/fixtures/wait-for-condition.ts";
 
 export const definition: AgentDefinitionSnapshot = {
   schema: "agent-definition-snapshot/v1",
@@ -117,15 +118,9 @@ export function initHarnessRepo(
   git(root, "commit", "-qm", "base");
 }
 
-// The bound is wall time, not a poll count: a count spends its budget on the cost of each check, so a slower host
-// gets a shorter wait for the same work. Callers wait on the observable itself and assert the returned verdict.
-export async function eventually(check: () => boolean | Promise<boolean>): Promise<boolean> {
-  const deadline = performance.now() + 20_000;
-  do {
-    if (await check()) return true;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  } while (performance.now() < deadline);
-  return false;
+export async function eventually(check: () => boolean | Promise<boolean>, label = "schedule state"): Promise<true> {
+  await waitForCondition(check, label);
+  return true;
 }
 
 export function git(cwd: string, ...args: string[]): string {

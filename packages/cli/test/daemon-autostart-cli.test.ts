@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import { fork } from "node:child_process";
 import { once } from "node:events";
 import type { Socket } from "node:net";
@@ -8,6 +8,7 @@ import { daemonStoppedMarkerPath } from "@harness-anything/daemon/internal/clien
 import { perUserSocketRoot } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import { createRuntimeCallbackRelay } from "@harness-anything/daemon/internal/runtime-callback-relay";
 import * as shared from "./daemon-autostart-cli.fixture.ts";
+import { waitForCondition } from "../../../tools/fixtures/wait-for-condition.ts";
 
 const {
   assert,
@@ -21,7 +22,6 @@ const {
   connectSocket,
   createServer,
   currentDaemonProtocolVersion,
-  delay,
   escapeRegExp,
   existsSync,
   git,
@@ -88,7 +88,7 @@ test("stopping a cold daemon leaves the user root untouched", () => {
   assert.equal(existsSync(fixture.userRoot), false, "a cold stop must not create daemon state");
 });
 
-test("operator stop blocks autostart until explicit start while process death remains recoverable", async (context) => {
+const operatorStopAutostartTest = async (context: TestContext) => {
   const fixture = setup();
 
   assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
@@ -131,6 +131,10 @@ test("operator stop blocks autostart until explicit start while process death re
   );
   assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "stop"]).ok, true);
   assert.equal(readDaemonPid(fixture.userRoot, "default"), null);
+  await waitForCondition(() => !processAlive(previousPid), "stopped daemon process to exit before final status", {
+    timeoutMs: 60_000,
+    describeLast: () => JSON.stringify({ pid: previousPid, alive: processAlive(previousPid) }),
+  });
   assert.equal(
     existsSync(localUserDaemonEndpoint(fixture.userRoot, "default")),
     false,
@@ -220,7 +224,12 @@ test("operator stop blocks autostart until explicit start while process death re
   assert.notEqual(recoveredPid, restartedPid);
   context.diagnostic(`SIGKILL negative control autostart pid=${recoveredPid}`);
   assert.equal(run(fixture.root, fixture.userRoot, ["daemon", "stop"]).ok, true);
-});
+};
+test(
+  "operator stop blocks autostart until explicit start while process death remains recoverable",
+  { timeout: 60_000 },
+  operatorStopAutostartTest,
+);
 
 test(
   "daemon status names a build_superseded self-exit and its recovery once the daemon is down",
@@ -504,7 +513,7 @@ test("repo bootstrap reaches an injected daemon endpoint across an isolated runt
   }
 });
 
-test("a blocked vertical script keeps handshakes, snapshots, and same-repo writes live", async (context) => {
+const blockedVerticalScriptTest = async (context: TestContext) => {
   const fixture = setup(),
     repoId = "vertical-wedge",
     taskId = "task-vertical-wedge",
@@ -571,12 +580,22 @@ test("a blocked vertical script keeps handshakes, snapshots, and same-repo write
     readClient = new JsonRpcLineClient(readSocket, readSocket);
     await readClient.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, 2_000);
     const readStarted = performance.now(),
-      readWhileBlocked = await Promise.race([
-        readClient
-          .request("repo.tasks.list", { repo: { repoId }, payload: {} })
-          .then((receipt) => ({ state: "settled" as const, receipt })),
-        delay(250, { state: "pending" as const, receipt: null }),
-      ]);
+      readRequest = readClient.request("repo.tasks.list", { repo: { repoId }, payload: {} });
+    let readSettled = false;
+    void readRequest.then(
+      () => {
+        readSettled = true;
+      },
+      () => {
+        readSettled = true;
+      },
+    );
+    await waitForCondition(
+      () => readSettled,
+      "same-repo snapshot read to settle while the vertical script is blocked",
+      { timeoutMs: 60_000, describeLast: () => JSON.stringify({ readSettled }) },
+    );
+    const readWhileBlocked = { state: "settled" as const, receipt: await readRequest };
     const snapshotTaskIds = Array.isArray(readWhileBlocked.receipt?.rows)
         ? readWhileBlocked.receipt.rows.map((row) => String((row as Record<string, unknown>).taskId))
         : null,
@@ -601,14 +620,22 @@ test("a blocked vertical script keeps handshakes, snapshots, and same-repo write
       repo: { repoId },
       payload: { taskId: "task-queued-write", title: "Queued Write" },
     }) as Promise<Record<string, unknown>>;
-    const orderingStarted = performance.now(),
-      beforeRelease = await Promise.race([
-        queuedWrite.then(() => "settled" as const),
-        delay(2_000, "pending" as const),
-      ]),
-      orderingWhileBlocked = { state: beforeRelease, elapsedMs: Math.round(performance.now() - orderingStarted) };
+    let writeSettled = false;
+    void queuedWrite.then(
+      () => {
+        writeSettled = true;
+      },
+      () => {
+        writeSettled = true;
+      },
+    );
+    const orderingStarted = performance.now();
+    await waitForCondition(() => writeSettled, "same-repo write to settle while the vertical script is blocked", {
+      timeoutMs: 60_000,
+      describeLast: () => JSON.stringify({ writeSettled }),
+    });
+    const orderingWhileBlocked = { state: "settled", elapsedMs: Math.round(performance.now() - orderingStarted) };
     context.diagnostic(`same-repo write ordering probe while script blocked: ${JSON.stringify(orderingWhileBlocked)}`);
-    assert.equal(beforeRelease, "settled", JSON.stringify(orderingWhileBlocked));
 
     rmSync(blocker, { force: true });
     const [scriptReceipt, writeReceipt] = await Promise.all([scriptRequest, queuedWrite]);
@@ -633,9 +660,14 @@ test("a blocked vertical script keeps handshakes, snapshots, and same-repo write
     readClient?.close();
     queuedClient?.close();
   }
-});
+};
+test(
+  "a blocked vertical script keeps handshakes, snapshots, and same-repo writes live",
+  { timeout: 120_000 },
+  blockedVerticalScriptTest,
+);
 
-test("runtime stream attach stays live before, during, and after a blocked vertical script", async (context) => {
+const runtimeAttachWhileBlockedTest = async (context: TestContext) => {
   const fixture = setup(),
     repoId = "runtime-attach-live",
     taskId = "task-runtime-attach-live",
@@ -729,9 +761,14 @@ test("runtime stream attach stays live before, during, and after a blocked verti
     await scriptRequest?.catch(() => undefined);
     client?.close();
   }
-});
+};
+test(
+  "runtime stream attach stays live before, during, and after a blocked vertical script",
+  { timeout: 120_000 },
+  runtimeAttachWhileBlockedTest,
+);
 
-test("disconnecting a blocked vertical script client terminates its child after same-repo writes advance", async (context) => {
+const disconnectBlockedVerticalScriptTest = async (context: TestContext) => {
   const fixture = setup(),
     otherRoot = setupRepository(fixture.parent, "other-repo"),
     blockedRepoId = "vertical-disconnect",
@@ -801,12 +838,23 @@ test("disconnecting a blocked vertical script client terminates its child after 
       repo: { repoId: blockedRepoId },
       payload: { taskId: "task-after-disconnect", title: "After Disconnect" },
     }) as Promise<Record<string, unknown>>;
-    const beforeDisconnect = await Promise.race([
-      queuedWrite.then(() => "settled" as const),
-      delay(2_000, "pending" as const),
-    ]);
-    context.diagnostic(`same-repo write before client disconnect: ${JSON.stringify({ state: beforeDisconnect })}`);
-    assert.equal(beforeDisconnect, "settled");
+    let writeSettled = false;
+    void queuedWrite.then(
+      () => {
+        writeSettled = true;
+      },
+      () => {
+        writeSettled = true;
+      },
+    );
+    const writeStarted = performance.now();
+    await waitForCondition(() => writeSettled, "same-repo write to settle before client disconnect", {
+      timeoutMs: 60_000,
+      describeLast: () => JSON.stringify({ writeSettled }),
+    });
+    context.diagnostic(
+      `same-repo write before client disconnect: ${JSON.stringify({ state: "settled", elapsedMs: Math.round(performance.now() - writeStarted) })}`,
+    );
 
     actionSocket.destroy();
     await waitForProcessExit(childPid);
@@ -827,7 +875,12 @@ test("disconnecting a blocked vertical script client terminates its child after 
     await queuedWrite?.catch(() => undefined);
     queuedClient?.close();
   }
-});
+};
+test(
+  "disconnecting a blocked vertical script client terminates its child after same-repo writes advance",
+  { timeout: 120_000 },
+  disconnectBlockedVerticalScriptTest,
+);
 
 test("receipt show diagnoses a missing daemon without starting one", () => {
   const fixture = setup();

@@ -326,7 +326,7 @@ for (const restart of [false, true])
         );
     // Schedule settlement precedes the runtime terminal events. Observe the whole
     // recovery before measuring whether a subsequent read adds another event.
-    assert.equal(await eventually(async () => outcomes().length > 0), true);
+    await eventually(async () => outcomes().length > 0, "recovered runtime outcome to be published");
     assert.equal(outcomes().length, 1, "recovery publishes one runtime outcome");
     const revision = fixture.eventCount();
     const again = await runtime.run("repo.schedule.run", { kind: "schedule-show", scheduleId });

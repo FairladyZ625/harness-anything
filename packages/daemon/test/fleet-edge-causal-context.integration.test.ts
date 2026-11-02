@@ -294,7 +294,10 @@ test(
           fixture.auth,
         )
       ).session.activity.outcome;
-    assert.equal(await eventually(async () => (await outcomeOf(explicit.runtimeSessionId)) !== null), true);
+    await eventually(
+      async () => (await outcomeOf(explicit.runtimeSessionId)) !== null,
+      "explicit edge runtime outcome to be observed",
+    );
     // dec_614F7BBB18C8687E7EFC72173D: normal exit with final output and no submitted delivery is stopped.
     assert.equal(await outcomeOf(explicit.runtimeSessionId), "stopped", JSON.stringify(fixture.runtimeArchiveReceipts));
     const reclaimed = await fixture.host.run(
@@ -339,7 +342,10 @@ test(
     assert.match(taskBoundPrompt, /# 本任务授权范围/u);
     assert.ok(taskBoundPrompt.includes(`decision/${decisionId}/CH1; state=in_effect`));
     // The second dispatch settles against the center too: teardown must not close the center under it.
-    assert.equal(await eventually(async () => (await outcomeOf(taskBound.runtimeSessionId)) !== null), true);
+    await eventually(
+      async () => (await outcomeOf(taskBound.runtimeSessionId)) !== null,
+      "task-bound edge runtime outcome to be observed",
+    );
     const superseded = await fixture.host.run(
       fixture.subject.repoId,
       {

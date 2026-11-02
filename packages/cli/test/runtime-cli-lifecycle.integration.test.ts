@@ -1,8 +1,18 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
 import { eventuallyValue } from "../../daemon/test/fixtures/runtime-ingress.ts";
 import {
@@ -14,6 +24,7 @@ import {
 import { safePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { runCommandThroughDaemon } from "../src/daemon/client.ts";
 import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
+import { waitForCondition, waitForPromise, waitForValue } from "../../../tools/fixtures/wait-for-condition.ts";
 import {
   assertTaskMissionPrompt,
   createRuntimeFixture,
@@ -47,6 +58,33 @@ function killProcessIfAlive(pid: number): void {
     if (!(error && typeof error === "object" && "code" in error && error.code === "ESRCH")) throw error;
   }
 }
+
+test("dispatch JSONL reads ignore only an unterminated tail record", (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-dispatch-tail-")),
+    dispatchId = "dispatch-tail",
+    stream = path.join(root, ".harness", "runtime", "dispatches", `${dispatchId}.jsonl`),
+    record = JSON.stringify({ kind: "provider_event", event: { type: "thread.started" } });
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(path.dirname(stream), { recursive: true });
+
+  writeFileSync(stream, record.slice(0, -1));
+  assert.deepEqual(readDispatchRecords(root, dispatchId), []);
+  writeFileSync(stream, `${record}\n${record.slice(0, -1)}`);
+  assert.deepEqual(readDispatchRecords(root, dispatchId), [JSON.parse(record)]);
+  writeFileSync(stream, `${record}\n{"kind":}\n`);
+  assert.throws(() => readDispatchRecords(root, dispatchId), SyntaxError);
+});
+
+test("shared fixture waits report the deadline and final observed state", async () => {
+  await assert.rejects(
+    waitForCondition(() => false, "fixture state", { timeoutMs: 1, intervalMs: 1 }),
+    /timed out after 1ms waiting for fixture state; last observed: false/u,
+  );
+  await assert.rejects(
+    waitForPromise(new Promise(() => undefined), "fixture promise", { timeoutMs: 1, intervalMs: 1 }),
+    /timed out after 1ms waiting for fixture promise; last observed: pending/u,
+  );
+});
 
 test("parked runtime awaits omit the repo-read response deadline at the transport seam", async (context) => {
   const { root, env } = createRuntimeFixture(context);
@@ -148,7 +186,7 @@ test("Task dispatch rejects an incomplete plan then automatically acquires its l
   runMaybe(root, env, ["runtime", "status", String(automaticLease.receipt.runtimeSessionId), "--wait", "--no-stream"]);
 });
 
-test("Cancellation is idempotent, notifies once and resumes the archived provider session", async (context) => {
+const cancellationResumeTest = async (context: TestContext) => {
   const fixture = createRuntimeFixture(context);
   installIdentities(fixture.parent, fixture.root, fixture.env);
   const { parent, root, env, userRoot, daemonId } = fixture;
@@ -191,6 +229,8 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
         const event = record.event as { item?: { id?: string } } | undefined;
         return record.kind === "provider_event" && event?.item?.id === "live";
       }) ?? null,
+    60_000,
+    `dispatch ${detachedDispatchId} provider live event`,
   );
   assert.equal(run(root, env, ["runtime", "cancel", detachedSessionId]).detail, "cancelled");
   assert.equal(run(root, env, ["runtime", "cancel", detachedSessionId]).detail, "already-exited");
@@ -318,7 +358,12 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
     ).providerSessionId,
     "provider-cli-session",
   );
-});
+};
+test(
+  "Cancellation is idempotent, notifies once and resumes the archived provider session",
+  { timeout: 60_000 },
+  cancellationResumeTest,
+);
 
 test("rejected task resume stream cleanup follows the observed lease stop proof", async (context) => {
   const fixture = createRuntimeFixture(context);
@@ -335,6 +380,8 @@ test("rejected task resume stream cleanup follows the observed lease stop proof"
         const event = record.event as { item?: { id?: string } } | undefined;
         return record.kind === "provider_event" && event?.item?.id === "live";
       }) ?? null,
+    60_000,
+    `dispatch ${sourceDispatchId} provider live event`,
   );
   assert.equal(run(root, env, ["runtime", "cancel", sourceSessionId]).detail, "cancelled");
   await eventuallyTerminal(root, env, ["task", "dispatches", taskId]);
@@ -830,29 +877,27 @@ for (const afterResult of [false, true])
       await eventuallyFile(pidPath);
       await eventuallyRuntimeStatus(root, env, sessionId, "live");
       if (afterResult) {
-        let observed = false;
-        for (let attempt = 0; attempt < 500 && !observed; attempt += 1) {
-          observed = readDispatchRecords(root, dispatchId).some(
-            (record) =>
-              record.kind === "provider_event" && (record.event as Record<string, unknown>).type === "turn.completed",
-          );
-          if (!observed) await new Promise((resolve) => setTimeout(resolve, 10));
-        }
-        assert.ok(observed, "provider result must be durable before killing the host");
+        await waitForValue(
+          () =>
+            readDispatchRecords(root, dispatchId).some(
+              (record) =>
+                record.kind === "provider_event" && (record.event as Record<string, unknown>).type === "turn.completed",
+            )
+              ? true
+              : null,
+          `dispatch ${dispatchId} provider result to be durable before killing the host`,
+          { timeoutMs: 60_000, describeLast: () => JSON.stringify(readDispatchRecords(root, dispatchId)) },
+        );
       }
       const hostPid = Number(
         readDispatchRecords(root, dispatchId).find((record) => record.kind === "process_started")!.pid,
       );
-      let timer: NodeJS.Timeout | undefined;
       try {
         const wait = runAsync(root, env, ["runtime", "status", sessionId, "--wait", "--no-stream"]);
         process.kill(hostPid, "SIGKILL");
-        const result = await Promise.race([
-          wait,
-          new Promise<never>((_resolve, reject) => {
-            timer = setTimeout(() => reject(new Error("runtime status --wait did not settle after host loss")), 15_000);
-          }),
-        ]);
+        const result = await waitForPromise(wait, "runtime status --wait to settle after host loss", {
+          timeoutMs: 60_000,
+        });
         context.diagnostic(`native host loss invocation: ${JSON.stringify(result)}`);
         // dec_614F7BBB18C8687E7EFC72173D/CH3: a lost host has no process-exit evidence.
         assert.equal(result.receipt.outcome, "unknown", JSON.stringify(result));
@@ -890,7 +935,6 @@ for (const afterResult of [false, true])
           );
         context.diagnostic(`native host loss: ${JSON.stringify(result.receipt)}`);
       } finally {
-        if (timer) clearTimeout(timer);
         killProcessIfAlive(Number(readFileSync(pidPath, "utf8")));
       }
     },

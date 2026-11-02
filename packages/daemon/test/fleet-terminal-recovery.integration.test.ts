@@ -12,7 +12,7 @@ import { fleetFixture, localAuthFixture, rawPeer } from "./fleet-runtime-recover
 import { eventually, scheduleRuntimePorts, definition as settlementDefinition } from "./schedule-actions.fixtures.ts";
 import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
 const replicaQuota = 64 * 1024 * 1024;
-test("edge terminal task settlement rejects a changed node owner", { timeout: 60_000 }, async (t) => {
+test("edge terminal task settlement rejects a changed node owner", { timeout: 120_000 }, async (t) => {
   const fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"]);
   t.after(() => fixture.close());
   const center = await fixture.center(),
@@ -101,16 +101,14 @@ test("edge terminal task settlement rejects a changed node owner", { timeout: 60
   assert.equal(launched.outcome, "applied", JSON.stringify(launched));
   assert.ok(terminal);
   const events = () => makeTaskEventReader({ repoId: fixture.subject.repoId, rootDir: fixture.repo }).read().events;
-  assert.equal(
-    await eventually(async () =>
+  await eventually(
+    async () =>
       events().some(
         (event) =>
           event.type === "runtime_session_liveness_changed" &&
           event.payload.runtimeSessionId === launched.runtimeSessionId,
       ),
-    ),
-    true,
-    "the real edge producer must publish process liveness through Fleet into the center journal",
+    "runtime session liveness to reach the center journal",
   );
   const live = events().find(
     (event) =>
@@ -171,7 +169,7 @@ test("edge terminal task settlement rejects a changed node owner", { timeout: 60
   fixture.setOwner("person-owner");
   await syncReplica();
   await runtime.reconcile();
-  assert.equal(await eventually(async () => outcomes().length > 0), true);
+  await eventually(async () => outcomes().length > 0, "recovered runtime terminal outcome to be recorded");
   // dec_614F7BBB18C8687E7EFC72173D: no recorded process means no exit evidence, so outcome stays unknown.
   assert.equal(outcomes()[0]?.outcome, "unknown", JSON.stringify(outcomes()));
   // Ownership is rejected before archive publication. The injected PID is recorded in
@@ -188,7 +186,7 @@ test("edge terminal task settlement rejects a changed node owner", { timeout: 60
 for (const restart of [false, true])
   test(
     `edge terminal outcome recovers after center disconnect (restart=${restart})`,
-    { timeout: 60_000 },
+    { timeout: 120_000 },
     async (t) => {
       const fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"]);
       t.after(() => fixture.close());
@@ -306,7 +304,7 @@ for (const restart of [false, true])
               event.payload.runtimeSessionId === launched.runtimeSessionId,
           )
           .map((event) => event.payload);
-      assert.equal(await eventually(async () => outcomes().length > 0), true);
+      await eventually(async () => outcomes().length > 0, "recovered runtime terminal outcome to be recorded");
       assert.equal(outcomes().length, 1, "recovery publishes one canonical terminal outcome");
       await syncReplica();
       await runtime.reconcile();

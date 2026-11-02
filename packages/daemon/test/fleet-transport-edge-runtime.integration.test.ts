@@ -935,7 +935,7 @@ test(
           fixture.auth,
         )
       ).session.activity.outcome;
-    assert.equal(await eventually(async () => (await settled()) !== null), true);
+    await eventually(async () => (await settled()) !== null, "edge runtime archive outcome to be observed");
     assert.equal(await settled(), "succeeded", JSON.stringify(fixture.runtimeArchiveReceipts));
     const delivered = git(worktree, "rev-parse", "HEAD");
     assert.notEqual(delivered, base);
