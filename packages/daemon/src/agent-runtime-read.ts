@@ -154,6 +154,23 @@ export function makeAgentRuntimeReadModel(input: {
     if (runtimeSessionId === null) return null;
     const exact = input.projection.readRuntimeSession(runtimeSessionId);
     if (exact !== null) return exact;
+    // CLI status accepts the dispatch id printed by `ha task dispatches` as well.
+    if (runtimeSessionId.startsWith("dispatch")) {
+      const dispatches = input.projection.readRuntimeDispatches(),
+        match = resolveUniquePrefix(
+          runtimeSessionId,
+          dispatches.map((event) => event.payload.dispatchId),
+        );
+      if (match.matched) {
+        const dispatch = dispatches.find((event) => event.payload.dispatchId === match.id)!;
+        return input.projection.readRuntimeSession(dispatch.payload.runtimeSessionId);
+      }
+      if (match.candidates.length > 1)
+        throw coded(
+          "runtime_session_ambiguous_id",
+          `Dispatch id ${runtimeSessionId} is ambiguous (${candidateSample(match.candidates)}). Use a longer prefix or the full id.`,
+        );
+    }
     const prefixed = resolveUniquePrefix(
       runtimeSessionId,
       input.projection.readRuntimeSessions().map(({ runtimeSessionId: candidate }) => candidate),

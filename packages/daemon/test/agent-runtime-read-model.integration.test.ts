@@ -105,6 +105,8 @@ test("runtime read facets expose safe overview/session/events through the shared
       reads.session({ runtimeSessionId: "runtime-session" }).session.runtimeSessionId,
       "runtime-session",
     );
+    assert.equal(reads.session({ runtimeSessionId: "dispatch-runtime" }).session.runtimeSessionId, "runtime-session");
+    assert.equal(reads.session({ runtimeSessionId: "dispatch-r" }).session.runtimeSessionId, "runtime-session");
     const lifecycle = reads.events({
       runtimeSessionId: "runtime-session",
       afterCursor: `lifecycle:${events[2]!.workspaceRevision}`,

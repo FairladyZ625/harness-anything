@@ -78,18 +78,10 @@ export async function publishExit(
       terminalBinding = runtimeSessionBinding(active.binding, active.runtimeSessionId),
       squadLeaderControl = active.squadId !== null && active.delegatedBy === null;
     const persistedTerminal = readDispatchStream(context.input.rootDir, active.dispatchId)?.terminalOutcome;
-    // A non-failed terminal snapshot follows successful lease settlement and can replay
-    // while the replica still shows an earlier liveness. Failed snapshots can include a
-    // rejected lease settlement, so retain their recovery path until exit was published.
-    const replaySettlement =
-      persistedTerminal &&
-      (resumePublishedExit ||
-        persistedTerminal.payload.outcome !== "failed" ||
-        persistedTerminal.payload.reasonCode === "runtime_archive_failed" ||
-        persistedTerminal.payload.reasonCode === "runtime_lease_release_failed" ||
-        persistedTerminal.payload.reasonCode === "runtime_settlement_failed");
+    // The durable terminal is the publication retry cut, including reviewer failures.
+    // Reclassification would replace its body/result reference after a failed publication.
     if (
-      replaySettlement &&
+      persistedTerminal &&
       !(
         active.lossReason !== null &&
         persistedTerminal.payload.outcome === "unknown" &&
