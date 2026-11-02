@@ -1,4 +1,5 @@
 import { readTodos } from "./todo-read.ts";
+import { activeCutReviewDispatches } from "./review-dispatch-state.ts";
 import { taskPresentationReads } from "./task-presentation-read.ts";
 import { createHash } from "node:crypto";
 import path from "node:path";
@@ -713,6 +714,25 @@ export function makeTaskQueryReadModel(input: {
       underReview: AgendaExecutionRow[] = awaitingExecutionRows(inReview?.rows ?? [])
         .filter(({ taskId }) => assignmentFor(`task/${taskId}`))
         .sort(compareAwaitingExecutions),
+      // The durable cut is the blocker: a missing/failed dispatch needs no separate mutable flag.
+      // Reuse dispatch admission's definition of an active review so recovery removes this attention row.
+      undispatchedReviews = underReview.flatMap((row) => {
+        const snapshot = projection.read(row.taskId).snapshot,
+          execution = snapshot.executions.find((candidate) => candidate.executionId === row.executionId);
+        if (
+          !execution?.submission ||
+          reviewsForExecution(snapshot.reviews, execution).length > 0 ||
+          activeCutReviewDispatches({ projection }, row.taskId, execution).length > 0
+        )
+          return [];
+        return [
+          {
+            taskId: row.taskId,
+            since: row.submittedAt,
+            title: `${row.title} — CEO: required review has no active dispatch; run ha task dispatch-review ${row.taskId}.`,
+          },
+        ];
+      }),
       decisionSignals = (decisions?.decisions ?? []).map((decision) => {
         const full = projection.readDecision(decision.decisionId).decision;
         if (!full || decisionReviewRequirement === null) return { decision, signal: "ready" as const };
@@ -852,6 +872,7 @@ export function makeTaskQueryReadModel(input: {
         stalled,
         auditFindings: reckoning.items,
         unsubmittedDeliveries,
+        undispatchedReviews,
         sourceRows: [active, blocked, planned, submitted, inReview].flatMap((page) => page?.rows ?? []),
       }),
       regionWeights = attentionRegionWeights(attentionItems, {
@@ -908,6 +929,7 @@ export function makeTaskQueryReadModel(input: {
         awaitingDecision,
         awaitingRuling,
         unanchoredWorks,
+        undispatchedReviews,
         waitingOnOthers,
         dispatchable,
       }),

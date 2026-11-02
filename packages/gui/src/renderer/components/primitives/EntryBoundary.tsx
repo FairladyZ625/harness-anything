@@ -1,4 +1,13 @@
-import { createContext, useContext, useLayoutEffect, useRef, type HTMLAttributes, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type HTMLAttributes,
+  type ReactNode,
+} from "react";
+import { CollaborationExplanation } from "../CollaborationExplanation.tsx";
 import { animate } from "motion";
 import { useEntryMotion } from "../../motion-config.tsx";
 import { MOTION_DURATION, MOTION_EASE } from "../../motion-tokens.ts";
@@ -41,10 +50,17 @@ export function PageEntryBoundary({
   ...props
 }: HTMLAttributes<HTMLDivElement> & { readonly identity: string; readonly children: ReactNode }) {
   const element = useEntryBoundary(identity, null);
+  const [collaborationPage, setCollaborationPage] = useState<string | null>(null);
+  useLayoutEffect(() => {
+    setCollaborationPage(null);
+    const explain = () => setCollaborationPage(identity);
+    window.addEventListener("harness-collaboration-required", explain);
+    return () => window.removeEventListener("harness-collaboration-required", explain);
+  }, [identity]);
   return (
     <PageEntryContext.Provider value={identity}>
       <div {...props} ref={element}>
-        {children}
+        {collaborationPage === identity ? <CollaborationExplanation /> : children}
       </div>
     </PageEntryContext.Provider>
   );

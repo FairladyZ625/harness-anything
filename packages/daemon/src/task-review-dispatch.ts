@@ -20,6 +20,7 @@ import { isAgentDeclarationInvalid, readAgentDeclarationResolution } from "./age
 import { agentDeclaresExplicitModels } from "./agent-runtime-contract.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import { reviewDispatchKey } from "./review-dispatch-key.ts";
+import { activeCutReviewDispatches, reviewAttemptEnded } from "./review-dispatch-state.ts";
 
 export { reviewDispatchKey } from "./review-dispatch-key.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
@@ -219,16 +220,6 @@ export async function dispatchDecisionReview(
 
 function reviewAttemptKey(base: string, attempt: number): string {
   return attempt === 0 ? base : `${base}:attempt${String(attempt)}`;
-}
-
-function reviewAttemptEnded(cell: RepoCellOperationalContext, runtimeSessionId: string): boolean {
-  return cell.projection
-    .readRuntimeSessionEvents(runtimeSessionId, 0, 10_000)
-    .some((event) =>
-      ["runtime_session_exited", "runtime_session_outcome_observed", "runtime_dispatch_outcome_unknown"].includes(
-        event.type,
-      ),
-    );
 }
 
 type ReviewerContinuation = {
@@ -661,27 +652,6 @@ function reviewDispatchAttempt(cell: RepoCellOperationalContext, baseKey: string
   };
 }
 
-/** A task cut can have only one active primary reviewer, including keys written before migration. */
-export function activeCutReviewDispatches(
-  cell: RepoCellOperationalContext,
-  taskId: string,
-  execution: ExecutionV1,
-): ReturnType<RepoCellOperationalContext["projection"]["readRuntimeDispatchesByTaskExecution"]> {
-  const baseKey = reviewDispatchKey(taskId, execution);
-  return cell.projection.readRuntimeDispatchesByTaskExecution(taskId, execution.executionId).filter(({ event }) => {
-    const payload = event.payload,
-      key = payload.dispatchKey,
-      suffix = typeof key === "string" && key.startsWith(baseKey) ? key.slice(baseKey.length) : null,
-      isCutReviewKey =
-        suffix === "" ||
-        /^:reviewer:[^:]+(?::attempt[1-9][0-9]*)?(?::fallback:[1-9][0-9]*)?(?::resume-fallback)?$/u.test(
-          suffix ?? "",
-        ) ||
-        /^:attempt[1-9][0-9]*(?::fallback:[1-9][0-9]*)?(?::resume-fallback)?$/u.test(suffix ?? "");
-    return payload.role === "reviewer" && isCutReviewKey && !reviewAttemptEnded(cell, payload.runtimeSessionId);
-  });
-}
-
 /**
  * The automatic reviewer dispatch for a task's in-review cut, after a durable write that left the
  * cut without a current review: submit, amend, resumed submit, and an owner's explicit reviewer
@@ -716,8 +686,16 @@ export async function dispatchInReviewCutReview(
   if (selection.kind === "escalated")
     return {
       seat: { reviewerId: selection.reviewers.join(", "), source: "path" },
-      step: cell.failed(receipt.opId, cell.cellCodedError("review_dispatch_failed", selection.reason)),
-      warnings: [selection.reason],
+      step: cell.failed(
+        receipt.opId,
+        cell.cellCodedError(
+          "review_dispatch_failed",
+          `${selection.reason} Ask the CEO to select a reviewer with ha task dispatch-review ${taskId} --agent <agent-id>; workers cannot dispatch reviewers.`,
+        ),
+      ),
+      warnings: [
+        `${selection.reason} Ask the CEO to select a reviewer with ha task dispatch-review ${taskId} --agent <agent-id>; workers cannot dispatch reviewers.`,
+      ],
     };
   const { seat } = selection,
     { reviewerId } = seat,
@@ -761,7 +739,8 @@ export async function dispatchInReviewCutReview(
             cell.cellCodedError(
               "review_dispatch_failed",
               `Task ${taskId} is already in_review. Reviewer ${reviewerId} dispatch failed: ${dispatch.error} ` +
-                `Recover with ha task dispatch-review ${taskId} --agent ${reviewerId}.`,
+                `Ask the CEO to recover with ha task dispatch-review ${taskId} --agent ${reviewerId}. ` +
+                "Workers cannot dispatch reviewers; give the CEO this submit receipt.",
             ),
           )
         : ({
@@ -776,7 +755,8 @@ export async function dispatchInReviewCutReview(
       dispatch.outcome === "failed"
         ? [
             `Task ${taskId}'s review seat ${reviewerId} dispatch failed: ${dispatch.error ?? "unknown error"}. ` +
-              `Recover with ha task dispatch-review ${taskId}.`,
+              `Ask the CEO to recover with ha task dispatch-review ${taskId}. ` +
+              "Workers cannot dispatch reviewers; give the CEO this submit receipt.",
           ]
         : [],
   };

@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { IdentityManagementPort, ManagedRbacRequest } from "@harness-anything/kernel";
 import { ensureBuiltinConfig } from "./state.ts";
+import { identityPluginRequired } from "./collaboration.ts";
 
 export class BuiltinIdentityManagement implements IdentityManagementPort {
   readonly #root: string;
@@ -49,12 +50,13 @@ export class BuiltinIdentityManagement implements IdentityManagementPort {
         const result = await this.#external.run(request);
         return { ...result, restartRequired: true };
       }
-      throw Object.assign(new Error("Install the Keycloak identity plugin before selecting an external provider."), {
-        code: "identity_plugin_unavailable",
-      });
+      throw identityPluginRequired();
     }
     ensureBuiltinConfig(this.#root);
     if (request.operation === "health") return this.health();
+    if (request.operation === "listener-set") throw identityPluginRequired();
+    if (request.operation === "listener")
+      return { ok: true, command: "rbac-listener", listener: null, version: "builtin-local" };
     return {
       ok: true,
       command: `rbac-${request.operation ?? "bootstrap"}`,

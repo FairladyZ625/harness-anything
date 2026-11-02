@@ -115,6 +115,7 @@ export async function openLane({
   startDriver,
   runtimeInstance,
   decisionProviderCredentials,
+  identityProvider,
 }) {
   if (lane === "canonical") {
     await warmDaemonProjection({ rootDir: workspaceRoot, workspaceRoot, env });
@@ -149,58 +150,66 @@ export async function openLane({
   try {
     // Provider scenarios need a machine catalog, not synthetic task executions.
     fixture = await startGuiResidentDaemonFixture(
-      runtimeInstance
+      identityProvider === "builtin"
         ? {
             prefix: "hg-",
             daemonId: "g",
             repoId: "gui-e2e-catalog",
-            runtimeInstance,
-            decisionProviderCredentials,
+            identityProvider,
+            task: { taskId: "task-builtin", title: "Builtin owner task" },
           }
-        : {
-            prefix: "hg-",
-            daemonId: "g",
-            repoId: "gui-e2e-catalog",
-            task: { taskId: "task-gui-smoke", title: "Render the real triadic projection" },
-            // 协作种子的指派目标账号(assign RPC 会在目录里核人,不登记则 person_not_found)。
-            keycloakSetup: (keycloak) => {
-              keycloak.account("person-ada");
-              keycloak.account("person-bo");
-              // project-switch-restore / project-windows 场景自建的第二个仓:与主仓同 scope 授权 person-gui。
-              keycloak.permit(
-                "person-gui",
-                "gui-e2e-restore",
-                effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"),
-              );
-              keycloak.permit(
-                "person-gui",
-                "gui-e2e-windows",
-                effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"),
-              );
+        : runtimeInstance
+          ? {
+              prefix: "hg-",
+              daemonId: "g",
+              repoId: "gui-e2e-catalog",
+              runtimeInstance,
+              decisionProviderCredentials,
+            }
+          : {
+              prefix: "hg-",
+              daemonId: "g",
+              repoId: "gui-e2e-catalog",
+              task: { taskId: "task-gui-smoke", title: "Render the real triadic projection" },
+              // 协作种子的指派目标账号(assign RPC 会在目录里核人,不登记则 person_not_found)。
+              keycloakSetup: (keycloak) => {
+                keycloak.account("person-ada");
+                keycloak.account("person-bo");
+                // project-switch-restore / project-windows 场景自建的第二个仓:与主仓同 scope 授权 person-gui。
+                keycloak.permit(
+                  "person-gui",
+                  "gui-e2e-restore",
+                  effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"),
+                );
+                keycloak.permit(
+                  "person-gui",
+                  "gui-e2e-windows",
+                  effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"),
+                );
+              },
+              afterRestart: seedTriadicReviewAwait,
+              // 层次 fixture 的任务实体要在 daemon 停机前经 repo.task.create 落进投影;
+              // 事件与派工归档仍在停机窗口里种(sessions-grouping 场景自持)。
+              beforeStop: async (endpoint, repoId) => {
+                sessionTaskPackages = await seedGuiE2eSessionTasks(endpoint, repoId);
+                deliveryTaskPackages = await seedGuiE2eDeliveryTasks(endpoint, repoId);
+                await seedGuiE2eCollaborationTasks(endpoint, repoId);
+              },
+              beforeRestart: async (rootDir, repoId, writerFence) => {
+                await seedTriadicEvents(rootDir, repoId, writerFence);
+                await seedScheduleRuntimeOrder(rootDir, repoId, writerFence);
+                await seedSupersedeChain(rootDir, repoId, writerFence);
+                await seedGuiE2eRuntimeSessions(rootDir, repoId, writerFence, sessionTaskPackages);
+                await seedGuiE2eDeliverySessions(rootDir, repoId, writerFence);
+                await seedGuiE2eCollaborationLeases(rootDir, repoId, writerFence);
+              },
             },
-            afterRestart: seedTriadicReviewAwait,
-            // 层次 fixture 的任务实体要在 daemon 停机前经 repo.task.create 落进投影;
-            // 事件与派工归档仍在停机窗口里种(sessions-grouping 场景自持)。
-            beforeStop: async (endpoint, repoId) => {
-              sessionTaskPackages = await seedGuiE2eSessionTasks(endpoint, repoId);
-              deliveryTaskPackages = await seedGuiE2eDeliveryTasks(endpoint, repoId);
-              await seedGuiE2eCollaborationTasks(endpoint, repoId);
-            },
-            beforeRestart: async (rootDir, repoId, writerFence) => {
-              await seedTriadicEvents(rootDir, repoId, writerFence);
-              await seedScheduleRuntimeOrder(rootDir, repoId, writerFence);
-              await seedSupersedeChain(rootDir, repoId, writerFence);
-              await seedGuiE2eRuntimeSessions(rootDir, repoId, writerFence, sessionTaskPackages);
-              await seedGuiE2eDeliverySessions(rootDir, repoId, writerFence);
-              await seedGuiE2eCollaborationLeases(rootDir, repoId, writerFence);
-            },
-          },
     );
   } finally {
     if (originalTmpdir === undefined) delete process.env.TMPDIR;
     else process.env.TMPDIR = originalTmpdir;
   }
-  if (!runtimeInstance) {
+  if (!runtimeInstance && identityProvider !== "builtin") {
     writeTriadicLedger(fixture.rootDir);
     writeHtmlPreviewArtifact(fixture.rootDir, fixture.packagePath);
     writeRawArtifact(fixture.rootDir, fixture.packagePath);
@@ -214,6 +223,7 @@ export async function openLane({
   try {
     driver = await startDriver({
       workspaceRoot,
+      mainPath: path.join(workspaceRoot, "packages/gui/dist-electron/electron-main.js"),
       rootDir: fixture.rootDir,
       env: isolatedEnv,
       runRoot,

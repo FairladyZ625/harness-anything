@@ -1,4 +1,4 @@
-import type { RuntimeExecutionPrincipal } from "@harness-anything/kernel";
+import type { AuthorizationGrant, AuthorizationPolicyGroup, RuntimeExecutionPrincipal } from "@harness-anything/kernel";
 import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -28,6 +28,9 @@ export interface BuiltinState {
   readonly sessions: readonly BuiltinSessionRecord[];
   readonly repositoryOwners: Readonly<Record<string, string>>;
   readonly sessionLifetimeSeconds: number;
+  readonly policyGroups?: readonly AuthorizationPolicyGroup[];
+  /** Stored grants replace the initial owner's derived grants once policy is edited. */
+  readonly grants?: readonly (AuthorizationGrant & { readonly scopes: readonly string[] })[];
 }
 export interface BuiltinConfig {
   readonly schema: "harness-builtin-rbac/v1";

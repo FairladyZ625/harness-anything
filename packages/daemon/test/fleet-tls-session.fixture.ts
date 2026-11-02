@@ -126,6 +126,7 @@ export async function fleetFixture(
       }
     }
   });
+  owners.keycloak.accessAdmin("person-owner");
   signInAt(userRoot, "person-owner");
   await host.attachmentsSettled();
   const subject: FleetTestSubject = {
