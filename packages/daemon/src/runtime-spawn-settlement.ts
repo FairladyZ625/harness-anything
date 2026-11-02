@@ -479,7 +479,7 @@ export async function publishExit(
                   decisionReviewRegistered(context, active.decisionReviewTarget, active.dispatchId))));
         if (!reviewWasRecorded && !reviewSuperseded.superseded) {
           outcome = cancelled ? "cancelled" : "failed";
-          reasonCode = reviewResultMissing ? "review_result_missing" : "runtime_archive_failed";
+          reasonCode = "runtime_archive_failed";
         }
         // The worker result is independently durable input to this settlement.
         // Preserve it in the terminal content while appending the reason that
