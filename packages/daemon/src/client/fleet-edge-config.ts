@@ -5,7 +5,10 @@
 // `ha daemon fleet edge sync` writes it; the resident replica stream reads it.
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { writeFileDurably } from "@harness-anything/storage";
+// The durable-write helper is imported from its module, not the storage barrel: this file is
+// loaded by the thin CLI on every task read/write command, and the barrel pulls the whole
+// storage graph (pglite, pg, projections) into that process for one synchronous write.
+import { writeFileDurably } from "../../../storage/src/durable-file.ts";
 export interface FleetEdgeConfig {
   readonly repoId: string;
   readonly host: string;
