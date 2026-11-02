@@ -55,11 +55,11 @@ export function systemCaCertificates(): readonly string[] {
 export async function fetchWithTlsCa(
   fetcher: typeof fetch,
   ca: string | readonly string[],
-  input: string | URL,
+  input: string | URL | Request,
   init?: RequestInit,
   servername?: string,
 ): Promise<Response> {
-  if (new URL(input).protocol !== "https:") return fetcher(input, init);
+  if (new URL(input instanceof Request ? input.url : input).protocol !== "https:") return fetcher(input, init);
   const dispatcher = new Agent({
     connect: {
       ca: typeof ca === "string" ? ca : [...ca],

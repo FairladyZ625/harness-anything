@@ -2,7 +2,9 @@
 
 Harness Anything uses a local identity provider by default. First startup writes only `rbac/config.json` and `rbac/builtin-state.json` under the user root; it does not download Java, Keycloak, or PostgreSQL. The built-in provider is deliberately single-machine and single-user: it supports the first local administrator, that user's session, and local repository authorization.
 
-Teams, additional accounts, group and grant administration, node credentials, edge join, Fleet center/edge transport, remote GUI login, and remote session renewal are collaboration features. They are rejected by the built-in provider with an instruction to install the Keycloak plugin. There is no second authorization path. Passwords use Node's `crypto.scrypt`, and local session values are opaque random values.
+The local owner has a real directory entry, no teams or remote nodes, and editable policy groups and grants. Local work briefs, agenda, and assignment selectors use these same identity ports. Removing a grant removes its authority, including for the owner.
+
+Teams, additional accounts, node credentials, edge join, Fleet center/edge transport, remote GUI login, and remote session renewal are collaboration features. They are rejected by the built-in provider with the single `identity_plugin_required` error code and an instruction to install the Keycloak plugin. The GUI renders that code through its shared collaboration explanation; ordinary pages remain available. There is no second authorization path. Passwords use Node's `crypto.scrypt`, and local session values are opaque random values.
 
 <a id="keycloak-plugin"></a>
 

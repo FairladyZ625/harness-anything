@@ -35,8 +35,6 @@ export interface IdentitySessionPort {
   }>;
   /** Whether a Keycloak authority exists at all; without one no request can ever authorize, so callers guide to ha bootstrap. */
   configured(): boolean;
-  /** Rejects collaboration-only operations when the selected provider is single-machine builtin. */
-  requireCollaboration(): void;
   /** Whether the daemon has the center service credential needed for ownership claims. */
   centerConfigured(): boolean;
   /**

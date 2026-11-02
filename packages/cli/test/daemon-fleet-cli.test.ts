@@ -527,6 +527,8 @@ test(
         registration = ["bootstrap", "--operation", "node-register", "--node-id", "edge-one"],
         registerArgs = [...registration, "--person-id", "edge-operator", "--operation-id", "register-edge-one"],
         nodes = () => run(fixture, "center", ["bootstrap", "--operation", "node-list"]).nodes;
+      await realm.control({ op: "account", personId: "person-admin" });
+      await realm.control({ op: "permit", personId: "person-admin", resource: "@fleet", actions: ["access-manage"] });
       signInAt(fixture.centerUser, "person-admin");
       //    The credential is minted once, so a registration with no file to receive it is refused before
       //    Keycloak is written, and so is one whose file is already somebody's.

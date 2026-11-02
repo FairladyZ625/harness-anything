@@ -558,10 +558,6 @@ export class OidcSessionService {
     return existsSync(path.join(this.#rbacRoot, "config.json"));
   }
 
-  requireCollaboration(): void {
-    // Keycloak is the collaboration-capable provider; this is a no-op gate.
-  }
-
   /** Whether the daemon has the center service credential needed for ownership claims. */
   centerConfigured(): boolean {
     return this.configured() && existsSync(path.join(this.#rbacRoot, "center-client-secret"));
@@ -676,10 +672,12 @@ export class OidcSessionService {
 
   async requireAccessManagement(loginTarget?: string, withinWriter = false): Promise<StoredSession> {
     const session = await this.requireSession(loginTarget, withinWriter),
-      center = await this.center(),
-      decision = await center.provider.authorizePerson({
-        adminAccessToken: center.accessToken,
-        personId: session.personId,
+      authority = session.authority ?? (await this.#loginAuthority(session.loginTarget)),
+      provider = new KeycloakPolicyAdapter({ ...authority, resourceServerClientId: "harness-center" }, (input, init) =>
+        this.#fetchAuthority(authority, input, init),
+      ),
+      decision = await provider.authorize({
+        userAccessToken: session.accessToken,
         action: "access-manage",
         resource: { kind: "fleet" },
       });
@@ -1008,7 +1006,7 @@ export class OidcSessionService {
 
   async #fetchAuthority(
     authority: Pick<OidcLoginAuthority, "url" | "realm" | "certificate" | "servername">,
-    input: string | URL,
+    input: string | URL | Request,
     init?: RequestInit,
   ): Promise<Response> {
     const ca = authority.certificate ?? this.#defaultCaCertificates();
@@ -1025,7 +1023,7 @@ export class OidcSessionService {
 
   #fetchWithCa(
     ca: string | readonly string[],
-    input: string | URL,
+    input: string | URL | Request,
     init?: RequestInit,
     servername?: string,
   ): Promise<Response> {

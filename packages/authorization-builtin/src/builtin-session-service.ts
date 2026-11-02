@@ -105,6 +105,7 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
   ): Promise<Record<string, unknown>> {
     const external = this.#externalSession(loginTarget);
     if (external) return external.beginDevice(loginTarget, _authorityOverride, expiresAtLimit);
+    if (_authorityOverride) throw identityPluginRequired();
     this.#assertLocalLoginTarget(loginTarget);
     const now = Date.now(),
       expiresAt = Math.min(now + 10 * 60_000, expiresAtLimit ?? Number.POSITIVE_INFINITY),
@@ -187,8 +188,7 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
   async interactiveAuthority(): Promise<{ readonly url: string; readonly realm: string; readonly clientId: string }> {
     const external = this.#externalSession();
     if (external) return external.interactiveAuthority();
-    this.requireCollaboration();
-    return { url: "builtin://local", realm: "local", clientId: "harness-center" };
+    throw identityPluginRequired();
   }
   configured(): boolean {
     const external = this.#externalSession();
@@ -201,11 +201,6 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
     if (external) return external.centerConfigured();
     return this.configured();
   }
-  requireCollaboration(): void {
-    const external = this.#externalSession();
-    if (external) return external.requireCollaboration();
-    throw identityPluginRequired();
-  }
   async bind<T extends IdentityAuthenticationContext>(
     auth: T,
     loginTarget?: string,
@@ -213,6 +208,7 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
   ): Promise<T & IdentityAuthenticationContext> {
     const external = this.#externalSession(loginTarget);
     if (external) return external.bind(auth, loginTarget, replicaRead);
+    if (auth.transportKind === "fleet-tls") throw identityPluginRequired();
     this.#assertLocalLoginTarget(loginTarget);
     const session = this.#readSession();
     if (!session) return auth;
@@ -257,7 +253,15 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
     const external = this.#externalSession(loginTarget);
     if (external) return external.requireAccessManagement(loginTarget, withinWriter);
     this.#assertLocalLoginTarget(loginTarget);
-    return this.#requireOwnerSession();
+    const session = this.#requireOwnerSession(),
+      decision = await this.#adapter.authorize({
+        userAccessToken: session.accessToken,
+        action: "access-manage",
+        resource: { kind: "fleet" },
+      });
+    if (decision.outcome !== "allowed")
+      throw coded("authorization_denied", "Access management requires an access-manage grant on @fleet.");
+    return session;
   }
   async requireSession(loginTarget?: string): Promise<StoredSession> {
     const external = this.#externalSession(loginTarget);
@@ -279,7 +283,7 @@ export class BuiltinIdentitySession implements IdentitySessionPort {
     if (external) return external.configureAuthority(operation, loginTarget);
     this.#assertLocalLoginTarget(loginTarget);
     return this.serialize(async () => {
-      if (this.#adapter.owner()) this.#requireOwnerSession();
+      if (this.#adapter.owner()) await this.requireAccessManagement(loginTarget, true);
       else ensureBuiltinConfig(this.#root);
       return operation();
     });

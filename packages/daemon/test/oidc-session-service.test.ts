@@ -492,6 +492,7 @@ test("first administrator closes after one success and fleet policy admin withou
         if (url.endsWith("/.well-known/openid-configuration")) return Response.json({ issuer: testIssuer });
         if (url.endsWith("/protocol/openid-connect/token")) {
           const body = String(init?.body ?? "");
+          if (body.includes("uma-ticket")) return keycloak.fetch(input, init);
           return body.includes("authorization_code")
             ? Response.json({ access_token: jwt, refresh_token: "refresh", expires_in: 60, refresh_expires_in: 21_600 })
             : Response.json({ access_token: "center-token" });
@@ -510,6 +511,7 @@ test("first administrator closes after one success and fleet policy admin withou
   };
   assert.deepEqual(await service.bootstrapAdmin(admin), { ok: true, created: true, personId: "person-owner" });
   await assert.rejects(service.bootstrapAdmin(admin), { code: "bootstrap_admin_closed" });
+  keycloak.interactiveSession("person-owner", "local", "http://127.0.0.1:8080", jwt);
   const login = await service.begin("http://127.0.0.1:1234/callback");
   await service.complete("code", String(login.state));
   assert.deepEqual(
@@ -541,6 +543,7 @@ test("an invitation inside the OIDC write queue renews a lapsing session in plac
         if (url.endsWith("/.well-known/openid-configuration")) return Response.json({ issuer: testIssuer });
         if (url.endsWith("/protocol/openid-connect/token")) {
           const form = init?.body as URLSearchParams;
+          if (form.get("grant_type")?.includes("uma-ticket")) return keycloak.fetch(input, init);
           if (form.get("grant_type") === "refresh_token") {
             refreshes += 1;
             return Response.json({
@@ -560,6 +563,7 @@ test("an invitation inside the OIDC write queue renews a lapsing session in plac
         return keycloak.fetch(input, init);
       }) as typeof fetch,
     });
+  keycloak.interactiveSession("person-admin", "local", "http://127.0.0.1:8080", adminJwt);
   // The stored session sits inside the 30s renewal margin, so its next use must renew before authorizing.
   sessionStore(root).write(
     JSON.stringify({

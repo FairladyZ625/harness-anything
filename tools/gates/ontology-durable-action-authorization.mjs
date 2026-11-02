@@ -228,7 +228,7 @@ function accessManagementAuthority(analysis) {
       calls(run, "requireAccessManagement") &&
       calls(session, "requireSession") &&
       syntax(session).includes(
-        'center.provider.authorizePerson({adminAccessToken:center.accessToken,personId:session.personId,action:"access-manage",resource:{kind:"fleet"},})',
+        'provider.authorize({userAccessToken:session.accessToken,action:"access-manage",resource:{kind:"fleet"},})',
       ) &&
       someNode(
         session,

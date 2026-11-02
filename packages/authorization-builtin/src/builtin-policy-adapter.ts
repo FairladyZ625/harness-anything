@@ -1,5 +1,6 @@
 import {
   actionDeclarations,
+  baseEntityPolicyActions,
   executionCredentialRejected,
   type RuntimeExecutionPrincipal,
   assertAcyclicPolicyGroups,
@@ -55,7 +56,7 @@ export class BuiltinPolicyAdapter
   readonly deniedReasonCode = "builtin_denied";
   readonly sessionLifetimeBounds = builtinSessionLifetimeBounds;
   readonly #root: string;
-  readonly #knownScopes = new Set(actionDeclarations.map((item) => item.policyAction));
+  readonly #knownScopes = new Set([...actionDeclarations.map((item) => item.policyAction), ...baseEntityPolicyActions]);
   readonly #readArtifactActionScopes: () => Promise<readonly string[]>;
   #centerToken: string | undefined;
   constructor(config: BuiltinPolicyAdapterConfig) {
@@ -113,11 +114,15 @@ export class BuiltinPolicyAdapter
     const artifactScopes = await this.#readArtifactActionScopes(),
       base = deriveBasePolicyGroups(actionDeclarations, artifactScopes);
     assertAcyclicPolicyGroups(base);
+    await this.materializeGrants(token);
     return Object.freeze({ scopeCount: this.#knownScopes.size + artifactScopes.length, groupCount: base.length });
   }
   validatePolicyGroups(groups: readonly PolicyGroup[]): void {
-    void groups;
-    throw identityPluginRequired();
+    assertAcyclicPolicyGroups(groups);
+    for (const group of groups)
+      for (const scope of group.scopes)
+        if (!this.#knownScopes.has(scope) && !registeredArtifactActionPolicyActions().includes(scope))
+          throw new Error(`Unknown built-in action scope ${scope}.`);
   }
   syncLoginClients(token: string): Promise<void> {
     this.#assertCenter(token);
@@ -125,7 +130,11 @@ export class BuiltinPolicyAdapter
   }
   async readPolicyGroups(token: string): Promise<readonly BuiltinPolicyGroup[]> {
     this.#assertCenter(token);
-    throw identityPluginRequired();
+    const scopes = await this.#readArtifactActionScopes();
+    return [
+      ...deriveBasePolicyGroups(actionDeclarations, scopes).map((group) => ({ ...group, displayName: group.id })),
+      ...(readState(this.#root).policyGroups ?? []),
+    ];
   }
   async writePolicyGroup(
     token: string,
@@ -133,24 +142,34 @@ export class BuiltinPolicyAdapter
     current: BuiltinPolicyGroup | undefined,
   ): Promise<void> {
     this.#assertCenter(token);
-    void group;
     void current;
-    throw identityPluginRequired();
+    await this.#write(token, (state) => ({
+      ...state,
+      policyGroups: [...(state.policyGroups ?? []).filter((item) => item.id !== group.id), group],
+    }));
   }
   async deletePolicyGroup(token: string, groupId: string): Promise<void> {
     this.#assertCenter(token);
-    void groupId;
-    throw identityPluginRequired();
+    await this.#write(token, (state) => ({
+      ...state,
+      policyGroups: (state.policyGroups ?? []).filter((item) => item.id !== groupId),
+    }));
   }
   async readGrants(token: string): Promise<readonly AuthorizationGrant[]> {
     this.#assertCenter(token);
-    throw identityPluginRequired();
+    return this.#grants(readState(this.#root)).map(({ scopes: _scopes, ...grant }) => grant);
   }
   async writeGrant(token: string, grant: AuthorizationGrant, scopes: readonly string[]): Promise<void> {
     this.#assertCenter(token);
-    void grant;
-    void scopes;
-    throw identityPluginRequired();
+    const owner = this.owner();
+    if (grant.userIds.some((userId) => userId !== owner?.userId)) throw identityPluginRequired();
+    await this.#write(token, (state) => ({
+      ...state,
+      grants: [
+        ...this.#grants(state).filter((item) => item.groupId !== grant.groupId || item.resource !== grant.resource),
+        ...(grant.userIds.length ? [{ ...grant, scopes }] : []),
+      ],
+    }));
   }
   async claimRepositoryOwner(token: string, repoId: string, personId: string): Promise<void> {
     this.#assertCenter(token);
@@ -169,17 +188,30 @@ export class BuiltinPolicyAdapter
       ...next,
       repositoryOwners: { ...next.repositoryOwners, [repoId]: personId },
     }));
+    if (!owner)
+      await this.writeGrant(
+        token,
+        { groupId: "admin", resource: repoId, userIds: [user.userId] },
+        effectivePolicyGroupScopes(await this.readPolicyGroups(token), "admin"),
+      );
   }
   async materializeGrants(token: string, groupIds?: ReadonlySet<string>): Promise<void> {
     this.#assertCenter(token);
-    void groupIds;
-    throw identityPluginRequired();
+    const groups = await this.readPolicyGroups(token);
+    for (const grant of await this.readGrants(token))
+      if (groupIds?.has(grant.groupId) ?? true)
+        await this.writeGrant(
+          token,
+          grant,
+          groups.some((group) => group.id === grant.groupId) ? effectivePolicyGroupScopes(groups, grant.groupId) : [],
+        );
   }
   async readPeople(
     token: string,
   ): Promise<readonly { readonly userId: string; readonly personId: string; readonly username: string }[]> {
     this.#assertCenter(token);
-    throw identityPluginRequired();
+    const owner = this.owner();
+    return owner ? [{ userId: owner.userId, personId: owner.personId, username: owner.username }] : [];
   }
   async findUserId(token: string, personId: string): Promise<string | undefined> {
     this.#assertCenter(token);
@@ -188,8 +220,11 @@ export class BuiltinPolicyAdapter
   }
   async readPersonTeams(token: string, personId: string): Promise<readonly string[]> {
     this.#assertCenter(token);
-    void personId;
-    throw identityPluginRequired();
+    if (this.owner()?.personId !== personId)
+      throw Object.assign(new Error(`No built-in account carries Harness person ${personId}.`), {
+        code: "access_person_unknown",
+      });
+    return [];
   }
   async readTeam(token: string, teamId: string): Promise<{ readonly id: string; readonly name: string }> {
     this.#assertCenter(token);
@@ -198,7 +233,7 @@ export class BuiltinPolicyAdapter
   }
   async readTeams(token: string): Promise<readonly { readonly id: string; readonly name: string }[]> {
     this.#assertCenter(token);
-    throw identityPluginRequired();
+    return [];
   }
   async readTeamMembers(token: string, teamId: string): Promise<readonly string[]> {
     this.#assertCenter(token);
@@ -230,12 +265,12 @@ export class BuiltinPolicyAdapter
   }
   async readNodes(token: string): Promise<readonly BuiltinNode[]> {
     this.#assertCenter(token);
-    throw identityPluginRequired();
+    return [];
   }
   async readNode(token: string, nodeId: string): Promise<BuiltinNode | undefined> {
     this.#assertCenter(token);
     void nodeId;
-    throw identityPluginRequired();
+    return undefined;
   }
   async createNode(
     token: string,
@@ -276,8 +311,7 @@ export class BuiltinPolicyAdapter
   }
   async revokeNodes(token: string, nodes: readonly BuiltinNode[]): Promise<void> {
     this.#assertCenter(token);
-    void nodes;
-    throw identityPluginRequired();
+    if (nodes.length) throw identityPluginRequired();
   }
   async revokeNodeConsent(token: string, nodeId: string, _consentPersonId?: string): Promise<void> {
     this.#assertCenter(token);
@@ -287,7 +321,7 @@ export class BuiltinPolicyAdapter
   async authenticateNode(nodeId: string, credential: string): Promise<boolean> {
     void nodeId;
     void credential;
-    throw identityPluginRequired();
+    return false;
   }
   async authorize(input: {
     readonly userAccessToken: string;
@@ -383,20 +417,38 @@ export class BuiltinPolicyAdapter
     const state = readState(this.#root),
       user = state.owner?.personId === personId ? state.owner : undefined;
     if (!user) return denied(this.deniedReasonCode);
-    const groups = deriveBasePolicyGroups(actionDeclarations, artifactScopes).map((group) => ({
-        ...group,
-        displayName: group.id,
-      })),
-      covered = coveringResources(resourceValue, ancestors);
-    const repositoryResources = Object.entries(state.repositoryOwners)
-      .filter(([, ownerPersonId]) => ownerPersonId === personId)
-      .map(([repoId]) => encodeAuthorizationResource({ kind: "repository", repoId }));
+    // These provider actions address a shared center or another machine. Ordinary
+    // repository and policy administration still use the grants below.
+    switch (action) {
+      case "daemon-fleet-center-start":
+      case "daemon-fleet-edge-sync":
+      case "daemon-node-auto-claim":
+      case "daemon-connection-add":
+      case "daemon-connection-update":
+      case "daemon-connection-remove":
+      case "daemon-connection-probe":
+        throw identityPluginRequired();
+    }
+    const covered = coveringResources(resourceValue, ancestors);
     if (
-      repositoryResources.some((repository) => covered.includes(repository)) &&
-      effectivePolicyGroupScopes(groups, "admin").includes(action)
+      this.#grants(state, artifactScopes).some(
+        (grant) =>
+          grant.userIds.includes(user.userId) && covered.includes(grant.resource) && grant.scopes.includes(action),
+      )
     )
       return Object.freeze({ outcome: "allowed", reasonCode: "builtin_allowed", resource, scope: action });
     return denied(this.deniedReasonCode);
+  }
+  #grants(state: BuiltinState, artifactScopes: readonly string[] = registeredArtifactActionPolicyActions()) {
+    if (state.grants) return state.grants;
+    if (!state.owner) return [];
+    const scopes = effectivePolicyGroupScopes(deriveBasePolicyGroups(actionDeclarations, artifactScopes), "admin");
+    return ["@fleet", ...Object.keys(state.repositoryOwners)].map((resource) => ({
+      groupId: "admin",
+      resource,
+      userIds: [state.owner!.userId],
+      scopes,
+    }));
   }
   #isCenter(token: string): boolean {
     return readState(this.#root).centerTokenHashes.includes(hashToken(token));

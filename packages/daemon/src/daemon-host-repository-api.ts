@@ -455,9 +455,7 @@ export function createDaemonHostRepositoryApi(
         };
       }
       if (request.kind === "register") {
-        const remoteProxy = request.mode === "remote-proxy",
-          remoteEdge = request.mode === "remote-edge";
-        if (remoteProxy || remoteEdge) context.oidc.requireCollaboration();
+        const remoteProxy = request.mode === "remote-proxy";
         const adminBinding = await localSystemActionBinding(context.input.userRoot, "daemon-repo-register", auth, () =>
             remoteProxy
               ? Promise.resolve(localDefaultBinding(auth))
@@ -507,10 +505,6 @@ export function createDaemonHostRepositoryApi(
         const existing = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
             (repo) => repo.repoId === request.repoId,
           ),
-          _collaboration =
-            existing?.mode === "remote-proxy" || existing?.mode === "remote-edge"
-              ? context.oidc.requireCollaboration()
-              : undefined,
           adminBinding = await localSystemActionBinding(context.input.userRoot, "daemon-repo-update", auth, () =>
             existing?.canonicalRoot === null || existing === undefined
               ? Promise.resolve(localDefaultBinding(auth))
@@ -546,7 +540,6 @@ export function createDaemonHostRepositoryApi(
         request.kind === "connection-unregister" ||
         request.kind === "connection-probe"
       ) {
-        context.oidc.requireCollaboration();
         const connectionSubject = "connectionId" in request ? request.connectionId : request.endpoint,
           command =
             request.kind === "connection-register"

@@ -992,7 +992,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       localOnly(auth);
       return (async () => {
         if (request.operation === "edge-join-progress") {
-          oidc.requireCollaboration();
           return { ok: true, command: "edge-join", ...edgeJoinProgress.read() };
         }
         const loginTarget =
@@ -1013,7 +1012,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             return readProviderMode(input.userRoot) === "builtin" ? loginTarget : requireLoginTarget();
           };
         if (request.operation === "edge-join") {
-          oidc.requireCollaboration();
           return joinFleetEdge(
             {
               link: String(request.link ?? ""),
@@ -1035,7 +1033,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         if (request.repoId && !loginTarget)
           throw hostCodedError("repo_namespace_unknown", "Select a registered repository for login.");
         if (request.operation === "listener" && loginTarget) {
-          oidc.requireCollaboration();
           const edge = readFleetEdgeConfig(loginTarget);
           if (edge?.loginUrl && edge.loginBrowserUrl && edge.loginCertificate) {
             const browser = new URL(edge.loginBrowserUrl),
@@ -1097,7 +1094,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           });
         }
         if (request.operation === "invite") {
-          oidc.requireCollaboration();
           const required = [request.username, request.email, request.displayName, request.personId];
           if (required.some((value) => typeof value !== "string" || value.trim() === ""))
             throw hostCodedError("invite_invalid", "Invitation fields must be non-empty strings.");
@@ -1134,7 +1130,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           );
         }
         if (request.operation === "listener-set") {
-          oidc.requireCollaboration();
           return oidc.configureAuthority(() => managedRbac.run(request), requireLoginTarget());
         }
         return requireAuthorizedHostAction({

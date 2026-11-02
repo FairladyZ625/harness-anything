@@ -1,4 +1,7 @@
 {
+  "collaborationExplanation.title": "协作功能",
+  "collaborationExplanation.description": "这是多人或多设备协作功能。内置身份只支持本机使用，安装 Keycloak 插件后即可使用协作功能。",
+  "collaborationExplanation.documentation": "查看 Keycloak 安装说明",
   "shell.nav.todos": "待办清单",
   "todos.title": "待办清单",
   "todos.attached": "关联待办",

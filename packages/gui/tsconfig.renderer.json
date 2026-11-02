@@ -27,6 +27,7 @@
     "src/renderer/**/*.json",
     "src/api/entity-payload-hygiene.ts",
     "src/api/error-consumption.ts",
+    "src/api/collaboration-response.ts",
     "src/api/center-settings-contract.ts",
     "src/api/app-command-contract.ts",
     "src/api/artifact-open-contract.ts",

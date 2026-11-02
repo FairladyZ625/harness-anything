@@ -40,3 +40,19 @@ export function assertUniqueHarnessIpcChannels(methods: ReadonlyArray<string>): 
   }
   return true;
 }
+
+/** Electron drops Error properties; preserve domain failures across this process boundary. */
+export function withIpcDomainErrors(registrar: HarnessIpcRegistrar): HarnessIpcRegistrar {
+  return {
+    on: (channel, listener) => registrar.on(channel, listener),
+    handle: (channel, listener) =>
+      registrar.handle(channel, async (event, payload) => {
+        try {
+          return await listener(event, payload);
+        } catch (error) {
+          if (!(error instanceof Error) || !("code" in error) || typeof error.code !== "string") throw error;
+          return { ipcFailure: { code: error.code, message: error.message } };
+        }
+      }),
+  };
+}

@@ -45,6 +45,7 @@ export async function runGuiE2E(options = {}) {
         runRoot: scenarioRoot,
         startDriver: startGuiDriver,
         runtimeInstance: scenario.runtimeInstance,
+        identityProvider: scenario.identityProvider,
         decisionProviderCredentials: scenario.decisionProviderCredentials,
       });
       const setupMs = Date.now() - setupStartedAt;

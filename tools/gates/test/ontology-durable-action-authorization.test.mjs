@@ -706,7 +706,8 @@ for (const mutation of [
 for (const mutation of [
   ["session identity", "this.requireSession(loginTarget, withinWriter)", "uncheckedSession(loginTarget)"],
   ["fleet scope", 'resource: { kind: "fleet" },', 'resource: { kind: "repository", repoId: "repo-a" },'],
-  ["provider", "center.provider.authorizePerson({", "center.provider.unchecked({"],
+  ["provider", "provider.authorize({", "provider.unchecked({"],
+  ["session credential", "userAccessToken: session.accessToken,", "userAccessToken: forgedToken,"],
   ["denial", 'decision.outcome !== "allowed"', "false"],
 ]) {
   test(`G0-2 rejects access management after removing ${mutation[0]}`, (t) => {

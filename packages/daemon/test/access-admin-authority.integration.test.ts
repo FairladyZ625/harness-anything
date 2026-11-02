@@ -207,7 +207,7 @@ test("a repository admin can reject an entity request through its repository anc
   assert.equal((result.request as { state: string }).state, "rejected");
 });
 
-test("builtin owner has repository admin scopes but permission requests require the collaboration plugin", async (t) => {
+test("builtin owner reads real local policy and requests but cannot approve its own request", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-admin-authority-")),
     session = createIdentitySession(root),
     host = await openDaemonHost({ userRoot: root, daemonId: "builtin-admin-authority", oidc: session });
@@ -245,15 +245,28 @@ test("builtin owner has repository admin scopes but permission requests require 
     ).outcome,
     "allowed",
   );
-  for (const operation of ["permission-request-list", "permission-request-decide", "group-list", "grant-list"])
-    await assert.rejects(
-      host.manageRbac(
-        { rootDir: root, operation },
-        { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: process.getuid?.() ?? 0 } },
-      ),
-      { code: "identity_plugin_required" },
+  const manage = (request: Record<string, unknown>) =>
+    host.manageRbac(
+      { rootDir: root, ...request },
+      { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: process.getuid?.() ?? 0 } },
     );
+  for (const operation of ["permission-request-list", "group-list", "grant-list"])
+    assert.equal((await manage({ operation })).ok, true);
+  const pending = await manage({ operation: "permission-request-create", groupId: "viewer", resource: "repo-a" });
+  const request = pending.request as { requestId: string; version: number };
+  await assert.rejects(
+    manage({
+      operation: "permission-request-decide",
+      requestId: request.requestId,
+      requestVersion: request.version,
+      decision: "approve",
+    }),
+    { code: "authorization_denied" },
+  );
+  await assert.rejects(manage({ operation: "team-create", teamName: "Other people", operationId: "team-negative" }), {
+    code: "identity_plugin_required",
+  });
   t.diagnostic(
-    "OBSERVED builtin: owner repository admin=allowed; permission requests/catalog=identity_plugin_required.",
+    "OBSERVED builtin: local policy and own requests are real; self approval denied; team creation requires plugin.",
   );
 });
