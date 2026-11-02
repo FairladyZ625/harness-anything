@@ -263,13 +263,27 @@ function responseIssues(
     issues.push(
       lifecycleContractIssue("invalid_proof", "review response proof and a non-empty response packet are required"),
     );
-  const seen = new Set<string>();
+  // One index per packet: recorded response keys and every review's blocking finding ids are read
+  // once, so validating an N-response packet against N recorded responses stays linear (G38).
+  const seen = new Set<string>(currentResponses.map((value) => `${value.reviewId}\0${value.findingId}`)),
+    blockingFindings = new Map<string, Set<string>>();
+  for (const review of snapshot.reviews) {
+    if (blockingFindings.has(review.reviewId)) continue;
+    blockingFindings.set(
+      review.reviewId,
+      new Set(
+        review.verdict === "changes_requested"
+          ? (review.findings ?? []).filter((finding) => finding.blocking).map((finding) => finding.findingId)
+          : [],
+      ),
+    );
+  }
   for (const response of command.responses ?? []) {
     issues.push(
       ...validateTaskReviewResponseV1({ ...response, actor: command.actor, respondedAt: command.occurredAt }),
     );
     const key = `${response.reviewId}\0${response.findingId}`;
-    if (seen.has(key) || currentResponses.some((value) => `${value.reviewId}\0${value.findingId}` === key))
+    if (seen.has(key))
       issues.push(
         lifecycleContractIssue(
           "invalid_transition",
@@ -277,9 +291,7 @@ function responseIssues(
         ),
       );
     seen.add(key);
-    const review = snapshot.reviews.find((value) => value.reviewId === response.reviewId);
-    const finding = review?.findings?.find((value) => value.findingId === response.findingId);
-    if (!review || review.verdict !== "changes_requested" || !finding || !finding.blocking)
+    if (!blockingFindings.get(response.reviewId)?.has(response.findingId))
       issues.push(
         lifecycleContractIssue(
           "invalid_transition",
