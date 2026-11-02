@@ -76,7 +76,10 @@ for (let round = 0; round < 30; round += 1) {
   // this child in strict mode, so any escaped rejection fails instead of being filtered.
   await setImmediate();
   assert.equal(socket.writes, 1, "the reply must neither retry nor dispatch a command");
-  assert.equal(errors.length, mode === "close" ? round + 1 : 0);
+  // error-write is a single controlled failure, not a reconnect loop: the live peer's failed
+  // error-reply write is reported through onError (the transport must not swallow it) and then
+  // the fixture promotes that same error so the parent sees an uncaught failure.
+  if (mode !== "error-write") assert.equal(errors.length, mode === "close" ? round + 1 : 0);
   if (mode === "close") {
     const entry = errors[round]!;
     assert.equal(entry.nodeId, "node-one");
@@ -86,5 +89,11 @@ for (let round = 0; round < 30; round += 1) {
   }
   socket.destroy();
   assert.equal(sessions.size, 0, "closed peers must leave the live session registry");
+  if (mode === "error-write") {
+    const surfaced = errors[0]?.error;
+    assert.ok(surfaced instanceof Error, "a live write failure must reach onError");
+    assert.equal(surfaced.message, "fixture error reply failure");
+    throw surfaced;
+  }
 }
 console.log(JSON.stringify({ mode, rounds: 30, handlerErrors: errors.length, unhandledRejections: 0 }));

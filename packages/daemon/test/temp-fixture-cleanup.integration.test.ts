@@ -38,6 +38,10 @@ test("cleanup control", { timeout: 50 }, async (t) => {
     );
     const env = { ...process.env, TMPDIR: temporary, TMP: temporary, TEMP: temporary };
     delete env.NODE_TEST_CONTEXT;
+    // The child only makes its own throwaway repos. Drop the host's GIT_CONFIG_* channel so an
+    // inherited malformed COUNT/KEY pair cannot fail `git init` before cleanup is even observed;
+    // this control must measure fixture release, not the caller's git configuration.
+    for (const key of Object.keys(env)) if (/^GIT_CONFIG_(?:COUNT|KEY_\d+|VALUE_\d+)$/u.test(key)) delete env[key];
     const result = spawnSync(process.execPath, ["--test", script], {
       env,
       encoding: "utf8",

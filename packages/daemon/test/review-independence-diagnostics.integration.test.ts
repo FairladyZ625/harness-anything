@@ -22,6 +22,14 @@ import {
 } from "./review-independence.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
+// A synthetic runtime pid must not name a live host process group. Lease settlement proves a
+// detached runtime stopped with kill(-pid, 0): a real group owned by another user answers EPERM,
+// which is an evidence gap, so the execution lease stays held and the next dispatch is refused.
+// This value is above Linux's maximum pid_max (4_194_304) and macOS's PID_MAX, so the probe always
+// answers ESRCH instead of colliding with a process group that reuses a low pid (the previous
+// 1001+ scheme did exactly that on hosts where 1002 is a live foreign group).
+const syntheticRuntimePid = 9_999_999;
+
 const ciBin = mkdtempSync(path.join(tmpdir(), "ha-review-ci-bin-"));
 const originalPath = process.env.PATH;
 before(() => {
@@ -278,7 +286,7 @@ test("a lightweight child bare-invocation execution closes without a review disp
         prompt: request.prompt,
       }),
       runtimeLaunch: () => ({
-        pid: 1_001,
+        pid: syntheticRuntimePid,
         onOutput: (listener) => {
           queueMicrotask(() => {
             listener(`${JSON.stringify({ type: "thread.started", thread_id: "provider-review-bare" })}\n`);
@@ -865,7 +873,7 @@ test("review binding permits independent runtimes but still rejects the executio
           };
         processes.push(process);
         return {
-          pid: 1_001 + processes.length,
+          pid: syntheticRuntimePid + processes.length,
           onOutput: (listener) => {
             queueMicrotask(() => {
               listener(`${JSON.stringify({ type: "thread.started", thread_id: providerSessionId })}\n`);
