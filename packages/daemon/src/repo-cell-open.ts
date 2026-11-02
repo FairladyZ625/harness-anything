@@ -378,6 +378,7 @@ export async function openRepoWriterCell(
     },
   );
   const schedule = (work: () => void | Promise<void>, binding?: RuntimeAttemptTerminal["binding"]): Promise<void> => {
+    const releaseAuthorization = binding?.retainAuthorization?.();
     queueDepth += 1;
     input.onQueueDepthChange?.(queueDepth);
     const pending = chainRepoCellWrite(tail, async () => {
@@ -389,7 +390,10 @@ export async function openRepoWriterCell(
       // a replacement already superseded. Only a closed cell skips the work entirely.
       if (state !== "closed")
         await recoveryWork.queued(() => (binding ? withWriterEpochBinding(binding, work) : work()));
-    }).finally(() => input.onQueueDepthChange?.(queueDepth));
+    }).finally(() => {
+      releaseAuthorization?.();
+      input.onQueueDepthChange?.(queueDepth);
+    });
     tail = pending.catch(() => undefined);
     void pending.then(
       () => replica.kick(),

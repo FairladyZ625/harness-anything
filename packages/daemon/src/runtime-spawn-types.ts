@@ -81,6 +81,8 @@ export type RuntimeBinding = {
   readonly actor: ActorIdentity;
   readonly source: WriteSource;
   readonly authorizationDecision?: AuthorizationDecision;
+  /** Retain the initiating session across asynchronous work; never persisted in a dispatch. */
+  readonly retainAuthorization?: () => () => void;
 };
 
 export interface ReviewerReviewRecoveryInput {
@@ -197,6 +199,7 @@ export type ActiveRuntime = {
   readonly publicationOwner: "runtime" | "commander";
   readonly parentRuntimeSessionId: string | null;
   readonly binding: RuntimeBinding;
+  readonly releaseAuthorization?: () => void;
   readonly task: RuntimeLeaseScope | null;
   readonly decisionReviewTarget: { readonly decisionId: string; readonly digest: string } | null;
   readonly schedule: TrustedScheduleRuntime | null;

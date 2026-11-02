@@ -42,7 +42,8 @@ export async function cancelRuntime(
     owned =
       ownerBinding !== null &&
       ownerBinding !== undefined &&
-      ownedByRuntimeSpawner(ownerBinding, context.input.runtimeNode) &&
+      ownerBinding.actor?.principal.personId === binding.actor.principal.personId &&
+      ownedByRuntimeSpawner(ownerBinding, context.input.runtimeNode, matchingHeader) &&
       (canonicalDispatch === null ||
         canonicalDispatch === undefined ||
         (canonicalDispatch.actor.principal.personId === binding.actor.principal.personId && sameSource)),
@@ -51,7 +52,7 @@ export async function cancelRuntime(
       !context.processes.has(runtimeSessionId) &&
       (matchingHeader === undefined ||
         (matchingHeader.binding !== undefined &&
-          ownedByRuntimeSpawner(matchingHeader.binding, context.input.runtimeNode) &&
+          ownedByRuntimeSpawner(matchingHeader.binding, context.input.runtimeNode, matchingHeader) &&
           !readDispatchStreamSummary(context.input.rootDir, matchingHeader.dispatchId)?.process));
   if (!owned) {
     const sessions = context.input.remote
@@ -65,9 +66,10 @@ export async function cancelRuntime(
       "This runtime has no owner dispatch on this node; cancel it through its owner.",
     );
   }
-  if (!missingOwnedProcess) assertRuntimeRecoveryReady(context, runtimeSessionId);
   if (!context.processes.has(runtimeSessionId) && !missingOwnedProcess) {
-    const [adoption] = await Promise.allSettled([adoptRuntimes(context, undefined, { runtimeSessionId })]);
+    const [adoption] = await Promise.allSettled([
+      adoptRuntimes(context, undefined, { runtimeSessionId, authorizationBinding: binding }),
+    ]);
     if (adoption.status === "rejected" && !context.processes.has(runtimeSessionId)) throw adoption.reason;
   }
   if (!missingOwnedProcess) assertRuntimeRecoveryReady(context, runtimeSessionId);
@@ -139,6 +141,7 @@ export async function cancelRuntime(
     }
     const terminalBinding = {
       ...binding,
+      source: ownerBinding.source,
       actor: {
         principal: binding.actor.principal,
         executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
@@ -268,7 +271,7 @@ export async function steerRuntime(
     header = current;
   }
   const runtimeSessionId = header.runtimeSessionId;
-  if (!header?.binding || !ownedByRuntimeSpawner(header.binding, context.input.runtimeNode))
+  if (!header?.binding || !ownedByRuntimeSpawner(header.binding, context.input.runtimeNode, header))
     throw runtimeSpawnError("execution_scope_mismatch", "This runtime is owned by another node.");
   assertRuntimeRecoveryReady(context, runtimeSessionId);
   let active = context.processes.get(runtimeSessionId);
@@ -323,5 +326,6 @@ export function closeRuntimes(context: RuntimeSpawnerContext): void {
   for (const entry of active) {
     disposeActiveRuntimeObservations(entry);
     entry.process.release?.();
+    entry.releaseAuthorization?.();
   }
 }
