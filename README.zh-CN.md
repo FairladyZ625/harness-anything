@@ -153,7 +153,7 @@ Harness 会观察自己的失败，把教训变成更强的约束，再把这些
 
 Harness Anything 目前从源码 checkout 运行，需要 Node.js 24+。源码安装统一按
 [harness-download](./skills/harness-download/SKILL.md) 第 1 节执行：它一次构建 CLI、daemon 与 GUI，
-在装依赖前说明 Electron 下载的耗时和体积，并把本次源码的 `ha` 放进当前 shell 的 PATH。
+在装依赖前说明 Electron 下载的耗时和体积，并打印本次源码 `ha` 的绝对路径和可选的 PATH 导出命令（不改写 shell 启动文件）。
 本文不另列一套源码安装命令。
 
 装好后运行 30 秒 smoke demo：
