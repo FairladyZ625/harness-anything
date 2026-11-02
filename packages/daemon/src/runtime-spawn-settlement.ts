@@ -53,9 +53,9 @@ export async function publishExit(
   void settlement.catch(() => undefined);
   active.exitSettlement = settlement;
   let settlementFailed = false;
+  const escalationStop = active.cancelRequested && active.cancelOpId?.endsWith(":escalation") === true;
   try {
     context.exiting.add(active.runtimeSessionId);
-    const escalationStop = active.cancelRequested && active.cancelOpId?.endsWith(":escalation") === true;
     if (escalationStop) {
       // The escalation action returns its pending receipt before the CLI child can exit. Yield
       // that response first, then make terminal settlement own the complete process-tree stop.
@@ -633,8 +633,14 @@ export async function publishExit(
     await publishTerminalOutcome(context, active, terminalBinding, terminalOutcome);
     context.input.remote?.releaseExecutionCredential?.(active.runtimeSessionId);
   } catch (error) {
-    if (context.processes.get(active.runtimeSessionId) === active) context.processes.delete(active.runtimeSessionId);
-    active.process.release?.();
+    const settlementCode = runtimeErrorCode(error);
+    const stopProofPending =
+      escalationStop &&
+      (settlementCode === "runtime_process_group_unproven" || settlementCode === "runtime_lease_release_failed");
+    if (!stopProofPending) {
+      if (context.processes.get(active.runtimeSessionId) === active) context.processes.delete(active.runtimeSessionId);
+      active.process.release?.();
+    }
     settlementFailed = true;
     if (active.exitSettlement === settlement) active.exitSettlement = undefined;
     rejectSettlement(error);
@@ -776,11 +782,29 @@ async function runtimeRulingRequest(context: RuntimeSpawnerContext, active: Acti
     // The execution credential writes the escalation at the center. Pull the serving cut before
     // edge settlement reads the mirrored package, otherwise the edge would archive an ordinary
     // stop and the center could not distinguish a waiting worker from a failed one.
-    const remoteTask = await context.input.remote.taskContext(active.task.taskId),
-      packagePath = path
-        .relative(context.input.rootDir, remoteTask.packageRoot)
-        .replaceAll(path.sep, "/")
-        .replace(/^harness\//u, "");
+    let remoteTask: Awaited<ReturnType<NonNullable<RuntimeSpawnerContext["input"]["remote"]>["taskContext"]>>;
+    try {
+      remoteTask = await context.input.remote.taskContext(
+        active.task.taskId,
+        undefined,
+        active.role === "reviewer" ? { executionId: active.task.executionId } : undefined,
+      );
+    } catch (error) {
+      if (
+        runtimeErrorCode(error) !== "execution_missing" ||
+        active.role === "reviewer" ||
+        active.cancelOpId?.endsWith(":escalation") === true
+      )
+        throw error;
+      // A late ordinary edge callback can outlive the task execution that launched it. It no longer
+      // has an active execution to block, so preserve its ordinary terminal outcome.
+      consumeKnownError(error);
+      return null;
+    }
+    const packagePath = path
+      .relative(context.input.rootDir, remoteTask.packageRoot)
+      .replaceAll(path.sep, "/")
+      .replace(/^harness\//u, "");
     // A freshly written ruling lives in the worker worktree until the next mirror pull. Check that
     // serving cwd first, then the mirrored package and finally the canonical root fallback.
     return (

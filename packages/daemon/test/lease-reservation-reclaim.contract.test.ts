@@ -483,7 +483,11 @@ test("terminal runtime lease release requires a process-group stop proof", () =>
   const terminalCell = {
       ...cell,
       rootDir,
-      projection: { readRuntimeSessionEvents: () => runtimeEvents, readRuntimeDispatch: () => undefined },
+      projection: {
+        read: () => ({ status: "ready", snapshot: snapshot(), packagePath: "tasks/task-orphaned-reservation" }),
+        readRuntimeSessionEvents: () => runtimeEvents,
+        readRuntimeDispatch: () => undefined,
+      },
     },
     terminalAction = {
       kind: "task-release" as const,

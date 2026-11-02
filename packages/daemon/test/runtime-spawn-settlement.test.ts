@@ -748,6 +748,48 @@ test("remote settlement reads a ruling from the worker cwd before the mirrored p
   }
 });
 
+test("remote settlement keeps a late task exit ordinary when its execution is already gone", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-remote-ruling-no-execution-")),
+    outcomes: Record<string, unknown>[] = [],
+    runtime = {
+      ...tasklessSettlementRuntime(rootDir, "worker stopped"),
+      dispatchId: "dispatch_0123456789abcdef01234567",
+      cwd: rootDir,
+      task: { taskId: "task-remote-ruling", executionId: "execution-remote-ruling" },
+    } as ActiveRuntime;
+  try {
+    const context = {
+      exiting: new Set<string>(),
+      processes: new Map([[runtime.runtimeSessionId, runtime]]),
+      input: {
+        repoId: "canonical",
+        rootDir,
+        now: () => "2026-10-07T00:01:00.000Z",
+        stream: { publish: () => ({}) },
+        remote: {
+          archive: async () => ({ outcome: "applied" }),
+          taskContext: async () => {
+            throw Object.assign(new Error("The task has no current execution."), { code: "execution_missing" });
+          },
+        },
+      },
+      resultMediaType: "text/markdown",
+      runtimeResultText: () => "worker stopped",
+      markProtocolError: () => undefined,
+      publishRuntimeEvent: async (type: string, payload: Record<string, unknown>) => {
+        if (type === "runtime_session_outcome_observed") outcomes.push(payload);
+        return {};
+      },
+      settleFallback: async () => undefined,
+    } as unknown as RuntimeSpawnerContext;
+    await publishExit(context, runtime, 0);
+    assert.equal(outcomes[0]?.outcome, "stopped");
+    assert.equal((outcomes[0]?.attempt as { readonly classification?: string })?.classification, "worker_stop");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("a failed attempt persists a one-line reason that references the dispatch stream diagnostics", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-settlement-reason-")),
     outcomes: Record<string, unknown>[] = [],

@@ -37,6 +37,12 @@
       "decision": null,
       "errors": "unreadable worker-side artifacts/rulings/<dispatch-id>.md candidate",
       "reason": "The same read, per candidate path on the worker's own filesystem (worktree ledger mirror, package root, canonical package). A missing or unreadable candidate just moves to the next one, and all-missing keeps the dispatch's ordinary classification; the file is an advisory classification input only. Task-authorized entry, 2026-10-21."
+    },
+    "packages/daemon/src/runtime-spawn-settlement.ts#runtimeRulingRequest": {
+      "task": "task_c42e93a6c384624aba591b9b8b",
+      "decision": null,
+      "errors": "execution_missing on an ordinary late edge callback",
+      "reason": "An ordinary edge callback can arrive after its task execution has already settled and its lease is gone. In that state there is no active execution that a ruling could block, so settlement preserves the ordinary terminal result. Reviewer callbacks and the escalation-specific stop propagate execution_missing."
     }
   },
   "entries": {
@@ -196,6 +202,7 @@
       "packages/daemon/src/runtime-orchestration.ts#worker",
       "packages/daemon/src/runtime-ruling.ts#readDispatchRuling",
       "packages/daemon/src/runtime-ruling.ts#readFileIfPresent",
+      "packages/daemon/src/runtime-spawn-settlement.ts#runtimeRulingRequest",
       "packages/daemon/src/runtime-spawn-fallback.ts#scheduleFallbackContinuation",
       "packages/daemon/src/runtime-spawn-mission.ts#prepareRuntimeInstance",
       "packages/daemon/src/runtime-spawn-process.ts#drain",
