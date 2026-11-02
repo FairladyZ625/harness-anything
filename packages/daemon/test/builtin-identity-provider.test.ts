@@ -23,6 +23,8 @@ test("clean user roots select built-in identity without a managed runtime", asyn
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const management = createIdentityManagement(root);
   assert.ok(management instanceof BuiltinIdentityManagement);
+  assert.deepEqual(await management.run({ operation: "health" }), await management.health());
+  assert.equal((await management.run({ operation: "health" })).ready, true);
   assert.deepEqual(await management.run({ operation: "bootstrap" }), {
     ok: true,
     command: "rbac-bootstrap",
@@ -528,4 +530,62 @@ test("builtin collaboration entry points require the Keycloak plugin", async (t)
   );
   assert.equal(store.status(created.record.joinId).state, "pending");
   await admin.close();
+});
+
+test("device sign-in pages reject expiry at approval and deliver readable results", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-builtin-device-pages-")),
+    session = new BuiltinIdentitySession(root);
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  await session.bootstrapAdmin({
+    username: "owner",
+    email: "owner@example.invalid",
+    displayName: "Owner",
+    personId: "person-owner",
+    password: "synthetic-page-password",
+  });
+  const begin = await session.beginDevice(),
+    uri = String(begin.verificationUri),
+    page = await fetch(uri);
+  assert.equal(page.status, 200);
+  assert.equal(page.headers.get("cache-control"), "no-store");
+  const formPage = await page.text();
+  assert.match(formPage, /<h1>Sign in to Harness<\/h1>/u);
+  assert.doesNotMatch(formPage, /<script|https?:\/\//u, "the sign-in page has no external assets or scripts");
+  const submit = (password: string, userCode = String(begin.userCode)) =>
+    fetch(uri, {
+      method: "POST",
+      body: new URLSearchParams({ username: "owner", password, userCode }),
+    });
+  const rejected = await submit("wrong-page-password");
+  assert.equal(rejected.status, 401);
+  assert.match(await rejected.text(), /Check your sign-in details/u);
+  assert.equal((await session.pollDevice()).pending, true);
+  const accepted = await submit("synthetic-page-password");
+  assert.equal((await session.pollDevice()).authenticated, true);
+  assert.match(await accepted.text(), /You're signed in/u, "the complete response arrives after approval is consumed");
+  assert.equal((await fetch(uri)).status, 410, "a used device link cannot approve again");
+
+  await session.logout();
+  const expiring = await session.beginDevice(),
+    expiryUri = String(expiring.verificationUri),
+    now = Date.now;
+  assert.equal((await fetch(expiryUri)).status, 200);
+  Date.now = () => Number(expiring.expiresAt) + 1;
+  try {
+    const expired = await fetch(expiryUri, {
+      method: "POST",
+      body: new URLSearchParams({
+        username: "owner",
+        password: "synthetic-page-password",
+        userCode: String(expiring.userCode),
+      }),
+    });
+    assert.equal(expired.status, 410);
+    assert.match(await expired.text(), /Sign-in link expired/u);
+    await assert.rejects(session.deviceApproval(String(expiring.userCode)), { code: "oidc_device_missing" });
+    await assert.rejects(session.pollDevice(), { code: "oidc_device_expired" });
+    assert.equal((await session.status()).authenticated, false);
+  } finally {
+    Date.now = now;
+  }
 });

@@ -134,7 +134,7 @@ import type { EdgeJoinSshTunnelManager } from "./fleet/edge-join-ssh-tunnel.ts";
 import type { createEdgeJoinStore } from "./fleet/edge-join.ts";
 import { accessAdminOperations } from "./protocol/daemon-protocol.contract.ts";
 import { createIdentityManagement } from "./authorization-provider.ts";
-import { createIdentitySession } from "./authorization-provider.ts";
+import { createIdentitySession, readProviderMode } from "./authorization-provider.ts";
 import type { SkillEvalRunner } from "./skill-eval-runner.ts";
 import { openSkillEvalProduction, type SkillEvalProductionInput } from "./skill-eval-production.ts";
 import { runFleetReplicaSync, waitForFleetReplicaReady } from "./fleet/replica-sync.ts";
@@ -1006,6 +1006,11 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             if (!loginTarget)
               throw hostCodedError("oidc_center_required", "Select a repository root to choose its identity center.");
             return loginTarget;
+          },
+          // Built-in accounts and sessions belong to the user root, including before init.
+          // Keycloak still requires an explicit repository to choose its identity center.
+          sessionLoginTarget = () => {
+            return readProviderMode(input.userRoot) === "builtin" ? loginTarget : requireLoginTarget();
           };
         if (request.operation === "edge-join") {
           oidc.requireCollaboration();
@@ -1059,7 +1064,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             .then((health) => (request.operation === "bootstrap-status" ? { ...health, required: false } : health));
         if (request.operation === "login")
           return oidc.beginDevice(
-            requireLoginTarget(),
+            sessionLoginTarget(),
             request.loginUrl && request.loginRealm && request.loginClientId
               ? { url: request.loginUrl, realm: request.loginRealm, clientId: request.loginClientId }
               : undefined,
@@ -1067,7 +1072,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         if (request.operation === "login-poll") return oidc.pollDevice();
         if (request.operation === "login-begin") {
           if (!request.redirectUri) throw hostCodedError("oidc_redirect_required", "Login requires redirectUri.");
-          return oidc.begin(request.redirectUri, requireLoginTarget());
+          return oidc.begin(request.redirectUri, sessionLoginTarget());
         }
         if (request.operation === "login-complete") {
           if (!request.code || !request.state)
@@ -1075,9 +1080,9 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           return oidc.complete(request.code, request.state);
         }
         if (request.operation === "device-approval")
-          return oidc.deviceApproval(request.code ?? "", requireLoginTarget());
-        if (request.operation === "session") return oidc.status(requireLoginTarget());
-        if (request.operation === "logout") return oidc.logout(requireLoginTarget());
+          return oidc.deviceApproval(request.code ?? "", sessionLoginTarget());
+        if (request.operation === "session") return oidc.status(sessionLoginTarget());
+        if (request.operation === "logout") return oidc.logout(sessionLoginTarget());
         if (request.operation === "bootstrap-status") return oidc.bootstrapStatus();
         if (request.operation === "bootstrap-admin") {
           const required = [request.username, request.email, request.displayName, request.password, request.personId];

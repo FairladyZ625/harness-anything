@@ -256,3 +256,45 @@ test("local and center repository health still reads the daemon's managed RBAC b
     assert.equal(binding.source, undefined);
   }
 });
+
+test("built-in sessions bootstrap and sign in before any repository exists", async (t) => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-builtin-first-login-")),
+    userRoot = path.join(parent, "user"),
+    host = await openDaemonHost({ userRoot, daemonId: "builtin-first-login", runtimeDiscover: () => [] });
+  t.after(async () => {
+    await host.close();
+    rmSync(parent, { recursive: true, force: true });
+  });
+  const request = (params: Parameters<typeof host.manageRbac>[0]) => host.manageRbac(params, auth);
+  assert.equal(host.status().repos.length, 0);
+  assert.equal((await request({ operation: "session" })).authenticated, false);
+  const health = await request({ operation: "health" });
+  assert.equal(health.mode, "builtin");
+  assert.equal(health.ready, true, "the GUI enables sign-in only for a ready provider");
+  assert.equal((await request({ operation: "bootstrap-status" })).required, true);
+  await request({
+    operation: "bootstrap-admin",
+    username: "owner",
+    email: "owner@example.invalid",
+    displayName: "Owner",
+    password: "synthetic-first-login",
+    personId: "person-owner",
+  });
+  assert.equal((await request({ operation: "bootstrap-status" })).required, false);
+  const login = await request({ operation: "login-begin", redirectUri: "http://127.0.0.1:43123/callback" }),
+    response = await fetch(String(login.authorizationUrl), {
+      method: "POST",
+      redirect: "manual",
+      body: new URLSearchParams({ username: "owner", password: "synthetic-first-login", state: String(login.state) }),
+    }),
+    callback = new URL(response.headers.get("location")!);
+  await request({ operation: "login-complete", code: callback.searchParams.get("code")!, state: String(login.state) });
+  assert.equal((await request({ operation: "session" })).authenticated, true);
+  await request({ operation: "logout" });
+  assert.equal((await request({ operation: "session" })).authenticated, false);
+  const device = await request({ operation: "login" });
+  assert.equal(device.pending, true);
+  assert.equal((await request({ operation: "device-approval", code: String(device.userCode) })).pending, true);
+  await assert.rejects(request({ operation: "session", repoId: "unknown" }), { code: "repo_namespace_unknown" });
+  assert.equal(host.status().repos.length, 0);
+});

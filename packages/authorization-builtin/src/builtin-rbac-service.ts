@@ -54,6 +54,7 @@ export class BuiltinIdentityManagement implements IdentityManagementPort {
       });
     }
     ensureBuiltinConfig(this.#root);
+    if (request.operation === "health") return this.health();
     return {
       ok: true,
       command: `rbac-${request.operation ?? "bootstrap"}`,

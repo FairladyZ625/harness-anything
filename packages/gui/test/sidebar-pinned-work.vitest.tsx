@@ -59,6 +59,7 @@ function mountSidebar(
   pinnedWork: readonly { readonly taskId: string; readonly title: string }[],
   works: WorkIndexRead = WORKS,
   agenda?: AgendaSuccess,
+  activeRepoId: string | null = "repo",
 ) {
   const onNavigate = vi.fn(),
     onUnpinWork = vi.fn(),
@@ -82,7 +83,7 @@ function mountSidebar(
             <AppSidebar
               project={{ name: "harness-anything", preset: "standard-task" } as never}
               repos={[]}
-              activeRepoId="repo"
+              activeRepoId={activeRepoId}
               view="home"
               hasSelection={false}
               poolBadgeCount={undefined}
@@ -348,4 +349,23 @@ it("没有 Needs you 项时角标全都不出现(不冒充需要用户)", async 
   const rows = host.querySelector('[data-testid="sidebar-pinned-list"]')!;
   expect(rows.children[0]!.querySelector(".live-dot-pulse")).toBeNull();
   unmount();
+});
+
+it("shows the signed-in local account before the first repository exists", async () => {
+  const status = vi.fn(async () => ({ authenticated: true, personId: "person-first-owner" }));
+  Object.defineProperty(window, "harness", {
+    configurable: true,
+    value: { auth: { status, bindingStatus: async () => ({ mode: "builtin", ready: true }) } },
+  });
+  const { host, render, unmount } = mountSidebar([], WORKS, undefined, null);
+  try {
+    await render();
+    expect(status).toHaveBeenCalledWith(undefined, undefined);
+    expect(host.querySelector('[data-testid="sidebar-account"]')?.textContent).toContain("内置身份");
+    expect(host.querySelector('[data-testid="sidebar-account"]')?.textContent).not.toContain("Keycloak");
+    expect(host.querySelector('[data-testid="sidebar-account"]')?.textContent).toContain("person-first-owner");
+  } finally {
+    unmount();
+    Reflect.deleteProperty(window, "harness");
+  }
 });

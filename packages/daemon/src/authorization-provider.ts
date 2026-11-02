@@ -147,7 +147,7 @@ export function readArtifactActionScopes(userRoot: string): () => Promise<readon
     return [...byKind.values()].flat().sort();
   };
 }
-function readProviderMode(userRoot: string): "builtin" | "managed" | "external" | "legacy" {
+export function readProviderMode(userRoot: string): "builtin" | "managed" | "external" | "legacy" {
   const file = path.join(userRoot, "rbac", "config.json");
   // A pre-provider edge root has no selector but carries its durable fleet binding. Keep
   // resolving that root through the Keycloak implementation until the operator writes an
