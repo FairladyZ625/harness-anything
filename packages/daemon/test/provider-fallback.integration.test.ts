@@ -257,10 +257,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     assert.doesNotMatch(JSON.stringify(completed), /sk-provider-fallback-secret/u);
     const fallbackPrompt = prompts.get("provider-success-second")?.at(-1) ?? "";
     assert.match(fallbackPrompt, /# Provider fallback continuation/u);
-    assert.match(
-      fallbackPrompt,
-      /上次 attempt 用 provider-rate-first\/provider-success-model 因/u,
-    );
+    assert.match(fallbackPrompt, /上次 attempt 用 provider-rate-first\/provider-success-model 因/u);
     assert.doesNotMatch(fallbackPrompt, /sk-provider-fallback-secret/u);
     const runtimeStatus = await cell.read("repo.agentRuntime.sessions.read", {
       runtimeSessionId: completed[0]!.runtimeSessionId,
