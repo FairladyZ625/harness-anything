@@ -1,3 +1,4 @@
+import { runStorageMigrationAction } from "./storage-migration-action.ts";
 import { runTodoAction } from "./todo-action.ts";
 import { runTaskWitnessAction } from "./task-witness-action.ts";
 import { runRuntimeHandoffAction } from "./runtime-handoff-store.ts";
@@ -159,6 +160,7 @@ export function executeRepoAction(
   }
   if (action.kind === "vertical-kind-list" || action.kind === "vertical-kind-show")
     return readVerticalKindAction(cell, action, binding);
+  if (["migrate-storage"].includes(action.kind)) return runStorageMigrationAction(cell, action, binding);
   if (action.kind === "ledger-reconcile") return runLedgerReconcileAction(cell, action, binding);
   if (action.kind === "entity-pin" || action.kind === "entity-unpin") return runEntityPinAction(cell, action, binding);
   if (action.kind === "runtime-incident-dismiss") return runIncidentDismissAction(cell, action, binding);

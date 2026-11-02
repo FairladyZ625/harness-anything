@@ -19,6 +19,8 @@ export function parseRoutedSpecial(
       ? accepted(rootDir, repoId, json, { kind: "agenda", ...projectFlags(route.id, f) }, route.method)
       : rejected(f.code, f.nextAction, json);
   }
+  if (route.id === "migrate-storage")
+    return parseProjected(route.id, args.slice(2), rootDir, repoId, json, inputs, {}, {}, route.method);
   if (route.id === "migrate-import") {
     const f = readFlags(route.id, args.slice(2), inputs);
     return f.ok

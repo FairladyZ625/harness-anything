@@ -345,7 +345,7 @@
       "packages/storage/src/store/local-version-control-system.ts#removeNode",
       "packages/storage/src/store/local-version-control-system.ts#retireEmptyDirectories",
       "packages/storage/src/store/local-version-control-system.ts#sweepStaleSettlementMarkers",
-      "packages/storage/src/store/sqlite-event-store.ts#configureLedgerConnection",
+      "packages/storage/src/store/sqlite-ledger-connections.ts#configureLedgerConnection",
       "packages/storage/src/store/sqlite-event-store.ts#transaction",
       "packages/storage/src/store/sqlite-ledger-reconcile.ts#reconcileSqliteEvents",
       "packages/storage/src/store/sqlite-task-event-publication.ts#decodeFollowerManifest",

@@ -1,3 +1,4 @@
+import { POSTGRES_STORAGE_MIGRATION_SCHEMA } from "../migration/postgres-schema.ts";
 import { postgresScopeRlsStatements } from "./scope-schema.ts";
 
 export const POSTGRES_EVENT_LEDGER_TABLES = Object.freeze([
@@ -23,6 +24,7 @@ export const POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS: readonly string[] = Object
     writer_holder_id text,
     writer_epoch bigint NOT NULL DEFAULT 0 CHECK (writer_epoch >= 0),
     ${scopeColumns()},
+    migration_control jsonb,
     updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
     PRIMARY KEY (tenant_id, project_id, repo_id),
     CHECK ((revision = 0 AND head_op_id IS NULL AND head_event_digest IS NULL AND head_digest IS NULL)
@@ -120,6 +122,7 @@ export const POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS: readonly string[] = Object
     FOREIGN KEY (tenant_id, project_id, repo_id)
       REFERENCES ha_repo_heads (tenant_id, project_id, repo_id)
   )`,
+  ...POSTGRES_STORAGE_MIGRATION_SCHEMA,
   ...POSTGRES_EVENT_LEDGER_TABLES.flatMap((tableName) => postgresScopeRlsStatements(tableName)),
 ]);
 

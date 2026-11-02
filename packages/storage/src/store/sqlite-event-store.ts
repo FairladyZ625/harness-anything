@@ -1,3 +1,32 @@
+import type {
+  SqliteWriterFence,
+  SqliteLedgerMetadata,
+  SqliteEventRow,
+  SqliteEventIdentity,
+  SqliteDocumentHead,
+  SqliteCommandOutcome,
+  SqliteEventStore,
+  GenerationTwoActivationV2,
+  SqliteEventStoreOpenOptions,
+} from "./sqlite-event-store-types.ts";
+export type {
+  SqliteWriterFence,
+  SqliteLedgerMetadata,
+  SqliteEventRow,
+  SqliteEventIdentity,
+  SqliteDocumentHead,
+  SqliteCommandIntent,
+  SqliteCommandOutcome,
+  SqliteLedgerRevisionDifference,
+  SqliteLedgerReconciliation,
+  SqliteEventStore,
+  GenerationTwoActivationV2,
+} from "./sqlite-event-store-types.ts";
+import {
+  ensureSqliteMigrationControl,
+  assertSqliteMigrationWritable,
+  readSqliteMigrationControl,
+} from "../migration/sqlite-control.ts";
 import { sqliteLedgerPath, SQLITE_LEDGER_GENERATION } from "./sqlite-ledger-layout.ts";
 export { sqliteLedgerPath, SQLITE_LEDGER_GENERATION } from "./sqlite-ledger-layout.ts";
 import { readGenerationThreeActivation } from "./generation-three-selection.ts";
@@ -19,7 +48,6 @@ import {
   canonicalEventEntityRefs,
   TaskEventStoreError,
 } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
-import type { CanonicalContentBlob } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 import {
   canonicalDocumentClaims,
   canonicalDocumentMode,
@@ -32,180 +60,15 @@ import {
   readContentObject,
 } from "./content-objects.ts";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
-import { isSqliteBusy, registerLedgerClose } from "./sqlite-ledger-connections.ts";
+import { configureLedgerConnection, registerLedgerClose } from "./sqlite-ledger-connections.ts";
 import {
   REPLICATION_LOG_SQL,
   readReplicationPosition,
   readReplicationCommits,
   recordReplicationCommit,
-  type ReplicationPosition,
-  type ReplicationCommit,
 } from "./replication-log.ts";
 
-export interface SqliteWriterFence {
-  readonly repoId: string;
-  readonly holder: string;
-  readonly epoch: number;
-}
-export interface SqliteLedgerMetadata {
-  readonly repoId: string;
-  readonly generation: number;
-  readonly revision: number;
-}
-export interface SqliteEventRow {
-  readonly revision: number;
-  readonly opId: string;
-  readonly eventJson: string;
-  readonly occurredAt: string;
-  readonly recordedAt: string;
-  readonly digest: `sha256:${string}`;
-}
 type SqliteRow = Record<string, import("node:sqlite").SQLOutputValue>;
-/** The identity SQLite already durably stores for an event, without re-reading or re-serializing its body. */
-export interface SqliteEventIdentity {
-  readonly revision: number;
-  readonly opId: string;
-  readonly eventDigest: `sha256:${string}`;
-}
-export interface SqliteDocumentHead {
-  readonly sha256: string;
-  readonly size: number;
-  readonly nodeKind: "file" | "symbolic-link";
-}
-export interface SqliteCommandIntent {
-  readonly opId: string;
-  readonly intentDigest: `sha256:${string}`;
-  readonly summary: string;
-}
-export interface SqliteCommandOutcome {
-  readonly opId: string;
-  readonly status: "accepted_durable" | "rejected";
-  readonly firstRevision: number | null;
-  readonly lastRevision: number | null;
-  readonly intentDigest: `sha256:${string}`;
-  readonly summary: string;
-  readonly rejectionCode: string | null;
-  readonly recordedAt: string;
-  readonly memberOpIds: readonly string[];
-}
-export type SqliteLedgerRevisionDifference = {
-  readonly revision: number;
-  readonly kind: "missing_in_sqlite" | "unexpected_in_sqlite" | "event_mismatch";
-  readonly canonicalOpId: string | null;
-  readonly sqliteOpId: string | null;
-  readonly canonicalDigest: `sha256:${string}` | null;
-  readonly sqliteDigest: `sha256:${string}` | null;
-  readonly sqliteStoredDigest: string | null;
-};
-export interface SqliteLedgerReconciliation {
-  readonly schema: "sqlite-ledger-reconciliation/v1";
-  readonly repoId: string;
-  readonly generation: number;
-  readonly matches: boolean;
-  readonly canonical: {
-    readonly eventCount: number;
-    readonly maxRevision: number;
-    readonly distinctOpIds: number;
-  };
-  readonly sqlite: {
-    readonly eventCount: number;
-    readonly maxRevision: number;
-    readonly distinctOpIds: number;
-  };
-  readonly firstDivergentRevision: number | null;
-  readonly revisionDifferences: readonly SqliteLedgerRevisionDifference[];
-  readonly opIdDifferences: {
-    readonly missingInSqlite: readonly string[];
-    readonly unexpectedInSqlite: readonly string[];
-  };
-}
-export interface SqliteEventStore {
-  readonly replicationPosition: () => ReplicationPosition;
-  readonly pruneReplicationLog: (throughSequence: number) => void;
-  readonly replicationCommits: (
-    after: ReplicationPosition,
-    limit: number,
-  ) => {
-    readonly commits: readonly ReplicationCommit[];
-    readonly done: boolean;
-    readonly head: ReplicationPosition;
-  };
-  readonly applyReplicationCommit: (
-    commit: ReplicationCommit,
-    blobs: readonly CanonicalContentBlob[],
-  ) => ReplicationPosition;
-  readonly databasePath: string;
-  readonly sqliteVersion: string;
-  readonly claimWriter: (fence: SqliteWriterFence) => void;
-  /** Hand the ledger back when an offline holder stops writing, so a live writer is not fenced out. */
-  readonly releaseWriter: (fence: SqliteWriterFence) => void;
-  readonly writerFence: () => SqliteWriterFence | null;
-  readonly appendCommand: (input: {
-    readonly fence: SqliteWriterFence;
-    readonly intent: SqliteCommandIntent;
-    readonly events: readonly CanonicalEventV1[];
-    readonly blobs?: readonly CanonicalContentBlob[];
-    readonly rejectionCode?: string;
-    readonly beforeOutcome?: () => void;
-    readonly historicalRecord?: {
-      readonly recordedAt: string;
-      readonly eventRecordedAt: readonly string[];
-    };
-  }) => SqliteCommandOutcome;
-  /** Internal admission seam: the caller has validated the canonical bundle before invoking this. */
-  readonly appendValidatedBundle: (input: {
-    readonly intent?: (eventBytes: readonly string[]) => SqliteCommandIntent;
-    readonly fence: SqliteWriterFence;
-    readonly events: readonly CanonicalEventV1[];
-    readonly blobs: readonly CanonicalContentBlob[];
-    readonly beforeOutcome?: () => void;
-  }) => SqliteCommandOutcome;
-  readonly outcome: (opId: string) => SqliteCommandOutcome | null;
-  readonly readCommandOutcome: (opId: string) => SqliteCommandOutcome | null;
-  readonly outcomes: () => readonly SqliteCommandOutcome[];
-  readonly metadata: () => SqliteLedgerMetadata;
-  readonly eventRows: () => readonly SqliteEventRow[];
-  readonly eventRowPage: (
-    afterRevision: number,
-    limit: number,
-  ) => {
-    readonly rows: readonly SqliteEventRow[];
-    readonly done: boolean;
-  };
-  readonly readContentObject: (sha256: string) => Uint8Array | null;
-  readonly contentObjectDigests: () => readonly string[];
-  readonly revision: () => number;
-  readonly events: () => readonly CanonicalEventV1[];
-  readonly event: (opId: string) => CanonicalEventV1 | null;
-  readonly eventById: (eventId: string) => CanonicalEventV1 | null;
-  readonly eventAtRevision: (revision: number) => CanonicalEventV1 | null;
-  readonly eventIdentity: (opId: string) => SqliteEventIdentity | null;
-  readonly eventIdentityAtRevision: (revision: number) => SqliteEventIdentity | null;
-  readonly documentHead: (documentPath: string) => SqliteDocumentHead | "retired" | undefined;
-  readonly eventsAfter: (revision: number, limit?: number) => readonly CanonicalEventV1[];
-  readonly eventsBefore: (revision: number, limit?: number) => readonly CanonicalEventV1[];
-  readonly attachMigrationScanWatermarks: () => ReadonlyMap<string, number>;
-  readonly recordAttachMigrationScanWatermarks: (
-    watermarks: readonly { readonly migration: string; readonly revision: number }[],
-  ) => void;
-  readonly queryEvents: (input: {
-    readonly type?: string;
-    readonly entity?: string;
-    readonly actor?: string;
-    readonly after?: string;
-    readonly before?: string;
-    readonly revisionBound?: number;
-    readonly limit: number;
-  }) => readonly CanonicalEventV1[];
-  readonly close: () => void;
-}
-export interface GenerationTwoActivationV2 {
-  readonly schema: "generation-activation/v2";
-  readonly repoId: string;
-  readonly sourceDigest: string;
-  readonly importedPrefixRevision: number;
-  readonly generation: 2;
-}
 export function generationTwoActivationPath(input: HarnessLayoutInput): string {
   return `${sqliteLedgerPath(input, 2)}.activation.json`;
 }
@@ -329,47 +192,6 @@ export function sqliteContentObjectPath(
   );
 }
 
-const OPEN_BUSY_BUDGET_MS = 5000,
-  OPEN_BUSY_BACKOFF_MS = 10;
-
-// busy_timeout goes first so every later lock wait is honoured. The WAL switch is the exception:
-// SQLite skips the busy handler when a connection holding SHARED asks for EXCLUSIVE while another
-// connection holds RESERVED (deadlock avoidance), so with several openers on one fresh ledger a
-// concurrent opener gets SQLITE_BUSY at once no matter the timeout. A bounded retry within the same
-// budget is the only remedy the engine leaves; every pragma here is idempotent.
-function configureLedgerConnection(db: DatabaseSync, readOnly = false): void {
-  const deadline = Date.now() + OPEN_BUSY_BUDGET_MS;
-  for (;;) {
-    try {
-      /* @gate-identity check-bypass-write-boundary/bypass-write-127 */ db.exec(
-        readOnly
-          ? `PRAGMA busy_timeout=${OPEN_BUSY_BUDGET_MS}; PRAGMA foreign_keys=ON`
-          : `PRAGMA busy_timeout=${OPEN_BUSY_BUDGET_MS}; PRAGMA journal_mode=WAL; ` +
-              "PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON",
-      );
-      return;
-    } catch (error) {
-      // Retry only while a further attempt can still start inside the budget.
-      if (!isSqliteBusy(error) || Date.now() + OPEN_BUSY_BACKOFF_MS >= deadline) throw error;
-      consumeKnownError(error);
-      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, OPEN_BUSY_BACKOFF_MS);
-      // The wait can oversleep; never start an attempt at or after the deadline.
-      if (Date.now() >= deadline) throw error;
-    }
-  }
-}
-
-type SqliteEventStoreOpenOptions = {
-  readonly repoId?: string;
-  readonly rootInput?: HarnessLayoutInput;
-  readonly databasePath?: string;
-  readonly generation?: number;
-  readonly readOnly?: boolean;
-  /** Offline generation conversion only; ordinary writers cannot backfill acceptance time. */
-  readonly conversionSourceGeneration?: 1 | 2;
-  readonly onOpenProgress?: (progress: { readonly applied: number; readonly total: number }) => void;
-};
-
 export function openSqliteEventStore(options: SqliteEventStoreOpenOptions): SqliteEventStore {
   return openSqliteEventStoreInternal(options, false);
 }
@@ -419,10 +241,15 @@ function openSqliteEventStoreInternal(
   const db = /* @gate-identity check-bypass-write-boundary/bypass-write-128 */ new DatabaseSync(databasePath, {
     readOnly: options.readOnly ?? false,
   });
-  configureLedgerConnection(db, options.readOnly);
+  configureLedgerConnection((sql) => {
+    /* @gate-identity check-bypass-write-boundary/bypass-write-127 */ db.exec(sql);
+  }, options.readOnly);
   const query: SqliteQuery = (sql, values = []) =>
     /* @gate-identity check-bypass-write-boundary/bypass-write-117 */ db.prepare(sql).all(...values);
-  if (!options.readOnly) createSchema(db, query, options.repoId!, generation);
+  if (!options.readOnly) {
+    createSchema(db, query, options.repoId!, generation);
+    ensureSqliteMigrationControl(db);
+  }
   const metadata = readMetadata(query),
     repoId = options.repoId ?? metadata.repoId;
   assertMetadata(query, repoId, generation);
@@ -484,6 +311,7 @@ function openSqliteEventStoreInternal(
 
   const claimWriter = (fence: SqliteWriterFence): void =>
     transaction(() => {
+      assertSqliteMigrationWritable(db);
       assertFenceShape(fence, repoId);
       const current = readWriter(db, repoId);
       if (current && fence.epoch < current.epoch)
@@ -523,6 +351,15 @@ function openSqliteEventStoreInternal(
       throw new TaskEventStoreError("invalid_write_plan", "historical acceptance timestamps are incomplete");
     prepareContentObjects(objectRoot, input.events, input.blobs ?? []);
     return transaction(() => {
+      if (options.migrationImportRunId !== undefined) {
+        const control = readSqliteMigrationControl(db);
+        if (
+          control?.runId !== options.migrationImportRunId ||
+          control.role !== "target" ||
+          !["prepared", "activation_failed"].includes(control.phase)
+        )
+          throw new TaskEventStoreError("invalid_write_plan", "migration import requires the prepared target run");
+      } else assertSqliteMigrationWritable(db);
       assertFenceShape(input.fence, repoId);
       const prior = readOutcome(db, query, input.intent.opId);
       if (prior) {
@@ -622,6 +459,7 @@ function openSqliteEventStoreInternal(
       ),
     applyReplicationCommit: (commit, blobs) => {
       return transaction(() => {
+        assertSqliteMigrationWritable(db);
         const current = readReplicationPosition(query);
         // The remote stream can replay an acknowledged prefix, but cannot skip or cross histories.
         if (commit.position.history !== current.history)
