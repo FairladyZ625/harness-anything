@@ -14,7 +14,7 @@ const REMOTE = "origin";
 const TASK_BRANCH_PATTERN = /^task_(?:[0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{26})$/u;
 const RUNTIME_BUILD_PACKAGES = ["@harness-anything/daemon", "@harness-anything/cli"];
 
-function run(command, args, { cwd, allowFailure = false } = {}) {
+function run(command, args, { cwd, allowFailure = false, env } = {}) {
   const invocation =
     process.platform === "win32" && (command === "gh" || command === "ha")
       ? {
@@ -31,6 +31,7 @@ function run(command, args, { cwd, allowFailure = false } = {}) {
     // (PR #3502's was 2.2 MiB). maxBuffer only caps collection, it does not preallocate.
     maxBuffer: 256 * 1024 * 1024,
     windowsHide: true,
+    ...(env ? { env: { ...process.env, ...env } } : {}),
     ...(invocation.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
   });
   if (result.error) {
@@ -228,18 +229,68 @@ function currentTaskCuts(taskId, evidence) {
   }
 }
 
+// Replay the exact frozen patch in Git's object database and compare the complete head tree.
+// merge-tree avoids lossy patch transport and does not mutate the worktree or index.
+function replayEquivalentPatch(root, frozenBase, frozenCommit, rebasedBase, rebasedHead) {
+  try {
+    const replayedTree = output(
+        "git",
+        ["merge-tree", "--write-tree", "--merge-base", frozenBase, rebasedBase, frozenCommit],
+        { cwd: root },
+      ),
+      headTree = output("git", ["rev-parse", `${rebasedHead}^{tree}`], { cwd: root });
+    return replayedTree === headTree;
+  } catch {
+    return false;
+  }
+}
+
 // `gh pr merge --merge` makes the PR head the merge commit's second parent, so completion's
 // deliveryContainment() proves the submitted delivery from that ancestry only when the head *is*
-// the frozen delivery commit. The reviewer discipline already requires the reviewed head to equal
-// the pinned delivery commit (agent-role-prompts.ts); this is the same invariant at the last gate.
-// A rebase or follow-up push after submit moves the head past the reviewed cut; merging then leaves
-// `ha task complete` reporting delivery_missing after the merge is irreversible (#4127). The remedy
-// stays the existing one: amend the cut to the head, which stales the review and the owner's
-// consent, then review and consent the amended cut again — never an in-place re-anchor that keeps
-// the old consent (dec_D5D48E0 RJ2).
-function requireMergedHeadIsFrozenCut(taskId, cut, pr) {
+// the frozen delivery commit. A rebase changes the commit identity without necessarily changing
+// the reviewed change. Replaying the frozen patch must produce the complete new head tree;
+// context changes may alter patch-id without altering the reviewed change. Content differences
+// still take the existing re-freeze path.
+function equivalentRebasedCut(cut, pr, root) {
+  const frozen = cut?.submission?.commitSha,
+    base = cut?.submission?.productionDelta?.baseSha;
+  if (
+    typeof frozen !== "string" ||
+    typeof base !== "string" ||
+    frozen === pr.headRefOid ||
+    !/^[0-9a-f]{40}$/u.test(frozen) ||
+    !/^[0-9a-f]{40}$/u.test(base)
+  )
+    return null;
+  try {
+    run(
+      "git",
+      [
+        "fetch",
+        "--no-tags",
+        "--no-write-fetch-head",
+        REMOTE,
+        `+refs/heads/${MAIN_BRANCH}:refs/remotes/${REMOTE}/${MAIN_BRANCH}`,
+        `+refs/heads/${pr.headRefName}:refs/remotes/${REMOTE}/${pr.headRefName}`,
+      ],
+      { cwd: root },
+    );
+    const rebasedBase = output("git", ["merge-base", `refs/remotes/${REMOTE}/${MAIN_BRANCH}`, pr.headRefOid], {
+      cwd: root,
+    });
+    if (!replayEquivalentPatch(root, base, frozen, rebasedBase, pr.headRefOid)) return null;
+    return { frozen, head: pr.headRefOid, base: rebasedBase };
+  } catch {
+    // Missing objects or an unavailable remote cannot prove equivalence; keep the merge fail closed.
+    return null;
+  }
+}
+
+function requireMergedHeadIsFrozenCut(taskId, cut, pr, root) {
   const frozen = cut?.submission?.commitSha;
-  if (frozen === null || frozen === undefined || frozen === pr.headRefOid) return;
+  if (frozen === null || frozen === undefined || frozen === pr.headRefOid) return null;
+  const equivalent = equivalentRebasedCut(cut, pr, root);
+  if (equivalent !== null) return equivalent;
   throw new Error(
     `Task ${taskId} froze its delivery at ${frozen}, but PR #${pr.number} head is ${pr.headRefOid}; ` +
       "merging this head would leave the frozen cut out of the merge commit and ha task complete " +
@@ -261,7 +312,7 @@ function requireReviewConsent(pr, root) {
     cut = cuts.length === 1 ? cuts[0] : undefined;
   // A moved head makes the frozen cut, its review and its consent moot; name that single remedy
   // instead of asking for a consent the merge could never use.
-  requireMergedHeadIsFrozenCut(taskId, cut, pr);
+  const equivalent = requireMergedHeadIsFrozenCut(taskId, cut, pr, root);
   if (!reviewChainClosed(evidence, cut)) {
     // The consent judgment already ran on the same snapshot, so re-deriving the submitted cut here
     // cannot throw; it only names the ids the printed command must carry.
@@ -280,6 +331,12 @@ function requireReviewConsent(pr, root) {
     throw new Error(
       `Task ${taskId} (status=${evidence.task.status}) has no owner-consented approved review for its ` +
         `current execution; refusing to merge. Next: ${next}`,
+    );
+  }
+  if (equivalent !== null && equivalent !== undefined) {
+    evidence.rebaseEquivalent = equivalent;
+    console.log(
+      `Task ${taskId} accepted a rebase-equivalent delivery patch and advanced its merge cut to ${equivalent.head}.`,
     );
   }
   console.log(`Task ${taskId} passed the review-consent check (status=${evidence.task.status}).`);
@@ -337,6 +394,26 @@ function recordMergeCommitAnnotation(pr, merged, root, preMergeEvidence) {
     gateWitnesses: evidence.gateWitnesses,
   });
   if (cuts.length !== 1) throw new Error(`Task ${taskId} has no unique current execution after merge.`);
+  const equivalent = evidence.rebaseEquivalent;
+  if (equivalent !== undefined) {
+    const equivalenceNote = `rebase-equivalent:${equivalent.frozen}->${equivalent.head}:base=${equivalent.base}`;
+    if (!cuts[0].annotations?.some((entry) => entry.note === equivalenceNote))
+      output(
+        "ha",
+        [
+          "task",
+          "annotate",
+          taskId,
+          "--execution-id",
+          cuts[0].executionId,
+          "--kind",
+          "correction",
+          "--note",
+          equivalenceNote,
+        ],
+        { cwd: root },
+      );
+  }
   const note = `merge_commit_sha:${mergeCommitOid}`;
   const alreadyAnnotated = cuts[0].annotations?.some((entry) => entry.note === note);
   if (alreadyAnnotated) return;
