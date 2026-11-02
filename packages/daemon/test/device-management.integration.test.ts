@@ -20,6 +20,7 @@ test("owners rename, transfer, pause, reapprove, remove and globally revoke vers
   const user = keycloakUserRoot(),
     keycloak = fakeKeycloak();
   t.after(user.cleanup);
+  keycloak.accessAdmin();
   keycloak.account("alice");
   keycloak.account("bob");
   const oidc = createIdentitySession(user.root, { fetch: keycloak.fetch }),

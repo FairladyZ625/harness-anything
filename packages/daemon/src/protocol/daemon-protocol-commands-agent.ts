@@ -852,7 +852,8 @@ export const agentProtocolCommands = Object.freeze([
   }),
   defineHostAdminCommand({
     id: "node-unregister",
-    actionKind: "rbac-bootstrap",
+    // dec_2C72644059ACA2D4BE30C07786/CH1: fleet management is distinct from first-run bootstrap.
+    actionKind: "access-manage",
     phase: "W3",
     path: ["access", "node", "unregister"],
     summary:

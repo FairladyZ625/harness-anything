@@ -1,4 +1,7 @@
 {
+  "collaborationExplanation.title": "Collaboration features",
+  "collaborationExplanation.description": "This feature connects people or devices. Built-in identity supports this computer only. Install the Keycloak plugin to use collaboration.",
+  "collaborationExplanation.documentation": "Keycloak installation guide",
   "shell.nav.todos": "Todos",
   "todos.title": "Todos",
   "todos.attached": "Attached todos",

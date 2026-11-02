@@ -3,7 +3,11 @@ import { randomUUID } from "node:crypto";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { type TLSSocket } from "node:tls";
-import { consumeKnownError, TASK_EVENT_SHAPE_COMPAT_VERSION } from "@harness-anything/kernel";
+import {
+  consumeKnownError,
+  isContractVersionCompatible,
+  TASK_EVENT_SHAPE_COMPAT_VERSION,
+} from "@harness-anything/kernel";
 import { daemonBuildStamp } from "../build-identity.ts";
 import { writeFileDurably } from "@harness-anything/storage";
 import type { Delivery, FleetCenterOptions, SessionWindow, State, Upload } from "./center-types.ts";
@@ -16,6 +20,7 @@ import {
   FLEET_HELLO_TIMEOUT_MS,
   FLEET_KEY_SEND_WINDOW_BYTES,
   FLEET_SESSION_SEND_WINDOW_BYTES,
+  currentFleetProtocolVersion,
   FleetUtf8LineDecoder,
   FleetContractError,
   parseFleetFrame,
@@ -359,7 +364,16 @@ export async function serve(
             });
             continue;
           }
-          if (frame !== null) void dispatch(frame);
+          if (frame !== null)
+            void dispatch(frame).catch((error: unknown) => {
+              // dispatch is fire-and-forget; a peer closing during an error reply is a normal session end.
+              if (!peerDisconnected(socket, error))
+                (options.onError ?? ((entry) => console.error("[fleet-center] dispatch failed", entry)))({
+                  nodeId,
+                  messageId: frame?.messageId ?? null,
+                  error,
+                });
+            });
         }
       }
     } catch (error) {
@@ -412,6 +426,11 @@ export async function serve(
             if (set.size === 0) sessions.delete(helloNodeId);
           }
         });
+        if (!isContractVersionCompatible(frame.protocolVersion, currentFleetProtocolVersion))
+          throw new FleetFault(
+            "protocol_version_unsupported",
+            `Fleet protocol ${frame.protocolVersion} is incompatible with center ${currentFleetProtocolVersion}; upgrade the edge node to the same version as the center.`,
+          );
         if (!(await options.authenticate(frame.nodeId, frame.credential, connectionSource)))
           throw new FleetFault("authentication_failed", "Machine credential was rejected.");
         helloAdmitted();
@@ -431,7 +450,7 @@ export async function serve(
               ? `Fleet build differs (center=${centerBuildCommit.slice(0, 12)}, edge=${frame.buildCommit.slice(0, 12)}); upgrade with ha update.`
               : undefined;
         options.onVersionWarning?.(nodeId, versionWarning ?? null);
-        return enqueue(
+        await enqueue(
           immediate({
             schema: "fleet.session.ready/v1",
             messageId: mid(frame.messageId, "session"),
@@ -444,6 +463,7 @@ export async function serve(
             loginAuthority: (await options.loginAuthority?.(nodeId)) ?? null,
           }),
         );
+        return;
       }
       if (frame.schema === "fleet.session.hello/v1")
         throw new FleetFault("hello_replayed", "Session hello is only valid as the first frame.");
@@ -489,7 +509,10 @@ export async function serve(
           retryable: fault.retryable,
           resumeOffset: fault.resumeOffset,
         }),
-      );
+      ).catch((deliveryError: unknown) => {
+        if (peerDisconnected(socket, deliveryError)) return;
+        throw deliveryError;
+      });
       if (fault.code === "authentication_failed") socket.end();
     }
     window.requestRepos.delete(frame.messageId);

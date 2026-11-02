@@ -7,6 +7,7 @@ import {
 } from "../api/project-window-contract.ts";
 import { APP_COMMAND_CHANNEL, type AppCommandApi, type AppNavigationCommand } from "../api/app-command-contract.ts";
 import { contextBridge, ipcRenderer } from "electron";
+import { reportCollaborationResponse } from "../api/collaboration-response.ts";
 import {
   UPDATE_CHECK_CHANNEL,
   UPDATE_INSTALL_CHANNEL,
@@ -77,8 +78,15 @@ const electronInvokeErrorPrefix = /^Error invoking remote method '[^']+': Error:
 
 async function invoke<T>(channel: string, payload: unknown): Promise<T> {
   try {
-    return (await ipcRenderer.invoke(channel, payload)) as T;
+    const reply = await ipcRenderer.invoke(channel, payload);
+    if (reply?.ipcFailure) {
+      const failure = reply.ipcFailure as { code: string; message: string };
+      throw Object.assign(new Error(failure.message), { code: failure.code });
+    }
+    reportCollaborationResponse(reply);
+    return reply as T;
   } catch (cause) {
+    reportCollaborationResponse(cause);
     if (!(cause instanceof Error)) throw cause;
     const message = cause.message.replace(electronInvokeErrorPrefix, "");
     if (message === cause.message) throw cause;

@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { parentPort, workerData } from "node:worker_threads";
 import { fakeKeycloak } from "../../packages/daemon/test/keycloak.fixtures.ts";
-import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 
 // A disposable external-provider fixture, not a real Keycloak acceptance test. Keep the
 // existing realm's resource/scope evaluator; add only the interactive bootstrap/login endpoints.
@@ -22,7 +21,7 @@ const server = createServer(async (request, response) => {
     if (url.pathname === "/realms/harness/.well-known/openid-configuration")
       return json({ issuer: `${url.origin}/realms/harness` });
     if (url.pathname.endsWith("/auth/device")) {
-      if (!owner || !realm.realmRoles.get("access-admin")?.members.has(owner.id)) return json({}, 403);
+      if (!owner) return json({}, 403);
       challenge = form.get("code_challenge");
       return json({
         device_code: "smoke-device",
@@ -46,9 +45,9 @@ const server = createServer(async (request, response) => {
             .digest("base64url") !== challenge
         )
           return json({}, 401);
-        token = `fixture.${Buffer.from(
-          JSON.stringify({ iss: `${url.origin}/realms/harness`, realm_access: { roles: ["access-admin"] } }),
-        ).toString("base64url")}.fixture`;
+        token = `fixture.${Buffer.from(JSON.stringify({ iss: `${url.origin}/realms/harness` })).toString(
+          "base64url",
+        )}.fixture`;
         realm.interactiveSession("owner", "smoke-device", url.origin, token);
         return json({
           access_token: token,
@@ -81,13 +80,6 @@ const server = createServer(async (request, response) => {
       headers: request.headers,
       ...(raw ? { body: raw } : {}),
     });
-    if (url.pathname.endsWith("/role-mappings/realm") && answer.ok) {
-      // External administrator provisions an explicit repository scope, never an all-resource grant.
-      // The repository resource is created by `ha init`; do not pre-create it while bootstrapping
-      // the identity, otherwise the first owner claim is indistinguishable from a competing claim.
-      if ([...realm.resources.values()].some((resource) => resource.name === workerData.repoId))
-        realm.permit("owner", workerData.repoId, effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"));
-    }
     response.writeHead(answer.status, Object.fromEntries(answer.headers));
     response.end(await answer.text());
   } catch (error) {

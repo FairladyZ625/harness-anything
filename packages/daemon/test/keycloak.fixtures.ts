@@ -168,7 +168,8 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
     const route = url.pathname.replace(`/admin/realms/${keycloakRealm}`, ""),
       server = "/clients/client-1/authz/resource-server",
       tail = decodeURIComponent(route.split("/").at(-1)!);
-    if (method !== "GET") writes.push(`${method} ${route}`);
+    // Policy evaluation is a read carried by POST; only mutations belong in the write ledger.
+    if (method !== "GET" && !route.endsWith("/policy/evaluate")) writes.push(`${method} ${route}`);
     if (route === "/groups") {
       if (method === "GET")
         return page(
@@ -490,6 +491,12 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
     },
     endInteractiveSession(token: string): void {
       interactiveSessions.delete(token);
+    },
+    /** Explicit global policy authority; realm roles never grant this permission. */
+    accessAdmin(personId = "person-admin"): void {
+      if (![...users.values()].some((user) => user.attributes.harness_person_id?.[0] === personId))
+        this.account(personId);
+      this.permit(personId, "@fleet", ["access-manage"]);
     },
     /** Registers an account the way an administrator would and returns its bearer token. */
     account(personId: string): string {

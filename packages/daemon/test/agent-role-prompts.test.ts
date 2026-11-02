@@ -138,7 +138,10 @@ test("the bundled reviewer stays read-only and bound to its exact review cut", (
   assert.match(prompt, /both reads must equal the pinned delivery commit/u);
   assert.match(prompt, /Pending checks are not green/u);
   assert.match(prompt, /dispatch-assigned artifacts\/reports paths/u);
-  assert.match(prompt, /For a Task use ha task review-execution; for a Decision use ha decision review/u);
+  assert.match(
+    prompt,
+    /For a Task use ha task review-execution <task-id> --execution-id <execution-id> --review-id review-<this-dispatch-id> --from-file <dispatch-assigned-json-path>.*For a Decision use ha decision review/u,
+  );
   assert.match(prompt, /stop if that cut changes/u);
   assert.match(prompt, /Do not amend the target/u);
   assert.match(prompt, /changes_requested verdict returns the cut for rework while the automatic budget remains/u);

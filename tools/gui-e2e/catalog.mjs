@@ -1,3 +1,4 @@
+import builtinSidebar from "./scenarios/builtin-sidebar.mjs";
 import repositoryTodos from "./scenarios/repository-todos.mjs";
 import decisionPoints from "./scenarios/decision-points.mjs";
 import myDevices from "./scenarios/my-devices.mjs";
@@ -65,6 +66,7 @@ import redesignToday from "./scenarios/redesign-today.mjs";
 import workLineageTaskExecution from "./scenarios/work-lineage-task-execution.mjs";
 
 export const catalog = [
+  builtinSidebar,
   repositoryTodos,
   decisionPoints,
   myDevices,

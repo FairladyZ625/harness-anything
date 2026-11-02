@@ -652,9 +652,23 @@ test(
       const state = (await f.cell().read("repo.tasks.list")).rows.find((row) => row.taskId === taskId);
       assert.equal(state?.snapshot.task?.status, "in_review");
       assert.equal(f.launches.length, 0);
+      assert.match(JSON.stringify(resumed), /CEO/u);
+      await f.reopen();
+      const agenda = await f.cell().read("repo.agenda.read", {}, owner);
+      assert.ok(
+        agenda.attentionItems.some((row) => row.ref === `task/${taskId}` && row.kind === "needs-handling"),
+        JSON.stringify(agenda),
+      );
+      assert.match(agenda.summary, /CEO.*ha task dispatch-review task-completion-review/u);
       const recovered = await f.run({ kind: "task-dispatch-review", taskIds: [taskId], agentId: "closeout-reviewer" });
       assert.equal(recovered.outcome, "applied", JSON.stringify(recovered));
       assert.equal(f.launches.length, 1);
+      const afterRecovery = await f.cell().read("repo.agenda.read", {}, owner);
+      assert.equal(
+        afterRecovery.attentionItems.some((row) => row.ref === `task/${taskId}` && row.kind === "needs-handling"),
+        false,
+        JSON.stringify(afterRecovery),
+      );
       const retry = await f.run({ kind: "task-dispatch-review", taskIds: [taskId], agentId: "closeout-reviewer" });
       assert.match(JSON.stringify(retry), /already_dispatched/u);
       assert.equal(f.launches.length, 1);

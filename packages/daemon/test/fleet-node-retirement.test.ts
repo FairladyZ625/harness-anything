@@ -15,6 +15,7 @@ function retirementFixture(t: TestContext, ownerExists = true) {
   const keycloak = fakeKeycloak(),
     user = keycloakUserRoot();
   t.after(user.cleanup);
+  keycloak.accessAdmin();
   if (ownerExists) keycloak.account("person-owner");
   const credential = keycloak.node("retired-test-node", "person-owner"),
     oidc = createIdentitySession(user.root, { fetch: keycloak.fetch }),
