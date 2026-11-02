@@ -6,6 +6,10 @@
 
 总结完成的行为变化及其意义。submission 会冻结机器派生的交付事实：`commitSha`、`changedFiles`，以及代码 cut 的 `productionDelta.baseSha` / `productionDelta.added` / `productionDelta.deleted`。直接引用这些字段，不要在这里手抄数值。
 
+## What Changed
+
+逐条写这次交付带来的行为变化（不是文件名清单）；按错误语义、唯一路径、删除的旧路径分组更易读。PR 正文的 What Changed 节直接取这里。
+
 ## Verification
 
 列出通过的适用检查、Review 结果，以及任何显式晋升的 `F-...` Fact。只有解析出的 completion

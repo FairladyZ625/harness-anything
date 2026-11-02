@@ -372,11 +372,11 @@
       "slot": "task.closeout",
       "materializeAs": "closeout.md",
       "frontmatterSchema": "task-package/v2",
-      "requiredAnchors": ["## Summary", "## Verification", "## Residual Risk", "## Same Mechanism Elsewhere"],
+      "requiredAnchors": ["## Summary", "## What Changed", "## Verification", "## Residual Risk", "## Same Mechanism Elsewhere"],
       "fallbackLocale": "en-US",
       "locales": [
-        { "locale": "zh-CN", "anchors": ["## Summary", "## Verification", "## Residual Risk", "## Same Mechanism Elsewhere"], "bodyPath": "templates/task.closeout/zh-CN.md" },
-        { "locale": "en-US", "anchors": ["## Summary", "## Verification", "## Residual Risk", "## Same Mechanism Elsewhere"], "bodyPath": "templates/task.closeout/en-US.md" }
+        { "locale": "zh-CN", "anchors": ["## Summary", "## What Changed", "## Verification", "## Residual Risk", "## Same Mechanism Elsewhere"], "bodyPath": "templates/task.closeout/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Summary", "## What Changed", "## Verification", "## Residual Risk", "## Same Mechanism Elsewhere"], "bodyPath": "templates/task.closeout/en-US.md" }
       ]
     },
     {

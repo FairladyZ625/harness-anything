@@ -4,11 +4,23 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
+import { checkPrBody } from "../check-pr-body.mjs";
 import { readSubmissionFacts } from "../../packages/kernel/src/domain/submission-facts.ts";
-import { git, repoRoot } from "./git.mjs";
+import { markdownSections } from "../../packages/kernel/src/domain/transition-document-readiness.ts";
+import { repoRoot } from "./git.mjs";
 
 const START = "<!-- harness:submission-facts:start -->";
 const END = "<!-- harness:submission-facts:end -->";
+
+// The PR template owns the four authored sections; this mapping only says which closeout section
+// feeds each one. The closeout is the single authoring place (dec_BB2BCE9F995CD3A126E2918734 CH1),
+// so no second PR-body template lives here.
+const PR_SECTIONS = Object.freeze([
+  { title: "Summary", aliases: Object.freeze(["summary", "概要"]) },
+  { title: "What Changed", aliases: Object.freeze(["what changed", "改动内容", "改动"]) },
+  { title: "Verification", aliases: Object.freeze(["verification", "验证"]) },
+  { title: "Residual Risk", aliases: Object.freeze(["residual risk", "剩余风险", "残余风险"]) },
+]);
 
 function record(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -18,7 +30,7 @@ function isSha(value) {
   return typeof value === "string" && /^[0-9a-f]{40}$/u.test(value);
 }
 
-function taskSubmission(receipt, taskId) {
+function taskProjection(receipt, taskId) {
   if (!record(receipt) || receipt.ok !== true || typeof receipt.evidence !== "string")
     throw new Error(`ha task show ${taskId} did not return a successful task projection`);
   const projection = JSON.parse(receipt.evidence),
@@ -36,7 +48,7 @@ function taskSubmission(receipt, taskId) {
       .sort((left, right) => String(left.submittedAt ?? "").localeCompare(String(right.submittedAt ?? ""))),
     current = candidates.at(-1);
   if (!current) throw new Error(`task ${taskId} has no submitted cut for iteration ${task.iteration}`);
-  return current.submission;
+  return { submission: current.submission, packagePath: projection.packagePath };
 }
 
 function submittedPaths(value, name) {
@@ -107,24 +119,102 @@ function deliveryFacts(submission) {
   ].join("\n");
 }
 
-export function renderTaskPrBody({ taskId, receipt, template, headSha }) {
-  const start = template.indexOf(START),
-    end = template.indexOf(END);
+function findSection(sections, aliases) {
+  for (const alias of aliases) if (sections.has(alias)) return sections.get(alias);
+  for (const [heading, content] of sections)
+    for (const alias of aliases)
+      if (heading.startsWith(alias) && /^[ \t(（—–\-:：]/u.test(heading.slice(alias.length))) return content;
+  return undefined;
+}
+
+function authoredSources(closeout) {
+  const sections = markdownSections(closeout);
+  return Object.fromEntries(PR_SECTIONS.map(({ title, aliases }) => [title, findSection(sections, aliases)]));
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+
+function markerPair(body, label) {
+  const start = body.indexOf(START),
+    end = body.indexOf(END);
   if (
     start < 0 ||
     end < 0 ||
     start >= end ||
-    template.indexOf(START, start + START.length) >= 0 ||
-    template.indexOf(END, end + END.length) >= 0
+    body.indexOf(START, start + START.length) >= 0 ||
+    body.indexOf(END, end + END.length) >= 0
   )
-    throw new Error("PR template must contain exactly one ordered submission-facts marker pair");
-  const submission = taskSubmission(receipt, taskId);
-  if (submission.commitSha !== null && headSha !== undefined && submission.commitSha !== headSha)
+    throw new Error(`${label} must contain exactly one ordered submission-facts marker pair`);
+  return { start, end };
+}
+
+/** Detach the previous facts so an unfilled section is compared without generated content. */
+function withoutFacts(body) {
+  const { start, end } = markerPair(body, "PR template");
+  return body.slice(0, start + START.length) + body.slice(end);
+}
+
+function sectionBounds(body, title) {
+  const match = new RegExp(`^##[ \\t]+${escapeRegExp(title)}[ \\t]*$`, "mu").exec(body);
+  if (!match) throw new Error(`PR template is missing the ## ${title} section`);
+  const start = match.index + match[0].length,
+    next = /^##[ \t]+/mu.exec(body.slice(start));
+  return { start, end: next ? start + next.index : body.length };
+}
+
+function normalizedSection(body, title) {
+  const { start, end } = sectionBounds(body, title);
+  return body
+    .slice(start, end)
+    .replace(/<!--[\s\S]*?-->/gu, "")
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .join("\n");
+}
+
+function assertInjectable(title, content) {
+  if (/^##[ \t]/mu.test(content))
+    throw new Error(`closeout.md ## ${title} contains a top-level "## " heading; it cannot be injected as-is`);
+  if (content.includes(START) || content.includes(END))
+    throw new Error(`closeout.md ## ${title} contains a submission-facts marker; it cannot be injected as-is`);
+}
+
+function fillSection(body, title, content) {
+  const { start, end } = sectionBounds(body, title),
+    section = body.slice(start, end),
+    keptMarkers = section.includes(START) && section.includes(END) ? `\n\n${START}\n${END}` : "";
+  return `${body.slice(0, start)}\n\n${content.trim()}${keptMarkers}\n\n${body.slice(end)}`;
+}
+
+export function renderTaskPrBody({ taskId, receipt, template, body = template, closeout }) {
+  const submission = taskProjection(receipt, taskId).submission,
+    facts = deliveryFacts(submission),
+    stripped = withoutFacts(body),
+    baseline = withoutFacts(template),
+    sources = authoredSources(typeof closeout === "string" ? closeout : "");
+  let rendered = stripped;
+  const missing = [];
+  for (const { title } of PR_SECTIONS) {
+    if (normalizedSection(stripped, title) !== normalizedSection(baseline, title)) continue;
+    const content = sources[title];
+    if (typeof content !== "string" || content.trim().length === 0) {
+      missing.push(title);
+      continue;
+    }
+    assertInjectable(title, content);
+    rendered = fillSection(rendered, title, content);
+  }
+  if (missing.length > 0) throw new Error(`closeout.md is missing required section(s): ${missing.join(", ")}`);
+  const privateTaskIds = [...new Set(rendered.match(/\btask_[0-9a-z]{8,26}\b/gu) ?? [])];
+  if (privateTaskIds.length > 0)
     throw new Error(
-      "current HEAD differs from the submitted delivery commit; amend the submission before opening the PR",
+      `rendered PR body contains private task id(s): ${privateTaskIds.join(", ")}; remove them from closeout.md before opening a pull request`,
     );
-  const facts = deliveryFacts(submission);
-  return `${template.slice(0, start + START.length)}\n${facts}\n${template.slice(end)}`;
+  const { start, end } = markerPair(rendered, "PR template");
+  return `${rendered.slice(0, start + START.length)}\n${facts}\n${rendered.slice(end)}`;
 }
 
 function parseArgs(argv) {
@@ -144,6 +234,28 @@ function parseArgs(argv) {
   return { taskId, bodyFile };
 }
 
+function readCloseout(rootDir, packagePath) {
+  if (
+    typeof packagePath !== "string" ||
+    packagePath.length === 0 ||
+    packagePath.startsWith("/") ||
+    packagePath.split("/").includes("..")
+  )
+    throw new Error("task projection has no usable packagePath for closeout.md");
+  const docPath = `${packagePath}/closeout.md`;
+  try {
+    return execFileSync("ha", ["doc", "show", "--path", docPath, "--raw"], {
+      cwd: rootDir,
+      encoding: "utf8",
+      maxBuffer: 16 * 1024 * 1024,
+    });
+  } catch (error) {
+    const stderr = record(error) && error.stderr !== undefined ? String(error.stderr).trim() : String(error),
+      detail = stderr.split(/\r?\n/u)[0] || "unknown ha doc show failure";
+    throw new Error(`cannot read ${docPath} with ha doc show: ${detail}`);
+  }
+}
+
 export function main(argv = process.argv.slice(2)) {
   try {
     const options = parseArgs(argv);
@@ -159,9 +271,20 @@ export function main(argv = process.argv.slice(2)) {
           maxBuffer: 16 * 1024 * 1024,
         }),
       ),
-      template = readFileSync(path.resolve(rootDir, options.bodyFile), "utf8"),
-      headSha = git(rootDir, ["rev-parse", "HEAD"]).trim();
-    process.stdout.write(renderTaskPrBody({ taskId: options.taskId, receipt, template, headSha }));
+      { submission, packagePath } = taskProjection(receipt, options.taskId),
+      closeout = readCloseout(rootDir, packagePath),
+      template = readFileSync(path.resolve(rootDir, ".github/pull_request_template.md"), "utf8"),
+      input =
+        path.resolve(rootDir, options.bodyFile) === path.resolve(rootDir, ".github/pull_request_template.md")
+          ? template
+          : readFileSync(path.resolve(rootDir, options.bodyFile), "utf8"),
+      body = renderTaskPrBody({ taskId: options.taskId, receipt, template, body: input, closeout }),
+      check = checkPrBody(body, {
+        prTemplate: template,
+        eventMigration: { files: readSubmissionFacts(submission).changedFiles },
+      });
+    if (!check.ok) throw new Error(["rendered PR body fails check-pr-body:", ...check.issues].join("\n"));
+    process.stdout.write(body);
     return 0;
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
