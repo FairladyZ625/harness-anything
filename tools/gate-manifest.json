@@ -162,6 +162,7 @@
         "crlf-checkout",
         "windows-first-run",
         "integration-shard",
+        "pglite-node26",
         "boundaries",
         "package-policy",
         "supply-chain",
@@ -189,6 +190,7 @@
         "typecheck",
         "fast-contract",
         "integration-shard",
+        "pglite-node26",
         "boundaries",
         "ontology-advisory",
         "package-policy",
@@ -1005,6 +1007,63 @@
       "positiveControl": {
         "status": "covered",
         "evidence": ["tools/test-tier-manifest.mjs and contract-tier test assertions under packages/**/test/**"]
+      }
+    },
+    {
+      "id": "test-pglite-node26",
+      "command": "node tools/run-node-tests.mjs --prefix packages/storage/test/pglite --concurrency 2",
+      "category": "local-consistency",
+      "tier": "pr-advisory",
+      "tierReason": "The PGlite database arm runs on every PR and push under Node 26; existing Node 24 shards verify factory refusal. A new lane is not promoted to branch protection in this change.",
+      "authoritySource": [
+        "decision/dec_09C1CE4481EEF4096867FA034E/CH1",
+        "packages/storage/src/pglite/transaction.ts",
+        ".github/workflows/rewrite-ci.yml:jobs.pglite-node26"
+      ],
+      "consumerScope": ["all disk-discovered PGlite database integration and runtime contract tests"],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": ["pglite-node26"],
+        "nodeVersions": [26]
+      },
+      "allowlistPolicy": {
+        "allowed": false
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          ".github/workflows/rewrite-ci.yml",
+          "tools/gate-manifest.json",
+          "tools/gates/test/pglite-runtime-ci.test.mjs"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": false,
+          "checkPr": false,
+          "script": null
+        },
+        "rewriteCi": {
+          "pullRequestJobs": ["pglite-node26"],
+          "nonPullRequestJobs": ["pglite-node26"]
+        },
+        "branchProtection": {
+          "required": false,
+          "contexts": []
+        },
+        "classes": ["pr"]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": [
+          "packages/storage/test/pglite/pglite-runtime.test.ts",
+          "packages/storage/test/pglite/pglite-foundation.integration.test.ts",
+          "packages/storage/test/pglite/pglite-storage-contract.integration.test.ts",
+          "tools/gates/test/pglite-runtime-ci.test.mjs"
+        ]
       }
     },
     {

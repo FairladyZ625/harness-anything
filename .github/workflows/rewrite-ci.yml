@@ -200,6 +200,22 @@ jobs:
       - run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
       - run: node tools/run-manifest-gates.mjs --workflow-job integration-shard --shard ${{ matrix.shard }}
 
+  # dec_09C1CE4481EEF4096867FA034E: PGlite requires the repaired V8 in Node 26.
+  # Node 24 integration shards exercise refusal; this lane runs all database assertions.
+  # Install separately because native dependencies in the shared artifact target Node 24.
+  pglite-node26:
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+      - run: echo "npm_package_config_node_gyp_nodedir=$(dirname "$(dirname "$(command -v node)")")" >> "$GITHUB_ENV"
+      - run: npm ci
+      - run: node tools/run-manifest-gates.mjs --workflow-job pglite-node26
+
   windows-integration-shard:
     # The integration tier is where every POSIX host assumption lives: symlinks, deletable open
     # files, `which` and `#!/bin/sh` shims, SIGKILL kill points. #1607 fixed seven such fixtures
