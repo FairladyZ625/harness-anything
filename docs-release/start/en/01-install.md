@@ -36,6 +36,11 @@ AppImage receives automatic updates; deb users update manually.
 `ha init` derives the repository id from the current directory and the owner identity from `git config user.name`.
 Harness Anything writes daemon state under `~/.harness` by default and keeps repository ledgers in the selected repository.
 
+Once a provider runtime instance is configured, use the built-in `worker`,
+`reviewer`, and `commander` identities directly. See
+[Start with the built-in identities](03-daily-commands.md#start-with-the-built-in-identities)
+for enabling an instance and dispatching your first task.
+
 ## Uninstall
 
 Remove the source checkout when you no longer need it. Daemon state under `~/.harness` is separate; remove it only if you intentionally want to delete the registry and cache.

@@ -1,0 +1,9 @@
+{
+  "schema": "agent-declaration/v1",
+  "id": "worker",
+  "name": "worker",
+  "role": "worker",
+  "instructions": "Complete the assigned task using the repository rules and task context supplied at dispatch. Verify the result, preserve unrelated work, and report delivery evidence, remaining risks, and anything not verified.",
+  "runtimes": [],
+  "skills": []
+}
