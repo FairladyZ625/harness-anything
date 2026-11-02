@@ -5,7 +5,12 @@ import path from "node:path";
 import test from "node:test";
 import { executionId, fixture, owner, taskId } from "./task-completion-review.fixture.ts";
 
-import { grantTestPolicyGroups, revokeTestPolicyActions, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import {
+  grantTestPolicyGroups,
+  revokeTestPolicyActions,
+  revokeTestPolicyGroup,
+  withPolicyGroup,
+} from "./keycloak-policy.fixtures.ts";
 import { dispatchStreamPath, readDispatchStream } from "../src/dispatch-stream.ts";
 
 /** The principal that records rework-driving verdicts: a person of its own, so denying its
@@ -934,6 +939,146 @@ test("an owner can override the worker identity for a rework continuation", asyn
     assert.equal(continuation.payload.agentId, "closeout-reviewer");
     assert.equal(header?.instanceId, "review-first");
     assert.equal(header?.model, "review-model");
+  } finally {
+    await f.close();
+  }
+});
+
+// The owner's --agent names the declared identity; --instance only names the execution resource.
+// The continuation must therefore let the spawner resolve that Agent's model for the selected
+// instance, exactly like `ha agent run`, instead of pinning the previous dispatch's model.
+test("an agent override resolves the rework continuation model from the declaration", async () => {
+  const f = await fixture(false, true, false, false, false, {
+    autoSubmit: false,
+    autoProviderSession: true,
+    additionalModels: ["alternate-model"],
+  });
+  try {
+    await f.install();
+    const installed = await f.run({
+      kind: "agent-install",
+      declaration: {
+        schema: "agent-declaration/v1",
+        id: "flash-worker",
+        name: "Flash worker",
+        instructions: "Implement the returned cut on the flash runtime.",
+        runtimes: [{ type: "codex", model: "flash-model" }],
+        role: "worker",
+      },
+    });
+    assert.equal(installed.outcome, "applied", JSON.stringify(installed));
+    const worker = await f.cell().spawnRuntime(
+      {
+        agentId: "closeout-reviewer",
+        role: "worker",
+        taskId,
+        runtimeInstanceId: "review-second",
+        model: "alternate-model",
+        dispatchKey: "task-rework-agent-override-source",
+        prompt: "Implement the first cut.",
+      },
+      owner,
+    );
+    assert.equal(worker.outcome, "applied", JSON.stringify(worker));
+    const source = f
+      .events()
+      .find(
+        (event) =>
+          event.type === "runtime_dispatch_requested" &&
+          event.payload.dispatchKey === "task-rework-agent-override-source",
+      );
+    assert.ok(source?.type === "runtime_dispatch_requested");
+    const workerBinding = withPolicyGroup(
+      {
+        actor: {
+          principal: owner.actor.principal,
+          executor: { kind: "agent" as const, id: `runtime-session:${source.payload.runtimeSessionId}` },
+        },
+        source: "local" as const,
+      },
+      "contributor",
+    );
+    assert.equal((await f.submit(executionId, workerBinding)).outcome, "applied");
+
+    const returned = (await f.run({
+      kind: "task-rework",
+      taskId,
+      reason: "Run the returned cut on the declared flash worker.",
+      agentId: "flash-worker",
+      runtimeInstanceId: "ambient-first",
+    })) as Receipt;
+    assert.equal(returned.outcome, "applied", JSON.stringify(returned));
+    const continuation = f
+      .events()
+      .filter(
+        (event) =>
+          event.type === "runtime_dispatch_requested" &&
+          event.payload.taskId === taskId &&
+          event.payload.role !== "reviewer",
+      )
+      .at(-1);
+    assert.equal(continuation?.type, "runtime_dispatch_requested", JSON.stringify(returned));
+    assert.equal(continuation.payload.agentId, "flash-worker");
+    const header = readDispatchStream(f.root, continuation.payload.dispatchId)?.header;
+    assert.equal(header?.instanceId, "ambient-first");
+    assert.equal(header?.model, "flash-model", "the Agent declaration, not the previous dispatch, decides the model");
+  } finally {
+    await f.close();
+  }
+});
+
+// The rework is durable before the dispatch is attempted. A failure must say so and hand back
+// exactly the one command that re-dispatches the same identity instead of leaving a half-done cut.
+test("a failed rework continuation names the single resume command", async () => {
+  const f = await fixture(false, true, false, false, false, { autoSubmit: false });
+  try {
+    await f.install();
+    assert.equal((await f.submit()).outcome, "applied");
+    const person = owner.actor.principal.personId,
+      // runtime-spawn is revoked only around the continuation attempt. The realm is module-global,
+      // so restore the owner's groups before asserting: a failing assertion must not leak the
+      // revocation into the rest of this file.
+      restoreOwnerPolicy = () => {
+        revokeTestPolicyGroup(person, "maintainer");
+        revokeTestPolicyGroup(person, "contributor");
+        grantTestPolicyGroups([person], "contributor");
+        grantTestPolicyGroups([person], "maintainer");
+      };
+    revokeTestPolicyActions(person, "completion-review", ["runtime-spawn"]);
+    const returned = await (async () => {
+      try {
+        return (await f.run({
+          kind: "task-rework",
+          taskId,
+          reason: "Continue with the selected worker.",
+          agentId: "closeout-reviewer",
+          runtimeInstanceId: "review-first",
+        })) as Receipt;
+      } finally {
+        restoreOwnerPolicy();
+      }
+    })();
+    assert.equal(returned.outcome, "applied", JSON.stringify(returned));
+    const continuation = returned.continuation as Receipt | undefined;
+    assert.equal(continuation?.outcome, "op_rejected", JSON.stringify(returned));
+    assert.match(String(JSON.stringify(returned.warnings ?? [])), /return to rework was recorded/u);
+    assert.deepEqual(
+      ((returned.next as readonly { command: string }[] | undefined) ?? []).map(({ command }) => command),
+      ["ha agent run closeout-reviewer --task task-completion-review --instance review-first"],
+      JSON.stringify(returned),
+    );
+    // The named command is the executable continuation: after the cause is fixed it dispatches.
+    const resumed = await f.cell().spawnRuntime(
+      {
+        agentId: "closeout-reviewer",
+        taskId,
+        runtimeInstanceId: "review-first",
+        // The CLI adds this per invocation; the direct spawner call must pass it itself.
+        dispatchKey: "runtime-cli-test-resume",
+      },
+      owner,
+    );
+    assert.equal(resumed.outcome, "applied", JSON.stringify(resumed));
   } finally {
     await f.close();
   }
