@@ -57,6 +57,35 @@ export async function assertRepositoryMigrationFence(
               assert.equal(await store(pool, unseen).readHead(), null);
             }),
           );
+          const rejected = store(pool, { ...scope, tenantId: "unseen-rejection" });
+          await assert.rejects(
+            rejected.execute({
+              operation: "reject",
+              expectedRevision: 0,
+              writerFence: { repoId, holderId: "late", epoch: highEpoch },
+              rejection: {
+                opId: "rejected",
+                intentDigest: `sha256:${"0".repeat(64)}`,
+                summary: "probe",
+                rejectionCode: "invalid_write_plan",
+              },
+            }),
+            /storage_migration_read_only/,
+          );
+          assert.equal(await rejected.execute({ operation: "outcome", opId: "rejected" }), null);
+        }
+        if (boundary === "target_prepared") {
+          // A prepared destination has no events yet. Its authority must survive even with no scoped heads.
+          await input.target.query("DELETE FROM ha_repo_heads WHERE repo_id=$1", [repoId]);
+          assert.equal((await target.state())!.phase, "prepared");
+          await assert.rejects(
+            store(input.target, { ...scope, tenantId: "without-heads" }).append(bundle(eventAt(1)), 0, {
+              repoId,
+              holderId: "late",
+              epoch: highEpoch,
+            }),
+            /storage_migration_read_only/,
+          );
         }
         // Reopen the management port: neither configuration nor surviving per-tuple heads decide authority.
         const reopened = await endpoint(input.source, "source");
@@ -87,4 +116,63 @@ export async function assertRepositoryMigrationFence(
       }
     });
   }
+  await t.test("abort keeps new destination tuples sealed and resumes new source tuples at a newer epoch", async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "ha-abort-repo-fence-")),
+      repoId = "repo-abort",
+      scope = { tenantId: "abort-a", projectId: "abort", readers: [], policyEpoch: 0 },
+      source = await openPgMigrationEndpoint({
+        pool: input.source,
+        repoId,
+        scope,
+        backend: input.backend,
+        identity: "source",
+      }),
+      target = await openPgMigrationEndpoint({
+        pool: input.target,
+        repoId,
+        scope,
+        backend: input.backend,
+        identity: "target",
+      }),
+      store = (pool: Pool, tenantId: string) =>
+        createPgStorageBackend({ pool, repoId, scope: { ...scope, tenantId } }).eventStore,
+      args = { repoId, runId: "abort", source, target, exportDirectory: root };
+    try {
+      await store(input.runtime, "abort-a").append(bundle(eventAt(1)), 0, { repoId, holderId: "seed", epoch: 1 });
+      await assert.rejects(
+        migrateStorage({
+          ...args,
+          checkpoint(at) {
+            if (at === "target_prepared") throw new Error("abort probe");
+          },
+        }),
+        /abort probe/,
+      );
+      await migrateStorage({ ...args, mode: "abort" });
+      const epoch = await source.epoch();
+      await assert.rejects(
+        store(input.runtime, "abort-stale").append(bundle(eventAt(1)), 0, { repoId, holderId: "stale", epoch: 1 }),
+        { code: "revision_conflict" },
+      );
+      await store(input.runtime, "abort-new").append(bundle(eventAt(1)), 0, {
+        repoId,
+        holderId: "resumed",
+        epoch: epoch + 1,
+      });
+      await assert.rejects(
+        store(input.target, "abort-new").append(bundle(eventAt(1)), 0, {
+          repoId,
+          holderId: "late",
+          epoch: epoch + 100,
+        }),
+        /storage_migration_read_only/,
+      );
+      assert.equal(await target.marker("abort"), false);
+      process.stdout.write(
+        `DM1_${input.backend} abort: abandoned new tuple denied; resumed source epoch floor preserved\n`,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 }
