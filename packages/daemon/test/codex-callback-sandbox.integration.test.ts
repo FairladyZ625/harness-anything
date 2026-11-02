@@ -18,16 +18,16 @@ import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan
 import { initIngressRepo, cli } from "./fixtures/runtime-ingress.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
-// The model is deterministic; the Codex executable, tool process, CLI, daemon,
+// The model is deterministic; the Codex executable, tool sandbox, relay, CLI, daemon,
 // execution credential and Writer are real. No provider account or host auth is used.
 const codex = spawnSync("codex", ["--version"], { encoding: "utf8" });
 test(
-  "real Codex default-bypass document worker commits and submits from its task package",
+  "real Codex fresh and resume artifact workers show and submit through the exact callback socket",
   {
     timeout: 180_000,
     skip:
       process.platform !== "darwin"
-        ? "requires macOS Codex tool execution for the sandbox regression"
+        ? "requires macOS Seatbelt sandbox enforcement"
         : codex.status !== 0
           ? "requires installed Codex CLI with named permission profiles"
           : false,
@@ -35,7 +35,6 @@ test(
   async (t) => {
     const parent = mkdtempSync(path.join(tmpdir(), "ha-codex-relay-")),
       root = path.join(parent, "repo"),
-      workerRoot = path.join(parent, "worker"),
       userRoot = path.join(parent, "user"),
       repoId = "codex-relay",
       taskId = "task-sandbox",
@@ -44,21 +43,17 @@ test(
       outputs = new Map<string, string>();
     let stop = async (): Promise<void> => {};
     const model = createServer(async (request, response) => {
-      if (request.method !== "POST") {
-        response.writeHead(200, { "content-type": "application/json" }).end('{"models":[]}');
-        return;
-      }
       let body = "";
       for await (const chunk of request) body += chunk;
       const parsed = JSON.parse(body) as { input: { type: string; call_id?: string; output?: string }[] },
-        phase = "submit",
+        phase = body.lastIndexOf("RELAY_SUBMIT") > body.lastIndexOf("RELAY_SHOW") ? "submit" : "show",
         callId = `call_${phase}`,
         output = parsed.input.find((item) => item.type === "function_call_output" && item.call_id === callId);
       t.diagnostic(
         JSON.stringify({ request: request.url, phase, inputTypes: parsed.input.map((item) => item.type), output }),
       );
       if (output) outputs.set(phase, String(output.output));
-      const item = outputs.has(phase)
+      const item = output
         ? {
             type: "message",
             id: `message_${phase}`,
@@ -69,7 +64,7 @@ test(
             type: "function_call",
             call_id: callId,
             name: "exec_command",
-            arguments: JSON.stringify({ cmd: command(), max_output_tokens: 6000, yield_time_ms: 30000 }),
+            arguments: JSON.stringify({ cmd: command(phase), max_output_tokens: 6000, yield_time_ms: 30000 }),
           };
       response.writeHead(200, { "content-type": "text/event-stream" });
       for (const event of [
@@ -93,8 +88,6 @@ test(
     const address = model.address();
     assert.ok(address && typeof address !== "string");
     initIngressRepo(root, process.getuid?.() ?? 0);
-    // Probe a worker checkout: canonical commits have a separate repository-discipline guard.
-    execFileSync("git", ["worktree", "add", "--detach", workerRoot], { cwd: root, stdio: "pipe" });
     execFileSync("git", ["update-ref", "refs/remotes/origin/main", "HEAD"], { cwd: root });
     realm.bind(userRoot);
     realm.keycloak.account("owner");
@@ -107,7 +100,7 @@ test(
       import { spawn } from "node:child_process";
       import { appendFileSync, writeFileSync } from "node:fs";
       if (process.argv[2] === "login" && process.argv[3] === "status") process.exit(0);
-      const args = process.argv.slice(2), phase = "fresh";
+      const args = process.argv.slice(2), phase = args.includes("resume") ? "resume" : "fresh";
       const log = ${JSON.stringify(parent)} + "/" + phase + ".log";
       writeFileSync(log, JSON.stringify({args, cwd: process.cwd(), home: process.env.CODEX_HOME}) + "\\n");
       const child = spawn("codex", [...args, "--skip-git-repo-check"], { env: process.env, stdio: ["pipe", "pipe", "pipe"] });
@@ -155,6 +148,7 @@ test(
         installationId: "codex-fixture",
         providerId: "fixture",
         models: ["gpt-5.4"],
+        permissionMode: "bypass",
         authMode: "subscription",
         codex: { baseUrl: `http://127.0.0.1:${address.port}/v1`, wireApi: "responses" },
       },
@@ -197,63 +191,63 @@ test(
     projection.close();
     const packageRoot = path.join(root, "harness", packagePath);
 
-    function command(): string {
+    function command(phase: string): string {
       const code = `
         const {spawnSync}=require('node:child_process'), fs=require('node:fs');
         console.log('WORKER_CWD',process.cwd());
-        const git=spawnSync('git',['-C',${JSON.stringify(workerRoot)},'add','harness/harness.yaml'],{encoding:'utf8'});
+        const git=spawnSync('git',['add','closeout.md'],{encoding:'utf8'});
         console.log('GIT_METADATA',git.status,git.stderr.trim());
-        const commit=spawnSync('git',['-C',${JSON.stringify(workerRoot)},'commit','--allow-empty','-qm','bypass-permission-probe'],{encoding:'utf8'});
-        console.log('GIT_COMMIT',commit.status,commit.stderr.trim());
-        fs.writeFileSync('closeout.md',${JSON.stringify("# Closeout\n\n## Summary\n\nSubmitted from real Codex bypass.\n\n## Verification\n\nDefault bypass permits the worker commit and daemon submit.\n\n## Residual Risk\n\nThe model response is a local fixture.\n\n## Same Mechanism Elsewhere\n\nTask package cwd does not override provider permissions.\n")});
-        const result=spawnSync(${JSON.stringify(process.execPath)},[${JSON.stringify(cli)},'--root',${JSON.stringify(root)},'--json','task',${JSON.stringify("submit")},${JSON.stringify(taskId)},'--execution-id',${JSON.stringify(executionId)}],{encoding:'utf8',env:process.env});
+        ${phase === "submit" ? `fs.writeFileSync('closeout.md',${JSON.stringify("# Closeout\n\n## Summary\n\nSubmitted from real Codex sandbox.\n\n## Verification\n\nFresh show and resumed submit use the exact relay.\n\n## Residual Risk\n\nThe model response is a local fixture.\n\n## Same Mechanism Elsewhere\n\nFresh and resume share the launch builder.\n")});` : ""}
+        const result=spawnSync(${JSON.stringify(process.execPath)},[${JSON.stringify(cli)},'--root',${JSON.stringify(root)},'--json','task',${JSON.stringify(phase === "submit" ? "submit" : "show")},${JSON.stringify(taskId)},${phase === "submit" ? `'--execution-id',${JSON.stringify(executionId)}` : ""}],{encoding:'utf8',env:process.env});
         console.log('CLI_RESULT',result.status,result.stdout,result.stderr);
         process.exitCode=result.status;
       `;
       return `${shellQuote(process.execPath)} -e ${shellQuote(code)}`;
     }
-    const spawnWorker = async () => {
+    const spawnWorker = async (phase: "show" | "submit", providerSessionId?: string) => {
       const spawned = await rpc("repo.agentRuntime.spawn", {
         repo: { repoId },
         payload: {
           runtimeInstanceId: "codex-sandbox",
           cwd: { scope: "repo-root" },
           taskId,
-          prompt: "RELAY_SUBMIT",
-          dispatchKey: "bypass-submit",
+          prompt: `RELAY_${phase.toUpperCase()}`,
+          dispatchKey: `sandbox-${phase}`,
+          ...(providerSessionId ? { providerSessionId } : {}),
         },
       });
-      const log = path.join(parent, "fresh.log");
-      assert.equal(
-        spawned.outcome,
-        "applied",
-        `${JSON.stringify(spawned)}\n${existsSync(log) ? readFileSync(log, "utf8") : "No launch log"}`,
-      );
-      const result = await waitForFile(path.join(parent, "fresh.json"));
-      t.diagnostic(JSON.stringify(result));
+      assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
+      const result = await waitForFile(path.join(parent, phase === "show" ? "fresh.json" : "resume.json"));
+      t.diagnostic(JSON.stringify({ phase, ...result }));
       assert.equal(result.code, 0, JSON.stringify(result));
       assert.equal(result.cwd, packageRoot, "artifact dispatch must not get a worktree");
-      assert.equal(
-        result.args.some((arg) => arg.includes("harness-callback-relay")),
-        false,
-      );
-      assert.ok(result.args.includes("danger-full-access"));
-      const output = outputs.get("submit");
+      assert.ok(result.args.includes('default_permissions="harness-callback-relay"'));
+      assert.ok(result.args.includes("features.network_proxy=true"));
+      const output = outputs.get(phase);
       assert.ok(output, "Codex must return the real exec_command tool output to the fixture model");
       assert.match(output, /CLI_RESULT 0/u);
-      assert.match(output, /GIT_METADATA 0/u);
-      assert.match(output, /GIT_COMMIT 0/u);
+      assert.match(output, /GIT_METADATA [1-9].*(?:Operation not permitted|Permission denied)/u);
       assert.match(output, /"outcome":\s*"applied"/u);
+      return result;
     };
+    const fresh = await spawnWorker("show"),
+      events = fresh.stdout
+        .trim()
+        .split("\n")
+        .map((line: string) => JSON.parse(line)),
+      thread = events.find((event: { type: string }) => event.type === "thread.started").thread_id;
+    assert.ok(thread);
     const headBefore = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
-    await spawnWorker();
+    const resumed = await spawnWorker("submit", thread);
+    assert.ok(resumed.args.includes(thread));
+    assert.equal(resumed.home, fresh.home, "resume uses the same isolated Codex session store");
     const committed = execFileSync("git", ["show", `HEAD:harness/${packagePath}/closeout.md`], {
       cwd: root,
       encoding: "utf8",
     });
-    assert.match(committed, /Submitted from real Codex bypass/u);
+    assert.match(committed, /Submitted from real Codex sandbox/u);
     assert.notEqual(execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim(), headBefore);
-    t.diagnostic(`Codex ${codex.stdout.trim()}; default-bypass worker commit succeeded; daemon committed closeout`);
+    t.diagnostic(`Codex ${codex.stdout.trim()}; fresh show and resumed submit succeeded; daemon committed closeout`);
   },
 );
 

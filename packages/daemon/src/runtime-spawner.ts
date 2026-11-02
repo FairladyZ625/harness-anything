@@ -546,7 +546,13 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 ? agentRuntimeTargetForKind(agent.runtimes, runtimeInstance.kindId)?.effort
                 : undefined),
             configuredPermissionMode = runtimeInstance?.permissionMode ?? undefined,
-            declaredPermissionMode = permissionMode ?? agent?.permissionMode,
+            requestedPermissionMode = permissionMode ?? agent?.permissionMode ?? configuredPermissionMode,
+            // An artifact task owns only its package. A provider that cannot enforce this mode
+            // must reject the launch; an agent or resumed bypass declaration cannot widen it.
+            declaredPermissionMode =
+              taskPackageRoot && (requestedPermissionMode === undefined || requestedPermissionMode === "bypass")
+                ? "workspace-write"
+                : (permissionMode ?? agent?.permissionMode),
             effectivePermissionMode = declaredPermissionMode ?? configuredPermissionMode,
             callbackRelay = dispatchCallbackRelay(newDispatchId, daemonRoute, runtimeInstance, effectivePermissionMode),
             missionDaemonRoute =
