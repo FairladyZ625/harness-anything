@@ -91,6 +91,24 @@ export class FleetEdgeTaskError extends Error {
   }
 }
 
+async function verifyFleetTaskSubmitHolder(input: {
+  readonly peer: Parameters<typeof readFleetRepositoryMetadataClient>[0];
+  readonly taskId: string;
+  readonly executionId?: string;
+}): Promise<void> {
+  const metadata = await readFleetRepositoryMetadataClient({
+    ...input.peer,
+    actionKind: "task-submit",
+    taskId: input.taskId,
+    ...(input.executionId ? { executionId: input.executionId } : {}),
+  });
+  if (metadata.actionAllowed !== true)
+    throw new FleetEdgeTaskError(
+      "authorization_denied",
+      "Task submit permission is required before publishing delivery.",
+    );
+}
+
 /** The ordinary repository RPC shares the CLI's Fleet command executor. */
 export async function forwardRegisteredFleetAction(input: {
   readonly userRoot?: string;
@@ -393,17 +411,11 @@ export async function runFleetEdgeTask(
           // This is deliberately a second center request after permission admission:
           // the center's task-submit metadata path proves node, owner, execution id,
           // lease phase, and expiry before pushWorkerBranch can mutate the remote ref.
-          const metadata = await readFleetRepositoryMetadataClient({
-            ...peer,
-            actionKind: "task-submit",
+          await verifyFleetTaskSubmitHolder({
+            peer,
             taskId,
             ...(typeof action.executionId === "string" ? { executionId: action.executionId } : {}),
           });
-          if (metadata.actionAllowed !== true)
-            throw new FleetEdgeTaskError(
-              "authorization_denied",
-              "Task submit permission is required before publishing delivery.",
-            );
         },
         readTask: async () => {
           const current = readEdgeRuntimeRepository(

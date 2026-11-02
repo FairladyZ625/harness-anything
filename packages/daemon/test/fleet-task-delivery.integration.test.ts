@@ -9,6 +9,7 @@ import path from "node:path";
 import test from "node:test";
 import type { DaemonTaskRuntimeContextResult } from "../src/protocol/daemon-protocol-runtime-context.ts";
 import { prepareEdgeTaskDelivery } from "../src/fleet-task-delivery.ts";
+import { readPublishedTaskCut } from "../src/runtime-worker-push.ts";
 import { readEdgeRuntimeRepository } from "../src/fleet-edge-runtime-read.ts";
 import { readFleetRepositoryMetadataClient } from "../src/fleet-edge-write.ts";
 import { runFleetTaskCommandClient } from "../src/fleet/peer.ts";
@@ -324,12 +325,25 @@ test(
         return null;
       }
     };
+    const assertRouteHolderRejected = async (executionId: string) =>
+      assert.rejects(
+        fixture.edgeTask("node-one", {
+          kind: "task-submit",
+          taskId: created.taskId,
+          executionId,
+        }),
+        (error: unknown) => error instanceof Error && "code" in error && error.code === "lease_holder_mismatch",
+      );
+    await assertRouteHolderRejected("exe-forged-production-route");
+    assert.equal(remoteRef(), null, "the production edge task route rejects a forged execution before creating a ref");
+
     const preflight = async (
       requestPeer: typeof peer,
       action: { readonly kind: "task-submit"; readonly taskId: string; readonly executionId?: string },
+      workspaceRoot = edgeRoot,
     ) =>
       prepareEdgeTaskDelivery({
-        workspaceRoot: edgeRoot,
+        workspaceRoot,
         action,
         authorize: async () => {
           const metadata = await readFleetRepositoryMetadataClient({
@@ -358,23 +372,40 @@ test(
     assert.equal(remoteRef(), null, "wrong execution is rejected before creating a task ref");
     const otherNode = fixture.channel("node-two");
     fixture.owners.reassign("node-two", "person-node-one");
+    assert.equal(fixture.owners.nodeOwner("node-two"), "person-node-one");
     const oldNodePeer = {
       ...otherNode,
       ca: readFileSync(otherNode.caPath, "utf8"),
       readAccessToken: otherNode.readAccessToken,
     };
+    const oldNodeRoot = path.join(fixture.root, "old-node-workspace");
+    git(fixture.root, "clone", "--no-local", remote, oldNodeRoot);
+    git(oldNodeRoot, "config", "user.name", "person-node-one");
+    git(oldNodeRoot, "config", "user.email", "person-node-one@users.noreply.github.com");
+    const oldNodeWorktree = path.join(oldNodeRoot, workspace!.path);
+    mkdirSync(path.dirname(oldNodeWorktree), { recursive: true });
+    git(oldNodeRoot, "worktree", "add", "-b", created.taskId, oldNodeWorktree, "origin/main");
+    git(oldNodeWorktree, "config", "user.name", "person-node-one");
+    git(oldNodeWorktree, "config", "user.email", "person-node-one@users.noreply.github.com");
+    writeFileSync(path.join(oldNodeWorktree, "delivery.ts"), "export const delivered = true;\n");
+    git(oldNodeWorktree, "add", "delivery.ts");
+    git(oldNodeWorktree, "commit", "-qm", "feat: stale owner candidate");
     await assert.rejects(
-      preflight(oldNodePeer, { kind: "task-submit", taskId: created.taskId }),
+      preflight(oldNodePeer, { kind: "task-submit", taskId: created.taskId }, oldNodeRoot),
       (error: unknown) => error instanceof Error && "code" in error && error.code === "lease_holder_mismatch",
     );
     assert.equal(remoteRef(), null, "same-owner old node is rejected before creating a task ref");
     git(cwd, "push", "origin", `HEAD:refs/heads/${created.taskId}`);
     assert.equal(remoteRef(), commitSha, "negative case also covers an expected ref already equal to remote");
+    git(oldNodeRoot, "fetch", "origin");
+    assert.equal(await readPublishedTaskCut(oldNodeRoot, created.taskId), commitSha);
     await assert.rejects(
-      preflight(oldNodePeer, { kind: "task-submit", taskId: created.taskId }),
+      preflight(oldNodePeer, { kind: "task-submit", taskId: created.taskId }, oldNodeRoot),
       (error: unknown) => error instanceof Error && "code" in error && error.code === "lease_holder_mismatch",
     );
-    assert.equal(remoteRef(), commitSha, "same-owner old node cannot update an existing expected ref");
+    assert.equal(remoteRef(), commitSha, "same-owner old node cannot update its expected remote ref");
+    await assertRouteHolderRejected("exe-forged-production-route-after-ref");
+    assert.equal(remoteRef(), commitSha, "the production edge route cannot update an already-matching remote ref");
     await assert.rejects(
       preflight(peer, { kind: "task-submit", taskId: created.taskId, executionId: "exe-forged-after-ref" }),
       (error: unknown) => error instanceof Error && "code" in error && error.code === "lease_holder_mismatch",
