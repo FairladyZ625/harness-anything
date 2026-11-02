@@ -115,6 +115,8 @@ const config = {
       { target: "deb", arch: ["x64"] },
     ],
     category: "Development",
+    // deb requires a maintainer; no package.json carries an author.
+    maintainer: "Harness Anything contributors <33339424+FairladyZ625@users.noreply.github.com>",
     artifactName: "Harness-Anything-GUI-${version}-linux-${arch}.${ext}",
   },
 };

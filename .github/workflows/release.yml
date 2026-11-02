@@ -264,7 +264,7 @@ jobs:
           test -n "$UPDATE_SSH_USER" || { echo "UPDATE_FEED_SSH_USER secret is required for feed upload" >&2; exit 1; }
           test -n "$UPDATE_SSH_HOST" || { echo "UPDATE_FEED_SSH_HOST secret is required for feed upload" >&2; exit 1; }
           install -m 700 -d ~/.ssh
-          printf '%s' "$UPDATE_SSH_KEY" > ~/.ssh/update-feed
+          printf '%s\n' "$UPDATE_SSH_KEY" > ~/.ssh/update-feed
           chmod 600 ~/.ssh/update-feed
           ssh -i ~/.ssh/update-feed -o BatchMode=yes -o StrictHostKeyChecking=accept-new "$UPDATE_SSH_USER@$UPDATE_SSH_HOST" \
             'test -w /srv/harness-update && command -v rsync >/dev/null'
@@ -300,7 +300,7 @@ jobs:
         run: |
           set -euo pipefail
           install -m 700 -d ~/.ssh
-          printf '%s' "$UPDATE_SSH_KEY" > ~/.ssh/update-feed
+          printf '%s\n' "$UPDATE_SSH_KEY" > ~/.ssh/update-feed
           chmod 600 ~/.ssh/update-feed
           export RSYNC_RSH="ssh -i $HOME/.ssh/update-feed -o StrictHostKeyChecking=accept-new"
           target="$UPDATE_SSH_USER@$UPDATE_SSH_HOST:/srv/harness-update/$CHANNEL/"
