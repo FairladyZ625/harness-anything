@@ -66,7 +66,16 @@ export async function catchUpReplica(
     }
   } finally {
     owned?.controller.abort();
-    await owned?.running;
+    try {
+      await owned?.running;
+    } catch (error) {
+      // The helper owns this short-lived stream and aborts it after the target cut is applied.
+      // Node's TLS transport reports that intentional close as ABORT_ERR on newer runtimes;
+      // preserve failures from a stream that was not deliberately stopped.
+      const code = typeof error === "object" && error !== null && "code" in error ? error.code : undefined,
+        name = error instanceof Error ? error.name : undefined;
+      if (!owned?.controller.signal.aborted || (code !== "ABORT_ERR" && name !== "AbortError")) throw error;
+    }
   }
   const generation = readReplicaGeneration(
     path.join(options.viewRoot, "repos", options.repoId, "views", options.nodeId),
