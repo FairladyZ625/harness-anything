@@ -6,6 +6,7 @@ import {
   resolveHarnessLayout,
   type CanonicalEventV1,
   type CanonicalFollowerFacet,
+  type PublicationWrite,
 } from "@harness-anything/kernel";
 import {
   canonicalEventCut,
@@ -22,9 +23,10 @@ import { resolvePostgresEventStoreScope } from "../pg/backend.ts";
 import type { PostgresTaskEventStoreOptions } from "../store/task-event-store-factory.ts";
 import { applyCanonicalTree } from "../canonical-tree-materialization.ts";
 import { resolveLedgerGitLayout } from "../store/ledger-git-layout.ts";
-import { localGitObjectRefStore } from "../store/local-version-control-system.ts";
+import { localGitObjectRefStore, localGitWorktreeSettlement } from "../store/local-version-control-system.ts";
 import { followerFiles } from "../store/sqlite-task-event-publication.ts";
 import { prepareCommit, finalizeRefs } from "../store/task-event-store-git-refs.ts";
+import { restoreCanonicalDocumentSelection } from "../store/sqlite-task-event-materialize.ts";
 
 /** The existing PG worker bridge owns whole accepting transactions and the driver pool. */
 export function makePgCanonicalEventStore(
@@ -75,6 +77,24 @@ export function makePgCanonicalEventStore(
     const layout = resolveHarnessLayout(rootInput),
       documents = reader.withSession((q) => q.readDocuments("").documents),
       entries = new Map(documents.map((doc) => [doc.path, { sha256: doc.blobSha256 }])),
+      restored =
+        request?.paths && !request.preview
+          ? restoreCanonicalDocumentSelection({
+              ledger: { rootDir: layout.authoredRoot, authoredRoot: layout.authoredRoot, authoredPrefix: "" },
+              layout,
+              headDigest: cut.headDigest,
+              paths: request.paths,
+              canonical: new Map(
+                documents
+                  .filter((doc) => request.paths!.includes(doc.path))
+                  .map((doc) => [
+                    doc.path,
+                    { target: doc.path, mode: "100644" as const, body: readContentBlob(doc.blobSha256)! },
+                  ]),
+              ),
+              killpoint: options.killpoint,
+            })
+          : null,
       result = applyCanonicalTree({
         authoredRoot: layout.authoredRoot,
         markerPath: path.join(layout.localRoot, "fleet-materialized.json"),
@@ -82,7 +102,7 @@ export function makePgCanonicalEventStore(
         revision: cut.revision,
         entries,
         preview: request?.preview,
-        changedPaths: request?.paths,
+        selectedPaths: request?.preview ? undefined : request?.paths,
         readContent: (logical) => readContentBlob(entries.get(logical)!.sha256),
       });
     if (request?.preview)
@@ -92,11 +112,18 @@ export function makePgCanonicalEventStore(
         settlements: result.settlements,
         conflicts: result.dirtyPaths,
       };
+    const conflicts = [
+      ...new Set([
+        ...result.dirtyPaths,
+        ...(restored?.conflicts ?? []),
+        ...(request?.paths ? (worktree.conflicts ?? []).filter((logical) => !request.paths!.includes(logical)) : []),
+      ]),
+    ];
     worktree = {
-      status: result.dirtyPaths.length === 0 ? "verified" : "pending",
+      status: conflicts.length === 0 ? "verified" : "pending",
       cut,
       commitSha: null,
-      conflicts: result.dirtyPaths,
+      conflicts,
     };
     const follower = options.storage.gitFollower;
     if (follower && git.cut?.revision !== cut.revision && cut.revision > 0) {
@@ -104,22 +131,27 @@ export function makePgCanonicalEventStore(
         authoredRef = `refs/heads/${follower.branch}`,
         parent = localGitObjectRefStore.resolveCommit(ledger.rootDir, authoredRef),
         temporaryRef = `refs/ha-pg-outbox/${cut.revision}`,
+        files = followerFiles(ledger, readEvents(), readContentBlob, cut, 3),
         commit = prepareCommit(
           ledger.rootDir,
           temporaryRef,
           parent,
-          followerFiles(ledger, readEvents(), readContentBlob, cut, 3),
+          files,
           `outbox-${cut.revision}`,
           new Date().toISOString(),
         );
       finalizeRefs(ledger.rootDir, authoredRef, commit, parent, temporaryRef);
+      localGitWorktreeSettlement.index(ledger.rootDir, files);
+      // followerFiles puts its generated cut manifest last; authored documents were settled by
+      // the common tree owner above, which preserves concurrent edits instead of overwriting them.
+      localGitWorktreeSettlement.visible(ledger.rootDir, [files.at(-1)! as PublicationWrite]);
       git = { status: "verified", cut, commitSha: commit };
     }
     return {
       status: "visible",
       commitSha: git.commitSha ? ledgerCommitSha(options.repoId, git.commitSha) : null,
-      settlements: result.settlements,
-      conflicts: result.dirtyPaths,
+      settlements: restored?.settlements ?? result.settlements,
+      conflicts: restored?.conflicts ?? result.dirtyPaths,
     };
   };
   const follow = (request?: Parameters<CanonicalEventStore["materialize"]>[0]) =>

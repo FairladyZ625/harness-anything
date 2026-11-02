@@ -12,6 +12,7 @@ export function applyCanonicalTree(input: {
   readonly revision: number;
   readonly entries: ReadonlyMap<string, { readonly sha256: string }>;
   readonly changedPaths?: readonly string[];
+  readonly selectedPaths?: readonly string[];
   readonly preview?: boolean;
   readonly readContent: (logical: string) => Uint8Array | null;
 }) {
@@ -32,7 +33,11 @@ export function applyCanonicalTree(input: {
     entries = { ...previous.entries },
     dirtyPaths: string[] = [],
     settlements: MaterializationSettlement[] = [];
-  const selected = hasMaterializationBaseline && input.changedPaths ? new Set(input.changedPaths) : null;
+  const selected = input.selectedPaths
+    ? new Set(input.selectedPaths)
+    : hasMaterializationBaseline && input.changedPaths
+      ? new Set(input.changedPaths)
+      : null;
   if (!input.preview) mkdirSync(root, { recursive: true });
   for (const [logical, blob] of input.entries) {
     if (selected && !selected.has(logical)) continue;

@@ -139,6 +139,12 @@ test("daemon PG storage factories expose canonical lifecycle ports without local
         assert.match(follower.currentCommit()!.sha, /^[0-9a-f]{40}$/u);
         assert.equal(follower.followerStatus().git.status, "verified");
         assert.deepEqual(follower.currentCut(), store!.currentCut());
+        assert.equal(
+          execFileSync("git", ["-C", rootDir, "diff", "--name-only", "HEAD", "--", "harness"], {
+            encoding: "utf8",
+          }).trim(),
+          "",
+        );
       } finally {
         await follower.drain();
       }

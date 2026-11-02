@@ -140,6 +140,7 @@ for (const gitFollower of [undefined, { branch: "main" }])
         assert.equal(results.filter((result) => result.code === "lease_conflict").length, 1, JSON.stringify(results));
         console.log("PG_FLEET_TWO_NODE_CLAIM accepted=1 rejected=1 code=lease_conflict");
 
+        const generationBeforeDisconnect = readReplicaGeneration(one.viewDir)!.id;
         await one.stop();
         const note = Buffer.from("# PG outage catchup\n\nAn edge authored this while the other node was offline.\n"),
           submitted = await fixture.edgeDocSubmit("edge-two", "notes/pg.md", note);
@@ -155,6 +156,11 @@ for (const gitFollower of [undefined, { branch: "main" }])
         }
         const restarted = start("edge-one");
         await converge(restarted);
+        assert.equal(
+          readReplicaGeneration(restarted.viewDir)!.id,
+          generationBeforeDisconnect,
+          "an in-window restart resumes the existing generation",
+        );
         await waitForState(
           () => existsSync(path.join(restarted.workspaceRoot, "harness/notes/pg.md")),
           "offline commit materialized after edge restart",
