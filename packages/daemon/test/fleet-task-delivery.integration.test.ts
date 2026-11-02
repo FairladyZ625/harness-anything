@@ -1,13 +1,17 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { sha256Text } from "@harness-anything/kernel";
+import { randomUUID } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { devNull } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { DaemonTaskRuntimeContextResult } from "../src/protocol/daemon-protocol-runtime-context.ts";
+import { prepareEdgeTaskDelivery } from "../src/fleet-task-delivery.ts";
+import { readPublishedTaskCut } from "../src/runtime-worker-push.ts";
 import { readEdgeRuntimeRepository } from "../src/fleet-edge-runtime-read.ts";
+import { readFleetRepositoryMetadataClient } from "../src/fleet-edge-write.ts";
 import { runFleetTaskCommandClient } from "../src/fleet/peer.ts";
 import { dualSyncFixture, ledgerRevision } from "./fleet-dual-sync.fixture.ts";
 import { createIdentitySession } from "../src/authorization-provider.ts";
@@ -254,3 +258,219 @@ for (const explicit of [false, true])
       assert.equal(git(remote, "rev-parse", `refs/heads/${created.taskId}`), commitSha);
     },
   );
+
+test(
+  "edge task submit tolerates a stale lease replica and the center accepts its current lease",
+  { timeout: 90_000 },
+  async (t) => {
+    const fixture = await dualSyncFixture();
+    t.after(() => fixture.close());
+    const config = fixture.channel("node-one"),
+      edgeRoot = config.workspaceRoot,
+      remote = path.join(fixture.root, "stale-edge-remote.git"),
+      git = (cwd: string, ...args: string[]) => execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" }).trim();
+    git(fixture.root, "clone", "--bare", "--no-local", fixture.repo, remote);
+    fixture.git("remote", "add", "origin", remote);
+    fixture.git("fetch", "origin");
+    git(fixture.root, "clone", "--no-local", remote, edgeRoot);
+    const created = await fixture.createTask("node-one", "task-stale-edge-view", "Stale edge lease view");
+    const started = await fixture.edgeTask("node-one", {
+      kind: "task-start",
+      taskId: created.taskId,
+      executionId: "exe-stale-edge-view",
+    });
+    assert.equal(started.outcome, "applied", JSON.stringify(started));
+    await fixture.waitPublished(String(started.opId));
+    const current = readEdgeRuntimeRepository(config, "repo.tasks.runtimeContext.read", { taskId: created.taskId })
+        .snapshot as unknown as DaemonTaskRuntimeContextResult["snapshot"],
+      workspace = current.workspace;
+    assert.equal(workspace?.kind, "worktree");
+    assert.equal(current.lease?.executionId, "exe-stale-edge-view");
+    const cwd = path.join(edgeRoot, workspace!.path);
+    mkdirSync(path.dirname(cwd), { recursive: true });
+    git(edgeRoot, "worktree", "add", "-b", created.taskId, cwd, "origin/main");
+    git(cwd, "config", "user.name", "person-node-one");
+    git(cwd, "config", "user.email", "person-node-one@users.noreply.github.com");
+    writeFileSync(path.join(cwd, "delivery.ts"), "export const delivered = true;\n");
+    git(cwd, "add", "delivery.ts");
+    git(cwd, "commit", "-qm", "feat: deliver from an edge with a stale replica");
+    const commitSha = git(cwd, "rev-parse", "HEAD"),
+      closeout = `${created.packagePath}/closeout.md`;
+    fixture.writeWorktree(
+      "node-one",
+      closeout,
+      "## Summary\nEdge delivery.\n## Verification\nStale replica preflight.\n## Residual Risk\nNone.\n## Same Mechanism Elsewhere\nTask delivery uses the center lease.\n",
+    );
+    const docSubmit = await fixture.edgeTask("node-one", { kind: "doc-submit", taskId: created.taskId });
+    assert.equal(docSubmit.outcome, "applied", JSON.stringify(docSubmit));
+    const stale = { ...current, lease: null };
+    assert.equal(
+      stale.executions.find((execution) => execution.iteration === current.task?.iteration)?.state,
+      "active",
+    );
+    const peer = {
+      hostname: config.host,
+      port: config.port,
+      ca: readFileSync(config.caPath, "utf8"),
+      servername: config.servername,
+      nodeId: config.nodeId,
+      credential: config.credential,
+      readAccessToken: config.readAccessToken,
+      repoId: config.repoId,
+    };
+    const remoteRef = (): string | null => {
+      try {
+        return git(remote, "rev-parse", `refs/heads/${created.taskId}`);
+      } catch {
+        return null;
+      }
+    };
+    const assertRouteHolderRejected = async (executionId: string) =>
+      assert.rejects(
+        fixture.edgeTask("node-one", {
+          kind: "task-submit",
+          taskId: created.taskId,
+          executionId,
+        }),
+        (error: unknown) => error instanceof Error && "code" in error && error.code === "lease_holder_mismatch",
+      );
+    await assertRouteHolderRejected("exe-forged-production-route");
+    assert.equal(remoteRef(), null, "the production edge task route rejects a forged execution before creating a ref");
+
+    const preflight = async (
+      requestPeer: typeof peer,
+      action: { readonly kind: "task-submit"; readonly taskId: string; readonly executionId?: string },
+      workspaceRoot = edgeRoot,
+    ) =>
+      prepareEdgeTaskDelivery({
+        workspaceRoot,
+        action,
+        authorize: async () => {
+          const metadata = await readFleetRepositoryMetadataClient({
+            ...requestPeer,
+            actionKind: "task-submit",
+            taskId: created.taskId,
+          });
+          assert.equal(metadata.actionAllowed, true, JSON.stringify(metadata));
+          return metadata.personId;
+        },
+        verifyHolder: async () => {
+          await readFleetRepositoryMetadataClient({
+            ...requestPeer,
+            actionKind: "task-submit",
+            taskId: created.taskId,
+            executionId: action.executionId ?? null,
+          });
+        },
+        readTask: async () => stale,
+      });
+    assert.equal(remoteRef(), null, "negative preflight starts with no published task ref");
+    await assert.rejects(
+      preflight(peer, { kind: "task-submit", taskId: created.taskId, executionId: "exe-forged-before-push" }),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "lease_holder_mismatch",
+    );
+    assert.equal(remoteRef(), null, "wrong execution is rejected before creating a task ref");
+    const otherNode = fixture.channel("node-two");
+    fixture.owners.reassign("node-two", "person-node-one");
+    assert.equal(fixture.owners.nodeOwner("node-two"), "person-node-one");
+    const oldNodePeer = {
+      ...otherNode,
+      ca: readFileSync(otherNode.caPath, "utf8"),
+      readAccessToken: otherNode.readAccessToken,
+    };
+    const oldNodeRoot = path.join(fixture.root, "old-node-workspace");
+    git(fixture.root, "clone", "--no-local", remote, oldNodeRoot);
+    git(oldNodeRoot, "config", "user.name", "person-node-one");
+    git(oldNodeRoot, "config", "user.email", "person-node-one@users.noreply.github.com");
+    const oldNodeWorktree = path.join(oldNodeRoot, workspace!.path);
+    mkdirSync(path.dirname(oldNodeWorktree), { recursive: true });
+    git(oldNodeRoot, "worktree", "add", "-b", created.taskId, oldNodeWorktree, "origin/main");
+    git(oldNodeWorktree, "config", "user.name", "person-node-one");
+    git(oldNodeWorktree, "config", "user.email", "person-node-one@users.noreply.github.com");
+    writeFileSync(path.join(oldNodeWorktree, "delivery.ts"), "export const delivered = true;\n");
+    git(oldNodeWorktree, "add", "delivery.ts");
+    git(oldNodeWorktree, "commit", "-qm", "feat: stale owner candidate");
+    await assert.rejects(
+      preflight(oldNodePeer, { kind: "task-submit", taskId: created.taskId }, oldNodeRoot),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "lease_holder_mismatch",
+    );
+    assert.equal(remoteRef(), null, "same-owner old node is rejected before creating a task ref");
+    git(cwd, "push", "origin", `HEAD:refs/heads/${created.taskId}`);
+    assert.equal(remoteRef(), commitSha, "negative case also covers an expected ref already equal to remote");
+    git(oldNodeRoot, "fetch", "origin");
+    assert.equal(await readPublishedTaskCut(oldNodeRoot, created.taskId), commitSha);
+    await assert.rejects(
+      preflight(oldNodePeer, { kind: "task-submit", taskId: created.taskId }, oldNodeRoot),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "lease_holder_mismatch",
+    );
+    assert.equal(remoteRef(), commitSha, "same-owner old node cannot update its expected remote ref");
+    await assertRouteHolderRejected("exe-forged-production-route-after-ref");
+    assert.equal(remoteRef(), commitSha, "the production edge route cannot update an already-matching remote ref");
+    await assert.rejects(
+      preflight(peer, { kind: "task-submit", taskId: created.taskId, executionId: "exe-forged-after-ref" }),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "lease_holder_mismatch",
+    );
+    assert.equal(remoteRef(), commitSha, "wrong execution cannot update an existing expected ref");
+    const prepared = await prepareEdgeTaskDelivery({
+      workspaceRoot: edgeRoot,
+      action: { kind: "task-submit", taskId: created.taskId },
+      authorize: async () => {
+        const metadata = await readFleetRepositoryMetadataClient({
+          ...peer,
+          actionKind: "task-submit",
+          taskId: created.taskId,
+        });
+        assert.equal(metadata.actionAllowed, true, JSON.stringify(metadata));
+        return metadata.personId;
+      },
+      verifyHolder: async () => {
+        await readFleetRepositoryMetadataClient({
+          ...peer,
+          actionKind: "task-submit",
+          taskId: created.taskId,
+          executionId: null,
+        });
+      },
+      readTask: async () => stale,
+    });
+    assert.equal(prepared.executionId, undefined);
+    assert.equal(prepared.commitSha, commitSha);
+    await assert.rejects(
+      runFleetTaskCommandClient({
+        ...peer,
+        nodeId: otherNode.nodeId,
+        credential: otherNode.credential,
+        readAccessToken: otherNode.readAccessToken,
+        opId: randomUUID(),
+        taskId: created.taskId,
+        action: prepared,
+        waitMs: 1000,
+      }),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "lease_holder_mismatch",
+    );
+    await assert.rejects(
+      runFleetTaskCommandClient({
+        ...peer,
+        opId: randomUUID(),
+        taskId: created.taskId,
+        action: { ...prepared, executionId: "exe-stale-or-forged" },
+        waitMs: 1000,
+      }),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "lease_holder_mismatch",
+    );
+    const submitted = await runFleetTaskCommandClient({
+      ...peer,
+      opId: randomUUID(),
+      taskId: created.taskId,
+      action: prepared,
+      waitMs: 1000,
+    });
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    await fixture.edgeDocSync("node-one");
+    const accepted = readEdgeRuntimeRepository(config, "repo.tasks.runtimeContext.read", { taskId: created.taskId })
+      .snapshot as unknown as DaemonTaskRuntimeContextResult["snapshot"];
+    assert.equal(accepted.executions[0]?.submission?.commitSha, commitSha);
+    assert.equal(accepted.lease, null);
+    assert.equal(git(remote, "rev-parse", `refs/heads/${created.taskId}`), commitSha);
+  },
+);

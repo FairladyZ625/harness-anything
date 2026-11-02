@@ -54,6 +54,8 @@ export const repoReadCommandTopology = commandTopology("repo-read", "direct", "d
   runtimeLocalWriteCommandTopology = commandTopology("repo-write", "via-node", "direct"),
   // Review adjudication is recorded by the node that owns the ledger: local, or the center.
   localArbiterCommandTopology = commandTopology("arbiter", "direct", "rejected"),
+  // Host resources execute on the addressed daemon, including the center itself.
+  nodeLocalWriteCommandTopology = commandTopology("repo-write", "direct", "direct"),
   hostAdminCommandTopology = commandTopology("admin", "direct", "direct");
 const shape = (fields: RpcShape["fields"]): RpcShape => ({ fields }),
   repo = shape({ repoId: "string" });
@@ -415,7 +417,7 @@ export const presetCommands = Object.freeze([
     positional: "presetId",
     inputs: [cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" })],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "preset-upgrade",
     phase: "Preset-A",
     path: ["preset", "upgrade", "<task-id>"],
@@ -472,7 +474,7 @@ export const presetCommands = Object.freeze([
     positional: "scriptId",
     inputs: [],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "script-run",
     phase: "Preset-A",
     path: ["script", "run", "<id>"],

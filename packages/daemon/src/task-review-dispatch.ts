@@ -29,6 +29,7 @@ import { selectReviewSeat, type ReviewSeat, type ReviewSeatSelection } from "./r
 import { reviewPathSeatPrompt } from "./review-path-matching.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
+import { DecisionReviewContentConflictError } from "./repo-cell-errors.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
@@ -88,10 +89,7 @@ export async function dispatchDecisionReview(
     current = { ...read.decision, relations },
     digest = decisionReviewContentDigest(current, document.document.body);
   if (typeof action.expectedDigest === "string" && action.expectedDigest !== digest)
-    throw cell.cellCodedError(
-      "version_conflict",
-      `Decision review content changed: expected=${action.expectedDigest} current=${digest}.`,
-    );
+    throw new DecisionReviewContentConflictError(action.expectedDigest, digest);
   const baseKey = decisionReviewDispatchKey(decisionId, digest),
     revision = cell.store.readHead()?.revision ?? 0;
   const activeDecisionDispatch = cell.projection.readRuntimeDispatchesByDecision(decisionId).find(({ event }) => {
