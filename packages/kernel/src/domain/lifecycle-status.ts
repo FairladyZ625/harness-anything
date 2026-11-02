@@ -20,6 +20,11 @@ export const terminalDomainStatuses = ["done", "cancelled"] as const satisfies R
 
 export const reviewArtifactStatuses = ["in_review", "done"] as const satisfies ReadonlyArray<DomainStatus>;
 
+/** Generic status moves leave submitted execution cuts to the submit/review actions. */
+export const genericTaskTransitionTargets: readonly Exclude<DomainStatus, "submitted">[] = Object.freeze(
+  domainStatuses.filter((status): status is Exclude<DomainStatus, "submitted"> => status !== "submitted"),
+);
+
 export function isDomainStatus(value: string): value is DomainStatus {
   return (domainStatuses as ReadonlyArray<string>).includes(value);
 }

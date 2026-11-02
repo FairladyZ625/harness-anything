@@ -5,6 +5,7 @@ import { WRITE_RECEIPT_SCHEMA } from "./receipt-domain-registry.ts";
 import { settingsLocales } from "./settings.ts";
 import { taskClasses } from "./task.ts";
 import { priorityTiers, taskWorkKinds } from "./task-metadata.ts";
+import { genericTaskTransitionTargets } from "./lifecycle-status.ts";
 import type {
   EntityActionContract,
   EntityActionInputContract,
@@ -429,10 +430,8 @@ export const declarations: readonly Declaration[] = Object.freeze([
     input: input([
       taskId,
       expectedVersion,
-      wire(field("status", "string", true, ["planned", "active", "blocked", "in_review", "done", "cancelled"]), {
-        enum: ["blocked"],
-      }),
-      wire(cli("reason", "string", false, "--reason"), { required: true }),
+      field("status", "string", true, genericTaskTransitionTargets),
+      cli("reason", "string", false, "--reason"),
       cli("force", "boolean", false, "--force", "boolean"),
     ]),
     criteria: Object.freeze([
