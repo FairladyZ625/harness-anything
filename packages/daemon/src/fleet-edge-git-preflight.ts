@@ -78,7 +78,8 @@ function normalizeLocalPath(value: string, rootDir?: string): string {
 }
 
 /** Reads the center checkout's registered origin and the branch head it currently knows. */
-export async function readFleetCenterGitMetadata(rootDir: string): Promise<FleetRepositoryGitMetadata> {
+export async function readFleetCenterGitMetadata(rootDir: string, enabled = true): Promise<FleetRepositoryGitMetadata> {
+  if (!enabled) return { originUrl: null, originPushUrls: [], defaultBranch: null, defaultBranchCommit: null };
   try {
     if (!rootDir) throw new Error("registered center repository root is unavailable");
     await gitText(rootDir, ["rev-parse", "--show-toplevel"]);

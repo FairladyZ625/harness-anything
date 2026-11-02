@@ -19,7 +19,7 @@ import {
 const position = { history: "history-a", sequence: 9, revision: 7 } as const,
   digest = `sha256:${"a".repeat(64)}`,
   metadata = {
-    schema: "fleet-basebackup/v2",
+    schema: "fleet-basebackup/v3",
     readerProfile: { personId: "owner", nodeId: "node" },
     repoId: "replica-repo",
     position,

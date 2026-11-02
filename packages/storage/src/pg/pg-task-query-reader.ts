@@ -1,10 +1,18 @@
 import { receiveMessageOnPort, Worker, MessageChannel, type MessagePort } from "node:worker_threads";
+import { extname } from "node:path";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 import type { PgTaskQueryMethods } from "./pg-task-query-contract.ts";
+import type { PostgresTaskEventStoreRequest, PostgresTaskEventStoreResult } from "../postgres/pg-task-event-store.ts";
+import type { LeaseV1 } from "@harness-anything/kernel";
+import type { PgEpochRequest } from "../postgres/pg-epoch-transaction.ts";
+import type { WriterEpochLease } from "../writer-epoch-contract.ts";
 export type { PgTaskQueryMethods } from "./pg-task-query-contract.ts";
 
 export interface PgTaskQueryReaderOptions {
   readonly connectionString: string;
+  readonly authorityConnectionString?: string;
+  readonly requireRuntimeRole?: boolean;
+  readonly authoredRoot?: string;
   readonly scope: PgProjectionScope;
   readonly repoId: string;
   readonly path?: string;
@@ -17,6 +25,16 @@ export interface PgTaskQueryReader {
   readonly path: string;
   readonly withSession: <A>(read: (queries: PgTaskQueryMethods) => A) => A;
   readonly close: () => void;
+  readonly executeCanonical: (request: PostgresTaskEventStoreRequest) => PostgresTaskEventStoreResult;
+  readonly changeLease: (
+    operation: "reserve" | "activate" | "renew" | "release",
+    expected: LeaseV1,
+    now: string,
+    expiresAt?: string,
+  ) => LeaseV1;
+  readonly rebuild: () => void;
+  readonly writerEpoch: (request: PgEpochRequest) => WriterEpochLease | number | null;
+  readonly replication: (operation: "head" | "page" | "slots", payload?: unknown) => unknown;
 }
 
 interface WorkerResponse {
@@ -44,9 +62,12 @@ export function createPgTaskQueryReader(options: PgTaskQueryReaderOptions): PgTa
     { port1, port2 } = new MessageChannel(),
     ready = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT)),
     state = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT)),
-    worker = new Worker(new URL("./pg-task-query-worker.ts", import.meta.url), {
+    worker = new Worker(new URL(`./pg-task-query-worker${extname(import.meta.filename)}`, import.meta.url), {
       workerData: {
         connectionString: options.connectionString,
+        authorityConnectionString: options.authorityConnectionString,
+        requireRuntimeRole: options.requireRuntimeRole,
+        authoredRoot: options.authoredRoot,
         scope: options.scope,
         repoId: options.repoId,
         path,
@@ -93,7 +114,7 @@ export function createPgTaskQueryReader(options: PgTaskQueryReaderOptions): PgTa
   }
 
   const request = <Result>(
-    op: "begin" | "query" | "end" | "close",
+    op: "begin" | "query" | "end" | "close" | "canonical" | "lease" | "rebuild" | "epoch" | "replication",
     method?: string,
     args?: readonly unknown[],
   ): Result => {
@@ -141,6 +162,20 @@ export function createPgTaskQueryReader(options: PgTaskQueryReaderOptions): PgTa
 
   return {
     path,
+    executeCanonical: (value) => {
+      if (activeSession) throw new Error("canonical operations cannot run inside a projection read session");
+      return request("canonical", undefined, [value]);
+    },
+    changeLease: (...args) => {
+      if (activeSession) throw new Error("lease writes cannot run inside a projection read session");
+      return request("lease", undefined, args);
+    },
+    rebuild: () => {
+      if (activeSession) throw new Error("rebuild cannot run inside a projection read session");
+      request("rebuild");
+    },
+    writerEpoch: (value) => request("epoch", undefined, [value]),
+    replication: (operation, payload) => request("replication", operation, [payload]),
     withSession: (read) => {
       if (closed) throw new Error("PostgreSQL task query reader is closed", { cause: lifecycleError });
       if (activeSession) throw new Error("PostgreSQL task query sessions cannot be nested");

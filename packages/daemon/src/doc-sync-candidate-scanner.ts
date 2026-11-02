@@ -2,9 +2,9 @@ import {
   /* @gate-identity check-sync-subprocess/sync-subprocess-006 */
   execFileSync,
 } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { resolveLedgerGitLayout, localGitWorktreeSettlement } from "@harness-anything/storage";
+import { findLedgerGitLayout, localGitWorktreeSettlement } from "@harness-anything/storage";
 import {
   artifactSubtreePath,
   decideDocWriteCriteria,
@@ -92,7 +92,7 @@ export function scanDocCandidates(input: {
   readonly inventory?: AuthoredCandidateInventoryV1;
 }): DocCandidateScan {
   const layout = resolveHarnessLayout(input.rootDir),
-    ledger = resolveLedgerGitLayout(input.rootDir),
+    ledger = input.store.currentCommit() === null ? null : findLedgerGitLayout(input.rootDir),
     task = input.taskId === undefined ? null : input.projection.read(input.taskId),
     taskPrefix =
       input.taskId === undefined
@@ -114,7 +114,15 @@ export function scanDocCandidates(input: {
       ? [...new Set(selected)]
       : [
           ...new Set([
-            ...dirtyPaths(ledger.rootDir, ledger.authoredPrefix, conflictsByPath.keys(), taskPrefix ?? ""),
+            ...(ledger
+              ? dirtyPaths(ledger.rootDir, ledger.authoredPrefix, conflictsByPath.keys(), taskPrefix ?? "")
+              : input.inventory
+                ? []
+                : [
+                    ...authoredTreePaths(layout, enumerationScope),
+                    ...input.projection.readDocuments(enumerationScope).documents.map((doc) => doc.path),
+                    ...conflictsByPath.keys(),
+                  ]),
             ...(input.inventory?.rows.map((row) => row.path) ?? []),
           ]),
         ].filter((value) => value.startsWith(enumerationScope)),
@@ -425,7 +433,7 @@ export function validateSelectedDocPaths(selected: readonly string[], scan: DocC
 export function normalizeSelectedDocPath(rootDir: string, value: string): string {
   const layout = resolveHarnessLayout(rootDir);
   return normalizeSelectedPath(
-    resolveLedgerGitLayout(rootDir).authoredPrefix,
+    findLedgerGitLayout(rootDir)?.authoredPrefix ?? "",
     relative(rootDir, layout.authoredRoot),
     value,
   );
@@ -600,6 +608,23 @@ function dirtyPaths(
         ),
     ),
   ];
+}
+
+function authoredTreePaths(layout: ReturnType<typeof resolveHarnessLayout>, prefix: string): string[] {
+  const root = path.join(layout.authoredRoot, prefix);
+  if (!existsSync(root)) return [];
+  if (!lstatSync(root).isDirectory()) return [prefix.replace(/\/$/u, "")];
+  const paths: string[] = [];
+  const visit = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const target = path.join(directory, entry.name);
+      if ([".git", ".worktrees"].includes(entry.name) || target === layout.localRoot) continue;
+      if (entry.isDirectory()) visit(target);
+      else paths.push(relative(layout.authoredRoot, target));
+    }
+  };
+  visit(root);
+  return paths.filter((value) => !value.includes(".conflict-") && !/\/\.ha-(?:visible|settle)-/u.test(`/${value}`));
 }
 
 function gitStatusNames(repoRoot: string, scope: string): string[] {

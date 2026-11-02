@@ -44,7 +44,6 @@ export interface DaemonRegistryRepo {
 }
 type LocalDaemonRegistryRepo = DaemonRegistryRepo & {
   readonly canonicalRoot: string;
-  readonly authoredBranch: string;
 };
 export interface InvalidDaemonRegistryRepo {
   readonly entryIndex: number;
@@ -82,7 +81,7 @@ export interface DaemonRegistryOptions {
 export interface DaemonRegistryRegisterInput extends DaemonRegistryOptions {
   readonly canonicalRoot?: string;
   /** Derived by the composition layer, which owns VCS access. */
-  readonly authoredBranch?: string;
+  readonly authoredBranch?: string | null;
   readonly repoId?: string;
   readonly displayName?: string;
   readonly mode?: DaemonRepoMode;
@@ -232,7 +231,8 @@ export function writeDaemonRegistryRepo(
     repoId,
     canonicalRoot,
     displayName,
-    authoredBranch: canonicalRoot === null ? null : requiredAuthoredBranch(input.authoredBranch),
+    authoredBranch:
+      canonicalRoot === null || input.authoredBranch === null ? null : requiredAuthoredBranch(input.authoredBranch),
     mode: requestedMode,
     connectionId: connection.connection.id,
     state: "enabled",
@@ -521,7 +521,7 @@ function decodeDaemonRegistryRepo(
   if (mode === "remote-proxy") {
     if (canonicalRoot !== null || authoredBranch !== null || connection?.kind !== "remote-endpoint")
       throw new Error(`invalid remote-proxy daemon registry repo entry at ${source}`);
-  } else if (canonicalRoot === null || authoredBranch === null)
+  } else if (canonicalRoot === null)
     throw new Error(`invalid workspace-backed daemon registry repo entry at ${source}`);
   return {
     repoId: repoId!,

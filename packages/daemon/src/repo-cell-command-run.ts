@@ -407,7 +407,7 @@ export function makeRepoCellCommandRunner(
             action,
             rootDir: context.rootDir,
             verticalId: context.settings.readRepository().defaultVertical,
-            commitSha: context.store.currentCommit().sha,
+            commitSha: requiredPublishedGitCommit(context.store.currentCommit()),
             signal,
           }),
         )
@@ -585,4 +585,12 @@ async function bindCurrentPersonIdentityWitnesses(
     witnesses.set(personId, userId);
   }
   return { ...binding, personIdentityWitnesses: witnesses };
+}
+
+function requiredPublishedGitCommit(commit: { readonly sha: string } | null): string {
+  if (!commit)
+    throw Object.assign(new Error("This script requires a configured Git follower"), {
+      code: "git_follower_unconfigured",
+    });
+  return commit.sha;
 }

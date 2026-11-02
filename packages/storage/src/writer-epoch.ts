@@ -5,43 +5,17 @@ import { DatabaseSync } from "node:sqlite";
 import { consumeKnownError } from "@harness-anything/kernel";
 import { openSqliteEventStore, resolveActiveGeneration, sqliteLedgerPath } from "./store/sqlite-event-store.ts";
 
-export interface WriterEpochLease {
-  readonly repoId: string;
-  readonly holderId: string;
-  readonly epoch: number;
-  readonly version: number;
-  readonly issuedAt: string;
-}
-export interface WriterEpochFenceDescriptor {
-  readonly schema: "harness-writer-epoch-fence/v1";
-  readonly stateRoot: string;
-  readonly repoId: string;
-  readonly epoch: number;
-  readonly holderId: string;
-}
-export interface PersistentWriterEpoch {
-  readonly acquire: (repoId: string, observedLedgerEpoch?: number) => WriterEpochLease;
-  readonly current: (repoId: string) => WriterEpochLease | null;
-  readonly highWatermark: (repoId: string) => number;
-  readonly retireCurrent: (repoId: string) => void;
-  readonly assert: (repoId: string, epoch: number, holderId?: string) => void;
-  readonly withAppendFence: <T>(repoId: string, epoch: number, holderId: string, operation: () => T) => T;
-  readonly close: () => void;
-}
-export class WriterEpochError extends Error {
-  readonly code:
-    | "writer_epoch_stale"
-    | "writer_epoch_invalid"
-    | "writer_epoch_migration_required"
-    | "writer_epoch_legacy_unreadable"
-    | "writer_epoch_legacy_unsupported"
-    | "writer_epoch_daemon_running";
-  constructor(code: WriterEpochError["code"], message: string) {
-    super(message);
-    this.name = "WriterEpochError";
-    this.code = code;
-  }
-}
+export { WriterEpochError } from "./writer-epoch-contract.ts";
+export type { WriterEpochLease, WriterEpochFenceDescriptor, PersistentWriterEpoch } from "./writer-epoch-contract.ts";
+import {
+  WriterEpochError,
+  type WriterEpochLease,
+  type WriterEpochFenceDescriptor,
+  type PersistentWriterEpoch,
+} from "./writer-epoch-contract.ts";
+import type { StorageBackendConfig } from "./storage-backend.ts";
+import { openPgWriterEpoch } from "./postgres/pg-writer-epoch.ts";
+import { writerEpochStorage } from "./writer-epoch-storage.ts";
 
 type EpochRow = {
   readonly repo_id: string;
@@ -438,22 +412,31 @@ export function openPersistentWriterEpoch(options: {
   readonly stateRoot: string;
   readonly holderId?: string;
   readonly now?: () => string;
+  readonly storage?: StorageBackendConfig;
+  readonly storageByRepo?: Readonly<Record<string, StorageBackendConfig>>;
 }): PersistentWriterEpoch {
+  if (options.storage?.backend === "postgres") return openPgWriterEpoch({ ...options, storage: options.storage });
   mkdirSync(options.stateRoot, { recursive: true });
   const holderId = options.holderId ?? `center-${process.pid}-${randomUUID()}`,
     now = options.now ?? (() => new Date().toISOString()),
-    authorities = new Map<string, ReturnType<typeof openRepoEpochAuthority>>();
+    authorities = new Map<string, ReturnType<typeof openRepoEpochAuthority> | PersistentWriterEpoch>();
   let closed = false;
   const ensureOpen = (): void => {
     if (closed) throw new WriterEpochError("writer_epoch_invalid", "writer epoch authority is closed");
   };
-  const authorityFor = (repoId: string): ReturnType<typeof openRepoEpochAuthority> => {
+  const authorityFor = (repoId: string): ReturnType<typeof openRepoEpochAuthority> | PersistentWriterEpoch => {
     ensureOpen();
     // The repository id becomes a path component of its epoch database.
     if (!repoIdPattern.test(repoId))
       throw new WriterEpochError("writer_epoch_invalid", `repoId ${repoId} is invalid for a writer epoch database`);
     let authority = authorities.get(repoId);
     if (!authority) {
+      const storage = options.storageByRepo?.[repoId];
+      if (storage?.backend === "postgres") {
+        authority = openPgWriterEpoch({ ...options, storage });
+        authorities.set(repoId, authority);
+        return authority;
+      }
       const databasePath = path.join(options.stateRoot, "writer-epochs", `${repoId}.sqlite`);
       assertLegacyWriterEpochRepoMigrated(options.stateRoot, repoId, databasePath);
       authority = openRepoEpochAuthority({
@@ -494,10 +477,15 @@ const descriptorAuthorities = new Map<string, PersistentWriterEpoch>();
 
 function descriptorAuthority(descriptor: WriterEpochFenceDescriptor): PersistentWriterEpoch {
   validateWriterEpochFenceDescriptor(descriptor);
-  let authority = descriptorAuthorities.get(descriptor.stateRoot);
+  const key = `${descriptor.stateRoot}\0${descriptor.repoId}`;
+  let authority = descriptorAuthorities.get(key);
   if (!authority) {
-    authority = openPersistentWriterEpoch({ stateRoot: descriptor.stateRoot, holderId: descriptor.holderId });
-    descriptorAuthorities.set(descriptor.stateRoot, authority);
+    authority = openPersistentWriterEpoch({
+      stateRoot: descriptor.stateRoot,
+      holderId: descriptor.holderId,
+      storage: writerEpochStorage(descriptor),
+    });
+    descriptorAuthorities.set(key, authority);
   }
   return authority;
 }
@@ -542,7 +530,12 @@ function validateWriterEpochFenceDescriptor(descriptor: WriterEpochFenceDescript
     throw new WriterEpochError("writer_epoch_invalid", "writer epoch fence descriptor is invalid");
 }
 
-export function readLedgerWriterEpoch(repoId: string, rootDir: string | null | undefined): number {
+export function readLedgerWriterEpoch(
+  repoId: string,
+  rootDir: string | null | undefined,
+  storage?: StorageBackendConfig,
+): number {
+  if (storage?.backend === "postgres") return 0;
   if (typeof rootDir !== "string") return 0;
   const generation = resolveActiveGeneration({ rootInput: rootDir, repoId }),
     databasePath = sqliteLedgerPath(rootDir, generation);

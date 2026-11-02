@@ -20,7 +20,12 @@ import type { TestContext } from "node:test";
 import { connect, createServer, type TLSSocket } from "node:tls";
 import { DatabaseSync } from "node:sqlite";
 import { TASK_EVENT_SHAPE_COMPAT_VERSION } from "@harness-anything/kernel";
-import { makeTaskProjectionReader, sqliteLedgerPath } from "@harness-anything/storage";
+import {
+  makeDaemonProjectionReader,
+  openFleetStorage,
+  sqliteLedgerPath,
+  type DaemonStorageConfig,
+} from "@harness-anything/storage";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { createIdentitySession } from "../src/authorization-provider.ts";
 import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
@@ -66,6 +71,7 @@ export async function fleetReplicationFixture(
     readonly retentionWindowCommits?: number;
     readonly replicationKeepaliveMs?: number;
     readonly now?: () => string;
+    readonly storage?: DaemonStorageConfig;
   } = {},
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-repl-")),
@@ -85,16 +91,26 @@ export async function fleetReplicationFixture(
   mkdirSync(emptyPath);
   const git = (...args: readonly string[]): string =>
     execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
-  git("init", "-q");
-  git("config", "user.name", "Replication Test");
-  git("config", "user.email", "replication@example.invalid");
-  git("commit", "--allow-empty", "-qm", "base");
+  if (!options.storage || options.storage.backend === "sqlite" || options.storage.gitFollower) {
+    git("init", "-q");
+    if (options.storage?.backend === "postgres" && options.storage.gitFollower)
+      git("branch", "-M", options.storage.gitFollower.branch);
+    git("config", "user.name", "Replication Test");
+    git("config", "user.email", "replication@example.invalid");
+    git("commit", "--allow-empty", "-qm", "base");
+  }
   writeFileSync(
     path.join(repo, "harness/harness.yaml"),
     "schema: harness-anything/v1\nname: replica\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
   );
-  git("add", "harness");
-  git("commit", "-qm", "harness");
+  if (!options.storage || options.storage.backend === "sqlite" || options.storage.gitFollower) {
+    git("add", "harness");
+    git("commit", "-qm", "harness");
+  }
+  if (options.storage) {
+    mkdirSync(userRoot, { recursive: true });
+    writeFileSync(path.join(userRoot, "daemon-storage.json"), JSON.stringify({ [replicationRepoId]: options.storage }));
+  }
   registerDaemonRepo({ canonicalRoot: repo, repoId: replicationRepoId, userRoot, createConvenienceLinks: false });
   execFileSync(
     "openssl",
@@ -172,7 +188,8 @@ export async function fleetReplicationFixture(
     localAuth,
     transportErrors,
     ledgerPath: sqliteLedgerPath(repo),
-    centerReader: () => makeTaskProjectionReader({ rootDir: repo }),
+    centerReader: () =>
+      makeDaemonProjectionReader({ rootDir: repo, repoId: replicationRepoId, storage: options.storage }),
     /** The listening port of the currently open center (real or reopened). */
     centerPort: (): number => assertCenterOpen(center).port,
     track: (close: () => void) => {
@@ -206,7 +223,15 @@ export async function fleetReplicationFixture(
       return opened;
     },
     centerRun: (action: Record<string, unknown>, binding = localAuth) => host.run(replicationRepoId, action, binding),
-    eventCount: (): number => fleetLedgerRevision(repo, replicationRepoId),
+    eventCount: (): number => {
+      if (!options.storage) return fleetLedgerRevision(repo, replicationRepoId);
+      const source = openFleetStorage({ rootDir: repo, repoId: replicationRepoId, storage: options.storage });
+      try {
+        return source.replicationPosition().revision;
+      } finally {
+        source.close();
+      }
+    },
     /**
      * One authored task command from an edge, spoken directly on the new protocol: metadata for
      * the writer epoch, then the unchanged fleet.task.command/v1 write contract. This is the

@@ -77,7 +77,7 @@ export const isReplicationPosition = (value: unknown): value is ReplicationPosit
   shape(value, { history: text, sequence: uint, revision: uint });
 export const isBaseBackupMetadata = (value: unknown): value is BaseBackupMetadata =>
   shape(value, {
-    schema: (v) => v === "fleet-basebackup/v2",
+    schema: (v) => v === "fleet-basebackup/v3",
     repoId: text,
     readerProfile: (v) => v === null || shape(v, { personId: text, nodeId: text }),
     position: isReplicationPosition,

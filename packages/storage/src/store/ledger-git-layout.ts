@@ -14,12 +14,21 @@ export interface LedgerGitLayout {
 // harness.yaml resolves to a different authored root and therefore a different key.
 const ledgerTopLevelCache = new Map<string, LedgerGitLayout>();
 export function resolveLedgerGitLayout(input: HarnessLayoutInput): LedgerGitLayout {
+  const layout = findLedgerGitLayout(input);
+  if (!layout)
+    throw new Error(
+      `authored root must belong to its ledger Git repository: ${resolveHarnessLayout(input).authoredRoot}`,
+    );
+  return layout;
+}
+/** Optional VCS capability: a canonical authored tree does not itself require Git. */
+export function findLedgerGitLayout(input: HarnessLayoutInput): LedgerGitLayout | null {
   const vcs = makeLocalVersionControlSystem(),
     authoredRoot = vcs.normalizePath(resolveHarnessLayout(input).authoredRoot),
     cached = ledgerTopLevelCache.get(authoredRoot);
   if (cached) return cached;
   const rootDir = vcs.topLevel(authoredRoot);
-  if (!rootDir) throw new Error(`authored root must belong to its ledger Git repository: ${authoredRoot}`);
+  if (!rootDir) return null;
   const authoredPrefix = path.relative(rootDir, authoredRoot).split(path.sep).join("/");
   if (authoredPrefix === ".." || authoredPrefix.startsWith("../"))
     throw new Error(`authored root must be inside its ledger Git repository: ${authoredRoot}`);

@@ -14,6 +14,7 @@ import {
   activateEmptyCanonicalGeneration,
   makeTaskEventStore,
   registerDaemonRepo as registerProductDaemonRepo,
+  readDaemonStorageConfig,
 } from "@harness-anything/storage";
 import { daemonRegistryPaths } from "../../storage/test/store/canonical-generation.fixtures.ts";
 import { defaultAssets } from "@harness-anything/preset/internal/preset-resolver-common";
@@ -93,10 +94,15 @@ function settingsBase(rootDir: string): string {
   return readFileSync(settingsPath, "utf8");
 }
 
-function fixtureFence(repoId: string, rootDir: string, stateRoot: string): WriterEpochFenceDescriptor {
-  const authority = openPersistentWriterEpoch({ stateRoot, holderId: "direct-store" });
+function fixtureFence(
+  repoId: string,
+  rootDir: string,
+  stateRoot: string,
+  storage?: import("@harness-anything/storage").DaemonStorageConfig,
+): WriterEpochFenceDescriptor {
+  const authority = openPersistentWriterEpoch({ stateRoot, holderId: "direct-store", storage });
   try {
-    const lease = authority.acquire(repoId, readLedgerWriterEpoch(repoId, rootDir));
+    const lease = authority.acquire(repoId, readLedgerWriterEpoch(repoId, rootDir, storage));
     return { schema: "harness-writer-epoch-fence/v1", stateRoot, repoId, holderId: lease.holderId, epoch: lease.epoch };
   } finally {
     authority.close();
@@ -106,6 +112,7 @@ function fixtureFence(repoId: string, rootDir: string, stateRoot: string): Write
 export function seedSettingsEvent(input: {
   readonly repoId: string;
   readonly rootDir: string;
+  readonly storage?: import("@harness-anything/storage").DaemonStorageConfig;
   readonly authoredBranch?: string;
   readonly writerEpochFence?: WriterEpochFenceDescriptor;
   readonly keepOpen?: boolean;
@@ -116,6 +123,7 @@ export function seedSettingsEvent(input: {
     fixtureKey = `${rootDir}\0${repoId}`;
   if (seededSettings.has(fixtureKey)) return undefined;
   const store = makeTaskEventStore({
+      storage: input.storage,
       repoId,
       rootDir,
       activationPreflight: activateEmptyCanonicalGeneration,
@@ -166,14 +174,17 @@ export async function registerSettledBootstrappedDaemonRepo(
   input: Parameters<typeof registerProductDaemonRepo>[0],
 ): Promise<ReturnType<typeof registerProductDaemonRepo>> {
   if (input.mode !== "remote-edge" && input.repoId && input.canonicalRoot) {
-    const writerEpochFence = fixtureFence(
+    const storage = readDaemonStorageConfig(daemonRegistryPaths(input).userRoot)[input.repoId],
+      writerEpochFence = fixtureFence(
         input.repoId,
         input.canonicalRoot,
         path.join(daemonRegistryPaths(input).userRoot, "fleet"),
+        storage,
       ),
       store = seedSettingsEvent({
         repoId: input.repoId,
         rootDir: input.canonicalRoot,
+        storage,
         writerEpochFence,
         keepOpen: true,
         runtimeInstances: fixtureMachineInstances(daemonRegistryPaths(input).userRoot),
@@ -195,6 +206,7 @@ export const openFencedRepoCell: typeof openProductRepoCell = async (input) => {
       input.repoId,
       input.rootDir,
       path.join(resolveHarnessLayout(input.rootDir).localRoot, "fixture-writer-epochs"),
+      input.storage,
     );
   return openProductRepoCell({ keycloakCenter: policyTestCenter, ...input, defaultWriterEpochFence });
 };
@@ -216,6 +228,7 @@ export const openBootstrappedRepoCell: typeof openProductRepoCell = async (input
       input.repoId,
       input.rootDir,
       path.join(resolveHarnessLayout(input.rootDir).localRoot, "fixture-writer-epochs"),
+      input.storage,
     );
   await settleSettingsEvent({
     ...input,
@@ -236,6 +249,7 @@ export const openBootstrappedRepoCell: typeof openProductRepoCell = async (input
 async function settleSettingsEvent(input: {
   readonly repoId: string;
   readonly rootDir: string;
+  readonly storage?: import("@harness-anything/storage").DaemonStorageConfig;
   readonly authoredBranch?: string;
   readonly writerEpochFence?: WriterEpochFenceDescriptor;
   readonly runtimeInstances?: readonly { readonly instanceId: string; readonly enabled: boolean }[];
@@ -248,6 +262,7 @@ async function settleSettingsEvent(input: {
   // and masks tests that intentionally exercise an invalid Git layout.
   if (seededSettings.has(fixtureKey)) return;
   const store = makeTaskEventStore({
+      storage: input.storage,
       repoId,
       rootDir,
       activationPreflight: activateEmptyCanonicalGeneration,
@@ -300,14 +315,17 @@ export const registerBootstrappedDaemonRepo = (
   },
 ): ReturnType<typeof registerProductDaemonRepo> => {
   if (input.mode !== "remote-edge" && input.repoId && input.canonicalRoot) {
-    const writerEpochFence = fixtureFence(
-      input.repoId,
-      input.canonicalRoot,
-      path.join(daemonRegistryPaths(input).userRoot, "fleet"),
-    );
+    const storage = readDaemonStorageConfig(daemonRegistryPaths(input).userRoot)[input.repoId],
+      writerEpochFence = fixtureFence(
+        input.repoId,
+        input.canonicalRoot,
+        path.join(daemonRegistryPaths(input).userRoot, "fleet"),
+        storage,
+      );
     seedSettingsEvent({
       repoId: input.repoId,
       rootDir: input.canonicalRoot,
+      storage,
       writerEpochFence,
       runtimeInstances: input.runtimeInstances ?? fixtureMachineInstances(daemonRegistryPaths(input).userRoot),
     });

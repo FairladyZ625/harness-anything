@@ -55,7 +55,9 @@ export type PostgresReadOperation =
   | "outcome"
   | "content-blob"
   | "content-blob-range"
-  | "content-blob-size";
+  | "content-blob-size"
+  | "stream"
+  | "batch";
 
 export async function executePostgresRead(
   pool: Pool,
@@ -67,6 +69,38 @@ export async function executePostgresRead(
     pool,
     async (client) => {
       switch (operation) {
+        case "stream":
+        case "batch": {
+          const input = payload as { repoId: string; cursor?: string | null; maxItems?: number },
+            after = input.cursor == null ? 0 : Number(input.cursor),
+            limit = operation === "stream" ? undefined : input.maxItems;
+          if (
+            !Number.isSafeInteger(after) ||
+            after < 0 ||
+            (operation === "batch" && (!Number.isSafeInteger(limit) || limit! < 1))
+          )
+            throw new TaskEventStoreError("invalid_store", "event batch cursor or size is invalid");
+          const head = (
+              await client.query<{ revision: string }>(
+                "SELECT revision FROM ha_repo_heads WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3",
+                [scope.tenantId, scope.projectId, input.repoId],
+              )
+            ).rows[0],
+            sourceRevision = Number(head?.revision ?? 0),
+            events = (await readEvents(client, scope, { repoId: input.repoId, afterRevision: after, limit })).map(
+              (body) => JSON.parse(body) as CanonicalEventV1,
+            ),
+            next = events.at(-1)?.workspaceRevision ?? after;
+          return operation === "stream"
+            ? { schema: "canonical-event-stream/v1", revision: sourceRevision, events }
+            : {
+                sourceRevision,
+                events,
+                cursor: events.length ? String(next) : (input.cursor ?? null),
+                done: next >= sourceRevision,
+                accessedItems: events.length,
+              };
+        }
         case "head":
           return (
             (
@@ -93,6 +127,7 @@ export async function executePostgresRead(
       }
     },
     scope,
+    { isolationLevel: "repeatable read" },
   );
 }
 

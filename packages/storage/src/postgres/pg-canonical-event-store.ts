@@ -1,0 +1,216 @@
+import { ledgerCommitSha } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
+import path from "node:path";
+import {
+  isTaskEvent,
+  consumeKnownError,
+  resolveHarnessLayout,
+  type CanonicalEventV1,
+  type CanonicalFollowerFacet,
+} from "@harness-anything/kernel";
+import {
+  canonicalEventCut,
+  canonicalLedgerCut,
+} from "@harness-anything/kernel/internal/ports/canonical-event-store.ts";
+import {
+  TaskEventStoreError,
+  type CanonicalEventStore,
+  type CanonicalCommandOutcome,
+  type CanonicalEventAppendReceipt,
+} from "@harness-anything/kernel/internal/ports/task-event-store.ts";
+import { createPgTaskQueryReader } from "../pg/pg-task-query-reader.ts";
+import { resolvePostgresEventStoreScope } from "../pg/backend.ts";
+import type { PostgresTaskEventStoreOptions } from "../store/task-event-store-factory.ts";
+import { applyCanonicalTree } from "../canonical-tree-materialization.ts";
+import { resolveLedgerGitLayout } from "../store/ledger-git-layout.ts";
+import { localGitObjectRefStore } from "../store/local-version-control-system.ts";
+import { followerFiles } from "../store/sqlite-task-event-publication.ts";
+import { prepareCommit, finalizeRefs } from "../store/task-event-store-git-refs.ts";
+
+/** The existing PG worker bridge owns whole accepting transactions and the driver pool. */
+export function makePgCanonicalEventStore(
+  options: PostgresTaskEventStoreOptions,
+): CanonicalEventStore & { readonly pruneReplicationLog: (beforeSequence: number) => void } {
+  const reader = createPgTaskQueryReader({
+      connectionString: options.storage.connectionString,
+      requireRuntimeRole: true,
+      ...((options.rootInput ?? options.rootDir) === undefined
+        ? {}
+        : { authoredRoot: resolveHarnessLayout((options.rootInput ?? options.rootDir)!).authoredRoot }),
+      repoId: options.repoId,
+      scope: resolvePostgresEventStoreScope(options.storage.scope),
+    }),
+    execute = reader.executeCanonical,
+    head: CanonicalEventStore["readHead"] = () =>
+      execute({ operation: "head" }) as ReturnType<CanonicalEventStore["readHead"]>,
+    readEvents = (afterRevision = 0, limit?: number) =>
+      execute({ operation: "events", afterRevision, limit }) as readonly CanonicalEventV1[],
+    readContentBlob: CanonicalEventStore["readContentBlob"] = (sha256) =>
+      execute({ operation: "content", sha256 }) as Uint8Array | null,
+    readEvent: CanonicalEventStore["readEvent"] = (value) =>
+      execute({ operation: "event", key: "op_id", value }) as CanonicalEventV1 | null,
+    writable = () => {
+      if (options.mutable === false) throw new TaskEventStoreError("invalid_write_plan", "event reader is read-only");
+    },
+    fence = () => options.writerFence?.() ?? { repoId: options.repoId, holderId: "direct-store", epoch: 1 };
+  let worktree: CanonicalFollowerFacet = { status: "pending", cut: null, commitSha: null },
+    git: CanonicalFollowerFacet = {
+      status: "pending",
+      cut: null,
+      commitSha: null,
+      reason: "Git follower is not configured",
+    },
+    scheduled: Promise<void> | null = null,
+    lastMaterializationError: string | undefined;
+  const publishFollower = (
+    request?: Parameters<CanonicalEventStore["materialize"]>[0],
+  ): ReturnType<CanonicalEventStore["materialize"]> => {
+    writable();
+    const cut = canonicalLedgerCut(options.repoId, head()),
+      rootInput = options.rootInput ?? options.rootDir;
+    if (options.storage.materialize === false || rootInput === undefined) {
+      if (request)
+        throw new TaskEventStoreError("materialization_failed", "No authored tree is configured for this repository");
+      return { status: "visible", commitSha: null, settlements: [], conflicts: [] };
+    }
+    const layout = resolveHarnessLayout(rootInput),
+      documents = reader.withSession((q) => q.readDocuments("").documents),
+      entries = new Map(documents.map((doc) => [doc.path, { sha256: doc.blobSha256 }])),
+      result = applyCanonicalTree({
+        authoredRoot: layout.authoredRoot,
+        markerPath: path.join(layout.localRoot, "fleet-materialized.json"),
+        generation: 3,
+        revision: cut.revision,
+        entries,
+        preview: request?.preview,
+        changedPaths: request?.paths,
+        readContent: (logical) => readContentBlob(entries.get(logical)!.sha256),
+      });
+    if (request?.preview)
+      return {
+        status: "planned",
+        commitSha: git.commitSha ? ledgerCommitSha(options.repoId, git.commitSha) : null,
+        settlements: result.settlements,
+        conflicts: result.dirtyPaths,
+      };
+    worktree = {
+      status: result.dirtyPaths.length === 0 ? "verified" : "pending",
+      cut,
+      commitSha: null,
+      conflicts: result.dirtyPaths,
+    };
+    const follower = options.storage.gitFollower;
+    if (follower && git.cut?.revision !== cut.revision && cut.revision > 0) {
+      const ledger = resolveLedgerGitLayout(rootInput),
+        authoredRef = `refs/heads/${follower.branch}`,
+        parent = localGitObjectRefStore.resolveCommit(ledger.rootDir, authoredRef),
+        temporaryRef = `refs/ha-pg-outbox/${cut.revision}`,
+        commit = prepareCommit(
+          ledger.rootDir,
+          temporaryRef,
+          parent,
+          followerFiles(ledger, readEvents(), readContentBlob, cut, 3),
+          `outbox-${cut.revision}`,
+          new Date().toISOString(),
+        );
+      finalizeRefs(ledger.rootDir, authoredRef, commit, parent, temporaryRef);
+      git = { status: "verified", cut, commitSha: commit };
+    }
+    return {
+      status: "visible",
+      commitSha: git.commitSha ? ledgerCommitSha(options.repoId, git.commitSha) : null,
+      settlements: result.settlements,
+      conflicts: result.dirtyPaths,
+    };
+  };
+  const follow = (request?: Parameters<CanonicalEventStore["materialize"]>[0]) =>
+    options.withAppendFence ? options.withAppendFence(() => publishFollower(request)) : publishFollower(request);
+  const schedule = (): Promise<void> =>
+    (scheduled ??= new Promise<void>((resolve) =>
+      setImmediate(() => {
+        try {
+          follow();
+          lastMaterializationError = undefined;
+        } catch (error) {
+          lastMaterializationError = error instanceof Error ? error.message : String(error);
+          consumeKnownError(error);
+          options.onMaterializationHealthChange?.({
+            state: "failed",
+            lastCheckpointRevision: worktree.cut?.revision ?? 0,
+            lastCheckpointAt: null,
+            pendingWalEvents: (head()?.revision ?? 0) - (worktree.cut?.revision ?? 0),
+            reason: "deterministic_failure",
+            lastError: lastMaterializationError,
+          });
+        } finally {
+          scheduled = null;
+          resolve();
+        }
+      }),
+    ));
+  if (options.mutable !== false) void schedule();
+  return {
+    canonicalRef: "postgres:canonical",
+    read: () => execute({ operation: "stream" }) as ReturnType<CanonicalEventStore["read"]>,
+    readHead: head,
+    currentCut: () => canonicalLedgerCut(options.repoId, head()),
+    currentCommit: () => (git.commitSha ? ledgerCommitSha(options.repoId, git.commitSha) : null),
+    publication: (event) => ({ commitSha: null, cut: canonicalEventCut(options.repoId, event) }),
+    readEvent,
+    readEventAtRevision: (value) => execute({ operation: "event", key: "revision", value }) as CanonicalEventV1 | null,
+    readEventById: (value) => execute({ operation: "event", key: "event_id", value }) as CanonicalEventV1 | null,
+    queryEvents: (query) => execute({ operation: "events", query }) as readonly CanonicalEventV1[],
+    readTaskEvent: (opId) => {
+      const event = readEvent(opId);
+      return event && isTaskEvent(event) ? event : null;
+    },
+    readCommandOutcome: (opId) => execute({ operation: "outcome", opId }) as CanonicalCommandOutcome | null,
+    ledgerMetadata: () => ({ repoId: options.repoId, generation: 3, revision: head()?.revision ?? 0 }),
+    followerStatus: () => ({ git, worktree }),
+    readBatch: (cursor, maxItems) =>
+      execute({ operation: "batch", cursor, maxItems }) as ReturnType<CanonicalEventStore["readBatch"]>,
+    readContentBlob,
+    layout: () => "sharded-sha256-2/v1",
+    append: (bundle) => {
+      writable();
+      const receipt = execute({
+        operation: "append",
+        bundle,
+        expectedRevision: bundle.preceding?.[0]?.event.workspaceRevision
+          ? bundle.preceding[0].event.workspaceRevision - 1
+          : bundle.event.workspaceRevision - 1,
+        writerFence: fence(),
+      }) as CanonicalEventAppendReceipt;
+      void schedule();
+      return receipt;
+    },
+    appendRejection: (rejection) => {
+      writable();
+      return execute({
+        operation: "reject",
+        rejection,
+        expectedRevision: head()?.revision ?? 0,
+        writerFence: fence(),
+      }) as CanonicalCommandOutcome;
+    },
+    materialize: follow,
+    materializationHealth: () => ({
+      state: lastMaterializationError ? "failed" : scheduled ? "retrying" : "ok",
+      lastCheckpointRevision: worktree.cut?.revision ?? 0,
+      lastCheckpointAt: null,
+      pendingWalEvents: (head()?.revision ?? 0) - (worktree.cut?.revision ?? 0),
+      ...(lastMaterializationError ? { reason: "deterministic_failure", lastError: lastMaterializationError } : {}),
+    }),
+    settlePendingMaterialization: async () => {
+      await scheduled;
+      follow();
+    },
+    drain: async () => {
+      await scheduled;
+      reader.close();
+    },
+    pruneReplicationLog: (beforeSequence) => {
+      writable();
+      execute({ operation: "prune", beforeSequence, writerFence: fence() });
+    },
+  };
+}

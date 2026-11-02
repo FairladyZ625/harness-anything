@@ -498,7 +498,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       const event = sqlite.event(opId);
       return event && isTaskEvent(event) ? event : null;
     },
-    readBatch: (cursor, maxItems) => sqliteBatch(sqlite, cursor, maxItems, readContent),
+    readBatch: (cursor, maxItems) => sqliteEventBatch(sqlite, cursor, maxItems, readContent),
     readContentBlob: readContent,
     readContentBlobRange: (sha256, offset, maxBytes) => sqlite.readContentObjectRange(sha256, offset, maxBytes),
     readContentBlobSize: (sha256) => sqlite.readContentObjectSize(sha256),
@@ -560,7 +560,7 @@ function pendingFollower(reason: string): { readonly git: FollowerFacet; readonl
   };
 }
 
-function sqliteBatch(
+export function sqliteEventBatch(
   sqlite: ReturnType<typeof openSqliteEventStore>,
   cursor: string | null,
   maxItems: number,

@@ -29,6 +29,7 @@ import {
   assertWriterEpochFenceDescriptor,
   closeWriterEpochFenceDescriptors,
   withWriterEpochFenceDescriptor,
+  configureWriterEpochStorage,
 } from "@harness-anything/storage";
 
 const bootstrap = workerData as RepoWriterBootstrapV1;
@@ -223,6 +224,7 @@ async function startRepoWriterWorker(): Promise<void> {
           }),
         recordLifecycle: (record) => notify("lifecycle", record),
       };
+    if (config.defaultWriterEpochFence) configureWriterEpochStorage(config.defaultWriterEpochFence, config.storage);
     cell = await openRepoWriterCell(input, { close: async () => undefined } as never);
     postStatus({
       kind: "ready",

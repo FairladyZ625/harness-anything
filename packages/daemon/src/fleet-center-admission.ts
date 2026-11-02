@@ -10,9 +10,10 @@ import { readReplicaGeneration, revokeReplicaView } from "./fleet/replica-genera
 import { FleetRemoteError, readFleetRepositoryMetadataClient } from "./fleet/peer.ts";
 import { failFleetReplicaSync, waitForFleetReplicaReady, waitForFleetReplicaSequence } from "./fleet/replica-sync.ts";
 import { readReplicaHealth } from "./fleet/replica-health.ts";
-import { applyFleetMirrorCut, withFleetMirrorLock } from "./fleet-edge-mirror.ts";
+import { applyFleetMirrorCut, revokeFleetMirrorTree, withFleetMirrorLock } from "./fleet-edge-mirror.ts";
 import { reclaimEdgeTaskWorktrees } from "./fleet-edge-worktree-reclaim.ts";
 import type { WriterEpochLease } from "@harness-anything/storage";
+import { hasDaemonGitFollower, readDaemonHarnessConfig } from "@harness-anything/storage";
 import { readFleetEdgeConfig, writeFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { parseFleetCenterExternalUrl } from "./fleet-center-config.ts";
 import { mapListenerBindError, validateCertificateNames } from "./tls-listener-admission.ts";
@@ -39,6 +40,7 @@ export function keycloakNodeRegistry(
   };
 }
 export interface FleetCenterAdmissionRequest {
+  readonly storage?: FleetCenterOptions["storage"];
   readonly host: FleetCenterOptions["host"];
   readonly buildDraining?: FleetCenterOptions["buildDraining"];
   readonly onDeliverySettled?: FleetCenterOptions["onDeliverySettled"];
@@ -104,6 +106,7 @@ export async function prepareFleetCenterAdmission(input: FleetCenterAdmissionReq
   ]);
   return {
     host: input.host,
+    storage: input.storage,
     buildDraining: input.buildDraining,
     onDeliverySettled: input.onDeliverySettled,
     stateRoot: request.stateRoot ?? path.join(input.userRoot, "fleet"),
@@ -140,10 +143,17 @@ function edgeJoinFor(
               repo.canonicalRoot !== null,
           );
           if (!repository?.canonicalRoot) throw new Error(`Fleet center repository ${repoId} is not registered.`);
-          const git = await readFleetCenterGitMetadata(repository.canonicalRoot);
+          const git = await readFleetCenterGitMetadata(
+            repository.canonicalRoot,
+            hasDaemonGitFollower(input.storage?.[repoId]),
+          );
           return {
             repoId,
-            harnessYaml: readFileSync(path.join(repository.canonicalRoot, "harness", "harness.yaml"), "utf8"),
+            harnessYaml: readDaemonHarnessConfig({
+              repoId,
+              rootDir: repository.canonicalRoot,
+              storage: input.storage?.[repoId],
+            }),
             ...git,
           };
         }),
@@ -196,6 +206,7 @@ export async function syncFleetEdgeMirror(
       // the resident stream installs a fresh one once the center admits the replica again.
       if (code === "authorization_denied") {
         revokeReplicaView(path.join(request.viewRoot, "repos", request.repoId, "views", request.nodeId));
+        revokeFleetMirrorTree(request.workspaceRoot);
         failFleetReplicaSync(request, Object.assign(new Error(message), { code }));
       }
       throw Object.assign(
