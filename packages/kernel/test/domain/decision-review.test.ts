@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   DECISION_ACCEPT_REVIEW_CRITERION_REF,
   assertDecisionAcceptReview,
+  assertDecisionReviewMutation,
   compileDecisionWrite,
   decisionAcceptReviewReadiness,
   decisionReviewContentDigest,
@@ -421,4 +422,90 @@ test("human consent accepts a reviewed high-risk Decision once current changes_r
       "high",
     ),
   );
+});
+
+function reviewRecord(reviewId: string, findingIds: readonly string[], digest: `sha256:${string}`) {
+  return {
+    reviewId,
+    reviewContentDigest: digest,
+    verdict: "changes_requested" as const,
+    reason: "Needs work.",
+    findings: findingIds.map((findingId) => ({ findingId, text: `Finding ${findingId}.` })),
+    evidenceChecked: [],
+    reportRef: null,
+    actor: { ...proposer, executor: { kind: "agent" as const, id: "reviewer" } },
+    reviewedAt: "2026-09-29T00:00:00.000Z",
+  };
+}
+
+function respond(reviewId: string, findingId: string): DecisionEventDraftV1 {
+  return {
+    schema: "decision-event/v1",
+    eventId: "evt_respond",
+    workspaceRevision: 2,
+    opId: "op_respond",
+    decisionId: decision().decisionId,
+    type: "decision_review_responded",
+    actor: proposer,
+    source: "local",
+    occurredAt: "2026-09-29T00:01:00.000Z",
+    payload: {
+      responses: [
+        {
+          reviewId,
+          findingId,
+          disposition: "rebut",
+          rationale: "The review finding is answered explicitly.",
+          amendmentRef: null,
+        },
+      ],
+    },
+  };
+}
+
+test("review responses resolve findings within their own review", () => {
+  const current = decision(),
+    digest = decisionReviewContentDigest(current, document()),
+    twoReviews = {
+      ...current,
+      reviews: [reviewRecord("review-a", ["F1"], digest), reviewRecord("review-b", ["F1", "F2"], digest)],
+    };
+  assert.doesNotThrow(() => assertDecisionReviewMutation(twoReviews, document(), respond("review-a", "F1")));
+  for (const [reviewId, findingId] of [
+    ["review-a", "F2"],
+    ["review-missing", "F1"],
+  ] as const)
+    assert.throws(
+      () => assertDecisionReviewMutation(twoReviews, document(), respond(reviewId, findingId)),
+      (error: unknown) =>
+        (error as { code?: string }).code === "invalid_transition" &&
+        new RegExp(`Decision review finding ${reviewId}/${findingId} does not exist\\.`, "u").test(
+          error instanceof Error ? error.message : "",
+        ),
+    );
+});
+
+test("a response to one review does not answer the same finding id under another review", () => {
+  const current = decision(),
+    digest = decisionReviewContentDigest(current, document()),
+    answeredA = {
+      ...current,
+      reviews: [reviewRecord("review-a", ["F1"], digest), reviewRecord("review-b", ["F1"], digest)],
+      reviewResponses: [
+        {
+          reviewId: "review-a",
+          findingId: "F1",
+          disposition: "rebut" as const,
+          rationale: "Only review-a's finding is answered.",
+          amendmentRef: null,
+          actor: proposer,
+          respondedAt: "2026-09-29T00:02:00.000Z",
+        },
+      ],
+    };
+  assert.deepEqual(decisionAcceptReviewReadiness(answeredA, document("Changed proposal body"), "off").blocker, {
+    code: "unanswered_findings",
+    findings: [{ reviewId: "review-b", findingId: "F1" }],
+    reason: "Historical changes_requested findings require proposer responses before policy-unreviewed acceptance.",
+  });
 });
