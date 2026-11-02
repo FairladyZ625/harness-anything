@@ -615,7 +615,7 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
   // dec_D90F19C8AAAF39747F8F0D6698/CH3/CH20 adds the admin storage migration Action.
   // dec_2C72644059ACA2D4BE30C07786/CH1 adds access-manage; node retirement consumes it.
   // task_6569c05452127015cf461219de adds the node-local auto-claim host action.
-  assert.equal(actionDeclarations.length, 172);
+  assert.equal(actionDeclarations.length, 173);
   for (const kind of ["task-escalate", "task-escalation-resolve"])
     assert.ok(
       actionDeclarations.some((declaration) => declaration.kind === kind),
