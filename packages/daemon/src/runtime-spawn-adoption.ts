@@ -3,6 +3,7 @@ import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS } from "@harness-anything/kernel";
 import type { ActiveRuntime, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import {
   appendRuntimeWorkerRecord,
+  archiveDispatchStream,
   readDispatchStream,
   readDispatchStreamHeader,
   readDispatchStreamSummary,
@@ -56,11 +57,7 @@ export async function adoptRuntimes(
   // Point reads, including archived streams, belong to each recovery. A stalled
   // remote header lookup must not delay a sibling's restoration.
   const attempts = sessions
-    .filter(
-      (session) =>
-        session.outcome === null &&
-        (!options?.runtimeSessionId || session.runtimeSessionId === options.runtimeSessionId),
-    )
+    .filter((session) => !options?.runtimeSessionId || session.runtimeSessionId === options.runtimeSessionId)
     .map((session) => {
       const runtimeSessionId = session.runtimeSessionId;
       const existing = pending.get(runtimeSessionId);
@@ -79,6 +76,7 @@ export async function adoptRuntimes(
             if (dispatch && !ownedByRuntimeSpawner(dispatch, context.input.runtimeNode)) return "foreign" as const;
             const header = dispatchId ? readDispatchStreamHeader(context.input.rootDir, dispatchId) : null;
             if (!header) {
+              if (session.outcome !== null) return "settled" as const;
               if (
                 session.liveness === "exited" &&
                 !hasLocalRuntimeOwner(context, runtimeSessionId) &&
@@ -97,7 +95,7 @@ export async function adoptRuntimes(
               );
             }
             await restoreRuntime(context, header, session);
-            return "ready" as const;
+            return session.outcome === null ? ("ready" as const) : ("settled" as const);
           })
           .then(
             (outcome) => ({
@@ -210,6 +208,15 @@ async function restoreRuntime(
   if (fallbackSummary) context.reconcileFallback(fallbackSummary);
 
   if (session && session.outcome !== null) {
+    const stream = readDispatchStreamSummary(context.input.rootDir, header.dispatchId);
+    // Canonical acceptance may precede a crash before the local archive rename. Never
+    // reclaim an extant process or a stream still owned by its fallback continuation.
+    if (
+      stream &&
+      stream.fallbackState !== "scheduled" &&
+      !(stream.process && !stream.process.exited && runtimePidIsAlive(stream.process.pid))
+    )
+      archiveDispatchStream(context.input.rootDir, header.dispatchId);
     removeRuntimeCallbackRelay(header.dispatchId);
     return;
   }
@@ -219,13 +226,6 @@ async function restoreRuntime(
   if (!stream) return;
   const processState = stream.process,
     processPid = processState?.pid ?? 0;
-  // A terminal outcome is appended before publication. If a second node opens while the
-  // center projection is still catching up, the local stream is the authoritative owner
-  // record and must not publish the same terminal transition a second time.
-  if (stream.terminalOutcome && processState?.exited && session?.outcome !== null && session?.outcome !== undefined) {
-    removeRuntimeCallbackRelay(header.dispatchId);
-    return;
-  }
   const runtimeProcess = adoptNativeProcess(
     context.input.rootDir,
     stream.header.dispatchId,

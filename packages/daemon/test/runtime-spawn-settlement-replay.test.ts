@@ -70,113 +70,117 @@ test("schedule outcome requires an exact verdict on the last non-empty line", ()
   assert.equal(scheduleOutcomeFromRuntime("cancelled", "HARNESS-OUTCOME: succeeded"), "cancelled");
 });
 
-test("a replayed persisted terminal still notifies the Schedule settlement entry", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-terminal-replay-"));
-  try {
-    // task_cd7fb6fc36171d90d3c77c7893: the daemon died between the stream's terminal append and
-    // its ledger settlement (gui-e2e-6h occurrence_b86c1beb, 2026-10-16). The adoption replay
-    // must re-emit the settlement notification or the claimed occurrence stays running forever.
-    const schedule = {
-      scheduleId: "replay-schedule",
-      occurrenceId: "occurrence_replay0000000000000000",
-      claimFence: "claim_replay",
-      mode: "detect",
-    } as const;
-    const stream = openDispatchStream(rootDir, {
-      dispatchId: replayDispatchId,
-      taskId: null,
-      executionId: null,
-      runtimeSessionId: replayRuntimeSessionId,
-      instanceId: "provider-a",
-      startedAt: "2026-10-16T23:02:30.617Z",
-      dispatchOpId: "replay-dispatch-op",
-      kindId: "codex",
-      permissionMode: "bypass",
-      binding,
-      cwd: rootDir,
-      prompt: "settle replayed terminal",
-      mission: "settle replayed terminal",
-      model: "model-a",
-      reasoningEffort: null,
-      fast: false,
-      schedule,
-    });
-    stream.appendTerminalOutcome(
-      {
-        payload: {
-          runtimeSessionId: replayRuntimeSessionId,
-          outcome: "stopped",
-          exitCode: 0,
-          resultRef: "artifact:runtime-result/sha256/0000000000000000000000000000000000000000000000000000000000000000",
-          result: null,
-          dispatchId: replayDispatchId,
-          endedAt: "2026-10-16T23:20:04.290Z",
-        },
-        body: "Worker stopped after a normal exit without a submitted delivery.",
-        reason: "Worker stopped after a normal exit without a submitted delivery.",
-      },
-      "2026-10-16T23:20:04.290Z",
-    );
-    const terminals: RuntimeAttemptTerminal[] = [],
-      runtime = active({
-        process: {
-          pid: process.pid,
-          onOutput: () => undefined,
-          onErrorOutput: () => undefined,
-          onExit: () => undefined,
-        },
-        runtimeSessionId: replayRuntimeSessionId,
+for (const outcome of ["stopped", "failed"] as const) {
+  test(`a replayed persisted ${outcome} terminal still notifies the Schedule settlement entry`, async () => {
+    const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-terminal-replay-"));
+    try {
+      // task_cd7fb6fc36171d90d3c77c7893: the daemon died between the stream's terminal append and
+      // its ledger settlement (gui-e2e-6h occurrence_b86c1beb, 2026-10-16). The adoption replay
+      // must re-emit the settlement notification or the claimed occurrence stays running forever.
+      const schedule = {
+        scheduleId: "replay-schedule",
+        occurrenceId: "occurrence_replay0000000000000000",
+        claimFence: "claim_replay",
+        mode: "detect",
+      } as const;
+      const stream = openDispatchStream(rootDir, {
         dispatchId: replayDispatchId,
+        taskId: null,
+        executionId: null,
+        runtimeSessionId: replayRuntimeSessionId,
+        instanceId: "provider-a",
+        startedAt: "2026-10-16T23:02:30.617Z",
         dispatchOpId: "replay-dispatch-op",
+        kindId: "codex",
+        permissionMode: "bypass",
         binding,
-        task: null,
-        schedule,
-        squadId: null,
-        delegatedBy: null,
         cwd: rootDir,
         prompt: "settle replayed terminal",
-        onExitCommand: null,
+        mission: "settle replayed terminal",
+        model: "model-a",
         reasoningEffort: null,
         fast: false,
-        startedAt: "2026-10-16T23:02:30.617Z",
-        stream: { ref: `runtime-stream:${replayDispatchId}` } as never,
-      }),
-      published: string[] = [],
-      context = {
-        exiting: new Set<string>(),
-        processes: new Map([[runtime.runtimeSessionId, runtime]]),
-        input: {
-          repoId: "canonical",
-          rootDir,
-          now: () => "2026-10-16T23:43:09.000Z",
-          stream: { publish: () => ({}) },
-          onAttemptTerminal: async (terminal: RuntimeAttemptTerminal) => {
-            terminals.push(terminal);
+        schedule,
+      });
+      stream.appendTerminalOutcome(
+        {
+          payload: {
+            runtimeSessionId: replayRuntimeSessionId,
+            outcome,
+            ...(outcome === "failed" ? { reasonCode: "review_result_missing" } : {}),
+            exitCode: 0,
+            resultRef:
+              "artifact:runtime-result/sha256/0000000000000000000000000000000000000000000000000000000000000000",
+            result: null,
+            dispatchId: replayDispatchId,
+            endedAt: "2026-10-16T23:20:04.290Z",
           },
+          body: "Worker stopped after a normal exit without a submitted delivery.",
+          reason: "Worker stopped after a normal exit without a submitted delivery.",
         },
-        resultMediaType: "text/markdown",
-        runtimeResultText: () => "",
-        markProtocolError: () => undefined,
-        publishRuntimeEvent: async (type: string) => {
-          published.push(type);
-          return {};
-        },
-        settleFallback: async () => {
-          throw new Error("a replayed terminal must not re-enter the fallback chain");
-        },
-      } as unknown as RuntimeSpawnerContext;
-    await publishExit(context, runtime, 0);
-    assert.deepEqual(published, ["runtime_session_exited", "runtime_session_outcome_observed"]);
-    assert.equal(terminals.length, 1, `settlement entry must fire once: ${JSON.stringify(terminals)}`);
-    assert.equal(terminals[0]?.schedule?.scheduleId, "replay-schedule");
-    assert.equal(terminals[0]?.schedule?.claimFence, "claim_replay");
-    assert.equal(terminals[0]?.outcome, "unknown");
-    assert.equal(terminals[0]?.runtimeSessionId, replayRuntimeSessionId);
-    assert.equal(terminals[0]?.endedAt, "2026-10-16T23:20:04.290Z");
-  } finally {
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
+        "2026-10-16T23:20:04.290Z",
+      );
+      const terminals: RuntimeAttemptTerminal[] = [],
+        runtime = active({
+          process: {
+            pid: process.pid,
+            onOutput: () => undefined,
+            onErrorOutput: () => undefined,
+            onExit: () => undefined,
+          },
+          runtimeSessionId: replayRuntimeSessionId,
+          dispatchId: replayDispatchId,
+          dispatchOpId: "replay-dispatch-op",
+          binding,
+          task: null,
+          schedule,
+          squadId: null,
+          delegatedBy: null,
+          cwd: rootDir,
+          prompt: "settle replayed terminal",
+          onExitCommand: null,
+          reasoningEffort: null,
+          fast: false,
+          startedAt: "2026-10-16T23:02:30.617Z",
+          stream,
+        }),
+        published: string[] = [],
+        context = {
+          exiting: new Set<string>(),
+          processes: new Map([[runtime.runtimeSessionId, runtime]]),
+          input: {
+            repoId: "canonical",
+            rootDir,
+            now: () => "2026-10-16T23:43:09.000Z",
+            stream: { publish: () => ({}) },
+            onAttemptTerminal: async (terminal: RuntimeAttemptTerminal) => {
+              terminals.push(terminal);
+            },
+          },
+          resultMediaType: "text/markdown",
+          runtimeResultText: () => "",
+          markProtocolError: () => undefined,
+          publishRuntimeEvent: async (type: string) => {
+            published.push(type);
+            return {};
+          },
+          settleFallback: async () => {
+            throw new Error("a replayed terminal must not re-enter the fallback chain");
+          },
+        } as unknown as RuntimeSpawnerContext;
+      await publishExit(context, runtime, 0);
+      assert.deepEqual(published, ["runtime_session_exited", "runtime_session_outcome_observed"]);
+      assert.equal(terminals.length, 1, `settlement entry must fire once: ${JSON.stringify(terminals)}`);
+      assert.equal(terminals[0]?.schedule?.scheduleId, "replay-schedule");
+      assert.equal(terminals[0]?.schedule?.claimFence, "claim_replay");
+      assert.equal(terminals[0]?.outcome, outcome === "failed" ? "failed" : "unknown");
+      assert.equal(terminals[0]?.runtimeSessionId, replayRuntimeSessionId);
+      assert.equal(terminals[0]?.endedAt, "2026-10-16T23:20:04.290Z");
+    } finally {
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+}
 
 test("a replayed terminal behind a scheduled fallback keeps settlement for the continuation", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-terminal-replay-fallback-"));
