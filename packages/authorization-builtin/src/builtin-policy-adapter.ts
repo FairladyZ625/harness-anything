@@ -121,7 +121,10 @@ export class BuiltinPolicyAdapter
     assertAcyclicPolicyGroups(groups);
     for (const group of groups)
       for (const scope of group.scopes)
-        if (!this.#knownScopes.has(scope) && !registeredArtifactActionPolicyActions().includes(scope))
+        if (
+          !this.#knownScopes.has(scope) &&
+          !/^entity-kind\/KND-[0-9a-f]{32}\/(?:import|update|archive|delete)$/u.test(scope)
+        )
           throw new Error(`Unknown built-in action scope ${scope}.`);
   }
   syncLoginClients(token: string): Promise<void> {

@@ -48,3 +48,18 @@ test(
     assert.equal(unsupported.code, "identity_plugin_required");
   },
 );
+
+for (const kind of ["builtin", "keycloak"]) {
+  test(`${kind}: global session RPC chooses the configured identity without a repository`, async (t) => {
+    const fixture = await startGuiResidentDaemonFixture({ identityProvider: kind, prefix: "ha-session-global-" });
+    t.after(() => fixture.stop());
+    const request = (operation: string, payload = {}) =>
+      requestDaemonJsonRpcAt(fixture.endpoint, "daemon.rbac.manage", { operation, ...payload }, 1000, 15000);
+    assert.equal((await request("session")).authenticated, true);
+    const login = await request("login-begin", { redirectUri: "http://127.0.0.1:43123/callback" });
+    assert.equal(login.ok, true, JSON.stringify(login));
+    assert.ok(login.authorizationUrl);
+    assert.equal((await request("logout")).authenticated, false);
+    assert.equal((await request("session")).authenticated, false);
+  });
+}

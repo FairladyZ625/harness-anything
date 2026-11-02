@@ -138,6 +138,14 @@ for (const kind of ["builtin", "keycloak"] as const) {
     assert.throws(() =>
       provider.validatePolicyGroups([{ id: "bad", base: false, scopes: ["unknown-scope"], composites: [] }]),
     );
+    provider.validatePolicyGroups([
+      {
+        id: "artifact-reader",
+        base: false,
+        composites: [],
+        scopes: ["entity-kind/KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94/import"],
+      },
+    ]);
     const custom = { id: "reader", base: false, displayName: "Reader", scopes: ["repository-read"], composites: [] };
     await provider.writePolicyGroup(token, custom, undefined);
     assert.deepEqual(
