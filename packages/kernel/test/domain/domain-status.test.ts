@@ -5,6 +5,7 @@ import { Schema } from "effect";
 import {
   domainStatuses,
   explainStatusTransition,
+  genericTaskTransitionTargets,
   needsReviewArtifacts,
   statusCoarseClass,
 } from "../../src/domain/lifecycle-status.ts";
@@ -30,6 +31,14 @@ test("domain statuses classify into open, terminal and review-artifact states", 
   assert.equal(needsReviewArtifacts("in_review"), true);
   assert.equal(needsReviewArtifacts("done"), true);
   assert.equal(needsReviewArtifacts("cancelled"), false);
+});
+
+test("generic task transitions derive their wire targets from the canonical status vocabulary", () => {
+  assert.deepEqual(
+    [...genericTaskTransitionTargets],
+    ["planned", "active", "blocked", "in_review", "done", "cancelled"],
+  );
+  assert.equal(genericTaskTransitionTargets.includes("submitted" as never), false);
 });
 
 test("status schema decodes every domain status and rejects non-domain snapshot display values", () => {

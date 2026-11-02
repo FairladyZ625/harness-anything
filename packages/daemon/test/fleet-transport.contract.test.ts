@@ -1,6 +1,8 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
+import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
+import { parseDaemonRpcParams } from "../src/protocol/daemon-protocol.contract.ts";
 import {
   FLEET_CHUNK_BYTES,
   FLEET_FRAME_BYTES,
@@ -418,6 +420,29 @@ test("task-create carries the plan as a document body bounded by the frame budge
   );
 });
 
+test("CLI, JSON-RPC and Fleet share every generic transition target and optional reason", () => {
+  const taskCommand = frames.find((frame) => frame.schema === "fleet.task.command/v1")!;
+  for (const status of ["planned", "active", "blocked", "in_review", "done", "cancelled"]) {
+    for (const options of [[], ["--reason", "Owner lifecycle request"], ["--force", "--reason", "Owner override"]]) {
+      const parsed = parseThinCommand(["task", "transition", "task_abc", status, ...options]);
+      assert.ok(parsed.ok, `${status} ${options.join(" ")}`);
+      const action = parsed.command.action;
+      assert.equal(
+        parseDaemonRpcParams("repo.task.run", { repo: { repoId: "repo" }, payload: { action } }).ok,
+        true,
+        JSON.stringify(action),
+      );
+      const frame = { ...taskCommand, taskId: "task_abc", action };
+      assert.deepEqual(parseFleetFrame(serializeFleetFrame(frame)), frame);
+    }
+  }
+  for (const status of ["submitted", "unknown"]) {
+    const action = { kind: "task-transition", taskId: "task_abc", status };
+    assert.equal(parseDaemonRpcParams("repo.task.run", { repo: { repoId: "repo" }, payload: { action } }).ok, false);
+    assert.throws(() => parseFleetFrame({ ...taskCommand, taskId: "task_abc", action }), FleetContractError);
+  }
+});
+
 test("Fleet transport union round-trips every closed wire variant", () => {
   assert.equal(FLEET_KEY_SEND_WINDOW_BYTES, 256 * 1024);
   assert.equal(FLEET_SESSION_SEND_WINDOW_BYTES, 512 * 1024);
@@ -589,7 +614,7 @@ test("Fleet codec rejects unknown provenance, nested fields, malformed values, a
     },
     { ...taskCommand, action: { kind: "task-create", title: "t", createMode: "admin" } },
     { ...taskCommand, action: { kind: "task-release", taskId: "task_abc", ttlMs: 1 } },
-    { ...taskCommand, action: { kind: "task-transition", taskId: "task_abc", status: "cancelled", reason: "no" } },
+    { ...taskCommand, action: { kind: "task-transition", taskId: "task_abc", status: "submitted", reason: "no" } },
     { ...taskCommand, action: { kind: "task-start", taskId: "task_abc", ttlMs: "forever" } },
     { ...taskCommand, action: { kind: "task-create", title: "t", riskTier: "critical" } },
     // dec_5F7E74F1 retired the module grouping and the milestone class from the create command.

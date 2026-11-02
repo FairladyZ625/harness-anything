@@ -139,6 +139,10 @@ direct-push protection, read-only mirrors, and the remote boundary.
 
 → **[operations-server-daemon.md](operations-server-daemon.md)**
 
+Studio and other daemon-only clients should use the [Task Lifecycle RPC
+Capability Contract](task-lifecycle-rpc-capability-contract.md) for lifecycle
+actions and authorization scopes.
+
 ## Configure hosted Git credentials
 
 Task branch publishing, pull requests, and CI reading run on an operator-bound
