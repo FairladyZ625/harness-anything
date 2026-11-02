@@ -14,6 +14,12 @@ import { computeFleetLayout, curvePath, spinePath, type FleetNodePlacement } fro
  * 「循环动效只留点/图标级功能指示」口径删除(task_5c651ff17b698ff2bce7e6affa),
  * 状态语义全部由静态颜色/线型承担;hover/选择只在进出时改一次容器属性,
  * 不在动画帧里触发 React 重渲染;`prefers-reduced-motion` 由全局 CSS 关停。
+ *
+ * 2026-11-02(task_7455b8580de125b018dbdba2b3):执行中节点的扫描环曾经是
+ * infinite 循环——只要节点上有 held/reserving 租约(中心节点几乎总是有,本机
+ * 任意任务在跑即成立),合成器每帧产帧,带活体 backdrop-filter 的节点卡每帧
+ * 重跑模糊,静止数据下页面也一直闪。扫描环改为状态变化时的一次性脉冲,常驻
+ * 语义交给卡上的「执行中 N」标签;节点卡不再使用活体模糊。
  */
 
 /** 连线视觉状态:daemon links 可能一节点多行,取最差一行做节点级通道;无行 = absent。 */
@@ -69,17 +75,20 @@ export function FleetTopology({
     return () => observer.disconnect();
   }, []);
   const [hoverNode, setHoverNode] = useState<string | null>(null);
-  const nodeIds = nodes.map((node) => node.nodeId).join("|");
-  const layout = useMemo(
-    () =>
-      computeFleetLayout(
-        size.width,
-        size.height,
-        nodes.map((node) => ({ nodeId: node.nodeId, role: node.role })),
-      ),
-    // nodes 内容由父级 overview 决定;布局只依赖 id 与角色序列,这里按序列重建。
-    [size.width, size.height, nodeIds, nodes],
-  );
+  // 布局只由节点 id/角色序列决定。轮询每次返回带新 generatedAt 的对象,
+  // structural sharing 不成立 → nodes 引用会变;把布局 memo 挂在引用上会让静止
+  // 数据每 10s 重算一次布局,并让下游 placement/style 全部重新核对。
+  const nodeIds = nodes.map((node) => node.nodeId).join("\u0000");
+  const nodeRoles = nodes.map((node) => node.role).join("\u0000");
+  const layout = useMemo(() => {
+    const ids = nodeIds === "" ? [] : nodeIds.split("\u0000");
+    const roles = nodeRoles === "" ? [] : nodeRoles.split("\u0000");
+    return computeFleetLayout(
+      size.width,
+      size.height,
+      ids.map((nodeId, index) => ({ nodeId, role: roles[index] === "center" ? "center" : "edge" })),
+    );
+  }, [size.width, size.height, nodeIds, nodeRoles]);
   const edges = nodes.filter((node) => node.role !== "center");
   // 在飞执行数按整个舰队计(中心卡是枢纽,不是又一个普通节点)。
   const fleetExecuting = nodes.reduce(
