@@ -251,7 +251,7 @@ test(
     );
     const reviewed = await reviewer.command(review);
     assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
-    await deniedThenApplied(f, "decision-accept", () =>
+    const accepted = await deniedThenApplied(f, "decision-accept", () =>
       rpc("repo.decision.accept", {
         decisionId,
         rationale: "The independent reviewer approved this cut.",
@@ -264,9 +264,19 @@ test(
       (await edge.command({ kind: "task-create", taskId: "task-edge-reckon", title: "Coverage evidence" })).outcome,
       "applied",
     );
+    // Acceptance records the initial owner assignment; consume that real cut rather than inventing a revision.
+    const assigned = await deniedThenApplied(f, "decision-assign", () =>
+      edge.command({
+        kind: "decision-assign",
+        decisionId,
+        personId: "person-center",
+        expectedVersion: accepted.revision,
+      }),
+    );
+    await deniedThenApplied(f, "decision-unassign", () =>
+      edge.command({ kind: "decision-unassign", decisionId, expectedVersion: assigned.revision }),
+    );
     for (const action of [
-      { kind: "decision-assign", decisionId, personId: "person-one", expectedVersion: 0 },
-      { kind: "decision-unassign", decisionId, expectedVersion: 1 },
       { kind: "decision-reckon", decisionId, taskId: "task-edge-reckon" },
       { kind: "decision-transition", decisionId, targetState: "outcome_retired", dryRun: false },
     ])
