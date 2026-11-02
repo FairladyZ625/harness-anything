@@ -148,9 +148,6 @@ export async function fleetTaskRoute(
     descriptor.method !== command.method ||
     (descriptor.admission["remote-edge"] !== "via-center-forward" &&
       descriptor.admission["remote-edge"] !== "edge-replica") ||
-    (descriptor.path[0] === "doc" &&
-      descriptor.admission["remote-edge"] !== "edge-replica" &&
-      typeof command.action.taskId !== "string") ||
     (descriptor.path[0] === "schedule" && descriptor.admission["remote-edge"] !== "edge-replica")
   )
     return null;

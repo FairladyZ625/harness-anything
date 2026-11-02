@@ -394,7 +394,7 @@ const fieldName = (name: string) => name.slice(2).replace(/-([a-z])/gu, (_, lett
       (command) =>
         ("actionKind" in command ? command.actionKind : command.id) === kind &&
         ((command.admission["remote-edge"] === "via-center-forward" &&
-          command.path[0] !== "doc" &&
+          (command.path[0] !== "doc" || command.id === "doc-retire") &&
           command.path[0] !== "schedule") ||
           // Execution-bound doc-show resolves frozen submission blobs at the center.
           command.id === "doc-show"),

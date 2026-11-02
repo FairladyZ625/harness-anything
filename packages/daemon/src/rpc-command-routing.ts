@@ -44,6 +44,9 @@ const hostMethodTopology: ReadonlyMap<string, CommandTopology> = new Map([
   ["daemon.fleet.doc.sync", hostAdminCommandTopology],
   ["daemon.fleet.conflict.exit", hostAdminCommandTopology],
   ["repo.agentRuntime.attach", repoReadCommandTopology],
+  // Runtime budget quotes are a local daemon service with no repository payload;
+  // keep the socket-only branch explicit instead of treating it as an edge write.
+  ["repo.agentRuntime.quote", hostAdminCommandTopology],
 ]);
 // Read authorization admission is recorded here; replica/center/runtime read residency remains
 // owned by the existing read port. A new method cannot opt in merely by claiming repo-read.

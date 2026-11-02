@@ -114,9 +114,11 @@ export async function forwardRegisteredFleetAction(input: {
   const workspaceRoot = edge.canonicalRoot,
     config = readFleetEdgeConfig(workspaceRoot);
   if (!config || config.repoId !== input.repoId) return null;
-  // Document commands use the dedicated submit/conflict flow, not this repository RPC adapter.
+  // Document submission/conflict commands use their dedicated flows. A document retirement
+  // is an authored ledger mutation with no local bytes to upload, so it uses this same
+  // center-authorized command adapter as the other authored writes.
   const descriptor = commandDescriptorForAction(input.action.kind);
-  if ("path" in descriptor && descriptor.path[0] === "doc") return null;
+  if ("path" in descriptor && descriptor.path[0] === "doc" && descriptor.id !== "doc-retire") return null;
   // A verified runtime identity cannot be replaced by the person's interactive session.
   // Its CLI already carries the execution secret through daemon.fleet.task.run.
   if (input.auth.executionPrincipal && !input.auth.executionCredential) throw executionCredentialRejected();
