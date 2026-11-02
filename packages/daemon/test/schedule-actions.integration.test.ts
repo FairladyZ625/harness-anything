@@ -18,7 +18,7 @@ import { openRuntimeInstanceStore } from "../src/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
 import { listenFleetTls } from "../src/fleet/center.ts";
-import { runFleetReplicaSync } from "../src/fleet/replica-sync.ts";
+import { startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
 import { initHarnessRepo, pullScheduleView, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
 
 const actor = withPolicyGroup(
@@ -559,7 +559,8 @@ test(
     let center: Awaited<ReturnType<typeof listenFleetTls>> | null = null,
       host: Awaited<ReturnType<typeof openDaemonHost>> | null = null,
       owners: Awaited<ReturnType<typeof fleetNodeOwners>> | null = null;
-    const edgeRuntimes: ReturnType<typeof openFleetEdgeRuntime>[] = [];
+    const edgeRuntimes: ReturnType<typeof openFleetEdgeRuntime>[] = [],
+      replicaSyncs: ReturnType<typeof startResidentReplicaSync>[] = [];
     try {
       initHarnessRepo(repo, "schedule-center");
       registerDaemonRepo({
@@ -713,23 +714,20 @@ test(
       // The writing edge owns a resident stream, as the daemon does. The second edge stays
       // deliberately stale so its disabled-view claim still tests center-side fencing.
       for (const workspace of workspaces) await pullScheduleView(workspace, center.port, certificate);
-      const writerEdge = workspaces[0]!,
-        controller = new AbortController();
-      const replication = runFleetReplicaSync({
-        readAccessToken: owners.readAccessToken(writerEdge.subject.nodeId),
-        port: center.port,
-        ca: certificate,
-        nodeId: writerEdge.subject.nodeId,
-        credential: `credential-${writerEdge.subject.nodeId}`,
-        repoId,
-        viewRoot: writerEdge.viewRoot,
-        diskQuotaBytes: 64 * 1024 * 1024,
-        signal: controller.signal,
-      });
-      t.after(async () => {
-        controller.abort();
-        await replication;
-      });
+      const startReplication = (edge: (typeof workspaces)[number]) =>
+        replicaSyncs.push(
+          startResidentReplicaSync({
+            readAccessToken: owners!.readAccessToken(edge.subject.nodeId),
+            port: center!.port,
+            ca: certificate,
+            nodeId: edge.subject.nodeId,
+            credential: `credential-${edge.subject.nodeId}`,
+            repoId,
+            viewRoot: edge.viewRoot,
+            diskQuotaBytes: 64 * 1024 * 1024,
+          }),
+        );
+      startReplication(workspaces[0]!);
       await t.test("edge schedule requires action kind", async () => {
         await assert.rejects(workspaces[0]!.runtime.run("repo.schedule.run", {}), {
           code: "invalid_field",
@@ -782,9 +780,13 @@ test(
       assert.equal(stale.outcome, "op_rejected");
       assert.equal((stale.error as { code?: string } | undefined)?.code, "schedule_paused");
       assert.deepEqual(launches, [0, 0]);
+      // Staleness has now served its purpose. Either edge can win the next claim,
+      // so both need a resident stream for the winner's write-then-read fence.
+      // Enable through edge-two so a missing stream fails deterministically.
+      startReplication(workspaces[1]!);
       assert.equal(
         (
-          await workspaces[0]!.runtime.run("repo.schedule.run", {
+          await workspaces[1]!.runtime.run("repo.schedule.run", {
             kind: "schedule-enable",
             scheduleId,
             idempotencyKey: "fleet-enable",
@@ -917,6 +919,7 @@ test(
       });
     } finally {
       for (const runtime of edgeRuntimes) runtime.close();
+      await Promise.all(replicaSyncs.map((sync) => sync.close()));
       await center?.close();
       await host?.close();
       await owners?.close();
