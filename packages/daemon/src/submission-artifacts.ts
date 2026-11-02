@@ -73,7 +73,7 @@ export function readSubmissionArtifactRange(
   )
     throw cell.cellCodedError("invalid_submission", `Artifact ${path}@${revision}: invalid range.`);
   const encoding = verifyAcceptedContent(cell, resolved.blobSha256, resolved.size);
-  const bytes = cell.store.readContentBlobRange?.(resolved.blobSha256, offset, maxBytes);
+  const bytes = cell.store.readContentBlobRange(resolved.blobSha256, offset, maxBytes);
   if (!bytes)
     throw cell.cellCodedError(
       "invalid_submission",
@@ -91,7 +91,7 @@ export function readSubmissionArtifactRange(
 
 const verifiedContent = new Map<string, "utf8" | "base64">();
 
-/** Verify a frozen claim without allocating the complete object when positioned reads exist. */
+/** Verify a frozen claim through the storage port's bounded range reads. */
 export function verifyAcceptedContent(
   cell: Pick<RepoCellOperationalContext, "store" | "cellCodedError">,
   blobSha256: string,
@@ -104,36 +104,23 @@ export function verifyAcceptedContent(
   let offset = 0;
   let utf8 = true;
   const decoder = new TextDecoder("utf-8", { fatal: true });
-  const range = cell.store.readContentBlobRange;
-  if (range) {
-    while (offset < size) {
-      const bytes = range(blobSha256, offset, Math.min(64 * 1024, size - offset));
-      if (!bytes || bytes.byteLength === 0 || bytes.byteLength > size - offset)
-        throw cell.cellCodedError(
-          "content_claim_mismatch",
-          `Content object ${blobSha256} is shorter than its accepted size.`,
-        );
-      hash.update(bytes);
-      if (utf8) {
-        try {
-          decoder.decode(bytes, { stream: true });
-        } catch (error) {
-          consumeKnownError(error);
-          utf8 = false;
-        }
-      }
-      offset += bytes.byteLength;
-    }
-  } else {
-    const bytes = cell.store.readContentBlob(blobSha256);
-    if (!bytes || bytes.byteLength !== size)
+  while (offset < size) {
+    const bytes = cell.store.readContentBlobRange(blobSha256, offset, Math.min(64 * 1024, size - offset));
+    if (!bytes || bytes.byteLength === 0 || bytes.byteLength > size - offset)
       throw cell.cellCodedError(
         "content_claim_mismatch",
-        `Content object ${blobSha256} is unavailable or has the wrong size.`,
+        `Content object ${blobSha256} is shorter than its accepted size.`,
       );
     hash.update(bytes);
-    utf8 = isUtf8(bytes);
-    offset = bytes.byteLength;
+    if (utf8) {
+      try {
+        decoder.decode(bytes, { stream: true });
+      } catch (error) {
+        consumeKnownError(error);
+        utf8 = false;
+      }
+    }
+    offset += bytes.byteLength;
   }
   if (utf8) {
     try {
@@ -198,8 +185,7 @@ function resolveSubmissionArtifact(
   if (!blobSha256) return invalid("revision did not accept this path");
   if (expectedBlob !== undefined && expectedBlob !== blobSha256)
     return invalid("frozen identity does not match the accepted content");
-  const size =
-    claim.size ?? cell.store.readContentBlobSize?.(blobSha256) ?? cell.store.readContentBlob(blobSha256)?.byteLength;
+  const size = claim.size ?? cell.store.readContentBlobSize(blobSha256);
   if (!Number.isSafeInteger(size) || size! < 0) return invalid("accepted content object has no valid size");
   return { artifact, blobSha256, size: size!, acceptance: event.opId };
 }

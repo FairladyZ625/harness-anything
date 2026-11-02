@@ -87,7 +87,7 @@ export function readAction(input: Input): WriteReceipt {
       );
     // Submitted artifacts retain their frozen bytes; other reads use the shared live projection.
     if (task.packagePath && anchor) {
-      if (ranged && input.store.readContentBlobRange) {
+      if (ranged) {
         const offset = Number(input.action.offset),
           length = Number(input.action.length),
           artifact = readSubmissionArtifactRange(
@@ -219,7 +219,7 @@ export function readAction(input: Input): WriteReceipt {
       Number(input.action.contentRevision) !== reads[0].document.workspaceRevision)
   )
     throw docSyncError("content_changed", "Document content identity changed during range read");
-  if (rangeOffset !== null && rangeLength !== null && input.store.readContentBlobRange && reads[0]?.document) {
+  if (rangeOffset !== null && rangeLength !== null && reads[0]?.document) {
     const document = reads[0].document,
       sourceRevision = reads[0].sourceRevision;
     if (

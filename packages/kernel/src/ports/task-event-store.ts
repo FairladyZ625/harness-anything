@@ -220,9 +220,9 @@ export interface CanonicalEventStore {
   readonly readBatch: (cursor: string | null, maxItems: number) => EventFileBatch;
   readonly readContentBlob: (sha256: string) => Uint8Array | null;
   /** Bounded positioned read for content transport; implementations must not aggregate the object. */
-  readonly readContentBlobRange?: (sha256: string, offset: number, maxBytes: number) => Uint8Array | null;
+  readonly readContentBlobRange: (sha256: string, offset: number, maxBytes: number) => Uint8Array | null;
   /** Stored byte length, used to read historical claims that predate the size field. */
-  readonly readContentBlobSize?: (sha256: string) => number | null;
+  readonly readContentBlobSize: (sha256: string) => number | null;
   /** Local SQLite-only attach scan progress; these values are not canonical events or replicated state. */
   readonly readAttachMigrationScanWatermarks?: () => ReadonlyMap<string, number>;
   readonly recordAttachMigrationScanWatermarks?: (
