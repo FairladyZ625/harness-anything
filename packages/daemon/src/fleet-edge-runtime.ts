@@ -53,11 +53,11 @@ import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { readReplicaGeneration } from "./fleet/replica-generation.ts";
 import { runFleetEdgeWrite, transientFleetReceipt } from "./fleet-edge-write.ts";
 import { readScheduleAction, dispatchClaimedSchedule } from "./schedule-action-runtime.ts";
+import { orchestrateRuntimeSessionsAwait } from "./runtime-orchestration.ts";
 import { prepareScheduleOccurrenceWorkspace, scheduleSettlementDetail } from "./schedule-occurrence-workspace.ts";
 import { taskMissionSections, taskPlanSection, runtimeMissionName } from "./runtime-spawn-mission.ts";
 import { reconcileProcessGroup } from "./runtime/process-group-reconciler.ts";
 import { readRuntimeDispatchOwnerEvidence } from "./runtime-spawn-control.ts";
-import { orchestrateRuntimeSessionsAwait } from "./runtime-orchestration.ts";
 import { assertFleetEdgeRepositoryGit } from "./fleet-edge-git-preflight.ts";
 
 export interface FleetEdgeRuntimeRequest {
@@ -81,6 +81,7 @@ export interface FleetEdgeRuntimeRequest {
       | "repo.agentRuntime.sessions.await"
       | "repo.agentRuntime.sessions.read"
       | "repo.task.dispatches"
+      | "repo.tasks.autoClaimCandidates"
       | "repo.schedule.run"
       | "repo.squad.control";
     readonly action: JsonObject;
@@ -103,10 +104,7 @@ const runtimeOverviewPageLimit = 16;
 const localReplicaWaitBackstopMs = 1_000;
 
 /**
- * The edge replica publishes a new generation by atomically replacing current.json. Watching
- * the view directory catches both the rename and the follow-up metadata write; the backstop
- * keeps the wait live on filesystems that coalesce or drop a native watch event. This is only a
- * wake-up signal: the next read remains the authority and validates the published generation.
+ * Replica changes are a wake hint; each wake re-reads settlement from the edge view.
  */
 function waitForLocalReplicaChange(
   viewRoot: string,
@@ -149,7 +147,6 @@ function waitForLocalReplicaChange(
     }
   });
 }
-
 export async function readFleetRuntimeSessionsPaged(readPage: (payload: JsonObject) => Promise<unknown>): Promise<
   readonly {
     readonly runtimeSessionId: string;
@@ -845,6 +842,7 @@ export function openFleetEdgeRuntime(input: {
                   : "runtime_lease_release_failed",
             `Center rejected Runtime terminal lease settlement: ${String(settled.code ?? settled.outcome)}.`,
           );
+        await pullRuntimeReplica();
       }
       await squad.reconcile();
       const scheduled = terminal.schedule;
@@ -940,6 +938,14 @@ export function openFleetEdgeRuntime(input: {
       const failed = recovered.find((result) => result.outcome === "failed");
       if (failed) throw failed.error;
     },
+    awaitCanonicalRuntimeSessions: async (action: JsonObject, connectionSignal?: AbortSignal): Promise<JsonObject> =>
+      (await readFleetOperationalClient({
+        ...runtimeReadPeer,
+        repoId: request.repoId,
+        method: "repo.agentRuntime.sessions.await",
+        payload: action,
+        connectionSignal,
+      })) as JsonObject,
     run: async (
       method: FleetEdgeRuntimeRequest["payload"]["method"],
       action: JsonObject,
@@ -956,6 +962,18 @@ export function openFleetEdgeRuntime(input: {
       let handoffControlBinding: import("./repo-cell-types.ts").RepoCellBinding | undefined;
       if (method === "repo.agentRuntime.sessions.await" && readBinding.keycloakAuthorization === undefined)
         return awaitLocalRuntimeSessions(action, readReplica, connectionSignal);
+      if (method === "repo.tasks.autoClaimCandidates")
+        return (await readFleetOperationalClient({
+          ...runtimeReadPeer,
+          // Candidate generation joins the center projection, assignment witness and directory
+          // team facts; it is a bounded control read but can exceed the short interactive read
+          // budget used for local runtime status snapshots.
+          timeoutMs: centerWriteWaitMs,
+          repoId: request.repoId,
+          method,
+          payload: action,
+          connectionSignal,
+        })) as JsonObject;
       if (
         method === "repo.schedule.run" &&
         ["schedule-list", "schedule-show", "schedule-runs", "schedule-reckon"].includes(String(action.kind))

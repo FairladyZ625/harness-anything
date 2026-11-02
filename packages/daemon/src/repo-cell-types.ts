@@ -37,6 +37,16 @@ export type RepoTaskAction = Readonly<Record<string, unknown>> & {
   readonly kind: string;
 };
 
+export type RepoCellAutoClaimRelation = Extract<
+  DaemonGuiReadResultMap["repo.triadic.relationGraph"],
+  { readonly facet: "edges" }
+>["edges"][number];
+
+export interface RepoCellAutoClaimAssignment {
+  readonly relation: RepoCellAutoClaimRelation;
+  readonly assignedByPersonId: string | null;
+}
+
 export interface RepoCellBinding {
   /** Daemon-established node identity for references to host-local files; never accepted from the Action. */
   readonly sourceNodeId?: string;
@@ -226,6 +236,12 @@ export interface RepoCell {
     payload?: Readonly<Record<string, unknown>>,
     binding?: RepoCellBinding,
   ) => Promise<DaemonGuiReadResultMap[M]>;
+  /** Canonical actor witness for an event revision; used by local policy decisions. */
+  readonly readEventWitness: (
+    revision: number,
+  ) => Promise<ReturnType<import("@harness-anything/kernel").TaskProjection["readEventWitness"]>>;
+  /** Assignment edges and actor witnesses read from one authorized projection cut. */
+  readonly readNodeAutoClaimAssignments: (binding: RepoCellBinding) => Promise<readonly RepoCellAutoClaimAssignment[]>;
   readonly workspaceSummary: () => DaemonGuiReadResultMap["repo.workspace.summary.read"];
   readonly workspaceScope: (
     payload: DaemonGuiReadPayloadMap["repo.workspace.scope.read"],

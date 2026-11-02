@@ -504,7 +504,8 @@ export async function readFleetOperationalClient(
       | "repo.agentRuntime.sessions.await"
       | "repo.task.dispatches"
       | "repo.fleet.overview.read"
-      | "repo.policy.metadata.read";
+      | "repo.policy.metadata.read"
+      | "repo.tasks.autoClaimCandidates";
     readonly connectionSignal?: AbortSignal;
     readonly payload: Readonly<Record<string, unknown>>;
   },

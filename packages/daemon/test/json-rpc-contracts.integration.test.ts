@@ -470,6 +470,60 @@ test("local daemon stop acknowledges the control request and triggers shutdown",
   assert.ok(response && !Array.isArray(response) && "result" in response); if (response && !Array.isArray(response) && "result" in response) assert.deepEqual(response.result, { ok: true, command: "daemon-stop", pid: process.pid });
   assert.equal(shutdowns, 1);
 });
+test("node auto-claim configuration forwards only the local policy to the host control", async () => {
+  let configured: { policy: JsonObject; auth: unknown } | undefined,
+    sessionLookups = 0;
+  const policy = {
+      schema: "node-auto-claim/v1",
+      enabled: false,
+      allowedSources: { personIds: [], teamIds: [] },
+      allowedAgentIds: [],
+      maxConcurrent: 1,
+    },
+    authContext = {
+      transportKind: "unix-socket" as const,
+      unixSocketOwnerBoundary: {
+        ownerUid: process.getuid?.() ?? 0,
+        source: "unix-socket-filesystem-owner-boundary" as const,
+      },
+    },
+    host = {
+      configureNodeAutoClaim: async (value: JsonObject, auth: unknown) => {
+        configured = { policy: value, auth };
+        return { ok: true, command: "daemon-auto-claim-configure" };
+      },
+    } as never,
+    server = createJsonRpcProtocolServer({
+      host,
+      build: { commit: null },
+      authContext,
+      emit: async () => undefined,
+      sessionPrincipal: async () => {
+        sessionLookups += 1;
+        return undefined;
+      },
+    });
+  try {
+    await server.handle({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "protocol.hello",
+      params: { protocolVersion: currentDaemonProtocolVersion },
+    });
+    const response = await server.handle({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "daemon.nodeAutoClaim.configure",
+      params: { policy },
+    });
+    assert.ok(response && !Array.isArray(response) && "result" in response);
+    assert.deepEqual(configured, { policy, auth: authContext });
+    assert.equal(sessionLookups, 0, "local controls must not depend on an OIDC session lookup");
+    assert.deepEqual(response.result, { ok: true, command: "daemon-auto-claim-configure" });
+  } finally {
+    server.close();
+  }
+});
 // The readiness projection reports an unavailable canonical Git cut with no basis commit. Before the
 // ledger owned its own repository the outer repository always had a HEAD, so that branch was
 // unreachable and the wire validator was free to demand a sha; once it became reachable the producer

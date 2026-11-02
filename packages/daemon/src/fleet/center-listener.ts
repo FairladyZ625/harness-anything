@@ -1082,20 +1082,17 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       };
       let result;
       try {
-        if (frame.method !== "repo.agentRuntime.sessions.await") {
-          if (frame.method !== "repo.task.dispatches") {
-            result = await options.host.read(a.repoId, frame.method, frame.payload as JsonObject, binding);
-            return immediate({
-              schema: "fleet.operational.read.result/v1",
-              messageId: mid(frame.messageId, "runtime-read"),
-              inReplyTo: frame.messageId,
-              result: result as unknown as Readonly<Record<string, unknown>>,
-            });
+        if (frame.method === "repo.agentRuntime.sessions.await") {
+          result = await options.host.awaitRuntimeSessions(a.repoId, frame.payload as JsonObject, binding);
+        } else if (frame.method === "repo.tasks.autoClaimCandidates") {
+          result = await options.host.readNodeAutoClaimCandidates(a.repoId, binding);
+        } else {
+          if (frame.method === "repo.task.dispatches") {
+            const errors = validateTaskDispatchesPayload(frame.payload);
+            if (errors.length) throw new FleetFault("invalid_field", errors.join("; "));
           }
-          const errors = validateTaskDispatchesPayload(frame.payload);
-          if (errors.length) throw new FleetFault("invalid_field", errors.join("; "));
           result = await options.host.read(a.repoId, frame.method, frame.payload as JsonObject, binding);
-        } else result = await options.host.awaitRuntimeSessions(a.repoId, frame.payload as JsonObject, binding);
+        }
       } catch (error) {
         const code = runtimeErrorCode(error);
         if (

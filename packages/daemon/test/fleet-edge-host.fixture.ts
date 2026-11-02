@@ -40,6 +40,7 @@ export async function fleetEdgeHostFixture(
     readonly registerBeforeOpen?: boolean;
     readonly credential?: string;
     readonly repoId?: string;
+    readonly now?: () => string;
     /** false leaves fleet-edge.json for the first `daemon.fleet.edge.sync` to write. */
     readonly writeEdgeConfig?: boolean;
     readonly beforeOpen?: (edgeRoot: string) => void | Promise<void>;
@@ -162,6 +163,7 @@ export async function fleetEdgeHostFixture(
     );
   const host = await openDaemonHost({
     daemonId: `${name}-daemon`,
+    ...(options.now ? { now: options.now } : {}),
     ...(options.openCell ? { openCell: options.openCell } : {}),
     ...(options.runtimeLaunch ? { runtimeLaunch: options.runtimeLaunch } : {}),
     ...(options.runtimeDiscover ? { runtimeDiscover: options.runtimeDiscover } : {}),
@@ -172,10 +174,20 @@ export async function fleetEdgeHostFixture(
       loginAuthority: fixtureLoginAuthority,
     }),
   });
-  t.after(async () => {
-    await host.close();
-    rmSync(root, { recursive: true, force: true });
-  });
+  let closePromise: Promise<void> | null = null;
+  const close = (): Promise<void> => {
+    if (closePromise) return closePromise;
+    closePromise = (async () => {
+      try {
+        await host.close();
+      } catch (cause) {
+        throw new Error(`edge host ${name} failed to close`, { cause });
+      }
+      rmSync(root, { recursive: true, force: true });
+    })();
+    return closePromise;
+  };
+  t.after(close);
   if (options.waitForAttachments !== false) await host.attachmentsSettled();
   const rpc = createJsonRpcProtocolServer({
     host,
@@ -213,5 +225,5 @@ export async function fleetEdgeHostFixture(
       { kind: "register", rootDir: edgeRoot, repoId: options.repoId ?? "lease-repo", mode: "remote-edge" },
       auth,
     );
-  return { host, rpc, edgeRoot, edgeUser, viewRoot, config, command, signIn, register, issuer };
+  return { host, rpc, edgeRoot, edgeUser, viewRoot, config, command, signIn, register, issuer, close };
 }

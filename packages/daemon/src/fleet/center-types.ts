@@ -20,6 +20,7 @@ export interface FleetCenterOptions {
     | "settleMaterialization"
     | "status"
     | "authorize"
+    | "readNodeAutoClaimCandidates"
   >;
   readonly stateRoot: string;
   readonly writerEpochStateRoot?: string;

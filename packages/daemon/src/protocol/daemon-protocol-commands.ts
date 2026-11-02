@@ -456,6 +456,13 @@ export const daemonProtocolMethods = Object.freeze([
     }),
   },
   {
+    id: "daemon-node-auto-claim",
+    phase: "Edge-Resident-H1",
+    method: "daemon.nodeAutoClaim.configure",
+    requiresRepo: false,
+    params: shape({ policy: "json" }),
+  },
+  {
     id: "daemon.skillEval.case.add",
     phase: "W3",
     method: "daemon.skillEval.case.add",

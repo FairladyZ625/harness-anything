@@ -141,7 +141,14 @@ export const profileRows = (value: unknown): boolean =>
 export function validateSystemStatus(value: unknown): readonly string[] {
   const errors = closed(
     value,
-    { schema: "string", ok: "boolean", observedAt: "string", daemon: "object", repos: "array" },
+    {
+      schema: "string",
+      ok: "boolean",
+      observedAt: "string",
+      daemon: "object",
+      repos: "array",
+      nodeAutoClaim: "optional-object",
+    },
     "system status",
   );
   if (!record(value)) return errors;
@@ -215,6 +222,40 @@ export function validateSystemStatus(value: unknown): readonly string[] {
         !["held", "not_applicable", "unknown"].includes(String(repo.lockState)))
     )
       errors.push("system status repo enum is invalid");
+  }
+  if (record(value.nodeAutoClaim)) {
+    errors.push(
+      ...closed(
+        value.nodeAutoClaim,
+        {
+          enabled: "boolean",
+          configuration: "string",
+          maxConcurrent: "number",
+          allowedAgentIds: "array",
+          recent: "array",
+        },
+        "system status.nodeAutoClaim",
+      ),
+    );
+    for (const [index, row] of (Array.isArray(value.nodeAutoClaim.recent)
+      ? value.nodeAutoClaim.recent
+      : []
+    ).entries()) {
+      errors.push(
+        ...closed(
+          row,
+          {
+            repoId: "string",
+            taskId: "null-string",
+            reason: "string",
+            observedAt: "string",
+            assignedByPersonId: "optional-string",
+            agentId: "optional-string",
+          },
+          `system status.nodeAutoClaim.recent[${index}]`,
+        ),
+      );
+    }
   }
   return errors;
 }

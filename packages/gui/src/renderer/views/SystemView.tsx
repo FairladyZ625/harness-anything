@@ -163,6 +163,7 @@ export function SystemView({
       </div>
     );
   const daemon = status.data.daemon,
+    autoClaim = status.data.nodeAutoClaim,
     attached = status.data.repos.filter((repo) => repo.cellState === "attached").length,
     unavailable = status.data.repos.filter((repo) => repo.cellState === "unavailable").length,
     queueDepth = totalQueueDepth(status.data.repos),
@@ -285,6 +286,39 @@ export function SystemView({
             />
             <Field name={t("views.systemView.observed")} value={dateTime(status.data.observedAt)} />
           </dl>
+          {autoClaim ? (
+            <div className="mt-4 border-t border-border pt-3" data-testid="system-auto-claim">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="ui-body font-semibold">{t("views.systemView.autoClaimTitle")}</h2>
+                <StatusTag
+                  tone={autoClaim.enabled ? "active" : "neutral"}
+                  label={t(
+                    autoClaim.enabled ? "views.systemView.autoClaimEnabled" : "views.systemView.autoClaimDisabled",
+                  )}
+                />
+              </div>
+              <p className="mt-2 ui-meta text-text-muted">
+                {t("views.systemView.autoClaimPolicy", {
+                  agents: autoClaim.allowedAgentIds.join(", ") || dash(),
+                  max: String(autoClaim.maxConcurrent),
+                  configuration: autoClaim.configuration,
+                })}
+              </p>
+              {autoClaim.recent.length ? (
+                <ul className="mt-2 grid gap-1 font-mono ui-micro text-text-faint">
+                  {autoClaim.recent.slice(-4).map((row, index) => (
+                    <li key={`${row.observedAt}-${row.taskId ?? "none"}-${index}`} data-testid="system-auto-claim-row">
+                      {row.taskId ?? row.repoId}: {row.reason}
+                      {row.assignedByPersonId
+                        ? ` · ${t("views.systemView.autoClaimAssignedBy", { personId: row.assignedByPersonId })}`
+                        : ""}
+                      {row.agentId ? ` · ${row.agentId}` : ""}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
         </section>
         <section className="glass rounded-lg overflow-hidden">
           <h2 className="border-b border-border px-3 py-2 ui-body font-semibold">

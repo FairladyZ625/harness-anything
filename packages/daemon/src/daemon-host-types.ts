@@ -79,6 +79,10 @@ export interface DaemonHost {
     payload: Readonly<Record<string, unknown>>,
     auth: DaemonAuthenticationContext,
   ) => Promise<DaemonGuiReadResultMap[M]>;
+  readonly readNodeAutoClaimCandidates: (
+    repoId: string,
+    auth: DaemonAuthenticationContext,
+  ) => Promise<Readonly<Record<string, unknown>>>;
   readonly attach: (
     repoId: string,
     runtimeSessionId: string,
@@ -257,6 +261,7 @@ export interface DaemonHost {
     readonly repos: readonly RepoCellStatus[];
     readonly summary: string;
   };
+  readonly configureNodeAutoClaim: (policy: unknown, auth: DaemonAuthenticationContext) => Promise<JsonObject>;
   readonly pendingFleetDeliveries: () => number;
   readonly startAttachments: () => void;
   readonly attachmentsSettled: () => Promise<void>;
