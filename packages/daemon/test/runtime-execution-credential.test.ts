@@ -222,11 +222,11 @@ test("independent Keycloak client authenticates only its secret, expiry, and cur
   await edit({ enabled: false, attributes: { harness_execution: JSON.stringify(p) } });
   await assert.rejects(verifyRuntimeExecutionPrincipal(center, p, realm.fetch), {
     code: "execution_credential_rejected",
-    message: "Execution credential is revoked.",
+    message: /Execution credential is revoked\..*submitted.*CEO.*sync.*return/u,
   });
   await assert.rejects(authenticateRuntimeExecutionCredential(center, credential, realm.fetch), {
     code: "execution_credential_rejected",
-    message: "Execution credential is revoked.",
+    message: /Execution credential is revoked\..*submitted.*CEO.*sync.*return/u,
   });
   await assert.rejects(
     authenticateRuntimeExecutionCredential(center, credential, async () => {

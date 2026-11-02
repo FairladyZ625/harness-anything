@@ -20,14 +20,31 @@ export function authenticateRuntimeExecutionCredential(
   credential: string,
   fetchPort?: typeof fetch,
 ): Promise<RuntimeExecutionPrincipal> {
-  return executionProvider(center, fetchPort).authenticateExecutionCredential(center.accessToken, credential);
+  return executionProvider(center, fetchPort)
+    .authenticateExecutionCredential(center.accessToken, credential)
+    .catch(executionCredentialRecovery);
 }
 export function readRuntimeExecutionPrincipal(
   center: KeycloakCenterCredential,
   dispatchId: string,
   fetchPort?: typeof fetch,
 ): Promise<RuntimeExecutionPrincipal> {
-  return executionProvider(center, fetchPort).readExecutionPrincipal(center.accessToken, dispatchId);
+  return executionProvider(center, fetchPort)
+    .readExecutionPrincipal(center.accessToken, dispatchId)
+    .catch(executionCredentialRecovery);
+}
+
+function executionCredentialRecovery(error: unknown): never {
+  if (
+    error instanceof Error &&
+    "code" in error &&
+    error.code === "execution_credential_rejected" &&
+    error.message === executionCredentialRejected("revoked").message
+  )
+    error.message +=
+      " If the task was submitted, its write lease has ended: ask the CEO to sync the remaining documents " +
+      "or return the task for rework. Do not retry document writes with this credential.";
+  throw error;
 }
 /** A queued publication must still match its provider's current execution identity. */
 export async function verifyRuntimeExecutionPrincipal(
