@@ -8,7 +8,7 @@ import {
   providerFaultFromFrame,
   providerFaultFromStderr,
 } from "../src/runtime-provider-fault.ts";
-import { parseCodexFrame } from "../src/runtime-spawn-provider-frames.ts";
+import { parseCodexFrame, parseProviderFrame } from "../src/runtime-spawn-provider-frames.ts";
 
 test("structured provider errors classify rate limits, server faults, quota, model, and auth failures", () => {
   const rateLimit = providerFaultFromFrame("codex", {
@@ -81,6 +81,35 @@ test("request_unavailable is retryable only before tool activity; other startup 
     ).classification,
     "gate_red",
     "non-transient request validation errors do not retry",
+  );
+});
+
+test("Codex tool item.started closes the startup retry window before item completion", () => {
+  const unavailable = {
+      type: "turn.failed",
+      error: { code: "request_unavailable" },
+    },
+    commandStarted = parseProviderFrame("codex", { type: "item.started", item: { type: "command_execution" } }),
+    activeAfterCommandStart = active();
+
+  observeProviderFault(activeAfterCommandStart, commandStarted);
+  observeProviderFault(activeAfterCommandStart, parseProviderFrame("codex", unavailable));
+  assert.equal(activeAfterCommandStart.toolCallObserved, true);
+  assert.equal(
+    classifyRuntimeExit(activeAfterCommandStart, 1).classification,
+    "gate_red",
+    "a started tool can have side effects before completion, so request_unavailable must not retry it",
+  );
+
+  const reasoningStarted = parseProviderFrame("codex", { type: "item.started", item: { type: "reasoning" } }),
+    activeAfterReasoningStart = active();
+  observeProviderFault(activeAfterReasoningStart, reasoningStarted);
+  observeProviderFault(activeAfterReasoningStart, parseProviderFrame("codex", unavailable));
+  assert.equal(activeAfterReasoningStart.toolCallObserved, false);
+  assert.equal(
+    classifyRuntimeExit(activeAfterReasoningStart, 1).classification,
+    "provider_fault",
+    "non-tool item.started frames must leave the startup retry window open",
   );
 });
 
