@@ -55,6 +55,13 @@ export async function publishExit(
   let settlementFailed = false;
   try {
     context.exiting.add(active.runtimeSessionId);
+    const escalationStop = active.cancelRequested && active.cancelOpId?.endsWith(":escalation") === true;
+    if (escalationStop) {
+      // The escalation action returns its pending receipt before the CLI child can exit. Yield
+      // that response first, then make terminal settlement own the complete process-tree stop.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      await active.process.terminateTree?.();
+    }
     disposeActiveRuntimeObservations(active);
     // Every terminal path — success, failure, cancellation, and the daemon-restart loss
     // settlement — flows through here, so the run's own temp directory goes with it. A
@@ -66,8 +73,7 @@ export async function publishExit(
       console.error(
         `[runtime-temp] ${active.instanceId}/${active.runtimeSessionId} could not be reclaimed: ${tempReclaimFailure.message}`,
       );
-    const escalationStop = active.cancelRequested && active.cancelOpId?.endsWith(":escalation") === true,
-      cancelled = active.cancelRequested && !escalationStop,
+    const cancelled = active.cancelRequested && !escalationStop,
       cancelBinding = cancelled && active.cancelBinding ? active.cancelBinding : active.binding,
       terminalBinding = runtimeSessionBinding(active.binding, active.runtimeSessionId),
       squadLeaderControl = active.squadId !== null && active.delegatedBy === null;
@@ -508,19 +514,22 @@ export async function publishExit(
         cancelBinding,
       );
     }
-    context.processes.delete(active.runtimeSessionId);
-    active.process.release?.();
     const completedTask = active.task,
       terminalTask =
         completedTask &&
         [...context.processes.values()].some(
           (candidate) =>
+            candidate !== active &&
             candidate.task?.taskId === completedTask.taskId &&
             candidate.task.executionId === completedTask.executionId &&
             candidate.task.leaseVersion === completedTask.leaseVersion,
         )
           ? null
           : completedTask;
+    if (!escalationStop) {
+      context.processes.delete(active.runtimeSessionId);
+      active.process.release?.();
+    }
     const processGroupPid =
       Number.isSafeInteger(active.process.pid) && active.process.pid > 1 && active.process.pid !== process.pid
         ? active.process.pid
@@ -561,6 +570,7 @@ export async function publishExit(
         if (active.schedule && (error as { readonly retryable?: unknown }).retryable !== false) throw error;
         consumeKnownError(error);
         const settlementCode = runtimeErrorCode(error) || "runtime_settlement_failed";
+        if (escalationStop && settlementCode === "runtime_process_group_unproven") throw error;
         // A remote owner rejection is an authorization boundary, not a worker failure. Leave the
         // dispatch unresolved so recovery can re-adopt it under the original owner. Likewise, an
         // unproven process group must stay unknown: publishing a failed outcome would make the
@@ -585,6 +595,10 @@ export async function publishExit(
           resultRef = `artifact:runtime-result/sha256/${sha256}`;
         }
       });
+    if (escalationStop) {
+      context.processes.delete(active.runtimeSessionId);
+      active.process.release?.();
+    }
     const terminalOutcome: DispatchTerminalOutcome = {
       payload: {
         runtimeSessionId: active.runtimeSessionId,
