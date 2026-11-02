@@ -106,8 +106,8 @@ export async function cancelRuntime(
     await context.publishExit(active, null);
     return context.controlReceipt(opId, runtimeSessionId);
   }
-  // A session with a dispatch record belongs to adoption above; only a session the projection
-  // knows without any dispatch record is settled from the projection alone.
+  // A missing process record still needs canonical owner evidence; a local header alone
+  // cannot prove that the worker or its descendants stopped.
   const recorded = headers.some((header) => header.runtimeSessionId === runtimeSessionId),
     session =
       recorded && !missingOwnedProcess
@@ -118,20 +118,24 @@ export async function cancelRuntime(
           ).find((value) => value.runtimeSessionId === runtimeSessionId);
   if (session && session.outcome === null) {
     const instanceId = matchingHeader?.instanceId ?? canonicalDispatch?.instanceId;
-    if (
-      matchingHeader === undefined &&
-      session.liveness !== "exited" &&
-      (!Number.isSafeInteger(canonicalDispatch?.processGroupPid) ||
-        Number(canonicalDispatch?.processGroupPid) <= 1 ||
-        probeProcessGroup({
-          pid: Number(canonicalDispatch?.processGroupPid),
-          pgid: Number(canonicalDispatch?.processGroupPid),
-        }) !== "proven_stopped")
-    )
-      throw runtimeSpawnError(
-        "runtime_process_group_unproven",
-        `Owner process group ${String(canonicalDispatch?.processGroupPid ?? "unknown")} could not be proven stopped.`,
-      );
+    if (matchingHeader !== undefined || session.liveness !== "exited") {
+      const ownerEvidence =
+          canonicalDispatch ??
+          (context.input.remote?.readRuntimeDispatch
+            ? await context.input.remote.readRuntimeDispatch(runtimeSessionId)
+            : readLocalRuntimeDispatchOwner(context, runtimeSessionId)),
+        processGroupPid =
+          ownerEvidence?.actor.principal.personId === ownerBinding.actor.principal.personId &&
+          sameWriteSource(ownerEvidence.source, ownerBinding.source) &&
+          (matchingHeader === undefined || ownerEvidence.payload.dispatchId === matchingHeader.dispatchId)
+            ? ownerEvidence.processGroupPid
+            : null;
+      if (probeProcessGroup({ pgid: processGroupPid ?? undefined }) !== "proven_stopped")
+        throw runtimeSpawnError(
+          "runtime_process_group_unproven",
+          `Owner process group ${String(processGroupPid ?? "unknown")} could not be proven stopped.`,
+        );
+    }
     if (typeof instanceId === "string") {
       const failure = context.input.reclaimRuntimeTempDirectory?.(instanceId, runtimeSessionId) ?? null;
       if (failure)

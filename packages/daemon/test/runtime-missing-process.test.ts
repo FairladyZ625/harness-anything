@@ -1,6 +1,8 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
+import { once } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -299,7 +301,7 @@ test("adoption reports completed restores independently of a pending or failed s
   }
 });
 
-test("runtime cancel settles a live projection whose dispatch never recorded a process", async () => {
+test("runtime cancel settles a missing-process stream only after its canonical group is proven stopped", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-cancel-missing-process-"));
   try {
     const dispatchId = "dispatch_eeeeeeeeeeeeeeeeeeeeeeee",
@@ -313,8 +315,16 @@ test("runtime cancel settles a live projection whose dispatch never recorded a p
       context = {
         input: { rootDir, repoId: "cancel-missing-process" },
         requiredRuntimeProjection: () => ({
+          readRuntimeSession: () => liveSession(runtimeSessionId),
           readRuntimeSessions: () => [liveSession(runtimeSessionId)],
-          readRuntimeDispatch: () => ({ source: "local", payload: { dispatchId } }),
+          readRuntimeDispatch: () => ({ actor: binding.actor, source: "local", payload: { dispatchId } }),
+          readRuntimeSessionEvents: () => [
+            {
+              type: "runtime_session_liveness_changed",
+              source: "local",
+              payload: { processGroupPid: 2_147_483_646 },
+            },
+          ],
         }),
         processes: new Map(),
         exiting: new Set<string>(),
@@ -394,8 +404,12 @@ test("runtime cancel settles the task lease before closing a missing-process tas
         },
       },
       requiredRuntimeProjection: () => ({
+        readRuntimeSession: () => liveSession(runtimeSessionId),
         readRuntimeSessions: () => [liveSession(runtimeSessionId)],
-        readRuntimeDispatch: () => ({ source: "local", payload: { dispatchId } }),
+        readRuntimeDispatch: () => ({ actor: binding.actor, source: "local", payload: { dispatchId } }),
+        readRuntimeSessionEvents: () => [
+          { type: "runtime_session_liveness_changed", source: "local", payload: { processGroupPid: 2_147_483_646 } },
+        ],
       }),
       processes: new Map(),
       exiting: new Set<string>(),
@@ -425,7 +439,7 @@ test("runtime cancel settles the task lease before closing a missing-process tas
         endedAt: "2026-11-02T00:00:00.000Z",
         binding: {
           actor: { ...binding.actor, executor: { kind: "agent", id: `runtime-session:${runtimeSessionId}` } },
-          source: { kind: "node", nodeId: "edge-a" },
+          source: "local",
         },
       },
     ]);
@@ -450,7 +464,8 @@ test("runtime cancel leaves a missing-process task dispatch live when lease sett
   try {
     const dispatchId = "dispatch_cccccccccccccccccccccccc",
       runtimeSessionId = "runtime_dddddddddddddddddddddddd",
-      published: string[] = [];
+      published: string[] = [],
+      terminals: unknown[] = [];
     openMissingProcessStream(rootDir, dispatchId, runtimeSessionId, "unproven-task-cancel", {
       taskId: "task-cancel-unproven",
       executionId: "execution-cancel-unproven",
@@ -460,15 +475,22 @@ test("runtime cancel leaves a missing-process task dispatch live when lease sett
         rootDir,
         repoId: "cancel-unproven-task-process",
         now: () => "2026-11-02T00:00:00.000Z",
-        onAttemptTerminal: async () => ({
-          outcome: "lease_unproven" as const,
-          code: "runtime_process_group_unproven" as const,
-          reason: "Runtime process group is unknown; lease release waits for a stop proof.",
-        }),
+        onAttemptTerminal: async (terminal: unknown) => {
+          terminals.push(terminal);
+          return {
+            outcome: "lease_unproven" as const,
+            code: "runtime_process_group_unproven" as const,
+            reason: "Runtime process group is unknown; lease release waits for a stop proof.",
+          };
+        },
       },
       requiredRuntimeProjection: () => ({
+        readRuntimeSession: () => liveSession(runtimeSessionId),
         readRuntimeSessions: () => [liveSession(runtimeSessionId)],
-        readRuntimeDispatch: () => ({ source: "local", payload: { dispatchId } }),
+        readRuntimeDispatch: () => ({ actor: binding.actor, source: "local", payload: { dispatchId } }),
+        readRuntimeSessionEvents: () => [
+          { type: "runtime_session_liveness_changed", source: "local", payload: { processGroupPid: 2_147_483_646 } },
+        ],
       }),
       processes: new Map(),
       exiting: new Set<string>(),
@@ -487,11 +509,85 @@ test("runtime cancel leaves a missing-process task dispatch live when lease sett
       ),
       { code: "runtime_process_group_unproven" },
     );
+    assert.equal(terminals.length, 1, "the stopped group must reach the independent task lease settlement guard");
     assert.deepEqual(published, []);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+for (const scenario of [
+  "live",
+  "unknown",
+  "EPERM",
+  "different-dispatch",
+  "different-source",
+  "different-person",
+] as const) {
+  test(`runtime cancel refuses a missing-process stream with ${scenario} group evidence`, async (t) => {
+    const rootDir = mkdtempSync(path.join(tmpdir(), "ha-stream-group-proof-")),
+      runtimeSessionId = "runtime_161616161616161616161616",
+      dispatchId = "dispatch_161616161616161616161616",
+      published: string[] = [],
+      reclaimed: string[] = [];
+    let processGroupPid = 2_147_483_645;
+    t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+    openMissingProcessStream(rootDir, dispatchId, runtimeSessionId, "stream-group-proof");
+    if (scenario === "live") {
+      // A detached worker owns a real process group, but its stream lost process_started.
+      // The IPC listener keeps it alive without a timer; ready is the launch boundary.
+      const worker = spawn(process.execPath, ["-e", 'process.on("message", () => {}); process.send("ready");'], {
+        detached: true,
+        stdio: ["ignore", "ignore", "ignore", "ipc"],
+      });
+      t.after(async () => {
+        const exited = once(worker, "exit");
+        worker.kill();
+        await exited;
+      });
+      await once(worker, "message");
+      processGroupPid = worker.pid!;
+      assert.equal(process.kill(processGroupPid, 0), true);
+    } else {
+      t.mock.method(process, "kill", (pid: number, signal: unknown) => {
+        assert.equal(pid, -processGroupPid);
+        assert.equal(signal, 0, "an unproven group may only be probed, never killed");
+        throw Object.assign(new Error(scenario === "EPERM" ? "denied" : "stopped"), {
+          code: scenario === "EPERM" ? "EPERM" : "ESRCH",
+        });
+      });
+    }
+    const context = {
+      input: {
+        rootDir,
+        repoId: "stream-group-proof",
+        reclaimRuntimeTempDirectory: () => reclaimed.push(runtimeSessionId),
+        remote: {
+          readRuntimeSessions: async () => [liveSession(runtimeSessionId)],
+          readRuntimeDispatch: async () => ({
+            actor: scenario === "different-person" ? { principal: { personId: "other" } } : binding.actor,
+            source: scenario === "different-source" ? { kind: "node", nodeId: "other" } : "local",
+            payload: { dispatchId: scenario === "different-dispatch" ? "dispatch_other" : dispatchId },
+            instanceId: "instance-1",
+            processGroupPid: scenario === "unknown" ? null : processGroupPid,
+          }),
+        },
+      },
+      processes: new Map(),
+      exiting: new Set<string>(),
+      publishRuntimeEvent: async (type: string) => published.push(type),
+      controlReceipt: () => ({ detail: "cancelled" }),
+    };
+    await assert.rejects(
+      cancelRuntime(context as never, { runtimeSessionId }, binding),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "runtime_process_group_unproven",
+    );
+    assert.deepEqual(published, [], "no cancelled, exited or terminal outcome may become durable");
+    assert.deepEqual(reclaimed, [], "the missing record cannot authorize reclaiming the worker workspace");
+    assert.equal(readDispatchStream(rootDir, dispatchId)!.records.length, 0);
+    if (scenario === "live") assert.equal(process.kill(processGroupPid, 0), true, "the live worker stays protected");
+  });
+}
 
 test("runtime cancel closes an exited session whose dispatch stream is missing", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-cancel-exited-missing-stream-"));
