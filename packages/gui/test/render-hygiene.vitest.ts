@@ -375,6 +375,32 @@ describe("GUI render hygiene: idle presence gate coverage", () => {
   });
 });
 
+describe("GUI render hygiene: fleet topology bounded motion", () => {
+  const clean = stripComments(styles);
+  const keyframes = extractKeyframes(clean);
+
+  it("keeps every fleet animation one-shot, and flash/scan compositor-only", () => {
+    // 舰队拓扑里没有任何 infinite 动画:执行中租约是常驻状态,循环扫描环会让
+    // 静止数据持续产帧(task_7455b8580de125b018dbdba2b3)。
+    const fleetInfinite = [...infiniteAnimationSelectors(clean)].filter((selector) => selector.includes(".fleet-"));
+    expect(fleetInfinite).toEqual([]);
+
+    const flash = keyframes.find((keyframe) => keyframe.name === "fleet-flash");
+    expect(flash, "fleet-flash keyframes must exist").toBeTruthy();
+    const flashViolations = parseDeclarationsInKeyframe(flash!.body).filter((declaration) =>
+      PROHIBITED_ANIMATED_PROPERTIES.has(declaration.property),
+    );
+    expect(flashViolations).toEqual([]);
+
+    const scan = keyframes.find((keyframe) => keyframe.name === "fleet-scan");
+    expect(scan, "fleet-scan keyframes must exist").toBeTruthy();
+    const animatedProperties = [
+      ...new Set(parseDeclarationsInKeyframe(scan!.body).map((declaration) => declaration.property)),
+    ].sort();
+    expect(animatedProperties).toEqual(["opacity", "transform"]);
+  });
+});
+
 describe("GUI render hygiene: ambient backdrop (.aurora) zero-cost diffusion", () => {
   const clean = stripComments(styles);
 

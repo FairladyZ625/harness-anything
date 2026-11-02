@@ -2,7 +2,7 @@
 // @vitest-environment happy-dom
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { CollaborationView } from "../src/renderer/views/CollaborationView.tsx";
 import type { FleetOverviewRead } from "../src/api/renderer-dto.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
@@ -303,6 +303,80 @@ describe("舰队拓扑视觉重做(task_16c20131)", () => {
     );
     expect(host.querySelector('[data-testid="collaboration-node-cc90-ubuntu"]')!.getAttribute("data-flash")).toBe("on");
     expect(host.querySelector('[data-testid="collaboration-node-center"]')!.getAttribute("data-flash")).toBeNull();
+  });
+
+  it("读面刷新数据未变时不重挂节点、不移动布局、不重启闪烁", () => {
+    const host = document.createElement("div");
+    const root = createRoot(host);
+    const tree = (data: FleetOverviewRead) => (
+      <CollaborationView
+        repoId="repo-test"
+        mode="remote-center"
+        overview={data}
+        onOpenTask={() => {}}
+        onNavigateEntity={() => {}}
+        now="2026-10-06T01:00:00.000Z"
+      />
+    );
+    act(() => root.render(tree(overview())));
+    const before = host.querySelector<HTMLElement>('[data-testid="collaboration-node-center"]')!;
+    const geometry = { left: before.style.left, top: before.style.top, width: before.style.width };
+    // 轮询返回的是全新对象(generatedAt 每次都变 → react-query structural sharing 不成立),
+    // 但节点 id/角色与租约事实没变:节点卡必须是同一个 DOM 节点、位置不动、不触发闪烁。
+    act(() => root.render(tree(overview({ generatedAt: "2026-10-06T01:00:10.000Z" }))));
+    const after = host.querySelector<HTMLElement>('[data-testid="collaboration-node-center"]')!;
+    expect(after).toBe(before);
+    expect({ left: after.style.left, top: after.style.top, width: after.style.width }).toEqual(geometry);
+    expect(after.getAttribute("data-executing")).toBe("on");
+    expect(after.getAttribute("data-flash")).toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("首读空事件窗口后到达的第一条事件也闪一下,且刷新不会把 data-flash 永久留在卡上", () => {
+    vi.useFakeTimers();
+    try {
+      const host = document.createElement("div");
+      const root = createRoot(host);
+      const tree = (data: FleetOverviewRead) => (
+        <CollaborationView
+          repoId="repo-test"
+          mode="remote-center"
+          overview={data}
+          onOpenTask={() => {}}
+          onNavigateEntity={() => {}}
+          now="2026-10-06T01:00:00.000Z"
+        />
+      );
+      act(() => root.render(tree(overview({ events: [] }))));
+      const card = () => host.querySelector<HTMLElement>('[data-testid="collaboration-node-cc90-ubuntu"]')!;
+      expect(card().getAttribute("data-flash")).toBeNull();
+      const arrival: FleetOverviewRead = overview({
+        generatedAt: "2026-10-06T01:00:02.000Z",
+        events: [
+          {
+            eventId: "row-first",
+            type: "fact_recorded",
+            occurredAt: "2026-10-06T01:00:01.000Z",
+            workspaceRevision: 165,
+            taskId: null,
+            title: null,
+            nodeId: "cc90-ubuntu",
+          },
+        ],
+      });
+      act(() => root.render(tree(arrival)));
+      expect(card().getAttribute("data-flash")).toBe("on");
+      // 闪烁窗口内的下一次轮询(数据未变、只是新对象)不得清掉重置定时器而把属性留死。
+      act(() => root.render(tree({ ...arrival, generatedAt: "2026-10-06T01:00:12.000Z" })));
+      expect(card().getAttribute("data-flash")).toBe("on");
+      act(() => {
+        vi.advanceTimersByTime(1_500);
+      });
+      expect(card().getAttribute("data-flash")).toBeNull();
+      act(() => root.unmount());
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

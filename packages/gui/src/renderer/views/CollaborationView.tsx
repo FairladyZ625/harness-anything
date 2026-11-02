@@ -57,20 +57,39 @@ export function CollaborationView({
         : 0),
     0,
   );
-  // 事件流与拓扑的联动:读面刷新出现新事件时,其所属节点在拓扑上闪一下(1.6s)。
+  // 事件流与拓扑的联动:读面刷新出现新事件时,其所属节点在拓扑上闪一下(1.4s)。
+  // 定时器挂 ref 而不是挂在 effect cleanup 上:轮询每 10s 换一次 events 引用,
+  // cleanup 若清掉重置定时器,恰好在闪烁窗口内到来的刷新会让 data-flash 永久留在
+  // 节点上(动画已经跑完,属性却不再摘除)。只有卸载才清理。
   const [flashNodes, setFlashNodes] = useState<ReadonlySet<string>>(() => new Set());
   const seenEventIds = useRef<ReadonlySet<string>>(new Set());
+  const readEventsOnce = useRef(false);
+  const flashTimer = useRef<number | null>(null);
   useEffect(() => {
     const current = new Set(events.map((event) => event.eventId));
     const previous = seenEventIds.current;
     seenEventIds.current = current;
-    if (previous.size === 0) return;
+    // 首次读到的是页面挂载前已有的历史,不闪;但「首次读到空窗口、之后来了第一条」
+    // 是真新事件,必须闪。
+    if (!readEventsOnce.current) {
+      readEventsOnce.current = true;
+      return;
+    }
     const arrived = new Set(events.filter((event) => !previous.has(event.eventId)).map((event) => event.nodeId));
     if (arrived.size === 0) return;
     setFlashNodes(arrived);
-    const timer = window.setTimeout(() => setFlashNodes(new Set()), 1600);
-    return () => window.clearTimeout(timer);
+    if (flashTimer.current !== null) window.clearTimeout(flashTimer.current);
+    flashTimer.current = window.setTimeout(() => {
+      flashTimer.current = null;
+      setFlashNodes(new Set());
+    }, 1400);
   }, [events]);
+  useEffect(
+    () => () => {
+      if (flashTimer.current !== null) window.clearTimeout(flashTimer.current);
+    },
+    [],
+  );
   return (
     <section
       data-testid="collaboration-view"
