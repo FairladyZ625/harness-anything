@@ -549,6 +549,27 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
                   frame.taskId ? { taskId: frame.taskId } : undefined,
                 )
               ).outcome === "allowed";
+      if (
+        actionAllowed === true &&
+        frame.actionKind === "task-submit" &&
+        frame.taskId !== undefined &&
+        frame.executionId !== undefined
+      ) {
+        const submitAuth = await writerAuth(a, frame.accessToken, frame.executionCredential),
+          shown = await runCenterWriter(a.repoId, { kind: "task-show", taskId: frame.taskId }, submitAuth);
+        if (shown.outcome !== "applied" || typeof shown.evidence !== "string")
+          throw new FleetFault("task_read_failed", "Cannot read the delivery task at the center.");
+        const snapshot = JSON.parse(shown.evidence) as FleetDeliveryTask;
+        try {
+          assertFleetDeliveryHolder(snapshot, {
+            nodeId,
+            personId: principal.nodePrincipal!.personId,
+            ...(frame.executionId !== null ? { executionId: frame.executionId } : {}),
+          });
+        } catch (error) {
+          throw new FleetFault("lease_holder_mismatch", runtimeErrorMessage(error));
+        }
+      }
       if (!baseLedgerSha) throw new FleetFault("projection_pending", "Current ledger cut is unavailable.", true);
       const centerGit = frame.includeGitMetadata
         ? await readFleetCenterGitMetadata(

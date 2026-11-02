@@ -177,9 +177,9 @@ export const daemonOwnedProtocolCommands = Object.freeze([
   ...settingsProtocolCommands,
   ...eventProtocolCommands,
   ...peopleProtocolCommands,
-] as const);
+]);
 
-export const daemonProtocolCommands = Object.freeze([...daemonOwnedProtocolCommands, ...presetCommands] as const);
+export const daemonProtocolCommands = Object.freeze([...daemonOwnedProtocolCommands, ...presetCommands]);
 
 export const thinCliCommands = Object.freeze(
   daemonProtocolCommands.filter((command) => !("internal" in command && command.internal)).map((command) => command),

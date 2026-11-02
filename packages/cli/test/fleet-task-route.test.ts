@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { daemonProtocolCommands } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
-import { parseFleetFrame } from "@harness-anything/daemon/internal/fleet/command-protocol";
+import { parseFleetFrame, isFleetTaskAction } from "@harness-anything/daemon/internal/fleet/command-protocol";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 import {
   fleetDocRoute,
@@ -70,6 +70,10 @@ test("fleet task routing requires both edge config and remote-edge registry mode
     "a remote-edge registration for another root cannot authorize this workspace",
   );
   registry("remote-edge");
+  for (const kind of ["agent-install", "agent-delete", "agent-retire", "squad-install", "squad-delete"]) {
+    const action = { kind, expectedVersion: 0 };
+    assert.deepEqual((await fleetTaskRoute(command("repo.task.run", action), env))?.action, action, kind);
+  }
   for (const kind of ["schedule-list", "schedule-show", "schedule-runs"]) {
     const read = command("repo.task.read", { kind, scheduleId: "edge-schedule" });
     assert.equal(await fleetScheduleRoute(read, env), null, `${kind} must avoid the network runtime route`);
@@ -96,6 +100,12 @@ test("fleet task routing requires both edge config and remote-edge registry mode
     assert.equal(await fleetDocRoute(read, env), null);
     assert.deepEqual((await fleetTaskRoute(read, env))?.action, { kind, paths: ["context/notes.md"] });
   }
+  const docRetire = command("repo.task.run", {
+    kind: "doc-retire",
+    paths: ["context/notes.md"],
+    reason: "The authored note is obsolete.",
+  });
+  assert.deepEqual((await fleetTaskRoute(docRetire, env))?.action, docRetire.action);
   const docSubmitAll = await fleetDocRoute(command("repo.task.run", { kind: "doc-submit", paths: [], all: true }), env);
   assert.equal(docSubmitAll?.payload.dryRun, false);
   assert.deepEqual(docSubmitAll?.payload.paths, []);
@@ -272,6 +282,27 @@ test("fleet task routing requires both edge config and remote-edge registry mode
       payload: { dispatchId: "dispatch_123", prompt: "change direction" },
     });
   }
+  const cancelCommand = parseThinCommand(["runtime", "cancel", "runtime_one"], root);
+  assert.equal(cancelCommand.ok, true, JSON.stringify(cancelCommand));
+  if (cancelCommand.ok) {
+    const routedCancel = await fleetRuntimeRoute(cancelCommand.command, env);
+    assert.deepEqual(routedCancel?.action, {
+      kind: "fleet-runtime",
+      method: "repo.agentRuntime.cancel",
+      payload: { runtimeSessionId: "runtime_one" },
+    });
+  }
+  const handoffDispatch = `dispatch_${"a".repeat(24)}`,
+    handoffCommand = parseThinCommand(["runtime", "handoff", "export", handoffDispatch], root);
+  assert.equal(handoffCommand.ok, true, JSON.stringify(handoffCommand));
+  if (handoffCommand.ok) {
+    const routedHandoff = await fleetRuntimeRoute(handoffCommand.command, env);
+    assert.deepEqual(routedHandoff?.action, {
+      kind: "fleet-runtime",
+      method: "repo.agentRuntime.handoff",
+      payload: { operation: "export", dispatchId: handoffDispatch },
+    });
+  }
   const missing: string[] = [],
     unexpected: string[] = [];
   for (const descriptor of daemonProtocolCommands) {
@@ -333,6 +364,81 @@ test("fleet task routing requires both edge config and remote-edge registry mode
       /closed schema fleet\.repository\.read\/v1/u,
     );
   }
+  writeFileSync(path.join(root, "body.md"), "# Authored on the edge\n" + "Long prose. ".repeat(80));
+  writeFileSync(path.join(root, "ids.txt"), "# edge-local batch\nF-0000EDGE\n");
+  writeFileSync(
+    path.join(root, "decision-review.json"),
+    JSON.stringify({
+      reviewId: "review-edge",
+      reviewContentDigest: `sha256:${"a".repeat(64)}`,
+      verdict: "approved",
+      reason: "Checked independently.",
+      findings: [],
+      evidenceChecked: [],
+      reportRef: "decisions/decision-dec_edge/artifacts/reports/edge.md",
+    }),
+  );
+  for (const argv of [
+    ["fact", "reclassify", "F-0000EDGE", "--type", "closeout", "--rationale", "Verified."],
+    ["fact", "archive", "--ids-file", "ids.txt", "--reason", "Finished."],
+    ["fact", "unarchive", "F-0000EDGE", "--reason", "Restore."],
+    ["decision", "amend", "dec_edge", "--reason", "Clarify.", "--body-file", "body.md"],
+    ["decision", "claim", "add", "dec_edge", "--id", "C1", "--text", "One writer.", "--non-load-bearing"],
+    ["decision", "claim", "fulfill", "dec_edge", "--id", "C1", "--mode", "evidenced"],
+    ["decision", "review", "dec_edge", "--from-file", "decision-review.json"],
+    ["decision", "accept", "dec_edge", "--rationale", "Approved.", "--judgment-only", "Verified."],
+    ["decision", "reject", "dec_edge", "--rationale", "Rejected."],
+    ["decision", "defer", "dec_edge", "--rationale", "Deferred."],
+    ["decision", "reckon", "dec_edge", "--task", "task_edge"],
+    ["task", "attest", "task_edge", "--gate", "gate_one", "--result", "pass", "--note", "Checked"],
+    ["task", "annotate", "task_edge", "--execution-id", "exe_edge", "--note", "Corrected", "--kind", "correction"],
+    [
+      "task",
+      "witness-revoke",
+      "task_edge",
+      "--execution-id",
+      "exe_edge",
+      "--gate",
+      "gate_one",
+      "--run-id",
+      "run_one",
+      "--reason",
+      "Stopped",
+    ],
+    ["task", "supersede", "task_old", "--title", "Replacement"],
+    ["task", "delete", "--soft", "task_edge", "--reason", "Obsolete"],
+    ["script", "run", "vertical:software:document", "--dry-run"],
+    ["preset", "upgrade", "task_edge"],
+    ["decision", "transition", "superseded", "dec_edge"],
+    ["decision", "repin", "dec_edge", "--migration-evidence", "task/task_edge/evidence"],
+    ["distill", "candidate", "--task", "task_edge", "--entity", "software/document/report"],
+    [
+      "distill",
+      "promote",
+      "--task",
+      "task_edge",
+      "--candidate",
+      "harness/tasks/task_edge/artifacts/candidate.json",
+      "--claim",
+      "Observed a result.",
+    ],
+  ]) {
+    const parsed = parseThinCommand(argv, root);
+    assert.ok(parsed.ok, JSON.stringify(parsed));
+    if (!parsed.ok) continue;
+    const routed = await fleetTaskRoute(parsed.command, env);
+    assert.ok(routed, argv.join(" "));
+    assert.equal(isFleetTaskAction(JSON.parse(JSON.stringify(routed.action))), true, JSON.stringify(routed.action));
+    for (const field of ["fromFile", "bodyFile", "idsFile"])
+      assert.equal(Object.hasOwn(routed.action as object, field), false);
+  }
+  // A resident preset process has a dedicated lifetime/status port; it cannot use the task writer wire.
+  const preset = parseThinCommand(
+    ["script", "run", "preset:standard-task/check", "--idempotency-key", "edge-run"],
+    root,
+  );
+  assert.ok(preset.ok);
+  if (preset.ok) assert.equal(await fleetTaskRoute(preset.command, env), null);
   // task show and work list are edge-replica now: the CLI still routes them to the edge daemon, but
   // their actions no longer form a legal center-forwarded repository-read frame.
   for (const argv of [

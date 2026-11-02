@@ -399,6 +399,26 @@ for (const mutation of [
     });
 }
 
+test("G0-2 cannot rescue a disconnected prepared publication through an unrelated authorization call", (t) => {
+  const root = taskSnapshot(t);
+  // The generic graph can reach this literal, but it does not authorize the prepared publication.
+  writeRepoFile(
+    root,
+    "packages/daemon/src/unrelated-authorization.ts",
+    'function unrelated(action) { if (action.kind === "task-push") return authorizeAction(action); }\n',
+  );
+  assert.equal(auditDurableActionAuthorization(root, ["task-push"]).rows[0].authorizationPort, true);
+  mutate(
+    root,
+    "repo-cell-command-run",
+    "readBeforeWriteQueue(context, action, binding)",
+    "unrelatedPreparation(context, action, binding)",
+  );
+  const result = auditDurableActionAuthorization(root, ["task-push"]);
+  assert.equal(result.rows[0].authorizationPort, false);
+  assert.equal(result.findings.length, 1);
+});
+
 test("G0-2 requires task push's durable repo-write declaration", (t) => {
   const root = taskSnapshot(t),
     file = "packages/kernel/src/domain/action-declaration.ts",

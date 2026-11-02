@@ -416,6 +416,7 @@ export async function readFleetRepositoryMetadataClient(
   options: FleetPeerOptions & {
     readonly actionKind?: string;
     readonly includeGitMetadata?: boolean;
+    readonly executionId?: string | null;
     readonly taskId?: string;
   },
 ): Promise<Extract<FleetFrameV1, { schema: "fleet.repo.metadata.result/v1" }>> {
@@ -426,6 +427,7 @@ export async function readFleetRepositoryMetadataClient(
       messageId: session.messageId(),
       repoId: options.repoId,
       ...(options.executionCredential ? { executionCredential: options.executionCredential } : {}),
+      ...(options.executionId !== undefined ? { executionId: options.executionId } : {}),
       ...(options.includeGitMetadata ? { includeGitMetadata: true } : {}),
       ...(options.actionKind ? { actionKind: options.actionKind } : {}),
       ...(options.taskId ? { taskId: options.taskId } : {}),

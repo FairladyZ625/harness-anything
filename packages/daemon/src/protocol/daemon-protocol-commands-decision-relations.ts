@@ -1,11 +1,11 @@
 import {
   cliInput,
-  defineLedgerWriteCommand,
+  defineCenterForwardWriteCommand,
   defineEdgeReplicaQueryOnlyReadCommand,
 } from "@harness-anything/preset/internal/preset-command-contract";
 
 export const decisionRelationProtocolCommands = Object.freeze([
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "decision-claim-add",
     phase: "DecisionFact-B",
     path: ["decision", "claim", "add", "<id>"],
@@ -19,17 +19,23 @@ export const decisionRelationProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { regex: "^C[A-Za-z0-9_-]+$" },
+        { field: "claimId", regex: "^C[A-Za-z0-9_-]+$" },
       ),
       cliInput("--text", "single", true, {
         code: "invalid_field",
       }),
-      cliInput("--non-load-bearing", "boolean", false, {
-        code: "invalid_field",
-      }),
+      cliInput(
+        "--non-load-bearing",
+        "boolean",
+        false,
+        {
+          code: "invalid_field",
+        },
+        { field: "loadBearing" },
+      ),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "decision-claim-fulfill",
     phase: "DecisionFact-B",
     path: ["decision", "claim", "fulfill", "<id>"],
@@ -43,7 +49,7 @@ export const decisionRelationProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { regex: "^C[A-Za-z0-9_-]+$" },
+        { field: "claimId", regex: "^C[A-Za-z0-9_-]+$" },
       ),
       cliInput(
         "--mode",
@@ -56,17 +62,13 @@ export const decisionRelationProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "decision-reckon",
     phase: "DecisionFact-B",
     path: ["decision", "reckon", "<id>"],
     summary: "Record coverage at the exact projected basis revision.",
     method: "repo.task.run",
-    inputs: [
-      cliInput("--task", "single", true, {
-        code: "missing_field",
-      }),
-    ],
+    inputs: [cliInput("--task", "single", true, { code: "missing_field" }, { field: "taskId" })],
   }),
   defineEdgeReplicaQueryOnlyReadCommand({
     id: "decision-list",
@@ -134,41 +136,29 @@ export const decisionRelationProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "distill-candidate",
     phase: "DecisionFact-B",
     path: ["distill", "candidate"],
     summary: "Create a generated, non-canonical candidate artifact from a file or governed artifact entity.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--task", "single", true, {
-        code: "missing_field",
-      }),
-      cliInput("--input", "single", false, {
-        code: "invalid_field",
-      }),
-      cliInput("--entity", "single", false, {
-        code: "invalid_field",
-      }),
+      cliInput("--task", "single", true, { code: "missing_field" }, { field: "taskId" }),
+      cliInput("--input", "single", false, { code: "invalid_field" }, { field: "inputPath" }),
+      cliInput("--entity", "single", false, { code: "invalid_field" }, { field: "entityRef" }),
     ],
     actionConstraints: [["inputPath", "entityRef"]],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "distill-promote",
     phase: "DecisionFact-B",
     path: ["distill", "promote"],
     summary: "Promote one validated candidate claim through the canonical immutable Fact write path.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--task", "single", true, {
-        code: "missing_field",
-      }),
-      cliInput("--candidate", "single", true, {
-        code: "invalid_field",
-      }),
-      cliInput("--claim", "single", true, {
-        code: "invalid_field",
-      }),
+      cliInput("--task", "single", true, { code: "missing_field" }, { field: "taskId" }),
+      cliInput("--candidate", "single", true, { code: "invalid_field" }, { field: "candidatePath" }),
+      cliInput("--claim", "single", true, { code: "invalid_field" }, { field: "statement" }),
       cliInput(
         "--id",
         "single",
@@ -176,7 +166,7 @@ export const decisionRelationProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { regex: "^F-[0-9A-HJKMNP-TV-Z]{8}$" },
+        { field: "factId", regex: "^F-[0-9A-HJKMNP-TV-Z]{8}$" },
       ),
       cliInput(
         "--confidence",
@@ -196,9 +186,7 @@ export const decisionRelationProtocolCommands = Object.freeze([
         },
         { enum: ["semantic", "episodic", "procedural"] },
       ),
-      cliInput("--memory-tag", "repeated", false, {
-        code: "invalid_field",
-      }),
+      cliInput("--memory-tag", "repeated", false, { code: "invalid_field" }, { field: "memoryTags" }),
       cliInput("--observed-at", "single", false, {
         code: "invalid_field",
       }),

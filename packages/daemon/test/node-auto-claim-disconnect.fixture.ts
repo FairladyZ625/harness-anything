@@ -76,7 +76,16 @@ for (let round = 0; round < 30; round += 1) {
   // this child in strict mode, so any escaped rejection fails instead of being filtered.
   await setImmediate();
   assert.equal(socket.writes, 1, "the reply must neither retry nor dispatch a command");
-  assert.equal(errors.length, mode === "close" ? round + 1 : 0);
+  assert.equal(errors.length, mode === "close" || mode === "error-write" ? round + 1 : 0);
+  if (mode === "error-write") {
+    // A live peer whose error reply fails is a center fault: the dispatch boundary reports it
+    // once through onError instead of crashing the process or dropping it silently.
+    const entry = errors[round]!;
+    assert.equal(entry.nodeId, null);
+    assert.equal(entry.messageId, null);
+    assert.ok(entry.error instanceof Error);
+    assert.equal(entry.error.message, "fixture error reply failure");
+  }
   if (mode === "close") {
     const entry = errors[round]!;
     assert.equal(entry.nodeId, "node-one");

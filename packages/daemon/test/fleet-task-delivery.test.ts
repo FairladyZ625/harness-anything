@@ -14,8 +14,8 @@ import {
   workerPushFailureCode,
 } from "../src/runtime-worker-push.ts";
 
-for (const denialMode of ["node", "owner", "permission", "cas"])
-  test(`delivery checks current node, owner, permission and remote CAS (${denialMode})`, async (t) => {
+for (const denialMode of ["permission", "holder", "cas"])
+  test(`edge delivery checks permission and remote CAS (${denialMode})`, async (t) => {
     const root = mkdtempSync(path.join(tmpdir(), "ha-delivery-cas-"));
     t.after(() => rmSync(root, { recursive: true, force: true }));
     const env = { ...process.env, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_SYSTEM: devNull };
@@ -65,37 +65,44 @@ for (const denialMode of ["node", "owner", "permission", "cas"])
       }) as unknown as FleetDeliveryTask;
     const ready = Promise.withResolvers<void>(),
       release = Promise.withResolvers<void>();
-    let reads = 0;
     const old = prepareEdgeTaskDelivery({
       workspaceRoot: first,
-      nodeId: "old",
       authorize: async () => {
         if (denialMode === "permission") throw new Error("authorization denied before push");
-        return denialMode === "owner" ? "changed-owner" : "owner";
-      },
-      action: { kind: "task-submit", taskId },
-      readTask: async () => {
-        if (++reads === 2) {
+        if (denialMode === "cas") {
           ready.resolve();
           await release.promise;
         }
-        return snapshot(reads === 2 && denialMode === "node" ? "new" : "old");
+        return "owner";
       },
+      verifyHolder: async () => {
+        if (denialMode === "holder")
+          throw Object.assign(new Error("Delivery requires the current node, owner and execution lease."), {
+            code: "lease_holder_mismatch",
+          });
+      },
+      action: { kind: "task-submit", taskId },
+      readTask: async () => snapshot("old"),
     });
     // Attach the rejection observer before unblocking the operation.
     const rejected = assert.rejects(
       old,
       denialMode === "permission"
         ? /authorization denied/u
-        : denialMode === "cas"
-          ? /stale info/u
-          : /current node, owner/u,
+        : denialMode === "holder"
+          ? (error: unknown) => error instanceof Error && "code" in error && error.code === "lease_holder_mismatch"
+          : /stale info/u,
     );
+    if (denialMode === "permission" || denialMode === "holder") {
+      await rejected;
+      assert.equal(git(first, "ls-remote", "--heads", "origin", taskId), "");
+      return;
+    }
     await ready.promise;
     const accepted = await prepareEdgeTaskDelivery({
       workspaceRoot: second,
-      nodeId: "new",
       authorize: async () => "owner",
+      verifyHolder: async () => undefined,
       action: { kind: "task-submit", taskId },
       readTask: async () => snapshot("new"),
     });
@@ -131,4 +138,78 @@ for (const denialMode of ["node", "owner", "permission", "cas"])
     });
     assert.equal(pushed.ok, false);
     assert.equal(workerPushFailureCode(pushed), "delivery_publish_failed");
+  });
+
+for (const scenario of [
+  { name: "stale same-owner node with no remote ref", remoteRef: false, code: "lease_holder_mismatch" },
+  { name: "wrong execution with no remote ref", remoteRef: false, code: "lease_holder_mismatch" },
+  { name: "stale same-owner node with matching remote ref", remoteRef: true, code: "lease_holder_mismatch" },
+  { name: "wrong execution with matching remote ref", remoteRef: true, code: "lease_holder_mismatch" },
+] as const)
+  test(`holder proof fences ${scenario.name} before publication`, async (t) => {
+    const root = mkdtempSync(path.join(tmpdir(), "ha-delivery-holder-proof-"));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    const env = { ...process.env, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_SYSTEM: devNull };
+    for (const name of [
+      "HARNESS_TASK_BOUND",
+      "GIT_AUTHOR_NAME",
+      "GIT_AUTHOR_EMAIL",
+      "GIT_COMMITTER_NAME",
+      "GIT_COMMITTER_EMAIL",
+    ])
+      delete env[name];
+    const git = (cwd: string, ...args: string[]) =>
+      execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: "pipe", env }).trim();
+    const remote = path.join(root, "origin.git"),
+      edge = path.join(root, "edge"),
+      taskId = "task_holder_proof";
+    git(root, "init", "--bare", "-b", "main", remote);
+    git(root, "clone", remote, edge);
+    git(edge, "config", "user.name", "owner");
+    git(edge, "config", "user.email", "owner@users.noreply.github.com");
+    git(edge, "commit", "--allow-empty", "-qm", "base");
+    git(edge, "push", "origin", "main");
+    git(edge, "worktree", "add", "-b", taskId, path.join(edge, "worker"), "origin/main");
+    writeFileSync(path.join(edge, "worker", "delivery.txt"), "candidate\n");
+    git(path.join(edge, "worker"), "add", "delivery.txt");
+    git(path.join(edge, "worker"), "commit", "-qm", "candidate");
+
+    if (scenario.remoteRef) {
+      // Seed the exact expected ref. The holder proof must still run before a force-with-lease push.
+      git(edge, "push", "origin", `HEAD:refs/heads/${taskId}`);
+    }
+    const before = scenario.remoteRef ? git(remote, "rev-parse", `refs/heads/${taskId}`) : "";
+    const rejected = prepareEdgeTaskDelivery({
+      workspaceRoot: edge,
+      action: { kind: "task-submit", taskId, executionId: "wrong-execution" },
+      authorize: async () => "owner",
+      verifyHolder: async () => {
+        throw Object.assign(new Error("Delivery requires the current node, owner and execution lease."), {
+          code: scenario.code,
+        });
+      },
+      readTask: async () =>
+        ({
+          task: { iteration: 0 },
+          executions: [],
+          workspace: { kind: "worktree", path: "worker" },
+          lease: {
+            phase: "held",
+            executionId: "current-execution",
+            actor: { principal: { personId: "owner" }, executor: null },
+            expiresAt: "2099-01-01T00:00:00.000Z",
+            source: { kind: "node", nodeId: "current-node" },
+          },
+        }) as unknown as FleetDeliveryTask,
+    });
+    await assert.rejects(
+      rejected,
+      (error: unknown) => error instanceof Error && "code" in error && error.code === scenario.code,
+    );
+    assert.equal(
+      scenario.remoteRef
+        ? git(remote, "rev-parse", `refs/heads/${taskId}`)
+        : git(edge, "ls-remote", "--heads", "origin", taskId),
+      before,
+    );
   });

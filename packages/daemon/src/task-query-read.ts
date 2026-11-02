@@ -106,7 +106,9 @@ export interface AgendaQuery {
   readonly work?: string;
 }
 export interface TaskQueryJudgments {
-  readonly closeout: typeof closeoutReadiness;
+  readonly closeout: (
+    ...args: [...Parameters<typeof closeoutReadiness>, rootDir?: string]
+  ) => ReturnType<typeof closeoutReadiness>;
   readonly blocking: typeof blockingOf;
 }
 export function makeTaskQueryReadModel(input: {
@@ -353,7 +355,7 @@ export function makeTaskQueryReadModel(input: {
           coordinationStatus = task
             ? workspaceTaskStatus({ status: task.status, blockingState: blockingAssessment.state })
             : ("unknown" as const),
-          closeoutAssessment = closeout(snapshot, snapshotAvailability),
+          closeoutAssessment = closeout(snapshot, snapshotAvailability, undefined, undefined, rootDir),
           deliveryStage = taskDeliveryStage({
             status: coordinationStatus,
             snapshot,

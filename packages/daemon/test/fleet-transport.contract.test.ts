@@ -903,3 +903,18 @@ test("Fleet reader credentials retain closed-frame validation", () => {
     assert.throws(() => parseFleetFrame({ ...frame, accessToken }), FleetContractError);
   assert.throws(() => parseFleetFrame({ ...frame, unknownCredential: "no" }), FleetContractError);
 });
+
+test("Fleet delivery holder proof preserves current and explicit execution targets", () => {
+  const frame = {
+    schema: "fleet.repo.metadata.get/v1",
+    messageId: "holder-proof",
+    repoId: "repo",
+    actionKind: "task-submit",
+    taskId: "task-delivery",
+  };
+  assert.deepEqual(parseFleetFrame(serializeFleetFrame(frame)), frame);
+  for (const executionId of [null, "exe-current"])
+    assert.deepEqual(parseFleetFrame(serializeFleetFrame({ ...frame, executionId })), { ...frame, executionId });
+  for (const executionId of [false, 42, {}, [], ""])
+    assert.throws(() => parseFleetFrame({ ...frame, executionId }), FleetContractError);
+});

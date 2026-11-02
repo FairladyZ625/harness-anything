@@ -10,7 +10,7 @@ For repository tasks, use `ha task submit <task-id>` to freeze the current deliv
 
 1. Confirm the submitted commit and PR head match; inspect the full diff and changed-path scope.
 2. Confirm every required check has completed successfully. If no checks are reported, first inspect PR state and whether the workflow could run; missing results are not a pass.
-3. Read independent review findings against the submitted content. Verify them in the diff or behavior, then repair confirmed blockers and republish the new cut. Do not treat approval as proof of the semantic goal.
+3. When the cut required review, read independent review findings against the submitted content. Verify them in the diff or behavior, then repair confirmed blockers and republish the new cut. Do not treat approval as proof of the semantic goal. A review-disabled cut has no reviewer; record the CEO's own functional review instead.
 4. Complete required content-pinned consent through `ha task review-consent` when the task lifecycle calls for it.
 5. Merge only after checks, review, consent, conflict resolution, repository policy, and user authorization are satisfied.
 6. Verify the host reports the intended merge commit. Then complete the task record and, if applicable, its work root through their normal lifecycle.

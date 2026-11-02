@@ -327,8 +327,23 @@ test("decision dispatch-review passes spawn admission and launches once for the 
     assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
     const decisionId = JSON.parse(String(proposed.evidence)).decisionId as string,
       shown = await runDecision({ kind: "decision-show", decisionId, includeBody: true }),
-      digest = JSON.parse(String(shown.evidence)).decision.currentReviewContentDigest as string,
-      receipt = await runDecision({ kind: "decision-dispatch-review", decisionId, runtimeInstanceId: "review-first" });
+      digest = JSON.parse(String(shown.evidence)).decision.currentReviewContentDigest as string;
+    const stale = await runDecision({
+      kind: "decision-dispatch-review",
+      decisionId,
+      expectedDigest: `sha256:${"0".repeat(64)}`,
+      runtimeInstanceId: "review-first",
+    });
+    assert.equal(stale.outcome, "op_rejected", JSON.stringify(stale));
+    assert.equal(stale.code, "version_conflict", JSON.stringify(stale));
+    assert.equal(f.cell().status().state, "attached");
+    assert.equal(f.launches.length, 0, "stale content must not launch a review");
+    const receipt = await runDecision({
+      kind: "decision-dispatch-review",
+      decisionId,
+      expectedDigest: digest,
+      runtimeInstanceId: "review-first",
+    });
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     assert.equal(overGuiWire(receipt).status, "accepted_durable", JSON.stringify(receipt));
     assert.equal(f.launches.length, 1);

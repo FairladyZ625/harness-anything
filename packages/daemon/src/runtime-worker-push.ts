@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { cmdShellInvocation } from "@harness-anything/storage";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 import { repositoryBaseRef } from "./schedule-occurrence-workspace.ts";
+import { assertNoIgnoredLedgerDelivery } from "./ignored-ledger-delivery.ts";
 
 const execFileAsync = promisify(execFile),
   detailLimit = 512,
@@ -33,7 +34,7 @@ export type WorkerPushResult =
       readonly pushedCommit: string | null;
       readonly detail: string;
       /** Set only for rejections with a dedicated remediation path, not for ordinary push failures. */
-      readonly code?: "push_workflow_scope_required" | "remote_ahead_of_frozen_cut";
+      readonly code?: "push_workflow_scope_required" | "remote_ahead_of_frozen_cut" | "ignored_ledger_delivery";
     };
 
 export type WorkerGitIdentity = {
@@ -44,8 +45,10 @@ export type WorkerGitIdentity = {
 /** The thrown error code for a failed push: the dedicated remediation code when one applies. */
 export function workerPushFailureCode(
   pushed: WorkerPushResult,
-): "push_workflow_scope_required" | "delivery_publish_failed" {
-  return pushed.attempted && !pushed.ok && pushed.code === "push_workflow_scope_required"
+): "push_workflow_scope_required" | "ignored_ledger_delivery" | "delivery_publish_failed" {
+  return pushed.attempted &&
+    !pushed.ok &&
+    (pushed.code === "push_workflow_scope_required" || pushed.code === "ignored_ledger_delivery")
     ? pushed.code
     : "delivery_publish_failed";
 }
@@ -185,6 +188,23 @@ export async function pushWorkerBranch(input: {
     env,
   );
   if (mismatch) return { attempted: true, ok: false, branch, head, pushedCommit, detail: mismatch };
+
+  const baseRef = repositoryBaseRef(input.canonicalRoot);
+  if (baseRef)
+    try {
+      await assertNoIgnoredLedgerDelivery(input.cwd, baseRef, pushedCommit);
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ignored_ledger_delivery")) throw error;
+      return {
+        attempted: true,
+        ok: false,
+        branch,
+        head,
+        pushedCommit,
+        code: "ignored_ledger_delivery",
+        detail: error.message,
+      };
+    }
 
   const timeoutMs = input.timeoutMs ?? workerPushTimeoutMs;
   try {
