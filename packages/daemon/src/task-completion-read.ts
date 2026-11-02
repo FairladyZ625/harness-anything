@@ -114,13 +114,8 @@ export function readCompletionDeliveryStatus(
         ? execution.annotations
             ?.filter((entry) => entry.kind === "correction")
             .map((entry) => {
-              const match =
-                /^rebase-equivalent:([0-9a-f]{40})->([0-9a-f]{40}):base=([0-9a-f]{40}):patch-id=([0-9a-f]{40})$/u.exec(
-                  entry.note,
-                );
-              return match === null
-                ? undefined
-                : { frozen: match[1], head: match[2], base: match[3], patchId: match[4] };
+              const match = /^rebase-equivalent:([0-9a-f]{40})->([0-9a-f]{40}):base=([0-9a-f]{40})$/u.exec(entry.note);
+              return match === null ? undefined : { frozen: match[1], head: match[2], base: match[3] };
             })
             .findLast((value) => value !== undefined)
         : undefined,

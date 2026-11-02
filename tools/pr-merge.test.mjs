@@ -191,7 +191,14 @@ function resolveRealGit() {
 // A fake ha always shadows any real one so tests never reach the production daemon.
 function fixture(
   t,
-  { branch = "codex/pr-123", haState = { fail: true }, rejectPull = false, duplicateBlocks = false } = {},
+  {
+    branch = "codex/pr-123",
+    haState = { fail: true },
+    rejectPull = false,
+    duplicateBlocks = false,
+    nearbyContextChange = false,
+    featureContent = "feature\n",
+  } = {},
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "pr-merge-test-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -208,6 +215,8 @@ function fixture(
   git(seed, "config", "user.name", "PR Merge Test");
   git(seed, "config", "user.email", "pr-merge@example.test");
   writeFileSync(path.join(seed, "base.txt"), "base\n");
+  if (nearbyContextChange)
+    writeFileSync(path.join(seed, "shared.txt"), Array.from({ length: 30 }, (_, i) => `line ${i}\n`).join(""));
   if (duplicateBlocks) {
     const block = [
       "// repeated policy block",
@@ -233,8 +242,13 @@ function fixture(
       policy = readFileSync(policyPath, "utf8");
     writeFileSync(policyPath, policy.replace("enabled: false;", "enabled: true;"));
     git(seed, "add", "policy.js");
+  } else if (nearbyContextChange) {
+    const lines = Array.from({ length: 30 }, (_, i) => `line ${i}\n`);
+    lines[10] = "reviewed change\n";
+    writeFileSync(path.join(seed, "shared.txt"), lines.join(""));
+    git(seed, "add", "shared.txt");
   } else {
-    writeFileSync(path.join(seed, "feature.txt"), "feature\n");
+    writeFileSync(path.join(seed, "feature.txt"), featureContent);
     git(seed, "add", "feature.txt");
   }
   git(seed, "commit", "-m", "feature");
@@ -242,6 +256,12 @@ function fixture(
   git(seed, "push", "-u", "origin", branch);
   git(seed, "checkout", "main");
   writeFileSync(path.join(seed, "base.txt"), "base\nupstream\n");
+  if (nearbyContextChange) {
+    const lines = Array.from({ length: 30 }, (_, i) => `line ${i}\n`);
+    lines[12] = "independent main change\n";
+    writeFileSync(path.join(seed, "shared.txt"), lines.join(""));
+    git(seed, "add", "shared.txt");
+  }
   git(seed, "add", "base.txt");
   git(seed, "commit", "-m", "upstream");
   const upstreamHead = git(seed, "rev-parse", "HEAD");
@@ -704,41 +724,44 @@ test("refuses a task PR whose rebased head is not the frozen delivery commit", (
   assert.notEqual(git(setup.main, "ls-remote", "--heads", "origin", `refs/heads/${TASK_BRANCH}`), "");
 });
 
-test("merges a task PR whose rebased head has the same stable patch and records the equivalence", (t) => {
-  const setup = fixture(t, { branch: TASK_BRANCH }),
-    reviewedCommit = setup.headRefOid;
-  git(setup.prWorktree, "fetch", "origin");
-  git(setup.prWorktree, "rebase", "origin/main");
-  const rebasedHead = git(setup.prWorktree, "rev-parse", "HEAD");
-  git(setup.prWorktree, "push", "--force", "origin", TASK_BRANCH);
-  const prState = JSON.parse(readFileSync(setup.statePath, "utf8"));
-  writeFileSync(setup.statePath, JSON.stringify({ ...prState, headRefOid: rebasedHead }));
-  writeFileSync(
-    setup.env.HA_STATE_PATH,
-    JSON.stringify(
-      reviewChainWithDeliveryBlockerHaState({
-        commitSha: reviewedCommit,
-        productionBaseSha: setup.baseSha,
-      }),
-    ),
-  );
+for (const scenario of [
+  { name: "independent main changes", options: {} },
+  { name: "main changes inside patch context", options: { nearbyContextChange: true } },
+  { name: "meaningful trailing whitespace", options: { featureContent: "a markdown hard break  \n" } },
+]) {
+  test(`merges and records an equivalent rebase with ${scenario.name}`, (t) => {
+    const setup = fixture(t, { branch: TASK_BRANCH, ...scenario.options }),
+      reviewedCommit = setup.headRefOid;
+    git(setup.prWorktree, "fetch", "origin");
+    git(setup.prWorktree, "rebase", "origin/main");
+    const rebasedHead = git(setup.prWorktree, "rev-parse", "HEAD");
+    git(setup.prWorktree, "push", "--force", "origin", TASK_BRANCH);
+    const prState = JSON.parse(readFileSync(setup.statePath, "utf8"));
+    writeFileSync(setup.statePath, JSON.stringify({ ...prState, headRefOid: rebasedHead }));
+    writeFileSync(
+      setup.env.HA_STATE_PATH,
+      JSON.stringify(
+        reviewChainWithDeliveryBlockerHaState({
+          commitSha: reviewedCommit,
+          productionBaseSha: setup.baseSha,
+        }),
+      ),
+    );
 
-  const result = run(process.execPath, [helper, "123"], { cwd: setup.main, env: setup.env });
+    const result = run(process.execPath, [helper, "123"], { cwd: setup.main, env: setup.env });
 
-  assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /accepted a rebase-equivalent delivery patch/u);
-  const annotations = readFileSync(setup.annotateLogPath, "utf8").trim().split("\n");
-  assert.equal(annotations.length, 2);
-  assert.match(
-    annotations[0],
-    new RegExp(
-      `rebase-equivalent:${reviewedCommit}->${rebasedHead}:base=${setup.upstreamHead}:patch-id=[0-9a-f]{40}`,
-      "u",
-    ),
-  );
-  assert.match(annotations[1], /merge_commit_sha:b{40}/u);
-  assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "MERGED");
-});
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /accepted a rebase-equivalent delivery patch/u);
+    const annotations = readFileSync(setup.annotateLogPath, "utf8").trim().split("\n");
+    assert.equal(annotations.length, 2);
+    assert.match(
+      annotations[0],
+      new RegExp(`rebase-equivalent:${reviewedCommit}->${rebasedHead}:base=${setup.upstreamHead}`, "u"),
+    );
+    assert.match(annotations[1], /merge_commit_sha:b{40}/u);
+    assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "MERGED");
+  });
+}
 
 test("refuses a rebased task PR when whitespace changes reviewed content", (t) => {
   const setup = fixture(t, { branch: TASK_BRANCH }),

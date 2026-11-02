@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { localGitObjectRefStore, localGitText } from "@harness-anything/storage";
@@ -32,13 +32,18 @@ export function rebaseEquivalentDelivery(
     patchPath = path.join(temporaryRoot, "frozen.patch"),
     indexPath = path.join(temporaryRoot, "index");
   try {
-    const patch = runProcessText(
-      "git",
-      ["diff", "--no-ext-diff", "--no-renames", "--binary", frozenBase, frozenCommit, "--"],
+    // Git writes the binary patch directly, without a stdout cap or text normalization.
+    localGitText(
       rootDir,
+      "diff",
+      "--no-ext-diff",
+      "--no-renames",
+      "--binary",
+      `--output=${patchPath}`,
+      frozenBase,
+      frozenCommit,
+      "--",
     );
-    if (!patch) return false;
-    writeFileSync(patchPath, patch);
     // The index is disposable, but GIT_INDEX_FILE is process-scoped. These synchronous calls
     // run without an event-loop yield, so no other operation can observe the temporary index.
     const previousIndex = process.env.GIT_INDEX_FILE;

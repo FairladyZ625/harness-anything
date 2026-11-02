@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -53,23 +53,6 @@ function quoteWindowsArgument(value) {
 
 function output(command, args, options) {
   return run(command, args, options).stdout.trim();
-}
-
-function outputWithInput(command, args, input, { cwd } = {}) {
-  const result = spawnSync(command, args, {
-    cwd,
-    input,
-    encoding: "utf8",
-    stdio: ["pipe", "pipe", "pipe"],
-    maxBuffer: 256 * 1024 * 1024,
-    windowsHide: true,
-  });
-  if (result.error) throw new Error(`${command} failed to launch: ${result.error.message}`);
-  if (result.status !== 0) {
-    const detail = (result.stderr || result.stdout).trim();
-    throw new Error(`${command} ${args.join(" ")} failed${detail ? `: ${detail}` : ""}`);
-  }
-  return result.stdout.trim();
 }
 
 function parseWorktrees(root) {
@@ -249,28 +232,19 @@ function currentTaskCuts(taskId, evidence) {
   }
 }
 
-function patchId(root, base, commit) {
-  const patch = output("git", ["diff", "--no-ext-diff", "--no-renames", "--binary", base, commit, "--"], {
-    cwd: root,
-  });
-  if (!patch) return null;
-  const result = outputWithInput("git", ["patch-id", "--stable"], patch, { cwd: root });
-  return result.length === 0 ? null : result.split(/\s+/u, 1)[0];
-}
-
-// Stable patch-id ignores whitespace and hunk location. Replay the frozen patch onto the new
-// base and compare its complete tree with the PR head so duplicate code blocks cannot alias.
+// Replay the exact frozen patch onto the new base and compare the complete head tree.
+// Git writes the patch directly so output helpers cannot alter its size or trailing content.
 function replayEquivalentPatch(root, frozenBase, frozenCommit, rebasedBase, rebasedHead) {
   const temporaryRoot = mkdtempSync(path.join(tmpdir(), "pr-merge-rebase-equivalence-")),
     patchPath = path.join(temporaryRoot, "frozen.patch"),
     indexPath = path.join(temporaryRoot, "index"),
     env = { GIT_INDEX_FILE: indexPath };
   try {
-    const patch = output("git", ["diff", "--no-ext-diff", "--no-renames", "--binary", frozenBase, frozenCommit, "--"], {
-      cwd: root,
-    });
-    if (!patch) return false;
-    writeFileSync(patchPath, `${patch}\n`);
+    run(
+      "git",
+      ["diff", "--no-ext-diff", "--no-renames", "--binary", `--output=${patchPath}`, frozenBase, frozenCommit, "--"],
+      { cwd: root },
+    );
     run("git", ["-C", root, "read-tree", rebasedBase], { env });
     run("git", ["-C", root, "apply", "--cached", "--3way", patchPath], { env });
     const replayedTree = run("git", ["-C", root, "write-tree"], { env }).stdout.trim(),
@@ -286,9 +260,9 @@ function replayEquivalentPatch(root, frozenBase, frozenCommit, rebasedBase, reba
 // `gh pr merge --merge` makes the PR head the merge commit's second parent, so completion's
 // deliveryContainment() proves the submitted delivery from that ancestry only when the head *is*
 // the frozen delivery commit. A rebase changes the commit identity without necessarily changing
-// the reviewed patch. Compare the two stable patch ids at this same gate: equal patches may carry
-// the existing review and consent forward, while conflict resolution that changes the patch still
-// takes the existing re-freeze path.
+// the reviewed change. Replaying the frozen patch must produce the complete new head tree;
+// context changes may alter patch-id without altering the reviewed change. Content differences
+// still take the existing re-freeze path.
 function equivalentRebasedCut(cut, pr, root) {
   const frozen = cut?.submission?.commitSha,
     base = cut?.submission?.productionDelta?.baseSha;
@@ -314,17 +288,10 @@ function equivalentRebasedCut(cut, pr, root) {
       { cwd: root },
     );
     const rebasedBase = output("git", ["merge-base", `refs/remotes/${REMOTE}/${MAIN_BRANCH}`, pr.headRefOid], {
-        cwd: root,
-      }),
-      reviewedPatchId = patchId(root, base, frozen),
-      rebasedPatchId = patchId(root, rebasedBase, pr.headRefOid);
-    if (
-      reviewedPatchId === null ||
-      reviewedPatchId !== rebasedPatchId ||
-      !replayEquivalentPatch(root, base, frozen, rebasedBase, pr.headRefOid)
-    )
-      return null;
-    return { frozen, head: pr.headRefOid, base: rebasedBase, patchId: reviewedPatchId };
+      cwd: root,
+    });
+    if (!replayEquivalentPatch(root, base, frozen, rebasedBase, pr.headRefOid)) return null;
+    return { frozen, head: pr.headRefOid, base: rebasedBase };
   } catch {
     // Missing objects or an unavailable remote cannot prove equivalence; keep the merge fail closed.
     return null;
@@ -441,7 +408,7 @@ function recordMergeCommitAnnotation(pr, merged, root, preMergeEvidence) {
   if (cuts.length !== 1) throw new Error(`Task ${taskId} has no unique current execution after merge.`);
   const equivalent = evidence.rebaseEquivalent;
   if (equivalent !== undefined) {
-    const equivalenceNote = `rebase-equivalent:${equivalent.frozen}->${equivalent.head}:base=${equivalent.base}:patch-id=${equivalent.patchId}`;
+    const equivalenceNote = `rebase-equivalent:${equivalent.frozen}->${equivalent.head}:base=${equivalent.base}`;
     if (!cuts[0].annotations?.some((entry) => entry.note === equivalenceNote))
       output(
         "ha",
