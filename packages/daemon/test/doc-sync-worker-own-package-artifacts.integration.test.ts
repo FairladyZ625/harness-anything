@@ -7,6 +7,8 @@ import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
 import { type TaskProjection } from "@harness-anything/kernel";
 import { runDocAction } from "../src/doc-sync-actions.ts";
+import { scannerRead, scannerSubmit } from "../src/doc-sync-adjudication.ts";
+import { runtimeExecutionActor } from "../src/runtime-execution-credential.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
@@ -83,6 +85,141 @@ async function ownPackageFixture(label: string) {
     cell,
   };
 }
+
+test("runtime doc sync writes a granted non-task surface with the execution lease", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-sync-runtime-surface-"));
+  type TestEvent = {
+    readonly opId: string;
+    readonly workspaceRevision: number;
+    readonly payload: {
+      readonly executionId: string | null;
+      readonly changes: readonly {
+        readonly path: string;
+        readonly baseBlobSha256: string | null;
+        readonly policyId: string;
+        readonly candidate: { readonly sha256: string; readonly size: number; readonly mediaType: string } | null;
+      }[];
+    };
+  };
+  let revision = 1,
+    submittedEvent: TestEvent | null = null,
+    submittedBody = "",
+    projectedDocument: { readonly path: string; readonly blobSha256: string } | null = null;
+  const authoredPath = "skills/test-isolation/SKILL.md",
+    repoId = workspaceId("doc-sync-runtime-surface"),
+    taskId = "task-doc-sync-runtime-surface",
+    executionId = "execution-doc-sync-runtime-surface",
+    runtimeSessionId = "runtime-doc-sync-surface",
+    principal = {
+      personId: "owner",
+      repoId,
+      runtimeSessionId,
+      dispatchId: "dispatch-doc-sync-runtime-surface",
+      taskId,
+      executionId,
+      role: "implementation" as const,
+      surfaces: ["harness/skills/test-isolation/**"],
+      source: "local" as const,
+      expiresAt: "2026-11-03T01:00:00.000Z",
+    },
+    actor = runtimeExecutionActor(principal),
+    lease = {
+      schema: "lease/v1" as const,
+      taskId,
+      executionId,
+      actor,
+      source: "local" as const,
+      phase: "held" as const,
+      expiresAt: "2026-11-03T01:00:00.000Z",
+      version: 1,
+    },
+    headDigest = `sha256:${"a".repeat(64)}`,
+    cut = () => ({ repoId, revision, headDigest }),
+    store = {
+      currentCut: cut,
+      readHead: () => ({ revision }),
+      ledgerMetadata: () => ({ generation: 1 }),
+      readEvent: (opId: string) => (submittedEvent?.opId === opId ? submittedEvent : null),
+      append: (value: unknown) => {
+        const commit = value as {
+          readonly event: TestEvent;
+          readonly blobs: readonly { readonly body: string | Uint8Array }[];
+        };
+        submittedEvent = commit.event;
+        submittedBody =
+          typeof commit.blobs[0]?.body === "string"
+            ? commit.blobs[0].body
+            : Buffer.from(commit.blobs[0]?.body ?? new Uint8Array()).toString("utf8");
+        revision = commit.event.workspaceRevision;
+      },
+      publication: () => ({ commitSha: null }),
+    } as never,
+    projection = {
+      taskIdForDocumentPath: () => null,
+      currentLeaseForExecution: (candidate: string) => (candidate === executionId ? lease : null),
+      readRuntimeSession: (candidate: string) =>
+        candidate === runtimeSessionId
+          ? {
+              schema: "runtime-session/v1",
+              runtimeSessionId,
+              taskBindings: [{ taskId, executionId }],
+            }
+          : null,
+      readDocument: () => ({
+        document: projectedDocument,
+        sourceRevision: revision,
+        watermark: revision,
+        status: "ready" as const,
+      }),
+      readTaskStatuses: () => ({ rows: [] }),
+      readOperation: () => null,
+      apply: (event: TestEvent) => {
+        const change = event.payload.changes[0];
+        projectedDocument =
+          change?.candidate === null || change?.candidate === undefined
+            ? null
+            : { path: change.path, blobSha256: change.candidate.sha256 };
+        revision = event.workspaceRevision;
+      },
+    } as unknown as TaskProjection,
+    input = {
+      action: { kind: "doc-dry-run", paths: [authoredPath] },
+      binding: { ...holder, actor, executionPrincipal: principal },
+      rootDir,
+      workspaceId: repoId,
+      store,
+      projection,
+      now: () => "2026-11-03T00:00:00.000Z",
+    };
+  try {
+    initRepo(rootDir);
+    mkdirSync(path.join(rootDir, "harness"), { recursive: true });
+    initRepo(path.join(rootDir, "harness"));
+    const target = path.join(rootDir, "harness", authoredPath);
+    mkdirSync(path.dirname(target), { recursive: true });
+    writeFileSync(target, "# Granted surface\n\nWorker update.\n");
+
+    const dryRun = scannerRead(input),
+      submit = scannerSubmit({ ...input, action: { kind: "doc-submit", paths: [authoredPath] } });
+    assert.equal(dryRun.rows[0]?.state, "eligible", JSON.stringify(dryRun.rows[0]));
+    assert.equal(dryRun.executionId, executionId);
+    assert.equal(dryRun.lease?.taskId, taskId);
+    assert.equal(submit.rows[0]?.state, "eligible", JSON.stringify(submit.rows[0]));
+    assert.equal(submit.executionId, executionId);
+    assert.equal(submit.lease?.taskId, taskId);
+
+    const receipt = await runDocAction({
+      ...input,
+      action: { kind: "doc-submit", paths: [authoredPath] },
+      binding: { ...input.binding, authorizationDecision: { outcome: "allowed" } as never },
+    });
+    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    assert.equal(submittedEvent?.payload.executionId, executionId);
+    assert.equal(submittedBody, "# Granted surface\n\nWorker update.\n");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
 
 test("a worker materializes an owner-declared non-task document surface", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-own-package-surface-"));

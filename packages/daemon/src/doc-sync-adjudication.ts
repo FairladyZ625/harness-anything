@@ -190,6 +190,7 @@ export function scannerRead(input: Input): DocCandidateScan {
       : !Array.isArray(input.action.paths) || input.action.paths.some((item) => typeof item !== "string"))
   )
     throw docSyncError("invalid_command", `${input.action.kind} requires authored-root-relative paths or a task id`);
+  const executionId = docScanExecutionId(input);
   const scan = scanDocCandidates({
     rootDir: input.rootDir,
     workspaceId: input.workspaceId,
@@ -200,6 +201,7 @@ export function scannerRead(input: Input): DocCandidateScan {
     now: input.now(),
     ...(!taskScoped ? { selection: input.action.paths as string[] } : {}),
     ...(typeof input.action.taskId === "string" ? { taskId: input.action.taskId } : {}),
+    ...(executionId === null ? {} : { executionId }),
   });
   if (!taskScoped) validateSelectedDocPaths(input.action.paths as string[], scan);
   return scan;
@@ -223,6 +225,7 @@ export function scannerSubmit(input: Input): DocCandidateScan {
     (Object.hasOwn(input.action, "all") && input.action.all !== true)
   )
     throw docSyncError("invalid_command", "local doc submit requires scanner paths or a task id");
+  const executionId = docScanExecutionId(input);
   const scan = scanDocCandidates({
     rootDir: input.rootDir,
     workspaceId: input.workspaceId,
@@ -233,9 +236,15 @@ export function scannerSubmit(input: Input): DocCandidateScan {
     now: input.now(),
     ...(!taskScoped ? { selection: input.action.paths as string[] } : {}),
     ...(typeof input.action.taskId === "string" ? { taskId: input.action.taskId } : {}),
-    ...(typeof input.action.executionId === "string" ? { executionId: input.action.executionId } : {}),
+    ...(executionId === null ? {} : { executionId }),
     ...(input.authoredCandidateInventory ? { inventory: input.authoredCandidateInventory } : {}),
   });
   if (!taskScoped) validateSelectedDocPaths(input.action.paths as string[], scan);
   return scan;
+}
+
+function docScanExecutionId(input: Input): string | null {
+  if (typeof input.action.executionId === "string") return input.action.executionId;
+  const principal = input.binding.executionPrincipal;
+  return principal?.role === "implementation" && principal.taskId !== null ? principal.executionId : null;
 }
