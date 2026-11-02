@@ -13,8 +13,10 @@ import {
 } from "../src/runtime-execution-credential.ts";
 import {
   requireCurrentExecutionScope,
+  requireExecutionDocumentSelection,
   requireExecutionRequestScope,
   requireExecutionActionScope,
+  taskExecutionSurfaces,
 } from "../src/runtime-execution-scope.ts";
 import {
   actionForDaemonMethod,
@@ -192,7 +194,7 @@ test("unbound session credentials preserve the person, repository and live dispa
 
 test("independent Keycloak client authenticates only its secret, expiry, and current enabled state", async () => {
   const realm = fakeKeycloak(),
-    p = principal(),
+    p = { ...principal(), surfaces: ["harness/skills/test-isolation/**"] },
     credential = await issueRuntimeExecutionCredential(center, p, realm.fetch);
   assert.deepEqual(await authenticateRuntimeExecutionCredential(center, credential, realm.fetch), p);
   await assert.rejects(
@@ -371,6 +373,93 @@ test("a task-bound worker may select its own package paths for doc submit", () =
   assert.throws(() => requireExecutionActionScope(p, { kind: "doc-submit", taskId: "task-other" }), {
     code: "execution_credential_rejected",
   });
+});
+
+test("CEO-declared document surfaces admit only named materialize paths and cannot be self-amended", () => {
+  const p = { ...principal(), surfaces: ["harness/skills/test-isolation/**"] };
+  assert.doesNotThrow(() =>
+    requireExecutionActionScope(p, {
+      kind: "doc-materialize",
+      paths: ["harness/skills/test-isolation/dispatch-isolated-test.mjs"],
+    }),
+  );
+  assert.doesNotThrow(() =>
+    requireExecutionActionScope(p, {
+      kind: "doc-submit",
+      paths: ["harness/skills/test-isolation/dispatch-isolated-test.mjs"],
+    }),
+  );
+  const resolve = (value: string) => ({ path: value.replace(/^harness\//u, ""), taskId: null });
+  assert.throws(
+    () =>
+      requireExecutionDocumentSelection(
+        { ...p, surfaces: ["harness/skills/test-isolation/"] },
+        ["harness/skills/test-isolation/dispatch-isolated-test.mjs"],
+        resolve,
+      ),
+    /invalid document path segment/u,
+  );
+  assert.doesNotThrow(() =>
+    requireExecutionDocumentSelection(p, ["harness/skills/test-isolation/dispatch-isolated-test.mjs"], (value) => ({
+      path: value.replace(/^harness\//u, ""),
+      taskId: null,
+    })),
+  );
+  assert.throws(
+    () =>
+      requireExecutionDocumentSelection(p, ["harness/skills/gui-e2e/SKILL.md"], (value) => ({
+        path: value.replace(/^harness\//u, ""),
+        taskId: null,
+      })),
+    { code: "execution_credential_rejected" },
+  );
+  assert.throws(
+    () =>
+      requireExecutionDocumentSelection(p, ["harness/tasks/task-other-plan/task_plan.md"], () => ({
+        path: "tasks/task-other-plan/task_plan.md",
+        taskId: "task-other",
+      })),
+    { code: "execution_credential_rejected" },
+  );
+  assert.throws(
+    () =>
+      requireExecutionDocumentSelection(
+        { ...p, surfaces: ["harness/tasks/**"] },
+        ["harness/tasks/task-not-in-projection/task_plan.md"],
+        (value) => ({ path: value.replace(/^harness\//u, ""), taskId: null }),
+      ),
+    { code: "execution_credential_rejected" },
+  );
+  assert.throws(() => requireExecutionActionScope(p, { kind: "doc-materialize", paths: [], all: true }), {
+    code: "execution_credential_rejected",
+  });
+  assert.throws(
+    () =>
+      requireExecutionDocumentSelection(
+        principal(),
+        ["harness/skills/test-isolation/dispatch-isolated-test.mjs"],
+        resolve,
+      ),
+    { code: "execution_credential_rejected" },
+  );
+  assert.throws(
+    () =>
+      requireExecutionActionScope(p, {
+        kind: "task-amend",
+        taskId: p.taskId,
+        patches: [{ field: "surfaces", value: "[]" }],
+      }),
+    { code: "execution_credential_rejected" },
+  );
+});
+
+test("only implementation credentials inherit task-declared surfaces", () => {
+  const task = {
+    metadata: { surfaces: ["harness/skills/test-isolation/**"] },
+  } as never;
+  assert.deepEqual(taskExecutionSurfaces(task, "implementation"), ["harness/skills/test-isolation/**"]);
+  assert.deepEqual(taskExecutionSurfaces(task, "reviewer"), []);
+  assert.deepEqual(taskExecutionSurfaces(task, "read-only"), []);
 });
 
 test("task identity may request its own task scope but cannot decide or administer permissions", () => {

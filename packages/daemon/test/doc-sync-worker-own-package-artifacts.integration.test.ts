@@ -84,6 +84,52 @@ async function ownPackageFixture(label: string) {
   };
 }
 
+test("a worker materializes an owner-declared non-task document surface", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-own-package-surface-"));
+  initRepo(rootDir);
+  const selected: { paths?: readonly string[] } = {};
+  const input = (surfaces: readonly string[]) => ({
+    action: { kind: "doc-materialize", paths: ["harness/skills/test-isolation/dispatch-isolated-test.mjs"] },
+    binding: {
+      ...holder,
+      executionPrincipal: {
+        personId: "owner",
+        repoId: workspaceId("own-package-surface"),
+        runtimeSessionId: "runtime-own-package-surface",
+        dispatchId: "dispatch-own-package-surface",
+        taskId: "task-own-package-surface",
+        executionId: "execution-own-package-surface",
+        role: "implementation" as const,
+        surfaces,
+        source: "local" as const,
+        expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+      },
+    },
+    workspaceId: workspaceId("own-package-surface"),
+    rootDir,
+    store: {
+      materialize: (options?: { readonly paths?: readonly string[] }) => {
+        selected.paths = options?.paths;
+        return { commitSha: { sha: "surface-materialize" }, settlements: [], conflicts: [] };
+      },
+      readHead: () => ({ revision: 4 }),
+      followerStatus: () => ({ worktree: { status: "verified" } }),
+      currentCut: () => "surface-materialize",
+    } as never,
+    projection: { taskIdForDocumentPath: () => null } as unknown as TaskProjection,
+    now: () => new Date().toISOString(),
+  });
+  try {
+    const receipt = await runDocAction(input(["harness/skills/test-isolation/**"]));
+
+    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    assert.deepEqual(selected.paths, ["harness/skills/test-isolation/dispatch-isolated-test.mjs"]);
+    assert.throws(() => runDocAction(input([])), { code: "execution_credential_rejected" });
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("doc sync carries a worker's atomic replacement of an existing own-package artifact", async () => {
   const fixture = await ownPackageFixture("sync"),
     body = "# Worker artifact v2\n\nrewritten in the worktree\n";
@@ -166,6 +212,7 @@ test("a worker's path selection that leaves its task package stays a cross-task 
               taskId: "task-own-package-foreign",
               executionId: "execution-own-package-foreign",
               role: "implementation",
+              surfaces: ["harness/tasks/**"],
               source: "local",
               expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
             },
@@ -176,6 +223,35 @@ test("a worker's path selection that leaves its task package stays a cross-task 
           projection: {
             taskIdForDocumentPath: (value: string) =>
               value.startsWith("tasks/task-own-package-foreign") ? "task-own-package-foreign" : null,
+          } as unknown as TaskProjection,
+          now: () => new Date().toISOString(),
+        }),
+      { code: "execution_credential_rejected" },
+    );
+    await assert.rejects(
+      async () =>
+        runDocAction({
+          action: { kind: "doc-materialize", paths: ["harness/tasks/task-someone-else-artifacts/artifacts/report.md"] },
+          binding: {
+            ...holder,
+            executionPrincipal: {
+              personId: "owner",
+              repoId: workspaceId("own-package-foreign"),
+              runtimeSessionId: "runtime-own-package-foreign",
+              dispatchId: "dispatch-own-package-foreign",
+              taskId: "task-own-package-foreign",
+              executionId: "execution-own-package-foreign",
+              role: "implementation",
+              surfaces: ["harness/tasks/**"],
+              source: "local",
+              expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+            },
+          },
+          workspaceId: workspaceId("own-package-foreign"),
+          rootDir,
+          store: {} as never,
+          projection: {
+            taskIdForDocumentPath: () => null,
           } as unknown as TaskProjection,
           now: () => new Date().toISOString(),
         }),

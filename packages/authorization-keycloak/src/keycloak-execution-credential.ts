@@ -118,6 +118,8 @@ function validPrincipal(value: unknown): value is RuntimeExecutionPrincipal {
         typeof p.executionId === "string" &&
         /^[A-Za-z0-9][A-Za-z0-9._:-]*$/u.test(p.executionId)) &&
     (p.reviewTaskId === undefined || typeof p.reviewTaskId === "string") &&
+    (p.surfaces === undefined ||
+      (Array.isArray(p.surfaces) && p.surfaces.every((surface) => typeof surface === "string"))) &&
     typeof p.expiresAt === "string" &&
     Date.parse(p.expiresAt) <= Date.now() + runtimeExecutionLifetimeMs
   );

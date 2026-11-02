@@ -1,11 +1,13 @@
 import path from "node:path";
 import {
   stableStringify,
+  documentPath,
   isSameExecution,
   submissionDigest,
   runtimeSessionActionIds,
   type TaskLifecycleSnapshot,
   type TaskProjection,
+  type TaskV2,
 } from "@harness-anything/kernel";
 import { actionForDaemonMethod } from "./protocol/daemon-protocol.contract.ts";
 import { commandClassForAction } from "./protocol/daemon-protocol-commands.ts";
@@ -99,13 +101,28 @@ export function requireExecutionActionScope(p: RuntimeExecutionPrincipal, action
     });
   if (selfApprovalActions.has(action.kind) || commandClass === "arbiter" || commandClass === "admin")
     throw executionCredentialRejected("self-approval");
+  if (
+    p.role === "implementation" &&
+    action.kind === "task-amend" &&
+    Array.isArray(action.patches) &&
+    action.patches.some(
+      (patch) =>
+        patch !== null && typeof patch === "object" && (patch as { readonly field?: unknown }).field === "surfaces",
+    )
+  )
+    throw executionCredentialRejected("self-approval");
   // A session is authenticated as its spawning person, not granted a task lease. The normal
   // repository authorization path still decides every action against that person's current RBAC.
   if (p.role === "session" && commandClass === "repo-write") return;
+  if (action.kind === "doc-materialize") {
+    const paths = selectedDocPaths(action);
+    // Both path spelling and task ownership need the repository layout in the writer turn.
+    if (p.role === "implementation" && paths !== null) return;
+    throw executionCredentialRejected("write-other-task");
+  }
   // A path-selected doc submit names its task on the documents, not in the action envelope, and this
-  // entry turn holds no projection to resolve an owner. It is admitted here and the owner is proved
-  // where the projection exists: runDocAction refuses any path outside the execution's task, so a
-  // cross-task path still ends in execution_credential_rejected.
+  // entry turn holds no projection to resolve an owner. It is admitted here and the owner or declared
+  // non-task surface is proved where the projection exists, before the scanner sees the selection.
   if (p.role === "implementation" && action.kind === "doc-submit" && selectedDocPaths(action) !== null) return;
   if (repositoryWriteActions.has(action.kind) || (commandClass === "repo-write" && action.taskId === undefined))
     throw executionCredentialRejected("write-other-task");
@@ -141,11 +158,43 @@ export function isCurrentSubmittedWorkerWrite(input: {
 }
 
 /** Non-empty explicit path selection; a scopeless `--all` sweep is not a path selection. */
-function selectedDocPaths(action: RepoTaskAction): readonly string[] | null {
-  const paths = (action as { readonly paths?: unknown }).paths;
+export function selectedDocPaths(action: RepoTaskAction): readonly string[] | null {
+  const paths = Array.isArray(action.changes)
+    ? action.changes.map((change) => (isJsonObject(change) ? change.path : null))
+    : action.paths;
   return Array.isArray(paths) && paths.length > 0 && paths.every((value) => typeof value === "string")
     ? (paths as readonly string[])
     : null;
+}
+
+/** One owner-approved path grant, copied from Task metadata only for implementation credentials. */
+export function taskExecutionSurfaces(task: TaskV2 | null, role: RuntimeExecutionPrincipal["role"]): readonly string[] {
+  return role === "implementation" ? (task?.metadata?.surfaces ?? []) : [];
+}
+
+/** Task package ownership still wins; declared surfaces only admit non-task authored documents. */
+export function requireExecutionDocumentSelection(
+  principal: RuntimeExecutionPrincipal,
+  paths: readonly unknown[],
+  resolve: (path: string) => { readonly path: string; readonly taskId: string | null },
+): void {
+  if (principal.role !== "implementation" || principal.taskId === null) return;
+  const surfaces = (principal.surfaces ?? []).map((surface) => {
+    const directory = surface.endsWith("/**"),
+      base = directory ? surface.slice(0, -3) : surface;
+    return { path: documentPath(resolve(base).path), directory };
+  });
+  for (const candidate of paths) {
+    if (typeof candidate !== "string") throw executionCredentialRejected("write-other-task");
+    const target = resolve(candidate);
+    const targetPath = documentPath(target.path),
+      taskPackagePath = targetPath === "tasks" || targetPath.startsWith("tasks/"),
+      granted = surfaces.some((surface) =>
+        surface.directory ? targetPath.startsWith(`${surface.path}/`) : targetPath === surface.path,
+      );
+    if (target.taskId !== principal.taskId && (target.taskId !== null || taskPackagePath || !granted))
+      throw executionCredentialRejected("write-other-task");
+  }
 }
 
 /** Rechecked in the current writer turn; the credential never grants a second execution lease. */

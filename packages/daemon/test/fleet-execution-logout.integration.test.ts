@@ -10,7 +10,7 @@ import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { startDaemon } from "../src/runtime.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
-import { runFleetTaskCommandClient, runFleetRuntimeEventClient } from "../src/fleet/peer.ts";
+import { runFleetTaskCommandClient, runFleetRuntimeEventClient, runFleetWriteClient } from "../src/fleet/peer.ts";
 import { IdentitySessionPort, keycloakSessionStore, signInAt } from "./keycloak.fixtures.ts";
 import { fleetFixture, git, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
@@ -28,11 +28,35 @@ test(
     let cleanup = async () => {};
     t.after(() => cleanup());
     const live = new Set<string>();
-    const f = await fleetFixture(t, ["tasks/task-fleet-fleet"], [], "local", undefined, [
-      { instanceId: "edge-worker", enabled: true },
-    ]);
+    const f = await fleetFixture(
+      t,
+      ["tasks/task-fleet-fleet"],
+      [],
+      "local",
+      undefined,
+      [{ instanceId: "edge-worker", enabled: true }],
+      false,
+    );
     const loginAuthorityUrl = "https://keycloak.fixture:443",
       loginIssuer = `${loginAuthorityUrl}/realms/harness`;
+    const amendedSurfaces = await f.host.run(
+      f.subject.repoId,
+      {
+        kind: "task-amend",
+        taskId: f.subject.taskId,
+        patches: [{ field: "surfaces", value: '["harness/skills/test-isolation/**"]' }],
+      },
+      localAuthFixture(),
+    );
+    assert.equal(amendedSurfaces.outcome, "applied", JSON.stringify(amendedSurfaces));
+    await waitForFleetPublication(f.host, f.subject.repoId, amendedSurfaces.opId, localAuthFixture());
+    const startedTask = await f.host.run(
+      f.subject.repoId,
+      { kind: "task-start", taskId: f.subject.taskId, executionId: f.subject.executionId },
+      f.auth,
+    );
+    assert.equal(startedTask.outcome, "applied", JSON.stringify(startedTask));
+    await waitForFleetPublication(f.host, f.subject.repoId, startedTask.opId, f.auth);
     const centerConfigPath = path.join(f.root, "user/rbac/config.json");
     writeFileSync(
       centerConfigPath,
@@ -256,6 +280,22 @@ test(
       "person-owner",
       JSON.stringify(readDispatchStream(edgeRoot, String(spawned.dispatchId))?.records),
     );
+    assert.deepEqual(readRuntimeExecutionPrincipal(edgeRoot, env.HARNESS_EXECUTION_CREDENTIAL)?.surfaces, [
+      "harness/skills/test-isolation/**",
+    ]);
+    const submitSurface = (target: string) =>
+      runFleetWriteClient({
+        ...peer,
+        executionCredential: env.HARNESS_EXECUTION_CREDENTIAL,
+        changes: [{ path: target, body: Buffer.from("# Worker surface\n"), baseBlobSha256: null }],
+      });
+    const writtenSurface = await submitSurface("skills/test-isolation/worker-surface.md");
+    assert.equal(writtenSurface.center.outcome, "applied", JSON.stringify(writtenSurface.center));
+    assert.equal(
+      readFileSync(path.join(f.repo, "harness/skills/test-isolation/worker-surface.md"), "utf8"),
+      "# Worker surface\n",
+    );
+    await assert.rejects(submitSurface("skills/gui-e2e/ungranted.md"), { code: "execution_credential_rejected" });
     const executionPrincipalRecord = readDispatchStream(edgeRoot, String(spawned.dispatchId))?.records.find(
       (record) => record.kind === "execution_principal",
     );
