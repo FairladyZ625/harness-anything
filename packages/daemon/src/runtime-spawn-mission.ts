@@ -585,6 +585,13 @@ export function selfIterationCloseoutSection(
   ].join("\n");
 }
 
+/**
+ * The write boundary every implementation mission states in prose: the dispatched checkout is the
+ * only writable tree, and canonical main stays readable as a comparison source. It is context, not
+ * an enforcement mechanism — the reviewer binding below already omits worker delivery contracts.
+ */
+const workerWorktreeBoundary = "# 写入边界\n只写自己的 worktree，不改主分支；主分支现有环境可读，可用于对比。";
+
 /** Dynamic sections follow the dispatch action: review, delivery, or rework.
  * reviewerBinding is the spawner's existing review judgment; workers owe the delivery contracts. */
 export function taskMissionSections(
@@ -604,6 +611,7 @@ export function taskMissionSections(
   return [
     taskQueryGuidance(taskId),
     unattendedRulingContract,
+    ...(reviewerBinding ? [] : [workerWorktreeBoundary]),
     ...(reviewerBinding || reviewerNote === null ? [] : [reviewerNote]),
     ...(living === null ? [] : [living]),
     ...(reviewerBinding ? [] : [taskPrPublicationNote]),
