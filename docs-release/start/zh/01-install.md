@@ -16,7 +16,9 @@ npm install --global @harness-anything/cli@0.1.0 @harness-anything/daemon@0.1.0
 ha init
 ```
 
-发布前继续使用源码 checkout 路径：[源码安装技能](../../../skills/harness-download/SKILL.md) 会一次构建 CLI、daemon 与 GUI，并把构建后的 `ha` 放进当前 shell 的 PATH；需要长期 PATH 或 `npm link` 时先向你展示提案并取得同意。
+npm 通道是终端-only：不包含桌面 GUI，`ha gui` 会提示安装桌面 App 或可选的 GUI 包。需要桌面界面时，从 [GitHub Releases](https://github.com/FairladyZ625/harness-anything/releases) 安装桌面 App（内含 `ha`），或把 `@harness-anything/gui` 装进同一个 npm 前缀。
+
+发布前继续使用源码 checkout 路径：[源码安装技能](../../../skills/harness-download/SKILL.md) 会一次构建 CLI、daemon 与 GUI，把构建后的 `ha` 链接到用户自己的 npm 前缀（默认 `~/.local/share/harness-anything-npm`），并打印 `ha` 的绝对路径与可选的 `export PATH=...` 行。安装器不会改写你的 shell 启动文件；新终端里直接使用打印的绝对路径即可，长期使用 `ha` 时再自行把该前缀加入 PATH。
 
 ## 安装桌面 App
 

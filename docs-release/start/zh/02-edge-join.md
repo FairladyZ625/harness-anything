@@ -103,7 +103,8 @@ curl -fsSL https://raw.githubusercontent.com/FairladyZ625/harness-anything/main/
 
 安装器把源码保存在 `~/.local/share/harness-anything`，执行 `npm ci`（依赖未变时跳过），下载或校验 Electron 运行时，
 构建 daemon、CLI 与 Electron GUI，并把 `ha` 入口 link 到用户自己的 npm 前缀（`~/.local/share/harness-anything-npm`），
-不改 npm 的宿主全局前缀；结束时打印可直接使用的 `export PATH=...`。Linux 会设置 Electron 所需的 `chrome-sandbox`
+不改 npm 的宿主全局前缀；结束时打印 `ha` 的绝对路径、可直接运行的命令，以及可选的 `export PATH=...` 行。
+安装器不改写 shell 启动文件。Linux 会设置 Electron 所需的 `chrome-sandbox`
 属主与 setuid 权限（必要时使用 `sudo`）。
 
 ### 升级与无外网中心
@@ -128,10 +129,10 @@ bash ~/.local/share/harness-anything/scripts/install-source.sh --offline
 不带参数时仍要求 pull 成功，拉取失败即退出，避免把未知源码当成新版本构建。首次安装需要现有 checkout，
 没有时 `--offline` 会直接报错而不是猜测目录。
 
-受邀成员运行：
+受邀成员在新终端里直接运行安装器打印的 `ha` 绝对路径（默认前缀下是 `~/.local/share/harness-anything-npm/bin/ha`）：
 
 ```bash
-ha edge join '<邀请链接>' [--root <目录>] [--quota-bytes <字节数>]
+~/.local/share/harness-anything-npm/bin/ha edge join '<邀请链接>' [--root <目录>] [--quota-bytes <字节数>]
 ```
 
 命令会完成设备登录，消费邀请，并完成每个所选仓库的首次同步。机器凭据只写入本机边缘配置；加入回执与状态查询不返回凭据。如果所选仓库或权限组快照已改变，
@@ -143,5 +144,5 @@ ha edge join '<邀请链接>' [--root <目录>] [--quota-bytes <字节数>]
 ha daemon fleet edge sync --quota-bytes <字节数>
 ```
 
-Wayland 会话启动 GUI 时使用 `ELECTRON_OZONE_PLATFORM_HINT=auto ha gui`。加入后可运行
+把安装器打印的 npm 前缀加入 PATH 后，Wayland 会话启动 GUI 时使用 `ELECTRON_OZONE_PLATFORM_HINT=auto ha gui`。加入后可运行
 `ha gui --root <边缘仓库>` 查看中心台账，再从该仓库使用通常的 `ha runtime run` 派出 Agent。

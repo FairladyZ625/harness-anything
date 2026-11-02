@@ -125,6 +125,12 @@ npm run build -w @harness-anything/cli
 npm run build -w @harness-anything/gui
 node -e "const fs=require('fs'),path=require('path');const root=path.dirname(require.resolve('electron/package.json'));const rel=fs.readFileSync(path.join(root,'path.txt'),'utf8').trim();const bin=path.join(root,'dist',rel);fs.accessSync(bin,fs.constants.X_OK);console.log('Electron runtime: '+bin)"
 (cd packages/cli && npm_config_prefix="$npm_prefix" npm link)
+cli_entry="$npm_prefix/bin/ha"
+if [ ! -x "$cli_entry" ]; then
+  printf 'npm link did not create an executable CLI entry at %s.\n' "$cli_entry" >&2
+  printf '%s\n' 'The build succeeded, but the printed instructions would not run; fix the npm prefix and rerun.' >&2
+  exit 1
+fi
 
 if [ "$(uname -s)" = Linux ] && [ -f node_modules/electron/dist/chrome-sandbox ]; then
   sandbox_path="$install_root/node_modules/electron/dist/chrome-sandbox"
@@ -141,10 +147,13 @@ if [ "$(uname -s)" = Linux ] && [ -f node_modules/electron/dist/chrome-sandbox ]
 fi
 
 printf '\nInstalled source CLI at %s\n' "$install_root"
-printf 'CLI entry: %s\n' "$npm_prefix/bin/ha"
-printf 'Add to PATH: export PATH="%s/bin:$PATH"\n' "$npm_prefix"
-printf 'Run: ha edge join <invite-link>\n'
-printf 'GUI: ha gui   (headless check: npm run smoke:gui:headless)\n'
+printf 'CLI entry: %s\n' "$cli_entry"
+printf 'Next: "%s" --version\n' "$cli_entry"
+printf 'Run: "%s" edge join <invite-link>\n' "$cli_entry"
+printf 'GUI: "%s" gui\n' "$cli_entry"
+printf 'GUI headless check: cd "%s" && npm run smoke:gui:headless\n' "$install_root"
+printf '# To use `ha` in new terminals, add this line to your shell profile:\n'
+printf 'export PATH="%s/bin:$PATH"\n' "$npm_prefix"
 if [ "${XDG_SESSION_TYPE:-}" = wayland ]; then
-  printf 'Wayland session detected. Launch the GUI with: ELECTRON_OZONE_PLATFORM_HINT=auto ha gui\n'
+  printf 'Wayland session detected. Launch the GUI with: ELECTRON_OZONE_PLATFORM_HINT=auto "%s" gui\n' "$cli_entry"
 fi

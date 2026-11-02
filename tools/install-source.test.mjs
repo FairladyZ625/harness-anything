@@ -38,6 +38,14 @@ exit 0
 const npmStub = `#!/bin/sh
 printf 'npm %s\\n' "$*" >> "$STUB_NPM_LOG"
 if [ "$1" = "ci" ]; then mkdir -p node_modules; fi
+if [ "$1" = "link" ] && [ "\${STUB_SKIP_LINK:-}" != 1 ]; then
+  mkdir -p "$STUB_NPM_PREFIX/bin"
+  cat > "$STUB_NPM_PREFIX/bin/ha" <<'HA'
+#!/bin/sh
+printf 'fixture ha: %s\\n' "$*"
+HA
+  chmod +x "$STUB_NPM_PREFIX/bin/ha"
+fi
 exit 0
 `;
 
@@ -146,6 +154,48 @@ test("offline mode refuses to guess a checkout that does not exist", { skip: ski
   });
 });
 
+test(
+  "the printed CLI entry and launch hints run in a terminal without the npm prefix on PATH",
+  { skip: skipOnWindows },
+  () => {
+    withFixture((fixture) => {
+      const result = runInstall(fixture, ["--offline"]);
+      assert.equal(result.status, 0, result.stderr);
+      const entry = path.join(fixture.npmPrefix, "bin", "ha");
+      assert.equal(lineWithPrefix(result.stdout, "CLI entry: "), `CLI entry: ${entry}`);
+      const next = lineWithPrefix(result.stdout, "Next: ").slice("Next: ".length);
+      const gui = lineWithPrefix(result.stdout, "GUI: ").slice("GUI: ".length);
+      assert.equal(next, `"${entry}" --version`);
+      assert.equal(gui, `"${entry}" gui`);
+      assert.equal(
+        lineWithPrefix(result.stdout, "export PATH="),
+        `export PATH="${path.join(fixture.npmPrefix, "bin")}:$PATH"`,
+      );
+      for (const command of [next, gui]) {
+        const executed = spawnSync("/bin/sh", ["-c", command], {
+          encoding: "utf8",
+          env: { PATH: "/usr/bin:/bin", HOME: fixture.root },
+        });
+        assert.equal(executed.status, 0, executed.stderr);
+        assert.match(executed.stdout, /^fixture ha: /u);
+      }
+    });
+  },
+);
+
+test(
+  "installer fails before printing hints when npm link creates no executable CLI entry",
+  { skip: skipOnWindows },
+  () => {
+    withFixture((fixture) => {
+      const result = runInstall(fixture, ["--offline"], { STUB_SKIP_LINK: "1" });
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /npm link did not create an executable CLI entry/u);
+      assert.doesNotMatch(result.stdout, /CLI entry:/u);
+    });
+  },
+);
+
 function withFixture(fn) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-install-source-"));
   try {
@@ -158,6 +208,7 @@ function withFixture(fn) {
 function createFixture(root) {
   const installRoot = path.join(root, "install");
   const binDir = path.join(root, "bin");
+  const npmPrefix = path.join(root, "npm");
   mkdirSync(path.join(installRoot, ".git"), { recursive: true });
   mkdirSync(path.join(installRoot, "packages", "cli"), { recursive: true });
   mkdirSync(binDir, { recursive: true });
@@ -181,6 +232,7 @@ function createFixture(root) {
   return {
     binDir,
     installRoot,
+    npmPrefix,
     gitLog: path.join(root, "git.log"),
     npmLog: path.join(root, "npm.log"),
   };
@@ -199,11 +251,19 @@ function runInstall(fixture, args, env = {}) {
       ...process.env,
       PATH: `${fixture.binDir}${path.delimiter}${process.env.PATH ?? ""}`,
       HARNESS_INSTALL_ROOT: fixture.installRoot,
+      HARNESS_NPM_PREFIX: fixture.npmPrefix,
       STUB_GIT_LOG: fixture.gitLog,
       STUB_NPM_LOG: fixture.npmLog,
+      STUB_NPM_PREFIX: fixture.npmPrefix,
       ...env,
     },
   });
+}
+
+function lineWithPrefix(text, prefix) {
+  const line = text.split("\n").find((candidate) => candidate.startsWith(prefix));
+  assert.ok(line, `missing a line starting with ${JSON.stringify(prefix)}:\n${text}`);
+  return line;
 }
 
 function readLines(file) {

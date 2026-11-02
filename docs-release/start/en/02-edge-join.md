@@ -132,7 +132,8 @@ curl -fsSL https://raw.githubusercontent.com/FairladyZ625/harness-anything/main/
 The installer keeps the checkout under `~/.local/share/harness-anything`, runs `npm ci` (skipped when dependencies are
 unchanged), downloads or checks the Electron runtime, builds the daemon, CLI and Electron GUI bundles, and links the
 `ha` entry into a user-owned npm prefix (`~/.local/share/harness-anything-npm`) without changing npm's host-global
-prefix. It prints the exact `export PATH=...` line. On Linux it sets Electron's `chrome-sandbox` owner and setuid mode
+prefix. It prints the absolute `ha` path, ready-to-run commands, and an optional `export PATH=...` line; it does not
+edit your shell startup files. On Linux it sets Electron's `chrome-sandbox` owner and setuid mode
 (using `sudo` when needed).
 
 ### Upgrading, including a center without GitHub access
@@ -160,10 +161,11 @@ Without flags the installer still requires a successful pull and exits when it f
 presented as a new build. A first install needs an existing checkout; without one, `--offline` reports that instead of
 guessing a directory.
 
-The invited person runs:
+The invited person runs the absolute `ha` path printed by the installer (with the default prefix,
+`~/.local/share/harness-anything-npm/bin/ha`) in a new terminal:
 
 ```bash
-ha edge join '<invite-link>'
+~/.local/share/harness-anything-npm/bin/ha edge join '<invite-link>'
 ```
 
 The command completes the device sign-in, consumes the invitation, and finishes the first sync for each selected
@@ -171,5 +173,6 @@ repository. It writes the machine credential only to the local edge configuratio
 do not return that credential. A changed repository or permission-group snapshot is rejected, so the inviter must
 issue a fresh invitation after changing the selected access.
 
-On Wayland, use `ELECTRON_OZONE_PLATFORM_HINT=auto ha gui`. To inspect the resulting repository and dispatch an Agent,
-run `ha gui --root <edge-repository>` or the normal `ha runtime run` command from that repository.
+On Wayland, add the printed npm prefix to PATH and use `ELECTRON_OZONE_PLATFORM_HINT=auto ha gui`. To inspect the
+resulting repository and dispatch an Agent, run `ha gui --root <edge-repository>` or the normal `ha runtime run` command
+from that repository.

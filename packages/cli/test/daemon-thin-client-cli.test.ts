@@ -126,6 +126,25 @@ test("daemon-missing preset run rejects promptly without child or direct fallbac
   }
 });
 
+test("GUI launch points an npm CLI without the optional GUI at the desktop release", async () => {
+  const output = await captureGuiOutput(() =>
+    runGuiLaunch(["gui", "--json"], { resolveGuiPackageRoot: () => undefined }, emit),
+  );
+  const receipt = JSON.parse(output.stdout) as {
+    ok: boolean;
+    code: string;
+    error: { code: string };
+    diagnostic: { kind: string; expectation: string };
+  };
+  assert.equal(output.status, 1);
+  assert.equal(receipt.ok, false);
+  assert.equal(receipt.code, "gui_unavailable");
+  assert.equal(receipt.error.code, "gui_unavailable");
+  assert.equal(receipt.diagnostic.kind, "validation");
+  assert.match(receipt.diagnostic.expectation, /github\.com\/FairladyZ625\/harness-anything\/releases/u);
+  assert.match(receipt.diagnostic.expectation, /npm install -g @harness-anything\/gui/u);
+});
+
 test("GUI launch reports a missing Electron runtime with its one-line remedy", async () => {
   const fixture = makeGuiFixture();
   try {
