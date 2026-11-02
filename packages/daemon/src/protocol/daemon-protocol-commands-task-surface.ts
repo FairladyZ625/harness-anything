@@ -177,7 +177,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { regex: "^[A-Za-z][A-Za-z0-9]*:.+$" },
+        { regex: "^[A-Za-z][A-Za-z0-9]*:.+$", field: "patches" },
       ),
     ],
   }),
