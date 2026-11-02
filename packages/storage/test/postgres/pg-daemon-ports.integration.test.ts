@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readdirSync, existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixture.ts";
 import { taskLifecycleWritePlan, type CanonicalEventStore } from "@harness-anything/kernel";
@@ -164,6 +164,52 @@ test("daemon PG storage factories expose canonical lifecycle ports without local
         );
       } finally {
         await follower.drain();
+      }
+    });
+    await t.test("failed PG tree publication is replayed from the committed head", async () => {
+      const retryRoot = join(fixture.root, "follower-retry"),
+        marker = join(retryRoot, ".harness", "fleet-materialized.json"),
+        retryRepoId = "pg-follower-retry";
+      mkdirSync(join(retryRoot, ".harness"), { recursive: true });
+      writeFileSync(marker, "{\n");
+      let reportFailure!: () => void, reportRecovery!: () => void;
+      const failureReported = new Promise<void>((resolve) => {
+          reportFailure = resolve;
+        }),
+        recoveryReported = new Promise<void>((resolve) => {
+          reportRecovery = resolve;
+        }),
+        retryStore = makeTaskEventStore({
+          rootDir: retryRoot,
+          repoId: retryRepoId,
+          storage: {
+            ...storage,
+            scope: { ...storage.scope, tenantId: "tenant-follower-retry", projectId: "project-follower-retry" },
+          },
+          onMaterializationHealthChange: (health) => {
+            if (health.state === "failed") reportFailure();
+            else if (health.state === "ok") reportRecovery();
+          },
+        }),
+        event = createdAt("task-pg-follower-retry", 1);
+      try {
+        const receipt = retryStore.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
+        assert.equal(receipt.status, "applied", "post-commit follower failure must not replace PG acceptance");
+        await failureReported;
+        assert.equal(retryStore.readHead()?.revision, 1);
+        assert.equal(retryStore.materializationHealth().state, "failed");
+        assert.equal(retryStore.materializationHealth().pendingWalEvents, 1);
+
+        unlinkSync(marker);
+        await retryStore.settlePendingMaterialization!("replay PG follower after repair");
+        assert.equal(retryStore.followerStatus().worktree.status, "verified");
+        assert.equal(retryStore.followerStatus().worktree.cut?.revision, 1);
+        await recoveryReported;
+        assert.equal(retryStore.materializationHealth().state, "ok");
+        assert.equal(retryStore.materializationHealth().pendingWalEvents, 0);
+        assert.equal(JSON.parse(readFileSync(marker, "utf8")).revision, 1);
+      } finally {
+        await retryStore.drain();
       }
     });
     await t.test("Git following can advance its cut while authored tree materialization is disabled", async () => {

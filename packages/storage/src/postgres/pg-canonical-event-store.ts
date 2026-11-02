@@ -163,25 +163,40 @@ export function makePgCanonicalEventStore(
       conflicts: restored?.conflicts ?? result.dirtyPaths,
     };
   };
-  const follow = (request?: Parameters<CanonicalEventStore["materialize"]>[0]) =>
-    options.withAppendFence ? options.withAppendFence(() => publishFollower(request)) : publishFollower(request);
+  const materializationCheckpoint = () =>
+    options.storage.materialize === false
+      ? options.storage.gitFollower
+        ? (git.cut?.revision ?? 0)
+        : (head()?.revision ?? 0)
+      : (worktree.cut?.revision ?? 0);
+  const materializationHealth = (state: "ok" | "failed", lastError?: string) => ({
+    state,
+    lastCheckpointRevision: materializationCheckpoint(),
+    lastCheckpointAt: null,
+    pendingWalEvents: (head()?.revision ?? 0) - materializationCheckpoint(),
+    ...(lastError ? { reason: "deterministic_failure" as const, lastError } : {}),
+  });
+  const follow = (request?: Parameters<CanonicalEventStore["materialize"]>[0]) => {
+    const receipt = options.withAppendFence
+      ? options.withAppendFence(() => publishFollower(request))
+      : publishFollower(request);
+    if (request === undefined) {
+      lastMaterializationError = undefined;
+      options.onMaterializationHealthChange?.(materializationHealth("ok"));
+    }
+    return receipt;
+  };
+  // Acceptance and follower publication are separate: this detached consumer always rereads the
+  // current PG cut, so its failure cannot turn a committed append into an ambiguous write result.
   const schedule = (): Promise<void> =>
     (scheduled ??= new Promise<void>((resolve) =>
       setImmediate(() => {
         try {
           follow();
-          lastMaterializationError = undefined;
         } catch (error) {
           lastMaterializationError = error instanceof Error ? error.message : String(error);
           consumeKnownError(error);
-          options.onMaterializationHealthChange?.({
-            state: "failed",
-            lastCheckpointRevision: worktree.cut?.revision ?? 0,
-            lastCheckpointAt: null,
-            pendingWalEvents: (head()?.revision ?? 0) - (worktree.cut?.revision ?? 0),
-            reason: "deterministic_failure",
-            lastError: lastMaterializationError,
-          });
+          options.onMaterializationHealthChange?.(materializationHealth("failed", lastMaterializationError));
         } finally {
           scheduled = null;
           resolve();
@@ -236,12 +251,7 @@ export function makePgCanonicalEventStore(
     materialize: follow,
     materializationHealth: () => {
       const revision = head()?.revision ?? 0,
-        checkpoint =
-          options.storage.materialize === false
-            ? options.storage.gitFollower
-              ? (git.cut?.revision ?? 0)
-              : revision
-            : (worktree.cut?.revision ?? 0);
+        checkpoint = materializationCheckpoint();
       return {
         state: lastMaterializationError ? "failed" : scheduled ? "retrying" : "ok",
         lastCheckpointRevision: checkpoint,

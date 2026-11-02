@@ -1,8 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { resolvePostgresEventStoreScope } from "./pg/backend.ts";
-import { consumeKnownError, resolveHarnessLayout } from "@harness-anything/kernel";
-import { resolveActiveGeneration, sqliteLedgerPath } from "./store/sqlite-event-store.ts";
+import { resolveHarnessLayout } from "@harness-anything/kernel";
+import { sqliteLedgerPath } from "./store/sqlite-event-store.ts";
+import { generationThreeUpgradeStatus } from "./store/generation-three-selection.ts";
 import { removeFileDurably } from "./durable-file.ts";
 import { makeTaskProjectionReader } from "./projection/rebuildable-task-projection-factory.ts";
 import { openSqliteEventStore } from "./store/sqlite-event-store.ts";
@@ -107,19 +108,12 @@ export function prepareDaemonRepoStorage(input: {
   if (input.storage?.backend === "postgres") return;
   // A remote edge is read-only against the center's replica. Its prior local ledger is disposable;
   // canonical repositories still go through the kernel's strict offline-conversion requirement.
-  if (input.mode === "remote-edge") {
-    try {
-      resolveActiveGeneration({ rootInput: input.rootDir, repoId: input.repoId });
-    } catch (error) {
-      consumeKnownError(error);
-      const generationTwo = sqliteLedgerPath(input.rootDir, 2);
-      const isIncompleteUpgrade =
-        error instanceof Error &&
-        error.name === "TaskEventStoreError" &&
-        "code" in error &&
-        error.code === "invalid_store" &&
-        error.message.startsWith("generation 3 upgrade is incomplete;");
-      if (!isIncompleteUpgrade || !existsSync(generationTwo)) throw error;
+  if (
+    input.mode === "remote-edge" &&
+    generationThreeUpgradeStatus({ rootInput: input.rootDir, repoId: input.repoId }) === "incomplete"
+  ) {
+    const generationTwo = sqliteLedgerPath(input.rootDir, 2);
+    if (existsSync(generationTwo))
       for (const stalePath of [
         generationTwo,
         `${generationTwo}-wal`,
@@ -128,7 +122,6 @@ export function prepareDaemonRepoStorage(input: {
         `${generationTwo}.import-source.json`,
       ])
         removeFileDurably(stalePath);
-    }
   }
   // Maintenance pins and the commit guard both belong to the ledger repository, never the project
   // repository around it: the pins tune the WAL write path, and refusing a project commit is the
