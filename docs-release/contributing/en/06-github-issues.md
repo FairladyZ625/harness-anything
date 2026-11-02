@@ -21,51 +21,57 @@ the public symptom and say what cannot be shared.
 ## Required issue content
 
 Use the repository's source-triaged issue form. Blank issues are disabled for
-contributors, and issues that bypass the form are closed by the issue intake
-workflow until they are resubmitted with the required sections.
+contributors. If a required section is missing, the issue intake workflow
+comments with the missing sections; it does not close the issue, and you can
+edit the issue to complete it.
 
-Include:
+Every issue includes these sections:
 
-- expected behavior;
-- actual behavior;
-- reproduction steps, starting from a clean source checkout when possible;
-- exact command output or the smallest relevant log excerpt;
-- environment details: OS, Node version, package manager, branch or commit;
-- files or package area likely involved, if known;
-- whether an agent produced the report or attempted a fix.
+| Section | What to include |
+| --- | --- |
+| Issue type | One of Bug, Documentation gap, Scoped improvement, or Failing command or CI lane. |
+| Impact | Who is affected, how often it happens, what breaks, the workaround, and the blast radius. |
+| Expected behavior | What should happen. |
+| Actual behavior | What happened instead. |
+| Reproduction steps | The smallest ordered steps from a clean source checkout, with the exact command and exit code. |
+| Version / build | `ha --version`, the daemon build or `commit=`, the repository branch or commit, the npm package version when relevant, and the agent/runtime version. Keep OS and shell details in Reporter environment. |
+| Screenshot or recording | Visible evidence when one exists. When there is none, write `Not applicable — text evidence in Command output or logs` instead of pasting an unrelated screenshot. |
+| Command output or logs | The exact command, exit code, and the smallest relevant stdout/stderr or log excerpt, with secrets redacted. |
+| Reporter environment | OS, shell, Node version, package manager, branch or commit, and any agent/runtime involved. |
+| Source-level triage | The public files and contracts read, the source-level hypothesis, what to investigate first, checks run, and checks not run with the reason. |
+| Stop condition or acceptance criteria | The observable condition that means the issue is fixed, or the maintainer decision needed before implementation. |
+| Public issue checklist | Confirm that private data was removed, source-level triage is present, and Impact names the affected users, frequency, and blast radius. |
 
-For agent-generated issues, also include the agent's evidence boundary: what it
-read, what it changed, which checks it ran, and which checks it did not run.
+## Source-level triage
 
-## Required source-level triage
+Source-level evidence is what lets a maintainer inspect the likely source
+boundary even when they cannot run the reporter's exact environment. Do not
+assume maintainers share the reporter's operating system, shell, filesystem,
+installed toolchain, or agent runtime.
 
-Every issue must include a source-level triage section. Do not assume maintainers
-share the reporter's operating system, shell, filesystem, installed toolchain, or
-agent runtime. The issue should give maintainers enough public evidence to
-inspect the likely source boundary even when they cannot run the reporter's exact
-environment.
+Write the five parts in the one Source-level triage section:
 
-Include:
-
-- real environment output: command, exit code, relevant stdout or stderr, OS,
-  shell, Node version, package manager, and branch or commit;
-- key snippets from generated files or logs, using relative repository paths and
-  redacting secrets or private data;
-- related source areas the agent inspected, such as files, functions, schemas, or
-  contracts that appear to control the failing behavior;
-- what the agent read, including public docs, source files, generated artifacts,
-  and any issue or PR context used for the diagnosis;
+- public files, functions, schemas, contracts, generated artifacts, or docs that
+  were read, using repository-relative paths;
 - the source-level hypothesis: which data flow, path handling, command contract,
-  or platform assumption may be failing;
-- a suggested repair target, such as the file, function, contract, validation
-  rule, or test case maintainers should investigate first;
-- checks already run, checks not run, and the reason any relevant check was
-  skipped.
+  platform assumption, or validation rule may be failing;
+- the file, function, contract, validation rule, or test case maintainers should
+  investigate first;
+- checks already run, with their results;
+- checks not run, and the reason any relevant check was skipped.
 
 The reporter's agent is not the authority on the final fix. Its repair
-suggestion is required directional input that helps maintainers locate the likely
-source boundary. Maintainers may choose a different implementation after reading
-the source.
+suggestion is directional input that helps maintainers locate the likely source
+boundary. Maintainers may choose a different implementation after reading the
+source.
+
+## Filing as an agent
+
+An agent that turns a finding into a public issue follows
+[`skills/harness-issue/SKILL.md`](../../../skills/harness-issue/SKILL.md). The
+skill routes the work through evidence collection, the canonical body template,
+redaction, a heading self-check, and `gh issue create --body-file`. The issue
+form remains the shape authority; the skill does not replace it.
 
 ## Agent-ready issue shape
 

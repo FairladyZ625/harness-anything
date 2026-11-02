@@ -2,7 +2,7 @@ name: issue-intake
 
 on:
   issues:
-    types: [opened, edited, reopened]
+    types: [opened]
 
 permissions:
   issues: write
@@ -17,41 +17,33 @@ jobs:
             const body = context.payload.issue.body || "";
             const requiredHeadings = [
               "### Issue type",
+              "### Impact",
               "### Expected behavior",
               "### Actual behavior",
               "### Reproduction steps",
+              "### Version / build",
+              "### Screenshot or recording",
               "### Command output or logs",
               "### Reporter environment",
-              "### Source-level triage target",
-              "### Source-level hypothesis",
-              "### Suggested repair target",
-              "### Evidence boundary",
+              "### Source-level triage",
               "### Stop condition or acceptance criteria",
               "### Public issue checklist"
             ];
             const missing = requiredHeadings.filter((heading) => !body.includes(heading));
             if (missing.length === 0) return;
 
-            const issue = context.payload.issue;
             const message = [
-              "This issue was closed because it does not use the required source-triaged issue form.",
-              "",
-              "Please open a new issue through the repository issue form and include the required source-level triage fields.",
+              "This issue is missing the required sections below. Edit the issue to add them; it will not be closed.",
               "",
               "Missing required sections:",
-              ...missing.map((heading) => `- ${heading.replace(/^### /, "")}`)
+              ...missing.map((heading) => `- ${heading.replace(/^### /, "")}`),
+              "",
+              "Follow `skills/harness-issue/SKILL.md` in this repository to fill the canonical body."
             ].join("\n");
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: issue.number,
+              issue_number: context.payload.issue.number,
               body: message
-            });
-            await github.rest.issues.update({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: issue.number,
-              state: "closed",
-              state_reason: "not_planned"
             });

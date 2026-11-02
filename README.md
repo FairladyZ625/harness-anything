@@ -92,6 +92,7 @@ The agent continues through each stage:
 | --- | --- |
 | [harness-download](./skills/harness-download/SKILL.md) | Prepare the environment and persistent source checkout, link the skills, and coordinate the remaining setup |
 | [harness-install](./skills/harness-install/SKILL.md) | Adopt the available Harness installation in a target repository, preserving existing instructions and identity approvals |
+| [harness-issue](./skills/harness-issue/SKILL.md) | Turn a finding into a source-triaged public issue that survives review without a close-and-resubmit round trip |
 | [harness-ceo](./skills/harness-ceo/SKILL.md) | Initialize user-owned knowledge locations, select models, carry out real work, and verify delivery |
 
 Download the tools once. Use `harness-install` for another repository and
