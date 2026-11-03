@@ -605,6 +605,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 kindId: runtimeInstance?.kindId ?? "",
                 platform: hostPlatform,
                 reviewer: reviewerBinding,
+                taskBound: taskId !== null,
               },
             ),
             // A worktree checks out no private ledger, so every `harness/…` reference the agent

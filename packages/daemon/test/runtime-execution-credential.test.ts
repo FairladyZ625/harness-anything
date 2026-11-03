@@ -247,6 +247,11 @@ test("execution requests exclude other tasks, repos, controls, and human consent
       payload: { action: { kind, taskId: p.taskId, ...overrides } },
     });
   assert.doesNotThrow(() => request("task-show"));
+  assert.doesNotThrow(() => request("task-read-set"));
+  assert.doesNotThrow(() => requireExecutionActionScope(p, { kind: "task-submit", taskId: p.taskId }));
+  assert.throws(() => requireExecutionActionScope(p, { kind: "task-submit", taskId: "task-other" }), {
+    code: "execution_credential_rejected",
+  });
   assert.doesNotThrow(() => request("task-push"));
   for (const kind of ["task-review-consent", "people-delegate", "task-review-execution"])
     assert.throws(() => request(kind));

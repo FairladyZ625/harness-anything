@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openRuntimeInstanceStore, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
+import { dispatchMissionForPermission, explicitPromptMission } from "../src/runtime-spawn-mission.ts";
 
 const observed: RuntimeInstallationWitness = {
   installationId: "codex-installation-test",
@@ -13,6 +14,94 @@ const observed: RuntimeInstallationWitness = {
   version: "0.146.1",
   observedAt: "2026-08-15T00:00:00.000Z",
 };
+
+test("Claude workspace-write permits the mission's CLI entries across isolation, auth and resume", async (t) => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-claude-task-permission-")),
+    claude: RuntimeInstallationWitness = {
+      ...observed,
+      kindId: "claude",
+      installationId: "claude-task-permission",
+      executablePath: "/opt/runtime-test/claude",
+      version: "2.1.305 (Claude Code)",
+    },
+    store = openRuntimeInstanceStore({
+      userRoot,
+      discover: () => [claude],
+      resolveCredential: () => "test-key",
+      subscriptionReady: () => ({ status: "ready", code: null, hint: null }),
+    });
+  t.after(() => rmSync(userRoot, { recursive: true, force: true }));
+  const mission = dispatchMissionForPermission(explicitPromptMission("task_own", null, "Deliver."), "workspace-write", {
+    kindId: "claude",
+    platform: process.platform,
+    reviewer: false,
+    taskBound: true,
+  });
+  for (const isolationState of ["enforced", "operator-environment"] as const)
+    for (const mode of ["subscription", "api-key"] as const) {
+      const instanceId = `claude-${isolationState}-${mode}`;
+      store.create({
+        schemaVersion: 2,
+        instanceId,
+        name: instanceId,
+        kindId: "claude",
+        installationId: claude.installationId,
+        providerId: "anthropic",
+        models: ["claude-fable-5"],
+        defaultModel: "claude-fable-5",
+        enabled: true,
+        isolationState,
+        permissionMode: "workspace-write",
+        claude: {},
+        auth: mode === "api-key" ? { mode, credentialRef: `credential:v1:${instanceId}` } : { mode },
+      });
+      for (const providerSessionId of [undefined, "session-existing"]) {
+        const launch = await store.prepareLaunch(instanceId, {
+            cwd: "/workspace/repo",
+            prompt: mission,
+            providerSessionId,
+          }),
+          start = launch.args.indexOf("--allowedTools");
+        assert.notEqual(start, -1, `${instanceId}: the task CLI must run without an approval prompt`);
+        assert.deepEqual(
+          launch.args.slice(start + 1, launch.args.indexOf("--model")),
+          ["ha", "npx harness-anything", "node packages/cli/src/index.ts"].flatMap((prefix) =>
+            [
+              "--help",
+              "task submit",
+              "task escalate",
+              "task read-set",
+              "task show",
+              "task push",
+              "doc show",
+              "fact record",
+            ].map((command) => `Bash(${prefix} ${command} *)`),
+          ),
+        );
+        assert.equal(launch.args[launch.args.indexOf("--permission-mode") + 1], "acceptEdits");
+        assert.equal(launch.args.includes("--add-dir"), false, "canonical reads must not grant canonical edits");
+        assert.equal(launch.args.includes("bypassPermissions"), false);
+        assert.equal(launch.env.HARNESS_EXECUTION_CREDENTIAL, undefined, "binding supplies the dispatch secret later");
+        assert.equal(launch.args.includes("--resume"), providerSessionId !== undefined);
+      }
+    }
+  for (const command of ["task submit <task-id>", "task escalate <task-id>", "task read-set task_own"])
+    assert.ok(mission.includes(`ha ${command}`), command);
+  for (const prefix of ["ha", "npx harness-anything", "node packages/cli/src/index.ts"])
+    assert.ok(mission.includes(`\`${prefix}\``), `the mission must name the approved entry ${prefix}`);
+  for (const command of [
+    "--help",
+    "task submit",
+    "task escalate",
+    "task read-set",
+    "task show",
+    "task push",
+    "doc show",
+    "fact record",
+  ])
+    assert.ok(mission.includes(`\`${command}\``), `the mission must name the approved subcommand ${command}`);
+  assert.match(mission, /ha doc show --path <ledger path> --raw/u);
+});
 
 test("permission defaults open and tightens through the instance record or a single dispatch", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-permission-")),

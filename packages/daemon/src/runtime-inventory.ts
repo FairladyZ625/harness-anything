@@ -16,6 +16,22 @@ export {
   type RuntimeProviderDeclaration,
 };
 
+// Only daemon-mediated task commands: `ha task artifact add --run`, for example,
+// executes a local subprocess before daemon authorization. Never approve `ha *`.
+export const claudeWorkspaceWriteCli = {
+  prefixes: ["ha", "npx harness-anything", "node packages/cli/src/index.ts"],
+  commands: [
+    "--help",
+    "task submit",
+    "task escalate",
+    "task read-set",
+    "task show",
+    "task push",
+    "doc show",
+    "fact record",
+  ],
+} as const;
+
 const sharedCapabilities = {
   resume: "supported",
   streamingOutput: "supported",
@@ -198,7 +214,14 @@ export const runtimeKinds = [
       ],
       permissionArgs: {
         bypass: ["--permission-mode", "bypassPermissions"],
-        "workspace-write": ["--permission-mode", "acceptEdits"],
+        "workspace-write": [
+          "--permission-mode",
+          "acceptEdits",
+          "--allowedTools",
+          ...claudeWorkspaceWriteCli.prefixes.flatMap((prefix) =>
+            claudeWorkspaceWriteCli.commands.map((command) => `Bash(${prefix} ${command} *)`),
+          ),
+        ],
         "read-only": ["--permission-mode", "plan"],
       },
       apiKeyArgs: ["--bare"],
