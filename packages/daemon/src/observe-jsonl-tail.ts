@@ -258,7 +258,8 @@ async function scanFileBackward(
       while (boundary > 0 && reversed.length < limit) {
         if (window[boundary - 1] !== 0x0a)
           throw tailError("log_record_invalid", `Retained JSONL ${path.basename(file.path)} has a partial line.`);
-        const previousNewline = window.lastIndexOf(0x0a, boundary - 2);
+        // An empty prefix must stay empty: Buffer interprets negative offsets from its end.
+        const previousNewline = window.subarray(0, boundary - 1).lastIndexOf(0x0a);
         if (previousNewline < 0 && chunkStart > 0) break;
         const lineStart = previousNewline + 1,
           line = window.subarray(lineStart, boundary - 1),

@@ -633,7 +633,8 @@ function drainingStopReceipt(pid: number): Record<string, unknown> {
       `daemon-stop: pid ${pid} accepted the stop and is draining its write queues; its endpoint, ` +
       "pid file and singleton lock are released together when the drain finishes.",
     nextAction:
-      "Run `ha daemon status` to see what is still draining; `ha daemon stop --force` ends it without draining.",
+      "Run `ha daemon status` for counts of queued writes and attaching repositories; " +
+      "`ha daemon stop --force` ends it without draining.",
   };
 }
 function finishControlReceipt(
