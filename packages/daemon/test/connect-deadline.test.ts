@@ -1,4 +1,5 @@
 // harness-test-tier: fast
+import { fixtureDaemonHello } from "./fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -31,7 +32,7 @@ for (const transport of ["local", "tcp"] as const) {
               const request = JSON.parse(pending.slice(0, end));
               pending = pending.slice(end + 1);
               Atomics.add(accepted, request.method === "protocol.hello" ? 1 : 2, 1);
-              socket.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ok: true } }) + "\\n");
+              socket.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, result: request.method === "protocol.hello" ? workerData.hello : { ok: true } }) + "\\n");
             }
           });
         });
@@ -44,6 +45,7 @@ for (const transport of ["local", "tcp"] as const) {
           eval: true,
           workerData: {
             accepted: accepted.buffer,
+            hello: fixtureDaemonHello(),
             endpoint:
               transport === "tcp"
                 ? { host: "127.0.0.1", port: 0 }

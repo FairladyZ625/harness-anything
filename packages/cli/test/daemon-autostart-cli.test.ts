@@ -1007,7 +1007,7 @@ test("CLI reports lifecycle attach progress and waits through a slow warming rep
           });
         const result =
           request.method === "protocol.hello"
-            ? { protocolVersion: { major: 1, minor: 0 } }
+            ? fixtureDaemonHello()
             : requests >= 3
               ? {
                   schema: "command-receipt/v2",

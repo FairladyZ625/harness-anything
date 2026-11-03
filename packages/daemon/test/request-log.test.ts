@@ -1,4 +1,5 @@
 // harness-test-tier: fast
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { open as openFile } from "node:fs/promises";
@@ -54,7 +55,7 @@ async function handshake(server: ReturnType<typeof createJsonRpcProtocolServer>)
     jsonrpc: "2.0",
     id: 1,
     method: "protocol.hello",
-    params: { protocolVersion: currentDaemonProtocolVersion },
+    params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit },
   });
 }
 
@@ -71,7 +72,7 @@ function openServerWithLog(rootDir: string, host: DaemonHost = stubHost(rootDir)
   });
   const server = createJsonRpcProtocolServer({
     host,
-    build: { commit: null },
+    build: daemonBuildStamp(),
     authContext: {
       transportKind: "unix-socket",
       unixSocketOwnerBoundary: { ownerUid: 501, source: "unix-socket-filesystem-owner-boundary" },
@@ -134,7 +135,7 @@ test("only repo-log history diagnostics skip request recording, including failed
   const recorded: DaemonRequestLogEntry[] = [];
   const server = createJsonRpcProtocolServer({
     host,
-    build: { commit: null },
+    build: daemonBuildStamp(),
     authContext: { transportKind: "unix-socket" },
     emit: async () => undefined,
     recordRequest: (entry) => {

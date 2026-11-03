@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -140,7 +141,7 @@ test("edge binding health reads the selected login authority through fleet disco
   }
   const server = createJsonRpcProtocolServer({
     host,
-    build: { commit: null },
+    build: daemonBuildStamp(),
     authContext: auth,
     emit: async () => undefined,
   });
@@ -149,7 +150,7 @@ test("edge binding health reads the selected login authority through fleet disco
     jsonrpc: "2.0",
     id: 1,
     method: "protocol.hello",
-    params: { protocolVersion: currentDaemonProtocolVersion },
+    params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit },
   });
   const request = async (params: JsonObject): Promise<JsonObject> => {
     const reply = await server.handle({ jsonrpc: "2.0", id: 2, method: "daemon.rbac.manage", params });

@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
@@ -205,7 +206,7 @@ for (const row of [{type:'thread.started',thread_id:id},
         createProtocolServer: (authContext, emit, _connectionId, connectionSignal) =>
           createJsonRpcProtocolServer({
             host,
-            build: { commit: null },
+            build: daemonBuildStamp(),
             authContext: { ...authContext, connectionSignal },
             emit,
           }),

@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -77,7 +78,7 @@ test("external credentials enter through CLI stdin, failed replacement preserves
       daemonId,
       socketPath: localUserDaemonEndpoint(userRoot, daemonId),
       createProtocolServer: (authContext, emit) =>
-        createJsonRpcProtocolServer({ host, build: { commit: null }, authContext, emit }),
+        createJsonRpcProtocolServer({ host, build: daemonBuildStamp(), authContext, emit }),
     });
   await transport.start();
   const cli = async (args: string[], input = "") => {

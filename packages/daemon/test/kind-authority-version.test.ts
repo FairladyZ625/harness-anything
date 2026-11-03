@@ -1,4 +1,5 @@
 // harness-test-tier: contract
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { jsonRpcMethodContracts } from "../src/protocol/daemon-protocol.contract.ts";
@@ -24,7 +25,7 @@ test("context is absent because no production context contract or handler exists
 test("hello advertises runtime hosting credential methods", async () => {
   const server = createJsonRpcProtocolServer({
     host: {} as DaemonHost,
-    build: { commit: "test-build" },
+    build: daemonBuildStamp(),
     authContext: { transportKind: "unix-socket" },
     emit: async () => {},
   });
@@ -33,7 +34,7 @@ test("hello advertises runtime hosting credential methods", async () => {
       jsonrpc: "2.0",
       id: 1,
       method: "protocol.hello",
-      params: { protocolVersion: currentDaemonProtocolVersion },
+      params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit },
     });
     assert.ok(response && !Array.isArray(response) && "result" in response);
     const methods = (response.result as { readonly methods: readonly string[] }).methods;

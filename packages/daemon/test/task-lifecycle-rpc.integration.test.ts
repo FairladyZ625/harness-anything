@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -39,7 +40,7 @@ async function fixture(t: test.TestContext) {
     createProtocolServer: (authContext, emit, connectionId, signal) =>
       createJsonRpcProtocolServer({
         host,
-        build: { commit: null },
+        build: daemonBuildStamp(),
         authContext: { ...authContext, connectionSignal: signal },
         sessionPrincipal: (method, params) => host.sessionPrincipal(authContext, method, params),
         emit,

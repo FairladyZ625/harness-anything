@@ -413,6 +413,7 @@ export const daemonProtocolMethods = Object.freeze([
     requiresRepo: false,
     params: shape({
       protocolVersion: shape({ major: "number", minor: "number" }),
+      buildCommit: "string-null?",
       sessionEnvironment: "json?",
       executionCredential: "string?",
       reportStaleBuild: "boolean?",

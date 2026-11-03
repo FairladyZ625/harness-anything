@@ -11,6 +11,7 @@ import { terminateProcess } from "@harness-anything/daemon/internal/process-port
 import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
 import { readFleetEdgeConfig } from "@harness-anything/daemon/internal/client/fleet-edge-config";
 import {
+  isDaemonUnreachable,
   clearDaemonStoppedMarker,
   runtimeDaemonStartRefusal,
   writeDaemonStoppedMarker,
@@ -23,7 +24,6 @@ import {
   releaseDaemonPidFile,
   releaseDaemonSingletonLock,
 } from "@harness-anything/daemon/internal/daemon-singleton";
-import { daemonBuildStamp } from "@harness-anything/daemon/internal/build-identity";
 import { cliErrorMessage } from "../cli-error.ts";
 import { consumeKnownError } from "./client.ts";
 import { ensureCliDaemonRunning } from "./autostart.ts";
@@ -136,8 +136,8 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
         const forced = await forceStopDaemon(userRoot, daemonId, pid);
         return finish(forced, forced.ok === true ? 0 : 1);
       }
-      writeDaemonStoppedMarker(userRoot, daemonId);
       const exchange = await requestCooperativeStop(userRoot, daemonId, pid);
+      writeDaemonStoppedMarker(userRoot, daemonId);
       const outcome = await waitForDaemonStop(userRoot, daemonId, pid, exchange);
       if (outcome === "stopped")
         return finish(
@@ -448,7 +448,8 @@ async function fleetControl(
       75,
     );
     return finish(result, result.ok === true ? 0 : 1);
-  } catch {
+  } catch (error) {
+    if (!isDaemonUnreachable(error)) throw error;
     return finish(
       daemonFailure(
         command,
@@ -471,13 +472,16 @@ async function requestCooperativeStop(
     );
     exchange = await requestDaemonShutdownAt(localUserDaemonEndpoint(userRoot, daemonId), 75);
   } catch (error) {
+    if (!isDaemonUnreachable(error)) throw error;
     consumeKnownError(error);
   }
-  if (exchange !== null && (exchange.stopReply === null || exchange.stopReply.ok)) return exchange;
-  // Two daemons end up here: one that never reached socket bind, and one that answered "no" — a
-  // build without daemon.stop, or a composition without a shutdown owner. Both cannot act on the
-  // RPC, so the signal ladder takes over; serve() drains SIGTERM through the same cooperative
-  // latch as an RPC stop. A daemon that stayed silent keeps its queued shutdown and is left to drain.
+  if (exchange?.stopReply && !exchange.stopReply.ok)
+    throw Object.assign(new Error(exchange.stopReply.message ?? "Daemon refused stop."), {
+      code: exchange.stopReply.code ?? "daemon_stop_refused",
+    });
+  if (exchange !== null) return exchange;
+  // Only a classified unreachable transport can use the signal path. A refusal or
+  // unanswered handshake must retain its error and cannot stop another release.
   signalStop(pid);
   return exchange;
 }
@@ -497,18 +501,8 @@ async function stopTimeoutHint(
       ? exchange?.helloAnswered === true
         ? "the daemon answered protocol.hello but never answered daemon.stop (a long write may be holding it)"
         : "the daemon accepted the connection but never answered the handshake (still starting, or wedged during startup)"
-      : exchange.stopReply.ok
-        ? "the daemon accepted daemon.stop but did not finish draining"
-        : `the daemon rejected daemon.stop (${exchange.stopReply.code ?? "unknown"}${exchange.stopReply.message ? `: ${exchange.stopReply.message}` : ""}) and SIGTERM was sent as the fallback`;
-  return `Daemon pid ${pid} did not stop within 5s. Observed: process ${alive ? "alive" : "gone"}, socket ${up ? "accepting connections" : "not accepting"}, ${reply}${daemonSkewNote(exchange?.daemonCommit ?? null)}. Run \`ha daemon stop --force\` to signal pid ${pid} directly and clear its bookkeeping.`;
-}
-// Skew is the diagnosis, not something to paper over: a daemon serving an older commit is the
-// standing explanation for a rejected stop, and it stays stale until restarted.
-function daemonSkewNote(daemonCommit: string | null): string {
-  const own = daemonBuildStamp().commit;
-  return daemonCommit !== null && own !== null && daemonCommit !== own
-    ? `; the daemon is serving code from commit ${daemonCommit.slice(0, 12)} while this CLI is ${own.slice(0, 12)} — it is running older code`
-    : "";
+      : "the daemon accepted daemon.stop but did not finish draining";
+  return `Daemon pid ${pid} did not stop within 5s. Observed: process ${alive ? "alive" : "gone"}, socket ${up ? "accepting connections" : "not accepting"}, ${reply}. Run \`ha daemon stop --force\` to signal pid ${pid} directly and clear its bookkeeping.`;
 }
 // The supported escalation when a daemon will not drain. Signals go to exactly the pid recorded
 // for this (user-root, daemon-id), never by name, and each step first re-reads the bookkeeping:
@@ -530,6 +524,8 @@ async function forceStopDaemon(userRoot: string, daemonId: string, pid: number):
     const refusal = await forceStopInUseRefusal(userRoot, daemonId);
     if (refusal) return refusal;
   } catch (error) {
+    if (!isDaemonUnreachable(error) && code(error) !== "daemon_response_timeout" && code(error) !== "daemon_closed")
+      throw error;
     // A daemon that cannot answer this bounded read is the R-02 escape case for force.
     consumeKnownError(error);
   }

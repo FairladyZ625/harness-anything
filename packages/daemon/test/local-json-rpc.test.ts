@@ -1,4 +1,5 @@
 // harness-test-tier: fast
+import { fixtureDaemonHello } from "./fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import net from "node:net";
@@ -49,7 +50,11 @@ function lineServer(
     socket.on("data", (chunk: Buffer) => {
       for (const line of chunk.toString("utf8").split("\n").filter(Boolean)) {
         const request = JSON.parse(line) as { readonly id: number; readonly method: string };
-        handler(request, (result) => socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`));
+        handler(request, (result) =>
+          socket.write(
+            `${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: request.method === "protocol.hello" ? { ...fixtureDaemonHello(), ...result } : result })}\n`,
+          ),
+        );
       }
     });
     socket.on("error", () => undefined);
@@ -181,7 +186,9 @@ test("a daemon that closes mid-exchange rejects the pending request instead of h
         const request = JSON.parse(line) as { readonly id: number; readonly method: string };
         if (request.method === "protocol.hello") {
           seenHello = true;
-          socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ok: true } })}\n`);
+          socket.write(
+            `${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: request.method === "protocol.hello" ? fixtureDaemonHello() : { ok: true } })}\n`,
+          );
         } else if (seenHello) {
           // The first request after the handshake is torn down before any response is written.
           socket.destroy();
@@ -231,7 +238,9 @@ test("a close after the daemon answered marks the rejection as an answered conne
       for (const line of chunk.toString("utf8").split("\n").filter(Boolean)) {
         const request = JSON.parse(line) as { readonly id: number; readonly method: string };
         if (request.method === "protocol.hello")
-          socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ok: true } })}\n`);
+          socket.write(
+            `${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: request.method === "protocol.hello" ? fixtureDaemonHello() : { ok: true } })}\n`,
+          );
         else socket.destroy();
       }
     });
@@ -394,7 +403,7 @@ test("the handshake rejects a requested method absent from the daemon method tab
   const server = await rpcServer((request) => {
     seen.push(request.method);
     return request.method === "protocol.hello"
-      ? { result: { ok: true, methods: ["protocol.hello"], build: { commit: "daemon-old" } } }
+      ? { result: { ok: true, ...fixtureDaemonHello(), methods: ["protocol.hello"] } }
       : { result: { ok: true } };
   });
   try {
@@ -402,7 +411,7 @@ test("the handshake rejects a requested method absent from the daemon method tab
       assert.equal((error as { readonly code?: string }).code, "daemon_method_unavailable");
       assert.equal(
         (error as Error).message,
-        "Attached local daemon build daemon-old does not advertise requested method repo.gui.new-read.",
+        `Attached local daemon${fixtureDaemonHello().build.commit ? ` build ${fixtureDaemonHello().build.commit}` : ""} does not advertise requested method repo.gui.new-read.`,
       );
       return true;
     });
@@ -415,7 +424,7 @@ test("the handshake rejects a requested method absent from the daemon method tab
 test("daemon-only methods do not make the requested-method handshake fail", async () => {
   const server = await rpcServer((request) =>
     request.method === "protocol.hello"
-      ? { result: { ok: true, methods: ["protocol.hello", "repo.gui.read", "daemon.extra"] } }
+      ? { result: { ok: true, ...fixtureDaemonHello(), methods: ["protocol.hello", "repo.gui.read", "daemon.extra"] } }
       : { result: { ok: true, value: "accepted" } },
   );
   try {
@@ -431,7 +440,7 @@ test("daemon-only methods do not make the requested-method handshake fail", asyn
 test("a JSON-RPC method-not-found response retains its protocol identity", async () => {
   const server = await rpcServer((request) =>
     request.method === "protocol.hello"
-      ? { result: { ok: true } }
+      ? { result: fixtureDaemonHello() }
       : { error: { code: -32601, message: "Method not found" } },
   );
   try {

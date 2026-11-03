@@ -1,7 +1,7 @@
 import type net from "node:net";
 import { assertRuntimeCredentialEndpoint } from "./client/local-daemon-target.ts";
 import { readDaemonRegistry, type DaemonRegistryConnection } from "@harness-anything/kernel";
-import { connectSocket, JsonRpcLineClient } from "./client/local-json-rpc-client.ts";
+import { connectSocket, JsonRpcLineClient, daemonHelloFailureCode } from "./client/local-json-rpc-client.ts";
 import { streamDaemonFacetAt } from "./client/local-json-rpc-stream.ts";
 import { daemonStreamFacetByMethod } from "./protocol/daemon-protocol-gui-actions.ts";
 import { type DaemonStreamMethod, type DaemonStreamPayloadMap } from "./protocol/daemon-protocol.contract.ts";
@@ -246,7 +246,8 @@ function classifyRemoteProxyError(error: unknown): Error {
     typeof error === "object" &&
     error !== null &&
     "code" in error &&
-    (error as { readonly code?: unknown }).code === "remote_proxy_protocol_mismatch"
+    ((error as { readonly code?: unknown }).code === "remote_proxy_protocol_mismatch" ||
+      daemonHelloFailureCode(error) !== null)
   )
     return error as unknown as Error;
   const message = error instanceof Error ? error.message : String(error);

@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import assert from "node:assert/strict";
 import { sha256Text } from "@harness-anything/kernel";
 import { randomUUID } from "node:crypto";
@@ -131,7 +132,7 @@ for (const explicit of [false, true])
         createProtocolServer: (authContext, emit) =>
           createJsonRpcProtocolServer({
             host: edge,
-            build: { commit: null },
+            build: daemonBuildStamp(),
             authContext,
             emit,
             sessionPrincipal: async () => (await oidc.bind({ transportKind: "unix-socket" })).oidcPrincipal,

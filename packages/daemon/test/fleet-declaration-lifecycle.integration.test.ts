@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
@@ -100,7 +101,7 @@ test(
         createProtocolServer: (authContext, emit) =>
           createJsonRpcProtocolServer({
             host: edge,
-            build: { commit: null },
+            build: daemonBuildStamp(),
             authContext,
             emit,
             sessionPrincipal: async () => (await oidc.bind({ transportKind: authContext.transportKind })).oidcPrincipal,

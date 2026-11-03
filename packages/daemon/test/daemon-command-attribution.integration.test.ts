@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import os from "node:os";
@@ -51,7 +52,7 @@ test("a CLI-shaped agenda invocation is attributed by command name and actor in 
       const labelled = connLog.connectionOpened(connectionId, authContext.transportKind);
       return createJsonRpcProtocolServer({
         host: stubHost(),
-        build: { commit: null },
+        build: daemonBuildStamp(),
         authContext: { ...authContext, connectionSignal: signal },
         emit,
         connectionId: labelled,

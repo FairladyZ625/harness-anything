@@ -1,11 +1,6 @@
+import { runProcessText } from "./process-text.ts";
 import { statSync } from "node:fs";
-import {
-  execFile,
-  /* @gate-identity check-sync-subprocess/sync-subprocess-008 */
-  execFileSync,
-  spawn,
-  type ChildProcess,
-} from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { terminateRuntimePid } from "./runtime-process-signals.ts";
 import { closeDaemonOutputFd, openDaemonOutputFd } from "./lifecycle-log.ts";
 
@@ -95,25 +90,7 @@ export function terminateProcess(pid: number): void {
 export function yieldToEventLoop(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
 }
-export function runProcessText(
-  command: string,
-  args: readonly string[],
-  cwd?: string,
-  env?: NodeJS.ProcessEnv,
-  timeoutMs?: number,
-): string {
-  return (
-    /* @gate-identity check-sync-subprocess/sync-subprocess-009 */
-    execFileSync(command, [...args], {
-      cwd,
-      ...(env ? { env } : {}),
-      ...(timeoutMs === undefined ? {} : { timeout: timeoutMs }),
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
-    })
-  );
-}
+export { runProcessText } from "./process-text.ts";
 interface ProcessTextOutcome {
   readonly error:
     | (Error & {

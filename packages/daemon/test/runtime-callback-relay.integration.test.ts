@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import assert from "node:assert/strict";
 import { adoptNativeProcess, launchNative } from "../src/runtime-spawn-process.ts";
 import { randomBytes } from "node:crypto";
@@ -72,7 +73,7 @@ test(
         jsonrpc: "2.0",
         id: 1,
         method: "protocol.hello",
-        params: { protocolVersion: currentDaemonProtocolVersion },
+        params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit },
       },
       write = {
         jsonrpc: "2.0",
@@ -104,7 +105,7 @@ test(
                 return { outcome: "applied" };
               },
             } as never,
-            build: { commit: null },
+            build: daemonBuildStamp(),
             authContext: { ...authContext, connectionSignal: signal },
             executionPrincipal: async (credential) => {
               assert.equal(credential, executionCredential);
@@ -157,7 +158,10 @@ test(
         }),
         client = new JsonRpcLineClient(socket, socket);
       try {
-        await client.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion });
+        await client.request("protocol.hello", {
+          protocolVersion: currentDaemonProtocolVersion,
+          buildCommit: daemonBuildStamp().commit,
+        });
         await client.request("repo.task.run", write.params);
       } finally {
         client.close();

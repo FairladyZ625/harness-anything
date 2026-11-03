@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import { seedBuiltinSchedules } from "../src/schedule-builtin-executor.ts";
 import { signInPolicyTestUser, withPolicyGroup, policyTestDeviceToken } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
@@ -167,7 +168,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
       createProtocolServer: (authContext, emit) => {
         return createJsonRpcProtocolServer({
           host,
-          build: { commit: null },
+          build: daemonBuildStamp(),
           authContext,
           emit,
         });

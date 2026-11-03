@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -87,7 +88,7 @@ test("CLI submit of a pushed delivery seats the matching path reviewer instead o
       daemonId,
       socketPath: endpoint,
       createProtocolServer: (authContext, emit) =>
-        createJsonRpcProtocolServer({ host, build: { commit: null }, authContext, emit }),
+        createJsonRpcProtocolServer({ host, build: daemonBuildStamp(), authContext, emit }),
     });
   await transport.start();
   try {

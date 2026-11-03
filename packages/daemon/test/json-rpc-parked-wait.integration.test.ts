@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { DaemonHost } from "../src/daemon-host.ts";
@@ -34,7 +35,7 @@ function parkedAwaitServer(input: ParkedWaitServerInput) {
   } as never as DaemonHost;
   return createJsonRpcProtocolServer({
     host,
-    build: { commit: null },
+    build: daemonBuildStamp(),
     authContext: {
       transportKind: "unix-socket",
       ...(input.connectionSignal ? { connectionSignal: input.connectionSignal } : {}),
@@ -49,7 +50,7 @@ const helloRequest = {
     jsonrpc: "2.0" as const,
     id: 1,
     method: "protocol.hello",
-    params: { protocolVersion: currentDaemonProtocolVersion },
+    params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit },
   },
   awaitRequest = (id: number) => ({
     jsonrpc: "2.0" as const,

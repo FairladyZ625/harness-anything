@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
@@ -533,7 +534,7 @@ test("slow subscribers gap without blocking daemon writer requests, and detach d
     } as unknown as DaemonHost;
     const server = createJsonRpcProtocolServer({
       host,
-      build: { commit: null },
+      build: daemonBuildStamp(),
       authContext: { transportKind: "unix-socket" },
       emit: () => new Promise(() => undefined),
     });
@@ -541,7 +542,7 @@ test("slow subscribers gap without blocking daemon writer requests, and detach d
       jsonrpc: "2.0",
       id: 1,
       method: "protocol.hello",
-      params: { protocolVersion: currentDaemonProtocolVersion },
+      params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit },
     });
     await server.handle({
       jsonrpc: "2.0",

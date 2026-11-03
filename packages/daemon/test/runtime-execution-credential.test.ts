@@ -1,4 +1,5 @@
 // harness-test-tier: fast
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -318,7 +319,7 @@ test("credential-bearing GUI spawn reaches runtime instance validation", async (
     },
     server = createJsonRpcProtocolServer({
       host: host as never,
-      build: { commit: null },
+      build: daemonBuildStamp(),
       authContext: { transportKind: "unix-socket" },
       emit: async () => undefined,
       executionPrincipal: async (_credential, method, params) => {
@@ -331,7 +332,11 @@ test("credential-bearing GUI spawn reaches runtime instance validation", async (
       jsonrpc: "2.0",
       id: 1,
       method: "protocol.hello",
-      params: { protocolVersion: currentDaemonProtocolVersion, executionCredential: "test-credential" },
+      params: {
+        protocolVersion: currentDaemonProtocolVersion,
+        buildCommit: daemonBuildStamp().commit,
+        executionCredential: "test-credential",
+      },
     });
     const response = await server.handle({
       jsonrpc: "2.0",

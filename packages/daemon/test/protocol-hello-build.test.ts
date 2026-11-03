@@ -25,7 +25,7 @@ test("protocol.hello answers with the daemon's build stamp", async () => {
       jsonrpc: "2.0",
       id: 1,
       method: "protocol.hello",
-      params: { protocolVersion: currentDaemonProtocolVersion },
+      params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: build.commit },
     });
     const result = (hello as { readonly result: { readonly build?: { readonly commit: string | null } } }).result;
     assert.equal(
@@ -71,7 +71,7 @@ test("protocol.hello reports a drifted build and keeps serving while work drains
       jsonrpc: "2.0",
       id: 1,
       method: "protocol.hello",
-      params: { protocolVersion: currentDaemonProtocolVersion },
+      params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: "loaded" },
     });
     assert.equal(
       (hello as { readonly result: { readonly ok: boolean } }).result.ok,
@@ -98,6 +98,64 @@ test("protocol.hello reports a drifted build and keeps serving while work drains
     assert.equal(driftObservations, 2, "ordinary requests observe drift on long-lived connections");
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(shutdowns, 0, "the handshake must never stop a daemon with work still in flight");
+  } finally {
+    server.close();
+  }
+});
+
+for (const clientCommit of [undefined, "other-release"]) {
+  test(`protocol.hello rejects ${clientCommit ?? "missing"} release before admitting business or stop`, async () => {
+    let stops = 0;
+    const server = createJsonRpcProtocolServer({
+      host: {} as never,
+      build: { commit: "fixed-release" },
+      authContext: { transportKind: "unix-socket" },
+      emit: async () => undefined,
+      requestShutdown: () => {
+        stops += 1;
+      },
+    });
+    try {
+      const hello = await server.handle({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "protocol.hello",
+        params: {
+          protocolVersion: currentDaemonProtocolVersion,
+          ...(clientCommit ? { buildCommit: clientCommit } : {}),
+        },
+      });
+      assert.equal((hello as { result: { code: string } }).result.code, "daemon_version_mismatch");
+      const stop = await server.handle({ jsonrpc: "2.0", id: 2, method: "daemon.stop", params: {} });
+      assert.equal((stop as { result: { code: string } }).result.code, "hello_required");
+      assert.equal(stops, 0);
+    } finally {
+      server.close();
+    }
+  });
+}
+test("a second refused hello revokes previously admitted business requests", async () => {
+  let stops = 0;
+  const server = createJsonRpcProtocolServer({
+    host: {} as never,
+    build: { commit: "fixed-release" },
+    authContext: { transportKind: "unix-socket" },
+    emit: async () => undefined,
+    requestShutdown: () => {
+      stops += 1;
+    },
+  });
+  try {
+    for (const buildCommit of ["fixed-release", "other-release"])
+      await server.handle({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "protocol.hello",
+        params: { protocolVersion: currentDaemonProtocolVersion, buildCommit },
+      });
+    const stop = await server.handle({ jsonrpc: "2.0", id: 2, method: "daemon.stop", params: {} });
+    assert.equal((stop as { result: { code: string } }).result.code, "hello_required");
+    assert.equal(stops, 0);
   } finally {
     server.close();
   }

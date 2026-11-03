@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import { createIdentitySession } from "../src/authorization-provider.ts";
 import { managedRbacSessionStore } from "@harness-anything/authorization-keycloak/managed-rbac-service";
@@ -254,7 +255,7 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
         createProtocolServer: (authContext, emit, _connectionId, connectionSignal) =>
           createJsonRpcProtocolServer({
             host: protocolHost,
-            build: { commit: null },
+            build: daemonBuildStamp(),
             authContext: { ...authContext, connectionSignal },
             sessionPrincipal: (method, params) => {
               sessionPrincipalMethods.push(method);

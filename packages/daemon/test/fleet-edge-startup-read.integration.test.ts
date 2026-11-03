@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import assert from "node:assert/strict";
 import net from "node:net";
 import { once } from "node:events";
@@ -90,7 +91,7 @@ test(
       daemonId: "startup-empty-daemon",
       socketPath: localUserDaemonEndpoint(e.edgeUser, "startup-empty-daemon"),
       createProtocolServer: (authContext, emit) =>
-        createJsonRpcProtocolServer({ host: e.host, authContext, emit, build: { commit: null } }),
+        createJsonRpcProtocolServer({ host: e.host, authContext, emit, build: daemonBuildStamp() }),
     });
     await transport.start();
     t.after(() => transport.stop());
@@ -135,7 +136,10 @@ test(
       assert.equal(envelope.id, message.id);
       return envelope;
     };
-    const hello = await request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion });
+    const hello = await request("protocol.hello", {
+      protocolVersion: currentDaemonProtocolVersion,
+      buildCommit: daemonBuildStamp().commit,
+    });
     assert.ok(hello.result, JSON.stringify(hello));
     t.diagnostic(`hello=${JSON.stringify(hello)}`);
     const { schema: _schema, ...payload } = e.config;

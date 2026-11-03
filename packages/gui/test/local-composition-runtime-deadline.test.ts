@@ -1,4 +1,5 @@
 // harness-test-tier: fast
+import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
@@ -61,7 +62,7 @@ for (const scenario of cases) {
           const request = JSON.parse(line) as { id: number; method: string };
           if (request.method === "protocol.hello") {
             socket.write(
-              `${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ok: true, methods: ["protocol.hello", `daemon.runtimeInstance.${scenario.method === "deleteRuntimeInstance" ? "delete" : scenario.method === "showRuntimeInstance" ? "show" : scenario.method === "createRuntimeInstance" ? "create" : scenario.method === "listRuntimeInstances" ? "list" : "update"}`] } })}\n`,
+              `${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ...fixtureDaemonHello(), methods: ["protocol.hello", `daemon.runtimeInstance.${scenario.method === "deleteRuntimeInstance" ? "delete" : scenario.method === "showRuntimeInstance" ? "show" : scenario.method === "createRuntimeInstance" ? "create" : scenario.method === "listRuntimeInstances" ? "list" : "update"}`] } })}\n`,
             );
           } else {
             seen.push(request.method);
@@ -120,7 +121,7 @@ test("a raised local gui.requestTimeoutMs governs the default read deadline, not
         const request = JSON.parse(line) as { id: number; method: string };
         if (request.method === "protocol.hello") {
           socket.write(
-            `${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ok: true, methods: ["protocol.hello", "daemon.gui.system.read"] } })}\n`,
+            `${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ...fixtureDaemonHello(), methods: ["protocol.hello", "daemon.gui.system.read"] } })}\n`,
           );
         } else resolve();
       });

@@ -50,8 +50,8 @@ import {
 } from "./gui-result-validation.ts";
 import { isJsonObject, type JsonObject, type JsonRpcRequest, type JsonRpcResponse } from "./json-rpc-types.ts";
 import { currentDaemonProtocolVersion } from "./version.ts";
-import { isContractVersionCompatible } from "@harness-anything/kernel/contract-version";
-import { consumeKnownError, type CoreDomainError } from "@harness-anything/kernel";
+import { daemonHelloMismatch } from "../client/daemon-hello.ts";
+import { consumeKnownError } from "@harness-anything/kernel";
 import type { DaemonBuildObserver, DaemonBuildStamp } from "../build-identity.ts";
 import { diagnosticForError } from "../receipt-guidance.ts";
 import { remoteProxyEventMethod } from "../remote-proxy.ts";
@@ -219,14 +219,9 @@ export function createJsonRpcProtocolServer(options: {
       wait: isDaemonParkedWaitMethod(method),
     };
     if (request.method === "protocol.hello" && method === request.method) {
-      if (!isContractVersionCompatible(params.protocolVersion, currentDaemonProtocolVersion)) {
-        const mismatch = {
-          _tag: "ProtocolVersionMismatchError",
-          code: "incompatible_protocol_version",
-          message: "Use the daemon protocol version reported by this binary.",
-        } satisfies Extract<CoreDomainError, { readonly _tag: "ProtocolVersionMismatchError" }>;
-        return reply(method, daemonProtocolError("protocol.hello", mismatch.code, mismatch.message));
-      }
+      handshaken = false;
+      const mismatch = daemonHelloMismatch(params.protocolVersion, { commit: params.buildCommit }, options.build);
+      if (mismatch) return reply(method, daemonProtocolError(method, mismatch.code, mismatch.message));
       if (params.sessionEnvironment === undefined) Reflect.deleteProperty(options.authContext, "sessionEnvironment");
       else
         Object.assign(options.authContext, {

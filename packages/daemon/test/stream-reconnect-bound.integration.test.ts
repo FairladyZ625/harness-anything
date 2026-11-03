@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { fixtureDaemonHello } from "./fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
 import net from "node:net";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
@@ -23,7 +24,11 @@ test("an attached stream exhausts a bounded reconnect budget and reports the los
     const server = net.createServer((socket) => {
       accepted.push(1);
       if (accepted.length <= 2) {
-        socket.on("data", () =>
+        socket.on("data", (chunk: Buffer) => {
+          if (chunk.toString().includes("protocol.hello")) {
+            socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, result: fixtureDaemonHello() })}\n`);
+            return;
+          }
           socket.write(
             JSON.stringify({
               jsonrpc: "2.0",
@@ -36,9 +41,9 @@ test("an attached stream exhausts a bounded reconnect budget and reports the los
                 events: [],
               },
             }) + "\n",
-          ),
-        );
-        setTimeout(() => socket.destroy(), 50);
+          );
+          setImmediate(() => socket.destroy());
+        });
       } else socket.destroy();
     });
     await new Promise<void>((resolve) => {

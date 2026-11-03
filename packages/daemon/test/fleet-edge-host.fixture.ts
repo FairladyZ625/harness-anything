@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -191,7 +192,7 @@ export async function fleetEdgeHostFixture(
   if (options.waitForAttachments !== false) await host.attachmentsSettled();
   const rpc = createJsonRpcProtocolServer({
     host,
-    build: { commit: null },
+    build: daemonBuildStamp(),
     authContext: auth,
     sessionPrincipal: (method, params) => host.sessionPrincipal(auth, method, params),
     emit: async () => undefined,
@@ -201,7 +202,7 @@ export async function fleetEdgeHostFixture(
     jsonrpc: "2.0",
     id: 0,
     method: "protocol.hello",
-    params: { protocolVersion: currentDaemonProtocolVersion },
+    params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit },
   });
   let id = 0;
   /** One CLI edge task command, as `ha task ...` sends it to the local daemon. */

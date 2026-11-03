@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import assert from "node:assert/strict";
 import net from "node:net";
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
@@ -60,7 +61,7 @@ test("a live daemon logs hello, dispatched requests, rejections, and connection 
       jsonrpc: "2.0",
       id: 1,
       method: "protocol.hello",
-      params: { protocolVersion: currentDaemonProtocolVersion },
+      params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit },
     };
     const first = await session(daemon.endpoint, [
       JSON.stringify(hello),

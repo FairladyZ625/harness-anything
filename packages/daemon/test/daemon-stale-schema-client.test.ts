@@ -1,4 +1,5 @@
 // harness-test-tier: fast
+import { fixtureDaemonHello } from "./fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import net from "node:net";
@@ -20,7 +21,7 @@ test("a request reaches a draining stale daemon and carries its build warning", 
           const result =
             request.method === "protocol.hello"
               ? {
-                  ok: true,
+                  ...fixtureDaemonHello(),
                   warning: {
                     code: "daemon_build_stale",
                     loadedBuildId: "build-a",

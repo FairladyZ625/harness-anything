@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -148,7 +149,7 @@ test(
     );
     const rpc = createJsonRpcProtocolServer({
       host: edge,
-      build: { commit: null },
+      build: daemonBuildStamp(),
       authContext: auth,
       emit: async () => undefined,
     });
@@ -157,7 +158,7 @@ test(
       jsonrpc: "2.0",
       id: 1,
       method: "protocol.hello",
-      params: { protocolVersion: currentDaemonProtocolVersion },
+      params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit },
     });
     const read: typeof edge.read = async (repoId, method, payload) => {
       const response = await rpc.handle({

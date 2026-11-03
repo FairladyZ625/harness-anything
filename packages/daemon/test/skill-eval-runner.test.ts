@@ -1,4 +1,5 @@
 // harness-test-tier: fast
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -143,7 +144,7 @@ test("routes the resident daemon skill-evaluation protocol through composed poli
     try {
       const server = createJsonRpcProtocolServer({
         host,
-        build: { commit: null },
+        build: daemonBuildStamp(),
         authContext: { transportKind: "unix-socket" },
         sessionPrincipal: async () => ({
           personId: "drafter",
@@ -156,7 +157,10 @@ test("routes the resident daemon skill-evaluation protocol through composed poli
       });
       const request = (id: number, method: string, params: Record<string, unknown>) =>
         server.handle({ jsonrpc: "2.0", id, method, params });
-      const hello = await request(1, "protocol.hello", { protocolVersion: currentDaemonProtocolVersion });
+      const hello = await request(1, "protocol.hello", {
+        protocolVersion: currentDaemonProtocolVersion,
+        buildCommit: daemonBuildStamp().commit,
+      });
       assert.equal((hello as { result?: { ok?: boolean } }).result?.ok, true);
       const added = await request(2, "daemon.skillEval.case.add", {
         skillId: "report",
@@ -196,7 +200,7 @@ test("keeps ordinary OIDC principals as redacted drafters under the default poli
     try {
       const server = createJsonRpcProtocolServer({
         host,
-        build: { commit: null },
+        build: daemonBuildStamp(),
         authContext: { transportKind: "unix-socket" },
         sessionPrincipal: async () => ({
           personId: "ordinary-user",
@@ -209,7 +213,10 @@ test("keeps ordinary OIDC principals as redacted drafters under the default poli
       });
       const request = (id: number, method: string, params: Record<string, unknown>) =>
         server.handle({ jsonrpc: "2.0", id, method, params });
-      const hello = await request(1, "protocol.hello", { protocolVersion: currentDaemonProtocolVersion });
+      const hello = await request(1, "protocol.hello", {
+        protocolVersion: currentDaemonProtocolVersion,
+        buildCommit: daemonBuildStamp().commit,
+      });
       assert.equal((hello as { result?: { ok?: boolean } }).result?.ok, true);
       const listed = await request(2, "daemon.skillEval.cases.list", { skillId: "report" });
       const rows = (

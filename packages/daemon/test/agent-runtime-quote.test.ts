@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import assert from "node:assert/strict";
 import net from "node:net";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -33,7 +34,7 @@ function quoteServer(authContext: {
 }) {
   return createJsonRpcProtocolServer({
     host: {} as never,
-    build: { commit: null },
+    build: daemonBuildStamp(),
     authContext,
     emit: async () => undefined,
   });
@@ -109,7 +110,7 @@ test("quote is advertised by protocol.hello and served on the local socket contr
       jsonrpc: "2.0",
       id: 1,
       method: "protocol.hello",
-      params: { protocolVersion: currentDaemonProtocolVersion },
+      params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit },
     });
     assert.ok(hello && !Array.isArray(hello));
     const helloResult = responseResult(hello);
@@ -143,7 +144,7 @@ test("quote rejects fleet TLS callers at the daemon ACL boundary", async () => {
       jsonrpc: "2.0",
       id: 1,
       method: "protocol.hello",
-      params: { protocolVersion: currentDaemonProtocolVersion },
+      params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit },
     });
     const response = await server.handle({
       jsonrpc: "2.0",
@@ -167,7 +168,7 @@ test("quote RPC treats prototype property names as unpriced models", async () =>
       jsonrpc: "2.0",
       id: 1,
       method: "protocol.hello",
-      params: { protocolVersion: currentDaemonProtocolVersion },
+      params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit },
     });
     for (const model of ["toString", "constructor", "__proto__"]) {
       const response = await server.handle({
@@ -203,7 +204,7 @@ test("real local socket calls return priced and unpriced quote receipts", async 
         createProtocolServer: (authContext, emit, connectionId, signal) =>
           createJsonRpcProtocolServer({
             host: {} as never,
-            build: { commit: null },
+            build: daemonBuildStamp(),
             authContext: { ...authContext, connectionSignal: signal },
             emit,
             connectionId,

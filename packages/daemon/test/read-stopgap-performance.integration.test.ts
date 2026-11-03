@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
@@ -61,7 +62,7 @@ test("runtime discovery write load keeps independent read clients within the sto
       daemonId,
       socketPath: endpoint,
       createProtocolServer: (authContext, emit) =>
-        createJsonRpcProtocolServer({ host, build: { commit: null }, authContext, emit }),
+        createJsonRpcProtocolServer({ host, build: daemonBuildStamp(), authContext, emit }),
     }),
     readCalls = [
       ["workspaceSummary", "repo.workspace.summary.read", { repo: { repoId } }],
@@ -177,7 +178,7 @@ test("WAL Git materialization leaves an independent socket client within the iso
       daemonId,
       socketPath: endpoint,
       createProtocolServer: (authContext, emit) =>
-        createJsonRpcProtocolServer({ host, build: { commit: null }, authContext, emit }),
+        createJsonRpcProtocolServer({ host, build: daemonBuildStamp(), authContext, emit }),
     });
   await transport.start();
   try {
@@ -248,7 +249,7 @@ test("sustained RepoWriterCell writes keep completed-cut reads within strict CH3
       daemonId,
       socketPath: endpoint,
       createProtocolServer: (authContext, emit) =>
-        createJsonRpcProtocolServer({ host, build: { commit: null }, authContext, emit }),
+        createJsonRpcProtocolServer({ host, build: daemonBuildStamp(), authContext, emit }),
     });
   await transport.start();
   try {

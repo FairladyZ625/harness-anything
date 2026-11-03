@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { once } from "node:events";
@@ -148,7 +149,7 @@ test("daemon runtime stream reconnects after transport loss from the last delive
             params: { payload?: { afterCursor?: string } };
           };
           if (request.method === "protocol.hello") {
-            socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ok: true } })}\n`);
+            socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: fixtureDaemonHello() })}\n`);
             continue;
           }
           attempts.push(request.params.payload?.afterCursor ?? "missing");
