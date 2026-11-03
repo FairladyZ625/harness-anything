@@ -558,7 +558,10 @@ export async function serve(
           messageId: frame?.messageId ?? null,
           error,
         });
-      if (socket.destroyed) return;
+      if (socket.destroyed) {
+        options.onErrorReply?.(frame?.messageId ?? "invalid", 0);
+        return;
+      }
       const errorFrame = {
         schema: "fleet.error/v1" as const,
         messageId: mid(frame?.messageId ?? "invalid", "error"),
