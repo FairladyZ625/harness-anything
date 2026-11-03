@@ -124,7 +124,7 @@ export const docFactProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "doc-retire",
     phase: "DocSync-B",
     path: ["doc", "retire"],
@@ -167,7 +167,7 @@ export const docFactProtocolCommands = Object.freeze([
     method: "repo.task.run",
     inputs: [],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "fact-reclassify",
     phase: "DecisionFact-A",
     path: ["fact", "reclassify"],
@@ -175,9 +175,15 @@ export const docFactProtocolCommands = Object.freeze([
     summary: "Replace a Fact's domain types with an audited reclassification event.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--type", "repeated", true, {
-        code: "missing_field",
-      }),
+      cliInput(
+        "--type",
+        "repeated",
+        true,
+        {
+          code: "missing_field",
+        },
+        { field: "domainTypes" },
+      ),
       cliInput(
         "--rationale",
         "single",
@@ -189,8 +195,13 @@ export const docFactProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "fact-archive",
+    payloadFields: [
+      { field: "factId", type: "string", required: false, wire: { required: false } },
+      { field: "factIds", type: "string-array", required: false },
+      { field: "idsFile", type: "string", required: false, wire: { omit: true } },
+    ],
     phase: "DecisionFact-A",
     path: ["fact", "archive"],
     syntaxPath: ["fact", "archive", "<fact-id>"],
@@ -216,7 +227,7 @@ export const docFactProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "fact-unarchive",
     phase: "DecisionFact-A",
     path: ["fact", "unarchive"],
@@ -266,8 +277,18 @@ export const docFactProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "fact-type-register",
+    payloadFields: [
+      { field: "type", type: "string", required: false, wire: { omit: true } },
+      { field: "source", type: "string", required: false, wire: { omit: true } },
+      { field: "statement", type: "string", required: true },
+      { field: "evidenceSource", type: "string", required: true },
+      { field: "confidence", type: "string", required: false },
+      { field: "memoryClass", type: "string", required: false },
+      { field: "memoryTags", type: "string-array", required: false },
+      { field: "registersDomainType", type: "string", required: true },
+    ],
     phase: "DecisionFact-A",
     path: ["fact", "type", "register"],
     syntaxPath: ["fact", "type", "register", "<type>"],

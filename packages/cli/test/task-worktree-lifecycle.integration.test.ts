@@ -13,6 +13,7 @@ import {
   runMaybe,
   seedTask,
 } from "./runtime-cli.fixtures.ts";
+import { waitForCondition, waitForValue } from "../../../tools/fixtures/wait-for-condition.ts";
 
 // dec_BBA713052997C3EF5F5D3DD952 end to end through the real CLI and daemon: a repository-diff task is bound at
 // create, checked out on first start or dispatch, and reclaimed by the managed-worktree rule when it closes.
@@ -136,16 +137,24 @@ test("a task's worktree is bound at create, checked out on start or dispatch, an
   assert.equal(run(root, env, ["daemon", "start", "--service"]).ok, true);
   // The restarted daemon attaches the repository and runs the same reconciliation a close runs; poll the disk.
   // The reconciliation removes the worktree before it deletes the branch, so wait for both.
-  const gone = () => !existsSync(missedTree.cwd) && git(root, "branch", "--list", missedTree.branch) === "";
   // The sweep is the last job attach queues, behind runtime adoption and archive upkeep, so a loaded runner takes longer.
-  const reclaimStartedAt = Date.now();
-  let reclaimed = gone();
-  while (!reclaimed && Date.now() - reclaimStartedAt < 60_000) {
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
-    reclaimed = gone();
-  }
-  context.diagnostic(`startup-reclaim-ms=${Date.now() - reclaimStartedAt}`);
-  assert.equal(reclaimed, true, "the daemon start reclaimed the worktree and branch the failed close left behind");
+  let reclaimState = {
+    worktreeExists: existsSync(missedTree.cwd),
+    branchExists: git(root, "branch", "--list", missedTree.branch) !== "",
+  };
+  const reclaimStartedAt = performance.now();
+  await waitForCondition(
+    () => {
+      reclaimState = {
+        worktreeExists: existsSync(missedTree.cwd),
+        branchExists: git(root, "branch", "--list", missedTree.branch) !== "",
+      };
+      return !reclaimState.worktreeExists && !reclaimState.branchExists;
+    },
+    "startup reconciliation to reclaim the worktree and branch",
+    { timeoutMs: 60_000, intervalMs: 50, describeLast: () => JSON.stringify(reclaimState) },
+  );
+  context.diagnostic(`startup-reclaim-ms=${Math.round(performance.now() - reclaimStartedAt)}`);
   assert.equal(worktreeOf(missed.taskId).state, "reclaimed");
 
   const help = spawnSync(process.execPath, [cli, "--root", root, "task", "create", "--help"], {
@@ -265,10 +274,11 @@ for (const { name, command } of [
     start.stdout.on("data", (chunk: Buffer) => output.push(String(chunk)));
     start.stderr.on("data", (chunk: Buffer) => output.push(String(chunk)));
     try {
-      for (const deadline = Date.now() + 60_000; !existsSync(running); ) {
-        assert.ok(Date.now() < deadline, `setup never began:\n${output.join("")}`);
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
+      await waitForValue(() => (existsSync(running) ? true : null), "worktree setup to begin", {
+        timeoutMs: 60_000,
+        intervalMs: 100,
+        describeLast: () => output.join(""),
+      });
       // The setup is still waiting on its release; another task's create is a write to the same repository.
       const other = spawnSync(
         process.execPath,

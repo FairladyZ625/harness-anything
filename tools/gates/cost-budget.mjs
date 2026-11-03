@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { COLLECTION_PROBES, measureCollectionCosts } from "../../packages/daemon/test/fixtures/g38-collection-cost.mjs";
 import { repoRoot } from "./git.mjs";
 import { loadReceipts, verifyReceipt } from "./receipt-verify.mjs";
 import { removeTemporaryDirectory } from "../temporary-directory-cleanup.mjs";
@@ -161,7 +163,7 @@ export async function evaluateCostBudget({
 
 // --- G1 write-path scale invariant -----------------------------------------------------------
 // Extends the cost-budget gate (dec_EF5F3820E81FB8A5266F1F3342 CH1, refining dec_D507BBA7174F4BF61521CAEB61):
-// every durable write kind and hot read runs through the production daemon request path on a
+// the historical sampled writes and hot reads run through the production daemon request path on a
 // 200-event and a 2000-event ledger, and its steady-state call (the one after a warm-up call) is
 // judged; a 10x history growth must not cost meaningfully more per call.
 export const G1_SCALES = Object.freeze({ small: 200, large: 2000 });
@@ -240,6 +242,77 @@ function readG1BudgetFile(filePath, operations, metrics) {
   return { scales, baseline, budgets, knownScaling };
 }
 
+async function canonicalWriteActions(rootDir) {
+  const declarationPath = path.join(rootDir, "packages/kernel/src/domain/action-declaration.ts"),
+    catalogPath = path.join(rootDir, "packages/kernel/src/domain/entity-kind-registry.ts"),
+    sourceDigest = createHash("sha256").update(readFileSync(declarationPath)).digest("hex"),
+    { actionDeclarations, artifactActionIngressKinds } = await import(
+      `${pathToFileURL(declarationPath).href}?source=${sourceDigest}`
+    ),
+    { entityKindContracts } = await import(
+      `${pathToFileURL(catalogPath).href}?source=${createHash("sha256").update(readFileSync(catalogPath)).digest("hex")}`
+    );
+  if (!Array.isArray(actionDeclarations) || !Array.isArray(artifactActionIngressKinds))
+    throw new Error(`${declarationPath}: action declarations and artifact ingress must be arrays`);
+  return [
+    ...new Set([
+      ...actionDeclarations
+        .filter(({ executionClass, residency }) => executionClass !== "repo-read" && residency?.scope === "canonical")
+        .map(({ kind }) => kind),
+      ...artifactActionIngressKinds,
+      // The entity catalog also declares internal canonical event Actions (RuntimeSession),
+      // which have no CLI permission declaration. Include those writers as well as public ingress.
+      ...entityKindContracts.flatMap(({ residency, actionCatalog }) =>
+        Object.values(residency).includes("ledger")
+          ? (actionCatalog?.actions ?? []).flatMap(({ execution }) =>
+              execution && !execution.read ? [execution.ingress] : [],
+            )
+          : [],
+      ),
+    ]),
+  ].sort();
+}
+
+function readActionCoverage(section, actions, measurements, label) {
+  const coverage = section.actionCoverage;
+  if (!coverage || typeof coverage !== "object" || Array.isArray(coverage))
+    throw new Error(`${label}.actionCoverage must declare measurements and inapplicable actions`);
+  const measured = coverage.measured;
+  if (!measured || typeof measured !== "object" || Array.isArray(measured))
+    throw new Error(`${label}.actionCoverage.measured must be an object`);
+  const declared = new Set(Object.keys(measured));
+  for (const [action, entry] of Object.entries(measured)) {
+    if (!actions.includes(action)) throw new Error(`${label}.actionCoverage.measured has unknown action ${action}`);
+    if (!Array.isArray(entry?.measurements) || entry.measurements.length === 0)
+      throw new Error(`${label}.actionCoverage.measured.${action} requires nonempty measurements`);
+    for (const id of entry.measurements) {
+      const probe = COLLECTION_PROBES[id];
+      if (id === `${action}:ledger-events` && measurements.includes(action)) continue;
+      if (!probe || probe.action !== action)
+        throw new Error(`${label}.actionCoverage.measured.${action} has no matching production measurement ${id}`);
+    }
+  }
+  if (!Array.isArray(coverage.notApplicable)) throw new Error(`${label}.actionCoverage.notApplicable must be an array`);
+  for (const [index, entry] of coverage.notApplicable.entries()) {
+    const entryLabel = `${label}.actionCoverage.notApplicable[${index}]`;
+    if (!Array.isArray(entry?.actions) || entry.actions.length === 0)
+      throw new Error(`${entryLabel}.actions must be a non-empty array`);
+    if (!isNonEmptyString(entry?.reason) || entry.reason.trim().length === 0)
+      throw new Error(`${entryLabel}.reason is required`);
+    for (const action of entry.actions) {
+      if (!actions.includes(action)) throw new Error(`${entryLabel} has unknown action ${action}`);
+      if (declared.has(action)) throw new Error(`${entryLabel} duplicates action ${action}`);
+      declared.add(action);
+    }
+  }
+  const missing = actions.filter((action) => !declared.has(action));
+  if (missing.length > 0)
+    throw new Error(`${label}.actionCoverage is missing canonical write actions: ${missing.join(", ")}`);
+  const stale = [...declared].filter((action) => !actions.includes(action));
+  if (stale.length > 0) throw new Error(`${label}.actionCoverage has stale actions: ${stale.join(", ")}`);
+  return measured;
+}
+
 function g1HasReceipt(receipts, operation, metric, limit, now) {
   return receipts.some(
     ({ receipt }) =>
@@ -254,12 +327,15 @@ function g1HasReceipt(receipts, operation, metric, limit, now) {
 
 export async function measureG1WriteCostScaling(rootDir, scales) {
   const moduleUrl = pathToFileURL(path.join(rootDir, "packages/daemon/test/fixtures/g1-write-cost-scaling.ts")).href;
-  const { measureWriteCostScaling, G1_OPERATIONS, G1_METRICS } = await import(moduleUrl);
+  const { measureWriteCostScaling, G1_METRICS } = await import(moduleUrl);
   // One scale after the other: host-side reads are counted by process-wide probe counters, which a
   // concurrently seeding or measuring scale would add its own work to.
   const small = await measureWriteCostScaling(scales.small),
     large = await measureWriteCostScaling(scales.large);
-  return { small, large, operations: G1_OPERATIONS, metrics: G1_METRICS };
+  const operations = Object.keys(small.counts);
+  if (operations.sort().join() !== Object.keys(large.counts).sort().join())
+    throw new Error("G1 scales must measure exactly the same operations");
+  return { small, large, operations, metrics: G1_METRICS };
 }
 
 export async function evaluateG1WriteCostScaling({
@@ -272,6 +348,12 @@ export async function evaluateG1WriteCostScaling({
   const probe = measured ?? (await measureG1WriteCostScaling(rootDir, G1_SCALES));
   const { operations, metrics } = probe;
   const budget = readG1BudgetFile(budgetPath, operations, metrics);
+  const actionCoverage = readActionCoverage(
+    JSON.parse(readFileSync(budgetPath, "utf8")).writeCostScaling,
+    await canonicalWriteActions(rootDir),
+    operations,
+    `${budgetPath}.writeCostScaling`,
+  );
   const receipts = loadReceipts(receiptsDir);
   const errors = [];
   const actualSmall = {};
@@ -329,10 +411,51 @@ export async function evaluateG1WriteCostScaling({
     baseline: budget.baseline,
     budgets: budget.budgets,
     knownScaling: budget.knownScaling,
+    actionCoverage,
     scales: G1_SCALES,
     operations,
     metrics,
   };
+}
+
+// A linear batch can do a*N-b work (e.g. N-1 derived member IDs plus the terminal ID).
+// Allow 10% per-item variation for that constant term and encoded revision lengths. This is
+// independent of, and does not relax, any existing G1 ceiling or history-scaling margin.
+const COLLECTION_LINEAR_TOLERANCE = 1.1;
+
+export function evaluateCollectionCosts(measured) {
+  const errors = [];
+  if (Object.keys(measured).length === 0) throw new Error("collection measurements must not be empty");
+  for (const [id, { small, large }] of Object.entries(measured)) {
+    if (
+      !Number.isSafeInteger(small?.size) ||
+      small.size < 1 ||
+      !Number.isSafeInteger(large?.size) ||
+      large.size <= small.size
+    )
+      throw new Error(`${id}: collection scales must be positive integers with small < large`);
+    const metrics = Object.keys(small.counts ?? {}),
+      maxGrowth = (large.size / small.size) * COLLECTION_LINEAR_TOLERANCE;
+    if (
+      metrics.length === 0 ||
+      metrics.sort().join() !==
+        Object.keys(large.counts ?? {})
+          .sort()
+          .join()
+    )
+      throw new Error(`${id}: both collection scales must measure the same nonempty metric set`);
+    for (const metric of metrics) {
+      const a = small.counts[metric],
+        b = large.counts[metric];
+      if (!Number.isSafeInteger(a) || a < 0 || !Number.isSafeInteger(b) || b < 0)
+        throw new Error(`${id}.${metric}: counts must be nonnegative safe integers`);
+      if (b > a * maxGrowth)
+        errors.push(
+          `${id}.${metric}: ${a} at ${small.size} grew to ${b} at ${large.size} (${a === 0 ? "infinite" : (b / a).toFixed(2)}x), exceeding the ${maxGrowth}x linear-growth limit`,
+        );
+    }
+  }
+  return { ok: errors.length === 0, errors, measured };
 }
 
 function parseArgs(argv) {
@@ -352,6 +475,15 @@ export async function main(argv = process.argv.slice(2), defaultRoot = repoRoot(
   try {
     const options = parseArgs(argv);
     const rootDir = options.rootDir ?? defaultRoot;
+    const budgetPath = options.budgetPath ?? path.join(rootDir, "tools/gates/cost-budget.json"),
+      section = parseJsonFile(budgetPath).writeCostScaling;
+    // Reject new unregistered canonical writes before opening ledgers or starting workers.
+    readActionCoverage(
+      section,
+      await canonicalWriteActions(rootDir),
+      Object.keys(section.baseline),
+      `${budgetPath}.writeCostScaling`,
+    );
     const result = await evaluateCostBudget({ rootDir, ...options });
     for (const metric of METRICS) console.log(`${metric}: ${result.actual[metric]}/${result.budgets[metric]}`);
     const g1 = await evaluateG1WriteCostScaling({
@@ -365,7 +497,13 @@ export async function main(argv = process.argv.slice(2), defaultRoot = repoRoot(
           `G1 ${operation}.${metric}: ${g1.actualSmall[operation][metric]}/${g1.budgets[operation][metric]} ` +
             `at ${g1.scales.small}, ${g1.actualLarge[operation][metric]} at ${g1.scales.large}`,
         );
-    const errors = [...result.errors, ...g1.errors];
+    const collections = evaluateCollectionCosts(await measureCollectionCosts(rootDir));
+    for (const [id, { small, large }] of Object.entries(collections.measured))
+      for (const metric of Object.keys(small.counts))
+        console.log(
+          `G38 ${id}.${metric}: ${small.counts[metric]} at ${small.size}, ${large.counts[metric]} at ${large.size} (max ${(large.size / small.size) * COLLECTION_LINEAR_TOLERANCE}x)`,
+        );
+    const errors = [...result.errors, ...g1.errors, ...collections.errors];
     if (errors.length > 0) {
       for (const error of errors) console.error(`G38 cost-budget: ${error}`);
       return 1;

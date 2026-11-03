@@ -1,16 +1,23 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
+import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
+import { parseDaemonRpcParams } from "../src/protocol/daemon-protocol.contract.ts";
 import {
   FLEET_CHUNK_BYTES,
   FLEET_FRAME_BYTES,
+  FLEET_TRANSFER_CHUNK_BYTES,
   FLEET_KEY_SEND_WINDOW_BYTES,
   FLEET_SESSION_SEND_WINDOW_BYTES,
   FleetContractError,
   FleetUtf8LineDecoder,
   parseFleetFrame,
+  parseFleetTransferPayload,
+  serializeFleetTransferPayload,
   serializeFleetFrame,
 } from "../src/fleet/command-protocol.ts";
+import { encodeFleetFrames, FleetTransferAssembler, FleetTransferError } from "../src/fleet/command-transfer.ts";
+import { createResourceBudget } from "../src/fleet/resource-budget.ts";
 
 const cut = {
   revision: 7,
@@ -19,6 +26,225 @@ const cut = {
 } as const;
 const ledgerCut = { repoId: "repo", revision: cut.revision, headDigest: cut.headDigest } as const;
 const blob = { sha256: "c".repeat(64), size: 3, mediaType: "text/markdown" } as const;
+test("large logical frames use ordered digest-checked envelopes and reassemble atomically", async () => {
+  const frame = {
+      schema: "fleet.operational.read.result/v1" as const,
+      messageId: "large-result",
+      inReplyTo: "large-request",
+      result: { payload: "x".repeat(1024 * 1024) },
+    },
+    assembler = new FleetTransferAssembler({ direction: "response" }),
+    lines: ReturnType<typeof parseFleetFrame>[] = [];
+  for await (const encoded of encodeFleetFrames(frame, "response", "repo")) {
+    assert.ok(Buffer.byteLength(JSON.stringify(encoded)) <= FLEET_FRAME_BYTES);
+    const logical = assembler.push(parseFleetFrame(encoded));
+    if (logical) lines.push(logical);
+  }
+  assert.equal(lines.length, 1);
+  assert.equal(lines[0]!.schema, frame.schema);
+  assert.equal((lines[0]!.schema === frame.schema ? lines[0]!.result.payload : "").length, 1024 * 1024);
+});
+
+test("outbound quota admission runs before allocating the complete logical payload", async () => {
+  let payloadReads = 0;
+  const frame = {
+    schema: "fleet.operational.read.result/v1" as const,
+    messageId: "budget-rejected-result",
+    inReplyTo: "request",
+    result: Object.defineProperty({}, "payload", {
+      enumerable: true,
+      get: () => {
+        payloadReads += 1;
+        return "x".repeat(2 * FLEET_FRAME_BYTES);
+      },
+    }),
+  };
+  const encoder = encodeFleetFrames(frame, "response", "repo", () => {
+    throw Object.assign(new Error("resource_exhausted"), { code: "resource_exhausted" });
+  });
+  await assert.rejects(encoder.next(), /resource_exhausted/u);
+  assert.equal(payloadReads, 1, "only the non-allocating size pass may read the payload before admission");
+});
+
+test("transfer assembler rejects a changed chunk before exposing a logical frame", async () => {
+  const frame = {
+      schema: "fleet.operational.read.result/v1" as const,
+      messageId: "tampered-result",
+      inReplyTo: "tampered-request",
+      result: { payload: "x".repeat(1024 * 1024) },
+    },
+    encoded: unknown[] = [];
+  for await (const part of encodeFleetFrames(frame, "response", "repo")) encoded.push(part);
+  const chunk = encoded.find(
+    (part): part is Extract<ReturnType<typeof parseFleetFrame>, { schema: "fleet.transfer.chunk/v1" }> =>
+      typeof part === "object" && part !== null && "schema" in part && part.schema === "fleet.transfer.chunk/v1",
+  );
+  assert.ok(chunk);
+  const assembler = new FleetTransferAssembler({ direction: "response" });
+  assembler.push(parseFleetFrame(encoded[0]!));
+  for (const part of encoded.slice(1)) {
+    const parsed = parseFleetFrame(part),
+      current =
+        parsed.schema === "fleet.transfer.chunk/v1" && parsed.sequence === chunk.sequence
+          ? { ...parsed, dataBase64: Buffer.alloc(FLEET_TRANSFER_CHUNK_BYTES, 0x78).toString("base64") }
+          : parsed;
+    if (current.schema === "fleet.transfer.end/v1") assert.throws(() => assembler.push(current), /digest/u);
+    else assert.equal(assembler.push(current), null);
+  }
+});
+
+test("logical transfer payloads reject invalid UTF-8 before schema validation", () => {
+  const bytes = serializeFleetTransferPayload({
+    schema: "fleet.operational.read.result/v1",
+    messageId: "invalid-utf8",
+    inReplyTo: "request",
+    result: { payload: "x".repeat(FLEET_FRAME_BYTES) },
+  });
+  bytes[bytes.indexOf(0x78)] = 0xff;
+  assert.throws(() => parseFleetTransferPayload(bytes), /UTF-8 JSON/u);
+});
+
+test("an in-progress transfer holds per-node bytes while another node remains admissible", () => {
+  const limits = {
+      global: { bulkTransfers: 4, memoryBytes: 400_000 },
+      node: { bulkTransfers: 2, memoryBytes: 100_000 },
+      session: { bulkTransfers: 2, memoryBytes: 100_000 },
+      repository: { bulkTransfers: 4, memoryBytes: 400_000 },
+    } as const,
+    budget = createResourceBudget(limits),
+    begin = (id: string, repoId: string) => ({
+      schema: "fleet.transfer.begin/v1" as const,
+      messageId: id,
+      correlationId: `${id}-request`,
+      direction: "request" as const,
+      repoId,
+      totalBytes: 100_000,
+      sha256: "a".repeat(64),
+    }),
+    assembler = (nodeId: string, sessionId: string) =>
+      new FleetTransferAssembler({
+        direction: "request",
+        reserve: (repoId, bytes) =>
+          budget.reserve({ nodeId, sessionId, repoId }, { memoryBytes: bytes, bulkTransfers: 1 }),
+      });
+  const stalled = assembler("node-a", "session-a"),
+    otherSession = assembler("node-a", "session-b"),
+    otherNode = assembler("node-b", "session-c");
+  assert.equal(stalled.push(begin("transfer-a", "repo-a")), null);
+  assert.throws(
+    () => otherSession.push(begin("transfer-b", "repo-b")),
+    (error: unknown) =>
+      error instanceof FleetTransferError &&
+      error.code === "resource_exhausted" &&
+      /node memoryBytes/u.test(error.message) &&
+      /available=0/u.test(error.message),
+  );
+  assert.equal(otherNode.push(begin("transfer-c", "repo-c")), null);
+  assert.equal(budget.usage({ nodeId: "node-a", sessionId: "session-a", repoId: "repo-a" }).node.memoryBytes, 100_000);
+  stalled.reset();
+  otherNode.reset();
+  assert.equal(
+    budget.usage({ nodeId: "node-a", sessionId: "session-a", repoId: "repo-a" }).node.memoryBytes,
+    undefined,
+  );
+});
+
+test("a malformed transfer releases its reservation and drains trailing chunks", () => {
+  let releases = 0;
+  const assembler = new FleetTransferAssembler({
+    direction: "request",
+    reserve: () => ({ release: () => (releases += 1) }),
+  });
+  const begin = {
+    schema: "fleet.transfer.begin/v1" as const,
+    messageId: "malformed-transfer",
+    correlationId: "malformed-request",
+    direction: "request" as const,
+    repoId: "repo",
+    totalBytes: FLEET_FRAME_BYTES + 1,
+    sha256: "a".repeat(64),
+  };
+  assert.equal(assembler.push(begin), null);
+  assert.throws(
+    () =>
+      assembler.push({
+        schema: "fleet.transfer.chunk/v1",
+        messageId: "malformed-transfer_1",
+        transferId: begin.messageId,
+        sequence: 1,
+        offset: 0,
+        dataBase64: Buffer.from("x").toString("base64"),
+      }),
+    /sequence or offset/u,
+  );
+  assert.equal(releases, 1);
+  assert.equal(
+    assembler.push({
+      schema: "fleet.transfer.chunk/v1",
+      messageId: "malformed-transfer_0",
+      transferId: begin.messageId,
+      sequence: 0,
+      offset: 0,
+      dataBase64: Buffer.from("x").toString("base64"),
+    }),
+    null,
+  );
+  assembler.reset();
+});
+test("a timed-out transfer releases its reservation and drains late chunks", (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let releases = 0;
+  const assembler = new FleetTransferAssembler({
+    direction: "request",
+    timeoutMs: 5,
+    reserve: () => ({ release: () => (releases += 1) }),
+  });
+  const begin = {
+    schema: "fleet.transfer.begin/v1" as const,
+    messageId: "timed-out-transfer",
+    correlationId: "timed-out-request",
+    direction: "request" as const,
+    repoId: "repo",
+    totalBytes: FLEET_FRAME_BYTES + 1,
+    sha256: "a".repeat(64),
+  };
+  assert.equal(assembler.push(begin), null);
+  t.mock.timers.tick(5);
+  assert.equal(releases, 1);
+  assert.equal(
+    assembler.push({
+      schema: "fleet.transfer.chunk/v1",
+      messageId: "timed-out-transfer_0",
+      transferId: begin.messageId,
+      sequence: 0,
+      offset: 0,
+      dataBase64: Buffer.from("x").toString("base64"),
+    }),
+    null,
+  );
+  assembler.reset();
+});
+
+test("reset releases a partially received transfer immediately", async () => {
+  let released = 0;
+  const assembler = new FleetTransferAssembler({
+    direction: "response",
+    reserve: () => ({ release: () => (released += 1) }),
+  });
+  const frame = {
+    schema: "fleet.operational.read.result/v1" as const,
+    messageId: "reset-result",
+    inReplyTo: "request",
+    result: { payload: "x".repeat(FLEET_FRAME_BYTES * 2) },
+  };
+  const encoded: unknown[] = [];
+  for await (const part of encodeFleetFrames(frame, "response", "repo")) encoded.push(part);
+  assembler.push(parseFleetFrame(encoded[0]!));
+  assembler.push(parseFleetFrame(encoded[1]!));
+  assembler.reset();
+  assert.equal(released, 1);
+  assert.throws(() => assembler.push(parseFleetFrame(encoded[2]!)), /sequence or offset/u);
+});
 test("fleet authentication metadata admits a standard JWT and remains separate from closed action fields", () => {
   const frame = {
     schema: "fleet.task.command/v1",
@@ -418,6 +644,29 @@ test("task-create carries the plan as a document body bounded by the frame budge
   );
 });
 
+test("CLI, JSON-RPC and Fleet share every generic transition target and optional reason", () => {
+  const taskCommand = frames.find((frame) => frame.schema === "fleet.task.command/v1")!;
+  for (const status of ["planned", "active", "blocked", "in_review", "done", "cancelled"]) {
+    for (const options of [[], ["--reason", "Owner lifecycle request"], ["--force", "--reason", "Owner override"]]) {
+      const parsed = parseThinCommand(["task", "transition", "task_abc", status, ...options]);
+      assert.ok(parsed.ok, `${status} ${options.join(" ")}`);
+      const action = parsed.command.action;
+      assert.equal(
+        parseDaemonRpcParams("repo.task.run", { repo: { repoId: "repo" }, payload: { action } }).ok,
+        true,
+        JSON.stringify(action),
+      );
+      const frame = { ...taskCommand, taskId: "task_abc", action };
+      assert.deepEqual(parseFleetFrame(serializeFleetFrame(frame)), frame);
+    }
+  }
+  for (const status of ["submitted", "unknown"]) {
+    const action = { kind: "task-transition", taskId: "task_abc", status };
+    assert.equal(parseDaemonRpcParams("repo.task.run", { repo: { repoId: "repo" }, payload: { action } }).ok, false);
+    assert.throws(() => parseFleetFrame({ ...taskCommand, taskId: "task_abc", action }), FleetContractError);
+  }
+});
+
 test("Fleet transport union round-trips every closed wire variant", () => {
   assert.equal(FLEET_KEY_SEND_WINDOW_BYTES, 256 * 1024);
   assert.equal(FLEET_SESSION_SEND_WINDOW_BYTES, 512 * 1024);
@@ -589,7 +838,7 @@ test("Fleet codec rejects unknown provenance, nested fields, malformed values, a
     },
     { ...taskCommand, action: { kind: "task-create", title: "t", createMode: "admin" } },
     { ...taskCommand, action: { kind: "task-release", taskId: "task_abc", ttlMs: 1 } },
-    { ...taskCommand, action: { kind: "task-transition", taskId: "task_abc", status: "cancelled", reason: "no" } },
+    { ...taskCommand, action: { kind: "task-transition", taskId: "task_abc", status: "submitted", reason: "no" } },
     { ...taskCommand, action: { kind: "task-start", taskId: "task_abc", ttlMs: "forever" } },
     { ...taskCommand, action: { kind: "task-create", title: "t", riskTier: "critical" } },
     // dec_5F7E74F1 retired the module grouping and the milestone class from the create command.
@@ -667,7 +916,30 @@ test("Fleet reader credentials retain closed-frame validation", () => {
     accessToken: "owner-session",
   };
   assert.deepEqual(parseFleetFrame(serializeFleetFrame(frame)), frame);
+  const command = frames.find((candidate) => candidate.schema === "fleet.task.command/v1")!;
+  const rangeCommand = {
+    ...command,
+    opId: "range-read-0",
+    action: { kind: "doc-show", path: "tasks/task/task_plan.md", offset: 0, length: FLEET_CHUNK_BYTES },
+    accessToken: "owner-session",
+  };
+  assert.deepEqual(parseFleetFrame(serializeFleetFrame(rangeCommand)), rangeCommand);
   for (const accessToken of [null, 42, {}, "", "a".repeat(16 * 1024 + 1)])
     assert.throws(() => parseFleetFrame({ ...frame, accessToken }), FleetContractError);
   assert.throws(() => parseFleetFrame({ ...frame, unknownCredential: "no" }), FleetContractError);
+});
+
+test("Fleet delivery holder proof preserves current and explicit execution targets", () => {
+  const frame = {
+    schema: "fleet.repo.metadata.get/v1",
+    messageId: "holder-proof",
+    repoId: "repo",
+    actionKind: "task-submit",
+    taskId: "task-delivery",
+  };
+  assert.deepEqual(parseFleetFrame(serializeFleetFrame(frame)), frame);
+  for (const executionId of [null, "exe-current"])
+    assert.deepEqual(parseFleetFrame(serializeFleetFrame({ ...frame, executionId })), { ...frame, executionId });
+  for (const executionId of [false, 42, {}, [], ""])
+    assert.throws(() => parseFleetFrame({ ...frame, executionId }), FleetContractError);
 });

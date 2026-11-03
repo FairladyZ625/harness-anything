@@ -44,6 +44,10 @@ export function renderDaemonFleetStatus(result: JsonObject): string {
     `fleet overview repo=${overview.repoId} mode=${overview.mode} generated=${overview.generatedAt}`,
     `center daemon=${overview.center.daemonId} version=${overview.center.version} commit=${overview.center.commitSha ?? "unknown"} started=${overview.center.startedAt} revision=${overview.centerRevision ?? "unavailable"}`,
   ];
+  if (overview.versionWarning)
+    lines.push(
+      `WARNING version mismatch center=${overview.versionWarning.centerBuildCommit} local=${overview.versionWarning.localBuildCommit}; upgrade with ${overview.versionWarning.upgradeCommand}`,
+    );
   for (const node of overview.nodes) lines.push(...renderNodeLines(node, overview.center));
   lines.push("", `links ${overview.links.length}`);
   for (const link of overview.links)

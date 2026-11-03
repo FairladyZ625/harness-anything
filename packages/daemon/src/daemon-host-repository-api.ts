@@ -1,5 +1,6 @@
 import { readFleetOperationalClient } from "./fleet-edge-write.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { forwardRegisteredFleetAction } from "./fleet-edge-task.ts";
 import { initialRuntimeInstanceSettings } from "./runtime-spawn-allowlist.ts";
 import { edgeReplicaDoctor } from "./edge-replica-doctor.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
@@ -11,7 +12,7 @@ import { readClaimableTasks } from "./task-claimable-read.ts";
 import { nodeAutoClaimLeaseKey } from "./node-auto-claim.ts";
 import { readEntityAssignmentDirectory } from "./entity-assignment-directory.ts";
 import { parseAssignmentExpiry } from "@harness-anything/kernel";
-import { doctorBuildDrift, type DoctorCheck } from "./repo-cell-doctor.ts";
+import { doctorBuildDrift, fleetVersionDoctorCheck, type DoctorCheck } from "./repo-cell-doctor.ts";
 import { decisionProviderDoctorCheck } from "./decision-provider-doctor.ts";
 import { hostedCredentialDoctorCheck } from "./hosting-credential-readiness.ts";
 import { existsSync, realpathSync, readFileSync } from "node:fs";
@@ -61,7 +62,6 @@ import {
 } from "./repo-all-purge.ts";
 import { removeFileDurably } from "../../storage/src/durable-file.ts";
 import { readPolicyMetadata } from "./policy-metadata-read.ts";
-import { assertFleetReadFits } from "./dispatch-read.ts";
 
 function isRepoCellReadMethod(method: DaemonGuiRpcReadMethod): method is RepoCellReadMethod {
   return (
@@ -719,12 +719,39 @@ export function createDaemonHostRepositoryApi(
     run: async (repoId, action, auth) => {
       const command = entityActionCommandTopology(commandDescriptorForAction(action.kind), action),
         modeAdmission = context.admitHostMode(repoId, command, auth);
-      if (!modeAdmission.ok) return context.rejectHostAction(action, modeAdmission.code, modeAdmission.nextAction);
+      if (!modeAdmission.ok) {
+        try {
+          const forwarded = await forwardRegisteredFleetAction({
+            userRoot: context.input.userRoot,
+            repoId,
+            command,
+            action,
+            auth,
+            oidc: context.oidc,
+            runSchedule: (request) => context.host.fleet.edgeRuntime(request, auth),
+          });
+          if (forwarded) return forwarded;
+        } catch (error) {
+          return context.rejectHostAction(action, context.code(error), context.daemonErrorMessage(error));
+        }
+        return context.rejectHostAction(action, modeAdmission.code, modeAdmission.nextAction);
+      }
       if (action.kind === "doctor-health") {
         const edge = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
           (repo) => repo.repoId === repoId && repo.mode === "remote-edge",
         );
-        if (edge?.canonicalRoot) return edgeReplicaDoctor(edge.canonicalRoot, repoId);
+        if (edge?.canonicalRoot) {
+          const receipt = edgeReplicaDoctor(edge.canonicalRoot, repoId);
+          return {
+            ...receipt,
+            checks: [
+              ...receipt.checks,
+              fleetVersionDoctorCheck(
+                context.fleetVersionWarnings.has(repoId) ? [context.fleetVersionWarnings.get(repoId)!.message] : [],
+              ),
+            ],
+          };
+        }
       }
       await context.attemptHostRecovery(repoId);
       const cell = context.cells.get(repoId);
@@ -805,6 +832,10 @@ export function createDaemonHostRepositoryApi(
               listProviders: () => context.decisionProviders.list(),
             }),
             await hostedCredentialDoctorCheck(cell.status().rootDir, { instances: context.instances.list() }),
+            fleetVersionDoctorCheck([
+              ...(context.fleetCenter?.versionWarnings() ?? []),
+              ...[...context.fleetVersionWarnings.values()].map((warning) => warning.message),
+            ]),
           ];
           return { ...health, checks, evidence: JSON.stringify({ ...JSON.parse(health.evidence!), checks }) };
         }
@@ -1041,7 +1072,8 @@ export function createDaemonHostRepositoryApi(
           throw context.hostCodedError("invalid_request", "Catalog preset payload must be JSON.");
         result = await cell.catalog.preset(payload);
       } else if (method === "repo.terminal.sessions.list") result = cell.terminal.list();
-      else if (method === "repo.fleet.overview.read")
+      else if (method === "repo.fleet.overview.read") {
+        const warning = context.fleetVersionWarnings.get(repoId);
         result = await readFleetOverviewFromHost({
           repoId,
           mode:
@@ -1054,8 +1086,17 @@ export function createDaemonHostRepositoryApi(
           now: context.now(),
           userRoot: context.input.userRoot,
           daemon: context.point(),
+          ...(warning
+            ? {
+                versionWarning: {
+                  centerBuildCommit: warning.centerBuildCommit,
+                  localBuildCommit: warning.localBuildCommit,
+                  upgradeCommand: warning.upgradeCommand,
+                },
+              }
+            : {}),
         });
-      else {
+      } else {
         if (!isRepoCellReadMethod(method))
           throw context.hostCodedError("invalid_request", `${method} is not a repository read method.`);
         result = await cell.read(
@@ -1066,7 +1107,6 @@ export function createDaemonHostRepositoryApi(
           readBinding,
         );
       }
-      if (auth.transportKind === "fleet-tls") assertFleetReadFits(result, method);
       return parseDaemonGuiReadResult(method, result);
     },
   };

@@ -7,8 +7,10 @@ import type { ReplicationSlotKey, ReplicaDeliveryKey } from "@harness-anything/s
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import type { FleetDeviceLoginNotice, FleetLoginAuthority } from "./command-protocol.ts";
 import type { ReplicationFrame, ReplicationPeer } from "./protocol.ts";
+import type { ResourceBudget } from "./resource-budget.ts";
 
 export interface FleetCenterOptions {
+  readonly commandResourceBudget?: ResourceBudget;
   readonly host: Pick<
     DaemonHost,
     | "replica"
@@ -69,6 +71,8 @@ export interface FleetCenterOptions {
     readonly messageId: string | null;
     readonly error: unknown;
   }) => void;
+  /** Records the informational build mismatch from a command or replica hello. */
+  readonly onVersionWarning?: (nodeId: string, warning: string | null) => void;
   readonly onReplicationStart?: (
     nodeId: string,
     accessToken: string | undefined,
@@ -115,7 +119,9 @@ export interface FleetTlsCenter {
   readonly status: () => {
     readonly replicas: readonly FleetReplicaStatus[];
     readonly uploads: FleetUploadWindow;
+    readonly versionWarnings: readonly string[];
   };
+  readonly versionWarnings: () => readonly string[];
 }
 
 export interface FleetUploadWindow {
@@ -137,6 +143,7 @@ export type State = { uploads: Record<string, Upload> };
 export type SessionWindow = {
   readonly holderId: string;
   readonly drainedBytes: () => number;
+  readonly requestRepos: Map<string, string>;
   readonly uploads: Set<string>;
   readonly keys: Set<string>;
   readonly offers: Map<

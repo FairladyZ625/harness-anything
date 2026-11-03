@@ -29,6 +29,7 @@ test("Task explanations distinguish lifecycle state, actor capability, invocatio
         "witness-settle",
         "witness-revoke",
         "witness-rerun",
+        "witness-run",
         "create",
         "start",
         "transition",

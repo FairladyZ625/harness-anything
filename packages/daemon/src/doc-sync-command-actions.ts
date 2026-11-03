@@ -42,6 +42,7 @@ import { readAction, readDocReceipt } from "./doc-sync-reads.ts";
 import { runDocMaterialize } from "./doc-sync-materialize-action.ts";
 import { taskWorktreeCandidateInventory, taskWorktreeRoot } from "./task-worktree-candidates.ts";
 import { executionCredentialRejected, type RuntimeExecutionPrincipal } from "./runtime-execution-credential.ts";
+import { requireExecutionDocumentSelection, selectedDocPaths } from "./runtime-execution-scope.ts";
 import {
   noOp,
   scanDetail,
@@ -104,9 +105,8 @@ export function isDocAction(kind: string): boolean {
 }
 
 /**
- * A task-bound execution may submit its own package by path: the request entry holds no projection,
- * so path ownership is proved here, where the owner is known. Every selected path must belong to the
- * execution's task; anything else stays a cross-task write and never reaches the scanner.
+ * The request entry holds no projection, so task ownership is proved here. Declared surfaces admit
+ * non-task authored documents only; a different task package still requires its own lease.
  */
 function requireOwnTaskDocSelection(input: Input): void {
   const principal = input.binding.executionPrincipal,
@@ -114,17 +114,13 @@ function requireOwnTaskDocSelection(input: Input): void {
   if (principal === undefined || principal.role !== "implementation" || principal.taskId === null) return;
   if (typeof action.taskId === "string") {
     if (action.taskId !== principal.taskId) throw executionCredentialRejected("write-other-task");
-    return;
   }
-  if (!Array.isArray(action.paths) || action.paths.length === 0) return;
-  const owners = new Set(
-    action.paths.flatMap((value) =>
-      typeof value === "string"
-        ? [input.projection.taskIdForDocumentPath(normalizeSelectedDocPath(input.rootDir, value))]
-        : [],
-    ),
-  );
-  if (owners.size !== 1 || !owners.has(principal.taskId)) throw executionCredentialRejected("write-other-task");
+  const paths = selectedDocPaths(action);
+  if (paths === null) return;
+  requireExecutionDocumentSelection(principal, paths, (value) => {
+    const logicalPath = normalizeSelectedDocPath(input.rootDir, value);
+    return { path: logicalPath, taskId: input.projection.taskIdForDocumentPath(logicalPath) };
+  });
 }
 
 /**
@@ -181,7 +177,10 @@ export function runDocAction(input: Input): DocSettlementReceipt | Promise<DocSe
   if (Buffer.byteLength(JSON.stringify(input.action)) > DOC_COMMAND_FRAME_MAX_BYTES)
     throw docSyncError("invalid_command", "doc command frame exceeds the descriptor-only limit");
   if (input.action.kind.startsWith("doc-conflict-")) return runLocalDocConflictExit(input);
-  if (input.action.kind === "doc-materialize") return runDocMaterialize(input);
+  if (input.action.kind === "doc-materialize") {
+    requireOwnTaskDocSelection(input);
+    return runDocMaterialize(input);
+  }
   if (input.action.kind === "doc-retire") return runDocRetire(input);
   if (input.action.kind !== "doc-submit") return readAction(input);
   requireOwnTaskDocSelection(input);

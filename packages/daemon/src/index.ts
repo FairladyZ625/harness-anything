@@ -44,6 +44,7 @@ export { listenFleetTls, type FleetCenterOptions, type FleetTlsCenter } from "./
 export {
   FleetRemoteError,
   openFleetEdgeView,
+  runFleetTaskCommandClient,
   runFleetWriteClient,
   type FleetWriteClientOptions,
   type FleetWriteClientResult,

@@ -270,7 +270,9 @@ test("run-now launches only after an applied claim, stays single-flight, and set
       await secondLaunch.promise;
       assert.equal(launchCount, 2);
       const continuing = (await cell.run({ kind: "schedule-list" }, actor)) as unknown as {
-        readonly schedules: readonly { readonly status: { readonly activeRun: unknown; readonly lastRun: unknown } }[];
+        readonly schedules: readonly {
+          readonly status: { readonly activeRun: unknown; readonly lastRun: unknown };
+        }[];
       };
       assert.notEqual(continuing.schedules[0]?.status.activeRun, null);
       assert.equal(continuing.schedules[0]?.status.lastRun, null);
@@ -281,7 +283,7 @@ test("run-now launches only after an applied claim, stays single-flight, and set
           `${JSON.stringify({ type: "turn.completed" })}\n`,
       );
       exit?.(0);
-      const settled = await eventually(async () => {
+      await eventually(async () => {
         const listed = (await cell.run({ kind: "schedule-list" }, actor)) as unknown as {
           readonly schedules: readonly {
             readonly status: { readonly activeRun: unknown; readonly lastRun: { readonly outcome: string } | null };
@@ -290,8 +292,7 @@ test("run-now launches only after an applied claim, stays single-flight, and set
         return (
           listed.schedules[0]?.status.activeRun === null && listed.schedules[0]?.status.lastRun?.outcome === "succeeded"
         );
-      });
-      assert.equal(settled, true);
+      }, "scheduled run to settle");
       assert.equal(launchCount, 2);
 
       const completed = (await cell.run({ kind: "schedule-show", scheduleId: "e2e-probe" }, actor)) as unknown as {
@@ -338,7 +339,10 @@ test("run-now launches only after an applied claim, stays single-flight, and set
       };
       const missedStatus = afterMissed.schedules.find(({ scheduleId }) => scheduleId === "e2e-probe")?.status;
       assert.deepEqual(
-        { automaticEvaluatedThrough: missedStatus?.automaticEvaluatedThrough, missedCount: missedStatus?.missedCount },
+        {
+          automaticEvaluatedThrough: missedStatus?.automaticEvaluatedThrough,
+          missedCount: missedStatus?.missedCount,
+        },
         { automaticEvaluatedThrough: missedAt, missedCount: 1 },
       );
       const staleClaim = await cell.run(
@@ -518,20 +522,15 @@ test("run-now launches only after an applied claim, stays single-flight, and set
           `${JSON.stringify({ type: "turn.completed" })}\n`,
       );
       exit?.(0);
-      assert.equal(
-        await eventually(async () => {
-          const listed = (await cell.run({ kind: "schedule-list" }, actor)) as unknown as {
-            readonly schedules: readonly {
-              readonly scheduleId: string;
-              readonly status: { readonly activeRun: unknown };
-            }[];
-          };
-          return (
-            listed.schedules.find(({ scheduleId }) => scheduleId === "restart-heartbeat")?.status.activeRun === null
-          );
-        }),
-        true,
-      );
+      await eventually(async () => {
+        const listed = (await cell.run({ kind: "schedule-list" }, actor)) as unknown as {
+          readonly schedules: readonly {
+            readonly scheduleId: string;
+            readonly status: { readonly activeRun: unknown };
+          }[];
+        };
+        return listed.schedules.find(({ scheduleId }) => scheduleId === "restart-heartbeat")?.status.activeRun === null;
+      }, "restarted scheduled run to finish");
     } finally {
       await cell.close();
     }
@@ -894,13 +893,12 @@ test(
         terminalCallbacks[winner]!();
         // The edge serial tail consumes this scheduled rejection. Observe the
         // coded error at its construction boundary, without replacing any port.
-        assert.equal(
-          await eventually(async () =>
+        await eventually(
+          async () =>
             settlementErrors.mock.calls.some(
               ({ arguments: args }) => args[0] instanceof Error && args[1]?.code === "schedule_settlement_pending",
             ),
-          ),
-          true,
+          "edge schedule settlement error to be recorded",
         );
       });
       await t.test("edge schedule preserves a local definition candidate after a center write", async () => {

@@ -5,6 +5,39 @@ export const EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
 export type DeliveryContainment = "contained" | "missing" | "unavailable";
 
+/** Prove that the frozen patch, replayed in Git's object database, produces the annotated head tree. */
+export function rebaseEquivalentDelivery(
+  rootDir: string,
+  frozenBase: string,
+  frozenCommit: string,
+  rebasedBase: string,
+  rebasedHead: string,
+): boolean {
+  if (
+    !/^[0-9a-f]{40}$/u.test(frozenBase) ||
+    !/^[0-9a-f]{40}$/u.test(frozenCommit) ||
+    !/^[0-9a-f]{40}$/u.test(rebasedBase) ||
+    !/^[0-9a-f]{40}$/u.test(rebasedHead) ||
+    !localGitObjectRefStore.hasCommit(rootDir, frozenBase) ||
+    !localGitObjectRefStore.hasCommit(rootDir, frozenCommit) ||
+    !localGitObjectRefStore.hasCommit(rootDir, rebasedBase) ||
+    !localGitObjectRefStore.hasCommit(rootDir, rebasedHead) ||
+    !localGitObjectRefStore.isAncestor(rootDir, rebasedBase, rebasedHead)
+  )
+    return false;
+  try {
+    const replayedTree = runProcessText(
+        "git",
+        ["merge-tree", "--write-tree", "--merge-base", frozenBase, rebasedBase, frozenCommit],
+        rootDir,
+      ).trim(),
+      headTree = runProcessText("git", ["rev-parse", `${rebasedHead}^{tree}`], rootDir).trim();
+    return replayedTree === headTree;
+  } catch {
+    return false;
+  }
+}
+
 /** Prove the submitted diff is present in the annotated commit without requiring shared ancestry. */
 export function deliveryContainment(
   rootDir: string,

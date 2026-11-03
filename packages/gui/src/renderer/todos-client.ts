@@ -21,6 +21,8 @@ function result(value: unknown) {
     readonly evidence?: string;
     readonly error?: { readonly code?: string; readonly hint?: string };
     readonly rejectionExplanation?: string;
+    /** Daemon-authored non-blocking advisories; the GUI renders these verbatim. */
+    readonly warnings?: readonly string[];
   };
   if (
     !receipt.ok ||

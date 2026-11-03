@@ -15,6 +15,8 @@ export interface RuntimeExecutionPrincipal {
   readonly taskId: string | null;
   readonly executionId: string | null;
   readonly role: "implementation" | "reviewer" | "read-only" | "session";
+  /** Task surfaces frozen into implementation credentials at dispatch; absent legacy grants mean none. */
+  readonly surfaces?: readonly string[];
   /** Decision review dispatches bind reads to this canonical decision id. */
   readonly reviewDecisionId?: string;
   /** Task review dispatches bind reads to this canonical task id. */

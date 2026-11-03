@@ -10,7 +10,7 @@ import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { startDaemon } from "../src/runtime.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
-import { runFleetTaskCommandClient, runFleetRuntimeEventClient } from "../src/fleet/peer.ts";
+import { runFleetTaskCommandClient, runFleetRuntimeEventClient, runFleetWriteClient } from "../src/fleet/peer.ts";
 import { IdentitySessionPort, keycloakSessionStore, signInAt } from "./keycloak.fixtures.ts";
 import { fleetFixture, git, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
@@ -28,11 +28,35 @@ test(
     let cleanup = async () => {};
     t.after(() => cleanup());
     const live = new Set<string>();
-    const f = await fleetFixture(t, ["tasks/task-fleet-fleet"], [], "local", undefined, [
-      { instanceId: "edge-worker", enabled: true },
-    ]);
+    const f = await fleetFixture(
+      t,
+      ["tasks/task-fleet-fleet"],
+      [],
+      "local",
+      undefined,
+      [{ instanceId: "edge-worker", enabled: true }],
+      false,
+    );
     const loginAuthorityUrl = "https://keycloak.fixture:443",
       loginIssuer = `${loginAuthorityUrl}/realms/harness`;
+    const amendedSurfaces = await f.host.run(
+      f.subject.repoId,
+      {
+        kind: "task-amend",
+        taskId: f.subject.taskId,
+        patches: [{ field: "surfaces", value: '["harness/skills/test-isolation/**"]' }],
+      },
+      localAuthFixture(),
+    );
+    assert.equal(amendedSurfaces.outcome, "applied", JSON.stringify(amendedSurfaces));
+    await waitForFleetPublication(f.host, f.subject.repoId, amendedSurfaces.opId, localAuthFixture());
+    const startedTask = await f.host.run(
+      f.subject.repoId,
+      { kind: "task-start", taskId: f.subject.taskId, executionId: f.subject.executionId },
+      f.auth,
+    );
+    assert.equal(startedTask.outcome, "applied", JSON.stringify(startedTask));
+    await waitForFleetPublication(f.host, f.subject.repoId, startedTask.opId, f.auth);
     const centerConfigPath = path.join(f.root, "user/rbac/config.json");
     writeFileSync(
       centerConfigPath,
@@ -256,6 +280,21 @@ test(
       "person-owner",
       JSON.stringify(readDispatchStream(edgeRoot, String(spawned.dispatchId))?.records),
     );
+    assert.deepEqual(readRuntimeExecutionPrincipal(edgeRoot, env.HARNESS_EXECUTION_CREDENTIAL)?.surfaces, [
+      "harness/skills/test-isolation/**",
+    ]);
+    const submitSurface = (target: string) =>
+      runFleetWriteClient({
+        ...peer,
+        channel: "collaborator",
+        executionCredential: env.HARNESS_EXECUTION_CREDENTIAL,
+        changes: [{ path: target, body: Buffer.from("# Worker surface\n"), baseBlobSha256: null }],
+      });
+    const writtenSurface = await submitSurface("skills/test-isolation/worker-surface.md");
+    assert.equal(writtenSurface.center.outcome, "applied", JSON.stringify(writtenSurface.center));
+    const ungrantedSurface = await submitSurface("skills/gui-e2e/ungranted.md");
+    assert.equal(ungrantedSurface.center.outcome, "op_rejected", JSON.stringify(ungrantedSurface.center));
+    assert.equal(ungrantedSurface.center.code, "execution_credential_rejected");
     const executionPrincipalRecord = readDispatchStream(edgeRoot, String(spawned.dispatchId))?.records.find(
       (record) => record.kind === "execution_principal",
     );
@@ -607,7 +646,9 @@ test(
     writeFileSync(path.join(reviewRoot, "harness", frozenEvidencePath), "Changed local evidence.\n");
     const fullEvidence = await reviewCli(["doc", "show", "--path", frozenEvidencePath]);
     assert.equal(fullEvidence.outcome, "applied", JSON.stringify(fullEvidence));
-    assert.equal(fullEvidence.evidence, frozenEvidence);
+    assert.equal(fullEvidence.evidenceContentEncoding, "utf8");
+    assert.equal(typeof fullEvidence.evidenceFile, "string");
+    assert.equal(readFileSync(String(fullEvidence.evidenceFile), "utf8"), frozenEvidence);
     t.diagnostic(`Frozen evidence read ${Buffer.byteLength(frozenEvidence)} bytes through center chunk frames.`);
     const rawEvidence = await spawnCli(["--root", reviewRoot, "doc", "show", "--path", frozenEvidencePath, "--raw"], {
       ...process.env,
@@ -615,7 +656,9 @@ test(
     });
     assert.equal(rawEvidence.stdout, frozenEvidence);
     const binaryEvidence = await reviewCli(["doc", "show", "--path", "tasks/task-fleet-fleet/artifacts/evidence.bin"]);
-    assert.equal(binaryEvidence.evidence, artifactBytes.toString("base64"));
+    assert.equal(binaryEvidence.evidenceContentEncoding, "base64");
+    assert.equal(typeof binaryEvidence.evidenceFile, "string");
+    assert.deepEqual(readFileSync(String(binaryEvidence.evidenceFile)), artifactBytes);
     // dec_CF96A3C910B31D2D7498F32DDD/CH2: unfrozen reads use the shared live document view.
     for (const readablePath of [
       "tasks/task-other/artifacts/full-evidence.txt",
@@ -743,7 +786,9 @@ test(
     // CH2 preserves repository reads after amendment; only the stale receipt and success settlement are fenced.
     const supersededEvidence = await reviewCli(["doc", "show", "--path", frozenEvidencePath]);
     assert.equal(supersededEvidence.outcome, "applied", JSON.stringify(supersededEvidence));
-    assert.equal(supersededEvidence.evidence, frozenEvidence);
+    assert.equal(supersededEvidence.evidenceContentEncoding, "utf8");
+    assert.equal(typeof supersededEvidence.evidenceFile, "string");
+    assert.equal(readFileSync(String(supersededEvidence.evidenceFile), "utf8"), frozenEvidence);
     const staleReceipt = await reviewCli([
       "task",
       "review-execution",

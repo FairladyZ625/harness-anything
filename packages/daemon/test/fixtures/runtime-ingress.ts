@@ -8,6 +8,7 @@ import { openDaemonHost } from "../../src/daemon-host.ts";
 import { createJsonRpcProtocolServer } from "../../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../../src/protocol/version.ts";
 import { writeProviderExecutable } from "./runtime-stub.ts";
+import { waitForValue } from "../../../../tools/fixtures/wait-for-condition.ts";
 
 export const cli = path.resolve("packages/cli/src/index.ts");
 export const definition: AgentDefinitionSnapshot = {
@@ -121,13 +122,12 @@ export async function rpcAttach(
 export async function eventually(check: () => boolean | Promise<boolean>): Promise<void> {
   await eventuallyValue(async () => ((await check()) ? true : null));
 }
-export async function eventuallyValue<T>(read: () => T | null | Promise<T | null>): Promise<T> {
-  for (let attempt = 0; attempt < 500; attempt += 1) {
-    const value = await read();
-    if (value !== null) return value;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  throw new Error("runtime provider event did not arrive");
+export async function eventuallyValue<T>(
+  read: () => T | null | Promise<T | null>,
+  timeoutMs = 5_000,
+  label = "runtime provider event",
+): Promise<T> {
+  return waitForValue(read, label, { timeoutMs });
 }
 export function writeProviderStub(
   target: string,

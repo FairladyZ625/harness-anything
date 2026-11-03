@@ -32,3 +32,11 @@ test("measureWriteCostScaling costs the same on two independent ledgers of the s
   assert.deepEqual(first.counts, second.counts);
   assert.deepEqual(first.firstCall, second.firstCall);
 });
+
+test("work-task scaling changes one parent's child count while retaining the same ledger size", async () => {
+  const small = await measureWriteCostScaling(5, { workTaskCount: 1 }),
+    large = await measureWriteCostScaling(5, { workTaskCount: 2 });
+  assert.deepEqual([small.eventCount, large.eventCount], [5, 5]);
+  assert.deepEqual(Object.keys(small.counts), ["task-create"]);
+  assert.deepEqual(large.counts, small.counts);
+});

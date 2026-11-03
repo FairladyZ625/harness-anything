@@ -7,13 +7,36 @@ import test from "node:test";
 import { pathToFileURL } from "node:url";
 import {
   evaluateCostBudget,
+  evaluateCollectionCosts,
   evaluateG1WriteCostScaling,
   G1_OPERATION_NAMES,
   measureCosts,
   measureG1WriteCostScaling,
   readCostFixture,
 } from "../cost-budget.mjs";
+import {
+  measureTaskSubmitArtifacts,
+  measureDocuments,
+  measureRelations,
+  measureAssignmentHistory,
+  measureCatalogBatch,
+  measureEntityPins,
+  measureTaskReviewDispatchBatch,
+  measureTaskAmendPatches,
+  assertTaskReviewDispatchMeasurement,
+  measureTaskWitnessGates,
+  COLLECTION_PROBES,
+} from "../../../packages/daemon/test/fixtures/g38-collection-cost.mjs";
+import {
+  measureTaskReviewConsent,
+  measureTaskReviewExecution,
+  measureTaskReviewResponses,
+} from "../../../packages/daemon/test/fixtures/g38-lifecycle-cost.mjs";
 import { signReceipt } from "../receipt-verify.mjs";
+import {
+  DECISION_PROBES,
+  measureDecisionCollection,
+} from "../../../packages/daemon/test/fixtures/g38-decision-cost.mjs";
 
 function fixture() {
   return JSON.parse(
@@ -89,8 +112,24 @@ function g1Setup(t, { baseline = { "op-a": { sqlRowsRead: 100, gitProcesses: 4 }
         baseline,
         budgets: baseline,
         knownScaling,
+        actionCoverage: {
+          measured: { "op-a": { measurements: ["op-a:ledger-events"] } },
+          notApplicable: [{ actions: ["op-b"], reason: "The test fixture action has no measured collection loop." }],
+        },
       },
     })}\n`,
+  );
+  mkdirSync(path.join(rootDir, "packages/kernel/src/domain"), { recursive: true });
+  writeFileSync(
+    path.join(rootDir, "packages/kernel/src/domain/entity-kind-registry.ts"),
+    "export const entityKindContracts = [];\n",
+  );
+  writeFileSync(
+    path.join(rootDir, "packages/kernel/src/domain/action-declaration.ts"),
+    "export const actionDeclarations = [" +
+      "{ kind: 'op-a', executionClass: 'repo-write', residency: { scope: 'canonical' } }," +
+      "{ kind: 'op-b', executionClass: 'repo-write', residency: { scope: 'canonical' } }];" +
+      "export const artifactActionIngressKinds = [];\n",
   );
   return rootDir;
 }
@@ -272,4 +311,308 @@ test("G1 operation names are exactly the committed baseline's operations, the li
   assert.deepEqual(G1_OPERATION_NAMES, Object.keys(committed.writeCostScaling.baseline));
   assert.ok(G1_OPERATION_NAMES.includes("agenda"));
   assert.ok(Object.isFrozen(G1_OPERATION_NAMES));
+});
+
+test("G38 requires every canonical write action to have a measured operation or a reason", async (t) => {
+  const rootDir = g1Setup(t),
+    budgetPath = path.join(rootDir, "tools/gates/cost-budget.json"),
+    budget = JSON.parse(readFileSync(budgetPath, "utf8"));
+  budget.writeCostScaling.actionCoverage.notApplicable = [];
+  writeFileSync(budgetPath, `${JSON.stringify(budget)}\n`);
+  await assert.rejects(
+    evaluateG1WriteCostScaling({
+      rootDir,
+      measured: g1Measured(
+        { "op-a": { sqlRowsRead: 100, gitProcesses: 4 } },
+        { "op-a": { sqlRowsRead: 105, gitProcesses: 4 } },
+      ),
+    }),
+    /actionCoverage is missing canonical write actions: op-b/u,
+  );
+});
+
+test("G38 rejects an action directory addition without a same-file coverage declaration", async (t) => {
+  const rootDir = g1Setup(t),
+    declarationPath = path.join(rootDir, "packages/kernel/src/domain/action-declaration.ts");
+  writeFileSync(
+    declarationPath,
+    "export const actionDeclarations = [" +
+      "{ kind: 'op-a', executionClass: 'repo-write', residency: { scope: 'canonical' } }," +
+      "{ kind: 'op-b', executionClass: 'repo-write', residency: { scope: 'canonical' } }," +
+      "{ kind: 'op-c', executionClass: 'repo-write', residency: { scope: 'canonical' } }];" +
+      "export const artifactActionIngressKinds = [];\n",
+  );
+  await assert.rejects(
+    evaluateG1WriteCostScaling({
+      rootDir,
+      measured: g1Measured(
+        { "op-a": { sqlRowsRead: 100, gitProcesses: 4 } },
+        { "op-a": { sqlRowsRead: 105, gitProcesses: 4 } },
+      ),
+    }),
+    /actionCoverage is missing canonical write actions: op-c/u,
+  );
+});
+
+test("coverage cannot bind another action's probe or exempt an action without a reason", async (t) => {
+  const rootDir = g1Setup(t),
+    budgetPath = path.join(rootDir, "tools/gates/cost-budget.json"),
+    budget = JSON.parse(readFileSync(budgetPath, "utf8")),
+    measured = g1Measured(
+      { "op-a": { sqlRowsRead: 100, gitProcesses: 4 } },
+      { "op-a": { sqlRowsRead: 100, gitProcesses: 4 } },
+    );
+  budget.writeCostScaling.actionCoverage.measured["op-a"].measurements = ["task-submit:task-artifacts"];
+  writeFileSync(budgetPath, JSON.stringify(budget));
+  await assert.rejects(evaluateG1WriteCostScaling({ rootDir, measured }), /no matching production measurement/u);
+  budget.writeCostScaling.actionCoverage.measured["op-a"].measurements = ["op-a:ledger-events"];
+  budget.writeCostScaling.actionCoverage.notApplicable[0].reason = "   ";
+  writeFileSync(budgetPath, JSON.stringify(budget));
+  await assert.rejects(evaluateG1WriteCostScaling({ rootDir, measured }), /reason is required/u);
+});
+
+test("coverage discovers a newly added artifact ingress and ignores host-local and read actions", async (t) => {
+  const rootDir = g1Setup(t),
+    declarationPath = path.join(rootDir, "packages/kernel/src/domain/action-declaration.ts"),
+    measured = g1Measured(
+      { "op-a": { sqlRowsRead: 100, gitProcesses: 4 } },
+      { "op-a": { sqlRowsRead: 100, gitProcesses: 4 } },
+    );
+  assert.equal((await evaluateG1WriteCostScaling({ rootDir, measured })).ok, true);
+  writeFileSync(
+    declarationPath,
+    readFileSync(declarationPath, "utf8")
+      .replace(
+        "export const artifactActionIngressKinds = [];",
+        "export const artifactActionIngressKinds = ['artifact-new'];",
+      )
+      .replace(
+        "{ kind: 'op-b'",
+        "{kind:'local', executionClass:'repo-write',residency:{scope:'host-local'}},{kind:'query',executionClass:'repo-read',residency:{scope:'canonical'}},{ kind: 'op-b'",
+      ),
+  );
+  await assert.rejects(
+    evaluateG1WriteCostScaling({ rootDir, measured }),
+    /missing canonical write actions: artifact-new$/u,
+  );
+});
+
+test("task-submit scaling measures the production orchestration and one acceptance index", async () => {
+  const measured = {
+    small: await measureTaskSubmitArtifacts(process.cwd(), 100),
+    large: await measureTaskSubmitArtifacts(process.cwd(), 2000),
+  };
+  assert.deepEqual([measured.small.counts.acceptanceReads, measured.large.counts.acceptanceReads], [1, 1]);
+  for (const value of Object.values(measured)) {
+    assert.equal(value.counts.claimsExamined, value.size);
+    assert.equal(value.counts.blobReads, value.size);
+  }
+  assert.equal(evaluateCollectionCosts({ submit: measured }).ok, true);
+});
+
+test("task-witness-run scans the selected execution's frozen gate collection linearly", async () => {
+  const measured = {
+    small: await measureTaskWitnessGates(process.cwd(), 100),
+    large: await measureTaskWitnessGates(process.cwd(), 2000),
+  };
+  assert.deepEqual([measured.small.counts.gateMembersRead, measured.large.counts.gateMembersRead], [200, 4000]);
+  assert.equal(evaluateCollectionCosts({ "task-witness-run:frozen-gates": measured }).ok, true);
+});
+
+test("task review response probe indexes prior responses and findings once", async () => {
+  const measured = {
+      small: await measureTaskReviewResponses(process.cwd(), 100),
+      large: await measureTaskReviewResponses(process.cwd(), 2000),
+    },
+    result = evaluateCollectionCosts({ "task-respond-review:responses": measured });
+  assert.deepEqual(
+    [measured.small.counts.priorResponsesExamined, measured.large.counts.priorResponsesExamined],
+    [100, 2000],
+  );
+  assert.deepEqual([measured.small.counts.findingsExamined, measured.large.counts.findingsExamined], [100, 2000]);
+  assert.deepEqual(result.errors, []);
+});
+
+test("coverage includes canonical entity catalog writers without a public permission declaration", async (t) => {
+  const rootDir = g1Setup(t),
+    measured = g1Measured(
+      { "op-a": { sqlRowsRead: 100, gitProcesses: 4 } },
+      { "op-a": { sqlRowsRead: 100, gitProcesses: 4 } },
+    );
+  writeFileSync(
+    path.join(rootDir, "packages/kernel/src/domain/entity-kind-registry.ts"),
+    "export const entityKindContracts = [{residency:{authored:'ledger'},actionCatalog:{actions:[{execution:{ingress:'internal-event',read:false}}]}}];\n",
+  );
+  await assert.rejects(
+    evaluateG1WriteCostScaling({ rootDir, measured }),
+    /missing canonical write actions: internal-event/u,
+  );
+});
+
+test("collection scaling rejects quadratic claims work despite a linear acceptance count", () => {
+  const result = evaluateCollectionCosts({
+    submit: {
+      small: { size: 100, counts: { acceptanceReads: 100, claimsExamined: 5050 } },
+      large: { size: 2000, counts: { acceptanceReads: 2000, claimsExamined: 2001000 } },
+    },
+  });
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join("\n"), /claimsExamined: 5050 at 100 grew to 2001000 at 2000/u);
+});
+
+test("linear batch work with a constant subtraction passes but 20% per-item growth fails", () => {
+  for (const [small, large, ok] of [
+    [899, 17999, true],
+    [100, 2400, false],
+  ])
+    assert.equal(
+      evaluateCollectionCosts({
+        batch: {
+          small: { size: 100, counts: { hashes: small } },
+          large: { size: 2000, counts: { hashes: large } },
+        },
+      }).ok,
+      ok,
+    );
+});
+
+test("document counts, event body bytes, and a paged single-owner relation collection stay linear", async () => {
+  for (const run of [measureDocuments, (root, n) => measureDocuments(root, 1, n), measureRelations]) {
+    const measured = { probe: { small: await run(process.cwd(), 100), large: await run(process.cwd(), 2000) } };
+    assert.deepEqual(evaluateCollectionCosts(measured).errors, []);
+  }
+});
+
+test("collection cost rejects zero baselines growing positive, mismatched metrics and invalid scales", () => {
+  assert.throws(() => evaluateCollectionCosts({}), /must not be empty/u);
+  assert.equal(
+    evaluateCollectionCosts({
+      p: { small: { size: 100, counts: { rows: 0 } }, large: { size: 2000, counts: { rows: 1 } } },
+    }).ok,
+    false,
+  );
+  assert.equal(
+    evaluateCollectionCosts({
+      p: { small: { size: 100, counts: { rows: 0 } }, large: { size: 2000, counts: { rows: 0 } } },
+    }).ok,
+    true,
+  );
+  for (const [small, large] of [
+    [0, 2],
+    [-1, 2],
+    [1, 1],
+    [2, 1],
+    [1.5, 2],
+  ])
+    assert.throws(
+      () => evaluateCollectionCosts({ p: { small: { size: small }, large: { size: large } } }),
+      /collection scales/u,
+    );
+  assert.throws(
+    () => evaluateCollectionCosts({ p: { small: { size: 1, counts: { rows: 1 } }, large: { size: 2, counts: {} } } }),
+    /same nonempty metric set/u,
+  );
+});
+
+test("every assignment ingress measures one subject's retired history through its production executor", async () => {
+  const assignments = Object.values(COLLECTION_PROBES).filter(({ dimension }) => dimension === "assignment-history");
+  assert.equal(assignments.length, 12);
+  for (const { action } of assignments) {
+    const probe = {
+      small: await measureAssignmentHistory(process.cwd(), 100, action),
+      large: await measureAssignmentHistory(process.cwd(), 2000, action),
+    };
+    assert.deepEqual(evaluateCollectionCosts({ [action]: probe }).errors, []);
+  }
+});
+
+test("repin-all and fact archive publish every member at both collection scales", async () => {
+  for (const action of ["decision-repin", "fact-archive"]) {
+    const probe = {
+      small: await measureCatalogBatch(process.cwd(), 100, action),
+      large: await measureCatalogBatch(process.cwd(), 2000, action),
+    };
+    assert.deepEqual(evaluateCollectionCosts({ [action]: probe }).errors, []);
+  }
+});
+
+test("Decision writes compile their actual publication against one entity's growing claims", async () => {
+  assert.ok(Object.keys(DECISION_PROBES).length > 0);
+  for (const [id, { run }] of Object.entries(DECISION_PROBES)) {
+    const small = await run(process.cwd(), 100),
+      large = await run(process.cwd(), 2000);
+    assert.ok(small.counts.membersExamined >= 100, id);
+    assert.deepEqual(evaluateCollectionCosts({ [id]: { small, large } }).errors, [], id);
+  }
+});
+
+test("Decision review responses scan finding collections linearly in the production compiler", async () => {
+  const small = await measureDecisionCollection(process.cwd(), 100, "decision-respond-review", "review-findings"),
+    large = await measureDecisionCollection(process.cwd(), 2000, "decision-respond-review", "review-findings"),
+    result = evaluateCollectionCosts({ "decision-respond-review:review-findings": { small, large } });
+  assert.equal(small.counts.membersExamined, 202);
+  assert.equal(large.counts.membersExamined, 4002);
+  assert.deepEqual(result.errors, []);
+});
+
+test("pin and unpin scale with the real repository pin collection", async () => {
+  for (const action of ["entity-pin", "entity-unpin"]) {
+    const measured = {
+      small: await measureEntityPins(process.cwd(), 100, action),
+      large: await measureEntityPins(process.cwd(), 2000, action),
+    };
+    assert.deepEqual(evaluateCollectionCosts({ [action]: measured }).errors, []);
+  }
+});
+
+test("task review dispatch batch scales with the supplied task id collection", async () => {
+  const measured = {
+    small: await measureTaskReviewDispatchBatch(process.cwd(), 100),
+    large: await measureTaskReviewDispatchBatch(process.cwd(), 2000),
+  };
+  assert.deepEqual(evaluateCollectionCosts({ "task-dispatch-review:task-ids": measured }).errors, []);
+});
+
+test("task review dispatch measurement rejects synthetic failed steps", () => {
+  assert.throws(
+    () =>
+      assertTaskReviewDispatchMeasurement(
+        {
+          outcome: "op_rejected",
+          dispatches: [{ taskId: "task-review-0", outcome: "failed" }],
+        },
+        1,
+        0,
+      ),
+    /successful write path/u,
+  );
+});
+
+test("task review execution and consent probes cover every declared collection", async () => {
+  const executionDimensions = ["findings", "evidenceChecked", "resolutions"],
+    consentDimensions = ["reviews", "consents", "dispositions"];
+  for (const dimension of executionDimensions) {
+    const id = `task-review-execution:${dimension}`,
+      measured = {
+        small: await measureTaskReviewExecution(process.cwd(), 100, dimension),
+        large: await measureTaskReviewExecution(process.cwd(), 2000, dimension),
+      };
+    assert.deepEqual(evaluateCollectionCosts({ [id]: measured }).errors, [], id);
+  }
+  for (const dimension of consentDimensions) {
+    const id = `task-review-consent:${dimension}`,
+      measured = {
+        small: await measureTaskReviewConsent(process.cwd(), 100, dimension),
+        large: await measureTaskReviewConsent(process.cwd(), 2000, dimension),
+      };
+    assert.deepEqual(evaluateCollectionCosts({ [id]: measured }).errors, [], id);
+  }
+});
+
+test("task amend applies every supplied patch through the production mutation", async () => {
+  const measured = {
+    small: await measureTaskAmendPatches(process.cwd(), 100),
+    large: await measureTaskAmendPatches(process.cwd(), 2000),
+  };
+  assert.deepEqual(evaluateCollectionCosts({ "task-amend:patches": measured }).errors, []);
 });

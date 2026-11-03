@@ -8,6 +8,10 @@ summarizes the verdict, but it does not replace the fact ledger or decision/rela
 
 Summarize the completed behavior change and why it matters. The submission freezes machine-derived delivery facts in `commitSha`, `changedFiles`, and, for code cuts, `productionDelta.baseSha` / `productionDelta.added` / `productionDelta.deleted`. Refer to those fields instead of hand-copying their values here.
 
+## What Changed
+
+List the behavior changes this delivery makes (not a file inventory); group by concern when it helps. The PR body's What Changed section is taken from here verbatim.
+
 ## Verification
 
 List passing applicable checks, the Review result, and any explicitly promoted

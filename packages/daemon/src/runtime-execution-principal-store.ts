@@ -11,6 +11,7 @@ export function recordRuntimeExecutionPrincipal(
   credential: string,
   personId: string,
   expiresAt: string,
+  surfaces: readonly string[],
 ): void {
   const header = readDispatchStreamHeaders(rootDir).find((entry) => entry.runtimeSessionId === runtimeSessionId);
   if (!header?.binding) throw new Error(`Runtime dispatch stream for ${runtimeSessionId} is unavailable.`);
@@ -33,6 +34,7 @@ export function recordRuntimeExecutionPrincipal(
     ...(header.reviewTarget?.kind === "decision" ? { reviewDecisionId: header.reviewTarget.decisionId } : {}),
     ...(header.reviewTarget?.kind === "task" ? { reviewTaskId: header.reviewTarget.taskId } : {}),
     source: header.binding.source,
+    surfaces,
     expiresAt,
   });
 }
@@ -69,6 +71,8 @@ function isPersistedPrincipal(
         typeof value.executionId === "string") &&
     (value.reviewDecisionId === undefined || typeof value.reviewDecisionId === "string") &&
     (value.reviewTaskId === undefined || typeof value.reviewTaskId === "string") &&
+    (value.surfaces === undefined ||
+      (Array.isArray(value.surfaces) && value.surfaces.every((surface) => typeof surface === "string"))) &&
     (value.source === "local" || (typeof value.source === "object" && value.source !== null)) &&
     typeof value.expiresAt === "string"
   );

@@ -18,6 +18,7 @@ import {
   readFleetRuntimeSessionsPaged,
 } from "../src/fleet-edge-runtime.ts";
 import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
+import { readFleetOperationalClient } from "../src/fleet/peer.ts";
 import {
   fleetFixture,
   git,
@@ -32,7 +33,123 @@ import { readRuntimeExecutionPrincipal } from "../src/runtime-execution-principa
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { eventually, scheduleRuntimePorts, definition } from "./schedule-actions.fixtures.ts";
 import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
+import { FLEET_TRANSFER_CHUNK_BYTES, FLEET_UPLOAD_MAX_BYTES } from "../src/fleet/command-protocol.ts";
 const replicaQuota = 64 * 1024 * 1024;
+test("Fleet operational replies transparently carry 1 MiB and 32 MiB results", { timeout: 120_000 }, async (t) => {
+  const fixture = await fleetFixture(t, [], [], "local", undefined, undefined, false),
+    sizes = [1024 * 1024, 32 * 1024 * 1024],
+    response = { payload: "" },
+    originalRead = fixture.host.read;
+  Object.defineProperty(fixture.host, "read", {
+    configurable: true,
+    value: async (...args: Parameters<typeof originalRead>) =>
+      args[1] === "repo.fleet.overview.read" ? response : originalRead(...args),
+  });
+  const center = await fixture.center();
+  t.after(() => fixture.close());
+  for (const size of sizes) {
+    response.payload = "x".repeat(size);
+    const peakBefore = process.resourceUsage().maxRSS,
+      // Node reports resourceUsage().maxRSS in KiB on every supported platform.
+      rssBytes = (value: number) => value * 1024;
+    const result = await readFleetOperationalClient({
+      hostname: "127.0.0.1",
+      port: center.port,
+      ca: fixture.cert,
+      servername: "localhost",
+      nodeId: fixture.subject.nodeId,
+      credential: "machine-secret",
+      repoId: fixture.subject.repoId,
+      readAccessToken: fixture.owners.readAccessToken(fixture.subject.nodeId),
+      method: "repo.fleet.overview.read",
+      payload: {},
+    });
+    assert.deepEqual(result, { payload: response.payload });
+    if (size === 32 * 1024 * 1024) {
+      const peakAfter = process.resourceUsage().maxRSS,
+        peakDelta = Math.max(0, rssBytes(peakAfter) - rssBytes(peakBefore));
+      console.log(`fleet-32MiB-transfer: peakRssBytes=${rssBytes(peakAfter)} deltaBytes=${peakDelta}`);
+      assert.ok(peakDelta <= FLEET_UPLOAD_MAX_BYTES * 8, `peak RSS delta exceeded ${FLEET_UPLOAD_MAX_BYTES * 8} bytes`);
+    }
+  }
+});
+test(
+  "an over-budget inbound transfer returns resource_exhausted and drains without cutting the session",
+  { timeout: 60_000 },
+  async (t) => {
+    const fixture = await fleetFixture(t, [], [], "local", undefined, undefined, false),
+      center = await fixture.center();
+    t.after(() => fixture.close());
+    const first = await rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret"),
+      second = await rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret"),
+      healthyNode = await rawPeer(
+        fixture.track,
+        center.port,
+        fixture.cert,
+        fixture.slowSubject.nodeId,
+        "machine-secret",
+      ),
+      totalBytes = 40 * 1024 * 1024,
+      sha256 = "a".repeat(64),
+      begin = (transferId: string, correlationId: string) => ({
+        schema: "fleet.transfer.begin/v1",
+        messageId: transferId,
+        correlationId,
+        direction: "request",
+        repoId: fixture.subject.repoId,
+        totalBytes,
+        sha256,
+      });
+    first.write(begin("transfer-first", "large-request-first"));
+    const firstSessionStillResponsive = await first.request({
+      schema: "fleet.repo.metadata.get/v1",
+      messageId: "first-transfer-admitted",
+      repoId: fixture.subject.repoId,
+    });
+    assert.equal(firstSessionStillResponsive.schema, "fleet.repo.metadata.result/v1");
+    const healthyMetadata = await healthyNode.request({
+      schema: "fleet.repo.metadata.get/v1",
+      messageId: "other-node-during-transfer",
+      repoId: fixture.subject.repoId,
+    });
+    assert.equal(healthyMetadata.schema, "fleet.repo.metadata.result/v1");
+    second.write(begin("transfer-second", "large-request-second"));
+    const refused = await second.receive();
+    assert.equal(refused.schema, "fleet.error/v1");
+    if (refused.schema !== "fleet.error/v1") throw new Error(JSON.stringify(refused));
+    assert.equal(refused.inReplyTo, "large-request-second");
+    assert.equal(refused.code, "resource_exhausted");
+    assert.match(refused.message, /actualBytes=41943040/u);
+    assert.match(refused.message, /used=41943040/u);
+    assert.match(refused.message, /limit=67108864/u);
+    assert.match(refused.message, /available=25165824/u);
+    assert.match(refused.message, /recommendation=retry after an active transfer finishes/u);
+    second.write({
+      schema: "fleet.transfer.chunk/v1",
+      messageId: "transfer-second_0",
+      transferId: "transfer-second",
+      sequence: 0,
+      offset: 0,
+      dataBase64: Buffer.alloc(FLEET_TRANSFER_CHUNK_BYTES, 0).toString("base64"),
+    });
+    second.write({
+      schema: "fleet.transfer.end/v1",
+      messageId: "transfer-second_end",
+      transferId: "transfer-second",
+      totalBytes,
+      sha256,
+    });
+    const metadata = await second.request({
+      schema: "fleet.repo.metadata.get/v1",
+      messageId: "after-budget-denial",
+      repoId: fixture.subject.repoId,
+    });
+    assert.equal(metadata.schema, "fleet.repo.metadata.result/v1");
+    first.close();
+    second.close();
+    healthyNode.close();
+  },
+);
 // A `node --test` timeout suspends the test body at its current await and never resumes it, so `try…finally`
 // teardown does not run on the timeout path. Every fixture therefore owns its OS resources and every test hands
 // `fixture.close` to `t.after`, which node:test does run after a timeout. Sockets and edge children are dropped
@@ -203,6 +320,18 @@ test(
     });
     t.after(() => edgeHost.close());
     await edgeHost.attachmentsSettled();
+    await assert.rejects(
+      edgeHost.spawnRuntime(
+        fixture.subject.repoId,
+        {
+          runtimeInstanceId: runtimeDefinition.instanceId,
+          cwd: { scope: "repo-root" },
+          prompt: "Do not accept a remote caller.",
+        },
+        { transportKind: "tcp" } as never,
+      ),
+      { code: "local_transport_required" },
+    );
     for (const [instanceId, name] of [
       [runtimeDefinition.instanceId, "Edge Codex"],
       [alternateInstanceId, "Alternate Codex"],
@@ -234,25 +363,14 @@ test(
       viewRoot,
       diskQuotaBytes: replicaQuota,
     });
-    const receipt = await edgeHost.fleet.edgeRuntime(
+    const receipt = await edgeHost.spawnRuntime(
+      fixture.subject.repoId,
       {
-        host: "127.0.0.1",
-        port: center.port,
-        caPath: fixture.certFile,
-        nodeId: fixture.subject.nodeId,
-        credential: "machine-secret",
-        repoId: fixture.subject.repoId,
-        viewRoot,
-        quotaBytes: replicaQuota,
-        workspaceRoot: edgeRoot,
-        method: "repo.agentRuntime.spawn",
-        action: {
-          runtimeInstanceId: runtimeDefinition.instanceId,
-          cwd: { scope: "repo-root" },
-          prompt: "Append one progress checkpoint.",
-          taskId: fixture.subject.taskId,
-          dispatchKey: "remote-edge-runtime",
-        },
+        runtimeInstanceId: runtimeDefinition.instanceId,
+        cwd: { scope: "repo-root" },
+        prompt: "Append one progress checkpoint.",
+        taskId: fixture.subject.taskId,
+        dispatchKey: "remote-edge-runtime",
       },
       localAuth,
     );
@@ -336,26 +454,30 @@ test(
     );
     const after = await fixture.host.read(fixture.subject.repoId, "repo.tasks.list", {}, fixture.auth);
     assert.ok(after.sourceRevision > before.sourceRevision);
-    await t.test("provider resume recovers when the center loses the outcome publication", async () => {
-      // A retained provider session does not retain the terminal attempt's released task lease.
-      const rejoined = await fixture.host.run(
+    const cancelled = await edgeHost.cancelRuntime(
+      fixture.subject.repoId,
+      { runtimeSessionId: String(receipt.runtimeSessionId) },
+      localAuth,
+    );
+    assert.equal(cancelled.detail, "already-exited", JSON.stringify(cancelled));
+    await assert.rejects(
+      edgeHost.handoffRuntime(
         fixture.subject.repoId,
-        { kind: "task-start", taskId: fixture.subject.taskId, executionId: fixture.subject.executionId },
-        fixture.auth,
-      );
-      assert.equal(rejoined.outcome, "applied", JSON.stringify(rejoined));
-      await waitForFleetPublication(fixture.host, fixture.subject.repoId, rejoined.opId, fixture.auth);
-      await catchUpReplica({
-        readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
-        port: center.port,
-        ca: fixture.cert,
-        nodeId: fixture.subject.nodeId,
-        credential: "machine-secret",
-        repoId: fixture.subject.repoId,
-        viewRoot,
-        diskQuotaBytes: replicaQuota,
-      });
-      const outcomeFailure = fixture.failNextRuntimeOutcome();
+        { operation: "export", dispatchId: String(receipt.dispatchId) },
+        localAuth,
+      ),
+      { code: "runtime_handoff_ineligible" },
+    );
+    await t.test("provider resume recovers when the center loses the outcome publication", async () => {
+      // A retained provider session does not retain the terminal attempt's released task lease;
+      // dispatch itself must rejoin the still-active execution through the center.
+      const executionStarts = () =>
+        makeTaskEventReader({ repoId: fixture.subject.repoId, rootDir: fixture.repo })
+          .read()
+          .events.filter((event) => event.type === "execution_started" && event.taskId === fixture.subject.taskId)
+          .length;
+      const startsBeforeResume = executionStarts(),
+        outcomeFailure = fixture.failNextRuntimeOutcome();
       let reportQueueFailure!: () => void;
       const queueFailure = new Promise<void>((resolve) => {
         reportQueueFailure = resolve;
@@ -389,6 +511,11 @@ test(
       );
       assert.equal(resumed.outcome, "applied", JSON.stringify(resumed));
       assert.equal(typeof resumed.runtimeSessionId, "string", JSON.stringify(resumed));
+      assert.equal(
+        executionStarts(),
+        startsBeforeResume + 1,
+        "edge dispatch reconnects its released lease through center task-start",
+      );
       await outcomeFailure;
       await queueFailure;
       errorProbe.mock.restore();
@@ -808,7 +935,7 @@ test(
           fixture.auth,
         )
       ).session.activity.outcome;
-    assert.equal(await eventually(async () => (await settled()) !== null), true);
+    await eventually(async () => (await settled()) !== null, "edge runtime archive outcome to be observed");
     assert.equal(await settled(), "succeeded", JSON.stringify(fixture.runtimeArchiveReceipts));
     const delivered = git(worktree, "rev-parse", "HEAD");
     assert.notEqual(delivered, base);

@@ -39,7 +39,6 @@ test("every declaration has one minimum Base tier and one unique Keycloak scope"
   // task_c42e93a6c384624aba591b9b8b adds task-escalate and task-escalation-resolve.
   // dec_D90F19C8AAAF39747F8F0D6698/CH3/CH20: cold migration requires administrator authority.
   // dec_2C72644059ACA2D4BE30C07786/CH1 adds the sole global access management scope.
-  assert.equal(actionDeclarations.length, 172);
   assert.equal(actionDeclarations.find(({ kind }) => kind === "access-manage")?.policyTier, "admin");
   assert.equal(actionDeclarations.find(({ kind }) => kind === "access-manage")?.socketOwnerAuthority, false);
   assert.equal(
@@ -47,6 +46,8 @@ test("every declaration has one minimum Base tier and one unique Keycloak scope"
     false,
   );
   // task_6569c05452127015cf461219de: automatic claim policy is a node-local administrator action.
+  // task_b61f743f47a04298a7a96704e0 adds the task witness run action.
+  assert.equal(actionDeclarations.length, 173);
   assert.equal(actionDeclarations.find(({ kind }) => kind === "migrate-storage")?.policyTier, "admin");
   assert.equal(actionDeclarations.find(({ kind }) => kind === "daemon-node-auto-claim")?.policyTier, "admin");
   assert.equal(

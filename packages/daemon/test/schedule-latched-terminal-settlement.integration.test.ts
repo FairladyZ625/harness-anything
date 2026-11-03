@@ -188,11 +188,10 @@ test("runtime attempt-terminal asynchronously settles the claimed Schedule occur
       );
       exit?.(0);
 
-      const settled = await eventually(async () => {
+      await eventually(async () => {
         const schedule = await listedSettlementSchedule(cell, scheduleId);
         return schedule.status.activeRun === null && schedule.status.lastRun?.outcome === "failed";
-      });
-      assert.equal(settled, true);
+      }, "failed runtime attempt to settle the Schedule occurrence");
       assert.equal(prompts[0]?.endsWith("HARNESS-OUTCOME: failed"), true);
       const events = makeTaskEventReader({ repoId, rootDir: root }).read().events,
         claimIndex = events.findIndex((event) => event.type === "schedule_occurrence_claimed"),
@@ -255,13 +254,10 @@ async function runOccurrence(
       `${JSON.stringify({ type: "turn.completed" })}\n`,
   );
   callbacks.exit()?.(0);
-  assert.equal(
-    await eventually(async () => {
-      const schedule = await listedSettlementSchedule(cell, scheduleId);
-      return schedule.status.activeRun === null && schedule.status.lastRun?.outcome === expectedOutcome;
-    }),
-    true,
-  );
+  await eventually(async () => {
+    const schedule = await listedSettlementSchedule(cell, scheduleId);
+    return schedule.status.activeRun === null && schedule.status.lastRun?.outcome === expectedOutcome;
+  }, "restarted scheduled run to settle");
 }
 
 async function listedSettlementSchedule(cell: Awaited<ReturnType<typeof openRepoCell>>, scheduleId: string) {
@@ -461,7 +457,7 @@ test("runtime attempt-terminal settles the Schedule occurrence while the RepoCel
       // Query-only run() reads cannot start recovery: the whole terminal chain
       // (exit publication, outcome observation, Schedule settlement) must land on the
       // durable ledger and completed projection while the cell is still latched.
-      const settledWhileLatched = await eventually(async () => {
+      await eventually(async () => {
         const events = makeTaskEventReader({ repoId, rootDir: root }).read().events;
         if (
           !events.some((event) => event.type === "runtime_session_exited") ||
@@ -474,8 +470,7 @@ test("runtime attempt-terminal settles the Schedule occurrence while the RepoCel
         // rather than racing the writer after seeing only its durable event.
         const schedule = await listedSchedule(cell, scheduleId);
         return schedule.status.activeRun === null && schedule.status.lastRun?.runtimeSessionId === runtimeSessionId;
-      });
-      assert.equal(settledWhileLatched, true);
+      }, "latched runtime terminal settlement to reach the Schedule projection");
       assert.equal(cell.status().state, "unavailable");
 
       const events = makeTaskEventReader({ repoId, rootDir: root }).read().events,

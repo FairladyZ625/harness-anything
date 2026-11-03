@@ -17,6 +17,7 @@ export const currentFleetProtocolVersion = CONTRACT_VERSION_1_0;
 
 export const FLEET_FRAME_BYTES = 96 * 1024,
   FLEET_CHUNK_BYTES = 64 * 1024,
+  FLEET_TRANSFER_CHUNK_BYTES = 48 * 1024,
   /** An upload declaration larger than this is an invalid frame; chunks may never write past it. */
   FLEET_UPLOAD_MAX_BYTES = 64 * 1024 * 1024,
   /** An unauthenticated connection is cut when its hello has not been admitted within this window. */
@@ -82,7 +83,10 @@ export type FleetFrameV1 =
   | Msg<"fleet.device.sessions.revoked/v1", { inReplyTo: string }>
   | Msg<"fleet.device.login/v1", FleetDeviceLoginNotice>
   | Msg<"fleet.device.login.result/v1", { inReplyTo: string }>
-  | Msg<"fleet.session.hello/v1", { protocolVersion: ContractVersion; nodeId: string; credential: string }>
+  | Msg<
+      "fleet.session.hello/v1",
+      { protocolVersion: ContractVersion; nodeId: string; credential: string; buildCommit?: string | null }
+    >
   | Msg<
       "fleet.session.ready/v1",
       {
@@ -90,6 +94,8 @@ export type FleetFrameV1 =
         sessionId: string;
         maxFrameBytes: number;
         chunkBytes: number;
+        centerBuildCommit?: string | null;
+        versionWarning?: string;
         loginAuthority?: FleetLoginAuthority | null;
       }
     >
@@ -97,6 +103,8 @@ export type FleetFrameV1 =
       "fleet.repo.metadata.get/v1",
       {
         executionCredential?: string;
+        /** Omit for permission only; null proves the current holder, a string targets that execution. */
+        executionId?: string | null;
         includeGitMetadata?: boolean;
         repoId: string;
         actionKind?: string;
@@ -184,7 +192,6 @@ export type FleetFrameV1 =
         mirrorBaseCut: FleetMirrorBaseCut | null;
       }
     >
-  | Msg<"fleet.task.evidence/v1", { inReplyTo: string; dataBase64: string }>
   | Msg<
       "fleet.task.result/v1",
       {
@@ -264,7 +271,27 @@ export type FleetFrameV1 =
         payload: Readonly<Record<string, unknown>>;
       }
     >
-  | Msg<"fleet.operational.read.result/v1", { inReplyTo: string; result: Readonly<Record<string, unknown>> }>
+  | Msg<
+      "fleet.operational.read.result/v1",
+      {
+        inReplyTo: string;
+        result: Readonly<Record<string, unknown>>;
+        /** Session metadata stays outside the closed operational read result. */
+        versionWarning?: string;
+      }
+    >
+  | Msg<
+      "fleet.transfer.begin/v1",
+      {
+        correlationId: string;
+        direction: "request" | "response";
+        repoId: string;
+        totalBytes: number;
+        sha256: string;
+      }
+    >
+  | Msg<"fleet.transfer.chunk/v1", { transferId: string; sequence: number; offset: number; dataBase64: string }>
+  | Msg<"fleet.transfer.end/v1", { transferId: string; totalBytes: number; sha256: string }>
   | Msg<
       "fleet.error/v1",
       { inReplyTo: string; code: string; message: string; retryable: boolean; resumeOffset: number | null }
@@ -393,7 +420,7 @@ const fieldName = (name: string) => name.slice(2).replace(/-([a-z])/gu, (_, lett
       (command) =>
         ("actionKind" in command ? command.actionKind : command.id) === kind &&
         ((command.admission["remote-edge"] === "via-center-forward" &&
-          command.path[0] !== "doc" &&
+          (command.path[0] !== "doc" || command.id === "doc-retire") &&
           command.path[0] !== "schedule") ||
           // Execution-bound doc-show resolves frozen submission blobs at the center.
           command.id === "doc-show"),
@@ -420,6 +447,7 @@ const fieldName = (name: string) => name.slice(2).replace(/-([a-z])/gu, (_, lett
       const declaration = input as typeof input & {
         readonly field?: string;
         readonly projection?: string;
+        readonly codec?: string;
         readonly maxLength?: number;
         readonly wire?: EntityActionInputField["wire"];
       };
@@ -441,7 +469,7 @@ const fieldName = (name: string) => name.slice(2).replace(/-([a-z])/gu, (_, lett
               ? "number"
               : input.kind === "repeated"
                 ? "string-array"
-                : declaration.projection === "json-object"
+                : declaration.projection === "json-object" || declaration.codec === "json"
                   ? "json-object"
                   : "string",
         required: input.required,
@@ -456,16 +484,24 @@ const fieldName = (name: string) => name.slice(2).replace(/-([a-z])/gu, (_, lett
     for (const input of entity?.input.fields ?? []) add(input);
     if ("payloadFields" in command)
       for (const field of command.payloadFields as readonly EntityActionInputField[]) add(field);
+    const positional = "positional" in command && typeof command.positional === "string" ? command.positional : null;
+    if ("positionalFields" in command && Array.isArray(command.positionalFields))
+      for (const field of command.positionalFields) add({ field, type: "string", required: true });
+    else if (positional) add({ field: positional, type: "string", required: true });
     for (const token of command.syntaxPath ?? command.path) {
       const match = token.match(/^<([a-z][a-z0-9-]*)>$/u);
       if (match) {
-        const name = fieldName(`--${match[1]}`);
+        const name =
+          positional ?? (match[1] === "id" && entity ? `${entity.target.kind}Id` : fieldName(`--${match[1]}`));
         if (!fields.has(name)) add({ field: name, type: "string", required: true });
       }
     }
     if ("actionDefaults" in command && command.actionDefaults)
       for (const [field, value] of Object.entries(command.actionDefaults))
         if (typeof value === "string") add({ field, type: "string", required: false, enum: [value] });
+        else if (value === null) add({ field, type: "string", required: false, wire: { nullable: true } });
+        else if (record(value)) add({ field, type: "json-object", required: false });
+        else if (typeof value === "boolean") add({ field, type: "boolean", required: false });
     return [...fields.values()].filter((field) => !field.wire?.omit);
   };
 // Declaration-derived patterns are static, so each compiles once per module instance.
@@ -523,6 +559,24 @@ const taskAction: Check = (value) => {
   if (!record(value) || typeof value.kind !== "string") return false;
   const fields = declaredActionFields(value.kind);
   const { kind: _kind, ...payload } = value;
+  if (value.kind === "doc-show") {
+    const { offset, length, contentSha256, contentRevision, ...base } = payload;
+    if (
+      (offset !== undefined && (!Number.isSafeInteger(offset) || Number(offset) < 0)) ||
+      (length !== undefined &&
+        (!Number.isSafeInteger(length) || Number(length) <= 0 || Number(length) > FLEET_CHUNK_BYTES))
+    )
+      return false;
+    const hasContentSha256 = contentSha256 !== undefined,
+      hasContentRevision = contentRevision !== undefined;
+    return (
+      fields !== null &&
+      checkFields(fields, base) &&
+      hasContentSha256 === hasContentRevision &&
+      (!hasContentSha256 ||
+        (offset !== undefined && length !== undefined && sha64(contentSha256) && uint(contentRevision)))
+    );
+  }
   return fields !== null && checkFields(fields, payload);
 };
 export const isFleetTaskAction = taskAction;
@@ -698,13 +752,24 @@ const schemas: Readonly<Record<string, Check>> = {
   "fleet.device.sessions.revoked/v1": shape(reply),
   "fleet.device.login/v1": shape({ ...common, userCode: text, createdAt: uint, expiresAt: uint, pending: boolean }),
   "fleet.device.login.result/v1": shape(reply),
-  "fleet.session.hello/v1": shape({ ...common, protocolVersion: isContractVersion, nodeId: id, credential: text }),
+  "fleet.session.hello/v1": optionalShape(
+    {
+      ...common,
+      protocolVersion: isContractVersion,
+      nodeId: id,
+      credential: text,
+      buildCommit: nullable(gitCommitSha),
+    },
+    ["schema", "messageId", "protocolVersion", "nodeId", "credential"],
+  ),
   "fleet.session.ready/v1": optionalShape(
     {
       ...reply,
       sessionId: id,
       maxFrameBytes: one(FLEET_FRAME_BYTES),
       chunkBytes: one(FLEET_CHUNK_BYTES),
+      centerBuildCommit: nullable(gitCommitSha),
+      versionWarning: text,
       loginAuthority: nullable(loginAuthority),
     },
     ["schema", "messageId", "inReplyTo", "sessionId", "maxFrameBytes", "chunkBytes"],
@@ -714,6 +779,7 @@ const schemas: Readonly<Record<string, Check>> = {
       ...common,
       repoId: id,
       executionCredential: text,
+      executionId: nullable(id),
       includeGitMetadata: boolean,
       actionKind: (value) => typeof value === "string" && actionDeclarations.some((action) => action.kind === value),
       taskId: id,
@@ -789,7 +855,6 @@ const schemas: Readonly<Record<string, Check>> = {
     },
     ["schema", "messageId", "writerEpoch", "opId", "repoId", "taskId", "action", "docChanges", "mirrorBaseCut"],
   ),
-  "fleet.task.evidence/v1": shape({ ...common, inReplyTo: id, dataBase64: base64 }),
   "fleet.task.result/v1": optionalShape(
     {
       ...reply,
@@ -850,7 +915,32 @@ const schemas: Readonly<Record<string, Check>> = {
     ),
     payload: record,
   }),
-  "fleet.operational.read.result/v1": shape({ ...reply, result: record }),
+  "fleet.operational.read.result/v1": optionalShape({ ...reply, result: record, versionWarning: text }, [
+    "schema",
+    "messageId",
+    "inReplyTo",
+    "result",
+  ]),
+  "fleet.transfer.begin/v1": shape({
+    ...common,
+    correlationId: id,
+    direction: one("request", "response"),
+    repoId: id,
+    totalBytes: (value) => uint(value) && Number(value) > FLEET_FRAME_BYTES && Number(value) <= FLEET_UPLOAD_MAX_BYTES,
+    sha256: sha64,
+  }),
+  "fleet.transfer.chunk/v1": shape({
+    ...common,
+    transferId: id,
+    sequence: uint,
+    offset: uint,
+    dataBase64: (value) =>
+      typeof value === "string" &&
+      value.length > 0 &&
+      Buffer.from(value, "base64").byteLength <= FLEET_TRANSFER_CHUNK_BYTES &&
+      Buffer.from(value, "base64").toString("base64") === value,
+  }),
+  "fleet.transfer.end/v1": shape({ ...common, transferId: id, totalBytes: uint, sha256: sha64 }),
   "fleet.error/v1": shape({
     ...reply,
     code: text,
@@ -859,15 +949,7 @@ const schemas: Readonly<Record<string, Check>> = {
     resumeOffset: nullable(uint),
   }),
 };
-export function parseFleetFrame(input: string | unknown): FleetFrameV1 {
-  if (typeof input === "string" && Buffer.byteLength(input) > FLEET_FRAME_BYTES)
-    throw new FleetContractError("Fleet frame exceeds 98304 bytes");
-  let value: unknown;
-  try {
-    value = typeof input === "string" ? JSON.parse(input) : input;
-  } catch {
-    throw new FleetContractError("Fleet frame is not valid JSON");
-  }
+function validateFleetFrame(value: unknown): FleetFrameV1 {
   const payload = record(value)
     ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== "accessToken" && key !== "humanClientId"))
     : value;
@@ -883,8 +965,6 @@ export function parseFleetFrame(input: string | unknown): FleetFrameV1 {
     throw new FleetContractError(
       `Fleet frame violates closed schema ${record(value) ? String(value.schema) : "unknown"}`,
     );
-  if (Buffer.byteLength(JSON.stringify(value)) > FLEET_FRAME_BYTES)
-    throw new FleetContractError("Fleet frame exceeds 98304 bytes");
   if (
     record(value) &&
     [
@@ -903,6 +983,102 @@ export function parseFleetFrame(input: string | unknown): FleetFrameV1 {
   }
   return value as FleetFrameV1;
 }
+export function parseFleetFrame(input: string | unknown): FleetFrameV1 {
+  if (typeof input === "string" && Buffer.byteLength(input) > FLEET_FRAME_BYTES)
+    throw new FleetContractError("Fleet frame exceeds 98304 bytes");
+  let value: unknown;
+  try {
+    value = typeof input === "string" ? JSON.parse(input) : input;
+  } catch {
+    throw new FleetContractError("Fleet frame is not valid JSON");
+  }
+  const parsed = validateFleetFrame(value);
+  if (Buffer.byteLength(JSON.stringify(value)) > FLEET_FRAME_BYTES)
+    throw new FleetContractError("Fleet frame exceeds 98304 bytes");
+  return parsed;
+}
 export function serializeFleetFrame(value: unknown): string {
   return `${JSON.stringify(parseFleetFrame(value))}\n`;
+}
+
+/** Serializes one validated logical frame before it is encoded as transfer envelopes. */
+export function serializeFleetTransferPayload(value: FleetFrameV1): Buffer {
+  const payload = Buffer.from(JSON.stringify(validateFleetFrame(value)));
+  if (payload.byteLength > FLEET_UPLOAD_MAX_BYTES)
+    throw new FleetContractError("Fleet transfer payload exceeds 64 MiB");
+  return payload;
+}
+/** Counts JSON UTF-8 bytes without materializing the complete string or buffer. */
+export function measureFleetTransferPayload(value: FleetFrameV1): number {
+  const frame = validateFleetFrame(value),
+    active = new Set<object>();
+  const stringBytes = (text: string): number => {
+    let bytes = 2;
+    for (let index = 0; index < text.length; index += 1) {
+      const code = text.charCodeAt(index);
+      if (
+        code === 0x22 ||
+        code === 0x5c ||
+        code === 0x08 ||
+        code === 0x09 ||
+        code === 0x0a ||
+        code === 0x0c ||
+        code === 0x0d
+      )
+        bytes += 2;
+      else if (
+        code < 0x20 ||
+        (code >= 0xd800 &&
+          code <= 0xdfff &&
+          !(code <= 0xdbff && text.charCodeAt(index + 1) >= 0xdc00 && text.charCodeAt(index + 1) <= 0xdfff))
+      )
+        bytes += 6;
+      else if (code >= 0xd800 && code <= 0xdbff) {
+        bytes += 4;
+        index += 1;
+      } else if (code < 0x80) bytes += 1;
+      else if (code < 0x800) bytes += 2;
+      else bytes += 3;
+    }
+    return bytes;
+  };
+  const count = (item: unknown): number => {
+    if (item === null) return 4;
+    if (typeof item === "string") return stringBytes(item);
+    if (typeof item === "boolean") return item ? 4 : 5;
+    if (typeof item === "number") return Number.isFinite(item) ? Buffer.byteLength(String(item)) : 4;
+    if (Array.isArray(item)) {
+      if (active.has(item)) throw new FleetContractError("Fleet transfer payload contains a cycle");
+      active.add(item);
+      const size = 2 + item.reduce((sum, entry, index) => sum + (index === 0 ? 0 : 1) + count(entry), 0);
+      active.delete(item);
+      return size;
+    }
+    if (typeof item === "object") {
+      if (active.has(item)) throw new FleetContractError("Fleet transfer payload contains a cycle");
+      active.add(item);
+      const entries = Object.entries(item).filter(([, entry]) => entry !== undefined);
+      const size =
+        2 +
+        entries.reduce(
+          (sum, [key, entry], index) => sum + (index === 0 ? 0 : 1) + stringBytes(key) + 1 + count(entry),
+          0,
+        );
+      active.delete(item);
+      return size;
+    }
+    throw new FleetContractError("Fleet transfer payload contains a non-JSON value");
+  };
+  return count(frame);
+}
+export function parseFleetTransferPayload(input: Uint8Array): FleetFrameV1 {
+  if (input.byteLength <= FLEET_FRAME_BYTES || input.byteLength > FLEET_UPLOAD_MAX_BYTES)
+    throw new FleetContractError("Fleet transfer payload size is outside the permitted range");
+  let value: unknown;
+  try {
+    value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(input));
+  } catch {
+    throw new FleetContractError("Fleet transfer payload is not valid UTF-8 JSON");
+  }
+  return validateFleetFrame(value);
 }

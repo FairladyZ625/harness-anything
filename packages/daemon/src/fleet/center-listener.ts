@@ -40,7 +40,8 @@ import { digestId, immediate, loadState, mid, ownedUpload, serve, writeCenterDur
 import { createHelloRateLimiter } from "./center-hello-guard.ts";
 import type { Delivery, FleetCenterOptions, FleetTlsCenter, SessionWindow } from "./center-types.ts";
 import { FleetFault } from "./center-types.ts";
-import { FLEET_CHUNK_BYTES, type FleetFrameV1 } from "./command-protocol.ts";
+import { type FleetFrameV1 } from "./command-protocol.ts";
+import type { FleetOverviewResult } from "./fleet-overview-read.ts";
 import {
   makeTaskEventReader,
   makeTaskProjection,
@@ -124,8 +125,12 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         nodeAdmission.assertOpen(node.nodeId);
         return principal;
       } catch (error) {
-        if (typeof error === "object" && error !== null && "code" in error && typeof error.code === "string")
-          throw new FleetFault(error.code, error instanceof Error ? error.message : "Device session was rejected.");
+        if (typeof error === "object" && error !== null && "code" in error && typeof error.code === "string") {
+          // `daemon_error` is the Keycloak adapters' transport sentinel; a fleet session check that
+          // could not reach the identity authority is a retryable outage, not an unclassified fault.
+          const code = error.code === "daemon_error" ? "keycloak_unavailable" : error.code;
+          throw new FleetFault(code, error instanceof Error ? error.message : "Device session was rejected.");
+        }
         throw error;
       }
     },
@@ -440,6 +445,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   }
   const persist = () => writeCenterDurableJson(stateFile, state),
     auth = writerAuth;
+  const versionWarnings = new Map<string, string>();
   // Every frame after the hello belongs to one TLS session, and that session's hello named the
   // interactive client Keycloak minted its human token under. Carrying it here means each branch
   // inherits the session's client instead of re-deriving one per frame (the center audits `azp`).
@@ -547,6 +553,27 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
                   frame.taskId ? { taskId: frame.taskId } : undefined,
                 )
               ).outcome === "allowed";
+      if (
+        actionAllowed === true &&
+        frame.actionKind === "task-submit" &&
+        frame.taskId !== undefined &&
+        frame.executionId !== undefined
+      ) {
+        const submitAuth = await writerAuth(a, frame.accessToken, frame.executionCredential),
+          shown = await runCenterWriter(a.repoId, { kind: "task-show", taskId: frame.taskId }, submitAuth);
+        if (shown.outcome !== "applied" || typeof shown.evidence !== "string")
+          throw new FleetFault("task_read_failed", "Cannot read the delivery task at the center.");
+        const snapshot = JSON.parse(shown.evidence) as FleetDeliveryTask;
+        try {
+          assertFleetDeliveryHolder(snapshot, {
+            nodeId,
+            personId: principal.nodePrincipal!.personId,
+            ...(frame.executionId !== null ? { executionId: frame.executionId } : {}),
+          });
+        } catch (error) {
+          throw new FleetFault("lease_holder_mismatch", runtimeErrorMessage(error));
+        }
+      }
       if (!baseLedgerSha) throw new FleetFault("projection_pending", "Current ledger cut is unavailable.", true);
       const centerGit = frame.includeGitMetadata
         ? await readFleetCenterGitMetadata(
@@ -908,27 +935,15 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             inReplyTo: frame.messageId,
             ...result,
           };
-          if (command.kind === "doc-show" && receipt.outcome === "applied") {
-            const { evidence, ...metadata } = result.receipt,
-              bytes = Buffer.from(evidence as string);
+          if (reservation)
             return {
               key: null,
-              onComplete: () => reservation?.release(),
-              onFailure: () => reservation?.release(),
+              onComplete: () => reservation.release(),
+              onFailure: () => reservation.release(),
               frames: (async function* () {
-                for (let offset = 0; offset < bytes.length; offset += FLEET_CHUNK_BYTES) {
-                  yield {
-                    schema: "fleet.task.evidence/v1" as const,
-                    messageId: mid(frame.messageId, `evidence-${offset}`),
-                    inReplyTo: frame.messageId,
-                    dataBase64: bytes.subarray(offset, offset + FLEET_CHUNK_BYTES).toString("base64"),
-                  };
-                }
-                yield { ...response, receipt: metadata };
+                yield response;
               })(),
             };
-          }
-          reservation?.release();
           return immediate(response);
         } catch (error) {
           reservation?.release();
@@ -1092,6 +1107,13 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             if (errors.length) throw new FleetFault("invalid_field", errors.join("; "));
           }
           result = await options.host.read(a.repoId, frame.method, frame.payload as JsonObject, binding);
+          if (frame.method === "repo.fleet.overview.read") {
+            const warning = versionWarnings.get(nodeId);
+            if (warning !== undefined) {
+              const overview = result as unknown as FleetOverviewResult;
+              result = { ...overview, warnings: [...new Set([...overview.warnings, warning])] };
+            }
+          }
         }
       } catch (error) {
         const code = runtimeErrorCode(error);
@@ -1109,6 +1131,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         messageId: mid(frame.messageId, "runtime-read"),
         inReplyTo: frame.messageId,
         result: result as unknown as Readonly<Record<string, unknown>>,
+        ...(versionWarnings.has(nodeId) ? { versionWarning: versionWarnings.get(nodeId) } : {}),
       });
     }
     throw new FleetFault("unexpected_direction", `Frame ${frame.schema} is not accepted by the center.`);
@@ -1147,7 +1170,17 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   const server: Server = createServer({ key: options.key, cert: options.cert }, (socket) =>
     serve(
       socket,
-      { ...options, authenticate: guardedAuthenticate, onReplicationStart },
+      {
+        ...options,
+        commandResourceBudget: resourceBudget,
+        authenticate: guardedAuthenticate,
+        onReplicationStart,
+        onVersionWarning: (nodeId, warning) => {
+          if (warning === null) versionWarnings.delete(nodeId);
+          else versionWarnings.set(nodeId, warning);
+          options.onVersionWarning?.(nodeId, warning);
+        },
+      },
       (nodeId, ...args) => nodeAdmission.run(nodeId, () => handle(nodeId, ...args)),
       sessions,
       replicationOwners,
@@ -1179,6 +1212,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     fenceNode: nodeAdmission.fence,
     removeNode: (nodeId) => {
       nodeAdmission.remove(nodeId);
+      versionWarnings.delete(nodeId);
       for (const socket of sessions.get(nodeId) ?? []) socket.destroy();
       sessions.delete(nodeId);
       replicationSlots.removeNode(nodeId);
@@ -1217,6 +1251,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     replicaReceipt: () => {
       throw new Error("replica receipt is retired");
     },
-    status: () => ({ replicas: replicaStatus.snapshot(), uploads: uploadWindow(state) }),
+    status: () => ({
+      replicas: replicaStatus.snapshot(),
+      uploads: uploadWindow(state),
+      versionWarnings: [...versionWarnings.values()],
+    }),
+    versionWarnings: () => [...versionWarnings.values()],
   };
 }

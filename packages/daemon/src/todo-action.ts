@@ -19,6 +19,7 @@ import { relationDirectionRegistry } from "./artifact-entity-action.ts";
 import { noChanges, reject } from "./entity-action-write-helpers.ts";
 
 import { readTodos, todoRelations } from "./todo-read.ts";
+import { todoSoftLimitWarnings } from "./todo-soft-limit.ts";
 
 export function runTodoAction(
   cell: RepoCellOperationalContext,
@@ -136,6 +137,7 @@ export function runTodoAction(
       else cell.projection.apply(item.event, item.plan);
     }
     cell.input.killpoint?.("after_store_commit");
+    const warnings = adding ? todoSoftLimitWarnings(cell) : [];
     return {
       ...cell.readResult(
         opId,
@@ -144,6 +146,7 @@ export function runTodoAction(
         null,
       ),
       authorizationDecision: binding.authorizationDecision,
+      ...(warnings.length > 0 ? { warnings } : {}),
     };
   } catch (error) {
     throw Object.assign(

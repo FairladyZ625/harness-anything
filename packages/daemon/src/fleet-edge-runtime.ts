@@ -2,7 +2,12 @@ import { fleetMirrorTaskPaths } from "./fleet-edge-mirror.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import { requiredCellText } from "./repo-cell-settlement.ts";
 import { operationId } from "./repo-cell-proof.ts";
-import { canStartExecution, type RepositorySettingsV1, type TaskProjection } from "@harness-anything/kernel";
+import {
+  canStartExecution,
+  isNativeExecution,
+  type RepositorySettingsV1,
+  type TaskProjection,
+} from "@harness-anything/kernel";
 import { readEdgeRuntimeRepository } from "./fleet-edge-runtime-read.ts";
 import { repositoryRuntimeReads } from "./repository-runtime-reads.ts";
 import { repositoryReadData } from "./protocol/repository-read-frame.ts";
@@ -274,7 +279,10 @@ export function openFleetEdgeRuntime(input: {
       method,
       payload,
     );
-  const executionCredentials = new Map<string, { credential: string; expiresAt: string; personId: string }>();
+  const executionCredentials = new Map<
+    string,
+    { credential: string; expiresAt: string; personId: string; surfaces: readonly string[] }
+  >();
   const discardExpiredExecutionCredentials = () => {
     const nowMs = Date.now();
     for (const [runtimeSessionId, execution] of executionCredentials)
@@ -465,6 +473,7 @@ export function openFleetEdgeRuntime(input: {
           execution.credential,
           execution.personId,
           execution.expiresAt,
+          execution.surfaces,
         );
         return { credential: execution.credential, expiresAt: execution.expiresAt };
       },
@@ -500,7 +509,13 @@ export function openFleetEdgeRuntime(input: {
           : current.lease?.phase === "held"
             ? current.lease.executionId
             : undefined;
-        const taskStartExecutionId = "runtime-task-start-" + taskId;
+        const activeExecution = current.executions.find(
+          (execution) =>
+            isNativeExecution(execution) &&
+            execution.iteration === current.task?.iteration &&
+            execution.state === "active",
+        );
+        const taskStartExecutionId = activeExecution?.executionId ?? "runtime-task-start-" + taskId;
         if (!executionId && !review && canStartExecution(current, taskStartExecutionId)) {
           const taskStartOpId = randomUUID();
           const started = await runFleetEdgeWrite({
@@ -514,7 +529,11 @@ export function openFleetEdgeRuntime(input: {
                 repoId: request.repoId,
                 taskId,
                 opId: taskStartOpId,
-                action: { kind: "task-start", taskId },
+                action: {
+                  kind: "task-start",
+                  taskId,
+                  ...(activeExecution ? { executionId: activeExecution.executionId } : {}),
+                },
                 waitMs: centerWriteWaitMs,
                 timeoutMs: centerWriteWaitMs + 10_000,
               }),
@@ -723,19 +742,24 @@ export function openFleetEdgeRuntime(input: {
         // A returned dispatch is immediately usable by local status/foreground wait. This
         // acknowledgement belongs to write preparation; subsequent reads remain offline.
         if (draft.type === "runtime_session_started") await pullRuntimeReplica();
-        const { executionCredential, executionExpiresAt, executionPrincipalId, ...receipt } = response.receipt;
+        const { executionCredential, executionExpiresAt, executionPrincipalId, executionSurfaces, ...receipt } =
+          response.receipt;
         discardExpiredExecutionCredentials();
         if (
           typeof executionCredential === "string" &&
           typeof executionExpiresAt === "string" &&
           typeof executionPrincipalId === "string" &&
           typeof draft.payload.runtimeSessionId === "string"
-        )
+        ) {
+          if (!Array.isArray(executionSurfaces) || executionSurfaces.some((surface) => typeof surface !== "string"))
+            throw edgeRuntimeError("execution_credential_rejected", "Center returned invalid execution surfaces.");
           executionCredentials.set(draft.payload.runtimeSessionId, {
             credential: executionCredential,
             expiresAt: executionExpiresAt,
             personId: executionPrincipalId,
+            surfaces: executionSurfaces,
           });
+        }
         return {
           event: response.event as unknown as AgentRuntimeEventV1 | null,
           receipt: {

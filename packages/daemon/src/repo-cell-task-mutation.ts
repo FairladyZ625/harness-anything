@@ -254,12 +254,32 @@ function taskMutationWithStopResult(
         };
       else if (field === "taskClass" && (taskClasses as readonly string[]).includes(value))
         changed = { ...changed, taskClass: value as TaskV2["taskClass"] };
-      else if (field === "reviewer" && /^[A-Za-z0-9_-]{1,96}$/u.test(value)) changed = { ...changed, reviewer: value };
+      else if (field === "surfaces") {
+        let surfaces: unknown;
+        try {
+          surfaces = JSON.parse(value);
+        } catch {
+          throw cell.cellCodedError(
+            "invalid_amend",
+            `Set surfaces to a JSON string array, for example --set 'surfaces:["harness/skills/example/**"]'.`,
+          );
+        }
+        if (
+          !Array.isArray(surfaces) ||
+          surfaces.some((surface) => typeof surface !== "string" || surface.trim().length === 0)
+        )
+          throw cell.cellCodedError(
+            "invalid_amend",
+            `Set surfaces to a JSON string array, for example --set 'surfaces:["harness/skills/example/**"]'.`,
+          );
+        changed = { ...changed, metadata: { ...changed.metadata!, surfaces } };
+      } else if (field === "reviewer" && /^[A-Za-z0-9_-]{1,96}$/u.test(value))
+        changed = { ...changed, reviewer: value };
       else
         throw cell.cellCodedError(
           "invalid_amend",
           [
-            "Amend title, parentTaskId, workKind, urgency, ",
+            "Amend title, parentTaskId, workKind, urgency, surfaces, ",
             "taskClass, reviewer (agent id), or pinned (true/false); use task contract ",
             "migrate for contract shape changes.",
           ].join(""),

@@ -451,6 +451,6 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
           fixture.auth,
         )
       ).session.activity.outcome;
-    assert.equal(await eventually(async () => (await settled()) !== null), true);
+    await eventually(async () => (await settled()) !== null, "runtime archive outcome to be observed");
     assert.equal(await settled(), expectedOutcome, JSON.stringify(fixture.runtimeArchiveReceipts));
   });

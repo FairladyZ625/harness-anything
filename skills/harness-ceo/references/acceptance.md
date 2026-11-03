@@ -6,7 +6,7 @@ Keep three distinct questions separate:
 
 | Layer | Question | Owner |
 | --- | --- | --- |
-| Functional review | Does the delivered change match its claim, preserve required invariants, connect to consumers, and pass the required checks? | Independent reviewer or delegated reviewer; CEO verifies important evidence. |
+| Functional review | Does the delivered change match its claim, preserve required invariants, connect to consumers, and pass the required checks? | Independent reviewer when the task's review gate is on, otherwise the CEO; CEO verifies important evidence. |
 | Semantic acceptance | Does it solve the user's current problem, honor the governing request or decision, and add only justified responsibility? | CEO; cannot be delegated. |
 | Usability acceptance | Can a person or fresh agent use the result through its real entry point without private session context? | Fresh-use check may be delegated; CEO confirms the required user path. |
 
@@ -41,7 +41,7 @@ When safe and within the task's authorization, the CEO should also exercise the 
 
 ## Bound review effort
 
-Meet all review requirements frozen in the task and repository policy. Set additional review depth according to impact: protected boundaries, production writes, security, data changes, and hard-to-reverse behavior justify independent or adversarial review. Ordinary bounded work usually needs the required independent reviewer and focused evidence; pure prose can receive CEO review when its task contract permits it.
+Meet all review requirements frozen in the task and repository policy. For ordinary bounded work, the review gate the submitted cut freezes decides whether an independent reviewer runs. Submit sets it from the effective risk tier (`low` off, `medium` and `high` on; an undeclared tier is `medium`), so ordinary work is created with `--risk-tier low`: a review-required cut enters `in_review` and dispatches its reviewer; a review-disabled cut stays `submitted`, and the CEO completes functional review and semantic acceptance with focused evidence instead of dispatching one. Set additional review depth according to impact: protected boundaries, production writes, security, data changes, and hard-to-reverse behavior justify independent or adversarial review even when the gate is off; record the reason when you request it.
 
 Tie findings to the exact cut. After a repair, verify confirmed findings and rerun only checks whose inputs changed, plus required gates. New findings must be classified: does the issue break a current invariant, production path, or acceptance criterion? If yes, resolve it before merge. If not, record a clear follow-up rather than expanding the current review indefinitely. Never weaken a required check to make the cut pass.
 

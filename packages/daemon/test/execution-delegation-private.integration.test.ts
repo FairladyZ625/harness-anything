@@ -155,7 +155,7 @@ test("center private delegation survives restart and narrows online Keycloak per
   assert.equal(typeof beforeOffline, "number");
   const offline = await cell.run(amend, offlineBinding);
   assert.equal(offline.outcome, "op_rejected", JSON.stringify(offline));
-  assert.equal(offline.code, "service_rejected");
+  assert.equal(offline.code, "keycloak_unavailable");
   assert.equal(makeTaskEventReader({ repoId: "delegated-ledger-ops", rootDir }).read().revision, beforeOffline);
   now = "2026-09-19T12:00:00.000Z";
   assert.equal((await cell.run(amend, binding)).code, "executor_binding_invalid");

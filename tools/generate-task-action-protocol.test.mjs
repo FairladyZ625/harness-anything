@@ -74,6 +74,7 @@ test("Task Action transport has one current build-time projection", async () => 
       "agendaPinLimit",
       "wipLimit",
       "rootThreshold",
+      "todoSoftLimit",
       "worktreeSetup",
       "worktreeSetupStepTimeoutMs",
       "taskAssignmentTtlMs",

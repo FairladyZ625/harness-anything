@@ -41,6 +41,7 @@ test("all public Task writes are complete executable Action contracts", () => {
       "witness-settle",
       "witness-revoke",
       "witness-rerun",
+      "witness-run",
       "create",
       "start",
       "transition",
@@ -126,6 +127,7 @@ test("all public Task writes are complete executable Action contracts", () => {
     "witness-settle",
     "witness-revoke",
     "witness-rerun",
+    "witness-run",
     "create",
     "start",
     "transition",
@@ -438,6 +440,19 @@ test("nested vocabularies retain identity and guarded lifecycle actions omit sta
       "validate",
     ]);
   assert.equal(new Set(actions.flatMap(({ returns }) => returns.guidance.map(({ kind }) => kind))).size, 8);
+});
+
+test("generic transition CLI and wire targets share the canonical lifecycle vocabulary", () => {
+  const transition = getEntityKindContract("task")?.actionCatalog?.actions.find(({ id }) => id === "transition");
+  assert.ok(transition);
+  const status = transition.input.fields.find(({ field }) => field === "status");
+  assert.ok(status);
+  assert.deepEqual(status.enum, ["planned", "active", "blocked", "in_review", "done", "cancelled"]);
+  assert.equal(status.wire, undefined, "transport must inherit the shared status field");
+  const reason = transition.input.fields.find(({ field }) => field === "reason");
+  assert.ok(reason);
+  assert.equal(reason.required, false, "the aggregate decides which moves require an audit reason");
+  assert.equal(reason.wire, undefined, "transport must inherit the shared reason field");
 });
 
 test("CompleteTask reducer output is not advertised as an unguarded static projection", () => {

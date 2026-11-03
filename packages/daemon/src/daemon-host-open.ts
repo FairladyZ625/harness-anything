@@ -7,7 +7,7 @@ import {
   startFleetCenterAdmission,
 } from "./fleet-center-admission.ts";
 import {
-  authenticateRuntimeExecutionCredential,
+  authenticateRuntimeExecutionPrincipal,
   executionCredentialRejected,
   runtimeExecutionActor,
 } from "./runtime-execution-credential.ts";
@@ -138,6 +138,7 @@ import { createIdentitySession } from "./authorization-provider.ts";
 import type { SkillEvalRunner } from "./skill-eval-runner.ts";
 import { openSkillEvalProduction, type SkillEvalProductionInput } from "./skill-eval-production.ts";
 import { runFleetReplicaSync, waitForFleetReplicaReady } from "./fleet/replica-sync.ts";
+import type { FleetVersionWarning } from "./fleet/peer.ts";
 export interface DaemonHostOpenInput {
   readonly daemonId: string;
   readonly userRoot: string;
@@ -245,7 +246,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     now = input.now ?? (() => new Date().toISOString()),
     initialRegistry = readDaemonRegistry({ userRoot: input.userRoot }),
     buildObserver = observeDaemonBuild(input.runtimeFile),
-    fleetEdgeRuntimes = new Map<string, ReturnType<typeof openFleetEdgeRuntime>>();
+    fleetEdgeRuntimes = new Map<string, ReturnType<typeof openFleetEdgeRuntime>>(),
+    fleetVersionWarnings = new Map<string, FleetVersionWarning>();
   const oidc = input.oidc ?? createIdentitySession(input.userRoot),
     {
       writerEpochLease,
@@ -292,7 +294,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     // Session authorization also consults Keycloak, without using the center supplier.
     await rbacResumed;
     const execution = auth.executionCredential
-      ? await authenticateRuntimeExecutionCredential(await keycloakCenter(), auth.executionCredential)
+      ? await authenticateRuntimeExecutionPrincipal(keycloakCenter, auth.executionCredential)
       : auth.executionPrincipal;
     if (execution) {
       if (
@@ -849,6 +851,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       fleetCenter = value;
     },
     fleetEdgeRuntimes,
+    fleetVersionWarnings,
     runtimeDaemonRoute,
     scheduleScheduler,
     edgeRuntimeFor,
@@ -909,14 +912,18 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   });
   accessAdminRef.current = accessAdmin;
   const lifecycle = createDaemonHostLifecycleApi(hostContext);
-  // The resume failure is recorded, not surfaced: a center that cannot come back still fails
-  // every consultation honestly through oidc.center(), without a second error shape.
-  rbacResumed = managedRbac.resume().catch((error: unknown) =>
+  // Every center consultation awaits this start barrier. A failed resume is therefore not absorbed:
+  // the same rejection refuses the request with the real cause instead of letting it reach a center
+  // whose policy sync never completed. The recording handler only observes the failure; it does not
+  // turn the barrier into a resolved promise.
+  const resumed = managedRbac.resume();
+  rbacResumed = resumed;
+  void resumed.catch((error: unknown) => {
     input.recordLifecycle?.({
       event: "rbac_resume_failed",
       error: error instanceof Error ? error.message : String(error),
-    }),
-  );
+    });
+  });
   const parkedWaitController = new AbortController(),
     edgeJoinProgress = createEdgeJoinProgressTap();
   const host: DaemonHost = {
@@ -1141,7 +1148,9 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       await autoClaimLoop.close();
       for (const { controller } of replicaSyncControllers.values()) controller.abort();
       replicaSyncControllers.clear();
-      await rbacResumed;
+      // A failed resume is already refused at every request; cleanup still stops whatever the
+      // failed attempt launched before the host reports itself closed.
+      await rbacResumed.catch(consumeKnownError);
       await accessAdmin.close();
       await managedRbac.stop();
       await lifecycle.close();
@@ -1170,12 +1179,16 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       if (repo.state !== "enabled" || repo.mode !== "remote-edge" || repo.canonicalRoot === null) continue;
       const rootDir = repo.canonicalRoot,
         config = readFleetEdgeConfig(rootDir);
-      if (!config || config.repoId !== repo.repoId) continue;
+      if (!config || config.repoId !== repo.repoId) {
+        fleetVersionWarnings.delete(repo.repoId);
+        continue;
+      }
       activeRemoteEdges.add(repo.repoId);
       // A stream follows its fleet-edge.json: an edge sync that changed the connection restarts it.
       const running = replicaSyncControllers.get(repo.repoId),
         connection = JSON.stringify(config);
       if (running?.config === connection) continue;
+      fleetVersionWarnings.delete(repo.repoId);
       running?.controller.abort();
       const controller = new AbortController();
       replicaSyncControllers.set(repo.repoId, { controller, config: connection });
@@ -1197,6 +1210,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         viewRoot,
         diskQuotaBytes: config.quotaBytes,
         signal: controller.signal,
+        onVersionWarning: (warning) => {
+          if (warning === null) fleetVersionWarnings.delete(repo.repoId);
+          else fleetVersionWarnings.set(repo.repoId, warning);
+        },
         onConfirmed: async (changedPaths) => {
           applyFleetMirrorCut(viewRoot, config.repoId, rootDir, "pull", { changedPaths });
           await edgeRuntimeFor({
@@ -1232,6 +1249,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       if (activeRemoteEdges.has(repoId)) continue;
       controller.abort();
       replicaSyncControllers.delete(repoId);
+      fleetVersionWarnings.delete(repoId);
     }
   };
   // Restore only a previously authorized successful start, after every callback's captured

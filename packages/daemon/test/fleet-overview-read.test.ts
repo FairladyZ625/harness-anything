@@ -15,7 +15,6 @@ import {
 } from "../src/fleet/fleet-overview-read.ts";
 import type { FleetReplicaStatus } from "../src/fleet/center-types.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
-import { assertFleetReadFits } from "../src/dispatch-read.ts";
 
 const CENTER = { daemonId: "default", startedAt: "2026-10-01T00:00:00.000Z", version: "0.0.0", commitSha: "bd2251a" };
 
@@ -292,10 +291,22 @@ test("the validator accepts a real overview and rejects each pinned negative fix
       leaseReads: { ok: true, leases: [lease("task_1", FLEET_CENTER_NODE_ID)], dispatches: [] },
       events: [event("evt-1", { taskId: "task_1" })],
       nodeOwners: new Map([["cc90-ubuntu", { kind: "unavailable", reason: "keycloak-unreachable" }]]),
+      versionWarning: {
+        centerBuildCommit: "a".repeat(40),
+        localBuildCommit: "b".repeat(40),
+        upgradeCommand: "ha update",
+      },
     }),
   );
   assert.deepEqual(validateFleetOverview(good), []);
+  assert.deepEqual(good.versionWarning, {
+    centerBuildCommit: "a".repeat(40),
+    localBuildCommit: "b".repeat(40),
+    upgradeCommand: "ha update",
+  });
   assert.ok(good.warnings.length === 1);
+  const invalidWarning = { ...good, versionWarning: { ...good.versionWarning, upgradeCommand: "ha daemon update" } };
+  assert.deepEqual(validateFleetOverview(invalidWarning), ["versionWarning.upgradeCommand must be ha update"]);
   const negative = JSON.parse(
     readFileSync(new URL("../fixtures/contracts/daemon-fleet-overview-invalid.json", import.meta.url), "utf8"),
   );
@@ -353,9 +364,8 @@ test("the host assembly maps task snapshots, dispatch rows, the event tail and r
           },
         ],
       };
-      // A real explicit dispatch page rejects this prose. The overview projects
-      // only shallow facts, so its local intermediate read must not impose that cap.
-      if (payload?.limit !== undefined) assertFleetReadFits(result, "repo.task.dispatches");
+      // The generic Fleet transfer owns the wire limit; this local intermediate
+      // result is intentionally allowed to exceed one frame.
       return result;
     },
     observeTail: async () => ({

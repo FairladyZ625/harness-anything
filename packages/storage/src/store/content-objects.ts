@@ -1,5 +1,6 @@
 import path from "node:path";
 import { localContentObjectFileSystem } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
+import { readFileWindow } from "../durable-file.ts";
 import { TaskEventStoreError, type CanonicalContentBlob, type CanonicalEventV1 } from "@harness-anything/kernel";
 import { contentClaims } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
 // Claimed content objects live under objectRoot/<2>/<62>; every claim is validated before any object is
@@ -42,6 +43,25 @@ export function objectPath(objectRoot: string, sha256: string): string {
 export function readContentObject(objectRoot: string, sha256: string): Uint8Array | null {
   const target = objectPath(objectRoot, sha256);
   return localContentObjectFileSystem.exists(target) ? localContentObjectFileSystem.readBytes(target) : null;
+}
+
+export function contentObjectSize(objectRoot: string, sha256: string): number | null {
+  const target = objectPath(objectRoot, sha256);
+  return localContentObjectFileSystem.exists(target) ? localContentObjectFileSystem.sizeBytes(target) : null;
+}
+
+/** Read one bounded window without materializing the complete content object. */
+export function readContentObjectRange(
+  objectRoot: string,
+  sha256: string,
+  offset: number,
+  maxBytes: number,
+): Uint8Array | null {
+  if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(maxBytes) || maxBytes <= 0)
+    throw new RangeError("content object range must have a non-negative offset and positive maxBytes");
+  const target = objectPath(objectRoot, sha256);
+  if (!localContentObjectFileSystem.exists(target)) return null;
+  return readFileWindow(target, offset, maxBytes);
 }
 
 export function listContentObjectDigests(objectRoot: string): readonly string[] {

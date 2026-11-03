@@ -1,4 +1,5 @@
 import type { DaemonTaskCompletionResult } from "./protocol/daemon-protocol-task-completion.ts";
+import path from "node:path";
 import { localGitObjectRefStore } from "@harness-anything/storage";
 import {
   assessFactRetirement,
@@ -6,6 +7,7 @@ import {
   currentExecutionCuts,
   deliveryTargetRef,
   INITIAL_SETTINGS_V1,
+  resolveHarnessLayout,
   type CloseoutSnapshot,
   type CompletionDeliveryStatus,
   taskCompletionNext,
@@ -21,7 +23,7 @@ import { presetSnapshotReader, taskOutputShape } from "./task-worktree.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { cellCodedError, cellErrorCode } from "./repo-cell-errors.ts";
-import { deliveryContainment, EMPTY_TREE_SHA } from "./task-delivery-containment.ts";
+import { deliveryContainment, EMPTY_TREE_SHA, rebaseEquivalentDelivery } from "./task-delivery-containment.ts";
 
 /** Canonical completion inputs shared by command and GUI projection consumers. */
 export function readCompletionContext(
@@ -81,12 +83,24 @@ export function readCompletionDeliveryStatus(
     delivery = projected?.delivery ?? INITIAL_SETTINGS_V1.delivery,
     cuts = currentExecutionCuts(snapshot),
     execution = cuts.length === 1 ? cuts[0] : undefined,
-    // Only a task-package-artifact delivery never waits for a merge: it hands back accepted
-    // artifacts and never receives a merge_commit_sha annotation. An unreadable shape keeps the
-    // requirement, so a degraded preset snapshot cannot silently pass an unmerged code delivery.
+    files = execution?.submission?.changedFiles,
+    packagePath =
+      files?.length && rootDir && snapshot.task?.taskId ? projection.read(snapshot.task.taskId).packagePath : undefined,
+    packagePrefix =
+      packagePath && rootDir
+        ? `${path
+            .relative(rootDir, path.join(resolveHarnessLayout(rootDir).authoredRoot, packagePath))
+            .split(path.sep)
+            .join("/")}/`
+        : undefined,
+    // Use the accepted manifest, never today's Git diff: old task-package-only cuts already
+    // reviewed and consented have no repository delivery to merge. Missing facts stay conservative.
+    packageOnly =
+      files !== undefined && files.every((file) => packagePrefix !== undefined && file.startsWith(packagePrefix)),
     required =
       delivery.requireMerged &&
       execution?.submission?.commitSha != null &&
+      !packageOnly &&
       taskOutputShape(snapshot.task, presetSnapshotReader(projection)) !== "task-package-artifact",
     mergeSha =
       execution?.schema === "execution/v1"
@@ -94,7 +108,31 @@ export function readCompletionDeliveryStatus(
             ?.findLast((entry) => /^merge_commit_sha:[0-9a-f]{40}$/u.test(entry.note))
             ?.note.slice(17)
         : undefined,
-    deliveryCommitSha = execution?.submission?.commitSha ?? undefined,
+    submissionCommitSha = execution?.submission?.commitSha ?? undefined,
+    rebaseEquivalent =
+      execution?.schema === "execution/v1"
+        ? execution.annotations
+            ?.filter((entry) => entry.kind === "correction")
+            .map((entry) => {
+              const match = /^rebase-equivalent:([0-9a-f]{40})->([0-9a-f]{40}):base=([0-9a-f]{40})$/u.exec(entry.note);
+              return match === null ? undefined : { frozen: match[1], head: match[2], base: match[3] };
+            })
+            .findLast((value) => value !== undefined)
+        : undefined,
+    equivalentRebaseAccepted =
+      rebaseEquivalent !== undefined &&
+      rootDir !== undefined &&
+      submissionCommitSha !== undefined &&
+      execution?.submission?.productionDelta?.baseSha !== undefined &&
+      rebaseEquivalent.frozen === submissionCommitSha &&
+      rebaseEquivalentDelivery(
+        rootDir,
+        execution.submission.productionDelta.baseSha,
+        submissionCommitSha,
+        rebaseEquivalent.base,
+        rebaseEquivalent.head,
+      ),
+    deliveryCommitSha = equivalentRebaseAccepted ? rebaseEquivalent.head : submissionCommitSha,
     baseline = execution?.deliveryBaseline,
     baselineRef = baseline === undefined ? null : baseline.kind === "empty-tree" ? EMPTY_TREE_SHA : baseline.commitSha,
     targetRef = deliveryTargetRef(delivery);

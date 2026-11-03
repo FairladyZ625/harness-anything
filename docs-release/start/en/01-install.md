@@ -16,7 +16,9 @@ npm install --global @harness-anything/cli@0.1.0 @harness-anything/daemon@0.1.0
 ha init
 ```
 
-The source checkout path remains available before publication. The [source install skill](../../../skills/harness-download/SKILL.md) builds the CLI, daemon, and GUI in one pass and puts the built `ha` on PATH for the current shell; a persistent PATH change or `npm link` is proposed and confirmed with you first.
+The npm channel is terminal-only: it does not include the desktop GUI, and `ha gui` points at the desktop App or the optional GUI package. For the desktop interface, install the desktop App from [GitHub Releases](https://github.com/FairladyZ625/harness-anything/releases) (it bundles `ha`), or install `@harness-anything/gui` into the same npm prefix.
+
+The source checkout path remains available before publication. The [source install skill](../../../skills/harness-download/SKILL.md) builds the CLI, daemon, and GUI in one pass, links the built `ha` into a user-owned npm prefix (default `~/.local/share/harness-anything-npm`), and prints the absolute `ha` path plus an optional `export PATH=...` line. The installer does not edit your shell startup files; use the printed absolute path in a new terminal, or add that prefix to PATH yourself for the `ha` shorthand.
 
 ## Install the desktop App
 

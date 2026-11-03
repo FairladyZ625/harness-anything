@@ -1,5 +1,6 @@
 import { stableStringify, executionCredentialRejected, type RuntimeExecutionPrincipal } from "@harness-anything/kernel";
 import type { KeycloakCenterCredential } from "./transport/auth-context.ts";
+import { isKeycloakTransportFailure, keycloakUnavailableFailure } from "./keycloak-transport-failure.ts";
 export { runtimeExecutionLifetimeMs, executionCredentialRejected } from "@harness-anything/kernel";
 export type { RuntimeExecutionPrincipal } from "@harness-anything/kernel";
 
@@ -23,6 +24,23 @@ export function authenticateRuntimeExecutionCredential(
   return executionProvider(center, fetchPort)
     .authenticateExecutionCredential(center.accessToken, credential)
     .catch(executionCredentialRecovery);
+}
+/**
+ * The runtime credential entry used before any repository action. A cold center token is a
+ * pre-execution identity lookup: its transport failure is retryable, unlike an Admin write whose
+ * response may already have applied.
+ */
+export async function authenticateRuntimeExecutionPrincipal(
+  center: () => Promise<KeycloakCenterCredential>,
+  credential: string,
+  fetchPort?: typeof fetch,
+): Promise<RuntimeExecutionPrincipal> {
+  try {
+    return await authenticateRuntimeExecutionCredential(await center(), credential, fetchPort);
+  } catch (error) {
+    if (!isKeycloakTransportFailure(error)) throw error;
+    throw keycloakUnavailableFailure(error, "authenticating the runtime execution credential");
+  }
 }
 export function readRuntimeExecutionPrincipal(
   center: KeycloakCenterCredential,

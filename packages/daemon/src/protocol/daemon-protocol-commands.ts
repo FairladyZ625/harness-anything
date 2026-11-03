@@ -177,9 +177,9 @@ export const daemonOwnedProtocolCommands = Object.freeze([
   ...settingsProtocolCommands,
   ...eventProtocolCommands,
   ...peopleProtocolCommands,
-] as const);
+]);
 
-export const daemonProtocolCommands = Object.freeze([...daemonOwnedProtocolCommands, ...presetCommands] as const);
+export const daemonProtocolCommands = Object.freeze([...daemonOwnedProtocolCommands, ...presetCommands]);
 
 export const thinCliCommands = Object.freeze(
   daemonProtocolCommands.filter((command) => !("internal" in command && command.internal)).map((command) => command),
@@ -720,6 +720,16 @@ export const daemonProtocolMethods = Object.freeze([
     params: shape({
       repo: shape({ repoId: "string" }),
       payload: shape({ action: shape({ kind: "string" }, true) }),
+    }),
+  },
+  {
+    id: "repo.task.witness.run",
+    phase: "W3",
+    method: "repo.task.witness.run",
+    requiresRepo: true,
+    params: shape({
+      repo: shape({ repoId: "string" }),
+      payload: shape({ taskId: "string", executionId: "string", gateId: "string" }),
     }),
   },
   {

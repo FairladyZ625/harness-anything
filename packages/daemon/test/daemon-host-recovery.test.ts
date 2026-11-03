@@ -973,7 +973,7 @@ test("registry mode is authoritative before refresh and refresh replaces a drift
   }
 });
 
-test("remote-edge Cell terminal side effects require Cell-level mode admission", async () => {
+test("remote-edge Cell admits local terminal writes and rejects cross-node terminal writes", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-cell-terminal-mode-")),
     rootDir = path.join(parent, "repo");
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
@@ -989,13 +989,30 @@ test("remote-edge Cell terminal side effects require Cell-level mode admission",
       { actor: { principal: { personId: "writer" }, executor: null }, source: "local" as const },
       "admin",
     );
+    const nodeBinding = withPolicyGroup(
+      {
+        actor: { principal: { personId: "writer" }, executor: null },
+        source: { kind: "node", nodeId: "other-edge" } as const,
+      },
+      "admin",
+    );
     assert.throws(
       () => cell!.terminal.spawn({}, binding),
+      (error: unknown) =>
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "invalid_terminal_request" &&
+        "message" in error &&
+        error.message === "idempotencyKey is required.",
+    );
+    assert.throws(
+      () => cell!.terminal.spawn({}, nodeBinding),
       (error: unknown) =>
         typeof error === "object" && error !== null && "code" in error && error.code === "repo_mode_read_only",
     );
     assert.throws(
-      () => cell!.terminal.spawnTrusted({} as never, binding),
+      () => cell!.terminal.spawnTrusted({} as never, nodeBinding),
       (error: unknown) =>
         typeof error === "object" && error !== null && "code" in error && error.code === "repo_mode_read_only",
     );

@@ -49,7 +49,7 @@ test("the closeout skeleton materialized with the task submits untouched", async
       skeleton = readFileSync(closeoutPath, "utf8");
     assert.deepEqual(
       [...skeleton.matchAll(/^## .+$/gmu)].map((match) => match[0]),
-      ["## Summary", "## Verification", "## Residual Risk", "## Same Mechanism Elsewhere"],
+      ["## Summary", "## What Changed", "## Verification", "## Residual Risk", "## Same Mechanism Elsewhere"],
     );
     await realizeTaskPlanFixture(
       rootDir,
@@ -106,7 +106,7 @@ test("the closeout skeleton materialized with the task submits untouched", async
     // Recorded verbatim: the claim is the scaffold's own Summary paragraph, unfiltered by heading
     // normalization or locale. Compare against the skeleton body rather than a hardcoded sentence.
     const summaryStart = skeleton.indexOf("## Summary\n"),
-      summaryEnd = skeleton.indexOf("\n## Verification", summaryStart);
+      summaryEnd = skeleton.indexOf("\n## What Changed", summaryStart);
     assert.equal(packet.completionClaim, skeleton.slice(summaryStart + "## Summary\n".length, summaryEnd).trim());
     assert.equal(packet.verificationNotes.length, 1);
     assert.deepEqual(packet.knownGaps, packet.residualRisks);

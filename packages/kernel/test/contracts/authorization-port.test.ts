@@ -54,9 +54,11 @@ test("retired People mutations are absent from the durable authorization invento
   // task_c42e93a6c384624aba591b9b8b adds the worker escalation and owner resolution writes.
   // dec_D90F19C8AAAF39747F8F0D6698/CH3/CH20 adds the admin storage migration Action.
   // dec_2C72644059ACA2D4BE30C07786/CH1: one fleet access management scope.
-  assert.equal(durablePolicyActions.length, 171);
   assert.equal(durablePolicyActions.includes("access-manage"), true);
   // task_6569c05452127015cf461219de adds the node-local auto-claim host action.
+  // task_b61f743f47a04298a7a96704e0 adds the task witness run action.
+  assert.equal(durablePolicyActions.length, 172);
+  assert.equal(durablePolicyActions.includes("task-witness-run"), true);
   assert.equal(durablePolicyActions.includes("migrate-storage"), true);
   assert.equal(durablePolicyActions.includes("daemon-node-auto-claim"), true);
   assert.equal(durablePolicyActions.includes("task-adjudicate"), false);

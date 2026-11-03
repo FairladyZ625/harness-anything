@@ -38,9 +38,9 @@ export function auditDurableActionAuthorization(rootDir = process.cwd(), durable
             ? permissionRequestAuthority(analysis)
             : taskWrites.has(kind)
               ? taskWrites.get(kind)
-              : actionReachesAuthorization(kind, analysis, authority) ||
-                queuedWrites.has(kind) ||
-                preparedWrites.has(kind),
+              : preparedWrites.has(kind)
+                ? preparedWrites.get(kind)
+                : actionReachesAuthorization(kind, analysis, authority) || queuedWrites.has(kind),
     receiptAuthorizationDecision: receipt.nonNullable,
   }));
   const findings = [
@@ -705,14 +705,28 @@ function repoActionWiring(analysis) {
 // Trace that callback through the same authorized queue; action names alone prove nothing.
 function queuedPreparedAuthorization(rootDir, analysis, authority) {
   const declarationPath = "packages/kernel/src/domain/action-declaration.ts";
-  if (!existsSync(path.join(rootDir, declarationPath))) return new Set();
-  const rows = new Set(),
+  if (!existsSync(path.join(rootDir, declarationPath))) return new Map();
+  const rows = new Map(),
     runner = source(analysis, "repo-cell-command-run"),
     run = definition(analysis, "repo-cell-command-run", "run"),
     prepare = definition(analysis, "write-queue-external-reads", "readBeforeWriteQueue"),
     module = source(analysis, "write-queue-external-reads"),
     declarations = parseTypeScript(rootDir, declarationPath),
     inventory = unwrapExpression(findVariable(declarations, "actionDeclarations")?.initializer);
+  // Prepared publications must prove their own queued authorization. A same-name function
+  // reached through the generic call graph cannot substitute for a disconnected publication.
+  if (prepare && ts.isBlock(prepare))
+    for (const branch of prepare.statements) {
+      if (!ts.isIfStatement(branch)) continue;
+      const condition = branch.expression;
+      if (
+        ts.isBinaryExpression(condition) &&
+        condition.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken &&
+        syntax(condition.left) === "action.kind" &&
+        ts.isStringLiteral(condition.right)
+      )
+        rows.set(condition.right.text, false);
+    }
   if (
     !authority.ok ||
     !authority.keycloak ||
@@ -790,7 +804,7 @@ function queuedPreparedAuthorization(rootDir, analysis, authority) {
             ),
         ),
     );
-    if (imported) rows.add(kind);
+    if (imported) rows.set(kind, true);
   }
   return rows;
 }

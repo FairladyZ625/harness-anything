@@ -10,8 +10,19 @@ import {
 import { AGENDA_PIN_CRITERIA } from "./daemon-protocol-vocabulary.ts";
 
 export const taskSurfaceProtocolCommands = Object.freeze([
+  defineCenterForwardWriteCommand({
+    id: "task-witness-run",
+    phase: "W3",
+    path: ["task", "witness-run", "<task-id>"],
+    summary: "Request the center to execute one declared completion source; no caller-supplied result is accepted.",
+    method: "repo.task.witness.run",
+    inputs: [
+      cliInput("--execution-id", "single", true, { code: "missing_field" }),
+      cliInput("--gate", "single", true, { code: "missing_field" }, { field: "gateId" }),
+    ],
+  }),
   ...["claim", "settle", "revoke", "rerun"].map((operation) =>
-    defineLedgerWriteCommand({
+    (operation === "revoke" || operation === "rerun" ? defineCenterForwardWriteCommand : defineLedgerWriteCommand)({
       id: `task-witness-${operation}`,
       phase: "W3",
       path: ["task", `witness-${operation}`, "<task-id>"],
@@ -98,7 +109,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "task-annotate",
     phase: "W3",
     path: ["task", "annotate", "<task-id>"],
@@ -124,7 +135,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "task-attest",
     phase: "W3",
     path: ["task", "attest", "<task-id>"],
@@ -134,9 +145,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       "fail of an allowOverride gate with --mode override --rationale. Runtime executors cannot attest.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--gate", "single", true, {
-        code: "missing_field",
-      }),
+      cliInput("--gate", "single", true, { code: "missing_field" }, { field: "gateId" }),
       cliInput(
         "--result",
         "single",
@@ -163,7 +172,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "task-amend",
     phase: "W3",
     path: ["task", "amend", "<task-id>"],
@@ -177,7 +186,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         {
           code: "invalid_field",
         },
-        { regex: "^[A-Za-z][A-Za-z0-9]*:.+$" },
+        { regex: "^[A-Za-z][A-Za-z0-9]*:.+$", field: "patches" },
       ),
     ],
   }),
@@ -220,7 +229,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "task-archive",
     phase: "W3",
     path: ["task", "archive", "[<task-id>]"],
@@ -253,7 +262,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "task-supersede",
     phase: "W3",
     path: ["task", "supersede", "<old-task-id>"],
@@ -289,7 +298,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "task-rename",
     // CLI alias only: the forwarded durable action is task-amend (a title patch), so authorization,
     // receipt, and the Action inventory key on the shared kind. Declared after task-amend so the
@@ -304,7 +313,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     method: "repo.task.run",
     inputs: [cliInput("--title", "single", true, { code: "missing_field" }, { format: titleFocusFormat })],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "task-move",
     // CLI alias only: the forwarded durable action is task-amend (a parentTaskId patch); relations,
     // dependencies, and dispatch history stay keyed to the task id and move with it.
@@ -319,7 +328,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     method: "repo.task.run",
     inputs: [cliInput("--parent", "single", true, { code: "missing_field" }, { field: "parentTaskId" })],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "task-delete",
     phase: "W3",
     path: ["task", "delete"],
@@ -355,7 +364,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "task-reopen",
     phase: "W3",
     path: ["task", "reopen", "<task-id>"],

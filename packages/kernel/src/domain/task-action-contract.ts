@@ -5,6 +5,7 @@ import { WRITE_RECEIPT_SCHEMA } from "./receipt-domain-registry.ts";
 import { settingsLocales } from "./settings.ts";
 import { taskClasses } from "./task.ts";
 import { priorityTiers, taskWorkKinds } from "./task-metadata.ts";
+import { genericTaskTransitionTargets } from "./lifecycle-status.ts";
 import type {
   EntityActionContract,
   EntityActionInputContract,
@@ -364,6 +365,16 @@ export const declarations: readonly Declaration[] = Object.freeze([
       `Apply the ${operation} transition to an Execution gate run through its owning Task.`,
     ),
   ),
+  mutation(
+    "witness-run",
+    input([taskId, cli("executionId", "string", true, "--execution-id"), cli("gateId", "string", true, "--gate")]),
+    "gate_run_stale",
+    "The current submitted execution declares an applicable command completion source.",
+    "Request the center source host to run one frozen completion gate.",
+    "taskId",
+    "center-forward-write",
+    "via-center-forward",
+  ),
   lifecycle("create", {
     input: createInput,
     criteria: Object.freeze([
@@ -419,10 +430,8 @@ export const declarations: readonly Declaration[] = Object.freeze([
     input: input([
       taskId,
       expectedVersion,
-      wire(field("status", "string", true, ["planned", "active", "blocked", "in_review", "done", "cancelled"]), {
-        enum: ["blocked"],
-      }),
-      wire(cli("reason", "string", false, "--reason"), { required: true }),
+      field("status", "string", true, genericTaskTransitionTargets),
+      cli("reason", "string", false, "--reason"),
       cli("force", "boolean", false, "--force", "boolean"),
     ]),
     criteria: Object.freeze([

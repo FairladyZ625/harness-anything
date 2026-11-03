@@ -29,6 +29,7 @@ export function TodosView({
     [expanded, setExpanded] = useState<string | null>(focusedEntityRef?.split("/")[1] ?? null),
     [completing, setCompleting] = useState<string | null>(null),
     [undoTodo, setUndoTodo] = useState<TodoRow | null>(null),
+    [addWarning, setAddWarning] = useState<string | null>(null),
     undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
     input = useRef<HTMLInputElement>(null),
     queryClient = useQueryClient(),
@@ -111,7 +112,8 @@ export function TodosView({
             event.preventDefault();
             if (!text.trim()) return;
             mutation.mutate(async () => {
-              await todosClient.add(repoId, text, relate.trim() || undefined);
+              const added = await todosClient.add(repoId, text, relate.trim() || undefined);
+              setAddWarning(added.warnings?.[0] ?? null);
               setText("");
               setRelate("");
               setShowRelation(false);
@@ -163,6 +165,12 @@ export function TodosView({
         </form>
       )}
       {error && <Notice tone="bad">{error.message}</Notice>}
+      {/* The daemon already decided; the GUI shows its receipt text and never re-counts todos. */}
+      {addWarning && (
+        <Notice tone="wait" testId="todo-stack-warning">
+          {addWarning}
+        </Notice>
+      )}
       {undoTodo && (
         <div
           role="status"

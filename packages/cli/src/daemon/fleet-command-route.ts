@@ -141,6 +141,10 @@ export async function fleetTaskRoute(
 ): Promise<Record<string, unknown> | null> {
   const actionKind = command.action.kind;
   if (!hasCommandDescriptor(actionKind)) return null;
+  // Document conflict exits have a dedicated route carrying the conflict action
+  // and id. Keep them out of the generic task payload so the center receives
+  // the conflict protocol frame rather than a repo.task.run action.
+  if (actionKind.startsWith("doc-conflict-")) return null;
   const descriptor = commandDescriptorForAction(actionKind);
   if (
     !("path" in descriptor) ||
@@ -148,9 +152,6 @@ export async function fleetTaskRoute(
     descriptor.method !== command.method ||
     (descriptor.admission["remote-edge"] !== "via-center-forward" &&
       descriptor.admission["remote-edge"] !== "edge-replica") ||
-    (descriptor.path[0] === "doc" &&
-      descriptor.admission["remote-edge"] !== "edge-replica" &&
-      typeof command.action.taskId !== "string") ||
     (descriptor.path[0] === "schedule" && descriptor.admission["remote-edge"] !== "edge-replica")
   )
     return null;
@@ -164,6 +165,8 @@ export async function fleetTaskRoute(
     fromFile,
     jsonInput,
     planFile,
+    bodyFile,
+    idsFile,
     ...action
   } = command.action as Record<string, unknown> & {
     executor?: unknown;
@@ -173,6 +176,8 @@ export async function fleetTaskRoute(
     fromFile?: unknown;
     jsonInput?: unknown;
     planFile?: unknown;
+    bodyFile?: unknown;
+    idsFile?: unknown;
   };
   // Migration/import/admin creation is intentionally
   // outside the remote-edge surface. Falling through produces the existing,
@@ -197,6 +202,13 @@ export async function fleetTaskRoute(
       );
     }
   }
+  // Source files belong to the addressed edge; only decoded authored values cross TLS.
+  if (typeof bodyFile === "string") action.body = readFileSync(path.resolve(command.rootDir, bodyFile), "utf8");
+  if (typeof idsFile === "string")
+    action.factIds = readFileSync(path.resolve(command.rootDir, idsFile), "utf8")
+      .split(/\r?\n/u)
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith("#"));
   const payload: Record<string, unknown> = {
     host: config.host,
     port: config.port,

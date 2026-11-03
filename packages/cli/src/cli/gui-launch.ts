@@ -15,6 +15,7 @@ import { isBrowserGuiParentOrigin, startBrowserGuiBroker, type BrowserGuiBroker 
 
 type ReceiptEmitter = (receipt: Record<string, unknown>, json: boolean) => void;
 type LockfileEntry = { readonly optional?: boolean; readonly resolved?: string; readonly version?: string };
+const DESKTOP_GUI_RELEASES_URL = "https://github.com/FairladyZ625/harness-anything/releases";
 export interface GuiElectronRuntime {
   readonly binary?: string;
   readonly installScript?: string;
@@ -25,6 +26,7 @@ export interface GuiLaunchDependencies {
   readonly startDetached?: typeof startDetachedProcess;
   readonly ensureDaemon?: (invokingRoot: string) => Promise<DaemonAutostartResult>;
   readonly guiPackageRoot?: string;
+  readonly resolveGuiPackageRoot?: () => string | undefined;
   readonly sourceBuildId?: () => string | null;
   readonly rebuildGuiBundle?: (guiPackageRoot: string) => void;
   readonly startBrowserBroker?: typeof startBrowserGuiBroker;
@@ -52,12 +54,14 @@ export async function runGuiLaunch(
     reject = (errorCode: string, hint: string, exitCode = 1) => finish(cliFailure("gui", errorCode, hint), exitCode),
     launch = parseGuiLaunch(argv);
   if (!launch.ok) return reject(launch.code, launch.hint, 2);
-  const guiPackageRoot = dependencies.guiPackageRoot ?? resolveGuiPackageRoot();
+  const guiPackageRoot = dependencies.guiPackageRoot ?? (dependencies.resolveGuiPackageRoot ?? resolveGuiPackageRoot)();
   if (!guiPackageRoot)
     return reject(
       "gui_unavailable",
-      "The desktop GUI is an optional shell and is not installed beside this CLI. " +
-        "Install it with `npm install -g @harness-anything/gui`, then retry `ha gui`.",
+      "The desktop GUI is not part of the npm CLI install. " +
+        `Install the desktop App from ${DESKTOP_GUI_RELEASES_URL} (it bundles \`ha\`), ` +
+        "or install the optional GUI package beside this CLI with `npm install -g @harness-anything/gui`, " +
+        "then retry `ha gui`.",
     );
   const bundle = refreshStaleGuiBundle(guiPackageRoot, dependencies);
   if ("staleDependency" in bundle)

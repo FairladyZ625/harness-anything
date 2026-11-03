@@ -5,7 +5,11 @@ import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { sha256Bytes, submissionDigest } from "@harness-anything/kernel";
 import { validateGuiSubmission } from "../src/protocol/daemon-protocol-validate-entities.ts";
-import { createSubmissionArtifactReader, readSubmissionArtifact } from "../src/submission-artifacts.ts";
+import {
+  createSubmissionArtifactReader,
+  readSubmissionArtifact,
+  readSubmissionArtifactRange,
+} from "../src/submission-artifacts.ts";
 import { deriveCloseoutSubmission } from "../src/repo-cell-submit.ts";
 
 const repositorySettingsStub = {
@@ -22,8 +26,8 @@ function fixture(bytes = Buffer.from("Frozen evidence.\n")) {
     opId: "accepted-7",
     payload: {
       changes: [
-        { path, candidate: { sha256: blobSha256 } },
-        { path: cjkPath, candidate: { sha256: blobSha256 } },
+        { path, candidate: { sha256: blobSha256, size: bytes.byteLength } },
+        { path: cjkPath, candidate: { sha256: blobSha256, size: bytes.byteLength } },
       ],
     },
   };
@@ -40,6 +44,9 @@ function fixture(bytes = Buffer.from("Frozen evidence.\n")) {
             }
           : null,
     readContentBlob: () => bytes,
+    readContentBlobRange: (_blob: string, offset: number, maxBytes: number) =>
+      bytes.subarray(offset, offset + maxBytes),
+    readContentBlobSize: (_blob: string) => bytes.byteLength,
   };
   const cell = {
     store,
@@ -355,4 +362,36 @@ test("carried artifact lookup visits each change a bounded number of times", () 
   const submitted = derive("Linear carried changes.", carried, { paths: [] });
   assert.equal(submitted.artifacts?.length, count);
   assert.ok(pathReads <= count * 3, `visited ${pathReads} paths for ${count} changes`);
+});
+
+test("historical accepted claims without size remain readable through bounded metadata reads", () => {
+  const { cell: source, store, bytes, blobSha256 } = fixture(),
+    historical = {
+      ...source,
+      store: {
+        ...store,
+        readEventAtRevision: (revision: number) =>
+          revision === 7
+            ? {
+                ...store.readEventAtRevision(7),
+                payload: { changes: [{ path, candidate: { sha256: blobSha256 } }] },
+              }
+            : null,
+        readContentBlobSize: (digest: string) => (digest === blobSha256 ? bytes.byteLength : null),
+      },
+    } as unknown as Parameters<typeof readSubmissionArtifact>[0];
+  assert.equal(readSubmissionArtifact(historical, packagePath, path, 7).body, bytes.toString());
+  const range = readSubmissionArtifactRange(historical, packagePath, path, 7, blobSha256, 0, 8);
+  assert.equal(range.size, bytes.byteLength);
+  assert.deepEqual(range.bytes, bytes.subarray(0, 8));
+});
+
+test("range reads reject an accepted object whose bytes changed at the same size", () => {
+  const bytes = Buffer.from("accepted bytes that must remain immutable\n"),
+    { cell, store, blobSha256 } = fixture(bytes);
+  store.readContentBlobRange = (_blob: string, offset: number, maxBytes: number) =>
+    Buffer.from("CORRUPTED bytes that must remain immutable\n").subarray(offset, offset + maxBytes);
+  assert.throws(() => readSubmissionArtifactRange(cell, packagePath, path, 7, blobSha256, 0, 8), {
+    code: "content_claim_mismatch",
+  });
 });

@@ -29,17 +29,41 @@ function codeDelivery(
   commitSha: string | null,
   mergeSha?: string,
   baselineSha?: string,
+  rebaseEquivalent?: { frozen: string; head: string; base: string },
 ): TaskLifecycleSnapshot {
   return {
     ...snapshot,
     executions: snapshot.executions.map((execution) => ({
       ...execution,
-      submission: execution.submission ? { ...execution.submission, commitSha } : null,
+      submission: execution.submission
+        ? {
+            ...execution.submission,
+            commitSha,
+            ...(baselineSha
+              ? {
+                  productionDelta: {
+                    ...execution.submission.productionDelta,
+                    baseSha: baselineSha,
+                  },
+                }
+              : {}),
+          }
+        : null,
       ...(baselineSha ? { deliveryBaseline: { kind: "commit" as const, commitSha: baselineSha } } : {}),
       ...(mergeSha
         ? {
             annotations: [
               ...(execution.annotations ?? []),
+              ...(rebaseEquivalent
+                ? [
+                    {
+                      kind: "correction" as const,
+                      note: `rebase-equivalent:${rebaseEquivalent.frozen}->${rebaseEquivalent.head}:base=${rebaseEquivalent.base}`,
+                      actor: execution.actor,
+                      annotatedAt: "2026-10-18T00:00:00.000Z",
+                    },
+                  ]
+                : []),
               {
                 kind: "correction" as const,
                 note: `merge_commit_sha:${mergeSha}`,
@@ -168,6 +192,55 @@ test("a factless cut completes under the standard profile: facts carry no comple
   const context = readCompletionContext(projection({ profile: "standard" }, 0), "task-1", submitted, "ready");
   assert.equal("producesFactCount" in context, false);
   assert.equal(taskCompletionNext(submitted, context).blocker, null);
+});
+
+test("a frozen cut confined to its own task package completes without a fabricated merge", () => {
+  const source = projection({ profile: "standard" }, 0, 0, true),
+    root = path.join(tmpdir(), "ha-package-only-read"),
+    packageSource = {
+      ...source,
+      read: () => ({ ...source.read("task-1"), packagePath: "tasks/task-1" }),
+    } as TaskProjectionQueries,
+    cut = (changedFiles: readonly string[] | undefined) => ({
+      ...submitted,
+      executions: submitted.executions.map((execution) => ({
+        ...execution,
+        submission: { ...execution.submission!, commitSha: "a".repeat(40), changedFiles },
+      })),
+    });
+  for (const files of [[], ["harness/tasks/task-1/artifacts/report.md", "harness/tasks/task-1/closeout.md"]]) {
+    const snapshot = cut(files),
+      context = readCompletionContext(packageSource, "task-1", snapshot, "ready", root);
+    assert.equal(context.delivery?.required, false, JSON.stringify(files));
+    assert.equal(taskCompletionNext(snapshot, context).blocker, null);
+    assert.equal(
+      repoCellTaskQueryJudgmentsFor(packageSource).closeout(
+        snapshot,
+        {
+          closeout: "ready",
+          closeoutPath: "tasks/task-1/closeout.md",
+          eligibleDirtyPaths: [],
+          projectionStatus: "ready",
+        },
+        undefined,
+        undefined,
+        root,
+      ).readiness,
+      "ready",
+    );
+  }
+  for (const files of [
+    undefined,
+    ["harness/tasks/task-1-other/artifacts/report.md"],
+    ["harness/tasks/task-2/artifacts/report.md"],
+    ["harness/tasks/task-1/artifacts/report.md", "src/code.ts"],
+    ["docs/research.md"],
+  ]) {
+    const snapshot = cut(files),
+      context = readCompletionContext(packageSource, "task-1", snapshot, "ready", root);
+    assert.equal(context.delivery?.required, true, JSON.stringify(files));
+    assert.equal(taskCompletionNext(snapshot, context).blocker?.code, "delivery_missing");
+  }
 });
 
 test("the task query closeout judgment follows the effective gate set", () => {
@@ -301,6 +374,18 @@ test("delivery merge evidence proves the annotated commit contains the frozen de
 
   const unrelated = read(unrelatedSha);
   assert.equal(unrelated.merged, false, "a target commit unrelated to the submitted diff must be rejected");
+  const forgedRebaseAnnotation = codeDelivery(
+    { ...lifted, task: { ...lifted.task!, closeoutOverrides: { review: false, consent: false } } },
+    deliverySha,
+    unrelatedSha,
+    baseline,
+    { frozen: deliverySha, head: unrelatedSha, base: unrelatedSha },
+  );
+  assert.equal(
+    readCompletionDeliveryStatus(deliveryProjection, forgedRebaseAnnotation, root).merged,
+    false,
+    "an ordinary annotation cannot replace the frozen delivery with an unrelated commit",
+  );
   const rejected = taskCompletionNext(cut(unrelatedSha), {
     closeout: "ready",
     closeoutPath: "tasks/task-1/closeout.md",
@@ -364,6 +449,74 @@ test("delivery merge evidence proves the annotated commit contains the frozen de
   git(root, "update-ref", "refs/heads/release", cherryPickSha);
   assert.equal(read(cherryPickSha).merged, true, "a cherry-pick with the delivered tree entries is accepted");
 });
+
+for (const largePatch of [false, true]) {
+  test(`equivalent ${largePatch ? "large" : "small"} rebases bind completion when main changed the same file`, (t) => {
+    const root = mkdtempSync(path.join(tmpdir(), "ha-rebase-equivalent-completion-"));
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    git(root, "init", "-q", "-b", "main");
+    git(root, "config", "user.name", "Test");
+    git(root, "config", "user.email", "test@example.com");
+    const shared = path.join(root, "shared.txt");
+    writeFileSync(shared, Array.from({ length: 30 }, (_, index) => `line ${index}\n`).join(""));
+    git(root, "add", "shared.txt");
+    git(root, "commit", "-qm", "base");
+    const baseline = git(root, "rev-parse", "HEAD");
+
+    git(root, "switch", "-qc", "delivery");
+    const reviewedLines = Array.from({ length: 30 }, (_, index) => `line ${index}\n`);
+    reviewedLines[2] = "reviewed change\n";
+    writeFileSync(shared, reviewedLines.join(""));
+    if (largePatch) {
+      writeFileSync(
+        path.join(root, "large.txt"),
+        Array.from({ length: 15000 }, (_, i) => `row ${String(i).padStart(7, "0")}: ${"x".repeat(80)}\n`).join(""),
+      );
+      git(root, "add", "large.txt");
+    }
+    git(root, "commit", "-qam", "reviewed delivery");
+    const frozen = git(root, "rev-parse", "HEAD");
+    if (largePatch) {
+      const patch = execFileSync("git", ["-C", root, "diff", "--binary", baseline, frozen], {
+        maxBuffer: 256 * 1024 * 1024,
+      });
+      assert.ok(patch.byteLength > 1024 * 1024, "the regression must exceed the default subprocess output limit");
+    }
+
+    git(root, "switch", "-q", "main");
+    const mainLines = Array.from({ length: 30 }, (_, index) => `line ${index}\n`);
+    mainLines[25] = "independent main change\n";
+    writeFileSync(shared, mainLines.join(""));
+    git(root, "commit", "-qam", "advance main");
+    git(root, "switch", "-q", "delivery");
+    git(root, "rebase", "main");
+    const rebasedHead = git(root, "rev-parse", "HEAD"),
+      rebasedBase = git(root, "merge-base", "main", rebasedHead);
+
+    git(root, "switch", "-q", "main");
+    git(root, "merge", "--no-ff", "-qm", "merge delivery", "delivery");
+    const merge = git(root, "rev-parse", "HEAD");
+    git(root, "update-ref", "refs/heads/release", merge);
+    const delivery = {
+        ...INITIAL_SETTINGS_V1.delivery,
+        targetRef: "refs/heads/release",
+      } as typeof INITIAL_SETTINGS_V1.delivery & { readonly targetRef: string },
+      projection = {
+        getEntity: () => ({ value: { delivery } }),
+        readPresetSnapshot: () => ({ status: "ready", snapshot: { profile: { outputShape: "repository-diff" } } }),
+      } as unknown as TaskProjectionQueries,
+      snapshot = codeDelivery(strictSubmitted, frozen, merge, baseline, {
+        frozen,
+        head: rebasedHead,
+        base: rebasedBase,
+      }),
+      result = readCompletionDeliveryStatus(projection, snapshot, root);
+
+    assert.notEqual(frozen, rebasedHead);
+    assert.notEqual(rebasedBase, baseline);
+    assert.equal(result.merged, true);
+  });
+}
 
 test("an explicit local delivery ref verifies a local-only repository baseline", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-delivery-local-only-"));

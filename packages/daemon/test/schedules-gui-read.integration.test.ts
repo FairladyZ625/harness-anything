@@ -220,8 +220,7 @@ test(
 
         // Wait for the spawner to subscribe the stub's listeners, then observe
         // the transcript through the same runtime attach surface exposed to clients.
-        const emit = await eventually(() => output !== null && exit !== null);
-        assert.equal(emit, true, "the scheduled spawn never subscribed its output listener");
+        await eventually(() => output !== null && exit !== null, "scheduled spawn output listener subscription");
         const runtimeSessionId = running.activeRun!.runtimeSessionId;
         assert.notEqual(runtimeSessionId, null);
         const attached = await cell.attach(runtimeSessionId!, "stream:0");
@@ -249,15 +248,14 @@ test(
           attached.detach();
         }
         exit?.(0);
-        const settled = await eventually(async () => {
+        await eventually(async () => {
           const read = await list();
           const row = read.schedules[0] as ScheduleGuiRowDto;
           if (row.activeRun !== null || row.lastRun === null) return false;
           if (row.lastRun.outcome !== "succeeded")
             throw new Error(`settlement outcome was ${row.lastRun.outcome}: ${row.lastRun.detail ?? ""}`);
           return true;
-        });
-        assert.equal(settled, true);
+        }, "scheduled run to settle");
         const afterRun = (await list()).schedules[0] as ScheduleGuiRowDto;
         assert.notEqual(afterRun.lastRun!.runtimeSessionId, null);
         assert.equal(afterRun.lastRun!.nodeId, "local");

@@ -131,8 +131,8 @@ test(
         center.dispatches,
       );
     }
-    // Valid stored prose can make even one dispatch too large. Verify the real
-    // center → TLS → edge → JSON-RPC path preserves the actionable error code.
+    // Valid stored prose may exceed a frame; the transport still returns the
+    // center's full advisory through the edge JSON-RPC path.
     await store.succeed(
       "edge-advisory-gui.dispatch",
       {
@@ -151,12 +151,12 @@ test(
       },
     });
     assert.ok(oversized && "result" in oversized, JSON.stringify(oversized));
-    const failure = JSON.stringify(oversized.result);
-    assert.match(failure, /fleet_read_too_large/u);
-    assert.match(failure, /98304 bytes/u);
-    assert.match(failure, /limit:16.*cursor:page.nextCursor/u);
-    assert.doesNotMatch(failure, /invalid_frame/u);
-    console.log(`oversized edge dispatch: ${failure}`);
+    const full = oversized.result as { readonly dispatches: readonly { readonly advisories?: readonly unknown[] }[] };
+    assert.equal(JSON.stringify(full).length > 98_304, true);
+    assert.equal(
+      (full.dispatches[0]?.advisories?.[0] as typeof advisory | undefined)?.options[0]?.text,
+      "长评审依据".repeat(30_000),
+    );
     const unpaged = await e.rpc.handle({
       jsonrpc: "2.0",
       id: "oversized-single",
@@ -164,11 +164,11 @@ test(
       params: { repo: { repoId: "lease-repo" }, payload: { taskId: "advice-task", advisorySurface: "gui.dispatch" } },
     });
     assert.ok(unpaged && "result" in unpaged);
-    const guarded = JSON.stringify(unpaged.result);
-    assert.match(guarded, /fleet_read_too_large/u);
-    assert.match(guarded, /98304 bytes/u);
-    assert.doesNotMatch(guarded, /invalid_frame/u);
-    console.log(`oversized unpaged edge dispatch: ${guarded}`);
+    const unpagedFull = unpaged.result as typeof full;
+    assert.equal(
+      (unpagedFull.dispatches[0]?.advisories?.[0] as typeof advisory | undefined)?.options[0]?.text,
+      "长评审依据".repeat(30_000),
+    );
     await store.remove(dispatchId);
     assert.equal((await read()).dispatches[0]!.advisories, undefined);
     assert.equal(existsSync(path.join(e.edgeRoot, ".harness/decision-annotations.json")), false);
