@@ -12,7 +12,6 @@ import { pgRuntimeFixture } from "./pg-runtime.fixture.ts";
 import { createPgStorageBackend } from "../../src/pg/backend.ts";
 import { openPersistentWriterEpoch } from "../../src/writer-epoch.ts";
 import { docBundle, initRepo } from "../store/task-event-store.fixtures.ts";
-import { applyCanonicalTree } from "../../src/canonical-tree-materialization.ts";
 import { execFileSync } from "node:child_process";
 import { openReplicationSlots } from "../../src/fleet-replication-slot.ts";
 import { openFleetStorage } from "../../src/storage-daemon-composition.ts";
@@ -369,6 +368,8 @@ test("daemon PG storage factories expose canonical lifecycle ports without local
         }
       });
     await t.test("PG takeover during content preparation cannot regress the successor's tree or marker", async () => {
+      let armed = false,
+        successor: CanonicalEventStore | undefined;
       const id = "pg-tree-takeover",
         root = join(fixture.root, id),
         configuration = {
@@ -384,42 +385,43 @@ test("daemon PG storage factories expose canonical lifecycle ports without local
           repoId: id,
           storage: configuration,
           writerFence: () => lease,
-          withAppendFence: (operation) => first.withAppendFence(id, lease.epoch, lease.holderId, operation),
+          withAppendFence: (operation) => {
+            // The old body's durable temporary proves preparation finished, before its final rename.
+            if (
+              armed &&
+              readdirSync(join(layout.authoredRoot, "context")).some(
+                (name) => name.startsWith("epoch.md.") && name.endsWith(".tmp"),
+              )
+            ) {
+              armed = false;
+              const next = second.acquire(id);
+              successor = makeTaskEventStore({
+                rootDir: root,
+                repoId: id,
+                storage: configuration,
+                writerFence: () => next,
+                withAppendFence: (publish) => second.withAppendFence(id, next.epoch, next.holderId, publish),
+              });
+              successor.append(docBundle(successor, "new cut", 2, "new-cut", logical));
+              successor.materialize();
+            }
+            return first.withAppendFence(id, lease.epoch, lease.holderId, operation);
+          },
         }),
         layout = resolveHarnessLayout(root),
         logical = "context/epoch.md",
         target = join(layout.authoredRoot, logical),
         markerPath = join(layout.localRoot, "fleet-materialized.json");
-      let successor: CanonicalEventStore | undefined;
       try {
         old.append(docBundle(old, "old cut", 1, "old-cut", logical));
         old.materialize();
         unlinkSync(target);
-        const input = {
-          authoredRoot: layout.authoredRoot,
-          markerPath,
-          generation: 3,
-          revision: 1,
-          entries: new Map([[logical, { sha256: sha256Bytes(Buffer.from("old cut")) }]]),
-          withFence: <T>(operation: () => T) => first.withAppendFence(id, lease.epoch, lease.holderId, operation),
-          readContent: () => {
-            const next = second.acquire(id);
-            successor = makeTaskEventStore({
-              rootDir: root,
-              repoId: id,
-              storage: configuration,
-              writerFence: () => next,
-              withAppendFence: (operation) => second.withAppendFence(id, next.epoch, next.holderId, operation),
-            });
-            successor.append(docBundle(successor, "new cut", 2, "new-cut", logical));
-            successor.materialize();
-            return Buffer.from("old cut");
-          },
-        };
+        armed = true;
         assert.throws(
-          () => applyCanonicalTree(input),
+          () => old.materialize(),
           (error: { code?: string }) => error.code === "writer_epoch_stale",
         );
+        assert.equal(armed, false, "takeover completed while the old owner's body was staged");
         assert.equal(readFileSync(target, "utf8"), "new cut");
         assert.equal(JSON.parse(readFileSync(markerPath, "utf8")).revision, 2);
       } finally {
