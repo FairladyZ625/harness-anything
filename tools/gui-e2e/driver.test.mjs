@@ -20,6 +20,10 @@ test(
     }
     t.after(runtime.close);
     prepareE2EProbeGui(workspaceRoot, runtime.env);
+    // The isolated lane and smoke:gui:headless launch the bundled main entry, not the TS source.
+    // prepareE2EProbeGui must therefore produce it (the preload build wipes dist-electron first).
+    const mainPath = path.join(workspaceRoot, "packages/gui/dist-electron/electron-main.js");
+    assert.equal(existsSync(mainPath), true, `prepareE2EProbeGui must build ${mainPath}`);
     const { startGuiDriver } = await import("./driver.mjs");
     const fixture = await startGuiResidentDaemonFixture({
       prefix: "ha-gui-driver-profile-",
@@ -37,7 +41,13 @@ test(
     t.after(() => rmSync(outDir, { recursive: true, force: true }));
     const isolatedEnv = { ...runtime.env, ...fixture.env, HARNESS_DAEMON_ENDPOINT: fixture.endpoint };
     delete isolatedEnv.HARNESS_EXECUTION_CREDENTIAL;
-    const driver = await startGuiDriver({ workspaceRoot, rootDir: fixture.rootDir, env: isolatedEnv, runRoot });
+    const driver = await startGuiDriver({
+      workspaceRoot,
+      mainPath,
+      rootDir: fixture.rootDir,
+      env: isolatedEnv,
+      runRoot,
+    });
     // 断言失败也不能泄漏 Electron:不注册这个钩子,一次红会把 node --test 挂在子进程的管道上。
     // 显式 close 之后 playwright 连接已关,二次 close 会抛 TypeError,安全网只兜进程不判重入。
     t.after(() => driver.close().catch(() => undefined));
