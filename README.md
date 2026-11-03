@@ -48,7 +48,7 @@ Choose the setup you need, then paste its prompt into your coding agent:
 ```text
 Read skills/harness-download/SKILL.md from https://github.com/FairladyZ625/harness-anything
 and use it to guide me through first-time Harness Anything setup: check the
-environment, download the source to a persistent directory, symlink the full skill
+environment, download the source to a persistent directory, link the full skill
 set into my selected agents’ user directories, then initialize this repository, set
 up the CEO knowledge locations, and complete one real task with harness-ceo. Read
 information available in the project and environment directly. When a choice or
