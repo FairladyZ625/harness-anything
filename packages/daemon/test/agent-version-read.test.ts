@@ -4,7 +4,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, makeTaskProjection, openEntityStore } from "@harness-anything/storage";
+import {
+  closeSqliteEventStoresUnder,
+  makeTaskEventStore,
+  makeTaskProjection,
+  openEntityStore,
+} from "@harness-anything/storage";
 import { compileAgentRetired, sha256Text } from "@harness-anything/kernel";
 import { prepareAgentEntityInstall } from "../src/agent-entities.ts";
 import {
@@ -80,6 +85,13 @@ function ports(f: Fixture) {
   return { projection: f.projection, store: f.store };
 }
 
+/** Windows reports a still-open SQLite handle on the directory as EPERM instead of ignoring it. */
+function dispose(f: Fixture): void {
+  f.projection.close();
+  closeSqliteEventStoresUnder(f.rootDir);
+  rmSync(f.rootDir, { recursive: true, force: true });
+}
+
 test("history lists every version newest-first with the body digest the content object holds", () => {
   const f = fixture([declaration("first body"), declaration("second body"), declaration("third body")]);
   try {
@@ -116,7 +128,7 @@ test("history lists every version newest-first with the body digest the content 
     assert.deepEqual(validateAgentHistory(history), []);
     assert.doesNotThrow(() => parseDaemonGuiReadResult("repo.agent.history.read", history));
   } finally {
-    rmSync(f.rootDir, { recursive: true, force: true });
+    dispose(f);
   }
 });
 
@@ -153,7 +165,7 @@ test("history paging crosses the last page and then reports no more rows", () =>
     assert.deepEqual(exhausted.versions, []);
     assert.equal(exhausted.hasMore, false);
   } finally {
-    rmSync(f.rootDir, { recursive: true, force: true });
+    dispose(f);
   }
 });
 
@@ -167,7 +179,7 @@ test("--no-summary reads no body: history still answers from the claim alone", (
     );
     assert.deepEqual(validateAgentHistory(history), []);
   } finally {
-    rmSync(f.rootDir, { recursive: true, force: true });
+    dispose(f);
   }
 });
 
@@ -179,7 +191,7 @@ test("a missing agent is agent_not_found, not an empty history", () => {
       (error: Error & { readonly code?: string }) => error.code === "agent_not_found",
     );
   } finally {
-    rmSync(f.rootDir, { recursive: true, force: true });
+    dispose(f);
   }
 });
 
@@ -189,15 +201,16 @@ test("a stored declaration this cut cannot interpret is unavailable, not missing
   // problem and send the caller to install a different agent; the honest answer is that this
   // agent's versions cannot be read until it is reinstalled.
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-version-degraded-"));
+  let projection: ReturnType<typeof makeTaskProjection> | undefined;
   try {
     appendLegacyAgentDeclaration(rootDir);
-    const store = makeTaskEventStore({ repoId: "agent-entities", rootDir }),
-      projection = makeTaskProjection({ rootDir, eventStore: store });
+    const store = makeTaskEventStore({ repoId: "agent-entities", rootDir });
+    projection = makeTaskProjection({ rootDir, eventStore: store });
     projection.catchUp();
     assert.equal(projection.getEntity("agent", "legacy-worker")?.freshness, "unknown", "fixture sanity");
     for (const read of [
-      () => readAgentHistory({ projection, store }, { agentId: "legacy-worker" }),
-      () => readAgentVersion({ projection, store }, { agentId: "legacy-worker", revision: 1 }),
+      () => readAgentHistory({ projection: projection!, store }, { agentId: "legacy-worker" }),
+      () => readAgentVersion({ projection: projection!, store }, { agentId: "legacy-worker", revision: 1 }),
     ])
       assert.throws(read, (error: Error & { readonly code?: string }) => {
         assert.equal(error.code, "agent_version_unavailable");
@@ -206,6 +219,8 @@ test("a stored declaration this cut cannot interpret is unavailable, not missing
         return true;
       });
   } finally {
+    projection?.close();
+    closeSqliteEventStoresUnder(rootDir);
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
@@ -253,7 +268,7 @@ test("retiring an agent does not add a version and does not move the revision", 
       "fixture sanity: the projection row revision did advance, so the read would fail if it used it",
     );
   } finally {
-    rmSync(f.rootDir, { recursive: true, force: true });
+    dispose(f);
   }
 });
 
@@ -283,7 +298,7 @@ test("one version read returns the retained body and its difference to the live 
     assert.deepEqual(current.fields, [], "the live version differs from itself in no field");
     assert.equal(current.truncated, false);
   } finally {
-    rmSync(f.rootDir, { recursive: true, force: true });
+    dispose(f);
   }
 });
 
@@ -304,7 +319,7 @@ test("an out-of-range revision is agent_version_not_found, not a neighbouring ve
       (error: Error & { readonly code?: string }) => error.code === "agent_version_not_found",
     );
   } finally {
-    rmSync(f.rootDir, { recursive: true, force: true });
+    dispose(f);
   }
 });
 
@@ -351,7 +366,7 @@ test("diff states instructions as lines and skills/runtimes as set changes", () 
     assert.deepEqual(empty.fields, []);
     assert.equal(empty.truncated, false);
   } finally {
-    rmSync(f.rootDir, { recursive: true, force: true });
+    dispose(f);
   }
 });
 

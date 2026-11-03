@@ -19,6 +19,7 @@ import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { daemonProtocolMethods, parseDaemonRpcParams } from "../src/protocol/daemon-protocol.contract.ts";
 import type { JsonObject, JsonRpcResponse } from "../src/protocol/json-rpc-types.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
+import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { serveJsonRpcStream } from "../src/transport/json-rpc-stream.ts";
 
 function responseResult(response: JsonRpcResponse): JsonObject {
@@ -185,9 +186,14 @@ test("quote RPC treats prototype property names as unpriced models", async () =>
   }
 });
 
-test("real Unix socket calls return priced and unpriced quote receipts", async () => {
+test("real local socket calls return priced and unpriced quote receipts", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-agent-runtime-quote-")),
-    socketPath = path.join(root, "daemon.sock"),
+    // A path below the temp root is a Unix-domain address, not a writable socket on Windows;
+    // use the platform's local endpoint there and keep the POSIX case unchanged.
+    socketPath =
+      process.platform === "win32"
+        ? localUserDaemonEndpoint(path.join(root, "user"), "quote")
+        : path.join(root, "daemon.sock"),
     listener = net.createServer((socket) => {
       serveJsonRpcStream({
         input: socket,

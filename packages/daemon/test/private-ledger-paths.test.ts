@@ -15,10 +15,12 @@ import {
 import { runWorktreeSetup, workerLedgerPath } from "../src/worktree-setup.ts";
 
 const planBody = "# Plan\n",
-  standards = path.join("harness", "governance", "standards"),
-  standard = path.join(standards, "testing-standard.md"),
-  contract = path.join(standards, "implementation-contract-standard.md"),
-  devSkill = path.join("harness", "skills", "agent-dev-standards", "SKILL.md"),
+  // Prompt prose and the reference extractor use forward slashes on every platform; `path.join`
+  // below still turns these into native paths for filesystem assertions.
+  standards = "harness/governance/standards",
+  standard = `${standards}/testing-standard.md`,
+  contract = `${standards}/implementation-contract-standard.md`,
+  devSkill = "harness/skills/agent-dev-standards/SKILL.md",
   // As written in a prompt: forward slashes, exactly what the reference extractor records.
   isolatedEntry = "harness/skills/test-isolation/dispatch-isolated-test.mjs",
   isolatedSibling = "harness/skills/test-isolation/test-resources.mjs";

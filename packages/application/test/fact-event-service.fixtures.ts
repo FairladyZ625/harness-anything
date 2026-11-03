@@ -17,7 +17,7 @@ import {
   type FactEventV1,
   type TaskProjection,
 } from "@harness-anything/kernel";
-import { makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
+import { closeSqliteEventStoresUnder, makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
 import { makeDecisionService, makeFactService } from "../src/index.ts";
 import { realizedDecisionBody } from "../../../tools/fixtures/task-plan.mjs";
 
@@ -49,6 +49,7 @@ export function withFixture(
     });
   } finally {
     projection?.close();
+    closeSqliteEventStoresUnder(rootDir);
     rmSync(rootDir, { recursive: true, force: true });
   }
 }
@@ -75,6 +76,7 @@ export function withDecisionFixture(
     });
   } finally {
     projection?.close();
+    closeSqliteEventStoresUnder(rootDir);
     rmSync(rootDir, { recursive: true, force: true });
   }
 }

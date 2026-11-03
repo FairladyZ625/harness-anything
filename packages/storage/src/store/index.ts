@@ -12,6 +12,7 @@ export { migrateEventsToSqlite, openSqliteEventStore, sqliteLedgerPath } from ".
 export { resolveActiveGeneration } from "./sqlite-event-store.ts";
 export { TASK_EVENT_SHAPE_COMPAT_VERSION } from "@harness-anything/kernel/internal/domain/task-lifecycle-event.ts";
 export { reconcileSqliteEvents } from "./sqlite-ledger-reconcile.ts";
+export { closeSqliteEventStoresUnder } from "./sqlite-ledger-connections.ts";
 export { openReplicaStore } from "./replica-store.ts";
 export type { ReplicationCommit, ReplicationPosition } from "./replication-log.ts";
 export { contentClaims as replicationContentClaims } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";

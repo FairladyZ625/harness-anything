@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { deriveRelationId, type DecisionEventDraftV1 } from "@harness-anything/kernel";
-import { makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
+import { closeSqliteEventStoresUnder, makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { makeDecisionService, makeFactService } from "../src/index.ts";
 import { realizedDecisionBody } from "../../../tools/fixtures/task-plan.mjs";
@@ -229,6 +229,7 @@ test("Decision coverage replays all fulfillment modes, refutation, and exact tas
     );
   } finally {
     projection?.close();
+    closeSqliteEventStoresUnder(rootDir);
     rmSync(rootDir, { recursive: true, force: true });
   }
 });

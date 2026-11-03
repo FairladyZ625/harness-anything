@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { type FactEventDraftV1 } from "@harness-anything/kernel";
-import { makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
+import { closeSqliteEventStoresUnder, makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
 import { makeFactService } from "../src/index.ts";
 
 import {
@@ -165,6 +165,7 @@ test("recorded Fact is durable and immediately searchable through the canonical 
     );
   } finally {
     projection?.close();
+    closeSqliteEventStoresUnder(rootDir);
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
