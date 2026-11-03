@@ -250,7 +250,12 @@ test("macOS Claude operator probes use the OS username and report the probed env
       claude: {},
       auth: { mode: "subscription" },
     });
-    assert.deepEqual(await store.authStatus("claude-operator-ready"), { status: "ready", code: null, hint: null });
+    assert.deepEqual(await store.authStatus("claude-operator-ready"), {
+      status: "ready",
+      code: null,
+      hint: null,
+      basis: "metadata",
+    });
     store.create({
       schemaVersion: 2,
       instanceId: "claude-operator-rejected",

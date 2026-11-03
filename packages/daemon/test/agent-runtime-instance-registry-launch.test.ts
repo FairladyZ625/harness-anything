@@ -53,7 +53,12 @@ test("a blocked credential backend keeps the daemon runtime-instance caller resp
       heartbeats += 1;
     }, 5);
     try {
-      assert.deepEqual(await store.authStatus("codex-blocked"), { status: "ready", code: null, hint: null });
+      assert.deepEqual(await store.authStatus("codex-blocked"), {
+        status: "ready",
+        code: null,
+        hint: null,
+        basis: "metadata",
+      });
     } finally {
       clearInterval(heartbeat);
     }

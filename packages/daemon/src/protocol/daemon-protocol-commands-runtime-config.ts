@@ -447,7 +447,7 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     path: ["runtime", "instance", "list"],
     summary: [
       "List enabled runtime instances and currently witnessed installations ",
-      "without secrets or host paths; use --all to include disabled instances and --probe to verify authentication.",
+      "without secrets or host paths; use --all to include disabled instances and --probe to read the provider's recorded login state.",
     ].join(""),
     method: "daemon.runtimeInstance.list",
     inputs: [
@@ -464,7 +464,8 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     phase: "Runtime-Instances-S1",
     path: ["runtime", "instance", "show", "<instance-id>"],
     positional: "instanceId",
-    summary: "Show one redacted machine-local runtime instance; use --probe to verify provider authentication.",
+    summary:
+      "Show one redacted machine-local runtime instance; use --probe to read the provider's recorded login state.",
     method: "daemon.runtimeInstance.show",
     inputs: [
       cliInput("--probe", "boolean", false, {

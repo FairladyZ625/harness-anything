@@ -500,7 +500,12 @@ test("a Claude installation below the version floor is refused by probe and laun
     );
     assert.equal(credentialLookups, 0, "an unusable CLI must be refused before any credential lookup");
 
-    assert.deepEqual(await store.authStatus("claude-current"), { status: "ready", code: null, hint: null });
+    assert.deepEqual(await store.authStatus("claude-current"), {
+      status: "ready",
+      code: null,
+      hint: null,
+      basis: "metadata",
+    });
     const launch = await store.prepareLaunch("claude-current", { cwd: "/workspace/repo", prompt: "Inspect" });
     assert.deepEqual(launch.args.slice(launch.args.indexOf("--model"), launch.args.indexOf("--model") + 2), [
       "--model",
@@ -716,6 +721,7 @@ test("devin subscription readiness follows the credential file key, not a comman
       status: "ready",
       code: null,
       hint: null,
+      basis: "metadata",
     });
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
@@ -780,7 +786,12 @@ test("minimax-code readiness follows auth-state status and expiry, and its login
       state,
       JSON.stringify({ schemaVersion: 2, status: "authenticated", expiresAtMs: Date.now() + 60_000 }),
     );
-    assert.deepEqual(await store.authStatus("minimax-subscription"), { status: "ready", code: null, hint: null });
+    assert.deepEqual(await store.authStatus("minimax-subscription"), {
+      status: "ready",
+      code: null,
+      hint: null,
+      basis: "metadata",
+    });
     // An interrupted sign-in leaves `authorizing`; it is not a credential verdict.
     writeFileSync(state, JSON.stringify({ schemaVersion: 2, status: "authorizing", expiresAtMs: Date.now() + 60_000 }));
     assert.equal((await store.authStatus("minimax-subscription")).code, "runtime_subscription_required");
@@ -808,9 +819,97 @@ test("minimax-code readiness follows auth-state status and expiry, and its login
       operatorAuth = path.join(home, ".minimax/auth");
     assert.equal(lstatSync(linked).isSymbolicLink(), true);
     assert.equal(readlinkSync(linked), operatorAuth);
-    assert.deepEqual(await store.authStatus("minimax-enforced"), { status: "ready", code: null, hint: null });
+    assert.deepEqual(await store.authStatus("minimax-enforced"), {
+      status: "ready",
+      code: null,
+      hint: null,
+      basis: "metadata",
+    });
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+// `codex login status` reads the stored login document: an access token whose exp is long
+// past, paired with a refresh token the server has already revoked, still prints "Logged in
+// using ChatGPT" and exits 0 (measured against codex-cli 0.163.0). The probe can therefore
+// prove "signed in", never "usable"; readiness must record which evidence it rests on so a
+// receipt cannot present the local login record as verified provider usability.
+test("a codex login-status probe records metadata as its basis, not verified usability", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-codex-metadata-")),
+    home = path.join(parent, "home"),
+    userRoot = path.join(parent, "user"),
+    authFile = path.join(home, ".codex", "auth.json");
+  try {
+    mkdirSync(path.dirname(authFile), { recursive: true });
+    writeFileSync(
+      authFile,
+      JSON.stringify({
+        OPENAI_API_KEY: null,
+        tokens: {
+          id_token: "expired.jwt.value",
+          access_token: "expired.jwt.value",
+          refresh_token: "revoked-refresh-token",
+          account_id: "account",
+        },
+        last_refresh: "1970-01-01T00:00:00Z",
+      }),
+    );
+    const executablePath = writeProviderExecutable(
+      path.join(parent, "codex"),
+      `const fs = require("node:fs");
+const args = process.argv.slice(2);
+if (args.length === 2 && args[0] === "login" && args[1] === "status") {
+  const state = JSON.parse(fs.readFileSync(${JSON.stringify(authFile)}, "utf8"));
+  if (!state.tokens || !state.tokens.refresh_token) process.exit(1);
+  console.log("Logged in using ChatGPT");
+  process.exit(0);
+}
+process.exit(9);
+`,
+    );
+    const installation: RuntimeInstallationWitness = {
+      installationId: "codex-metadata-basis",
+      kindId: "codex",
+      executablePath,
+      version: "0.159.3",
+      observedAt: "2026-11-02T00:00:00.000Z",
+    };
+    const store = openRuntimeInstanceStore({
+      userRoot,
+      env: { HOME: home, PATH: [path.dirname(executablePath), process.env.PATH].filter(Boolean).join(path.delimiter) },
+      discover: () => [installation],
+    });
+    store.create({
+      schemaVersion: 2,
+      instanceId: "codex-metadata",
+      name: "Codex Metadata",
+      kindId: "codex",
+      installationId: installation.installationId,
+      providerId: "openai",
+      models: ["gpt-5.6-sol"],
+      defaultModel: "gpt-5.6-sol",
+      enabled: true,
+      isolationState: "operator-environment",
+      codex: {},
+      auth: { mode: "subscription" },
+    });
+    const readiness = (await store.authStatus("codex-metadata")) as unknown as Record<string, unknown>;
+    assert.equal(readiness.status, "ready");
+    assert.equal(readiness.basis, "metadata");
+    const receipt = (await store.command({
+      kind: "runtime-instance-show",
+      instanceId: "codex-metadata",
+      probe: true,
+    })) as Record<string, unknown>;
+    assert.match(String(receipt.summary), /auth: ready \(metadata\)/u);
+    assert.equal(
+      (JSON.parse(String(receipt.evidence)) as { readonly authReadiness: { readonly basis: string } }).authReadiness
+        .basis,
+      "metadata",
+    );
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
   }
 });
 

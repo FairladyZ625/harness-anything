@@ -427,6 +427,14 @@ describe("agent runtime renderer", () => {
     const unavailableMarkup = runtimeCard(unauthenticated);
     expect(unavailableMarkup).toContain('data-auth-status="succeeded"');
     expect(unavailableMarkup).toContain("runtime_subscription_required");
+    // A ready subscription verdict only read the provider's local login state; the card
+    // must not claim the credential (and its refresh token) was verified.
+    const metadataMarkup = runtimeCard({
+      ...claudeInstance,
+      authReadiness: { status: "ready", code: null, hint: null, basis: "metadata" },
+    } as never);
+    expect(metadataMarkup).toContain("Signed in; refresh token not verified");
+    expect(metadataMarkup).not.toContain("Authentication verified");
   });
   it("models not-started, probing, success, and retryable failure without pending fallback", () => {
     const unchecked = {
