@@ -39,6 +39,7 @@ test("repository skills are discoverable with agent metadata", () => {
     "harness-dsh-install",
     "harness-gui",
     "harness-install",
+    "harness-issue",
     "harness-migration",
     "harness-reckoning",
     "preset-creator",
@@ -55,6 +56,7 @@ test("repository skills are discoverable with agent metadata", () => {
     "harness-dsh-install",
     "harness-gui",
     "harness-install",
+    "harness-issue",
     "harness-migration",
     "harness-reckoning",
     "preset-trigger",
@@ -268,4 +270,60 @@ test("missing-only CLI installs the complete discovered set into an empty HOME a
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });
   }
+});
+
+test("issue form, intake, and the issue skill share one heading set", () => {
+  const form = readFileSync(path.join(repoRoot, ".github", "ISSUE_TEMPLATE", "issue.yml"), "utf8");
+  const intake = readFileSync(path.join(repoRoot, ".github", "workflows", "issue-intake.yml"), "utf8");
+  const template = readFileSync(path.join(skillsRoot, "harness-issue", "references", "issue-body-template.md"), "utf8");
+
+  const formLines = form.split(/\r?\n/u);
+  const bodyStart = formLines.indexOf("body:");
+  assert.notEqual(bodyStart, -1, "issue form must declare a body");
+  const formLabels = [];
+  let inField = false;
+  for (const line of formLines.slice(bodyStart + 1)) {
+    if (/^  - type: /u.test(line)) {
+      inField = true;
+      continue;
+    }
+    if (/^\S/u.test(line)) {
+      inField = false;
+      continue;
+    }
+    if (!inField) continue;
+    const label = /^      label: (.+)$/u.exec(line);
+    if (label) formLabels.push(label[1].trim());
+  }
+
+  const intakeBlock = /const requiredHeadings = \[([\s\S]*?)\];/u.exec(intake);
+  assert.ok(intakeBlock, "issue intake must declare requiredHeadings");
+  const intakeHeadings = [...intakeBlock[1].matchAll(/"([^"]+)"/gu)].map((match) => match[1]);
+
+  const templateHeadings = template
+    .split(/\r?\n/u)
+    .filter((line) => line.startsWith("### "))
+    .map((line) => line.trim());
+
+  const expectedHeadings = formLabels.map((label) => `### ${label}`).sort();
+  assert.equal(formLabels.length, 12, "the issue form has one label per required section");
+  assert.deepEqual([...intakeHeadings].sort(), expectedHeadings);
+  assert.deepEqual([...templateHeadings].sort(), expectedHeadings);
+  assert.equal(new Set(formLabels).size, formLabels.length, "form labels must be unique");
+  assert.equal(new Set(intakeHeadings).size, intakeHeadings.length, "intake headings must be unique");
+  assert.equal(new Set(templateHeadings).size, templateHeadings.length, "template headings must be unique");
+  assert.doesNotMatch(intake, /github\.rest\.issues\.update|issues\.update\b/u, "intake must not change issue state");
+  assert.doesNotMatch(intake, /state:\s*["']?(?:closed|open)\b/u, "intake must not write a state field");
+
+  const onBlock = /^on:\r?\n([\s\S]*?)^permissions:/mu.exec(intake)?.[1];
+  assert.ok(onBlock, "issue intake must declare on before permissions");
+  assert.deepEqual(
+    onBlock
+      .split(/\r?\n/u)
+      .map((line) => line.trim())
+      .filter(Boolean),
+    ["issues:", "types: [opened]"],
+    "issue intake must run only when an issue is opened",
+  );
+  assert.match(intake, /^permissions:\r?\n  issues: write$/mu, "intake still needs to comment");
 });
