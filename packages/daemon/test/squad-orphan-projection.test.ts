@@ -7,6 +7,7 @@ import test from "node:test";
 import type { TaskV2 } from "@harness-anything/kernel";
 import { appendRuntimeWorkerRecord, archiveDispatchStream, openDispatchStream } from "../src/dispatch-stream.ts";
 import { cancelRejectedSquadChildren } from "../src/squad-run-state.ts";
+import { latestSquadStates } from "./squad-run-state.fixture.ts";
 
 test("owner orphan cancellation recovers the latest local control state from archived streams", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-squad-orphan-"));
@@ -56,7 +57,6 @@ test("owner orphan cancellation recovers the latest local control state from arc
   archiveDispatchStream(rootDir, dispatchId);
   const cancelled: string[] = [],
     input = {
-      rootDir,
       readTask: (taskId: string) => ({ taskId, status: "active" }) as TaskV2,
       cancel: async (action: { taskId?: unknown }, authority: unknown) => {
         assert.deepEqual(authority, binding);
@@ -64,14 +64,14 @@ test("owner orphan cancellation recovers the latest local control state from arc
         return { outcome: "applied" };
       },
     };
-  await cancelRejectedSquadChildren(input);
+  await cancelRejectedSquadChildren({ ...input, states: latestSquadStates(rootDir).values() });
   assert.deepEqual(cancelled, ["task-orphan"]);
   appendRuntimeWorkerRecord(rootDir, dispatchId, {
     kind: "squad_run_state",
     state: { ...state, phase: "planning", revision: 2 },
   });
   cancelled.length = 0;
-  await cancelRejectedSquadChildren(input);
+  await cancelRejectedSquadChildren({ ...input, states: latestSquadStates(rootDir).values() });
   assert.deepEqual(
     cancelled,
     [],

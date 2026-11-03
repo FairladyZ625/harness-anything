@@ -76,16 +76,19 @@ export function pruneDispatchStreamArchive(
   retention: DispatchArchiveRetention,
   evidenceSources: readonly string[],
   nowMs: number = Date.now(),
+  recoveryDispatchIds: readonly string[] = [],
 ): void {
   if (retention.retentionDays <= 0 && retention.retentionBytes <= 0) return;
   const msPerDay = 86_400_000,
     streams = archivedDispatchStreams(rootDir),
     protectedPrefixes = factEvidenceDispatchPrefixes(evidenceSources),
+    protectedRecoveryIds = new Set(recoveryDispatchIds),
     doomed = new Set<string>();
   if (retention.retentionDays > 0)
     for (const stream of streams)
       if (
         !factEvidenceNames(protectedPrefixes, stream.dispatchId) &&
+        !protectedRecoveryIds.has(stream.dispatchId) &&
         nowMs - stream.startedAtMs > retention.retentionDays * msPerDay
       )
         doomed.add(stream.dispatchId);
@@ -96,7 +99,12 @@ export function pruneDispatchStreamArchive(
     let total = streams.reduce((sum, stream) => sum + (doomed.has(stream.dispatchId) ? 0 : stream.sizeBytes), 0);
     for (const stream of streams) {
       if (total <= retention.retentionBytes) break;
-      if (doomed.has(stream.dispatchId) || factEvidenceNames(protectedPrefixes, stream.dispatchId)) continue;
+      if (
+        doomed.has(stream.dispatchId) ||
+        factEvidenceNames(protectedPrefixes, stream.dispatchId) ||
+        protectedRecoveryIds.has(stream.dispatchId)
+      )
+        continue;
       total -= stream.sizeBytes;
       doomed.add(stream.dispatchId);
     }

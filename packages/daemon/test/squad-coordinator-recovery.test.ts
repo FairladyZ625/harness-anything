@@ -9,8 +9,15 @@ import path from "node:path";
 import test from "node:test";
 import type { ActorIdentity, AgentRuntimeEventV1, RuntimeSession, TaskProjection } from "@harness-anything/kernel";
 import { makeSquadCoordinator } from "../src/squad-coordinator.ts";
-import { latestSquadStates, rejectedSquadAttemptChildren } from "../src/squad-run-state.ts";
-import { appendRuntimeWorkerRecord, dispatchStreamPath, openDispatchStream } from "../src/dispatch-stream.ts";
+import { rejectedSquadAttemptChildren } from "../src/squad-run-state.ts";
+import { latestSquadStates } from "./squad-run-state.fixture.ts";
+import { pruneDispatchStreamArchive } from "../src/dispatch-stream-archive.ts";
+import {
+  appendRuntimeWorkerRecord,
+  archiveDispatchStream,
+  dispatchStreamPath,
+  openDispatchStream,
+} from "../src/dispatch-stream.ts";
 import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
 import { noWorktreeSetup } from "../src/worktree-setup.ts";
 
@@ -259,6 +266,21 @@ function makeRecoveryFixture(
     readDocument: () => ({ status: "ready", document: null, watermark: 1, sourceRevision: 1 }),
     readRuntimeSessionEvents: () => [],
     readRuntimeDispatchesByAttemptGroup: () => [],
+    readSquadRuns: () => [
+      {
+        squadRunId: SQUAD_RUN_ID,
+        revision: 0,
+        state: {
+          ownerDispatchId: LEADER_DISPATCH_ID,
+          runRevision: 0,
+          acceptedRevision: 0,
+          phase: "leader_running",
+          subject: { kind: "task", taskId: TASK_ID, executionId: `execution-${TASK_ID}` },
+          workerAttempts: [],
+        },
+      },
+    ],
+    getEntity: () => null,
     readRuntimeSession: (runtimeSessionId: string) =>
       sessions.find((session) => session.runtimeSessionId === runtimeSessionId) ?? null,
   } as unknown as TaskProjection;
@@ -475,19 +497,19 @@ test("coordinator construction defers archive reads and retries a transient hydr
         leaderOutcome: null,
         leaderTurnBudget: 3,
       }),
-      dispatchRoot = path.join(rootDir, ".harness", "runtime", "dispatches"),
-      originalStat = fs.statSync;
+      ownerPath = dispatchStreamPath(rootDir, LEADER_DISPATCH_ID),
+      originalOpen = fs.openSync;
     let rejectConstructionRead = true,
       failNextArchiveRead = false;
-    t.mock.method(fs, "statSync", (target, ...args) => {
-      if (path.resolve(String(target)) === dispatchRoot) {
+    t.mock.method(fs, "openSync", (target, ...args) => {
+      if (path.resolve(String(target)) === ownerPath) {
         if (rejectConstructionRead) throw new Error("dispatch archive read attempted during coordinator construction");
         if (failNextArchiveRead) {
           failNextArchiveRead = false;
           throw new Error("transient dispatch archive read failure");
         }
       }
-      return originalStat(target, ...args);
+      return originalOpen(target, ...args);
     });
     syncBuiltinESMExports();
     try {
@@ -496,10 +518,38 @@ test("coordinator construction defers archive reads and retries a transient hydr
       failNextArchiveRead = true;
       await assert.rejects(fixture.coordinator.reconcile(), /transient dispatch archive read failure/u);
       await fixture.coordinator.reconcile();
+      assert.deepEqual(await fixture.coordinator.retentionProtectedDispatchIds(), [LEADER_DISPATCH_ID]);
     } finally {
       t.mock.restoreAll();
       syncBuiltinESMExports();
     }
+    assert.equal(fixture.status().status, "leader_running");
+  });
+});
+
+test("restart hydration protects an archived active Squad owner before retention", async () => {
+  await withRootDir(async (rootDir) => {
+    const fixture = makeRecoveryFixture(rootDir, { leaderOutcome: null, leaderTurnBudget: 3 }),
+      archivePath = path.join(
+        path.dirname(dispatchStreamPath(rootDir, LEADER_DISPATCH_ID)),
+        "archive",
+        `${LEADER_DISPATCH_ID}.jsonl`,
+      );
+    archiveDispatchStream(rootDir, LEADER_DISPATCH_ID);
+    fixture.restartCoordinator();
+
+    const protectedDispatchIds = await fixture.coordinator.retentionProtectedDispatchIds();
+    pruneDispatchStreamArchive(
+      rootDir,
+      { retentionDays: 1, retentionBytes: 1 },
+      [],
+      Date.parse("2026-11-03T00:00:00.000Z"),
+      protectedDispatchIds,
+    );
+
+    assert.deepEqual(protectedDispatchIds, [LEADER_DISPATCH_ID]);
+    assert.equal(fs.existsSync(archivePath), true, "age and byte caps preserve the active run's only control stream");
+    await fixture.coordinator.reconcile();
     assert.equal(fixture.status().status, "leader_running");
   });
 });

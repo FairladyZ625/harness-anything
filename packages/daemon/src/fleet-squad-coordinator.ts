@@ -210,7 +210,11 @@ export function makeFleetSquadCoordinator(input: {
         summary: raw.summary!,
       };
     },
-    flushPublications: coordinator.flushPublications,
+    async flushPublications(): Promise<void> {
+      await binding();
+      await input.sync();
+      await coordinator.flushPublications();
+    },
     async reconcile(): Promise<void> {
       await binding();
       await input.sync();

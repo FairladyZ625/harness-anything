@@ -19,7 +19,7 @@ import {
 } from "../src/fleet/peer.ts";
 
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { latestSquadStates } from "../src/squad-run-state.ts";
+import { latestSquadStates } from "./squad-run-state.fixture.ts";
 import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
 import { squadRunObservation } from "../src/squad-observation.ts";
 import { makeTaskEventReader, openPersistentWriterEpoch } from "@harness-anything/storage";

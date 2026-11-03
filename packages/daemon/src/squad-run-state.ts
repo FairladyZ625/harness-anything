@@ -1,6 +1,13 @@
-import { isTerminalStatus, validSquadRunSubject, type SquadRunSubjectV1, type TaskV2 } from "@harness-anything/kernel";
+import {
+  isTerminalStatus,
+  validSquadRunSubject,
+  type SquadRunSubjectV1,
+  type SquadRunProjectionRow,
+  type TaskProjection,
+  type TaskV2,
+} from "@harness-anything/kernel";
 import { normalizeHistoricalSquadRunIdentity } from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events";
-import { readAllDispatchStreamSummaries } from "./dispatch-stream.ts";
+import { readDispatchStreamSummary } from "./dispatch-stream.ts";
 import type { TrustedScheduleRuntime } from "./runtime-spawn-types.ts";
 import type { RepoTaskAction } from "./repo-cell-types.ts";
 import type { RuntimeBinding } from "./runtime-spawn-types.ts";
@@ -110,50 +117,115 @@ function validScheduleRuntime(value: unknown): value is TrustedScheduleRuntime {
   );
 }
 
-/** The dispatch streams are the squad runs' ledger: the latest state per run, cancellation records applied on top. */
-export function latestSquadStates(rootDir: string): ReadonlyMap<string, SquadState> {
-  const states = new Map<string, SquadState>();
-  for (const stream of readAllDispatchStreamSummaries(rootDir)) {
+/** Inspect only projection-owned Squad streams; unrelated dispatch archives are never enumerated. */
+export function readSquadRecoveryState(
+  rootDir: string,
+  projection: Pick<TaskProjection, "readSquadRuns" | "getEntity" | "read">,
+): {
+  readonly states: ReadonlyMap<string, SquadState>;
+  readonly publicationAcks: ReadonlyMap<string, number>;
+  readonly protectedDispatchIds: ReadonlySet<string>;
+} {
+  const states = new Map<string, SquadState>(),
+    publicationAcks = new Map<string, number>(),
+    recoveryRows = squadRecoveryRows(projection),
+    protectedDispatchIds = new Set<string>();
+  for (const { row, ownerDispatchId } of recoveryRows) {
+    const stream = readDispatchStreamSummary(rootDir, ownerDispatchId);
+    // The canonical projection is shared across fleet edges; only the owner edge has the local
+    // control stream needed to recover this run.
+    if (!stream) continue;
+    let localState: SquadState | null = null,
+      ackRevision = -1;
     for (const record of stream.records) {
-      if (record.kind === "squad_run_cancelled") {
-        const squadRunId = record.squadRunId,
-          revision = record.revision;
-        if (typeof squadRunId !== "string" || !Number.isSafeInteger(revision)) continue;
-        const current = states.get(squadRunId);
-        if (current && current.revision < Number(revision))
-          states.set(squadRunId, {
-            ...current,
-            currentLeaderRuntimeSessionId: null,
-            workerWaits: [],
-            pendingLeaderTriggers: [],
-            phase: "cancelled",
-            revision: Number(revision),
-            error: null,
-          });
-        continue;
-      }
-      if (record.kind !== "squad_run_state") continue;
-      const state = squadState(normalizeHistoricalSquadRunIdentity(record.state));
-      if (!state) continue;
-      const current = states.get(state.squadRunId);
-      if (!current || current.revision < state.revision) states.set(state.squadRunId, state);
-    }
-  }
-  return states;
-}
-
-/** ACKs share the control stream, so a missing ACK always resends the same operation after restart. */
-export function squadPublicationAcks(rootDir: string): Map<string, number> {
-  const acks = new Map<string, number>();
-  for (const stream of readAllDispatchStreamSummaries(rootDir))
-    for (const record of stream.records)
-      if (
+      if (record.kind === "squad_run_state") {
+        const candidate = squadState(normalizeHistoricalSquadRunIdentity(record.state));
+        if (candidate && (!localState || localState.revision < candidate.revision)) localState = candidate;
+      } else if (record.kind === "squad_run_cancelled") {
+        localState = applySquadCancellation(localState, record.revision);
+      } else if (
         record.kind === "squad_run_publication_ack" &&
-        typeof record.squadRunId === "string" &&
+        record.squadRunId === row.squadRunId &&
         Number.isSafeInteger(record.revision)
       )
-        acks.set(record.squadRunId, Math.max(acks.get(record.squadRunId) ?? -1, Number(record.revision)));
-  return acks;
+        ackRevision = Math.max(ackRevision, Number(record.revision));
+    }
+    if (!localState) continue;
+    if (localState.squadRunId !== row.squadRunId)
+      throw new Error(`Squad owner stream ${ownerDispatchId} points to an unexpected run.`);
+    const restoredActive = !terminal(localState),
+      scheduleRuntime = localState.scheduleRuntime,
+      scheduleSettlementPending =
+        !restoredActive &&
+        scheduleRuntime !== null &&
+        activeScheduleClaimMatches(projection, scheduleRuntime.scheduleId, scheduleRuntime.claimFence),
+      rejectedChildPending =
+        !restoredActive &&
+        rejectedSquadAttemptChildren([localState]).some((child) => {
+          const task = projection.read(child.taskId).snapshot.task;
+          return task !== null && !isTerminalStatus(task.status);
+        }),
+      publicationPending = ackRevision < localState.revision;
+    if (!restoredActive && !scheduleSettlementPending && !rejectedChildPending && !publicationPending) continue;
+    states.set(localState.squadRunId, localState);
+    if (ackRevision >= 0) publicationAcks.set(localState.squadRunId, ackRevision);
+    protectedDispatchIds.add(ownerDispatchId);
+  }
+  return { states, publicationAcks, protectedDispatchIds };
+}
+
+function squadRecoveryRows(
+  projection: Pick<TaskProjection, "readSquadRuns" | "getEntity" | "read">,
+): readonly { readonly row: SquadRunProjectionRow; readonly ownerDispatchId: string }[] {
+  const rows: { readonly row: SquadRunProjectionRow; readonly ownerDispatchId: string }[] = [];
+  for (const row of projection.readSquadRuns()) {
+    const state = row.state as {
+        readonly ownerDispatchId?: unknown;
+        readonly phase?: unknown;
+        readonly subject?: { readonly kind?: unknown; readonly scheduleId?: unknown; readonly claimFence?: unknown };
+        readonly workerAttempts?: readonly {
+          readonly taskId?: unknown;
+          readonly runtimeSessionId?: unknown;
+          readonly rejection?: unknown;
+        }[];
+      },
+      ownerDispatchId = state.ownerDispatchId;
+    if (typeof ownerDispatchId !== "string" || !/^dispatch_[a-f0-9]{24}$/u.test(ownerDispatchId)) continue;
+    // Projection rows identify the bounded set of Squad owner streams. Keep terminal rows in this
+    // set too: a local terminal revision can be newer than the shared projection after a crash
+    // between recording it and publishing the observation.
+    rows.push({ row, ownerDispatchId });
+  }
+  return rows;
+}
+
+function applySquadCancellation(state: SquadState | null, revision: unknown): SquadState | null {
+  if (!state || !Number.isSafeInteger(revision) || state.revision >= Number(revision)) return state;
+  return {
+    ...state,
+    currentLeaderRuntimeSessionId: null,
+    workerWaits: [],
+    pendingLeaderTriggers: [],
+    phase: "cancelled",
+    revision: Number(revision),
+    error: null,
+  };
+}
+
+function activeScheduleClaimMatches(
+  projection: Pick<TaskProjection, "getEntity">,
+  scheduleId: string,
+  claimFence: string,
+): boolean {
+  const status = projection.getEntity("schedule", scheduleId)?.value.status;
+  if (!status || typeof status !== "object" || Array.isArray(status)) return false;
+  const activeRun = (status as { readonly activeRun?: unknown }).activeRun;
+  return (
+    activeRun !== null &&
+    typeof activeRun === "object" &&
+    !Array.isArray(activeRun) &&
+    (activeRun as { readonly claimFence?: unknown }).claimFence === claimFence
+  );
 }
 
 /** A child task a rejected attempt left behind, with the run's binding — the authority that created it. */
@@ -196,7 +268,7 @@ export function rejectedSquadAttemptChildren(states: Iterable<SquadState>): read
 
 /** How a caller with the cell's write surface cancels one orphan: the action to apply, with its run's own binding. */
 export interface SquadOrphanCancellation {
-  readonly rootDir: string;
+  readonly states: Iterable<SquadState>;
   readonly readTask: (taskId: string) => TaskV2 | null | undefined;
   readonly cancel: (
     action: RepoTaskAction,
@@ -211,8 +283,7 @@ export interface SquadOrphanCancellation {
  * unattended at attach, and one child's failure must not strand the rest or the worktree sweep behind it.
  */
 export async function cancelRejectedSquadChildren(input: SquadOrphanCancellation): Promise<void> {
-  const states = [...latestSquadStates(input.rootDir).values()];
-  for (const child of rejectedSquadAttemptChildren(states)) {
+  for (const child of rejectedSquadAttemptChildren(input.states)) {
     const task = input.readTask(child.taskId);
     if (!task || isTerminalStatus(task.status)) continue;
     const action: RepoTaskAction = {

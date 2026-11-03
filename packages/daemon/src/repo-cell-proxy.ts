@@ -348,6 +348,9 @@ export async function openRepoCellProxy(
     let actionRuntimes: EntityActionCatalogRuntimes = Object.freeze({}),
       knownTaskIds: Set<string> | null = null;
     const squadCoordinator = {
+        hydrate: unsupportedWrite,
+        retentionProtectedDispatchIds: unsupportedWrite,
+        cancelRejectedChildren: unsupportedWrite,
         start: unsupportedWrite,
         startScheduled: unsupportedWrite,
         cancel: unsupportedWrite,

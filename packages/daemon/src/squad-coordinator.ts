@@ -41,12 +41,13 @@ import {
   type WorkerPlan,
 } from "./squad-leader-decision.ts";
 import {
-  latestSquadStates,
-  squadPublicationAcks,
+  cancelRejectedSquadChildren,
+  readSquadRecoveryState,
   squadScheduleSubject,
   squadTaskRef,
   terminal,
   validSquadRunId,
+  type SquadOrphanCancellation,
   type SquadState,
 } from "./squad-run-state.ts";
 import { checkWorkerOwnership, overlappingWorkerPaths, type WorkerOwnershipCheck } from "./squad-worker-ownership.ts";
@@ -161,18 +162,19 @@ export function makeSquadCoordinator(input: {
     readonly cancel: (payload: JsonObject, binding: RuntimeBinding) => Promise<JsonObject>;
   };
 }) {
-  // Dispatch archives can contain gigabytes of historical JSONL. Hydrating every Squad state is
-  // needed before the first Squad operation, but it is not part of repository readiness: doing it
-  // here made attach synchronously scan the entire archive after the last attach-progress marker.
+  // Dispatch archives can contain gigabytes of historical JSONL. Restore only projection-owned
+  // recovery streams during attach so retention sees their true state before it prunes archives.
   const states = new Map<string, SquadState>(),
-    publicationAcks = new Map<string, number>();
+    publicationAcks = new Map<string, number>(),
+    recoveryDispatchIds = new Set<string>();
   let hydration: Promise<void> | null = null;
   const ensureHydrated = async (): Promise<void> => {
     if (hydration === null)
       hydration = Promise.resolve().then(() => {
-        for (const [squadRunId, state] of latestSquadStates(input.rootDir)) states.set(squadRunId, state);
-        for (const [squadRunId, revision] of squadPublicationAcks(input.rootDir))
-          publicationAcks.set(squadRunId, revision);
+        const restored = input.query((projection) => readSquadRecoveryState(input.rootDir, projection));
+        for (const [squadRunId, state] of restored.states) states.set(squadRunId, state);
+        for (const [squadRunId, revision] of restored.publicationAcks) publicationAcks.set(squadRunId, revision);
+        for (const dispatchId of restored.protectedDispatchIds) recoveryDispatchIds.add(dispatchId);
       });
     const current = hydration;
     try {
@@ -1081,6 +1083,15 @@ export function makeSquadCoordinator(input: {
   }
 
   return {
+    hydrate: ensureHydrated,
+    retentionProtectedDispatchIds: async (): Promise<readonly string[]> => {
+      await ensureHydrated();
+      return [...recoveryDispatchIds];
+    },
+    cancelRejectedChildren: async (cancellation: Omit<SquadOrphanCancellation, "states">): Promise<void> => {
+      await ensureHydrated();
+      await cancelRejectedSquadChildren({ ...cancellation, states: states.values() });
+    },
     start,
     startScheduled,
     cancel,

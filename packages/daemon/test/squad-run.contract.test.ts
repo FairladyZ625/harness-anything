@@ -11,7 +11,7 @@ import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.
 import { makeSquadCanonicalReader } from "../src/squad-canonical-read.ts";
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
-import { latestSquadStates } from "../src/squad-run-state.ts";
+import { latestSquadStates } from "./squad-run-state.fixture.ts";
 import {
   serializeSquadRunRead,
   serializeSquadRunsList,
