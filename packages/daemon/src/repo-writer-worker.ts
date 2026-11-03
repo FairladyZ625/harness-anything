@@ -208,12 +208,12 @@ async function startRepoWriterWorker(): Promise<void> {
         onMaterializationHealthChange: (materialization) => {
           const status = cell === null ? { ...openingStatus, materialization } : cell.status();
           openingStatus = status;
-          postStatus({ kind: "status", status, ledgerCut: cell?.replica.ledgerCut() });
+          postStatus({ kind: "status", status, ...completedLedgerCut(status) });
         },
         onQueueDepthChange: (queueDepth) => {
           const status = cell === null ? { ...openingStatus, queueDepth } : cell.status();
           openingStatus = status;
-          postStatus({ kind: "status", status, ledgerCut: cell?.replica.ledgerCut() });
+          postStatus({ kind: "status", status, ...completedLedgerCut(status) });
         },
         onBootstrap: (receipt) => notify("bootstrap", receipt),
         onOpenProgress: (progress) => {
@@ -242,6 +242,16 @@ async function startRepoWriterWorker(): Promise<void> {
     postStatus({ kind: "closed", error: serializeWriterError(error) });
   } finally {
     clearInterval(heartbeat);
+  }
+
+  // Recovery and close can retire the writer handles before their queue notifications finish.
+  // Only an attached cell owns a completed readable cut; other states retain the last published cut.
+  function completedLedgerCut(status: RepoCellStatus) {
+    return cell && status.state === "attached" ? { ledgerCut: cell.replica.ledgerCut() } : {};
+  }
+  function publishCellStatus(kind: "cut" | "status"): void {
+    const status = cell!.status();
+    postStatus({ kind, status, ...completedLedgerCut(status) });
   }
 
   function statusDuringOpen(attach: RepoCellAttachProgress): RepoCellStatus {
@@ -377,11 +387,11 @@ async function startRepoWriterWorker(): Promise<void> {
         }
       }
       // A drain that lands while this request is in flight closes the cell and posts "closed" itself.
-      if (cell) postStatus({ kind: "cut", status: cell.status(), ledgerCut: cell.replica.ledgerCut() });
+      if (cell) publishCellStatus("cut");
       postReceipt(request.requestId, value, undefined, startedAtMs, monotonicMs(), executionStartedAtMs);
     } catch (error) {
       consumeKnownError(error);
-      if (cell) postStatus({ kind: "status", status: cell.status(), ledgerCut: cell.replica.ledgerCut() });
+      if (cell) publishCellStatus("status");
       postReceipt(request.requestId, undefined, error, startedAtMs, monotonicMs(), executionStartedAtMs);
     } finally {
       activeRequests.delete(request.requestId);

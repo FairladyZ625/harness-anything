@@ -1,25 +1,16 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { compileDecisionWrite } from "@harness-anything/kernel";
-import { proposal } from "./relation-graph-projection.fixtures.ts";
+import { applyDecision, projectionFixture, proposal } from "./relation-graph-projection.fixtures.ts";
 import { performance } from "node:perf_hooks";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
-import { memoryEventStore } from "./task-owned-entity-projection.fixtures.ts";
 import { withTempStoreAsync } from "./helpers.ts";
 
 test("document lists and revision reads do not fetch or parse inline document bodies", async (t) => {
   await withTempStoreAsync(async (rootDir) => {
-    const compiled = compileDecisionWrite({ draft: proposal(1, "dec-metadata") });
-    const projection = makeTaskProjection({
-      rootDir,
-      eventStore: memoryEventStore(
-        [compiled.event],
-        new Map(compiled.blobs.map((blob) => [blob.sha256, new TextEncoder().encode(blob.body)])),
-      ),
-    });
-    projection.rebuild();
+    const fixture = projectionFixture(rootDir);
+    applyDecision(fixture, proposal(1, "dec_METADATA"));
+    const { projection } = fixture;
     const db = new DatabaseSync(projection.path),
       path = "tasks/task-large/artifacts/report.md";
     const insert = db.prepare("INSERT OR REPLACE INTO document(path, workspace_revision, value_json) VALUES (?, ?, ?)");
@@ -41,10 +32,10 @@ test("document lists and revision reads do not fetch or parse inline document bo
           }),
         );
         insert.run(
-          "decisions/decision-dec-metadata/decision.md",
+          "decisions/decision-dec_METADATA/decision.md",
           7,
           JSON.stringify({
-            path: "decisions/decision-dec-metadata/decision.md",
+            path: "decisions/decision-dec_METADATA/decision.md",
             workspaceRevision: 7,
             body: "x".repeat(size),
             blobSha256: "sha256:fixture",
@@ -61,8 +52,8 @@ test("document lists and revision reads do not fetch or parse inline document bo
         const start = performance.now();
         for (let sample = 0; sample < 50; sample++) {
           assert.deepEqual(projection.readDocumentMetadata(path).document, { path, workspaceRevision: 7 });
-          assert.equal(projection.readDecisions(["dec-metadata"], false).decisions[0]?.body, null);
-          assert.equal(projection.readDecision("dec-metadata", false).decision?.body, null);
+          assert.equal(projection.readDecisions(["dec_METADATA"], false).decisions[0]?.body, null);
+          assert.equal(projection.readDecision("dec_METADATA", false).decision?.body, null);
           const documents = projection.readDocuments("tasks/").documents;
           assert.deepEqual(documents, [
             { path, blobSha256: "sha256:fixture", size, mediaType: "text/markdown", policyId: "fixture" },

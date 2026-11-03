@@ -48,9 +48,11 @@ test(
       // Same responsiveness assertion is red with the read restored to the entry thread.
       assert.throws(() => responsive(before), { code: "ERR_ASSERTION" });
       responsive(after);
+      assert.equal(before.readTimeouts, frozenRoot ? 5 : 20);
+      assert.equal(after.readTimeouts, 0, "all probes, including writes, must finish before releasing the slow read");
       assert.ok(after.write! < before.write!, JSON.stringify({ before, after }));
       t.diagnostic(
-        `paired-read-p99=${JSON.stringify({ samples: frozenRoot ? 5 : 20, slowReadMs: 1000, before, after, negativeControl: "responsiveness assertion rejected entry-thread reads" })}`,
+        `paired-read-p99=${JSON.stringify({ samples: frozenRoot ? 5 : 20, slowReadMs: frozenRoot ? 10000 : 1000, before, after, negativeControl: "responsiveness assertion rejected entry-thread reads" })}`,
       );
     } finally {
       if (frozenRoot) rmSync(frozenRoot, { recursive: true, force: true });
@@ -65,7 +67,8 @@ async function measure(entryThread: boolean, frozenRoot?: string): Promise<Recor
     repoId = frozenRoot ? "canonical" : "read-p99",
     daemonId = "read-p99",
     endpoint = localUserDaemonEndpoint(userRoot, daemonId),
-    barrier = new Int32Array(new SharedArrayBuffer(4 * Int32Array.BYTES_PER_ELEMENT));
+    barrier = new Int32Array(new SharedArrayBuffer(6 * Int32Array.BYTES_PER_ELEMENT));
+  Atomics.store(barrier, 4, frozenRoot ? 10_000 : 1_000);
   initIngressRepo(root, process.getuid?.() ?? 0);
   if (frozenRoot) {
     rmSync(path.join(root, "harness"), { recursive: true, force: true });
@@ -133,12 +136,13 @@ async function measure(entryThread: boolean, frozenRoot?: string): Promise<Recor
       await rpc(host, { transportKind: "unix-socket" }, "repo.workspace.summary.read", { repo: { repoId } });
       while (Atomics.load(barrier, 3) < sequence) await Atomics.waitAsync(barrier, 3, sequence - 1).value;
     }
-    return Object.fromEntries(
+    const metrics = Object.fromEntries(
       Object.entries(await result).map(([name, values]) => [
         name,
         [...values].sort((a, b) => a - b)[Math.ceil(values.length * 0.99) - 1]!,
       ]),
     );
+    return { ...metrics, readTimeouts: Atomics.load(barrier, 5) };
   } finally {
     await probe?.terminate();
     await transport.stop();
