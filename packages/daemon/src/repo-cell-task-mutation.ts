@@ -97,6 +97,14 @@ function taskMutationWithStopResult(
   if (action.kind === "task-release") {
     if (!activeLease)
       throw cell.cellCodedError("lease_not_found", `Start task ${task.taskId} before releasing its lease.`);
+    if (
+      (action.expectedLeaseVersion !== undefined || action.expectedExecutionId !== undefined) &&
+      (action.expectedLeaseVersion !== activeLease.version || action.expectedExecutionId !== activeLease.executionId)
+    )
+      throw cell.cellCodedError(
+        "runtime_terminal_superseded",
+        "The failed runtime spawn no longer owns this task lease generation.",
+      );
     const terminalExecutionId = optionalReleaseText(action.terminalExecutionId),
       terminalRuntimeSessionId = optionalReleaseText(action.terminalRuntimeSessionId);
     if ((terminalExecutionId === null) !== (terminalRuntimeSessionId === null))

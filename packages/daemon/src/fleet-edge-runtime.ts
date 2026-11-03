@@ -226,7 +226,7 @@ export function openFleetEdgeRuntime(input: {
   readonly ports: RuntimePorts;
   /** Waits for an in-flight resident stream to publish its first readable generation. */
   readonly waitForReplicaReady?: (signal?: AbortSignal) => Promise<boolean>;
-  /** Reports a task whose terminal lease settlement this node applied to the center. */
+  /** Reports a released task once its canonical runtime outcome is readable on this node. */
   readonly onTaskSettled?: (taskId: string) => void;
   readonly launch?: RuntimeLauncher;
   readonly now?: () => string;
@@ -497,7 +497,7 @@ export function openFleetEdgeRuntime(input: {
             review.reviewId === reviewId || review.actor.executor?.id === `runtime-session:${runtimeSessionId}`,
         );
       },
-      taskContext: async (taskId, missionName, review) => {
+      taskContext: async (taskId, missionName, review, onClaimed) => {
         // Pull only in write preparation; repository values themselves use the shared local query.
         await pullRuntimeReplica();
         let runtimeContext = taskRuntimeContext(
@@ -545,6 +545,43 @@ export function openFleetEdgeRuntime(input: {
               started.code ?? "task_start_rejected",
               `The center could not start task ${taskId}: ${String(started.code ?? started.outcome)}.`,
             );
+          const claimedLease = withEdgeReadModel(
+            { ...request, principalId: replicaOwner, includeEntries: false },
+            (projection) => projection.currentLease(taskId),
+          );
+          if (claimedLease?.phase === "held")
+            onClaimed?.(async () => {
+              const released = await runFleetEdgeWrite({
+                viewRoot: request.viewRoot,
+                repoId: request.repoId,
+                nodeId: request.nodeId,
+                timeoutMs: centerWriteWaitMs,
+                write: () =>
+                  runFleetTaskCommandClient({
+                    ...writePeer,
+                    repoId: request.repoId,
+                    taskId,
+                    opId: `${taskStartOpId}-release`,
+                    waitMs: centerWriteWaitMs,
+                    action: {
+                      kind: "task-release",
+                      taskId,
+                      expectedExecutionId: claimedLease.executionId,
+                      expectedLeaseVersion: claimedLease.version,
+                      reason: "Runtime spawn failed after acquiring the task lease.",
+                    },
+                  }),
+              });
+              if (
+                released.outcome !== "applied" &&
+                released.code !== "lease_not_found" &&
+                released.code !== "runtime_terminal_superseded"
+              )
+                throw edgeRuntimeError(
+                  released.code ?? "runtime_lease_release_failed",
+                  `Center rejected failed-spawn lease release: ${String(released.code ?? released.outcome)}.`,
+                );
+            });
           await pullRuntimeReplica();
           runtimeContext = taskRuntimeContext(await readReplica("repo.tasks.runtimeContext.read", { taskId }), taskId);
           current = runtimeContext.snapshot;
@@ -816,8 +853,16 @@ export function openFleetEdgeRuntime(input: {
             },
           }),
       ),
+    onRuntimeOutcome: (event) => {
+      // publish() has joined the outcome's replica sequence. Release and capacity census
+      // now share that cut; task-release alone precedes the runtime outcome publication.
+      withEdgeReadModel({ ...request, principalId: replicaOwner, includeEntries: false }, (projection) => {
+        const session = projection.readRuntimeSession(event.payload.runtimeSessionId);
+        for (const { taskId } of session?.taskBindings ?? [])
+          if (projection.currentLease(taskId)?.phase !== "held") input.onTaskSettled?.(taskId);
+      });
+    },
     onAttemptTerminal: async (terminal) => {
-      let settledTaskId: string | null = null;
       if (terminal.task) {
         const { taskId, executionId } = terminal.task,
           processGroupPid = terminal.processGroupPid;
@@ -870,11 +915,7 @@ export function openFleetEdgeRuntime(input: {
             `Center rejected Runtime terminal lease settlement: ${String(settled.code ?? settled.outcome)}.`,
           );
         await pullRuntimeReplica();
-        settledTaskId = taskId;
       }
-      // The center lease is settled: the task's concurrency slot is free even while this
-      // attempt's detached session wait is still parked.
-      if (settledTaskId !== null) input.onTaskSettled?.(settledTaskId);
       await squad.reconcile();
       const scheduled = terminal.schedule;
       if (!scheduled) return;
