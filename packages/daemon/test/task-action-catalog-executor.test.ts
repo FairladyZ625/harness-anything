@@ -274,18 +274,13 @@ test("symptom task_75ba055dc0c66154154c37d664: a referenced Agent delete keeps a
 });
 
 test("agent reference counts use the indexed count instead of the dispatch history", () => {
-  let countCalls = 0,
-    fullCalls = 0;
+  let countCalls = 0;
   const counts = agentReferenceCounts(
     {
       countRuntimeDispatchesByAgent: (agentId: string) => {
         countCalls += 1;
         assert.equal(agentId, "agent-one");
         return 7;
-      },
-      readRuntimeDispatches: () => {
-        fullCalls += 1;
-        return [];
       },
       listEntities: () => [],
       readRelationQuery: () => ({ rows: [] }),
@@ -294,5 +289,4 @@ test("agent reference counts use the indexed count instead of the dispatch histo
   );
   assert.deepEqual(counts, [{ kind: "dispatch", count: 7 }]);
   assert.equal(countCalls, 1);
-  assert.equal(fullCalls, 0);
 });

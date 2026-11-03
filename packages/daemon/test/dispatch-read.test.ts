@@ -110,7 +110,6 @@ function fixture(
     readTaskRelationsBySources: () => ({ rows: [] }),
     readRuntimeSession: () => current,
     readRuntimeDispatch: () => event,
-    readRuntimeDispatches: () => events,
     readRuntimeDispatchesByTaskIds: (taskIds: readonly string[]) =>
       events.filter(
         (candidate) => candidate.payload.taskId !== undefined && taskIds.includes(candidate.payload.taskId),
@@ -148,7 +147,6 @@ function fixture(
 test("task dispatch read queries the requested task ids instead of the dispatch history", () => {
   const { projection } = fixture(session("live", null));
   let byTaskCalls = 0,
-    fullCalls = 0,
     requested: readonly string[] = [];
   const measured = new Proxy(projection, {
     get: (target, property, receiver) => {
@@ -158,11 +156,6 @@ test("task dispatch read queries the requested task ids instead of the dispatch 
           requested = taskIds;
           return target.readRuntimeDispatchesByTaskIds(taskIds);
         };
-      if (property === "readRuntimeDispatches")
-        return () => {
-          fullCalls += 1;
-          return target.readRuntimeDispatches();
-        };
       const value = Reflect.get(target, property, receiver);
       return typeof value === "function" ? value.bind(target) : value;
     },
@@ -170,7 +163,6 @@ test("task dispatch read queries the requested task ids instead of the dispatch 
   const result = readTaskDispatches({ projection: measured, taskIds: ["task-1"] });
   assert.equal(result.dispatches.length, 1);
   assert.equal(byTaskCalls, 1);
-  assert.equal(fullCalls, 0);
   assert.deepEqual(requested, ["task-1"]);
 });
 

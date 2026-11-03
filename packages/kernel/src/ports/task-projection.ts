@@ -185,11 +185,6 @@ export interface TaskProjection {
     runtimeSessionIdValue: string,
     definitionSnapshotRef?: string,
   ) => Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> | null;
-  /** Whole-class read for projection parity/export only; request paths use the keyed reads below. */
-  readonly readRuntimeDispatches: () => readonly Extract<
-    AgentRuntimeEventV1,
-    { readonly type: "runtime_dispatch_requested" }
-  >[];
   readonly readRuntimeDispatchById: (dispatchId: string) => RuntimeDispatchProjectionRow | null;
   readonly readRuntimeDispatchByDispatchKey: (dispatchKey: string) => RuntimeDispatchProjectionRow | null;
   readonly readRuntimeDispatchByResumeSource: (dispatchId: string) => RuntimeDispatchProjectionRow | null;

@@ -129,8 +129,7 @@ test("historical runtime sessions with no snapshot event degrade without failing
   withRuntime(({ store, projection }) => {
     const withoutDispatchSnapshot = new Proxy(projection, {
         get: (target, property, receiver) => {
-          if (property === "readRuntimeDispatch" || property === "readRuntimeDispatches")
-            return property === "readRuntimeDispatch" ? () => null : () => [];
+          if (property === "readRuntimeDispatch") return () => null;
           const value = Reflect.get(target, property, receiver);
           return typeof value === "function" ? value.bind(target) : value;
         },
@@ -162,9 +161,6 @@ test("runtime status reports unknown without local process evidence, for local a
                 const dispatch = target.readRuntimeDispatch(runtimeSessionId, snapshotRef);
                 return dispatch ? rewriteDispatch(dispatch) : null;
               };
-            if (property === "readRuntimeDispatches")
-              return (...args: Parameters<typeof target.readRuntimeDispatches>) =>
-                target.readRuntimeDispatches(...args).map(rewriteDispatch);
             const value = Reflect.get(target, property, receiver);
             return typeof value === "function" ? value.bind(target) : value;
           },
@@ -324,15 +320,13 @@ test("runtime overview reads one dispatch per session while a single-session rea
     let fullTaskListReads = 0,
       taskStatusReads = 0,
       cutReads = 0,
-      singleDispatchReads = 0,
-      batchDispatchReads = 0;
+      singleDispatchReads = 0;
     const measured = new Proxy(projection, {
       get: (target, property, receiver) => {
         if (property === "list") fullTaskListReads += 1;
         if (property === "readTaskStatuses") taskStatusReads += 1;
         if (property === "readCut") cutReads += 1;
         if (property === "readRuntimeDispatch") singleDispatchReads += 1;
-        if (property === "readRuntimeDispatches") batchDispatchReads += 1;
         const value = Reflect.get(target, property, receiver);
         return typeof value === "function" ? value.bind(target) : value;
       },
@@ -341,8 +335,8 @@ test("runtime overview reads one dispatch per session while a single-session rea
     reads.overview({});
     reads.session({ runtimeSessionId: "runtime-session" });
     assert.deepEqual(
-      { fullTaskListReads, taskStatusReads, cutReads, singleDispatchReads, batchDispatchReads },
-      { fullTaskListReads: 0, taskStatusReads: 0, cutReads: 2, singleDispatchReads: 2, batchDispatchReads: 0 },
+      { fullTaskListReads, taskStatusReads, cutReads, singleDispatchReads },
+      { fullTaskListReads: 0, taskStatusReads: 0, cutReads: 2, singleDispatchReads: 2 },
     );
   }));
 
@@ -986,28 +980,19 @@ test("runtime overview pages at the server before DTO and dispatch expansion", (
     rows = Array.from({ length: 12 }, (_, index) => session(`runtime-${String(index).padStart(2, "0")}`));
   let unboundedReads = 0,
     exactDispatchReads = 0,
-    batchDispatchReads = 0,
     pageQuery: unknown;
-  const dispatches = rows.map(
-      ({ runtimeSessionId }) =>
-        ({
-          type: "runtime_dispatch_requested",
-          payload: { runtimeSessionId, definitionSnapshotRef: "artifact:runtime-definition/test" },
-        }) as AgentRuntimeEventV1,
+  const projection = {
+    readCut: () => ({ status: "ready", watermark: 1 }),
+    readRuntimeSessionPage: (query: unknown) => (
+      (pageQuery = query),
+      { rows, nextRuntimeSessionId: "runtime-11", remainingCount: 13 }
     ),
-    projection = {
-      readCut: () => ({ status: "ready", watermark: 1 }),
-      readRuntimeSessionPage: (query: unknown) => (
-        (pageQuery = query),
-        { rows, nextRuntimeSessionId: "runtime-11", remainingCount: 13 }
-      ),
-      readRuntimeSessions: () => ((unboundedReads += 1), rows),
-      readRuntimeInstallations: () => [],
-      readRuntimeDispatches: () => ((batchDispatchReads += 1), dispatches),
-      readRuntimeDispatch: () => ((exactDispatchReads += 1), null),
-      readRuntimeSessionEvents: () => [],
-      currentLease: () => null,
-    };
+    readRuntimeSessions: () => ((unboundedReads += 1), rows),
+    readRuntimeInstallations: () => [],
+    readRuntimeDispatch: () => ((exactDispatchReads += 1), null),
+    readRuntimeSessionEvents: () => [],
+    currentLease: () => null,
+  };
   const overview = makeAgentRuntimeReadModel({
     store: {} as never,
     projection: projection as never,
@@ -1015,7 +1000,6 @@ test("runtime overview pages at the server before DTO and dispatch expansion", (
   assert.equal(overview.sessions.length, 12);
   assert.equal(unboundedReads, 0);
   assert.equal(exactDispatchReads, 12);
-  assert.equal(batchDispatchReads, 0);
   assert.deepEqual(pageQuery, { limit: 12 });
   assert.deepEqual(overview.page, {
     limit: 12,

@@ -96,16 +96,10 @@ test("dispatch short-id resolution uses indexed lookups instead of the dispatch 
       store.append({ event, plan: runtimeWritePlan(event), blobs: [] });
       projection.apply(event);
     }
-    let fullCalls = 0,
-      exactCalls = 0,
+    let exactCalls = 0,
       prefixCalls = 0;
     const measured = new Proxy(projection, {
       get: (target, property, receiver) => {
-        if (property === "readRuntimeDispatches")
-          return () => {
-            fullCalls += 1;
-            return target.readRuntimeDispatches();
-          };
         if (property === "readRuntimeDispatchById")
           return (dispatchId: string) => {
             exactCalls += 1;
@@ -123,7 +117,6 @@ test("dispatch short-id resolution uses indexed lookups instead of the dispatch 
     const reads = makeAgentRuntimeReadModel({ store, projection: measured });
     for (const id of ["dispatch-runtime", "dispatch-run"])
       assert.equal(reads.session({ runtimeSessionId: id }).session.runtimeSessionId, "runtime-session");
-    assert.equal(fullCalls, 0, "a dispatch id must not materialize the dispatch history");
     assert.equal(exactCalls, 2, "the full id is one exact lookup");
     assert.equal(prefixCalls, 1, "only the short prefix scans its bounded id range");
   } finally {
@@ -227,12 +220,6 @@ async function overviewDispatchReads(
     const counted = new Proxy(projection, {
       get: (target, property, receiver) => {
         const value = Reflect.get(target, property, receiver);
-        if (property === "readRuntimeDispatches")
-          return () => {
-            const dispatches = target.readRuntimeDispatches();
-            dispatchEventsRead += dispatches.length;
-            return dispatches;
-          };
         if (property === "readRuntimeDispatch")
           return (runtimeSessionId: string, definitionSnapshotRef?: string) => {
             const dispatch = target.readRuntimeDispatch(runtimeSessionId, definitionSnapshotRef);

@@ -193,7 +193,6 @@ function dispatchContract(
     keyof Pick<
       PgTaskQueryMethods,
       | "readRuntimeDispatch"
-      | "readRuntimeDispatches"
       | "readRuntimeDispatchById"
       | "readRuntimeDispatchByDispatchKey"
       | "readRuntimeDispatchByResumeSource"
@@ -214,12 +213,12 @@ function dispatchContract(
     >
   >,
 ) {
-  const all = queries.readRuntimeDispatches(),
+  const all = queries.readRuntimeDispatchesByTaskIds(["task-parity"]),
     byId = queries.readRuntimeDispatchById("runtime-query-a");
   assert.equal(all.length, 8);
   assert.deepEqual(
-    queries.readRuntimeDispatchesByTaskIds(["task-parity"]).map(({ payload }) => payload.dispatchId),
-    all.map(({ payload }) => payload.dispatchId),
+    all.slice(0, 3).map(({ payload }) => payload.dispatchId),
+    ["runtime-query-a", "runtime-query-b", "runtime-query-c"],
   );
   assert.deepEqual(queries.readRuntimeDispatchesByTaskIds(["missing-task"]), []);
   assert.deepEqual(

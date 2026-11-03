@@ -52,7 +52,6 @@ for (const role of ["implementation", "reviewer"] as const) {
       readRuntimeInstallation: () => null,
       readRuntimeInstallations: () => [],
       readRuntimeDispatch: () => dispatch,
-      readRuntimeDispatches: () => [dispatch],
       readTaskRuntimeBatch: () => ({ rows: [] }),
       listEntities: () => [],
     } as unknown as TaskProjection;

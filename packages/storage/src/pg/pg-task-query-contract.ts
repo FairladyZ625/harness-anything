@@ -3,7 +3,6 @@ import type { TaskProjectionQueries } from "@harness-anything/kernel";
 /** Methods backed by the current PostgreSQL source; extend with parity evidence as methods land. */
 export const PG_TASK_QUERY_METHODS = [
   "readRuntimeDispatch",
-  "readRuntimeDispatches",
   "readRuntimeDispatchById",
   "readRuntimeDispatchByDispatchKey",
   "readRuntimeDispatchByResumeSource",

@@ -261,7 +261,6 @@ function makeRecoveryFixture(
           } as Extract<AgentRuntimeEventV1, { type: "runtime_dispatch_requested" }>)
         : null;
     },
-    readRuntimeDispatches: () => [...dispatchBySession.keys()].map((id) => projection.readRuntimeDispatch(id)),
     readRuntimeDispatchesByTaskIds: (taskIds: readonly string[]) =>
       [...dispatchBySession.keys()]
         .map((id) => projection.readRuntimeDispatch(id))
