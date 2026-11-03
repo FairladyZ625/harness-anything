@@ -143,12 +143,8 @@ function withWorktreeCandidates(input: Input): Input {
     task.packagePath,
     input.store.currentCut(),
     {
-      ...input,
-      sender: {
-        ...input.binding,
-        executionId: task.snapshot.lease?.executionId ?? null,
-        acknowledgedExecutionIds: task.snapshot.executions.map((execution) => execution.executionId),
-      },
+      store: input.store,
+      executionIds: task.snapshot.executions.map((execution) => execution.executionId),
     },
   );
   if (inventory === undefined) return input;

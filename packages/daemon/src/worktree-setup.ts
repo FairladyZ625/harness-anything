@@ -17,12 +17,7 @@ import {
   DEFAULT_WORKTREE_SETUP_STEP_TIMEOUT_MS,
   canonicalDocumentClaims,
   isDocEvent,
-  isTaskBootstrapEvent,
-  isSameExecution,
-  sameWriteSource,
   resolveHarnessLayout,
-  type ActorIdentity,
-  type WriteSource,
   type RepositorySettingsV1,
 } from "@harness-anything/kernel";
 import { posixShellFallback, runProcessExitAsync, runProcessTextAsync, startDetachedProcess } from "./process-port.ts";
@@ -387,42 +382,30 @@ export function acceptTaskWorktreeDocumentBase(cwd: string, logicalPath: string,
 }
 
 /**
- * Pre-base mirrors recorded no ledger SHA. Recover unchanged historical bytes or a
- * sender's accepted write, never infer its base from today's center document.
- * Initial task claims also precede every checkout. Unidentifiable edits retain null
- * bases and the existing CAS refuses them. One history walk serves the whole package.
+ * Pre-base mirrors recorded no ledger SHA. Recover unchanged historical bytes or
+ * this task's accepted execution write, never infer a base from the observer's identity.
+ * Unidentifiable edits retain null bases and the existing CAS refuses them.
+ * One history walk serves the whole package.
  * Remove after all pre-fix worktrees are reclaimed; review deletion on 2026-11-18.
  */
 export function recoverTaskWorktreeDocumentBases(
   cwd: string,
   documents: readonly { readonly path: string; readonly bytes: Uint8Array | null }[],
   store: CanonicalEventStore,
-  sender?: {
-    readonly actor: ActorIdentity;
-    readonly source: WriteSource;
-    readonly executionId: string | null;
-    readonly acknowledgedExecutionIds?: readonly string[];
-  },
+  executionIds: readonly string[] = [],
 ): void {
   if (documents.length === 0 || store.queryEvents === undefined) return;
   const pending = new Map(documents.map((document) => [document.path, document.bytes])),
     acknowledged = new Map<string, Uint8Array>(),
     blobs = new Map<string, Uint8Array>(),
-    executions = new Set([
-      ...(sender?.acknowledgedExecutionIds ?? []),
-      ...(sender?.executionId ? [sender.executionId] : []),
-    ]);
+    executions = new Set(executionIds);
   let revisionBound: number | undefined;
   while (pending.size > 0) {
     const events = store.queryEvents({ revisionBound, limit: 1_000 });
     if (events.length === 0) break;
     for (const event of events) {
-      const senderWrite =
-        sender !== undefined &&
-        isDocEvent(event) &&
-        sameWriteSource(event.source, sender.source) &&
-        (isSameExecution(event.actor, sender.actor) ||
-          (event.payload.executionId !== null && executions.has(event.payload.executionId)));
+      const executionWrite =
+        isDocEvent(event) && event.payload.executionId !== null && executions.has(event.payload.executionId);
       for (const claim of canonicalDocumentClaims(event)) {
         if (!pending.has(claim.path)) continue;
         let bytes = blobs.get(claim.sha256);
@@ -437,7 +420,7 @@ export function recoverTaskWorktreeDocumentBases(
         if (candidate !== null && candidate !== undefined && Buffer.from(candidate).equals(bytes)) {
           acceptTaskWorktreeDocumentBase(cwd, claim.path, bytes);
           pending.delete(claim.path);
-        } else if (!acknowledged.has(claim.path) && (senderWrite || isTaskBootstrapEvent(event))) {
+        } else if (!acknowledged.has(claim.path) && executionWrite) {
           acknowledged.set(claim.path, bytes);
         }
       }

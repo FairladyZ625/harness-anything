@@ -45,7 +45,7 @@ export async function measureWorktreeDocuments(rootDir, size, legacy = false) {
       actor: { principal: { personId: "cost" }, executor: null },
       source: "local",
       payload: {
-        executionId: null,
+        executionId: "execution-cost",
         changes: Array.from({ length: size }, (_, index) => ({
           path: `${packagePath}/artifacts/${String(index).padStart(5, "0")}.md`,
           candidate: { sha256: "0".repeat(64), size: 9, mediaType: "text/markdown" },
@@ -54,7 +54,7 @@ export async function measureWorktreeDocuments(rootDir, size, legacy = false) {
     };
     const history = legacy
       ? {
-          sender: { actor: historicalEvent.actor, source: "local", executionId: null },
+          executionIds: ["execution-cost"],
           store: {
             queryEvents: ({ revisionBound }) => {
               recovery.queries += 1;

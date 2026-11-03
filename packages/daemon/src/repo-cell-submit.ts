@@ -780,12 +780,8 @@ export async function submitTask(
       taskRoot === null || (typeof binding.source === "object" && binding.source.kind === "node")
         ? undefined
         : taskWorktreeCandidateInventory(cell.rootDir, taskRoot, current.packagePath, cell.store.currentCut(), {
-            ...cell,
-            sender: {
-              ...binding,
-              executionId,
-              acknowledgedExecutionIds: current.snapshot.executions.map((execution) => execution.executionId),
-            },
+            store: cell.store,
+            executionIds: current.snapshot.executions.map((execution) => execution.executionId),
           }),
     synced =
       typeof binding.source === "object" && binding.source.kind === "node"

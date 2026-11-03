@@ -438,10 +438,14 @@ test("accepted worktree documents advance their bases across edits and an acknow
   }
 });
 
-test("a missing worktree base recovers its original accepted version for a worker edit", async () => {
+test("a missing worktree base recovers this task execution's accepted version for a worker edit", async () => {
   const fixture = await ownPackageFixture("missing-base");
   try {
     const taskRoot = path.join(fixture.rootDir, ".worktrees", fixture.taskId);
+    writeFileSync(fixture.workerArtifact, "# Accepted in this execution\n");
+    const accepted = await fixture.cell.run({ kind: "doc-submit", taskId: fixture.taskId }, holder);
+    assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
+    await waitForFixturePublication(fixture.cell, accepted.opId, holder);
     unlinkSync(taskWorktreeDocumentBase(taskRoot, fixture.artifactPath));
     writeFileSync(fixture.workerArtifact, "# Edited without a known base\n");
     const receipt = await fixture.cell.run({ kind: "doc-submit", taskId: fixture.taskId }, holder);
@@ -454,3 +458,24 @@ test("a missing worktree base recovers its original accepted version for a worke
     rmSync(fixture.rootDir, { recursive: true, force: true });
   }
 });
+
+for (const document of ["artifact", "bootstrap"] as const) {
+  test(`a same-author pre-execution ${document} write cannot supply an edited mirror's missing base`, async () => {
+    const fixture = await ownPackageFixture(`unscoped-${document}`);
+    try {
+      const taskRoot = path.join(fixture.rootDir, ".worktrees", fixture.taskId),
+        logical = document === "artifact" ? fixture.artifactPath : `${fixture.packagePath}/task_plan.md`,
+        worker = path.join(taskRoot, "harness", logical),
+        canonical = path.join(fixture.ledger, logical),
+        original = readFileSync(canonical, "utf8");
+      unlinkSync(taskWorktreeDocumentBase(taskRoot, logical));
+      writeFileSync(worker, original + "\nExtra worker evidence without an execution acknowledgement.\n");
+      const receipt = await fixture.cell.run({ kind: "doc-submit", taskId: fixture.taskId }, holder);
+      assert.equal(receipt.code, "base_blob_changed", JSON.stringify(receipt));
+      assert.equal(readFileSync(canonical, "utf8"), original);
+    } finally {
+      await fixture.cell.close();
+      rmSync(fixture.rootDir, { recursive: true, force: true });
+    }
+  });
+}

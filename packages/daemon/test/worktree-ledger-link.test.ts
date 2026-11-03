@@ -280,16 +280,12 @@ for (const retired of [false, true]) {
       report = `${packagePath}/artifacts/report.md`,
       ruling = `${packagePath}/artifacts/ruling.md`,
       fresh = `${packagePath}/artifacts/new.md`,
-      sender = {
-        actor: { principal: { personId: "owner" }, executor: { kind: "agent", id: "new-runtime" } },
-        source: "local",
-        executionId: "execution-legacy-new",
-        acknowledgedExecutionIds: ["execution-legacy-old", "execution-legacy-new"],
-      } as const,
+      executionIds = ["execution-legacy-old", "execution-legacy-new"],
       oldActor = { principal: { personId: "owner" }, executor: { kind: "agent", id: "old-runtime" } },
       ceo = { principal: { personId: "owner" }, executor: null },
       blobs = new Map([
         ["report-v1", Buffer.from("report v1\n")],
+        ["unrelated-report", Buffer.from("unrelated execution report\n")],
         ["ruling-v1", Buffer.from("ruling v1\n")],
         ["ruling-v2", Buffer.from("CEO supplement\n")],
       ]);
@@ -311,6 +307,14 @@ for (const retired of [false, true]) {
         candidate: sha256 === null ? null : { sha256, size: blobs.get(sha256)!.length, mediaType: "text/markdown" },
       }),
       events = [
+        {
+          schema: "doc-event/v1",
+          type: "documents_written",
+          workspaceRevision: 3,
+          actor: oldActor,
+          source: "local",
+          payload: { executionId: "execution-another-task", changes: [change(report, "unrelated-report")] },
+        },
         {
           schema: "doc-event/v1",
           type: "documents_written",
@@ -340,7 +344,7 @@ for (const retired of [false, true]) {
       packagePath,
       { repoId: "legacy", revision: 2, headDigest: `sha256:${"0".repeat(64)}` },
       {
-        sender,
+        executionIds,
         store: {
           queryEvents: ({ revisionBound }: { revisionBound?: number }) => {
             queries += 1;
@@ -355,7 +359,7 @@ for (const retired of [false, true]) {
     assert.deepEqual(inventory!.rows.map((row) => row.path).sort(), [fresh, report].sort());
     assert.equal(Buffer.from(inventory!.rows.find((row) => row.path === report)!.baseBytes!).toString(), "report v1\n");
     assert.equal(inventory!.rows.find((row) => row.path === fresh)!.baseBytes, null);
-    assert.equal(queries, 3, "revision pages cross the last page and stop on EOF");
+    assert.equal(queries, 4, "revision pages cross the last page and stop on EOF");
     assert.equal(readFileSync(taskWorktreeDocumentBase(worker, ruling), "utf8"), "ruling v1\n");
     unlinkSync(taskWorktreeDocumentBase(worker, ruling));
     writeFileSync(path.join(worker, "harness", ruling), "unidentifiable foreign edit\n");

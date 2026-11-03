@@ -36,7 +36,7 @@ export function taskWorktreeCandidateInventory(
   baseLedgerSha: AuthoredCandidateInventoryV1["baseLedgerSha"],
   history?: {
     readonly store: CanonicalEventStore;
-    readonly sender?: Parameters<typeof recoverTaskWorktreeDocumentBases>[3];
+    readonly executionIds?: readonly string[];
   },
 ): AuthoredCandidateInventoryV1 | undefined {
   if (packagePath === null) return undefined;
@@ -59,7 +59,7 @@ export function taskWorktreeCandidateInventory(
         resolveDocRoute(documentPath(row.path)).allowed &&
         !lstatSync(taskWorktreeDocumentBase(taskRoot, row.path), { throwIfNoEntry: false }),
     );
-    recoverTaskWorktreeDocumentBases(taskRoot, missing, history.store, history.sender);
+    recoverTaskWorktreeDocumentBases(taskRoot, missing, history.store, history.executionIds);
   }
   return {
     schema: "harness-authored-candidate-inventory/v1",
