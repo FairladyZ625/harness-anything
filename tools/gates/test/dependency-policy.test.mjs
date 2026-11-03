@@ -3,7 +3,14 @@ import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { main, validateDependencyDeclaration, validateLockfile } from "../dependency-policy.mjs";
+import {
+  hasDependencyChange,
+  main,
+  readDependencyDeclarations,
+  replaceDependencyDeclaration,
+  validateDependencyDeclaration,
+  validateLockfile,
+} from "../dependency-policy.mjs";
 import { captureGate, commitAll, makeRepo, writeRepoFile } from "./helpers.mjs";
 
 test("G31 accepts a lockfile consistent with root and workspace manifests", () => {
@@ -41,6 +48,31 @@ test("G31 rejects lock drift and undeclared dependency changes", () => {
   );
   assert.deepEqual(validateDependencyDeclaration(["package.json"], "Dependency-Change: pin effect to 2.0.0"), []);
   assert.deepEqual(validateDependencyDeclaration(["package.json"], "", false), []);
+});
+
+test("G31 identifies the dependency surface from changed paths", () => {
+  for (const filePath of ["package.json", "package-lock.json", "packages/authorization-gui/package.json"])
+    assert.equal(hasDependencyChange([filePath]), true, filePath);
+  for (const filePath of ["packages/authorization-gui/src/index.ts", "docs/package.json.md", "package.json.bak"])
+    assert.equal(hasDependencyChange([filePath]), false, filePath);
+});
+
+test("G31 exposes the declaration line format the renderer writes", () => {
+  const body = "Dependency-Change: none\n\n<!-- keep -->\n";
+
+  assert.deepEqual(readDependencyDeclarations(body), ["none"]);
+  assert.equal(
+    replaceDependencyDeclaration(body, "bump effect to 2.0.0"),
+    "Dependency-Change: bump effect to 2.0.0\n\n<!-- keep -->\n",
+  );
+  assert.equal(
+    replaceDependencyDeclaration("Dependency-Change: none\r\n", "bump effect"),
+    "Dependency-Change: bump effect\r\n",
+  );
+  assert.deepEqual(
+    validateDependencyDeclaration(["package.json"], replaceDependencyDeclaration(body, "bump effect")),
+    [],
+  );
 });
 
 test("G31 rejects an empty Dependency-Change before another line", () => {
