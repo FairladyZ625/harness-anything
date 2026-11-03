@@ -1,3 +1,4 @@
+import { isGitDirectorySegment } from "./git-path.ts";
 import { CronExpressionParser } from "cron-parser";
 import type { EntityDocumentJsonSchema, EntityJsonObjectSchema } from "./entity-json-schema.ts";
 import { validateEntityJsonSchema } from "./entity-json-schema.ts";
@@ -418,7 +419,7 @@ function validScheduleWritableRoots(value: unknown): boolean {
     const segments = entry.split("/");
     return (
       segments.includes("..") ||
-      segments.some((segment) => segment.toLowerCase() === ".git") ||
+      segments.some(isGitDirectorySegment) ||
       normalizeRelativeDocumentPath(entry) !== entry ||
       roots.indexOf(entry) !== roots.lastIndexOf(entry)
     );

@@ -1,3 +1,4 @@
+import { gitPathRejectionReason } from "../domain/git-path.ts";
 import { assertEntityEventInputs, isEntityEvent } from "../domain/entity-event.ts";
 import {
   assertDocSyncWritePlan,
@@ -47,7 +48,7 @@ import { sha256Bytes } from "../integrity/stable-hash.ts";
 import { assertPublishableOpId, eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import type { CanonicalContentBlob, CanonicalEventWriteBundle } from "./task-event-store.ts";
 import { TaskEventStoreError } from "./task-event-store.ts";
-import { canonicalDocumentClaims, contentClaims } from "./canonical-document-claims.ts";
+import { canonicalDocumentClaims, canonicalDocumentMode, contentClaims } from "./canonical-document-claims.ts";
 
 // Bundle, plan, content-input, and prepared-publication validation.
 export function assertBundle(bundle: CanonicalEventWriteBundle): void {
@@ -208,14 +209,22 @@ export function assertBundle(bundle: CanonicalEventWriteBundle): void {
     throw new TaskEventStoreError("invalid_write_plan", "canonical write bundle must declare its event and head");
   const normalizedClaims = assertContentInputs(claims, blobs, "canonical bundle"),
     declaredAuthored = plan.targets.filter((target) => target.kind === "authored_file"),
-    expectedAuthored: WriteTarget[] = canonicalDocumentClaims(event).map((claim) => ({
-      kind: "authored_file",
-      path: claim.path,
-      operation: "replace",
-      sha256: claim.sha256,
-      size: claim.size,
-      mediaType: claim.mediaType,
-    }));
+    expectedAuthored: WriteTarget[] = canonicalDocumentClaims(event).map((claim) => {
+      const reason = gitPathRejectionReason(claim.path, canonicalDocumentMode(event, claim.path) === "120000");
+      if (reason !== null)
+        throw new TaskEventStoreError(
+          "invalid_write_plan",
+          `Git cannot represent document path ${JSON.stringify(claim.path)}: ${reason}. Move fixtures outside the task package or rename the path segment.`,
+        );
+      return {
+        kind: "authored_file",
+        path: claim.path,
+        operation: "replace",
+        sha256: claim.sha256,
+        size: claim.size,
+        mediaType: claim.mediaType,
+      };
+    });
   // Content objects are byte-addressed, so the plan-to-claims comparison here is on {sha256, size}: the media
   // type of a folded content_blob target is whichever claim the fold kept, while every entry's own label is
   // compared on its authored_file target above. Both sides are already unique per sha256.
