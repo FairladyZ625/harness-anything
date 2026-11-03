@@ -99,9 +99,11 @@ test("a binding consults the identity center only after the managed resume has s
   const resumeGate = new Promise<void>((resolve) => {
       releaseResume = resolve;
     }),
+    records: Record<string, unknown>[] = [],
     host = await openDaemonHost({
       daemonId: "rbac-resume",
       userRoot,
+      recordLifecycle: (record) => records.push(record),
       managedRbac: { run: async () => ({ ok: true }), resume: () => resumeGate, stop: async () => ({ ok: true }) },
     });
   try {
@@ -119,6 +121,11 @@ test("a binding consults the identity center only after the managed resume has s
     releaseResume();
     const receipt = await withHangGuard(pending);
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    assert.equal(
+      records.some((record) => record.event === "identity_ready"),
+      true,
+      "the settled resume is the lifecycle fact the CLI wait port reads",
+    );
   } finally {
     releaseResume();
     center.release();

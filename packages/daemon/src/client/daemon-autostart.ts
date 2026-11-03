@@ -141,12 +141,26 @@ export async function ensureLocalDaemonRunning(input: {
   readonly spawnDetached?: (launch: DaemonLaunchSpec) => Promise<void>;
   readonly onProgress?: (progress: DaemonStartProgress) => void;
   readonly extendTimeoutWhileProgressing?: boolean;
+  /**
+   * Writes must not be handed a socket whose managed identity services are still resuming: the
+   * request would be refused before it is applied and the caller would have to replay it. Lifecycle
+   * controls may opt out; they only need the transport.
+   */
+  readonly requireIdentityReady?: boolean;
 }): Promise<DaemonAutostartResult> {
   const readyTimeoutMs = input.readyTimeoutMs ?? 10_000,
     probeIntervalMs = input.probeIntervalMs ?? 50;
   // Only the default spawn path spawns from the invoking checkout; remembering the cwd it chose
   // lets classifySpawnFailure tell a missing workspace root from a missing launcher binary.
   let spawnCwd: string | undefined;
+  // The identity check needs the launch target before a launch is claimed, because the successor
+  // may already hold the socket while its resume is still running.
+  let launched: DaemonLaunchSpec;
+  try {
+    launched = input.launch();
+  } catch (error) {
+    return { ok: false, attempts: 0, ...classifySpawnFailure(error, null, spawnCwd) };
+  }
   const probe = input.probe ?? daemonSocketProbe,
     spawnDetached =
       input.spawnDetached ??
@@ -189,20 +203,22 @@ export async function ensureLocalDaemonRunning(input: {
         );
       });
   // A freshly started daemon can die between binding its socket and finishing
-  // startup; confirm readiness with a second probe before declaring success.
+  // startup; confirm readiness with a second probe before declaring success. A bound socket alone is
+  // not write readiness: the managed identity services resume behind it, and a write sent in that
+  // window is refused before it is applied. The lifecycle generation's settle event is the one
+  // readiness fact; a failed resume settles it too, so the real refusal is not hidden by a wait.
   const ready = async () => {
     if (!(await probe(input.socketPath))) return false;
+    if (input.requireIdentityReady !== false && daemonIdentityStartup(launched) === "pending") return false;
     await delay(probeIntervalMs);
     return probe(input.socketPath);
   };
   if (await ready()) return { ok: true, hint: "daemon is reachable", attempts: 0 };
-  let launched: DaemonLaunchSpec | null = null,
-    flight: Awaited<ReturnType<typeof acquireDaemonAutostartFlight>> | null = null,
+  let flight: Awaited<ReturnType<typeof acquireDaemonAutostartFlight>> | null = null,
     spawned = false,
     latestProgress: DaemonStartProgress | null = null,
     reported = "";
   try {
-    launched = input.launch();
     const target = daemonLaunchTarget(launched);
     if (!target) throw new Error("daemon launch spec does not declare its --user-root and --daemon-id");
     const refusal = await daemonHostStartRefusal({ invokingRoot: input.invokingRoot, userRoot: target.userRoot });
@@ -255,7 +271,7 @@ export async function ensureLocalDaemonRunning(input: {
       ok: false,
       code: "daemon_starting",
       attempts: spawned ? 1 : 0,
-      hint: `${latestProgress.message}; the daemon is still alive but has not bound ${
+      hint: `${latestProgress.message}; the daemon is still alive but has not become write-ready at ${
         input.socketPath
       }. Keep waiting or inspect ${launched ? daemonLaunchOutputPath(launched) : "the lifecycle log"}.`,
     };
@@ -304,6 +320,7 @@ export function readDaemonStartProgress(launch: DaemonLaunchSpec, waitedMs: numb
   // outgoing daemon's progress to a caller that is waiting for its replacement.
   if (generation.some((record) => record.event === "process_exit")) return null;
   if (!daemonProcessAlive(processRecord.pid)) return null;
+  const identityStage = identitySettled(generation) ? "" : "; managed identity services are starting";
   for (let index = generation.length - 1; index >= 0; index -= 1) {
     const record = generation[index]!;
     if (record.event !== "repo_attach_started") continue;
@@ -321,15 +338,35 @@ export function readDaemonStartProgress(launch: DaemonLaunchSpec, waitedMs: numb
         fingerprint: `${record.at}:${record.event}:${record.repoId}`,
         message: `daemon is starting; waited ${Math.floor(waitedMs / 1_000)}s (repo ${record.attachIndex}/${
           record.attachTotal
-        }: ${record.repoId})`,
+        }: ${record.repoId})${identityStage}`,
       };
   }
   const latest = generation.at(-1)!,
     stage = startStage(latest);
   return {
     fingerprint: `${latest.at}:${latest.event}`,
-    message: `daemon is starting; waited ${Math.floor(waitedMs / 1_000)}s (${stage})`,
+    message: `daemon is starting; waited ${Math.floor(waitedMs / 1_000)}s (${stage})${identityStage}`,
   };
+}
+/**
+ * Whether the current generation has already settled its managed identity resume. A failed resume
+ * is settled too: it is a real refusal the request must receive, not a startup window to wait out.
+ */
+function identitySettled(generation: readonly { readonly event: string }[]): boolean {
+  return generation.some((record) => record.event === "identity_ready" || record.event === "rbac_resume_failed");
+}
+function daemonIdentityStartup(launch: DaemonLaunchSpec | null): "pending" | "settled" | "unknown" {
+  if (!launch) return "unknown";
+  const target = daemonLaunchTarget(launch);
+  if (!target) return "unknown";
+  const records = readDaemonLifecycleRecords(target.userRoot, target.daemonId),
+    start = records.findLastIndex((record) => record.event === "process_start");
+  // No observable generation (a hermetic host or a socket-only test double) leaves the socket as the
+  // only readiness fact; only a generation this daemon recorded can be pending.
+  if (start < 0) return "unknown";
+  const generation = records.slice(start);
+  if (generation.some((record) => record.event === "process_exit")) return "pending";
+  return identitySettled(generation) ? "settled" : "pending";
 }
 function startStage(latest: {
   readonly event: string;

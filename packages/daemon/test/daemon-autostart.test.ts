@@ -248,6 +248,138 @@ test("a live process with lifecycle attach progress reports starting instead of 
   }
 });
 
+test("a bound socket waits for the managed identity resume before reporting write readiness", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-autostart-identity-")),
+    daemonId = "identity-ready",
+    progress: string[] = [],
+    lifecycle = openDaemonLifecycleLog({ userRoot, daemonId }),
+    spec = (): DaemonLaunchSpec => ({
+      command: "node",
+      args: ["index.ts", "serve", "--user-root", userRoot, "--daemon-id", daemonId],
+      env: {},
+    });
+  lifecycle.record({ event: "process_start" });
+  lifecycle.record({ event: "socket_bound" });
+  // The successor already owns the singleton; only its identity resume is still running.
+  writeFileSync(daemonSingletonLockPath(userRoot, daemonId), `${process.pid}\n`, "utf8");
+  let probes = 0;
+  try {
+    const result = await ensureLocalDaemonRunning({
+      socketPath: path.join(userRoot, "daemon.sock"),
+      invokingRoot: process.cwd(),
+      launch: spec,
+      probe: async () => {
+        probes += 1;
+        if (probes === 5) lifecycle.record({ event: "identity_ready" });
+        return true;
+      },
+      probeIntervalMs: 1,
+      readyTimeoutMs: 100,
+      onProgress: (entry) => progress.push(entry.message),
+    });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(
+      probes >= 6,
+      true,
+      "the wait keeps probing past the bound socket until identity settles and then confirms it",
+    );
+    assert.equal(
+      progress.some((message) => /managed identity services are starting/u.test(message)),
+      true,
+      "the caller is told which startup stage is still running",
+    );
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("a failed managed identity resume settles startup so the real refusal is not waited out", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-autostart-identity-failed-")),
+    daemonId = "identity-failed",
+    lifecycle = openDaemonLifecycleLog({ userRoot, daemonId }),
+    spec = (): DaemonLaunchSpec => ({
+      command: "node",
+      args: ["index.ts", "serve", "--user-root", userRoot, "--daemon-id", daemonId],
+      env: {},
+    });
+  lifecycle.record({ event: "process_start" });
+  lifecycle.record({ event: "socket_bound" });
+  lifecycle.record({ event: "rbac_resume_failed", error: "postgres exited with 1." });
+  writeFileSync(daemonSingletonLockPath(userRoot, daemonId), `${process.pid}\n`, "utf8");
+  try {
+    const result = await ensureLocalDaemonRunning({
+      socketPath: path.join(userRoot, "daemon.sock"),
+      invokingRoot: process.cwd(),
+      launch: spec,
+      probe: async () => true,
+      probeIntervalMs: 1,
+      readyTimeoutMs: 100,
+    });
+    assert.equal(result.ok, true, JSON.stringify(result));
+    assert.equal(result.attempts, 0, "no new daemon is spawned for a settled identity failure");
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("a startup whose managed identity never settles times out naming that stage", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-autostart-identity-timeout-")),
+    daemonId = "identity-timeout",
+    lifecycle = openDaemonLifecycleLog({ userRoot, daemonId }),
+    spec = (): DaemonLaunchSpec => ({
+      command: "node",
+      args: ["index.ts", "serve", "--user-root", userRoot, "--daemon-id", daemonId],
+      env: {},
+    });
+  lifecycle.record({ event: "process_start" });
+  lifecycle.record({ event: "socket_bound" });
+  writeFileSync(daemonSingletonLockPath(userRoot, daemonId), `${process.pid}\n`, "utf8");
+  try {
+    const result = await ensureLocalDaemonRunning({
+      socketPath: path.join(userRoot, "daemon.sock"),
+      invokingRoot: process.cwd(),
+      launch: spec,
+      probe: async () => true,
+      probeIntervalMs: 1,
+      readyTimeoutMs: 5,
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.code, "daemon_starting");
+    assert.match(result.hint, /managed identity services are starting/u);
+    assert.match(result.hint, /has not become write-ready/u);
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("a lifecycle control may stop at the bound socket without waiting for identity", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-autostart-lifecycle-socket-")),
+    daemonId = "lifecycle-socket",
+    lifecycle = openDaemonLifecycleLog({ userRoot, daemonId }),
+    spec = (): DaemonLaunchSpec => ({
+      command: "node",
+      args: ["index.ts", "serve", "--user-root", userRoot, "--daemon-id", daemonId],
+      env: {},
+    });
+  lifecycle.record({ event: "process_start" });
+  lifecycle.record({ event: "socket_bound" });
+  writeFileSync(daemonSingletonLockPath(userRoot, daemonId), `${process.pid}\n`, "utf8");
+  try {
+    const result = await ensureLocalDaemonRunning({
+      socketPath: path.join(userRoot, "daemon.sock"),
+      invokingRoot: process.cwd(),
+      launch: spec,
+      probe: async () => true,
+      probeIntervalMs: 1,
+      readyTimeoutMs: 5,
+      requireIdentityReady: false,
+    });
+    assert.equal(result.ok, true, JSON.stringify(result));
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
 test("a launcher that is missing fails fast as daemon_spawn_not_found without a second attempt", async () => {
   let spawns = 0;
   const result = await ensureLocalDaemonRunning({

@@ -462,6 +462,8 @@ test("a daemon handoff that keeps recording attach progress is waited out past t
   writeFileSync(daemonSingletonLockPath(parent, daemonId), `${process.pid}\n`);
   const lifecycle = openDaemonLifecycleLog({ userRoot: parent, daemonId });
   lifecycle.record({ event: "process_start" });
+  // The successor settles identity first; its transport still binds later while it attaches.
+  lifecycle.record({ event: "identity_ready" });
   lifecycle.record({ event: "repo_attach_started", repoId: "canonical", attachIndex: 5, attachTotal: 23 });
   const launch = (): DaemonLaunchSpec => ({
     command: process.execPath,
