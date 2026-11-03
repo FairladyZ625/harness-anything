@@ -105,11 +105,12 @@ test(
   },
 );
 
-test("status ignores a shutdown record whose pid now belongs to another process", { timeout: 20_000 }, async () => {
+test("status ignores a stale exit record whose pid now belongs to another process", { timeout: 20_000 }, async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-status-reused-pid-")),
     daemonId = "status-reused-pid",
     // A pid number is not a process identity. This record names the current test process but was
-    // written months earlier, exactly the shape a stale shutdown record takes after pid reuse.
+    // written months earlier, exactly the shape the field's 2026-09 exit_incomplete records took
+    // after pid reuse. A process_exit record is terminal, so the live pid cannot keep it draining.
     stale = openDaemonLifecycleLog({
       userRoot,
       daemonId,
@@ -119,6 +120,7 @@ test("status ignores a shutdown record whose pid now belongs to another process"
   try {
     stale.record({ event: "process_start" });
     stale.record({ event: "process_stopping", outcome: "build_superseded" });
+    stale.record({ event: "process_exit", outcome: "build_superseded" });
     writeDaemonStoppedMarker(userRoot, daemonId);
     const result = await status(userRoot, daemonId, ["--root", userRoot]);
     assert.notEqual(result.code, "daemon_stopping", JSON.stringify(result));

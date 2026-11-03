@@ -11,7 +11,6 @@ import {
 import { readDaemonStoppedAt } from "@harness-anything/daemon/internal/client/daemon-autostart";
 import { readDaemonLifecycleRecords } from "@harness-anything/daemon/internal/lifecycle-log";
 import { daemonProcessAlive } from "@harness-anything/daemon/internal/daemon-singleton";
-import { processStartTimeMs } from "@harness-anything/daemon/internal/process-port";
 import { cliErrorMessage } from "../cli-error.ts";
 import { consumeKnownError } from "./client.ts";
 import { daemonFailure, daemonOption } from "./control-support.ts";
@@ -120,17 +119,7 @@ function liveShutdownProcesses(userRoot: string, daemonId: string) {
         since: record.at,
       });
   }
-  return [...processes.values()].filter(
-    (entry) => daemonProcessAlive(entry.pid) && sameProcessGeneration(entry.pid, entry.since),
-  );
-}
-
-// A live pid is not a live generation: only a process that started before the record was written
-// can be the one that wrote it. An unavailable witness (see processStartTimeMs) keeps the record.
-function sameProcessGeneration(pid: number, since: string): boolean {
-  const startedAt = processStartTimeMs(pid),
-    recordedAt = Date.parse(since);
-  return startedAt === null || !Number.isFinite(recordedAt) || startedAt <= recordedAt + 2_000;
+  return [...processes.values()].filter((entry) => daemonProcessAlive(entry.pid));
 }
 // A daemon that self-exited (build_superseded, a signalled stop, a failed startup) leaves no operator
 // stop marker, so its own account in the lifecycle log is the only record of why it is gone. Only the
