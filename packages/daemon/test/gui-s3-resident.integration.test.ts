@@ -1,4 +1,6 @@
 // harness-test-tier: integration
+import { fixtureDaemonHello } from "./fixtures/daemon-hello.ts";
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -30,7 +32,7 @@ test("a caller that names a response deadline gets a classified failure instead 
       for (const line of String(chunk).split("\n").filter(Boolean)) {
         const request = JSON.parse(line) as { readonly id: number; readonly method: string };
         if (request.method === "protocol.hello")
-          socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ok: true } })}\n`);
+          socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: fixtureDaemonHello() })}\n`);
       }
     });
   });
@@ -50,11 +52,11 @@ test("a caller that names a response deadline gets a classified failure instead 
       await requestDaemonJsonRpcAt(
         endpoint,
         "protocol.hello",
-        { protocolVersion: currentDaemonProtocolVersion },
+        { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit },
         2_000,
         2_000,
       ),
-      { ok: true },
+      fixtureDaemonHello(),
     );
   } finally {
     server.close();
@@ -140,7 +142,7 @@ test("GUI S3 resident daemon bridge serves two RepoCells, catalog/runtime/contro
     daemonId: "gui-s3",
     socketPath: endpoint,
     createProtocolServer: (authContext, emit) =>
-      createJsonRpcProtocolServer({ host, build: { commit: null }, authContext, emit }),
+      createJsonRpcProtocolServer({ host, build: daemonBuildStamp(), authContext, emit }),
   });
   await transport.start();
   const rpc = (method: string, params: Record<string, unknown>) =>
@@ -149,7 +151,7 @@ test("GUI S3 resident daemon bridge serves two RepoCells, catalog/runtime/contro
     await t.test("the GUI repository list is refused outside the local session transport", async () => {
       const remoteServer = createJsonRpcProtocolServer({
         host,
-        build: { commit: null },
+        build: daemonBuildStamp(),
         authContext: { transportKind: "fleet-tls" },
         emit: async () => undefined,
       });
@@ -158,7 +160,7 @@ test("GUI S3 resident daemon bridge serves two RepoCells, catalog/runtime/contro
           jsonrpc: "2.0",
           id: 1,
           method: "protocol.hello",
-          params: { protocolVersion: currentDaemonProtocolVersion },
+          params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit },
         });
         const denied = await remoteServer.handle({
           jsonrpc: "2.0",

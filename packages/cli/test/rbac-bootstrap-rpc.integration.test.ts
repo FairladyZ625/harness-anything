@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
@@ -28,7 +29,7 @@ test("bootstrap CLI sends the password file contents only in transient local RPC
             id: request.id,
             result:
               request.method === "protocol.hello"
-                ? { protocolVersion: { major: 1, minor: 0 } }
+                ? fixtureDaemonHello()
                 : { ok: true, command: "rbac-bootstrap", outcome: "applied", summary: "Administrator created." },
           })}\n`,
         );
@@ -165,7 +166,7 @@ test("bootstrap CLI preserves the daemon-issued edge invitation link as a string
         requests.push(request);
         const result =
           request.method === "protocol.hello"
-            ? { protocolVersion: { major: 1, minor: 0 } }
+            ? fixtureDaemonHello()
             : {
                 ok: true,
                 command: "rbac-bootstrap",
@@ -249,7 +250,7 @@ test("edge join CLI sends its quota and exits with the daemon's initial sync fai
         requests.push(request);
         const result =
           request.method === "protocol.hello"
-            ? { protocolVersion: { major: 1, minor: 0 } }
+            ? fixtureDaemonHello()
             : {
                 ok: false,
                 command: "edge-join",

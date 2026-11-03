@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import net from "node:net";
@@ -39,7 +40,7 @@ async function fixture(t: test.TestContext) {
       createProtocolServer: (authContext, emit, connectionId, signal) =>
         createJsonRpcProtocolServer({
           host,
-          build: { commit: null },
+          build: daemonBuildStamp(),
           authContext: { ...authContext, connectionSignal: signal },
           sessionPrincipal: (method, params) => host.sessionPrincipal(authContext, method, params),
           emit,
@@ -66,7 +67,10 @@ async function fixture(t: test.TestContext) {
 
 test("hello advertises the Studio daemon capabilities", async (t) => {
   const { request } = await fixture(t);
-  const hello = await request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion });
+  const hello = await request("protocol.hello", {
+    protocolVersion: currentDaemonProtocolVersion,
+    buildCommit: daemonBuildStamp().commit,
+  });
   for (const method of [
     "daemon.skillEval.version.register",
     "repo.tasks.runtimeContext.read",

@@ -1,4 +1,5 @@
 // harness-test-tier: fast
+import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import net from "node:net";
@@ -18,9 +19,8 @@ test("GUI names daemon method-set drift before sending the unavailable request",
           const request = JSON.parse(line) as { readonly id: number; readonly method: string };
           seen.push(request.method);
           const result = {
-            ok: true,
+            ...fixtureDaemonHello(),
             methods: ["protocol.hello"],
-            build: { commit: "daemon-old-build" },
           };
           socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`);
         }
@@ -43,7 +43,7 @@ test("GUI names daemon method-set drift before sending the unavailable request",
     assert.equal(result.error.code, "daemon_method_unavailable");
     assert.equal(
       result.error.hint,
-      "Local daemon request failed. Cause: Attached local daemon build daemon-old-build does not advertise requested " +
+      `Local daemon request failed. Cause: Attached local daemon${fixtureDaemonHello().build.commit ? ` build ${fixtureDaemonHello().build.commit}` : ""} does not advertise requested ` +
         "method daemon.gui.system.read. The GUI and attached local daemon expose different RPC method sets. Restart " +
         "the resident daemon from an operator shell, or run `ha gui` to use the canonical GUI build.",
     );

@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import assert from "node:assert/strict";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
@@ -161,7 +162,7 @@ test("real host RPC runs only the declared gate, rejects forged results and unau
         createProtocolServer: (authContext, emit, connectionId, signal) =>
           createJsonRpcProtocolServer({
             host,
-            build: { commit: null },
+            build: daemonBuildStamp(),
             authContext: { ...authContext, connectionSignal: signal },
             sessionPrincipal: (method, params) => host.sessionPrincipal(authContext, method, params),
             emit,
@@ -189,7 +190,7 @@ test("real host RPC runs only the declared gate, rejects forged results and unau
     const hello = await requestDaemonJsonRpcAt(
       socketPath,
       "protocol.hello",
-      { protocolVersion: currentDaemonProtocolVersion },
+      { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit },
       1_000,
       30_000,
     );

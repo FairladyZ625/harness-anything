@@ -1,8 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { consumeKnownError } from "@harness-anything/kernel";
-import { runProcessText } from "./process-port.ts";
+import { runProcessText } from "./process-text.ts";
 
 export interface DaemonBuildStamp {
   readonly commit: string | null;
@@ -24,8 +23,8 @@ const buildIdFilename = "build-id.txt",
 // A resident daemon serves the code it was started from for its whole life, while the tree it came
 // from keeps moving, so the daemon is the side that has to say which build it is: a commit frozen
 // here at first use. Packaged runs carry a build stamp; a source-tree run resolves it from git.
-// Clients run the same function against their own tree, and a mismatch is the diagnosis, not an
-// error to paper over — this repo keeps no cross-version compatibility.
+// Clients report their own build for diagnosis. Online admission uses the bounded protocol window;
+// different build commits alone do not invalidate a live worker or connection.
 export function daemonBuildStamp(): DaemonBuildStamp {
   stamp ??= resolveStamp();
   return stamp;
@@ -49,6 +48,7 @@ export function readDistBuildId(packageRoot: string): string | null {
   return readBuildId(path.join(packageRoot, "dist", buildIdFilename));
 }
 function resolveStamp(): DaemonBuildStamp {
+  if (processLoadedBuildId !== null) return { commit: processLoadedBuildId };
   const stamped = process.env.HARNESS_BUILD_COMMIT?.trim();
   if (stamped) return { commit: stamped };
   try {
@@ -68,4 +68,9 @@ function readBuildId(markerPath: string): string | null {
   if (!existsSync(markerPath)) return null;
   const value = readFileSync(markerPath, "utf8").trim();
   return value || null;
+}
+
+// This transport-side marker must not load the kernel barrel on each CLI invocation.
+function consumeKnownError(error: unknown): void {
+  void error;
 }

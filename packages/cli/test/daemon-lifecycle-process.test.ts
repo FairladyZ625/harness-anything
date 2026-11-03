@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -197,22 +198,20 @@ test("platform stop after migration acceptance preserves the complete import and
 // The resident-daemon stop outage (#1653): a daemon serving a build that predates daemon.stop
 // answers "Method not found", the CLI's stop used to be a blind write, and the timeout hint pointed
 // at a lifecycle log that had nothing to say. These fixtures pin the ladder end to end: a
-// pre-daemon.stop daemon stops through the SIGTERM fallback, a wedged daemon produces a hint that
+// refusing daemon preserves the refusal without signalling; a wedged daemon produces a hint that
 // reports what was observed and names --force, and --force never signals through stale bookkeeping.
-test("a daemon that rejects daemon.stop still stops through the signal fallback", async () => {
+test("a daemon that rejects daemon.stop preserves its refusal without a signal fallback", async () => {
   const fixture = await spawnLegacyDaemon("legacy");
   try {
     const status = runTarget(fixture, ["daemon", "status", "--json"]);
     assert.equal(status.ok, true, JSON.stringify(status));
-    const stopped = runTarget(fixture, ["daemon", "stop", "--json"]);
-    assert.equal(stopped.ok, true, JSON.stringify(stopped));
-    assert.notEqual(stopped.code, "daemon_stop_timeout");
-    await waitForExit(fixture.daemonPid);
-    assert.equal(
-      existsSync(daemonPidPath(fixture.userRoot, fixture.daemonId)),
-      false,
-      "the fallback stop must still clear the pid file",
-    );
+    const refused = runRaw(fixture, ["daemon", "stop", "--json"]);
+    assert.equal(refused.status, 1);
+    const receipt = JSON.parse(refused.stdout);
+    assert.equal(receipt.code, "method_not_found", JSON.stringify(receipt));
+    assert.notEqual(receipt.code, "daemon_stop_timeout");
+    assert.equal(await alive(fixture.daemonPid), true, "an explicit refusal must not signal the daemon");
+    assert.equal(existsSync(daemonPidPath(fixture.userRoot, fixture.daemonId)), true, "refusal preserves the pid file");
   } finally {
     await stopCleanup(fixture);
   }
@@ -946,7 +945,7 @@ const server = net.createServer((socket) => {
       if (!line.startsWith("{")) continue;
       const request = JSON.parse(line);
       const answer = request.method === "protocol.hello"
-        ? { jsonrpc: "2.0", id: request.id, result: { ok: true, protocolVersion: { major: 1, minor: 0 }, methods: ["protocol.hello", "daemon.status"] } }
+        ? { jsonrpc: "2.0", id: request.id, result: ${JSON.stringify({ ...fixtureDaemonHello(), methods: ["protocol.hello", "daemon.status"] })} }
         : request.method === "daemon.status"
           ? { jsonrpc: "2.0", id: request.id, result: { ok: true, daemonId: mode, pid: process.pid, repos: mode === "in-use" ? [{ repoId: "busy-repo", queueDepth: 2 }] : [], summary: "daemon status: pid=" + process.pid } }
           : { jsonrpc: "2.0", id: request.id, error: { code: -32601, message: "Method not found" } };

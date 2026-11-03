@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -570,7 +571,7 @@ test("a CLI write returns its daemon receipt after one command round trip and ke
           methods.push(request.method);
           if (request.params?.payload?.action) actions.push(request.params.payload.action);
         }
-        const result = request.method === "protocol.hello" ? { protocolVersion: { major: 1, minor: 0 } } : reply;
+        const result = request.method === "protocol.hello" ? fixtureDaemonHello() : reply;
         socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`);
       }
     });
@@ -664,7 +665,7 @@ test("doc show --raw writes the document body verbatim and keeps decorated outpu
           actions.push(request.params.payload.action);
         const result =
           request.method === "protocol.hello"
-            ? { protocolVersion: { major: 1, minor: 0 } }
+            ? fixtureDaemonHello()
             : (() => {
                 const evidenceFile = path.join(parent, `doc-${transfer++}.sealed`);
                 writeFileSync(evidenceFile, body);

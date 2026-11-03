@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -99,7 +100,7 @@ async function submitOverTransport(cell: Cell, repoId: string, payload: Record<s
       run: async (_repoId: string, action: Record<string, unknown>) =>
         cell.run(action as { readonly kind: string }, worker),
     } as never,
-    build: { commit: null },
+    build: daemonBuildStamp(),
     authContext: {} as never,
     emit: async () => undefined,
   });
@@ -108,7 +109,7 @@ async function submitOverTransport(cell: Cell, repoId: string, payload: Record<s
       jsonrpc: "2.0",
       id: 1,
       method: "protocol.hello",
-      params: { protocolVersion: currentDaemonProtocolVersion },
+      params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit },
     });
     const response = await server.handle({
       jsonrpc: "2.0",

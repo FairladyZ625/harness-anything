@@ -165,6 +165,7 @@ type DaemonFleetConflictExitPayload = DaemonFleetChannelPayload & {
 type DaemonRpcParamOverrides = {
   readonly "protocol.hello": {
     readonly protocolVersion: ContractVersion;
+    readonly buildCommit?: string | null;
     readonly sessionEnvironment?: DaemonSessionEnvironment;
     readonly executionCredential?: string;
     /** A receipt-rendering caller asks the daemon to begin its cooperative build drain. */

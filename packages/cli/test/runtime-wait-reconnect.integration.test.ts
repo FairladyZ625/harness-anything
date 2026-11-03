@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -37,7 +38,7 @@ test("runtime status --wait renders the daemon verdict while the attached stream
   const pendingAwait: { socket: net.Socket; id: number }[] = [];
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
-      reply(socket, request.id, { ok: true });
+      reply(socket, request.id, fixtureDaemonHello());
       return;
     }
     if (request.method === "repo.agentRuntime.attach") {
@@ -100,7 +101,7 @@ test("runtime status --wait keeps one daemon await across an attached stream gap
   const pendingAwait: { socket: net.Socket; id: number }[] = [];
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
-      reply(socket, request.id, { ok: true });
+      reply(socket, request.id, fixtureDaemonHello());
       return;
     }
     if (request.method === "repo.agentRuntime.attach") {
@@ -156,7 +157,7 @@ test("runtime status --wait keeps the daemon wait when the attached stream is lo
   const pendingAwait: { socket: net.Socket; id: number }[] = [];
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
-      reply(socket, request.id, { ok: true });
+      reply(socket, request.id, fixtureDaemonHello());
       return;
     }
     if (request.method === "repo.agentRuntime.attach") {
@@ -205,7 +206,7 @@ test("runtime status --wait reconnects the await after the daemon restarts", asy
   const pendingAwait: { socket: net.Socket; id: number }[] = [];
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
-      reply(socket, request.id, { ok: true });
+      reply(socket, request.id, fixtureDaemonHello());
       return;
     }
     if (request.method === "repo.agentRuntime.sessions.await") {
@@ -244,7 +245,7 @@ test("runtime status --wait returns daemon_gone with the last-known dispatch aft
   const pendingAwait: { socket: net.Socket; id: number }[] = [];
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
-      reply(socket, request.id, { ok: true });
+      reply(socket, request.id, fixtureDaemonHello());
       return;
     }
     if (request.method === "repo.agentRuntime.sessions.await") {
@@ -296,7 +297,7 @@ test("runtime status --wait rides out repeated parked-connection teardowns witho
     teardowns = 6;
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
-      reply(socket, request.id, { ok: true });
+      reply(socket, request.id, fixtureDaemonHello());
       return;
     }
     if (request.method === "repo.agentRuntime.sessions.await") {
@@ -342,7 +343,7 @@ test("runtime status --wait still reports daemon_gone within a bounded time afte
   let awaitRequests = 0;
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
-      reply(socket, request.id, { ok: true });
+      reply(socket, request.id, fixtureDaemonHello());
       return;
     }
     if (request.method === "repo.agentRuntime.sessions.await") {
@@ -380,7 +381,7 @@ test("runtime status --wait bridges a daemon_stopping handoff whose successor pi
   writeFileSync(daemonPidPath(fixture.userRoot, fixture.daemonId), "424242\n");
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
-      reply(socket, request.id, { ok: true });
+      reply(socket, request.id, fixtureDaemonHello());
       return;
     }
     if (request.method === "repo.agentRuntime.sessions.await") {
@@ -420,7 +421,7 @@ test("runtime status --wait reports an operator stop honestly instead of burning
   let awaitRequests = 0;
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
-      reply(socket, request.id, { ok: true });
+      reply(socket, request.id, fixtureDaemonHello());
       return;
     }
     if (request.method === "repo.agentRuntime.sessions.await") {
@@ -465,7 +466,7 @@ test("runtime status --wait rides out a repo_warming handoff window on the succe
   const pendingAwait: { socket: net.Socket; id: number }[] = [];
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
-      reply(socket, request.id, { ok: true });
+      reply(socket, request.id, fixtureDaemonHello());
       return;
     }
     if (request.method === "repo.agentRuntime.sessions.read") {
@@ -510,7 +511,7 @@ test("runtime status --wait exits non-zero at once when the parked await answers
   const pendingAwait: { socket: net.Socket; id: number }[] = [];
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
-      reply(socket, request.id, { ok: true });
+      reply(socket, request.id, fixtureDaemonHello());
       return;
     }
     if (request.method === "repo.agentRuntime.sessions.await") {
@@ -549,7 +550,7 @@ test("runtime status --wait exits non-zero at once when the parked await answers
   const pendingAwait: { socket: net.Socket; id: number }[] = [];
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
-      reply(socket, request.id, { ok: true });
+      reply(socket, request.id, fixtureDaemonHello());
       return;
     }
     if (request.method === "repo.agentRuntime.sessions.await") {
@@ -594,7 +595,7 @@ test("runtime status --wait surfaces the daemon's settlement failure verdict", a
   const pendingAwait: { socket: net.Socket; id: number }[] = [];
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
-      reply(socket, request.id, { ok: true });
+      reply(socket, request.id, fixtureDaemonHello());
       return;
     }
     if (request.method === "repo.agentRuntime.sessions.await") {
@@ -637,7 +638,7 @@ test("runtime status --wait does not infer settlement failure from an unknown ou
   const pendingAwait: { socket: net.Socket; id: number }[] = [];
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
-      reply(socket, request.id, { ok: true });
+      reply(socket, request.id, fixtureDaemonHello());
       return;
     }
     if (request.method === "repo.agentRuntime.sessions.await") {
@@ -682,7 +683,7 @@ test("multi-target runtime status --wait issues one daemon await and renders the
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
       helloRequests += 1;
-      reply(socket, request.id, { ok: true });
+      reply(socket, request.id, fixtureDaemonHello());
       return;
     }
     assert.equal(request.method, "repo.agentRuntime.sessions.await");
@@ -738,7 +739,7 @@ test("task dispatch wait rides one sessions.await request", async () => {
   const pendingAwait: { socket: net.Socket; id: number }[] = [];
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
-      reply(socket, request.id, { ok: true });
+      reply(socket, request.id, fixtureDaemonHello());
       return;
     }
     assert.equal(request.method, "repo.agentRuntime.sessions.await");
@@ -797,7 +798,7 @@ test("task dispatch wait classifies an unreachable daemon as daemon_gone", async
   const pendingAwait: { socket: net.Socket; id: number }[] = [];
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
-      reply(socket, request.id, { ok: true });
+      reply(socket, request.id, fixtureDaemonHello());
       return;
     }
     assert.equal(request.method, "repo.agentRuntime.sessions.await");
@@ -840,7 +841,7 @@ test("detached runtime run tells its caller how to wait, fold waits, and continu
   const pendingSpawn: { socket: net.Socket; id: number }[] = [];
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
-      reply(socket, request.id, { ok: true });
+      reply(socket, request.id, fixtureDaemonHello());
       return;
     }
     assert.equal(request.method, "repo.agentRuntime.spawn");
@@ -879,7 +880,7 @@ test("detached squad run names a squad status wait that blocks until the run set
   const pendingRun: { socket: net.Socket; id: number }[] = [];
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
-      reply(socket, request.id, { ok: true });
+      reply(socket, request.id, fixtureDaemonHello());
       return;
     }
     if (request.method === "repo.task.run") {
@@ -1001,7 +1002,7 @@ test("both squad waits exit on real center receipts and keep nonterminal runs wa
       };
       await seedSquadWaitState(cell, repoId, state, binding);
       fixture.onRequest = (socket, request) => {
-        if (request.method === "protocol.hello") return reply(socket, request.id, { ok: true });
+        if (request.method === "protocol.hello") return reply(socket, request.id, fixtureDaemonHello());
         if (request.method === "repo.task.run") {
           runRequests += 1;
           assert.equal(request.params.payload.action.kind, "squad-run");

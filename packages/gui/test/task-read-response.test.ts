@@ -1,4 +1,5 @@
 // harness-test-tier: fast
+import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import net from "node:net";
@@ -31,10 +32,7 @@ for (const code of ["repo_unavailable", "authorization_denied", "isolated rows"]
       server = net.createServer((socket) => {
         createInterface({ input: socket }).on("line", (line) => {
           const request = JSON.parse(line);
-          const result =
-            request.method === "protocol.hello"
-              ? { ok: true, methods: ["protocol.hello", "repo.tasks.list"] }
-              : receipt;
+          const result = request.method === "protocol.hello" ? fixtureDaemonHello() : receipt;
           socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`);
         });
       });

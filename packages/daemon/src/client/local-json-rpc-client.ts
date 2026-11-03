@@ -1,4 +1,6 @@
 import net from "node:net";
+export { daemonHelloFailureCode } from "./daemon-hello.ts";
+import { assertDaemonHello, daemonHelloParams } from "./daemon-hello.ts";
 import { createInterface, type Interface as ReadlineInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
 import { currentDaemonProtocolVersion } from "../protocol/version.ts";
@@ -193,6 +195,7 @@ export class JsonRpcLineClient {
     this.output.on("error", this.handleOutputError);
   }
   async request(method: string, params: JsonObject, responseTimeoutMs?: number): Promise<JsonObject> {
+    if (method === "protocol.hello") params = daemonHelloParams(params);
     const id = this.nextId++;
     if (this.closed) throw this.failure ?? daemonClosedError(id);
     const responsePromise = this.readResponse(id);
@@ -212,6 +215,7 @@ export class JsonRpcLineClient {
         rpcCode: response.error.code,
       });
     if (!jsonRpcRecord(response.result)) throw new Error(`daemon returned non-object result for ${method}`);
+    if (method === "protocol.hello") assertDaemonHello(response.result);
     return response.result;
   }
   close(): void {

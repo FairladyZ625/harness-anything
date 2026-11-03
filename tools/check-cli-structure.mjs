@@ -141,6 +141,11 @@ function isCliProductionFile(file) {
 function checkDaemonTransportImportGraph() {
   const allowed = new Set([
     "packages/daemon/src/client/local-json-rpc-client.ts",
+    // Exact release hello reads its own marker; source runs use the same existing git reader.
+    // All three are Node-only leaves: the kernel/lifecycle graph remains forbidden here.
+    "packages/daemon/src/client/daemon-hello.ts",
+    "packages/daemon/src/build-identity.ts",
+    "packages/daemon/src/process-text.ts",
     "packages/daemon/src/client/local-daemon-target.ts",
     "packages/daemon/src/protocol/version.ts",
     "packages/daemon/src/protocol/json-rpc-types.ts",

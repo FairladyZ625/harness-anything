@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { fixtureDaemonHello } from "./fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import net from "node:net";
@@ -85,7 +86,7 @@ test("stopping the transport still delivers the reply to a request already in fl
   }
 });
 
-test("a cooperative shutdown queues stop without waiting for the hello response", async () => {
+test("a cooperative shutdown waits for the hello response before sending stop", async () => {
   const { endpoint, cleanup } = probeEndpoint("ha-shutdown-queue-");
   let releaseHello: () => void = () => {};
   let helloEntered: () => void = () => {};
@@ -108,15 +109,22 @@ test("a cooperative shutdown queues stop without waiting for the hello response"
       await blocked;
     }
     if (request.method === "daemon.stop") stopObserved();
-    return request.id === undefined ? undefined : { jsonrpc: "2.0", id: request.id, result: { ok: true } };
+    return request.id === undefined
+      ? undefined
+      : {
+          jsonrpc: "2.0",
+          id: request.id,
+          result: request.method === "protocol.hello" ? fixtureDaemonHello() : { ok: true },
+        };
   });
   await transport.start();
   try {
-    await requestDaemonShutdownAt(endpoint, 2_000);
+    const shutdown = requestDaemonShutdownAt(endpoint, 2_000);
     await hello;
     assert.deepEqual(methods, ["protocol.hello"]);
     releaseHello();
     await stopped;
+    await shutdown;
     assert.deepEqual(methods, ["protocol.hello", "daemon.stop"]);
   } finally {
     releaseHello();
@@ -136,17 +144,14 @@ test("the shutdown client keeps the pipe open until a delayed stop reply arrives
         .split("\n")
         .filter((line) => line.startsWith("{"))
         .map((line) => JSON.parse(line) as JsonRpcRequest);
-      if (requests.length < 2 || replyScheduled) return;
-      replyScheduled = true;
-      // The complete request exchange is the trigger. Yielding one event-loop turn models a
-      // loaded daemon without using a wall-clock delay to arrange the intermediate state.
+      if (requests.length === 1 && !replyScheduled) {
+        replyScheduled = true;
+        socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, result: fixtureDaemonHello() })}\n`);
+      }
+      if (requests.length < 2) return;
+      // The received stop frame is the trigger; yield an event-loop turn before replying.
       setImmediate(() =>
-        setImmediate(() => {
-          socket.write(
-            `${JSON.stringify({ jsonrpc: "2.0", id: 1, result: { ok: true, build: { commit: null } } })}\n` +
-              `${JSON.stringify({ jsonrpc: "2.0", id: 2, result: { ok: true } })}\n`,
-          );
-        }),
+        setImmediate(() => socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: 2, result: { ok: true } })}\n`)),
       );
     });
   });

@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -63,7 +64,7 @@ test("JSON-RPC failures retain the underlying fetch cause in the CLI rejection e
           throw failure;
         },
       } as never,
-      build: { commit: null },
+      build: daemonBuildStamp(),
       authContext: { transportKind: "unix-socket" },
       emit: async () => undefined,
     });
@@ -72,7 +73,7 @@ test("JSON-RPC failures retain the underlying fetch cause in the CLI rejection e
       jsonrpc: "2.0",
       id: 1,
       method: "protocol.hello",
-      params: { protocolVersion: currentDaemonProtocolVersion },
+      params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit },
     });
     const response = await server.handle({
       jsonrpc: "2.0",
@@ -97,9 +98,9 @@ test("JSON-RPC failures retain the underlying fetch cause in the CLI rejection e
 test("local Fleet runtime envelope admits the paged overview read", async () => {
   let observed: Record<string, unknown> | null = null;
   const host = { fleet: { edgeRuntime: async (payload: Record<string, unknown>) => { observed = payload; return { ok: true, command: "fleet-runtime-overview" }; } }, status: () => ({ daemonId: "fleet-overview", pid: process.pid, repos: [] }) } as never,
-    server = createJsonRpcProtocolServer({ host, build: { commit: null }, authContext: { transportKind: "unix-socket" }, emit: async () => undefined });
+    server = createJsonRpcProtocolServer({ host, build: daemonBuildStamp(), authContext: { transportKind: "unix-socket" }, emit: async () => undefined });
   try {
-    await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion } });
+    await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit } });
     const payload = { host: "center", port: 7443, caPath: "/fleet/ca.pem", nodeId: "edge-one", credential: "secret", repoId: "repo", viewRoot: "/view", quotaBytes: 1_048_576, workspaceRoot: "/workspace", action: { kind: "fleet-runtime", method: "repo.agentRuntime.overview", payload: { limit: 16 } } },
       response = await server.handle({ jsonrpc: "2.0", id: 2, method: "daemon.fleet.task.run", params: { payload } });
     assert.ok(response && !Array.isArray(response) && "result" in response); assert.equal(response && !Array.isArray(response) && "result" in response && (response.result as Record<string, unknown>).ok, true);
@@ -111,7 +112,7 @@ test("relayed execution authenticates the device session before inspecting its g
   const observed: string[] = [],
     server = createJsonRpcProtocolServer({
       host: {} as never,
-      build: { commit: null },
+      build: daemonBuildStamp(),
       authContext: { transportKind: "unix-socket" },
       emit: async () => undefined,
       sessionPrincipal: async () => {
@@ -136,7 +137,11 @@ test("relayed execution authenticates the device session before inspecting its g
       jsonrpc: "2.0",
       id: 1,
       method: "protocol.hello",
-      params: { protocolVersion: currentDaemonProtocolVersion, executionCredential: "fixture-grant" },
+      params: {
+        protocolVersion: currentDaemonProtocolVersion,
+        buildCommit: daemonBuildStamp().commit,
+        executionCredential: "fixture-grant",
+      },
     });
     const request = () =>
       server.handle({
@@ -175,7 +180,7 @@ test("relayed execution authenticates the device session before inspecting its g
 // prettier-ignore
 
 test("protocol hello accepts only runtime identity and executor-attribution variables", () => {
-  const hello = (sessionEnvironment?: Record<string, unknown>) => parseDaemonRpcParams("protocol.hello", { protocolVersion: currentDaemonProtocolVersion, ...(sessionEnvironment ? { sessionEnvironment } : {}) });
+  const hello = (sessionEnvironment?: Record<string, unknown>) => parseDaemonRpcParams("protocol.hello", { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit, ...(sessionEnvironment ? { sessionEnvironment } : {}) });
   assert.equal(hello().ok, true);
   assert.equal(hello({ CLAUDE_CODE_SESSION_ID: "claude-session", CODEX_THREAD_ID: "codex-thread", CODEX_SESSION_ID: "codex-thread", HARNESS_ACTOR: "agent:worker" }).ok, true);
   for (const [input, field] of [
@@ -406,11 +411,11 @@ const availability = { consents: "unknown", gateWitnesses: "unknown" }, placemen
 test("JSON-RPC failure receipt carries formal operation identity and origin", async () => {
   const host = { run: async () => { throw new Error("unused"); }, read: async () => { throw new Error("unused"); }, attach: async () => { throw new Error("unused"); }, issueRuntimeWitness: async () => { throw new Error("unused"); }, bindRuntimeWitness: () => { throw new Error("unused"); }, publishRuntimeWitness: () => { throw new Error("unused"); }, bootstrap: async () => ({}), admin: async () => ({}),
     status: () => ({ daemonId: "test", pid: process.pid, repos: [] }), close: async () => undefined };
-  const server = createJsonRpcProtocolServer({ host, build: { commit: null }, authContext: { transportKind: "unix-socket" }, emit: async () => undefined });
+  const server = createJsonRpcProtocolServer({ host, build: daemonBuildStamp(), authContext: { transportKind: "unix-socket" }, emit: async () => undefined });
   const response = await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: { protocolVersion: { major: 2, minor: 0 } } });
   assert.ok(response && !Array.isArray(response) && "result" in response); if (response && !Array.isArray(response) && "result" in response) {
-    const receipt = response.result as Record<string, unknown>; assert.deepEqual(receipt, { schema: "command-receipt/v2", ok: false, command: "protocol.hello", outcome: "op_rejected", opId: "N/A", origin: "daemon", code: "incompatible_protocol_version", evidence: "rejection:incompatible_protocol_version", rejectionExplanation: "Use the daemon protocol version reported by this binary.", error: { code: "incompatible_protocol_version" } }); }
-  await server.handle({ jsonrpc: "2.0", id: 2, method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion } });
+    const receipt = response.result as Record<string, unknown>; assert.deepEqual(receipt, { schema: "command-receipt/v2", ok: false, command: "protocol.hello", outcome: "op_rejected", opId: "N/A", origin: "daemon", code: "incompatible_protocol_version", evidence: "rejection:incompatible_protocol_version", rejectionExplanation: `Daemon protocol is outside the current/previous window: local ${JSON.stringify(currentDaemonProtocolVersion)}, peer {"major":2,"minor":0}. Use the CLI installed with the daemon release, or select an isolated development/test daemon.`, error: { code: "incompatible_protocol_version" } }); }
+  await server.handle({ jsonrpc: "2.0", id: 2, method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit } });
   const unknown = await server.handle({ jsonrpc: "2.0", id: 3, method: "repo.agentRuntime.spawn", params: { repo: { repoId: "alpha" }, payload: { runtimeInstanceId: "codex", cwd: { scope: "repo-root" }, prompt: "Inspect", taskId: null, dispatchKey: "unknown", permission_mode: "read-only" } } });
   assert.ok(unknown && !Array.isArray(unknown) && "result" in unknown); if (unknown && !Array.isArray(unknown) && "result" in unknown) { const receipt = unknown.result as Record<string, unknown>, diagnostic = receipt.diagnostic as Record<string, unknown>; assert.equal(receipt.code, "unknown_field"); assert.deepEqual({ kind: diagnostic.kind, entity: diagnostic.entity, field: diagnostic.field, actual: diagnostic.actual }, { kind: "validation", entity: "repo.agentRuntime.spawn", field: "permission_mode", actual: "unknown" }); assert.match(String(diagnostic.expectation), /Allowed fields:.*agentId.*permissionMode/u); }
   const malformed = await server.handle({ jsonrpc: "2.0", id: 4, method: "daemon.status", params: "not-an-object" });
@@ -429,7 +434,7 @@ test("JSON-RPC read failures retain native SQLite result details", async (t) => 
     } as never,
     server = createJsonRpcProtocolServer({
       host,
-      build: { commit: null },
+      build: daemonBuildStamp(),
       authContext: { transportKind: "unix-socket" },
       emit: async () => undefined,
     });
@@ -438,7 +443,7 @@ test("JSON-RPC read failures retain native SQLite result details", async (t) => 
       jsonrpc: "2.0",
       id: 1,
       method: "protocol.hello",
-      params: { protocolVersion: currentDaemonProtocolVersion },
+      params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit },
     });
     const response = await server.handle({
       jsonrpc: "2.0",
@@ -464,8 +469,8 @@ test("JSON-RPC read failures retain native SQLite result details", async (t) => 
 test("local daemon stop acknowledges the control request and triggers shutdown", async () => {
   let shutdowns = 0;
   const host = { status: () => ({ daemonId: "stop-test", pid: process.pid, repos: [] }) } as never;
-  const server = createJsonRpcProtocolServer({ host, build: { commit: null }, authContext: { transportKind: "unix-socket" }, emit: async () => undefined, requestShutdown: () => { shutdowns += 1; } });
-  await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion } });
+  const server = createJsonRpcProtocolServer({ host, build: daemonBuildStamp(), authContext: { transportKind: "unix-socket" }, emit: async () => undefined, requestShutdown: () => { shutdowns += 1; } });
+  await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit } });
   const response = await server.handle({ jsonrpc: "2.0", id: 2, method: "daemon.stop", params: {} });
   assert.ok(response && !Array.isArray(response) && "result" in response); if (response && !Array.isArray(response) && "result" in response) assert.deepEqual(response.result, { ok: true, command: "daemon-stop", pid: process.pid });
   assert.equal(shutdowns, 1);
@@ -495,7 +500,7 @@ test("node auto-claim configuration forwards only the local policy to the host c
     } as never,
     server = createJsonRpcProtocolServer({
       host,
-      build: { commit: null },
+      build: daemonBuildStamp(),
       authContext,
       emit: async () => undefined,
       sessionPrincipal: async () => {
@@ -508,7 +513,7 @@ test("node auto-claim configuration forwards only the local policy to the host c
       jsonrpc: "2.0",
       id: 1,
       method: "protocol.hello",
-      params: { protocolVersion: currentDaemonProtocolVersion },
+      params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit },
     });
     const response = await server.handle({
       jsonrpc: "2.0",
@@ -689,11 +694,15 @@ test("invalid GUI write receipts retain their request id and leave the connectio
     transportKind: "unix-socket",
     authContext: { transportKind: "unix-socket" },
     createProtocolServer: (authContext, emit) =>
-      createJsonRpcProtocolServer({ host, build: { commit: null }, authContext, emit }),
+      createJsonRpcProtocolServer({ host, build: daemonBuildStamp(), authContext, emit }),
   });
   const client = new JsonRpcLineClient(output, input);
   try {
-    await client.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, 2_000);
+    await client.request(
+      "protocol.hello",
+      { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit },
+      2_000,
+    );
     const result = (await client.request(
       "repo.settings.update",
       {
@@ -751,11 +760,15 @@ test("a squad-control receipt naming another command answers on its own request 
     transportKind: "unix-socket",
     authContext: { transportKind: "unix-socket" },
     createProtocolServer: (authContext, emit) =>
-      createJsonRpcProtocolServer({ host, build: { commit: null }, authContext, emit }),
+      createJsonRpcProtocolServer({ host, build: daemonBuildStamp(), authContext, emit }),
   });
   const client = new JsonRpcLineClient(output, input);
   try {
-    await client.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, 2_000);
+    await client.request(
+      "protocol.hello",
+      { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit },
+      2_000,
+    );
     const result = (await client.request(
       "repo.task.run",
       {

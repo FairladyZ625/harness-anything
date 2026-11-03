@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -168,7 +169,10 @@ test("JSON-RPC returns domain conflicts during concurrent reads without recoveri
     const socket = await connectSocket(daemon.endpoint, 2000);
     client = new JsonRpcLineClient(socket, socket);
     const rpc = client;
-    await rpc.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion });
+    await rpc.request("protocol.hello", {
+      protocolVersion: currentDaemonProtocolVersion,
+      buildCommit: daemonBuildStamp().commit,
+    });
     const run = (action: Record<string, unknown>) => {
       const { kind, ...payload } = action;
       return rpc.request(kind === "vertical-kind-upsert" ? "repo.vertical.kind.upsert" : "repo.entity.import", {

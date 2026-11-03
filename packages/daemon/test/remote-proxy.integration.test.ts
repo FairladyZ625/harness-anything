@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import { openRemoteProxyManager } from "../src/remote-proxy.ts";
 import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
 import assert from "node:assert/strict";
@@ -101,7 +102,7 @@ test(
         daemonId: "proxy-a",
         socketPath: endpointA,
         createProtocolServer: (authContext, emit) =>
-          createJsonRpcProtocolServer({ host: hostA, build: { commit: null }, authContext, emit }),
+          createJsonRpcProtocolServer({ host: hostA, build: daemonBuildStamp(), authContext, emit }),
       });
     await hostB.attachmentsSettled();
     await tcpB.start();
@@ -373,7 +374,7 @@ test(
       assert.equal(control.code, "repo_mode_remote_proxy");
     });
 
-    await t.test("Goal 6: an exact protocol mismatch fails without compatibility", async () => {
+    await t.test("Goal 6: a protocol outside the supported window fails without compatibility", async () => {
       const mismatch = await mismatchEndpoint();
       t.after(mismatch.close);
       registerDaemonRepo({
@@ -385,7 +386,7 @@ test(
       });
       const response = await rpcA("repo.settings.read", { repo: { repoId: "mismatch-repo" } });
       assert.equal(response.ok, false);
-      assert.equal(response.code, "remote_proxy_protocol_mismatch");
+      assert.equal(response.code, "incompatible_protocol_version");
       const freshProxy = openRemoteProxyManager(userRootA);
       try {
         await assert.rejects(
@@ -393,7 +394,7 @@ test(
             runtimeSessionId: "mismatch",
             afterCursor: "stream:0",
           }),
-          { code: "remote_proxy_protocol_mismatch" },
+          { code: "incompatible_protocol_version" },
         );
       } finally {
         freshProxy.close();
@@ -423,7 +424,7 @@ function daemonTcpTransport(host: DaemonHost, ownerUid: number) {
             unixSocketOwnerBoundary: { ownerUid, source: "unix-socket-filesystem-owner-boundary" },
           },
           createProtocolServer: (authContext, emit) =>
-            createJsonRpcProtocolServer({ host, build: { commit: null }, authContext, emit }),
+            createJsonRpcProtocolServer({ host, build: daemonBuildStamp(), authContext, emit }),
         });
         connections.add(connection);
         socket.once("close", () => connections.delete(connection));

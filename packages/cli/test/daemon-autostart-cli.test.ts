@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import test, { type TestContext } from "node:test";
 import { fork } from "node:child_process";
 import { once } from "node:events";
@@ -1007,7 +1008,7 @@ test("CLI reports lifecycle attach progress and waits through a slow warming rep
           });
         const result =
           request.method === "protocol.hello"
-            ? { protocolVersion: { major: 1, minor: 0 } }
+            ? fixtureDaemonHello()
             : requests >= 3
               ? {
                   schema: "command-receipt/v2",

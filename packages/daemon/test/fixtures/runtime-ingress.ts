@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { daemonBuildStamp } from "../../src/build-identity.ts";
 import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -56,7 +57,7 @@ export async function rpc(
 ): Promise<Record<string, unknown>> {
   const server = createJsonRpcProtocolServer({
     host,
-    build: { commit: null },
+    build: daemonBuildStamp(),
     authContext: auth,
     emit: async () => undefined,
   });
@@ -65,7 +66,7 @@ export async function rpc(
       jsonrpc: "2.0",
       id: 1,
       method: "protocol.hello",
-      params: { protocolVersion: currentDaemonProtocolVersion },
+      params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit },
     });
     const response = await server.handle({
       jsonrpc: "2.0",
@@ -88,7 +89,7 @@ export async function rpcAttach(
 ): Promise<{ readonly close: () => void }> {
   const server = createJsonRpcProtocolServer({
     host,
-    build: { commit: null },
+    build: daemonBuildStamp(),
     authContext: auth,
     emit: async (_method, params) => {
       frames.push(params);
@@ -98,7 +99,7 @@ export async function rpcAttach(
     jsonrpc: "2.0",
     id: 1,
     method: "protocol.hello",
-    params: { protocolVersion: currentDaemonProtocolVersion },
+    params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit },
   });
   const response = await server.handle({
     jsonrpc: "2.0",

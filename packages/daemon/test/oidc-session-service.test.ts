@@ -1,4 +1,5 @@
 // harness-test-tier: fast
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -414,7 +415,7 @@ test("a connection that outlives the access token carries the session as it is o
           serial: auth.oidcPrincipal ? serialOf(auth.oidcPrincipal.accessToken) : null,
         }),
       } as unknown as DaemonHost,
-      build: { buildId: "test", commit: null } as never,
+      build: daemonBuildStamp(),
       authContext: { transportKind: "unix-socket" },
       sessionPrincipal: async () => (await active.service.bind({ transportKind: "unix-socket" })).oidcPrincipal,
       emit: async () => undefined,
@@ -434,7 +435,7 @@ test("a connection that outlives the access token carries the session as it is o
     jsonrpc: "2.0",
     id: 1,
     method: "protocol.hello",
-    params: { protocolVersion: currentDaemonProtocolVersion },
+    params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit },
   });
   assert.equal(await serial(), null);
   await signIn(active);

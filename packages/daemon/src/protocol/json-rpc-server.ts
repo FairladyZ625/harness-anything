@@ -49,9 +49,8 @@ import {
   parseDaemonStreamResult,
 } from "./gui-result-validation.ts";
 import { isJsonObject, type JsonObject, type JsonRpcRequest, type JsonRpcResponse } from "./json-rpc-types.ts";
-import { currentDaemonProtocolVersion } from "./version.ts";
-import { isContractVersionCompatible } from "@harness-anything/kernel/contract-version";
-import { consumeKnownError, type CoreDomainError } from "@harness-anything/kernel";
+import { daemonHelloMismatch } from "../client/daemon-hello.ts";
+import { consumeKnownError } from "@harness-anything/kernel";
 import type { DaemonBuildObserver, DaemonBuildStamp } from "../build-identity.ts";
 import { diagnosticForError } from "../receipt-guidance.ts";
 import { remoteProxyEventMethod } from "../remote-proxy.ts";
@@ -200,6 +199,7 @@ export function createJsonRpcProtocolServer(options: {
       );
       return request.id === undefined ? undefined : { jsonrpc: "2.0", id, result };
     };
+    if (request.method === "protocol.hello") handshaken = false;
     const parsed = parseDaemonRpcParams(request.method, request.params);
     if (!parsed.ok) return reply(request.method, invalidParamsReceipt(request.method, parsed.errors));
     const call = parsed.call,
@@ -219,14 +219,8 @@ export function createJsonRpcProtocolServer(options: {
       wait: isDaemonParkedWaitMethod(method),
     };
     if (request.method === "protocol.hello" && method === request.method) {
-      if (!isContractVersionCompatible(params.protocolVersion, currentDaemonProtocolVersion)) {
-        const mismatch = {
-          _tag: "ProtocolVersionMismatchError",
-          code: "incompatible_protocol_version",
-          message: "Use the daemon protocol version reported by this binary.",
-        } satisfies Extract<CoreDomainError, { readonly _tag: "ProtocolVersionMismatchError" }>;
-        return reply(method, daemonProtocolError("protocol.hello", mismatch.code, mismatch.message));
-      }
+      const mismatch = daemonHelloMismatch(params.protocolVersion);
+      if (mismatch) return reply(method, daemonProtocolError(method, mismatch.code, mismatch.message));
       if (params.sessionEnvironment === undefined) Reflect.deleteProperty(options.authContext, "sessionEnvironment");
       else
         Object.assign(options.authContext, {
@@ -239,7 +233,7 @@ export function createJsonRpcProtocolServer(options: {
       handshaken = true;
       return reply(method, {
         ok: true,
-        protocolVersion: currentDaemonProtocolVersion,
+        protocolVersion: params.protocolVersion,
         methods: jsonRpcMethodContracts.map((entry) => entry.method),
         build: { ...options.build },
         ...(warning ? { warning } : {}),

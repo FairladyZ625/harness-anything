@@ -16,9 +16,18 @@ export function cliDispatchError(input: {
   readonly timeoutCode: "daemon_response_timeout" | null;
   readonly returnedReceipt?: Record<string, unknown>;
 }): { readonly code: string; readonly hint: string } {
-  const message = cliErrorMessage(input.error);
+  const message = cliErrorMessage(input.error),
+    directCode =
+      input.directCode ??
+      (input.error instanceof Error &&
+      "daemonHello" in input.error &&
+      input.error.daemonHello === true &&
+      "code" in input.error &&
+      typeof input.error.code === "string"
+        ? input.error.code
+        : null);
   let failure: CliDispatchFailure;
-  if (input.directCode !== null) failure = { _tag: "DirectDaemonFailure", errorCode: input.directCode, message };
+  if (directCode !== null) failure = { _tag: "DirectDaemonFailure", errorCode: directCode, message };
   else if (input.timeoutCode !== null)
     failure = { _tag: "DaemonResponseTimeout", errorCode: input.timeoutCode, message };
   else if (input.returnedReceipt) failure = { _tag: "ReceiptRenderFailure", message, receipt: input.returnedReceipt };

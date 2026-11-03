@@ -46,7 +46,7 @@ for (const mode of ["managed", "external"] as const) {
               jsonrpc: "2.0",
               id: request.id,
               ...(request.method === "protocol.hello"
-                ? { result: { protocolVersion: { major: 1, minor: 0 } } }
+                ? { result: { ok: true, protocolVersion: { major: 1, minor: 0 } } }
                 : status === "rpc-error"
                   ? { error: { code: -32603, message: "fixture RPC failure" } }
                   : { result: receipt }),

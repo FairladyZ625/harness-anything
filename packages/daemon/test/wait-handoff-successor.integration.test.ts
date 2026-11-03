@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
@@ -74,6 +75,7 @@ for (const execution of [false, true]) {
           "protocol.hello",
           {
             protocolVersion: currentDaemonProtocolVersion,
+            buildCommit: daemonBuildStamp().commit,
             ...(execution ? { executionCredential: "unknown-execution" } : {}),
           },
           2_000,
@@ -158,7 +160,7 @@ for (const phase of ["authentication", "read"]) {
     await host.attachmentsSettled();
     const server = createJsonRpcProtocolServer({
       host,
-      build: { commit: null },
+      build: daemonBuildStamp(),
       authContext: { ...auth },
       emit: async () => undefined,
       ...(phase === "authentication"
@@ -176,7 +178,7 @@ for (const phase of ["authentication", "read"]) {
         jsonrpc: "2.0",
         id: 1,
         method: "protocol.hello",
-        params: { protocolVersion: currentDaemonProtocolVersion },
+        params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit },
       });
       const pending = server.handle({
         jsonrpc: "2.0",
@@ -322,7 +324,7 @@ for (const stopping of [false, true]) {
     let authentications = 0;
     const server = createJsonRpcProtocolServer({
       host: {} as Awaited<ReturnType<typeof openDaemonHost>>,
-      build: { commit: null },
+      build: daemonBuildStamp(),
       authContext: { ...auth },
       stopping: () => stopping,
       emit: async () => undefined,
@@ -336,7 +338,7 @@ for (const stopping of [false, true]) {
         jsonrpc: "2.0",
         id: 1,
         method: "protocol.hello",
-        params: { protocolVersion: currentDaemonProtocolVersion },
+        params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit },
       });
       const response = await server.handle({
         jsonrpc: "2.0",
@@ -388,7 +390,7 @@ test("daemon status and stop retain their transport authority while authenticati
     host: { status: () => ({ daemonId: "controls", pid: process.pid, repos: [] }) } as Awaited<
       ReturnType<typeof openDaemonHost>
     >,
-    build: { commit: null },
+    build: daemonBuildStamp(),
     authContext: { ...auth },
     emit: async () => undefined,
     sessionPrincipal: async () => {
@@ -404,7 +406,7 @@ test("daemon status and stop retain their transport authority while authenticati
       jsonrpc: "2.0",
       id: 1,
       method: "protocol.hello",
-      params: { protocolVersion: currentDaemonProtocolVersion },
+      params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit },
     });
     for (const method of ["daemon.status", "daemon.stop"]) {
       const response = await server.handle({ jsonrpc: "2.0", id: 2, method, params: {} });
@@ -424,7 +426,7 @@ test("execution credentials cannot acquire daemon status or stop authority", asy
     host: { status: () => ({ daemonId: "controls", pid: process.pid, repos: [] }) } as Awaited<
       ReturnType<typeof openDaemonHost>
     >,
-    build: { commit: null },
+    build: daemonBuildStamp(),
     authContext: { ...auth },
     emit: async () => undefined,
     executionPrincipal: async () => {
@@ -440,7 +442,11 @@ test("execution credentials cannot acquire daemon status or stop authority", asy
       jsonrpc: "2.0",
       id: 1,
       method: "protocol.hello",
-      params: { protocolVersion: currentDaemonProtocolVersion, executionCredential: "dispatch" },
+      params: {
+        protocolVersion: currentDaemonProtocolVersion,
+        buildCommit: daemonBuildStamp().commit,
+        executionCredential: "dispatch",
+      },
     });
     for (const method of ["daemon.status", "daemon.stop"]) {
       const response = await server.handle({ jsonrpc: "2.0", id: 2, method, params: {} });

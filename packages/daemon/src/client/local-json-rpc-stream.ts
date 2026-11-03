@@ -1,4 +1,5 @@
 import net from "node:net";
+import { assertDaemonHello, daemonHelloParams, daemonHelloFailureCode } from "./daemon-hello.ts";
 import { createInterface } from "node:readline";
 import { consumeKnownError } from "@harness-anything/kernel";
 import { type AgentRuntimeAttachEvent, type AgentRuntimeAttachResult } from "../agent-runtime-stream.ts";
@@ -46,7 +47,6 @@ export async function streamDaemonFacetAt(input: {
   readonly method: keyof DaemonStreamPayloadMap;
   readonly payload: DaemonStreamPayloadMap[keyof DaemonStreamPayloadMap];
   readonly onValue: (value: unknown) => void;
-  readonly onHello?: (value: unknown) => void;
   readonly timeoutMs?: number;
   readonly onClosed?: (failure: DaemonStreamLost) => void;
   /** CLI command id this stream serves; recorded by the daemon's request logs. */
@@ -83,7 +83,8 @@ export async function streamDaemonFacetAt(input: {
       let watchdog: ReturnType<typeof setTimeout> | undefined;
       socket = next;
       let settled = false,
-        supported = true;
+        supported = true,
+        handshaken = false;
       const armWatchdog = () => {
         clearTimeout(watchdog);
         watchdog = setTimeout(
@@ -93,25 +94,16 @@ export async function streamDaemonFacetAt(input: {
       };
       armWatchdog();
       next.once("connect", () => {
-        const payload =
-          input.method === "repo.agentRuntime.attach"
-            ? { ...(input.payload as object), afterCursor: cursor }
-            : { ...(input.payload as object), afterSeq: cursor };
         next.write(
           `${JSON.stringify({
             jsonrpc: "2.0",
             id: 1,
             method: "protocol.hello",
-            params: {
+            params: daemonHelloParams({
               protocolVersion: currentDaemonProtocolVersion,
               ...executionCredentialParams(),
               ...(input.invokingCommand ? { invokingCommand: input.invokingCommand } : {}),
-            },
-          })}\n${JSON.stringify({
-            jsonrpc: "2.0",
-            id: 2,
-            method: facet.method,
-            params: { repo: { repoId: input.repoId }, payload },
+            }),
           })}\n`,
         );
       });
@@ -126,8 +118,17 @@ export async function streamDaemonFacetAt(input: {
             readonly error?: { readonly message?: string };
           };
           if (value.id === 1) {
-            input.onHello?.(value.result);
-          } else if (value.id === 2) {
+            if (value.error) throw new Error(value.error.message ?? "Daemon rejected hello");
+            assertDaemonHello(value.result);
+            handshaken = true;
+            const payload =
+              input.method === "repo.agentRuntime.attach"
+                ? { ...(input.payload as object), afterCursor: cursor }
+                : { ...(input.payload as object), afterSeq: cursor };
+            next.write(
+              `${JSON.stringify({ jsonrpc: "2.0", id: 2, method: facet.method, params: { repo: { repoId: input.repoId }, payload } })}\n`,
+            );
+          } else if (value.id === 2 && handshaken) {
             if (value.error) throw new Error(value.error.message ?? "daemon stream failed");
             const initial = parseDaemonStreamResult(input.method, value.result);
             input.onValue(initial);
@@ -144,7 +145,7 @@ export async function streamDaemonFacetAt(input: {
             clearTimeout(watchdog);
             resolve();
             if (!supported) next.end();
-          } else if (value.method === facet.eventMethod) {
+          } else if (handshaken && value.method === facet.eventMethod) {
             const event = parseDaemonStreamEvent(input.method, value.params);
             cursor =
               input.method === "repo.agentRuntime.attach"
@@ -170,6 +171,11 @@ export async function streamDaemonFacetAt(input: {
       });
       function streamFail(error: Error): void {
         lastFailure = error.message;
+        if (daemonHelloFailureCode(error) !== null) {
+          supported = false;
+          if (everAttached)
+            input.onClosed?.({ code: "daemon_stream_lost", attempts: reconnects, lastError: lastFailure });
+        }
         clearTimeout(watchdog);
         if (!settled) reject(error);
         next.destroy();

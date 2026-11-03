@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import { readDispatchStreamHeaders } from "../src/dispatch-stream.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -857,7 +858,7 @@ async function rpc(
 ): Promise<Record<string, unknown>> {
   const server = createJsonRpcProtocolServer({
     host,
-    build: { commit: null },
+    build: daemonBuildStamp(),
     authContext: auth,
     emit: async () => undefined,
   });
@@ -865,7 +866,7 @@ async function rpc(
     jsonrpc: "2.0",
     id: 1,
     method: "protocol.hello",
-    params: { protocolVersion: currentDaemonProtocolVersion },
+    params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit },
   });
   const response = await server.handle({ jsonrpc: "2.0", id: 2, method, params });
   assert.ok(response && !Array.isArray(response) && "result" in response);

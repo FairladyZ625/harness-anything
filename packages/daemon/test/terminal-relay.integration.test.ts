@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { fixtureDaemonHello } from "./fixtures/daemon-hello.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import net from "node:net";
@@ -32,7 +33,7 @@ test("terminal relay shares one control connection for resize, input, and exit l
           buffered = buffered.slice(newline + 1);
           if (request.method === "protocol.hello") {
             hellos += 1;
-            reply(socket, request.id, { ok: true });
+            reply(socket, request.id, fixtureDaemonHello());
           } else if (request.method === "repo.terminal.attach") {
             streamSocket = socket;
             reply(socket, request.id, {
