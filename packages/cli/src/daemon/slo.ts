@@ -2,7 +2,6 @@ import { createReadStream } from "node:fs";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { localUserDaemonEndpoint } from "@harness-anything/daemon/internal/client/local-daemon-target";
-import { consumeKnownError } from "./client.ts";
 import { addDuration, createDurationHistogram, durationPercentile, type DurationHistogram } from "./slo-metrics.ts";
 
 const DAY_MS = 86_400_000,
@@ -394,9 +393,18 @@ async function* readJsonLines(file: string, state: ReadState): AsyncGenerator<Re
     if (!record(parsed)) throw new Error(`Invalid JSON line in ${file}:${lineNumber}: JSON line is not an object`);
     yield parsed;
   };
+  let missing = false;
   try {
-    for await (const chunk of input) {
-      buffer += chunk;
+    for (;;) {
+      const step = await input[Symbol.asyncIterator]()
+        .next()
+        .catch((error: unknown) => {
+          if (!isMissingFile(error)) throw error;
+          missing = true;
+          return { done: true as const, value: undefined };
+        });
+      if (step.done) break;
+      buffer += step.value;
       let newline = buffer.indexOf("\n");
       while (newline >= 0) {
         const line = buffer.slice(0, newline);
@@ -405,24 +413,18 @@ async function* readJsonLines(file: string, state: ReadState): AsyncGenerator<Re
         newline = buffer.indexOf("\n");
       }
     }
-    if (buffer.length > 0) yield* consumeLine(buffer, false);
-  } catch (error) {
-    if (!isMissingFile(error)) throw error;
-    consumeKnownError(error);
-    state.missingFiles.push(file);
+    if (!missing && buffer.length > 0) yield* consumeLine(buffer, false);
   } finally {
     input.close();
   }
+  if (missing) state.missingFiles.push(file);
 }
 
 async function readdirOrMissing(dir: string): Promise<string[]> {
-  try {
-    return await readdir(dir);
-  } catch (error) {
+  return readdir(dir).catch((error: unknown) => {
     if (!isMissingFile(error)) throw error;
-    consumeKnownError(error);
     return [];
-  }
+  });
 }
 
 function isMissingFile(error: unknown): boolean {
