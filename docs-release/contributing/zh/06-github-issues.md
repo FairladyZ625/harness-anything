@@ -20,7 +20,7 @@ maintainer 或 coding agent 尽可能可以复现问题，并且始终能根据�
 请使用仓库的 source-triaged issue form。普通贡献者的 blank issue 入口已关闭。如果缺少必填段，
 issue intake workflow 会评论列出缺失的段，但不会关闭 issue，你可以直接编辑补齐。
 
-每个 issue 都包含这些段：
+每个 issue 都包含这些必填段；Screenshot or recording 是可选项，仅在存在可视证据时才填写：
 
 | 段落 | 要写什么 |
 | --- | --- |
@@ -30,7 +30,7 @@ issue intake workflow 会评论列出缺失的段，但不会关闭 issue，你�
 | Actual behavior | 实际发生了什么。 |
 | Reproduction steps | 从干净源码 checkout 开始的最小有序步骤，包含精确命令与退出码。 |
 | Version / build | `ha --version`、daemon 的 build 或 `commit=`、仓库分支或 commit、相关 npm 包版本，以及 agent/runtime 版本。OS 与 shell 写在 Reporter environment。 |
-| Screenshot or recording | 有可见证据时提供。没有时写 `Not applicable — text evidence in Command output or logs`，不要贴无关截图。 |
+| Screenshot or recording | 可选。有可视证据时才提供；没有可视面时省略此节，文字证据写在 Command output or logs。 |
 | Command output or logs | 精确命令、退出码，以及最小相关 stdout/stderr 或日志片段，并隐去 secret。 |
 | Reporter environment | OS、shell、Node 版本、包管理器、分支或 commit，以及涉及的 agent/runtime。 |
 | Source-level triage | 读过的公开文件与 contract、源码级假设、应先查哪里、已跑的检查，以及没跑的检查和原因。 |

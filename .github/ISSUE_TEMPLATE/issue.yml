@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Public issues must include source-level triage. Do not assume maintainers can run the same OS, shell, filesystem, toolchain, or agent runtime as the reporter. If a section is missing, the issue intake workflow leaves a comment listing it; the issue stays open for you to edit.
+        Public issues must include source-level triage. Do not assume maintainers can run the same OS, shell, filesystem, toolchain, or agent runtime as the reporter. If a required section is missing, the issue intake workflow leaves a comment listing it; the issue stays open for you to edit.
   - type: dropdown
     id: issue-type
     attributes:
@@ -75,9 +75,9 @@ body:
     id: screenshot
     attributes:
       label: Screenshot or recording
-      description: "Add visible evidence when one exists. When there is no visible evidence, write `Not applicable — text evidence in Command output or logs` instead of pasting an unrelated screenshot."
+      description: "Optional. Add visible evidence only when one exists; leave this section out when the finding has no visible surface. Text evidence belongs in Command output or logs."
     validations:
-      required: true
+      required: false
   - type: textarea
     id: command-output
     attributes:

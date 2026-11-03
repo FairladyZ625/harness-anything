@@ -25,7 +25,8 @@ contributors. If a required section is missing, the issue intake workflow
 comments with the missing sections; it does not close the issue, and you can
 edit the issue to complete it.
 
-Every issue includes these sections:
+Every issue includes these required sections; Screenshot or recording is
+optional and appears only when visible evidence exists:
 
 | Section | What to include |
 | --- | --- |
@@ -35,7 +36,7 @@ Every issue includes these sections:
 | Actual behavior | What happened instead. |
 | Reproduction steps | The smallest ordered steps from a clean source checkout, with the exact command and exit code. |
 | Version / build | `ha --version`, the daemon build or `commit=`, the repository branch or commit, the npm package version when relevant, and the agent/runtime version. Keep OS and shell details in Reporter environment. |
-| Screenshot or recording | Visible evidence when one exists. When there is none, write `Not applicable — text evidence in Command output or logs` instead of pasting an unrelated screenshot. |
+| Screenshot or recording | Optional. Visible evidence when one exists. Omit the section when the finding has no visible surface; text evidence belongs in Command output or logs. |
 | Command output or logs | The exact command, exit code, and the smallest relevant stdout/stderr or log excerpt, with secrets redacted. |
 | Reporter environment | OS, shell, Node version, package manager, branch or commit, and any agent/runtime involved. |
 | Source-level triage | The public files and contracts read, the source-level hypothesis, what to investigate first, checks run, and checks not run with the reason. |

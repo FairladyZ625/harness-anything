@@ -12,7 +12,7 @@ this guide only explains when a section is ready.
 | `Actual behavior` | The observed result is reproducible or was captured once. | The observed result is written separately from the proposed fix. | The failing run, screenshot, or log. |
 | `Reproduction steps` | The smallest repeatable sequence is known. | Ordered steps start from a clean checkout, include the exact command, and report the exit code. | The command sequence itself. |
 | `Version / build` | The failing run and the tool versions are known. | `ha --version`, daemon `commit=`, branch or commit, package version, and agent/runtime are listed. | `ha --version`; `ha daemon status`; `git branch --show-current`; `git rev-parse --short HEAD`; `npm pkg get version`. |
-| `Screenshot or recording` | The finding has a visible surface. | A screenshot or recording is attached or linked; otherwise the section says `Not applicable — text evidence in Command output or logs`. | The capture, or an explicit statement that text evidence is the whole record. |
+| `Screenshot or recording` | The finding has a visible surface. | Visible evidence is attached or linked. Omit the section when there is nothing to show; text evidence belongs in Command output or logs. | The capture, or the finding is text-only and the section is omitted. |
 | `Command output or logs` | A command or log shows the failure. | The exact command, exit code, and smallest relevant stdout/stderr are present, with secrets redacted. | `<command>; printf '\nexit=%s\n' "$?"` |
 | `Reporter environment` | The finding depends on a host or runtime. | OS, shell, Node, package manager, branch or commit, and agent/runtime are listed. | `uname -srm`; `printf '%s\n' "$SHELL"`; `node --version`; `npm --version`; `git branch --show-current`; `git rev-parse --short HEAD`. |
 | `Source-level triage` | At least one public source path, contract, or generated artifact was read. | One section states all five parts: what was read, the source-level hypothesis, what to investigate first, checks run, and checks not run with the reason. | `git grep -n '<symbol>' -- <path>`; `git log --oneline -- <path>`; the relevant test command and its result. |
@@ -41,10 +41,11 @@ asking what changed.
 
 The body is ready when:
 
-1. every `### <label>` from the form is present and unchanged;
-2. the heading diff in the skill is empty;
+1. every required `### <label>` from the form is present and unchanged;
+2. both self-check commands in the skill print nothing;
 3. the redaction scan has no hits;
-4. the title starts with `[Issue]: ` and names one focus.
+4. the optional Screenshot or recording section is present only when it carries
+   visible evidence, and the title starts with `[Issue]: ` and names one focus.
 
 If any item is false, fix the body. Do not publish a partial body and wait for
 the intake comment to list the gaps.

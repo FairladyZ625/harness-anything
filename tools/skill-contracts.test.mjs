@@ -298,7 +298,7 @@ test("missing-only CLI installs the complete discovered set into an empty HOME a
   }
 });
 
-test("issue form, intake, and the issue skill share one heading set", () => {
+test("issue form, intake, and template agree on required headings", () => {
   const form = readFileSync(path.join(repoRoot, ".github", "ISSUE_TEMPLATE", "issue.yml"), "utf8");
   const intake = readFileSync(path.join(repoRoot, ".github", "workflows", "issue-intake.yml"), "utf8");
   const template = readFileSync(path.join(skillsRoot, "harness-issue", "references", "issue-body-template.md"), "utf8");
@@ -306,21 +306,42 @@ test("issue form, intake, and the issue skill share one heading set", () => {
   const formLines = form.split(/\r?\n/u);
   const bodyStart = formLines.indexOf("body:");
   assert.notEqual(bodyStart, -1, "issue form must declare a body");
-  const formLabels = [];
-  let inField = false;
+  const formFields = [];
+  let currentField = null;
   for (const line of formLines.slice(bodyStart + 1)) {
     if (/^  - type: /u.test(line)) {
-      inField = true;
+      const type = line.slice("  - type: ".length).trim();
+      currentField = type === "markdown" ? null : { type, label: null, required: null };
+      if (currentField) formFields.push(currentField);
       continue;
     }
     if (/^\S/u.test(line)) {
-      inField = false;
+      currentField = null;
       continue;
     }
-    if (!inField) continue;
+    if (currentField === null) continue;
     const label = /^      label: (.+)$/u.exec(line);
-    if (label) formLabels.push(label[1].trim());
+    if (label) currentField.label = label[1].trim();
+    const required = /^      required: (true|false)$/u.exec(line);
+    if (required) currentField.required = required[1] === "true";
+    // A checkboxes field has no field-level validation; each option carries its own required flag.
+    if (/^          required: true$/u.test(line) && currentField.type === "checkboxes") currentField.required = true;
   }
+
+  assert.equal(formFields.length, 12, "the issue form has one field per section");
+  for (const field of formFields) {
+    assert.ok(field.label, "every issue form field must declare a label");
+    assert.notEqual(field.required, null, `issue form field ${field.label} must declare required true or false`);
+  }
+
+  const formHeadings = formFields.map((field) => `### ${field.label}`);
+  const requiredHeadings = formFields.filter((field) => field.required).map((field) => `### ${field.label}`);
+  const optionalHeadings = formFields.filter((field) => !field.required).map((field) => `### ${field.label}`);
+  assert.deepEqual(
+    optionalHeadings,
+    ["### Screenshot or recording"],
+    "screenshot evidence is the only optional section",
+  );
 
   const intakeBlock = /const requiredHeadings = \[([\s\S]*?)\];/u.exec(intake);
   assert.ok(intakeBlock, "issue intake must declare requiredHeadings");
@@ -331,11 +352,9 @@ test("issue form, intake, and the issue skill share one heading set", () => {
     .filter((line) => line.startsWith("### "))
     .map((line) => line.trim());
 
-  const expectedHeadings = formLabels.map((label) => `### ${label}`).sort();
-  assert.equal(formLabels.length, 12, "the issue form has one label per required section");
-  assert.deepEqual([...intakeHeadings].sort(), expectedHeadings);
-  assert.deepEqual([...templateHeadings].sort(), expectedHeadings);
-  assert.equal(new Set(formLabels).size, formLabels.length, "form labels must be unique");
+  assert.deepEqual([...intakeHeadings].sort(), [...requiredHeadings].sort());
+  assert.deepEqual([...templateHeadings].sort(), [...formHeadings].sort());
+  assert.equal(new Set(formHeadings).size, formHeadings.length, "form labels must be unique");
   assert.equal(new Set(intakeHeadings).size, intakeHeadings.length, "intake headings must be unique");
   assert.equal(new Set(templateHeadings).size, templateHeadings.length, "template headings must be unique");
   assert.doesNotMatch(intake, /github\.rest\.issues\.update|issues\.update\b/u, "intake must not change issue state");
