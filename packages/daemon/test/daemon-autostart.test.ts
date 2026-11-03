@@ -15,7 +15,12 @@ import {
   type DaemonAutostartResult,
   type DaemonLaunchSpec,
 } from "../src/client/daemon-autostart.ts";
-import { daemonStdioLogPath, openDaemonLifecycleLog } from "../src/lifecycle-log.ts";
+import {
+  DAEMON_LIFECYCLE_LOG_SCHEMA,
+  daemonLifecycleLogPath,
+  daemonStdioLogPath,
+  openDaemonLifecycleLog,
+} from "../src/lifecycle-log.ts";
 import { startDetachedProcess, startDetachedProcessChecked } from "../src/process-port.ts";
 import { daemonSingletonLockPath } from "../src/daemon-singleton.ts";
 import { canonicalPath } from "../src/runtime-worker-push.ts";
@@ -540,6 +545,77 @@ test("start progress stages report the last repository, attach timeouts, prunes,
     );
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+// The readiness probe runs every 50 ms while a CLI waits for a daemon start, so it must parse only
+// the current generation. The count is the number of JSON.parse calls, not wall clock: the retained
+// history is made larger and the observed work must not change.
+test("a readiness probe parses only the current lifecycle generation, not retained history", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-autostart-tail-read-")),
+    line = (entry: Readonly<Record<string, unknown>>, daemonId: string): string =>
+      JSON.stringify({
+        schema: DAEMON_LIFECYCLE_LOG_SCHEMA.id,
+        at: "2026-11-04T00:00:00.000Z",
+        daemonId,
+        pid: process.pid,
+        ...entry,
+      }),
+    history = (daemonId: string, records: number, generation: number): string =>
+      `${Array.from({ length: records }, (_, index) =>
+        line(
+          {
+            event: "runtime_spawn",
+            runtimeSessionId: `history-${generation}-${index}`,
+            pid: 1_000 + generation,
+          },
+          daemonId,
+        ),
+      ).join("\n")}\n`;
+  const parsedBy = async (historicalRecords: number): Promise<number> => {
+    const userRoot = path.join(parent, `history-${historicalRecords}`),
+      daemonId = "tail-read",
+      logPath = daemonLifecycleLogPath(userRoot, daemonId),
+      launchSpec: DaemonLaunchSpec = {
+        command: "node",
+        args: ["index.ts", "serve", "--user-root", userRoot, "--daemon-id", daemonId],
+        env: {},
+      };
+    mkdirSync(path.dirname(logPath), { recursive: true });
+    for (const generation of [3, 2, 1])
+      writeFileSync(`${logPath}.${generation}`, history(daemonId, historicalRecords, generation), "utf8");
+    writeFileSync(
+      logPath,
+      `${line({ event: "process_start" }, daemonId)}\n${line({ event: "socket_bound" }, daemonId)}\n` +
+        `${line({ event: "identity_ready" }, daemonId)}\n`,
+      "utf8",
+    );
+    const original = JSON.parse;
+    let parsed = 0;
+    JSON.parse = ((...args: Parameters<typeof JSON.parse>) => {
+      parsed += 1;
+      return original(...args);
+    }) as typeof JSON.parse;
+    try {
+      const result = await ensureLocalDaemonRunning({
+        socketPath: path.join(userRoot, "daemon.sock"),
+        invokingRoot: process.cwd(),
+        launch: () => launchSpec,
+        probe: async () => true,
+        probeIntervalMs: 1,
+        readyTimeoutMs: 100,
+      });
+      assert.equal(result.ok, true, JSON.stringify(result));
+    } finally {
+      JSON.parse = original;
+    }
+    return parsed;
+  };
+  try {
+    assert.equal(await parsedBy(500), 3, "one readiness check parses the three current-generation records");
+    assert.equal(await parsedBy(5_000), 3, "the parsed count stays independent of retained history length");
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
   }
 });
 
