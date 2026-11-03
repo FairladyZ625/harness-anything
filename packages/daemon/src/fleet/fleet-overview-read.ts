@@ -1,3 +1,4 @@
+import type { FleetNodeSessionStatus } from "./node-session-status.ts";
 import type { FleetReplicaStatus } from "./center-types.ts";
 import { runtimeErrorCode } from "../runtime-spawn-errors.ts";
 import type { RepoCell, RepoCellBinding } from "../repo-cell-types.ts";
@@ -20,11 +21,10 @@ import type { DaemonTaskSnapshotListResult } from "../protocol/daemon-protocol-g
  * - 在做什么 = 该节点当前租约的任务行 + 这些任务的 dispatch 行(daemon 既有读面);
  * - 事件 = canonical event 尾部只读投影,按任务**当前**租约归属节点——历史事件可能
  *   早于当前持有人,这一归属语义在结果里显式声明,不在 UI 里隐含;
- * - TLS 实时在线 session、edge 内部 watch/pull/退避当前读面不提供:字段显式
- *   `unavailable` 带原因,不用别的信号冒充;中心副本状态中的 syncFailure 则由
- *   `replicaReason` 与 `lastFailure` 一次投影给查看侧。
+ * - 在线来自中心复制 socket,build 来自认证 hello,最近失败来自中心 transport 最新行;
+ *   edge 内部 watch/pull/退避没有安全来源,显式 unavailable,不由 ACK 或 runtime 推断。
  *
- * 该查询只读,不占租约、不写事件;权限沿用 repository-read 授权与 viewer binding。
+ * 该查询只读,不占租约、不写事件;权限由 fleet-overview-read Policy action 与 viewer binding 控制。
  */
 
 /** 单个字段的诚实三态:有值 / 无权限(带原因) / 未提供(带原因)。 */
@@ -91,6 +91,7 @@ export interface FleetOverviewInput {
   readonly center: FleetCenterFact;
   /** 本 repo 的副本状态行(空数组 = 中心没有 fleet listener 或尚无边缘同步过)。 */
   readonly replicas: readonly FleetReplicaStatus[];
+  readonly nodeSessions: readonly FleetNodeSessionStatus[];
   readonly leaseReads: FleetLeaseReads;
   readonly events: readonly FleetCanonicalEventFact[];
   /** Keycloak 节点登记的 owner personId;查询失败按节点给 unavailable 原因。 */
@@ -193,10 +194,7 @@ export interface FleetOverviewResult {
   readonly warnings: readonly string[];
 }
 
-const ONLINE_REASON = "tls-session-fact-not-exposed",
-  EDGE_BUILD_REASON = "replica-status-has-no-build-field",
-  WATCH_REASON = "edge-sync-internals-not-exposed",
-  LAST_FAILURE_REASON = "no-replica-sync-failure-in-replica-status-row",
+const WATCH_REASON = "edge-sync-internals-not-exposed",
   CENTER_REPLICA_REASON = "center-local-writer",
   REPLICA_ROW_MISSING_REASON = "replica-row-missing",
   REPLICA_DISCONNECTED_REASON = "replica-disconnected",
@@ -243,6 +241,8 @@ export function buildFleetOverview(input: FleetOverviewInput): FleetOverviewResu
       list.push(lease);
       leasesByNode.set(lease.nodeId, list);
     }
+  const sessionByNode = new Map(input.nodeSessions.map((row) => [row.nodeId, row]));
+  for (const session of input.nodeSessions) if (session.lastRepoId === input.repoId) nodeIds.add(session.nodeId);
   const replicaByNode = new Map<string, FleetReplicaStatus>();
   for (const replica of input.replicas) {
     nodeIds.add(replica.nodeId);
@@ -261,7 +261,8 @@ export function buildFleetOverview(input: FleetOverviewInput): FleetOverviewResu
 
   const nodes: FleetNodeRow[] = [...nodeIds].sort(compareNodeIds).map((nodeId) => {
     const isCenter = nodeId === FLEET_CENTER_NODE_ID,
-      replica = isCenter ? null : (replicaByNode.get(nodeId) ?? null);
+      replica = isCenter ? null : (replicaByNode.get(nodeId) ?? null),
+      session = sessionByNode.get(nodeId);
     return {
       nodeId,
       role: isCenter ? "center" : "edge",
@@ -270,8 +271,22 @@ export function buildFleetOverview(input: FleetOverviewInput): FleetOverviewResu
         : (input.nodeOwners.get(nodeId) ?? { kind: "unavailable", reason: "node-registry-not-queried" }),
       build: isCenter
         ? { kind: "value", text: `${input.center.version} @ ${input.center.commitSha ?? "unknown"}` }
-        : { kind: "unavailable", reason: EDGE_BUILD_REASON },
-      online: isCenter ? { kind: "value", text: "running" } : { kind: "unavailable", reason: ONLINE_REASON },
+        : session?.buildCommit
+          ? {
+              kind: "value",
+              text: `${session.buildCommit}${input.center.commitSha !== null && session.buildCommit !== input.center.commitSha ? " (version mismatch; ha update)" : ""}`,
+            }
+          : { kind: "unavailable", reason: "no-edge-build-observed" },
+      online: isCenter
+        ? { kind: "value", text: "running" }
+        : session === undefined
+          ? { kind: "unavailable", reason: "no-center-session-observation" }
+          : {
+              kind: "value",
+              text: session.connected
+                ? "connected"
+                : `disconnected; lastOnlineAt=${session.lastOnlineAt ?? "unavailable (no-replication-session-observed)"}`,
+            },
       leases: input.leaseReads.ok
         ? leaseRows(leasesByNode.get(nodeId) ?? [], dispatchByTask)
         : { redacted: input.leaseReads.code },
@@ -283,11 +298,19 @@ export function buildFleetOverview(input: FleetOverviewInput): FleetOverviewResu
           : replicaReasonOf(replica),
       watch: isCenter
         ? { kind: "value", text: "local canonical writer" }
-        : { kind: "unavailable", reason: WATCH_REASON },
+        : replica?.activity == null
+          ? { kind: "unavailable", reason: WATCH_REASON }
+          : {
+              kind: "value",
+              text: `center phase=${replica.activity.phase} since=${replica.activity.since} lastProgressAt=${replica.activity.lastProgressAt}${replica.activity.bytesSent === null ? "" : ` bytesSent=${replica.activity.bytesSent}/${replica.activity.totalBytes}`}; edge watch unavailable (${WATCH_REASON})`,
+            },
       lastFailure:
-        replica?.syncFailure === null || replica === null
-          ? { kind: "unavailable", reason: LAST_FAILURE_REASON }
-          : { kind: "value", text: replica.syncFailure.message },
+        session?.lastFailure == null
+          ? { kind: "unavailable", reason: "no-session-failure-observed" }
+          : {
+              kind: "value",
+              text: `${session.lastFailure.code} @ ${session.lastFailure.at}: ${session.lastFailure.message}`,
+            },
     };
   });
 
@@ -328,7 +351,11 @@ export function buildFleetOverview(input: FleetOverviewInput): FleetOverviewResu
     events: fleetEventRows(input.events, leasesByNode, dispatchByTask),
     ...(input.versionWarning === undefined ? {} : { versionWarning: input.versionWarning }),
     // notes 是稳定机器码(key=value),人话解释归 GUI i18n;daemon 不内嵌单语言文案。
-    notes: ["events-attribution=current-lease", "edge-online=unavailable", "sync-internals=unavailable"],
+    notes: [
+      "events-attribution=current-lease",
+      "edge-online=center-replication-session",
+      "sync-internals=center-sender-phase",
+    ],
     warnings: [
       ...new Set(
         [...input.nodeOwners.values()]
@@ -562,6 +589,7 @@ export async function readFleetOverviewFromHost(input: {
   readonly cell: RepoCell;
   readonly binding: RepoCellBinding;
   readonly fleetReplicas: readonly FleetReplicaStatus[];
+  readonly nodeSessions: readonly FleetNodeSessionStatus[];
   readonly keycloakCenter: KeycloakCenterAuthority;
   readonly now: string;
   readonly userRoot: string;
@@ -676,7 +704,11 @@ export async function readFleetOverviewFromHost(input: {
       };
     }
   };
-  for (const nodeId of new Set([...input.fleetReplicas.map((replica) => replica.nodeId), ...leaseNodes]))
+  for (const nodeId of new Set([
+    ...input.fleetReplicas.map((replica) => replica.nodeId),
+    ...leaseNodes,
+    ...input.nodeSessions.filter((session) => session.lastRepoId === input.repoId).map((session) => session.nodeId),
+  ]))
     nodeOwners.set(nodeId, await ownerOf(nodeId));
   return buildFleetOverview({
     repoId: input.repoId,
@@ -688,6 +720,7 @@ export async function readFleetOverviewFromHost(input: {
       version: process.env.npm_package_version ?? "0.0.0",
       commitSha: daemonBuildStamp().commit,
     },
+    nodeSessions: input.nodeSessions.filter((session) => !retiredNodes.has(session.nodeId)),
     replicas: input.fleetReplicas.filter((replica) => !retiredNodes.has(replica.nodeId)),
     leaseReads: leaseFacts.ok
       ? {

@@ -100,6 +100,7 @@ export interface FleetReplicaStatus extends ReplicationSlotKey {
   readonly delivery: "current" | "delta" | "snapshot_required";
   readonly diskQuotaBytes: number | null;
   readonly syncFailure: { readonly code: string; readonly message: string } | null;
+  readonly activity: import("./replica-status.ts").ReplicaSyncActivity | null;
 }
 
 export interface FleetTlsCenter {
@@ -119,6 +120,7 @@ export interface FleetTlsCenter {
   readonly replicaReceipt: (opId: string, nodeId: string, viewId: string, repoId: string) => WriteReceipt;
   readonly status: () => {
     readonly replicas: readonly FleetReplicaStatus[];
+    readonly nodeSessions: readonly import("./node-session-status.ts").FleetNodeSessionStatus[];
     readonly uploads: FleetUploadWindow;
     readonly versionWarnings: readonly string[];
   };

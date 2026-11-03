@@ -1,3 +1,5 @@
+import type { createReplicaStatusTracker } from "./replica-status.ts";
+import type { createNodeSessionStatus } from "./node-session-status.ts";
 import { once } from "node:events";
 import { randomUUID } from "node:crypto";
 import { createHash } from "node:crypto";
@@ -82,6 +84,11 @@ export async function serve(
   ) => Promise<Delivery>,
   sessions: Map<string, Set<TLSSocket>>,
   replicationOwners: Map<string, TLSSocket>,
+  nodeSessions: Pick<ReturnType<typeof createNodeSessionStatus>, "hello" | "online" | "failure">,
+  replicaStatus: Pick<
+    ReturnType<typeof createReplicaStatusTracker>,
+    "recordActivity" | "clearActivity" | "recordFailure"
+  >,
 ): Promise<void> {
   const disconnected = new AbortController();
   // The hello-failure budget is charged to this pre-authentication source, which the hello frame
@@ -110,7 +117,32 @@ export async function serve(
     readonly totalBytes: number;
   }) => void = () => undefined;
   let pendingReplicationStart: Extract<ReplicationFrame, { readonly type: "replica.start" }> | null = null;
-  let replicationMode = false;
+  let replicationMode = false,
+    replicationStarted = false,
+    sessionFailure = false;
+  let replicationRepoId: string | null = null;
+  const recordFailure = (error: unknown, fallback: string): void => {
+    if (nodeId === null) return; // An unauthenticated hello cannot attribute facts to another node.
+    const code =
+      typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+        ? error.code
+        : fallback;
+    const message = error instanceof Error ? error.message : String(error);
+    const summary = `${message}; peer=${JSON.stringify({ nodeId, repoId: replicationRepoId, remoteAddress: socket.remoteAddress, remotePort: socket.remotePort })}`;
+    nodeSessions.failure(nodeId, code, summary);
+    if (replicationRepoId !== null)
+      replicaStatus.recordFailure({ nodeId, repoId: replicationRepoId }, { code, message: summary });
+    sessionFailure = true;
+  };
+  socket.on("error", (error) => {
+    if (!sessionFailure) recordFailure(error, "connection_error");
+  });
+  socket.once("close", () => {
+    if (!replicationStarted || nodeId === null) return;
+    nodeSessions.online(nodeId);
+    if (!sessionFailure)
+      recordFailure(new Error("Replication TLS connection closed without a reported cause"), "connection_closed");
+  });
   const replicationFrames: ReplicationFrame[] = [];
   const replicationWaiters: ((frame: ReplicationFrame) => void)[] = [];
   const reader = new FleetUtf8LineDecoder(),
@@ -212,8 +244,11 @@ export async function serve(
   const replicationPeer: ReplicationPeer = {
     send: async (frame) => {
       const line = serializeReplicationFrame(frame);
-      if (!socket.write(line))
+      if (!socket.write(line)) {
+        if (nodeId !== null && replicationRepoId !== null)
+          replicaStatus.recordActivity({ nodeId, repoId: replicationRepoId }, "waiting_socket_drain");
         await untilAborted(() => once(socket, "drain", { signal: disconnected.signal }), disconnected.signal);
+      }
     },
     receive: async (signal) => {
       signal?.throwIfAborted();
@@ -252,6 +287,13 @@ export async function serve(
       previous = replicationOwners.get(key);
     if (previous && previous !== socket && !previous.destroyed) {
       replicationMode = true;
+      recordFailure(
+        new FleetFault(
+          "replica_duplicate_connection",
+          "This node already has a live replication connection for this repository",
+        ),
+        "replica_duplicate_connection",
+      );
       socket.end(
         serializeReplicationFrame({
           type: "replica.reject",
@@ -265,8 +307,14 @@ export async function serve(
       return;
     }
     replicationOwners.set(key, socket);
+    replicationRepoId = frame.repoId;
+    replicationStarted = true;
+    nodeSessions.online(node, frame.repoId);
     socket.once("close", () => {
-      if (replicationOwners.get(key) === socket) replicationOwners.delete(key);
+      if (replicationOwners.get(key) === socket) {
+        replicationOwners.delete(key);
+        replicaStatus.clearActivity({ nodeId: node, repoId: frame.repoId });
+      }
     });
     replicationMode = true;
     replicationFrames.push(frame);
@@ -275,6 +323,9 @@ export async function serve(
       return;
     }
     void options.onReplicationStart(node, accessToken, frame, replicationPeer, disconnected.signal).catch((error) => {
+      // A definite admission fault must survive a peer closing while its authority check resolves.
+      if (error instanceof FleetFault || (!sessionFailure && !disconnected.signal.aborted))
+        recordFailure(error, "replication_failed");
       // A peer that went away aborts its stream; any other end is a center failure worth reporting.
       if (!disconnected.signal.aborted && !peerDisconnected(socket, error))
         (options.onError ?? ((entry) => console.error("[fleet-center] replication failed", entry)))({
@@ -302,6 +353,8 @@ export async function serve(
         }
         if (looksReplication) {
           const frame = parseReplicationFrame(line);
+          if (frame.type === "replica.failure")
+            recordFailure(Object.assign(new Error(frame.message), { code: frame.code }), frame.code);
           if (frame.type === "replica.start" && !replicationMode) {
             if (nodeId === null) {
               // The Fleet hello and replication start may arrive in one TCP
@@ -321,6 +374,7 @@ export async function serve(
           try {
             parsed = parseFleetFrame(line);
           } catch (error) {
+            recordFailure(error, "invalid_frame");
             let messageId = "invalid";
             try {
               const candidate = JSON.parse(line) as { messageId?: unknown };
@@ -379,6 +433,7 @@ export async function serve(
       }
     } catch (error) {
       consumeKnownError(error);
+      recordFailure(error, "invalid_frame");
       socket.destroy(error instanceof Error ? error : new Error(String(error)));
     }
   });
@@ -387,6 +442,7 @@ export async function serve(
       reader.finish();
     } catch (error) {
       consumeKnownError(error);
+      recordFailure(error, "invalid_frame");
       socket.destroy(error instanceof Error ? error : new Error(String(error)));
     }
   });
@@ -427,15 +483,17 @@ export async function serve(
             if (set.size === 0) sessions.delete(helloNodeId);
           }
         });
+        if (!(await options.authenticate(frame.nodeId, frame.credential, connectionSource)))
+          throw new FleetFault("authentication_failed", "Machine credential was rejected.");
+        if (socket.destroyed) return;
+        helloAdmitted();
+        nodeId = frame.nodeId;
+        nodeSessions.hello(nodeId, frame.buildCommit ?? null);
         if (!isContractVersionCompatible(frame.protocolVersion, currentFleetProtocolVersion))
           throw new FleetFault(
             "protocol_version_unsupported",
             `Fleet protocol ${frame.protocolVersion} is incompatible with center ${currentFleetProtocolVersion}; upgrade the edge node to the same version as the center.`,
           );
-        if (!(await options.authenticate(frame.nodeId, frame.credential, connectionSource)))
-          throw new FleetFault("authentication_failed", "Machine credential was rejected.");
-        helloAdmitted();
-        nodeId = frame.nodeId;
         accessToken = frame.accessToken;
         if (pendingReplicationStart) {
           const start = pendingReplicationStart;
@@ -489,6 +547,7 @@ export async function serve(
               contractError ? "invalid_frame" : "handler_failed",
               error instanceof Error ? error.message : String(error),
             );
+      if (frame.schema === "fleet.session.hello/v1" || contractError) recordFailure(fault, fault.code);
       if (
         fault.code === "replica_delivery_fenced" ||
         fault.code === "replica_delivery_stalled" ||

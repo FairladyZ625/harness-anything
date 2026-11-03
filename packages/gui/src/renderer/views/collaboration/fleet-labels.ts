@@ -24,10 +24,10 @@ export const PHASE_TONE: Readonly<Record<string, StatusTone>> = {
 
 /** daemon 稳定 reason 码 → 一句人话(为什么没有、何时会有);未收录的码显示通用说明,码进 title。 */
 const REASON_LABELS: Readonly<Record<string, MessageKey>> = {
-  "tls-session-fact-not-exposed": "collaboration.reason.onlineNotExposed",
-  "replica-status-has-no-build-field": "collaboration.reason.buildNotInReplicaStatus",
+  "no-center-session-observation": "collaboration.reason.noSessionObservation",
+  "no-edge-build-observed": "collaboration.reason.noBuildObservation",
   "edge-sync-internals-not-exposed": "collaboration.reason.syncInternalsNotExposed",
-  "no-replica-sync-failure-in-replica-status-row": "collaboration.reason.noSyncFailureRecord",
+  "no-session-failure-observed": "collaboration.reason.noSessionFailure",
   "node-registry-not-queried": "collaboration.reason.registryNotQueried",
   authorization_denied: "collaboration.reason.authorizationDenied",
   insufficient_scope: "collaboration.reason.insufficientScope",

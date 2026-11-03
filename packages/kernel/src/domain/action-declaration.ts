@@ -7,6 +7,7 @@ export const actionPresentation = {
   "todo-relate": { domain: "todo", name: "关联待办", description: "为待办添加可选关系。" },
   "todo-promote": { domain: "todo", name: "升级待办", description: "创建任务并关联原待办。" },
 
+  "fleet-overview-read": { domain: "fleet", name: "查看舰队", description: "查看获授权仓库的节点会话与复制状态。" },
   "repository-read": { domain: "repository", name: "读取仓库", description: "查看获授权仓库中的内容。" },
   "agent-assign": { domain: "agent", name: "指派代理", description: "将代理配置指派给人员、工作组或节点。" },
   "agent-unassign": { domain: "agent", name: "取消代理指派", description: "解除代理配置的当前指派。" },
@@ -354,6 +355,7 @@ const runtimeAdmin = (kind: keyof typeof actionPresentation): ActionDeclaration 
  */
 export const actionDeclarations = Object.freeze([
   canonical("repository-read", null, "repo-read", "none"),
+  canonical("fleet-overview-read", null, "repo-read", "none"),
   canonical("agent-assign", "agent/assign", "repo-write"),
   canonical("agent-delete", "agent/delete", "repo-write"),
   canonical("agent-unassign", "agent/unassign", "repo-write"),

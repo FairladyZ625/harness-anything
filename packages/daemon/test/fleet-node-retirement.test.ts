@@ -107,9 +107,10 @@ test("retirement preview enumerates all repository slots; confirmed removal fenc
     [1, 2, 3],
     "retirement releases only its slot floor, preserving the backup pin and healthy ACK",
   );
+  const attachedRepositories = new Set(["repo-a", "repo-z"]);
   const tracker = createReplicaStatusTracker({
     slots,
-    attachedRepositories: () => new Set(["repo-a", "repo-z"]),
+    attachedRepositories: () => attachedRepositories,
     head: () => head,
     isConnected: () => false,
     diskQuotaBytes: null,
@@ -123,6 +124,17 @@ test("retirement preview enumerates all repository slots; confirmed removal fenc
   assert.deepEqual(
     tracker.snapshot().map((row) => row.nodeId),
     ["other-node"],
+  );
+  for (let attempt = 0; attempt < 10; attempt++)
+    tracker.recordFailure(
+      { nodeId: "retired-test-node", repoId: `unattached-${attempt}` },
+      { code: "repository_not_found", message: "refused start" },
+    );
+  attachedRepositories.add("unattached-9");
+  assert.equal(
+    tracker.snapshot().some((row) => row.repoId === "unattached-9"),
+    false,
+    "refused arbitrary repo names cannot accumulate retained status rows",
   );
   const receipts = managedRbacReceiptJournal(userRoot)
     .read()

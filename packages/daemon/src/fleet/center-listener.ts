@@ -51,6 +51,7 @@ import {
 import { runWalSender } from "./walsender.ts";
 import { createReplicationRetention, openReplicationSlots, replicationSlotKey } from "@harness-anything/storage";
 import { createNodeRetirementAdmission } from "./node-retirement.ts";
+import { createNodeSessionStatus } from "./node-session-status.ts";
 import { createReplicaStatusTracker } from "./replica-status.ts";
 import { readFleetCenterGitMetadata } from "../fleet-edge-git-preflight.ts";
 /** The replication head poll interval: commit-to-edge latency floor versus idle reads. */
@@ -267,9 +268,12 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     peer: import("./protocol.ts").ReplicationPeer,
     signal: AbortSignal,
   ) => {
+    const replicaKeyForNode = { nodeId, repoId: frame.repoId };
+    replicaStatus.recordActivity(replicaKeyForNode, "authorizing");
     let readerProfile: { personId: string; nodeId: string };
     try {
       ({ readerProfile } = await admitReplica(nodeId, frame.repoId, accessToken));
+      signal.throwIfAborted();
       nodeAdmission.assertOpen(nodeId);
     } catch (error) {
       if (error instanceof FleetFault && error.code === "authorization_denied") {
@@ -278,14 +282,13 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       }
       throw error;
     }
-    const centerBuildCommit = daemonBuildStamp().commit,
-      replicaKeyForNode = { nodeId, repoId: frame.repoId };
+    const centerBuildCommit = daemonBuildStamp().commit;
+    replicaStatus.recordActivity(replicaKeyForNode, "preparing_replica");
     if ((frame.taskEventShapeVersion ?? 0) < TASK_EVENT_SHAPE_COMPAT_VERSION) {
       const failure = {
         code: "edge_upgrade_required",
         message: `Edge must upgrade to center build ${centerBuildCommit?.slice(0, 7) ?? "unknown"} before applying task event shape ${TASK_EVENT_SHAPE_COMPAT_VERSION}.`,
       };
-      replicaStatus.recordFailure(replicaKeyForNode, failure);
       await peer.send({
         type: "replica.reject",
         ...failure,
@@ -364,6 +367,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       backup: async (backupSignal: AbortSignal) => {
         const cached = backupCache.get(frame.repoId);
         if (cached) {
+          replicaStatus.recordActivity(replicaKeyForNode, "waiting_shared_backup");
           cached.users += 1;
           return {
             ...(await cached.archive),
@@ -378,7 +382,9 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           frame.repoId,
           previous.then(() => turn),
         );
+        replicaStatus.recordActivity(replicaKeyForNode, "backup_queued");
         await previous;
+        if (!backupSignal.aborted) replicaStatus.recordActivity(replicaKeyForNode, "building_backup");
         // Pin a start no later than the snapshot, so the log keeps the suffix this backup resumes from.
         const unpin = retention.pin(store.replicationPosition());
         const directory = path.join(backupsRoot, randomUUID());
@@ -419,7 +425,9 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         slots,
         lease,
         signal,
-        onFailure: (failure) => replicaStatus.recordFailure(replicaKeyForNode, failure),
+        onActivity: (phase, transfer) => {
+          if (!signal.aborted) replicaStatus.recordActivity(replicaKeyForNode, phase, transfer);
+        },
         onAcknowledged: () => replicaStatus.clearFailure(replicaKeyForNode),
       });
     } finally {
@@ -1146,6 +1154,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   // session row, and `server.close()` waits for it indefinitely.
   const connections = new Set<TLSSocket>();
   const replicationOwners = new Map<string, TLSSocket>();
+  const nodeSessions = createNodeSessionStatus({
+    file: path.join(options.stateRoot, "node-sessions.json"),
+    now,
+  });
   // Slot ACKs against each repository's log head; a slot on another history must base-backup again.
   const replicaStatus = createReplicaStatusTracker({
     slots: replicationSlots,
@@ -1159,6 +1171,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     head: readReplicationHead,
     isConnected: (key) => replicationOwners.has(replicationSlotKey(key)),
     diskQuotaBytes: options.replicaDiskQuotaBytes ?? null,
+    now,
   });
   // One limiter for every connection: the failure budget lives per connection source across
   // sessions, not per socket and not per claimed node id. Each unauthenticated socket holds a
@@ -1185,6 +1198,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       (nodeId, ...args) => nodeAdmission.run(nodeId, () => handle(nodeId, ...args)),
       sessions,
       replicationOwners,
+      nodeSessions,
+      replicaStatus,
     ),
   );
   server.on("connection", (socket: TLSSocket) => {
@@ -1218,6 +1233,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       sessions.delete(nodeId);
       replicationSlots.removeNode(nodeId);
       replicaStatus.removeNode(nodeId);
+      nodeSessions.removeNode(nodeId);
     },
     disconnectNode: (nodeId: string) => {
       const live = sessions.get(nodeId);
@@ -1252,11 +1268,21 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     replicaReceipt: () => {
       throw new Error("replica receipt is retired");
     },
-    status: () => ({
-      replicas: replicaStatus.snapshot(),
-      uploads: uploadWindow(state),
-      versionWarnings: [...versionWarnings.values()],
-    }),
+    status: () => {
+      const replicas = replicaStatus.snapshot();
+      const connectedNodes = new Set(
+        [...replicationOwners].flatMap(([key, socket]) => (socket.destroyed ? [] : [key.split("\0", 1)[0]!])),
+      );
+      return {
+        replicas,
+        nodeSessions: nodeSessions.snapshot(
+          replicas.map((row) => row.nodeId),
+          connectedNodes,
+        ),
+        uploads: uploadWindow(state),
+        versionWarnings: [...versionWarnings.values()],
+      };
+    },
     versionWarnings: () => [...versionWarnings.values()],
   };
 }

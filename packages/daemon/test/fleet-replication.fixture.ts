@@ -463,6 +463,7 @@ export async function replicationPeer(
   ca: Buffer,
   nodeId: string,
   credential: string,
+  buildCommit: string | null = null,
 ) {
   const socket = await new Promise<TLSSocket>((resolve, reject) => {
     const candidate = connect({ host: "127.0.0.1", port, ca, servername: "localhost" }, () => resolve(candidate));
@@ -489,7 +490,16 @@ export async function replicationPeer(
     }
   });
   const nextLine = () =>
-      lines.length ? Promise.resolve(lines.shift()!) : new Promise<string>((resolve) => waiters.push(resolve)),
+      lines.length
+        ? Promise.resolve(lines.shift()!)
+        : Promise.race([
+            new Promise<string>((resolve) => waiters.push(resolve)),
+            closed.then(() => {
+              throw Object.assign(new Error("Replication peer closed before the next frame"), {
+                code: "connection_closed",
+              });
+            }),
+          ]),
     next = async () => parseReplicationFrame(await nextLine()),
     request = async (frame: ReplicationFrame) => {
       socket.write(serializeReplicationFrame(frame));
@@ -508,6 +518,7 @@ export async function replicationPeer(
       nodeId,
       credential,
       accessToken: `device-token-${nodeId}`,
+      buildCommit,
     }),
   );
   const ready = parseFleetFrame(await nextLine());
