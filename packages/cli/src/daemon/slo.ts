@@ -394,15 +394,14 @@ async function* readJsonLines(file: string, state: ReadState): AsyncGenerator<Re
     yield parsed;
   };
   let missing = false;
+  const iterator = input[Symbol.asyncIterator]();
   try {
     for (;;) {
-      const step = await input[Symbol.asyncIterator]()
-        .next()
-        .catch((error: unknown) => {
-          if (!isMissingFile(error)) throw error;
-          missing = true;
-          return { done: true as const, value: undefined };
-        });
+      const step = await iterator.next().catch((error: unknown) => {
+        if (!isMissingFile(error)) throw error;
+        missing = true;
+        return { done: true as const, value: undefined };
+      });
       if (step.done) break;
       buffer += step.value;
       let newline = buffer.indexOf("\n");

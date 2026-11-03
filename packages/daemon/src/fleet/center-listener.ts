@@ -1232,9 +1232,12 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       () => onReplicationStart(...args),
     ),
   );
-  const pendingErrorReplies = new Map<string, (bytes: number) => void>();
+  const pendingErrorReplies = new Map<
+    string,
+    { readonly start: () => void; readonly finish: (bytes: number) => void }
+  >();
   const observedHandle = AsyncLocalStorage.bind((...args: Parameters<typeof handle>) => {
-    const [nodeId, frame] = args,
+    const [nodeId, frame, window] = args,
       scope = beginDaemonOperation({
         method: "method" in frame ? String(frame.method) : frame.schema,
         repoId: "repoId" in frame ? String(frame.repoId) : null,
@@ -1321,15 +1324,19 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           },
         };
       } catch (error) {
-        const messageId = "messageId" in frame ? frame.messageId : "invalid";
-        pendingErrorReplies.set(messageId, (bytes) => {
-          replyBytes = bytes;
-          mark("serialization");
-          mark("reply");
-          scope.handle.update({ outcome: "error", replyBytes: bytes });
-          recordTraffic(false, fleetErrorCode(error));
-          scope.end();
-          pendingErrorReplies.delete(messageId);
+        const messageId = `${window.holderId}:${"messageId" in frame ? frame.messageId : "invalid"}`;
+        pendingErrorReplies.set(messageId, {
+          start: () => {
+            mark("serialization");
+            mark("reply");
+          },
+          finish: (bytes) => {
+            replyBytes = bytes;
+            scope.handle.update({ outcome: "error", replyBytes: bytes });
+            recordTraffic(false, fleetErrorCode(error));
+            scope.end();
+            pendingErrorReplies.delete(messageId);
+          },
         });
         throw error;
       }
@@ -1341,10 +1348,17 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       {
         ...options,
         commandResourceBudget: resourceBudget,
-        onErrorReply: (messageId, bytes) => {
-          const pending = pendingErrorReplies.get(messageId);
-          if (pending) pending(bytes);
-          else options.onErrorReply?.(messageId, bytes);
+        onErrorReplyStart: (holderId, messageId) => {
+          const key = `${holderId}:${messageId}`,
+            pending = pendingErrorReplies.get(key);
+          if (pending) pending.start();
+          else options.onErrorReplyStart?.(holderId, messageId);
+        },
+        onErrorReply: (holderId, messageId, bytes) => {
+          const key = `${holderId}:${messageId}`,
+            pending = pendingErrorReplies.get(key);
+          if (pending) pending.finish(bytes);
+          else options.onErrorReply?.(holderId, messageId, bytes);
         },
         authenticate: observedAuthenticate,
         onReplicationStart: observedReplicationStart,

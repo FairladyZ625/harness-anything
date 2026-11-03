@@ -248,6 +248,32 @@ test("a non-ENOENT access error is surfaced instead of being reported as a missi
   }
 });
 
+test("a multi-chunk log keeps at most one stream listener", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-slo-chunks-")),
+    dir = path.join(root, "logs"),
+    lines = Array.from({ length: 4_000 }, () => JSON.stringify(request({ detail: "x".repeat(800) })));
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(path.join(dir, "daemon-test-daemon-conn-20260101.jsonl"), `${lines.join("\n")}\n`);
+  const warnings: Error[] = [];
+  const onWarning = (warning: Error) => warnings.push(warning);
+  process.on("warning", onWarning);
+  try {
+    await runDaemonSlo({
+      day: "20260101",
+      thresholdMs: 1_000,
+      userRoot: root,
+      daemonId: "test-daemon",
+      json: false,
+      slowLimit: 200,
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(warnings.filter((warning) => warning.name === "MaxListenersExceededWarning").length, 0);
+  } finally {
+    process.off("warning", onWarning);
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("SLO options default to today's UTC day and validate thresholds", () => {
   const options = parseDaemonSloOptions([], "/tmp/u", "d");
   assert.match(options.day, /^\d{8}$/u);

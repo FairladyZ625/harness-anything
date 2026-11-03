@@ -103,6 +103,32 @@ test("real Fleet callbacks bind their observer across TLS queues without recordi
   assert.equal(observed.active.size, 0);
 });
 
+test("two Fleet sessions can reuse one messageId for concurrent failures", async (t) => {
+  const f = await fleetFixture(t),
+    observed = observation();
+  t.after(() => f.close());
+  const center = await withDaemonObservation(observed.observer, () => f.center()),
+    peerA = await rawPeer(f.track, center.port, f.cert, f.subject.nodeId, "machine-secret"),
+    peerB = await rawPeer(f.track, center.port, f.cert, f.subject.nodeId, "machine-secret");
+  const frame = {
+    schema: "fleet.repo.metadata.get/v1" as const,
+    messageId: "shared-failure",
+    repoId: "repo-missing",
+    accessToken: "invalid-token",
+    includeGitMetadata: false,
+  };
+  const [a, b] = await Promise.all([peerA.request(frame), peerB.request(frame)]);
+  assert.equal(a.schema, "fleet.error/v1");
+  assert.equal(b.schema, "fleet.error/v1");
+  const failed = observed.records.filter((row) => row.method === "fleet.repo.metadata.get/v1");
+  assert.equal(failed.length, 2, JSON.stringify(failed));
+  for (const row of failed) {
+    assert.equal(row.outcome, "error");
+    assert.ok(Number(row.replyBytes) > 0);
+  }
+  assert.equal(observed.active.size, 0);
+});
+
 test(
   "real replication stream and basebackup remain visible until their own completion",
   { timeout: 60_000 },

@@ -559,7 +559,8 @@ export async function serve(
           error,
         });
       if (socket.destroyed) {
-        options.onErrorReply?.(frame?.messageId ?? "invalid", 0);
+        options.onErrorReplyStart?.(window.holderId, frame?.messageId ?? "invalid");
+        options.onErrorReply?.(window.holderId, frame?.messageId ?? "invalid", 0);
         return;
       }
       const errorFrame = {
@@ -571,11 +572,13 @@ export async function serve(
         retryable: fault.retryable,
         resumeOffset: fault.resumeOffset,
       };
+      options.onErrorReplyStart?.(window.holderId, frame?.messageId ?? "invalid");
       await enqueue(immediate(errorFrame)).catch((deliveryError: unknown) => {
         if (peerDisconnected(socket, deliveryError)) return;
         throw deliveryError;
       });
       options.onErrorReply?.(
+        window.holderId,
         frame?.messageId ?? "invalid",
         Buffer.byteLength(`${JSON.stringify(errorFrame)}\n`, "utf8"),
       );
