@@ -350,6 +350,7 @@ test("a request record carries OpenTelemetry span fields, stage windows, bytes a
     code: "timeout",
     detail: "too slow",
   });
+  await log.settle();
   const record = recordsOf(userRoot).find((value) => value.event === "request")!;
   assert.equal(record.dispatchDelayMs, 250);
   assert.equal(record.eventLoopStallMs, 250);
@@ -372,5 +373,4 @@ test("a request record carries OpenTelemetry span fields, stage windows, bytes a
   assert.equal(otel.startTimeUnixNano, String(BigInt(Date.parse("2026-11-04T01:00:00.250Z")) * 1_000_000n));
   assert.equal(otel.endTimeUnixNano, String(BigInt(Date.parse("2026-11-04T01:00:01.000Z")) * 1_000_000n));
   assert.ok(Array.isArray(otel.attributes));
-  await log.settle();
 });
