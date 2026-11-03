@@ -23,6 +23,10 @@ export type PgRuntimeDispatchQueries = AsyncQueries<
   | "readRuntimeDispatchByDispatchKey"
   | "readRuntimeDispatchByResumeSource"
   | "readRuntimeDispatchesBySession"
+  | "readRuntimeDispatchEventsBySession"
+  | "readRuntimeDispatchesByTaskIds"
+  | "readRuntimeDispatchByDispatchIdPrefix"
+  | "countRuntimeDispatchesByAgent"
   | "readRuntimeDispatchesByTaskExecution"
   | "readRuntimeDispatchesByAttemptGroup"
   | "readRuntimeDispatchesByDecision"
@@ -119,6 +123,53 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
       }),
     readRuntimeDispatchByResumeSource: async (id) => (await byField("resumedFromDispatchId", id, true))[0] ?? null,
     readRuntimeDispatchesBySession: (id) => byField("runtimeSessionId", id, false),
+    readRuntimeDispatchEventsBySession: (id) =>
+      transaction(async (client) =>
+        (await readDispatchRows(client, "event_json::jsonb#>>'{payload,runtimeSessionId}'=$6", [id])).map(
+          publicRuntimeDispatch,
+        ),
+      ),
+    readRuntimeDispatchesByTaskIds: (taskIds) =>
+      transaction(async (client) => {
+        if (
+          !Array.isArray(taskIds) ||
+          taskIds.length === 0 ||
+          taskIds.length > 500 ||
+          taskIds.some((taskId) => typeof taskId !== "string" || taskId.length === 0) ||
+          new Set(taskIds).size !== taskIds.length
+        )
+          throw new Error("runtime dispatch task read requires 1..500 unique task ids");
+        return (
+          await readDispatchRows(client, "event_json::jsonb#>>'{payload,taskId}' = ANY($6::text[])", [taskIds])
+        ).map(publicRuntimeDispatch);
+      }),
+    readRuntimeDispatchByDispatchIdPrefix: (prefix, limit) =>
+      transaction(async (client) => {
+        if (typeof prefix !== "string" || prefix.length === 0)
+          throw new Error("runtime dispatch id prefix requires a non-empty prefix");
+        if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500)
+          throw new Error("runtime dispatch id prefix limit must be from 1 to 500");
+        const rows = await readDispatchRows(
+          client,
+          "event_json::jsonb#>>'{payload,dispatchId}'>=$6 AND event_json::jsonb#>>'{payload,dispatchId}'<$7",
+          [prefix, `${prefix}\uFFFF`],
+          "event_json::jsonb#>>'{payload,dispatchId}'",
+          limit,
+        );
+        return Promise.all(rows.map((event) => projected(client, event)));
+      }),
+    countRuntimeDispatchesByAgent: (agentId) =>
+      transaction(async (client) => {
+        const result = await client.query<{ count: string }>(
+          `SELECT count(*) AS count FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND policy_epoch=$4
+           AND (cardinality($5::text[])=0 OR readers && $5::text[])
+           AND revision <= (SELECT watermark FROM ha_projection_meta WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$4 AND projection_name='task/v1')
+           AND event_json::jsonb->>'schema'='agent-runtime-event/v1' AND event_type='runtime_dispatch_requested'
+           AND event_json::jsonb#>>'{payload,agentId}'=$6`,
+          [scope.tenantId, scope.projectId, repoId, scope.policyEpoch, readers, agentId],
+        );
+        return Number(result.rows[0]?.count ?? 0);
+      }),
     readRuntimeDispatchesByAttemptGroup: (id) => byField("attemptGroupId", id, false),
     readRuntimeDispatchesByDecision: (id) => byField("reviewTarget,decisionId", id, false),
     readRuntimeDispatchesByTaskExecution: (taskId, executionId) =>

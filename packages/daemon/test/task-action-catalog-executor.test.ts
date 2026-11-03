@@ -7,7 +7,7 @@ import { rejectExecutionSelection } from "../src/repo-cell-execution-selection.t
 import { cellCriterionError } from "../src/repo-cell-errors.ts";
 import { failed } from "../src/repo-cell-settlement.ts";
 import { validateCanonicalIdentityInputs } from "../src/repo-cell-action-dispatch.ts";
-import { prepareAgentEntityDelete } from "../src/agent-entities.ts";
+import { prepareAgentEntityDelete, agentReferenceCounts } from "../src/agent-entities.ts";
 
 test("shared action admission rejects replay-invalid lifecycle identities", () => {
   const cell = {
@@ -246,7 +246,7 @@ test("symptom task_75ba055dc0c66154154c37d664: a referenced Agent delete keeps a
         }),
       } as never,
       projection: {
-        readRuntimeDispatches: () => [{ payload: { agentId } }],
+        countRuntimeDispatchesByAgent: () => 1,
         listEntities: () => [],
         readRelationQuery: () => ({ rows: [] }),
       },
@@ -271,4 +271,28 @@ test("symptom task_75ba055dc0c66154154c37d664: a referenced Agent delete keeps a
     },
   ]);
   assert.deepEqual(receipt.nextActions, [retireCommand]);
+});
+
+test("agent reference counts use the indexed count instead of the dispatch history", () => {
+  let countCalls = 0,
+    fullCalls = 0;
+  const counts = agentReferenceCounts(
+    {
+      countRuntimeDispatchesByAgent: (agentId: string) => {
+        countCalls += 1;
+        assert.equal(agentId, "agent-one");
+        return 7;
+      },
+      readRuntimeDispatches: () => {
+        fullCalls += 1;
+        return [];
+      },
+      listEntities: () => [],
+      readRelationQuery: () => ({ rows: [] }),
+    } as never,
+    "agent-one",
+  );
+  assert.deepEqual(counts, [{ kind: "dispatch", count: 7 }]);
+  assert.equal(countCalls, 1);
+  assert.equal(fullCalls, 0);
 });

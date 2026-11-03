@@ -94,6 +94,7 @@ export async function appendRuntimeQueryFixtures(
         taskId: "task-parity",
         executionId: "execution-parity",
         agentId: "parity-agent",
+        ...(id === "runtime-query-a" ? { cwd: "/private/pg-parity-example" } : {}),
         ...(id === "runtime-query-a" || id === "runtime-query-b"
           ? {
               squadId: "parity-squad",
@@ -197,6 +198,10 @@ function dispatchContract(
       | "readRuntimeDispatchByDispatchKey"
       | "readRuntimeDispatchByResumeSource"
       | "readRuntimeDispatchesBySession"
+      | "readRuntimeDispatchEventsBySession"
+      | "readRuntimeDispatchesByTaskIds"
+      | "readRuntimeDispatchByDispatchIdPrefix"
+      | "countRuntimeDispatchesByAgent"
       | "readRuntimeDispatchesByTaskExecution"
       | "readRuntimeDispatchesByAttemptGroup"
       | "readRuntimeDispatchesByDecision"
@@ -212,6 +217,31 @@ function dispatchContract(
   const all = queries.readRuntimeDispatches(),
     byId = queries.readRuntimeDispatchById("runtime-query-a");
   assert.equal(all.length, 8);
+  assert.deepEqual(
+    queries.readRuntimeDispatchesByTaskIds(["task-parity"]).map(({ payload }) => payload.dispatchId),
+    all.map(({ payload }) => payload.dispatchId),
+  );
+  assert.deepEqual(queries.readRuntimeDispatchesByTaskIds(["missing-task"]), []);
+  assert.deepEqual(
+    queries.readRuntimeDispatchByDispatchIdPrefix("runtime-query-", 10).map(({ event }) => event.payload.dispatchId),
+    ["runtime-query-a", "runtime-query-b", "runtime-query-c"],
+  );
+  assert.equal(queries.countRuntimeDispatchesByAgent("parity-agent"), 3);
+  assert.equal(queries.countRuntimeDispatchesByAgent("missing-agent"), 0);
+  for (const keyed of [
+    queries.readRuntimeDispatchesByTaskIds(["task-parity"]),
+    queries.readRuntimeDispatchEventsBySession("runtime-query-session"),
+    queries.readRuntimeDispatchByDispatchIdPrefix("runtime-query-", 10).map(({ event }) => event),
+  ])
+    assert.ok(
+      keyed.every(({ payload }) => !("cwd" in payload)),
+      "keyed dispatch reads must apply the public dispatch mapper",
+    );
+  assert.equal("cwd" in byId!.event.payload, false);
+  assert.deepEqual(
+    queries.readRuntimeDispatchEventsBySession("runtime-query-session").map(({ payload }) => payload.dispatchId),
+    ["runtime-query-a", "runtime-query-b", "runtime-query-c"],
+  );
   assert.equal(byId?.outcome, "failed");
   assert.equal(byId?.endedAt, "2026-09-02T01:00:00.000Z");
   assert.equal(queries.readRuntimeDispatchById("missing"), null);
@@ -278,6 +308,10 @@ function dispatchContract(
     key: queries.readRuntimeDispatchByDispatchKey("key-runtime-query-b"),
     resume: queries.readRuntimeDispatchByResumeSource("runtime-query-a"),
     session: queries.readRuntimeDispatchesBySession("runtime-query-session"),
+    sessionEvents: queries.readRuntimeDispatchEventsBySession("runtime-query-session"),
+    taskRows: queries.readRuntimeDispatchesByTaskIds(["task-parity"]),
+    prefix: queries.readRuntimeDispatchByDispatchIdPrefix("runtime-query-", 10),
+    agentCount: queries.countRuntimeDispatchesByAgent("parity-agent"),
     execution: queries.readRuntimeDispatchesByTaskExecution("task-parity", "execution-parity"),
     attempts: queries.readRuntimeDispatchesByAttemptGroup("runtime-query-attempts"),
     decisions: queries.readRuntimeDispatchesByDecision("dec_PG_PARITY"),

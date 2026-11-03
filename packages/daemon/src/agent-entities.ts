@@ -686,7 +686,7 @@ export function assertAgentDispatchable(agent: ProjectedAgentDeclaration): Agent
 export function prepareAgentEntityDelete(input: {
   readonly action: Readonly<Record<string, unknown>> & { readonly kind: string };
   readonly entityStore: EntityStore;
-  readonly projection: Pick<TaskProjection, "readRuntimeDispatches" | "listEntities" | "readRelationQuery">;
+  readonly projection: Pick<TaskProjection, "countRuntimeDispatchesByAgent" | "listEntities" | "readRelationQuery">;
 }): PreparedAgentEntityDelete {
   const kind = entityKind(input.action.kind),
     idField = kind === "agent" ? "agentId" : "squadId",
@@ -750,10 +750,10 @@ export function prepareAgentEntityDelete(input: {
 }
 
 export function agentReferenceCounts(
-  projection: Pick<TaskProjection, "readRuntimeDispatches" | "listEntities" | "readRelationQuery">,
+  projection: Pick<TaskProjection, "countRuntimeDispatchesByAgent" | "listEntities" | "readRelationQuery">,
   agentId: string,
 ): readonly { readonly kind: string; readonly count: number }[] {
-  const dispatches = projection.readRuntimeDispatches().filter(({ payload }) => payload.agentId === agentId).length;
+  const dispatches = projection.countRuntimeDispatchesByAgent(agentId);
   const squadMembers = projection.listEntities("squad").reduce((count, row) => {
     try {
       const squad = parseSquadDeclarationV1(row.value);

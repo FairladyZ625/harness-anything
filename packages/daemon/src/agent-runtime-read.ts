@@ -154,15 +154,18 @@ export function makeAgentRuntimeReadModel(input: {
     if (runtimeSessionId === null) return null;
     const exact = input.projection.readRuntimeSession(runtimeSessionId);
     if (exact !== null) return exact;
-    // CLI status accepts the dispatch id printed by `ha task dispatches` as well.
+    // CLI status accepts the dispatch id printed by `ha task dispatches` as well. A full id is an
+    // indexed lookup; only a genuine short-id prefix scans that prefix's bounded id range.
     if (runtimeSessionId.startsWith("dispatch")) {
-      const dispatches = input.projection.readRuntimeDispatches(),
+      const exactDispatch = input.projection.readRuntimeDispatchById(runtimeSessionId)?.event;
+      if (exactDispatch) return input.projection.readRuntimeSession(exactDispatch.payload.runtimeSessionId);
+      const rows = input.projection.readRuntimeDispatchByDispatchIdPrefix(runtimeSessionId, 100),
         match = resolveUniquePrefix(
           runtimeSessionId,
-          dispatches.map((event) => event.payload.dispatchId),
+          rows.map(({ event }) => event.payload.dispatchId),
         );
       if (match.matched) {
-        const dispatch = dispatches.find((event) => event.payload.dispatchId === match.id)!;
+        const dispatch = rows.find(({ event }) => event.payload.dispatchId === match.id)!.event;
         return input.projection.readRuntimeSession(dispatch.payload.runtimeSessionId);
       }
       if (match.candidates.length > 1)
@@ -209,16 +212,10 @@ export function makeAgentRuntimeReadModel(input: {
       const installationsById = new Map(
         installations.map((installation) => [installation.installationId, installation]),
       );
-      const dispatchBySessionKey = new Map<
-        string,
-        Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>
-      >();
-      for (const event of input.projection.readRuntimeDispatches()) {
-        const key = `${event.payload.runtimeSessionId}\0${event.payload.definitionSnapshotRef}`;
-        if (!dispatchBySessionKey.has(key)) dispatchBySessionKey.set(key, event);
-      }
+      // One indexed lookup per returned session, never a walk over every dispatch ever recorded:
+      // the full-history read parsed the whole set on every overview request (F-28FB7113).
       const dispatchEventFor = (session: RuntimeSession) =>
-        dispatchBySessionKey.get(`${session.runtimeSessionId}\0${session.definitionSnapshotRef}`);
+        input.projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef);
       return {
         ok: true,
         status: cut.status,
@@ -253,13 +250,15 @@ export function makeAgentRuntimeReadModel(input: {
     },
     sessionGroups: (payload: Readonly<Record<string, unknown>>): AgentRuntimeSessionGroupsResult => {
       const query = sessionGroupsQuery(payload),
-        cut = input.projection.readCut(),
-        dispatchEvents = input.projection.readRuntimeDispatches();
+        cut = input.projection.readCut();
       const sessions = input.projection
           .readRuntimeSessions()
           .filter((session) => runtimeSessionInActivityWindow(session, query.since)),
-        sessionIds = new Set(sessions.map(({ runtimeSessionId }) => runtimeSessionId)),
-        windowedDispatchEvents = dispatchEvents.filter((event) => sessionIds.has(event.payload.runtimeSessionId)),
+        // Read the window sessions' own dispatches; the previous full-class scan made this
+        // projection facet's cost follow total dispatch history (F-28FB7113).
+        windowedDispatchEvents = sessions.flatMap((session) =>
+          input.projection.readRuntimeDispatchEventsBySession(session.runtimeSessionId),
+        ),
         dispatchStartedAt = latestDispatchStartedAt(windowedDispatchEvents),
         dispatches = input.readDispatches?.({ sessions, events: windowedDispatchEvents }) ?? [],
         taskIds = [

@@ -318,7 +318,7 @@ test("one stream parser validates agent-runtime and terminal facets by method", 
   );
 });
 
-test("runtime overview batches definitions while a single-session read selects one dispatch", () =>
+test("runtime overview reads one dispatch per session while a single-session read selects one dispatch", () =>
   withRuntime(({ store, projection }) => {
     let fullTaskListReads = 0,
       taskStatusReads = 0,
@@ -341,7 +341,7 @@ test("runtime overview batches definitions while a single-session read selects o
     reads.session({ runtimeSessionId: "runtime-session" });
     assert.deepEqual(
       { fullTaskListReads, taskStatusReads, cutReads, singleDispatchReads, batchDispatchReads },
-      { fullTaskListReads: 0, taskStatusReads: 0, cutReads: 2, singleDispatchReads: 1, batchDispatchReads: 1 },
+      { fullTaskListReads: 0, taskStatusReads: 0, cutReads: 2, singleDispatchReads: 2, batchDispatchReads: 0 },
     );
   }));
 
@@ -1013,8 +1013,8 @@ test("runtime overview pages at the server before DTO and dispatch expansion", (
   }).overview({ limit: 12 });
   assert.equal(overview.sessions.length, 12);
   assert.equal(unboundedReads, 0);
-  assert.equal(exactDispatchReads, 0);
-  assert.equal(batchDispatchReads, 1);
+  assert.equal(exactDispatchReads, 12);
+  assert.equal(batchDispatchReads, 0);
   assert.deepEqual(pageQuery, { limit: 12 });
   assert.deepEqual(overview.page, {
     limit: 12,

@@ -262,6 +262,13 @@ function makeRecoveryFixture(
         : null;
     },
     readRuntimeDispatches: () => [...dispatchBySession.keys()].map((id) => projection.readRuntimeDispatch(id)),
+    readRuntimeDispatchesByTaskIds: (taskIds: readonly string[]) =>
+      [...dispatchBySession.keys()]
+        .map((id) => projection.readRuntimeDispatch(id))
+        .filter(
+          (event): event is Extract<AgentRuntimeEventV1, { type: "runtime_dispatch_requested" }> =>
+            event !== null && event.payload.taskId !== undefined && taskIds.includes(event.payload.taskId),
+        ),
     readRuntimeDispatchByResumeSource: () => null,
     readDocument: () => ({ status: "ready", document: null, watermark: 1, sourceRevision: 1 }),
     readRuntimeSessionEvents: () => [],

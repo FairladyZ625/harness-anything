@@ -109,6 +109,13 @@ export const REPOSITORY_READ_TABLES_SQL = `
     CREATE INDEX IF NOT EXISTS event_index_runtime_dispatches ON event_index(workspace_revision)
       WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
         AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
+    -- Agent reference counts ask "how many dispatches name this agent"; without this index the
+    -- count walks every dispatch ever recorded, the same all-history cost as a full read.
+    CREATE INDEX IF NOT EXISTS event_index_runtime_dispatch_agent ON event_index(
+      json_extract(event_json, '$.payload.agentId'), workspace_revision
+    ) WHERE
+      json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
+      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
     CREATE INDEX IF NOT EXISTS event_index_runtime_dispatch_id ON event_index(
       json_extract(event_json, '$.payload.dispatchId')
     ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1';

@@ -105,9 +105,7 @@ export function archiveRuntimeDispatch(
   )
     throw docSyncError("content_not_ready", `Decision ${decision.decisionId} is not ready for runtime archive`);
   const packagePath = taskRead?.packagePath ?? `decisions/decision-${decision!.decisionId}`,
-    occurrence = input.projection
-      .readRuntimeDispatches()
-      .find((event) => event.payload.dispatchId === value.dispatchId),
+    occurrence = input.projection.readRuntimeDispatchById(value.dispatchId)?.event ?? null,
     runtimeExecutorId = `runtime-session:${value.runtimeSessionId}`,
     runtimeActor =
       input.binding.actor.executor?.id === runtimeExecutorId ||

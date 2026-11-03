@@ -448,7 +448,13 @@ test("reviewer settlement carries a worker report into the archive without copyi
       },
       taskIdForDocumentPath: (documentPath: string) =>
         documentPath.startsWith(`${packagePath}/`) ? fixtureTaskId : null,
-      readRuntimeDispatches: () => [occurrence],
+      readRuntimeDispatches: () => {
+        throw new Error("archive ingress must not materialize the dispatch history");
+      },
+      readRuntimeDispatchById: (id: string) =>
+        id === occurrence.payload.dispatchId
+          ? { event: occurrence, metrics: null, endedAt: null, outcome: null }
+          : null,
       readRuntimeSession: () => null,
       readLeaseIntervals: () => [],
       currentLeaseForExecution: () => null,

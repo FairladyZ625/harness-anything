@@ -111,6 +111,10 @@ function fixture(
     readRuntimeSession: () => current,
     readRuntimeDispatch: () => event,
     readRuntimeDispatches: () => events,
+    readRuntimeDispatchesByTaskIds: (taskIds: readonly string[]) =>
+      events.filter(
+        (candidate) => candidate.payload.taskId !== undefined && taskIds.includes(candidate.payload.taskId),
+      ),
     readRuntimeDispatchById: (id: string) => {
       const event = events.find((e) => e.payload.dispatchId === id);
       return event ? { event } : null;
@@ -140,6 +144,35 @@ function fixture(
   } as unknown as TaskProjection;
   return { projection, event, rows: () => readTaskDispatches({ projection, taskId }).dispatches };
 }
+
+test("task dispatch read queries the requested task ids instead of the dispatch history", () => {
+  const { projection } = fixture(session("live", null));
+  let byTaskCalls = 0,
+    fullCalls = 0,
+    requested: readonly string[] = [];
+  const measured = new Proxy(projection, {
+    get: (target, property, receiver) => {
+      if (property === "readRuntimeDispatchesByTaskIds")
+        return (taskIds: readonly string[]) => {
+          byTaskCalls += 1;
+          requested = taskIds;
+          return target.readRuntimeDispatchesByTaskIds(taskIds);
+        };
+      if (property === "readRuntimeDispatches")
+        return () => {
+          fullCalls += 1;
+          return target.readRuntimeDispatches();
+        };
+      const value = Reflect.get(target, property, receiver);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  const result = readTaskDispatches({ projection: measured, taskIds: ["task-1"] });
+  assert.equal(result.dispatches.length, 1);
+  assert.equal(byTaskCalls, 1);
+  assert.equal(fullCalls, 0);
+  assert.deepEqual(requested, ["task-1"]);
+});
 
 test("accepted liveness and terminal evidence determine public dispatch status without a local stream", () => {
   for (const [liveness, outcome, expected] of [

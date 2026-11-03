@@ -685,6 +685,8 @@ test("runtime dispatch history supports keyed reads and done-driven startedAt pa
               ...(index === 1 ? { resumedFromDispatchId: "dispatch_history_1" } : {}),
               taskId: "task-history",
               executionId: "execution-history",
+              agentId: "agent-history",
+              cwd: "/private/runtime-history-example",
               attemptGroupId: "attempt-history",
               attemptIndex: index,
             },
@@ -729,6 +731,35 @@ test("runtime dispatch history supports keyed reads and done-driven startedAt pa
       "dispatch_history_2",
     );
     assert.equal(projection.readRuntimeDispatchesByTaskExecution("task-history", "execution-history").length, 2);
+    assert.deepEqual(
+      projection
+        .readRuntimeDispatchesByTaskIds(["task-history", "missing-task"])
+        .map(({ payload }) => payload.dispatchId),
+      ["dispatch_history_1", "dispatch_history_2"],
+    );
+    assert.deepEqual(
+      projection.readRuntimeDispatchEventsBySession("runtime-history-0").map(({ payload }) => payload.dispatchId),
+      ["dispatch_history_1"],
+    );
+    assert.deepEqual(
+      projection
+        .readRuntimeDispatchByDispatchIdPrefix("dispatch_history_", 10)
+        .map(({ event }) => event.payload.dispatchId),
+      ["dispatch_history_1", "dispatch_history_2"],
+    );
+    assert.equal(projection.countRuntimeDispatchesByAgent("agent-history"), 2);
+    assert.equal(projection.countRuntimeDispatchesByAgent("missing-agent"), 0);
+    for (const keyed of [
+      projection.readRuntimeDispatchesByTaskIds(["task-history"]),
+      projection.readRuntimeDispatchEventsBySession("runtime-history-0"),
+      projection.readRuntimeDispatchByDispatchIdPrefix("dispatch_history_", 10).map(({ event }) => event),
+    ])
+      assert.ok(
+        keyed.every(({ payload }) => !("cwd" in payload)),
+        "keyed dispatch reads must apply the public dispatch mapper",
+      );
+    assert.equal("cwd" in projection.readRuntimeDispatchById("dispatch_history_1")!.event.payload, false);
+    assert.equal("cwd" in projection.readRuntimeDispatchesBySession("runtime-history-0")[0]!.event.payload, false);
     assert.equal(projection.readRuntimeDispatchesByAttemptGroup("attempt-history").length, 2);
     const first = projection.readRuntimeDispatchPage({ startedAtGte: "2026-09-01T00:00:00.000Z", limit: 1 });
     assert.equal(first.done, false);

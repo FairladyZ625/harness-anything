@@ -690,7 +690,7 @@ test("Agent deletion reports a dispatch header reference even without taskId", (
         action: { kind: "agent-delete", agentId: declaration.id, expectedVersion: 3, reason: "remove" },
         entityStore,
         projection: {
-          readRuntimeDispatches: () => [{ payload: { agentId: declaration.id } }],
+          countRuntimeDispatchesByAgent: () => 1,
           listEntities: () => [],
           readRelationQuery: () => ({ rows: [] }),
         },
