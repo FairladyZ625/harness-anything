@@ -1,6 +1,6 @@
 /**
  * Additive v5 expansion. Remove the previous-writer trigger, extractor and backfill function
- * on 2026-11-18, after v5 binaries have drained; the metadata column and current writes remain.
+ * on 2026-11-18, after pre-metadata binaries have drained; the column and current writes remain.
  * Run each backfill call in its own management transaction with the target scope's RLS claims.
  */
 export function documentMetadataDdl(): readonly string[] {

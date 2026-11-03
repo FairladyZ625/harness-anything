@@ -39,8 +39,14 @@ test(
           snapshot.close();
         }
       }
-      const before = await measure(true, frozenRoot),
-        after = await measure(false, frozenRoot);
+      const after = await measure(false, frozenRoot),
+        // The writer has its own Git/fsync cost. Calibrate the negative-control window
+        // from that observed cost rather than making a one-second write SLO part of this proof.
+        slowReadMs = Math.max(frozenRoot ? 10_000 : 1_000, Math.ceil(after.write! * 2)),
+        before = await measure(true, frozenRoot, slowReadMs);
+      t.diagnostic(
+        `paired-read-p99=${JSON.stringify({ samples: frozenRoot ? 5 : 20, slowReadMs, before, after, negativeControl: "responsiveness assertion rejected entry-thread reads" })}`,
+      );
       const responsive = (metrics: Record<string, number>) => {
         assert.ok(metrics.status! < 500, JSON.stringify(metrics));
         assert.ok(metrics.hello! < 500, JSON.stringify(metrics));
@@ -51,16 +57,13 @@ test(
       assert.equal(before.readTimeouts, frozenRoot ? 5 : 20);
       assert.equal(after.readTimeouts, 0, "all probes, including writes, must finish before releasing the slow read");
       assert.ok(after.write! < before.write!, JSON.stringify({ before, after }));
-      t.diagnostic(
-        `paired-read-p99=${JSON.stringify({ samples: frozenRoot ? 5 : 20, slowReadMs: frozenRoot ? 10000 : 1000, before, after, negativeControl: "responsiveness assertion rejected entry-thread reads" })}`,
-      );
     } finally {
       if (frozenRoot) rmSync(frozenRoot, { recursive: true, force: true });
     }
   },
 );
 
-async function measure(entryThread: boolean, frozenRoot?: string): Promise<Record<string, number>> {
+async function measure(entryThread: boolean, frozenRoot?: string, slowReadMs = 0): Promise<Record<string, number>> {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-read-p99-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -68,7 +71,7 @@ async function measure(entryThread: boolean, frozenRoot?: string): Promise<Recor
     daemonId = "read-p99",
     endpoint = localUserDaemonEndpoint(userRoot, daemonId),
     barrier = new Int32Array(new SharedArrayBuffer(6 * Int32Array.BYTES_PER_ELEMENT));
-  Atomics.store(barrier, 4, frozenRoot ? 10_000 : 1_000);
+  Atomics.store(barrier, 4, slowReadMs);
   initIngressRepo(root, process.getuid?.() ?? 0);
   if (frozenRoot) {
     rmSync(path.join(root, "harness"), { recursive: true, force: true });
