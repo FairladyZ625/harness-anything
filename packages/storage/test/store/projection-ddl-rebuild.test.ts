@@ -108,7 +108,7 @@ test("previous projection DDL is replaced on reopen and hot reads use their inde
     try {
       assert.equal(projection.currentLeaseForExecution("missing"), null);
       assert.equal(projection.readRuntimeDispatch("missing"), null);
-      assert.deepEqual(projection.readRuntimeDispatches(), []);
+      assert.deepEqual(projection.readRuntimeDispatchesBySession("missing"), []);
       assert.deepEqual(projection.readRuntimeSessionEvents("missing", 0, 10), []);
       assert.deepEqual(projection.readScheduleEvents("missing").events, []);
       assert.deepEqual(projection.readScheduleEvents().events, []);
@@ -143,7 +143,6 @@ test("previous projection DDL is replaced on reopen and hot reads use their inde
       for (const [part, args, expected] of [
         ["FROM lease_cas WHERE execution_id", ["missing"], "lease_cas_execution"],
         ["runtime_dispatch_requested' AND json_extract", ["missing"], "event_index_runtime_session"],
-        ["runtime_dispatch_requested' ORDER BY", [], "event_index_runtime_dispatches"],
         ["WHERE workspace_revision > ? AND json_extract", [0, "missing", 10], "event_index_runtime_session"],
         ["'schedule-event/v1' AND json_extract", ["missing"], "event_index_schedule_entity"],
         ["'schedule-event/v1' ORDER BY", [], "event_index_schedule_events"],

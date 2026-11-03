@@ -80,19 +80,13 @@ test("session groups are contracted as a use-case projection with bounded daemon
 });
 
 test("session groups read only the activity-window sessions' dispatches", () => {
-  let bySessionCalls = 0,
-    fullCalls = 0;
+  let bySessionCalls = 0;
   const measured = new Proxy(projectionFixture(), {
     get: (target, property, receiver) => {
       if (property === "readRuntimeDispatchEventsBySession")
         return (runtimeSessionId: string) => {
           bySessionCalls += 1;
           return target.readRuntimeDispatchEventsBySession(runtimeSessionId);
-        };
-      if (property === "readRuntimeDispatches")
-        return () => {
-          fullCalls += 1;
-          return target.readRuntimeDispatches();
         };
       const value = Reflect.get(target, property, receiver);
       return typeof value === "function" ? value.bind(target) : value;
@@ -102,7 +96,6 @@ test("session groups read only the activity-window sessions' dispatches", () => 
     since: "2026-08-01T00:00:00.000Z",
   });
   assert.equal(bySessionCalls, 4, "one indexed dispatch read per activity-window session");
-  assert.equal(fullCalls, 0, "session groups must not materialize the whole dispatch class");
 });
 
 test("requested lease session identities come from replicated dispatch events across groups and nodes", () => {
@@ -122,7 +115,6 @@ test("requested lease session identities come from replicated dispatch events ac
   const projection = {
     ...projectionFixture(),
     readRuntimeSessions: () => live,
-    readRuntimeDispatches: () => events,
     readRuntimeDispatchEventsBySession: (runtimeSessionId: string) =>
       events.filter((event) => event.payload.runtimeSessionId === runtimeSessionId),
   } as TaskProjection;
@@ -312,7 +304,6 @@ test("session groups preserve stopped runtime session status in the projection c
     projection = {
       ...projectionFixture(),
       readRuntimeSessions: () => [stopped],
-      readRuntimeDispatches: () => [],
       readRuntimeDispatchEventsBySession: () => [],
     } as TaskProjection,
     reads = makeAgentRuntimeReadModel({
@@ -368,7 +359,6 @@ function projectionFixture(): TaskProjection {
       const session = sessions.find(({ runtimeSessionId: candidate }) => candidate === runtimeSessionId);
       return session ? runtimeDispatch(session) : null;
     },
-    readRuntimeDispatches: () => sessions.map(runtimeDispatch),
     readRuntimeDispatchEventsBySession: (runtimeSessionId: string) =>
       sessions.filter(({ runtimeSessionId: candidate }) => candidate === runtimeSessionId).map(runtimeDispatch),
     readTaskRuntimeBatch: ({ taskIds }: { readonly taskIds: readonly string[] }) => ({
@@ -476,7 +466,6 @@ function mixedPrecisionProjection(): TaskProjection {
     readCut: () => ({ status: "ready", watermark: 1, sourceRevision: 1 }),
     readTaskStatuses: () => ({ status: "ready", rows: [], watermark: 1, sourceRevision: 1 }),
     readRuntimeSessions: () => mixedPrecisionSessions,
-    readRuntimeDispatches: () => mixedPrecisionSessions.map(runtimeDispatch),
     readRuntimeDispatchEventsBySession: (runtimeSessionId: string) =>
       mixedPrecisionSessions
         .filter(({ runtimeSessionId: candidate }) => candidate === runtimeSessionId)
@@ -594,7 +583,6 @@ test("status narrowing selects members, not the group's latestStatus", () => {
       readCut: () => ({ status: "ready", watermark: 1, sourceRevision: 1 }),
       readTaskStatuses: () => ({ status: "ready", rows: [], watermark: 1, sourceRevision: 1 }),
       readRuntimeSessions: () => mixed,
-      readRuntimeDispatches: () => mixed.map(runtimeDispatch),
       readRuntimeDispatchEventsBySession: (runtimeSessionId: string) =>
         mixed.filter(({ runtimeSessionId: candidate }) => candidate === runtimeSessionId).map(runtimeDispatch),
       readTaskRuntimeBatch: ({ taskIds }: { readonly taskIds: readonly string[] }) => ({
@@ -687,7 +675,6 @@ test("Decision reviewer sessions group by the persisted review target", () => {
       projection: {
         ...projectionFixture(),
         readRuntimeSessions: () => [session],
-        readRuntimeDispatches: () => [runtimeDispatch(session)],
         readRuntimeDispatchEventsBySession: (runtimeSessionId: string) =>
           runtimeSessionId === session.runtimeSessionId ? [runtimeDispatch(session)] : [],
         readTaskRuntimeBatch: () => ({ rows: [] }),

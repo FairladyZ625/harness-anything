@@ -29,7 +29,6 @@ function largeDispatchProjection(count = 500, reason = "派工原因 / long/path
       watermark: 1,
       sourceRevision: 1,
     }),
-    readRuntimeDispatches: () => events,
     readRuntimeDispatchesByTaskIds: (taskIds: readonly string[]) =>
       events.filter(
         (candidate) => candidate.payload.taskId !== undefined && taskIds.includes(candidate.payload.taskId),
@@ -125,7 +124,6 @@ test("unpaged internal reads retain canonical order for dispatches with equal st
   }));
   const projection = {
     ...original,
-    readRuntimeDispatches: () => tied,
     readRuntimeDispatchesByTaskIds: () => tied,
   } as TaskProjectionQueries;
   const unpaged = readTaskDispatches({ projection, taskId: "task-one" });

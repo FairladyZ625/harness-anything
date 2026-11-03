@@ -18,7 +18,6 @@ export type AsyncQueries<Keys extends keyof TaskProjectionQueries> = {
 type Dispatch = Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>;
 export type PgRuntimeDispatchQueries = AsyncQueries<
   | "readRuntimeDispatch"
-  | "readRuntimeDispatches"
   | "readRuntimeDispatchById"
   | "readRuntimeDispatchByDispatchKey"
   | "readRuntimeDispatchByResumeSource"
@@ -104,8 +103,6 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
         );
         return rows[0] ? publicRuntimeDispatch(rows[0]) : null;
       }),
-    readRuntimeDispatches: () =>
-      transaction(async (client) => (await readDispatchRows(client, "true")).map(publicRuntimeDispatch)),
     readRuntimeDispatchById: async (id) => (await byField("dispatchId", id, true))[0] ?? null,
     readRuntimeDispatchByDispatchKey: (key) =>
       transaction(async (client) => {

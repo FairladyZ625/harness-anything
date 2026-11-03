@@ -106,7 +106,6 @@ export function taskQueryApi(
   | "readTaskSubmissionOperation"
   | "readTaskCompletion"
   | "readRuntimeDispatch"
-  | "readRuntimeDispatches"
   | "readRuntimeDispatchById"
   | "readRuntimeDispatchByDispatchKey"
   | "readRuntimeDispatchByResumeSource"

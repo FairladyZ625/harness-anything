@@ -138,7 +138,6 @@ export function repositoryEventQueries(
 ): Pick<
   TaskProjectionQueries,
   | "readRuntimeDispatch"
-  | "readRuntimeDispatches"
   | "readRuntimeDispatchById"
   | "readRuntimeDispatchByDispatchKey"
   | "readRuntimeDispatchByResumeSource"
@@ -230,16 +229,6 @@ export function repositoryEventQueries(
           ? publicRuntimeDispatch(event)
           : null;
       }),
-    readRuntimeDispatches: () =>
-      withRead((db) =>
-        queryRows(db, RUNTIME_DISPATCHES_SQL)
-          .map((row) => JSON.parse(String(row.event_json)))
-          .filter(
-            (event): event is Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> =>
-              isAgentRuntimeEvent(event) && event.type === "runtime_dispatch_requested",
-          )
-          .map(publicRuntimeDispatch),
-      ),
     readRuntimeDispatchById: (dispatchId) =>
       withRead((db) => projectedDispatch(db, queryRow(db, RUNTIME_DISPATCH_BY_ID_SQL, dispatchId))),
     readRuntimeDispatchByDispatchKey: (dispatchKey) =>
