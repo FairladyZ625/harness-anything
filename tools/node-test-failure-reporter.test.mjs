@@ -45,6 +45,31 @@ test("the ERR_TEST_FAILURE wrapper is unwrapped to the assertion the test threw"
   assert.doesNotMatch(output, /ERR_TEST_FAILURE/u);
 });
 
+test("a string cause keeps the outer Error and its stack", async () => {
+  const outer = new Error("outer diagnostic", { cause: "root cause" });
+  const output = await render([failure({ details: { error: outer } })]);
+  assert.match(output, /^\[test-failure\] packages\/daemon\/test\/example\.test\.ts: a test$/mu);
+  assert.match(output, /Error: outer diagnostic/u);
+  assert.match(output, /node-test-failure-reporter\.test\.mjs/u);
+  assert.doesNotMatch(output, /root cause/u);
+});
+
+test("a number cause keeps the outer Error and its stack", async () => {
+  const outer = new Error("outer numeric diagnostic", { cause: 42 });
+  const output = await render([failure({ details: { error: outer } })]);
+  assert.match(output, /Error: outer numeric diagnostic/u);
+  assert.match(output, /node-test-failure-reporter\.test\.mjs/u);
+});
+
+test("a wrapper around an Error with a primitive cause stops at the Error", async () => {
+  const inner = new Error("assertion with primitive cause", { cause: "root" });
+  const wrapper = new Error("test failed", { cause: inner });
+  wrapper.code = "ERR_TEST_FAILURE";
+  const output = await render([failure({ details: { error: wrapper } })]);
+  assert.match(output, /Error: assertion with primitive cause/u);
+  assert.doesNotMatch(output, /root/u);
+});
+
 test("a parent's bare 'test failed' does not add a second, empty failure", async () => {
   const parent = new Error("test failed");
   const output = await render([failure({ name: "parent", details: { error: parent } })]);

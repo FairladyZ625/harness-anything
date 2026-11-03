@@ -14,15 +14,35 @@ export default async function* reportTestFailures(source) {
     // A failed subtest bubbles a bare "test failed" into its parent. The subtest already carried
     // the real error, so keep the parent line out of the log.
     if (original?.message === "test failed" && original?.cause == null) continue;
+    // Only unwrap the runner's own failure wrapper. Following an arbitrary Error.cause chain can
+    // end at a primitive (new Error("outer", { cause: "root" })) and throw away the outer stack,
+    // which is exactly the diagnostic this reporter exists to keep. Stop at the last Error that
+    // can still render.
     let error = original;
-    while (error?.cause !== undefined && error.cause !== null) error = error.cause;
-    const stack = typeof error?.stack === "string" ? error.stack : undefined;
-    const message = typeof error?.message === "string" ? error.message : undefined;
-    if (stack === undefined && message === undefined) continue;
+    while (isTestFailureWrapper(error) && isRenderable(error.cause)) error = error.cause;
+    if (!isRenderable(error) && isRenderable(original)) error = original;
+    if (!isRenderable(error)) continue;
+    const stack = typeof error.stack === "string" ? error.stack : undefined;
+    const message = typeof error.message === "string" ? error.message : undefined;
     const name = typeof data.name === "string" ? data.name : "<unnamed test>";
     const file = typeof data.file === "string" ? data.file.replaceAll("\\", "/") : undefined;
     yield `[test-failure] ${file === undefined ? name : `${file}: ${name}`}\n${indent(stack ?? message)}\n`;
   }
+}
+
+function isRenderable(value) {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    (typeof value.stack === "string" || typeof value.message === "string")
+  );
+}
+
+function isTestFailureWrapper(value) {
+  if (value === null || typeof value !== "object") return false;
+  // Node's test runner sets ERR_TEST_FAILURE on both the assertion wrapper and the parent
+  // subtest wrapper; older shapes only carry the "test failed" message plus the child cause.
+  return value.code === "ERR_TEST_FAILURE" || (value.message === "test failed" && isRenderable(value.cause));
 }
 
 function indent(text) {
