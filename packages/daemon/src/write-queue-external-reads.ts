@@ -117,7 +117,7 @@ export function readBeforeWriteQueue(
               ? {
                   pullRequest: {
                     hosting,
-                    title: latest.task?.title ?? taskId,
+                    taskTitle: latest.task?.title ?? taskId,
                     submission,
                     ...(typeof action.body === "string" ? { body: action.body } : {}),
                   },

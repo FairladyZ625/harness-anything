@@ -363,7 +363,7 @@ export async function publishExit(
             classifyRemoteAhead: submittedCommitSha !== undefined,
             env,
             ...(hosting && submission?.commitSha
-              ? { pullRequest: { hosting, title: snapshot.task?.title ?? active.task.taskId, submission } }
+              ? { pullRequest: { hosting, taskTitle: snapshot.task?.title ?? active.task.taskId, submission } }
               : {}),
           }),
           push = publication.push;

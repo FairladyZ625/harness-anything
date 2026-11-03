@@ -55,21 +55,26 @@ test("publication creates then updates one PR for the submitted branch using dae
     env: { GH_TOKEN: "daemon-only-fixture" },
     pullRequest: {
       hosting: { kind: "github" as const, host: "github.com", repository: "acme/repo" },
-      title: "Delivered task",
+      taskTitle: "Delivered task",
       submission: frozen(head),
+      title: "Explicit PR title",
       body: "Repository-owned body.\n\nLiteral `$()`.",
     },
   };
   await publishTaskWorkerBranch(input);
-  await publishTaskWorkerBranch(input);
+  const { body: explicitBody, title: explicitTitle, ...defaults } = input.pullRequest;
+  await publishTaskWorkerBranch({ ...input, pullRequest: { ...defaults, title: explicitTitle } });
+  await publishTaskWorkerBranch({ ...input, pullRequest: { ...defaults, body: explicitBody } });
   assert.deepEqual(
     requests.map(({ method }) => method),
-    ["GET", "GET", "POST", "GET", "GET", "PATCH"],
+    ["GET", "GET", "POST", "GET", "GET", "PATCH", "GET", "GET", "PATCH"],
   );
   assert.match(requests[1]!.url, new RegExp(`head=acme%3A${fixtureTaskId}`, "u"));
   assert.equal(requests[2]!.body?.head, fixtureTaskId);
-  assert.equal(requests[2]!.body?.body, input.pullRequest.body);
-  assert.equal(requests[5]!.body?.body, input.pullRequest.body);
+  assert.equal(requests[2]!.body?.title, explicitTitle);
+  assert.equal(requests[2]!.body?.body, explicitBody);
+  assert.deepEqual(requests[5]!.body, { title: explicitTitle });
+  assert.deepEqual(requests[8]!.body, { body: explicitBody });
 });
 
 function publicationFixture(context: Parameters<typeof workerGitFixture>[0], slug: string) {
@@ -85,7 +90,7 @@ function publicationFixture(context: Parameters<typeof workerGitFixture>[0], slu
       env: { GH_TOKEN: "daemon-only-fixture" },
       pullRequest: {
         hosting: { kind: "github" as const, host: "github.com", repository: "acme/repo" },
-        title: "Delivered task",
+        taskTitle: "Delivered task",
         submission: frozen(head),
       },
     },
@@ -100,7 +105,7 @@ test("settlement default uses frozen prose and preserves repository-authored bod
     if (!url.includes("/pulls")) return Response.json({ default_branch: "trunk" });
     if (options.method === "GET") {
       assert.doesNotMatch(url, /base=/u);
-      return Response.json(exists ? [{ number: 9 }] : []);
+      return Response.json(exists ? [{ number: 9, html_url: "https://github.com/acme/repo/pull/9" }] : []);
     }
     writes.push(JSON.parse(String(options.body)));
     exists = true;
@@ -111,13 +116,14 @@ test("settlement default uses frozen prose and preserves repository-authored bod
   assert.match(String(writes[0]!.body), /Frozen delivery summary\./u);
   assert.match(String(writes[0]!.body), /Targeted tests passed\./u);
   assert.equal(writes[0]!.base, "trunk");
+  assert.equal(writes[0]!.title, "Delivered task");
   assert.doesNotMatch(
     String(writes[0]!.body),
     /External CI pending/u,
     "internal risk and same-mechanism fields are not copied into the default PR body",
   );
   assert.match(String(writes[0]!.body), new RegExp(input.submittedCommitSha, "u"));
-  assert.deepEqual(writes[1], { title: "Delivered task" }, "a later settlement preserves the PR's authored body");
+  assert.equal(writes.length, 1, "a later settlement leaves existing PR metadata untouched");
 });
 
 test("concurrent create conflict resolves the existing branch PR without a second creation", async (context) => {
@@ -128,13 +134,14 @@ test("concurrent create conflict resolves the existing branch PR without a secon
     const method = options.method ?? "GET";
     methods.push(method);
     if (!url.includes("/pulls")) return Response.json({ default_branch: "main" });
-    if (method === "GET") return Response.json(++lists === 1 ? [] : [{ number: 42 }]);
+    if (method === "GET")
+      return Response.json(++lists === 1 ? [] : [{ number: 42, html_url: "https://github.com/acme/repo/pull/42" }]);
     if (method === "POST") return Response.json({ message: "A pull request already exists." }, { status: 422 });
     return Response.json({ number: 42, html_url: "https://github.com/acme/repo/pull/42" });
   });
   const result = await publishTaskWorkerBranch(input);
   assert.equal(result.pullRequest?.url, "https://github.com/acme/repo/pull/42");
-  assert.deepEqual(methods, ["GET", "GET", "POST", "GET", "PATCH"]);
+  assert.deepEqual(methods, ["GET", "GET", "POST", "GET"]);
 });
 
 test("GitLab publication uses the same port and updates the task merge request", async (context) => {
@@ -151,6 +158,9 @@ test("GitLab publication uses the same port and updates the task merge request",
       assert.match(url, new RegExp(`source_branch=${fixtureTaskId}`, "u"));
       return Response.json(exists ? [{ iid: 7 }] : []);
     }
+    const data = JSON.parse(String(options.body));
+    if (method === "POST") assert.equal(data.title, "Delivered task");
+    else assert.deepEqual(data, { description: "Explicit GitLab description." });
     exists = true;
     return Response.json({ iid: 7, web_url: "https://gitlab.example/acme/repo/-/merge_requests/7" });
   });
@@ -159,6 +169,7 @@ test("GitLab publication uses the same port and updates the task merge request",
     env: { GITLAB_TOKEN: "gitlab-fixture" },
     pullRequest: {
       ...input.pullRequest,
+      body: "Explicit GitLab description.",
       hosting: {
         kind: "gitlab" as const,
         host: "gitlab.example",
@@ -232,11 +243,18 @@ test("terminal settlement persists the PR URL or publication failure without wor
       return {};
     });
   let deny = false;
+  let existing: Record<string, unknown> | undefined;
   context.mock.method(globalThis, "fetch", async (url: string, options: RequestInit = {}) => {
     if (deny) return new Response(null, { status: 403 });
     if (!url.includes("/pulls")) return Response.json({ default_branch: "main" });
-    if (options.method === "GET") return Response.json([]);
-    return Response.json({ number: 8, html_url: "https://github.com/acme/repo/pull/8" });
+    if (options.method === "GET") return Response.json(existing ? [existing] : []);
+    existing = {
+      ...existing,
+      number: 8,
+      html_url: "https://github.com/acme/repo/pull/8",
+      ...JSON.parse(String(options.body)),
+    };
+    return Response.json(existing);
   });
   await publishExit(
     {
@@ -249,6 +267,23 @@ test("terminal settlement persists the PR URL or publication failure without wor
   );
   assert.match(bodies[0]!, /Task pull request published: https:\/\/github.com\/acme\/repo\/pull\/8/u);
   assert.doesNotMatch(bodies[0]!, /gh pr create/u);
+  await context.test("repeat settlement preserves a manually edited PR title and body", async () => {
+    existing!.title = "CEO-edited PR title";
+    existing!.body = "Repository-authored PR body.";
+    await publishExit(
+      {
+        ...settle,
+        exiting: new Set(),
+        requiredRuntimeProjection: () => projection as never,
+        prepareDaemonGitEnvironment: async () => input.env,
+      },
+      workerSettlementRuntime(fixture, {}),
+      0,
+    );
+    assert.match(bodies[1]!, /Task pull request published:/u);
+    assert.equal(existing!.title, "CEO-edited PR title");
+    assert.equal(existing!.body, "Repository-authored PR body.");
+  });
   deny = true;
   await publishExit(
     {
@@ -260,6 +295,6 @@ test("terminal settlement persists the PR URL or publication failure without wor
     workerSettlementRuntime(fixture, {}),
     0,
   );
-  assert.match(bodies[1]!, /Branch pushed; PR publication failed: Hosting GET returned HTTP 403/u);
-  assert.match(bodies[1]!, new RegExp(`Retry: ha task push ${fixtureTaskId}`, "u"));
+  assert.match(bodies[2]!, /Branch pushed; PR publication failed: Hosting GET returned HTTP 403/u);
+  assert.match(bodies[2]!, new RegExp(`Retry: ha task push ${fixtureTaskId}`, "u"));
 });

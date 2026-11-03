@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import { makeScheduleScheduler } from "../src/schedule-scheduler.ts";
+import { taskPrPublicationNote } from "../src/runtime-spawn-mission.ts";
 import { latestSquadStates } from "../src/squad-run-state.ts";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -178,7 +179,11 @@ test(
     // loop; the framework's one-line PR note may ride the task-bound mission, but the worker's
     // exact publication loop never does.
     assert.match(leader.prompt, /delivery contract with the CEO/u);
-    assert.doesNotMatch(leader.prompt, /ha task push <task-id>|ha task pr <task-id>|task delivery commands/u);
+    assert.ok(leader.prompt.includes(taskPrPublicationNote));
+    assert.doesNotMatch(
+      leader.prompt.replace(taskPrPublicationNote, ""),
+      /ha task push <task-id>|ha task pr <task-id>|task delivery commands/u,
+    );
     assert.match(leader.prompt, /Do not merge/u);
     await fixture.cell.settlePendingMaterialization("before public integration");
     git(fixture.root, "checkout", "-qb", "codex/mission-delivery");

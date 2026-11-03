@@ -6,7 +6,10 @@ import { isJsonObject } from "./protocol/json-rpc-types.ts";
 
 type PullRequestInput = {
   readonly hosting: HostingProvider;
-  readonly title: string;
+  /** Used only when creating a PR without an explicit title. */
+  readonly taskTitle: string;
+  /** Existing PR metadata changes only when explicitly supplied by the caller. */
+  readonly title?: string;
   readonly submission: SubmissionV1;
   /** Repository-authored Markdown is passed through; settlement never replaces an existing body. */
   readonly body?: string;
@@ -89,9 +92,10 @@ async function upsertPullRequest(branch: string, input: PullRequestInput, env?: 
   const update = async (existing: unknown) => {
     const number = isJsonObject(existing) ? existing[github ? "number" : "iid"] : undefined;
     if (typeof number !== "number") throw new Error("Hosting pull request has no number.");
+    if (input.title === undefined && input.body === undefined) return existing;
     return (
       await request(`${collection}/${number}`, github ? "PATCH" : "PUT", {
-        title: input.title,
+        ...(input.title === undefined ? {} : { title: input.title }),
         ...(input.body === undefined ? {} : { [github ? "body" : "description"]: input.body }),
       })
     ).value;
@@ -101,7 +105,7 @@ async function upsertPullRequest(branch: string, input: PullRequestInput, env?: 
   if (existing) result = await update(existing);
   else {
     const created = await request(collection, "POST", {
-      title: input.title,
+      title: input.title ?? input.taskTitle,
       ...(github ? { head: branch, base } : { source_branch: branch, target_branch: base }),
       [github ? "body" : "description"]: input.body ?? submittedBody(input.submission),
     });

@@ -385,8 +385,8 @@ for (const mutation of [
   {
     name: "prepared side effect import",
     file: "write-queue-external-reads",
-    before: 'from "./runtime-worker-push.ts"',
-    after: 'from "./unrelated-worker-push.ts"',
+    before: 'from "./runtime-task-publication.ts"',
+    after: 'from "./unrelated-task-publication.ts"',
   },
   {
     name: "prepared publication return",
