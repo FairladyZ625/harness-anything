@@ -190,6 +190,27 @@ describe("IdentityAccessView", () => {
     );
     expect(container.textContent).not.toContain("Keycloak");
   });
+
+  it("invalidates the previous account when a later identity read fails", async () => {
+    let fail = false;
+    const status = vi.fn(async () => {
+      if (fail) throw new Error("session unavailable");
+      return { ok: true, authenticated: true, personId: "person-a" };
+    });
+    Object.defineProperty(window, "harness", {
+      configurable: true,
+      value: { auth: auth({ status }) },
+    });
+    await act(async () => root.render(createElement(IdentityAccessView, { repoId: "repo-a" })));
+    await act(async () => undefined);
+    expect(container.textContent).toContain("person-a");
+    fail = true;
+    await act(async () => root.render(createElement(IdentityAccessView, { repoId: "repo-b" })));
+    await act(async () => undefined);
+    expect(container.textContent).not.toContain("person-a");
+    expect(container.textContent).toContain("身份不可用");
+    expect(container.textContent).not.toContain("尚未登录");
+  });
 });
 
 it("classifies a binding mode as builtin, Keycloak, or unknown", () => {

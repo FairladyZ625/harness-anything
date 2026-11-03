@@ -60,6 +60,7 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
     readonly access: AccessAdminApi | undefined;
   }) {
     const [session, setSession] = useState<RecordValue | null>(null),
+      [sessionFailed, setSessionFailed] = useState(false),
       [binding, setBinding] = useState<RecordValue | null | undefined>(undefined),
       [bootstrapRequired, setBootstrapRequired] = useState(false),
       [busy, setBusy] = useState(false),
@@ -79,8 +80,17 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
     );
 
     const refresh = async () => {
-      const nextSession = await auth.status(repoId, rootDir);
-      setSession(nextSession as RecordValue);
+      let nextSession: RecordValue;
+      try {
+        nextSession = (await auth.status(repoId, rootDir)) as RecordValue;
+      } catch (error) {
+        // A failed identity read must not leave the previous session labelled as current.
+        setSession(null);
+        setSessionFailed(true);
+        throw error;
+      }
+      setSession(nextSession);
+      setSessionFailed(false);
       const nextBinding = (await auth.bindingStatus(repoId, rootDir)) as RecordValue;
       if (nextBinding.configured === false) {
         setBinding(null);
@@ -93,6 +103,8 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
     };
 
     useEffect(() => {
+      setSession(null);
+      setSessionFailed(false);
       void refresh().catch((error: unknown) => setFeedback(message(error)));
     }, [repoId, rootDir]);
 
@@ -116,8 +128,15 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
     useEffect(() => {
       const refreshRequests = () =>
         void auth.status(repoId, rootDir).then(
-          (reply) => setSession(reply as RecordValue),
-          (error: unknown) => setFeedback(message(error)),
+          (reply) => {
+            setSession(reply as RecordValue);
+            setSessionFailed(false);
+          },
+          (error: unknown) => {
+            setSession(null);
+            setSessionFailed(true);
+            setFeedback(message(error));
+          },
         );
       const interval = setInterval(refreshRequests, 3_000);
       return () => clearInterval(interval);
@@ -275,9 +294,11 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
                   time={
                     <span className="flex items-center gap-2.5 font-sans">
                       <span data-testid="identity-session" className="text-text ui-body">
-                        {authenticated
-                          ? t("identityAccess.signedInAs", { personId: String(session?.personId) })
-                          : t("identityAccess.signedOut")}
+                        {sessionFailed
+                          ? t("identityAccess.identityUnavailable")
+                          : authenticated
+                            ? t("identityAccess.signedInAs", { personId: String(session?.personId) })
+                            : t("identityAccess.signedOut")}
                       </span>
                       <Button
                         size="sm"

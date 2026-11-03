@@ -57,6 +57,7 @@
   "identityAccess.currentIdentity": "Current identity",
   "identityAccess.signedInAs": "Signed in · {personId}",
   "identityAccess.signedOut": "Not signed in",
+  "identityAccess.identityUnavailable": "Identity unavailable",
   "identityAccess.cancelLogin": "Cancel sign-in",
   "identityAccess.deviceApproval": "Approve device sign-in",
   "identityAccess.closeDeviceApproval": "Close approval page",
