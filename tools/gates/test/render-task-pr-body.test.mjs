@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { checkPrBody } from "../../check-pr-body.mjs";
+import { checkPrGovernance } from "../../check-pr-governance.mjs";
 import { validateDependencyDeclaration } from "../dependency-policy.mjs";
 import { renderTaskPrBody } from "../render-task-pr-body.mjs";
 
@@ -67,15 +68,15 @@ Not emitted into the PR body.
 ## Same Mechanism Elsewhere`,
   );
 
-function receipt(submission, metadata = {}) {
+function receipt(submission, metadata = {}, id = taskId) {
   return {
     ok: true,
     evidence: JSON.stringify({
-      task: { taskId, iteration: 1, metadata },
+      task: { taskId: id, iteration: 1, metadata },
       executions: [
-        { taskId, iteration: 0, submittedAt: "2026-10-20T00:00:00.000Z", submission: { commitSha: firstSha } },
+        { taskId: id, iteration: 0, submittedAt: "2026-10-20T00:00:00.000Z", submission: { commitSha: firstSha } },
         {
-          taskId,
+          taskId: id,
           iteration: 1,
           submittedAt: "2026-10-21T00:00:00.000Z",
           submission,
@@ -137,6 +138,31 @@ test("PR renderer describes a package.json change instead of the rejected none s
     "the rendered body passes G31's own declaration check",
   );
   assertPassesPrBodyCheck(body, dependencySubmission);
+});
+
+test("PR renderer declares a touched protected surface with the task as authority", () => {
+  const manifest = JSON.parse(readFileSync(new URL("../../gate-manifest.json", import.meta.url), "utf8")),
+    protectedId = "task_0123456789abcdef0123456789",
+    submission = { ...codeSubmission, changedFiles: [...codeSubmission.changedFiles, "tools/run-node-tests.mjs"] },
+    body = renderTaskPrBody({
+      taskId: protectedId,
+      receipt: receipt(submission, {}, protectedId),
+      template,
+      closeout,
+      manifest,
+    });
+  assert.match(body, /^- Protected surface touched: yes$/mu);
+  assert.match(body, /^- Protected surface scope: `"tools\/run-node-tests\.mjs"`$/mu);
+  assert.match(body, new RegExp(`^- Authority: ${protectedId}$`, "mu"));
+  const governance = checkPrGovernance({ body, changedFiles: submission.changedFiles, manifest });
+  assert.equal(governance.ok, true, governance.issues.join("\n"));
+});
+
+test("PR renderer keeps the governance defaults when no protected surface is touched", () => {
+  const manifest = JSON.parse(readFileSync(new URL("../../gate-manifest.json", import.meta.url), "utf8")),
+    body = render(codeSubmission, { manifest });
+  assert.match(body, /^- Protected surface touched: no$/mu);
+  assert.match(body, /^- Authority: not applicable$/mu);
 });
 
 test("PR renderer treats a lockfile-only cut as a dependency change", () => {
