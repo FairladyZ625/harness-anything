@@ -95,7 +95,6 @@ import {
 import { withOnlineRuntimeSession, type RuntimeOperatorSession } from "./runtime-online-binding.ts";
 import { openTerminalHost } from "./terminal-host.ts";
 import { makeRepoCellSquadCoordinator } from "./repo-cell-squad-coordinator.ts";
-import { cancelRejectedSquadChildren } from "./squad-run-state.ts";
 import { reconcileAbandonedTaskWorktrees } from "./task-worktree.ts";
 import { makeAgentActionRuntime, makeSquadActionRuntime } from "./squad-action-runtime.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
@@ -989,6 +988,7 @@ export async function openRepoWriterCell(
         `Runtime terminal waiting settlement was ${parked.outcome}.`,
       );
   };
+  const squadRecoveryDispatchIds = await squadCoordinator.retentionProtectedDispatchIds();
   setImmediate(() => {
     if (state === "closed") return;
     void recoveryWork
@@ -1005,6 +1005,8 @@ export async function openRepoWriterCell(
       rootDir,
       readEffectiveDispatchArchiveRetention(projection),
       readFactEvidenceSources(projection),
+      Date.now(),
+      squadRecoveryDispatchIds,
     ),
   );
   scheduleArchivedDispatchStreamCompaction(rootDir, schedule);
@@ -1013,8 +1015,7 @@ export async function openRepoWriterCell(
   schedule(() =>
     reconcileAbandonedTaskWorktrees(taskWorktreeInput(operationalContext), {
       cancelSquadOrphans: () =>
-        cancelRejectedSquadChildren({
-          rootDir,
+        squadCoordinator.cancelRejectedChildren({
           readTask: (taskId) => projection.read(taskId).snapshot.task,
           cancel: async (action, binding, actionId) =>
             operationalContext.lifecycleAction(action, await authorizeRuntimeAction(action, binding, actionId)),

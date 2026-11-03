@@ -19,7 +19,10 @@ import type { WorktreeSetupSettings } from "./worktree-setup.ts";
 export function makeFleetSquadCoordinator(input: {
   readonly request: FleetEdgeRuntimeRequest["payload"];
   readonly peer: FleetPeerOptions;
-  readonly spawner: ReturnType<typeof makeRuntimeSpawner>;
+  readonly spawner: Pick<
+    ReturnType<typeof makeRuntimeSpawner>,
+    "spawnCoordinated" | "spawnScheduledCoordinated" | "cancel"
+  >;
   readonly controlBinding: () => Promise<RuntimeBinding>;
   readonly sync: () => Promise<void>;
   readonly prepareWorkspace: () => Promise<void>;
@@ -191,11 +194,12 @@ export function makeFleetSquadCoordinator(input: {
   }
   return {
     async run(action: JsonObject): Promise<JsonObject> {
+      const owner = action.kind === "squad-cancel" ? await input.controlBinding() : await binding();
+      principalId = owner.actor.principal.personId;
       const raw =
         action.kind === "squad-cancel"
-          ? await coordinator.cancel(String(action.squadRunId), await input.controlBinding())
+          ? await coordinator.cancel(String(action.squadRunId), owner)
           : await (async () => {
-              const owner = await binding();
               await input.prepareWorkspace();
               await coordinator.reconcile();
               return coordinator.start(action, owner);
@@ -210,7 +214,11 @@ export function makeFleetSquadCoordinator(input: {
         summary: raw.summary!,
       };
     },
-    flushPublications: coordinator.flushPublications,
+    async flushPublications(): Promise<void> {
+      await binding();
+      await input.sync();
+      await coordinator.flushPublications();
+    },
     async reconcile(): Promise<void> {
       await binding();
       await input.sync();

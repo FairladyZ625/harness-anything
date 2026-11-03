@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import { makeScheduleScheduler } from "../src/schedule-scheduler.ts";
 import { taskPrPublicationNote } from "../src/runtime-spawn-mission.ts";
-import { latestSquadStates } from "../src/squad-run-state.ts";
+import { latestSquadStates } from "./squad-run-state.fixture.ts";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
