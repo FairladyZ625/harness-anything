@@ -5,6 +5,7 @@ import { Tabs } from "../components/primitives/Tabs.tsx";
 import { IdText } from "../components/IdText.tsx";
 import { guiHostBridge } from "../gui-transport.ts";
 import { t } from "../i18n/index.tsx";
+import { consumeKnownError } from "../../api/error-consumption.ts";
 import type { AuthorizationUiComponents } from "@harness-anything/authorization-gui/ui-component-contract";
 import {
   AccessServiceTab,
@@ -47,15 +48,11 @@ export function IdentityAccessView({
   const [identity, setIdentity] = useState<string>("");
   useEffect(() => {
     const refreshIdentity = () => {
-      if (auth) {
-        const request = auth.status(repoId, rootDir);
-        void request
-          .then((reply) => {
-            const status = reply as { readonly authenticated?: boolean; readonly personId?: string };
-            setIdentity(status.authenticated ? String(status.personId) : t("identityAccess.signedOut"));
-          })
-          .catch(() => setIdentity(t("identityAccess.signedOut")));
-      }
+      if (!auth) return;
+      void auth.status(repoId, rootDir).then((reply) => {
+        const status = reply as { readonly authenticated?: boolean; readonly personId?: string };
+        setIdentity(status.authenticated ? (status.personId ?? "") : t("identityAccess.signedOut"));
+      }, consumeKnownError);
     };
     refreshIdentity();
     window.addEventListener("harness-auth-changed", refreshIdentity);

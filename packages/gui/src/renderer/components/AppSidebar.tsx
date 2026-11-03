@@ -14,6 +14,7 @@ import { RepoModeBadge } from "./RepoModeBadge.tsx";
 import { t } from "../i18n/index.tsx";
 import { guiHostBridge } from "../gui-transport.ts";
 import { consumeKnownError } from "../../api/error-consumption.ts";
+import { readIdentity, type IdentitySnapshot } from "../identity-session.ts";
 import { useAgendaQuery } from "../agenda-data.ts";
 import { useWorkIndexQuery } from "../task-data.ts";
 import { workIndexOf } from "../model/work-collections.ts";
@@ -64,6 +65,13 @@ export interface AppSidebarProps {
  *   `SystemStatusPanel`(账号区之上),与账号区一起固定在底部,不随导航滚动,
  *   也不与滚动区形成嵌套双滚动条(底部是 shrink-0,不产生自己的滚动)。
  */
+function identitySubtitle(identity: IdentitySnapshot): string {
+  if (identity.provider === "unknown") return "";
+  if (identity.provider === "builtin")
+    return t(identity.authenticated ? "identityAccess.localIdentity" : "identityAccess.localSignIn");
+  return t(identity.authenticated ? "identityAccess.keycloakIdentity" : "identityAccess.signIn");
+}
+
 export function AppSidebar({
   project,
   repos,
@@ -94,31 +102,18 @@ export function AppSidebar({
   const identityTarget = useRef(activeRepoId);
   identityTarget.current = activeRepoId;
   const [pinnedOpen, setPinnedOpen] = useState(true);
-  const [identity, setIdentity] = useState<{ readonly authenticated: boolean; readonly personId?: string }>({
-    authenticated: false,
-  });
-  const [identityMode, setIdentityMode] = useState<string | undefined>();
+  const [identity, setIdentity] = useState<IdentitySnapshot | null>(null);
   const authCandidate = guiHostBridge()?.auth,
     auth = authCandidate && typeof authCandidate.status === "function" ? authCandidate : undefined;
   const refreshIdentity = () => {
     if (!auth) return;
-    const request = auth.status(activeRepoId ?? undefined, identityRoot);
-    void request.then((value) => {
+    void readIdentity(auth, activeRepoId ?? undefined, identityRoot).then((value) => {
       if (identityTarget.current !== activeRepoId) return;
-      const status = value as { readonly authenticated?: boolean; readonly personId?: string };
-      setIdentity({
-        authenticated: status.authenticated === true,
-        ...(status.personId ? { personId: status.personId } : {}),
-      });
-    }, consumeKnownError);
-    void auth.bindingStatus(activeRepoId ?? undefined, identityRoot).then((value) => {
-      if (identityTarget.current !== activeRepoId) return;
-      setIdentityMode((value as { readonly mode?: string }).mode);
+      setIdentity(value);
     }, consumeKnownError);
   };
   useEffect(() => {
-    setIdentity({ authenticated: false });
-    setIdentityMode(undefined);
+    setIdentity(null);
     refreshIdentity();
   }, [activeRepoId, identityRoot]);
   useEffect(() => {
@@ -382,18 +377,16 @@ export function AppSidebar({
             className={`grid size-6 shrink-0 place-items-center rounded-full bg-surface-raised
               font-mono ui-micro font-semibold text-text-muted`}
           >
-            {identity.authenticated ? (identity.personId?.slice(0, 1).toUpperCase() ?? "K") : "?"}
+            {identity?.authenticated ? (identity.personId?.slice(0, 1).toUpperCase() ?? "K") : "?"}
           </span>
-          <span className="min-w-0">
-            <span className="block truncate text-xs text-text">
-              {identity.authenticated ? identity.personId : t("identityAccess.signedOut")}
+          {identity ? (
+            <span className="min-w-0">
+              <span className="block truncate text-xs text-text">
+                {identity.authenticated ? (identity.personId ?? "") : t("identityAccess.signedOut")}
+              </span>
+              <span className="block truncate ui-micro text-text-faint">{identitySubtitle(identity)}</span>
             </span>
-            <span className="block truncate ui-micro text-text-faint">
-              {identity.authenticated
-                ? t(identityMode === "builtin" ? "identityAccess.localIdentity" : "identityAccess.keycloakIdentity")
-                : t(identityMode === "builtin" ? "identityAccess.localSignIn" : "identityAccess.signIn")}
-            </span>
-          </span>
+          ) : null}
         </button>
       </div>
     </aside>

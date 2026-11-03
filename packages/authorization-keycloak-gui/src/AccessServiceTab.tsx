@@ -5,6 +5,7 @@ import type {
   AccessSessionLifetimeReply,
 } from "@harness-anything/authorization-gui/access-admin-contract";
 import type { EmbeddedLoginPage, OidcAuthApi } from "@harness-anything/authorization-gui/oidc-auth-contract";
+import { identityProviderOf } from "@harness-anything/authorization-gui/identity-presentation";
 import { createAccessModel } from "./access-model.js";
 import type { RepoMode } from "./ui-host.js";
 import { createAccessParts } from "./AccessParts.js";
@@ -136,8 +137,14 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
         }
       });
 
-    const builtin = binding?.mode === "builtin",
-      signInLabel = builtin ? "identityAccess.localSignIn" : "identityAccess.signIn";
+    const provider = identityProviderOf(binding?.mode),
+      builtin = provider === "builtin",
+      keycloak = provider === "keycloak",
+      signInLabel = builtin
+        ? "identityAccess.localSignIn"
+        : keycloak
+          ? "identityAccess.signIn"
+          : "identityAccess.signInNeutral";
     if (login)
       return (
         <section className="flex min-h-0 flex-1 flex-col" data-testid="account-login">
@@ -233,7 +240,13 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
             ) : null}
             <BoardRegion region="service" data-testid="access-service-card">
               <Region
-                title={t(builtin ? "identityAccess.localService" : "accessControl.service.title")}
+                title={t(
+                  builtin
+                    ? "identityAccess.localService"
+                    : keycloak
+                      ? "accessControl.service.title"
+                      : "identityAccess.serviceNeutral",
+                )}
                 tag={
                   binding ? (
                     <StatusTag
@@ -246,7 +259,13 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
                 footer={
                   <>
                     <span className="min-w-0 truncate">
-                      {t(builtin ? "identityAccess.localDescription" : "identityAccess.description")}
+                      {t(
+                        builtin
+                          ? "identityAccess.localDescription"
+                          : keycloak
+                            ? "identityAccess.description"
+                            : "identityAccess.descriptionNeutral",
+                      )}
                     </span>
                   </>
                 }
@@ -263,7 +282,7 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
                       <Button
                         size="sm"
                         disabled={busy || (!authenticated && !ready)}
-                        tip={!authenticated && !ready ? t("identityAccess.signInDisabled") : undefined}
+                        tip={!authenticated && !ready && keycloak ? t("identityAccess.signInDisabled") : undefined}
                         testId="account-session-action"
                         onClick={() => void (authenticated ? run(() => auth.logout(repoId, rootDir)) : signIn())}
                       >
