@@ -5,6 +5,7 @@ import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { checkPrBody } from "../check-pr-body.mjs";
+import { classifyProtectedChanges, deriveProtectedSurfaceRules } from "../check-pr-governance.mjs";
 import { readSubmissionFacts } from "../../packages/kernel/src/domain/submission-facts.ts";
 import { markdownSections } from "../../packages/kernel/src/domain/transition-document-readiness.ts";
 import {
@@ -239,7 +240,20 @@ function declareDependencyChange(body, content) {
   return replaceDependencyDeclaration(body, description);
 }
 
-export function renderTaskPrBody({ taskId, receipt, template, body = template, closeout }) {
+// The governance gate classifies protected paths from the gate manifest; the renderer reuses that
+// classification and cites the task itself as the authority, so a touched protected surface is
+// declared on the only rendering path instead of failing pr-body-lint after the PR opens.
+function declareProtectedSurfaces(body, taskId, changedFiles, manifest) {
+  if (!manifest) return body;
+  const files = classifyProtectedChanges(changedFiles, deriveProtectedSurfaceRules(manifest)).map(({ file }) => file);
+  if (files.length === 0) return body;
+  return body
+    .replace(/^- Protected surface touched: no$/mu, "- Protected surface touched: yes")
+    .replace(/^- Protected surface scope:\s*$/mu, `- Protected surface scope: ${files.map(pathCode).join(", ")}`)
+    .replace(/^- Authority: not applicable$/mu, `- Authority: ${taskId}`);
+}
+
+export function renderTaskPrBody({ taskId, receipt, template, body = template, closeout, manifest }) {
   const { submission, profileId } = taskProjection(receipt, taskId),
     submissionFacts = readSubmissionFacts(submission),
     delivery = deliveryFacts(submission, submissionFacts),
@@ -264,6 +278,7 @@ export function renderTaskPrBody({ taskId, receipt, template, body = template, c
     else rendered = declareDependencyChange(rendered, content);
   }
   if (missing.length > 0) throw new Error(`closeout.md is missing required section(s): ${missing.join(", ")}`);
+  rendered = declareProtectedSurfaces(rendered, taskId, submissionFacts.changedFiles, manifest);
   const { start, end } = markerPair(rendered, "PR template"),
     finalBody = `${rendered.slice(0, start + START.length)}\n${delivery}\n${rendered.slice(end)}`,
     declarationErrors = validateDependencyDeclaration(submissionFacts.changedFiles, finalBody);
@@ -332,7 +347,8 @@ export function main(argv = process.argv.slice(2)) {
         path.resolve(rootDir, options.bodyFile) === path.resolve(rootDir, ".github/pull_request_template.md")
           ? template
           : readFileSync(path.resolve(rootDir, options.bodyFile), "utf8"),
-      body = renderTaskPrBody({ taskId: options.taskId, receipt, template, body: input, closeout }),
+      manifest = JSON.parse(readFileSync(path.resolve(rootDir, "tools/gate-manifest.json"), "utf8")),
+      body = renderTaskPrBody({ taskId: options.taskId, receipt, template, body: input, closeout, manifest }),
       check = checkPrBody(body, {
         prTemplate: template,
         eventMigration: { files: readSubmissionFacts(submission).changedFiles },
