@@ -36,7 +36,7 @@ export type {
   EntityActionExplanationSubjectV1,
   EntityActionExplanationV1,
 } from "./entity-action-explanation.ts";
-export type { EntityActionUnmetCriterionV1 } from "./receipt-domain-registry.ts";
+export type { EntityActionUnmetCriterionV1, TaskRiskTierAdviceV1 } from "./receipt-domain-registry.ts";
 export type { DecisionCapabilityId, DecisionCapabilityReason } from "./decision-board-projection.ts";
 export { isTerminalDecisionState } from "./decision-board-projection.ts";
 export { deriveActionReturnsContract } from "./entity-action-descriptor.ts";

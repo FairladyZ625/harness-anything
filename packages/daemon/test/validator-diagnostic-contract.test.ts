@@ -28,6 +28,13 @@ import { writeReceipt } from "../src/protocol/daemon-protocol-validate-results.t
 import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
 
 test("unaccepted pending and no-op receipts carry no fabricated committed proof", () => {
+  const riskTierAdvice = {
+    schema: "task-risk-tier-advice/v1",
+    declaredTier: "low",
+    suggestedTier: "low",
+    profileId: "lightweight",
+    reasons: ["declared low risk", "submit rechecks the delivery"],
+  };
   const pending: JsonObject = {
     outcome: "pending",
     opId: "cancel-missing-session",
@@ -39,9 +46,31 @@ test("unaccepted pending and no-op receipts carry no fabricated committed proof"
     replica: { state: "not_configured", cut: null },
     visibility: "center",
     evidence: "runtime-cancel:missing-session",
+    riskTierAdvice,
     guidance: [{ kind: "retry-receipt", args: { opId: "cancel-missing-session" } }],
   };
   assert.deepEqual(writeReceipt(pending), []);
+  assert.match(
+    writeReceipt({ ...pending, riskTierAdvice: { ...riskTierAdvice, profileId: "" } }).join("\n"),
+    /riskTierAdvice/u,
+  );
+  const riskTierAssessment = {
+    schema: "task-risk-tier-assessment/v1",
+    declaredTier: "low",
+    effectiveTier: "high",
+    deliveryBaseSha: "a".repeat(40),
+    deliveryHeadSha: "b".repeat(40),
+    matchedPathReviewers: [],
+    reasons: ["repository-risk-floor: sensitive repository surface: packages/app/src/auth.ts"],
+  };
+  assert.deepEqual(writeReceipt({ ...pending, riskTierAssessment }), []);
+  assert.match(
+    writeReceipt({
+      ...pending,
+      riskTierAssessment: { ...riskTierAssessment, declaredTier: "high", effectiveTier: "low" },
+    }).join("\n"),
+    /riskTierAssessment/u,
+  );
   const noOp = { ...pending, outcome: "no_changes", status: "settled_no_write", code: "no_changes", origin: "daemon" };
   assert.deepEqual(writeReceipt(noOp), []);
   assert.match(writeReceipt({ ...noOp, status: "unknown" }).join("\n"), /no_changes requires/u);

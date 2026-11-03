@@ -473,9 +473,7 @@ function riskTierCloseoutGates(
   return {
     ...gates,
     review: assessment.effectiveTier !== "low",
-    // A repository floor changes the reviewer route only; preserve the original contract's
-    // consent decision for medium, and keep the tier-specific low/high rules.
-    consent: assessment.declaredTier === "low" ? false : assessment.declaredTier === "high" ? true : gates.consent,
+    consent: assessment.effectiveTier === "high" ? true : assessment.effectiveTier === "low" ? false : gates.consent,
   };
 }
 
@@ -876,6 +874,7 @@ export async function submitTask(
     const warnings = [...anchorDriftWarnings, ...review.warnings];
     return {
       ...receipt,
+      ...(submission.riskTierAssessment ? { riskTierAssessment: submission.riskTierAssessment } : {}),
       ...(warnings.length ? { warnings } : {}),
       steps: submissionSteps(executor, review),
     } as WriteReceiptDraft;
@@ -889,6 +888,7 @@ export async function submitTask(
     warnings = [...anchorDriftWarnings, ...review.warnings];
   return {
     ...receipt,
+    ...(submission.riskTierAssessment ? { riskTierAssessment: submission.riskTierAssessment } : {}),
     ...(warnings.length ? { warnings } : {}),
     steps: [...(synced ? [synced] : []), ...submissionSteps(executor, review)],
   } as WriteReceiptDraft;

@@ -11,6 +11,7 @@ import { validateFrozenCompletionContract, type FrozenCompletionContract } from 
 import type { ProductionDeltaCounts } from "./production-delta.ts";
 import { validateTaskReviewResponseV1 } from "./review.ts";
 import type { TaskReviewResponseV1 } from "./review.ts";
+import { isTaskRiskTierAssessmentV1 } from "./task-risk-tier-assessment.ts";
 
 export const executionStates = ["active", "submitted", "accepted", "changes_requested", "abandoned"] as const;
 export type ExecutionState = (typeof executionStates)[number];
@@ -284,7 +285,7 @@ export function validateSubmissionV1(value: unknown, allowUnknownFields = false)
     !stringArray(value.knownGaps) ||
     !stringArray(value.residualRisks) ||
     (value.changedFiles !== undefined && !stringArray(value.changedFiles)) ||
-    (value.riskTierAssessment !== undefined && !validTaskRiskTierAssessment(value.riskTierAssessment)) ||
+    (value.riskTierAssessment !== undefined && !isTaskRiskTierAssessmentV1(value.riskTierAssessment)) ||
     !validSubmissionDelivery(value) ||
     (value.productionDelta !== undefined &&
       (value.commitSha === null || value.changedFiles === undefined || !validProductionDelta(value.productionDelta))) ||
@@ -304,36 +305,6 @@ export function validateSubmissionV1(value: unknown, allowUnknownFields = false)
   return validateFrozenCompletionContract(value.completionContract, allowUnknownFields);
 }
 
-function validTaskRiskTierAssessment(value: unknown): value is TaskRiskTierAssessmentV1 {
-  return (
-    isRecord(value) &&
-    hasOnlyFields(value, [
-      "schema",
-      "declaredTier",
-      "effectiveTier",
-      "deliveryBaseSha",
-      "deliveryHeadSha",
-      "matchedPathReviewers",
-      "reasons",
-      ...(Object.hasOwn(value, "guiAcceptanceRequired") ? ["guiAcceptanceRequired"] : []),
-    ]) &&
-    value.schema === "task-risk-tier-assessment/v1" &&
-    ["low", "medium", "high"].includes(String(value.declaredTier)) &&
-    ["low", "medium", "high"].includes(String(value.effectiveTier)) &&
-    (value.deliveryBaseSha === null || isNativeCommitSha(value.deliveryBaseSha)) &&
-    (value.deliveryHeadSha === null || isNativeCommitSha(value.deliveryHeadSha)) &&
-    Array.isArray(value.matchedPathReviewers) &&
-    value.matchedPathReviewers.every(
-      (lane) =>
-        isRecord(lane) &&
-        hasOnlyFields(lane, ["agentId", "paths"]) &&
-        isNonEmptyString(lane.agentId) &&
-        stringArray(lane.paths),
-    ) &&
-    stringArray(value.reasons) &&
-    (value.guiAcceptanceRequired === undefined || typeof value.guiAcceptanceRequired === "boolean")
-  );
-}
 export function validateExecutionV1(value: unknown, allowUnknownFields = false): readonly ContractValidationIssue[] {
   if (
     !isRecord(value) ||

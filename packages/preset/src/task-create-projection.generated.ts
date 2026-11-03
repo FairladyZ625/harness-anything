@@ -20,6 +20,8 @@ export const taskCreateDescriptorProjection = {
     "visibility",
     "proof",
     "detail",
+    "riskTierAdvice",
+    "riskTierAssessment",
     "commitSha",
     "unmetCriteria",
     "effects",

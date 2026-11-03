@@ -11,6 +11,7 @@ import {
   type EntityActionContract,
   type EntityActionUnmetCriterionV1,
   type TaskLifecycleCommand,
+  type TaskRiskTierAdviceV1,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import { actionCriterionFailure, attributeCellCriterion } from "./repo-cell-errors.ts";
@@ -27,6 +28,22 @@ const REVISION_CRITERION = "task-lifecycle-contract-support/revisionIssues";
 const START_CRITERION = "task-lifecycle-command-transitions/canStartExecution";
 const SUBMIT_VALIDATION_CRITERION = "task-lifecycle-command-transitions/submit.validate";
 const SUBMIT_PROOF_CRITERION = "repo-cell-proof/proofFor.SubmitExecution";
+
+function taskRiskTierAdvice(snapshot: Snapshot): TaskRiskTierAdviceV1 {
+  const metadata = snapshot.task?.metadata,
+    declaredTier = metadata?.riskTier ?? "medium",
+    profileId = metadata?.profileId ?? "baseline";
+  return {
+    schema: "task-risk-tier-advice/v1",
+    declaredTier,
+    suggestedTier: declaredTier,
+    profileId,
+    reasons: [
+      `task declares ${declaredTier}; its frozen ${profileId} profile remains in effect at start`,
+      "delivery changes are assessed at submit and may only raise the effective tier",
+    ],
+  };
+}
 
 export async function runTaskActionCatalogRuntime(
   cell: RepoCellOperationalContext,
@@ -110,6 +127,7 @@ export async function runTaskActionCatalogRuntime(
         changedPaths: [],
         worktreeVisible: true,
         summary: `reused active execution ${activeLease.executionId}`,
+        riskTierAdvice: taskRiskTierAdvice(current.snapshot),
       } as WriteReceipt;
     }
     if (!contract) throw new Error(`Task Action ${action.kind} is not declared.`);
@@ -322,6 +340,8 @@ export async function runTaskActionCatalogRuntime(
       result.proof,
       authorityProof.authorizationDecision,
     );
+    if (action.kind === "task-start")
+      return { ...receipt, riskTierAdvice: taskRiskTierAdvice(result.snapshot) } as WriteReceipt;
     // Both automatic and owner-authorized returns use the same continuation: the applied command
     // names the review that was recorded or returned, so the continuation follows that review's
     // execution and dispatch identity instead of searching the projection.
