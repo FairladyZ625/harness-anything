@@ -31,7 +31,7 @@ test("daemon exit wait names a process that never releases its endpoint", async 
   await assert.rejects(
     () =>
       waitForDaemonExit({
-        pid: 999_999,
+        pid: () => 999_999,
         deadline: Date.now() + 20,
         alive: () => true,
         endpointExists: () => true,
@@ -44,9 +44,32 @@ test("daemon exit wait names a process that never releases its endpoint", async 
 
 test("daemon exit wait returns once the process and endpoint are gone", async () => {
   await waitForDaemonExit({
-    pid: null,
+    pid: () => null,
     deadline: Date.now() + 20,
     alive: () => false,
     endpointExists: () => false,
   });
+});
+
+test("daemon exit wait keeps probing after a PID appears below the initial snapshot", async () => {
+  let pid: number | null = null,
+    endpoint = true,
+    discoveries = 0;
+  await assert.rejects(
+    () =>
+      waitForDaemonExit({
+        pid: () => pid,
+        deadline: Date.now() + 40,
+        alive: (value) => value === 999_999,
+        endpointExists: () => endpoint,
+        onStalled: () => {
+          discoveries += 1;
+          pid = 999_999;
+          endpoint = false;
+        },
+        delayMs: 5,
+      }),
+    /daemon-stop deadline exceeded/u,
+  );
+  assert.ok(discoveries > 0, "the helper must keep probing after the PID is discovered");
 });

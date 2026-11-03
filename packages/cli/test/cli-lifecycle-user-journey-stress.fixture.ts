@@ -277,18 +277,19 @@ function stopDeadlineMs(): number {
 }
 
 export async function waitForDaemonExit(input: {
-  readonly pid: number | null;
+  readonly pid: () => number | null;
   readonly deadline: number;
-  readonly alive: () => boolean;
+  readonly alive: (pid: number) => boolean;
   readonly endpointExists: () => boolean;
   readonly onStalled?: () => void;
   readonly delayMs?: number;
 }): Promise<void> {
   for (;;) {
-    const alive = input.pid !== null && input.alive();
+    const pid = input.pid(),
+      alive = pid !== null && input.alive(pid);
     if (!alive && !input.endpointExists()) return;
     if (Date.now() >= input.deadline)
-      throw new Error(`daemon-stop deadline exceeded (pid ${String(input.pid)} still owns its endpoint)`);
+      throw new Error(`daemon-stop deadline exceeded (pid ${String(pid)} still owns its endpoint)`);
     input.onStalled?.();
     await delay(input.delayMs ?? 10);
   }
@@ -326,9 +327,9 @@ async function stopClient(fixture: Fixture): Promise<void> {
   let gracefulAt = Date.now() + 2_000;
   const forceAt = Date.now() + 4_000;
   await waitForDaemonExit({
-    pid,
+    pid: () => pid,
     deadline,
-    alive: () => pid !== null && processAlive(pid),
+    alive: (value) => processAlive(value),
     endpointExists: () => existsSync(endpoint),
     onStalled: () => {
       if (pid === null && process.platform === "win32") pid = windowsDaemonPid(fixture);
