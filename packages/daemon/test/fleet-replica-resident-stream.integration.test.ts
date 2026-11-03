@@ -23,6 +23,7 @@ import {
   waitForFleetReplicaReady,
   waitForFleetReplicaSequence,
 } from "../src/fleet/replica-sync.ts";
+import { runFleetReplicaStream } from "../src/fleet/peer.ts";
 import { readReplicaGeneration, replicaGenerationReaders } from "../src/fleet/replica-generation.ts";
 import { readReplicaHealth } from "../src/fleet/replica-health.ts";
 import {
@@ -123,6 +124,73 @@ test(
     await stream.stop();
   },
 );
+test("a legacy base-backup frame ends only its TLS replication session", { timeout: 30_000 }, async (t) => {
+  const fixture = await fleetReplicationFixture(t),
+    legacyMetadata = {
+      schema: "fleet-basebackup/v2",
+      readerProfile: null,
+      repoId: replicationRepoId,
+      position: { history: "history-a", sequence: 0, revision: 0 },
+      ledgerGeneration: 1,
+      projectionSchema: 1,
+    };
+  const fake = await fakeReplicationCenter(t, fixture, (frame, send) => {
+    if (frame.type === "replica.start")
+      send({
+        type: "replica.backup",
+        metadata: legacyMetadata as never,
+        size: 0,
+        sha256: "0".repeat(64),
+      });
+  });
+  const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-replica-legacy-backup-"));
+  t.after(() => rmSync(viewRoot, { recursive: true, force: true }));
+
+  await assert.rejects(
+    runFleetReplicaStream({
+      hostname: "127.0.0.1",
+      port: fake.port,
+      ca: fixture.cert,
+      servername: "localhost",
+      nodeId: "edge-one",
+      credential: "secret-edge-one",
+      repoId: replicationRepoId,
+      viewRoot,
+      diskQuotaBytes: 64 * 1024 * 1024,
+    }),
+    (error: unknown) => {
+      assert.equal((error as { code?: string }).code, "center_upgrade_required");
+      assert.match(String(error), /fleet-basebackup\/v2/u);
+      return true;
+    },
+  );
+  assert.equal(fake.counts()["replica.start"], 1, "the session reached replication before the bad frame");
+});
+test("an unrecognized replication frame ends only its TLS session", { timeout: 30_000 }, async (t) => {
+  const fixture = await fleetReplicationFixture(t);
+  const fake = await fakeReplicationCenter(t, fixture, (frame, send) => {
+    if (frame.type === "replica.start") send({ type: "replica.invalid" } as never);
+  });
+  const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-replica-invalid-frame-"));
+  t.after(() => rmSync(viewRoot, { recursive: true, force: true }));
+
+  await assert.rejects(
+    runFleetReplicaStream({
+      hostname: "127.0.0.1",
+      port: fake.port,
+      ca: fixture.cert,
+      servername: "localhost",
+      nodeId: "edge-one",
+      credential: "secret-edge-one",
+      repoId: replicationRepoId,
+      viewRoot,
+      diskQuotaBytes: 64 * 1024 * 1024,
+    }),
+    /invalid replication frame/u,
+  );
+  assert.equal(fake.counts()["replica.start"], 1, "the invalid frame ended its authenticated session");
+});
+
 const readOne = <T>(file: string, sql: string, params: readonly (string | number)[] = []): T => {
   const db = new DatabaseSync(file, { readOnly: true });
   try {

@@ -89,6 +89,11 @@ export function parseReplicationFrame(line: string): ReplicationFrame {
   if (Buffer.byteLength(line) > REPLICATION_FRAME_BYTES) throw new Error("replication frame exceeds capacity");
   const value: unknown = JSON.parse(line);
   if (!object(value) || typeof value.type !== "string") throw new Error("invalid replication frame");
+  if (value.type === "replica.backup" && object(value.metadata) && value.metadata.schema === "fleet-basebackup/v2")
+    throw Object.assign(
+      new Error("center_upgrade_required: the center sent fleet-basebackup/v2; this edge requires v3."),
+      { code: "center_upgrade_required" },
+    );
   const types: Record<string, Record<string, Check>> = {
     "replica.accept": {
       centerBuildCommit: (v) => v === null || text(v),

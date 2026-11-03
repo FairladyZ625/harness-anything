@@ -34,7 +34,11 @@ const frames: readonly ReplicationFrame[] = [
     edgeBuildCommit: "5b496c24",
     taskEventShapeVersion: 1,
   },
-  { type: "replica.accept", centerBuildCommit: "86d1398", taskEventShapeVersion: 2 },
+  {
+    type: "replica.accept",
+    centerBuildCommit: "86d1398",
+    taskEventShapeVersion: 2,
+  },
   {
     type: "replica.reject",
     code: "edge_upgrade_required",
@@ -66,6 +70,28 @@ test("the center can recognize a pre-versioned replica start and reject it expli
     repoId: "repo",
     position: null,
   });
+});
+
+test("a v2 base-backup frame names the required center upgrade", () => {
+  assert.throws(
+    () =>
+      parseReplicationFrame(
+        JSON.stringify({
+          type: "replica.backup",
+          metadata: {
+            ...metadata,
+            schema: "fleet-basebackup/v2",
+          },
+          size: 0,
+          sha256: "a".repeat(64),
+        }),
+      ),
+    (error: unknown) => {
+      assert.equal((error as { code?: string }).code, "center_upgrade_required");
+      assert.match(String(error), /fleet-basebackup\/v2/u);
+      return true;
+    },
+  );
 });
 
 test("backup frames carry whole-package identity and reject damaged members", () => {
