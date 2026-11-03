@@ -13,6 +13,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
+import { localUserDaemonEndpoint } from "@harness-anything/daemon/internal/client/local-daemon-target";
+import { readDaemonPid } from "@harness-anything/daemon/internal/runtime";
 
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 
@@ -37,6 +39,7 @@ type Fixture = {
   readonly userRoot: string;
   readonly daemonId: string;
   readonly repoId: string;
+  daemonPid: number | null;
 };
 
 type RunResult = {
@@ -194,6 +197,7 @@ async function runChain(
 async function startClient(fixture: Fixture): Promise<void> {
   const started = await runResult(fixture, ["daemon", "start", "--service"], actorEnvironment(fixture, 0, null));
   if (started.status === 0) {
+    await rememberDaemonPid(fixture, parseCliReceipt(started, "daemon start"));
     await expectApplied(
       fixture,
       ["daemon", "repo", "register", "--repo-id", fixture.repoId, "--root", fixture.root, "--no-link"],
@@ -203,10 +207,14 @@ async function startClient(fixture: Fixture): Promise<void> {
     await configureReviewRequiredProfile(fixture);
     return;
   }
-  assert.match(started.stdout, /daemon_starting/u, started.stderr);
-  for (let attempt = 0; attempt < 100; attempt += 1) {
+  // A Windows host that misses the CLI's 10s bind window can still finish starting; the
+  // lifecycle case under test is the write/stop boundary, not that budget. Poll the daemon's
+  // own status instead of failing on the first start receipt.
+  assert.match(started.stdout, /daemon_starting|daemon_bind_timeout/u, started.stderr);
+  for (let attempt = 0; attempt < 200; attempt += 1) {
     const status = await runResult(fixture, ["daemon", "status"], actorEnvironment(fixture, 0, null));
     if (status.status === 0) {
+      await rememberDaemonPid(fixture);
       await expectApplied(
         fixture,
         ["daemon", "repo", "register", "--repo-id", fixture.repoId, "--root", fixture.root, "--no-link"],
@@ -218,7 +226,24 @@ async function startClient(fixture: Fixture): Promise<void> {
     }
     await delay(50);
   }
-  throw new Error(`daemon did not become ready: ${started.stdout}`);
+  throw new Error(`daemon did not become ready for ${fixture.daemonId}`);
+}
+
+async function rememberDaemonPid(fixture: Fixture, receipt?: Record<string, unknown>): Promise<void> {
+  const fromReceipt = receipt?.pid,
+    parsed = typeof fromReceipt === "number" ? fromReceipt : Number(fromReceipt);
+  if (Number.isInteger(parsed) && parsed > 0) {
+    fixture.daemonPid = parsed;
+    return;
+  }
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const pid = readDaemonPid(fixture.userRoot, fixture.daemonId);
+    if (pid !== null) {
+      fixture.daemonPid = pid;
+      return;
+    }
+    await delay(10);
+  }
 }
 
 async function configureReviewRequiredProfile(fixture: Fixture): Promise<void> {
@@ -246,7 +271,88 @@ async function waitForAttached(fixture: Fixture): Promise<void> {
 
 async function stopClient(fixture: Fixture): Promise<void> {
   if (!existsSync(fixture.userRoot)) return;
-  await runResult(fixture, ["daemon", "stop"], actorEnvironment(fixture, 0, null));
+  // `daemon stop` returns when the stop is accepted; a draining daemon keeps its pid file,
+  // endpoint and SQLite/Git handles until its write queues empty. This fixture has already
+  // observed every write it needs, so end the drain explicitly before the test removes the
+  // temporary root (EPERM on Windows). Then wait for the process itself, not only its files.
+  const daemonPid = readDaemonPid(fixture.userRoot, fixture.daemonId) ?? fixture.daemonPid;
+  const stopped = await runResult(fixture, ["daemon", "stop"], actorEnvironment(fixture, 0, null));
+  const receipt = parseCliReceipt(stopped, "daemon stop");
+  if (receipt.draining === true)
+    await runResult(fixture, ["daemon", "stop", "--force"], actorEnvironment(fixture, 0, null));
+  const receiptPid = typeof receipt.pid === "number" ? receipt.pid : Number(receipt.pid),
+    endpoint = localUserDaemonEndpoint(fixture.userRoot, fixture.daemonId);
+  let pid = Number.isInteger(receiptPid) && receiptPid > 0 ? receiptPid : daemonPid;
+  if (process.platform === "win32") {
+    // `daemon start --service` registers a Task Scheduler launcher that relaunches the daemon on
+    // the supersession exit code. Stopping the daemon alone leaves that launcher alive, so the
+    // temporary root stays open. Remove the unit and end the launcher's process tree before
+    // waiting on the daemon pid.
+    await runResult(fixture, ["daemon", "service", "uninstall"], actorEnvironment(fixture, 0, null));
+    pid ??= windowsDaemonPid(fixture);
+    if (pid !== null) killWindowsDaemonTree(pid);
+  }
+  for (let attempt = 0; attempt < 1_000; attempt += 1) {
+    if (pid === null && process.platform === "win32" && attempt % 100 === 0) pid = windowsDaemonPid(fixture);
+    const alive = pid !== null && processAlive(pid);
+    // A force-killed daemon can leave its pid file behind; once the process is gone and the
+    // endpoint no longer answers, the stale file holds nothing open and the root is removable.
+    if (!alive && !existsSync(endpoint)) return;
+    // The receipt can be lost when the pid file is removed before the stop finishes. A daemon
+    // that is still alive after the bounded cooperative/force path is a teardown leak; terminate
+    // it so the test does not delete a directory another process still owns.
+    if (pid !== null && alive) {
+      if (attempt === 200) terminate(pid, false);
+      if (attempt === 400) terminate(pid, true);
+    }
+    await delay(10);
+  }
+  throw new Error(`daemon ${fixture.daemonId} (pid ${String(pid)}) did not exit after stop`);
+}
+
+function terminate(pid: number, force: boolean): void {
+  try {
+    process.kill(pid, force ? "SIGKILL" : "SIGTERM");
+  } catch {
+    // A process that exited between the probe and the signal is already the desired state.
+  }
+}
+
+function killWindowsDaemonTree(pid: number): void {
+  if (process.platform !== "win32") return;
+  try {
+    const query =
+      `$p = Get-CimInstance Win32_Process -Filter "ProcessId=${pid}"; ` +
+      'if ($p) { $pp = Get-CimInstance Win32_Process -Filter "ProcessId=$($p.ParentProcessId)"; ' +
+      "if ($pp -and $pp.Name -eq 'powershell.exe') { [Console]::Out.Write($pp.ProcessId) } }";
+    const parent = execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", query], {
+      encoding: "utf8",
+    }).trim();
+    if (parent) execFileSync("taskkill", ["/PID", parent, "/T", "/F"], { stdio: "ignore" });
+    execFileSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
+  } catch {
+    // Best-effort cleanup; the bounded wait below still reports a daemon that refused to exit.
+  }
+}
+
+function windowsDaemonPid(fixture: Fixture): number | null {
+  if (process.platform !== "win32") return null;
+  try {
+    const output = execFileSync(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        `Get-CimInstance Win32_Process -Filter "name='node.exe'" | Where-Object { $_.CommandLine -like '*--user-root ${fixture.userRoot}*' -and $_.CommandLine -like '*--daemon-id ${fixture.daemonId}*' } | Select-Object -First 1 -ExpandProperty ProcessId`,
+      ],
+      { encoding: "utf8" },
+    ).trim();
+    const pid = Number(output);
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
 }
 
 function setup(index: number): Fixture {
@@ -266,7 +372,7 @@ function setup(index: number): Fixture {
   git(root, "add", ".");
   git(root, "commit", "--quiet", "-m", "fixture");
   seedSettingsEvent({ rootDir: root, repoId });
-  return { parent, root, userRoot, daemonId, repoId };
+  return { parent, root, userRoot, daemonId, repoId, daemonPid: null };
 }
 
 function actorLabel(index: number): string {
@@ -453,6 +559,15 @@ function git(root: string, ...args: string[]): string {
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export {
