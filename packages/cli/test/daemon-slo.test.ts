@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -222,6 +222,28 @@ test("a terminated corrupt line fails the report with file and line; a trailing 
     assert.equal((receipt.requests as Record<string, unknown>).count, 1);
     assert.match(renderDaemonSlo(receipt), /incompleteLines=1/u);
   } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a non-ENOENT access error is surfaced instead of being reported as a missing log", async () => {
+  const root = fixture([request()]),
+    file = path.join(root, "logs", "daemon-test-daemon-conn-20260101.jsonl");
+  chmodSync(file, 0o000);
+  try {
+    await assert.rejects(
+      runDaemonSlo({
+        day: "20260101",
+        thresholdMs: 1_000,
+        userRoot: root,
+        daemonId: "test-daemon",
+        json: false,
+        slowLimit: 200,
+      }),
+      /EACCES|permission denied/iu,
+    );
+  } finally {
+    chmodSync(file, 0o600);
     rmSync(root, { recursive: true, force: true });
   }
 });

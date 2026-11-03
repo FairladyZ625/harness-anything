@@ -58,13 +58,15 @@ test("real Fleet callbacks bind their observer across TLS queues without recordi
   assert.ok(request);
   assert.equal(request.repoId, f.subject.repoId);
   assert.equal(request.actor, `node:${f.subject.nodeId}`);
-  assert.equal(request.phase, "projection-read");
+  assert.equal(request.phase, "reply");
   assert.equal(request.nodeId, f.subject.nodeId);
   assert.ok(Number(request.requestBytes) > 0);
   assert.ok(Number(request.replyBytes) > 0);
   assert.equal(request.outcome, "ok");
   assert.ok((request.phaseSequence as string[]).includes("authorization"), JSON.stringify(request.phaseSequence));
   assert.ok((request.phaseSequence as string[]).includes("projection-read"), JSON.stringify(request.phaseSequence));
+  assert.ok((request.phaseSequence as string[]).includes("serialization"), JSON.stringify(request.phaseSequence));
+  assert.ok((request.phaseSequence as string[]).includes("reply"), JSON.stringify(request.phaseSequence));
   assert.deepEqual(Object.keys(request).sort(), [
     "actor",
     "endedAtMs",

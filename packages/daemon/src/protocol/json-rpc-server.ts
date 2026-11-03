@@ -989,6 +989,13 @@ export function createJsonRpcProtocolServer(options: {
     if (isDaemonParkedWaitMethod(method) || fleetAwait) {
       const admitted = !drainActive() || (helloPending && helloContinuationAdmitted);
       releaseHello();
+      let abandoned = false;
+      // A reply has no receiver once the parked wait is abandoned. Gate the transport write on
+      // that fact so a late host read cannot write into a closed or superseded exchange.
+      const guardedWrite =
+        writeResponse === undefined
+          ? undefined
+          : (response: JsonRpcResponse) => (abandoned ? 0 : writeResponse(response));
       // Register abandonment around authentication as well as the host read: neither phase owns work.
       const response = await raceParkedWait(
         run(
@@ -997,11 +1004,14 @@ export function createJsonRpcProtocolServer(options: {
           admitted,
           frameBytes,
           eventLoopStallMs,
-          writeResponse === undefined ? undefined : { writeResponse },
+          guardedWrite === undefined ? undefined : { writeResponse: guardedWrite },
         ),
         parkedWaitAborts,
         options.authContext.connectionSignal,
         options.host.parkedWaitSignal,
+        () => {
+          abandoned = true;
+        },
       );
       return response === parkedWaitAbandoned ? undefined : response;
     }
@@ -1218,6 +1228,7 @@ function raceParkedWait<T>(
   abandonments: Set<() => void>,
   connectionSignal: AbortSignal | undefined,
   hostSignal: AbortSignal | undefined,
+  onAbandon?: () => void,
 ): Promise<T | typeof parkedWaitAbandoned> {
   // The abandoned park can still reject later — its settle loop wakes against a closing host — and
   // nobody observes that outcome anymore; the abandonment already settled the request.
@@ -1231,6 +1242,7 @@ function raceParkedWait<T>(
     const onConnectionAbort = () => abandon();
     const abandon = () => {
       release();
+      onAbandon?.();
       resolve(parkedWaitAbandoned);
     };
     abandonments.add(abandon);

@@ -34,7 +34,7 @@ test(
         daemonId: "diagnostics-trace",
         endpoint,
         heartbeatMs: 20,
-        metricsIntervalMs: 50,
+        metricsIntervalMs: 200,
         writeQueues: () => [{ repoId: "repo-a", queueDepth: 3 }],
       });
       const transport = createUnixSocketTransportServer({
@@ -73,7 +73,20 @@ test(
         const queues = trace.writeQueues as Record<string, unknown>[];
         assert.equal(queues[0]!.repoId, "repo-a");
         assert.equal(queues[0]!.queueDepth, 3);
-        assert.ok(Number(queues[0]!.ageMs) >= 0);
+        const firstAge = Number(queues[0]!.ageMs);
+        assert.ok(firstAge >= 0);
+        const aged = await until(async () => {
+          const value = await requestDaemonJsonRpcAt(
+            daemonDiagnosticsEndpoint(endpoint),
+            "daemon.status",
+            {},
+            500,
+            2_000,
+          );
+          const rows = (value.trace as Record<string, unknown>).writeQueues as Record<string, unknown>[];
+          return rows.length > 0 && Number(rows[0]!.ageMs) >= 100 ? Number(rows[0]!.ageMs) : null;
+        });
+        assert.ok(aged >= 100, `queue age ${firstAge} -> ${aged}`);
         assert.equal(trace.slowThresholdMs, 1_000);
         assert.ok(Number((trace.requestsPerSecond as Record<string, unknown>).last60s) >= 0);
         assert.deepEqual(snapshot.inFlight, []);

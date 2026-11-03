@@ -1,5 +1,10 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { beginDaemonOperation, markDaemonOperationPhase, observeDaemonOperation } from "../daemon-operation.ts";
+import {
+  beginDaemonOperation,
+  bindDaemonOperationPhase,
+  markDaemonOperationPhase,
+  observeDaemonOperation,
+} from "../daemon-operation.ts";
 import { validateTaskDispatchesPayload } from "../protocol/daemon-protocol-rpc-validation.ts";
 import { commandClassForAction } from "../protocol/daemon-protocol.contract.ts";
 import { createFleetDeliveryDrain } from "./center-delivery-drain.ts";
@@ -1242,7 +1247,9 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       method = "method" in frame ? String(frame.method) : frame.schema,
       repoId = "repoId" in frame ? String(frame.repoId) : null;
     let recorded = false,
-      replyBytes = 0;
+      replyBytes = 0,
+      businessOk = true,
+      businessCode: string | null = null;
     const recordTraffic = (ok: boolean, code: string | null): void => {
       if (recorded || !options.recordTraffic) return;
       recorded = true;
@@ -1273,19 +1280,35 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       });
     };
     return scope.run(async () => {
+      const mark = bindDaemonOperationPhase();
       markDaemonOperationPhase("authorization");
       try {
         const delivery = await nodeAdmission.run(nodeId, () => handle(...args));
         return {
           ...delivery,
+          frames: (async function* () {
+            for await (const out of delivery.frames) {
+              const result = fleetFrameBusinessOutcome(out);
+              if (!result.ok) {
+                businessOk = false;
+                businessCode = result.code;
+              }
+              mark("serialization");
+              yield out;
+            }
+          })(),
+          beforeSend: () => {
+            mark("reply");
+            delivery.beforeSend?.();
+          },
           onSent: (bytes: number) => {
             replyBytes += bytes;
             delivery.onSent?.(bytes);
             scope.handle.update({ replyBytes });
           },
           onComplete: () => {
-            scope.handle.update({ outcome: "ok" });
-            recordTraffic(true, null);
+            scope.handle.update({ outcome: businessOk ? "ok" : "error" });
+            recordTraffic(businessOk, businessCode);
             scope.end();
             delivery.onComplete?.();
           },
@@ -1414,4 +1437,15 @@ function fleetErrorCode(error: unknown): string | null {
   return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
     ? error.code
     : null;
+}
+
+/** A delivered Fleet frame can carry a business rejection even though transport completion is ok. */
+export function fleetFrameBusinessOutcome(frame: {
+  readonly schema: string;
+  readonly code?: string | null;
+  readonly outcome?: string;
+}): { readonly ok: boolean; readonly code: string | null } {
+  if (frame.schema === "fleet.error/v1") return { ok: false, code: frame.code ?? "error" };
+  if (frame.outcome === "op_rejected") return { ok: false, code: "op_rejected" };
+  return { ok: true, code: null };
 }

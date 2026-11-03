@@ -180,6 +180,13 @@ export function recordDaemonOperationPhaseSpan(phase: string, startedAtMs: numbe
   current.getStore()?.operation?.phaseSpan(phase, startedAtMs, endedAtMs);
 }
 
+/** Bind the current operation's phase port so a later transport callback can mark without ALS. */
+export function bindDaemonOperationPhase(): (phase: string) => void {
+  if (!current.getStore()?.operation) return () => undefined;
+  const snapshot = AsyncLocalStorage.snapshot();
+  return (phase: string) => snapshot(() => markDaemonOperationPhase(phase));
+}
+
 /** Capture the current operation so a later callback can mark phases without re-entering ALS. */
 export function captureDaemonOperation(): DaemonOperationHandle | null {
   const operation = current.getStore()?.operation;

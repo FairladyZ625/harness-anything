@@ -112,6 +112,42 @@ test(
   },
 );
 
+test("an abandoned parked wait never writes a late reply after its read settles", { timeout: 5_000 }, async () => {
+  const connection = new AbortController();
+  let resolveRead!: (value: unknown) => void;
+  const read = new Promise<unknown>((resolve) => {
+    resolveRead = resolve;
+  });
+  const server = createJsonRpcProtocolServer({
+    host: {
+      awaitRuntimeSessions: () => read,
+      status: () => ({ daemonId: "parked-wait", pid: process.pid, repos: [] }),
+    } as never as DaemonHost,
+    build: { commit: null },
+    authContext: { transportKind: "unix-socket", connectionSignal: connection.signal },
+    emit: async () => undefined,
+  });
+  try {
+    await server.handle(helloRequest);
+    let writes = 0;
+    const parked = server.handle(awaitRequest(2), {
+      writeResponse: () => {
+        writes += 1;
+        return 1;
+      },
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    connection.abort();
+    assert.equal(await parked, undefined);
+    resolveRead({ sessions: [] });
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(writes, 0, "a reply after abandonment must not reach the transport");
+  } finally {
+    server.close();
+  }
+});
+
 test("a bounded observe.tail request counts as active work while it is being served", { timeout: 5_000 }, async () => {
   const started: string[] = [],
     settled: string[] = [],

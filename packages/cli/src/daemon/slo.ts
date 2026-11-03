@@ -1,7 +1,8 @@
-import { createReadStream, existsSync } from "node:fs";
+import { createReadStream } from "node:fs";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { localUserDaemonEndpoint } from "@harness-anything/daemon/internal/client/local-daemon-target";
+import { consumeKnownError } from "./client.ts";
 import { addDuration, createDurationHistogram, durationPercentile, type DurationHistogram } from "./slo-metrics.ts";
 
 const DAY_MS = 86_400_000,
@@ -370,10 +371,6 @@ function segmentsFor(
 
 async function* readJsonLines(file: string, state: ReadState): AsyncGenerator<Record<string, unknown>> {
   state.file = file;
-  if (!existsSync(file)) {
-    state.missingFiles.push(file);
-    return;
-  }
   const input = createReadStream(file, { encoding: "utf8" });
   let buffer = "",
     lineNumber = 0;
@@ -409,13 +406,27 @@ async function* readJsonLines(file: string, state: ReadState): AsyncGenerator<Re
       }
     }
     if (buffer.length > 0) yield* consumeLine(buffer, false);
+  } catch (error) {
+    if (!isMissingFile(error)) throw error;
+    consumeKnownError(error);
+    state.missingFiles.push(file);
   } finally {
     input.close();
   }
 }
 
 async function readdirOrMissing(dir: string): Promise<string[]> {
-  return existsSync(dir) ? await readdir(dir) : [];
+  try {
+    return await readdir(dir);
+  } catch (error) {
+    if (!isMissingFile(error)) throw error;
+    consumeKnownError(error);
+    return [];
+  }
+}
+
+function isMissingFile(error: unknown): boolean {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
 }
 
 function generation(name: string): number {

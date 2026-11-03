@@ -183,12 +183,14 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
   }
 
   function writeFrame(frame: unknown): number {
+    return writeFrameWithBackpressure(frame).bytes;
+  }
+  function writeFrameWithBackpressure(frame: unknown): { readonly bytes: number; readonly writable: boolean } {
     const encoded = encodeJsonLineFrame(frame);
-    options.output.write(encoded);
-    return Buffer.byteLength(encoded, "utf8");
+    return { bytes: Buffer.byteLength(encoded, "utf8"), writable: options.output.write(encoded) };
   }
   async function emit(method: string, params: Record<string, unknown>): Promise<void> {
-    if (writeFrame({ jsonrpc: "2.0", method, params })) return;
+    if (writeFrameWithBackpressure({ jsonrpc: "2.0", method, params }).writable) return;
     await writableReady(options.output);
   }
   function disconnect(): void {
