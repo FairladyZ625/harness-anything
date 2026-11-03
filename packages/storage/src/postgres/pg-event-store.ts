@@ -1,4 +1,5 @@
 import { migrationWritable, type StorageMigrationRecord } from "../migration/types.ts";
+import { validateContentRange } from "../content-blob-range.ts";
 import type { Pool, PoolClient } from "pg";
 import {
   serializePersistedCanonicalEvent,
@@ -669,11 +670,6 @@ async function readContentBlobSize(
   const size = Number(row.size);
   if (!Number.isSafeInteger(size) || size < 0) throw new RangeError("stored content object size is invalid");
   return size;
-}
-
-function validateContentRange(offset: number, maxBytes: number): void {
-  if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(maxBytes) || maxBytes <= 0)
-    throw new RangeError("content object range must have a non-negative offset and positive maxBytes");
 }
 
 function assertNever(value: never): never {

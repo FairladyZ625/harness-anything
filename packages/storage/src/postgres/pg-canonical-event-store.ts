@@ -19,6 +19,7 @@ import {
   type CanonicalEventAppendReceipt,
 } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 import { createPgTaskQueryReader } from "../pg/pg-task-query-reader.ts";
+import { validateContentRange } from "../content-blob-range.ts";
 import { resolvePostgresEventStoreScope } from "../pg/backend.ts";
 import type { PostgresTaskEventStoreOptions } from "../store/task-event-store-factory.ts";
 import { applyCanonicalTree } from "../canonical-tree-materialization.ts";
@@ -48,8 +49,10 @@ export function makePgCanonicalEventStore(
       execute({ operation: "events", afterRevision, limit }) as readonly CanonicalEventV1[],
     readContentBlob: CanonicalEventStore["readContentBlob"] = (sha256) =>
       execute({ operation: "content", sha256 }) as Uint8Array | null,
-    readContentBlobRange: CanonicalEventStore["readContentBlobRange"] = (sha256, offset, maxBytes) =>
-      execute({ operation: "content-range", sha256, offset, maxBytes }) as Uint8Array | null,
+    readContentBlobRange: CanonicalEventStore["readContentBlobRange"] = (sha256, offset, maxBytes) => {
+      validateContentRange(offset, maxBytes);
+      return execute({ operation: "content-range", sha256, offset, maxBytes }) as Uint8Array | null;
+    },
     readContentBlobSize: CanonicalEventStore["readContentBlobSize"] = (sha256) =>
       execute({ operation: "content-size", sha256 }) as number | null,
     readEvent: CanonicalEventStore["readEvent"] = (value) =>

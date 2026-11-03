@@ -21,6 +21,7 @@ import {
 } from "./legacy-generation-source.ts";
 import { assertNoPendingHistoricalRewrites, planLegacyGenerationConversion } from "./event-shape-migration.ts";
 import { readFileWindow } from "../durable-file.ts";
+import { validateContentRange } from "../content-blob-range.ts";
 import { openSqliteEventStore, sqliteLedgerPath, type SqliteWriterFence } from "./sqlite-event-store.ts";
 import { publishConvertedGeneration, readCertifiedGitFollower } from "./sqlite-task-event-publication.ts";
 import {
@@ -526,8 +527,7 @@ function readSnapshotObjectRange(
   offset: number,
   maxBytes: number,
 ): Uint8Array | null {
-  if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(maxBytes) || maxBytes <= 0)
-    throw new RangeError("content object range must have a non-negative offset and positive maxBytes");
+  validateContentRange(offset, maxBytes);
   const objectPath = path.join(snapshotObjectsPath(snapshotPath), sha256);
   if (!localEvidenceFileSystem.exists(objectPath)) return null;
   if (offset >= size) return Buffer.alloc(0);
