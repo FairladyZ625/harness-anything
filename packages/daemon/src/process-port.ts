@@ -1,6 +1,7 @@
 import { runProcessText } from "./process-text.ts";
 import { statSync } from "node:fs";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { consumeKnownError } from "@harness-anything/kernel";
 import { terminateRuntimePid } from "./runtime-process-signals.ts";
 import { closeDaemonOutputFd, openDaemonOutputFd } from "./lifecycle-log.ts";
 
@@ -263,6 +264,13 @@ function processExists(pid: number): boolean {
 export function processLockHolderDead(lockPath: string, pid: number): boolean {
   if (!processExists(pid)) return true;
   if (process.platform !== "win32") return false;
+  const startedAtMs = windowsProcessStartTimeMs(pid);
+  if (startedAtMs === null) throw new Error(`Cannot determine Windows process creation time for PID ${pid}`);
+  // Round down to milliseconds: insufficient precision must retain the incumbent.
+  return startedAtMs > statSync(lockPath).mtimeMs;
+}
+
+function windowsProcessStartTimeMs(pid: number): number | null {
   const output = runProcessText(
     "powershell.exe",
     [
@@ -275,9 +283,35 @@ export function processLockHolderDead(lockPath: string, pid: number): boolean {
     undefined,
     8_000,
   ).trim();
-  if (!/^[0-9]+$/u.test(output) || BigInt(output) <= 0n)
-    throw new Error(`Cannot determine Windows process creation time for PID ${pid}`);
-  // Round down to milliseconds: insufficient precision must retain the incumbent.
-  const startedAtMs = Number(BigInt(output) / 10_000n - 11_644_473_600_000n);
-  return startedAtMs > statSync(lockPath).mtimeMs;
+  if (!/^[0-9]+$/u.test(output) || BigInt(output) <= 0n) return null;
+  // Round down to milliseconds: the same truncation the lock check relies on.
+  return Number(BigInt(output) / 10_000n - 11_644_473_600_000n);
+}
+
+/**
+ * Wall-clock start of the process currently holding `pid`, or null when the platform cannot say.
+ * `kill(pid, 0)` only proves that *some* process owns the pid number; a caller matching a pid
+ * against a recorded generation (a daemon lifecycle record, a lock holder) must compare this
+ * start time, because the original process may have died and the number been reused.
+ */
+export function processStartTimeMs(pid: number): number | null {
+  try {
+    if (process.platform === "win32") return windowsProcessStartTimeMs(pid);
+    const started = Date.parse(
+      runProcessText(
+        "ps",
+        ["-o", "lstart=", "-p", String(pid)],
+        undefined,
+        // `ps` prints lstart in the caller's locale; Date.parse only understands the C form.
+        { ...process.env, LC_ALL: "C", LANG: "C" },
+        8_000,
+      ).trim(),
+    );
+    return Number.isFinite(started) ? started : null;
+  } catch (error) {
+    // Identity evidence is best-effort: an unavailable `ps` makes the caller keep the recorded
+    // generation rather than invent a mismatch and suppress a real drain report.
+    consumeKnownError(error);
+    return null;
+  }
 }

@@ -165,6 +165,7 @@ type DaemonFleetConflictExitPayload = DaemonFleetChannelPayload & {
 type DaemonRpcParamOverrides = {
   readonly "protocol.hello": {
     readonly protocolVersion: ContractVersion;
+    /** Compatibility window only (2026-11-03 CLI); remove with the schema field by 2026-12-04. */
     readonly buildCommit?: string | null;
     readonly sessionEnvironment?: DaemonSessionEnvironment;
     readonly executionCredential?: string;

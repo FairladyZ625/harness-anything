@@ -43,6 +43,12 @@
       "decision": null,
       "errors": "execution_missing on an ordinary late edge callback",
       "reason": "An ordinary edge callback can arrive after its task execution has already settled and its lease is gone. In that state there is no active execution that a ruling could block, so settlement preserves the ordinary terminal result. Reviewer callbacks and the escalation-specific stop propagate execution_missing."
+    },
+    "packages/daemon/src/process-port.ts#processStartTimeMs": {
+      "task": "task_456388e6147a97b6fcab824abb",
+      "decision": null,
+      "errors": "ps/PowerShell start-time query failure or an unparsable timestamp",
+      "reason": "The process start time is corroborating identity evidence for a lifecycle record, not a data read. No witness keeps the recorded generation, so a status query cannot invent or suppress a drain; only a positively later start time proves the pid was reused and excludes the record. The same helper already answers the Windows lock-recovery question, where a query failure must throw instead. Task-authorized entry, 2026-11-04."
     }
   },
   "entries": {
@@ -174,6 +180,7 @@
       "packages/daemon/src/migration-import-tasks.ts#utf8Absolute",
       "packages/daemon/src/observe-jsonl-tail.ts#jsonlTailFile",
       "packages/daemon/src/protocol/json-rpc-server.ts#run",
+      "packages/daemon/src/process-port.ts#processStartTimeMs",
       "packages/daemon/src/repo-bootstrap.ts#decodedName",
       "packages/daemon/src/repo-bootstrap.ts#npmScriptsDocument",
       "packages/daemon/src/repo-bootstrap.ts#optionalGit",

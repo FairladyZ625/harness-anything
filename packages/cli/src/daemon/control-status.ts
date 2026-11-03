@@ -4,10 +4,15 @@ import {
   daemonDiagnosticsEndpoint,
   resolveLocalDaemonTarget,
 } from "@harness-anything/daemon/internal/client/local-daemon-target";
-import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
+import {
+  requestDaemonJsonRpcAt,
+  daemonHelloFailureCode,
+} from "@harness-anything/daemon/internal/client/local-json-rpc-client";
 import { readDaemonStoppedAt } from "@harness-anything/daemon/internal/client/daemon-autostart";
 import { readDaemonLifecycleRecords } from "@harness-anything/daemon/internal/lifecycle-log";
 import { daemonProcessAlive } from "@harness-anything/daemon/internal/daemon-singleton";
+import { processStartTimeMs } from "@harness-anything/daemon/internal/process-port";
+import { cliErrorMessage } from "../cli-error.ts";
 import { consumeKnownError } from "./client.ts";
 import { daemonFailure, daemonOption } from "./control-support.ts";
 
@@ -41,29 +46,40 @@ export async function status(
       true,
     );
   } catch (error) {
-    const stoppedAt = readDaemonStoppedAt(userRoot, daemonId);
-    const shuttingDownProcesses = liveShutdownProcesses(userRoot, daemonId);
-    if (shuttingDownProcesses.length > 0) {
-      consumeKnownError(error);
-      result = { ...daemonFailure("daemon-status", "daemon_stopping", "Daemon shutdown is still in progress.") };
-    } else if (stoppedAt) {
-      consumeKnownError(error);
-      const summary = `daemon status: not running (stopped by operator at ${stoppedAt})`;
-      result = { ...daemonFailure("daemon-status", "daemon_unavailable", summary), summary };
-    } else {
-      const exit = lastDaemonLifecycleExit(userRoot, daemonId);
-      if (!exit) throw error;
-      consumeKnownError(error);
-      const summary = `daemon status: not running (exited ${exit.outcome} at ${exit.at})`;
+    const helloFailure = daemonHelloFailureCode(error);
+    if (helloFailure !== null) {
+      // The daemon answered and named its rejection. Lifecycle bookkeeping describes liveness; it
+      // can never explain why a live daemon refused the handshake, and must not replace that code.
+      const hint = cliErrorMessage(error);
       result = {
-        ...daemonFailure(
-          "daemon-status",
-          "daemon_unavailable",
-          "The next command will autostart the daemon from the current disk build; " +
-            "run `ha daemon start --service` to start it explicitly.",
-        ),
-        summary,
+        ...daemonFailure("daemon-status", helloFailure, hint),
+        summary: `daemon status: ${helloFailure}: ${hint}`,
       };
+    } else {
+      const stoppedAt = readDaemonStoppedAt(userRoot, daemonId);
+      const shuttingDownProcesses = liveShutdownProcesses(userRoot, daemonId);
+      if (shuttingDownProcesses.length > 0) {
+        consumeKnownError(error);
+        result = { ...daemonFailure("daemon-status", "daemon_stopping", "Daemon shutdown is still in progress.") };
+      } else if (stoppedAt) {
+        consumeKnownError(error);
+        const summary = `daemon status: not running (stopped by operator at ${stoppedAt})`;
+        result = { ...daemonFailure("daemon-status", "daemon_unavailable", summary), summary };
+      } else {
+        const exit = lastDaemonLifecycleExit(userRoot, daemonId);
+        if (!exit) throw error;
+        consumeKnownError(error);
+        const summary = `daemon status: not running (exited ${exit.outcome} at ${exit.at})`;
+        result = {
+          ...daemonFailure(
+            "daemon-status",
+            "daemon_unavailable",
+            "The next command will autostart the daemon from the current disk build; " +
+              "run `ha daemon start --service` to start it explicitly.",
+          ),
+          summary,
+        };
+      }
     }
   }
   const target = {
@@ -89,20 +105,32 @@ export async function status(
 }
 
 // Lifecycle records describe each generation's intent; liveness is the independent witness that
-// exposes an old process even after a successor has taken over the endpoint and pid file.
+// exposes an old process even after a successor has taken over the endpoint and pid file. A
+// `process_exit` record is terminal, not a drain: keeping its pid in this list let a stale record
+// whose number had been reused hold `daemon_stopping` over every real error indefinitely.
 function liveShutdownProcesses(userRoot: string, daemonId: string) {
   const processes = new Map<number, { pid: number; state: string; outcome: string; since: string }>();
   for (const record of readDaemonLifecycleRecords(userRoot, daemonId)) {
-    if (record.event === "process_start") processes.delete(record.pid);
-    if (record.event === "process_stopping" || record.event === "process_exit")
+    if (record.event === "process_start" || record.event === "process_exit") processes.delete(record.pid);
+    else if (record.event === "process_stopping")
       processes.set(record.pid, {
         pid: record.pid,
-        state: record.event === "process_stopping" ? "stopping" : "exit_incomplete",
+        state: "stopping",
         outcome: record.outcome ?? "unknown",
         since: record.at,
       });
   }
-  return [...processes.values()].filter((entry) => daemonProcessAlive(entry.pid));
+  return [...processes.values()].filter(
+    (entry) => daemonProcessAlive(entry.pid) && sameProcessGeneration(entry.pid, entry.since),
+  );
+}
+
+// A live pid is not a live generation: only a process that started before the record was written
+// can be the one that wrote it. An unavailable witness (see processStartTimeMs) keeps the record.
+function sameProcessGeneration(pid: number, since: string): boolean {
+  const startedAt = processStartTimeMs(pid),
+    recordedAt = Date.parse(since);
+  return startedAt === null || !Number.isFinite(recordedAt) || startedAt <= recordedAt + 2_000;
 }
 // A daemon that self-exited (build_superseded, a signalled stop, a failed startup) leaves no operator
 // stop marker, so its own account in the lifecycle log is the only record of why it is gone. Only the

@@ -1,11 +1,16 @@
 import type { ContractVersion, CoreDomainError } from "@harness-anything/kernel";
-import { daemonBuildStamp } from "../build-identity.ts";
 import { currentDaemonProtocolVersion } from "../protocol/version.ts";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
 
-/** Every hello producer uses the identity of its loaded installation, independent of cwd and PATH. */
+/**
+ * protocol.hello is the first frame, so the client cannot negotiate: the previous daemon validates
+ * this object against its own closed schema and rejects any field it does not already declare.
+ * A new hello field therefore strands every current CLI against the previous release (#4279 sent
+ * `buildCommit`, which no daemon reads). Add a parameter here only when the previous release
+ * tolerates it; `test/protocol-hello-window-roundtrip.test.ts` freezes that boundary.
+ */
 export function daemonHelloParams(params: JsonObject = {}): JsonObject {
-  return { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit, ...params };
+  return { protocolVersion: currentDaemonProtocolVersion, ...params };
 }
 
 export function daemonHelloMismatch(
@@ -37,8 +42,14 @@ export function assertDaemonHello(value: unknown): asserts value is JsonObject {
       typeof hello?.code === "string" ? hello.code : "daemon_hello_rejected",
       String(error?.hint ?? hello?.rejectionExplanation ?? "Daemon rejected protocol.hello; use its release CLI."),
     );
-  const mismatch = daemonHelloMismatch(hello.protocolVersion);
-  if (mismatch) throw new DaemonHelloError(mismatch.code, mismatch.message);
+  // The previous release's diagnostics worker answered hello with a bare `{ ok: true }`. Every
+  // main-daemon hello has carried protocolVersion since long before the window, so absence is that
+  // one legacy reply shape; refusing it makes `ha daemon status --diagnostics` unusable against the
+  // previous daemon. Remove with the 1.0 window: by 2026-12-04 or when the current minor becomes 1.1.
+  if (hello.protocolVersion !== undefined) {
+    const mismatch = daemonHelloMismatch(hello.protocolVersion);
+    if (mismatch) throw new DaemonHelloError(mismatch.code, mismatch.message);
+  }
 }
 function record(value: unknown): JsonObject | null {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as JsonObject) : null;
