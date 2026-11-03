@@ -22,6 +22,13 @@ const PR_SECTIONS = Object.freeze([
   { title: "Residual Risk", aliases: Object.freeze(["residual risk", "剩余风险", "残余风险"]) },
 ]);
 
+// The lightweight closeout materializes only Summary and Verification. Map Summary onto the PR
+// template's What Changed and point Residual Risk at Verification, where that profile records
+// accepted risks (dec_BB2BCE9F995CD3A126E2918734 CH1), so lightweight tasks need no second
+// authoring place. A hand-authored section wins when the closeout carries one.
+const LIGHTWEIGHT_PROFILE = "lightweight",
+  LIGHTWEIGHT_RESIDUAL_RISK = "Accepted residual risks are recorded in the Verification section.";
+
 function record(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -48,7 +55,11 @@ function taskProjection(receipt, taskId) {
       .sort((left, right) => String(left.submittedAt ?? "").localeCompare(String(right.submittedAt ?? ""))),
     current = candidates.at(-1);
   if (!current) throw new Error(`task ${taskId} has no submitted cut for iteration ${task.iteration}`);
-  return { submission: current.submission, packagePath: projection.packagePath };
+  return {
+    submission: current.submission,
+    packagePath: projection.packagePath,
+    profileId: record(task.metadata) && typeof task.metadata.profileId === "string" ? task.metadata.profileId : null,
+  };
 }
 
 function submittedPaths(value, name) {
@@ -127,9 +138,13 @@ function findSection(sections, aliases) {
   return undefined;
 }
 
-function authoredSources(closeout) {
-  const sections = markdownSections(closeout);
-  return Object.fromEntries(PR_SECTIONS.map(({ title, aliases }) => [title, findSection(sections, aliases)]));
+function authoredSources(closeout, profileId) {
+  const sections = markdownSections(closeout),
+    sources = Object.fromEntries(PR_SECTIONS.map(({ title, aliases }) => [title, findSection(sections, aliases)]));
+  if (profileId !== LIGHTWEIGHT_PROFILE) return sources;
+  sources["What Changed"] ??= sources.Summary;
+  sources["Residual Risk"] ??= LIGHTWEIGHT_RESIDUAL_RISK;
+  return sources;
 }
 
 function escapeRegExp(value) {
@@ -190,11 +205,11 @@ function fillSection(body, title, content) {
 }
 
 export function renderTaskPrBody({ taskId, receipt, template, body = template, closeout }) {
-  const submission = taskProjection(receipt, taskId).submission,
+  const { submission, profileId } = taskProjection(receipt, taskId),
     facts = deliveryFacts(submission),
     stripped = withoutFacts(body),
     baseline = withoutFacts(template),
-    sources = authoredSources(typeof closeout === "string" ? closeout : "");
+    sources = authoredSources(typeof closeout === "string" ? closeout : "", profileId);
   let rendered = stripped;
   const missing = [];
   for (const { title } of PR_SECTIONS) {
