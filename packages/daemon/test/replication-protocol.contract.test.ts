@@ -94,6 +94,38 @@ test("a v2 base-backup frame names the required center upgrade", () => {
   );
 });
 
+test("decode failures summarize the offending frame across chunks without logging its payload", () => {
+  const invalid = { type: "replica.unknown", data: "do-not-log-this-content" },
+    line = JSON.stringify(invalid),
+    decoder = new ReplicationDecoder();
+  // The chunk starts with a legal frame and half the bad frame. Summarize only the bad frame
+  // when it completes, rather than a transport chunk or the preceding valid frame.
+  decoder.push(Buffer.from(`${serializeReplicationFrame(frames[0]!)}${line.slice(0, 10)}`));
+  assert.throws(
+    () => decoder.push(Buffer.from(`${line.slice(10)}\n`)),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.deepEqual(JSON.parse(error.message.split("; frame=")[1]!), {
+        bytes: Buffer.byteLength(line),
+        type: "replica.unknown",
+        schema: null,
+        metadataSchema: null,
+      });
+      assert.doesNotMatch(error.message, /do-not-log-this-content/u);
+      return true;
+    },
+  );
+  assert.throws(() => parseReplicationFrame("do-not-log-this-content"), /invalid replication JSON; frame=/u);
+  assert.throws(
+    () => parseReplicationFrame(JSON.stringify({ type: "x".repeat(1024) })),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal(JSON.parse(error.message.split("; frame=")[1]!).type.length, 128);
+      return true;
+    },
+  );
+});
+
 test("backup frames carry whole-package identity and reject damaged members", () => {
   const backup = frames.find((frame) => frame.type === "replica.backup")!;
   for (const invalid of [
@@ -268,7 +300,14 @@ test("decoder accepts many frames per chunk and bounds only the pending remainde
   const truncated = new ReplicationDecoder();
   truncated.push(Buffer.from(serializeReplicationFrame(ack).slice(0, -5)));
   assert.throws(() => truncated.finish());
-  assert.throws(() => new ReplicationDecoder().push(Buffer.from([0xc3, 0x28])));
+  assert.throws(
+    () => new ReplicationDecoder().push(Buffer.from([0xc3, 0x28])),
+    (error: unknown) => {
+      assert.equal((error as NodeJS.ErrnoException).code, "ERR_ENCODING_INVALID_ENCODED_DATA");
+      assert.match(String(error), /"chunkBytes":2/u);
+      return true;
+    },
+  );
   // The line serializer keeps the frame budget itself.
   assert.throws(() =>
     serializeReplicationFrame({ type: "replica.resync", reason: "x".repeat(REPLICATION_FRAME_BYTES) }),

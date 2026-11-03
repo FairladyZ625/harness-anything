@@ -174,7 +174,19 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
   });
   const failReplicationSession = (error: unknown): void => {
     const failure = error instanceof Error ? error : new Error(String(error));
-    closed ??= failure;
+    if (!closed) {
+      // The existing replica health/lifecycle path persists this message after the socket is gone.
+      failure.message += `; peer=${JSON.stringify({
+        host: options.hostname ?? "127.0.0.1",
+        port: options.port,
+        servername: options.servername ?? "localhost",
+        remoteAddress: socket.remoteAddress,
+        remotePort: socket.remotePort,
+        repoId: options.repoId,
+        localNodeId: options.nodeId,
+      })}`;
+      closed = failure;
+    }
     for (const waiter of waiters.splice(0)) waiter.reject(closed);
     socket.destroy();
   };
@@ -227,8 +239,8 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
           .catch((error: unknown) => {
             socket.off("data", onData);
             socket.off("close", onClose);
-            reject(error instanceof Error ? error : new Error(String(error)));
-            socket.destroy();
+            failReplicationSession(error);
+            reject(closed);
           });
       };
       const onClose = () => reject(closed ?? new Error("replication session was not authenticated"));

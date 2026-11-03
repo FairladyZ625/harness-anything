@@ -161,21 +161,31 @@ test("a legacy base-backup frame ends only its TLS replication session", { timeo
     (error: unknown) => {
       assert.equal((error as { code?: string }).code, "center_upgrade_required");
       assert.match(String(error), /fleet-basebackup\/v2/u);
+      assert.match(String(error), /"type":"replica.backup"/u);
+      assert.match(String(error), /"metadataSchema":"fleet-basebackup\/v2"/u);
+      assert.match(String(error), new RegExp(`"remotePort":${fake.port}`, "u"));
       return true;
     },
   );
   assert.equal(fake.counts()["replica.start"], 1, "the session reached replication before the bad frame");
 });
-test("an unrecognized replication frame ends only its TLS session", { timeout: 30_000 }, async (t) => {
-  const fixture = await fleetReplicationFixture(t);
-  const fake = await fakeReplicationCenter(t, fixture, (frame, send) => {
-    if (frame.type === "replica.start") send({ type: "replica.invalid" } as never);
-  });
-  const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-replica-invalid-frame-"));
-  t.after(() => rmSync(viewRoot, { recursive: true, force: true }));
-
-  await assert.rejects(
-    runFleetReplicaStream({
+test(
+  "an unrecognized replication frame ends only its TLS session and records its source",
+  { timeout: 30_000 },
+  async (t) => {
+    const fixture = await fleetReplicationFixture(t);
+    const fake = await fakeReplicationCenter(t, fixture, (frame, send) => {
+      if (frame.type === "replica.start")
+        send({
+          type: "replica.invalid",
+          payload: "do-not-log-this-content",
+        } as never);
+    });
+    const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-replica-invalid-frame-")),
+      controller = new AbortController(),
+      failed = Promise.withResolvers<unknown>();
+    t.after(() => rmSync(viewRoot, { recursive: true, force: true }));
+    const running = runFleetReplicaSync({
       hostname: "127.0.0.1",
       port: fake.port,
       ca: fixture.cert,
@@ -185,11 +195,33 @@ test("an unrecognized replication frame ends only its TLS session", { timeout: 3
       repoId: replicationRepoId,
       viewRoot,
       diskQuotaBytes: 64 * 1024 * 1024,
-    }),
-    /invalid replication frame/u,
-  );
-  assert.equal(fake.counts()["replica.start"], 1, "the invalid frame ended its authenticated session");
-});
+      signal: controller.signal,
+      onFailure: (error) => failed.resolve(error),
+    });
+    try {
+      const error = await failed.promise;
+      controller.abort();
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /invalid replication frame/u);
+      assert.match(error.message, /"type":"replica.invalid"/u);
+      assert.match(error.message, /"remoteAddress":"127\.0\.0\.1"/u);
+      assert.match(error.message, new RegExp(`"remotePort":${fake.port}`, "u"));
+      assert.match(error.message, /"servername":"localhost"/u);
+      assert.match(error.message, new RegExp(`"repoId":"${replicationRepoId}"`, "u"));
+      assert.doesNotMatch(error.message, /do-not-log-this-content|secret-edge-one/u);
+      assert.equal(
+        readReplicaHealth(path.join(viewRoot, "repos", replicationRepoId, "views", "edge-one")).syncFailure?.message,
+        error.message,
+        "the persisted health and lifecycle callback receive the same attributable failure",
+      );
+      await fake.waitSocketCount(0);
+      assert.equal(fake.counts()["replica.start"], 1, "the invalid frame ended its authenticated session");
+    } finally {
+      controller.abort();
+      await running;
+    }
+  },
+);
 
 const readOne = <T>(file: string, sql: string, params: readonly (string | number)[] = []): T => {
   const db = new DatabaseSync(file, { readOnly: true });
