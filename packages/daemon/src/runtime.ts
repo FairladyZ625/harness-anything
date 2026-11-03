@@ -94,6 +94,7 @@ export async function startDaemon(input: {
     socketBound = false,
     stopping = false;
   let fleetDrainDeadline: ReturnType<typeof setTimeout> | undefined;
+  let buildDrainRecheck: ReturnType<typeof setInterval> | undefined;
   let fleetDrainExpired = false;
   const runtimeProcessPids = new Map<string, number>();
   const buildDraining = (): boolean => input.buildSupersessionEnabled !== false && buildSupersessionObserved;
@@ -119,6 +120,7 @@ export async function startDaemon(input: {
     diagnostics?.state("stopping");
     lifecycle.record({ event: "process_stopping", outcome });
     clearTimeout(fleetDrainDeadline);
+    clearInterval(buildDrainRecheck);
     stopPromise = (async () => {
       const shutdownDeadlineMs = input.shutdownDeadlineMs ?? 30_000;
       const deadline = setTimeout(() => {
@@ -267,6 +269,12 @@ export async function startDaemon(input: {
             if (buildSupersessionObserved || input.buildSupersessionEnabled === false) return;
             buildSupersessionObserved = true;
             diagnostics!.state("draining");
+            // A parked read can be the first request to observe drift and never settle. Start
+            // checking here, and keep checking while work drains even if no more RPCs complete.
+            // This only rechecks the existing gates; elapsed time never cancels a write or attach.
+            buildDrainRecheck = setInterval(requestDrainCheck, 1_000);
+            buildDrainRecheck.unref();
+            requestDrainCheck();
             // Admitted deliveries already have a 30-minute total deadline. Preparation can
             // stall before that deadline starts, so build drain uses the same bound.
             fleetDrainDeadline = setTimeout(() => {
@@ -293,6 +301,8 @@ export async function startDaemon(input: {
     diagnostics.state("running");
     withDaemonObservation(diagnostics.observer, () => host!.startAttachments());
   } catch (error) {
+    clearInterval(buildDrainRecheck);
+    clearTimeout(fleetDrainDeadline);
     lifecycle.record({
       event: "process_exit",
       outcome: "startup_failed",
