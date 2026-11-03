@@ -76,7 +76,7 @@ test("a legacy cut keeps its bytes only when the caller explicitly resumes it", 
   assert.equal(changedCut.riskTierAssessment, assessment);
 });
 
-test("risk-floor escalation changes the reviewer route without adding consent", () => {
+test("risk-floor escalation applies the effective high-tier review and consent gates", () => {
   const contract: SubmissionV1["completionContract"] = {
       presetSnapshotDigest: digest,
       gates: [],
@@ -114,7 +114,7 @@ test("risk-floor escalation changes the reviewer route without adding consent", 
     });
 
   assert.equal(escalated.closeoutGates.review, true);
-  assert.equal(escalated.closeoutGates.consent, false);
+  assert.equal(escalated.closeoutGates.consent, true);
   assert.equal(medium.closeoutGates.review, true);
   assert.equal(medium.closeoutGates.consent, true, "medium keeps its repository-resolved consent gate");
   assert.equal(mediumEscalated.closeoutGates.review, true);

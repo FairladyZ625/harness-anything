@@ -184,8 +184,8 @@ test("a low declaration raised to high freezes the assessed tier and consent wit
     assert.deepEqual(assessment.matchedPathReviewers, []);
     assert.equal(
       submission.completionContract.closeoutGates.consent,
-      false,
-      "risk-floor escalation changes review only",
+      true,
+      "an effective high tier activates its existing consent gate",
     );
     assert.equal(Object.hasOwn(assessment, "guiAcceptanceRequired"), false);
     assert.ok(!submission.completionContract.gates.some((gate) => gate.gateId === "gui-acceptance"));

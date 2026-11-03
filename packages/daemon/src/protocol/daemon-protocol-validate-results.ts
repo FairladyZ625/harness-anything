@@ -9,6 +9,7 @@ import {
 } from "./daemon-protocol-schema-ids.ts";
 import {
   validateReceiptAcceptanceWire,
+  validRiskTierAssessment,
   validSquadControlAuthorization,
   wireUnmetCriterion,
   exactRecord,
@@ -602,6 +603,28 @@ export function writeReceipt(value: JsonObject): string[] {
   if (!nonEmpty(value.opId)) return [validationError(entityId, "opId", value.opId, "must be a non-empty string")];
   if (value.revision !== undefined && (!integer(value.revision) || Number(value.revision) < 0))
     return [validationError(entityId, "revision", value.revision, "must be a non-negative integer")];
+  if (
+    value.riskTierAdvice !== undefined &&
+    (!isJsonObject(value.riskTierAdvice) ||
+      !exactRecord(value.riskTierAdvice, ["schema", "declaredTier", "suggestedTier", "profileId", "reasons"]) ||
+      value.riskTierAdvice.schema !== "task-risk-tier-advice/v1" ||
+      !["low", "medium", "high"].includes(String(value.riskTierAdvice.declaredTier)) ||
+      !["low", "medium", "high"].includes(String(value.riskTierAdvice.suggestedTier)) ||
+      riskTierRank(value.riskTierAdvice.suggestedTier) < riskTierRank(value.riskTierAdvice.declaredTier) ||
+      !nonEmpty(value.riskTierAdvice.profileId) ||
+      !stringArray(value.riskTierAdvice.reasons) ||
+      value.riskTierAdvice.reasons.length === 0)
+  )
+    return [validationError(entityId, "riskTierAdvice", value.riskTierAdvice, "must be task-risk-tier-advice/v1")];
+  if (value.riskTierAssessment !== undefined && !validRiskTierAssessment(value.riskTierAssessment))
+    return [
+      validationError(
+        entityId,
+        "riskTierAssessment",
+        value.riskTierAssessment,
+        "must be a task-risk-tier-assessment/v1 object",
+      ),
+    ];
   const acceptanceAware = "status" in value || "acceptance" in value;
   if (acceptanceAware) {
     const errors = validateReceiptAcceptanceWire(value);
@@ -649,6 +672,10 @@ export function writeReceipt(value: JsonObject): string[] {
       return [validationError(entityId, "evidence", value.evidence, "must be absent or non-empty")];
   }
   return [];
+}
+
+function riskTierRank(value: unknown): number {
+  return value === "high" ? 2 : value === "medium" ? 1 : value === "low" ? 0 : -1;
 }
 
 export function validateDaemonGuiCommandReceipt(value: unknown): readonly string[] {

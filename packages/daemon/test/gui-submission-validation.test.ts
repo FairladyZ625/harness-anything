@@ -34,6 +34,14 @@ test("#1546: a valid submission has no issues", () => {
     "historical boolean fields remain valid",
   );
   assert.deepEqual(validateGuiSubmission({ ...valid, riskTierAssessment: validRiskTierAssessment }), []);
+  assert.deepEqual(
+    validateGuiSubmission({
+      ...valid,
+      riskTierAssessment: { ...validRiskTierAssessment, declaredTier: "high", effectiveTier: "low" },
+    }),
+    [],
+    "wire shape validation preserves previously accepted tier pairs",
+  );
 });
 
 test("submission machine facts are accepted by the wire contract", () => {

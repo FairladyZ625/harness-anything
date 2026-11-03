@@ -631,6 +631,25 @@ function renderSuccessfulReceipt(receipt: Record<string, unknown>): string {
   );
   // Settlement-none publications (task-push) never reach the accepted_durable branch
   // that renders `next` after the acceptance line, so they get the lane here instead.
-  if (receipt.status === "accepted_durable") return text;
-  return [text, ...renderReceiptNext(receipt.next, text)].join("\n");
+  const advice = isRecord(receipt.riskTierAdvice)
+    ? [
+        `risk tier suggestion: ${String(receipt.riskTierAdvice.suggestedTier)} ` +
+          `(profile: ${String(receipt.riskTierAdvice.profileId)})`,
+        ...((Array.isArray(receipt.riskTierAdvice.reasons) ? receipt.riskTierAdvice.reasons : []) as string[]).map(
+          (reason) => `  reason: ${reason}`,
+        ),
+      ]
+    : [];
+  const assessment = isRecord(receipt.riskTierAssessment)
+    ? [
+        receipt.riskTierAssessment.declaredTier === receipt.riskTierAssessment.effectiveTier
+          ? `risk tier assessed: ${String(receipt.riskTierAssessment.effectiveTier)} (declared)`
+          : `risk tier raised: ${String(receipt.riskTierAssessment.declaredTier)} -> ${String(receipt.riskTierAssessment.effectiveTier)}`,
+        ...(
+          (Array.isArray(receipt.riskTierAssessment.reasons) ? receipt.riskTierAssessment.reasons : []) as string[]
+        ).map((reason) => `  reason: ${reason}`),
+      ]
+    : [];
+  if (receipt.status === "accepted_durable") return [text, ...advice, ...assessment].join("\n");
+  return [text, ...advice, ...assessment, ...renderReceiptNext(receipt.next, text)].join("\n");
 }

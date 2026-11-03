@@ -300,6 +300,14 @@ test("historical GUI risk assessment fields remain optional booleans", () => {
   assert.deepEqual(
     validateSubmissionV1({
       ...submission,
+      riskTierAssessment: { ...assessment, declaredTier: "high", effectiveTier: "low" },
+    }),
+    [],
+    "the v1 shape validator preserves previously accepted tier pairs",
+  );
+  assert.deepEqual(
+    validateSubmissionV1({
+      ...submission,
       riskTierAssessment: { ...assessment, guiAcceptanceRequired: false },
     }),
     [],

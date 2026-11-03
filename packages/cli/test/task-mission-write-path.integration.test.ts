@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
+import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 import { createRuntimeFixture, installIdentities, published, run, runMaybe, seedTask } from "./runtime-cli.fixtures.ts";
 
 // The old sequence needed a manual copy: artifact add refused an outside source, and the mission
@@ -51,4 +53,39 @@ test("a scratchpad mission is published, edited, and dispatched by name without 
   assert.equal(preview.receipt.schema, "agent-dispatch-preview/v1", JSON.stringify(preview.receipt));
   assert.match(String(preview.receipt.prompt), /mission v2/u);
   assert.doesNotMatch(String(preview.receipt.prompt), /mission v1/u);
+});
+
+test("task start returns non-blocking structured risk-tier advice for a low lightweight task", (context) => {
+  const { root, env } = createRuntimeFixture(context),
+    taskId = "task-start-risk-advice",
+    created = run(root, env, [
+      "task",
+      "create",
+      "--id",
+      taskId,
+      "--admin",
+      "--title",
+      "Task start risk advice",
+      "--risk-tier",
+      "low",
+    ]),
+    packagePath = String(created.packagePath);
+  published(root, env, created);
+  writeFileSync(path.join(root, "harness", packagePath, "task_plan.md"), realizedTaskPlan("Task start risk advice"));
+  run(root, env, ["doc", "sync", "--submit", "--path", `${packagePath}/task_plan.md`]);
+
+  const started = run(root, env, ["task", "start", taskId, "--execution-id", "exec-start-risk-advice"]),
+    advice = started.riskTierAdvice as Record<string, unknown>;
+  assert.equal(started.outcome, "applied", JSON.stringify(started));
+  assert.deepEqual(Object.keys(advice).sort(), ["declaredTier", "profileId", "reasons", "schema", "suggestedTier"]);
+  assert.equal(advice.schema, "task-risk-tier-advice/v1");
+  assert.equal(advice.declaredTier, "low");
+  assert.equal(advice.suggestedTier, "low");
+  assert.equal(advice.profileId, "lightweight");
+  assert.ok(Array.isArray(advice.reasons) && advice.reasons.length > 0);
+  assert.match(renderCliReceipt(started).text, /risk tier suggestion: low \(profile: lightweight\)/u);
+
+  const rejoined = run(root, env, ["task", "start", taskId]);
+  assert.equal(rejoined.outcome, "no_changes", JSON.stringify(rejoined));
+  assert.deepEqual(rejoined.riskTierAdvice, advice, "joining the active execution also returns its advice");
 });

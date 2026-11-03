@@ -1,6 +1,8 @@
 import { validateReceiptAcceptance, type ReceiptAcceptanceFields } from "./receipt-acceptance.ts";
 import { validateActorIdentity } from "./actor-identity.ts";
 import { isNonEmptyString } from "./contract-validation.ts";
+import { isTaskRiskTierAssessmentV1 } from "./task-risk-tier-assessment.ts";
+import type { TaskRiskTierAssessmentV1 } from "./execution.ts";
 import { parseEntityRef } from "./entity-ref.ts";
 import type { AuthorizationDecision } from "./receipt-frame.ts";
 import { RECEIPT_GUIDANCE_KINDS, type ReceiptGuidanceContractEntry } from "./entity-action-descriptor.ts";
@@ -10,6 +12,14 @@ export interface EntityActionUnmetCriterionV1 {
   readonly ref: string;
   readonly failureCode: string;
   readonly explain: string;
+}
+
+export interface TaskRiskTierAdviceV1 {
+  readonly schema: "task-risk-tier-advice/v1";
+  readonly declaredTier: "low" | "medium" | "high";
+  readonly suggestedTier: "low" | "medium" | "high";
+  readonly profileId: string;
+  readonly reasons: readonly string[];
 }
 
 export type ReceiptDiagnostic =
@@ -176,6 +186,10 @@ export interface WriteReceiptDraft extends Partial<Omit<ReceiptAcceptanceFields,
   readonly visibility?: ReceiptVisibility;
   readonly proof?: ReceiptProof;
   readonly detail?: WriteReceiptDetail;
+  /** Non-blocking guidance emitted when a task execution starts. */
+  readonly riskTierAdvice?: TaskRiskTierAdviceV1;
+  /** The submit-time risk floor frozen in the accepted submission. */
+  readonly riskTierAssessment?: TaskRiskTierAssessmentV1;
   readonly next?: readonly { readonly command?: string; readonly action?: string; readonly reason?: string }[];
   readonly commitSha?: string | null;
   readonly authorizationDecision?: AuthorizationDecision;
@@ -231,6 +245,8 @@ export const WRITE_RECEIPT_SCHEMA = Object.freeze({
     "visibility",
     "proof",
     "detail",
+    "riskTierAdvice",
+    "riskTierAssessment",
     "commitSha",
     "unmetCriteria",
     "effects",
@@ -266,6 +282,10 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
     if (field in value && !isNonEmptyString(value[field])) errors.push(`${field} must be a non-empty string`);
   if ("nextAction" in value && !isNonEmptyString(value.nextAction))
     errors.push("nextAction must be a non-empty string");
+  if ("riskTierAdvice" in value && !validTaskRiskTierAdvice(value.riskTierAdvice))
+    errors.push("riskTierAdvice must be a task-risk-tier-advice/v1 object");
+  if ("riskTierAssessment" in value && !isTaskRiskTierAssessmentV1(value.riskTierAssessment))
+    errors.push("riskTierAssessment must be a task-risk-tier-assessment/v1 object");
   if (
     "unmetCriteria" in value &&
     (!Array.isArray(value.unmetCriteria) || value.unmetCriteria.some((entry) => !isEntityActionUnmetCriterion(entry)))
@@ -415,6 +435,25 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
   if (!isNonEmptyString(value.evidence) && (value.outcome !== "indeterminate" || value.origin !== "N/A"))
     errors.push("evidence-free receipt must be N/A indeterminate");
   return errors;
+}
+
+function validTaskRiskTierAdvice(value: unknown): value is TaskRiskTierAdviceV1 {
+  return (
+    isReceiptDomainRecord(value) &&
+    exact(value, ["schema", "declaredTier", "suggestedTier", "profileId", "reasons"]) &&
+    value.schema === "task-risk-tier-advice/v1" &&
+    ["low", "medium", "high"].includes(String(value.declaredTier)) &&
+    ["low", "medium", "high"].includes(String(value.suggestedTier)) &&
+    riskTierRank(value.suggestedTier) >= riskTierRank(value.declaredTier) &&
+    isNonEmptyString(value.profileId) &&
+    Array.isArray(value.reasons) &&
+    value.reasons.length > 0 &&
+    value.reasons.every(isNonEmptyString)
+  );
+}
+
+function riskTierRank(value: unknown): number {
+  return value === "high" ? 2 : value === "medium" ? 1 : value === "low" ? 0 : -1;
 }
 
 export function isEntityActionUnmetCriterion(value: unknown): value is EntityActionUnmetCriterionV1 {

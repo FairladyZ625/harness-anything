@@ -25,6 +25,7 @@ import {
   applyTransition,
   normalizeTaskLifecycleCommand,
   emptyTaskLifecycleSnapshot,
+  validateTransition,
   validateCurrentTaskEvent,
   validateTaskEvent,
 } from "../../src/domain/task-lifecycle.contract.ts";
@@ -98,7 +99,7 @@ test("retired CI is omitted from completion receipt cuts even when an old receip
   );
 });
 
-test("current lifecycle writes accept a historical GUI assessment boolean", () => {
+test("lifecycle replay accepts historically valid assessment tier pairs and GUI booleans", () => {
   const { events } = lifecycleFixture(),
     submitted = events.find((event) => event.type === "execution_submitted");
   assert.ok(submitted?.type === "execution_submitted");
@@ -114,8 +115,8 @@ test("current lifecycle writes accept a historical GUI assessment boolean", () =
           ...submitted.payload.execution.submission,
           riskTierAssessment: {
             schema: "task-risk-tier-assessment/v1",
-            declaredTier: "medium",
-            effectiveTier: "medium",
+            declaredTier: "high",
+            effectiveTier: "low",
             deliveryBaseSha: null,
             deliveryHeadSha: "a".repeat(40),
             matchedPathReviewers: [],
@@ -127,8 +128,74 @@ test("current lifecycle writes accept a historical GUI assessment boolean", () =
     },
   } as TaskEventV1;
 
+  const active = reduceTaskEvent(
+      reduceTaskEvent(emptyTaskLifecycleSnapshot(), events.find((event) => event.type === "task_created")!),
+      events.find((event) => event.type === "execution_started")!,
+    ),
+    historicalSubmission = legacyEvent.payload.execution.submission!,
+    historicalDigest = submissionDigest(historicalSubmission),
+    replayed = reduceTaskEvent(active, legacyEvent);
   assert.deepEqual(validateTaskEvent(legacyEvent), []);
   assert.deepEqual(validateCurrentTaskEvent(legacyEvent), []);
+  assert.equal(replayed.executions[0]?.submission, historicalSubmission);
+  assert.equal(submissionDigest(replayed.executions[0]!.submission!), historicalDigest);
+});
+
+test("SubmitExecution rejects a decreasing assessment at the write boundary", () => {
+  const { events } = lifecycleFixture(),
+    created = events.find((event) => event.type === "task_created"),
+    started = events.find((event) => event.type === "execution_started"),
+    submitted = events.find((event) => event.type === "execution_submitted");
+  assert.ok(created && started && submitted?.type === "execution_submitted");
+  assert.ok(submitted.payload.execution.submission);
+  const active = reduceTaskEvent(reduceTaskEvent(emptyTaskLifecycleSnapshot(), created), started);
+  assert.ok(active.lease);
+  const baseAssessment = {
+    schema: "task-risk-tier-assessment/v1",
+    declaredTier: "high" as const,
+    effectiveTier: "low" as "low" | "medium" | "high",
+    deliveryBaseSha: null,
+    deliveryHeadSha: "a".repeat(40),
+    matchedPathReviewers: [],
+    reasons: ["test floor"],
+  };
+  const transitionIssues = (assessment: typeof baseAssessment) => {
+    const command = normalizeTaskLifecycleCommand(
+      {
+        workspaceId: "workspace-1",
+        actor: implementer,
+        source: "local",
+        expectedRevision: active.revision,
+      },
+      {
+        type: "SubmitExecution",
+        taskId: submitted.payload.execution.taskId,
+        executionId: submitted.payload.execution.executionId,
+        submission: {
+          ...submitted.payload.execution.submission!,
+          riskTierAssessment: assessment,
+        },
+      },
+    );
+    return validateTransition(
+      active,
+      {
+        ...command,
+        eventId: "event-risk-tier-submit",
+        workspaceRevision: active.revision + 1,
+        occurredAt: "2026-08-11T00:10:00.000Z",
+      },
+      { actorBinding: implementer, leaseVersion: active.lease.version, sessionDisposition: "complete" },
+    );
+  };
+
+  assert.ok(
+    transitionIssues(baseAssessment).some(
+      (issue) =>
+        issue.code === "invalid_submission" && issue.message.includes("effective tier must not be below declared tier"),
+    ),
+  );
+  assert.deepEqual(transitionIssues({ ...baseAssessment, effectiveTier: "high" }), []);
 });
 
 function executionReceipt(gateIds: readonly "ci"[]): string {

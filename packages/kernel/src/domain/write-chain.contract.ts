@@ -25,6 +25,7 @@ export type {
   ReceiptProof,
   ReceiptJsonValue,
   ReceiptVisibility,
+  TaskRiskTierAdviceV1,
   WriteReceipt,
   WriteReceiptDraft,
   WriteReceiptDetail,

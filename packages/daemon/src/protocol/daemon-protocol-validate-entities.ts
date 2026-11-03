@@ -145,7 +145,7 @@ function validArtifactDelivery(value: unknown): boolean {
   );
 }
 
-function validRiskTierAssessment(value: unknown): boolean {
+export function validRiskTierAssessment(value: unknown): boolean {
   return (
     isJsonObject(value) &&
     exactRecord(value, [

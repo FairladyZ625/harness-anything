@@ -28,6 +28,91 @@ const accepted: ReceiptAcceptanceFields = {
 test("public receipt requires explicit acceptance fields", () => {
   assert.match(validateWriteReceipt({ outcome: "applied", opId: "command" }).join("\n"), /receipt status is invalid/u);
 });
+test("task-start risk advice is an optional but closed structured receipt field", () => {
+  const receipt = {
+    outcome: "applied",
+    opId: "start-command",
+    status: "settled_no_write",
+    acceptance: null,
+    projection: pending,
+    git: { ...pending, commitSha: null },
+    worktree: pending,
+    replica: { state: "not_configured", cut: null },
+    visibility: "center",
+    evidence: "start-command",
+    authorizationDecision: {
+      policyRef: "policy@1",
+      actor: { principal: { personId: "worker" }, executor: null },
+      subject: "task/task-start",
+      bindingsUsed: [],
+      outcome: "allowed",
+      reasonCodes: ["allowed"],
+      nextActions: [],
+      evaluatedAtCut: "canonical:1",
+    },
+    riskTierAdvice: {
+      schema: "task-risk-tier-advice/v1",
+      declaredTier: "low",
+      suggestedTier: "low",
+      profileId: "lightweight",
+      reasons: ["declared low risk", "submit rechecks the delivery"],
+    },
+  } as const;
+  assert.deepEqual(validateWriteReceipt(receipt), []);
+  assert.match(
+    validateWriteReceipt({ ...receipt, riskTierAdvice: { ...receipt.riskTierAdvice, unstructured: true } }).join("\n"),
+    /riskTierAdvice must be a task-risk-tier-advice\/v1 object/u,
+  );
+  assert.match(
+    validateWriteReceipt({
+      ...receipt,
+      riskTierAdvice: { ...receipt.riskTierAdvice, declaredTier: "high", suggestedTier: "low" },
+    }).join("\n"),
+    /riskTierAdvice must be a task-risk-tier-advice\/v1 object/u,
+  );
+});
+test("submit risk assessment receipt shape preserves historical tier pairs", () => {
+  const receipt = {
+    outcome: "applied",
+    opId: "submit-command",
+    status: "settled_no_write",
+    acceptance: null,
+    projection: pending,
+    git: { ...pending, commitSha: null },
+    worktree: pending,
+    replica: { state: "not_configured", cut: null },
+    visibility: "center",
+    evidence: "submit-command",
+    authorizationDecision: {
+      policyRef: "policy@1",
+      actor: { principal: { personId: "worker" }, executor: null },
+      subject: "task/task-submit",
+      bindingsUsed: [],
+      outcome: "allowed",
+      reasonCodes: ["allowed"],
+      nextActions: [],
+      evaluatedAtCut: "canonical:1",
+    },
+    riskTierAssessment: {
+      schema: "task-risk-tier-assessment/v1",
+      declaredTier: "low",
+      effectiveTier: "high",
+      deliveryBaseSha: "a".repeat(40),
+      deliveryHeadSha: "b".repeat(40),
+      matchedPathReviewers: [],
+      reasons: ["repository-risk-floor: sensitive repository surface: packages/app/src/auth.ts"],
+    },
+  } as const;
+  assert.deepEqual(validateWriteReceipt(receipt), []);
+  assert.deepEqual(
+    validateWriteReceipt({
+      ...receipt,
+      riskTierAssessment: { ...receipt.riskTierAssessment, declaredTier: "high", effectiveTier: "low" },
+    }),
+    [],
+    "receipt validation checks assessment shape without narrowing its v1 tier pairs",
+  );
+});
 test("D4 accepts a committed interval while Git and worktree remain pending", () => {
   assert.deepEqual(validateReceiptAcceptance({ ...accepted, opId: "command", outcome: "applied" }), []);
   assert.deepEqual(unsatisfiedReceiptPredicates(accepted, ["accepted_durable", "projection_visible", "git_verified"]), [

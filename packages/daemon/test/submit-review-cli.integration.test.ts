@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -31,6 +31,20 @@ test("CLI submit of a pushed delivery seats the matching path reviewer instead o
     execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
   initIngressRepo(root, uid);
   git(root, "branch", "-M", "main");
+  mkdirSync(path.join(root, "tools", "gates"), { recursive: true });
+  for (const file of [
+    "tools/task-risk-floor.mjs",
+    "tools/task-risk-manifest.json",
+    "tools/check-pr-governance.mjs",
+    "tools/gate-manifest.json",
+    "tools/gates/git.mjs",
+  ]) {
+    const target = path.join(root, file);
+    mkdirSync(path.dirname(target), { recursive: true });
+    copyFileSync(path.resolve(file), target);
+  }
+  git(root, "add", "tools");
+  git(root, "commit", "-qm", "test: install repository risk assessor");
   const settingsPath = path.join(root, "harness", "harness.yaml");
   writeFileSync(
     settingsPath,
@@ -125,7 +139,7 @@ test("CLI submit of a pushed delivery seats the matching path reviewer instead o
       taskId,
       title: "Automatic CLI review",
       presetId: "standard-task",
-      riskTier: "high",
+      riskTier: "low",
     });
     assert.equal(created.outcome, "applied", JSON.stringify(created));
     await publish(created.opId);
@@ -137,7 +151,10 @@ test("CLI submit of a pushed delivery seats the matching path reviewer instead o
     const checkout = path.join(root, ".worktrees", taskId);
     mkdirSync(path.join(checkout, "src"), { recursive: true });
     writeFileSync(path.join(checkout, "src", "delivery.ts"), "export const delivered = true;\n");
+    mkdirSync(path.join(checkout, "packages", "app", "src"), { recursive: true });
+    writeFileSync(path.join(checkout, "packages", "app", "src", "auth.ts"), "export const authChange = true;\n");
     git(checkout, "add", "src/delivery.ts");
+    git(checkout, "add", "packages/app/src/auth.ts");
     git(checkout, "commit", "-qm", "feat: deliver the reviewed change");
     git(checkout, "push", "-u", "origin", taskId);
     writeFileSync(
@@ -161,7 +178,24 @@ test("CLI submit of a pushed delivery seats the matching path reviewer instead o
     const submitted = await cli(["task", "submit", taskId, "--execution-id", executionId]);
     t.diagnostic(`ha task submit ${taskId}\n${submitted.stdout}${submitted.stderr}`);
     assert.equal(submitted.status, 0, JSON.stringify(submitted));
-    assert.equal(JSON.parse(submitted.stdout).outcome, "applied");
+    const submittedReceipt = JSON.parse(submitted.stdout) as Record<string, unknown>,
+      assessment = submittedReceipt.riskTierAssessment as Record<string, unknown>;
+    assert.equal(submittedReceipt.outcome, "applied");
+    assert.equal(assessment.declaredTier, "low");
+    assert.equal(assessment.effectiveTier, "high");
+    assert.ok(
+      Array.isArray(assessment.reasons) &&
+        assessment.reasons.some((reason) =>
+          String(reason).includes("sensitive repository surface: packages/app/src/auth.ts"),
+        ),
+    );
+    const humanSubmitted = await spawnCli(
+      ["--root", checkout, "--repo", repoId, "task", "submit", taskId, "--execution-id", executionId],
+      env,
+    );
+    assert.equal(humanSubmitted.status, 0, `${humanSubmitted.stdout}\n${humanSubmitted.stderr}`);
+    assert.match(humanSubmitted.stdout, /risk tier raised: low -> high/u);
+    assert.match(humanSubmitted.stdout, /sensitive repository surface: packages\/app\/src\/auth\.ts/u);
     const dispatches = await cli(["task", "dispatches", taskId]);
     t.diagnostic(`ha task dispatches ${taskId}\n${dispatches.stdout}${dispatches.stderr}`);
     assert.equal(dispatches.status, 0, JSON.stringify(dispatches));
