@@ -137,6 +137,11 @@ Throughput uses successful terminal replies. Failed-request exposure is reported
 unavailability, which is measured by ready-state `repo.tasks.list(limit=1)` probes at 250 ms cadence. CPU, RSS and event
 loop delay are sampled in the dedicated daemon process, not the generator. Monitor IPC adds one
 sample/s; probes add four requests/s plus their hellos.
+The product's independent diagnostic socket (task_97df73f5) is also sampled once/s during load,
+and every 10s during attachment. Reports retain heartbeat age, current RSS, the age and values of
+the product's last histogram window, up to 20 active operations, and bounded recent stack evidence.
+Product histogram windows are normally 10s and can be stale during a stall; independent heartbeat
+and RSS remain live. The bench's 1s histogram is a separate measurement, labeled in `daemonSamples`.
 
 Curves are warm-cache measurements in increasing node order. A warm replica starts at the current
 replication head. A synthetic ACK does not write an edge database or run an edge projection; the

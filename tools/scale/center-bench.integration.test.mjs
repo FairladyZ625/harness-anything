@@ -112,6 +112,15 @@ test(
         assert.equal(row.replication.recovered, row.nodes, JSON.stringify(row.replication));
       }
       if (!full) {
+        assert.ok(
+          row.productDiagnostics.some(
+            (sample) =>
+              !sample.error &&
+              Number.isFinite(sample.eventLoopDelayMs?.p99) &&
+              Number.isFinite(sample.eventLoopDelayMs?.max),
+          ),
+          "product watchdog provides event-loop metrics through its independent diagnostic socket",
+        );
         assert.equal(row.errorRate, 0, JSON.stringify(row.errors));
         assert.ok(
           row.read.count > 0 && row.write.count > 0,

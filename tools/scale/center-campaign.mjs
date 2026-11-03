@@ -32,7 +32,8 @@ const event = (fixture, name, after = 0) =>
 
 export async function measureCenter(fixture, operation) {
   const samples = [],
-    probes = [];
+    probes = [],
+    productDiagnostics = [];
   const pending = new Set();
   const monitor = (operation) => {
     const running = operation().finally(() => pending.delete(running));
@@ -40,6 +41,7 @@ export async function measureCenter(fixture, operation) {
   };
   const started = performance.now();
   let sampling = false,
+    readingDiagnostics = false,
     probing = false;
   await fixture.request("sample");
   const sample = async () => {
@@ -72,13 +74,26 @@ export async function measureCenter(fixture, operation) {
       probing = false;
     }
   };
+  const diagnostic = async () => {
+    if (readingDiagnostics) return;
+    readingDiagnostics = true;
+    try {
+      productDiagnostics.push({ atMs: performance.now() - started, ...(await fixture.diagnostics()) });
+    } catch (error) {
+      productDiagnostics.push({ atMs: performance.now() - started, error: error.message });
+    } finally {
+      readingDiagnostics = false;
+    }
+  };
   const sampleTimer = setInterval(() => {
       monitor(sample);
+      monitor(diagnostic);
     }, 1000),
     probeTimer = setInterval(() => {
       monitor(probe);
     }, 250);
   try {
+    await diagnostic();
     await probe();
     const result = await operation();
     clearInterval(sampleTimer);
@@ -99,6 +114,7 @@ export async function measureCenter(fixture, operation) {
     return {
       ...result,
       daemonSamples: samples,
+      productDiagnostics,
       probes,
       unavailableMs,
       unavailableDefinition:

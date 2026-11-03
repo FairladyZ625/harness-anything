@@ -10,6 +10,7 @@ import { registerSettledBootstrappedDaemonRepo } from "../../packages/daemon/tes
 import { fleetNodeOwners } from "../../packages/daemon/test/fleet-store.fixture.ts";
 import { saveFleetCenterConfig } from "../../packages/daemon/src/fleet-center-config.ts";
 import { requestDaemonJsonRpcAt } from "../../packages/daemon/src/client/local-json-rpc-client.ts";
+import { daemonDiagnosticsEndpoint } from "../../packages/daemon/src/client/local-daemon-target.ts";
 import { generateCenterLedger, ledgerProfile } from "./center-ledger.mjs";
 import { withWatchdog } from "../stress/core/controller.mjs";
 import { countRecordedTraffic } from "./center-model.mjs";
@@ -36,9 +37,32 @@ export async function createCenterFixture({
   const waiters = new Map(),
     events = [],
     attachSamples = [],
+    attachDiagnostics = [],
     stderr = [];
   let sequence = 0,
     endpoint;
+  const diagnostics = async () => {
+    const raw = await requestDaemonJsonRpcAt(daemonDiagnosticsEndpoint(endpoint), "daemon.status", {}, 2000, 2000);
+    return {
+      state: raw.state,
+      stalled: raw.stalled,
+      heartbeatAgeMs: raw.heartbeatAgeMs,
+      rssBytes: raw.rss,
+      mainSampleAgeMs: raw.mainSampleAgeMs,
+      metricsSampledAt: raw.metrics?.sampledAt ?? null,
+      eventLoopDelayMs: raw.metrics?.eventLoopDelayMs ?? null,
+      activeOperations: raw.inFlight.length,
+      // Bound retained evidence independently of the number of concurrent requests.
+      operations: raw.inFlight.slice(0, 20),
+      recentStalls: raw.recentStalls.map((row) => ({
+        startedAt: row.startedAt,
+        durationMs: row.durationMs ?? null,
+        heartbeatAgeMs: row.heartbeatAgeMs,
+        stackStatus: row.stackStatus,
+        stack: row.stack?.slice(0, 20) ?? [],
+      })),
+    };
+  };
   const request = (command) =>
     withWatchdog(
       () =>
@@ -190,8 +214,15 @@ export async function createCenterFixture({
     const waitReady = () =>
       withWatchdog(
         async (signal) => {
-          let previousState;
+          let previousState,
+            lastDiagnostics = -Infinity;
           for (;;) {
+            if (performance.now() - lastDiagnostics >= 10_000) {
+              const sample = await diagnostics().catch((error) => ({ error: error.message }));
+              attachDiagnostics.push(sample);
+              onProgress?.({ phase: "attach-diagnostics", sample });
+              lastDiagnostics = performance.now();
+            }
             const status = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 5000, 5000);
             const repo = status.repos?.find((row) => row.repoId === repoId);
             if (repo?.state !== previousState) {
@@ -217,6 +248,8 @@ export async function createCenterFixture({
       ledger,
       attachMs,
       attachSamples,
+      attachDiagnostics,
+      diagnostics,
       events,
       request,
       waitReady,
@@ -235,7 +268,6 @@ export async function createCenterFixture({
         readAccessToken: owners.readAccessToken(`bench-node-${index}`),
         timeoutMs: 30_000,
       }),
-      diagnostics: () => stderr.join(""),
     };
   } catch (error) {
     await close();

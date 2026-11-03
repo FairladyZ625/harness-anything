@@ -38,6 +38,7 @@ export function markdownReport(report) {
       `Error: ${JSON.stringify(report.setupError)}`,
       `Ledger: ${JSON.stringify(report.ledger)}`,
       `Attach samples: ${JSON.stringify(report.attachSamples)}`,
+      `Product diagnostics: ${JSON.stringify(report.attachDiagnostics)}`,
       "Capacity and fault scenarios were not measured because setup did not complete.",
       "",
     ].join("\n");
@@ -106,6 +107,7 @@ export async function runCenterBenchmark({
     ledger: null,
     attachMs: null,
     attachSamples: [],
+    attachDiagnostics: [],
     capacity: [],
     faults: [],
     limitations: [
@@ -128,12 +130,14 @@ export async function runCenterBenchmark({
       onProgress: (row) => {
         if (row.phase === "ledger-ready") report.ledger = row.ledger;
         if (!fixture && row.phase === "attach-resources") report.attachSamples.push(row.sample);
+        if (!fixture && row.phase === "attach-diagnostics") report.attachDiagnostics.push(row.sample);
         onProgress(row);
       },
     });
     report.ledger = fixture.ledger;
     report.attachMs = fixture.attachMs;
     report.attachSamples = fixture.attachSamples;
+    report.attachDiagnostics = fixture.attachDiagnostics;
   } catch (error) {
     report.setupError = { code: error.code ?? null, message: error.message };
     return report;
