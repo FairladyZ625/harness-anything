@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFile
 import { join } from "node:path";
 import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixture.ts";
 import { taskLifecycleWritePlan, type CanonicalEventStore } from "@harness-anything/kernel";
+import { sha256Bytes } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
 import { makeTaskProjection, makeTaskProjectionReader } from "../../src/projection/rebuildable-task-projection.ts";
 import { pgRuntimeFixture } from "./pg-runtime.fixture.ts";
@@ -15,6 +16,7 @@ import { execFileSync } from "node:child_process";
 import { openReplicationSlots } from "../../src/fleet-replication-slot.ts";
 import { openFleetStorage } from "../../src/storage-daemon-composition.ts";
 import type { TaskCreatedEvent } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract.ts";
+import { assertContentBlobRangeContract } from "../content-blob-range.assertions.ts";
 
 test("daemon PG storage factories expose canonical lifecycle ports without local SQLite", async (t) => {
   const fixture = await pgRuntimeFixture(),
@@ -29,6 +31,23 @@ test("daemon PG storage factories expose canonical lifecycle ports without local
   try {
     store = makeTaskEventStore({ rootDir, repoId, storage });
     projection = makeTaskProjection({ rootDir, storage, eventStore: store });
+    await t.test("canonical PostgreSQL store exposes bounded content blob reads", async (contentTest) => {
+      const body = Buffer.from("canonical PG store range reads stay bounded"),
+        sha256 = sha256Bytes(body);
+      await fixture.pool.query(
+        "INSERT INTO ha_content_blobs (tenant_id,project_id,sha256,size,body,readers,policy_epoch) VALUES ($1,$2,$3,$4,$5,$6,$7)",
+        [
+          storage.scope.tenantId,
+          storage.scope.projectId,
+          sha256,
+          body.byteLength,
+          body,
+          storage.scope.readers,
+          storage.scope.policyEpoch,
+        ],
+      );
+      await assertContentBlobRangeContract(contentTest, store!, sha256, body);
+    });
     const events = lifecycleFixture({ taskId: "task-pg-daemon", executionId: "execution-pg-daemon" }).events;
     for (const event of events) {
       store.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
