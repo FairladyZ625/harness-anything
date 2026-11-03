@@ -1,6 +1,11 @@
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { makeTaskProjectionReader, openSqliteEventStore } from "@harness-anything/storage";
+import {
+  applyCanonicalTree,
+  revokeCanonicalTree,
+  makeTaskProjectionReader,
+  openSqliteEventStore,
+} from "@harness-anything/storage";
 import {
   documentPath,
   inspectDocCandidate,
@@ -11,7 +16,6 @@ import {
 } from "@harness-anything/kernel";
 import { BASE_BACKUP_ARCHIVE_ROOT } from "@harness-anything/storage";
 import { withReplicaGeneration, type ReplicaGeneration } from "./fleet/replica-generation.ts";
-import { removeFileDurably, writeFileDurably } from "../../storage/src/durable-file.ts";
 
 export interface FleetMirrorBlob {
   readonly sha256: string;
@@ -368,79 +372,26 @@ export function applyFleetMirrorCut(
     readonly changedPaths?: readonly string[];
   } = {},
 ): FleetMirrorApplyResult {
-  const markerLayout = resolveHarnessLayout(workspaceRoot).localRoot;
-  const markerPath = path.join(markerLayout, "fleet-materialized.json");
-  const markerExists = existsSync(markerPath);
-  const marker: {
-    readonly revision?: number | null;
-    readonly generation?: number;
-    readonly entries?: Record<string, string>;
-  } = markerExists ? JSON.parse(readFileSync(markerPath, "utf8")) : {};
-  const previous: {
-    readonly revision: number | null;
-    readonly generation?: number;
-    readonly entries: Record<string, string>;
-  } = {
-    revision: marker.revision ?? null,
-    ...(marker.generation === undefined ? {} : { generation: marker.generation }),
-    entries: marker.entries ?? {},
-  };
-  const view = locateFleetMirrorView(viewRoot, repoId, context.viewId, {
-    ...(markerExists && previous.revision !== null && context.changedPaths ? { entryPaths: context.changedPaths } : {}),
-  });
+  const markerPath = path.join(resolveHarnessLayout(workspaceRoot).localRoot, "fleet-materialized.json"),
+    view = locateFleetMirrorView(viewRoot, repoId, context.viewId);
   if (!view) return { outcome: "no_view", fromRevision: null, toRevision: null, dirtyPaths: [], conflicts: [] };
-  const hasMaterializationBaseline =
-    markerExists &&
-    previous.revision !== null &&
-    marker.entries !== undefined &&
-    (previous.generation === undefined || previous.generation === view.ledgerGeneration);
-  const root = materializedRoot(workspaceRoot),
-    entries = { ...previous.entries },
-    dirtyPaths: string[] = [];
-  const selected = hasMaterializationBaseline && context.changedPaths ? new Set(context.changedPaths) : null;
-  mkdirSync(root, { recursive: true });
-  for (const [logical, blob] of view.entries) {
-    if (selected && !selected.has(logical)) continue;
-    const target = path.join(root, ...logical.split("/"));
-    // Local files can change after materialization; compare them with the last successful write,
-    // not the newer center blob. The center's validated object digest is already authoritative.
-    if (existsSync(target)) {
-      const local = sha256Bytes(readFileSync(target));
-      if (local === blob.sha256) {
-        entries[logical] = blob.sha256;
-        continue;
-      }
-      if (hasMaterializationBaseline && local !== previous.entries[logical]) {
-        dirtyPaths.push(logical);
-        continue;
-      }
-    }
-    const bytes = fleetMirrorCutFile(view, logical);
-    if (bytes === null) throw new FleetMirrorError("replica_corrupt", `Replica document object is missing: ${logical}`);
-    writeFileDurably(target, bytes);
-    entries[logical] = blob.sha256;
-  }
-  // A center deletion is represented by the path disappearing from the current cut. Remove only
-  // files this mirror previously wrote; a local candidate remains untouched and is surfaced for
-  // the caller to reconcile, just like a conflicting update.
-  for (const [logical, previousSha] of Object.entries(previous.entries)) {
-    if (selected && !selected.has(logical)) continue;
-    if (view.entries.has(logical)) continue;
-    const target = path.join(root, ...logical.split("/"));
-    if (!existsSync(target)) {
-      delete entries[logical];
-      continue;
-    }
-    if (sha256Bytes(readFileSync(target)) !== previousSha) {
-      dirtyPaths.push(logical);
-      continue;
-    }
-    removeFileDurably(target);
-    delete entries[logical];
-  }
-  writeFileDurably(markerPath, JSON.stringify({ revision: view.revision, generation: view.ledgerGeneration, entries }));
-  return { outcome: "applied", fromRevision: previous.revision, toRevision: view.revision, dirtyPaths, conflicts: [] };
+  const result = applyCanonicalTree({
+    authoredRoot: materializedRoot(workspaceRoot),
+    markerPath,
+    revision: view.revision,
+    generation: view.ledgerGeneration,
+    entries: view.entries,
+    changedPaths: context.changedPaths,
+    readContent: (logical) => fleetMirrorCutFile(view, logical),
+  });
+  return { outcome: "applied", ...result, conflicts: [] };
 }
+
+export function revokeFleetMirrorTree(workspaceRoot: string): void {
+  const layout = resolveHarnessLayout(workspaceRoot);
+  revokeCanonicalTree(layout.authoredRoot, path.join(layout.localRoot, "fleet-materialized.json"));
+}
+
 export function readFleetConflictRecord(_workspaceRoot: string, _id: string): never {
   throw new FleetMirrorError("conflict_not_found", "No staged conflict record exists.");
 }

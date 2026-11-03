@@ -14,7 +14,7 @@ import {
 /** @daemon-transport-authority Host composition and RepoCell ownership. */
 import path from "node:path";
 import { readFileSync } from "node:fs";
-import { registerDaemonRepo } from "@harness-anything/storage";
+import { readDaemonStorageConfig, registerDaemonRepo, type DaemonStorageConfig } from "@harness-anything/storage";
 import {
   consumeKnownError,
   validateScheduleV1,
@@ -101,7 +101,7 @@ import type { DaemonHost } from "./daemon-host-types.ts";
 import { openDaemonWriterEpochs } from "./daemon-host-writer-epoch.ts";
 import { requireAuthorizedFleetAction, requireAuthorizedHostAction } from "./host-action-authorization.ts";
 import { openFleetEdgeRuntime, type FleetEdgeRuntimeRequest } from "./fleet-edge-runtime.ts";
-import { applyFleetMirrorCut } from "./fleet-edge-mirror.ts";
+import { applyFleetMirrorCut, revokeFleetMirrorTree } from "./fleet-edge-mirror.ts";
 import type { FleetTlsCenter } from "./fleet/center.ts";
 import type { DaemonControlReceipt } from "./gui-s3-control.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
@@ -140,6 +140,7 @@ import { openSkillEvalProduction, type SkillEvalProductionInput } from "./skill-
 import { runFleetReplicaSync, waitForFleetReplicaReady } from "./fleet/replica-sync.ts";
 import type { FleetVersionWarning } from "./fleet/peer.ts";
 export interface DaemonHostOpenInput {
+  readonly storage?: Readonly<Record<string, DaemonStorageConfig>>;
   readonly daemonId: string;
   readonly userRoot: string;
   readonly endpoint?: string;
@@ -175,6 +176,7 @@ export interface DaemonHostOpenInput {
 }
 
 export async function openDaemonHost(input: DaemonHostOpenInput): Promise<DaemonHost> {
+  input = { ...input, storage: input.storage ?? readDaemonStorageConfig(input.userRoot) };
   const skillEvalProduction = openSkillEvalProduction({
     userRoot: input.userRoot,
     ...input.skillEval,
@@ -256,7 +258,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       retireWriterEpoch,
       closeDaemonWriterEpoch,
       daemonWriterBinding,
-    } = openDaemonWriterEpochs({ userRoot: input.userRoot, daemonId: input.daemonId, now });
+    } = openDaemonWriterEpochs({ userRoot: input.userRoot, daemonId: input.daemonId, now, storage: input.storage });
   // Assigned once the managed identity center's resume is fired below; every center consultation
   // awaits it, so a center still resuming reads as a slow startup instead of a broken repo (a
   // build-superseded successor's first attach lost exactly that race and latched its repo).
@@ -603,12 +605,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       repo,
     ): repo is typeof repo & {
       readonly canonicalRoot: string;
-      readonly authoredBranch: string;
-    } =>
-      repo.state === "enabled" &&
-      repo.mode !== "remote-proxy" &&
-      repo.canonicalRoot !== null &&
-      repo.authoredBranch !== null,
+      readonly authoredBranch: string | null;
+    } => repo.state === "enabled" && repo.mode !== "remote-proxy" && repo.canonicalRoot !== null,
   );
   for (const repo of repos) markWarming(repo.repoId, warmingStatus(repo));
   const extracted: DaemonHostRegistryContext = {
@@ -695,7 +693,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     });
     const loaded = cells.get(repoId);
     if (loaded && loaded.status().mode !== registered.repo.mode) await closeCell(repoId);
-    if (registered.repo.authoredBranch === null || registered.repo.canonicalRoot === null)
+    if (registered.repo.canonicalRoot === null)
       throw hostCodedError(
         "registry_repo_invalid",
         `Workspace repository ${repoId} has no authored branch or canonical root.`,
@@ -898,6 +896,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   const accessAdmin = new AccessAdminService(oidc, input.userRoot, {
     daemonId: input.daemonId,
     nodeRetirement: createNodeRetirement({
+      storage: input.storage,
       stateRoot: () =>
         readFleetCenterConfig(input.userRoot, input.daemonId)?.stateRoot ?? path.join(input.userRoot, "fleet"),
       center: () => hostContext.fleetCenter,
@@ -1214,6 +1213,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           if (warning === null) fleetVersionWarnings.delete(repo.repoId);
           else fleetVersionWarnings.set(repo.repoId, warning);
         },
+        onRevoked: () => revokeFleetMirrorTree(rootDir),
         onConfirmed: async (changedPaths) => {
           applyFleetMirrorCut(viewRoot, config.repoId, rootDir, "pull", { changedPaths });
           await edgeRuntimeFor({
@@ -1269,6 +1269,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       const started = await startFleetCenterAdmission(
         await prepareFleetCenterAdmission({
           host,
+          storage: input.storage,
           buildDraining: input.buildDraining,
           onDeliverySettled: input.onRepoStatusChange,
           userRoot: input.userRoot,
@@ -1323,7 +1324,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     repo: {
       readonly repoId: string;
       readonly canonicalRoot: string;
-      readonly authoredBranch: string;
+      readonly authoredBranch: string | null;
       readonly mode: DaemonRepoMode;
     },
     progress?: { readonly attachIndex: number; readonly attachTotal: number },
@@ -1341,7 +1342,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     repo: {
       readonly repoId: string;
       readonly canonicalRoot: string;
-      readonly authoredBranch: string;
+      readonly authoredBranch: string | null;
       readonly mode: DaemonRepoMode;
     },
     progress?: { readonly attachIndex: number; readonly attachTotal: number },

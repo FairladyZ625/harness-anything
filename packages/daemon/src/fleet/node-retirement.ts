@@ -2,7 +2,7 @@ import type { AuthorizationProvider, AccessAdminRequest } from "@harness-anythin
 import { coded, text } from "../access-admin-utils.ts";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { makeTaskProjectionReader, openReplicationSlots } from "@harness-anything/storage";
+import { makeDaemonProjectionReader, openReplicationSlots } from "@harness-anything/storage";
 import { FleetFault } from "./center-types.ts";
 import type { FleetTlsCenter } from "./center-types.ts";
 
@@ -16,6 +16,7 @@ export interface NodeRetirementSnapshot {
 
 /** The identity writer owns this port; the listener owns live admission and replication state. */
 export function createNodeRetirement(input: {
+  readonly storage?: Readonly<Record<string, import("@harness-anything/storage").DaemonStorageConfig>>;
   readonly stateRoot: string | (() => string);
   readonly center?: () => FleetTlsCenter | null;
   readonly repositories?: () => readonly {
@@ -29,8 +30,8 @@ export function createNodeRetirement(input: {
       typeof input.stateRoot === "function" ? input.stateRoot() : input.stateRoot,
       "replication-slots.sqlite",
     );
-    if (!existsSync(file)) return undefined;
-    const slots = openReplicationSlots(file);
+    if (!existsSync(file) && !Object.keys(input.storage ?? {}).length) return undefined;
+    const slots = openReplicationSlots(file, input.storage);
     try {
       return read(slots);
     } finally {
@@ -48,7 +49,11 @@ export function createNodeRetirement(input: {
           throw Object.assign(new Error(`Cannot inspect work in unavailable repository ${repo.repoId}.`), {
             code: "node_retirement_unavailable",
           });
-        const reader = makeTaskProjectionReader({ rootDir: repo.rootDir });
+        const reader = makeDaemonProjectionReader({
+          rootDir: repo.rootDir,
+          repoId: repo.repoId,
+          storage: input.storage?.[repo.repoId],
+        });
         try {
           reader.withSession((projection) => {
             for (const row of projection.list().rows) {

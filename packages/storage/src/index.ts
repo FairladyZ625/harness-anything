@@ -38,7 +38,17 @@ export type {
   ColdRebuildSource,
 } from "./projection/cold-rebuild-source.ts";
 export { eventShapeMigrations } from "./store/event-shape-migration.ts";
-export { registerDaemonRepo } from "./storage-daemon-composition.ts";
+export type { DaemonStorageConfig } from "./storage-daemon-composition.ts";
+export {
+  readDaemonStorageConfig,
+  prepareDaemonRepoStorage,
+  acquireRepoStorageLock,
+  makeDaemonProjectionReader,
+  registerDaemonRepo,
+  openFleetStorage,
+  hasDaemonGitFollower,
+  readDaemonHarnessConfig,
+} from "./storage-daemon-composition.ts";
 export { createReplicationRetention, openReplicationSlots, replicationSlotKey } from "./fleet-replication-slot.ts";
 export type {
   ReplicaDeliveryKey,
@@ -70,3 +80,10 @@ export * from "./migration-values.ts";
 
 export { runStorageMigration } from "./migration/open.ts";
 export type { StorageMigrationLocation } from "./migration/open.ts";
+
+export { applyCanonicalTree, revokeCanonicalTree } from "./canonical-tree-materialization.ts";
+
+export { hydrateReplicaSeed } from "./fleet-replica-seed.ts";
+export { configureWriterEpochStorage } from "./writer-epoch-storage.ts";
+
+export { openReplicaProjection } from "./replica-projection.ts";

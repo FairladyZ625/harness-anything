@@ -1,6 +1,7 @@
 import path from "node:path";
 import { localContentObjectFileSystem } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
 import { readFileWindow } from "../durable-file.ts";
+import { validateContentRange } from "../content-blob-range.ts";
 import { TaskEventStoreError, type CanonicalContentBlob, type CanonicalEventV1 } from "@harness-anything/kernel";
 import { contentClaims } from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
 // Claimed content objects live under objectRoot/<2>/<62>; every claim is validated before any object is
@@ -57,8 +58,7 @@ export function readContentObjectRange(
   offset: number,
   maxBytes: number,
 ): Uint8Array | null {
-  if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(maxBytes) || maxBytes <= 0)
-    throw new RangeError("content object range must have a non-negative offset and positive maxBytes");
+  validateContentRange(offset, maxBytes);
   const target = objectPath(objectRoot, sha256);
   if (!localContentObjectFileSystem.exists(target)) return null;
   return readFileWindow(target, offset, maxBytes);

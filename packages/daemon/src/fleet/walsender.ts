@@ -6,6 +6,7 @@ import { REPLICATION_CHUNK_BYTES, type ReplicationPeer } from "./protocol.ts";
 import type { ReplicationSlotLease, ReplicationSlots } from "@harness-anything/storage";
 
 export interface ReplicationSource {
+  readonly authorize?: () => Promise<void>;
   readonly read: (after: ReplicationPosition) => {
     readonly commits: readonly ReplicationCommit[];
     readonly done: boolean;
@@ -75,6 +76,7 @@ export async function runWalSender(input: {
   let position = start.position;
   for (;;) {
     assertOwner();
+    await source.authorize?.();
     const read = readReplicationPage(source, position),
       page = read.page,
       reason = read.reason;

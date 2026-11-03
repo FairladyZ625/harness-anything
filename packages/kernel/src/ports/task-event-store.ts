@@ -109,7 +109,7 @@ export interface PreservedCopy {
 export interface MaterializationReceipt {
   /** "planned" rows describe what a settlement would touch without changing any file. */
   readonly status: "visible" | "planned";
-  readonly commitSha: LedgerCommitSha;
+  readonly commitSha: LedgerCommitSha | null;
   /** Documents this pass settled, in authored-relative paths; a settled no-op pass reports none. */
   readonly settlements: readonly MaterializationSettlement[];
   /** Targets left alone because a concurrent local edit owns them, in authored-relative paths. */
@@ -204,7 +204,7 @@ export interface CanonicalEventStore {
   readonly read: () => CanonicalEventStreamV1;
   readonly readHead: () => EventHead | null;
   readonly currentCut: () => LedgerCutIdentity;
-  readonly currentCommit: () => LedgerCommitSha;
+  readonly currentCommit: () => LedgerCommitSha | null;
   readonly publication: (event: CanonicalEventV1) => CanonicalPublicationIdentity;
   readonly readEvent: (opId: string) => CanonicalEventV1 | null;
   readonly readEventAtRevision?: (revision: number) => CanonicalEventV1 | null;

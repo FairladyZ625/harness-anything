@@ -14,6 +14,12 @@ export interface PostgresStorageBackendConfig {
   readonly backend: "postgres";
   readonly connectionString: string;
   readonly scope?: StorageScope;
+  /** Management connection owns writer epochs; runtime traffic still uses the RLS role. */
+  readonly authorityConnectionString?: string;
+  /** Omitted means canonical data does not require a Git repository. */
+  readonly gitFollower?: { readonly branch: string };
+  /** Centers without agents may leave their authored tree unmaterialized. */
+  readonly materialize?: boolean;
 }
 
 export interface PGliteStorageBackendConfig {

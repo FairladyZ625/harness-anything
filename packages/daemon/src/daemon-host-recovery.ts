@@ -16,11 +16,7 @@ export async function attemptHostRecovery(context: DaemonHostRegistryContext, re
   if (!probe.begin(Date.parse(context.now()))) return;
   const repo = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
     (repo): repo is typeof repo & RegisteredRepoInput =>
-      repo.repoId === repoId &&
-      repo.state === "enabled" &&
-      repo.mode !== "remote-proxy" &&
-      repo.canonicalRoot !== null &&
-      repo.authoredBranch !== null,
+      repo.repoId === repoId && repo.state === "enabled" && repo.mode !== "remote-proxy" && repo.canonicalRoot !== null,
   );
   if (!repo) return;
   if (context.pruneMissingRoot(repo)) {

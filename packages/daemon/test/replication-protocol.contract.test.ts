@@ -19,7 +19,7 @@ import {
 const position = { history: "history-a", sequence: 9, revision: 7 } as const,
   digest = `sha256:${"a".repeat(64)}`,
   metadata = {
-    schema: "fleet-basebackup/v2",
+    schema: "fleet-basebackup/v3",
     readerProfile: { personId: "owner", nodeId: "node" },
     repoId: "replica-repo",
     position,
@@ -76,6 +76,7 @@ test("backup frames carry whole-package identity and reject damaged members", ()
     { ...backup, size: -1 },
     { ...backup, size: 1.5 },
     { ...backup, metadata: { ...metadata, schema: "fleet-basebackup/v1" } },
+    { ...backup, metadata: { ...metadata, schema: "fleet-basebackup/v2" } },
     { ...backup, metadata: { ...metadata, position: { history: "h", sequence: 9 } } },
     { ...backup, metadata: { ...metadata, position: { history: "h", sequence: 9, revision: 7, extra: 1 } } },
     { ...backup, metadata: { ...metadata, readerProfile: { personId: "", nodeId: "node" } } },

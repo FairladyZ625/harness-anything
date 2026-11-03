@@ -2,7 +2,12 @@ export * from "./entity-store.ts";
 export type { DispatchRecordLeaseSettlement } from "./dispatch-record-lease.ts";
 export { cmdShellInvocation } from "./cmd-command-line.ts";
 export * from "./local-version-control-system.ts";
-export { ledgerGitPath, resolveLedgerGitLayout } from "./ledger-git-layout.ts";
+export {
+  ledgerGitPath,
+  resolveLedgerGitLayout,
+  findLedgerGitLayout,
+  findCanonicalLedgerGitLayout,
+} from "./ledger-git-layout.ts";
 export { migrateEventsToSqlite, openSqliteEventStore, sqliteLedgerPath } from "./sqlite-event-store.ts";
 export { resolveActiveGeneration } from "./sqlite-event-store.ts";
 export { TASK_EVENT_SHAPE_COMPAT_VERSION } from "@harness-anything/kernel/internal/domain/task-lifecycle-event.ts";

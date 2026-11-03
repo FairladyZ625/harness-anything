@@ -62,7 +62,7 @@ export function openRegistered(
   repo: {
     readonly repoId: string;
     readonly canonicalRoot: string;
-    readonly authoredBranch: string;
+    readonly authoredBranch: string | null;
     readonly mode: DaemonRepoMode;
   },
   progress?: {
@@ -136,7 +136,7 @@ export async function performOpenRegistered(
   repo: {
     readonly repoId: string;
     readonly canonicalRoot: string;
-    readonly authoredBranch: string;
+    readonly authoredBranch: string | null;
     readonly mode: DaemonRepoMode;
   },
   progress?: {
@@ -162,12 +162,13 @@ export async function performOpenRegistered(
       rootDir: canonicalRoot(repo.canonicalRoot),
       mode: repo.mode,
       ownerId: context.input.daemonId,
+      storage: context.input.storage?.[repo.repoId],
       defaultWriterEpochFence: context.writerEpochFence(repo.repoId),
       ...(context.input.now ? { now: context.input.now } : {}),
       runtimeDaemonRoute: context.runtimeDaemonRoute,
       keycloakCenter: context.keycloakCenter,
       keycloakSession: context.keycloakSession,
-      authoredBranch: repo.authoredBranch,
+      ...(repo.authoredBranch ? { authoredBranch: repo.authoredBranch } : {}),
       ...(context.input.shutdownRequested ? { shouldStop: context.input.shutdownRequested } : {}),
       ...(context.input.recordLifecycle ? { recordLifecycle: context.input.recordLifecycle } : {}),
       ...(repo.mode === "local"
@@ -272,12 +273,8 @@ export async function refreshRegistry(context: DaemonHostRegistryContext): Promi
         repo,
       ): repo is typeof repo & {
         readonly canonicalRoot: string;
-        readonly authoredBranch: string;
-      } =>
-        repo.state === "enabled" &&
-        repo.mode !== "remote-proxy" &&
-        repo.canonicalRoot !== null &&
-        repo.authoredBranch !== null,
+        readonly authoredBranch: string | null;
+      } => repo.state === "enabled" && repo.mode !== "remote-proxy" && repo.canonicalRoot !== null,
     ),
     enabled = new Map(enabledRepos.map((repo) => [repo.repoId, repo])),
     invalid = new Map(

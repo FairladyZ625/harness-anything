@@ -1,26 +1,20 @@
-import { existsSync } from "node:fs";
 import { makeTaskLifecycleService } from "@harness-anything/application/internal/task-lifecycle-service";
 import {
-  configureLedgerMaintenance,
+  prepareDaemonRepoStorage,
   activateEmptyCanonicalGeneration,
   applyAttachMigrations,
-  installLedgerCommitGuard,
   makeTaskEventStore,
   makeTaskProjection,
   ProjectionIdentityMismatchError,
-  resolveActiveGeneration,
-  sqliteLedgerPath,
 } from "@harness-anything/storage";
 import {
   blockingOf,
   closeoutReadiness,
   consumeKnownError,
-  resolveHarnessLayout,
   type DaemonRepoMode,
   type TaskProjectionQueries,
 } from "@harness-anything/kernel";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
-import { removeFileDurably } from "../../storage/src/durable-file.ts";
 import { readRuntimeAttemptChain, readSessionGroupDispatches, readTaskDispatchSession } from "./dispatch-read.ts";
 import { makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
 import { cellErrorCode, cellErrorMessage } from "./repo-cell-errors.ts";
@@ -66,6 +60,7 @@ export function repoCellTaskQueryJudgmentsFor(projection: TaskProjectionQueries)
 export interface RepoCellCoreInput {
   readonly input: {
     readonly repoId: string;
+    readonly storage?: import("./repo-cell-open.ts").RepoCellOpenInput["storage"];
     readonly killpoint?: Parameters<typeof makeTaskEventStore>[0]["killpoint"];
     readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
     readonly onMaterializationHealthChange?: Parameters<typeof makeTaskEventStore>[0]["onMaterializationHealthChange"];
@@ -98,41 +93,12 @@ export interface RepoCellCore {
 
 export async function initializeRepoCell(context: RepoCellCoreInput): Promise<RepoCellCore> {
   let projection: ReturnType<typeof makeTaskProjection> | null = null;
-  // A remote edge is read-only against the center's replica. Its prior local ledger is disposable;
-  // canonical repositories still go through the kernel's strict offline-conversion requirement.
-  if (context.mode === "remote-edge") {
-    try {
-      resolveActiveGeneration({ rootInput: context.rootDir, repoId: context.input.repoId });
-    } catch (error) {
-      consumeKnownError(error);
-      const generationTwo = sqliteLedgerPath(context.rootDir, 2);
-      const isIncompleteUpgrade =
-        error instanceof Error &&
-        error.name === "TaskEventStoreError" &&
-        "code" in error &&
-        error.code === "invalid_store" &&
-        error.message.startsWith("generation 3 upgrade is incomplete;");
-      if (!isIncompleteUpgrade || !existsSync(generationTwo)) throw error;
-      for (const stalePath of [
-        generationTwo,
-        `${generationTwo}-wal`,
-        `${generationTwo}-shm`,
-        `${generationTwo}.activation.json`,
-        `${generationTwo}.import-source.json`,
-      ])
-        removeFileDurably(stalePath);
-    }
-  }
-  // Maintenance pins and the commit guard both belong to the ledger repository, never the project
-  // repository around it: the pins tune the WAL write path, and refusing a project commit is the
-  // exact harm the guard exists to prevent.
-  const ledgerRoot = resolveHarnessLayout(context.rootDir).authoredRoot;
-  // A repository attached before its first authored write has no ledger directory yet; bootstrap
-  // pins it on creation.
-  if (existsSync(ledgerRoot)) {
-    configureLedgerMaintenance(ledgerRoot);
-    installLedgerCommitGuard(ledgerRoot);
-  }
+  prepareDaemonRepoStorage({
+    rootDir: context.rootDir,
+    repoId: context.input.repoId,
+    mode: context.mode,
+    storage: context.input.storage,
+  });
   let openProgressSequence = 0;
   context.input.onOpenProgress?.({
     phase: "recovering",
@@ -141,6 +107,7 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
     watermark: null,
   });
   const store = makeTaskEventStore({
+    storage: context.input.storage,
     repoId: context.input.repoId,
     rootDir: context.rootDir,
     authoredBranch: context.authoredBranch,
@@ -184,6 +151,7 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
       });
     let recovery: RepoCellCore["recovery"] = { status: "none", elapsedMs: 0 };
     projection = makeTaskProjection({
+      storage: context.input.storage,
       rootDir: context.rootDir,
       eventStore: store,
       now: context.now,

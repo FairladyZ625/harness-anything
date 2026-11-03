@@ -96,7 +96,7 @@ test(
       send({
         type: "replica.backup",
         metadata: {
-          schema: "fleet-basebackup/v2",
+          schema: "fleet-basebackup/v3",
           readerProfile: null,
           repoId: "replica-repo",
           position: { history: "h".repeat(16), sequence: 3, revision: 3 },

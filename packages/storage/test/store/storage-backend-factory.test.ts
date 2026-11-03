@@ -49,7 +49,7 @@ test("storage config defaults to SQLite and resolves one nested config field", (
   );
 });
 
-test("postgres is a typed route with an explicit Wave 1 implementation boundary", () => {
+test("postgres factories require explicit scope before connecting", () => {
   assert.throws(
     () =>
       makeTaskEventStore({
@@ -57,7 +57,7 @@ test("postgres is a typed route with an explicit Wave 1 implementation boundary"
         rootDir: "/tmp/unused",
         storage: { backend: "postgres", connectionString: "postgres://localhost/ha" },
       }),
-    /storage backend "postgres" is not implemented by kernel Wave 1/u,
+    /PostgreSQL storage requires tenant, project, and non-negative policy epoch scope/u,
   );
   assert.throws(
     () =>
@@ -66,7 +66,7 @@ test("postgres is a typed route with an explicit Wave 1 implementation boundary"
         rootDir: "/tmp/unused",
         storage: { backend: "postgres", connectionString: "postgres://localhost/ha" },
       }),
-    /storage backend "postgres" is not implemented by kernel Wave 1/u,
+    /PostgreSQL storage requires tenant, project, and non-negative policy epoch scope/u,
   );
   assert.throws(
     () =>
@@ -86,7 +86,7 @@ test("postgres is a typed route with an explicit Wave 1 implementation boundary"
         repoId: "scope-required",
         storage: { backend: "postgres", connectionString: "postgres://localhost/ha" },
       }),
-    /requires tenant, project, and a non-negative safe policy epoch/u,
+    /requires tenant, project, and non-negative policy epoch scope/u,
   );
 });
 
@@ -112,7 +112,7 @@ function sqliteStoreRoute(): SqliteCanonicalEventStore {
 function postgresProjectionRoute(): TaskProjectionPort {
   return makeTaskProjection({
     rootDir: "/unused-for-postgres",
-    eventStore: asyncLedgerPort,
+    eventStore: ledgerPort,
     storage: { backend: "postgres", connectionString: "postgres://localhost/ha" },
   });
 }

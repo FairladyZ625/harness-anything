@@ -3,7 +3,7 @@ import path from "node:path";
 import type { ReplicationPosition } from "./store/replication-log.ts";
 
 export interface BaseBackupMetadata {
-  readonly schema: "fleet-basebackup/v2";
+  readonly schema: "fleet-basebackup/v3";
   readonly readerProfile: { readonly personId: string; readonly nodeId: string } | null;
   readonly repoId: string;
   readonly position: ReplicationPosition;
@@ -16,12 +16,19 @@ export interface BaseBackupArchive {
   readonly size: number;
   readonly sha256: string;
 }
-export interface BaseBackupInput {
+export interface SqliteBaseBackupInput {
   readonly readerProfile?: BaseBackupMetadata["readerProfile"];
   readonly ledgerPath: string;
   readonly projectionPath: string;
   readonly directory: string;
 }
+export interface PostgresBaseBackupInput {
+  readonly readerProfile?: BaseBackupMetadata["readerProfile"];
+  readonly storage: import("./storage-backend.ts").PostgresStorageBackendConfig;
+  readonly repoId: string;
+  readonly directory: string;
+}
+export type BaseBackupInput = SqliteBaseBackupInput | PostgresBaseBackupInput;
 
 /** Call under the repo writer/projection barrier; release it once this resolves, not after complete. */
 export function startBaseBackup(

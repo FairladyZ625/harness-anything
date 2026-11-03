@@ -11,6 +11,7 @@ import type { ResourceBudget } from "./resource-budget.ts";
 
 export interface FleetCenterOptions {
   readonly commandResourceBudget?: ResourceBudget;
+  readonly storage?: Readonly<Record<string, import("@harness-anything/storage").DaemonStorageConfig>>;
   readonly host: Pick<
     DaemonHost,
     | "replica"

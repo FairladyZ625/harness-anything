@@ -14,6 +14,7 @@ export interface RepoWriterBootstrapV1 {
   readonly schema: "harness-repo-writer-bootstrap/v1";
   readonly protocolVersion: typeof REPO_WRITER_PROTOCOL_VERSION;
   readonly config: {
+    readonly storage?: import("@harness-anything/storage").DaemonStorageConfig;
     readonly repoId: string;
     readonly rootDir: string;
     readonly ownerId: string;

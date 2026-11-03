@@ -66,6 +66,8 @@ test("a path outside any repository fails closed", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-baseline-none-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   assert.throws(() => observeDeliveryBaseline(root), /project Git repository/u);
+  assert.throws(() => observeDeliveryBaseline(root, undefined, "repository-diff"), /project Git repository/u);
+  assert.deepEqual(observeDeliveryBaseline(root, undefined, "task-package-artifact"), { kind: "empty-tree" });
 });
 
 test("a delivery branch freezes its fork point, not the advanced default branch", (t) => {

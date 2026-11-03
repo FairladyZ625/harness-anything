@@ -1,6 +1,7 @@
 import path from "node:path";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "@harness-anything/kernel/internal/layout/index.ts";
 import { makeLocalVersionControlSystem } from "./local-version-control-system.ts";
+import type { CanonicalEventStore } from "@harness-anything/kernel";
 export interface LedgerGitLayout {
   readonly rootDir: string;
   readonly authoredRoot: string;
@@ -14,12 +15,21 @@ export interface LedgerGitLayout {
 // harness.yaml resolves to a different authored root and therefore a different key.
 const ledgerTopLevelCache = new Map<string, LedgerGitLayout>();
 export function resolveLedgerGitLayout(input: HarnessLayoutInput): LedgerGitLayout {
+  const layout = findLedgerGitLayout(input);
+  if (!layout)
+    throw new Error(
+      `authored root must belong to its ledger Git repository: ${resolveHarnessLayout(input).authoredRoot}`,
+    );
+  return layout;
+}
+/** Optional VCS capability: a canonical authored tree does not itself require Git. */
+export function findLedgerGitLayout(input: HarnessLayoutInput): LedgerGitLayout | null {
   const vcs = makeLocalVersionControlSystem(),
     authoredRoot = vcs.normalizePath(resolveHarnessLayout(input).authoredRoot),
     cached = ledgerTopLevelCache.get(authoredRoot);
   if (cached) return cached;
   const rootDir = vcs.topLevel(authoredRoot);
-  if (!rootDir) throw new Error(`authored root must belong to its ledger Git repository: ${authoredRoot}`);
+  if (!rootDir) return null;
   const authoredPrefix = path.relative(rootDir, authoredRoot).split(path.sep).join("/");
   if (authoredPrefix === ".." || authoredPrefix.startsWith("../"))
     throw new Error(`authored root must be inside its ledger Git repository: ${authoredRoot}`);
@@ -27,6 +37,21 @@ export function resolveLedgerGitLayout(input: HarnessLayoutInput): LedgerGitLayo
   if (ledgerTopLevelCache.size >= 64) ledgerTopLevelCache.clear();
   ledgerTopLevelCache.set(authoredRoot, layout);
   return layout;
+}
+/** A settled follower already proves Git is configured; avoid resolving its ref for every scan. */
+export function findCanonicalLedgerGitLayout(
+  input: HarnessLayoutInput,
+  store: Pick<CanonicalEventStore, "followerStatus" | "currentCommit">,
+): LedgerGitLayout | null {
+  // The public store port carries both methods, but doc-sync also accepts in-memory
+  // readers/fakes at the boundary. Older readers do not expose follower state; retain
+  // the pre-A4 filesystem probe for those values instead of turning a missing optional
+  // runtime capability into a TypeError.
+  if (typeof store.followerStatus !== "function" || typeof store.currentCommit !== "function")
+    return findLedgerGitLayout(input);
+  return store.followerStatus().git.commitSha !== null || store.currentCommit() !== null
+    ? findLedgerGitLayout(input)
+    : null;
 }
 export function ledgerGitPath(layout: LedgerGitLayout, authoredRelativePath: string): string {
   return layout.authoredPrefix ? `${layout.authoredPrefix}/${authoredRelativePath}` : authoredRelativePath;

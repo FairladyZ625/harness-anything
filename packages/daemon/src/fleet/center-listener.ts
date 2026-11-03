@@ -45,12 +45,11 @@ import type { FleetOverviewResult } from "./fleet-overview-read.ts";
 import {
   makeTaskEventReader,
   makeTaskProjection,
-  openSqliteEventStore,
-  sqliteLedgerPath,
+  openFleetStorage,
+  hasDaemonGitFollower,
 } from "@harness-anything/storage";
 import { runWalSender } from "./walsender.ts";
 import { createReplicationRetention, openReplicationSlots, replicationSlotKey } from "@harness-anything/storage";
-import { startBaseBackup } from "@harness-anything/storage";
 import { createNodeRetirementAdmission } from "./node-retirement.ts";
 import { createReplicaStatusTracker } from "./replica-status.ts";
 import { readFleetCenterGitMetadata } from "../fleet-edge-git-preflight.ts";
@@ -84,13 +83,14 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       stateRoot: options.writerEpochStateRoot ?? options.stateRoot,
       holderId: options.writerId,
       now,
+      storageByRepo: options.storage,
     }),
     ownedEpochs = new Map<string, ReturnType<PersistentWriterEpoch["acquire"]>>(),
     acquireWriterEpoch =
       options.writerEpochLease ??
       ((repoId: string) => {
         const rootDir = options.host.status().repos.find((repo) => repo.repoId === repoId)?.rootDir;
-        return writerEpoch.acquire(repoId, readLedgerWriterEpoch(repoId, rootDir));
+        return writerEpoch.acquire(repoId, readLedgerWriterEpoch(repoId, rootDir, options.storage?.[repoId]));
       });
   for (const repo of options.host.status().repos)
     if (repo.state === "attached") ownedEpochs.set(repo.repoId, acquireWriterEpoch(repo.repoId));
@@ -191,7 +191,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       return uploadPath;
     },
   };
-  const replicationSlots = openReplicationSlots(path.join(options.stateRoot, "replication-slots.sqlite"));
+  const replicationSlots = openReplicationSlots(
+    path.join(options.stateRoot, "replication-slots.sqlite"),
+    options.storage,
+  );
   // The cap only bounds a slot that never returns: log rows are a few columns, while a slot past the cap
   // costs a full base backup. A busy center writes thousands of commits a day; keep months of them.
   const retentionWindowCommits = options.replicationRetentionWindowCommits ?? 1_000_000;
@@ -213,12 +216,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   };
   const readReplicationHead = (repoId: string) => {
     const rootDir = repoRoot(repoId),
-      store = openSqliteEventStore({
-        databasePath: sqliteLedgerPath(rootDir),
-        rootInput: rootDir,
-        repoId,
-        readOnly: true,
-      });
+      store = openFleetStorage({ rootDir, repoId, storage: options.storage?.[repoId] });
     try {
       return store.replicationPosition();
     } finally {
@@ -303,20 +301,16 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     });
     const rootDir = repoRoot(frame.repoId),
       layout = resolveHarnessLayout(rootDir);
-    const store = openSqliteEventStore({
-      databasePath: sqliteLedgerPath(rootDir),
-      rootInput: rootDir,
-      repoId: frame.repoId,
-      readOnly: true,
-    });
+    const store = openFleetStorage({ rootDir, repoId: frame.repoId, storage: options.storage?.[frame.repoId] });
     let ready = projectionReady.get(frame.repoId);
     if (!ready) {
       ready = (async () => {
-        const events = makeTaskEventReader({ rootDir, repoId: frame.repoId });
+        const events = makeTaskEventReader({ rootDir, repoId: frame.repoId, storage: options.storage?.[frame.repoId] });
         const projection = makeTaskProjection({
           rootDir,
           projectionPath: path.join(layout.localRoot, "cache", "task.sqlite"),
           eventStore: events,
+          storage: options.storage?.[frame.repoId],
         });
         projection.catchUp?.();
         projection.close();
@@ -333,9 +327,22 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
     const slots = replicationSlots;
     nodeAdmission.assertOpen(nodeId);
-    const lease = slots.claim({ repoId: frame.repoId, nodeId }, store.replicationPosition().history);
+    const owned = ownedEpochFor(frame.repoId),
+      lease = writerEpoch.withAppendFence(frame.repoId, owned.epoch, owned.holderId, () =>
+        slots.claim({ repoId: frame.repoId, nodeId }, store.replicationPosition().history),
+      );
     const retention = retentionFor(frame.repoId);
     const source = {
+      authorize: async () => {
+        writerEpoch.assert(frame.repoId, owned.epoch, owned.holderId);
+        try {
+          await admitReplica(nodeId, frame.repoId, accessToken);
+        } catch (error) {
+          if (error instanceof FleetFault && error.code === "authorization_denied")
+            await peer.send({ type: "replica.resync", reason: "authorization_denied" });
+          throw error;
+        }
+      },
       read: (after: import("@harness-anything/storage").ReplicationPosition) => {
         const head = store.replicationPosition();
         // A slot beyond the retention cap has lost its suffix (max_slot_wal_keep_size): resync.
@@ -375,14 +382,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         // Pin a start no later than the snapshot, so the log keeps the suffix this backup resumes from.
         const unpin = retention.pin(store.replicationPosition());
         const directory = path.join(backupsRoot, randomUUID());
-        const started = startBaseBackup(
-          {
-            ledgerPath: store.databasePath,
-            projectionPath: path.join(layout.localRoot, "cache", "task.sqlite"),
-            directory,
-          },
-          backupSignal,
-        );
+        const started = store.startBackup(directory, path.join(layout.localRoot, "cache", "task.sqlite"), backupSignal);
         const archivePromise = started.then((pinned) => pinned.complete).then((archive) => archive);
         const cachedArchive: CachedBackup = {
           archive: archivePromise,
@@ -578,6 +578,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       const centerGit = frame.includeGitMetadata
         ? await readFleetCenterGitMetadata(
             options.host.status().repos.find((repo) => repo.repoId === a.repoId)?.rootDir ?? "",
+            hasDaemonGitFollower(options.storage?.[a.repoId]),
           )
         : { originUrl: null, originPushUrls: [], defaultBranch: null, defaultBranchCommit: null };
       return immediate({

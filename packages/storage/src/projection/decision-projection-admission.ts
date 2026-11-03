@@ -13,8 +13,35 @@ import { readDecisionDocumentState } from "./decision-projection-reads.ts";
 import { FactProjectionError } from "./fact-event-projection.ts";
 import { prepareQuery } from "./rebuildable-task-projection-sql.ts";
 
+interface DecisionAdmissionState {
+  readonly document: ReturnType<typeof readDecisionDocumentState>;
+  readonly hasSupersedes: boolean;
+  readonly relations: readonly {
+    readonly relation_id: string;
+    readonly source_ref: string;
+    readonly target_ref: string;
+  }[];
+}
+
 export function assertDecisionAdmission(db: DatabaseSync, event: DecisionEventV1): void {
-  const row = decisionState(db, event.decisionId);
+  const document = readDecisionDocumentState(db, event.decisionId);
+  const relations = document
+    ? (prepareQuery(
+        db,
+        "SELECT relation_id, source_ref, target_ref FROM relation_edge WHERE state='active' AND (source_ref GLOB ? OR target_ref GLOB ?) ORDER BY relation_id",
+      ).all(
+        `decision/${event.decisionId}/*`,
+        `decision/${event.decisionId}/*`,
+      ) as unknown as DecisionAdmissionState["relations"])
+    : [];
+  assertDecisionAdmissionAtCut(
+    { document, relations, hasSupersedes: hasActiveSupersedesRelation(db, event.decisionId) },
+    event,
+  );
+}
+
+export function assertDecisionAdmissionAtCut(state: DecisionAdmissionState, event: DecisionEventV1): void {
+  const row = state.document;
   if (event.type === "decision_proposed") {
     if (row) fail("invalid_transition", `Decision ${event.decisionId} already exists.`);
     return;
@@ -24,13 +51,13 @@ export function assertDecisionAdmission(db: DatabaseSync, event: DecisionEventV1
   const supersedingProposedDecision = event.type === "decision_superseded" && row.state === "proposed";
   if (transition && row.state !== transition.sourceState && !supersedingProposedDecision)
     fail("invalid_transition", `${event.type} requires ${transition.sourceState} state.`);
-  if (supersedingProposedDecision && !hasActiveSupersedesRelation(db, event.decisionId))
+  if (supersedingProposedDecision && !state.hasSupersedes)
     fail(
       "invalid_transition",
       `Decision ${event.decisionId} can leave proposed for superseded only with an active supersedes Relation from another Decision.`,
     );
   if (["decision_accepted", "decision_rejected", "decision_deferred"].includes(event.type)) {
-    const current = readDecisionDocumentState(db, event.decisionId);
+    const current = state.document;
     if (!current) fail("entity_not_found", `Decision ${event.decisionId} does not exist.`);
     try {
       assertDecisionJudgmentConsent(
@@ -67,7 +94,7 @@ export function assertDecisionAdmission(db: DatabaseSync, event: DecisionEventV1
     return;
   }
   if (event.type === "decision_superseded" || event.type === "decision_retired") {
-    const current = readDecisionDocumentState(db, event.decisionId)!;
+    const current = state.document!;
     try {
       assertDecisionContentPin(current, event);
     } catch (error) {
@@ -77,8 +104,8 @@ export function assertDecisionAdmission(db: DatabaseSync, event: DecisionEventV1
     return;
   }
   if (event.type === "decision_amended") {
-    assertAmendment(db, event);
-    const current = readDecisionDocumentState(db, event.decisionId)!;
+    assertAmendment(state, event);
+    const current = state.document!;
     try {
       assertDecisionContentPin(current, event);
     } catch (error) {
@@ -88,7 +115,7 @@ export function assertDecisionAdmission(db: DatabaseSync, event: DecisionEventV1
     return;
   }
   if (event.type === "decision_repinned") {
-    const current = readDecisionDocumentState(db, event.decisionId)!;
+    const current = state.document!;
     try {
       assertDecisionContentPin(current, event);
     } catch (error) {
@@ -99,20 +126,12 @@ export function assertDecisionAdmission(db: DatabaseSync, event: DecisionEventV1
   }
   if (event.type === "decision_claim_declared") {
     if (!decisionClaimsOpen(row.state)) fail("invalid_transition", "Claims require proposed or in_effect state.");
-    if (
-      prepareQuery(db, "SELECT 1 FROM decision_claim WHERE decision_id=? AND claim_id=?").get(
-        event.decisionId,
-        event.payload.claimId,
-      )
-    )
+    if (row.claims.some(({ id }) => id === event.payload.claimId))
       fail("invalid_transition", `Claim ${event.payload.claimId} already exists.`);
     return;
   }
   if (event.type === "decision_claim_fulfillment_declared") {
-    const claim = prepareQuery(db, "SELECT fulfillment FROM decision_claim WHERE decision_id=? AND claim_id=?").get(
-      event.decisionId,
-      event.payload.claimId,
-    ) as { readonly fulfillment: string | null } | undefined;
+    const claim = row.claims.find(({ id }) => id === event.payload.claimId);
     if (!claim) fail("anchor_not_found", `Claim ${event.payload.claimId} does not exist.`);
     if (claim.fulfillment) fail("invalid_transition", `Claim ${event.payload.claimId} already has a fulfillment.`);
     return;
@@ -133,10 +152,10 @@ export function assertDecisionAdmission(db: DatabaseSync, event: DecisionEventV1
 }
 
 function assertAmendment(
-  db: DatabaseSync,
+  state: DecisionAdmissionState,
   event: Extract<DecisionEventV1, { readonly type: "decision_amended" }>,
 ): void {
-  const current = readDecisionDocumentState(db, event.decisionId);
+  const current = state.document;
   if (!current) fail("entity_not_found", `Decision ${event.decisionId} does not exist.`);
   const next = event.payload.next,
     fields = new Set(event.payload.fields),
@@ -162,7 +181,7 @@ function assertAmendment(
   // `reason` was added with audited replacement. Historical amendments predate the
   // replacement contract and were admitted under append-only rules, so replay must
   // preserve that envelope's original admission semantics.
-  if (auditedAmendment) assertNoRemovedActiveRelationAnchors(db, event.decisionId, beforeAnchors, afterAnchors);
+  if (auditedAmendment) assertNoRemovedActiveRelationAnchors(state, event.decisionId, beforeAnchors, afterAnchors);
   if (
     [...fields].some((field) => !["title", "decisionClass", "chosen", "rejected", "claims", "body"].includes(field)) ||
     [...fields].sort().join("\0") !== [...changed].sort().join("\0")
@@ -221,21 +240,14 @@ function assertAmendment(
 }
 
 function assertNoRemovedActiveRelationAnchors(
-  db: DatabaseSync,
+  state: DecisionAdmissionState,
   decisionId: string,
   before: readonly string[],
   after: ReadonlySet<string>,
 ): void {
   const removed = new Set(before.filter((id) => !after.has(id)));
   if (!removed.size) return;
-  const references = prepareQuery(
-      db,
-      "SELECT relation_id, source_ref, target_ref FROM relation_edge WHERE state='active' AND (source_ref GLOB ? OR target_ref GLOB ?) ORDER BY relation_id",
-    ).all(`decision/${decisionId}/*`, `decision/${decisionId}/*`) as unknown as readonly {
-      readonly relation_id: string;
-      readonly source_ref: string;
-      readonly target_ref: string;
-    }[],
+  const references = state.relations,
     prefix = `decision/${decisionId}/`,
     blocking = references.filter(({ source_ref, target_ref }) =>
       [source_ref, target_ref].some((ref) => removed.has(ref.slice(prefix.length)) && ref.startsWith(prefix)),

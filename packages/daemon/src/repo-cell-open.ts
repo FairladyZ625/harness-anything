@@ -5,6 +5,7 @@ import { reviewDispatchKey } from "./review-dispatch-key.ts";
 import { resolveAgentRuntimeDeclaration } from "./agent-declaration-resolution.ts";
 import { readObservedRuntimeSession } from "./agent-runtime-read.ts";
 import { createEntityStore, makeTaskEventStore, type DispatchRecordLeaseSettlement } from "@harness-anything/storage";
+import type { DaemonStorageConfig } from "@harness-anything/storage";
 import {
   bindWriterGenerationToken,
   consumeKnownError,
@@ -108,6 +109,7 @@ export function publicPublication(value: Pick<CanonicalEventAppendReceipt, "comm
 }
 
 export interface RepoCellOpenInput {
+  readonly storage?: DaemonStorageConfig;
   readonly repoId: WorkspaceId;
   readonly rootDir: CanonicalRoot;
   readonly ownerId: string;
@@ -430,7 +432,7 @@ export async function openRepoWriterCell(
     return pending;
   };
   const pruneReplicationLog: NonNullable<RepoCell["pruneReplicationLog"]> = (beforeSequence) => {
-    const pending = chainRepoCellWrite(tail, () => store.pruneReplicationLog(beforeSequence));
+    const pending = chainRepoCellWrite(tail, () => store.pruneReplicationLog?.(beforeSequence));
     tail = pending.then(
       () => undefined,
       () => undefined,

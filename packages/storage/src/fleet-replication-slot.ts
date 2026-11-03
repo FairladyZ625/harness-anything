@@ -3,25 +3,24 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { ReplicationPosition } from "./store/replication-log.ts";
 
-export interface ReplicationSlotKey {
-  readonly repoId: string;
-  readonly nodeId: string;
-}
-export const replicationSlotKey = (key: ReplicationSlotKey): string => `${key.nodeId}\u0000${key.repoId}`;
-export interface ReplicaDeliveryKey extends ReplicationSlotKey {
-  readonly viewId: string;
-}
-export interface ReplicationSlotLease extends ReplicationSlotKey {
-  readonly fence: number;
-  readonly history: string;
-}
-export interface ReplicationAcknowledgement {
-  readonly durable: ReplicationPosition;
-  readonly applied: ReplicationPosition;
-}
-
+export { replicationSlotKey } from "./replication-slot-contract.ts";
+export type {
+  ReplicationSlotKey,
+  ReplicaDeliveryKey,
+  ReplicationSlotLease,
+  ReplicationAcknowledgement,
+} from "./replication-slot-contract.ts";
+import type {
+  ReplicationSlotKey,
+  ReplicationSlotLease,
+  ReplicationAcknowledgement,
+} from "./replication-slot-contract.ts";
+import { assertReplicationAcknowledgement } from "./replication-slot-contract.ts";
+import { openPgReplicationSlots } from "./postgres/pg-slot-client.ts";
+import type { StorageBackendConfig } from "./storage-backend.ts";
+import { existsSync } from "node:fs";
 /** Transport state only. A new authenticated session fences the previous node/repo sender. */
-export function openReplicationSlots(file: string) {
+function openSqliteReplicationSlots(file: string) {
   mkdirSync(path.dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
   db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;
@@ -53,23 +52,15 @@ export function openReplicationSlots(file: string) {
       return value?.ack == null ? null : (JSON.parse(String(value.ack)) as ReplicationAcknowledgement);
     },
     acknowledge(lease: ReplicationSlotLease, ack: ReplicationAcknowledgement, sent: ReplicationPosition): void {
-      // sent is owned by this sender, never supplied by the remote ACK.
-      if (
-        ack.durable.history !== lease.history ||
-        ack.applied.history !== lease.history ||
-        sent.history !== lease.history ||
-        ack.applied.sequence > ack.durable.sequence ||
-        ack.durable.sequence > sent.sequence ||
-        ack.applied.revision > ack.durable.revision ||
-        ack.durable.revision > sent.revision
-      )
-        throw new Error("replication ACK exceeds sent position");
-      const previous = row(lease);
-      if (previous?.fence !== lease.fence || previous.history !== lease.history)
-        throw new Error("replication session fenced");
-      const prior = previous.ack == null ? null : (JSON.parse(String(previous.ack)) as ReplicationAcknowledgement);
-      if (prior && (ack.durable.sequence < prior.durable.sequence || ack.applied.sequence < prior.applied.sequence))
-        throw new Error("replication ACK regressed");
+      const previous = row(lease),
+        prior = previous?.ack == null ? null : (JSON.parse(String(previous.ack)) as ReplicationAcknowledgement);
+      assertReplicationAcknowledgement(
+        lease,
+        ack,
+        sent,
+        previous?.fence === lease.fence && previous.history === lease.history,
+        prior,
+      );
       const result = db
         .prepare("UPDATE replication_slot SET ack=?, acked_at=? WHERE repo=? AND node=? AND fence=? AND history=?")
         .run(
@@ -119,7 +110,50 @@ export function openReplicationSlots(file: string) {
   };
 }
 
-export type ReplicationSlots = ReturnType<typeof openReplicationSlots>;
+export type ReplicationSlots = ReturnType<typeof openSqliteReplicationSlots>;
+
+export function openReplicationSlots(
+  file: string,
+  storageByRepo?: Readonly<Record<string, StorageBackendConfig>>,
+): ReplicationSlots {
+  if (!storageByRepo || !Object.values(storageByRepo).some((storage) => storage.backend === "postgres"))
+    return openSqliteReplicationSlots(file);
+  let local: ReplicationSlots | undefined;
+  const stores = new Map<string, ReplicationSlots>(),
+    forRepo = (repoId: string): ReplicationSlots => {
+      const storage = storageByRepo[repoId];
+      if (storage?.backend !== "postgres") return (local ??= openSqliteReplicationSlots(file));
+      let slots = stores.get(repoId);
+      if (!slots) {
+        slots = openPgReplicationSlots(repoId, storage);
+        stores.set(repoId, slots);
+      }
+      return slots;
+    },
+    all = () => {
+      for (const [repoId, storage] of Object.entries(storageByRepo))
+        if (storage.backend === "postgres") forRepo(repoId);
+      if (existsSync(file)) local ??= openSqliteReplicationSlots(file);
+      return [...new Set([...(local ? [local] : []), ...stores.values()])];
+    };
+  return {
+    claim: (key, history) => forRepo(key.repoId).claim(key, history),
+    current: (lease) => forRepo(lease.repoId).current(lease),
+    cursor: (key) => forRepo(key.repoId).cursor(key),
+    acknowledge: (lease, ack, sent) => forRepo(lease.repoId).acknowledge(lease, ack, sent),
+    minimumAck: (repoId, history) => forRepo(repoId).minimumAck(repoId, history),
+    removeNode: (nodeId) => {
+      for (const store of all()) store.removeNode(nodeId);
+    },
+    invalidateOffline: (repoId) => forRepo(repoId).invalidateOffline(repoId),
+    list: () => all().flatMap((store) => store.list()),
+    close: () => {
+      local?.close();
+      for (const store of stores.values()) store.close();
+      stores.clear();
+    },
+  };
+}
 
 /**
  * Replication-log retention, after PostgreSQL slots: keep every commit after the slowest slot's ACK,

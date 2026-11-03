@@ -187,8 +187,8 @@ function projectionCacheCarriesAcceptedHistory(projectionPath: string): boolean 
 }
 
 /** A missing certificate is empty only when neither accepted history nor a staged target exists. */
-export function selectGenerationThree(input: SelectionInput): 3 {
-  if (readGenerationThreeActivation(input)) return 3;
+export function generationThreeUpgradeStatus(input: SelectionInput): "active" | "incomplete" | "empty" {
+  if (readGenerationThreeActivation(input)) return "active";
   const layout = resolveHarnessLayout(input.rootInput);
   const history = [1, 2, 3]
     .flatMap((generation) => {
@@ -200,10 +200,14 @@ export function selectGenerationThree(input: SelectionInput): 3 {
       path.join(layout.authoredRoot, "events"),
       path.join(layout.authoredRoot, "objects"),
     ]);
-  if (
-    history.some((candidate) => files.exists(candidate)) ||
+  return history.some((candidate) => files.exists(candidate)) ||
     projectionCacheCarriesAcceptedHistory(path.join(layout.localRoot, "cache", "task.sqlite"))
-  )
+    ? "incomplete"
+    : "empty";
+}
+
+export function selectGenerationThree(input: SelectionInput): 3 {
+  if (generationThreeUpgradeStatus(input) === "incomplete")
     throw new TaskEventStoreError(
       "invalid_store",
       "generation 3 upgrade is incomplete; run offline conversion before attaching this repository. Run ha migrate ledger --help for backup, conversion, verification and activation.",
