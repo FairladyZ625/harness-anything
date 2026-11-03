@@ -54,7 +54,18 @@ test("real Fleet callbacks bind their observer across TLS queues without recordi
   assert.equal(request.repoId, f.subject.repoId);
   assert.equal(request.actor, `node:${f.subject.nodeId}`);
   assert.equal(request.phase, "fleet-dispatch");
-  assert.deepEqual(Object.keys(request).sort(), ["actor", "method", "phase", "repoId"]);
+  assert.equal(request.nodeId, f.subject.nodeId);
+  assert.deepEqual(Object.keys(request).sort(), [
+    "actor",
+    "method",
+    "nodeId",
+    "phase",
+    "repoId",
+    "spanId",
+    "startedAt",
+    "startedAtMs",
+    "traceId",
+  ]);
   assert.ok(!JSON.stringify(observed.records).includes("machine-secret"));
   assert.equal(observed.active.size, 0);
 });
