@@ -18,7 +18,7 @@ import {
   type ReviewV1,
 } from "./review.ts";
 import { disposedReviewIdsForSubmission } from "./review-consent-validity.ts";
-import { submissionDigest, type ExecutionV1 } from "./execution.ts";
+import { leaseIsEffective, submissionDigest, type ExecutionV1 } from "./execution.ts";
 import { isWorkRoot } from "./task.ts";
 
 export type CompletionBlockerCode =
@@ -445,7 +445,8 @@ export function releasedLeaseRestartNext(
   execution: { readonly executionId: string; readonly state: string } | undefined,
 ): CompletionNext | null {
   const task = snapshot.task;
-  if (!task || task.status !== "active" || snapshot.lease !== null || execution?.state !== "active") return null;
+  if (!task || task.status !== "active" || leaseIsEffective(snapshot.lease) || execution?.state !== "active")
+    return null;
   return completionGuidance(
     snapshot,
     execution.executionId,

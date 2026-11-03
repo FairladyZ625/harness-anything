@@ -208,7 +208,7 @@ export type {
   SubmissionV1,
   TaskRiskTierAssessmentV1,
 } from "./domain/execution.ts";
-export { executionAnnotationKinds, isNativeExecution, submissionDigest } from "./domain/execution.ts";
+export { executionAnnotationKinds, isNativeExecution, leaseIsEffective, submissionDigest } from "./domain/execution.ts";
 export {
   gateAppliesTo,
   gateAppliesToSubmission,

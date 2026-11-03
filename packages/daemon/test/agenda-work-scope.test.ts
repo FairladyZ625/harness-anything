@@ -27,7 +27,7 @@ interface FixtureRow {
       readonly presetSnapshotDigest: null;
     };
     readonly executions: readonly unknown[];
-    readonly lease: { readonly executionId: string } | null;
+    readonly lease: { readonly executionId: string; readonly phase?: string } | null;
   };
 }
 
@@ -53,7 +53,7 @@ function taskRow(
         presetSnapshotDigest: null,
       },
       executions: [],
-      lease: patch.leased ? { executionId: `exe_${taskId}` } : null,
+      lease: patch.leased ? { executionId: `exe_${taskId}`, phase: "held" } : null,
     },
   };
 }

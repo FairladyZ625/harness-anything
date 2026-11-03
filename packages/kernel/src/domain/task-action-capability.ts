@@ -2,6 +2,7 @@ import { isIndependentFrom, isSameExecution, isSamePerson } from "./actor-domain
 import { closeoutReadiness, currentSubmittedExecutions } from "./closeout-readiness.ts";
 import type { EntityActionCriterionStatus } from "./entity-action-explanation.ts";
 import type { EntityActionContract } from "./entity-kind-registry.ts";
+import { leaseIsEffective } from "./execution.ts";
 import { canStartExecution } from "./task-lifecycle-command-transitions.ts";
 import { heldLeaseForExecutionActor } from "./task-lifecycle-contract-support.ts";
 import { revisionIssues } from "./task-lifecycle-contract-support.ts";
@@ -187,7 +188,7 @@ function mutationInvocation(): "invocation-required" {
 }
 
 function assignmentLeaseAvailability({ snapshot }: TaskActionCapabilityInput): "met" | "unmet" {
-  return snapshot.lease === null || !["held", "reserving"].includes(snapshot.lease.phase) ? "met" : "unmet";
+  return leaseIsEffective(snapshot.lease) ? "unmet" : "met";
 }
 
 /** An orphaned lease's holder is gone and fences nothing — the write path treats it like no lease. */

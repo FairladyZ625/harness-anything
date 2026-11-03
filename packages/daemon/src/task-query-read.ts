@@ -12,12 +12,14 @@ import {
   freshnessReasonOf,
   isTerminalDecisionState,
   isTerminalStatus,
+  leaseIsEffective,
   parseAwaitsRequest,
   relationIsCurrent,
   releasedLeaseRestartNext,
   runtimeSessionIsRunning,
   taskBoardPlacement,
   taskCapabilities,
+  taskCompletionAction,
   taskPhase,
   taskRisk,
   taskVisibility,
@@ -73,6 +75,7 @@ import { assignmentFromRelation } from "./entity-assignment-runtime.ts";
 import { buildAttentionItems } from "./agenda-attention-projection.ts";
 import { readDispatchRuling } from "./runtime-ruling.ts";
 import { readIncidentActionReceipt } from "./decision-incident-receipt.ts";
+import { readCompletionContext } from "./task-completion-read.ts";
 import { readReckoningAgenda } from "./reckoning-agenda-read.ts";
 import {
   decodeAgendaCursor,
@@ -428,6 +431,7 @@ export function makeTaskQueryReadModel(input: {
       readPresetSnapshot = presetSnapshotReader(projection);
     return {
       page: lifecycle.page ?? null,
+      status: lifecycle.status,
       rows: rows.map((row) => ({
         ...row,
         workspace: taskWorkspaceView(rootDir, row.snapshot.task, row.packagePath, readPresetSnapshot, null),
@@ -581,25 +585,26 @@ export function makeTaskQueryReadModel(input: {
       liveWorkerByTask = new Map<string, boolean>(
         (active?.rows ?? []).map((row) => [row.taskId, hasLiveWorker(projection, row)]),
       ),
+      activeStatus = active?.status ?? ("ready" as const),
       inFlight = (active?.rows ?? [])
-        .filter((row) => row.snapshot.lease !== null || liveWorkerByTask.get(row.taskId) === true)
+        .filter((row) => leaseIsEffective(row.snapshot.lease) || liveWorkerByTask.get(row.taskId) === true)
         .map(agendaTaskRow)
         .sort(compareAgendaTasks),
-      // lease 已交回、execution 仍 active、且没有存活 worker:这是 owner 的下一步,
-      // next 与 `ha task show` 的 completion next 取同一 kernel 判定。
+      // lease 已失效(释放或过期)、execution 仍 active、且没有存活 worker:这是 owner 的下一步,
+      // next 取 `ha task show` 使用的完整 completion 判定,不在 agenda 复制第二套优先级。
       awaitingRestart = (active?.rows ?? [])
-        .filter((row) => row.snapshot.lease === null && !liveWorkerByTask.get(row.taskId))
+        .filter((row) => !leaseIsEffective(row.snapshot.lease) && !liveWorkerByTask.get(row.taskId))
         .flatMap((row) => {
-          const restart = restartRow(row);
+          const restart = restartRow(projection, rootDir, activeStatus, row);
           return restart === null ? [] : [restart];
         })
         .filter(({ taskId }) => assignmentFor(`task/${taskId}`))
         .sort(compareAgendaTasks),
-      // 评审打回、球已回到使用者手里的那批:执行已关闭、lease 已释放,既不在飞也不待裁。
+      // 评审打回、球已回到使用者手里的那批:执行已关闭、lease 已失效,既不在飞也不待裁。
       awaitingRework = (active?.rows ?? [])
         .filter(
           (row) =>
-            row.snapshot.lease === null &&
+            !leaseIsEffective(row.snapshot.lease) &&
             !row.snapshot.executions.some(({ state }) => state === "active") &&
             latestExecution(row.snapshot.executions)?.state === "changes_requested",
         )
@@ -621,7 +626,7 @@ export function makeTaskQueryReadModel(input: {
       stalled = (active?.rows ?? [])
         .filter(
           (row) =>
-            row.snapshot.lease === null &&
+            !leaseIsEffective(row.snapshot.lease) &&
             !row.snapshot.executions.some(({ state }) => state === "active") &&
             now().getTime() - Date.parse(row.updatedAt) > 7 * 24 * 60 * 60 * 1_000,
         )
@@ -1243,6 +1248,7 @@ type AgendaWorkScope = {
 };
 type AgendaSourcePage = {
   readonly page: ProjectionPage | null;
+  readonly status: ReturnType<TaskProjection["list"]>["status"];
   readonly rows: readonly AgendaSourceRow[];
   readonly warnings: ReturnType<TaskProjection["list"]>["warnings"];
   readonly reads: readonly ProjectionCut[];
@@ -1278,7 +1284,7 @@ function agendaTaskRow(row: AgendaSourceRow): AgendaTaskRow {
  * 跑的行(lease 仍被持有)一律不在此列。
  */
 function leaseReturnedRows(rows: readonly AgendaSourceRow[]): readonly AgendaSourceRow[] {
-  return rows.filter((row) => row.snapshot.lease === null);
+  return rows.filter((row) => !leaseIsEffective(row.snapshot.lease));
 }
 
 /**
@@ -1298,11 +1304,23 @@ function hasLiveWorker(projection: TaskProjection, row: AgendaSourceRow): boolea
   return false;
 }
 
-/** The owner-action row for a lease-released active execution, or null for every other shape. */
-function restartRow(row: AgendaSourceRow): AgendaRestartRow | null {
-  const execution = latestExecution(row.snapshot.executions.filter(({ state }) => state === "active")),
-    next = releasedLeaseRestartNext(row.snapshot, execution)?.action;
-  return next === undefined ? null : { ...agendaTaskRow(row), next };
+/** The owner-action row for a lapsed-lease active execution, or null for every other shape. */
+function restartRow(
+  projection: TaskProjection,
+  rootDir: CanonicalRoot,
+  status: "ready" | "pending",
+  row: AgendaSourceRow,
+): AgendaRestartRow | null {
+  const execution = latestExecution(row.snapshot.executions.filter(({ state }) => state === "active"));
+  if (releasedLeaseRestartNext(row.snapshot, execution) === null) return null;
+  // The row must name the same step `ha task show` would. The hot path already proved the lapsed
+  // lease and missing live worker; the complete judgment still owns earlier contract blockers
+  // (projection lag, preset gap, missing closeout, ambiguous executions).
+  const next = taskCompletionAction(
+    row.snapshot,
+    readCompletionContext(projection, row.taskId, row.snapshot, status, rootDir),
+  );
+  return next === null ? null : { ...agendaTaskRow(row), next: next.action };
 }
 
 /** 最新一轮 execution:按 iteration 取最大者的 state,不回看更早历史(同一轮内后到者胜出)。 */
@@ -1324,7 +1342,7 @@ function unsubmittedDeliveryAttentionRows(
   readonly source: AgendaSourceRow;
 }[] {
   return rows.flatMap((row) => {
-    if (row.snapshot.lease !== null) return [];
+    if (leaseIsEffective(row.snapshot.lease)) return [];
     const execution = latestExecution(row.snapshot.executions);
     if (!execution || execution.submission !== null) return [];
     const dispatches = [...projection.readRuntimeDispatchesByTaskExecution(row.taskId, execution.executionId)].sort(

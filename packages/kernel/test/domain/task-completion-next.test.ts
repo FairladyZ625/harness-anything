@@ -81,6 +81,15 @@ test("completion next is one pure judgment across lifecycle and unavailable-inpu
     // A settled worker releases its lease and leaves the execution active; start reconnects to that execution
     // (dec_E5103E62F80728C06AFCFCD133), so completion resumes rather than abandoning the round.
     ["active released lease", { ...active, lease: null }, context, "not_in_review", "ha task start task-1"],
+    // The projection derives orphaned for a held lease past its TTL; its holder is gone, so the
+    // same reconnect step applies instead of submitting as if the round were still held.
+    [
+      "active orphaned lease",
+      { ...active, lease: { ...active.lease!, phase: "orphaned" as const } },
+      context,
+      "not_in_review",
+      "ha task start task-1",
+    ],
     [
       "returned review without a current execution",
       { ...active, task: { ...active.task!, iteration: active.task!.iteration + 1 } },
