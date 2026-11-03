@@ -3,11 +3,15 @@ import { parentPort } from "node:worker_threads";
 
 // An in-process Inspector session does not expose a TCP port. Capture only function locations;
 // automatic resume happens in this worker, which stays responsive when the main thread pauses.
-const session = new Session();
+// Keep the collector alive while Inspector waits for an interrupt in the main isolate.
+parentPort!.ref();
+const session = new Session(),
+  scriptUrls = new Map<string, string>();
+session.on("Debugger.scriptParsed", ({ params }) => scriptUrls.set(params.scriptId, params.url));
 session.on("Debugger.paused", ({ params }) => {
   const stack = params.callFrames.slice(0, 32).map((frame) => ({
     functionName: frame.functionName,
-    url: frame.url,
+    url: scriptUrls.get(frame.location.scriptId) ?? frame.url,
     lineNumber: frame.location.lineNumber,
     columnNumber: frame.location.columnNumber ?? 0,
   }));

@@ -1,4 +1,3 @@
-import { observeFleetHostApi } from "./daemon-fleet-observation.ts";
 import { readFleetOperationalClient } from "./fleet-edge-write.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { forwardRegisteredFleetAction } from "./fleet-edge-task.ts";
@@ -105,7 +104,7 @@ export function createDaemonHostRepositoryApi(
   | "read"
   | "readNodeAutoClaimCandidates"
 > {
-  const api: ReturnType<typeof createDaemonHostRepositoryApi> = {
+  return {
     readNodeAutoClaimCandidates: async (repoId, auth) => {
       if (auth.transportKind !== "fleet-tls" || !auth.nodePrincipal)
         throw context.hostCodedError("authentication_required", "Auto-claim candidates require a Fleet node session.");
@@ -1113,5 +1112,4 @@ export function createDaemonHostRepositoryApi(
       return parseDaemonGuiReadResult(method, result);
     },
   };
-  return observeFleetHostApi(api);
 }

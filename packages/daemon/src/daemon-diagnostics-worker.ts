@@ -14,7 +14,8 @@ const options = workerData as DaemonDiagnosticsOptions & { heartbeat: SharedArra
   threshold = options.stallThresholdMs ?? 2_000;
 let metrics: JsonObject | null = null,
   activeStall: Record<string, JsonValue> | null = null,
-  stallStartedMonotonic = 0;
+  stallStartedMonotonic = 0,
+  lastMetricsReceivedAt = 0;
 const recentStalls: Record<string, JsonValue>[] = [];
 const nowMs = (): number => Number(process.hrtime.bigint() / 1_000_000n);
 const age = (): number => Math.max(0, nowMs() - Number(Atomics.load(heartbeat, 0)));
@@ -98,17 +99,18 @@ const timer = setInterval(() => {
     activeStall = null;
   }
 }, options.heartbeatMs ?? 250);
-const metricsTimer = setInterval(
-  () =>
-    record("metrics", {
-      metrics,
-      rss: process.memoryUsage.rss(),
-      heartbeatAgeMs: age(),
-      inFlight: operations.size,
-      recentStalls: recentStalls.length,
-    }),
-  options.metricsIntervalMs ?? 10_000,
-);
+const recordMetrics = (): void =>
+  record("metrics", {
+    metrics,
+    rss: process.memoryUsage.rss(),
+    heartbeatAgeMs: age(),
+    inFlight: operations.size,
+    recentStalls: recentStalls.length,
+  });
+const metricsTimer = setInterval(() => {
+  // During a main-thread stall no sample arrives; keep recording independent liveness and RSS.
+  if (nowMs() - lastMetricsReceivedAt >= (options.metricsIntervalMs ?? 10_000)) recordMetrics();
+}, options.metricsIntervalMs ?? 10_000);
 
 const transport = createUnixSocketTransportServer({
   daemonId: options.daemonId,
@@ -143,8 +145,12 @@ parentPort!.on("message", (message) => {
     const previous = operations.get(message.id);
     if (previous) operations.set(message.id, { ...previous, ...message.fields });
   } else if (message.type === "end") operations.delete(message.id);
-  else if (message.type === "metrics") metrics = message.metrics;
-  else if (message.type === "close") {
+  else if (message.type === "metrics") {
+    metrics = message.metrics;
+    lastMetricsReceivedAt = nowMs();
+    // Persist each completed histogram window before a newer one can overwrite its peak.
+    recordMetrics();
+  } else if (message.type === "close") {
     clearInterval(timer);
     clearInterval(metricsTimer);
     void transport.stop().then(() => parentPort!.close());

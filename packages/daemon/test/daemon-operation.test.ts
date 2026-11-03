@@ -7,7 +7,6 @@ import {
   markDaemonOperationPhase,
   type DaemonOperationObserver,
 } from "../src/daemon-operation.ts";
-import { observeFleetHostApi } from "../src/daemon-fleet-observation.ts";
 import { fleetBaseBackupTrace } from "@harness-anything/storage";
 
 function observer() {
@@ -66,23 +65,6 @@ test("operation scopes isolate concurrent phases and remove synchronous, rejecte
     await first;
     assert.equal(o.active.size, 0);
   });
-});
-test("fleet host boundary preserves sync results and observes node identity without payload capture", async () => {
-  const o = observer(),
-    auth = { transportKind: "fleet-tls" as const, nodePrincipal: { personId: "person-a" } },
-    api = observeFleetHostApi({
-      read: (_repo: string, _method: string, _payload: object, _auth: object) => {
-        assert.deepEqual(
-          [...o.active.values()],
-          [{ method: "repo.tasks.list", repoId: "repo-a", actor: "person-a", phase: "host-dispatch" }],
-        );
-        return 42;
-      },
-    });
-  withDaemonObservation(o.sink, () =>
-    assert.equal(api.read("repo-a", "repo.tasks.list", { secret: "never-record" }, auth), 42),
-  );
-  assert.equal(o.active.size, 0);
 });
 test("basebackup span remains registered from snapshot through archive completion", () => {
   const o = observer();

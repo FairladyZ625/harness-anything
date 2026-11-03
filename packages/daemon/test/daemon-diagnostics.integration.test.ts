@@ -51,11 +51,13 @@ async function diagnostic(endpoint: string) {
 }
 async function until(endpoint: string, predicate: (value: Record<string, unknown>) => boolean) {
   const deadline = performance.now() + 5_000;
+  let last: Record<string, unknown> | undefined;
   do {
     const value = await diagnostic(endpoint);
+    last = value;
     if (predicate(value)) return value;
   } while (performance.now() < deadline);
-  assert.fail("diagnostics did not reach expected state");
+  assert.fail(`diagnostics did not reach expected state: ${JSON.stringify(last)}`);
 }
 for (const mode of ["javascript", "native"]) {
   test(`independent diagnostics records an in-flight ${mode} stall and recovery`, { timeout: 20_000 }, async () => {
@@ -68,14 +70,17 @@ for (const mode of ["javascript", "native"]) {
       const armed = f.message("armed");
       f.child.send("arm");
       await armed;
-      const blocking = f.message("blocking"),
-        request = requestDaemonJsonRpcAt(f.endpoint, "daemon.status", {}, 500, 5_000);
-      await blocking;
+      const request = requestDaemonJsonRpcAt(f.endpoint, "daemon.status", {}, 500, 5_000);
       const stalled = await until(
           f.endpoint,
-          (value) => value.stalled === true && (value.recentStalls as unknown[]).length > 0,
+          (value) =>
+            value.stalled === true &&
+            (value.inFlight as { method: string; phase: string }[]).some(
+              (operation) => operation.method === "daemon.status" && operation.phase === mode,
+            ),
         ),
         inFlight = stalled.inFlight as { method: string; actor: string; phase: string }[];
+      console.log("stall evidence during request", mode, JSON.stringify(stalled));
       assert.equal(inFlight.length, 1);
       assert.equal(inFlight[0]!.method, "daemon.status");
       assert.match(inFlight[0]!.actor, /^local-user-/u);
@@ -91,8 +96,8 @@ for (const mode of ["javascript", "native"]) {
           .filter((name) => name.includes("diagnostics"))
           .flatMap((name) =>
             readFileSync(path.join(f.userRoot, "logs", name), "utf8")
-              .trim()
               .split("\n")
+              .slice(0, -1)
               .map((line) => JSON.parse(line)),
           );
       const recovered = await until(f.endpoint, (value) => {

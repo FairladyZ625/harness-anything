@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+import { observeDaemonOperation } from "../daemon-operation.ts";
 import { validateTaskDispatchesPayload } from "../protocol/daemon-protocol-rpc-validation.ts";
 import { createFleetDeliveryDrain } from "./center-delivery-drain.ts";
 import { createResourceBudget, DOC_SHOW_BUDGET_LIMITS, ResourceBudgetExceeded } from "./resource-budget.ts";
@@ -1181,21 +1183,44 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     if (!nodeAdmission.isOpen(nodeId)) return false;
     return (await options.authenticate(nodeId, credential, source)) && nodeAdmission.isOpen(nodeId);
   });
+  // Bind once at the daemon composition boundary. TLS/frame queues need not inherit ALS.
+  const observedAuthenticate = AsyncLocalStorage.bind((nodeId: string, credential: string, source: string) =>
+    observeDaemonOperation({ method: "fleet.hello", actor: null, phase: "authentication" }, () =>
+      guardedAuthenticate(nodeId, credential, source),
+    ),
+  );
+  const observedReplicationStart = AsyncLocalStorage.bind((...args: Parameters<typeof onReplicationStart>) =>
+    observeDaemonOperation(
+      { method: "replica.start", repoId: args[2].repoId, actor: `node:${args[0]}`, phase: "replication-stream" },
+      () => onReplicationStart(...args),
+    ),
+  );
+  const observedHandle = AsyncLocalStorage.bind((...args: Parameters<typeof handle>) =>
+    observeDaemonOperation(
+      {
+        method: "method" in args[1] ? String(args[1].method) : args[1].schema,
+        repoId: "repoId" in args[1] ? String(args[1].repoId) : null,
+        actor: `node:${args[0]}`,
+        phase: "fleet-dispatch",
+      },
+      () => nodeAdmission.run(args[0], () => handle(...args)),
+    ),
+  );
   const server: Server = createServer({ key: options.key, cert: options.cert }, (socket) =>
     serve(
       socket,
       {
         ...options,
         commandResourceBudget: resourceBudget,
-        authenticate: guardedAuthenticate,
-        onReplicationStart,
+        authenticate: observedAuthenticate,
+        onReplicationStart: observedReplicationStart,
         onVersionWarning: (nodeId, warning) => {
           if (warning === null) versionWarnings.delete(nodeId);
           else versionWarnings.set(nodeId, warning);
           options.onVersionWarning?.(nodeId, warning);
         },
       },
-      (nodeId, ...args) => nodeAdmission.run(nodeId, () => handle(nodeId, ...args)),
+      observedHandle,
       sessions,
       replicationOwners,
       nodeSessions,

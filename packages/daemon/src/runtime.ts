@@ -210,6 +210,7 @@ export async function startDaemon(input: {
       createProtocolServer: (authContext, emit, connectionId, signal) =>
         createJsonRpcProtocolServer({
           host: host!,
+          operationObserver: diagnostics!.observer,
           build,
           buildObserver,
           authContext: { ...authContext, connectionSignal: signal },

@@ -87,7 +87,7 @@ export async function openDaemonDiagnostics(options: DaemonDiagnosticsOptions) {
   };
   sampleMetrics();
   const timer = setInterval(pulse, options.heartbeatMs ?? 250),
-    metrics = setInterval(sampleMetrics, options.metricsIntervalMs ?? 10_000);
+    metrics = setInterval(() => setImmediate(sampleMetrics), options.metricsIntervalMs ?? 10_000);
   timer.unref();
   metrics.unref();
   const dispose = (): void => {

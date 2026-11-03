@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { observeDaemonRequest, updateDaemonOperation } from "../daemon-operation.ts";
+import { observeDaemonRequest, updateDaemonOperation, type DaemonOperationObserver } from "../daemon-operation.ts";
 import { accessAdminOperations } from "./daemon-protocol.contract.ts";
 import { executionCredentialRejected } from "../runtime-execution-credential.ts";
 import { localDefaultBinding } from "../daemon-host-binding.ts";
@@ -94,6 +94,7 @@ export function createJsonRpcProtocolServer(options: {
   readonly connectionId?: string;
   readonly recordRequest?: (entry: DaemonRequestLogEntry) => void;
   readonly recordTraffic?: (entry: DaemonTrafficLogEntry) => void;
+  readonly operationObserver?: DaemonOperationObserver;
   readonly requestShutdown?: () => void;
   readonly buildDrainStatus?: () => DaemonBuildDrainStatus;
   /** True after build drift closes normal RPC admission and until the old daemon exits. */
@@ -963,7 +964,12 @@ export function createJsonRpcProtocolServer(options: {
   return {
     handle: async (message, timing) => {
       const observedOne = (request: JsonRpcRequest) =>
-        observeDaemonRequest(request, options.authContext, () => one(request, timing?.frameReceivedAt));
+        observeDaemonRequest(
+          request,
+          options.authContext,
+          () => one(request, timing?.frameReceivedAt),
+          options.operationObserver,
+        );
       return Array.isArray(message)
         ? (await Promise.all(message.map(observedOne))).filter((item): item is JsonRpcResponse => item !== undefined)
         : observedOne(message);

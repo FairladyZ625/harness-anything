@@ -49,6 +49,7 @@ if (mode === "drain") {
     socketPath: endpoint,
     createProtocolServer: (authContext, emit) =>
       createJsonRpcProtocolServer({
+        operationObserver: diagnostics.observer,
         host: {
           status: () => {
             if (armed) {

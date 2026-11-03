@@ -1,4 +1,3 @@
-import { observeFleetHostApi } from "./daemon-fleet-observation.ts";
 import path from "node:path";
 import { daemonRpcCommandTopology } from "./rpc-command-routing.ts";
 import { readFileSync } from "node:fs";
@@ -143,7 +142,7 @@ export function createDaemonHostRuntimeApi(
         );
       return runFleetEdgeRuntime({ ...config, repoId, workspaceRoot, method, action }, auth, true);
     };
-  const api: ReturnType<typeof createDaemonHostRuntimeApi> = {
+  return {
     attach: async (repoId, runtimeSessionId, afterCursor, auth) => {
       context.requireHostMode(repoId, repoReadCommandTopology, auth);
       await context.attemptHostRecovery(repoId);
@@ -747,5 +746,4 @@ export function createDaemonHostRuntimeApi(
       return { ...result, authorizationDecision: authorizationDecision as unknown as JsonObject };
     },
   };
-  return observeFleetHostApi(api);
 }

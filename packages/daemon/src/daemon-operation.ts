@@ -76,21 +76,28 @@ export function updateDaemonOperation(fields: DaemonOperationUpdate): void {
   current.getStore()?.operation?.update(fields);
 }
 
-export function observeDaemonRequest<T>(request: JsonRpcRequest, auth: DaemonAuthenticationContext, body: () => T): T {
+export function observeDaemonRequest<T>(
+  request: JsonRpcRequest,
+  auth: DaemonAuthenticationContext,
+  body: () => T,
+  observer?: DaemonOperationObserver,
+): T {
   const params = request.params as Record<string, unknown> | undefined,
     repo = params?.repo as { repoId?: unknown } | undefined;
-  return observeDaemonOperation(
-    {
-      method: String(request.method),
-      phase: "authentication",
-      repoId:
-        typeof repo?.repoId === "string" ? repo.repoId : typeof params?.repoId === "string" ? params.repoId : null,
-      actor:
-        auth.executionPrincipal?.personId ??
-        auth.oidcPrincipal?.personId ??
-        auth.nodePrincipal?.personId ??
-        (auth.unixSocketOwnerBoundary ? `local-user-${auth.unixSocketOwnerBoundary.ownerUid}` : null),
-    },
-    body,
-  );
+  const observe = () =>
+    observeDaemonOperation(
+      {
+        method: String(request.method),
+        phase: "authentication",
+        repoId:
+          typeof repo?.repoId === "string" ? repo.repoId : typeof params?.repoId === "string" ? params.repoId : null,
+        actor:
+          auth.executionPrincipal?.personId ??
+          auth.oidcPrincipal?.personId ??
+          auth.nodePrincipal?.personId ??
+          (auth.unixSocketOwnerBoundary ? `local-user-${auth.unixSocketOwnerBoundary.ownerUid}` : null),
+      },
+      body,
+    );
+  return observer ? withDaemonObservation(observer, observe) : observe();
 }
