@@ -31,6 +31,7 @@ function runnerFixture(linked = true) {
     "test-quarantine.mjs",
     "test-quarantine.json",
     "node-test-file-activity-reporter.mjs",
+    "node-test-failure-reporter.mjs",
     "node-test-stall-report.mjs",
     "node-test-daemon-owner.mjs",
   ]) {
@@ -83,7 +84,7 @@ test("CLI entry sees the build before any test executes", () => {
       encoding: "utf8",
       timeout: 20_000,
     });
-  return { root, write, run };
+  return { root, write, run, env };
 }
 
 test("runner rebuilds a missing or stale daemon before CLI tests and reuses a fresh build", () => {
@@ -102,6 +103,32 @@ test("runner rebuilds a missing or stale daemon before CLI tests and reuses a fr
     assert.equal(stale.status, 0, stale.stdout + stale.stderr);
     assert.match(stale.stdout, /\[daemon-build\] built in/u);
     assert.equal(readFileSync(path.join(root, "packages/daemon/dist/builds.txt"), "utf8"), "build\nbuild\n");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("runner streams a failing assertion before a later file can stall the run", () => {
+  const { root, write, env } = runnerFixture();
+  try {
+    write(
+      "packages/cli/test/failure.test.mjs",
+      `// harness-test-tier: integration
+import assert from "node:assert/strict";
+import test from "node:test";
+test("streamed failure", () => {
+  assert.equal(1, 2);
+});`,
+    );
+    const failed = spawnSync(
+      process.execPath,
+      ["tools/run-node-tests.mjs", "--file", "packages/cli/test/failure.test.mjs"],
+      { cwd: root, env, encoding: "utf8", timeout: 20_000 },
+    );
+    assert.equal(failed.status, 1, failed.stdout + failed.stderr);
+    assert.match(failed.stdout, /\[test-failure\] .*packages\/cli\/test\/failure\.test\.mjs: streamed failure/u);
+    assert.match(failed.stdout, /AssertionError \[ERR_ASSERTION\]: Expected values to be strictly equal/u);
+    assert.match(failed.stdout, /1 !== 2/u);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

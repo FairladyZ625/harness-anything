@@ -157,6 +157,10 @@ const activityRoot = mkdtempSync(join(tmpdir(), "ha-node-test-watchdog-"));
 const testTemporaryRoot = mkdtempSync(join(tmpdir(), "ha-node-test-"));
 const activityPath = join(activityRoot, "activity.jsonl");
 const reporterUrl = pathToFileURL(resolve(import.meta.dirname, "node-test-file-activity-reporter.mjs")).href;
+// One file that never exits makes the watchdog kill the whole run before the spec reporter
+// writes its failing-tests recap. Stream each failure as it happens so the assertion text
+// survives the kill, which is the only moment the details are needed.
+const failureReporterUrl = pathToFileURL(resolve(import.meta.dirname, "node-test-failure-reporter.mjs")).href;
 const quarantinePattern =
   process.env.HARNESS_TEST_QUARANTINE === "skip"
     ? exactNamePattern(readTestQuarantine(repoRoot).map((entry) => entry.test))
@@ -182,6 +186,8 @@ const child = spawn(
   [
     "--test",
     "--test-reporter=spec",
+    "--test-reporter-destination=stdout",
+    `--test-reporter=${failureReporterUrl}`,
     "--test-reporter-destination=stdout",
     ...coverageReporterArgs(coveragePath),
     `--test-reporter=${reporterUrl}`,
