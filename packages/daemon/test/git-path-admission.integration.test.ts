@@ -72,7 +72,13 @@ for (const route of ["doc-submit", "task-submit", "task-artifact-add"] as const)
         writeFileSync(path.join(workerLedger, logical), content);
       };
       if (route !== "task-artifact-add") write(safePath, "safe sibling\n");
-      for (const segment of [".git", ".GiT", "git~1", ".g\u200cit"]) {
+      for (const segment of [
+        ".git",
+        ".GiT",
+        "git~1",
+        ".g\u200cit",
+        ...(route === "task-artifact-add" ? ["CONIN$", "LPT0", "CON .txt", "log\t.txt"] : []),
+      ]) {
         const relative = `nested/${segment}/HEAD`,
           badPath = `${packagePath}/artifacts/${relative}`;
         if (route !== "task-artifact-add") write(badPath, body);
@@ -87,7 +93,7 @@ for (const route of ["doc-submit", "task-submit", "task-artifact-add"] as const)
         );
         assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
         assert.equal(rejected.code, "invalid_write_plan", JSON.stringify(rejected));
-        assert.ok(JSON.stringify(rejected).includes(badPath), JSON.stringify(rejected));
+        assert.ok(String(rejected.rejectionExplanation).includes(JSON.stringify(badPath)), JSON.stringify(rejected));
         assert.match(JSON.stringify(rejected), /Git.*(?:outside the task package|rename)/u);
         assert.deepEqual(reader.readHead(), before, "rejection must not append a partial event");
         assert.equal(reader.readContentBlob(sha256Text(body)), null, "rejection must not persist content");

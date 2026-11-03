@@ -71,3 +71,30 @@ test("Git only restricts .gitmodules aliases for symbolic links", () => {
   for (const name of [".gitmodules.txt", "gitmod~5", "gi7eba~0", "gi7eba~10", "gi~01234", ".github", "foo.git"])
     assert.equal(gitPathRejectionReason(name, true), null, name);
 });
+
+test("Git for Windows rejects controls and device spellings beyond existing portable syntax", () => {
+  for (const name of [
+    "CONIN$",
+    "conout$.log",
+    "LPT0",
+    "lpt0.txt",
+    "CON .txt",
+    "AUX  .txt",
+    "COM1 .log",
+    "LPT9 .log",
+    "NUL .log",
+    "PRN .log",
+  ])
+    assert.match(gitPathRejectionReason(`artifacts/${name}`)!, /reserved device/u, name);
+  for (let code = 1; code < 32; code += 1)
+    assert.match(gitPathRejectionReason(`artifacts/log${String.fromCharCode(code)}.txt`)!, /control character/u);
+  for (const name of ["COM0", "LPT10", "CONIN$extra", "CONIN$ suffix", "CON suffix.txt", "LPT0suffix", "log\u007f.txt"])
+    assert.equal(gitPathRejectionReason(`artifacts/${name}`), null, name);
+});
+
+test("NTFS gitmodules short names only match the final component or a stream suffix", () => {
+  for (const name of ["gitmod~1", "gi7eba~1", ".gitmodules ."])
+    assert.equal(gitPathRejectionReason(`artifacts/${name}/file`, true), null, name);
+  for (const name of [".gitmodules", ".git\u200cmodules", ".gitmodules:stream"])
+    assert.notEqual(gitPathRejectionReason(`artifacts/${name}/file`, true), null, name);
+});

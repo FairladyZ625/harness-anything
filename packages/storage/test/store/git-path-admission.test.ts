@@ -50,30 +50,49 @@ test("Git's real index agrees with the portable Git metadata restrictions", () =
         "gi~01234",
         "gi7eba~10",
       ]) {
-        const logical = `artifacts/${name}/file`,
-          result = spawnSync(
-            "git",
-            [
-              "-C",
-              root,
-              "-c",
-              "core.protectHFS=true",
-              "-c",
-              "core.protectNTFS=true",
-              "update-index",
-              "--add",
-              "--cacheinfo",
-              mode,
-              oid,
-              logical,
-            ],
-            { encoding: "utf8" },
-          ),
-          rejected = gitPathRejectionReason(logical, mode === "120000") !== null;
-        assert.equal(result.error, undefined);
-        assert.equal(result.status === 0, !rejected, `${mode} ${JSON.stringify(logical)}: ${result.stderr}`);
-        if (rejected) assert.match(result.stderr, /Invalid path|invalid path/u);
+        for (const logical of [`artifacts/${name}/file`, `artifacts/${name}`]) {
+          const result = spawnSync(
+              "git",
+              [
+                "-C",
+                root,
+                "-c",
+                "core.protectHFS=true",
+                "-c",
+                "core.protectNTFS=true",
+                "update-index",
+                "--replace",
+                "--add",
+                "--cacheinfo",
+                mode,
+                oid,
+                logical,
+              ],
+              { encoding: "utf8" },
+            ),
+            rejected = gitPathRejectionReason(logical, mode === "120000") !== null;
+          assert.equal(result.error, undefined);
+          const nativeSyntaxRejected =
+            process.platform === "win32" && [".gitmodules .", ".gitmodules:stream"].includes(name);
+          assert.equal(
+            result.status === 0,
+            !(rejected || nativeSyntaxRejected),
+            `${mode} ${JSON.stringify(logical)}: ${result.stderr}`,
+          );
+          if (rejected) assert.match(result.stderr, /Invalid path|invalid path/u);
+        }
       }
+    }
+    for (const name of ["CONIN$", "CONOUT$.log", "LPT0", "CON .txt", "COM1 .log", "log\t.txt"]) {
+      const logical = `artifacts/${name}`,
+        result = spawnSync(
+          "git",
+          ["-C", root, "-c", "core.protectNTFS=true", "update-index", "--add", "--cacheinfo", "100644", oid, logical],
+          { encoding: "utf8" },
+        );
+      assert.equal(result.error, undefined);
+      assert.equal(result.status === 0, process.platform !== "win32", `${name}: ${result.stderr}`);
+      assert.notEqual(gitPathRejectionReason(logical), null, "portable admission also protects Windows peers");
     }
   } finally {
     rmSync(root, { recursive: true, force: true });
