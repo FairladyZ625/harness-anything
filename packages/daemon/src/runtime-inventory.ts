@@ -19,7 +19,8 @@ export {
 // Only daemon-mediated task commands: `ha task artifact add --run`, for example,
 // executes a local subprocess before daemon authorization. Never approve `ha *`.
 export const claudeWorkspaceWriteCli = {
-  prefixes: ["ha", "npx harness-anything", "node packages/cli/src/index.ts"],
+  // prepareBoundRuntimeLaunch prepends the daemon installation CLI bin to PATH.
+  prefixes: ["ha"],
   commands: [
     "--help",
     "task submit",
@@ -30,6 +31,20 @@ export const claudeWorkspaceWriteCli = {
     "doc show",
     "fact record",
   ],
+} as const;
+
+// Strict native Bash sandbox: arbitrary build/test/git commands stay inside its boundary;
+// only daemon-mediated CLI calls leave it to reach the authenticated daemon socket.
+export const claudeWorkspaceWriteSandbox = {
+  enabled: true,
+  autoAllowBashIfSandboxed: true,
+  allowUnsandboxedCommands: false,
+  failIfUnavailable: true,
+  excludedCommands: claudeWorkspaceWriteCli.prefixes.flatMap((prefix) =>
+    claudeWorkspaceWriteCli.commands.map((command) => `${prefix} ${command} *`),
+  ),
+  filesystem: { disabled: false },
+  network: { allowedDomains: [] },
 } as const;
 
 const sharedCapabilities = {
@@ -202,7 +217,7 @@ export const runtimeKinds = [
         // Harness-dispatched workers commit under the repository identity; Claude Code's
         // default commit/PR attribution would violate that, so hide it via --settings.
         "--settings",
-        '{"attribution":{"commit":"","pr":"","sessionUrl":false}}',
+        "$claude-settings",
         "--output-format",
         "stream-json",
         "$permission",
@@ -217,6 +232,8 @@ export const runtimeKinds = [
         "workspace-write": [
           "--permission-mode",
           "acceptEdits",
+          "--setting-sources",
+          "",
           "--allowedTools",
           ...claudeWorkspaceWriteCli.prefixes.flatMap((prefix) =>
             claudeWorkspaceWriteCli.commands.map((command) => `Bash(${prefix} ${command} *)`),

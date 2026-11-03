@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openRuntimeInstanceStore, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
+import { launchArgs } from "../src/agent-runtime-launch-config.ts";
 import { dispatchMissionForPermission, explicitPromptMission } from "../src/runtime-spawn-mission.ts";
 
 const observed: RuntimeInstallationWitness = {
@@ -29,6 +30,7 @@ test("Claude workspace-write permits the mission's CLI entries across isolation,
       discover: () => [claude],
       resolveCredential: () => "test-key",
       subscriptionReady: () => ({ status: "ready", code: null, hint: null }),
+      platform: "darwin",
     });
   t.after(() => rmSync(userRoot, { recursive: true, force: true }));
   const mission = dispatchMissionForPermission(explicitPromptMission("task_own", null, "Deliver."), "workspace-write", {
@@ -65,7 +67,7 @@ test("Claude workspace-write permits the mission's CLI entries across isolation,
         assert.notEqual(start, -1, `${instanceId}: the task CLI must run without an approval prompt`);
         assert.deepEqual(
           launch.args.slice(start + 1, launch.args.indexOf("--model")),
-          ["ha", "npx harness-anything", "node packages/cli/src/index.ts"].flatMap((prefix) =>
+          ["ha"].flatMap((prefix) =>
             [
               "--help",
               "task submit",
@@ -81,13 +83,38 @@ test("Claude workspace-write permits the mission's CLI entries across isolation,
         assert.equal(launch.args[launch.args.indexOf("--permission-mode") + 1], "acceptEdits");
         assert.equal(launch.args.includes("--add-dir"), false, "canonical reads must not grant canonical edits");
         assert.equal(launch.args.includes("bypassPermissions"), false);
+        const settings = JSON.parse(launch.args[launch.args.indexOf("--settings") + 1]!);
+        assert.deepEqual(settings.sandbox, {
+          enabled: true,
+          autoAllowBashIfSandboxed: true,
+          allowUnsandboxedCommands: false,
+          failIfUnavailable: true,
+          excludedCommands: [
+            "--help",
+            "task submit",
+            "task escalate",
+            "task read-set",
+            "task show",
+            "task push",
+            "doc show",
+            "fact record",
+          ].map((command) => `ha ${command} *`),
+          filesystem: { disabled: false },
+          network: { allowedDomains: [] },
+        });
+        assert.equal(settings.attribution.commit, "");
+        assert.equal(launch.args[launch.args.indexOf("--setting-sources") + 1], "");
+        assert.equal(
+          launch.args.some((arg) => /npx harness-anything|node packages\/cli/u.test(arg)),
+          false,
+        );
         assert.equal(launch.env.HARNESS_EXECUTION_CREDENTIAL, undefined, "binding supplies the dispatch secret later");
         assert.equal(launch.args.includes("--resume"), providerSessionId !== undefined);
       }
     }
   for (const command of ["task submit <task-id>", "task escalate <task-id>", "task read-set task_own"])
     assert.ok(mission.includes(`ha ${command}`), command);
-  for (const prefix of ["ha", "npx harness-anything", "node packages/cli/src/index.ts"])
+  for (const prefix of ["ha"])
     assert.ok(mission.includes(`\`${prefix}\``), `the mission must name the approved entry ${prefix}`);
   for (const command of [
     "--help",
@@ -101,6 +128,11 @@ test("Claude workspace-write permits the mission's CLI entries across isolation,
   ])
     assert.ok(mission.includes(`\`${command}\``), `the mission must name the approved subcommand ${command}`);
   assert.match(mission, /ha doc show --path <ledger path> --raw/u);
+  const config = store.read("claude-enforced-subscription")!;
+  assert.throws(
+    () => launchArgs(config, "claude-fable-5", mission, undefined, null, "workspace-write", false, undefined, "win32"),
+    { code: "claude_workspace_sandbox_unavailable" },
+  );
 });
 
 test("permission defaults open and tightens through the instance record or a single dispatch", async () => {

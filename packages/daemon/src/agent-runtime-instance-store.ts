@@ -349,6 +349,7 @@ export function openRuntimeInstanceStore(input: {
         permissionMode,
         fast,
         request.callbackRelayPath,
+        platform,
       ),
       definition = definitionSnapshot(config, model, effort, fast),
       // ACP agents take the model through the session handshake (a configOptions selector),

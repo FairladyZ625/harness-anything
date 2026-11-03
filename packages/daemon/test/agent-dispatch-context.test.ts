@@ -612,7 +612,7 @@ test("artifact task dispatch confines writes to its package despite bypass decla
       }
     | undefined;
   let launches = 0;
-  let useZcode = false;
+  let runtimeKind: "codex" | "claude" | "zcode" = "codex";
   try {
     initRepo(root);
     cell = await openRepoCell({
@@ -624,12 +624,12 @@ test("artifact task dispatch confines writes to its package despite bypass decla
         daemonId: "dispatch-package-test",
         endpoint: localUserDaemonEndpoint(path.join(root, ".daemon-user"), "dispatch-package-test"),
       },
-      runtimeInstances: () => [{ ...instance(), kindId: useZcode ? "zcode" : "codex", permissionMode: "bypass" }],
+      runtimeInstances: () => [{ ...instance(), kindId: runtimeKind, permissionMode: "bypass" }],
       prepareRuntimeLaunch: (_instanceId, request) => {
         prepared = request;
         return {
-          definition: { ...definition, kindId: useZcode ? "zcode" : "codex" },
-          installation: { ...installation, kindId: useZcode ? "zcode" : "codex" },
+          definition: { ...definition, kindId: runtimeKind },
+          installation: { ...installation, kindId: runtimeKind },
           executablePath: installation.executablePath,
           args: [],
           env: {},
@@ -707,7 +707,33 @@ test("artifact task dispatch confines writes to its package despite bypass decla
     assert.equal(prepared?.cwd, workerRoot);
     assert.equal(prepared?.permissionMode, "bypass");
     assert.equal(prepared?.callbackRelayPath, undefined);
-    useZcode = true;
+    runtimeKind = "claude";
+    await createTask(cell, root, {
+      taskId: "task_package_claude",
+      title: "Investigate with Claude",
+      presetId: "code-impact-analysis",
+    });
+    const claudeReceipt = await cell.spawnRuntime(
+      { runtimeInstanceId: definition.instanceId, taskId: "task_package_claude", dispatchKey: "package-claude" },
+      binding,
+    );
+    assert.equal(claudeReceipt.outcome, "applied", JSON.stringify(claudeReceipt));
+    assert.equal(prepared?.permissionMode, "workspace-write");
+    assert.match(prepared!.prompt, /# Workspace-write CLI access/u);
+    assert.match(prepared!.prompt, /native Bash sandbox/u);
+    assert.match(prepared!.prompt, /Approved CLI entries: `ha`\./u);
+    const unboundReceipt = await cell.spawnRuntime(
+      {
+        runtimeInstanceId: definition.instanceId,
+        prompt: "Unbound Claude",
+        permissionMode: "workspace-write",
+        dispatchKey: "unbound-claude",
+      },
+      binding,
+    );
+    assert.equal(unboundReceipt.outcome, "applied", JSON.stringify(unboundReceipt));
+    assert.equal(prepared?.prompt, "Unbound Claude");
+    runtimeKind = "zcode";
     await createTask(cell, root, {
       taskId: "task_package_zcode",
       title: "Investigate with ZCode",
@@ -726,7 +752,7 @@ test("artifact task dispatch confines writes to its package despite bypass decla
       (error: unknown) =>
         error instanceof Error && "code" in error && error.code === "zcode_unattended_permission_mode_unsupported",
     );
-    assert.equal(launches, 4, "the unsupported provider must never start with bypass permissions");
+    assert.equal(launches, 6, "the unsupported provider must never start with bypass permissions");
   } finally {
     await cell?.close();
     rmSync(root, { recursive: true, force: true });
