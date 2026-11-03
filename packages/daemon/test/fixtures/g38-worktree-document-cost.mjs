@@ -54,7 +54,6 @@ export async function measureWorktreeDocuments(rootDir, size, legacy = false) {
     };
     const history = legacy
       ? {
-          projection: { readDocument: () => ({ document: {} }) },
           sender: { actor: historicalEvent.actor, source: "local", executionId: null },
           store: {
             queryEvents: ({ revisionBound }) => {

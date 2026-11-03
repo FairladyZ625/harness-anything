@@ -299,6 +299,12 @@ for (const retired of [false, true]) {
     writeFileSync(path.join(worker, "harness", report), "worker report v2\n");
     writeFileSync(path.join(worker, "harness", ruling), "ruling v1\n");
     writeFileSync(path.join(worker, "harness", fresh), "new worker output\n");
+    if (retired) {
+      // A crash can leave only part of the legacy package's bases recovered.
+      const base = taskWorktreeDocumentBase(worker, report);
+      mkdirSync(path.dirname(base), { recursive: true });
+      writeFileSync(base, "report v1\n");
+    }
     const change = (target: string, sha256: string | null) => ({
         path: target,
         baseBlobSha256: null,
@@ -335,14 +341,6 @@ for (const retired of [false, true]) {
       { repoId: "legacy", revision: 2, headDigest: `sha256:${"0".repeat(64)}` },
       {
         sender,
-        projection: {
-          readDocument: (logical: string) => ({
-            document: logical === fresh || (retired && logical === ruling) ? null : {},
-            watermark: 2,
-            sourceRevision: 2,
-            status: "ready",
-          }),
-        } as never,
         store: {
           queryEvents: ({ revisionBound }: { revisionBound?: number }) => {
             queries += 1;
@@ -367,7 +365,6 @@ for (const retired of [false, true]) {
       packagePath,
       { repoId: "legacy", revision: 2, headDigest: `sha256:${"0".repeat(64)}` },
       {
-        projection: { readDocument: () => ({ document: {} }) } as never,
         store: {
           queryEvents: ({ revisionBound }: { revisionBound?: number }) =>
             events.filter((event) => revisionBound === undefined || event.workspaceRevision < revisionBound),

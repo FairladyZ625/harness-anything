@@ -36,7 +36,6 @@ export function taskWorktreeCandidateInventory(
   baseLedgerSha: AuthoredCandidateInventoryV1["baseLedgerSha"],
   history?: {
     readonly store: CanonicalEventStore;
-    readonly projection: Pick<TaskProjection, "readDocument">;
     readonly sender?: Parameters<typeof recoverTaskWorktreeDocumentBases>[3];
   },
 ): AuthoredCandidateInventoryV1 | undefined {
@@ -54,13 +53,11 @@ export function taskWorktreeCandidateInventory(
   const rows: Array<AuthoredCandidateInventoryV1["rows"][number]> = [];
   collectTaskPackageCandidates(packageRoot, packagePath, rows);
   if (history !== undefined) {
-    const legacyPackage = !lstatSync(baseRoot, { throwIfNoEntry: false });
     const missing = rows.filter(
       (row) =>
         row.safe &&
         resolveDocRoute(documentPath(row.path)).allowed &&
-        !lstatSync(taskWorktreeDocumentBase(taskRoot, row.path), { throwIfNoEntry: false }) &&
-        (legacyPackage || history.projection.readDocument(row.path).document !== null),
+        !lstatSync(taskWorktreeDocumentBase(taskRoot, row.path), { throwIfNoEntry: false }),
     );
     recoverTaskWorktreeDocumentBases(taskRoot, missing, history.store, history.sender);
   }
