@@ -43,8 +43,21 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
   const get = <Result>(model: string, id: string) =>
     read((client) => getPgProjectionValue<Result>(client, scope, model, id));
   const list = <Result>(model: string) => read((client) => listPgProjectionValues<Result>(client, scope, model));
-  const documents = async (client: PoolClient, prefix: string) =>
-    (await listPgProjectionValues<Omit<DocumentState, "body">>(client, scope, "document-metadata"))
+  const documents = async (client: PoolClient, prefix: string) => {
+    const result = await client.query<{ value: string | null }>(
+      `SELECT document_metadata AS value FROM ha_projection_values
+       WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model='document'
+         AND (cardinality($4::text[])=0 OR readers && $4::text[]) ORDER BY entity_id,owner_id`,
+      [scope.tenantId, scope.projectId, scope.policyEpoch, readers],
+    );
+    return result.rows
+      .map(({ value }) => {
+        if (value === null)
+          throw Object.assign(new Error("Document metadata backfill is pending; retry after migration."), {
+            code: "projection_pending",
+          });
+        return JSON.parse(value) as Omit<DocumentState, "body">;
+      })
       .filter(({ path }) => path.startsWith(prefix))
       .map(({ path, blobSha256, size, mediaType, policyId }) => ({
         path,
@@ -53,6 +66,7 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
         mediaType,
         policyId: policyId ?? null,
       }));
+  };
   const ready = async (client: PoolClient) => {
     const cut = await readCutInTransaction(client, scope, readers, repoId);
     if (cut.watermark !== cut.sourceRevision)
