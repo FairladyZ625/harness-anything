@@ -161,10 +161,29 @@ export function makeSquadCoordinator(input: {
     readonly cancel: (payload: JsonObject, binding: RuntimeBinding) => Promise<JsonObject>;
   };
 }) {
-  const states = new Map(latestSquadStates(input.rootDir)),
-    publicationAcks = squadPublicationAcks(input.rootDir),
-    /** Initial dispatches are reserved before their first leader turn is durable. */
-    initialDispatches = new Set<string>();
+  // Dispatch archives can contain gigabytes of historical JSONL. Hydrating every Squad state is
+  // needed before the first Squad operation, but it is not part of repository readiness: doing it
+  // here made attach synchronously scan the entire archive after the last attach-progress marker.
+  const states = new Map<string, SquadState>(),
+    publicationAcks = new Map<string, number>();
+  let hydration: Promise<void> | null = null;
+  const ensureHydrated = async (): Promise<void> => {
+    if (hydration === null)
+      hydration = Promise.resolve().then(() => {
+        for (const [squadRunId, state] of latestSquadStates(input.rootDir)) states.set(squadRunId, state);
+        for (const [squadRunId, revision] of squadPublicationAcks(input.rootDir))
+          publicationAcks.set(squadRunId, revision);
+      });
+    const current = hydration;
+    try {
+      await current;
+    } catch (error) {
+      if (hydration === current) hydration = null;
+      throw error;
+    }
+  };
+  // Initial dispatches are reserved before their first leader turn is durable.
+  const initialDispatches = new Set<string>();
   const dispatchRows = (state: SquadState): readonly TaskDispatchRow[] =>
       squadDispatchRows(state, input.query, input.rootDir),
     workerRows = (state: SquadState) => squadWorkerRows(state, dispatchRows),
@@ -197,6 +216,7 @@ export function makeSquadCoordinator(input: {
     input.query((projection) => requireSquadRunSubjectCurrent(projection, state.subject));
   }
   const start = async (action: JsonObject, binding: RuntimeBinding): Promise<JsonObject> => {
+    await ensureHydrated();
     const taskId = requiredSquadText(action.taskId, "taskId"),
       activeRun = readStates().find(
         (state) =>
@@ -306,6 +326,7 @@ export function makeSquadCoordinator(input: {
     },
     binding: RuntimeBinding,
   ): Promise<JsonObject> => {
+    await ensureHydrated();
     if (
       readStates().some(
         (state) =>
@@ -385,6 +406,7 @@ export function makeSquadCoordinator(input: {
   };
 
   const cancel = async (squadRunId: string, binding: RuntimeBinding): Promise<JsonObject> => {
+    await ensureHydrated();
     if (!validSquadRunId(squadRunId))
       throw cellCriterionError(
         "invalid_squad_run_id",
@@ -500,10 +522,12 @@ export function makeSquadCoordinator(input: {
   }
 
   const observeOutcome = async (event: RuntimeOutcomeEvent): Promise<void> => {
+    await ensureHydrated();
     await observeRuntimeSession(event.payload.runtimeSessionId);
   };
 
   const reconcile = async (): Promise<void> => {
+    await ensureHydrated();
     await publication.flushPublications();
     await publication.settleEndedScheduleSubjects();
     for (const candidate of readStates()) {
@@ -1056,5 +1080,15 @@ export function makeSquadCoordinator(input: {
     if (terminal(state)) await publication.settleScheduleSubjectRun(state);
   }
 
-  return { start, startScheduled, cancel, observeOutcome, reconcile, flushPublications: publication.flushPublications };
+  return {
+    start,
+    startScheduled,
+    cancel,
+    observeOutcome,
+    reconcile,
+    flushPublications: async (): Promise<void> => {
+      await ensureHydrated();
+      await publication.flushPublications();
+    },
+  };
 }

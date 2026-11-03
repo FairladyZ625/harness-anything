@@ -1,7 +1,9 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import fs from "node:fs";
 import { appendFileSync, mkdtempSync, rmSync, truncateSync, writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -466,6 +468,41 @@ async function withRootDir(use: (rootDir: string) => Promise<void>): Promise<voi
     rmSync(rootDir, { recursive: true, force: true });
   }
 }
+
+test("coordinator construction defers archive reads and retries a transient hydration failure", async (t) => {
+  await withRootDir(async (rootDir) => {
+    const fixture = makeRecoveryFixture(rootDir, {
+        leaderOutcome: null,
+        leaderTurnBudget: 3,
+      }),
+      dispatchRoot = path.join(rootDir, ".harness", "runtime", "dispatches"),
+      originalStat = fs.statSync;
+    let rejectConstructionRead = true,
+      failNextArchiveRead = false;
+    t.mock.method(fs, "statSync", (target, ...args) => {
+      if (path.resolve(String(target)) === dispatchRoot) {
+        if (rejectConstructionRead) throw new Error("dispatch archive read attempted during coordinator construction");
+        if (failNextArchiveRead) {
+          failNextArchiveRead = false;
+          throw new Error("transient dispatch archive read failure");
+        }
+      }
+      return originalStat(target, ...args);
+    });
+    syncBuiltinESMExports();
+    try {
+      assert.doesNotThrow(() => fixture.restartCoordinator());
+      rejectConstructionRead = false;
+      failNextArchiveRead = true;
+      await assert.rejects(fixture.coordinator.reconcile(), /transient dispatch archive read failure/u);
+      await fixture.coordinator.reconcile();
+    } finally {
+      t.mock.restoreAll();
+      syncBuiltinESMExports();
+    }
+    assert.equal(fixture.status().status, "leader_running");
+  });
+});
 
 test("a malformed leader result re-asks the same leader session instead of failing the run", async () => {
   await withRootDir(async (rootDir) => {
