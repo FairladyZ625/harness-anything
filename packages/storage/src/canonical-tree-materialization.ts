@@ -1,7 +1,7 @@
 import path from "node:path";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { sha256Bytes } from "@harness-anything/kernel";
-import { writeFileDurably, removeFileDurably } from "./durable-file.ts";
+import { writeFileDurably, removeFileDurably, type WriteFence } from "./durable-file.ts";
 import type { MaterializationSettlement } from "@harness-anything/kernel";
 
 /** The shared fleet materialization owner; canonical absence removes only previously owned paths. */
@@ -15,6 +15,7 @@ export function applyCanonicalTree(input: {
   readonly selectedPaths?: readonly string[];
   readonly preview?: boolean;
   readonly readContent: (logical: string) => Uint8Array | null;
+  readonly withFence?: WriteFence;
 }) {
   const markerPath = input.markerPath,
     markerExists = existsSync(markerPath),
@@ -59,7 +60,7 @@ export function applyCanonicalTree(input: {
     if (bytes === null)
       throw Object.assign(new Error(`Replica document object is missing: ${logical}`), { code: "replica_corrupt" });
     settlements.push({ path: logical, action: existsSync(target) ? "overwrite" : "restore", copy: null });
-    if (!input.preview) writeFileDurably(target, bytes);
+    if (!input.preview) writeFileDurably(target, bytes, undefined, input.withFence);
     entries[logical] = blob.sha256;
   }
   // A center deletion is represented by the path disappearing from the current cut. Remove only
@@ -78,11 +79,16 @@ export function applyCanonicalTree(input: {
       continue;
     }
     settlements.push({ path: logical, action: "delete", copy: null });
-    if (!input.preview) removeFileDurably(target);
+    if (!input.preview) removeFileDurably(target, input.withFence);
     delete entries[logical];
   }
   if (!input.preview)
-    writeFileDurably(markerPath, JSON.stringify({ revision: input.revision, generation: input.generation, entries }));
+    writeFileDurably(
+      markerPath,
+      JSON.stringify({ revision: input.revision, generation: input.generation, entries }),
+      undefined,
+      input.withFence,
+    );
   return { fromRevision: previous.revision, toRevision: input.revision, dirtyPaths, settlements };
 }
 

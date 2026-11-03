@@ -1,3 +1,4 @@
+import type { WriteFence } from "../durable-file.ts";
 import {
   type EventHead,
   type LedgerCutIdentity,
@@ -190,11 +191,16 @@ export function followerDirectories(
   };
 }
 
-export function settleWorktreeDirectories(repoRoot: string, settlement: FollowerDirectorySettlement): void {
+export function settleWorktreeDirectories(
+  repoRoot: string,
+  settlement: FollowerDirectorySettlement,
+  withFence?: WriteFence,
+): void {
   if (settlement.create.length > 0)
     localGitWorktreeSettlement.visible(
       repoRoot,
       settlement.create.map((directory) => ({ directory })),
+      { withFence },
     );
   for (const directory of settlement.create)
     if (!localGitWorktreeSettlement.isDirectory(`${repoRoot}/${directory}`))
@@ -205,7 +211,7 @@ export function settleWorktreeDirectories(repoRoot: string, settlement: Follower
   if (settlement.retire.length === 0) return;
   // A directory that still holds something is left alone: what the user put there is not the entity's to retire,
   // and neither is any directory that is only standing because it holds it.
-  const preserved = new Set(localGitWorktreeSettlement.retireEmptyDirectories(repoRoot, settlement.retire));
+  const preserved = new Set(localGitWorktreeSettlement.retireEmptyDirectories(repoRoot, settlement.retire, withFence));
   for (const directory of settlement.retire)
     if (!preserved.has(directory) && localGitWorktreeSettlement.isDirectory(`${repoRoot}/${directory}`))
       throw new TaskEventStoreError(
@@ -425,6 +431,7 @@ export function settleWorktree(
   ) => void,
   preserve: ReadonlySet<string> = new Set(),
   commit = "",
+  withFence?: WriteFence,
 ): { readonly conflicts: readonly string[]; readonly preserved: readonly PreservedCopy[] } {
   const deletes = files.flatMap((file) => ("delete" in file ? [file.delete] : [])),
     writes = files.flatMap((file) => ("target" in file ? [file] : [])),
@@ -432,8 +439,14 @@ export function settleWorktree(
     preserved: PreservedCopy[] = [];
   for (const target of deletes)
     if (
-      !settleVisibleChange(repoRoot, target, "missing", baseline, killpoint, (hooks) =>
-        localGitWorktreeSettlement.deleteVisible(repoRoot, [target], hooks),
+      !settleVisibleChange(
+        repoRoot,
+        target,
+        "missing",
+        baseline,
+        killpoint,
+        (hooks) => localGitWorktreeSettlement.deleteVisible(repoRoot, [target], hooks),
+        withFence,
       )
     )
       conflicts.push(target);
@@ -459,6 +472,7 @@ export function settleWorktree(
           }
           localGitWorktreeSettlement.visible(repoRoot, [file], hooks);
         },
+        withFence,
       )
     )
       conflicts.push(file.target);
@@ -474,12 +488,18 @@ export function settleVisibleChange(
   killpoint:
     | ((point: import("@harness-anything/kernel/internal/ports/task-event-store.ts").EventPublicationKillpoint) => void)
     | undefined,
-  apply: (hooks: { readonly beforeRename: () => void; readonly afterRename: () => void }) => void,
+  apply: (hooks: {
+    readonly beforeRename: () => void;
+    readonly afterRename: () => void;
+    readonly withFence?: WriteFence;
+  }) => void,
+  withFence?: WriteFence,
 ): boolean {
   let changed = false;
   const conflict = new Error("authored worktree changed during settlement");
   try {
     const hooks = {
+      withFence,
       beforeRename: () => {
         killpoint?.("before_worktree_rename");
         const current = worktreeFingerprint(localGitWorktreeSettlement.readNode(`${repoRoot}/${target}`));

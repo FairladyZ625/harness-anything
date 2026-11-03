@@ -195,6 +195,88 @@ test(
   },
 );
 
+for (const named of [false, true])
+  test(`a stale SQLite owner cannot restore ${named ? "a named path" : "an already certified cut"}`, async (t) => {
+    const rootDir = fixture(`stale-restore-${named}`, t),
+      stateRoot = path.join(rootDir, ".epoch-state");
+    initRepo(rootDir);
+    const first = openPersistentWriterEpoch({ stateRoot, holderId: "old" }),
+      second = openPersistentWriterEpoch({ stateRoot, holderId: "new" }),
+      lease = first.acquire(repoId),
+      store = makeTaskEventStore({
+        repoId,
+        rootDir,
+        writerFence: () => lease,
+        withAppendFence: (operation) => first.withAppendFence(repoId, lease.epoch, lease.holderId, operation),
+      });
+    try {
+      store.append(docBundle(store, "canonical", 1, "stale-restore", "context/stale.md"));
+      store.materialize();
+      second.acquire(repoId);
+      const target = path.join(rootDir, "harness/context/stale.md");
+      writeFileSync(target, "operator bytes");
+      assert.throws(
+        () => store.materialize(named ? { paths: ["context/stale.md"] } : undefined),
+        (error: { code?: string }) => error.code === "writer_epoch_stale",
+      );
+      assert.equal(readFileSync(target, "utf8"), "operator bytes");
+    } finally {
+      await store.drain();
+      first.close();
+      second.close();
+    }
+  });
+
+test("takeover between worktree renames keeps the successor's content, index and checkpoint", async (t) => {
+  const rootDir = fixture("worktree-takeover", t),
+    stateRoot = path.join(rootDir, ".epoch-state");
+  initRepo(rootDir);
+  const first = openPersistentWriterEpoch({ stateRoot, holderId: "old" }),
+    second = openPersistentWriterEpoch({ stateRoot, holderId: "new" }),
+    lease = first.acquire(repoId);
+  let armed = false,
+    successor: ReturnType<typeof makeTaskEventStore> | undefined;
+  const store = makeTaskEventStore({
+    repoId,
+    rootDir,
+    writerFence: () => lease,
+    withAppendFence: (operation) => first.withAppendFence(repoId, lease.epoch, lease.holderId, operation),
+    killpoint: (point) => {
+      if (point !== "after_worktree_rename" || !armed) return;
+      armed = false;
+      const next = second.acquire(repoId);
+      successor = makeTaskEventStore({
+        repoId,
+        rootDir,
+        writerFence: () => next,
+        withAppendFence: (operation) => second.withAppendFence(repoId, next.epoch, next.holderId, operation),
+      });
+      successor.append(docBundle(successor, "new cut", 2, "new-cut", "context/epoch.md"));
+      successor.materialize();
+    },
+  });
+  try {
+    store.append(docBundle(store, "old cut", 1, "old-cut", "context/epoch.md"));
+    armed = true;
+    assert.throws(
+      () => store.materialize(),
+      (error: { code?: string }) => error.code === "writer_epoch_stale",
+    );
+    assert.equal(armed, false);
+    assert.equal(readFileSync(path.join(rootDir, "harness/context/epoch.md"), "utf8"), "new cut");
+    assert.equal(git(rootDir, "show", ":harness/context/epoch.md"), "new cut");
+    assert.equal(
+      JSON.parse(readFileSync(path.join(rootDir, "harness/events/segments/manifest.json"), "utf8")).cut.revision,
+      2,
+    );
+  } finally {
+    await store.drain();
+    await successor?.drain();
+    first.close();
+    second.close();
+  }
+});
+
 test("takeover during Git preparation leaves the stale publisher unable to advance the checkpoint", async (t) => {
   const rootDir = fixture("publication-takeover", t),
     stateRoot = path.join(rootDir, ".epoch-state");

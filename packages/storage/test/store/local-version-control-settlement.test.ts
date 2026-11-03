@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { localGitWorktreeSettlement } from "../../src/store/local-version-control-system.ts";
@@ -52,6 +52,37 @@ test("visible reclaims dead markers of both families in the directory it writes"
     assert.equal(existsSync(settleMarker), false);
     assert.equal(existsSync(visibleMarker), false);
     assert.equal(readFileSync(path.join(directory, "INDEX.md"), "utf8"), "# t1\n");
+  });
+});
+
+test("a rejected owner cannot replace, delete, create directories or regress the index", () => {
+  withTempStore((rootDir) => {
+    const repoRoot = ledger(rootDir),
+      target = path.join(repoRoot, "state.md"),
+      stale = new Error("stale owner");
+    writeFileSync(target, "successor");
+    git(repoRoot, "add", "state.md");
+    const before = readFileSync(path.join(repoRoot, ".git/index")),
+      withFence = () => {
+        throw stale;
+      },
+      operations = [
+        () => localGitWorktreeSettlement.visible(repoRoot, [{ target: "state.md", body: "old" }], { withFence }),
+        () => localGitWorktreeSettlement.deleteVisible(repoRoot, ["state.md"], { withFence }),
+        () => localGitWorktreeSettlement.visible(repoRoot, [{ directory: "old-directory" }], { withFence }),
+        () => localGitWorktreeSettlement.retireEmptyDirectories(repoRoot, ["empty"], withFence),
+        () => localGitWorktreeSettlement.index(repoRoot, [{ target: "state.md", body: "old" }], false, withFence),
+      ];
+    mkdirSync(path.join(repoRoot, "empty"));
+    for (const operation of operations) assert.throws(operation, (error) => error === stale);
+    assert.equal(readFileSync(target, "utf8"), "successor");
+    assert.deepEqual(readFileSync(path.join(repoRoot, ".git/index")), before);
+    assert.equal(existsSync(path.join(repoRoot, "empty")), true);
+    assert.equal(existsSync(path.join(repoRoot, "old-directory")), false);
+    assert.deepEqual(
+      readdirSync(repoRoot).filter((name) => name.startsWith(".ha-visible-")),
+      [],
+    );
   });
 });
 

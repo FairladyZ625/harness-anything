@@ -4,14 +4,15 @@ import test from "node:test";
 import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixture.ts";
-import { taskLifecycleWritePlan, type CanonicalEventStore } from "@harness-anything/kernel";
+import { resolveHarnessLayout, taskLifecycleWritePlan, type CanonicalEventStore } from "@harness-anything/kernel";
 import { sha256Bytes } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
 import { makeTaskProjection, makeTaskProjectionReader } from "../../src/projection/rebuildable-task-projection.ts";
 import { pgRuntimeFixture } from "./pg-runtime.fixture.ts";
 import { createPgStorageBackend } from "../../src/pg/backend.ts";
 import { openPersistentWriterEpoch } from "../../src/writer-epoch.ts";
-import { initRepo } from "../store/task-event-store.fixtures.ts";
+import { docBundle, initRepo } from "../store/task-event-store.fixtures.ts";
+import { applyCanonicalTree } from "../../src/canonical-tree-materialization.ts";
 import { execFileSync } from "node:child_process";
 import { openReplicationSlots } from "../../src/fleet-replication-slot.ts";
 import { openFleetStorage } from "../../src/storage-daemon-composition.ts";
@@ -325,6 +326,107 @@ test("daemon PG storage factories expose canonical lifecycle ports without local
         assert.throws(() => follower.materialize({ paths: ["harness.yaml"] }), /disabled/u);
       } finally {
         await follower.drain();
+      }
+    });
+    for (const named of [false, true])
+      await t.test(`PG without Git rejects stale ${named ? "named-path" : "whole-tree"} materialization`, async () => {
+        const id = `pg-stale-tree-${named}`,
+          root = join(fixture.root, id),
+          configuration = {
+            ...storage,
+            scope: { ...storage.scope, projectId: id },
+            authorityConnectionString: fixture.managementConnectionString,
+          },
+          first = openPersistentWriterEpoch({ stateRoot: root, storage: configuration, holderId: "old" }),
+          second = openPersistentWriterEpoch({ stateRoot: root, storage: configuration, holderId: "new" }),
+          lease = first.acquire(id),
+          old = makeTaskEventStore({
+            rootDir: root,
+            repoId: id,
+            storage: configuration,
+            writerFence: () => lease,
+            withAppendFence: (operation) => first.withAppendFence(id, lease.epoch, lease.holderId, operation),
+          }),
+          logical = "context/epoch.md",
+          target = join(resolveHarnessLayout(root).authoredRoot, logical);
+        try {
+          old.append(docBundle(old, "old cut", 1, "old-cut", logical));
+          old.materialize();
+          second.acquire(id);
+          writeFileSync(target, "operator bytes");
+          const marker = join(resolveHarnessLayout(root).localRoot, "fleet-materialized.json"),
+            before = readFileSync(marker, "utf8");
+          assert.throws(
+            () => old.materialize(named ? { paths: [logical] } : undefined),
+            (error: { code?: string }) => error.code === "writer_epoch_stale",
+          );
+          assert.equal(readFileSync(target, "utf8"), "operator bytes");
+          assert.equal(readFileSync(marker, "utf8"), before);
+        } finally {
+          await old.drain();
+          first.close();
+          second.close();
+        }
+      });
+    await t.test("PG takeover during content preparation cannot regress the successor's tree or marker", async () => {
+      const id = "pg-tree-takeover",
+        root = join(fixture.root, id),
+        configuration = {
+          ...storage,
+          scope: { ...storage.scope, projectId: id },
+          authorityConnectionString: fixture.managementConnectionString,
+        },
+        first = openPersistentWriterEpoch({ stateRoot: root, storage: configuration, holderId: "old" }),
+        second = openPersistentWriterEpoch({ stateRoot: root, storage: configuration, holderId: "new" }),
+        lease = first.acquire(id),
+        old = makeTaskEventStore({
+          rootDir: root,
+          repoId: id,
+          storage: configuration,
+          writerFence: () => lease,
+          withAppendFence: (operation) => first.withAppendFence(id, lease.epoch, lease.holderId, operation),
+        }),
+        layout = resolveHarnessLayout(root),
+        logical = "context/epoch.md",
+        target = join(layout.authoredRoot, logical),
+        markerPath = join(layout.localRoot, "fleet-materialized.json");
+      let successor: CanonicalEventStore | undefined;
+      try {
+        old.append(docBundle(old, "old cut", 1, "old-cut", logical));
+        old.materialize();
+        unlinkSync(target);
+        const input = {
+          authoredRoot: layout.authoredRoot,
+          markerPath,
+          generation: 3,
+          revision: 1,
+          entries: new Map([[logical, { sha256: sha256Bytes(Buffer.from("old cut")) }]]),
+          withFence: <T>(operation: () => T) => first.withAppendFence(id, lease.epoch, lease.holderId, operation),
+          readContent: () => {
+            const next = second.acquire(id);
+            successor = makeTaskEventStore({
+              rootDir: root,
+              repoId: id,
+              storage: configuration,
+              writerFence: () => next,
+              withAppendFence: (operation) => second.withAppendFence(id, next.epoch, next.holderId, operation),
+            });
+            successor.append(docBundle(successor, "new cut", 2, "new-cut", logical));
+            successor.materialize();
+            return Buffer.from("old cut");
+          },
+        };
+        assert.throws(
+          () => applyCanonicalTree(input),
+          (error: { code?: string }) => error.code === "writer_epoch_stale",
+        );
+        assert.equal(readFileSync(target, "utf8"), "new cut");
+        assert.equal(JSON.parse(readFileSync(markerPath, "utf8")).revision, 2);
+      } finally {
+        await old.drain();
+        await successor?.drain();
+        first.close();
+        second.close();
       }
     });
     await t.test("restart allocates a newer PG epoch and fences the former center", () => {

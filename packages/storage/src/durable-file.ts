@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { closeSync, fsyncSync, mkdirSync, openSync, readSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
+export type WriteFence = <T>(operation: () => T) => T;
+
 // Windows refuses fsync on a handle that was not opened for writing: FlushFileBuffers needs
 // write access, so `openSync(target, "r")` followed by fsync raises EPERM and takes the whole
 // write down before the bytes it was meant to make durable can be observed (#1586, measured on
@@ -32,8 +34,8 @@ export function syncFile(file: string): void {
   }
 }
 
-export function writeFileDurably(file: string, body: string | Uint8Array, mode?: number): void {
-  writeFileDurablyFrom(file, { write: (descriptor) => writeFileSync(descriptor, body) }, mode);
+export function writeFileDurably(file: string, body: string | Uint8Array, mode?: number, withFence?: WriteFence): void {
+  writeFileDurablyFrom(file, { write: (descriptor) => writeFileSync(descriptor, body) }, mode, withFence);
 }
 
 /** Publish incrementally-produced bytes with the same atomic replacement as a complete body. */
@@ -41,6 +43,7 @@ export function writeFileDurablyFrom(
   file: string,
   writer: { readonly write: (descriptor: number) => void },
   mode?: number,
+  withFence?: WriteFence,
 ): void {
   const directory = path.dirname(file);
   mkdirSync(directory, { recursive: true });
@@ -57,7 +60,10 @@ export function writeFileDurablyFrom(
     } finally {
       closeSync(descriptor);
     }
-    renameSync(temp, file);
+    // Byte preparation and flush may be slow; ownership must hold only for publication.
+    const publish = () => renameSync(temp, file);
+    if (withFence) withFence(publish);
+    else publish();
   } catch (error) {
     rmSync(temp, { force: true });
     throw error;
@@ -92,7 +98,9 @@ export function withReadOnlyFile<Value>(file: string, read: (descriptor: number)
 }
 
 /** Delete one private object and durably publish the directory entry change. */
-export function removeFileDurably(file: string): void {
-  rmSync(file, { force: true });
+export function removeFileDurably(file: string, withFence?: WriteFence): void {
+  const remove = () => rmSync(file, { force: true });
+  if (withFence) withFence(remove);
+  else remove();
   syncDirectory(path.dirname(file));
 }

@@ -39,6 +39,7 @@ import type {
 import { VcsCommandError } from "@harness-anything/kernel/internal/ports/version-control-system.ts";
 import { cmdShellInvocation } from "./cmd-command-line.ts";
 import { makeLocalVersionControlCommands } from "./local-version-control-commands.ts";
+import type { WriteFence } from "../durable-file.ts";
 
 const gitMaxBuffer = 256 * 1024 * 1024,
   gitBatchChunkBytes = 64 * 1024 * 1024,
@@ -663,6 +664,7 @@ export const localGitWorktreeSettlement = Object.freeze({
     hooks: {
       readonly beforeRename?: () => void;
       readonly afterRename?: () => void;
+      readonly withFence?: WriteFence;
     } = {},
   ): void => {
     // A directory an entity owns but puts no file in has nothing to rename into place: creating it is the
@@ -672,8 +674,12 @@ export const localGitWorktreeSettlement = Object.freeze({
         "directory" in file
           ? path.join(repoRoot, ...file.directory.split("/"))
           : path.dirname(path.join(repoRoot, ...file.target.split("/")));
-      /* @gate-identity check-bypass-write-boundary/bypass-write-076 */
-      mkdirSync(directory, { recursive: true });
+      const create = () => {
+        /* @gate-identity check-bypass-write-boundary/bypass-write-076 */
+        mkdirSync(directory, { recursive: true });
+      };
+      if ("directory" in file && hooks.withFence) hooks.withFence(create);
+      else create();
       sweepStaleSettlementMarkers(directory);
       if ("directory" in file) return [];
       const target = path.join(repoRoot, ...file.target.split("/"));
@@ -687,11 +693,19 @@ export const localGitWorktreeSettlement = Object.freeze({
         writeFileSync(temporary, file.body, { mode: 0o644 });
       return [{ target, temporary }];
     });
-    for (const item of pending) {
-      hooks.beforeRename?.();
-      /* @gate-identity check-bypass-write-boundary/bypass-write-082 */
-      renameSync(item.temporary, item.target);
-      hooks.afterRename?.();
+    try {
+      for (const item of pending) {
+        hooks.beforeRename?.();
+        const publish = () => {
+          /* @gate-identity check-bypass-write-boundary/bypass-write-082 */
+          renameSync(item.temporary, item.target);
+        };
+        if (hooks.withFence) hooks.withFence(publish);
+        else publish();
+        hooks.afterRename?.();
+      }
+    } finally {
+      for (const item of pending) removeNode(item.temporary);
     }
   },
   /**
@@ -704,16 +718,24 @@ export const localGitWorktreeSettlement = Object.freeze({
    * paths are returned rather than thrown on, because "someone put something here" is an answer, not a
    * settlement failure.
    */
-  retireEmptyDirectories: (repoRoot: string, logicalPaths: readonly string[]): readonly string[] => {
+  retireEmptyDirectories: (
+    repoRoot: string,
+    logicalPaths: readonly string[],
+    withFence?: WriteFence,
+  ): readonly string[] => {
     const preserved: string[] = [];
     for (const logical of logicalPaths) {
       const target = path.join(repoRoot, ...logical.split("/"));
-      try {
-        removeEmptyDirectory(target);
-      } catch (error) {
-        consumeKnownError(error);
-        if (existsSync(target)) preserved.push(logical);
-      }
+      const retireEmptyDirectory = () => {
+        try {
+          removeEmptyDirectory(target);
+        } catch (error) {
+          consumeKnownError(error);
+          if (existsSync(target)) preserved.push(logical);
+        }
+      };
+      if (withFence) withFence(retireEmptyDirectory);
+      else retireEmptyDirectory();
     }
     return preserved;
   },
@@ -723,11 +745,14 @@ export const localGitWorktreeSettlement = Object.freeze({
     hooks: {
       readonly beforeRename?: () => void;
       readonly afterRename?: () => void;
+      readonly withFence?: WriteFence;
     } = {},
   ): void => {
     for (const logical of targets) {
       hooks.beforeRename?.();
-      removeNode(path.join(repoRoot, ...logical.split("/")));
+      const remove = () => removeNode(path.join(repoRoot, ...logical.split("/")));
+      if (hooks.withFence) hooks.withFence(remove);
+      else remove();
       hooks.afterRename?.();
     }
   },
@@ -742,6 +767,7 @@ export const localGitWorktreeSettlement = Object.freeze({
       | { readonly delete: string }
     )[],
     skipWorktree = false,
+    withFence?: WriteFence,
   ): number => {
     if (files.length === 0) return 0;
     const zero = "0".repeat(40),
@@ -753,17 +779,22 @@ export const localGitWorktreeSettlement = Object.freeze({
         )
         .join("");
     localGitProcesses += 1;
-    awaitDurableSettlement(
-      beginDurableSettlement({
-        index: {
-          repoRoot,
-          input: indexInput,
-          skipWorktreeInput: skipWorktree
-            ? files.map((file) => `${"delete" in file ? file.delete : file.target}\0`).join("")
-            : undefined,
-        },
-      }),
-    );
+    // Start the worker before taking an epoch transaction; startup is not publication.
+    if (withFence) getSettlementWorker();
+    const publish = () =>
+      awaitDurableSettlement(
+        beginDurableSettlement({
+          index: {
+            repoRoot,
+            input: indexInput,
+            skipWorktreeInput: skipWorktree
+              ? files.map((file) => `${"delete" in file ? file.delete : file.target}\0`).join("")
+              : undefined,
+          },
+        }),
+      );
+    if (withFence) withFence(publish);
+    else publish();
     return 1;
   },
   preserveConflict: (layout: HarnessLayout, target: string, logical: string, commit: string): string =>

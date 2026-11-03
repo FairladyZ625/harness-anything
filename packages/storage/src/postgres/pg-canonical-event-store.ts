@@ -123,6 +123,7 @@ export function makePgCanonicalEventStore(
                   ]),
               ),
               killpoint: options.killpoint,
+              withFence: options.withAppendFence,
             })
           : null,
       result = materializeTree
@@ -135,6 +136,7 @@ export function makePgCanonicalEventStore(
             preview: request?.preview,
             selectedPaths: request?.preview ? undefined : request?.paths,
             readContent: (logical) => readContentBlob(entries.get(logical)!.sha256),
+            withFence: options.withAppendFence,
           })
         : { settlements: [], dirtyPaths: [] };
     if (request?.preview)
@@ -180,10 +182,12 @@ export function makePgCanonicalEventStore(
         });
       git = { status: "verified", cut, commitSha: commit };
       if (materializeTree) {
-        localGitWorktreeSettlement.index(ledger.rootDir, files);
+        localGitWorktreeSettlement.index(ledger.rootDir, files, false, options.withAppendFence);
         // followerFiles puts its generated cut manifest last; authored documents were settled by
         // the common tree owner above, which preserves concurrent edits instead of overwriting them.
-        localGitWorktreeSettlement.visible(ledger.rootDir, [files.at(-1)! as PublicationWrite]);
+        localGitWorktreeSettlement.visible(ledger.rootDir, [files.at(-1)! as PublicationWrite], {
+          withFence: options.withAppendFence,
+        });
       }
     }
     return {
@@ -197,6 +201,7 @@ export function makePgCanonicalEventStore(
   // current PG cut, so its failure cannot turn a committed append into an ambiguous write result.
   const publisher = createDurableFollowerPublisher({
     publish: publishFollower,
+    withFence: options.withAppendFence,
     revision: () => head()?.revision ?? 0,
     checkpoint: () =>
       Math.min(

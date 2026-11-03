@@ -345,7 +345,7 @@
       "packages/storage/src/store/local-version-control-system.ts#readNode",
       "packages/storage/src/store/local-version-control-system.ts#readPath",
       "packages/storage/src/store/local-version-control-system.ts#removeNode",
-      "packages/storage/src/store/local-version-control-system.ts#retireEmptyDirectories",
+      "packages/storage/src/store/local-version-control-system.ts#retireEmptyDirectory",
       "packages/storage/src/store/local-version-control-system.ts#sweepStaleSettlementMarkers",
       "packages/storage/src/store/sqlite-ledger-connections.ts#configureLedgerConnection",
       "packages/storage/src/store/sqlite-event-store.ts#transaction",

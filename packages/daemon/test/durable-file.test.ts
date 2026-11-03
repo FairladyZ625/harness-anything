@@ -48,6 +48,35 @@ test("an interrupted incremental durable write leaves the original target intact
   assert.deepEqual(readdirSync(root), ["archive.jsonl"]);
 });
 
+test("takeover after byte preparation refuses publication and removes the staged file", (t) => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "durable-file-fenced-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const target = path.join(root, "state.json"),
+    stale = new Error("writer epoch changed");
+  let prepared = false;
+  writeFileSync(target, "successor");
+  assert.throws(
+    () =>
+      writeFileDurablyFrom(
+        target,
+        {
+          write: (descriptor) => {
+            writeSync(descriptor, "old owner");
+            prepared = true;
+          },
+        },
+        undefined,
+        () => {
+          assert.equal(prepared, true, "byte preparation precedes the ownership transaction");
+          throw stale;
+        },
+      ),
+    (error) => error === stale,
+  );
+  assert.equal(readFileSync(target, "utf8"), "successor");
+  assert.deepEqual(readdirSync(root), ["state.json"]);
+});
+
 // The temporary is named after this process, so nothing else will ever reclaim it: a write
 // that throws between the open and the rename leaves an orphan that outlives its owner
 // (F-FAED015B: one such file survived 7h46m under a fleet edge .staging/, its pid long gone).

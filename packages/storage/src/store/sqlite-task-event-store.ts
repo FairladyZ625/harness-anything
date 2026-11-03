@@ -228,13 +228,14 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
         options.killpoint,
         plan.preserve,
         commit,
+        options.withAppendFence,
       );
     conflicts.push(...first.conflicts);
     // Creating an owned directory is additive and idempotent, so it runs even when a concurrent edit made part
     // of this settlement ineligible: a partial pass must not be the reason a directory stays missing. Retiring
     // one is equally safe under a partial pass, because a directory whose files have not been removed yet is
     // still occupied and is therefore left standing.
-    settleWorktreeDirectories(currentLedger.rootDir, directories);
+    settleWorktreeDirectories(currentLedger.rootDir, directories, options.withAppendFence);
     // A restart resumes from this manifest, so it lands only after everything it vouches for.
     const second = settleWorktree(
       layout,
@@ -242,6 +243,9 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       plan.eligible.filter(isManifest),
       plan.permitted,
       options.killpoint,
+      undefined,
+      undefined,
+      options.withAppendFence,
     );
     conflicts.push(...second.conflicts);
     acceptedWorktree.clear();
@@ -343,7 +347,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       git: { status: "verified", cut: accepted, commitSha: commit },
       worktree: pendingFollower("worktree settlement has not verified the Git cut").worktree,
     };
-    localGitWorktreeSettlement.index(currentLedger.rootDir, files);
+    localGitWorktreeSettlement.index(currentLedger.rootDir, files, false, options.withAppendFence);
     const settled = settleFollowerWorktree(
       latestAppendLayout ?? resolveHarnessLayout(input),
       currentLedger,
@@ -389,6 +393,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
   };
 
   const publisher = createDurableFollowerPublisher({
+    withFence: options.withAppendFence,
     publish: (request) =>
       request?.paths && !request.preview
         ? restoreRequestedDocuments(materializeContext(), request.paths)
@@ -414,6 +419,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
   const materializeContext = () => ({
     repoId: options.repoId,
     killpoint: options.killpoint,
+    withFence: options.withAppendFence,
     cut,
     ledger,
     authoredRef,

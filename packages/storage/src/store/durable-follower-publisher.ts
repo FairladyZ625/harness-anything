@@ -1,3 +1,4 @@
+import type { WriteFence } from "../durable-file.ts";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import type {
   MaterializationHealth,
@@ -11,6 +12,7 @@ const initialRetryMs = 25,
 /** Serializes detached publication and retries from the publisher's durable checkpoint. */
 export function createDurableFollowerPublisher(input: {
   readonly publish: (request?: MaterializationRequest) => MaterializationReceipt;
+  readonly withFence?: WriteFence;
   readonly revision: () => number;
   readonly checkpoint: () => number;
   readonly onFailure?: (reason: string) => void;
@@ -35,6 +37,9 @@ export function createDurableFollowerPublisher(input: {
     };
   };
   const publish = (request?: MaterializationRequest) => {
+    // Even an already-certified cut or an empty named selection must reject a stale owner.
+    // Each actual mutation rechecks ownership; no slow publication I/O runs in this transaction.
+    if (!request?.preview) input.withFence?.(() => undefined);
     const receipt = input.publish(request);
     if (!request?.preview) {
       lastError = undefined;
