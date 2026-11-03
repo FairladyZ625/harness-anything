@@ -43,6 +43,12 @@ export function findCanonicalLedgerGitLayout(
   input: HarnessLayoutInput,
   store: Pick<CanonicalEventStore, "followerStatus" | "currentCommit">,
 ): LedgerGitLayout | null {
+  // The public store port carries both methods, but doc-sync also accepts in-memory
+  // readers/fakes at the boundary. Older readers do not expose follower state; retain
+  // the pre-A4 filesystem probe for those values instead of turning a missing optional
+  // runtime capability into a TypeError.
+  if (typeof store.followerStatus !== "function" || typeof store.currentCommit !== "function")
+    return findLedgerGitLayout(input);
   return store.followerStatus().git.commitSha !== null || store.currentCommit() !== null
     ? findLedgerGitLayout(input)
     : null;

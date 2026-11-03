@@ -15,6 +15,7 @@ import { initRepo } from "../store/task-event-store.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { openReplicationSlots } from "../../src/fleet-replication-slot.ts";
 import { openFleetStorage } from "../../src/storage-daemon-composition.ts";
+import { withPostgresTransaction } from "../../src/postgres/transaction.ts";
 import type { TaskCreatedEvent } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract.ts";
 import { assertContentBlobRangeContract } from "../content-blob-range.assertions.ts";
 
@@ -34,17 +35,22 @@ test("daemon PG storage factories expose canonical lifecycle ports without local
     await t.test("canonical PostgreSQL store exposes bounded content blob reads", async (contentTest) => {
       const body = Buffer.from("canonical PG store range reads stay bounded"),
         sha256 = sha256Bytes(body);
-      await fixture.pool.query(
-        "INSERT INTO ha_content_blobs (tenant_id,project_id,sha256,size,body,readers,policy_epoch) VALUES ($1,$2,$3,$4,$5,$6,$7)",
-        [
-          storage.scope.tenantId,
-          storage.scope.projectId,
-          sha256,
-          body.byteLength,
-          body,
-          storage.scope.readers,
-          storage.scope.policyEpoch,
-        ],
+      await withPostgresTransaction(
+        fixture.pool,
+        (client) =>
+          client.query(
+            "INSERT INTO ha_content_blobs (tenant_id,project_id,sha256,size,body,readers,policy_epoch) VALUES ($1,$2,$3,$4,$5,$6,$7)",
+            [
+              storage.scope.tenantId,
+              storage.scope.projectId,
+              sha256,
+              body.byteLength,
+              body,
+              storage.scope.readers,
+              storage.scope.policyEpoch,
+            ],
+          ),
+        storage.scope,
       );
       await assertContentBlobRangeContract(contentTest, store!, sha256, body);
     });
