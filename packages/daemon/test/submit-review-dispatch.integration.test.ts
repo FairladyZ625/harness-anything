@@ -108,13 +108,27 @@ test("a low-risk submit freezes no dispatch and never launches a reviewer", { ti
   });
   try {
     await f.install();
-    await f.submit();
+    const submitted = await f.submit(),
+      next = (submitted as { readonly next?: readonly { readonly command?: string }[] }).next ?? [];
+    assert.deepEqual(
+      next.map((entry) => entry.command),
+      [`ha task complete ${taskId}`],
+      "a low-risk submit must name the one remaining step to done",
+    );
     assert.equal(f.launches.length, 0, "low-risk submissions must not dispatch at submit");
     assert.equal(
       f.events().filter((event) => event.type === "runtime_dispatch_requested").length,
       0,
       "no reviewer dispatch event may be recorded for a low-risk cut",
     );
+    // The state a resuming agent reads must agree with the receipt instead of showing no next step.
+    const shown = await f.run({ kind: "task-show", taskId }),
+      evidence = JSON.parse(String(shown.evidence)) as {
+        readonly completionBlocker: unknown;
+        readonly completionNext: { readonly action?: string } | null;
+      };
+    assert.equal(evidence.completionBlocker, null);
+    assert.equal(evidence.completionNext?.action, `ha task complete ${taskId}`);
   } finally {
     await f.close();
   }

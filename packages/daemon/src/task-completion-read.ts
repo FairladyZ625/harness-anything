@@ -10,6 +10,7 @@ import {
   resolveHarnessLayout,
   type CloseoutSnapshot,
   type CompletionDeliveryStatus,
+  taskCompletionAction,
   taskCompletionNext,
   type CompletionReadinessContext,
   type FactRetirementAssessment,
@@ -268,7 +269,11 @@ export function readTaskCompletion(
   // not-found naming the id — never an ok-shaped completion for a task that does not exist.
   const read = requireCurrentTaskProjection(projection, taskId, "task completion read"),
     context = readCompletionContext(projection, taskId, read.snapshot, read.status, rootDir),
-    { next, blocker } = taskCompletionNext(read.snapshot, context);
+    { blocker } = taskCompletionNext(read.snapshot, context),
+    // The action, not just the blocker's narration: once no blocker remains the reader must see
+    // `ha task complete`, otherwise a submitted low-risk cut reads as a dead end and invites a
+    // review dispatch its frozen contract refuses.
+    next = taskCompletionAction(read.snapshot, context);
   // Surface the upstream Facts that still need an explicit disposition before the agent runs
   // complete, so fact_retirement_undeclared never arrives as a surprise. The assessment needs
   // relation/decision projections that can lag the task read; a lagging neighborhood is reported

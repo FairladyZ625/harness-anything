@@ -191,8 +191,9 @@ function renderTaskShow(receipt: Record<string, unknown>): string {
   const gates = Array.isArray(payload.task.completionGateIds) ? payload.task.completionGateIds : [],
     blocker = isRecord(payload.completionBlocker) ? payload.completionBlocker : null,
     // The same judgment task complete rejects with: the daemon already resolves reason and action
-    // once, so the read side prints that guidance instead of a bare gate code.
-    next = blocker && isRecord(payload.completionNext) ? payload.completionNext : null,
+    // once, so the read side prints that guidance instead of a bare gate code. A ready cut keeps
+    // `completionNext` while the blocker is null: that is its `ha task complete` step.
+    next = isRecord(payload.completionNext) ? payload.completionNext : null,
     hint = next === null ? null : nonEmptyText(next.reason),
     action = next === null ? null : nonEmptyText(next.action);
   return [

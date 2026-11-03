@@ -5,8 +5,9 @@ import { isJsonObject } from "./json-rpc-types.ts";
 export type DaemonTaskCompletionResult = {
   readonly ok: true;
   readonly taskId: string;
+  /** The step to run now: a blocker's remediation, or `ha task complete` once none remains. */
   readonly completionNext: ReturnType<typeof taskCompletionNext>["next"];
-  /** The same blocker completionNext narrates, structured so readers judge the stage without parsing action prose. */
+  /** The blocker completionNext narrates, when one remains; null means the cut is ready to complete. */
   readonly completionBlocker: Pick<
     Exclude<ReturnType<typeof taskCompletionNext>["blocker"], null>,
     "code" | "gate"
@@ -52,19 +53,21 @@ export function validateDaemonTaskCompletion(value: unknown): readonly string[] 
   )
     return ["Invalid factRetirement"];
   const blocker = value.completionBlocker;
+  // A remaining blocker must always travel with its remediation; a ready cut may either keep the
+  // legacy null/null shape or name the final complete step.
   if (
-    (blocker === null) !== (value.completionNext === null) ||
-    (blocker !== null &&
-      (!isJsonObject(blocker) ||
-        Object.keys(blocker).length !== 2 ||
-        typeof blocker.code !== "string" ||
-        !blocker.code ||
-        typeof blocker.gate !== "string" ||
-        !blocker.gate))
+    blocker !== null &&
+    (!isJsonObject(blocker) ||
+      Object.keys(blocker).length !== 2 ||
+      typeof blocker.code !== "string" ||
+      !blocker.code ||
+      typeof blocker.gate !== "string" ||
+      !blocker.gate)
   )
     return ["Invalid completionBlocker"];
   const next = value.completionNext;
-  if (next === null) return [];
+  if (next === null)
+    return blocker === null ? [] : ["Invalid completionNext: a remaining completionBlocker requires its remediation"];
   if (
     !isJsonObject(next) ||
     Object.keys(next).length !== 4 ||

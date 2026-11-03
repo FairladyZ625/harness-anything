@@ -23,7 +23,13 @@ import {
 import { readTaskWipSnapshot, wipSnapshotEntries, type TaskQueryCell } from "../src/repo-cell-task-query.ts";
 import { readTaskCompletion } from "../src/task-completion-read.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
-import { blockingOf, reduceTaskEvent, submissionDigest, taskCompletionNext } from "@harness-anything/kernel";
+import {
+  blockingOf,
+  emptyTaskLifecycleSnapshot,
+  reduceTaskEvent,
+  submissionDigest,
+  taskCompletionNext,
+} from "@harness-anything/kernel";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { makeTaskQueryReadModel } from "../src/task-query-read.ts";
 import { appendIncidentActionReceipt } from "../src/decision-incident-receipt.ts";
@@ -1782,4 +1788,50 @@ test("single-task completion read carries the canonical next and validates its r
       }),
     /factRetirement/,
   );
+});
+
+test("a ready submitted low-risk cut exposes ha task complete instead of a null next", () => {
+  const submitted = lifecycleFixture({
+      closeoutGates: { review: false, consent: false, factDisposition: false },
+    })
+      .events.slice(0, 3)
+      .reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot()),
+    // A task-package-only cut has no repository commit, so completion does not wait for a merge.
+    snapshot = {
+      ...submitted,
+      executions: submitted.executions.map((execution) =>
+        execution.submission ? { ...execution, submission: { ...execution.submission, commitSha: null } } : execution,
+      ),
+    },
+    taskId = snapshot.task!.taskId,
+    projection = {
+      read: () => ({ ...readyCut, snapshot, packagePath: "tasks/task-1" }),
+      readPresetSnapshot: () => ({ snapshot: null, status: "ready" }),
+      readTaskChildCounts: () => ({}),
+      getEntity: () => null,
+      readDocument: (documentPath: string) => ({
+        ...readyCut,
+        document: {
+          body: documentPath.endsWith("task-contract.json")
+            ? JSON.stringify({
+                documents: [
+                  {
+                    slot: "task.closeout",
+                    path: "closeout.md",
+                    templateRef: "template://planning/closeout@1",
+                    locale: "en-US",
+                  },
+                ],
+              })
+            : "",
+        },
+      }),
+      readRelationQuery: () => ({ ...readyCut, rows: [] }),
+    } as unknown as TaskProjection,
+    result = readTaskCompletion(projection, taskId);
+  assert.equal(result.completionBlocker, null);
+  assert.equal(result.completionNext?.action, `ha task complete ${taskId}`);
+  assert.match(result.completionNext?.reason ?? "", /lifted independent review and consent/u);
+  // The read names the same step a reader can execute; it no longer reads as blocker-free but empty.
+  assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.completion.read", result), result);
 });

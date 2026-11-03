@@ -6,6 +6,7 @@ import {
   reduceTaskEvent,
   rematerializeTaskDocuments,
   submissionDigest,
+  taskCompletionAction,
   taskCompletionNext,
   type TaskMetadataV1,
 } from "../../src/index.ts";
@@ -645,4 +646,22 @@ test("INDEX next uses the same completion judgment for strict and lightweight pr
     };
   assert.match(index(submitted, strict), /ha task dispatch-review task-1/u);
   assert.match(index(submitted, lightweight), /ha task complete task-1/u);
+});
+
+test("a ready submitted low-risk cut names complete and the reason review is absent", () => {
+  const lightContext = {
+      ...context,
+      closeoutGates: { review: false, consent: false, factDisposition: false },
+    },
+    // The cut itself must have frozen review off: submit then leaves it at `submitted`, not `in_review`.
+    submitted = lifecycleFixture({
+      closeoutGates: { review: false, consent: false, factDisposition: false },
+    })
+      .events.slice(0, 3)
+      .reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot());
+  assert.equal(submitted.task?.status, "submitted");
+  assert.equal(taskCompletionNext(submitted, lightContext).blocker, null);
+  const action = taskCompletionAction(submitted, lightContext);
+  assert.equal(action?.action, "ha task complete task-1");
+  assert.match(action?.reason ?? "", /frozen closeout contract lifted independent review and consent/u);
 });
