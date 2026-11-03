@@ -35,14 +35,15 @@ invent labels here.
 
 | Source | What it owns |
 | --- | --- |
-| [`.github/ISSUE_TEMPLATE/issue.yml`](../../.github/ISSUE_TEMPLATE/issue.yml) | Required sections, descriptions, and placeholders |
-| [`.github/workflows/issue-intake.yml`](../../.github/workflows/issue-intake.yml) | Comments when a section is missing; never closes the issue |
+| [`.github/ISSUE_TEMPLATE/issue.yml`](../../.github/ISSUE_TEMPLATE/issue.yml) | Required and optional sections, descriptions, and placeholders |
+| [`.github/workflows/issue-intake.yml`](../../.github/workflows/issue-intake.yml) | Comments when a required section is missing; never closes the issue |
 | [`references/issue-body-template.md`](references/issue-body-template.md) | The only copyable body skeleton |
 | [`references/field-guide.md`](references/field-guide.md) | Enter/exit conditions and evidence commands per section |
 
-`tools/skill-contracts.test.mjs` asserts that the form, the intake list, and the
-template share one heading set. If you change one, change all three in the same
-change and run `node --test tools/skill-contracts.test.mjs`.
+`tools/skill-contracts.test.mjs` asserts that the intake list matches the
+form's required sections and that the template covers the same form headings. If
+you change one, change all three in the same change and run
+`node --test tools/skill-contracts.test.mjs`.
 
 ## Procedure
 
@@ -80,9 +81,9 @@ failing command, keep the smallest relevant stdout/stderr and its exit status:
 <failing-command>; printf '\nexit=%s\n' "$?"
 ```
 
-If the finding is visual, capture a screenshot or recording. If it is not
-visual, do not manufacture an image: Screenshot or recording will say
-`Not applicable — text evidence in Command output or logs`.
+If the finding has a visible surface, capture a screenshot or recording and
+attach or link it. If it does not, leave the optional Screenshot or recording
+section out of the body; text evidence belongs in Command output or logs.
 
 ### 3. Fill the canonical body
 
@@ -93,8 +94,10 @@ body_file="$(mktemp "${TMPDIR:-/tmp}/harness-issue-body.XXXXXX")"
 cp skills/harness-issue/references/issue-body-template.md "$body_file"
 ```
 
-Keep every `### <label>` line exactly as written. Replace every italic hint
-with real content; do not delete a heading. Use
+Keep every required `### <label>` line exactly as written. Include the optional
+`### Screenshot or recording` section only when there is visible evidence to
+attach or link; delete it otherwise. Replace every italic hint with real content;
+do not delete a required heading. Use
 [`references/field-guide.md`](references/field-guide.md) when a section is
 unclear.
 
@@ -131,16 +134,27 @@ and the proposed fix into the body.
 
 ### 6. Self-check the shape
 
-Compare the headings in your body with the form labels, in order:
+Every required heading must be present (empty output means ready):
 
 ```bash
-diff <(sed -n 's/^      label: /### /p' .github/ISSUE_TEMPLATE/issue.yml) \
-  <(grep '^### ' "$body_file")
+comm -23 \
+  <(awk '/^      label: /{label=substr($0,14)} /^      required: true$/{print "### " label}' \
+    .github/ISSUE_TEMPLATE/issue.yml | sort) \
+  <(grep '^### ' "$body_file" | sort)
 ```
 
-An empty diff means the body uses exactly the required headings. A non-empty
-diff means fix the body; do not publish yet. Also confirm the title starts with
-`[Issue]: ` and the body has no redaction hit from step 4.
+The body must not introduce a heading the form does not define (empty output
+means ready):
+
+```bash
+comm -13 \
+  <(sed -n 's/^      label: /### /p' .github/ISSUE_TEMPLATE/issue.yml | sort) \
+  <(grep '^### ' "$body_file" | sort)
+```
+
+The optional `### Screenshot or recording` section may be present or absent. A
+non-empty result means fix the body; do not publish yet. Also confirm the title
+starts with `[Issue]: ` and the body has no redaction hit from step 4.
 
 ### 7. Publish and read the result
 
@@ -174,9 +188,9 @@ authority.
 | `gh: command not found` | Stop and report the exact command. Do not substitute a hand-written HTTP call. |
 | `gh auth status` reports no login | Stop. Do not ask for or paste a token into the issue or the body file. |
 | Blank issue entry is disabled | Expected. Publish with `--body-file`, not through the blank editor. |
-| Intake comments that sections are missing | Edit the issue with the same body file. Do not open a duplicate and do not remove headings to make the comment go away. |
+| Intake comments that sections are missing | Edit the issue with the same body file. Do not open a duplicate and do not remove required headings to make the comment go away. |
 | The redaction scan prints a hit | Remove the value, then rerun the scan before publishing. |
-| The heading diff is non-empty | Fix the body until the diff is empty; the form and template are authoritative. |
+| The self-check prints a heading | Fix the body until both self-check commands print nothing; the form and template are authoritative. |
 | The issue needs private data to be actionable | Stop and report what cannot be shared; publish only the public symptom if that is still useful. |
 | The finding is a security vulnerability | Stop. Use the security advisory entry in `.github/ISSUE_TEMPLATE/config.yml`. |
 | An equivalent issue already exists | Comment with the new evidence instead of filing a duplicate. |
@@ -187,7 +201,7 @@ Report back:
 
 - the issue URL and number, or the exact step that stopped the run;
 - the title and the body-file path;
-- the heading-diff result (empty or the failing lines);
+- the required-heading self-check result (empty or the failing lines);
 - the redaction-scan result (no hits or the removed values, without repeating
   the secret itself);
 - commands run and commands not run, with the reason.

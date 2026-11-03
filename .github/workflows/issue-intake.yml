@@ -22,7 +22,6 @@ jobs:
               "### Actual behavior",
               "### Reproduction steps",
               "### Version / build",
-              "### Screenshot or recording",
               "### Command output or logs",
               "### Reporter environment",
               "### Source-level triage",

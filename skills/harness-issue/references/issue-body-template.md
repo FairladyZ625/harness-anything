@@ -1,4 +1,4 @@
-<!-- Canonical public issue body. The headings in this file are aligned with .github/ISSUE_TEMPLATE/issue.yml by tools/skill-contracts.test.mjs; change the form and this file together. Copy the whole file, replace every italic hint, and keep every heading. -->
+<!-- Canonical public issue body. The headings in this file are aligned with .github/ISSUE_TEMPLATE/issue.yml by tools/skill-contracts.test.mjs; change the form and this file together. Copy the whole file, replace every italic hint, and keep every required heading. The Screenshot or recording section is optional: include it only when there is visible evidence, and delete it otherwise. -->
 
 ### Issue type
 *One of: Bug, Documentation gap, Scoped improvement, Failing command or CI lane.*
@@ -19,7 +19,7 @@
 *`ha --version`, daemon `commit=`, branch or commit, package version, agent/runtime.*
 
 ### Screenshot or recording
-*Visible evidence, or `Not applicable — text evidence in Command output or logs`.*
+*Optional. Attach or link visible evidence only when one exists; delete this section when the finding has no visible surface.*
 
 ### Command output or logs
 *Exact command, exit code, and the smallest relevant stdout/stderr. Redact secrets.*
