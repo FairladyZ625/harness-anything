@@ -11,6 +11,7 @@
     ".": "./src/index.ts",
     "./access-admin-contract": "./src/access-admin-contract.ts",
     "./edge-join-entry-contract": "./src/edge-join-entry-contract.ts",
+    "./identity-presentation": "./src/identity-presentation.ts",
     "./oidc-auth-contract": "./src/oidc-auth-contract.ts",
     "./ui-component-contract": "./src/ui-component-contract.ts"
   },

@@ -4,6 +4,7 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OidcAuthApi } from "@harness-anything/authorization-gui/oidc-auth-contract";
+import { identityProviderOf } from "@harness-anything/authorization-gui/identity-presentation";
 import type { AuthorizationUiComponents } from "@harness-anything/authorization-gui/ui-component-contract";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { IdentityAccessView } from "../src/renderer/views/IdentityAccessView.tsx";
@@ -159,6 +160,89 @@ describe("IdentityAccessView", () => {
     expect(container.querySelector('[data-testid="host-login"]')?.textContent).toBe("Studio login");
     expect(container.querySelector('[data-testid="external-binding-form"]')).toBeNull();
   });
+
+  it("does not claim Keycloak while the identity binding is still unresolved", async () => {
+    let resolveBinding!: (value: unknown) => void;
+    await render(
+      auth({
+        bindingStatus: vi.fn(
+          () =>
+            new Promise((resolve) => {
+              resolveBinding = resolve;
+            }),
+        ),
+      }),
+    );
+    expect(container.textContent).not.toContain("Keycloak");
+    await act(async () => resolveBinding({ ok: true, ready: true, mode: "builtin" }));
+    await act(async () => undefined);
+    expect(container.textContent).toContain("使用本机账号登录");
+    expect(container.textContent).not.toContain("使用 Keycloak 登录");
+  });
+
+  it("does not claim Keycloak when the identity binding read fails", async () => {
+    await render(
+      auth({
+        bindingStatus: vi.fn(async () => {
+          throw new Error("daemon unavailable");
+        }),
+      }),
+    );
+    expect(container.textContent).not.toContain("Keycloak");
+  });
+
+  it("invalidates the previous account when a later identity read fails", async () => {
+    let fail = false;
+    const status = vi.fn(async () => {
+      if (fail) throw new Error("session unavailable");
+      return { ok: true, authenticated: true, personId: "person-a" };
+    });
+    Object.defineProperty(window, "harness", {
+      configurable: true,
+      value: { auth: auth({ status }) },
+    });
+    await act(async () => root.render(createElement(IdentityAccessView, { repoId: "repo-a" })));
+    await act(async () => undefined);
+    expect(container.textContent).toContain("person-a");
+    fail = true;
+    await act(async () => root.render(createElement(IdentityAccessView, { repoId: "repo-b" })));
+    await act(async () => undefined);
+    expect(container.textContent).not.toContain("person-a");
+    expect(container.textContent).toContain("身份不可用");
+    expect(container.textContent).not.toContain("尚未登录");
+  });
+
+  it("ignores an identity read that resolves after its repository was replaced", async () => {
+    const pending: Array<(value: unknown) => void> = [];
+    const status = vi.fn((repoId?: string) => {
+      if (repoId === "repo-a") return new Promise((resolve) => pending.push(resolve));
+      return Promise.reject(new Error("repo-b unavailable"));
+    });
+    Object.defineProperty(window, "harness", {
+      configurable: true,
+      value: { auth: auth({ status }) },
+    });
+    await act(async () => root.render(createElement(IdentityAccessView, { repoId: "repo-a" })));
+    await act(async () => undefined);
+    expect(pending).toHaveLength(2);
+    await act(async () => root.render(createElement(IdentityAccessView, { repoId: "repo-b" })));
+    await act(async () => undefined);
+    expect(container.textContent).toContain("身份不可用");
+    await act(async () => {
+      for (const resolve of pending) resolve({ ok: true, authenticated: true, personId: "person-a" });
+    });
+    await act(async () => undefined);
+    expect(container.textContent).not.toContain("person-a");
+    expect(container.textContent).toContain("身份不可用");
+  });
+});
+
+it("classifies a binding mode as builtin, Keycloak, or unknown", () => {
+  expect(identityProviderOf("builtin")).toBe("builtin");
+  expect(identityProviderOf("managed")).toBe("keycloak");
+  expect(identityProviderOf("external")).toBe("keycloak");
+  expect(identityProviderOf(undefined)).toBe("unknown");
+  expect(identityProviderOf("unexpected")).toBe("unknown");
 });
 
 it("embeds the authorization URL, cancels cleanly and refreshes identity after a retry", async () => {

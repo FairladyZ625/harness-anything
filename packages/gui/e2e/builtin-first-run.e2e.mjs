@@ -99,6 +99,7 @@ test("built-in GUI first account, login and first repository with an empty HOME"
       .getByTestId("sidebar-account")
       .filter({ hasText: /内置身份|Built-in identity/u })
       .waitFor();
+    assert.doesNotMatch(await page.getByTestId("sidebar-account").innerText(), /Keycloak/u);
     await shot("login-success");
     assert.equal((await page.evaluate(() => window.harness.auth.status())).authenticated, true);
     await page.getByRole("tab", { name: /^(?:我的设备|My devices)$/u }).click();

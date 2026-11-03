@@ -369,3 +369,57 @@ it("shows the signed-in local account before the first repository exists", async
     Reflect.deleteProperty(window, "harness");
   }
 });
+
+it("does not claim a Keycloak identity while the provider binding is still unresolved", async () => {
+  let resolveBinding!: (value: unknown) => void;
+  Object.defineProperty(window, "harness", {
+    configurable: true,
+    value: {
+      auth: {
+        status: async () => ({ authenticated: true, personId: "person-owner" }),
+        bindingStatus: () =>
+          new Promise((resolve) => {
+            resolveBinding = resolve;
+          }),
+      },
+    },
+  });
+  const { host, render, unmount } = mountSidebar([], WORKS, undefined, null);
+  try {
+    await render();
+    const account = host.querySelector('[data-testid="sidebar-account"]')!;
+    expect(account.textContent).not.toContain("Keycloak");
+    await act(async () => resolveBinding({ mode: "builtin", ready: true }));
+    await act(async () => undefined);
+    expect(account.textContent).toContain("person-owner");
+    expect(account.textContent).toContain("内置身份");
+    expect(account.textContent).not.toContain("Keycloak");
+  } finally {
+    unmount();
+    Reflect.deleteProperty(window, "harness");
+  }
+});
+
+it("does not claim a Keycloak identity when the provider binding read fails", async () => {
+  Object.defineProperty(window, "harness", {
+    configurable: true,
+    value: {
+      auth: {
+        status: async () => ({ authenticated: true, personId: "person-owner" }),
+        bindingStatus: async () => {
+          throw new Error("daemon unavailable");
+        },
+      },
+    },
+  });
+  const { host, render, unmount } = mountSidebar([], WORKS, undefined, null);
+  try {
+    await render();
+    const account = host.querySelector('[data-testid="sidebar-account"]')!;
+    expect(account.textContent).toContain("person-owner");
+    expect(account.textContent).not.toContain("Keycloak");
+  } finally {
+    unmount();
+    Reflect.deleteProperty(window, "harness");
+  }
+});

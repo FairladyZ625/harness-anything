@@ -5,6 +5,7 @@ import type {
   AccessSessionLifetimeReply,
 } from "@harness-anything/authorization-gui/access-admin-contract";
 import type { EmbeddedLoginPage, OidcAuthApi } from "@harness-anything/authorization-gui/oidc-auth-contract";
+import { identityProviderOf } from "@harness-anything/authorization-gui/identity-presentation";
 import { createAccessModel } from "./access-model.js";
 import type { RepoMode } from "./ui-host.js";
 import { createAccessParts } from "./AccessParts.js";
@@ -59,6 +60,7 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
     readonly access: AccessAdminApi | undefined;
   }) {
     const [session, setSession] = useState<RecordValue | null>(null),
+      [sessionFailed, setSessionFailed] = useState(false),
       [binding, setBinding] = useState<RecordValue | null | undefined>(undefined),
       [bootstrapRequired, setBootstrapRequired] = useState(false),
       [busy, setBusy] = useState(false),
@@ -69,7 +71,8 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
       readonly partitionToken?: string;
       readonly loadError?: string;
     } | null>(null);
-    const loggingIn = useRef(false);
+    const loggingIn = useRef(false),
+      sessionRequest = useRef(0);
     useEffect(
       () => () => {
         if (loggingIn.current) void auth.cancelLogin();
@@ -78,9 +81,23 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
     );
 
     const refresh = async () => {
-      const nextSession = await auth.status(repoId, rootDir);
-      setSession(nextSession as RecordValue);
+      const request = ++sessionRequest.current;
+      const statusReply = await auth.status(repoId, rootDir).then(
+        (reply) => ({ ok: true as const, reply: reply as RecordValue }),
+        (error: unknown) => ({ ok: false as const, error }),
+      );
+      // A read superseded by a newer request or a repository change must not write state.
+      if (sessionRequest.current !== request) return;
+      if (!statusReply.ok) {
+        // A failed identity read must not leave the previous session labelled as current.
+        setSession(null);
+        setSessionFailed(true);
+        throw statusReply.error;
+      }
+      setSession(statusReply.reply);
+      setSessionFailed(false);
       const nextBinding = (await auth.bindingStatus(repoId, rootDir)) as RecordValue;
+      if (sessionRequest.current !== request) return;
       if (nextBinding.configured === false) {
         setBinding(null);
         setBootstrapRequired(false);
@@ -88,11 +105,17 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
       }
       setBinding(nextBinding);
       const bootstrap = (await auth.bootstrapStatus(repoId, rootDir)) as RecordValue;
+      if (sessionRequest.current !== request) return;
       setBootstrapRequired(bootstrap.required === true);
     };
 
     useEffect(() => {
+      setSession(null);
+      setSessionFailed(false);
       void refresh().catch((error: unknown) => setFeedback(message(error)));
+      return () => {
+        sessionRequest.current += 1;
+      };
     }, [repoId, rootDir]);
 
     const run = async (operation: () => Promise<unknown>) => {
@@ -113,11 +136,22 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
     };
 
     useEffect(() => {
-      const refreshRequests = () =>
+      const refreshRequests = () => {
+        const request = ++sessionRequest.current;
         void auth.status(repoId, rootDir).then(
-          (reply) => setSession(reply as RecordValue),
-          (error: unknown) => setFeedback(message(error)),
+          (reply) => {
+            if (sessionRequest.current !== request) return;
+            setSession(reply as RecordValue);
+            setSessionFailed(false);
+          },
+          (error: unknown) => {
+            if (sessionRequest.current !== request) return;
+            setSession(null);
+            setSessionFailed(true);
+            setFeedback(message(error));
+          },
         );
+      };
       const interval = setInterval(refreshRequests, 3_000);
       return () => clearInterval(interval);
     }, [auth, repoId, rootDir]);
@@ -136,8 +170,14 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
         }
       });
 
-    const builtin = binding?.mode === "builtin",
-      signInLabel = builtin ? "identityAccess.localSignIn" : "identityAccess.signIn";
+    const provider = identityProviderOf(binding?.mode),
+      builtin = provider === "builtin",
+      keycloak = provider === "keycloak",
+      signInLabel = builtin
+        ? "identityAccess.localSignIn"
+        : keycloak
+          ? "identityAccess.signIn"
+          : "identityAccess.signInNeutral";
     if (login)
       return (
         <section className="flex min-h-0 flex-1 flex-col" data-testid="account-login">
@@ -233,7 +273,13 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
             ) : null}
             <BoardRegion region="service" data-testid="access-service-card">
               <Region
-                title={t(builtin ? "identityAccess.localService" : "accessControl.service.title")}
+                title={t(
+                  builtin
+                    ? "identityAccess.localService"
+                    : keycloak
+                      ? "accessControl.service.title"
+                      : "identityAccess.serviceNeutral",
+                )}
                 tag={
                   binding ? (
                     <StatusTag
@@ -246,7 +292,13 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
                 footer={
                   <>
                     <span className="min-w-0 truncate">
-                      {t(builtin ? "identityAccess.localDescription" : "identityAccess.description")}
+                      {t(
+                        builtin
+                          ? "identityAccess.localDescription"
+                          : keycloak
+                            ? "identityAccess.description"
+                            : "identityAccess.descriptionNeutral",
+                      )}
                     </span>
                   </>
                 }
@@ -256,14 +308,16 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
                   time={
                     <span className="flex items-center gap-2.5 font-sans">
                       <span data-testid="identity-session" className="text-text ui-body">
-                        {authenticated
-                          ? t("identityAccess.signedInAs", { personId: String(session?.personId) })
-                          : t("identityAccess.signedOut")}
+                        {sessionFailed
+                          ? t("identityAccess.identityUnavailable")
+                          : authenticated
+                            ? t("identityAccess.signedInAs", { personId: String(session?.personId) })
+                            : t("identityAccess.signedOut")}
                       </span>
                       <Button
                         size="sm"
                         disabled={busy || (!authenticated && !ready)}
-                        tip={!authenticated && !ready ? t("identityAccess.signInDisabled") : undefined}
+                        tip={!authenticated && !ready && keycloak ? t("identityAccess.signInDisabled") : undefined}
                         testId="account-session-action"
                         onClick={() => void (authenticated ? run(() => auth.logout(repoId, rootDir)) : signIn())}
                       >
