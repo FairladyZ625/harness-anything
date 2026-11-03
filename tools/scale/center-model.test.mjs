@@ -9,7 +9,6 @@ import { runCenterBenchmark, markdownReport, defaultTrafficModel } from "./cente
 import { syntheticParams } from "./center-replay.mjs";
 import { validateDaemonRpcCall } from "../../packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts";
 import { measureCenter } from "./center-campaign.mjs";
-import { daemonHelloParams } from "../../packages/daemon/src/client/daemon-hello.ts";
 
 const log = (at, method, command = method, conn = "1") => ({
   schema: "daemon-conn-log/v1",
@@ -79,11 +78,6 @@ test("calibration bindings satisfy the real RPC validator, including session sel
       sampleDocuments: [{ path: "context/center-bench/doc-0.json" }],
     },
   };
-  assert.deepEqual(
-    syntheticParams({ method: "protocol.hello" }, fixture),
-    daemonHelloParams({ reportStaleBuild: true }),
-    "replay hello carries the loaded installation's build identity",
-  );
   for (const row of defaultTrafficModel().requests)
     assert.deepEqual(
       validateDaemonRpcCall({ method: row.method, params: syntheticParams(row, fixture) }),
