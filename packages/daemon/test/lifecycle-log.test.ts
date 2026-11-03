@@ -1,10 +1,26 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { daemonLifecycleLogPath, openDaemonLifecycleLog, readDaemonLifecycleRecords } from "../src/lifecycle-log.ts";
+import {
+  DAEMON_LIFECYCLE_LOG_SCHEMA,
+  daemonLifecycleLogPath,
+  openDaemonLifecycleLog,
+  readDaemonLifecycleGeneration,
+  readDaemonLifecycleRecords,
+} from "../src/lifecycle-log.ts";
+
+function lifecycleLine(daemonId: string, entry: Readonly<Record<string, unknown>>): string {
+  return JSON.stringify({
+    schema: DAEMON_LIFECYCLE_LOG_SCHEMA.id,
+    at: "2026-11-04T00:00:00.000Z",
+    daemonId,
+    pid: process.pid,
+    ...entry,
+  });
+}
 
 // The daemon holds one recorder for its whole life (runtime.ts), so a recorder that only rotates on
 // its first record never checks the size again: the retention policy is dead for a long-lived daemon.
@@ -60,4 +76,76 @@ test("diagnostics uses the lifecycle rotation policy in a separate schema and fi
   assert.equal(last.schema, "daemon-diagnostics/v1");
   assert.equal(last.revision, 99);
   assert.deepEqual(readDaemonLifecycleRecords(userRoot, "test"), []);
+});
+
+// A generation crosses a rotation boundary when the daemon rotates while it is still starting or
+// running: the last process_start can sit in the newest retained generation rather than the live
+// file. The reader must follow the generation back exactly one boundary and stop there.
+test("the current generation is read from the tail across one rotation boundary", () => {
+  const userRoot = mkdtempSync(path.join(os.tmpdir(), "harness-lifecycle-generation-")),
+    daemonId = "crossed-boundary",
+    logPath = daemonLifecycleLogPath(userRoot, daemonId),
+    line = (entry: Readonly<Record<string, unknown>>): string => lifecycleLine(daemonId, entry);
+  try {
+    mkdirSync(path.dirname(logPath), { recursive: true });
+    writeFileSync(`${logPath}.2`, `${line({ event: "process_start" })}\n${line({ event: "process_exit" })}\n`, "utf8");
+    writeFileSync(
+      `${logPath}.1`,
+      `${line({ event: "runtime_spawn", runtimeSessionId: "older-generation" })}\n` +
+        `${line({ event: "process_start" })}\n${line({ event: "socket_bound" })}\n`,
+      "utf8",
+    );
+    writeFileSync(
+      logPath,
+      `${line({ event: "repo_attach_started", repoId: "crossed", attachIndex: 1, attachTotal: 1 })}\n` +
+        `${line({ event: "identity_ready" })}\n`,
+      "utf8",
+    );
+    assert.deepEqual(
+      readDaemonLifecycleGeneration(userRoot, daemonId).map((record) => record.event),
+      ["process_start", "socket_bound", "repo_attach_started", "identity_ready"],
+      "the older generation in .2 is not part of the current generation",
+    );
+    assert.deepEqual(readDaemonLifecycleGeneration(userRoot, "absent"), []);
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+// The backward scan reads fixed-size chunks, so a current generation bigger than one chunk must come
+// back whole and in order without leaking into the older generation that follows it on disk.
+test("a multi-chunk current generation is returned whole and in order", () => {
+  const userRoot = mkdtempSync(path.join(os.tmpdir(), "harness-lifecycle-long-generation-")),
+    daemonId = "long-generation",
+    logPath = daemonLifecycleLogPath(userRoot, daemonId),
+    current = [
+      lifecycleLine(daemonId, { event: "process_start" }),
+      ...Array.from({ length: 600 }, (_, index) =>
+        lifecycleLine(daemonId, {
+          event: "runtime_spawn",
+          runtimeSessionId: `current-${index}`,
+          error: "chunk padding ".repeat(8),
+        }),
+      ),
+      lifecycleLine(daemonId, { event: "identity_ready" }),
+    ];
+  try {
+    mkdirSync(path.dirname(logPath), { recursive: true });
+    writeFileSync(logPath, `${current.join("\n")}\n`, "utf8");
+    writeFileSync(
+      `${logPath}.1`,
+      `${lifecycleLine(daemonId, { event: "process_start" })}\n${lifecycleLine(daemonId, { event: "process_exit" })}\n`,
+      "utf8",
+    );
+    const records = readDaemonLifecycleGeneration(userRoot, daemonId);
+    assert.equal(records.length, current.length);
+    assert.equal(records.at(0)?.event, "process_start");
+    assert.equal(records.at(-1)?.event, "identity_ready");
+    assert.deepEqual(
+      records.slice(1, -1).map((record) => record.runtimeSessionId),
+      Array.from({ length: 600 }, (_, index) => `current-${index}`),
+    );
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
 });

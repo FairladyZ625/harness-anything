@@ -1,6 +1,7 @@
 import {
   appendFileSync,
   closeSync,
+  fstatSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -12,6 +13,7 @@ import {
 import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel";
 import type { DaemonEntry } from "./build-identity.ts";
+import { readLatestLineInTail } from "./dispatch-stream-tail.ts";
 
 export const DAEMON_LIFECYCLE_LOG_SCHEMA = Object.freeze({ id: "daemon-lifecycle/v1" });
 // One definition of the daemon's file-log rotation defaults (lifecycle and request sinks share
@@ -168,19 +170,59 @@ export function closeDaemonOutputFd(fd: number): void {
   }
 }
 
-export function readDaemonLifecycleRecords(userRoot: string, daemonId: string): readonly DaemonLifecycleRecord[] {
+export function readDaemonLifecycleRecords(
+  userRoot: string,
+  daemonId: string,
+  scope: "retained" | "current-generation" = "retained",
+): readonly DaemonLifecycleRecord[] {
   const directory = path.dirname(daemonLifecycleLogPath(userRoot, daemonId)),
     base = path.basename(daemonLifecycleLogPath(userRoot, daemonId));
   let files: string[];
   try {
-    files = readdirSync(directory)
-      .filter((file) => file === base || file.startsWith(`${base}.`))
-      .sort((left, right) => generation(right) - generation(left));
+    files = lifecycleLogFiles(directory, base);
   } catch (error) {
     consumeKnownError(error);
     return [];
   }
   const records: DaemonLifecycleRecord[] = [];
+  if (scope === "current-generation") {
+    // The readiness probe runs every 50 ms while a CLI waits, so this scan starts at the end of the
+    // newest retained file and stops at the generation's process_start: the work is bounded by what
+    // this generation wrote, not by the whole retained history. A generation that rotated while it
+    // was still starting keeps its process_start in the newest retained file, so the scan crosses
+    // that one boundary and no further than it must.
+    for (let index = files.length - 1; index >= 0; index -= 1) {
+      let descriptor: number;
+      try {
+        descriptor = openSync(path.join(directory, files[index]!), "r");
+      } catch (error) {
+        if (!isMissing(error)) throw error;
+        consumeKnownError(error);
+        continue;
+      }
+      try {
+        const size = fstatSync(descriptor).size,
+          found = readLatestLineInTail(descriptor, size, size, (line) => {
+            let record: DaemonLifecycleRecord | null = null;
+            if (line.startsWith("{")) {
+              try {
+                const value = JSON.parse(line) as DaemonLifecycleRecord;
+                if (value.schema === DAEMON_LIFECYCLE_LOG_SCHEMA.id) record = value;
+              } catch (error) {
+                consumeKnownError(error);
+              }
+            }
+            if (record === null) return null;
+            records.push(record);
+            return record.event === "process_start" ? record : null;
+          });
+        if (found) return records.reverse();
+      } finally {
+        closeSync(descriptor);
+      }
+    }
+    return [];
+  }
   for (const file of files)
     for (const line of readFileSync(path.join(directory, file), "utf8").split("\n")) {
       if (!line.startsWith("{")) continue;
@@ -192,6 +234,18 @@ export function readDaemonLifecycleRecords(userRoot: string, daemonId: string): 
       }
     }
   return records;
+}
+
+/** The newest generation's records only; the retained history is not parsed. */
+export function readDaemonLifecycleGeneration(userRoot: string, daemonId: string): readonly DaemonLifecycleRecord[] {
+  return readDaemonLifecycleRecords(userRoot, daemonId, "current-generation");
+}
+
+/** Rotation keeps the oldest generation first: `.N` … `.1`, then the live file. */
+function lifecycleLogFiles(directory: string, base: string): string[] {
+  return readdirSync(directory)
+    .filter((file) => file === base || file.startsWith(`${base}.`))
+    .sort((left, right) => generation(right) - generation(left));
 }
 
 function rotateLifecycleLog(logPath: string, maxBytes: number, keptFiles: number): void {

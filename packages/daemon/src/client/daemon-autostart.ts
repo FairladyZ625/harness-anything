@@ -7,7 +7,7 @@ import {
   daemonSocketProbe,
   readDaemonSingletonLockPid,
 } from "../daemon-singleton.ts";
-import { daemonStdioLogPath, readDaemonLifecycleRecords } from "../lifecycle-log.ts";
+import { daemonStdioLogPath, readDaemonLifecycleGeneration } from "../lifecycle-log.ts";
 import { startDetachedProcessChecked } from "../process-port.ts";
 import { canonicalPath } from "../runtime-worker-push.ts";
 import {
@@ -309,11 +309,9 @@ export function daemonLaunchOutputPath(launch: DaemonLaunchSpec): string | undef
 export function readDaemonStartProgress(launch: DaemonLaunchSpec, waitedMs: number): DaemonStartProgress | null {
   const target = daemonLaunchTarget(launch);
   if (!target) return null;
-  const records = readDaemonLifecycleRecords(target.userRoot, target.daemonId),
-    start = records.findLastIndex((record) => record.event === "process_start");
-  if (start < 0) return null;
-  const generation = records.slice(start),
-    processRecord = generation[0]!;
+  const generation = readDaemonLifecycleGeneration(target.userRoot, target.daemonId);
+  if (generation.length === 0) return null;
+  const processRecord = generation[0]!;
   // A generation that has recorded its exit is terminal, whatever its pid still looks like: shutdown
   // records process_exit once the drain is done and then releases the endpoint, the pid file and the
   // singleton lock together, so reading those last milliseconds as "starting" would report the
@@ -359,12 +357,10 @@ function daemonIdentityStartup(launch: DaemonLaunchSpec | null): "pending" | "se
   if (!launch) return "unknown";
   const target = daemonLaunchTarget(launch);
   if (!target) return "unknown";
-  const records = readDaemonLifecycleRecords(target.userRoot, target.daemonId),
-    start = records.findLastIndex((record) => record.event === "process_start");
+  const generation = readDaemonLifecycleGeneration(target.userRoot, target.daemonId);
   // No observable generation (a hermetic host or a socket-only test double) leaves the socket as the
   // only readiness fact; only a generation this daemon recorded can be pending.
-  if (start < 0) return "unknown";
-  const generation = records.slice(start);
+  if (generation.length === 0) return "unknown";
   if (generation.some((record) => record.event === "process_exit")) return "pending";
   return identitySettled(generation) ? "settled" : "pending";
 }
