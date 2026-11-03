@@ -7,7 +7,7 @@ import test from "node:test";
 import { openDaemonDiagnostics } from "../src/daemon-diagnostics.ts";
 import { withDaemonObservation, observeDaemonOperation, markDaemonOperationPhase } from "../src/daemon-operation.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
-import { daemonDiagnosticsEndpoint } from "../src/client/local-daemon-target.ts";
+import { daemonDiagnosticsEndpoint, localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 
 // A finite 10-second observation window, with exactly 100 simulated node requests per second.
 // Timer ticks drive the workload; this is a CPU measurement, not a sleep used for synchronization.
@@ -38,8 +38,7 @@ test(
   { timeout: 40_000 },
   async () => {
     const root = mkdtempSync(path.join(tmpdir(), "ha-diag-cpu-")),
-      endpoint =
-        process.platform === "win32" ? `\\\\.\\pipe\\ha-diag-cpu-${process.pid}` : path.join(root, "daemon.sock");
+      endpoint = localUserDaemonEndpoint(root, "diagnostics-cpu");
     try {
       const baseline = await measure(() => {}),
         diagnostics = await openDaemonDiagnostics({ userRoot: root, daemonId: "cpu", endpoint });

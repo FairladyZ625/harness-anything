@@ -16,7 +16,7 @@ for (const mode of ["javascript", "native"]) {
     async () => {
       const root = mkdtempSync(path.join(tmpdir(), "ha-report-")),
         child = fork(new URL("./daemon-stack-report.fixture.mjs", import.meta.url), [], {
-          stdio: ["ignore", "ignore", "ignore", "ipc"],
+          stdio: ["ignore", "ignore", "pipe", "ipc"],
           execArgv: [
             "--report-on-signal",
             "--report-exclude-env",
@@ -24,6 +24,15 @@ for (const mode of ["javascript", "native"]) {
             `--report-directory=${root}`,
           ],
         });
+      let reportWritten!: () => void,
+        reportOutput = "";
+      const reportComplete = new Promise<void>((resolve) => {
+        reportWritten = resolve;
+      });
+      child.stderr!.on("data", (chunk) => {
+        reportOutput += chunk.toString();
+        if (reportOutput.includes("Node.js report completed")) reportWritten();
+      });
       try {
         await once(child, "message");
         const blocked = once(child, "message");
@@ -32,9 +41,7 @@ for (const mode of ["javascript", "native"]) {
         const recovered = once(child, "message");
         child.kill("SIGUSR2");
         const [end] = await recovered;
-        const deadline = performance.now() + 3_000;
-        while (readdirSync(root).length === 0 && performance.now() < deadline)
-          await new Promise<void>((resolve) => setImmediate(resolve));
+        await reportComplete;
         const files = readdirSync(root);
         assert.equal(files.length, 1);
         const report = JSON.parse(readFileSync(path.join(root, files[0]!), "utf8"));

@@ -17,7 +17,15 @@ export async function openDaemonDiagnostics(options: DaemonDiagnosticsOptions) {
     histogram = monitorEventLoopDelay({ resolution: 20 }),
     extension = path.extname(fileURLToPath(import.meta.url)),
     worker = new Worker(new URL(`./daemon-diagnostics-worker${extension}`, import.meta.url), {
-      workerData: { ...options, heartbeat: heartbeat.buffer },
+      workerData: {
+        userRoot: options.userRoot,
+        daemonId: options.daemonId,
+        endpoint: options.endpoint,
+        heartbeatMs: options.heartbeatMs,
+        stallThresholdMs: options.stallThresholdMs,
+        metricsIntervalMs: options.metricsIntervalMs,
+        heartbeat: heartbeat.buffer,
+      },
     });
   let nextId = 0,
     closed = false;

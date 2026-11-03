@@ -7,12 +7,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
-import { daemonDiagnosticsEndpoint } from "../src/client/local-daemon-target.ts";
+import { daemonDiagnosticsEndpoint, localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 
 async function fixture(mode: string) {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-diag-")),
-    endpoint =
-      process.platform === "win32" ? `\\\\.\\pipe\\ha-diag-${process.pid}-${mode}` : path.join(userRoot, "daemon.sock"),
+    endpoint = localUserDaemonEndpoint(userRoot, `diagnostics-${mode}`),
     child = fork(new URL("./daemon-diagnostics.fixture.ts", import.meta.url), [userRoot, endpoint, mode], {
       stdio: ["ignore", "pipe", "pipe", "ipc"],
     });
