@@ -179,13 +179,46 @@ test("an implementation dispatch carries the isolated-test entry without naming 
   assert.match(privateLedgerReadSection(reads)!, new RegExp(`- ${isolatedEntry.replaceAll("/", "\\/")} -> .+`, "u"));
 });
 
-test("reviewer and read-only dispatches omit the fixed entry", () => {
+test("a reviewer dispatch carries the isolated-test entry so a skill tool can resolve it", async (t) => {
+  const root = fixture(t),
+    worktree = await privateWorktree(root),
+    reads = resolvePrivateLedgerReads({
+      rootDir: root,
+      cwd: worktree,
+      texts: dispatchLedgerReadTexts({
+        prompts: [],
+        instructions: null,
+        mission: "# Mission\n评审员运行 data-migration-review 的 compare-tests。",
+        reviewer: true,
+        readOnly: false,
+      }),
+    }),
+    entry = reads.find((candidate) => candidate.asWritten === isolatedEntry.replaceAll("\\", "/"));
+
+  // data-migration's compare-tests resolves the dispatcher at `../../test-isolation/...` from the
+  // copied `data-migration-review/scripts` directory. Without this copy the reviewer's tool dies
+  // at MODULE_NOT_FOUND before any test runs (task_d31a89a5, 2026-11-03).
+  assert.ok(entry, "the fixed entry must be listed for a reviewer dispatch");
+  assert.equal(entry.directory, false);
+  assert.equal(existsSync(entry.readable), true, `${isolatedEntry} must be openable at ${entry.readable}`);
+  assert.equal(
+    existsSync(path.join(path.dirname(entry.readable), path.basename(isolatedSibling))),
+    true,
+    `${isolatedSibling} must sit next to the copied entry ${entry.readable}`,
+  );
+});
+
+test("every executing dispatch carries the fixed entry, while a read-only attach does not", () => {
   const lastText = (reviewer: boolean, readOnly: boolean) =>
     dispatchLedgerReadTexts({ prompts: [], instructions: null, mission: "MISSION", reviewer, readOnly }).at(-1);
 
   assert.deepEqual(privateLedgerReferences(lastText(false, false)!), [isolatedEntry]);
-  assert.deepEqual(privateLedgerReferences(lastText(true, false)!), [], "a reviewer cannot run the entry");
-  assert.deepEqual(privateLedgerReferences(lastText(false, true)!), [], "a read-only dispatch cannot run the entry");
+  assert.deepEqual(
+    privateLedgerReferences(lastText(true, false)!),
+    [isolatedEntry],
+    "a reviewer runs skill tools that resolve the entry",
+  );
+  assert.deepEqual(privateLedgerReferences(lastText(false, true)!), [], "a read-only attach executes nothing");
 });
 
 /** A managed worktree of the fixture repo, prepared through the same setup production uses. */

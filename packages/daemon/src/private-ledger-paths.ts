@@ -28,18 +28,20 @@ const LEDGER_REFERENCE = /(?:^|[^A-Za-z0-9._/-])harness\/[A-Za-z0-9._\-/{},*]+/g
   TRAILING_PROSE = /[.,;:)\]>'"`]+$/u;
 
 /**
- * The isolated-test entry every implementation dispatch owes its worker whether or not its
- * declaration or mission names the path yet: a worktree checkout holds no `harness/` subtree, and
- * the worker that cannot find this file reads the entry as absent and stops without its targeted
- * tests (task_936005e1, 2026-10-24). The line rides the same reference extractor as a
+ * The isolated-test entry every executing dispatch owes its worker whether or not its declaration
+ * or mission names the path yet: a worktree checkout holds no `harness/` subtree, and the worker
+ * that cannot find this file reads the entry as absent and stops without its targeted tests
+ * (task_936005e1, 2026-10-24). A reviewer runs skill tools too — data-migration's `compare-tests`
+ * invokes this entry through its sibling skill directory — so a reviewer dispatch carries it as
+ * well; a read-only attach executes nothing. The line rides the same reference extractor as a
  * mission-written path, so this literal stays the entry's only copy in source.
  */
 export const isolatedTestDispatchEntry = "node harness/skills/test-isolation/dispatch-isolated-test.mjs --file …";
 
 /**
  * The texts one dispatch scans for private references: the declared prompts, the instructions and
- * the mission. A reviewer or a read-only dispatch cannot run the isolated entry, so only an
- * implementation dispatch carries it fixed.
+ * the mission. Every dispatch that can execute carries the isolated entry fixed; only a read-only
+ * attach, which runs nothing, omits it.
  */
 export function dispatchLedgerReadTexts(input: {
   readonly prompts: readonly string[];
@@ -48,12 +50,7 @@ export function dispatchLedgerReadTexts(input: {
   readonly reviewer: boolean;
   readonly readOnly: boolean;
 }): readonly (string | null | undefined)[] {
-  return [
-    ...input.prompts,
-    input.instructions,
-    input.mission,
-    ...(input.reviewer || input.readOnly ? [] : [isolatedTestDispatchEntry]),
-  ];
+  return [...input.prompts, input.instructions, input.mission, ...(input.readOnly ? [] : [isolatedTestDispatchEntry])];
 }
 
 /** Every distinct `harness/…` reference in one text, in first-seen order, prose punctuation stripped. */

@@ -610,7 +610,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             ),
             // A worktree checks out no private ledger, so every `harness/…` reference the agent
             // declaration or the mission carries is answered with the path this worker can open;
-            // an implementation dispatch also owes the isolated-test entry when nothing names it.
+            // every executing dispatch also owes the isolated-test entry when nothing names it.
             privateReads = privateLedgerReadSection(
               resolvePrivateLedgerReads({
                 rootDir: input.rootDir,
