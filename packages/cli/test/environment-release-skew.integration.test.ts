@@ -75,86 +75,90 @@ test("version-skewed shutdown must reject before sending daemon.stop", { timeout
   }
 });
 
-test(
-  "daemon stop must surface version refusal without marking or signalling the daemon",
-  { timeout: 20_000 },
-  async () => {
-    const f = await fixture(false),
-      signalMarker = path.join(f.parent, "signalled");
-    // This is a test-owned dummy process, not a host service or a real daemon.
-    const target = spawn(
-      process.execPath,
-      [
-        "--input-type=module",
-        "-e",
-        "import {writeFileSync} from 'node:fs'; process.on('SIGTERM',()=>{writeFileSync(process.argv[1],'SIGTERM');process.exit(0)}); console.log('ready'); setInterval(()=>{},1000);",
-        signalMarker,
-      ],
-      { stdio: ["ignore", "pipe", "pipe"] },
-    );
-    try {
-      await once(target.stdout!, "data");
-      writeFileSync(daemonPidPath(f.userRoot, f.daemonId), `${target.pid}\n`);
-      writeFileSync(daemonSingletonLockPath(f.userRoot, f.daemonId), `${target.pid}\n`);
-      const env = { ...process.env };
-      for (const key of Object.keys(env)) if (key.startsWith("HARNESS_")) delete env[key];
-      if (fixtureDaemonHello().build.commit) env.HARNESS_BUILD_COMMIT = fixtureDaemonHello().build.commit!;
-      env.HARNESS_DAEMON_USER_ROOT = f.userRoot;
-      env.HARNESS_DAEMON_ID = f.daemonId;
-      const cli = spawn(
+for (const force of [false, true])
+  test(
+    force
+      ? "daemon stop --force must surface hello version refusal without marking or signalling the daemon"
+      : "daemon stop must surface version refusal without marking or signalling the daemon",
+    { timeout: 20_000 },
+    async () => {
+      const f = await fixture(force),
+        signalMarker = path.join(f.parent, "signalled");
+      // This is a test-owned dummy process, not a host service or a real daemon.
+      const target = spawn(
         process.execPath,
         [
-          "packages/cli/src/index.ts",
-          "daemon",
-          "stop",
-          "--user-root",
-          f.userRoot,
-          "--daemon-id",
-          f.daemonId,
-          "--root",
-          f.parent,
-          "--json",
+          "--input-type=module",
+          "-e",
+          "import {writeFileSync} from 'node:fs'; process.on('SIGTERM',()=>{writeFileSync(process.argv[1],'SIGTERM');process.exit(0)}); console.log('ready'); setInterval(()=>{},1000);",
+          signalMarker,
         ],
-        { env, stdio: ["ignore", "pipe", "pipe"] },
+        { stdio: ["ignore", "pipe", "pipe"] },
       );
-      let stdout = "",
-        stderr = "";
-      cli.stdout!.on("data", (chunk: Buffer) => {
-        stdout += chunk.toString();
-      });
-      cli.stderr!.on("data", (chunk: Buffer) => {
-        stderr += chunk.toString();
-      });
-      const [exitCode] = await once(cli, "close");
-      const stoppedMarker = daemonPidPath(f.userRoot, f.daemonId).replace(/\.pid$/u, ".stopped");
-      const observed = {
-        exitCode,
-        stdout,
-        stderr,
-        signalSent: existsSync(signalMarker),
-        stoppedMarker: existsSync(stoppedMarker),
-        methods: f.methods,
-      };
-      console.log(JSON.stringify(observed));
-      assert.equal(observed.signalSent, false, JSON.stringify(observed));
-      assert.equal(observed.stoppedMarker, false, JSON.stringify(observed));
-      assert.notEqual(exitCode, 0, stdout);
-      assert.match(stdout, /daemon_version_mismatch/u);
-      assert.deepEqual(
-        f.methods,
-        ["protocol.hello", "daemon.stop"],
-        "The fixture must reach the explicit stop refusal.",
-      );
-    } finally {
-      if (target.exitCode === null && target.signalCode === null) {
-        const exited = once(target, "exit");
-        target.kill("SIGKILL");
-        await exited;
+      try {
+        await once(target.stdout!, "data");
+        writeFileSync(daemonPidPath(f.userRoot, f.daemonId), `${target.pid}\n`);
+        writeFileSync(daemonSingletonLockPath(f.userRoot, f.daemonId), `${target.pid}\n`);
+        const env = { ...process.env };
+        for (const key of Object.keys(env)) if (key.startsWith("HARNESS_")) delete env[key];
+        if (fixtureDaemonHello().build.commit) env.HARNESS_BUILD_COMMIT = fixtureDaemonHello().build.commit!;
+        env.HARNESS_DAEMON_USER_ROOT = f.userRoot;
+        env.HARNESS_DAEMON_ID = f.daemonId;
+        const cli = spawn(
+          process.execPath,
+          [
+            "packages/cli/src/index.ts",
+            "daemon",
+            "stop",
+            ...(force ? ["--force"] : []),
+            "--user-root",
+            f.userRoot,
+            "--daemon-id",
+            f.daemonId,
+            "--root",
+            f.parent,
+            "--json",
+          ],
+          { env, stdio: ["ignore", "pipe", "pipe"] },
+        );
+        let stdout = "",
+          stderr = "";
+        cli.stdout!.on("data", (chunk: Buffer) => {
+          stdout += chunk.toString();
+        });
+        cli.stderr!.on("data", (chunk: Buffer) => {
+          stderr += chunk.toString();
+        });
+        const [exitCode] = await once(cli, "close");
+        const stoppedMarker = daemonPidPath(f.userRoot, f.daemonId).replace(/\.pid$/u, ".stopped");
+        const observed = {
+          exitCode,
+          stdout,
+          stderr,
+          signalSent: existsSync(signalMarker),
+          stoppedMarker: existsSync(stoppedMarker),
+          methods: f.methods,
+        };
+        console.log(JSON.stringify(observed));
+        assert.equal(observed.signalSent, false, JSON.stringify(observed));
+        assert.equal(observed.stoppedMarker, false, JSON.stringify(observed));
+        assert.notEqual(exitCode, 0, stdout);
+        assert.match(stdout, /daemon_version_mismatch/u);
+        assert.deepEqual(
+          f.methods,
+          force ? ["protocol.hello"] : ["protocol.hello", "daemon.stop"],
+          "A refusal must prevent every subsequent stop path.",
+        );
+      } finally {
+        if (target.exitCode === null && target.signalCode === null) {
+          const exited = once(target, "exit");
+          target.kill("SIGKILL");
+          await exited;
+        }
+        await f.close();
       }
-      await f.close();
-    }
-  },
-);
+    },
+  );
 
 test("ordinary CLI requests preserve release mismatch as their error code", async () => {
   const f = await fixture(true);
