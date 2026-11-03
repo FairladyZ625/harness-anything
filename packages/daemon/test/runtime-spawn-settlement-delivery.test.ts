@@ -643,6 +643,67 @@ test("reviewer settlement registers a valid dispatch report left before registra
   assert.notEqual(outcomes[0]?.reasonCode, "review_result_missing");
 });
 
+test("read-only review recovery is blocked before writing without successful local command evidence", async (context) => {
+  const fixture = workerGitFixture(context, "settle-review-without-command-evidence", { reachableRemote: true }),
+    runtime = workerSettlementRuntime(fixture, {
+      finalText: "the model emitted an approved packet without readable local evidence",
+      publicationOwner: "commander",
+      role: "reviewer",
+      permissionMode: "read-only",
+      localCommandSucceeded: false,
+    }),
+    reportDirectory = path.join(
+      fixture.worker,
+      "harness/tasks/task_0123456789abcdef01234567-fixture/artifacts/reports",
+    ),
+    outcomes: Record<string, unknown>[] = [];
+  let recoveries = 0;
+  mkdirSync(reportDirectory, { recursive: true });
+  writeFileSync(
+    path.join(reportDirectory, `${runtime.dispatchId}.md`),
+    "# Review\n\nApproved without local evidence.\n",
+  );
+  writeFileSync(
+    path.join(reportDirectory, `${runtime.dispatchId}.json`),
+    JSON.stringify({
+      verdict: "approved",
+      reason: "No local evidence",
+      evidenceChecked: ["submitted cut"],
+      findings: [],
+    }),
+  );
+  const settleContext = workerSettlementContext(fixture, async (type, payload = {}) => {
+    if (type === "runtime_session_outcome_observed") outcomes.push(payload);
+    return {};
+  });
+  await publishExit(
+    {
+      ...settleContext,
+      input: {
+        ...settleContext.input,
+        remote: undefined,
+        recoverReviewerReview: async () => {
+          recoveries += 1;
+        },
+      },
+      requiredRuntimeProjection: () =>
+        deliveryProjection(
+          null,
+          "repository-diff",
+          [],
+          recoveries > 0 ? [{ reviewId: `review-${runtime.dispatchId}` }] : [],
+          true,
+          true,
+        ),
+    },
+    runtime,
+    0,
+  );
+  assert.equal(recoveries, 0, "an approved artifact must not reach the durable Review writer");
+  assert.equal(outcomes[0]?.outcome, "failed");
+  assert.equal((outcomes[0]?.attempt as { classification: string }).classification, "gate_red");
+});
+
 test("edge reviewer settlement recovers through its center action and releases its credential", async (context) => {
   const fixture = workerGitFixture(context, "settle-edge-review-report-unregistered", { reachableRemote: true }),
     runtime = workerSettlementRuntime(fixture, {

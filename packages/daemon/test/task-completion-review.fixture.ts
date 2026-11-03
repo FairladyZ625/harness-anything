@@ -769,6 +769,7 @@ export async function fixture(
       runtimeSessionId: string,
       resultText: string,
       reportText: string | null = null,
+      commandExitCode = 0,
     ) => {
       if (reportText !== null) {
         const report = path.join(root, "harness", packagePath, "artifacts", "reports", `${dispatchId}.md`);
@@ -780,7 +781,12 @@ export async function fixture(
       pending.output?.(
         `${JSON.stringify({
           type: "item.completed",
-          item: { type: "command_execution", status: "completed", exit_code: 0, aggregated_output: "review evidence" },
+          item: {
+            type: "command_execution",
+            status: commandExitCode === 0 ? "completed" : "failed",
+            exit_code: commandExitCode,
+            aggregated_output: "review evidence",
+          },
         })}\n`,
       );
       pending.output?.(

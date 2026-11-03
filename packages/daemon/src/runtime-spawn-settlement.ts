@@ -181,6 +181,13 @@ export async function publishExit(
               : { superseded: false };
           })()
         : { superseded: false };
+    const reviewerCommandEvidenceMissing =
+      !cancelled &&
+      !reviewSuperseded.superseded &&
+      active.kindId === "codex" &&
+      active.role === "reviewer" &&
+      active.permissionMode === "read-only" &&
+      !active.localCommandSucceeded;
     const reviewId = `review-${active.dispatchId}`;
     const providerAlreadyFailed = outcome === "failed";
     // A reviewer owes a registered review, not merely a report or a clean provider exit. Check
@@ -198,8 +205,10 @@ export async function publishExit(
       !reviewRegistered
     ) {
       const recoverReview = context.input.remote?.recoverReviewerReview ?? context.input.recoverReviewerReview;
+      // Recovery records a durable Review; reject missing local evidence before invoking its writer.
       if (
         !providerAlreadyFailed &&
+        !reviewerCommandEvidenceMissing &&
         active.task !== null &&
         reviewReport !== null &&
         reviewPacket !== null &&
@@ -239,18 +248,11 @@ export async function publishExit(
         reviewResultMissing = true;
       }
     }
-    // Completion witnesses (including a recovered Review) cannot replace local evidence.
-    // Apply this once after witness recovery, preserving failures and registration diagnostics.
-    const reviewerCommandEvidenceMissing =
-      !cancelled &&
-      !reviewSuperseded.superseded &&
-      outcome === "succeeded" &&
-      active.kindId === "codex" &&
-      active.role === "reviewer" &&
-      active.permissionMode === "read-only" &&
-      !active.localCommandSucceeded;
-    if (reviewerCommandEvidenceMissing) outcome = "failed";
-    const attemptClassification = reviewerCommandEvidenceMissing
+    // Keep the terminal check as a final guard against any later success witness.
+    const reviewerCommandEvidenceGate =
+      reviewerCommandEvidenceMissing && (outcome === "succeeded" || (reviewResultMissing && !providerAlreadyFailed));
+    if (reviewerCommandEvidenceGate) outcome = "failed";
+    const attemptClassification = reviewerCommandEvidenceGate
       ? { ...classifiedAttempt, classification: "gate_red" as const }
       : classifiedAttempt;
     const attemptOutcome = {
@@ -262,7 +264,7 @@ export async function publishExit(
         ? reviewSuperseded.reason!
         : reviewResultMissing && !providerAlreadyFailed
           ? `Review ${reviewId} was not registered before reviewer settlement.`
-          : reviewerCommandEvidenceMissing
+          : reviewerCommandEvidenceGate
             ? "Read-only reviewer produced no successful local command evidence."
             : isProviderFailureClassification(attemptClassification.classification)
               ? attemptOutcomeReason(attemptClassification.reason, active.stream.ref)
