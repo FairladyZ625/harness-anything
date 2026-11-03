@@ -70,7 +70,7 @@ function register() {
 }
 
 test(
-  "watchdog registration at 100 requests per second stays within its cross-thread workload budget",
+  "watchdog registration at 100 requests per second stays within its workload and two percent CPU budgets",
   { timeout: 40_000 },
   async () => {
     const root = mkdtempSync(path.join(tmpdir(), "ha-diag-cpu-")),
@@ -148,6 +148,7 @@ test(
         `registration must not persist a record per request: ${JSON.stringify(report)}`,
       );
       assert.ok(periodicRecords.length <= 4, `periodic persistence: ${JSON.stringify(report)}`);
+      assert.ok(report.withinBudget, `steady-state CPU budget: ${JSON.stringify(report)}`);
     } finally {
       rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
     }
