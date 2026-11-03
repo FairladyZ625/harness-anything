@@ -192,7 +192,7 @@ test("real local socket calls return priced and unpriced quote receipts", async 
     // use the platform's local endpoint there and keep the POSIX case unchanged.
     socketPath =
       process.platform === "win32"
-        ? localUserDaemonEndpoint(path.join(root, "user"), "quote").socketPath
+        ? localUserDaemonEndpoint(path.join(root, "user"), "quote")
         : path.join(root, "daemon.sock"),
     listener = net.createServer((socket) => {
       serveJsonRpcStream({
