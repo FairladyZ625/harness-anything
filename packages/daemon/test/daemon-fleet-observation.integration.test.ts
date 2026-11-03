@@ -24,6 +24,11 @@ function observation() {
       return {
         update: (update) => {
           Object.assign(record, update);
+          if (typeof update.phase === "string") {
+            const sequence = (record.phaseSequence as string[] | undefined) ?? [];
+            sequence.push(update.phase);
+            record.phaseSequence = sequence;
+          }
         },
         end: () => {
           active.delete(id);
@@ -53,8 +58,13 @@ test("real Fleet callbacks bind their observer across TLS queues without recordi
   assert.ok(request);
   assert.equal(request.repoId, f.subject.repoId);
   assert.equal(request.actor, `node:${f.subject.nodeId}`);
-  assert.equal(request.phase, "fleet-dispatch");
+  assert.equal(request.phase, "projection-read");
   assert.equal(request.nodeId, f.subject.nodeId);
+  assert.ok(Number(request.requestBytes) > 0);
+  assert.ok(Number(request.replyBytes) > 0);
+  assert.equal(request.outcome, "ok");
+  assert.ok((request.phaseSequence as string[]).includes("authorization"), JSON.stringify(request.phaseSequence));
+  assert.ok((request.phaseSequence as string[]).includes("projection-read"), JSON.stringify(request.phaseSequence));
   assert.deepEqual(Object.keys(request).sort(), [
     "actor",
     "endedAtMs",
@@ -62,6 +72,8 @@ test("real Fleet callbacks bind their observer across TLS queues without recordi
     "nodeId",
     "outcome",
     "phase",
+    "phaseMark",
+    "phaseSequence",
     "replyBytes",
     "repoId",
     "requestBytes",
@@ -70,6 +82,19 @@ test("real Fleet callbacks bind their observer across TLS queues without recordi
     "startedAtMs",
     "traceId",
   ]);
+  const failedResponse = await peer.request({
+    schema: "fleet.repo.metadata.get/v1",
+    messageId: "observed-failure",
+    repoId: "repo-missing",
+    accessToken: "invalid-token",
+    includeGitMetadata: false,
+  });
+  assert.equal(failedResponse.schema, "fleet.error/v1");
+  const failed = observed.records.find((row) => row.method === "fleet.repo.metadata.get/v1");
+  assert.ok(failed);
+  assert.equal(failed.outcome, "error");
+  assert.ok(Number(failed.requestBytes) > 0);
+  assert.equal(failed.replyBytes, 0);
   assert.ok(!JSON.stringify(observed.records).includes("machine-secret"));
   assert.equal(observed.active.size, 0);
 });

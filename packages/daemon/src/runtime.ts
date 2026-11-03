@@ -193,8 +193,7 @@ export async function startDaemon(input: {
     diagnostics = await openDaemonDiagnostics({
       ...input,
       endpoint,
-      writeQueues: () =>
-        (host?.status().repos ?? []).map((repo) => ({ repoId: repo.repoId, queueDepth: repo.queueDepth ?? null })),
+      writeQueues: () => host?.writeQueues() ?? [],
     });
     const oidc = createIdentitySession(input.userRoot);
     host = await withDaemonObservation(diagnostics.observer, () =>
@@ -214,8 +213,7 @@ export async function startDaemon(input: {
     transport = createUnixSocketTransportServer({
       daemonId: input.daemonId,
       socketPath: endpoint,
-      takeEventLoopStallMs: () => diagnostics?.takeEventLoopStallMs() ?? 0,
-      currentEventLoopDelayMs: () => diagnostics?.currentEventLoopDelayMs() ?? 0,
+      adjustFrameArrival: (observedAtMs) => diagnostics?.frameArrivalAt(observedAtMs) ?? observedAtMs,
       createProtocolServer: (authContext, emit, connectionId, signal) =>
         createJsonRpcProtocolServer({
           host: host!,

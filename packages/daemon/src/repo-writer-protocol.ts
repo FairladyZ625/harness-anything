@@ -76,6 +76,8 @@ export interface RepoWriterReceiptV1 {
   readonly error?: SerializedWriterErrorV1;
   /** Process-monotonic milliseconds when the worker began this request, for queue-vs-execution split. */
   readonly startedAtMs?: number;
+  /** Actual dequeue point inside the cell's single-write chain; defaults to `startedAtMs` when absent. */
+  readonly executionStartedAtMs?: number;
   /** Process-monotonic milliseconds when the worker finished it; same clock as the daemon. */
   readonly finishedAtMs?: number;
 }

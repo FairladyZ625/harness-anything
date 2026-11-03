@@ -24,7 +24,12 @@ function observer() {
   return { sink, traces };
 }
 
-function server(sink: DaemonOperationObserver, slowStatusMs: number) {
+function server(
+  sink: DaemonOperationObserver,
+  slowStatusMs: number,
+  largePayload = 0,
+  recordTraffic?: (entry: Record<string, unknown>) => void,
+) {
   const authContext: DaemonAuthenticationContext = {
     transportKind: "unix-socket",
     unixSocketOwnerBoundary: { ownerUid: 501, source: "unix-socket-filesystem-owner-boundary" },
@@ -38,12 +43,19 @@ function server(sink: DaemonOperationObserver, slowStatusMs: number) {
         while (performance.now() < until) {
           /* deliberately slow read stage */
         }
-        return { daemonId: "phase-fixture", pid: process.pid, repos: [], summary: "fixture" };
+        return {
+          daemonId: "phase-fixture",
+          pid: process.pid,
+          repos: [],
+          summary: "fixture",
+          ...(largePayload > 0 ? { padding: "x".repeat(largePayload) } : {}),
+        };
       },
     } as unknown as DaemonHost,
     build: { loadedBuildId: null, commit: null, builtAt: null },
     authContext,
     emit: async () => undefined,
+    ...(recordTraffic ? { recordTraffic } : {}),
   });
 }
 
@@ -68,4 +80,58 @@ test("the JSON-RPC dispatch attributes a deliberately slow stage to its marker",
   assert.ok(trace.phases.some((phase) => phase.name === "serialization"));
   assert.match(trace.traceId, /^[0-9a-f]{32}$/u);
   assert.match(trace.spanId, /^[0-9a-f]{16}$/u);
+});
+
+test("serialization owns JSON encoding and reply owns the transport write", async () => {
+  const observed = observer(),
+    protocol = server(observed.sink, 0, 2 * 1024 * 1024);
+  await protocol.handle({
+    jsonrpc: "2.0",
+    id: 1,
+    method: "protocol.hello",
+    params: { protocolVersion: currentDaemonProtocolVersion },
+  });
+  const response = await protocol.handle(
+    { jsonrpc: "2.0", id: 2, method: "daemon.status", params: {} },
+    {
+      frameReceivedAt: Date.now(),
+      frameBytes: 123,
+      writeResponse: () => {
+        const until = performance.now() + 25;
+        while (performance.now() < until) {
+          /* simulate a slow socket write */
+        }
+        return 0;
+      },
+    },
+  );
+  assert.ok(response);
+  const trace = observed.traces.at(-1)!,
+    serialization = trace.phases.find((phase) => phase.name === "serialization")!,
+    reply = trace.phases.find((phase) => phase.name === "reply")!;
+  assert.ok(serialization.endedAtMs - serialization.startedAtMs > 0, JSON.stringify(trace.phases));
+  assert.ok(reply.endedAtMs - reply.startedAtMs >= 20, JSON.stringify(trace.phases));
+  assert.ok(reply.startedAtMs >= serialization.endedAtMs);
+  assert.equal(trace.requestBytes, 123);
+  assert.ok(trace.replyBytes > 2 * 1024 * 1024);
+});
+
+test("JSON-RPC traffic records the frame bytes and the encoded reply bytes on the operation", async () => {
+  const observed = observer(),
+    traffic: Record<string, unknown>[] = [],
+    protocol = server(observed.sink, 0, 0, (entry) => traffic.push(entry));
+  await protocol.handle({
+    jsonrpc: "2.0",
+    id: 1,
+    method: "protocol.hello",
+    params: { protocolVersion: currentDaemonProtocolVersion },
+  });
+  await protocol.handle(
+    { jsonrpc: "2.0", id: 2, method: "daemon.status", params: {} },
+    { frameReceivedAt: Date.now(), frameBytes: 321, writeResponse: () => 0 },
+  );
+  const entry = traffic.at(-1)!;
+  assert.equal(entry.requestBytes, 321);
+  assert.ok(Number(entry.replyBytes) > 0);
+  assert.equal(entry.nodeId, null);
 });

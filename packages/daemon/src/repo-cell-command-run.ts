@@ -133,6 +133,7 @@ export function makeRepoCellCommandRunner(
   action: RepoTaskAction,
   binding: RepoCellBinding,
   signal?: AbortSignal,
+  onExecutionStart?: () => void,
 ) => Promise<WriteReceipt | SquadControlResult> {
   let settlingRecovery: string | null = null;
   const run = async (
@@ -140,6 +141,7 @@ export function makeRepoCellCommandRunner(
     binding: RepoCellBinding,
     signal?: AbortSignal,
     resolveTargetAfterAuthorization = false,
+    executionStarted?: () => void,
   ): Promise<WriteReceipt | SquadControlResult> => {
     if (context.state !== "attached")
       await context.attemptRecovery(recoveryCommandPolicy(action.kind, context.causeClass)?.settlesLatch === true);
@@ -253,6 +255,7 @@ export function makeRepoCellCommandRunner(
     if (command.commandClass === "repo-read")
       return Promise.resolve()
         .then(async () => {
+          executionStarted?.();
           const admission = admitRepoMode(context.mode, command, binding.source);
           if (!admission.ok) throw context.cellCodedError(admission.code, admission.nextAction);
           if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
@@ -289,6 +292,7 @@ export function makeRepoCellCommandRunner(
       };
       const pending = chainRepoCellWrite(context.tail, async () => {
         context.queueDepth -= 1;
+        executionStarted?.();
         const claimRejected = claimAtPublication ? await bindExecutorClaim() : null;
         if (claimRejected) return claimRejected;
         if (durable) {
@@ -475,7 +479,12 @@ export function makeRepoCellCommandRunner(
       context.executeAction(action, authorizationDecision ? { ...binding, authorizationDecision } : binding),
     );
   };
-  return async (action: RepoTaskAction, binding: RepoCellBinding, signal?: AbortSignal) => {
+  return async (
+    action: RepoTaskAction,
+    binding: RepoCellBinding,
+    signal?: AbortSignal,
+    onExecutionStart?: () => void,
+  ) => {
     let resolution: ReturnType<typeof resolveTaskWriteTarget>;
     try {
       resolution = resolveTaskWriteTarget(context, action, { deferInvalidTarget: true });
@@ -484,7 +493,7 @@ export function makeRepoCellCommandRunner(
       return rejected;
     }
     action = resolution.action;
-    const receipt = await run(action, binding, signal, !resolution.resolved);
+    const receipt = await run(action, binding, signal, !resolution.resolved, onExecutionStart);
     if (
       (action.kind === "task-submit" || action.kind === "task-settle" || action.kind === "task-witness-rerun") &&
       typeof action.taskId === "string" &&

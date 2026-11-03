@@ -73,6 +73,8 @@ export interface JsonRpcProtocolServer {
       readonly frameBytes?: number;
       /** Main-thread scheduling delay observed when the frame was first read. */
       readonly eventLoopStallMs?: number;
+      /** Production transport write, so the reply stage covers encoding and the socket write. */
+      readonly writeResponse?: (response: JsonRpcResponse) => number;
     },
   ) => Promise<JsonRpcResponse | JsonRpcResponse[] | undefined>;
   readonly close: () => void;
@@ -154,6 +156,7 @@ export function createJsonRpcProtocolServer(options: {
     admittedBeforeBuildDrain = false,
     requestBytes = 0,
     eventLoopStallMs = 0,
+    timing?: { readonly writeResponse?: (response: JsonRpcResponse) => number },
   ): Promise<JsonRpcResponse | undefined> => {
     const id = request.id ?? null,
       startedAt = Date.now(),
@@ -186,10 +189,14 @@ export function createJsonRpcProtocolServer(options: {
       result: DaemonRpcResult<Method>,
     ): JsonRpcResponse | undefined => {
       markDaemonOperationPhase("serialization");
-      const repliedAt = Date.now(),
-        serviceMs = repliedAt - startedAt,
-        response = request.id === undefined ? undefined : { jsonrpc: "2.0" as const, id, result },
+      const response = request.id === undefined ? undefined : { jsonrpc: "2.0" as const, id, result },
         replyBytes = response === undefined ? 0 : encodeAndAttach(response);
+      // The reply stage starts after serialization and includes the transport's socket write; the
+      // service/duration sample therefore never ends before the bytes were handed to the socket.
+      markDaemonOperationPhase("reply");
+      if (response !== undefined) timing?.writeResponse?.(response);
+      const repliedAt = Date.now(),
+        serviceMs = repliedAt - startedAt;
       // Reading retained request history must not append itself to that history. Transport
       // traffic still records this diagnostic, including failures, through the separate sink.
       const payload = isJsonObject(request.params) ? request.params.payload : undefined;
@@ -203,7 +210,7 @@ export function createJsonRpcProtocolServer(options: {
       )
         recordRequest(method, observed, result, dispatchDelayMs, serviceMs);
       const ok = resultOk(result);
-      updateDaemonOperation({ outcome: ok ? "ok" : "error", replyBytes });
+      updateDaemonOperation({ outcome: ok ? "ok" : "error", requestBytes, replyBytes });
       traffic(
         method,
         observed.repoId || null,
@@ -946,6 +953,7 @@ export function createJsonRpcProtocolServer(options: {
     frameReceivedAt = Date.now(),
     frameBytes = 0,
     eventLoopStallMs = 0,
+    writeResponse?: (response: JsonRpcResponse) => number,
   ): Promise<JsonRpcResponse | undefined> => {
     const method = typeof request.method === "string" ? request.method : "";
     // Parked waits are observations, not work: counting one would pin a superseded daemon resident
@@ -966,7 +974,14 @@ export function createJsonRpcProtocolServer(options: {
         if (admitted) options.onRequestStarted?.(method);
       }
       try {
-        return await run(request, frameReceivedAt, false, frameBytes, eventLoopStallMs);
+        return await run(
+          request,
+          frameReceivedAt,
+          false,
+          frameBytes,
+          eventLoopStallMs,
+          writeResponse === undefined ? undefined : { writeResponse },
+        );
       } finally {
         if (!handshaken || options.authContext.connectionSignal?.aborted) releaseHello();
       }
@@ -976,7 +991,14 @@ export function createJsonRpcProtocolServer(options: {
       releaseHello();
       // Register abandonment around authentication as well as the host read: neither phase owns work.
       const response = await raceParkedWait(
-        run(request, frameReceivedAt, admitted, frameBytes, eventLoopStallMs),
+        run(
+          request,
+          frameReceivedAt,
+          admitted,
+          frameBytes,
+          eventLoopStallMs,
+          writeResponse === undefined ? undefined : { writeResponse },
+        ),
         parkedWaitAborts,
         options.authContext.connectionSignal,
         options.host.parkedWaitSignal,
@@ -989,21 +1011,30 @@ export function createJsonRpcProtocolServer(options: {
     if (admitted) options.onRequestStarted?.(method);
     releaseHello();
     try {
-      return await run(request, frameReceivedAt, admitted, frameBytes, eventLoopStallMs);
+      return await run(
+        request,
+        frameReceivedAt,
+        admitted,
+        frameBytes,
+        eventLoopStallMs,
+        writeResponse === undefined ? undefined : { writeResponse },
+      );
     } finally {
       if (admitted) options.onRequestSettled?.(method);
     }
   };
   return {
     handle: async (message, timing) => {
-      const observedOne = (request: JsonRpcRequest) =>
-        observeDaemonRequest(
-          request,
-          options.authContext,
-          () => one(request, timing?.frameReceivedAt, timing?.frameBytes, timing?.eventLoopStallMs),
-          options.operationObserver,
-        );
-      if (!Array.isArray(message)) return observedOne(message);
+      const single = !Array.isArray(message),
+        writeResponse = single ? timing?.writeResponse : undefined,
+        observedOne = (request: JsonRpcRequest) =>
+          observeDaemonRequest(
+            request,
+            options.authContext,
+            () => one(request, timing?.frameReceivedAt, timing?.frameBytes, timing?.eventLoopStallMs, writeResponse),
+            options.operationObserver,
+          );
+      if (single) return observedOne(message);
       const responses = (await Promise.all(message.map(observedOne))).filter(
         (item): item is JsonRpcResponse => item !== undefined,
       );
@@ -1118,7 +1149,6 @@ export function createJsonRpcProtocolServer(options: {
 }
 
 function encodeAndAttach(response: JsonRpcResponse): number {
-  markDaemonOperationPhase("reply");
   const encoded = encodeJsonRpcFrame(response);
   attachEncodedJsonRpcFrame(response, encoded);
   return encodedFrameBytes(encoded);

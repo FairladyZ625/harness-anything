@@ -82,8 +82,10 @@ test(
           while (performance.now() - started < 60) {
             /* deliberate main-thread block */
           }
-          const value = diagnostics.takeEventLoopStallMs();
-          return value >= 20 ? value : null;
+          const observed = Date.now(),
+            arrival = diagnostics.frameArrivalAt(observed),
+            adjusted = observed - arrival;
+          return adjusted >= 20 ? adjusted : null;
         });
         assert.ok(stall >= 20, `measured stall ${stall}ms`);
       } finally {

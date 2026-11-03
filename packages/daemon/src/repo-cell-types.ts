@@ -216,6 +216,7 @@ export interface RepoCell {
     action: RepoTaskAction,
     binding: RepoCellBinding,
     signal?: AbortSignal,
+    onExecutionStart?: () => void,
   ) => Promise<WriteReceipt | SquadControlResult>;
   readonly presetRun: (
     action: RepoTaskAction,

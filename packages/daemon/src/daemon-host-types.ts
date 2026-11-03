@@ -262,6 +262,8 @@ export interface DaemonHost {
     readonly fleetVersionWarnings?: readonly string[];
     readonly summary: string;
   };
+  /** Lightweight queue snapshot from loaded cells only; no registry/build/cell re-read. */
+  readonly writeQueues: () => readonly { readonly repoId: string; readonly queueDepth: number | null }[];
   readonly configureNodeAutoClaim: (policy: unknown, auth: DaemonAuthenticationContext) => Promise<JsonObject>;
   readonly pendingFleetDeliveries: () => number;
   readonly startAttachments: () => void;

@@ -584,9 +584,11 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "daemon-service-install",
       "daemon-service-status",
       "daemon-service-uninstall",
+      "daemon-slo",
       "daemon-start",
       "daemon-status",
       "daemon-stop",
+      "daemon-top",
     ],
     repo: ["repo-purge", "repo-unbind"],
     decision: [

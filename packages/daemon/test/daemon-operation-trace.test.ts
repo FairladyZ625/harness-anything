@@ -97,6 +97,7 @@ test("an explicit writer window closes the queue stage and opens no duplicate ph
   const trace = observed.traces[0]!;
   const queue = trace.phases.find((phase) => phase.name === "write-queue")!;
   const execution = trace.phases.find((phase) => phase.name === "write-execution")!;
+  assert.ok(queue.endedAtMs - queue.startedAtMs >= 4, JSON.stringify(trace.phases));
   assert.ok(queue.endedAtMs <= execution.startedAtMs);
   assert.ok(execution.endedAtMs - execution.startedAtMs >= 20);
 });

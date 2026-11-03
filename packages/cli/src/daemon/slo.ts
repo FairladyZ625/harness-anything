@@ -1,13 +1,12 @@
-import { createReadStream } from "node:fs";
+import { createReadStream, existsSync } from "node:fs";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
-import { createInterface } from "node:readline";
 import { localUserDaemonEndpoint } from "@harness-anything/daemon/internal/client/local-daemon-target";
-import { consumeKnownError } from "./client.ts";
+import { addDuration, createDurationHistogram, durationPercentile, type DurationHistogram } from "./slo-metrics.ts";
 
 const DAY_MS = 86_400_000,
-  SAMPLES_PER_METHOD = 200_000,
-  MAX_OVER_THRESHOLD = 200;
+  DEFAULT_SLOW_LIMIT = 200,
+  MAX_SLOW_LIMIT = 10_000;
 
 export interface DaemonSloOptions {
   readonly day: string;
@@ -15,32 +14,49 @@ export interface DaemonSloOptions {
   readonly userRoot: string;
   readonly daemonId: string;
   readonly json: boolean;
+  readonly slowLimit: number;
 }
 
 export function parseDaemonSloOptions(argv: readonly string[], userRoot: string, daemonId: string): DaemonSloOptions {
   const day = daemonSloOption(argv, "--day") ?? new Date().toISOString().slice(0, 10).replaceAll("-", ""),
-    threshold = daemonSloOption(argv, "--threshold");
+    threshold = daemonSloOption(argv, "--threshold"),
+    slowLimitValue = daemonSloOption(argv, "--slow-limit");
   if (!/^\d{8}$/u.test(day) || !Number.isFinite(dayWindow(day).sinceMs))
     throw invalidField(`Invalid --day ${day}; use YYYYMMDD (UTC).`);
-  const thresholdMs = threshold === undefined ? 1_000 : parseMilliseconds(threshold);
-  return { day, thresholdMs, userRoot, daemonId, json: argv.includes("--json") };
+  const thresholdMs = threshold === undefined ? 1_000 : parseMilliseconds(threshold),
+    slowLimit = slowLimitValue === undefined ? DEFAULT_SLOW_LIMIT : parseSlowLimit(slowLimitValue);
+  return { day, thresholdMs, userRoot, daemonId, json: argv.includes("--json"), slowLimit };
 }
 
 export async function runDaemonSlo(options: DaemonSloOptions): Promise<Record<string, unknown>> {
   const { sinceMs, untilMs } = dayWindow(options.day, Date.now()),
-    requests = await readConnRequests(options.userRoot, options.daemonId, options.day, options.thresholdMs),
+    requests = await readConnRequests(
+      options.userRoot,
+      options.daemonId,
+      options.day,
+      options.thresholdMs,
+      options.slowLimit,
+    ),
     availability = await readProbeAvailability(options.userRoot, options.daemonId, options.day, sinceMs, untilMs),
     methods = [...requests.byMethod.entries()]
-      .map(([method, aggregate]) => ({
-        method,
-        count: aggregate.count,
-        errors: aggregate.errors,
-        p50Ms: percentile(aggregate.durations, 0.5),
-        p99Ms: percentile(aggregate.durations, 0.99),
-        maxMs: maxOf(aggregate.durations),
-        dispatchP99Ms: percentile(aggregate.dispatchDelay, 0.99),
-        serviceP99Ms: percentile(aggregate.service, 0.99),
-      }))
+      .map(([method, aggregate]) => {
+        const p50 = durationPercentile(aggregate.durations, 0.5),
+          p99 = durationPercentile(aggregate.durations, 0.99),
+          dispatch99 = durationPercentile(aggregate.dispatchDelay, 0.99),
+          service99 = durationPercentile(aggregate.service, 0.99);
+        return {
+          method,
+          count: aggregate.count,
+          errors: aggregate.errors,
+          p50Ms: p50?.upperMs ?? null,
+          p99Ms: p99?.upperMs ?? null,
+          p99LowerMs: p99?.lowerMs ?? null,
+          p99Exact: p99?.exact ?? null,
+          maxMs: aggregate.durations.maxMs,
+          dispatchP99Ms: dispatch99?.upperMs ?? null,
+          serviceP99Ms: service99?.upperMs ?? null,
+        };
+      })
       .sort((left, right) => right.count - left.count),
     durationTotal = methods.reduce((total, method) => total + method.count, 0);
   return {
@@ -61,9 +77,13 @@ export async function runDaemonSlo(options: DaemonSloOptions): Promise<Record<st
         sampled: durationTotal,
         percent: durationTotal === 0 ? null : round2((requests.traceSpans / durationTotal) * 100),
       },
+      read: requests.read,
       overThreshold: {
         thresholdMs: options.thresholdMs,
         count: requests.overThresholdCount,
+        retained: requests.overThreshold.length,
+        truncated: requests.overThresholdCount > requests.overThreshold.length,
+        slowLimit: options.slowLimit,
         requests: requests.overThreshold,
       },
     },
@@ -79,6 +99,7 @@ export function renderDaemonSlo(receipt: Record<string, unknown>): string {
     lines = [
       sloHeader(receipt),
       requestLine(requests, object(requests.bytes)),
+      ...readLines(requests, availability),
       availabilityLine(availability),
       ...downtimeLines(availability),
     ];
@@ -86,7 +107,8 @@ export function renderDaemonSlo(receipt: Record<string, unknown>): string {
   for (const value of byMethod) lines.push(methodLine(value));
   lines.push(
     `over threshold >= ${String(over.thresholdMs)}ms: ${String(over.count ?? 0)} request(s); ` +
-      `span coverage=${String(object(requests.traceCoverage).percent ?? "unknown")}%`,
+      `showing=${String(over.retained ?? 0)} truncated=${String(over.truncated ?? false)} ` +
+      `slowLimit=${String(over.slowLimit ?? 0)}; span coverage=${String(object(requests.traceCoverage).percent ?? "unknown")}%`,
   );
   for (const value of array(over.requests)) lines.push(slowLine(value));
   return lines.join("\n");
@@ -106,6 +128,15 @@ function requestLine(requests: Record<string, unknown>, bytes: Record<string, un
     `errorRate=${String(requests.errorRatePercent ?? "unknown")}% ` +
     `bytes request=${String(bytes.request ?? 0)} reply=${String(bytes.reply ?? 0)}`
   );
+}
+
+function readLines(requests: Record<string, unknown>, availability: Record<string, unknown>): string[] {
+  const read = object(requests.read),
+    incomplete = array(read.incompleteLines).length + array(availability.incompleteLines).length,
+    missing = array(read.missingFiles).length;
+  return incomplete === 0 && missing === 0
+    ? []
+    : [`  read: incompleteLines=${String(incomplete)} missingFiles=${String(missing)} (excluded from denominators)`];
 }
 
 function availabilityLine(availability: Record<string, unknown>): string {
@@ -130,7 +161,8 @@ function downtimeLines(availability: Record<string, unknown>): string[] {
 function methodLine(value: unknown): string {
   const row = object(value);
   return (
-    `  ${String(row.method)} n=${String(row.count)} p50=${String(row.p50Ms)}ms p99=${String(row.p99Ms)}ms ` +
+    `  ${String(row.method)} n=${String(row.count)} p50=${String(row.p50Ms)}ms ` +
+    `p99=${String(row.p99Ms)}ms${row.p99Exact === false ? `~${String(row.p99LowerMs)}-${String(row.p99Ms)}` : ""} ` +
     `max=${String(row.maxMs)}ms errors=${String(row.errors)}`
   );
 }
@@ -154,9 +186,14 @@ export function dayWindow(day: string, nowMs = Date.now()): { readonly sinceMs: 
 interface MethodAggregate {
   count: number;
   errors: number;
-  durations: number[];
-  dispatchDelay: number[];
-  service: number[];
+  readonly durations: DurationHistogram;
+  readonly dispatchDelay: DurationHistogram;
+  readonly service: DurationHistogram;
+}
+interface ReadState {
+  file: string;
+  readonly incompleteLines: number[];
+  readonly missingFiles: string[];
 }
 interface ConnRequests {
   count: number;
@@ -167,16 +204,18 @@ interface ConnRequests {
   byMethod: Map<string, MethodAggregate>;
   overThresholdCount: number;
   overThreshold: Record<string, unknown>[];
+  readonly read: ReadState;
 }
 async function readConnRequests(
   userRoot: string,
   daemonId: string,
   day: string,
   threshold: number,
+  slowLimit: number,
 ): Promise<ConnRequests> {
   const dir = path.join(userRoot, "logs"),
     stem = `daemon-${safeRuntimeId(daemonId)}-conn-`,
-    names = (await readdir(dir).catch(() => [] as string[]))
+    names = (await readdirOrMissing(dir))
       .filter((name) => name.startsWith(stem) && name.includes(day) && /\.jsonl(?:\.\d+)?$/u.test(name))
       .sort((left, right) => generation(left) - generation(right)),
     aggregate: ConnRequests = {
@@ -188,9 +227,10 @@ async function readConnRequests(
       byMethod: new Map(),
       overThresholdCount: 0,
       overThreshold: [],
+      read: { file: "", incompleteLines: [], missingFiles: [] },
     };
   for (const name of names)
-    for await (const record of readJsonLines(path.join(dir, name))) {
+    for await (const record of readJsonLines(path.join(dir, name), aggregate.read)) {
       if (record.schema !== "daemon-conn-log/v1" || record.event !== "request") continue;
       const method = typeof record.method === "string" ? record.method : "<unknown>",
         durationMs = number(record.durationMs),
@@ -198,15 +238,15 @@ async function readConnRequests(
         existing = aggregate.byMethod.get(method) ?? {
           count: 0,
           errors: 0,
-          durations: [],
-          dispatchDelay: [],
-          service: [],
+          durations: createDurationHistogram(),
+          dispatchDelay: createDurationHistogram(),
+          service: createDurationHistogram(),
         };
       existing.count += 1;
       if (!ok) existing.errors += 1;
-      pushBounded(existing.durations, durationMs);
-      pushBounded(existing.dispatchDelay, number(record.dispatchDelayMs));
-      pushBounded(existing.service, number(record.serviceMs));
+      addDuration(existing.durations, durationMs);
+      addDuration(existing.dispatchDelay, number(record.dispatchDelayMs));
+      addDuration(existing.service, number(record.serviceMs));
       aggregate.byMethod.set(method, existing);
       aggregate.count += 1;
       if (!ok) aggregate.errors += 1;
@@ -215,30 +255,30 @@ async function readConnRequests(
       if (typeof record.traceId === "string") aggregate.traceSpans += 1;
       if (durationMs >= threshold) {
         aggregate.overThresholdCount += 1;
-        insertSlow(aggregate.overThreshold, {
-          method,
-          durationMs,
-          at: typeof record.at === "string" ? record.at : "",
-          ok,
-          code: typeof record.code === "string" ? record.code : null,
-          nodeId: typeof record.nodeId === "string" ? record.nodeId : null,
-          requestBytes: number(record.requestBytes),
-          replyBytes: number(record.replyBytes),
-          phases: Array.isArray(record.phases) ? record.phases : [],
-        });
+        insertSlow(
+          aggregate.overThreshold,
+          {
+            method,
+            durationMs,
+            at: typeof record.at === "string" ? record.at : "",
+            ok,
+            code: typeof record.code === "string" ? record.code : null,
+            nodeId: typeof record.nodeId === "string" ? record.nodeId : null,
+            requestBytes: number(record.requestBytes),
+            replyBytes: number(record.replyBytes),
+            phases: Array.isArray(record.phases) ? record.phases : [],
+          },
+          slowLimit,
+        );
       }
     }
   return aggregate;
 }
 
-function pushBounded(values: number[], value: number): void {
-  values.push(value);
-  if (values.length > SAMPLES_PER_METHOD) values.splice(0, values.length - SAMPLES_PER_METHOD);
-}
-function insertSlow(target: Record<string, unknown>[], sample: Record<string, unknown>): void {
+function insertSlow(target: Record<string, unknown>[], sample: Record<string, unknown>, limit: number): void {
   target.push(sample);
   target.sort((left, right) => number(right.durationMs) - number(left.durationMs));
-  if (target.length > MAX_OVER_THRESHOLD) target.length = MAX_OVER_THRESHOLD;
+  if (target.length > limit) target.length = limit;
 }
 
 interface Availability {
@@ -254,6 +294,7 @@ interface Availability {
   readonly observedTo: string | null;
   readonly downtimeSegments: readonly { readonly from: string; readonly to: string; readonly durationMs: number }[];
   readonly slowSegments: readonly { readonly from: string; readonly to: string; readonly durationMs: number }[];
+  readonly incompleteLines: readonly number[];
 }
 async function readProbeAvailability(
   userRoot: string,
@@ -263,8 +304,9 @@ async function readProbeAvailability(
   untilMs: number,
 ): Promise<Availability> {
   const file = path.join(userRoot, "logs", `daemon-${safeRuntimeId(daemonId)}-probe-${day}.jsonl`),
-    samples: { at: number; state: "up" | "slow" | "down" }[] = [];
-  for await (const record of readJsonLines(file)) {
+    samples: { at: number; state: "up" | "slow" | "down" }[] = [],
+    read: ReadState = { file, incompleteLines: [], missingFiles: [] };
+  for await (const record of readJsonLines(file, read)) {
     if (record.schema !== "daemon-probe/v1" || record.kind !== "sample") continue;
     const at = Date.parse(String(record.at)),
       state = record.state;
@@ -286,6 +328,7 @@ async function readProbeAvailability(
       observedTo: null,
       downtimeSegments: [],
       slowSegments: [],
+      incompleteLines: read.incompleteLines,
     };
   const counts = { up: 0, slow: 0, down: 0 };
   for (const sample of samples) counts[sample.state] += 1;
@@ -300,6 +343,7 @@ async function readProbeAvailability(
     observedTo: new Date(samples.at(-1)!.at).toISOString(),
     downtimeSegments: segmentsFor(samples, "down", untilMs),
     slowSegments: segmentsFor(samples, "slow", untilMs),
+    incompleteLines: read.incompleteLines,
   };
 }
 
@@ -324,40 +368,56 @@ function segmentsFor(
   return segments;
 }
 
-async function* readJsonLines(file: string): AsyncGenerator<Record<string, unknown>> {
-  const input = createReadStream(file),
-    lines = createInterface({ input, crlfDelay: Number.POSITIVE_INFINITY });
-  try {
-    for await (const line of lines) {
-      if (!line.startsWith("{")) continue;
-      try {
-        const value = JSON.parse(line) as unknown;
-        if (record(value)) yield value;
-      } catch (error) {
-        // A truncated trailing line is written off as a partial record, not a report failure.
-        consumeKnownError(error);
-      }
-    }
-  } catch (error) {
-    if (record(error) && error.code === "ENOENT") {
-      consumeKnownError(error);
+async function* readJsonLines(file: string, state: ReadState): AsyncGenerator<Record<string, unknown>> {
+  state.file = file;
+  if (!existsSync(file)) {
+    state.missingFiles.push(file);
+    return;
+  }
+  const input = createReadStream(file, { encoding: "utf8" });
+  let buffer = "",
+    lineNumber = 0;
+  const consumeLine = function* (line: string, terminated: boolean): Generator<Record<string, unknown>> {
+    if (line.trim() === "") return;
+    lineNumber += 1;
+    if (!terminated) {
+      // A writer may be mid-append; never guess at a partial JSON object.
+      state.incompleteLines.push(lineNumber);
       return;
     }
-    throw error;
+    if (!line.startsWith("{")) throw new Error(`Invalid JSON line in ${file}:${lineNumber}: expected an object`);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch (error) {
+      throw new Error(
+        `Invalid JSON line in ${file}:${lineNumber}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    if (!record(parsed)) throw new Error(`Invalid JSON line in ${file}:${lineNumber}: JSON line is not an object`);
+    yield parsed;
+  };
+  try {
+    for await (const chunk of input) {
+      buffer += chunk;
+      let newline = buffer.indexOf("\n");
+      while (newline >= 0) {
+        const line = buffer.slice(0, newline);
+        buffer = buffer.slice(newline + 1);
+        yield* consumeLine(line, true);
+        newline = buffer.indexOf("\n");
+      }
+    }
+    if (buffer.length > 0) yield* consumeLine(buffer, false);
   } finally {
-    lines.close();
     input.close();
   }
 }
 
-function maxOf(values: readonly number[]): number {
-  return values.reduce((max, value) => Math.max(max, value), 0);
+async function readdirOrMissing(dir: string): Promise<string[]> {
+  return existsSync(dir) ? await readdir(dir) : [];
 }
-function percentile(sortedOrUnsorted: readonly number[], q: number): number | null {
-  if (sortedOrUnsorted.length === 0) return null;
-  const sorted = [...sortedOrUnsorted].sort((left, right) => left - right);
-  return sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(q * sorted.length) - 1))] ?? null;
-}
+
 function generation(name: string): number {
   return Number(/\.jsonl\.(\d+)$/u.exec(name)?.[1] ?? 0);
 }
@@ -367,6 +427,12 @@ function safeRuntimeId(value: string): string {
 function daemonSloOption(argv: readonly string[], name: string): string | undefined {
   const at = argv.indexOf(name);
   return at < 0 ? undefined : argv[at + 1];
+}
+function parseSlowLimit(value: string): number {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > MAX_SLOW_LIMIT)
+    throw invalidField(`Invalid --slow-limit ${value}; use 1..${MAX_SLOW_LIMIT}.`);
+  return parsed;
 }
 function parseMilliseconds(value: string): number {
   const match = /^(\d+)(ms|s)?$/u.exec(value.trim().toLowerCase());

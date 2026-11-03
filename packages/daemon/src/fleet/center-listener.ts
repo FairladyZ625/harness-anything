@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { observeDaemonOperation } from "../daemon-operation.ts";
+import { beginDaemonOperation, markDaemonOperationPhase, observeDaemonOperation } from "../daemon-operation.ts";
 import { validateTaskDispatchesPayload } from "../protocol/daemon-protocol-rpc-validation.ts";
+import { commandClassForAction } from "../protocol/daemon-protocol.contract.ts";
 import { createFleetDeliveryDrain } from "./center-delivery-drain.ts";
 import { createResourceBudget, DOC_SHOW_BUDGET_LIMITS, ResourceBudgetExceeded } from "./resource-budget.ts";
 import { fetchWorkerDelivery, workerGitIdentityForPerson } from "../runtime-worker-push.ts";
@@ -236,6 +237,15 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     return execute();
   };
   const runCenterWriter = (...args: Parameters<typeof options.host.run>) => options.host.run(...args);
+  const observedRunCenterWriter = async (
+    repoId: string,
+    action: Parameters<typeof options.host.run>[1],
+    auth: Parameters<typeof options.host.run>[2],
+  ) => {
+    markDaemonOperationPhase("repository-admission");
+    markDaemonOperationPhase(commandClassForAction(action.kind) === "repo-read" ? "projection-read" : "write-queue");
+    return runCenterWriter(repoId, action, auth);
+  };
   const writeReplicationSequence = (repoId: string, receipt: unknown): number | null =>
     typeof receipt === "object" && receipt !== null && "outcome" in receipt && receipt.outcome === "applied"
       ? replicationHead(repoId)
@@ -570,7 +580,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         frame.executionId !== undefined
       ) {
         const submitAuth = await writerAuth(a, frame.accessToken, frame.executionCredential),
-          shown = await runCenterWriter(a.repoId, { kind: "task-show", taskId: frame.taskId }, submitAuth);
+          shown = await observedRunCenterWriter(a.repoId, { kind: "task-show", taskId: frame.taskId }, submitAuth);
         if (shown.outcome !== "applied" || typeof shown.evidence !== "string")
           throw new FleetFault("task_read_failed", "Cannot read the delivery task at the center.");
         const snapshot = JSON.parse(shown.evidence) as FleetDeliveryTask;
@@ -609,7 +619,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
     if (frame.schema === "fleet.receipt.get/v1") {
       const a = await nodeContext(nodeId, frame.repoId, frame.accessToken),
-        receipt = await runCenterWriter(a.repoId, { kind: "receipt-show", opId: frame.opId }, await readerAuth(a));
+        receipt = await observedRunCenterWriter(
+          a.repoId,
+          { kind: "receipt-show", opId: frame.opId },
+          await readerAuth(a),
+        );
       return immediate({
         schema: "fleet.receipt.result/v1",
         messageId: mid(frame.messageId, "receipt"),
@@ -776,7 +790,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         // the node's registered owner, never against a client claim.
         let executionId = frame.executionId;
         if (executionId === null && frame.taskId) {
-          const shown = await runCenterWriter(
+          const shown = await observedRunCenterWriter(
             a.repoId,
             { kind: "task-show", taskId: frame.taskId },
             await auth(a, undefined, frame.executionCredential),
@@ -786,7 +800,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           const snapshot = JSON.parse(shown.evidence) as { readonly lease?: { readonly executionId?: unknown } | null };
           executionId = typeof snapshot.lease?.executionId === "string" ? snapshot.lease.executionId : null;
         }
-        const receipt = await runCenterWriter(
+        const receipt = await observedRunCenterWriter(
           a.repoId,
           {
             kind: "doc-submit",
@@ -864,7 +878,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             });
             if (admission.outcome !== "allowed")
               throw new FleetFault("authorization_denied", "Task delivery is not authorized.");
-            const shown = await runCenterWriter(a.repoId, { kind: "task-show", taskId: command.taskId }, submitAuth);
+            const shown = await observedRunCenterWriter(
+              a.repoId,
+              { kind: "task-show", taskId: command.taskId },
+              submitAuth,
+            );
             if (shown.outcome !== "applied" || typeof shown.evidence !== "string")
               throw new FleetFault("task_read_failed", "Cannot read the delivery task.");
             const snapshot = JSON.parse(shown.evidence) as FleetDeliveryTask;
@@ -908,7 +926,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           throw error;
         }
         try {
-          const receipt = await runCenterWriter(a.repoId, action, commandAuth);
+          const receipt = await observedRunCenterWriter(a.repoId, action, commandAuth);
           if (reservation) connectionSignal.throwIfAborted();
           const result = {
             outcome:
@@ -969,7 +987,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           throw new FleetFault("schedule_scope_mismatch", "Schedule command IDs must match.");
         assertFrameEpoch(a.repoId, frame.writerEpoch);
         const ingressAuth = await auth(a),
-          receipt = await runCenterWriter(a.repoId, { ...frame.action, idempotencyKey: frame.opId }, ingressAuth);
+          receipt = await observedRunCenterWriter(
+            a.repoId,
+            { ...frame.action, idempotencyKey: frame.opId },
+            ingressAuth,
+          );
         if (isSquadControlResult(receipt))
           throw new FleetFault(
             "execution_scope_mismatch",
@@ -1106,13 +1128,17 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         ...(await auth(a)),
         connectionSignal: connectionSignal ? AbortSignal.any([connectionSignal, closing.signal]) : closing.signal,
       };
+      markDaemonOperationPhase("repository-admission");
       let result;
       try {
         if (frame.method === "repo.agentRuntime.sessions.await") {
+          markDaemonOperationPhase("projection-read");
           result = await options.host.awaitRuntimeSessions(a.repoId, frame.payload as JsonObject, binding);
         } else if (frame.method === "repo.tasks.autoClaimCandidates") {
+          markDaemonOperationPhase("projection-read");
           result = await options.host.readNodeAutoClaimCandidates(a.repoId, binding);
         } else {
+          markDaemonOperationPhase("projection-read");
           if (frame.method === "repo.task.dispatches") {
             const errors = validateTaskDispatchesPayload(frame.payload);
             if (errors.length) throw new FleetFault("invalid_field", errors.join("; "));
@@ -1201,18 +1227,47 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       () => onReplicationStart(...args),
     ),
   );
-  const observedHandle = AsyncLocalStorage.bind((...args: Parameters<typeof handle>) =>
-    observeDaemonOperation(
-      {
-        method: "method" in args[1] ? String(args[1].method) : args[1].schema,
-        repoId: "repoId" in args[1] ? String(args[1].repoId) : null,
-        actor: `node:${args[0]}`,
-        nodeId: args[0],
-        phase: "fleet-dispatch",
-      },
-      () => nodeAdmission.run(args[0], () => handle(...args)),
-    ),
-  );
+  const observedHandle = AsyncLocalStorage.bind((...args: Parameters<typeof handle>) => {
+    const [nodeId, frame] = args,
+      scope = beginDaemonOperation({
+        method: "method" in frame ? String(frame.method) : frame.schema,
+        repoId: "repoId" in frame ? String(frame.repoId) : null,
+        actor: `node:${nodeId}`,
+        nodeId,
+        phase: "authentication",
+        requestBytes: Buffer.byteLength(JSON.stringify(frame), "utf8"),
+      });
+    if (!scope) return nodeAdmission.run(nodeId, () => handle(...args));
+    return scope.run(async () => {
+      markDaemonOperationPhase("authorization");
+      try {
+        const delivery = await nodeAdmission.run(nodeId, () => handle(...args));
+        let replyBytes = 0;
+        return {
+          ...delivery,
+          onSent: (bytes: number) => {
+            replyBytes += bytes;
+            delivery.onSent?.(bytes);
+            scope.handle.update({ replyBytes });
+          },
+          onComplete: () => {
+            scope.handle.update({ outcome: "ok" });
+            scope.end();
+            delivery.onComplete?.();
+          },
+          onFailure: (error: unknown) => {
+            scope.handle.update({ outcome: "error" });
+            scope.end();
+            delivery.onFailure?.(error);
+          },
+        };
+      } catch (error) {
+        scope.handle.update({ outcome: "error" });
+        scope.end();
+        throw error;
+      }
+    });
+  });
   const server: Server = createServer({ key: options.key, cert: options.cert }, (socket) =>
     serve(
       socket,

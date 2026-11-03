@@ -246,7 +246,11 @@ export async function openWriterSupervisor(
             releaseSessionToken(message.requestId);
           operation.cleanup();
           if (typeof message.startedAtMs === "number" && typeof message.finishedAtMs === "number")
-            operation.operation?.phaseSpan(operation.phase, message.startedAtMs, message.finishedAtMs);
+            operation.operation?.phaseSpan(
+              operation.phase,
+              message.executionStartedAtMs ?? message.startedAtMs,
+              message.finishedAtMs,
+            );
           status = { ...status, queueDepth: Math.max(0, (status.queueDepth ?? 1) - 1) };
           if (message.outcome === "ok") operation.resolve(message.value);
           else operation.reject(deserializeWriterError(message.error!));

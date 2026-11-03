@@ -3,7 +3,7 @@ import type { Readable, Writable } from "node:stream";
 import type { DaemonAuthenticationContext, DaemonTransportKind } from "./auth-context.ts";
 import { createJsonLineFrameReader, encodeJsonLineFrame, isJsonRpcRequestLike } from "./frame-codec.ts";
 import type { JsonRpcProtocolServer } from "../protocol/json-rpc-server.ts";
-import type { JsonRpcErrorResponse, JsonRpcRequest } from "../protocol/json-rpc-types.ts";
+import type { JsonRpcErrorResponse, JsonRpcRequest, JsonRpcResponse } from "../protocol/json-rpc-types.ts";
 
 export interface DaemonTransportConnection {
   readonly connectionId: string;
@@ -44,12 +44,10 @@ export interface JsonRpcStreamOptions {
   readonly connectionId?: string;
   readonly onError?: (error: Error) => void;
   /**
-   * Main-thread scheduling delay observed since the previous loop turn. A frame read after a stall
-   * arrived during it, so subtract the stall from its observed time to expose the queue wait.
+   * Maps a frame observation time to its estimated arrival. Only a frame read in a stall recovery
+   * turn moves back to that stall's start; later frames are returned unchanged.
    */
-  readonly takeEventLoopStallMs?: () => number;
-  /** The delay of the loop turn currently running, when the heartbeat pulse has not run yet. */
-  readonly currentEventLoopDelayMs?: () => number;
+  readonly adjustFrameArrival?: (observedAtMs: number) => number;
 }
 
 // A stopping daemon gives an in-flight request this long to reply before the
@@ -123,8 +121,8 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
 
   function enqueueFrames(frames: ReadonlyArray<unknown>, frameBytes?: ReadonlyArray<number>): void {
     const observedAt = Date.now(),
-      eventLoopStallMs = Math.max(0, options.takeEventLoopStallMs?.() ?? 0, options.currentEventLoopDelayMs?.() ?? 0),
-      frameReceivedAt = Math.max(0, observedAt - eventLoopStallMs);
+      frameReceivedAt = Math.max(0, options.adjustFrameArrival?.(observedAt) ?? observedAt),
+      eventLoopStallMs = Math.max(0, observedAt - frameReceivedAt);
     for (let index = 0; index < frames.length; index += 1) {
       const frame = frames[index],
         bytes = frameBytes?.[index];
@@ -159,12 +157,22 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
       writeFrame(streamErrorResponse(null, -32600, "Invalid Request"));
       return;
     }
+    let wrote = false;
     const response = await server.handle(frame as JsonRpcRequest | JsonRpcRequest[], {
       frameReceivedAt,
       ...(frameBytes === undefined ? {} : { frameBytes }),
       ...(eventLoopStallMs > 0 ? { eventLoopStallMs } : {}),
+      // A batch is one transport frame; let the server encode it once and write it below.
+      ...(Array.isArray(frame)
+        ? {}
+        : {
+            writeResponse: (value: JsonRpcResponse) => {
+              wrote = true;
+              return writeFrame(value);
+            },
+          }),
     });
-    if (response !== undefined) writeFrame(response);
+    if (response !== undefined && !wrote) writeFrame(response);
   }
 
   function failConnection(error: Error): void {
@@ -174,8 +182,10 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
     options.output.end();
   }
 
-  function writeFrame(frame: unknown): boolean {
-    return options.output.write(encodeJsonLineFrame(frame));
+  function writeFrame(frame: unknown): number {
+    const encoded = encodeJsonLineFrame(frame);
+    options.output.write(encoded);
+    return Buffer.byteLength(encoded, "utf8");
   }
   async function emit(method: string, params: Record<string, unknown>): Promise<void> {
     if (writeFrame({ jsonrpc: "2.0", method, params })) return;
