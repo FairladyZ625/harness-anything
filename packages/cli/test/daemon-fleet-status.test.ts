@@ -7,9 +7,32 @@ import type { DaemonGuiReadResultMap } from "@harness-anything/daemon/internal/p
 
 type FleetOverview = DaemonGuiReadResultMap["repo.fleet.overview.read"];
 
+test("fleet status renders center-observed online time, build mismatch and timestamped failure", () => {
+  const data = overview(),
+    node = data.nodes[2]!;
+  const result = {
+    ...data,
+    nodes: [
+      {
+        ...node,
+        online: { kind: "value", text: "disconnected; lastOnlineAt=2026-11-03T01:00:00.000Z" },
+        build: { kind: "value", text: "abcdef (version mismatch; ha update)" },
+        lastFailure: {
+          kind: "value",
+          text: "center_upgrade_required @ 2026-11-03T01:00:00.000Z: unsupported frame; peer=edge; frame=backup",
+        },
+      },
+    ],
+  };
+  const text = renderDaemonFleetStatus(result as unknown as Record<string, unknown>);
+  assert.match(text, /online disconnected; lastOnlineAt=2026-11-03T01:00:00.000Z/u);
+  assert.match(text, /build abcdef \(version mismatch; ha update\)/u);
+  assert.match(text, /lastFailure center_upgrade_required @ .*peer=edge; frame=backup/u);
+});
+
 // The render is the CLI half of the shared read model: every row below fixes one honest-display
-// contract from the task — never-acked stays visible, heartbeat-not-integrated names the only
-// future online source, and unavailable/redacted fields keep their machine reason.
+// contract from the task — never-acked stays visible, center transport supplies the
+// online source, and unavailable/redacted fields keep their machine reason.
 function overview(): FleetOverview {
   return {
     schema: "daemon.fleet-overview/v1",
@@ -36,14 +59,14 @@ function overview(): FleetOverview {
         replica: null,
         replicaReason: "center-local-writer",
         watch: { kind: "value", text: "local canonical writer" },
-        lastFailure: { kind: "unavailable", reason: "no-replica-sync-failure-in-replica-status-row" },
+        lastFailure: { kind: "unavailable", reason: "no-session-failure-observed" },
       },
       {
         nodeId: "edge-caught-up",
         role: "edge",
         owner: { kind: "value", text: "person_owner" },
-        build: { kind: "unavailable", reason: "replica-status-has-no-build-field" },
-        online: { kind: "unavailable", reason: "tls-session-fact-not-exposed" },
+        build: { kind: "unavailable", reason: "no-edge-build-observed" },
+        online: { kind: "unavailable", reason: "no-center-session-observation" },
         leases: [
           {
             taskId: "task_demo",
@@ -76,14 +99,14 @@ function overview(): FleetOverview {
         },
         replicaReason: "replica-current",
         watch: { kind: "unavailable", reason: "edge-sync-internals-not-exposed" },
-        lastFailure: { kind: "unavailable", reason: "no-replica-sync-failure-in-replica-status-row" },
+        lastFailure: { kind: "unavailable", reason: "no-session-failure-observed" },
       },
       {
         nodeId: "edge-behind",
         role: "edge",
         owner: { kind: "redacted", reason: "authorization_denied" },
-        build: { kind: "unavailable", reason: "replica-status-has-no-build-field" },
-        online: { kind: "unavailable", reason: "tls-session-fact-not-exposed" },
+        build: { kind: "unavailable", reason: "no-edge-build-observed" },
+        online: { kind: "unavailable", reason: "no-center-session-observation" },
         leases: { redacted: "insufficient_scope" },
         replica: {
           repoId: "demo",
@@ -101,14 +124,14 @@ function overview(): FleetOverview {
         },
         replicaReason: "replica-catching-up",
         watch: { kind: "unavailable", reason: "edge-sync-internals-not-exposed" },
-        lastFailure: { kind: "unavailable", reason: "no-replica-sync-failure-in-replica-status-row" },
+        lastFailure: { kind: "unavailable", reason: "no-session-failure-observed" },
       },
       {
         nodeId: "edge-never-acked",
         role: "edge",
         owner: { kind: "value", text: "not-in-registry" },
-        build: { kind: "unavailable", reason: "replica-status-has-no-build-field" },
-        online: { kind: "unavailable", reason: "tls-session-fact-not-exposed" },
+        build: { kind: "unavailable", reason: "no-edge-build-observed" },
+        online: { kind: "unavailable", reason: "no-center-session-observation" },
         leases: [],
         replica: {
           repoId: "demo",
@@ -126,7 +149,7 @@ function overview(): FleetOverview {
         },
         replicaReason: "replica-snapshot-required",
         watch: { kind: "unavailable", reason: "edge-sync-internals-not-exposed" },
-        lastFailure: { kind: "unavailable", reason: "no-replica-sync-failure-in-replica-status-row" },
+        lastFailure: { kind: "unavailable", reason: "no-session-failure-observed" },
       },
     ],
     links: [
@@ -160,7 +183,7 @@ function overview(): FleetOverview {
         nodeId: "edge-caught-up",
       },
     ],
-    notes: ["events-attribution=current-lease", "edge-online=unavailable", "sync-internals=unavailable"],
+    notes: ["events-attribution=current-lease", "edge-online=center-replication-session", "sync-internals=unavailable"],
     warnings: [],
   };
 }
@@ -196,15 +219,11 @@ test("fleet status render keeps honest three-state fields and never-acked visibl
   // redaction keeps its machine code instead of an empty cell.
   assert.ok(lines.some((line) => line.includes("doing leases redacted (insufficient_scope)")));
   assert.ok(lines.some((line) => line.includes("owner redacted (authorization_denied)")));
-  // online for edges names the heartbeat gap and refuses ACK/runtime inference.
-  assert.ok(
-    lines.filter((line) => line.includes("online heartbeat-not-integrated")).length === 3,
-    "every edge states heartbeat-not-integrated",
-  );
+  assert.equal(lines.filter((line) => line.includes("online unavailable (no-center-session-observation)")).length, 3);
   assert.match(text, /links 2/u);
   assert.match(
     text,
-    /notes events-attribution=current-lease \| edge-online=unavailable \| sync-internals=unavailable/u,
+    /notes events-attribution=current-lease \| edge-online=center-replication-session \| sync-internals=unavailable/u,
   );
 });
 

@@ -164,7 +164,9 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
     decoder = new ReplicationDecoder(),
     queue: ReplicationFrame[] = [],
     waiters: { readonly resolve: (frame: ReplicationFrame) => void; readonly reject: (error: Error) => void }[] = [];
-  let closed: Error | null = null;
+  let closed: Error | null = null,
+    replicationAdmitted = false,
+    failureReport: Promise<void> | undefined;
   socket.on("error", (error) => {
     closed ??= error;
   });
@@ -186,9 +188,21 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
         localNodeId: options.nodeId,
       })}`;
       closed = failure;
+      if (replicationAdmitted && !socket.destroyed && socket.writable) {
+        // Decoder failures cannot reach the receiver's apply-failure path. Flush the existing
+        // failure frame before closing so the center can retain the reason, including v2 rejects.
+        failureReport = new Promise<void>((resolve) => {
+          socket.once("close", resolve);
+          const code = "code" in failure && typeof failure.code === "string" ? failure.code : "invalid_frame";
+          socket.end(
+            serializeReplicationFrame({ type: "replica.failure", code, message: failure.message.slice(0, 4096) }),
+            resolve,
+          );
+        });
+      }
     }
     for (const waiter of waiters.splice(0)) waiter.reject(closed);
-    socket.destroy();
+    if (!failureReport) socket.destroy();
   };
   let opened: ReturnType<typeof openWalReceiverGeneration> | null = null;
   // null: this batch installed a base backup, so its changed paths are unknown.
@@ -216,6 +230,7 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
                     }
                   : null,
               );
+              replicationAdmitted = true;
               socket.off("data", onData);
               socket.off("close", onClose);
               socket.on("data", (data: Buffer) => {
@@ -377,6 +392,7 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
     throw new Error("replication stream ended");
   } finally {
     await opened?.close();
+    await failureReport;
     socket.destroy();
     await generations.collect();
   }

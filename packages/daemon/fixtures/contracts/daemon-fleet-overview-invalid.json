@@ -16,13 +16,13 @@
       "nodeId": "cc90-ubuntu",
       "role": "edge",
       "owner": { "kind": "unavailable" },
-      "build": { "kind": "unavailable", "reason": "replica-status-has-no-build-field" },
-      "online": { "kind": "unavailable", "reason": "tls-session-fact-not-exposed" },
+      "build": { "kind": "unavailable", "reason": "no-edge-build-observed" },
+      "online": { "kind": "unavailable", "reason": "no-center-session-observation" },
       "leases": [],
       "replica": null,
       "replicaReason": "replica-row-missing",
       "watch": { "kind": "unavailable", "reason": "edge-sync-internals-not-exposed" },
-      "lastFailure": { "kind": "unavailable", "reason": "no-replica-sync-failure-in-replica-status-row" }
+      "lastFailure": { "kind": "unavailable", "reason": "no-session-failure-observed" }
     }
   ],
   "links": [{ "nodeId": "cc90-ubuntu", "state": "fresh", "delivery": "current", "lagRevisions": null, "lagMs": null, "ackedAt": null, "centerRevision": null }],

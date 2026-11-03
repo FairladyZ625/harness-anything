@@ -463,6 +463,7 @@ export async function replicationPeer(
   ca: Buffer,
   nodeId: string,
   credential: string,
+  buildCommit: string | null = null,
 ) {
   const socket = await new Promise<TLSSocket>((resolve, reject) => {
     const candidate = connect({ host: "127.0.0.1", port, ca, servername: "localhost" }, () => resolve(candidate));
@@ -508,6 +509,7 @@ export async function replicationPeer(
       nodeId,
       credential,
       accessToken: `device-token-${nodeId}`,
+      buildCommit,
     }),
   );
   const ready = parseFleetFrame(await nextLine());

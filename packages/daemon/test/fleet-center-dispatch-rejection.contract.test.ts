@@ -64,7 +64,7 @@ test(
         });
       },
       readyWritten = socket.nextWrite();
-    void serve(socket as never, options, handle, new Map(), new Map());
+    void serve(socket as never, options, handle, new Map(), new Map(), { hello() {}, online() {}, failure() {} });
     socket.emit("data", Buffer.from(serializeFleetFrame(hello)));
     await readyWritten;
     const errorWritten = socket.nextWrite();

@@ -72,11 +72,7 @@ function renderNodeLines(node: FleetNode, center: FleetOverview["center"]): stri
     `node ${node.nodeId} role=${node.role}`,
     `  owner ${field(node.owner)}`,
     `  ${node.role === "center" ? `daemon ${center.daemonId} version=${center.version} commit=${center.commitSha ?? "unknown"}` : `build ${field(node.build)}`}`,
-    node.role === "center"
-      ? "  online running (center daemon process)"
-      : // The heartbeat schedule (N2) is the only future online source; until it exists the
-        // overview reports online as unavailable and this render says so instead of guessing.
-        `  online heartbeat-not-integrated; online is never inferred from ACK or runtime (${node.online.kind === "value" ? node.online.text : node.online.reason})`,
+    node.role === "center" ? "  online running (center daemon process)" : `  online ${field(node.online)}`,
     ...renderLeaseLines(node.leases),
     `  reason ${node.replicaReason}`,
     renderSyncLine(node),

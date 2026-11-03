@@ -86,6 +86,7 @@ function input(overrides: Partial<FleetOverviewInput> = {}): FleetOverviewInput 
     generatedAt: "2026-10-06T01:00:00.000Z",
     center: CENTER,
     replicas: [],
+    nodeSessions: [],
     leaseReads: { ok: true, leases: [], dispatches: [] },
     events: [],
     nodeOwners: new Map(),
@@ -190,12 +191,12 @@ test("edge fields the read surface cannot see are unavailable with a reason, nev
     { build: edge.build.kind, online: edge.online.kind, watch: edge.watch.kind, lastFailure: edge.lastFailure.kind },
     { build: "unavailable", online: "unavailable", watch: "unavailable", lastFailure: "unavailable" },
   );
-  assert.equal(edge.online.reason, "tls-session-fact-not-exposed");
+  assert.equal(edge.online.reason, "no-center-session-observation");
   assert.equal(edge.replicaReason, "replica-catching-up");
   // notes 是稳定 key=value 机器码;人话解释归 GUI i18n,daemon 不内嵌单语言文案。
   assert.deepEqual(result.notes, [
     "events-attribution=current-lease",
-    "edge-online=unavailable",
+    "edge-online=center-replication-session",
     "sync-internals=unavailable",
   ]);
   assert.equal(result.links[0]!.state, "lag");
@@ -206,11 +207,27 @@ test("replica failure is carried to the node row while disconnected", () => {
     code: "edge_upgrade_required",
     message: "Edge must upgrade to center build 86d1398 before applying task event shape 2.",
   };
-  const result = buildFleetOverview(input({ replicas: [replica("cc90-ubuntu", { connected: false, syncFailure })] }));
+  const result = buildFleetOverview(
+    input({
+      replicas: [replica("cc90-ubuntu", { connected: false, syncFailure })],
+      nodeSessions: [
+        {
+          nodeId: "cc90-ubuntu",
+          connected: false,
+          buildCommit: null,
+          lastOnlineAt: null,
+          lastFailure: { ...syncFailure, at: "2026-11-03T00:00:00.000Z" },
+        },
+      ],
+    }),
+  );
   const edge = result.nodes.find((node) => node.nodeId === "cc90-ubuntu")!;
   assert.deepEqual(edge.replica?.syncFailure, syncFailure);
   assert.equal(edge.replicaReason, "sync-failure:edge_upgrade_required");
-  assert.deepEqual(edge.lastFailure, { kind: "value", text: syncFailure.message });
+  assert.deepEqual(edge.lastFailure, {
+    kind: "value",
+    text: `${syncFailure.code} @ 2026-11-03T00:00:00.000Z: ${syncFailure.message}`,
+  });
   assert.deepEqual(validateFleetOverview(result), []);
 });
 
@@ -221,7 +238,7 @@ test("replica reason remains center-observed when no failure text exists", () =>
   assert.equal(disconnected.replicaReason, "replica-disconnected");
   assert.deepEqual(disconnected.lastFailure, {
     kind: "unavailable",
-    reason: "no-replica-sync-failure-in-replica-status-row",
+    reason: "no-session-failure-observed",
   });
 });
 
@@ -400,6 +417,7 @@ test("the host assembly maps task snapshots, dispatch rows, the event tail and r
     // The cell is a narrow stub: only the three members the read touches exist.
     cell: cell as never,
     binding: {} as never,
+    nodeSessions: [],
     fleetReplicas: [replica("cc90-ubuntu")],
     keycloakCenter: (async () => {
       throw new Error("keycloak-unreachable");
@@ -519,6 +537,7 @@ test("the collaboration read omits a retired node even when force preserved its 
     mode: "remote-center",
     cell: cell as never,
     binding: {} as never,
+    nodeSessions: [],
     fleetReplicas: [replica("retired-node"), replica("healthy-node")],
     keycloakCenter: (async () => ({
       accessToken: "token",

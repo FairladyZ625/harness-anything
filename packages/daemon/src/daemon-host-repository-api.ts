@@ -1022,10 +1022,10 @@ export function createDaemonHostRepositoryApi(
             : binding;
       if (repositoryRead)
         await requireAuthorizedHostAction({
-          kind: "repository-read",
+          kind: method === "repo.fleet.overview.read" ? "fleet-overview-read" : "repository-read",
           repoId,
           binding,
-          actionId: `repository-read:${repoId}`,
+          actionId: `${method === "repo.fleet.overview.read" ? "fleet-overview-read" : "repository-read"}:${repoId}`,
           evaluatedAtCut: `repository:${repoId}:current`,
         });
       let result: unknown;
@@ -1073,7 +1073,8 @@ export function createDaemonHostRepositoryApi(
         result = await cell.catalog.preset(payload);
       } else if (method === "repo.terminal.sessions.list") result = cell.terminal.list();
       else if (method === "repo.fleet.overview.read") {
-        const warning = context.fleetVersionWarnings.get(repoId);
+        const warning = context.fleetVersionWarnings.get(repoId),
+          fleetStatus = context.fleetCenter?.status();
         result = await readFleetOverviewFromHost({
           repoId,
           mode:
@@ -1081,7 +1082,8 @@ export function createDaemonHostRepositoryApi(
               ?.mode ?? "local",
           cell,
           binding,
-          fleetReplicas: (context.fleetCenter?.status().replicas ?? []).filter((replica) => replica.repoId === repoId),
+          fleetReplicas: (fleetStatus?.replicas ?? []).filter((replica) => replica.repoId === repoId),
+          nodeSessions: fleetStatus?.nodeSessions ?? [],
           keycloakCenter: context.keycloakCenter,
           now: context.now(),
           userRoot: context.input.userRoot,

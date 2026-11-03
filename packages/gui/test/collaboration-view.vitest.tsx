@@ -54,14 +54,14 @@ function overview(overrides: Partial<FleetOverviewRead> = {}): FleetOverviewRead
         replica: null,
         replicaReason: "center-local-writer",
         watch: { kind: "value", text: "local canonical writer" },
-        lastFailure: { kind: "unavailable", reason: "no-replica-sync-failure-in-replica-status-row" },
+        lastFailure: { kind: "unavailable", reason: "no-session-failure-observed" },
       },
       {
         nodeId: "cc90-ubuntu",
         role: "edge",
         owner: { kind: "value", text: "person_zeyu" },
-        build: { kind: "unavailable", reason: "replica-status-has-no-build-field" },
-        online: { kind: "unavailable", reason: "tls-session-fact-not-exposed" },
+        build: { kind: "unavailable", reason: "no-edge-build-observed" },
+        online: { kind: "unavailable", reason: "no-center-session-observation" },
         leases: [
           {
             taskId: "task_edge1",
@@ -93,7 +93,7 @@ function overview(overrides: Partial<FleetOverviewRead> = {}): FleetOverviewRead
         },
         replicaReason: "replica-catching-up",
         watch: { kind: "unavailable", reason: "edge-sync-internals-not-exposed" },
-        lastFailure: { kind: "unavailable", reason: "no-replica-sync-failure-in-replica-status-row" },
+        lastFailure: { kind: "unavailable", reason: "no-session-failure-observed" },
       },
     ],
     links: [
@@ -127,7 +127,7 @@ function overview(overrides: Partial<FleetOverviewRead> = {}): FleetOverviewRead
         nodeId: "center",
       },
     ],
-    notes: ["events-attribution=current-lease", "edge-online=unavailable", "sync-internals=unavailable"],
+    notes: ["events-attribution=current-lease", "edge-online=center-replication-session", "sync-internals=unavailable"],
     warnings: [],
     ...overrides,
   };
@@ -549,15 +549,31 @@ describe("协作页舰队拓扑契约", () => {
     const details = view.host.querySelector('[data-testid="collaboration-node-details"]')!;
     expect(details.textContent).toContain("未提供");
     // 人话原因:为什么没有、何时会有。
-    expect(details.textContent).toContain("中心未在此读面暴露节点 TLS 会话事实");
+    expect(details.textContent).toContain("中心尚未观测到此节点的复制会话");
     expect(details.textContent).toContain("watch/pull 内部状态在边缘节点本地");
-    expect(details.textContent).toContain("副本状态行尚无该节点的同步失败记录");
+    expect(details.textContent).toContain("中心尚未记录到此节点的会话失败");
     // 机器码不进可见文本,只保留在 data-reason/title 属性供测试断言。
-    expect(details.textContent).not.toContain("tls-session-fact-not-exposed");
+    expect(details.textContent).not.toContain("no-center-session-observation");
     expect(details.textContent).not.toContain("edge-sync-internals-not-exposed");
-    const online = details.querySelector('[data-reason="tls-session-fact-not-exposed"]');
+    const online = details.querySelector('[data-reason="no-center-session-observation"]');
     expect(online).not.toBeNull();
-    expect(online!.getAttribute("title")).toBe("tls-session-fact-not-exposed");
+    expect(online!.getAttribute("title")).toBe("no-center-session-observation");
+  });
+
+  it("节点详情直接显示共用 overview 的会话事实、版本差异和最近失败", () => {
+    const data = overview();
+    data.nodes[1] = {
+      ...data.nodes[1]!,
+      online: { kind: "value", text: "disconnected; lastOnlineAt=2026-11-03T01:00:00.000Z" },
+      build: { kind: "value", text: "abcdef (version mismatch; ha update)" },
+      lastFailure: { kind: "value", text: "invalid_frame @ 2026-11-03T01:00:00.000Z: peer=edge; frame=backup" },
+    };
+    const view = renderView({ data });
+    view.click(view.nodeCard("cc90-ubuntu"));
+    const details = view.host.querySelector('[data-testid="collaboration-node-details"]')!;
+    expect(details.textContent).toContain("disconnected; lastOnlineAt=2026-11-03T01:00:00.000Z");
+    expect(details.textContent).toContain("abcdef (version mismatch; ha update)");
+    expect(details.textContent).toContain("invalid_frame @ 2026-11-03T01:00:00.000Z: peer=edge; frame=backup");
   });
 
   it("副本账本无行的节点给出人话原因,owner 未登记显示人话标记", () => {

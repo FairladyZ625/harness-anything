@@ -51,6 +51,7 @@ import {
 import { runWalSender } from "./walsender.ts";
 import { createReplicationRetention, openReplicationSlots, replicationSlotKey } from "@harness-anything/storage";
 import { createNodeRetirementAdmission } from "./node-retirement.ts";
+import { createNodeSessionStatus } from "./node-session-status.ts";
 import { createReplicaStatusTracker } from "./replica-status.ts";
 import { readFleetCenterGitMetadata } from "../fleet-edge-git-preflight.ts";
 /** The replication head poll interval: commit-to-edge latency floor versus idle reads. */
@@ -1146,6 +1147,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   // session row, and `server.close()` waits for it indefinitely.
   const connections = new Set<TLSSocket>();
   const replicationOwners = new Map<string, TLSSocket>();
+  const nodeSessions = createNodeSessionStatus({
+    file: path.join(options.stateRoot, "node-sessions.json"),
+    now,
+  });
   // Slot ACKs against each repository's log head; a slot on another history must base-backup again.
   const replicaStatus = createReplicaStatusTracker({
     slots: replicationSlots,
@@ -1185,6 +1190,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       (nodeId, ...args) => nodeAdmission.run(nodeId, () => handle(nodeId, ...args)),
       sessions,
       replicationOwners,
+      nodeSessions,
     ),
   );
   server.on("connection", (socket: TLSSocket) => {
@@ -1218,6 +1224,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       sessions.delete(nodeId);
       replicationSlots.removeNode(nodeId);
       replicaStatus.removeNode(nodeId);
+      nodeSessions.removeNode(nodeId);
     },
     disconnectNode: (nodeId: string) => {
       const live = sessions.get(nodeId);
@@ -1252,11 +1259,21 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     replicaReceipt: () => {
       throw new Error("replica receipt is retired");
     },
-    status: () => ({
-      replicas: replicaStatus.snapshot(),
-      uploads: uploadWindow(state),
-      versionWarnings: [...versionWarnings.values()],
-    }),
+    status: () => {
+      const replicas = replicaStatus.snapshot();
+      const connectedNodes = new Set(
+        [...replicationOwners].flatMap(([key, socket]) => (socket.destroyed ? [] : [key.split("\0", 1)[0]!])),
+      );
+      return {
+        replicas,
+        nodeSessions: nodeSessions.snapshot(
+          replicas.map((row) => row.nodeId),
+          connectedNodes,
+        ),
+        uploads: uploadWindow(state),
+        versionWarnings: [...versionWarnings.values()],
+      };
+    },
     versionWarnings: () => [...versionWarnings.values()],
   };
 }
