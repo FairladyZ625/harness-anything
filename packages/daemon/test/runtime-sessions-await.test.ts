@@ -338,3 +338,41 @@ test("a sessions.await on an already-closed connection answers client_disconnect
     },
   );
 });
+
+for (const target of ["sessions", "tasks"] as const) {
+  test(`sessions.await retains a terminal notification during an asynchronous ${target} read`, async () => {
+    const { createRuntimeOutcomeWaiters } = await import("../src/runtime-settlement.ts"),
+      signals = createRuntimeOutcomeWaiters({ readSession: () => null, now: () => new Date().toISOString() });
+    let reads = 0;
+    const context: RuntimeAwaitContext = {
+      signalVersion: signals.signalVersion,
+      awaitSignal: signals.awaitSignal,
+      readSession: async () => {
+        const first = ++reads === 1;
+        if (first) signals.notify();
+        return sessionResult("sess-race", first ? null : { outcome: "succeeded", exitCode: 0 });
+      },
+      readTaskDispatches: async () => {
+        const first = ++reads === 1;
+        if (first) signals.notify();
+        return dispatchesResult(
+          [dispatchRow(first ? {} : { status: "succeeded", outcome: "succeeded", exitCode: 0 })],
+          { exitCode: first ? 1 : 0 },
+        );
+      },
+      codedError: (code, message) => Object.assign(new Error(message), { code }),
+    };
+    const pending = orchestrateRuntimeSessionsAwait(
+      target === "sessions" ? { runtimeSessionIds: ["sess-race"] } : { taskIds: ["task-1"] },
+      context,
+    );
+    try {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(reads, 2, "the stale in-flight snapshot must be re-read without waiting for the grace timer");
+      assert.equal((await pending).exitCode, 0);
+    } finally {
+      signals.notify();
+      await pending;
+    }
+  });
+}

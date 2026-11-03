@@ -33,8 +33,10 @@ export function createRuntimeOutcomeWaiters(input: {
 }): {
   readonly notify: () => void;
   readonly awaitOutcome: (runtimeSessionId: string) => Promise<void>;
-  readonly awaitSignal: () => Promise<void>;
+  readonly signalVersion: () => number;
+  readonly awaitSignal: (observedVersion?: number) => Promise<void>;
 } {
+  let version = 0;
   const waiters = new Set<() => void>(),
     // One parked wake: resolves on the next runtime signal/outcome notification, or on the grace
     // backstop so a missed signal cannot park a waiter forever.
@@ -54,6 +56,7 @@ export function createRuntimeOutcomeWaiters(input: {
       });
   return {
     notify: () => {
+      version++;
       const pending = [...waiters];
       waiters.clear();
       for (const waiter of pending) waiter();
@@ -63,7 +66,9 @@ export function createRuntimeOutcomeWaiters(input: {
         await park();
       }
     },
-    awaitSignal: park,
+    signalVersion: () => version,
+    awaitSignal: (observedVersion) =>
+      observedVersion !== undefined && observedVersion !== version ? Promise.resolve() : park(),
   };
 }
 

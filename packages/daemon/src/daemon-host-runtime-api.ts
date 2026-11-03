@@ -215,9 +215,13 @@ export function createDaemonHostRuntimeApi(
               auth,
             ),
           ),
-        awaitSignal: async () => {
+        signalVersion: () =>
+          context.requiredCell(context.cells, context.warming, context.unavailable, repoId).runtimeSignalVersion(),
+        awaitSignal: async (observedVersion) => {
           await context.waitForWarming(repoId);
-          return context.requiredCell(context.cells, context.warming, context.unavailable, repoId).awaitRuntimeSignal();
+          return context
+            .requiredCell(context.cells, context.warming, context.unavailable, repoId)
+            .awaitRuntimeSignal(observedVersion);
         },
         connectionSignal: auth.connectionSignal,
         codedError: context.hostCodedError,

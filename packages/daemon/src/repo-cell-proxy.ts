@@ -1,4 +1,4 @@
-import { consumeKnownError } from "@harness-anything/kernel";
+import { consumeKnownError, type TaskProjection } from "@harness-anything/kernel";
 import { nodeLocalWriteCommandTopology } from "@harness-anything/preset/internal/preset-command-contract";
 import { acquireRepoStorageLock } from "@harness-anything/storage";
 import path from "node:path";
@@ -15,6 +15,7 @@ import { failed } from "./repo-cell-settlement.ts";
 import type { RepoCell, RepoCellBinding } from "./repo-cell-types.ts";
 import { admitRepoMode } from "./repo-mode.ts";
 import { openRepoReadClient, type RepoReadWorkerFactory } from "./repo-read-pool.ts";
+import { readObserveTail } from "./observe-tail.ts";
 import { runtimeOutcomeSettled, runtimeSettlementGraceMs } from "./runtime-settlement.ts";
 import { preparePersonActionExplanationBinding } from "./task-action-explanation-read.ts";
 import { openTerminalHost } from "./terminal-host.ts";
@@ -36,6 +37,7 @@ export async function openRepoCellProxy(
   const outcomeWaiters = new Map<string, Set<() => void>>(),
     signalWaiters = new Set<() => void>(),
     pokeSignalWaiters = (): void => {
+      runtimeSignalVersion++;
       const waiters = [...signalWaiters];
       signalWaiters.clear();
       for (const waiter of waiters) waiter();
@@ -49,6 +51,7 @@ export async function openRepoCellProxy(
     };
   // Read per use: the first `ha daemon fleet edge sync` writes fleet-edge.json after this cell opened.
   const edgeConfig = () => (input.mode === "remote-edge" ? readFleetEdgeConfig(input.rootDir) : null);
+  let runtimeSignalVersion = 0;
   let replicaOnly = false;
   let supervisor: Awaited<ReturnType<typeof openWriterSupervisor>>;
   try {
@@ -277,7 +280,21 @@ export async function openRepoCellProxy(
     readNodeAutoClaimAssignments: (binding) => query("readNodeAutoClaimAssignments", [], binding),
     workspaceSummary: () => query("read", ["repo.workspace.summary.read", {}]),
     workspaceScope: (payload) => query("read", ["repo.workspace.scope.read", payload]),
-    observeTail: (payload, daemon, binding) => query("observeTail", [payload, daemon], binding),
+    // File tails already use async I/O with a fixed byte/page budget. Only the ledger
+    // event tail needs a query worker; a cold worker adds no isolation to bounded file I/O.
+    observeTail: (payload, daemon, binding) => {
+      if (closed) return Promise.reject(cellCodedError("repo_unavailable", "RepoCell is closed."));
+      return (payload as { kind?: unknown })?.kind === "events"
+        ? query("observeTail", [payload, daemon], binding)
+        : readObserveTail({
+            repoId: input.repoId,
+            rootDir: input.rootDir,
+            mode: input.mode ?? "local",
+            projection: {} as TaskProjection,
+            ...daemon,
+            payload,
+          });
+    },
     replica,
     verifyReadiness: async () => {
       const status = supervisor.status();
@@ -299,41 +316,24 @@ export async function openRepoCellProxy(
     },
     awaitRuntimeOutcome: async (runtimeSessionId) => {
       const now = input.now ?? (() => new Date().toISOString());
-      while (!runtimeOutcomeSettled(await readSession(runtimeSessionId), now())) {
-        await new Promise<void>((resolve) => {
-          const waiter = () => {
-            waiters.delete(waiter);
-            clearTimeout(timer);
-            resolve();
-          };
-          // The settle predicate is also time-based (post-exit grace), so a missed signal cannot
-          // park a waiter forever; each wake re-reads the projection and either returns or rearms.
-          const timer = setTimeout(() => {
-            waiters.delete(waiter);
-            resolve();
-          }, runtimeSettlementGraceMs);
-          timer.unref?.();
-          const waiters = outcomeWaiters.get(runtimeSessionId) ?? new Set<() => void>();
-          waiters.add(waiter);
-          outcomeWaiters.set(runtimeSessionId, waiters);
-        });
+      for (;;) {
+        const observedVersion = runtimeSignalVersion;
+        const session = await query<import("@harness-anything/kernel").RuntimeSession | null>("readSettlementSession", [
+          runtimeSessionId,
+        ]);
+        if (runtimeOutcomeSettled(session, now())) return;
+        // A notification during the async snapshot invalidates that snapshot; never park on it.
+        if (observedVersion !== runtimeSignalVersion) continue;
+        const waiters = outcomeWaiters.get(runtimeSessionId) ?? new Set<() => void>();
+        outcomeWaiters.set(runtimeSessionId, waiters);
+        await parkRuntimeWait(waiters);
       }
     },
-    awaitRuntimeSignal: async () => {
-      await new Promise<void>((resolve) => {
-        const waiter = () => {
-          signalWaiters.delete(waiter);
-          clearTimeout(timer);
-          resolve();
-        };
-        const timer = setTimeout(() => {
-          signalWaiters.delete(waiter);
-          resolve();
-        }, runtimeSettlementGraceMs);
-        timer.unref?.();
-        signalWaiters.add(waiter);
-      });
-    },
+    runtimeSignalVersion: () => runtimeSignalVersion,
+    awaitRuntimeSignal: (observedVersion) =>
+      observedVersion !== undefined && observedVersion !== runtimeSignalVersion
+        ? Promise.resolve()
+        : parkRuntimeWait(signalWaiters),
     runtime,
     status: () => {
       const status = supervisor.status();
@@ -366,4 +366,17 @@ export async function openRepoCellProxy(
       }
     },
   };
+}
+
+function parkRuntimeWait(waiters: Set<() => void>): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const finish = () => {
+      waiters.delete(finish);
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(finish, runtimeSettlementGraceMs);
+    timer.unref?.();
+    waiters.add(finish);
+  });
 }

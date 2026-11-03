@@ -1113,6 +1113,7 @@ export async function openRepoWriterCell(
       return runtimeReads;
     },
     awaitRuntimeOutcome: outcomeWaiters.awaitOutcome,
+    runtimeSignalVersion: outcomeWaiters.signalVersion,
     awaitRuntimeSignal: outcomeWaiters.awaitSignal,
     runtimeSpawner,
     settings,

@@ -16,7 +16,7 @@ import { readEdgeDocWorkspace } from "./fleet-edge-doc-read.ts";
 import type { FleetMirrorView } from "./fleet-edge-mirror.ts";
 import { withEdgeReadModel } from "./fleet-edge-task-read.ts";
 import { readReplicaHealth } from "./fleet/replica-health.ts";
-import { readObserveEventTail, readObserveTail } from "./observe-tail.ts";
+import { readObserveEventTail } from "./observe-tail.ts";
 import { makePersonActionRuntime } from "./person-action-runtime.ts";
 import { commandDescriptorForAction } from "./protocol/daemon-protocol-commands.ts";
 import type { RepositoryReadFrame } from "./protocol/repository-read-frame.ts";
@@ -315,6 +315,21 @@ export function makeRepoReadRuntime(
   return {
     run,
     readSession,
+    readSettlementSession: (runtimeSessionId: string) =>
+      reader.withSession((projection) => {
+        const canonical = projection.readRuntimeSession(runtimeSessionId);
+        if (!canonical || canonical.outcome !== null) return canonical;
+        const observed = readObservedRuntimeSession(projection, input.rootDir, runtimeSessionId);
+        // Local terminal evidence precedes canonical publication. It supplies liveness/grace,
+        // while only the canonical outcome can release an orchestration waiter immediately.
+        return {
+          ...observed!,
+          outcome: null,
+          exitCode: canonical.exitCode,
+          resultRef: canonical.resultRef,
+          reasonCode: canonical.reasonCode,
+        };
+      }),
     canAttach: (session: NonNullable<ReturnType<typeof readSession>>) =>
       session.liveness !== "exited" &&
       query((projection) => {
@@ -398,7 +413,7 @@ export function makeRepoReadRuntime(
     },
     observeTail: (
       payload: Parameters<RepoCell["observeTail"]>[0],
-      daemon: Parameters<RepoCell["observeTail"]>[1],
+      _daemon: Parameters<RepoCell["observeTail"]>[1],
       binding?: RepoCellBinding,
     ) => {
       if (input.mode === "remote-edge" && (payload as { kind?: string })?.kind === "events")
@@ -414,27 +429,17 @@ export function makeRepoReadRuntime(
             ...frame,
           })),
         );
-      if (payload !== null && typeof payload === "object" && (payload as { kind?: unknown }).kind === "events")
-        return Promise.resolve(
-          query((projection) =>
-            readObserveEventTail({
-              repoId: input.repoId,
-              rootDir: input.rootDir,
-              mode: input.mode ?? "local",
-              projection: projection as TaskProjection,
-              payload,
-            }),
-          ),
-        );
-      return readObserveTail({
-        repoId: input.repoId,
-        rootDir: input.rootDir,
-        mode: input.mode ?? "local",
-        projection: {} as TaskProjection,
-        userRoot: daemon.userRoot,
-        daemonId: daemon.daemonId,
-        payload,
-      });
+      return Promise.resolve(
+        query((projection) =>
+          readObserveEventTail({
+            repoId: input.repoId,
+            rootDir: input.rootDir,
+            mode: input.mode ?? "local",
+            projection: projection as TaskProjection,
+            payload,
+          }),
+        ),
+      );
     },
     scheduleOccurrenceSettlementOwner: (dispatchId: string | undefined) =>
       query((projection) => scheduleOccurrenceSettlementOwner(projection, dispatchId)),

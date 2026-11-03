@@ -46,6 +46,9 @@ export async function executeRepoReadRequest(request: RepoWriterRequestV1): Prom
     case "readSession":
       value = reader.readSession(String(args[0]));
       break;
+    case "readSettlementSession":
+      value = reader.readSettlementSession(String(args[0]));
+      break;
     case "canAttach":
       value = reader.canAttach(args[0] as never);
       break;
