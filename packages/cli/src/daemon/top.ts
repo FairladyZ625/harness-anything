@@ -95,14 +95,14 @@ export async function runDaemonTop(
   }
 }
 
-function topReceipt(snapshot: JsonObject, options: DaemonTopOptions): JsonObject {
+export function topReceipt(snapshot: JsonObject, options: DaemonTopOptions): JsonObject {
   return {
+    ...snapshot,
     schema: "daemon-top/v1",
     ok: true,
     command: "daemon-top",
     daemonId: options.daemonId,
     observedAt: new Date().toISOString(),
-    ...snapshot,
   };
 }
 

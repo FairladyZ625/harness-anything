@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseDaemonTopOptions, parseInterval, renderDaemonTop } from "../src/daemon/top.ts";
+import { parseDaemonTopOptions, parseInterval, renderDaemonTop, topReceipt } from "../src/daemon/top.ts";
 
 test("daemon top accepts millisecond and second intervals and rejects zero or junk", () => {
   assert.equal(parseInterval("1s"), 1_000);
@@ -49,6 +49,17 @@ test("daemon top renders per-second rate, method percentiles, queues, nodes and 
   assert.match(text, /node-7 8/u);
   assert.match(text, /repo\.task\.run 900ms/u);
   assert.match(text, /write-queue 2500 abc/u);
+});
+
+test("the machine receipt names daemon-top even when the diagnostics snapshot says daemon-status", () => {
+  const receipt = topReceipt(
+    { command: "daemon-status", ok: true, daemonId: "default" },
+    { intervalMs: 1_000, once: true, json: true, userRoot: "/tmp/u", daemonId: "default" },
+  );
+  assert.equal(receipt.schema, "daemon-top/v1");
+  assert.equal(receipt.command, "daemon-top");
+  assert.equal(receipt.ok, true);
+  assert.equal(receipt.daemonId, "default");
 });
 
 test("daemon top reports an old build's trace as unavailable instead of inventing numbers", () => {
