@@ -722,6 +722,9 @@ test("artifact task dispatch confines writes to its package despite bypass decla
     assert.match(prepared!.prompt, /# Workspace-write CLI access/u);
     assert.match(prepared!.prompt, /native Bash sandbox/u);
     assert.match(prepared!.prompt, /Approved CLI entries: `ha`\./u);
+    assert.doesNotMatch(prepared!.prompt, /gh pr create/u);
+    assert.match(prepared!.prompt, /ha task push <task-id>/u);
+    assert.match(prepared!.prompt, /daemon 在推送后创建或更新 PR/u);
     const unboundReceipt = await cell.spawnRuntime(
       {
         runtimeInstanceId: definition.instanceId,
