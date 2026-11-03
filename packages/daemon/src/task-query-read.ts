@@ -268,7 +268,7 @@ export function makeTaskQueryReadModel(input: {
       decisionIds = [
         ...new Set(derives.rows.flatMap(({ sourceRef }) => /^decision\/([^/]+)/u.exec(sourceRef)?.[1] ?? [])),
       ],
-      decisionRead = projection.readDecisions(decisionIds),
+      decisionRead = projection.readDecisions(decisionIds, false),
       assignmentRead = projection.readTaskRelationsBySources(
         lifecycle.rows.map(({ taskId }) => `task/${taskId}`),
         "assigned-to",
@@ -760,8 +760,9 @@ export function makeTaskQueryReadModel(input: {
         ];
       }),
       decisionSignals = (decisions?.decisions ?? []).map((decision) => {
+        if (decisionReviewRequirement === null) return { decision, signal: "ready" as const };
         const full = projection.readDecision(decision.decisionId).decision;
-        if (!full || decisionReviewRequirement === null) return { decision, signal: "ready" as const };
+        if (!full) return { decision, signal: "ready" as const };
         const readiness = decisionReviewState(full, decisionReviewRequirement).acceptReviewReadiness;
         if (!readiness) return { decision, signal: "ready" as const };
         if (readiness.next.action === "override-review" || readiness.next.action === "respond-review")
@@ -967,7 +968,8 @@ export function makeTaskQueryReadModel(input: {
   function sourceOwnerOf(ref: string): string | undefined {
     const parsed = /^(task|decision)\/(.+)$/u.exec(ref);
     if (parsed?.[1] === "task") return projection.read(parsed[2]!).snapshot.task?.createdBy.principal.personId;
-    if (parsed?.[1] === "decision") return projection.readDecision(parsed[2]!).decision?.proposer.principal.personId;
+    if (parsed?.[1] === "decision")
+      return projection.readDecision(parsed[2]!, false).decision?.proposer.principal.personId;
     return undefined;
   }
   /** 终态源没有下一次写入:task done/cancelled、裁决已出的 decision(kernel 单点终态判定)。
@@ -979,7 +981,7 @@ export function makeTaskQueryReadModel(input: {
       return status !== undefined && isTerminalStatus(status);
     }
     if (parsed?.[1] === "decision") {
-      const state = projection.readDecision(parsed[2]!).decision?.state;
+      const state = projection.readDecision(parsed[2]!, false).decision?.state;
       return state !== undefined && isTerminalDecisionState(state);
     }
     return false;
@@ -1000,7 +1002,7 @@ export function makeTaskQueryReadModel(input: {
       return { kind, title: task?.title ?? id, status: task?.status ?? "unknown" };
     }
     if (kind === "decision") {
-      const decision = projection.readDecision(id).decision;
+      const decision = projection.readDecision(id, false).decision;
       return { kind, title: decision?.title ?? id, status: decision?.state ?? "unknown" };
     }
     const entity = projection.getEntity(kind, id),

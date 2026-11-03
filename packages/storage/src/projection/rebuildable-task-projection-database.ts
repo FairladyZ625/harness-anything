@@ -486,6 +486,13 @@ function createTables(db: DatabaseSync, onValidationProgress?: ProjectionProgres
       workspace_revision INTEGER NOT NULL,
       value_json TEXT NOT NULL
     );
+    -- Cover document lists with metadata only. JSON extraction runs once at projection write,
+    -- never when listing a repository that contains a large inline historical body.
+    CREATE INDEX IF NOT EXISTS document_metadata ON document (
+      path, workspace_revision,
+      json_extract(value_json, '$.blobSha256'), json_extract(value_json, '$.size'),
+      json_extract(value_json, '$.mediaType'), json_extract(value_json, '$.policyId')
+    );
     CREATE TABLE IF NOT EXISTS preset_snapshot (
       digest TEXT PRIMARY KEY,
       workspace_revision INTEGER NOT NULL,

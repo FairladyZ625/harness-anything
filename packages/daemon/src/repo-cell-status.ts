@@ -9,12 +9,15 @@ export function repoCellStatus(context: {
   readonly generation: number;
   readonly queueDepth: number;
   readonly store: CanonicalEventStore;
+  readonly projection: TaskProjection;
   readonly lastError: string | null;
   readonly causeClass: RepoCellStatus["causeClass"];
   readonly recovery: { readonly elapsedMs: number; readonly status: "none" | "indeterminate" };
   readonly recoveryUncertain: boolean;
 }): RepoCellStatus {
+  const read = readStatusCut(context);
   return {
+    ...read?.cuts,
     repoId: context.input.repoId,
     rootDir: context.rootDir,
     mode: context.mode,
@@ -23,7 +26,8 @@ export function repoCellStatus(context: {
       (context.state === "attached" || context.state === "unavailable") &&
       context.recovery.status === "none" &&
       !context.recoveryUncertain &&
-      context.causeClass !== "projection",
+      context.causeClass !== "projection" &&
+      (read === null || read.ready),
     generation: context.generation,
     queueDepth: context.queueDepth,
     lastError: context.lastError,
@@ -34,14 +38,21 @@ export function repoCellStatus(context: {
   };
 }
 
-export function repoCellStatusCuts(context: {
+type StatusReadContext = {
   readonly state: RepoCellStatus["state"];
   readonly projection: TaskProjection;
   readonly store: CanonicalEventStore;
-}): Pick<RepoCellStatus, "projectionWatermark" | "ledgerRevision"> | null {
+};
+export function repoCellStatusCuts(
+  context: StatusReadContext,
+): Pick<RepoCellStatus, "projectionWatermark" | "ledgerRevision"> | null {
+  return readStatusCut(context)?.cuts ?? null;
+}
+function readStatusCut(context: StatusReadContext) {
   if (context.state !== "attached") return null;
+  const cut = context.projection.readCut();
   return {
-    projectionWatermark: context.projection.readCut().watermark,
-    ledgerRevision: context.store.readHead()?.revision ?? 0,
+    ready: cut.status === "ready",
+    cuts: { projectionWatermark: cut.watermark, ledgerRevision: context.store.readHead()?.revision ?? 0 },
   };
 }

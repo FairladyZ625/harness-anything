@@ -130,6 +130,7 @@ export function taskQueryApi(
   | "readEventSummaries"
   | "readEventWitness"
   | "readDocuments"
+  | "readDocumentMetadata"
   | "readDocument"
   | "readReplicaBasis"
   | "taskIdForDocumentPath"
@@ -328,6 +329,14 @@ export function taskQueryApi(
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
         };
+      }),
+    readDocumentMetadata: (documentPath) =>
+      withDatabase(projectionPath, readHead, (db) => {
+        const cut = readProjectionCut(db, readHead),
+          row = prepareQuery(db, "SELECT path, workspace_revision FROM document WHERE path = ?").get(documentPath) as
+            | { path: string; workspace_revision: number }
+            | undefined;
+        return { ...cut, document: row ? { path: row.path, workspaceRevision: row.workspace_revision } : null };
       }),
     readDocument: (documentPath) => readDocument(projectionPath, readHead, eventStore, documentPath, limit),
     readReplicaBasis: (afterRevision) => {

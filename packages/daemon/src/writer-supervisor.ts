@@ -37,6 +37,7 @@ export interface WriterSupervisor {
   readonly control: (command: RepoWriterControlV1["command"]) => Promise<void>;
   readonly status: () => RepoCellStatus;
   readonly bootstrapReceipt: () => unknown;
+  readonly ledgerCut: import("./repo-cell-types.ts").ReplicaCutSource["ledgerCut"];
   readonly close: () => Promise<void>;
 }
 
@@ -93,6 +94,7 @@ export async function openWriterSupervisor(
       },
     },
     publishedBootstrapReceipt: unknown,
+    publishedLedgerCut: ReturnType<WriterSupervisor["ledgerCut"]> = null,
     ready: Promise<void>;
   const pending = new Map<
       string,
@@ -179,6 +181,7 @@ export async function openWriterSupervisor(
     control: sendControl,
     status: () => statusWithCurrentRetryElapsed(status, statusObservedAt),
     bootstrapReceipt: () => publishedBootstrapReceipt,
+    ledgerCut: () => publishedLedgerCut,
     close: async () => {
       if (closed) return;
       closed = true;
@@ -257,6 +260,7 @@ export async function openWriterSupervisor(
           return;
         }
         if (isStatus(message)) {
+          if (message.ledgerCut !== undefined) publishedLedgerCut = message.ledgerCut;
           const published = message.status;
           if (published && typeof published === "object") {
             const attaching = published.state === "warming";

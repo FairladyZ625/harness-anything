@@ -16,6 +16,11 @@ export async function putPgProjectionValue(
   revision: number,
   value: unknown,
 ): Promise<void> {
+  if (model === "document") {
+    const { body: _body, ...metadata } =
+      value as import("@harness-anything/kernel/internal/domain/doc-sync.contract.ts").DocumentState;
+    await putPgProjectionValue(client, scope, "document-metadata", id, owner, revision, metadata);
+  }
   await client.query(
     `INSERT INTO ha_projection_values
     (tenant_id,project_id,policy_epoch,readers,model,entity_id,owner_id,workspace_revision,value)
@@ -43,6 +48,7 @@ export async function deletePgProjectionValue(
   id: string,
   owner = "",
 ): Promise<void> {
+  if (model === "document") await deletePgProjectionValue(client, scope, "document-metadata", id, owner);
   await client.query(
     "DELETE FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model=$4 AND entity_id=$5 AND owner_id=$6",
     [scope.tenantId, scope.projectId, scope.policyEpoch, model, id, owner],

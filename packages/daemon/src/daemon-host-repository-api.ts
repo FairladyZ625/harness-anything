@@ -635,7 +635,7 @@ export function createDaemonHostRepositoryApi(
           evaluatedAtCut: "daemon-registry:current",
         }),
         cell = context.cells.get(request.repoId),
-        blockingWork = [...(cell?.inFlightWork() ?? [])].sort(
+        blockingWork = [...((await cell?.inFlightWork()) ?? [])].sort(
           (left, right) => left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id),
         );
       const inFlightSummary = `Repository ${request.repoId} still has ${blockingWork.length} in-flight item${blockingWork.length === 1 ? "" : "s"}; settle them before retrying.`;
@@ -1064,8 +1064,6 @@ export function createDaemonHostRepositoryApi(
           },
           binding,
         );
-      else if (method === "repo.workspace.summary.read") result = cell.workspaceSummary();
-      else if (method === "repo.workspace.scope.read") result = cell.workspaceScope(payload as never);
       else if (method === "repo.gui.catalog.snapshot") result = await cell.catalog.snapshot();
       else if (method === "repo.gui.catalog.preset.read") {
         if (!isJsonObject(payload))

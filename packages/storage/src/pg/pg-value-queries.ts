@@ -27,6 +27,7 @@ export type PgValueQueries = AsyncQueries<
   | "readSquadRun"
   | "readSquadRuns"
   | "readLeaseIntervals"
+  | "readDocumentMetadata"
   | "readDocument"
   | "readDocuments"
   | "readReplicaBasis"
@@ -43,7 +44,7 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
     read((client) => getPgProjectionValue<Result>(client, scope, model, id));
   const list = <Result>(model: string) => read((client) => listPgProjectionValues<Result>(client, scope, model));
   const documents = async (client: PoolClient, prefix: string) =>
-    (await listPgProjectionValues<DocumentState>(client, scope, "document"))
+    (await listPgProjectionValues<Omit<DocumentState, "body">>(client, scope, "document-metadata"))
       .filter(({ path }) => path.startsWith(prefix))
       .map(({ path, blobSha256, size, mediaType, policyId }) => ({
         path,
@@ -119,6 +120,21 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
         ...(await readCutInTransaction(client, scope, readers, repoId)),
         snapshot: await getPgProjectionValue(client, scope, "preset", id),
       })),
+    readDocumentMetadata: (path) =>
+      read(async (client) => {
+        const cut = await readCutInTransaction(client, scope, readers, repoId),
+          row = await client.query<{ entity_id: string; workspace_revision: string }>(
+            `SELECT entity_id, workspace_revision FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model='document' AND entity_id=$4 AND owner_id=''
+           AND (cardinality($5::text[])=0 OR readers && $5::text[])`,
+            [scope.tenantId, scope.projectId, scope.policyEpoch, path, readers],
+          );
+        return {
+          ...cut,
+          document: row.rows[0]
+            ? { path: row.rows[0].entity_id, workspaceRevision: Number(row.rows[0].workspace_revision) }
+            : null,
+        };
+      }),
     readDocument: (path) =>
       read(async (client) => ({
         ...(await readCutInTransaction(client, scope, readers, repoId)),

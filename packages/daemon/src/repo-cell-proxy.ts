@@ -1,75 +1,31 @@
-import path from "node:path";
-import { scheduleOccurrenceSettlementOwner } from "./schedule-runtime-outcome.ts";
-import { repositoryRuntimeReads } from "./repository-runtime-reads.ts";
-import { readEntityLocator } from "./entity-locator-read.ts";
-import { readEdgeDocWorkspace } from "./fleet-edge-doc-read.ts";
-import type { FleetMirrorView } from "./fleet-edge-mirror.ts";
-import type { RepositoryReadFrame } from "./protocol/repository-read-frame.ts";
-import { readEdgeViewBlob } from "./runtime-result-read.ts";
-import { makeTaskEventReader, makeDaemonProjectionReader, acquireRepoStorageLock } from "@harness-anything/storage";
-import {
-  consumeKnownError,
-  isDomainStatus,
-  timestamp,
-  type TaskProjection,
-  type TaskProjectionListQuery,
-  type TaskProjectionQueries,
-  type WriteReceiptDraft,
-} from "@harness-anything/kernel";
+import { consumeKnownError } from "@harness-anything/kernel";
 import { nodeLocalWriteCommandTopology } from "@harness-anything/preset/internal/preset-command-contract";
-import { readObservedRuntimeSession } from "./agent-runtime-read.ts";
+import { acquireRepoStorageLock } from "@harness-anything/storage";
+import path from "node:path";
 import { makeAgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
-import { taskShowFromProjection } from "./repo-cell-completion.ts";
-import { readRuntimeSessionActivityEvidence } from "./dispatch-read.ts";
-import { readObserveEventTail, readObserveTail } from "./observe-tail.ts";
-import { openTerminalHost } from "./terminal-host.ts";
+import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { readReplicaGeneration } from "./fleet/replica-generation.ts";
+import { readReplicaHealth } from "./fleet/replica-health.ts";
+import { commandDescriptorForAction, repoCellExecutionForAction } from "./protocol/daemon-protocol-commands.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
-import { causeClassOf } from "./repo-cell-lock.ts";
-import {
-  createRepoCellActionContext,
-  type RepoCellOperationalContext,
-  type RepoCellRuntimeContext,
-} from "./repo-cell-action-context.ts";
-import { createRepoCellApi, repoCellSynchronousRead, type RepoCellApiContext } from "./repo-cell-api.ts";
-import {
-  explainAuthenticationRequired,
-  preparePersonActionExplanationBinding,
-} from "./task-action-explanation-read.ts";
-import { dispatchRead } from "./repo-cell-command.ts";
-import { executeRepoReadAction } from "./repo-cell-action-dispatch.ts";
-import { bindVerifiedExecutorClaim } from "./repo-cell-authorization.ts";
-import { makeEntityActionCatalogExecutor, type EntityActionCatalogRuntimes } from "./entity-action-catalog-executor.ts";
-import { makeAgentActionRuntime, makeSquadActionRuntime } from "./squad-action-runtime.ts";
-import { makeScheduleActionRuntime } from "./schedule-action-runtime.ts";
-import { makeSettingsActionRuntime } from "./settings-action-runtime.ts";
-import { makePersonActionRuntime } from "./person-action-runtime.ts";
-import { acquireWorkspaceLock } from "./repo-cell-lock.ts";
+import { acquireWorkspaceLock, causeClassOf } from "./repo-cell-lock.ts";
 import type { RepoCellOpenInput } from "./repo-cell-open.ts";
 import { operationId } from "./repo-cell-proof.ts";
+import { failed } from "./repo-cell-settlement.ts";
+import type { RepoCell, RepoCellBinding } from "./repo-cell-types.ts";
 import { admitRepoMode } from "./repo-mode.ts";
-import { failed, requiredCellText } from "./repo-cell-settlement.ts";
-import { readRepoInFlightWork } from "./repo-in-flight-work.ts";
-import { makeRepoCellSettingsState } from "./repo-cell-settings-state.ts";
-import type { RepoCell, RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
-import { repoCellTaskQueryJudgmentsFor } from "./repo-cell.ts";
-import { makeTaskQueryReadModel } from "./task-query-read.ts";
-import { openWriterSupervisor } from "./writer-supervisor.ts";
+import { openRepoReadClient, type RepoReadWorkerFactory } from "./repo-read-pool.ts";
 import { runtimeOutcomeSettled, runtimeSettlementGraceMs } from "./runtime-settlement.ts";
-import { commandDescriptorForAction, repoCellExecutionForAction } from "./protocol/daemon-protocol-commands.ts";
-import { workspaceSummaryFromProjection } from "./workspace-summary-read.ts";
-import { workspaceScopeFromProjection } from "./workspace-scope-read.ts";
-import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
-import { withEdgeReadModel } from "./fleet-edge-task-read.ts";
-import { readReplicaHealth } from "./fleet/replica-health.ts";
-import { readReplicaGeneration } from "./fleet/replica-generation.ts";
+import { preparePersonActionExplanationBinding } from "./task-action-explanation-read.ts";
+import { openTerminalHost } from "./terminal-host.ts";
+import { openWriterSupervisor } from "./writer-supervisor.ts";
 
 const writerAttached = (cell: { readonly state: string }): boolean => cell.state === "attached";
-const projectionReady = (read: { readonly status: string }): boolean => read.status === "ready";
-const validTaskStatusFilter = (value: string | undefined): boolean => value === undefined || isDomainStatus(value);
 
-/** Host-side RepoCell boundary: admission/proxy plus completed-cut projection reads only. */
+/** Host-side RepoCell boundary: admission, bounded read RPC, writer proxy and live streams. */
 export async function openRepoCellProxy(
   input: RepoCellOpenInput & { readonly onStatus?: (status: ReturnType<RepoCell["status"]>) => void },
+  options: { readonly createReadWorker?: RepoReadWorkerFactory } = {},
 ): Promise<RepoCell> {
   const lock = await acquireRepoStorageLock(input.storage, () => acquireWorkspaceLock(input.rootDir));
   let relayRuntimeSignal: NonNullable<RepoCellOpenInput["onRuntimeSignal"]> = () => undefined;
@@ -91,7 +47,6 @@ export async function openRepoCellProxy(
       outcomeWaiters.delete(runtimeSessionId);
       for (const waiter of waiters) waiter();
     };
-  let wakeReplica = (): void => undefined;
   // Read per use: the first `ha daemon fleet edge sync` writes fleet-edge.json after this cell opened.
   const edgeConfig = () => (input.mode === "remote-edge" ? readFleetEdgeConfig(input.rootDir) : null);
   let replicaOnly = false;
@@ -113,7 +68,6 @@ export async function openRepoCellProxy(
       {
         onAttachStatus: input.onStatus,
         onPublishedStatus: (status) => {
-          wakeReplica();
           input.onStatus?.(status);
         },
       },
@@ -175,313 +129,51 @@ export async function openRepoCellProxy(
       request: rejectWrite,
       control: rejectWrite,
       bootstrapReceipt: () => undefined,
+      ledgerCut: () => null,
       close: async () => undefined,
     };
   }
-  let ledgerReader: ReturnType<typeof makeTaskEventReader> | null = null;
-  const reader = makeDaemonProjectionReader({
-      repoId: input.repoId,
-      rootDir: input.rootDir,
-      storage: input.storage,
-      ...(input.now ? { now: input.now } : {}),
-    }),
-    ledgerOptions = {
-      repoId: input.repoId,
-      rootDir: input.rootDir,
-      authoredBranch: input.authoredBranch,
-      storage: input.storage,
-    },
-    // 一个惰性创建的长连接只读读者:WAL 模式下只读连接上每条语句自成一个读事务,
-    // 已能看到最新提交,读最新数据不需要每次重开连接。全部读共用同一个 store
-    // 引用,entity fold 的 WeakMap<CanonicalEventStore,…> 缓存才会命中(逐请求
-    // 新 store 让它永远 miss)。打开失败不缓存,下次读重试。
-    ledgerReadStore = () => (ledgerReader ??= makeTaskEventReader(ledgerOptions)),
-    // Read runtimes hold the store but open it on first use, so a read that never touches the
-    // ledger does not depend on one existing (an edge whose own ledger is not attached).
-    lazyLedgerStore = new Proxy({} as ReturnType<typeof makeTaskEventReader>, {
-      get: (_target, property) => {
-        const store = ledgerReadStore(),
-          value: unknown = Reflect.get(store, property, store);
-        return typeof value === "function" ? value.bind(store) : value;
-      },
-    }),
-    readCurrentLedger = <T>(read: (store: ReturnType<typeof makeTaskEventReader>) => T): T => read(ledgerReadStore()),
-    replica = {
-      kick: () => undefined,
-      close: () => undefined,
-      ledgerCut: () => readCurrentLedger((store) => store.currentCut()),
-    },
-    readSession = (runtimeSessionId: string) =>
-      reader.withSession((projection) => readObservedRuntimeSession(projection, input.rootDir, runtimeSessionId)),
-    runtime = makeAgentRuntimeStreamHub({
-      readSession,
-      canAttach: (session) =>
-        session.liveness !== "exited" &&
-        reader.withSession((projection) => {
-          const dispatch = projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef);
-          return dispatch
-            ? readRuntimeSessionActivityEvidence(input.rootDir, dispatch.payload.dispatchId)?.workerHostAlive === true
-            : false;
-        }) &&
-        reader.withSession((projection) =>
-          Boolean(projection.readRuntimeInstallation(session.installationId)?.effectiveCapabilities.includes("attach")),
-        ),
-      ...(input.now ? { now: () => new Date(input.now!()) } : {}),
-    }),
-    terminalHost = openTerminalHost({
-      repoId: input.repoId,
-      rootDir: input.rootDir,
-      daemonGeneration: supervisor.status().generation ?? Date.now() * 1_000 + (process.pid % 1_000),
-      ...(input.now ? { now: input.now } : {}),
-    });
-  wakeReplica = () => replica.kick();
+  const reads = openRepoReadClient(input, options.createReadWorker);
+  const query = <T>(method: string, args: readonly unknown[] = [], binding?: RepoCellBinding): Promise<T> => {
+    if (closed) return Promise.reject(cellCodedError("repo_unavailable", "RepoCell is closed."));
+    const status = supervisor.status();
+    const observeEvents = method === "observeTail" && (args[0] as { kind?: unknown } | null)?.kind === "events";
+    const independent =
+      (method === "read" && args[0] === "repo.entity.locator.read") || (method === "observeTail" && !observeEvents);
+    const replicaRead =
+      input.mode === "remote-edge" &&
+      ((method === "read" && args[0] !== "repo.agent.skills.list") ||
+        method === "explainBasis" ||
+        method === "readNodeAutoClaimAssignments" ||
+        observeEvents ||
+        (method === "run" &&
+          commandDescriptorForAction((args[0] as { kind: string }).kind).admission["remote-edge"] === "edge-replica"));
+    if (
+      !independent &&
+      !replicaRead &&
+      !writerAttached(status) &&
+      !(status.state === "unavailable" && status.projectionReadable === true)
+    )
+      return Promise.reject(cellCodedError("repo_unavailable", status.lastError ?? "RepoWriterCell is not ready."));
+    return reads.request(method, args, binding);
+  };
+  const readSession = (runtimeSessionId: string) =>
+    query<import("@harness-anything/kernel").RuntimeSession | null>("readSession", [runtimeSessionId]);
+  const runtime = makeAgentRuntimeStreamHub({
+    readSession,
+    canAttach: (session) => query<boolean>("canAttach", [session]),
+    ...(input.now ? { now: () => new Date(input.now!()) } : {}),
+  });
+  const terminalHost = openTerminalHost({
+    repoId: input.repoId,
+    rootDir: input.rootDir,
+    daemonGeneration: supervisor.status().generation ?? Date.now() * 1_000 + (process.pid % 1_000),
+    ...(input.now ? { now: input.now } : {}),
+  });
+  const replica = { kick: () => undefined, close: () => undefined, ledgerCut: supervisor.ledgerCut };
+  const latched = () => supervisor.status().lastError ?? "RepoCell is unavailable.";
   relayRuntimeSignal = runtime.publish;
   let closed = false;
-
-  /**
-   * An edge-replica read on an edge is answered from the materialized replica of the center cut, under the
-   * replica owner's authorization, and reports where the answer came from (dec_FB7DE6338E7D3D94ED2A4C05A2).
-   */
-  const edgeViews = new WeakMap<TaskProjectionQueries, FleetMirrorView>();
-  const edgeReplicaRead = <T>(
-    binding: RepoCellBinding | undefined,
-    read: (projection: TaskProjectionQueries, frame: RepositoryReadFrame, view: FleetMirrorView) => T,
-  ): T => {
-    if (closed) throw cellCodedError("repo_unavailable", "RepoCell is closed.");
-    const config = edgeConfig();
-    if (!config) throw cellCodedError("replica_unavailable", "This edge has no Fleet replica configuration.");
-    return withEdgeReadModel(
-      {
-        viewRoot: config.viewRoot,
-        repoId: input.repoId,
-        nodeId: config.nodeId,
-        principalId: binding?.actor.principal.personId,
-        ...(config.maxAgeMs === undefined ? {} : { maxAgeMs: config.maxAgeMs }),
-        ...(config.maxLagRevisions === undefined ? {} : { maxLagRevisions: config.maxLagRevisions }),
-      },
-      (projection, frame, view) => {
-        edgeViews.set(projection, view);
-        const health = readReplicaHealth(view.viewDir),
-          failure = health.modelFailure ?? health.syncFailure,
-          framed =
-            failure === null
-              ? frame
-              : {
-                  ...frame,
-                  warning: [frame.warning, `${failure.code}: ${failure.message}`].filter(Boolean).join(" · "),
-                };
-        return read(projection, framed, view);
-      },
-    );
-  };
-  const edgeReplicaRun = (action: RepoTaskAction, binding: RepoCellBinding) =>
-    edgeReplicaRead(binding, (projection, frame, view) => {
-      const stamp = (receipt: WriteReceiptDraft): WriteReceiptDraft => ({
-        ...receipt,
-        cut: { repoId: input.repoId, ...frame.cut, opId: receipt.opId },
-        freshness: frame.freshness,
-        ...(frame.warning === null ? {} : { warnings: [...(receipt.warnings ?? []), frame.warning] }),
-      });
-      if (action.kind === "doc-status" || action.kind === "doc-dry-run")
-        return readRuntime(projection).actionContext.withHumanSummary(
-          stamp(readEdgeDocWorkspace(input.rootDir, view, projection, action)),
-        ) as Awaited<ReturnType<RepoCell["run"]>>;
-      return executeReadAtCut(projection, action, binding, stamp);
-    });
-  const query = <T>(read: (projection: TaskProjectionQueries) => T): T => {
-    if (closed) throw cellCodedError("repo_unavailable", "RepoCell is closed.");
-    const status = supervisor.status();
-    if (!writerAttached(status) && !(status.state === "unavailable" && status.projectionReadable === true))
-      throw cellCodedError("repo_unavailable", status.lastError ?? "RepoWriterCell is not ready.");
-    // A write latch does not revoke a verified generation's completed cut. Reads never repair it.
-    return reader.withSession(read);
-  };
-  const latched = (): string => {
-    const status = supervisor.status(),
-      cause = status.lastError ?? "RepoCell is unavailable.";
-    return status.causeClass === "infrastructure"
-      ? [
-          "this workspace stays latched until its Git or lock infrastructure recovers:",
-          "repair the infrastructure cause below, then rerun the command; the next attempt re-probes the workspace",
-          `and re-attaches automatically once it verifies. Cause: ${cause}`,
-        ].join(" ")
-      : status.causeClass === "projection"
-        ? [
-            "this workspace stays latched until its projection verifies:",
-            "run ha daemon projection rebuild to repair the projection cause below; this command remains available",
-            `while latched and re-attaches automatically once the projection verifies. Cause: ${cause}`,
-          ].join(" ")
-        : [
-            "this workspace stays latched until its ledger data verifies:",
-            "repair the data-shape cause below, then rerun the command; the next attempt re-probes the ledger",
-            `and re-attaches automatically once the data verifies. Cause: ${cause}`,
-          ].join(" ");
-  };
-  let hostReadRuntime:
-    | {
-        readonly projection: TaskProjectionQueries;
-        readonly api: ReturnType<typeof createRepoCellApi>;
-        readonly actionContext: RepoCellOperationalContext;
-      }
-    | undefined;
-  type HostReadRuntime = NonNullable<typeof hostReadRuntime>;
-  const readRuntime = (projection: TaskProjectionQueries): HostReadRuntime => {
-    if (hostReadRuntime?.projection === projection) return hostReadRuntime;
-    const writableProjection = projection as TaskProjection,
-      edgeView = edgeViews.get(projection),
-      readStore = edgeView
-        ? new Proxy({} as ReturnType<typeof makeTaskEventReader>, {
-            get: (_target, property) => {
-              if (property === "currentCut")
-                return () => ({ repoId: input.repoId, revision: edgeView.revision, headDigest: edgeView.headDigest });
-              if (property === "readContentBlob") return (sha256: string) => readEdgeViewBlob(edgeView, sha256);
-              throw cellCodedError(
-                "replica_unavailable",
-                `Replica query requires unmaterialized canonical store operation ${String(property)}.`,
-              );
-            },
-          })
-        : lazyLedgerStore,
-      unsupportedWrite = (): never => {
-        throw cellCodedError("repo_unavailable", "A query-only RepoCell reader cannot start writer work.");
-      };
-    let actionRuntimes: EntityActionCatalogRuntimes = Object.freeze({}),
-      knownTaskIds: Set<string> | null = null;
-    const squadCoordinator = {
-        hydrate: unsupportedWrite,
-        retentionProtectedDispatchIds: unsupportedWrite,
-        cancelRejectedChildren: unsupportedWrite,
-        start: unsupportedWrite,
-        startScheduled: unsupportedWrite,
-        cancel: unsupportedWrite,
-        reconcile: unsupportedWrite,
-        flushPublications: unsupportedWrite,
-        observeOutcome: unsupportedWrite,
-      },
-      runtimeReads = repositoryRuntimeReads(writableProjection, readStore, input.now, input.rootDir, false),
-      now = input.now ?? (() => new Date().toISOString());
-    const runtimeSpawner: RepoCellRuntimeContext["runtimeSpawner"] = {
-        prepareWorktree: unsupportedWrite,
-        spawn: unsupportedWrite,
-        spawnHandoff: unsupportedWrite,
-        spawnCoordinated: unsupportedWrite,
-        spawnScheduled: unsupportedWrite,
-        spawnScheduledCoordinated: unsupportedWrite,
-        adopt: unsupportedWrite,
-        cancel: unsupportedWrite,
-        steer: unsupportedWrite,
-        close: unsupportedWrite,
-      },
-      actionContext = createRepoCellActionContext({
-        input: {
-          repoId: input.repoId,
-          ...(input.runtimeInstances ? { runtimeInstances: input.runtimeInstances } : {}),
-        },
-        rootDir: input.rootDir,
-        now,
-        publicPublication: unsupportedWrite,
-        getProjection: () => writableProjection,
-        getStore: () => readStore,
-        getEntityActionExecutor: () => entityActionExecutor,
-        getEntityActionRuntimes: () => actionRuntimes,
-        getService: unsupportedWrite,
-        getSettings: () => settings.read(),
-        getRecovery: unsupportedWrite,
-        getRecoveryUncertain: () => false,
-        setRecoveryUncertain: unsupportedWrite,
-        getKnownTaskIds: () => knownTaskIds,
-        setKnownTaskIds: (value) => {
-          knownTaskIds = value;
-        },
-        getSquadCoordinator: () => squadCoordinator,
-      }),
-      runtimeContext = Object.assign(actionContext, {
-        mode: input.mode ?? "local",
-        runtimeSpawner,
-      }),
-      settings = makeRepoCellSettingsState(actionContext),
-      entityActionExecutor = makeEntityActionCatalogExecutor({
-        rootDir: input.rootDir,
-        repositoryId: input.repoId,
-        store: readStore,
-        projection: writableProjection,
-        now,
-        sessionIdentity: unsupportedWrite,
-        readSettings: () => settings.readRepository(),
-      }),
-      operationalContext = Object.assign(runtimeContext, {
-        settings,
-        settleRuntimeExecutionLease: unsupportedWrite,
-      });
-    operationalContext satisfies RepoCellOperationalContext;
-    actionRuntimes = Object.freeze({
-      entity: Object.freeze({
-        agent: makeAgentActionRuntime(runtimeContext),
-        schedule: makeScheduleActionRuntime(runtimeContext, () => settings.read().worktree),
-        settings: makeSettingsActionRuntime(runtimeContext, settings),
-        person: makePersonActionRuntime(runtimeContext),
-        squad: makeSquadActionRuntime(runtimeContext),
-      }),
-    });
-    const context = {
-        extracted: operationalContext,
-        mode: input.mode ?? "local",
-        input: {
-          repoId: input.repoId,
-          ...(input.runtimeInstances ? { runtimeInstances: input.runtimeInstances } : {}),
-        },
-        state: "attached",
-        rootDir: input.rootDir,
-        store: readStore,
-        projection: writableProjection,
-        now,
-        settings,
-        squadCoordinator,
-        runtimeReads,
-        dispatchRead,
-        requiredCellText,
-        cellCodedError,
-        latched,
-      } as unknown as RepoCellApiContext,
-      api = createRepoCellApi(context);
-    Object.assign(operationalContext, {
-      showTask: (taskId: string) => taskShowFromProjection(input.rootDir, writableProjection, taskId),
-    });
-    return (hostReadRuntime = { projection, api, actionContext: operationalContext });
-  };
-  const readAtCut = <M extends Parameters<RepoCell["read"]>[0]>(
-    projection: TaskProjectionQueries,
-    method: M,
-    payload: Readonly<Record<string, unknown>>,
-    binding?: RepoCellBinding,
-  ): Awaited<ReturnType<RepoCell["read"]>> => {
-    // The store, action runtimes, coordinator, and API are host-owned long-lived readers.
-    // The query-only SQLite session still scopes each synchronous read to one completed cut.
-    return readRuntime(projection).api[repoCellSynchronousRead](method, payload, binding) as Awaited<
-      ReturnType<RepoCell["read"]>
-    >;
-  };
-  const executeReadAtCut = (
-    projection: TaskProjectionQueries,
-    action: RepoTaskAction,
-    binding: RepoCellBinding,
-    frame: (receipt: WriteReceiptDraft) => WriteReceiptDraft = (receipt) => receipt,
-  ): Awaited<ReturnType<RepoCell["run"]>> => {
-    const context = readRuntime(projection).actionContext,
-      receipt = executeRepoReadAction(context, action, binding);
-    if (receipt instanceof Promise)
-      throw new Error(`Query-only action ${action.kind} must complete inside its synchronous read session.`);
-    return context.withHumanSummary(frame(receipt)) as Awaited<ReturnType<RepoCell["run"]>>;
-  };
-  const runReadAtCut = (projection: TaskProjectionQueries, action: RepoTaskAction, binding: RepoCellBinding) => {
-    const verified = bindVerifiedExecutorClaim({
-      action,
-      binding,
-      projection,
-      now: readRuntime(projection).actionContext.now(),
-    });
-    return executeReadAtCut(projection, verified.action, verified.binding);
-  };
   const run: RepoCell["run"] = async (action, binding, signal) => {
     if (closed)
       return {
@@ -499,19 +191,12 @@ export async function openRepoCellProxy(
       ) as Awaited<ReturnType<RepoCell["run"]>>;
     if (repoCellExecutionForAction(action.kind) === "query-only") {
       try {
-        if (
-          input.mode === "remote-edge" &&
-          commandDescriptorForAction(action.kind).admission["remote-edge"] === "edge-replica"
-        ) {
-          return edgeReplicaRun(action, binding);
-        }
-        return query((projection) => runReadAtCut(projection, action, binding));
+        return await query("run", [action], binding);
       } catch (error) {
         return failed(operationId(action, binding, input.repoId, 0), error) as Awaited<ReturnType<RepoCell["run"]>>;
       }
     }
     // Writes must yield once so a close started in the same turn wins admission.
-    // Host-owned projection reads do not need that scheduling boundary.
     await Promise.resolve();
     if (closed)
       return {
@@ -554,8 +239,7 @@ export async function openRepoCellProxy(
     },
   };
   return {
-    scheduleOccurrenceSettlementOwner: async (dispatchId) =>
-      query((projection) => scheduleOccurrenceSettlementOwner(projection, dispatchId)),
+    scheduleOccurrenceSettlementOwner: (dispatchId) => query("scheduleOccurrenceSettlementOwner", [dispatchId]),
     hasBuiltinExecutor: (claimFence) => supervisor.request("hasBuiltinExecutor", { claimFence }),
     get bootstrapReceipt() {
       return supervisor.bootstrapReceipt() as RepoCell["bootstrapReceipt"];
@@ -574,122 +258,38 @@ export async function openRepoCellProxy(
     },
     terminal,
     read: async (method, payload = {}, binding) => {
-      if (method === "repo.entity.locator.read")
-        return readEntityLocator({
-          rootDir: input.rootDir,
-          locatorKind: requiredCellText(payload.locatorKind, "locatorKind"),
-          locatorValue: requiredCellText(payload.locatorValue, "locatorValue"),
-        }) as never;
       if (method === "repo.entity.actions.explain") {
-        const session = <T>(read: (projection: TaskProjectionQueries, frame?: RepositoryReadFrame) => T): T =>
-          input.mode === "remote-edge" ? edgeReplicaRead(binding, read) : query(read);
-        const at = session((projection) => ({
-          revision: projection.readCut().sourceRevision,
-          binding: bindVerifiedExecutorClaim({
-            action: { kind: "entity-action-explain", executor: payload.executor },
-            binding: binding ?? explainAuthenticationRequired(),
-            projection,
-            now: readRuntime(projection).actionContext.now(),
-          }).binding,
-        }));
+        const at = await query<{ revision: number; binding: RepoCellBinding }>("explainBasis", [payload], binding);
         const prepared = await preparePersonActionExplanationBinding(
           {
             revision: at.revision,
             repoId: input.repoId,
             now: () => input.now?.() ?? new Date().toISOString(),
-            binding: at.binding,
+            binding: { ...binding, ...at.binding, keycloakAuthorization: binding?.keycloakAuthorization },
           },
           payload,
         );
-        return session((projection, frame) => {
-          if (projection.readCut().sourceRevision !== at.revision)
-            throw cellCodedError(
-              "projection_pending",
-              "Repository cut changed while resolving live action permissions; retry the explanation.",
-            );
-          return { ...readAtCut(projection, method, payload, prepared), ...frame };
-        }) as never;
+        return query("read", [method, payload, at.revision], prepared);
       }
-      if (input.mode === "remote-edge" && method !== "repo.agent.skills.list")
-        return edgeReplicaRead(binding, (projection, frame) => {
-          return { ...readAtCut(projection, method, payload, binding), ...frame };
-        }) as never;
-      if (method === "repo.tasks.list")
-        return query((projection) =>
-          makeTaskQueryReadModel({
-            rootDir: input.rootDir,
-            projection: projection as TaskProjection,
-            readPinnedEntities: projection.listPinnedEntities,
-            judgments: repoCellTaskQueryJudgmentsFor(projection),
-          }).guiTasks(taskListQuery(payload)),
-        ) as never;
-      return query((projection) => readAtCut(projection, method, payload, binding)) as never;
+      return query("read", [method, payload], binding);
     },
-    readEventWitness: async (revision) => query((projection) => projection.readEventWitness(revision)),
-    readNodeAutoClaimAssignments: async (binding) => {
-      const readAssignments = (projection: TaskProjectionQueries) => {
-        const graph = readAtCut(
-          projection,
-          "repo.triadic.relationGraph",
-          { facet: "edges", relationType: "assigned-to", state: "active", limit: 500 },
-          binding,
-        ) as { readonly edges: readonly import("./repo-cell-types.ts").RepoCellAutoClaimRelation[] };
-        return graph.edges.map((relation) => ({
-          relation,
-          assignedByPersonId:
-            relation.workspaceRevision === null
-              ? null
-              : (projection.readEventWitness(relation.workspaceRevision)?.actor.principal.personId ?? null),
-        }));
-      };
-      return input.mode === "remote-edge"
-        ? edgeReplicaRead(binding, (projection) => readAssignments(projection))
-        : query(readAssignments);
-    },
-    workspaceSummary: () => query((projection) => workspaceSummaryFromProjection(projection as never)),
-    workspaceScope: (payload) => query((projection) => workspaceScopeFromProjection(projection as never, payload)),
-    observeTail: (payload, daemon, binding) => {
-      if (input.mode === "remote-edge" && (payload as { kind?: string })?.kind === "events")
-        return Promise.resolve(
-          edgeReplicaRead(binding, (projection, frame) => ({
-            ...readObserveEventTail({
-              repoId: input.repoId,
-              rootDir: input.rootDir,
-              mode: "remote-edge",
-              projection: projection as TaskProjection,
-              payload,
-            }),
-            ...frame,
-          })),
-        );
-      if (payload !== null && typeof payload === "object" && (payload as { kind?: unknown }).kind === "events")
-        return Promise.resolve(
-          query((projection) =>
-            readObserveEventTail({
-              repoId: input.repoId,
-              rootDir: input.rootDir,
-              mode: input.mode ?? "local",
-              projection: projection as TaskProjection,
-              payload,
-            }),
-          ),
-        );
-      return readObserveTail({
-        repoId: input.repoId,
-        rootDir: input.rootDir,
-        mode: input.mode ?? "local",
-        projection: {} as TaskProjection,
-        userRoot: daemon.userRoot,
-        daemonId: daemon.daemonId,
-        payload,
-      });
-    },
+    readEventWitness: (revision) => query("readEventWitness", [revision]),
+    readNodeAutoClaimAssignments: (binding) => query("readNodeAutoClaimAssignments", [], binding),
+    workspaceSummary: () => query("read", ["repo.workspace.summary.read", {}]),
+    workspaceScope: (payload) => query("read", ["repo.workspace.scope.read", payload]),
+    observeTail: (payload, daemon, binding) => query("observeTail", [payload, daemon], binding),
     replica,
     verifyReadiness: async () => {
       const status = supervisor.status();
       if (!writerAttached(status)) throw cellCodedError("repo_unavailable", latched());
-      const read = query((projection) => projection.readCut());
-      if (!projectionReady(read)) throw cellCodedError("repo_unavailable", "RepoCell L2 projection is not ready.");
+      // Attach already verifies the projection in its writer. Readiness consumes that published
+      // cut; waiting for a cold read worker would put runtime recovery ahead of ledger readiness.
+      if (
+        status.projectionReadable !== true ||
+        status.projectionWatermark === undefined ||
+        status.projectionWatermark !== status.ledgerRevision
+      )
+        throw cellCodedError("repo_unavailable", "RepoCell L2 projection is not ready.");
       return { cellState: "attached", l2State: "ready" } as const;
     },
     attach: async (runtimeSessionId, afterCursor) => {
@@ -699,7 +299,7 @@ export async function openRepoCellProxy(
     },
     awaitRuntimeOutcome: async (runtimeSessionId) => {
       const now = input.now ?? (() => new Date().toISOString());
-      while (!runtimeOutcomeSettled(readSession(runtimeSessionId), now())) {
+      while (!runtimeOutcomeSettled(await readSession(runtimeSessionId), now())) {
         await new Promise<void>((resolve) => {
           const waiter = () => {
             waiters.delete(waiter);
@@ -740,19 +340,10 @@ export async function openRepoCellProxy(
       // A remote edge can serve its installed replica while its local writer/projection is
       // unavailable. Do not make host status depend on querying that unrelated local projection.
       if (closed || replicaOnly || supervisor.status().state !== "attached") return null;
-      return {
-        projectionWatermark: reader.withSession((projection) => projection.readCut().watermark),
-        ledgerRevision: readCurrentLedger((store) => store.readHead()?.revision ?? 0),
-      };
+      const status = supervisor.status();
+      return { projectionWatermark: status.projectionWatermark, ledgerRevision: status.ledgerRevision };
     },
-    inFlightWork: () =>
-      query((projection) =>
-        readRepoInFlightWork({
-          projection,
-          repoId: input.repoId,
-          queueDepth: supervisor.status().queueDepth ?? 0,
-        }),
-      ),
+    inFlightWork: () => query("inFlightWork", [supervisor.status().queueDepth ?? 0]),
     settlePendingMaterialization: (context) => supervisor.request("settlePendingMaterialization", context),
     backup: (request) => supervisor.request("backup", request),
     pruneReplicationLog: (beforeSequence) => supervisor.request("pruneReplicationLog", beforeSequence),
@@ -765,43 +356,9 @@ export async function openRepoCellProxy(
         await supervisor.close();
       } finally {
         replica.close();
-        reader.close();
-        // A replaced center can still answer receipts after close; its next read reopens.
-        // The drain is awaited like the writer drain above it: a caller that removes the
-        // repository after cell close must not race the reader's still-open ledger handle.
-        await ledgerReader?.drain();
-        ledgerReader = null;
+        await reads.close();
         await lock.close();
       }
     },
-  };
-}
-
-function taskListQuery(payload: Readonly<Record<string, unknown>>): TaskProjectionListQuery {
-  const status = typeof payload.status === "string" ? payload.status : undefined,
-    changedAfterRevision =
-      payload.changedAfterRevision === undefined ? undefined : Number(payload.changedAfterRevision),
-    updatedAfter = typeof payload.updatedAfter === "string" ? payload.updatedAfter : undefined,
-    updatedBefore = typeof payload.updatedBefore === "string" ? payload.updatedBefore : undefined,
-    limit = payload.limit === undefined ? undefined : Number(payload.limit),
-    cursor = typeof payload.cursor === "string" ? payload.cursor : undefined;
-  if (!validTaskStatusFilter(status)) throw cellCodedError("invalid_command", "Query status is invalid for this read.");
-  if (changedAfterRevision !== undefined && (!Number.isSafeInteger(changedAfterRevision) || changedAfterRevision < 0))
-    throw cellCodedError("invalid_command", "Task changedAfterRevision must be a non-negative integer.");
-  if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1 || limit > 500))
-    throw cellCodedError("invalid_command", "Query limit must be an integer between 1 and 500.");
-  if (
-    [updatedAfter, updatedBefore].some((value) => value !== undefined && !timestamp(value)) ||
-    (updatedAfter && updatedBefore && updatedAfter > updatedBefore)
-  )
-    throw cellCodedError("invalid_command", "Query time window must use ordered ISO-8601 timestamps.");
-  if (cursor !== undefined && !cursor) throw cellCodedError("invalid_command", "Query cursor is invalid.");
-  return {
-    ...(status ? { status: status as TaskProjectionListQuery["status"] } : {}),
-    ...(changedAfterRevision === undefined ? {} : { changedAfterRevision }),
-    ...(updatedAfter ? { updatedAfter } : {}),
-    ...(updatedBefore ? { updatedBefore } : {}),
-    ...(limit === undefined ? {} : { limit }),
-    ...(cursor ? { cursor } : {}),
   };
 }

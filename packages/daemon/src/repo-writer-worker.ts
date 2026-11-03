@@ -1,3 +1,4 @@
+import { executeRepoReadRequest } from "./repo-read-worker.ts";
 import { createAuthorizationProvider } from "./authorization-provider.ts";
 import { randomUUID } from "node:crypto";
 import { isMainThread, parentPort, workerData } from "node:worker_threads";
@@ -99,6 +100,10 @@ async function startRepoWriterWorker(): Promise<void> {
     } else if (isWriterControl(message)) void handleControl(message);
   });
 
+  if (bootstrap.role === "reader") {
+    clearInterval(heartbeat);
+    return;
+  }
   try {
     const config = bootstrap.config,
       input: RepoCellOpenInput = {
@@ -203,12 +208,12 @@ async function startRepoWriterWorker(): Promise<void> {
         onMaterializationHealthChange: (materialization) => {
           const status = cell === null ? { ...openingStatus, materialization } : cell.status();
           openingStatus = status;
-          postStatus({ kind: "status", status });
+          postStatus({ kind: "status", status, ledgerCut: cell?.replica.ledgerCut() });
         },
         onQueueDepthChange: (queueDepth) => {
           const status = cell === null ? { ...openingStatus, queueDepth } : cell.status();
           openingStatus = status;
-          postStatus({ kind: "status", status });
+          postStatus({ kind: "status", status, ledgerCut: cell?.replica.ledgerCut() });
         },
         onBootstrap: (receipt) => notify("bootstrap", receipt),
         onOpenProgress: (progress) => {
@@ -229,6 +234,7 @@ async function startRepoWriterWorker(): Promise<void> {
     postStatus({
       kind: "ready",
       status: cell.status(),
+      ledgerCut: cell.replica.ledgerCut(),
       ...(cell.bootstrapReceipt ? { bootstrapReceipt: cell.bootstrapReceipt } : {}),
     });
   } catch (error) {
@@ -262,7 +268,7 @@ async function startRepoWriterWorker(): Promise<void> {
       executionStartedAtMs ??= monotonicMs();
     };
     activeRequests.set(request.requestId, abort);
-    if (!cell || draining) {
+    if ((bootstrap.role !== "reader" && !cell) || draining) {
       activeRequests.delete(request.requestId);
       return postReceipt(
         request.requestId,
@@ -273,6 +279,12 @@ async function startRepoWriterWorker(): Promise<void> {
       );
     }
     try {
+      if (bootstrap.role === "reader") {
+        if (request.method !== "read") throw new Error("Reader worker only accepts query requests.");
+        postReceipt(request.requestId, await executeRepoReadRequest(request));
+        return;
+      }
+      if (!cell) throw new Error("RepoWriterCell is unavailable");
       const binding = reviveBinding(
         request.binding,
         request.writerEpoch,
@@ -365,11 +377,11 @@ async function startRepoWriterWorker(): Promise<void> {
         }
       }
       // A drain that lands while this request is in flight closes the cell and posts "closed" itself.
-      if (cell) postStatus({ kind: "cut", status: cell.status() });
+      if (cell) postStatus({ kind: "cut", status: cell.status(), ledgerCut: cell.replica.ledgerCut() });
       postReceipt(request.requestId, value, undefined, startedAtMs, monotonicMs(), executionStartedAtMs);
     } catch (error) {
       consumeKnownError(error);
-      if (cell) postStatus({ kind: "status", status: cell.status() });
+      if (cell) postStatus({ kind: "status", status: cell.status(), ledgerCut: cell.replica.ledgerCut() });
       postReceipt(request.requestId, undefined, error, startedAtMs, monotonicMs(), executionStartedAtMs);
     } finally {
       activeRequests.delete(request.requestId);

@@ -391,6 +391,7 @@ export function makeTaskProjectionReader(
       readDocuments: taskQueries.readDocuments,
       readSettingsEvent: taskQueries.readSettingsEvent,
       readDocument: taskQueries.readDocument,
+      readDocumentMetadata: taskQueries.readDocumentMetadata,
       readReplicaBasis: taskQueries.readReplicaBasis,
       taskIdForDocumentPath: taskQueries.taskIdForDocumentPath,
       readPresetSnapshot: taskQueries.readPresetSnapshot,

@@ -126,22 +126,22 @@ export function knowledgeQueryApi(
       }),
     readDecisionDocumentState: (decisionId) =>
       withDatabase(projectionPath, readHead, (db) => readDecisionDocumentState(db, decisionId)),
-    readDecision: (decisionId) =>
+    readDecision: (decisionId, withBody = true) =>
       withDatabase(projectionPath, readHead, (db) => {
         const cut = readProjectionCut(db, readHead);
         return {
           status: cut.status,
-          decision: readDecisionRow(db, decisionId),
+          decision: readDecisionRow(db, decisionId, withBody),
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
         };
       }),
-    readDecisions: (decisionIds) =>
+    readDecisions: (decisionIds, withBody = true) =>
       withDatabase(projectionPath, readHead, (db) => {
         const cut = readProjectionCut(db, readHead);
         return {
           status: cut.status,
-          decisions: readDecisionRows(db, decisionIds),
+          decisions: readDecisionRows(db, decisionIds, withBody),
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
         };

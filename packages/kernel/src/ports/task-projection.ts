@@ -177,6 +177,9 @@ export interface TaskProjection {
   readonly readDecisionDocumentState?: (decisionId: string) => DecisionDocumentState | null;
   readonly readTaskOperation: (opId: string) => { readonly event: TaskEventV1; readonly watermark: number } | null;
   readonly readDocument: (path: string) => DocumentProjectionRead;
+  readonly readDocumentMetadata: (path: string) => Omit<DocumentProjectionRead, "document"> & {
+    readonly document: { readonly path: string; readonly workspaceRevision: number } | null;
+  };
   readonly readReplicaBasis: (afterRevision: number | null) => ReplicaProjectionBasis;
   readonly taskIdForDocumentPath: (path: string) => string | null;
   readonly readTaskSubmissionOperation: (taskId: string, executionId: string) => string | null;
@@ -282,8 +285,8 @@ export interface TaskProjection {
   readonly readFactAnchors: (refs?: readonly string[]) => FactAnchorProjectionRead;
   readonly readFactGraph: () => FactGraphProjectionRead;
   readonly admitDecision: (event: DecisionEventV1) => void;
-  readonly readDecision: (decisionId: string) => DecisionProjectionRead;
-  readonly readDecisions: (decisionIds: readonly string[]) => DecisionProjectionListRead;
+  readonly readDecision: (decisionId: string, withBody?: boolean) => DecisionProjectionRead;
+  readonly readDecisions: (decisionIds: readonly string[], withBody?: boolean) => DecisionProjectionListRead;
   readonly listDecisions: (filters: DecisionListFilters) => DecisionProjectionListRead;
   readonly listDecisionAgendaPage: (query: DecisionPageQuery) => DecisionAgendaProjectionPageRead;
   readonly readDecisionGraph: () => DecisionGraphProjectionRead;

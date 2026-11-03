@@ -451,7 +451,7 @@ test("attach catches up from cursor, gaps require snapshot, and unsupported is t
         activity: index === 2 ? "message" : "thinking",
         content: `content-${index}`,
       });
-    const resumed = stream.attach(session.runtimeSessionId, "stream:1");
+    const resumed = await stream.attach(session.runtimeSessionId, "stream:1");
     assert.equal(resumed.initial.ok && resumed.initial.status, "attached");
     assert.deepEqual(resumed.initial.ok && resumed.initial.events.map(({ cursor }) => cursor), [
       "stream:2",
@@ -459,7 +459,7 @@ test("attach catches up from cursor, gaps require snapshot, and unsupported is t
     ]);
     resumed.detach();
     for (let index = 0; index < 35; index += 1) stream.publish(session.runtimeSessionId, { type: "heartbeat" });
-    const gap = stream.attach(session.runtimeSessionId, "stream:0");
+    const gap = await stream.attach(session.runtimeSessionId, "stream:0");
     assert.equal(gap.initial.ok && gap.initial.status, "gap");
     assert.deepEqual(gap.initial.ok && gap.initial.events[0], {
       schema: "agent-runtime-attach-event/v1",
@@ -470,7 +470,7 @@ test("attach catches up from cursor, gaps require snapshot, and unsupported is t
       required: "snapshot",
     });
     gap.detach();
-    const restarted = makeAgentRuntimeStreamHub({
+    const restarted = await makeAgentRuntimeStreamHub({
       readSession: () => session,
       canAttach: ({ attachable }) => attachable,
       now: () => new Date("2026-08-13T00:00:00.000Z"),
@@ -479,7 +479,7 @@ test("attach catches up from cursor, gaps require snapshot, and unsupported is t
     assert.equal(restarted.initial.ok && restarted.initial.events[0]?.type, "gap");
     restarted.detach();
     session.attachable = false;
-    const unsupported = stream.attach(session.runtimeSessionId, "stream:38").initial;
+    const unsupported = (await stream.attach(session.runtimeSessionId, "stream:38")).initial;
     assert.deepEqual(unsupported, {
       ok: false,
       code: "unsupported",
@@ -487,9 +487,11 @@ test("attach catches up from cursor, gaps require snapshot, and unsupported is t
       hint: "This provider session does not expose read-only live frames.",
     });
     session.attachable = true;
-    const capabilityMissing = makeAgentRuntimeStreamHub({ readSession: () => session, canAttach: () => false }).attach(
-      session.runtimeSessionId,
-      "stream:0",
+    const capabilityMissing = (
+      await makeAgentRuntimeStreamHub({ readSession: () => session, canAttach: () => false }).attach(
+        session.runtimeSessionId,
+        "stream:0",
+      )
     ).initial;
     assert.equal(capabilityMissing.ok, false);
     assert.equal(!capabilityMissing.ok && capabilityMissing.code, "unsupported");
@@ -497,7 +499,7 @@ test("attach catches up from cursor, gaps require snapshot, and unsupported is t
 
 test("slow subscribers gap without blocking daemon writer requests, and detach does not alter the native session", async () =>
   withRuntime(async ({ stream, session }) => {
-    const slow = stream.attach(session.runtimeSessionId, "stream:0"),
+    const slow = await stream.attach(session.runtimeSessionId, "stream:0"),
       before = structuredClone(session),
       started = performance.now();
     for (let index = 0; index < 2_000; index += 1) stream.publish(session.runtimeSessionId, { type: "heartbeat" });
@@ -560,8 +562,11 @@ test("slow subscribers gap without blocking daemon writer requests, and detach d
   }));
 
 test("daemon witness token binds a session-scoped agent executor from server state and ignores provider identity fields", () =>
-  withRuntime(({ stream, session }) => {
-    const issued = stream.issueWitnessToken(session.runtimeSessionId, { principalId: "person-owner", source: "local" }),
+  withRuntime(async ({ stream, session }) => {
+    const issued = await stream.issueWitnessToken(session.runtimeSessionId, {
+        principalId: "person-owner",
+        source: "local",
+      }),
       bound = stream.bindWitness(issued.token);
     assert.deepEqual(bound, {
       runtimeSessionId: session.runtimeSessionId,
@@ -1078,10 +1083,10 @@ test("provider output publication does not scale full projection reads with line
       );
 
     assert.equal(fullProjectionReads, 0);
-    const attached = stream.attach(session.runtimeSessionId, "stream:1000");
+    const attached = await stream.attach(session.runtimeSessionId, "stream:1000");
     assert.equal(attached.initial.ok, true);
     attached.detach();
-    stream.issueWitnessToken(session.runtimeSessionId, {
+    await stream.issueWitnessToken(session.runtimeSessionId, {
       principalId: "person-owner",
       source: "local",
     });
