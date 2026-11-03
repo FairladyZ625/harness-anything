@@ -1,4 +1,3 @@
-import { once } from "node:events";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -82,11 +81,12 @@ export async function startGuiDriver({ workspaceRoot, rootDir, env, runRoot, hea
 
 async function stopElectronApp(app) {
   const child = app.process();
-  if (child.exitCode === null && child.signalCode === null) {
-    const exited = once(child, "exit");
-    child.kill("SIGKILL");
-    await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 5_000))]);
-  }
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  // Ask Electron itself to quit and wait for Playwright's process-close event. On Windows
+  // Playwright launches the app through a shell (cmd.exe), so child.kill() would terminate the
+  // shell wrapper only and leave the Electron browser plus its renderer/GPU/utility processes
+  // running; they keep the profile open and the following rmSync fails with EPERM.
+  await app.close();
 }
 
 export async function runScenario(driver, scenario, { shots }) {

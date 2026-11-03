@@ -49,8 +49,18 @@ test(
       true,
       `userData ${userData} must live under the os temp directory`,
     );
+    // Playwright starts Electron through a shell wrapper on Windows. Closing by killing that
+    // wrapper leaves the Electron main process and its renderer/GPU children alive; they keep
+    // the profile open, so the is-removed assertion below turns red with EPERM. Assert the real
+    // Electron process is gone as well, not just that the directory disappeared.
+    const electronPid = await driver.app.evaluate(() => process.pid);
     await driver.close();
     assert.equal(existsSync(userData), false, `profile ${userData} must be removed when the driver closes`);
+    assert.throws(
+      () => process.kill(electronPid, 0),
+      { code: "ESRCH" },
+      `Electron process ${electronPid} must exit when the driver closes`,
+    );
     assert.deepEqual(readdirSync(outDir), ["run"], "the output directory must receive only run deliverables");
     assert.deepEqual(readdirSync(runRoot), ["window-state.json"]);
   },
