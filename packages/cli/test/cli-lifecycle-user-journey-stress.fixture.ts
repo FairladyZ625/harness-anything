@@ -269,17 +269,48 @@ async function waitForAttached(fixture: Fixture): Promise<void> {
   throw new Error(`repository ${fixture.repoId} did not attach: ${lastStatus}`);
 }
 
+const DEFAULT_STOP_DEADLINE_MS = 30_000;
+
+function stopDeadlineMs(): number {
+  const configured = Number(process.env.HARNESS_CLI_STRESS_STOP_DEADLINE_MS);
+  return Number.isInteger(configured) && configured > 0 ? configured : DEFAULT_STOP_DEADLINE_MS;
+}
+
+export async function waitForDaemonExit(input: {
+  readonly pid: number | null;
+  readonly deadline: number;
+  readonly alive: () => boolean;
+  readonly endpointExists: () => boolean;
+  readonly onStalled?: () => void;
+  readonly delayMs?: number;
+}): Promise<void> {
+  for (;;) {
+    const alive = input.pid !== null && input.alive();
+    if (!alive && !input.endpointExists()) return;
+    if (Date.now() >= input.deadline)
+      throw new Error(`daemon-stop deadline exceeded (pid ${String(input.pid)} still owns its endpoint)`);
+    input.onStalled?.();
+    await delay(input.delayMs ?? 10);
+  }
+}
+
 async function stopClient(fixture: Fixture): Promise<void> {
   if (!existsSync(fixture.userRoot)) return;
   // `daemon stop` returns when the stop is accepted; a draining daemon keeps its pid file,
   // endpoint and SQLite/Git handles until its write queues empty. This fixture has already
   // observed every write it needs, so end the drain explicitly before the test removes the
-  // temporary root (EPERM on Windows). Then wait for the process itself, not only its files.
+  // temporary root (EPERM on Windows). Every child call and the wait share one deadline.
+  const deadline = Date.now() + stopDeadlineMs(),
+    environment = actorEnvironment(fixture, 0, null),
+    boundedRun = async (args: readonly string[]): Promise<RunResult> => {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) throw new Error(`daemon-stop deadline exceeded before ${args.join(" ")}`);
+      return runResult(fixture, args, environment, undefined, remaining);
+    };
   const daemonPid = readDaemonPid(fixture.userRoot, fixture.daemonId) ?? fixture.daemonPid;
-  const stopped = await runResult(fixture, ["daemon", "stop"], actorEnvironment(fixture, 0, null));
+  const stopped = await boundedRun(["daemon", "stop"]);
   const receipt = parseCliReceipt(stopped, "daemon stop");
-  if (receipt.draining === true)
-    await runResult(fixture, ["daemon", "stop", "--force"], actorEnvironment(fixture, 0, null));
+  if (receipt.draining === true) await boundedRun(["daemon", "stop", "--force"]);
   const receiptPid = typeof receipt.pid === "number" ? receipt.pid : Number(receipt.pid),
     endpoint = localUserDaemonEndpoint(fixture.userRoot, fixture.daemonId);
   let pid = Number.isInteger(receiptPid) && receiptPid > 0 ? receiptPid : daemonPid;
@@ -288,26 +319,28 @@ async function stopClient(fixture: Fixture): Promise<void> {
     // the supersession exit code. Stopping the daemon alone leaves that launcher alive, so the
     // temporary root stays open. Remove the unit and end the launcher's process tree before
     // waiting on the daemon pid.
-    await runResult(fixture, ["daemon", "service", "uninstall"], actorEnvironment(fixture, 0, null));
+    await boundedRun(["daemon", "service", "uninstall"]);
     pid ??= windowsDaemonPid(fixture);
     if (pid !== null) killWindowsDaemonTree(pid);
   }
-  for (let attempt = 0; attempt < 1_000; attempt += 1) {
-    if (pid === null && process.platform === "win32" && attempt % 100 === 0) pid = windowsDaemonPid(fixture);
-    const alive = pid !== null && processAlive(pid);
-    // A force-killed daemon can leave its pid file behind; once the process is gone and the
-    // endpoint no longer answers, the stale file holds nothing open and the root is removable.
-    if (!alive && !existsSync(endpoint)) return;
-    // The receipt can be lost when the pid file is removed before the stop finishes. A daemon
-    // that is still alive after the bounded cooperative/force path is a teardown leak; terminate
-    // it so the test does not delete a directory another process still owns.
-    if (pid !== null && alive) {
-      if (attempt === 200) terminate(pid, false);
-      if (attempt === 400) terminate(pid, true);
-    }
-    await delay(10);
-  }
-  throw new Error(`daemon ${fixture.daemonId} (pid ${String(pid)}) did not exit after stop`);
+  let gracefulAt = Date.now() + 2_000;
+  const forceAt = Date.now() + 4_000;
+  await waitForDaemonExit({
+    pid,
+    deadline,
+    alive: () => pid !== null && processAlive(pid),
+    endpointExists: () => existsSync(endpoint),
+    onStalled: () => {
+      if (pid === null && process.platform === "win32") pid = windowsDaemonPid(fixture);
+      if (pid === null) return;
+      const now = Date.now();
+      if (now >= forceAt) terminate(pid, true);
+      else if (now >= gracefulAt) {
+        terminate(pid, false);
+        gracefulAt = Number.POSITIVE_INFINITY;
+      }
+    },
+  });
 }
 
 function terminate(pid: number, force: boolean): void {
@@ -327,32 +360,30 @@ function killWindowsDaemonTree(pid: number): void {
       "if ($pp -and $pp.Name -eq 'powershell.exe') { [Console]::Out.Write($pp.ProcessId) } }";
     const parent = execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", query], {
       encoding: "utf8",
+      timeout: 5_000,
     }).trim();
-    if (parent) execFileSync("taskkill", ["/PID", parent, "/T", "/F"], { stdio: "ignore" });
-    execFileSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore" });
+    if (parent) execFileSync("taskkill", ["/PID", parent, "/T", "/F"], { stdio: "ignore", timeout: 5_000 });
+    execFileSync("taskkill", ["/PID", String(pid), "/T", "/F"], { stdio: "ignore", timeout: 5_000 });
   } catch {
-    // Best-effort cleanup; the bounded wait below still reports a daemon that refused to exit.
+    // The bounded wait below reports a daemon that refused to exit; taskkill on an already
+    // exited pid is the only expected failure here.
   }
 }
 
 function windowsDaemonPid(fixture: Fixture): number | null {
   if (process.platform !== "win32") return null;
-  try {
-    const output = execFileSync(
-      "powershell.exe",
-      [
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        `Get-CimInstance Win32_Process -Filter "name='node.exe'" | Where-Object { $_.CommandLine -like '*--user-root ${fixture.userRoot}*' -and $_.CommandLine -like '*--daemon-id ${fixture.daemonId}*' } | Select-Object -First 1 -ExpandProperty ProcessId`,
-      ],
-      { encoding: "utf8" },
-    ).trim();
-    const pid = Number(output);
-    return Number.isInteger(pid) && pid > 0 ? pid : null;
-  } catch {
-    return null;
-  }
+  const output = execFileSync(
+    "powershell.exe",
+    [
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      `Get-CimInstance Win32_Process -Filter "name='node.exe'" | Where-Object { $_.CommandLine -like '*--user-root ${fixture.userRoot}*' -and $_.CommandLine -like '*--daemon-id ${fixture.daemonId}*' } | Select-Object -First 1 -ExpandProperty ProcessId`,
+    ],
+    { encoding: "utf8", timeout: 5_000 },
+  ).trim();
+  const pid = Number(output);
+  return Number.isInteger(pid) && pid > 0 ? pid : null;
 }
 
 function setup(index: number): Fixture {
@@ -536,6 +567,7 @@ function runResult(
   args: readonly string[],
   environment: NodeJS.ProcessEnv,
   input?: string,
+  timeoutMs = 120_000,
 ): Promise<RunResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [cli, "--root", fixture.root, "--json", ...args], {
@@ -545,10 +577,20 @@ function runResult(
     });
     let stdout = "",
       stderr = "";
+    const timer = setTimeout(() => {
+      child.kill("SIGKILL");
+      reject(new Error(`CLI command timed out after ${timeoutMs}ms: ${args.join(" ")}`));
+    }, timeoutMs);
     child.stdout.on("data", (chunk) => (stdout += chunk));
     child.stderr.on("data", (chunk) => (stderr += chunk));
-    child.once("error", reject);
-    child.once("close", (status) => resolve({ status, stdout: stdout.trim(), stderr: stderr.trim() }));
+    child.once("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.once("close", (status) => {
+      clearTimeout(timer);
+      resolve({ status, stdout: stdout.trim(), stderr: stderr.trim() });
+    });
     if (input !== undefined) child.stdin.end(input);
   });
 }

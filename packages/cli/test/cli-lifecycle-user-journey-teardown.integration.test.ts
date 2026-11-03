@@ -8,6 +8,7 @@ import {
   setup,
   startClient,
   stopClient,
+  waitForDaemonExit,
 } from "./cli-lifecycle-user-journey-stress.fixture.ts";
 
 // The eight-client stress case can exhaust the daemon's 10s start budget on Windows, which would
@@ -23,4 +24,29 @@ test("one isolated CLI client stops its daemon before the temporary root is remo
     await stopClient(fixture);
     rmSync(fixture.parent, { recursive: true, force: true });
   }
+});
+
+test("daemon exit wait names a process that never releases its endpoint", async () => {
+  const startedAt = Date.now();
+  await assert.rejects(
+    () =>
+      waitForDaemonExit({
+        pid: 999_999,
+        deadline: Date.now() + 20,
+        alive: () => true,
+        endpointExists: () => true,
+        delayMs: 5,
+      }),
+    /daemon-stop deadline exceeded/u,
+  );
+  assert.ok(Date.now() - startedAt < 1_000, "the deadline must bound the wait, not the probe");
+});
+
+test("daemon exit wait returns once the process and endpoint are gone", async () => {
+  await waitForDaemonExit({
+    pid: null,
+    deadline: Date.now() + 20,
+    alive: () => false,
+    endpointExists: () => false,
+  });
 });
