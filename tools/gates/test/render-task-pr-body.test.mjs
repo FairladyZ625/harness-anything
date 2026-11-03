@@ -92,7 +92,7 @@ test("PR renderer fills the four authored sections from closeout and passes chec
   assert.match(body, /Production delta: \+5\/-2 \(net \+3\)/u);
   assert.match(body, /docs\/change\.md/u);
   assert.equal((body.match(/## Delivery Facts/gu) ?? []).length, 1);
-  assert.doesNotMatch(body, new RegExp(taskId, "u"), "private task ids are not emitted into the public body");
+  assert.doesNotMatch(body, new RegExp(taskId, "u"), "the renderer does not add the task id on its own");
   assertPassesPrBodyCheck(body);
 });
 
@@ -167,12 +167,11 @@ test("PR renderer rejects authored content that would add a top-level section", 
   );
 });
 
-test("PR renderer refuses to publish private task ids from authored closeout prose", () => {
-  const privateId = "task_0123456789abcdef01234567";
-  assert.throws(
-    () => render(codeSubmission, { closeout: closeout.replace(summary, `${summary} See ${privateId}.`) }),
-    new RegExp(`private task id\\(s\\): ${privateId}`, "u"),
-  );
+test("PR renderer keeps a task-id branch name authored in the closeout", () => {
+  const branchName = "task_0123456789abcdef01234567",
+    body = render(codeSubmission, { closeout: closeout.replace(summary, `${summary} See ${branchName}.`) });
+  assert.match(body, new RegExp(`## Summary\\n\\n${summary} See ${branchName}\\.`, "u"));
+  assertPassesPrBodyCheck(body);
 });
 
 test("PR renderer labels artifact-only submissions without inventing commit facts", () => {

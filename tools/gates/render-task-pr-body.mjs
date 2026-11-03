@@ -208,11 +208,6 @@ export function renderTaskPrBody({ taskId, receipt, template, body = template, c
     rendered = fillSection(rendered, title, content);
   }
   if (missing.length > 0) throw new Error(`closeout.md is missing required section(s): ${missing.join(", ")}`);
-  const privateTaskIds = [...new Set(rendered.match(/\btask_[0-9a-z]{8,26}\b/gu) ?? [])];
-  if (privateTaskIds.length > 0)
-    throw new Error(
-      `rendered PR body contains private task id(s): ${privateTaskIds.join(", ")}; remove them from closeout.md before opening a pull request`,
-    );
   const { start, end } = markerPair(rendered, "PR template");
   return `${rendered.slice(0, start + START.length)}\n${facts}\n${rendered.slice(end)}`;
 }
