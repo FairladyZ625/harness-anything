@@ -397,12 +397,21 @@ export function recoverTaskWorktreeDocumentBases(
   cwd: string,
   documents: readonly { readonly path: string; readonly bytes: Uint8Array | null }[],
   store: CanonicalEventStore,
-  sender?: { readonly actor: ActorIdentity; readonly source: WriteSource; readonly executionId: string | null },
+  sender?: {
+    readonly actor: ActorIdentity;
+    readonly source: WriteSource;
+    readonly executionId: string | null;
+    readonly acknowledgedExecutionIds?: readonly string[];
+  },
 ): void {
   if (documents.length === 0 || store.queryEvents === undefined) return;
   const pending = new Map(documents.map((document) => [document.path, document.bytes])),
     acknowledged = new Map<string, Uint8Array>(),
-    blobs = new Map<string, Uint8Array>();
+    blobs = new Map<string, Uint8Array>(),
+    executions = new Set([
+      ...(sender?.acknowledgedExecutionIds ?? []),
+      ...(sender?.executionId ? [sender.executionId] : []),
+    ]);
   let revisionBound: number | undefined;
   while (pending.size > 0) {
     const events = store.queryEvents({ revisionBound, limit: 1_000 });
@@ -413,7 +422,7 @@ export function recoverTaskWorktreeDocumentBases(
         isDocEvent(event) &&
         sameWriteSource(event.source, sender.source) &&
         (isSameExecution(event.actor, sender.actor) ||
-          (sender.executionId !== null && event.payload.executionId === sender.executionId));
+          (event.payload.executionId !== null && executions.has(event.payload.executionId)));
       for (const claim of canonicalDocumentClaims(event)) {
         if (!pending.has(claim.path)) continue;
         let bytes = blobs.get(claim.sha256);

@@ -283,7 +283,8 @@ for (const retired of [false, true]) {
       sender = {
         actor: { principal: { personId: "owner" }, executor: { kind: "agent", id: "new-runtime" } },
         source: "local",
-        executionId: "execution-legacy",
+        executionId: "execution-legacy-new",
+        acknowledgedExecutionIds: ["execution-legacy-old", "execution-legacy-new"],
       } as const,
       oldActor = { principal: { personId: "owner" }, executor: { kind: "agent", id: "old-runtime" } },
       ceo = { principal: { personId: "owner" }, executor: null },
@@ -321,7 +322,7 @@ for (const retired of [false, true]) {
           actor: oldActor,
           source: "local",
           payload: {
-            executionId: sender.executionId,
+            executionId: "execution-legacy-old",
             changes: [change(report, "report-v1"), change(ruling, "ruling-v1")],
           },
         },
