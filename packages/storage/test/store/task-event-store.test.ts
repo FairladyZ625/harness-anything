@@ -16,12 +16,13 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { attachReceiptAcceptance } from "@harness-anything/kernel/internal/composition/receipt-acceptance.ts";
 import { compileDecisionWrite } from "@harness-anything/kernel/internal/domain/decision-event-document.ts";
+import type { CanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import { serializePersistedCanonicalEvent } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import { taskLifecycleWritePlan } from "@harness-anything/kernel/internal/domain/task-lifecycle-publication.ts";
 import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { localContentObjectFileSystem } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
 import { localGitObjectRefStore, localGitWorktreeSettlement } from "../../src/store/local-version-control-system.ts";
-import { captureGitBaseline } from "../../src/store/sqlite-task-event-publication.ts";
+import { captureGitBaseline, followerEventsAfter } from "../../src/store/sqlite-task-event-publication.ts";
 import {
   activateEmptyCanonicalGeneration,
   openSqliteEventStore,
@@ -36,6 +37,24 @@ const repoId = "sqlite-canonical-contract";
 const writerFence = () => ({ repoId, holderId: "contract-writer", epoch: 1 });
 const replacementRepoId = "replacement-authorization-delta";
 const replacementFence: SqliteWriterFence = { repoId: replacementRepoId, holder: "writer-a", epoch: 1 };
+
+test("follower event reads page the pending suffix and reject an incomplete page", () => {
+  const events = Array.from({ length: 8_193 }, (_, index) => ({
+      workspaceRevision: index + 1,
+    })) as unknown as CanonicalEventV1[],
+    limits: number[] = [],
+    readEvents = (after: number, limit: number) => {
+      limits.push(limit);
+      return events.filter((event) => event.workspaceRevision > after).slice(0, limit);
+    },
+    actual = [...followerEventsAfter(readEvents, 0, events.length)];
+  assert.deepEqual(limits, [4_096, 4_096, 1]);
+  assert.equal(actual.length, events.length);
+  assert.throws(
+    () => [...followerEventsAfter(() => [], 0, 1)],
+    (error: { code?: string }) => error.code === "publication_indeterminate",
+  );
+});
 
 test(
   "Git baseline preserves symlink mode and reports an absent target as missing",
@@ -125,6 +144,55 @@ test("before_event_write and after_event_write bound one atomic SQLite acceptanc
     await store.drain();
   }
 });
+
+test(
+  "a failed SQLite Git publication retries its durable cut without another append",
+  { timeout: 5_000 },
+  async (t) => {
+    const rootDir = fixture("durable-follower-retry", t);
+    initRepo(rootDir);
+    let rejectFirstPublication = true,
+      reportFailure!: () => void,
+      reportRecovery!: () => void;
+    const failureReported = new Promise<void>((resolve) => {
+        reportFailure = resolve;
+      }),
+      recoveryReported = new Promise<void>((resolve) => {
+        reportRecovery = resolve;
+      }),
+      store = makeTaskEventStore({
+        repoId,
+        rootDir,
+        writerFence,
+        killpoint: (point) => {
+          if (rejectFirstPublication && point === "after_git_commit") {
+            rejectFirstPublication = false;
+            throw new Error("injected first Git ref publication failure");
+          }
+        },
+        onMaterializationHealthChange: (health) => {
+          if (health.state === "failed") reportFailure();
+          else if (health.state === "ok" && health.lastCheckpointRevision === 1) reportRecovery();
+        },
+      });
+    try {
+      const event = eventAt(1);
+      store.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
+      await failureReported;
+      assert.equal(store.readHead()?.revision, 1);
+      assert.equal(store.materializationHealth().state, "failed");
+
+      await recoveryReported;
+      assert.equal(store.currentCut().revision, 1, "the consumer recovered without a later append");
+      assert.equal(store.followerStatus().git.status, "verified");
+      assert.equal(store.followerStatus().git.cut?.revision, 1);
+      assert.equal(git(rootDir, "show", "HEAD:harness/events/segments/manifest.json").includes('"revision":1'), true);
+      assert.equal(store.materializationHealth().state, "ok");
+    } finally {
+      await store.drain();
+    }
+  },
+);
 
 test("same canonical event values replay despite a different object key order", async (t) => {
   const rootDir = fixture("canonical-replay", t);

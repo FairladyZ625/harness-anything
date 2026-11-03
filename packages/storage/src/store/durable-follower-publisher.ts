@@ -1,0 +1,94 @@
+import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
+import type {
+  MaterializationHealth,
+  MaterializationReceipt,
+  MaterializationRequest,
+} from "@harness-anything/kernel/internal/ports/task-event-store.ts";
+
+const initialRetryMs = 25,
+  maximumRetryMs = 2_000;
+
+/** Serializes detached publication and retries from the publisher's durable checkpoint. */
+export function createDurableFollowerPublisher(input: {
+  readonly publish: (request?: MaterializationRequest) => MaterializationReceipt;
+  readonly revision: () => number;
+  readonly checkpoint: () => number;
+  readonly withFence?: <T>(operation: () => T) => T;
+  readonly onFailure?: (reason: string) => void;
+  readonly onHealthChange?: (health: MaterializationHealth) => void;
+}) {
+  let closed = false,
+    scheduled: Promise<void> | null = null,
+    retry: NodeJS.Timeout | null = null,
+    retryDelay = initialRetryMs,
+    lastError: string | undefined,
+    checkpointAt: string | null = null;
+
+  const health = (): MaterializationHealth => {
+    const checkpoint = input.checkpoint(),
+      pending = input.revision() - checkpoint;
+    return {
+      state: lastError ? "failed" : pending > 0 ? "retrying" : "ok",
+      lastCheckpointRevision: checkpoint,
+      lastCheckpointAt: checkpointAt,
+      pendingWalEvents: pending,
+      ...(lastError ? { reason: "deterministic_failure", lastError } : {}),
+    };
+  };
+  const publish = (request?: MaterializationRequest) => {
+    const receipt = input.withFence ? input.withFence(() => input.publish(request)) : input.publish(request);
+    if (!request?.preview) {
+      lastError = undefined;
+      checkpointAt = new Date().toISOString();
+      retryDelay = initialRetryMs;
+      input.onHealthChange?.(health());
+    }
+    return receipt;
+  };
+
+  const scheduleRetry = () => {
+    if (closed) return;
+    retry = setTimeout(() => {
+      retry = null;
+      void request();
+    }, retryDelay);
+    retry.unref();
+    retryDelay = Math.min(retryDelay * 2, maximumRetryMs);
+  };
+  const request = (): Promise<void> => {
+    if (closed) return Promise.resolve();
+    if (retry) {
+      clearTimeout(retry);
+      retry = null;
+    }
+    if (scheduled) return scheduled;
+    scheduled = new Promise((resolve) =>
+      setImmediate(() => {
+        scheduled = null;
+        try {
+          publish();
+        } catch (error) {
+          consumeKnownError(error);
+          lastError = error instanceof Error ? error.message : String(error);
+          input.onFailure?.(lastError);
+          input.onHealthChange?.(health());
+          scheduleRetry();
+        }
+        resolve();
+      }),
+    );
+    return scheduled;
+  };
+
+  return {
+    request,
+    publish,
+    health,
+    drain: async () => {
+      closed = true;
+      if (retry) clearTimeout(retry);
+      retry = null;
+      await scheduled;
+    },
+  };
+}

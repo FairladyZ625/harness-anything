@@ -1,12 +1,8 @@
-import {
-  type EventHead,
-  type LedgerCutIdentity,
-} from "@harness-anything/kernel/internal/domain/write-chain.contract.ts";
+import { type EventHead } from "@harness-anything/kernel/internal/domain/write-chain.contract.ts";
 import { isTaskEvent, ledgerCommitSha } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import { isSettingsEvent } from "@harness-anything/kernel/internal/domain/settings-event.ts";
 import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "@harness-anything/kernel/internal/layout/index.ts";
-import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import {
   canonicalDocumentClaims,
   contentClaims,
@@ -34,7 +30,8 @@ import type {
 import type { SqliteStorageBackendConfig } from "../storage-backend.ts";
 import { TaskEventStoreError } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 import { assertAuthorizedReplacements } from "./task-event-store-replacement-authorization.ts";
-import { finalizeRefs, prepareCommit } from "./task-event-store-git-refs.ts";
+import { createDurableFollowerPublisher } from "./durable-follower-publisher.ts";
+import { publishFollowerCut } from "./task-event-store-git-refs.ts";
 import {
   closureFiles,
   planFollowerSettlement,
@@ -62,18 +59,8 @@ export interface DaemonWriterFence {
   readonly epoch: number;
 }
 
-export interface FollowerFacet {
-  readonly status: "pending" | "verified";
-  readonly cut: LedgerCutIdentity | null;
-  readonly commitSha: string | null;
-  readonly reason?: string;
-  readonly conflicts?: readonly string[];
-}
-
 export interface SqliteCanonicalEventStore extends CanonicalEventStore {
   readonly readCommandOutcome: (opId: string) => SqliteCommandOutcome | null;
-  readonly ledgerMetadata: () => { readonly repoId: string; readonly generation: number; readonly revision: number };
-  readonly followerStatus: () => { readonly git: FollowerFacet; readonly worktree: FollowerFacet };
   /** Drops replication-log rows below the sequence; the writer's retention call, never a reader's. */
   readonly pruneReplicationLog: (beforeSequence: number) => void;
 }
@@ -123,7 +110,6 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
   let settledWorktreeRevision: number | null = null,
     closed = false,
     follower = pendingFollower("Git follower has not published this ledger cut"),
-    scheduled: Promise<void> | null = null,
     certified: { readonly commit: string; readonly revision: number } | null = null;
 
   const head = (): EventHead | null => sqlite.eventIdentityAtRevision(sqlite.revision());
@@ -193,7 +179,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     try {
       options.killpoint?.("after_store_commit");
       // Acceptance advances the ledger head, not the already verified follower prefix.
-      scheduleFollower();
+      void publisher.request();
       options.killpoint?.("before_response_write");
       const receipt: CanonicalEventAppendReceipt = {
         status: "applied",
@@ -284,16 +270,9 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       currentRef = authoredRef(),
       parent = localGitObjectRefStore.resolveCommit(currentLedger.rootDir, currentRef);
     if (accepted.revision === 0) {
-      if (preview)
-        return {
-          status: "planned",
-          commitSha: ledgerCommitSha(options.repoId, parent),
-          settlements: [],
-          conflicts: [],
-        };
-      follower = pendingFollower("No accepted ledger cut exists to publish");
+      if (!preview) follower = pendingFollower("No accepted ledger cut exists to publish");
       return {
-        status: "visible",
+        status: preview ? "planned" : "visible",
         commitSha: ledgerCommitSha(options.repoId, parent),
         settlements: [],
         conflicts: [],
@@ -355,22 +334,16 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
           .map((target) => ledgerAuthoredPath(currentLedger, target)),
       };
     }
-    let commit = parent;
-    if (verifiedRevision < accepted.revision) {
-      const tempRef = `refs/ha-sqlite-outbox/${sha256Text(`${accepted.revision}:${accepted.headDigest}`)}`;
-      commit = prepareCommit(
-        currentLedger.rootDir,
-        tempRef,
-        parent,
-        files,
-        `outbox-${accepted.revision}`,
-        new Date().toISOString(),
-      );
-      options.killpoint?.("after_git_commit");
-      finalizeRefs(currentLedger.rootDir, currentRef, commit, parent, tempRef);
-      options.killpoint?.("after_git_ref_update");
-      certified = { commit, revision: accepted.revision };
-    }
+    const commit = publishFollowerCut(
+      currentLedger.rootDir,
+      currentRef,
+      parent,
+      verifiedRevision,
+      accepted,
+      files,
+      options.killpoint,
+    );
+    certified = { commit, revision: accepted.revision };
     follower = {
       git: { status: "verified", cut: accepted, commitSha: commit },
       worktree: pendingFollower("worktree settlement has not verified the Git cut").worktree,
@@ -412,7 +385,6 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
               conflicts,
             },
     };
-    options.onMaterializationHealthChange?.(health("ok"));
     return {
       status: "visible",
       commitSha: ledgerCommitSha(options.repoId, commit),
@@ -421,38 +393,28 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     };
   };
 
-  const scheduleFollower = (): Promise<void> => {
-    if (scheduled) return scheduled;
-    scheduled = new Promise((resolve) =>
-      setImmediate(() => {
-        if (closed) {
-          resolve();
-          return;
-        }
-        try {
-          publishFollower();
-        } catch (error) {
-          const reason = error instanceof Error ? error.message : String(error);
-          consumeKnownError(error);
-          const pending = pendingFollower(reason);
-          follower = {
-            git:
-              follower.git.status === "verified" && follower.git.cut?.revision === sqlite.revision()
-                ? follower.git
-                : pending.git,
-            worktree: pending.worktree,
-          };
-          options.onMaterializationHealthChange?.(health("failed", reason));
-        } finally {
-          scheduled = null;
-          resolve();
-        }
-      }),
-    );
-    return scheduled;
-  };
+  const publisher = createDurableFollowerPublisher({
+    publish: (request) =>
+      request?.paths && !request.preview
+        ? restoreRequestedDocuments(materializeContext(), request.paths)
+        : publishFollower(request !== undefined, request?.preview),
+    revision: sqlite.revision,
+    checkpoint: () => follower.git.cut?.revision ?? 0,
+    withFence: options.withAppendFence,
+    onHealthChange: options.onMaterializationHealthChange,
+    onFailure: (reason) => {
+      const pending = pendingFollower(reason);
+      follower = {
+        git:
+          follower.git.status === "verified" && follower.git.cut?.revision === sqlite.revision()
+            ? follower.git
+            : pending.git,
+        worktree: pending.worktree,
+      };
+    },
+  });
 
-  if (options.mutable !== false) void scheduleFollower();
+  if (options.mutable !== false) void publisher.request();
 
   // The operator-facing materialize requests live in their own module but settle through this store's live state.
   const materializeContext = () => ({
@@ -512,27 +474,14 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     layout: () => "sharded-sha256-2/v1",
     append,
     lastAppendLayout: () => latestAppendLayout,
-    materialize: (request?: MaterializationRequest) =>
-      request?.preview === true
-        ? publishFollower(true, true)
-        : request?.paths
-          ? restoreRequestedDocuments(materializeContext(), request.paths)
-          : publishFollower(true),
-    materializationHealth: () =>
-      health(
-        follower.git.status === "verified" && follower.git.cut?.revision === sqlite.revision()
-          ? "ok"
-          : scheduled
-            ? "retrying"
-            : "failed",
-        follower.git.reason,
-      ),
+    materialize: (request?: MaterializationRequest) => publisher.publish(request ?? {}),
+    materializationHealth: publisher.health,
     drain: async () => {
-      await scheduled;
+      await publisher.drain();
       if (!closed) sqlite.close();
       closed = true;
     },
-    settlePendingMaterialization: scheduleFollower,
+    settlePendingMaterialization: publisher.request,
     readCommandOutcome: sqlite.readCommandOutcome,
     ledgerMetadata: sqlite.metadata,
     followerStatus: () => follower,
@@ -541,19 +490,9 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       sqlite.pruneReplicationLog(beforeSequence);
     },
   };
-
-  function health(state: "ok" | "retrying" | "failed", reason?: string): MaterializationHealth {
-    return {
-      state,
-      lastCheckpointRevision: follower.git.cut?.revision ?? 0,
-      lastCheckpointAt: follower.git.status === "verified" ? new Date().toISOString() : null,
-      pendingWalEvents: sqlite.revision() - (follower.git.cut?.revision ?? 0),
-      ...(reason ? { reason: "deterministic_failure", lastError: reason } : {}),
-    };
-  }
 }
 
-function pendingFollower(reason: string): { readonly git: FollowerFacet; readonly worktree: FollowerFacet } {
+function pendingFollower(reason: string): ReturnType<CanonicalEventStore["followerStatus"]> {
   return {
     git: { status: "pending", cut: null, commitSha: null, reason },
     worktree: { status: "pending", cut: null, commitSha: null, reason },

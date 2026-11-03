@@ -1,6 +1,9 @@
-import { type LedgerCutIdentity } from "@harness-anything/kernel/internal/domain/write-chain.contract.ts";
+import {
+  type EventHead,
+  type LedgerCutIdentity,
+} from "@harness-anything/kernel/internal/domain/write-chain.contract.ts";
 import type { CanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
-import { sha256Bytes, sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
+import { sha256Bytes } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "@harness-anything/kernel/internal/layout/index.ts";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import { localRuntimeStateFileSystem as conversionFiles } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
@@ -22,7 +25,7 @@ import type {
   PublicationDelete,
 } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 import { TaskEventStoreError } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
-import { finalizeRefs, prepareCommit } from "./task-event-store-git-refs.ts";
+import { publishFollowerCut } from "./task-event-store-git-refs.ts";
 
 export interface CertifiedGitFollower {
   readonly commitSha: string;
@@ -34,6 +37,11 @@ export interface CertifiedGitFollower {
     readonly size: number;
   }[];
   readonly retirements: readonly string[];
+}
+
+export interface FollowerCheckpointSource {
+  readonly metadata: () => { readonly repoId: string; readonly generation: number; readonly revision: number };
+  readonly eventIdentityAtRevision: (revision: number) => EventHead | null;
 }
 
 export function publishConvertedGeneration(input: {
@@ -57,27 +65,15 @@ export function publishConvertedGeneration(input: {
       ...legacyRetirements(ledger, parent),
     ],
     directories = followerDirectories(ledger, closureEvents),
-    manifestTarget = ledgerGitPath(ledger, followerManifestPath),
-    alreadyCertified =
-      localGitObjectRefStore.readPath(ledger.rootDir, parent, manifestTarget) !== null &&
-      JSON.parse(localGitObjectRefStore.readPath(ledger.rootDir, parent, manifestTarget)!.toString("utf8"))
-        .generation === input.store.metadata().generation &&
-      certifiedFollowerRevision(ledger, parent, input.store) === revision;
-  if (alreadyCertified) {
-    const baseline = captureConversionBaseline(input.rootInput, ledger.rootDir, parent, files);
-    localGitWorktreeSettlement.index(ledger.rootDir, files);
-    if (
-      !worktreeMatchesBaseline(ledger.rootDir, baseline, files) ||
-      settleWorktree(layout, ledger.rootDir, files, baseline).conflicts.length > 0
-    )
-      throw new TaskEventStoreError("publication_indeterminate", "authored worktree has concurrent edits");
-    settleWorktreeDirectories(ledger.rootDir, directories);
-    return { commitSha: parent, revision, changed: false };
-  }
-  const tempRef = `refs/ha-sqlite-outbox/${sha256Text(`conversion:${revision}:${cut.headDigest}`)}`,
-    commit = prepareCommit(ledger.rootDir, tempRef, parent, files, `conversion-${revision}`, new Date().toISOString()),
-    baseline = captureConversionBaseline(input.rootInput, ledger.rootDir, parent, files);
-  finalizeRefs(ledger.rootDir, authoredRef, commit, parent, tempRef);
+    baseline = captureConversionBaseline(input.rootInput, ledger.rootDir, parent, files),
+    commit = publishFollowerCut(
+      ledger.rootDir,
+      authoredRef,
+      parent,
+      certifiedFollowerRevision(ledger, parent, input.store),
+      cut,
+      files,
+    );
   localGitWorktreeSettlement.index(ledger.rootDir, files);
   if (
     !worktreeMatchesBaseline(ledger.rootDir, baseline, files) ||
@@ -85,7 +81,7 @@ export function publishConvertedGeneration(input: {
   )
     throw new TaskEventStoreError("publication_indeterminate", "authored worktree has concurrent edits");
   settleWorktreeDirectories(ledger.rootDir, directories);
-  return { commitSha: commit, revision, changed: true };
+  return { commitSha: commit, revision, changed: commit !== parent };
 }
 
 export function readCertifiedGitFollower(input: {
@@ -119,32 +115,20 @@ const followerManifestPath = "events/segments/manifest.json";
 /** The publication of `events`: their documents' latest bytes, their retirements, and last the cut's manifest. */
 export function followerFiles(
   ledger: ReturnType<typeof resolveLedgerGitLayout>,
-  events: readonly CanonicalEventV1[],
+  events: Iterable<CanonicalEventV1>,
   readContent: (sha256: string) => Uint8Array | null,
   cut: LedgerCutIdentity,
   generation: number,
 ): (PublicationWrite | PublicationDelete)[] {
-  const latest = new Map<string, { body: Uint8Array; mode: "100644" | "120000" }>(),
-    retired = new Set<string>();
-  for (const event of events) {
-    for (const retirement of canonicalDocumentRetirements(event)) {
-      latest.delete(retirement.path);
-      retired.add(retirement.path);
-    }
-    for (const claim of canonicalDocumentClaims(event)) {
+  const closure = documentClosure(events);
+  return [
+    ...[...closure.documents].map(([target, claim]) => {
       const bytes = readContent(claim.sha256);
       if (!bytes || bytes.byteLength !== claim.size || sha256Bytes(bytes) !== claim.sha256)
         throw new TaskEventStoreError("invalid_store", `content object ${claim.sha256} is missing or corrupt`);
-      latest.set(claim.path, {
-        body: bytes,
-        mode: canonicalDocumentMode(event, claim.path),
-      });
-      retired.delete(claim.path);
-    }
-  }
-  return [
-    ...[...latest].map(([target, value]) => ({ target: ledgerGitPath(ledger, target), ...value })),
-    ...[...retired].map((target) => ({ delete: ledgerGitPath(ledger, target) })),
+      return { target: ledgerGitPath(ledger, target), body: bytes, mode: claim.mode };
+    }),
+    ...[...closure.retirements].map((target) => ({ delete: ledgerGitPath(ledger, target) })),
     { target: ledgerGitPath(ledger, followerManifestPath), body: followerManifest(generation, cut), mode: "100644" },
   ];
 }
@@ -237,43 +221,44 @@ export function settleWorktreeDirectories(repoRoot: string, settlement: Follower
 export function certifiedFollowerRevision(
   ledger: ReturnType<typeof resolveLedgerGitLayout>,
   commit: string,
-  sqlite: ReturnType<typeof openSqliteEventStore>,
+  source: FollowerCheckpointSource,
 ): number {
   const bytes = localGitObjectRefStore.readPath(ledger.rootDir, commit, ledgerGitPath(ledger, followerManifestPath));
-  return bytes ? manifestRevision(bytes, sqlite) : 0;
+  return bytes ? manifestRevision(bytes, source) : 0;
 }
 
 /** The revision the worktree's own manifest names, or 0 (settle the whole closure) when it names no SQLite cut. */
 export function physicalWorktreeRevision(
   ledger: ReturnType<typeof resolveLedgerGitLayout>,
-  sqlite: ReturnType<typeof openSqliteEventStore>,
+  source: FollowerCheckpointSource,
 ): number {
   const node = localGitWorktreeSettlement.readNode(`${ledger.rootDir}/${ledgerGitPath(ledger, followerManifestPath)}`);
   if (node?.mode !== "100644") return 0;
-  return manifestRevision(node.bytes, sqlite);
+  return manifestRevision(node.bytes, source);
 }
 
-function manifestRevision(bytes: Buffer, sqlite: ReturnType<typeof openSqliteEventStore>): number {
+function manifestRevision(bytes: Buffer, source: FollowerCheckpointSource): number {
   const parsed = decodeFollowerManifest(bytes),
-    revision = Number(parsed.cut?.revision);
+    revision = Number(parsed.cut?.revision),
+    metadata = source.metadata();
   // A prior generation cannot certify any prefix of this ledger, even at the same integer revision.
   if (
-    sqlite.metadata().generation === 3 &&
+    metadata.generation === 3 &&
     (parsed.generation === 1 || parsed.generation === 2) &&
-    parsed.cut?.repoId === sqlite.metadata().repoId &&
+    parsed.cut?.repoId === metadata.repoId &&
     Number.isSafeInteger(revision) &&
     revision >= 0
   )
     return 0;
   if (
-    parsed.generation !== sqlite.metadata().generation ||
-    parsed.cut?.repoId !== sqlite.metadata().repoId ||
+    parsed.generation !== metadata.generation ||
+    parsed.cut?.repoId !== metadata.repoId ||
     !Number.isSafeInteger(revision) ||
     revision < 0 ||
-    revision > sqlite.revision()
+    revision > metadata.revision
   )
     throw new TaskEventStoreError("publication_indeterminate", "Git follower manifest identity is invalid");
-  const expected = canonicalLedgerCut(sqlite.metadata().repoId, sqlite.eventIdentityAtRevision(revision));
+  const expected = canonicalLedgerCut(metadata.repoId, source.eventIdentityAtRevision(revision));
   if (parsed.cut.headDigest !== expected.headDigest)
     throw new TaskEventStoreError("publication_indeterminate", "Git follower manifest cut differs from SQLite");
   return revision;
@@ -336,32 +321,33 @@ export function readEventsThrough(
   sqlite: ReturnType<typeof openSqliteEventStore>,
   revision: number,
 ): readonly CanonicalEventV1[] {
-  const events: CanonicalEventV1[] = [];
-  let cursor = 0;
-  while (cursor < revision) {
-    const page = sqlite.eventsAfter(cursor, Math.min(1024, revision - cursor));
-    if (!page.length) break;
-    events.push(...page);
-    cursor = page.at(-1)!.workspaceRevision;
-  }
-  return events;
+  return [...followerEventsAfter(sqlite.eventsAfter, 0, revision)];
 }
 
 export function readPendingEvents(
   sqlite: ReturnType<typeof openSqliteEventStore>,
   revision: number,
 ): readonly CanonicalEventV1[] {
-  const events: CanonicalEventV1[] = [];
-  let cursor = revision;
-  for (;;) {
-    const page = sqlite.eventsAfter(cursor);
-    events.push(...page);
-    if (page.length < 4096) return events;
+  return [...followerEventsAfter(sqlite.eventsAfter, revision, sqlite.revision())];
+}
+
+/** Yields the uncertified suffix a bounded source page at a time. */
+export function* followerEventsAfter(
+  readEvents: (afterRevision: number, limit: number) => readonly CanonicalEventV1[],
+  checkpointRevision: number,
+  targetRevision: number,
+): Generator<CanonicalEventV1> {
+  let cursor = checkpointRevision;
+  while (cursor < targetRevision) {
+    const page = readEvents(cursor, Math.min(4096, targetRevision - cursor));
+    if (page.length === 0)
+      throw new TaskEventStoreError("publication_indeterminate", "canonical follower event suffix is incomplete");
+    yield* page;
     cursor = page.at(-1)!.workspaceRevision;
   }
 }
 
-function documentClosure(events: readonly CanonicalEventV1[]): {
+function documentClosure(events: Iterable<CanonicalEventV1>): {
   readonly documents: ReadonlyMap<
     string,
     { readonly mode: "100644" | "120000"; readonly sha256: string; readonly size: number }

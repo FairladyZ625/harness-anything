@@ -1,5 +1,26 @@
 import { localGitObjectRefStore as gitObjects } from "./local-version-control-system.ts";
 import type { PublicationFile } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
+import type { EventPublicationKillpoint } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
+import type { LedgerCutIdentity } from "@harness-anything/kernel/internal/domain/write-chain.contract.ts";
+
+/** Advances the durable follower checkpoint with the authored ref, or reuses its certified cut. */
+export function publishFollowerCut(
+  repoRoot: string,
+  authoredRef: string,
+  parent: string,
+  checkpoint: number,
+  cut: LedgerCutIdentity,
+  files: readonly PublicationFile[],
+  killpoint?: (point: EventPublicationKillpoint) => void,
+): string {
+  if (checkpoint >= cut.revision) return parent;
+  const temporaryRef = `refs/ha-sqlite-outbox/${cut.headDigest.slice(7)}`,
+    commit = prepareCommit(repoRoot, temporaryRef, parent, files, `outbox-${cut.revision}`, new Date().toISOString());
+  killpoint?.("after_git_commit");
+  finalizeRefs(repoRoot, authoredRef, commit, parent, temporaryRef);
+  killpoint?.("after_git_ref_update");
+  return commit;
+}
 
 export function prepareCommit(
   repoRoot: string,
