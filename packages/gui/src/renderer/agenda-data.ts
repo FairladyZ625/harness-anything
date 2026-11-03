@@ -70,6 +70,7 @@ function joinAgendaCut(previous: AgendaSuccess | undefined, read: AgendaSuccess)
     regionWeights: read.regionWeights,
     inFlight: merge(previous.inFlight, read.inFlight, ({ taskId }) => taskId),
     stalled: merge(previous.stalled, read.stalled, ({ taskId }) => taskId),
+    awaitingRestart: merge(previous.awaitingRestart, read.awaitingRestart, ({ taskId }) => taskId),
     awaitingRework: merge(previous.awaitingRework, read.awaitingRework, ({ taskId }) => taskId),
     awaitingAdjudication: merge(
       previous.awaitingAdjudication,

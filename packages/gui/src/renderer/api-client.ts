@@ -5,6 +5,7 @@ import { repositoryReadFrame } from "./repository-read-frame.ts";
 import { validateDaemonTaskCompletion, validateDaemonWorkTopology } from "@harness-anything/daemon/protocol";
 import type {
   AgendaRead,
+  AgendaRestartRow,
   AgendaTaskRow,
   AgendaExecutionRow,
   AgendaDecisionRow,
@@ -117,6 +118,7 @@ export interface AgendaSuccess
     | "regionWeights"
     | "inFlight"
     | "stalled"
+    | "awaitingRestart"
     | "awaitingRework"
     | "awaitingAdjudication"
     | "underReview"
@@ -738,6 +740,8 @@ function readAgendaResult(value: unknown): AgendaSuccess {
     !Array.isArray(result.pinnedEntities) ||
     !Number.isSafeInteger(result.pinnedEntityOverflow) ||
     !result.inFlight.every(isAgendaTaskRow) ||
+    !Array.isArray(result.awaitingRestart) ||
+    !result.awaitingRestart.every(isAgendaRestartRow) ||
     !Array.isArray(result.awaitingYou) ||
     !result.awaitingYou.every(isAgendaAwaitsRow) ||
     !Array.isArray(result.answeredForYou) ||
@@ -818,6 +822,10 @@ function isAgendaTaskRow(value: unknown): value is AgendaTaskRow {
     value.activeExecutionIds.every((id) => typeof id === "string") &&
     isRendererRecord(value.blockingAssessment)
   );
+}
+
+function isAgendaRestartRow(value: unknown): value is AgendaRestartRow {
+  return isAgendaTaskRow(value) && isRendererRecord(value) && typeof value.next === "string" && value.next.length > 0;
 }
 
 function isAgendaExecutionRow(value: unknown): value is AgendaExecutionRow {

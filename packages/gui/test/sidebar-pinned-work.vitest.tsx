@@ -293,6 +293,7 @@ const AGENDA_NEEDS_YOU = {
   answeredForYou: [],
   inFlight: [],
   stalled: [],
+  awaitingRestart: [],
   awaitingRework: [],
   awaitingAdjudication: [],
   underReview: [],

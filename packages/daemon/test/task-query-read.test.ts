@@ -7,13 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test, { type TestContext } from "node:test";
-import {
-  INITIAL_SETTINGS_V1,
-  type TaskProjection,
-  type TaskProjectionListQuery,
-  type TaskRelationProjectionRead,
-  type TaskRelationQuery,
-} from "@harness-anything/kernel";
+import { type TaskProjection, type TaskProjectionListQuery, type TaskRelationQuery } from "@harness-anything/kernel";
 import { seedRelationProjection } from "../../storage/test/store/relation-graph-projection.fixtures.ts";
 import {
   canonicalRoot,
@@ -34,32 +28,16 @@ import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture
 import { makeTaskQueryReadModel } from "../src/task-query-read.ts";
 import { appendIncidentActionReceipt } from "../src/decision-incident-receipt.ts";
 import { openDispatchStream } from "../src/dispatch-stream.ts";
+import {
+  eventEdge,
+  executionRow,
+  projectionStub,
+  protocolTaskRow,
+  readyCut,
+  taskContractProjection,
+  type ProjectionCut,
+} from "./task-query-read.fixtures.ts";
 
-type ProjectionCut = {
-  readonly status: "ready" | "pending";
-  readonly watermark: number;
-  readonly sourceRevision: number;
-};
-
-const readyCut: ProjectionCut = { status: "ready", watermark: 7, sourceRevision: 7 };
-const eventEdge = {
-  relationId: "rel_event_truth",
-  workspaceRevision: 7,
-  sourceRef: "decision/dec_event/CH1",
-  targetRef: "task/task_event",
-  relationType: "derives" as const,
-  direction: "directed" as const,
-  strength: "strong" as const,
-  origin: "declared" as const,
-  state: "active" as const,
-  targetObservedVersion: 7,
-  currentTargetVersion: 7,
-  freshness: "current" as const,
-  rationale: "Event truth",
-  ownerRef: "decision/dec_event",
-  sourcePath: "events/decision.json",
-  recordIndex: 0,
-};
 const secondEventEdge = {
   ...eventEdge,
   relationId: "rel_event_truth_second",
@@ -353,6 +331,22 @@ test("agenda groups a changes_requested return into awaiting rework, not the in-
         ...readyCut,
         rows: taskIds.map((taskId) => ({ taskId, status: "active" })),
       }),
+      // The restarted round has a dispatched worker, so it is genuinely in flight.
+      readRuntimeDispatchesByTaskExecution: (taskId: string, executionId: string) =>
+        taskId === "task_resubmitted" && executionId === "exe_new"
+          ? [
+              {
+                outcome: null,
+                event: {
+                  payload: {
+                    dispatchId: `dispatch_${createHash("sha256").update("resubmitted").digest("hex").slice(0, 24)}`,
+                    runtimeSessionId: "runtime_resubmitted",
+                  },
+                },
+              },
+            ]
+          : [],
+      readRuntimeSession: () => null,
     } as unknown as TaskProjection,
     result = makeTaskQueryReadModel({
       rootDir: canonicalRoot(process.cwd()),
@@ -399,15 +393,30 @@ test("agenda flags a stopped worker without delivery, but excludes leased, submi
   const taskRow = (taskId: string, executionId: string, options: { lease?: boolean; submitted?: boolean } = {}) => {
       const row = protocolTaskRow(taskId, [], { status: "active" }),
         execution = {
-          ...executionRow(executionId, 0, "active", taskId),
+          ...executionRow(executionId, 0, options.submitted ? "submitted" : "active", taskId),
           submission: options.submitted ? { commitSha: "a".repeat(40), artifacts: [] } : null,
         };
       return {
         ...row,
+        packagePath: `tasks/${taskId}`,
         snapshot: {
           ...row.snapshot,
           executions: [execution],
-          ...(options.lease ? { lease: { executionId, taskId } } : {}),
+          ...(options.lease
+            ? {
+                lease: {
+                  schema: "lease/v1",
+                  taskId,
+                  executionId,
+                  actor: { principal: { personId: "person-owner" }, executor: null },
+                  source: "local",
+                  phase: "held",
+                  expiresAt: "2026-08-30T03:00:00.000Z",
+                  ttlMs: 60_000,
+                  version: 1,
+                },
+              }
+            : {}),
         },
       };
     },
@@ -472,6 +481,7 @@ test("agenda flags a stopped worker without delivery, but excludes leased, submi
         dispatchId === dispatchIdFor("dispatch_resumed")
           ? { event: { payload: { dispatchId: dispatchIdFor("dispatch_next") } } }
           : null,
+      readDocument: taskContractProjection,
     } as unknown as TaskProjection,
     result = makeTaskQueryReadModel({
       rootDir: canonicalRoot(process.cwd()),
@@ -488,10 +498,194 @@ test("agenda flags a stopped worker without delivery, but excludes leased, submi
     result.attentionItems.filter(({ kind }) => kind === "unsubmitted-delivery").map(({ ref, region }) => [ref, region]),
     [["task/task_unsubmitted", "mine"]],
   );
+  // A stopped worker releases the lease and leaves the execution active for `ha task start` to
+  // reconnect; no worker is running, so the in-flight "just wait" line is the wrong place.
   assert.equal(
     result.inFlight.some(({ taskId }) => taskId === "task_unsubmitted"),
-    true,
+    false,
   );
+  assert.deepEqual(
+    result.awaitingRestart
+      .filter(({ taskId }) => taskId === "task_unsubmitted")
+      .map(({ taskId, next }) => [taskId, next]),
+    [["task_unsubmitted", "ha task start task_unsubmitted"]],
+  );
+  assert.deepEqual(validateDaemonAgenda(result), []);
+});
+
+test("agenda keeps a leased or live-runtime execution in flight and names start for a lapsed lease", () => {
+  const taskRow = (taskId: string, executionId: string, leasePhase: "held" | "orphaned" | null = null) => {
+      const row = protocolTaskRow(taskId, [], { status: "active" });
+      return {
+        ...row,
+        packagePath: `tasks/${taskId}`,
+        snapshot: {
+          ...row.snapshot,
+          executions: [executionRow(executionId, 0, "active", taskId)],
+          ...(leasePhase === null
+            ? {}
+            : {
+                lease: {
+                  schema: "lease/v1",
+                  taskId,
+                  executionId,
+                  actor: { principal: { personId: "person-owner" }, executor: null },
+                  source: "local",
+                  phase: leasePhase,
+                  expiresAt: "2026-08-30T03:00:00.000Z",
+                  ttlMs: 60000,
+                  version: 1,
+                },
+              }),
+        },
+      };
+    },
+    dispatch = (
+      taskId: string,
+      executionId: string,
+      dispatchId: string,
+      runtimeSessionId: string,
+      outcome: "stopped" | "failed" | null,
+    ) => ({
+      outcome,
+      event: {
+        occurredAt: "2026-10-22T01:00:00.000Z",
+        payload: {
+          taskId,
+          executionId,
+          dispatchId: `dispatch_${createHash("sha256").update(dispatchId).digest("hex").slice(0, 24)}`,
+          runtimeSessionId,
+        },
+      },
+    }),
+    dispatches = [
+      dispatch("task_restart", "exe_restart", "dispatch_restart", "runtime_restart", "stopped"),
+      dispatch("task_failed", "exe_failed", "dispatch_failed", "runtime_failed", "failed"),
+      dispatch("task_orphaned", "exe_orphaned", "dispatch_orphaned", "runtime_orphaned", "stopped"),
+      dispatch("task_live", "exe_live", "dispatch_live", "runtime_live", null),
+      dispatch("task_lease", "exe_lease", "dispatch_lease", "runtime_lease", "stopped"),
+    ],
+    base = projectionStub({
+      taskRows: [
+        taskRow("task_restart", "exe_restart"),
+        taskRow("task_failed", "exe_failed"),
+        taskRow("task_orphaned", "exe_orphaned", "orphaned"),
+        taskRow("task_live", "exe_live"),
+        taskRow("task_lease", "exe_lease", "held"),
+      ],
+    }),
+    projection = {
+      ...base,
+      readTaskStatuses: (taskIds: readonly string[]) => ({
+        ...readyCut,
+        rows: taskIds.map((taskId) => ({ taskId, status: "active" as const })),
+      }),
+      readRuntimeDispatchesByTaskExecution: (taskId: string, executionId: string) =>
+        dispatches.filter(({ event }) => event.payload.taskId === taskId && event.payload.executionId === executionId),
+      readRuntimeSession: (runtimeSessionId: string) =>
+        runtimeSessionId === "runtime_live"
+          ? ({ runtimeSessionId, liveness: "live", outcome: null, taskBindings: [] } as never)
+          : null,
+      readRuntimeSessionEvents: () => [],
+      readRuntimeDispatchByResumeSource: () => null,
+      readDocument: taskContractProjection,
+    } as unknown as TaskProjection,
+    result = makeTaskQueryReadModel({
+      rootDir: canonicalRoot(process.cwd()),
+      projection,
+      readPinnedEntities: () => [],
+      judgments: {
+        closeout: (() => ({ readiness: "missing", blocker: "execution", gates: [] })) as never,
+        blocking: ((tasks: readonly { taskId: string }[]) =>
+          tasks.map(({ taskId }) => ({ taskId, state: "clear", label: "none", blockers: [], warnings: [] }))) as never,
+      },
+    }).agenda();
+
+  assert.deepEqual(
+    result.inFlight.map(({ taskId }) => taskId),
+    ["task_lease", "task_live"],
+  );
+  assert.deepEqual(
+    result.awaitingRestart.map(({ taskId, next }) => [taskId, next]),
+    [
+      ["task_failed", "ha task start task_failed"],
+      ["task_orphaned", "ha task start task_orphaned"],
+      ["task_restart", "ha task start task_restart"],
+    ],
+  );
+  assert.match(result.summary, /在飞线 \(2\)[\s\S]*task_lease[\s\S]*task_live/u);
+  assert.match(
+    result.summary,
+    /待你重启 \(3\)[\s\S]*task_failed[\s\S]*下一步: ha task start task_failed[\s\S]*task_orphaned[\s\S]*下一步: ha task start task_orphaned[\s\S]*task_restart[\s\S]*下一步: ha task start task_restart/u,
+  );
+  const inFlightSection = result.summary.split("\n\n").find((section) => section.startsWith("在飞线"));
+  assert.doesNotMatch(inFlightSection ?? "", /task_restart/u);
+  assert.deepEqual(validateDaemonAgenda(result), []);
+});
+
+test("agenda restart rows take the complete completion next, including contract anomalies", () => {
+  const taskRow = (taskId: string, taskPatch: Readonly<Record<string, unknown>> = {}) => {
+      const row = protocolTaskRow(taskId, [], { status: "active" });
+      return {
+        ...row,
+        packagePath: `tasks/${taskId}`,
+        snapshot: {
+          ...row.snapshot,
+          task: { ...row.snapshot.task!, ...taskPatch },
+          executions: [executionRow(`exe_${taskId}`, 0, "active", taskId)],
+        },
+      };
+    },
+    dispatch = (taskId: string) => ({
+      outcome: "stopped" as const,
+      event: {
+        occurredAt: "2026-10-22T01:00:00.000Z",
+        payload: {
+          taskId,
+          executionId: `exe_${taskId}`,
+          dispatchId: `dispatch_${createHash("sha256").update(taskId).digest("hex").slice(0, 24)}`,
+          runtimeSessionId: `runtime_${taskId}`,
+        },
+      },
+    }),
+    projection = {
+      ...projectionStub({
+        taskRows: [taskRow("task_preset_gap", { presetSnapshotGap: true }), taskRow("task_closeout_missing")],
+      }),
+      readTaskStatuses: (taskIds: readonly string[]) => ({
+        ...readyCut,
+        rows: taskIds.map((taskId) => ({ taskId, status: "active" as const })),
+      }),
+      readRuntimeDispatchesByTaskExecution: (taskId: string) => [dispatch(taskId)],
+      readRuntimeSession: () => null,
+      readRuntimeSessionEvents: () => [],
+      readRuntimeDispatchByResumeSource: () => null,
+      readDocument: (documentPath: string) =>
+        documentPath.includes("task_closeout_missing")
+          ? { ...readyCut, document: { body: JSON.stringify({ documents: [] }) } }
+          : taskContractProjection(documentPath),
+    } as unknown as TaskProjection,
+    result = makeTaskQueryReadModel({
+      rootDir: canonicalRoot(process.cwd()),
+      projection,
+      readPinnedEntities: () => [],
+      judgments: {
+        closeout: (() => ({ readiness: "missing", blocker: "execution", gates: [] })) as never,
+        blocking: ((tasks: readonly { taskId: string }[]) =>
+          tasks.map(({ taskId }) => ({ taskId, state: "clear", label: "none", blockers: [], warnings: [] }))) as never,
+      },
+    }).agenda();
+
+  // The restart decision does not invent a second priority ladder: when task show would first ask
+  // for a contract migration, the agenda row names that same command.
+  assert.deepEqual(
+    result.awaitingRestart.map(({ taskId, next }) => [taskId, next]),
+    [
+      ["task_closeout_missing", "ha task contract migrate --apply --task task_closeout_missing"],
+      ["task_preset_gap", "ha task contract migrate task_preset_gap --to-preset standard-task --dry-run"],
+    ],
+  );
+  assert.deepEqual(result.inFlight, []);
   assert.deepEqual(validateDaemonAgenda(result), []);
 });
 
@@ -1375,255 +1569,8 @@ function projectionCut(value: ProjectionCut): ProjectionCut {
   return { status: value.status, watermark: value.watermark, sourceRevision: value.sourceRevision };
 }
 
-function projectionStub(
-  options: {
-    readonly cut?: ProjectionCut;
-    readonly decisionCut?: ProjectionCut;
-    readonly edges?: TaskRelationProjectionRead["rows"];
-    readonly calls?: TaskRelationQuery[];
-    readonly taskRows?: readonly unknown[];
-    readonly listCalls?: TaskProjectionListQuery[];
-    readonly dependencyCalls?: string[][];
-    readonly targetCalls?: { targetRefs: readonly string[]; relationType: string }[];
-    readonly statusCalls?: string[][];
-    readonly decisionCalls?: string[][];
-    readonly childCounts?: Readonly<Record<string, number>>;
-    readonly decisionAgenda?: readonly unknown[];
-    readonly decisions?: Readonly<Record<string, { readonly state: string; readonly proposerPersonId: string }>>;
-  } = {},
-): TaskProjection {
-  const cut = options.cut ?? readyCut,
-    decisionCut = options.decisionCut ?? cut,
-    edges = options.edges ?? [eventEdge],
-    taskRows = options.taskRows ?? [],
-    decisionAgendaRows = options.decisionAgenda ?? [],
-    decisions = options.decisions ?? {};
-  return {
-    listEntities: () => [],
-    readTaskIndex: () => ({
-      ...cut,
-      page: null,
-      warnings: [],
-      rows: (taskRows as ReturnType<typeof protocolTaskRow>[]).flatMap((row) =>
-        row.snapshot.task
-          ? [
-              {
-                taskId: row.taskId,
-                title: row.snapshot.task.title,
-                status: row.snapshot.task.status,
-                taskClass: row.snapshot.task.taskClass,
-                parentTaskId: row.snapshot.task.metadata?.parentTaskId ?? null,
-                pinned: row.snapshot.task.pinned,
-                packageDisposition: row.snapshot.task.packageDisposition,
-                packagePath: row.packagePath,
-                updatedAt: row.updatedAt,
-                workKind: null,
-                riskTier: null,
-                urgency: null,
-              },
-            ]
-          : [],
-      ),
-    }),
-    list: (query: TaskProjectionListQuery = {}) => {
-      options.listCalls?.push(query);
-      const selected = (
-        query.taskIds === undefined
-          ? (taskRows as ReturnType<typeof protocolTaskRow>[])
-          : (taskRows as ReturnType<typeof protocolTaskRow>[]).filter((row) => query.taskIds!.includes(row.taskId))
-      ).filter((row) => (query.status === undefined ? true : row.snapshot.task.status === query.status));
-      if (query.limit === undefined && query.cursor === undefined) return { ...cut, rows: selected, warnings: [] };
-      const limit = query.limit ?? 100,
-        visible = selected.slice(0, limit),
-        last = visible.at(-1) as { readonly taskId: string } | undefined;
-      return {
-        ...cut,
-        rows: visible,
-        warnings: [],
-        page: {
-          limit,
-          cursor: query.cursor ?? null,
-          nextCursor: selected.length > limit && last ? last.taskId : null,
-        },
-      };
-    },
-    read: (taskId: string) => ({
-      ...cut,
-      packagePath: null,
-      snapshot: (taskRows as ReturnType<typeof protocolTaskRow>[]).find((row) => row.taskId === taskId)?.snapshot ?? {
-        task: null,
-      },
-    }),
-    getEntity: (kind: string, id: string) =>
-      kind === "settings" && id === "repository" ? { value: INITIAL_SETTINGS_V1 } : null,
-    readRelationEdge: (relationId: string) => {
-      const edge = edges.find((candidate) => candidate.relationId === relationId);
-      return edge
-        ? {
-            ...edge,
-            workspaceRevision: 5,
-            entity: {
-              createdAt: "2026-09-28T00:00:00.000Z",
-              updatedAt: "2026-09-28T01:00:00.000Z",
-              provenance: { actor: { principal: { personId: "owner" }, executor: { kind: "agent", id: "codex-sol" } } },
-              ...(edge.state === "retired" ? { retirementReason: "同意" } : {}),
-            },
-          }
-        : null;
-    },
-    // 源实体的版本:task_free 在答复(revision 5)之后被写过,其余停在答复所在 revision。
-    readEntityVersionWitness: (entityRef: string) => ({
-      entityRef,
-      freshness: "current",
-      currentVersion: entityRef === "task/task_moved" ? 6 : 5,
-    }),
-    readPresetSnapshot: () => ({ snapshot: null, status: "ready" }),
-    readTaskChildCounts: () => options.childCounts ?? {},
-    readTaskRelations: () => ({ ...cut, rows: edges }),
-    readTaskRelationNeighborhood: () => ({ ...cut, rows: edges }),
-    readTaskDependencyClosure: (sourceRefs: readonly string[]) => {
-      options.dependencyCalls?.push([...sourceRefs]);
-      return {
-        ...cut,
-        rows: edges.filter((edge) => edge.relationType === "depends-on" && sourceRefs.includes(edge.sourceRef)),
-      };
-    },
-    readTaskRelationsByTargets: (targetRefs: readonly string[], relationType: string) => {
-      options.targetCalls?.push({ targetRefs: [...targetRefs], relationType });
-      return {
-        ...cut,
-        rows: edges.filter((edge) => edge.relationType === relationType && targetRefs.includes(edge.targetRef)),
-      };
-    },
-    readTaskRelationsBySources: (sourceRefs: readonly string[], relationType: string) => ({
-      ...cut,
-      rows: edges.filter((edge) => edge.relationType === relationType && sourceRefs.includes(edge.sourceRef)),
-    }),
-    readRelationQuery: (query: TaskRelationQuery = {}) => {
-      options.calls?.push(query);
-      let rows = edges.filter(
-        (edge) =>
-          (query.entity === undefined || edge.sourceRef === query.entity || edge.targetRef === query.entity) &&
-          (query.source === undefined || edge.sourceRef === query.source) &&
-          (query.target === undefined || edge.targetRef === query.target) &&
-          (query.relationType === undefined || edge.relationType === query.relationType) &&
-          (query.state === undefined || edge.state === query.state),
-      );
-      if (query.cursor !== undefined) rows = rows.slice(1);
-      const page =
-        query.limit === undefined
-          ? {}
-          : {
-              page: {
-                limit: query.limit,
-                cursor: query.cursor ?? null,
-                nextCursor: query.cursor === undefined && rows.length > query.limit ? "page-2" : null,
-              },
-            };
-      return { ...cut, rows: query.limit === undefined ? rows : rows.slice(0, query.limit), ...page };
-    },
-    readDecisionGraph: () => ({ ...decisionCut, decisions: [], edges: [], coverageRows: [] }),
-    readDecisionCoverage: () => ({ ...decisionCut, coverageRows: [] }),
-    readFactGraph: () => ({ ...cut, facts: [], edges: [], factAnchors: [] }),
-    searchFacts: () => ({ ...cut, facts: [] }),
-    readFactAnchors: () => ({ ...cut, rows: [] }),
-    readTaskStatuses: (taskIds: readonly string[]) => {
-      options.statusCalls?.push([...taskIds]);
-      return { ...cut, rows: [] };
-    },
-    readDecisions: (decisionIds: readonly string[]) => {
-      options.decisionCalls?.push([...decisionIds]);
-      return {
-        ...decisionCut,
-        decisions: decisionIds.includes("dec_event")
-          ? [{ decisionId: "dec_event", appliesTo: { modules: [], productLines: [] } }]
-          : [],
-      };
-    },
-    listDecisions: () => ({ ...decisionCut, decisions: [] }),
-    readDecision: (decisionId: string) => ({
-      ...decisionCut,
-      decision: decisions[decisionId]
-        ? {
-            decisionId,
-            state: decisions[decisionId]!.state,
-            proposer: { principal: { personId: decisions[decisionId]!.proposerPersonId } },
-          }
-        : null,
-    }),
-    readRuntimeSession: () => null,
-    readRuntimeDispatchesByTaskExecution: () => [],
-    readRuntimeDispatchByResumeSource: () => null,
-    readRuntimeSessionEvents: () => [],
-    listDecisionAgendaPage: (query) => ({
-      ...decisionCut,
-      decisions: decisionAgendaRows,
-      page: { limit: query.limit, cursor: query.cursor ?? null, nextCursor: null },
-    }),
-  } as unknown as TaskProjection;
-}
-
 function activeTaskRow(taskId: string) {
   return protocolTaskRow(taskId);
-}
-
-function protocolTaskRow(
-  taskId: string,
-  gateWitnesses: readonly unknown[] = [],
-  patch: {
-    readonly status?: "planned" | "active" | "blocked" | "submitted" | "in_review" | "done" | "cancelled";
-    readonly taskClass?: "standard" | "work";
-  } = {},
-) {
-  return {
-    taskId,
-    packagePath: null,
-    generation: "v1",
-    workspaceRevision: 7,
-    createdAt: null,
-    completedAt: null,
-    updatedAt: "2026-08-30T00:00:00.000Z",
-    snapshot: {
-      revision: 7,
-      task: {
-        schema: "task/v2",
-        taskId,
-        title: taskId,
-        taskClass: patch.taskClass ?? "standard",
-        status: patch.status ?? "planned",
-        graph: {},
-        currentNode: "implementation",
-        iteration: 0,
-        createdBy: { principal: { personId: "person-owner" }, executor: null },
-        completionGateIds: [],
-        presetSnapshotDigest: null,
-        pinned: false,
-        packageDisposition: "active",
-      },
-      executions: [],
-      reviews: [],
-      edgesTaken: [],
-      lease: null,
-      decisionRelations: [],
-      consents: [],
-      gateWitnesses,
-    },
-  };
-}
-
-function executionRow(executionId: string, iteration: number, state: string, taskId = "task") {
-  return {
-    schema: "execution/v1",
-    executionId,
-    taskId,
-    nodeId: "implementation",
-    iteration,
-    state,
-    claimedAt: "2026-08-30T00:00:00.000Z",
-    submittedAt: "2026-08-30T01:00:00.000Z",
-    closedAt: "2026-08-30T02:00:00.000Z",
-    submission: null,
-  };
 }
 
 function reworkTaskRow(

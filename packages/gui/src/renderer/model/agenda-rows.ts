@@ -22,6 +22,7 @@ import type { StatusTone } from "../components/primitives/StatusTag.tsx";
 type AgendaGroup =
   | DecisionReviewGroup
   | "answered"
+  | "restart"
   | "rework"
   | "legacySubmitted"
   | "taskReviewing"
@@ -31,6 +32,7 @@ type AgendaGroup =
 /** 组的显示序 = 注意力序:等你动手的在前,已在别人手里的在后,已答复跟进垫底。 */
 const GROUP_ORDER: readonly AgendaGroup[] = [
   "dispose",
+  "restart",
   "rework",
   "legacySubmitted",
   "review",
@@ -44,6 +46,7 @@ const GROUP_ORDER: readonly AgendaGroup[] = [
 
 const GROUP_LABEL: Readonly<Record<AgendaGroup, MessageKey>> = {
   dispose: "views.workspace.decisionReviewGroupDispose",
+  restart: "views.agenda.groupRestart",
   rework: "views.agenda.groupRework",
   legacySubmitted: "views.agenda.groupLegacySubmitted",
   review: "views.workspace.decisionReviewGroupReview",
@@ -58,6 +61,7 @@ const GROUP_LABEL: Readonly<Record<AgendaGroup, MessageKey>> = {
 /** 组 → 状态色档(标准 §3:同一类别同一色;颜色通道只承载注意力类别)。 */
 const GROUP_TONE: Readonly<Record<AgendaGroup, StatusTone>> = {
   dispose: "bad",
+  restart: "bad",
   rework: "bad",
   legacySubmitted: "bad",
   review: "wait",
@@ -74,6 +78,7 @@ export type AgendaFilter = "attn" | "follow" | "all";
 
 export const GROUP_BUCKET: Readonly<Record<AgendaGroup, AgendaFilter>> = {
   dispose: "attn",
+  restart: "attn",
   rework: "attn",
   legacySubmitted: "attn",
   review: "attn",
@@ -101,6 +106,8 @@ export interface AgendaRow {
 }
 
 export function agendaRowsOf(agenda: AgendaSuccess): readonly AgendaRow[] {
+  // 重启行已经是该 task 的 owner 动作;同一 task 的「未提交交付」注意力行不再重复成第二行。
+  const restartTaskIds = new Set(agenda.awaitingRestart.map(({ taskId }) => taskId));
   return [
     ...taskAwaitsRows(agenda).map((ask) => ({
       id: ask.relationId,
@@ -125,6 +132,15 @@ export function agendaRowsOf(agenda: AgendaSuccess): readonly AgendaRow[] {
       scoreRef: `relation/${row.relationId}`,
       target: row.sourceRef,
     })),
+    ...agenda.awaitingRestart.map((row) => ({
+      id: row.taskId,
+      title: row.title,
+      hint: t("views.agenda.hintRestart", { next: row.next }),
+      group: "restart" as const,
+      since: row.updatedAt,
+      scoreRef: `task/${row.taskId}`,
+      target: taskReviewRef(row.taskId),
+    })),
     ...taskReviewRows(agenda.awaitingRework, "rework", "views.agenda.hintRework", (row) => ({
       since: row.updatedAt,
       scoreRef: `task/${row.taskId}`,
@@ -147,7 +163,12 @@ export function agendaRowsOf(agenda: AgendaSuccess): readonly AgendaRow[] {
       target: decisionAgendaRowRef(decision),
     })),
     ...(agenda.attentionItems ?? [])
-      .filter((item) => item.kind === "audit-finding" || item.kind === "unsubmitted-delivery")
+      .filter(
+        (item) =>
+          item.kind === "audit-finding" ||
+          (item.kind === "unsubmitted-delivery" &&
+            !restartTaskIds.has(item.ref.startsWith("task/") ? item.ref.slice("task/".length) : "")),
+      )
       .map((item) => ({
         id: item.ref,
         title: item.title,

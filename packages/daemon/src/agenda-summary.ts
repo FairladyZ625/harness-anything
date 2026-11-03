@@ -3,6 +3,7 @@ import type {
   AgendaAwaitsRow,
   AgendaDecisionRow,
   AgendaExecutionRow,
+  AgendaRestartRow,
   AgendaRulingRow,
   AgendaTaskRow,
   DaemonAgendaResult,
@@ -59,6 +60,7 @@ export function renderAgendaSummary(
     | "answeredForYou"
     | "attentionItems"
     | "inFlight"
+    | "awaitingRestart"
     | "awaitingRework"
     | "awaitingAdjudication"
     | "underReview"
@@ -84,6 +86,7 @@ export function renderAgendaSummary(
     taskLine = (row: AgendaTaskRow) =>
       `- ${row.pinned ? "📌 " : ""}${row.taskId} ${row.title}${workLabel(row)}${row.blockingAssessment.blockers.length ? `（阻塞: ${row.blockingAssessment.blockers.map(blockerText).join(", ")}）` : ""}` +
       (row.workspace?.kind === "worktree" ? `（worktree: ${row.workspace.path} ${row.workspace.state}）` : ""),
+    restartLine = (row: AgendaRestartRow) => `${taskLine(row)}\n  下一步: ${row.next}`,
     awaitsLine = (row: AgendaAwaitsRow) =>
       `- [${row.askKind}] ${row.sourceRef} ${row.title} [${row.status}] — ${row.question}\n` +
       `  答复: ha relation unrelate ${row.relationId} --reason "<答复>" --expected-version ${row.relationRevision}` +
@@ -174,7 +177,16 @@ export function renderAgendaSummary(
       "无人值守派工的提问需要裁决；守卫升级不是提问，按 reason 里的 Next 命令重派或换身份",
       (groups.awaitingRuling ?? []).map(rulingLine),
     ),
-    section("在飞线", "status=active 且（有 lease 或有 active execution）；只需等", groups.inFlight.map(taskLine)),
+    section(
+      "在飞线",
+      "status=active 且（有 lease，或 active execution 上仍有存活 dispatch/runtime）；只需等",
+      groups.inFlight.map(taskLine),
+    ),
+    section(
+      "待你重启",
+      "status=active 且有 active execution、无 lease、无存活 dispatch/runtime；下一步取 ha task show 的同一 completion next",
+      groups.awaitingRestart.map(restartLine),
+    ),
     section(
       "等我修",
       "status=active 且最新 execution=changes_requested 且无 lease、无 active execution；下一步 ha task start <taskId> 重开执行",

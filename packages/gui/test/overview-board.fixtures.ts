@@ -233,6 +233,7 @@ export const agenda = (patch: Partial<AgendaSuccess> = {}): AgendaSuccess =>
         blockingAssessment: { state: "clear", blockers: [], warnings: [] },
       },
     ],
+    awaitingRestart: [],
     awaitingRework: [],
     awaitingAdjudication: [
       {

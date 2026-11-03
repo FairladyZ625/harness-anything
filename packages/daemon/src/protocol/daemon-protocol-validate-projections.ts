@@ -55,6 +55,12 @@ export function agendaTask(value: unknown): boolean {
   );
 }
 
+export function agendaRestartRow(value: unknown): boolean {
+  if (!isJsonObject(value) || !nonEmpty(value.next)) return false;
+  const { next: _next, ...task } = value;
+  return agendaTask(task);
+}
+
 export function agendaExecutionRow(value: unknown): boolean {
   return (
     exactRecord(value, ["taskId", "title", "work", "pinned", "executionId", "submittedAt", "blockingAssessment"]) &&
@@ -280,6 +286,18 @@ export function validateDaemonAgenda(value: unknown): readonly string[] {
         ),
       ];
   }
+  if (!Array.isArray(value.awaitingRestart))
+    return [validationError(entityId, "awaitingRestart", value.awaitingRestart, "must be an array")];
+  const invalidRestartIndex = value.awaitingRestart.findIndex((row) => !agendaRestartRow(row));
+  if (invalidRestartIndex >= 0)
+    return [
+      validationError(
+        validationEntityId(value.awaitingRestart[invalidRestartIndex], ["taskId"], entityId),
+        `awaitingRestart[${invalidRestartIndex}]`,
+        value.awaitingRestart[invalidRestartIndex],
+        "must be a valid agenda restart row with a non-empty next",
+      ),
+    ];
   if (!Array.isArray(value.attentionItems) || value.attentionItems.some((row) => !agendaAttentionItem(row)))
     return [validationError(entityId, "attentionItems", value.attentionItems, "must contain valid attention items")];
   const regionWeights = value.regionWeights;

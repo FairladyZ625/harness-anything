@@ -9,6 +9,7 @@ describe("unsubmitted delivery agenda row", () => {
     const agenda = {
       awaitingYou: [],
       answeredForYou: [],
+      awaitingRestart: [],
       awaitingRework: [],
       awaitingAdjudication: [],
       underReview: [],
@@ -42,6 +43,60 @@ describe("unsubmitted delivery agenda row", () => {
           hint: expect.stringContaining(expectedHint),
         }),
       );
+    }
+  });
+
+  it("folds a released-lease task into the restart row instead of an unsubmitted duplicate", () => {
+    const agenda = {
+      awaitingYou: [],
+      answeredForYou: [],
+      awaitingRestart: [
+        {
+          taskId: "task_restart",
+          title: "Stopped worker",
+          status: "active",
+          pinned: false,
+          updatedAt: "2026-11-03T00:00:00.000Z",
+          leaseExecutionId: null,
+          activeExecutionIds: ["exe_restart"],
+          blockingAssessment: { state: "clear", blockers: [], warnings: [] },
+          next: "ha task start task_restart",
+        },
+      ],
+      awaitingRework: [],
+      awaitingAdjudication: [],
+      underReview: [],
+      awaitingDecisionReview: [],
+      decisionReviewInProgress: [],
+      awaitingDecision: [],
+      attentionItems: [
+        {
+          ref: "task/task_restart",
+          title: "Stopped worker",
+          kind: "unsubmitted-delivery",
+          region: "mine",
+          workTaskId: "task_restart",
+          attention: { score: 80, reasons: [] },
+        },
+      ],
+    } as unknown as AgendaSuccess;
+
+    expect(GROUP_BUCKET.restart).toBe("attn");
+    for (const [locale, expectedHint] of [
+      ["en-US", "next: ha task start task_restart"],
+      ["zh-CN", "下一步 ha task start task_restart"],
+    ] as const) {
+      setActiveLocale(locale);
+      const rows = agendaRowsOf(agenda);
+      expect(rows.filter(({ id }) => id === "task_restart")).toEqual([
+        expect.objectContaining({
+          id: "task_restart",
+          group: "restart",
+          target: "taskreview/task_restart",
+          hint: expect.stringContaining(expectedHint),
+        }),
+      ]);
+      expect(rows.some(({ group }) => group === "unsubmitted")).toBe(false);
     }
   });
 });

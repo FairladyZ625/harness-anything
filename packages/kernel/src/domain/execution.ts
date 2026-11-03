@@ -165,6 +165,14 @@ export interface LeaseV1 extends LeaseHolder {
   readonly ttlMs: number;
   readonly version: number;
 }
+/**
+ * A lease fences its round only while held or reserving. The time-aware projection derives
+ * `orphaned` for a held lease past its TTL and maps a released lease to null; neither keeps a
+ * holder who can still be waited on.
+ */
+export function leaseIsEffective(lease: LeaseV1 | null): boolean {
+  return lease !== null && (lease.phase === "held" || lease.phase === "reserving");
+}
 export const TASK_LEASE_BROKER_CONTRACT = Object.freeze({ capacity: 32 });
 export const EXECUTION_V1_SCHEMA = Object.freeze({
   id: "Execution/v1",

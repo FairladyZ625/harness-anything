@@ -66,6 +66,7 @@ export type { LifecycleDocumentState } from "./domain/task-lifecycle-publication
 export {
   completionBlockers,
   completionPreparationBlockers,
+  releasedLeaseRestartNext,
   taskCompletionNext,
   taskCompletionAction,
   completionGuidance,
@@ -207,7 +208,7 @@ export type {
   SubmissionV1,
   TaskRiskTierAssessmentV1,
 } from "./domain/execution.ts";
-export { executionAnnotationKinds, isNativeExecution, submissionDigest } from "./domain/execution.ts";
+export { executionAnnotationKinds, isNativeExecution, leaseIsEffective, submissionDigest } from "./domain/execution.ts";
 export {
   gateAppliesTo,
   gateAppliesToSubmission,

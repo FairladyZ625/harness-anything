@@ -963,6 +963,15 @@ export interface AgendaTaskRow {
 }
 
 /**
+ * 待你重启:active execution 的 lease 已释放、且没有存活 dispatch/runtime。没有 worker 在跑,
+ * 「只需等」是错的;`next` 直接取 kernel 里 `ha task show` 的同一 completion next,不在 agenda
+ * 另判一个命令。
+ */
+export interface AgendaRestartRow extends AgendaTaskRow {
+  readonly next: string;
+}
+
+/**
  * 待派审 / 评审中的 execution 行。task 状态决定分组(submitted → awaitingAdjudication,
  * in_review → underReview),组即类型,行内不再携带 kind 判别。
  */
@@ -1072,6 +1081,8 @@ export type DaemonAgendaResult = {
   readonly inFlight: readonly AgendaTaskRow[];
   /** Active tasks with neither a live lease nor activity in the last seven days. */
   readonly stalled: readonly AgendaTaskRow[];
+  /** active execution 的 lease 已释放且无存活 dispatch/runtime；`next` 与 ha task show 同源。 */
+  readonly awaitingRestart: readonly AgendaRestartRow[];
   /** 评审打回、等使用者修:active 且最新 execution=changes_requested、无 lease、无 active execution。 */
   readonly awaitingRework: readonly AgendaTaskRow[];
   /** 无自动评审要求或历史待转交的 submitted execution；按冻结契约处理。 */

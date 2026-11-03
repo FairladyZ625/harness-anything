@@ -579,6 +579,7 @@ const FIXTURE_AGENDA = {
   ],
   pinnedEntities: [],
   pinnedEntityOverflow: 0,
+  awaitingRestart: [],
   awaitingRework: [],
   awaitingAdjudication: [
     {

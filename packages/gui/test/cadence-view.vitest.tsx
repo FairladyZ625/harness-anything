@@ -105,6 +105,7 @@ const AGENDA: AgendaSuccess = {
   pinnedEntities: [],
   pinnedEntityOverflow: 0,
   inFlight: [],
+  awaitingRestart: [],
   awaitingRework: [],
   awaitingAdjudication: [
     {
