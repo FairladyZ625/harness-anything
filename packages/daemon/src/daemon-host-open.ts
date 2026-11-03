@@ -475,6 +475,15 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           daemonGeneration: Date.now() * 1000 + (process.pid % 1000),
           daemonRoute: runtimeDaemonRoute,
           ports: runtimePorts,
+          onTaskSettled: (taskId) => {
+            void autoClaimLoop
+              .trigger("runtime-terminal", { repoId: request.repoId, taskId })
+              .catch((error: unknown) => {
+                process.emitWarning(error instanceof Error ? error : new Error(String(error)), {
+                  code: "NODE_AUTO_CLAIM_SCAN_FAILED",
+                });
+              });
+          },
           waitForReplicaReady: () =>
             waitForFleetReplicaReady({
               viewRoot: path.isAbsolute(request.viewRoot)
@@ -628,8 +637,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     keycloakCenter,
     keycloakSession,
     scheduleScheduler,
-    onAutoClaimTrigger: (reason) => {
-      void autoClaimLoop.trigger(reason).catch((error: unknown) => {
+    onAutoClaimTrigger: (reason, releasedTask) => {
+      void autoClaimLoop.trigger(reason, releasedTask).catch((error: unknown) => {
         process.emitWarning(error instanceof Error ? error : new Error(String(error)), {
           code: "NODE_AUTO_CLAIM_SCAN_FAILED",
         });

@@ -194,9 +194,14 @@ export async function performOpenRegistered(
             },
           }
         : {}),
-      onAttemptTerminal: (_terminal: RuntimeAttemptTerminal) => {
+      onAttemptTerminal: (terminal: RuntimeAttemptTerminal) => {
         void context.scheduleScheduler.refresh();
-        context.onAutoClaimTrigger?.("runtime-terminal");
+        // Settlement closes the task's slot before this attempt's detached session wait returns:
+        // a finished runtime must not keep holding maxConcurrent against its successor.
+        context.onAutoClaimTrigger?.(
+          "runtime-terminal",
+          terminal.task ? { repoId: repo.repoId, taskId: terminal.task.taskId } : undefined,
+        );
       },
       onRuntimeSignal: (_runtimeSessionId, signal) => {
         if (signal.type === "exit") context.onAutoClaimTrigger?.("runtime-exit");

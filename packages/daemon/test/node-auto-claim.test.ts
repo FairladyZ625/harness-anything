@@ -392,3 +392,62 @@ test("a failed candidate is suppressed during refill while a later candidate pro
     rmSync(userRoot, { recursive: true, force: true });
   }
 });
+
+test("a terminal task frees its concurrency slot before its claim run returns", async () => {
+  const userRoot = mkdtempSync(path.join(os.tmpdir(), "ha-node-auto-claim-release-"));
+  try {
+    writeNodeAutoClaimPolicy(userRoot, { ...policy, maxConcurrent: 1 });
+    const first = { id: "task-first" },
+      successor = { id: "task-successor" };
+    let candidates = [first];
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let successorStarted!: () => void;
+    const successorRun = new Promise<void>((resolve) => {
+      successorStarted = resolve;
+    });
+    const started: string[] = [];
+    const loop = openNodeAutoClaimLoop({
+      userRoot,
+      now: () => "2026-11-02T00:00:00.000Z",
+      ownerPersonIdFor: async () => "owner",
+      repos: () => ["repo-a"],
+      repoIdOf: (repo) => repo,
+      candidates: async () => candidates,
+      taskIdOf: (candidate) => candidate.id,
+      assignmentOf: async (candidate) => ({
+        taskId: candidate.id,
+        workspaceRevision: 1,
+        expiresAt: assignment.expiresAt,
+        assignedByPersonId: "owner",
+        assignedByTeamIds: [],
+      }),
+      activeTaskKeys: async () => [],
+      agentIds: () => ["sol"],
+      claimAndRun: async (_repo, candidate) => {
+        started.push(candidate.id);
+        if (candidate.id === first.id) await firstGate;
+        else successorStarted();
+      },
+    });
+    await loop.trigger("first-candidate");
+    candidates = [first, successor];
+    // The predecessor's claim run is still parked on its detached session wait; only the
+    // terminal event releases its slot.
+    await loop.trigger("runtime-terminal");
+    assert.deepEqual(started, ["task-first"]);
+    assert.equal(
+      loop.diagnostics().some((row) => row.taskId === successor.id && row.reason === "concurrency_limit"),
+      true,
+    );
+    await loop.trigger("runtime-terminal", { repoId: "repo-a", taskId: first.id });
+    await successorRun;
+    assert.deepEqual(started, ["task-first", "task-successor"]);
+    releaseFirst();
+    await loop.close();
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});

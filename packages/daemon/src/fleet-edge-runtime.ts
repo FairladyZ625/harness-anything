@@ -226,6 +226,8 @@ export function openFleetEdgeRuntime(input: {
   readonly ports: RuntimePorts;
   /** Waits for an in-flight resident stream to publish its first readable generation. */
   readonly waitForReplicaReady?: (signal?: AbortSignal) => Promise<boolean>;
+  /** Reports a task whose terminal lease settlement this node applied to the center. */
+  readonly onTaskSettled?: (taskId: string) => void;
   readonly launch?: RuntimeLauncher;
   readonly now?: () => string;
 }) {
@@ -815,6 +817,7 @@ export function openFleetEdgeRuntime(input: {
           }),
       ),
     onAttemptTerminal: async (terminal) => {
+      let settledTaskId: string | null = null;
       if (terminal.task) {
         const { taskId, executionId } = terminal.task,
           processGroupPid = terminal.processGroupPid;
@@ -867,7 +870,11 @@ export function openFleetEdgeRuntime(input: {
             `Center rejected Runtime terminal lease settlement: ${String(settled.code ?? settled.outcome)}.`,
           );
         await pullRuntimeReplica();
+        settledTaskId = taskId;
       }
+      // The center lease is settled: the task's concurrency slot is free even while this
+      // attempt's detached session wait is still parked.
+      if (settledTaskId !== null) input.onTaskSettled?.(settledTaskId);
       await squad.reconcile();
       const scheduled = terminal.schedule;
       if (!scheduled) return;

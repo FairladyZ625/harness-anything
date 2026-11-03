@@ -136,7 +136,10 @@ export function decideNodeAutoClaim(input: {
 }
 
 export interface NodeAutoClaimLoop {
-  readonly trigger: (reason: string) => Promise<void>;
+  readonly trigger: (
+    reason: string,
+    releasedTask?: { readonly repoId: string; readonly taskId: string },
+  ) => Promise<void>;
   readonly close: () => Promise<void>;
   readonly diagnostics: () => readonly NodeAutoClaimDiagnosticRow[];
 }
@@ -179,6 +182,7 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
     controllers = new Set<AbortController>(),
     runs = new Set<Promise<void>>(),
     inFlight = new Set<string>(),
+    released = new Set<string>(),
     settled = new Map<string, number | null>(),
     failed = new Map<string, number | null>();
   let closed = false,
@@ -193,7 +197,7 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
     const configured = readNodeAutoClaimPolicy(input.userRoot);
     let slots: number;
     try {
-      slots = new Set([...(await input.activeTaskKeys()), ...inFlight]).size;
+      slots = new Set([...(await input.activeTaskKeys()), ...[...inFlight].filter((key) => !released.has(key))]).size;
     } catch (error) {
       record({
         repoId: "*",
@@ -335,6 +339,7 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
         });
         slots += 1;
         inFlight.add(activeTaskKey);
+        released.delete(activeTaskKey);
         const settlementRevision = assignment!.workspaceRevision;
         const controller = new AbortController();
         controllers.add(controller);
@@ -368,6 +373,7 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
           .finally(() => {
             controllers.delete(controller);
             inFlight.delete(activeTaskKey);
+            released.delete(activeTaskKey);
             runs.delete(run);
             if (completed) settled.set(activeTaskKey, settlementRevision);
             else if (!controller.signal.aborted) failed.set(activeTaskKey, settlementRevision);
@@ -385,7 +391,14 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
       }
     }
   };
-  const trigger = (reason: string): Promise<void> => {
+  const trigger = (
+    reason: string,
+    releasedTask?: { readonly repoId: string; readonly taskId: string },
+  ): Promise<void> => {
+    if (releasedTask) {
+      const releasedKey = `${releasedTask.repoId}:${releasedTask.taskId}`;
+      if (inFlight.has(releasedKey)) released.add(releasedKey);
+    }
     if (closed) return Promise.resolve();
     if (reason !== "runtime-settled") failed.clear();
     if (pending) {
