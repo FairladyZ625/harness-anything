@@ -51,11 +51,10 @@ test(
     const controller = `import {existsSync,readFileSync,writeFileSync,unlinkSync,mkdirSync} from 'node:fs';import path from 'node:path';
 const args=process.argv.slice(2), option=name=>args[args.indexOf(name)+1], user=option('--user-root'), workspace=option('--root'), file=path.join(user,'running.json'), own=readFileSync(new URL('../../build-id.txt',import.meta.url),'utf8').trim();mkdirSync(user,{recursive:true});
 const running=existsSync(file)?JSON.parse(readFileSync(file,'utf8')):null;let receipt;
-if(args[1]==='start'){if(existsSync(path.join(user,'fail'))&&readFileSync(path.join(user,'fail'),'utf8')===own)receipt={ok:false,code:'fixture_start_failed'};else{writeFileSync(file,JSON.stringify({commit:own,pid:42}));receipt={ok:true};}}
+if(args[1]==='start'){if(existsSync(path.join(user,'fail'))&&readFileSync(path.join(user,'fail'),'utf8')===own)receipt={ok:false,code:'fixture_start_failed'};else{writeFileSync(file,JSON.stringify({commit:existsSync(path.join(user,'wrong-entry'))?readFileSync(path.join(user,'wrong-entry'),'utf8'):own,pid:42}));receipt={ok:true};}}
 else if(!running)receipt={ok:false,code:'daemon_unavailable'};
-else if(running.commit!==own)receipt={ok:false,code:'daemon_version_mismatch'};
 else if(args[1]==='stop'){unlinkSync(file);receipt={ok:true};}
-else receipt={ok:true,pid:42,build:{loadedBuildId:own},repos:[{rootDir:workspace,state:'attached'}]};console.log(JSON.stringify(receipt));process.exitCode=receipt.ok?0:1;`;
+else receipt={ok:true,pid:42,build:{loadedBuildId:running.commit},repos:[{rootDir:workspace,state:'attached'}]};console.log(JSON.stringify(receipt));process.exitCode=receipt.ok?0:1;`;
     try {
       write(path.join(repository, "package.json"), {
         name: "release-command-fixture",
@@ -105,12 +104,26 @@ else receipt={ok:true,pid:42,build:{loadedBuildId:own},repos:[{rootDir:workspace
         runReleaseCommand(["install", "--root", root, "--repository", repository, "--revision", a]),
         /already exists/u,
       );
+      // A development daemon built from A is still outside this installation's ownership.
+      write(path.join(userRoot, "running.json"), { commit: a, pid: 42 });
+      await assert.rejects(runReleaseCommand(["switch", "--revision", a, ...target]), /daemon_unmanaged/u);
+      assert.equal(existsSync(path.join(root, "deployment.json")), false);
+      assert.equal(existsSync(path.join(root, "current")), false);
+      assert.deepEqual(JSON.parse(readFileSync(path.join(userRoot, "running.json"), "utf8")), { commit: a, pid: 42 });
+      unlinkSync(path.join(userRoot, "running.json"));
       await runReleaseCommand(["switch", "--revision", a, ...target]);
       write(path.join(repository, "generation.txt"), "B");
       await git("add", "generation.txt");
       await git("commit", "--quiet", "-m", "fixture B");
       const b = await git("rev-parse", "HEAD");
       await runReleaseCommand(["install", "--root", root, "--repository", repository, "--revision", b]);
+      // A service manager may restart the predecessor even though the protocol is compatible.
+      write(path.join(userRoot, "wrong-entry"), a);
+      await assert.rejects(runReleaseCommand(["switch", "--revision", b, ...target]), {
+        code: "daemon_release_mismatch",
+      });
+      unlinkSync(path.join(userRoot, "wrong-entry"));
+      assert.equal((await runReleaseCommand(["rollback", ...target])).current, a);
       write(path.join(userRoot, "fail"), b);
       await assert.rejects(runReleaseCommand(["switch", "--revision", b, ...target]), (error) => {
         assert.equal(error.code, "fixture_start_failed");

@@ -34,11 +34,15 @@ async function fixture(stopOk: boolean) {
       const result =
         request.method === "protocol.hello"
           ? stopOk
-            ? { ok: true, protocolVersion: currentDaemonProtocolVersion, build: { commit: "other-release" } }
+            ? {
+                ok: true,
+                protocolVersion: { major: currentDaemonProtocolVersion.major + 1, minor: 0 },
+                build: { commit: "other-release" },
+              }
             : fixtureDaemonHello()
           : stopOk
             ? { ok: true }
-            : { ok: false, code: "daemon_version_mismatch", error: { hint: "Use the center release CLI." } };
+            : { ok: false, code: "incompatible_protocol_version", error: { hint: "Use the center release CLI." } };
       socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`);
     });
   });
@@ -68,8 +72,8 @@ test("version-skewed shutdown must reject before sending daemon.stop", { timeout
       failure = error;
     }
     console.log(JSON.stringify({ observedMethods: f.methods, rejected: failure !== undefined }));
-    assert.deepEqual(f.methods, ["protocol.hello"], "A foreign release must not receive daemon.stop.");
-    assert.ok(failure, "The foreign release must produce an actionable mismatch error.");
+    assert.deepEqual(f.methods, ["protocol.hello"], "An out-of-window daemon must not receive daemon.stop.");
+    assert.ok(failure, "The out-of-window daemon must produce an actionable mismatch error.");
   } finally {
     await f.close();
   }
@@ -143,7 +147,7 @@ for (const force of [false, true])
         assert.equal(observed.signalSent, false, JSON.stringify(observed));
         assert.equal(observed.stoppedMarker, false, JSON.stringify(observed));
         assert.notEqual(exitCode, 0, stdout);
-        assert.match(stdout, /daemon_version_mismatch/u);
+        assert.match(stdout, /incompatible_protocol_version/u);
         assert.deepEqual(
           f.methods,
           force ? ["protocol.hello"] : ["protocol.hello", "daemon.stop"],
@@ -160,7 +164,7 @@ for (const force of [false, true])
     },
   );
 
-test("ordinary CLI requests preserve release mismatch as their error code", async () => {
+test("ordinary CLI requests preserve protocol mismatch as their error code", async () => {
   const f = await fixture(true);
   try {
     writeFileSync(
@@ -204,7 +208,7 @@ test("ordinary CLI requests preserve release mismatch as their error code", asyn
     });
     const [status] = await once(cli, "close");
     assert.equal(status, 1, stderr + stdout);
-    assert.equal(JSON.parse(stdout).code, "daemon_version_mismatch", stdout);
+    assert.equal(JSON.parse(stdout).code, "incompatible_protocol_version", stdout);
     assert.deepEqual(f.methods, ["protocol.hello"]);
   } finally {
     await f.close();

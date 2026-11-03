@@ -374,7 +374,7 @@ test(
       assert.equal(control.code, "repo_mode_remote_proxy");
     });
 
-    await t.test("Goal 6: an exact protocol mismatch fails without compatibility", async () => {
+    await t.test("Goal 6: a protocol outside the supported window fails without compatibility", async () => {
       const mismatch = await mismatchEndpoint();
       t.after(mismatch.close);
       registerDaemonRepo({

@@ -99,6 +99,50 @@ test(
         userRoot,
         createConvenienceLinks: false,
       });
+      // A real same-commit development process must not masquerade as this installation.
+      const development = path.join(parent, "development");
+      cpSync(path.join(root, "versions", a), development, {
+        recursive: true,
+        mode: constants.COPYFILE_FICLONE,
+        verbatimSymlinks: true,
+      });
+      assert.equal(
+        realpathSync(path.join(development, "node_modules/@harness-anything/daemon/package.json")),
+        path.join(development, "packages/daemon/package.json"),
+        "The development copy must launch its own daemon, not the installed release behind an absolutized link.",
+      );
+      const incumbentCli = async (...args) =>
+        JSON.parse(
+          (
+            await execute(process.execPath, [
+              path.join(development, "packages/cli/dist/cli/src/index.js"),
+              "daemon",
+              ...args,
+              "--user-root",
+              userRoot,
+              "--daemon-id",
+              daemonId,
+              "--root",
+              workspace,
+              "--json",
+            ])
+          ).stdout,
+        );
+      try {
+        await incumbentCli("start", "--service");
+        const incumbent = await incumbentCli("status");
+        assert.equal(incumbent.build.loadedBuildId, a);
+        await assert.rejects(runReleaseCommand(["switch", "--revision", a, ...target]), { code: "daemon_unmanaged" });
+        assert.equal((await incumbentCli("status")).pid, incumbent.pid);
+        assert.equal(existsSync(path.join(root, "deployment.json")), false);
+        assert.equal(existsSync(path.join(root, "current")), false);
+        console.log(
+          "UNMANAGED SAME-COMMIT REFUSED",
+          JSON.stringify({ pid: incumbent.pid, build: incumbent.build, current: null }),
+        );
+      } finally {
+        await incumbentCli("stop", "--force");
+      }
       const activated = await runReleaseCommand(["switch", "--revision", a, ...target]);
       current = a;
       console.log("SWITCH A", JSON.stringify(activated));
@@ -147,7 +191,10 @@ test(
       assert.equal(upgraded.status.build.loadedBuildId, b);
       assert.equal(upgraded.previous, a);
       console.log("UPGRADE", JSON.stringify(upgraded));
-      await assert.rejects(cli(a, ["status"]), (error) => /daemon_version_mismatch/u.test(error.stdout));
+      const previousCli = await cli(a, ["status"]);
+      assert.equal(previousCli.ok, true);
+      assert.equal(previousCli.build.loadedBuildId, b);
+      console.log("PREVIOUS BUILD CLI", JSON.stringify(previousCli));
       const rolled = await runReleaseCommand(["rollback", ...target]);
       current = a;
       assert.equal(rolled.current, a);
@@ -164,18 +211,7 @@ test(
       current = a;
       assert.equal(rolledAgain.current, a);
       console.log("MAIN UNCHANGED", JSON.stringify(unchanged));
-      // Positive drift control: mutate only a test-owned development copy, never an installed version.
-      const development = path.join(parent, "development");
-      cpSync(path.join(root, "versions", a), development, {
-        recursive: true,
-        mode: constants.COPYFILE_FICLONE,
-        verbatimSymlinks: true,
-      });
-      assert.equal(
-        realpathSync(path.join(development, "node_modules/@harness-anything/daemon/package.json")),
-        path.join(development, "packages/daemon/package.json"),
-        "The development copy must launch its own daemon, not the installed release behind an absolutized link.",
-      );
+      // Positive drift control: mutate only the test-owned development copy.
       const devUser = path.join(parent, "dev-user"),
         devId = "development-control";
       const devCli = async (...args) =>

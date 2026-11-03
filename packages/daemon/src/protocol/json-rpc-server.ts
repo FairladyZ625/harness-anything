@@ -49,7 +49,6 @@ import {
   parseDaemonStreamResult,
 } from "./gui-result-validation.ts";
 import { isJsonObject, type JsonObject, type JsonRpcRequest, type JsonRpcResponse } from "./json-rpc-types.ts";
-import { currentDaemonProtocolVersion } from "./version.ts";
 import { daemonHelloMismatch } from "../client/daemon-hello.ts";
 import { consumeKnownError } from "@harness-anything/kernel";
 import type { DaemonBuildObserver, DaemonBuildStamp } from "../build-identity.ts";
@@ -220,7 +219,7 @@ export function createJsonRpcProtocolServer(options: {
       wait: isDaemonParkedWaitMethod(method),
     };
     if (request.method === "protocol.hello" && method === request.method) {
-      const mismatch = daemonHelloMismatch(params.protocolVersion, { commit: params.buildCommit }, options.build);
+      const mismatch = daemonHelloMismatch(params.protocolVersion);
       if (mismatch) return reply(method, daemonProtocolError(method, mismatch.code, mismatch.message));
       if (params.sessionEnvironment === undefined) Reflect.deleteProperty(options.authContext, "sessionEnvironment");
       else
@@ -234,7 +233,7 @@ export function createJsonRpcProtocolServer(options: {
       handshaken = true;
       return reply(method, {
         ok: true,
-        protocolVersion: currentDaemonProtocolVersion,
+        protocolVersion: params.protocolVersion,
         methods: jsonRpcMethodContracts.map((entry) => entry.method),
         build: { ...options.build },
         ...(warning ? { warning } : {}),

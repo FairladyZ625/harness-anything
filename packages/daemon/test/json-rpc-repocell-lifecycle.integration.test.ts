@@ -1,5 +1,4 @@
 // harness-test-tier: integration
-import { daemonBuildStamp } from "../src/build-identity.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -183,7 +182,7 @@ test("GUI and CLI submit derive the same canonical event from closeout", async (
       writeFileSync(closeoutPath, readFileSync(closeoutPath, "utf8").replace(commitSha, "<repo-cut>"));
     }
     assert.equal((await cells[0]!.run({ kind: "task-submit", taskId, executionId }, binding)).outcome, "applied");
-    const server = createJsonRpcProtocolServer({ host: { remoteProxy: { route: () => false }, run: async (_repoId: string, action: Record<string, unknown>) => cells[1]!.run(action as { readonly kind: string }, binding) } as never, build: daemonBuildStamp(), authContext: {} as never, emit: async () => undefined }); await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit } }); const response = await server.handle({ jsonrpc: "2.0", id: 2, method: "repo.task.submit", params: { repo: { repoId: "submit-ab" }, payload: { taskId, executionId } } }); assert.ok(response && !Array.isArray(response) && "result" in response, JSON.stringify(response)); assert.equal((response as { result: { outcome: string } }).result.outcome, "applied", JSON.stringify(response)); server.close();
+    const server = createJsonRpcProtocolServer({ host: { remoteProxy: { route: () => false }, run: async (_repoId: string, action: Record<string, unknown>) => cells[1]!.run(action as { readonly kind: string }, binding) } as never, build: { commit: null }, authContext: {} as never, emit: async () => undefined }); await server.handle({ jsonrpc: "2.0", id: 1, method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion } }); const response = await server.handle({ jsonrpc: "2.0", id: 2, method: "repo.task.submit", params: { repo: { repoId: "submit-ab" }, payload: { taskId, executionId } } }); assert.ok(response && !Array.isArray(response) && "result" in response, JSON.stringify(response)); assert.equal((response as { result: { outcome: string } }).result.outcome, "applied", JSON.stringify(response)); server.close();
     const events = roots.map((rootDir) => makeTaskEventReader({ repoId: "submit-ab", rootDir }).read().events.find((event) => event.type === "execution_submitted"));
     assert.ok(events[0]?.schema === "task-event/v1" && events[0].type === "execution_submitted");
     assert.ok(events[1]?.schema === "task-event/v1" && events[1].type === "execution_submitted");

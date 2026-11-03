@@ -142,14 +142,21 @@ async function switchRelease(root, revision, state, values) {
   ];
   if (state.current && state.current !== revision) {
     const previous = path.join(root, "versions", state.current);
-    // Stopping with the old binary is essential once releases reject one another at hello.
+    // Use the predecessor CLI for lifecycle control, including when the target protocol changes.
     const stopped = await cli(previous, ["daemon", "stop", ...flags], true);
     if (stopped.ok !== true && stopped.code !== "daemon_unavailable") throw new Error(JSON.stringify(stopped));
     if (stopped.draining === true) throw new Error("Old release is still draining; retry after it exits.");
   }
   if (state.current === null) {
     const existing = await cli(target, ["daemon", "status", ...flags], true);
-    if (existing.ok !== true && existing.code !== "daemon_unavailable") throw new Error(JSON.stringify(existing));
+    if (existing.ok === true)
+      throw Object.assign(
+        new Error(
+          "daemon_unmanaged: Stop the existing daemon with its own CLI before the first release switch; its build may match but its executable is not managed by this installation.",
+        ),
+        { code: "daemon_unmanaged" },
+      );
+    if (existing.code !== "daemon_unavailable") throw new Error(JSON.stringify(existing));
   }
   // Write recovery state before selecting code, including on a failed target start. A retry of the
   // same revision retains previous, so one rollback still names the last successful predecessor.
@@ -166,6 +173,13 @@ async function switchRelease(root, revision, state, values) {
     const deadline = Date.now() + 60_000;
     for (;;) {
       status = await cli(target, ["daemon", "status", ...flags]);
+      if (status.build?.loadedBuildId !== revision)
+        throw Object.assign(
+          new Error(
+            `daemon_release_mismatch: Expected installed release ${revision}, got ${JSON.stringify(status.build)}; check the service manager executable path.`,
+          ),
+          { code: "daemon_release_mismatch" },
+        );
       const repos = Array.isArray(status.repos) ? status.repos : [];
       if (repos.some((repo) => repo.rootDir === context.workspace) && repos.every((repo) => repo.state === "attached"))
         break;

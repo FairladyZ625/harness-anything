@@ -1,5 +1,4 @@
 // harness-test-tier: integration
-import { daemonBuildStamp } from "../src/build-identity.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -915,7 +914,7 @@ test("daemon ingress passes Claude effort and Codex fast through to the witnesse
       daemonId: "runtime-claude-effort-ingress",
       socketPath: endpoint,
       createProtocolServer: (authContext, emit) =>
-        createJsonRpcProtocolServer({ host, build: daemonBuildStamp(), authContext, emit }),
+        createJsonRpcProtocolServer({ host, build: { commit: null }, authContext, emit }),
     });
   await transport.start();
   try {

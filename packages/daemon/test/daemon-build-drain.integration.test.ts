@@ -1,5 +1,4 @@
 // harness-test-tier: integration
-import { daemonBuildStamp } from "../src/build-identity.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup, signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
@@ -81,7 +80,6 @@ for (const phase of ["attached", "attaching", "abandoned"] as const) {
         "protocol.hello",
         {
           protocolVersion: currentDaemonProtocolVersion,
-          buildCommit: daemonBuildStamp().commit,
           reportStaleBuild: true,
         },
         2_000,

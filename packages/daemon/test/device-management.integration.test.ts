@@ -1,5 +1,4 @@
 // harness-test-tier: integration
-import { daemonBuildStamp } from "../src/build-identity.ts";
 // dec_F01770FD0DCF72683B7C4C7A47/CH5–CH7: one person's independently revocable devices.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -202,7 +201,7 @@ test("real center CLI lists and changes only the current person's versioned devi
     createProtocolServer: (authContext, emit) =>
       createJsonRpcProtocolServer({
         host,
-        build: daemonBuildStamp(),
+        build: { commit: null },
         authContext,
         emit,
         sessionPrincipal: async () => (await oidc.bind({ transportKind: "unix-socket" })).oidcPrincipal,

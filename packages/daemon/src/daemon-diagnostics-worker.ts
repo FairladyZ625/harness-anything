@@ -1,6 +1,8 @@
 import { Worker, parentPort, workerData } from "node:worker_threads";
 import path from "node:path";
 import { createUnixSocketTransportServer } from "./transport/unix-socket.ts";
+import { daemonHelloMismatch } from "./client/daemon-hello.ts";
+import { daemonBuildStamp } from "./build-identity.ts";
 import { daemonDiagnosticsEndpoint } from "./client/local-daemon-target.ts";
 import { openDaemonLifecycleLog } from "./lifecycle-log.ts";
 import type { DaemonDiagnosticsOptions } from "./daemon-diagnostics.ts";
@@ -129,11 +131,17 @@ const transport = createUnixSocketTransportServer({
           id: request.id ?? null,
           error: { code: -32600, message: "Local owner diagnostics only" },
         };
-      return {
-        jsonrpc: "2.0",
-        id: request.id ?? null,
-        result: request.method === "protocol.hello" ? { ok: true } : snapshot(),
-      };
+      if (request.method === "protocol.hello") {
+        const mismatch = daemonHelloMismatch(request.params?.protocolVersion);
+        return {
+          jsonrpc: "2.0",
+          id: request.id ?? null,
+          result: mismatch
+            ? { ok: false, code: mismatch.code, error: { hint: mismatch.message } }
+            : { ok: true, protocolVersion: request.params!.protocolVersion!, build: { ...daemonBuildStamp() } },
+        };
+      }
+      return { jsonrpc: "2.0", id: request.id ?? null, result: snapshot() };
     };
     return { handle: async (request) => (Array.isArray(request) ? request.map(one) : one(request)), close: () => {} };
   },

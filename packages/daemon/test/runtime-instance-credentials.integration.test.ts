@@ -1,5 +1,4 @@
 // harness-test-tier: integration
-import { daemonBuildStamp } from "../src/build-identity.ts";
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -325,7 +324,7 @@ test("real CLI stdin and GUI registry IPC bridge replace through the same isolat
     daemonId,
     socketPath: endpoint,
     createProtocolServer: (authContext, emit) =>
-      createJsonRpcProtocolServer({ host, build: daemonBuildStamp(), authContext, emit }),
+      createJsonRpcProtocolServer({ host, build: { commit: null }, authContext, emit }),
   });
   await transport.start();
   const previous = {

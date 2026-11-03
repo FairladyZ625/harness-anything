@@ -23,8 +23,8 @@ const buildIdFilename = "build-id.txt",
 // A resident daemon serves the code it was started from for its whole life, while the tree it came
 // from keeps moving, so the daemon is the side that has to say which build it is: a commit frozen
 // here at first use. Packaged runs carry a build stamp; a source-tree run resolves it from git.
-// Clients run the same function against their own tree, and a mismatch is the diagnosis, not an
-// error to paper over — this repo keeps no cross-version compatibility.
+// Clients report their own build for diagnosis. Online admission uses the bounded protocol window;
+// different build commits alone do not invalidate a live worker or connection.
 export function daemonBuildStamp(): DaemonBuildStamp {
   stamp ??= resolveStamp();
   return stamp;

@@ -1,5 +1,4 @@
 // harness-test-tier: integration
-import { daemonBuildStamp } from "../src/build-identity.ts";
 import assert from "node:assert/strict";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -177,7 +176,7 @@ test(
     const invokeWorkerCommand = async (executionCredential: string | undefined, taskAction: typeof action) => {
       const rpc = createJsonRpcProtocolServer({
         host: edgeHost,
-        build: daemonBuildStamp(),
+        build: { commit: null },
         authContext: localAuth,
         edgeExecutionPrincipal: async (candidate) => {
           const principal = readRuntimeExecutionPrincipal(edgeRoot, candidate);
@@ -197,7 +196,6 @@ test(
           method: "protocol.hello",
           params: {
             protocolVersion: currentDaemonProtocolVersion,
-            buildCommit: daemonBuildStamp().commit,
             ...(executionCredential ? { executionCredential } : {}),
           },
         });

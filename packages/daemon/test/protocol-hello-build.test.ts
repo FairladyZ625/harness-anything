@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
+import { daemonHelloMismatch } from "../src/client/daemon-hello.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import type { DaemonAuthenticationContext } from "../src/transport/auth-context.ts";
 
@@ -104,7 +105,7 @@ test("protocol.hello reports a drifted build and keeps serving while work drains
 });
 
 for (const clientCommit of [undefined, "other-release"]) {
-  test(`protocol.hello rejects ${clientCommit ?? "missing"} release before admitting business or stop`, async () => {
+  test(`protocol.hello accepts ${clientCommit ?? "missing"} build metadata within the protocol window`, async () => {
     let stops = 0;
     const server = createJsonRpcProtocolServer({
       host: {} as never,
@@ -125,10 +126,10 @@ for (const clientCommit of [undefined, "other-release"]) {
           ...(clientCommit ? { buildCommit: clientCommit } : {}),
         },
       });
-      assert.equal((hello as { result: { code: string } }).result.code, "daemon_version_mismatch");
+      assert.equal((hello as { result: { ok: boolean } }).result.ok, true, JSON.stringify(hello));
       const stop = await server.handle({ jsonrpc: "2.0", id: 2, method: "daemon.stop", params: {} });
-      assert.equal((stop as { result: { code: string } }).result.code, "hello_required");
-      assert.equal(stops, 0);
+      assert.equal((stop as { result: { ok: boolean } }).result.ok, true);
+      assert.equal(stops, 1);
     } finally {
       server.close();
     }
@@ -146,12 +147,15 @@ test("a second refused hello revokes previously admitted business requests", asy
     },
   });
   try {
-    for (const buildCommit of ["fixed-release", "other-release"])
+    for (const protocolVersion of [
+      currentDaemonProtocolVersion,
+      { major: currentDaemonProtocolVersion.major + 1, minor: 0 },
+    ])
       await server.handle({
         jsonrpc: "2.0",
         id: 1,
         method: "protocol.hello",
-        params: { protocolVersion: currentDaemonProtocolVersion, buildCommit },
+        params: { protocolVersion, buildCommit: "fixed-release" },
       });
     const stop = await server.handle({ jsonrpc: "2.0", id: 2, method: "daemon.stop", params: {} });
     assert.equal((stop as { result: { code: string } }).result.code, "hello_required");
@@ -193,4 +197,49 @@ test("a malformed second hello cannot leave an earlier handshake admitted", asyn
   } finally {
     server.close();
   }
+});
+
+// CH1: build identities diagnose skew; admission belongs to the bounded protocol window.
+test("different builds with the same protocol can issue daemon commands", async () => {
+  let stops = 0;
+  const server = createJsonRpcProtocolServer({
+    host: {} as never,
+    build: { commit: "release-B" },
+    authContext: { transportKind: "unix-socket" },
+    emit: async () => undefined,
+    requestShutdown: () => {
+      stops += 1;
+    },
+  });
+  try {
+    const hello = await server.handle({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "protocol.hello",
+      params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: "release-A" },
+    });
+    assert.equal((hello as { result: { ok: boolean } }).result.ok, true, JSON.stringify(hello));
+    assert.equal((hello as { result: { build: { commit: string } } }).result.build.commit, "release-B");
+    await server.handle({ jsonrpc: "2.0", id: 2, method: "daemon.stop", params: {} });
+    assert.equal(stops, 1);
+  } finally {
+    server.close();
+  }
+});
+
+test("protocol window accepts current and previous minor only, never another major", () => {
+  const supported = { major: 1, minor: 2 };
+  for (const minor of [1, 2]) assert.equal(daemonHelloMismatch({ major: 1, minor }, supported), null);
+  for (const peer of [
+    { major: 1, minor: 0 },
+    { major: 1, minor: 3 },
+    { major: 2, minor: 2 },
+    { major: 1, minor: -1 },
+    { major: 1, minor: 1.5 },
+  ])
+    assert.equal(daemonHelloMismatch(peer, supported)?.code, "incompatible_protocol_version");
+  assert.equal(
+    daemonHelloMismatch({ major: 1, minor: -1 }, { major: 1, minor: 0 })?.code,
+    "incompatible_protocol_version",
+  );
 });
