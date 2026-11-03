@@ -1,7 +1,7 @@
 import net from "node:net";
 import { once } from "node:events";
 import { JsonRpcLineClient } from "../../packages/daemon/src/client/local-json-rpc-client.ts";
-import { currentDaemonProtocolVersion } from "../../packages/daemon/src/protocol/version.ts";
+import { daemonHelloParams } from "../../packages/daemon/src/client/daemon-hello.ts";
 import { allDaemonProtocolMethods } from "../../packages/daemon/src/protocol/daemon-protocol-commands.ts";
 import { requestAccumulator, replaySchedule } from "./center-model.mjs";
 import { withWatchdog } from "../stress/core/controller.mjs";
@@ -13,7 +13,7 @@ export function syntheticParams(row, fixture, serial = 0, bindings = {}) {
     taskId = fixture.ledger.sampleTasks[serial % fixture.ledger.sampleTasks.length];
   const custom = bindings[`${row.method}:${row.command}`] ?? bindings[row.method];
   if (custom) return structuredClone(custom);
-  if (row.method === "protocol.hello") return { protocolVersion: currentDaemonProtocolVersion, reportStaleBuild: true };
+  if (row.method === "protocol.hello") return daemonHelloParams({ reportStaleBuild: true });
   if (
     [
       "daemon.status",
