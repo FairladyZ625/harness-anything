@@ -13,7 +13,8 @@ const options = workerData as DaemonDiagnosticsOptions & { heartbeat: SharedArra
   log = openDaemonLifecycleLog({ ...options, logKind: "diagnostics" }),
   threshold = options.stallThresholdMs ?? 2_000;
 let metrics: JsonObject | null = null,
-  activeStall: Record<string, JsonValue> | null = null;
+  activeStall: Record<string, JsonValue> | null = null,
+  stallStartedMonotonic = 0;
 const recentStalls: Record<string, JsonValue>[] = [];
 const nowMs = (): number => Number(process.hrtime.bigint() / 1_000_000n);
 const age = (): number => Math.max(0, nowMs() - Number(Atomics.load(heartbeat, 0)));
@@ -76,6 +77,7 @@ function captureStack(stall: Record<string, JsonValue>): void {
 const timer = setInterval(() => {
   const heartbeatAgeMs = age();
   if (!activeStall && heartbeatAgeMs >= threshold) {
+    stallStartedMonotonic = nowMs() - heartbeatAgeMs;
     activeStall = {
       startedAt: new Date(Date.now() - heartbeatAgeMs).toISOString(),
       detectedAt: new Date().toISOString(),
@@ -91,7 +93,7 @@ const timer = setInterval(() => {
     captureStack(activeStall);
   } else if (activeStall && heartbeatAgeMs < threshold) {
     activeStall.endedAt = new Date().toISOString();
-    activeStall.durationMs = Date.now() - Date.parse(String(activeStall.startedAt));
+    activeStall.durationMs = Math.max(0, nowMs() - stallStartedMonotonic);
     record("stall_ended", activeStall);
     activeStall = null;
   }

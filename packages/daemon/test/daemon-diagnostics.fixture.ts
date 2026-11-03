@@ -44,36 +44,34 @@ if (mode === "drain") {
     stallThresholdMs: 150,
     metricsIntervalMs: 50,
   });
-  const transport = withDaemonObservation(diagnostics.observer, () =>
-    createUnixSocketTransportServer({
-      daemonId: "diagnostics-fixture",
-      socketPath: endpoint,
-      createProtocolServer: (authContext, emit) =>
-        createJsonRpcProtocolServer({
-          host: {
-            status: () => {
-              if (armed) {
-                markDaemonOperationPhase(mode);
-                process.send!({ blocking: true });
-                if (mode === "native") Atomics.wait(control, 0, 0, 2_500);
-                else {
-                  const until = performance.now() + 2_500;
-                  while (performance.now() < until) {
-                    /* fault injection */
-                  }
+  const transport = createUnixSocketTransportServer({
+    daemonId: "diagnostics-fixture",
+    socketPath: endpoint,
+    createProtocolServer: (authContext, emit) =>
+      createJsonRpcProtocolServer({
+        host: {
+          status: () => {
+            if (armed) {
+              markDaemonOperationPhase(mode);
+              process.send!({ blocking: true });
+              if (mode === "native") Atomics.wait(control, 0, 0, 2_500);
+              else {
+                const until = performance.now() + 2_500;
+                while (performance.now() < until) {
+                  /* fault injection */
                 }
-                armed = false;
               }
-              return { daemonId: "diagnostics-fixture", pid: process.pid, repos: [], summary: "fixture" };
-            },
-          } as unknown as DaemonHost,
-          build: { loadedBuildId: null, commit: null, builtAt: null },
-          authContext,
-          emit,
-        }),
-    }),
-  );
-  await transport.start();
+              armed = false;
+            }
+            return { daemonId: "diagnostics-fixture", pid: process.pid, repos: [], summary: "fixture" };
+          },
+        } as unknown as DaemonHost,
+        build: { loadedBuildId: null, commit: null, builtAt: null },
+        authContext,
+        emit,
+      }),
+  });
+  await withDaemonObservation(diagnostics.observer, () => transport.start());
   diagnostics.state("running");
   process.on("message", (message) => {
     if (message === "arm") {

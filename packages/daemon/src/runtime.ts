@@ -204,93 +204,89 @@ export async function startDaemon(input: {
     requestLog = openDaemonRequestLog({
       resolveRootDir: (repoId) => host!.status().repos.find((repo) => repo.repoId === repoId)?.rootDir,
     });
-    transport = withDaemonObservation(diagnostics.observer, () =>
-      createUnixSocketTransportServer({
-        daemonId: input.daemonId,
-        socketPath: endpoint,
-        createProtocolServer: (authContext, emit, connectionId, signal) =>
-          createJsonRpcProtocolServer({
-            host: host!,
-            build,
-            buildObserver,
-            authContext: { ...authContext, connectionSignal: signal },
-            executionPrincipal: async (credential, method, params) => {
-              const repoId =
-                typeof params.repo === "object" && params.repo !== null && "repoId" in params.repo
-                  ? String(params.repo.repoId)
-                  : undefined;
-              const edgeRepo = host!
-                .status()
-                .repos.find((repo) => repo.repoId === repoId && repo.mode === "remote-edge");
-              const principal = edgeRepo
-                ? readRuntimeExecutionPrincipal(edgeRepo.rootDir, credential)
-                : await authenticateRuntimeExecutionPrincipal(() => host!.keycloakCenter(), credential);
-              if (!principal)
-                throw Object.assign(new Error("Execution credential is unknown or expired on this edge runtime."), {
-                  code: "authorization_denied",
-                });
-              requireExecutionRequestScope(principal, method, params);
-              return principal;
-            },
-            edgeExecutionPrincipal: async (credential) => {
-              const principal = host!
-                .status()
-                .repos.filter((repo) => repo.mode === "remote-edge")
-                .map((repo) => readRuntimeExecutionPrincipal(repo.rootDir, credential))
-                .find((entry) => entry !== null);
-              if (!principal)
-                throw Object.assign(new Error("Execution credential is unknown or expired on this edge runtime."), {
-                  code: "authorization_denied",
-                });
-              return principal;
-            },
-            sessionPrincipal: (method, params) =>
-              host!.sessionPrincipal(
-                {
-                  transportKind: authContext.transportKind,
-                  ...(authContext.unixSocketOwnerBoundary
-                    ? { unixSocketOwnerBoundary: authContext.unixSocketOwnerBoundary }
-                    : {}),
-                },
-                method,
-                params,
-              ),
-            emit,
-            connectionId: connLog.connectionOpened(connectionId, authContext.transportKind),
-            recordRequest: requestLog!.record,
-            recordTraffic: connLog.request,
-            buildDrainStatus,
-            buildDraining,
-            stopping: () => stopping,
-            onRequestStarted: () => {
-              activeRequests += 1;
-            },
-            onBuildDriftObserved: () => {
-              if (buildSupersessionObserved || input.buildSupersessionEnabled === false) return;
-              buildSupersessionObserved = true;
-              diagnostics!.state("draining");
-              // Admitted deliveries already have a 30-minute total deadline. Preparation can
-              // stall before that deadline starts, so build drain uses the same bound.
-              fleetDrainDeadline = setTimeout(() => {
-                fleetDrainExpired = true;
-                requestDrainCheck();
-              }, 30 * 60_000);
-              fleetDrainDeadline.unref();
-            },
-            onRequestSettled: () => {
-              activeRequests = Math.max(0, activeRequests - 1);
+    transport = createUnixSocketTransportServer({
+      daemonId: input.daemonId,
+      socketPath: endpoint,
+      createProtocolServer: (authContext, emit, connectionId, signal) =>
+        createJsonRpcProtocolServer({
+          host: host!,
+          build,
+          buildObserver,
+          authContext: { ...authContext, connectionSignal: signal },
+          executionPrincipal: async (credential, method, params) => {
+            const repoId =
+              typeof params.repo === "object" && params.repo !== null && "repoId" in params.repo
+                ? String(params.repo.repoId)
+                : undefined;
+            const edgeRepo = host!.status().repos.find((repo) => repo.repoId === repoId && repo.mode === "remote-edge");
+            const principal = edgeRepo
+              ? readRuntimeExecutionPrincipal(edgeRepo.rootDir, credential)
+              : await authenticateRuntimeExecutionPrincipal(() => host!.keycloakCenter(), credential);
+            if (!principal)
+              throw Object.assign(new Error("Execution credential is unknown or expired on this edge runtime."), {
+                code: "authorization_denied",
+              });
+            requireExecutionRequestScope(principal, method, params);
+            return principal;
+          },
+          edgeExecutionPrincipal: async (credential) => {
+            const principal = host!
+              .status()
+              .repos.filter((repo) => repo.mode === "remote-edge")
+              .map((repo) => readRuntimeExecutionPrincipal(repo.rootDir, credential))
+              .find((entry) => entry !== null);
+            if (!principal)
+              throw Object.assign(new Error("Execution credential is unknown or expired on this edge runtime."), {
+                code: "authorization_denied",
+              });
+            return principal;
+          },
+          sessionPrincipal: (method, params) =>
+            host!.sessionPrincipal(
+              {
+                transportKind: authContext.transportKind,
+                ...(authContext.unixSocketOwnerBoundary
+                  ? { unixSocketOwnerBoundary: authContext.unixSocketOwnerBoundary }
+                  : {}),
+              },
+              method,
+              params,
+            ),
+          emit,
+          connectionId: connLog.connectionOpened(connectionId, authContext.transportKind),
+          recordRequest: requestLog!.record,
+          recordTraffic: connLog.request,
+          buildDrainStatus,
+          buildDraining,
+          stopping: () => stopping,
+          onRequestStarted: () => {
+            activeRequests += 1;
+          },
+          onBuildDriftObserved: () => {
+            if (buildSupersessionObserved || input.buildSupersessionEnabled === false) return;
+            buildSupersessionObserved = true;
+            diagnostics!.state("draining");
+            // Admitted deliveries already have a 30-minute total deadline. Preparation can
+            // stall before that deadline starts, so build drain uses the same bound.
+            fleetDrainDeadline = setTimeout(() => {
+              fleetDrainExpired = true;
               requestDrainCheck();
-            },
-            requestShutdown:
-              input.requestShutdown ??
-              (() => {
-                void stop();
-              }),
-          }),
-        onConnectionClosed: (connection) => connLog.connectionClosed(connection.connectionId),
-      }),
-    );
-    await transport.start();
+            }, 30 * 60_000);
+            fleetDrainDeadline.unref();
+          },
+          onRequestSettled: () => {
+            activeRequests = Math.max(0, activeRequests - 1);
+            requestDrainCheck();
+          },
+          requestShutdown:
+            input.requestShutdown ??
+            (() => {
+              void stop();
+            }),
+        }),
+      onConnectionClosed: (connection) => connLog.connectionClosed(connection.connectionId),
+    });
+    await withDaemonObservation(diagnostics.observer, () => transport!.start());
     socketBound = true;
     lifecycle.record({ event: "socket_bound", endpoint });
     diagnostics.state("running");
