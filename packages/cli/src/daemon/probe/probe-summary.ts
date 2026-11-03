@@ -1,12 +1,7 @@
+import path from "node:path";
 import { daemonProcessAlive, readDaemonPid } from "@harness-anything/daemon/internal/daemon-singleton";
 import type { SummaryOptions } from "./probe-options.ts";
-import {
-  readDaemonLogHistory,
-  summarizeDurations,
-  type AvailabilityEvidence,
-  type ConnHistory,
-  type LifecycleHistory,
-} from "./probe-log-history.ts";
+import { readDaemonLogHistory, summarizeDurations, type AvailabilityEvidence } from "./probe-log-history.ts";
 import { readProbeTimeline } from "./probe-timeline.ts";
 
 export interface TimelineSegment {
@@ -45,8 +40,14 @@ export interface ProbeSummaryResult {
   readonly window: { readonly label: string; readonly sinceMs: number; readonly untilMs: number };
   readonly probe: TimelineSummary;
   readonly logs: {
-    readonly conn: ConnHistory;
-    readonly lifecycle: LifecycleHistory;
+    readonly conn: {
+      readonly files: number;
+      readonly records: number;
+      readonly requests: number;
+      readonly firstAt: number | null;
+      readonly lastAt: number | null;
+    };
+    readonly lifecycle: { readonly files: number; readonly records: number };
     readonly evidence: AvailabilityEvidence;
     readonly silent: readonly TimelineSegment[];
   };
@@ -63,7 +64,7 @@ export async function runProbeSummary(input: SummaryInput): Promise<ProbeSummary
     samples: { at: number; state: string; latencyMs: number }[] = [],
     captures: TimelineCapture[] = [];
   for await (const record of readProbeTimeline({
-    dir: `${input.userRoot}/logs`,
+    dir: path.join(input.userRoot, "logs"),
     daemonId: input.daemonId,
     sinceMs: options.sinceMs,
     untilMs: options.untilMs,
@@ -101,7 +102,18 @@ export async function runProbeSummary(input: SummaryInput): Promise<ProbeSummary
     daemonId: input.daemonId,
     window: { label: options.windowLabel, sinceMs: options.sinceMs, untilMs: options.untilMs },
     probe: summarizeProbeTimeline(samples, captures, options.sinceMs, options.untilMs),
-    logs: history,
+    logs: {
+      conn: {
+        files: history.conn.files,
+        records: history.conn.records,
+        requests: history.conn.requests,
+        firstAt: history.conn.firstAt,
+        lastAt: history.conn.lastAt,
+      },
+      lifecycle: { files: history.lifecycle.files, records: history.lifecycle.records },
+      evidence: history.evidence,
+      silent: history.silent,
+    },
   };
 }
 
@@ -177,7 +189,7 @@ export function renderProbeSummary(result: ProbeSummaryResult): string {
       ...renderTimelineSegments("slow segments", probe.slowSegments),
       "",
       `logs: starts=${logs.evidence.starts} (${renderStartsPerDay(logs.evidence.startsPerDay)})`,
-      `attach: completed=${logs.evidence.attach.count} p50=${formatNumber(logs.evidence.attach.p50Ms)}ms p95=${formatNumber(logs.evidence.attach.p95Ms)}ms max=${formatNumber(logs.evidence.attach.maxMs)}ms failed=${logs.evidence.attachFailed} timed-out=${logs.evidence.attachTimedOut}`,
+      `attach: completed=${logs.evidence.attach.count} p50=${formatMillis(logs.evidence.attach.p50Ms)} p95=${formatMillis(logs.evidence.attach.p95Ms)} max=${formatMillis(logs.evidence.attach.maxMs)} failed=${logs.evidence.attachFailed} timed-out=${logs.evidence.attachTimedOut}`,
       `unavailable: ${formatDuration(logs.evidence.downtimeMs)}`,
       ...logs.evidence.downtime.map(
         (segment) =>
@@ -243,6 +255,10 @@ function iso(ms: number | null): string {
 
 function formatNumber(value: number | null): string {
   return value === null ? "unknown" : String(Math.round(value));
+}
+
+function formatMillis(value: number | null): string {
+  return value === null ? "unknown" : `${String(Math.round(value))}ms`;
 }
 
 function round2(value: number): number {

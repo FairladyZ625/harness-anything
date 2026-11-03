@@ -1,4 +1,5 @@
 import path from "node:path";
+import { firstCliCommandIndex } from "../../cli/thin-command-help.ts";
 import {
   localUserDaemonEndpoint,
   resolveLocalDaemonTarget,
@@ -102,8 +103,8 @@ export async function runDaemonProbeControl(
 }
 
 export function isProbeSummary(argv: readonly string[]): boolean {
-  const at = argv.indexOf("probe");
-  return at >= 0 && argv[at + 1] === "summary";
+  const at = firstCliCommandIndex(argv);
+  return argv[at] === "daemon" && argv[at + 1] === "probe" && argv[at + 2] === "summary";
 }
 
 async function resolveProbeSocket(userRoot: string, daemonId: string): Promise<string> {
