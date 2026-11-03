@@ -1,5 +1,6 @@
 import { execFileSync, fork } from "node:child_process";
 import { once } from "node:events";
+import { setTimeout as delay } from "node:timers/promises";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -188,7 +189,7 @@ export async function createCenterFixture({
     );
     const waitReady = () =>
       withWatchdog(
-        async () => {
+        async (signal) => {
           let previousState;
           for (;;) {
             const status = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 5000, 5000);
@@ -201,7 +202,7 @@ export async function createCenterFixture({
               onProgress?.({ phase: "attach-resources", sample });
             }
             if (repo?.state === "attached") return;
-            await new Promise((resolve) => setImmediate(resolve));
+            await delay(250, undefined, { signal });
           }
         },
         { timeoutMs: 600_000, label: "synthetic ledger attach" },

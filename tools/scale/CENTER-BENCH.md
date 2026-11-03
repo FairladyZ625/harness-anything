@@ -34,6 +34,8 @@ attachment therefore does not inherit an artificial backlog of unpublished fixtu
 The follower cut is recorded. The product's normal attach budget remains enabled; the controller
 records state transitions and resource samples and waits at most ten minutes for background
 attachment to become ready.
+Readiness probes run at 250 ms cadence; local lifecycle-event checks run at 25 ms cadence.
+Both wait for observed state transitions and stop at their watchdog deadline.
 
 This matches counts and document sizes, not production's lifecycle, runtime, relation, fact or
 historical object-churn distributions. Each report states actual counts, event types, JSON bytes,
@@ -71,7 +73,8 @@ covers representative task/document reads, a fact write, and GUI polling (`obser
 `replayTraffic` and the isolated CLI `--bindings <json>` accept exact `method:command` to synthetic
 parameter mappings. Do not pass production request payloads or credentials.
 
-Replay preserves a one-times trace's method composition, gaps and connection reuse. Each node
+Replay preserves a one-times trace's method composition, gaps and connection reuse within the
+selected duration; arrivals at or after `durationMs` are excluded. Each node
 gets the same trace at the same time. A missing hello at a window boundary adds an explicitly
 counted handshake. Connections close after their last scheduled operation settles. Arrival
 iteration uses O(trace + clients) memory instead of constructing N copies. Requests run on an

@@ -4,6 +4,7 @@ import { createServer } from "node:tls";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { once } from "node:events";
+import { setTimeout as delay } from "node:timers/promises";
 import {
   FleetUtf8LineDecoder,
   FLEET_FRAME_BYTES,
@@ -19,11 +20,11 @@ import { OPAQUE_TEXTUAL_POLICY_ID } from "../../packages/kernel/src/domain/artif
 const status = (fixture) => requestDaemonJsonRpcAt(fixture.endpoint, "daemon.status", {}, 5000, 10_000);
 const event = (fixture, name, after = 0) =>
   withWatchdog(
-    async () => {
+    async (signal) => {
       for (;;) {
         const observed = fixture.events.slice(after).find((row) => row.event === name);
         if (observed) return observed;
-        await new Promise((resolve) => setImmediate(resolve));
+        await delay(25, undefined, { signal });
       }
     },
     { timeoutMs: 30_000, label: `center ${name}` },
