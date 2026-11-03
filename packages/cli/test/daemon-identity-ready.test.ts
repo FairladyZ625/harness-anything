@@ -27,7 +27,10 @@ async function boundSocketWithLifecycle(
   identity: "pending" | "ready" | "failed",
   onConnection?: (connections: number, recordIdentityReady: () => void) => void,
 ): Promise<{ readonly socketPath: string; readonly close: () => Promise<void> }> {
-  const socketPath = path.join(parent, `${daemonId}.sock`),
+  // A Unix socket address is capped at 104 bytes on macOS and the isolated runner sets a long
+  // TMPDIR; bind under a short directory instead of beside the lifecycle files.
+  const socketDir = mkdtempSync("/tmp/ha-identity-"),
+    socketPath = path.join(socketDir, `${daemonId}.sock`),
     lifecycle = openDaemonLifecycleLog({ userRoot: parent, daemonId });
   lifecycle.record({ event: "process_start" });
   lifecycle.record({ event: "socket_bound" });
@@ -43,7 +46,13 @@ async function boundSocketWithLifecycle(
     socket.destroy();
   });
   await new Promise<void>((resolve) => server.listen(socketPath, resolve));
-  return { socketPath, close: () => new Promise<void>((resolve) => server.close(() => resolve())) };
+  return {
+    socketPath,
+    close: async () => {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      rmSync(socketDir, { recursive: true, force: true });
+    },
+  };
 }
 
 test("a keycloak_unavailable before the write is applied is returned, not replayed", async () => {
@@ -74,90 +83,31 @@ test("a keycloak_unavailable before the write is applied is returned, not replay
   }
 });
 
-test("a write waits for the successor's identity resume before it is resent", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-identity-waits-")),
-    daemonId = "identity-waits";
-  let identityReady = false,
-    calls = 0;
-  // The third socket probe is the observable action that makes the daemon write-ready. The write
-  // must not be resent before it; without the readiness gate the first resend would see identity
-  // still pending and return keycloak_unavailable.
-  const server = await boundSocketWithLifecycle(parent, daemonId, "pending", (connections, recordIdentityReady) => {
-    if (connections !== 3) return;
-    recordIdentityReady();
-    identityReady = true;
-  });
-  try {
-    const result = await withAutostart(
-      async () => {
-        calls += 1;
-        if (calls === 1) throw Object.assign(new Error("daemon_unavailable"), { code: "ECONNREFUSED" });
-        assert.equal(identityReady, true, "the write is resent only after the identity resume settled");
-        return { ok: true, outcome: "applied", code: null };
-      },
-      () => launchSpec(parent, daemonId),
-      server.socketPath,
-      {
-        autostart: true,
-        env: {},
-        invokingRoot: process.cwd(),
-        userRoot: parent,
-        daemonId,
-        restartBudgetMs: 5_000,
-        commandCategory: "operation",
-      },
-    );
-    assert.equal(result.outcome, "applied");
-    assert.equal(calls, 2, "the pre-apply request is resent exactly once after readiness");
-  } finally {
-    await server.close();
-    rmSync(parent, { recursive: true, force: true });
-  }
-});
-
-test("a settled identity failure after startup fails immediately without a second request", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-identity-failed-")),
-    daemonId = "identity-failed",
-    server = await boundSocketWithLifecycle(parent, daemonId, "failed");
-  let calls = 0;
-  try {
-    const result = await withAutostart(
-      async () => {
-        calls += 1;
-        if (calls === 1) throw Object.assign(new Error("daemon_unavailable"), { code: "ECONNREFUSED" });
-        return { ok: false, outcome: "op_rejected", code: "keycloak_unavailable" };
-      },
-      () => launchSpec(parent, daemonId),
-      server.socketPath,
-      {
-        autostart: true,
-        env: {},
-        invokingRoot: process.cwd(),
-        userRoot: parent,
-        daemonId,
-        restartBudgetMs: 5_000,
-        commandCategory: "operation",
-      },
-    );
-    assert.equal(result.code, "keycloak_unavailable", "the real identity refusal is returned immediately");
-    assert.equal(calls, 2, "a settled identity failure is not replayed");
-  } finally {
-    await server.close();
-    rmSync(parent, { recursive: true, force: true });
-  }
-});
-
-test("a startup that never settles identity fails with a clear daemon_starting reason", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-identity-timeout-")),
-    daemonId = "identity-timeout",
-    server = await boundSocketWithLifecycle(parent, daemonId, "pending");
-  let calls = 0;
-  try {
-    await assert.rejects(
-      withAutostart(
+test(
+  "a write waits for the successor's identity resume before it is resent",
+  {
+    skip: process.platform === "win32" ? "requires POSIX Unix-domain sockets" : false,
+  },
+  async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-identity-waits-")),
+      daemonId = "identity-waits";
+    let identityReady = false,
+      calls = 0;
+    // The third socket probe is the observable action that makes the daemon write-ready. The write
+    // must not be resent before it; without the readiness gate the first resend would see identity
+    // still pending and return keycloak_unavailable.
+    const server = await boundSocketWithLifecycle(parent, daemonId, "pending", (connections, recordIdentityReady) => {
+      if (connections !== 3) return;
+      recordIdentityReady();
+      identityReady = true;
+    });
+    try {
+      const result = await withAutostart(
         async () => {
           calls += 1;
-          throw Object.assign(new Error("daemon_unavailable"), { code: "ECONNREFUSED" });
+          if (calls === 1) throw Object.assign(new Error("daemon_unavailable"), { code: "ECONNREFUSED" });
+          assert.equal(identityReady, true, "the write is resent only after the identity resume settled");
+          return { ok: true, outcome: "applied", code: null };
         },
         () => launchSpec(parent, daemonId),
         server.socketPath,
@@ -167,19 +117,96 @@ test("a startup that never settles identity fails with a clear daemon_starting r
           invokingRoot: process.cwd(),
           userRoot: parent,
           daemonId,
-          restartBudgetMs: 1,
+          restartBudgetMs: 5_000,
           commandCategory: "operation",
         },
-      ),
-      (error: Error & { readonly code?: string }) => {
-        assert.equal(error.code, "daemon_starting");
-        assert.match(error.message, /managed identity services are starting/u);
-        return true;
-      },
-    );
-    assert.equal(calls, 1, "the write is never sent while identity is unsettled");
-  } finally {
-    await server.close();
-    rmSync(parent, { recursive: true, force: true });
-  }
-});
+      );
+      assert.equal(result.outcome, "applied");
+      assert.equal(calls, 2, "the pre-apply request is resent exactly once after readiness");
+    } finally {
+      await server.close();
+      rmSync(parent, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "a settled identity failure after startup fails immediately without a second request",
+  {
+    skip: process.platform === "win32" ? "requires POSIX Unix-domain sockets" : false,
+  },
+  async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-identity-failed-")),
+      daemonId = "identity-failed",
+      server = await boundSocketWithLifecycle(parent, daemonId, "failed");
+    let calls = 0;
+    try {
+      const result = await withAutostart(
+        async () => {
+          calls += 1;
+          if (calls === 1) throw Object.assign(new Error("daemon_unavailable"), { code: "ECONNREFUSED" });
+          return { ok: false, outcome: "op_rejected", code: "keycloak_unavailable" };
+        },
+        () => launchSpec(parent, daemonId),
+        server.socketPath,
+        {
+          autostart: true,
+          env: {},
+          invokingRoot: process.cwd(),
+          userRoot: parent,
+          daemonId,
+          restartBudgetMs: 5_000,
+          commandCategory: "operation",
+        },
+      );
+      assert.equal(result.code, "keycloak_unavailable", "the real identity refusal is returned immediately");
+      assert.equal(calls, 2, "a settled identity failure is not replayed");
+    } finally {
+      await server.close();
+      rmSync(parent, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "a startup that never settles identity fails with a clear daemon_starting reason",
+  {
+    skip: process.platform === "win32" ? "requires POSIX Unix-domain sockets" : false,
+  },
+  async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-identity-timeout-")),
+      daemonId = "identity-timeout",
+      server = await boundSocketWithLifecycle(parent, daemonId, "pending");
+    let calls = 0;
+    try {
+      await assert.rejects(
+        withAutostart(
+          async () => {
+            calls += 1;
+            throw Object.assign(new Error("daemon_unavailable"), { code: "ECONNREFUSED" });
+          },
+          () => launchSpec(parent, daemonId),
+          server.socketPath,
+          {
+            autostart: true,
+            env: {},
+            invokingRoot: process.cwd(),
+            userRoot: parent,
+            daemonId,
+            restartBudgetMs: 1,
+            commandCategory: "operation",
+          },
+        ),
+        (error: Error & { readonly code?: string }) => {
+          assert.equal(error.code, "daemon_starting");
+          assert.match(error.message, /managed identity services are starting/u);
+          return true;
+        },
+      );
+      assert.equal(calls, 1, "the write is never sent while identity is unsettled");
+    } finally {
+      await server.close();
+      rmSync(parent, { recursive: true, force: true });
+    }
+  },
+);
