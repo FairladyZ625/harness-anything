@@ -24,6 +24,7 @@ import {
   agentRuntimeKindMatches,
 } from "./agent-runtime-contract.ts";
 import { agentRuntimeAmbiguityWarning } from "./runtime-instance-selection.ts";
+import { formatShellCommand } from "./shell-command-text.ts";
 
 export {
   agentDeclarationInvalidCode,
@@ -891,6 +892,13 @@ export interface AgentRuntimeInstanceView {
   readonly models: readonly string[];
   readonly enabled: boolean;
 }
+/** The declared model of each runtime kind that binds one, as the `kind:model` pair authors write. */
+function agentRuntimeModelSummary(runtimes: readonly { readonly type: string; readonly model?: string }[]): string {
+  return runtimes
+    .filter((target) => target.model !== undefined)
+    .map((target) => `${target.type}:${target.model}`)
+    .join(", ");
+}
 export function agentRuntimeSelectionIssue(
   agent: AgentDeclarationV1,
   runtimeInstances: readonly AgentRuntimeInstanceView[] | undefined,
@@ -911,13 +919,38 @@ export function agentRuntimeSelectionIssue(
         code: "agent_instance_unavailable",
         message: `Agent ${agent.id} declares instance ${agent.instance}, but it is not enabled on this node.`,
       };
-    if (!compatible.includes(selected))
+    if (!compatible.includes(selected)) {
+      const target = agentRuntimeTargetForKind(agent.runtimes, selected.kindId),
+        instanceModels = selected.models.length ? selected.models.join(", ") : "none";
+      // A kind mismatch cannot be repaired by adding a model to the instance: the author must
+      // change the declaration's runtime row or point it at an instance of the declared kind.
+      if (target?.model === undefined) {
+        const declaredModels = agentRuntimeModelSummary(agent.runtimes);
+        return {
+          code: "agent_instance_incompatible",
+          message:
+            `Agent ${agent.id} declares instance ${agent.instance}, whose kind is ${selected.kindId} ` +
+            `(models: ${instanceModels}), but its runtimes require ${agentRuntimeTargetSummary(agent.runtimes)}` +
+            `${declaredModels ? ` (models ${declaredModels})` : ""}. ` +
+            `Change the agent's runtimes to include ${selected.kindId}, or choose an instance of the declared kinds; ` +
+            "run ha runtime instance list.",
+        };
+      }
       return {
         code: "agent_instance_incompatible",
         message:
-          `Agent ${agent.id} declares instance ${agent.instance}, ` +
-          "which does not match its runtimes and their models.",
+          `Agent ${agent.id} declares instance ${agent.instance} (${selected.kindId}, models: ${instanceModels}), ` +
+          `but its runtimes request ${target.type}:${target.model}. Change the agent's runtime model to an available one, ` +
+          "or add the requested model to the instance: " +
+          `${formatShellCommand("ha", [
+            "runtime",
+            "instance",
+            "update",
+            agent.instance,
+            ...[...selected.models, target.model].flatMap((model) => ["--model", model]),
+          ])}.`,
       };
+    }
     return null;
   }
   // Ambiguity between enabled compatible instances is not an install-time fault: dispatch ranks
@@ -936,11 +969,7 @@ export function agentRuntimeSelectionIssue(
   return {
     code: "agent_model_unavailable",
     message:
-      `Agent ${agent.id} declares models on its runtime kinds ` +
-      `(${agent.runtimes
-        .filter((target) => target.model !== undefined)
-        .map((target) => `${target.type}:${target.model}`)
-        .join(", ")}), ` +
+      `Agent ${agent.id} declares models on its runtime kinds (${agentRuntimeModelSummary(agent.runtimes)}), ` +
       "but no compatible enabled instance supports them; run ha runtime instance list.",
   };
 }

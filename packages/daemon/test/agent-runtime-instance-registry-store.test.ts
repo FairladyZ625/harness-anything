@@ -511,6 +511,10 @@ test("runtime instance command receipts expose readiness metadata without creden
       `ID\tNAME\tKIND\tMODEL\tENABLED\tAUTH MODE\tLOGIN STATUS\tPERMISSION MODE\ncodex-safe\tCodex Safe\tcodex\tgpt-5.6-sol\tenabled\tapi-key\tnot-checked\tbypass\n\nINSTALLATION\tKIND\tVERSION\tOBSERVED AT\n${observed.installationId}\tcodex\t${observed.version}\t${observed.observedAt}`,
     );
     assert.deepEqual(shown.instance, created.instance);
+    assert.equal(
+      shown.summary,
+      "runtime-instance-show: codex-safe\nmodels: gpt-5.6-sol\nauth: not-checked\npermissionMode: bypass",
+    );
     for (const receipt of [created, listed, shown]) {
       assert.doesNotMatch(
         JSON.stringify(receipt),
