@@ -466,11 +466,16 @@ export function taskCompletionAction(
 ): CompletionNext | null {
   const judged = taskCompletionNext(snapshot, context, requestedExecutionId);
   if (judged.next || snapshot.task?.status === "done") return judged.next;
+  // `submitted` reaches this point only after evaluateCompletion let it past the review gate, so
+  // the frozen contract lifted review and consent. Name that reason: a reader seeing `submitted`
+  // otherwise looks for a review to dispatch and hits review_dispatch_failed.
   return completionGuidance(
     snapshot,
     judged.executionId ?? "",
     `ha task complete ${snapshot.task?.taskId ?? "<task-id>"}`,
-    "The completion chain has no remaining blocker.",
+    snapshot.task?.status === "submitted"
+      ? "The frozen closeout contract lifted independent review and consent, so this cut completes from submitted."
+      : "The completion chain has no remaining blocker.",
   );
 }
 

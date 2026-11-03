@@ -883,6 +883,29 @@ test("task show renders the same blocker hint and next command task complete rep
   assert.ok(rendered.text.includes(`completion next: ${action}`));
 });
 
+test("task show prints the complete step when a low-risk cut has no blocker", () => {
+  const reason =
+      "The frozen closeout contract lifted independent review and consent, so this cut completes from submitted.",
+    action = "ha task complete task-1",
+    rendered = renderCliReceipt({
+      ok: true,
+      command: "task-show",
+      evidence: JSON.stringify({
+        task: { status: "submitted", currentNode: "review", completionGateIds: [] },
+        completionBlocker: null,
+        completionNext: {
+          reason,
+          action,
+          authority: "person-owner",
+          readCut: { revision: 7, iteration: 1, executionId: "execution-1" },
+        },
+      }),
+    });
+  assert.match(rendered.text, /^status: submitted$/mu);
+  assert.ok(rendered.text.includes(`completion hint: ${reason}`));
+  assert.ok(rendered.text.includes(`completion next: ${action}`));
+});
+
 test("relation rejection renders structured triples and preserves them through diagnostic validation", () => {
   const diagnostic = {
     kind: "validation",
