@@ -172,6 +172,24 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
     closed ??= new Error("replication connection closed");
     for (const waiter of waiters.splice(0)) waiter.reject(closed);
   });
+  const failReplicationSession = (error: unknown): void => {
+    const failure = error instanceof Error ? error : new Error(String(error));
+    if (!closed) {
+      // The existing replica health/lifecycle path persists this message after the socket is gone.
+      failure.message += `; peer=${JSON.stringify({
+        host: options.hostname ?? "127.0.0.1",
+        port: options.port,
+        servername: options.servername ?? "localhost",
+        remoteAddress: socket.remoteAddress,
+        remotePort: socket.remotePort,
+        repoId: options.repoId,
+        localNodeId: options.nodeId,
+      })}`;
+      closed = failure;
+    }
+    for (const waiter of waiters.splice(0)) waiter.reject(closed);
+    socket.destroy();
+  };
   let opened: ReturnType<typeof openWalReceiverGeneration> | null = null;
   // null: this batch installed a base backup, so its changed paths are unknown.
   let pendingChangedPaths: Set<string> | null = new Set<string>();
@@ -182,35 +200,48 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
     await new Promise<void>((resolve, reject) => {
       const commandDecoder = new FleetUtf8LineDecoder();
       const onData = (chunk: Buffer) => {
-        for (const line of commandDecoder.push(chunk)) {
-          const frame = parseFleetFrame(line);
-          if (frame.schema !== "fleet.session.ready/v1") continue;
-          const localBuildCommit = daemonBuildStamp().commit;
-          options.onVersionWarning?.(
-            frame.versionWarning && frame.centerBuildCommit && localBuildCommit
-              ? {
-                  centerBuildCommit: frame.centerBuildCommit,
-                  localBuildCommit,
-                  upgradeCommand: "ha update",
-                  message: frame.versionWarning,
-                }
-              : null,
-          );
-          socket.off("data", onData);
-          socket.off("close", onClose);
-          socket.on("data", (data: Buffer) => {
-            for (const replicated of decoder.push(data)) {
-              const waiter = waiters.shift();
-              if (waiter) waiter.resolve(replicated);
-              else queue.push(replicated);
+        void Promise.resolve()
+          .then(() => {
+            for (const line of commandDecoder.push(chunk)) {
+              const frame = parseFleetFrame(line);
+              if (frame.schema !== "fleet.session.ready/v1") continue;
+              const localBuildCommit = daemonBuildStamp().commit;
+              options.onVersionWarning?.(
+                frame.versionWarning && frame.centerBuildCommit && localBuildCommit
+                  ? {
+                      centerBuildCommit: frame.centerBuildCommit,
+                      localBuildCommit,
+                      upgradeCommand: "ha update",
+                      message: frame.versionWarning,
+                    }
+                  : null,
+              );
+              socket.off("data", onData);
+              socket.off("close", onClose);
+              socket.on("data", (data: Buffer) => {
+                void Promise.resolve()
+                  .then(() => {
+                    for (const replicated of decoder.push(data)) {
+                      const waiter = waiters.shift();
+                      if (waiter) waiter.resolve(replicated);
+                      else queue.push(replicated);
+                    }
+                    // Stop reading while frames wait: the unread TCP window is what makes the center's
+                    // drain wait, so a base backup flows at the speed this node writes it.
+                    if (queue.length >= queuedFramesHigh) socket.pause();
+                  })
+                  .catch(failReplicationSession);
+              });
+              resolve();
+              return;
             }
-            // Stop reading while frames wait: the unread TCP window is what makes the center's
-            // drain wait, so a base backup flows at the speed this node writes it.
-            if (queue.length >= queuedFramesHigh) socket.pause();
+          })
+          .catch((error: unknown) => {
+            socket.off("data", onData);
+            socket.off("close", onClose);
+            failReplicationSession(error);
+            reject(closed);
           });
-          resolve();
-          return;
-        }
       };
       const onClose = () => reject(closed ?? new Error("replication session was not authenticated"));
       socket.on("data", onData);

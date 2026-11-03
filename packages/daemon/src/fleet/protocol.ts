@@ -86,9 +86,35 @@ export const isBaseBackupMetadata = (value: unknown): value is BaseBackupMetadat
   });
 
 export function parseReplicationFrame(line: string): ReplicationFrame {
-  if (Buffer.byteLength(line) > REPLICATION_FRAME_BYTES) throw new Error("replication frame exceeds capacity");
-  const value: unknown = JSON.parse(line);
+  const bytes = Buffer.byteLength(line);
+  let value: unknown;
+  try {
+    if (bytes > REPLICATION_FRAME_BYTES) throw new Error("replication frame exceeds capacity");
+    value = JSON.parse(line);
+    return parseReplicationFrameValue(value);
+  } catch (error) {
+    const failure = error instanceof Error ? error : new Error(String(error)),
+      frame = object(value) ? value : {},
+      label = (v: unknown) => (typeof v === "string" ? v.slice(0, 128) : null);
+    // Keep discriminators and size, never document contents, credentials or bulk data.
+    const summary = {
+      bytes,
+      type: label(frame.type),
+      schema: label(frame.schema),
+      metadataSchema: object(frame.metadata) ? label(frame.metadata.schema) : null,
+    };
+    failure.message = `${failure instanceof SyntaxError ? "invalid replication JSON" : failure.message}; frame=${JSON.stringify(summary)}`;
+    throw failure;
+  }
+}
+
+function parseReplicationFrameValue(value: unknown): ReplicationFrame {
   if (!object(value) || typeof value.type !== "string") throw new Error("invalid replication frame");
+  if (value.type === "replica.backup" && object(value.metadata) && value.metadata.schema === "fleet-basebackup/v2")
+    throw Object.assign(
+      new Error("center_upgrade_required: the center sent fleet-basebackup/v2; this edge requires v3."),
+      { code: "center_upgrade_required" },
+    );
   const types: Record<string, Record<string, Check>> = {
     "replica.accept": {
       centerBuildCommit: (v) => v === null || text(v),
@@ -139,7 +165,13 @@ export class ReplicationDecoder {
   readonly #decoder = new TextDecoder("utf-8", { fatal: true });
   #pending = "";
   push(chunk: Uint8Array): readonly ReplicationFrame[] {
-    this.#pending += this.#decoder.decode(chunk, { stream: true });
+    try {
+      this.#pending += this.#decoder.decode(chunk, { stream: true });
+    } catch (error) {
+      const failure = error instanceof Error ? error : new Error(String(error));
+      failure.message += `; frame=${JSON.stringify({ pendingBytes: Buffer.byteLength(this.#pending), chunkBytes: chunk.byteLength })}`;
+      throw failure;
+    }
     const frames: ReplicationFrame[] = [];
     for (;;) {
       const newline = this.#pending.indexOf("\n");
@@ -148,7 +180,7 @@ export class ReplicationDecoder {
       this.#pending = this.#pending.slice(newline + 1);
     }
     if (Buffer.byteLength(this.#pending) > REPLICATION_FRAME_BYTES)
-      throw new Error("replication pending frame exceeds capacity");
+      throw new Error(`replication pending frame exceeds capacity; frameBytes=${Buffer.byteLength(this.#pending)}`);
     return frames;
   }
   finish(): void {
