@@ -285,7 +285,7 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
   if ("riskTierAdvice" in value && !validTaskRiskTierAdvice(value.riskTierAdvice))
     errors.push("riskTierAdvice must be a task-risk-tier-advice/v1 object");
   if ("riskTierAssessment" in value && !isTaskRiskTierAssessmentV1(value.riskTierAssessment))
-    errors.push("riskTierAssessment must be a non-decreasing task-risk-tier-assessment/v1 object");
+    errors.push("riskTierAssessment must be a task-risk-tier-assessment/v1 object");
   if (
     "unmetCriteria" in value &&
     (!Array.isArray(value.unmetCriteria) || value.unmetCriteria.some((entry) => !isEntityActionUnmetCriterion(entry)))

@@ -161,7 +161,6 @@ export function validRiskTierAssessment(value: unknown): boolean {
     value.schema === "task-risk-tier-assessment/v1" &&
     ["low", "medium", "high"].includes(String(value.declaredTier)) &&
     ["low", "medium", "high"].includes(String(value.effectiveTier)) &&
-    riskTierRank(value.effectiveTier) >= riskTierRank(value.declaredTier) &&
     (value.deliveryBaseSha === null || sha(value.deliveryBaseSha)) &&
     (value.deliveryHeadSha === null || sha(value.deliveryHeadSha)) &&
     Array.isArray(value.matchedPathReviewers) &&
@@ -171,10 +170,6 @@ export function validRiskTierAssessment(value: unknown): boolean {
     stringArray(value.reasons) &&
     (value.guiAcceptanceRequired === undefined || typeof value.guiAcceptanceRequired === "boolean")
   );
-}
-
-function riskTierRank(value: unknown): number {
-  return value === "high" ? 2 : value === "medium" ? 1 : value === "low" ? 0 : -1;
 }
 
 export function validateGuiSubmission(value: unknown): readonly string[] {

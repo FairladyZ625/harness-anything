@@ -71,7 +71,7 @@ test("task-start risk advice is an optional but closed structured receipt field"
     /riskTierAdvice must be a task-risk-tier-advice\/v1 object/u,
   );
 });
-test("submit risk assessment is visible on receipts and cannot lower the declared tier", () => {
+test("submit risk assessment receipt shape preserves historical tier pairs", () => {
   const receipt = {
     outcome: "applied",
     opId: "submit-command",
@@ -104,12 +104,13 @@ test("submit risk assessment is visible on receipts and cannot lower the declare
     },
   } as const;
   assert.deepEqual(validateWriteReceipt(receipt), []);
-  assert.match(
+  assert.deepEqual(
     validateWriteReceipt({
       ...receipt,
       riskTierAssessment: { ...receipt.riskTierAssessment, declaredTier: "high", effectiveTier: "low" },
-    }).join("\n"),
-    /riskTierAssessment must be a non-decreasing/u,
+    }),
+    [],
+    "receipt validation checks assessment shape without narrowing its v1 tier pairs",
   );
 });
 test("D4 accepts a committed interval while Git and worktree remain pending", () => {

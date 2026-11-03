@@ -297,13 +297,13 @@ test("historical GUI risk assessment fields remain optional booleans", () => {
     "the historical boolean value remains valid",
   );
   assert.deepEqual(validateSubmissionV1(submission), [], "new assessments omit the retired field");
-  assert.equal(
+  assert.deepEqual(
     validateSubmissionV1({
       ...submission,
       riskTierAssessment: { ...assessment, declaredTier: "high", effectiveTier: "low" },
-    }).length,
-    1,
-    "an assessed tier cannot fall below the declaration",
+    }),
+    [],
+    "the v1 shape validator preserves previously accepted tier pairs",
   );
   assert.deepEqual(
     validateSubmissionV1({

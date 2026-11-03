@@ -20,6 +20,7 @@ import type {
 } from "./task-lifecycle-event.ts";
 import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
 import { validateTaskReviewResponseV1 } from "./review.ts";
+import { isTaskRiskTierAssessmentNonDecreasing } from "./task-risk-tier-assessment.ts";
 import { timestamp } from "./timestamp.ts";
 import { explainStatusTransition, reinstateTaskTargets } from "./lifecycle-status.ts";
 import type { DomainStatus } from "./lifecycle-status.ts";
@@ -472,6 +473,11 @@ export const submit: Transition = {
         ),
       );
     issues.push(...validateSubmissionV1(command.submission));
+    if (
+      command.submission.riskTierAssessment !== undefined &&
+      !isTaskRiskTierAssessmentNonDecreasing(command.submission.riskTierAssessment)
+    )
+      issues.push(lifecycleContractIssue("invalid_submission", "effective tier must not be below declared tier"));
     issues.push(...reviewResponseSubmissionIssues(snapshot, command.submission));
     return issues;
   },

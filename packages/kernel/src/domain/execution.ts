@@ -45,7 +45,7 @@ export interface TaskRiskTierAssessmentV1 {
   readonly deliveryHeadSha: string | null;
   readonly matchedPathReviewers: readonly { readonly agentId: string; readonly paths: readonly string[] }[];
   readonly reasons: readonly string[];
-  /** @deprecated Present only in historical cuts; new assessments never write or read it. */
+  /** @deprecated Retained to validate historical cuts; new assessments never emit it. */
   readonly guiAcceptanceRequired?: boolean;
 }
 export type ProductionDeltaV1 = ProductionDeltaCounts & {

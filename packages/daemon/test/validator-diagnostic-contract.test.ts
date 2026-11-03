@@ -64,12 +64,13 @@ test("unaccepted pending and no-op receipts carry no fabricated committed proof"
     reasons: ["repository-risk-floor: sensitive repository surface: packages/app/src/auth.ts"],
   };
   assert.deepEqual(writeReceipt({ ...pending, riskTierAssessment }), []);
-  assert.match(
+  assert.deepEqual(
     writeReceipt({
       ...pending,
       riskTierAssessment: { ...riskTierAssessment, declaredTier: "high", effectiveTier: "low" },
-    }).join("\n"),
-    /riskTierAssessment/u,
+    }),
+    [],
+    "receipt wire validation preserves previously accepted assessment tier pairs",
   );
   const noOp = { ...pending, outcome: "no_changes", status: "settled_no_write", code: "no_changes", origin: "daemon" };
   assert.deepEqual(writeReceipt(noOp), []);

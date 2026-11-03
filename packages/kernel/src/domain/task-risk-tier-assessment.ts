@@ -22,7 +22,6 @@ export function isTaskRiskTierAssessmentV1(value: unknown): value is TaskRiskTie
     value.schema === "task-risk-tier-assessment/v1" &&
     ["low", "medium", "high"].includes(String(value.declaredTier)) &&
     ["low", "medium", "high"].includes(String(value.effectiveTier)) &&
-    riskTierRank(value.effectiveTier) >= riskTierRank(value.declaredTier) &&
     (value.deliveryBaseSha === null || isNativeCommitSha(value.deliveryBaseSha)) &&
     (value.deliveryHeadSha === null || isNativeCommitSha(value.deliveryHeadSha)) &&
     Array.isArray(value.matchedPathReviewers) &&
@@ -36,6 +35,13 @@ export function isTaskRiskTierAssessmentV1(value: unknown): value is TaskRiskTie
     stringArray(value.reasons) &&
     (value.guiAcceptanceRequired === undefined || typeof value.guiAcceptanceRequired === "boolean")
   );
+}
+
+export function isTaskRiskTierAssessmentNonDecreasing(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  const declared = riskTierRank(value.declaredTier),
+    effective = riskTierRank(value.effectiveTier);
+  return declared >= 0 && effective >= declared;
 }
 
 function riskTierRank(value: unknown): number {

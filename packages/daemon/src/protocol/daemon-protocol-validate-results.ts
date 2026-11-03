@@ -622,7 +622,7 @@ export function writeReceipt(value: JsonObject): string[] {
         entityId,
         "riskTierAssessment",
         value.riskTierAssessment,
-        "must be a non-decreasing task-risk-tier-assessment/v1 object",
+        "must be a task-risk-tier-assessment/v1 object",
       ),
     ];
   const acceptanceAware = "status" in value || "acceptance" in value;
