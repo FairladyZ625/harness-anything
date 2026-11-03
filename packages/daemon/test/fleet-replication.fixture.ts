@@ -611,7 +611,7 @@ export async function fakeReplicationCenter(
 
 /** sqlite_schema rows (tables + indexes) of one database file, the shared-reader identity probe. */
 export function sqliteObjects(dbPath: string): { type: string; name: string; tbl_name: string; sql: string }[] {
-  const db = new DatabaseSync(dbPath, { readOnly: true });
+  const db = new DatabaseSync(dbPath, { readOnly: true, timeout: 5000 });
   try {
     return db
       .prepare("SELECT type, name, tbl_name, sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name")
@@ -623,7 +623,7 @@ export function sqliteObjects(dbPath: string): { type: string; name: string; tbl
 
 /** EXPLAIN QUERY PLAN rows for one statement; the no-full-scan probe asserts on these. */
 export function queryPlanRows(dbPath: string, sql: string, params: readonly unknown[] = []): { detail: string }[] {
-  const db = new DatabaseSync(dbPath, { readOnly: true });
+  const db = new DatabaseSync(dbPath, { readOnly: true, timeout: 5000 });
   try {
     return db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...params) as { detail: string };
   } finally {

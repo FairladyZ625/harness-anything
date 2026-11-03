@@ -30,7 +30,8 @@ test("daemon backup and restore drill read historical task events with a retired
     const taskWrite = await host.run(repoId, { kind: "task-create", taskId, title: "Legacy closeout" }, auth);
     assert.equal(taskWrite.outcome, "applied", JSON.stringify(taskWrite));
 
-    const ledger = new DatabaseSync(sqliteLedgerPath(rootDir));
+    // The daemon host owns this live ledger; wait out its writer instead of failing on SQLITE_BUSY.
+    const ledger = new DatabaseSync(sqliteLedgerPath(rootDir), { timeout: 5000 });
     let historicalEvent: Record<string, unknown>, acceptedRevision: number;
     try {
       const row = ledger
