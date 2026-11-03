@@ -38,6 +38,7 @@ import {
   requestedListener,
   validateListenerInput,
 } from "./managed-rbac-listener-certificate.ts";
+import { stopManagedPostgresOrphan } from "./managed-postgres-orphan.ts";
 
 export const managedRbacVersions = Object.freeze({
   keycloak: "26.7.3",
@@ -498,8 +499,17 @@ export class ManagedRbacService {
     if (active) return active;
     const config = this.#readManagedConfig(),
       binary = managedExecutable(this.#root, "runtime/postgres/bin/postgres", this.#ports.platform),
+      pgCtl = managedExecutable(this.#root, "runtime/postgres/bin/pg_ctl", this.#ports.platform),
       data = path.join(this.#root, "data", "postgres"),
       logs = path.join(this.#root, "logs");
+    await stopManagedPostgresOrphan({
+      host: this.#host,
+      pgCtl,
+      binary,
+      data,
+      port: config.postgresPort,
+      platform: this.#ports.platform,
+    });
     await this.#hardenPostgresAuthentication(binary, data);
     mkdirSync(logs, { recursive: true, mode: 0o700 });
     return this.#spawnUntilReady(
