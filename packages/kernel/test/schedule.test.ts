@@ -84,6 +84,10 @@ test("Schedule writable roots are read-side tolerated on remediate schedules onl
       writableRoots: ["tmp/harness-backup", ".harness/restore-drills"],
     },
   };
+  for (const root of [".git", "tmp/.GiT/HEAD", "tmp/../outside"])
+    assert.notDeepEqual(validateScheduleV1({ ...legacy, spec: { ...legacy.spec, writableRoots: [root] } }), [], root);
+  for (const root of ["tmp/.github", "tmp/foo.git", "tmp/git~1", "tmp/.g\u200cit"])
+    assert.deepEqual(validateScheduleV1({ ...legacy, spec: { ...legacy.spec, writableRoots: [root] } }), [], root);
   assert.deepEqual(validateScheduleV1(legacy), []);
   assert.notDeepEqual(validateScheduleV1({ ...legacy, mode: "detect" }), []);
   assert.notDeepEqual(
