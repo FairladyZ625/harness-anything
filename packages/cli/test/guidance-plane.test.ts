@@ -25,6 +25,12 @@ import {
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 import { daemonFailure } from "../src/daemon/control-support.ts";
 
+test("daemon stopping guidance names the counts that status reports", () => {
+  const { hint } = humanError({ code: "daemon_stopping" });
+  assert.match(hint, /ha daemon status/u);
+  assert.match(hint, /counts of queued writes and attaching repositories/u);
+});
+
 test("missing workspace packets identify the root used for relative paths", () => {
   const physicalRoot = mkdtempSync(path.join(realpathSync(tmpdir()), "ha-packet-root-")),
     root = `${physicalRoot}-alias`;
