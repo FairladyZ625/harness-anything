@@ -7,6 +7,12 @@ import { pathToFileURL } from "node:url";
 import { checkPrBody } from "../check-pr-body.mjs";
 import { readSubmissionFacts } from "../../packages/kernel/src/domain/submission-facts.ts";
 import { markdownSections } from "../../packages/kernel/src/domain/transition-document-readiness.ts";
+import {
+  hasDependencyChange,
+  readDependencyDeclarations,
+  replaceDependencyDeclaration,
+  validateDependencyDeclaration,
+} from "./dependency-policy.mjs";
 import { repoRoot } from "./git.mjs";
 
 const START = "<!-- harness:submission-facts:start -->";
@@ -21,6 +27,14 @@ const PR_SECTIONS = Object.freeze([
   { title: "Verification", aliases: Object.freeze(["verification", "验证"]) },
   { title: "Residual Risk", aliases: Object.freeze(["residual risk", "剩余风险", "残余风险"]) },
 ]);
+
+// The PR template keeps Dependency-Change on one machine-readable line, not as a `##` section.
+// G31 rejects the `none` sentinel whenever the cut touches a package.json or the lockfile, so the
+// renderer takes the description from this closeout section and reuses G31's own validation.
+const DEPENDENCY_CHANGE = Object.freeze({
+  title: "Dependency Change",
+  aliases: Object.freeze(["dependency change", "dependency-change", "依赖变更", "依赖改动", "依赖变化"]),
+});
 
 // The lightweight closeout materializes only Summary and Verification. Map Summary onto the PR
 // template's What Changed and point Residual Risk at Verification, where that profile records
@@ -79,7 +93,7 @@ function pathCode(value) {
   return `${delimiter}${encoded}${delimiter}`;
 }
 
-function deliveryFacts(submission) {
+function deliveryFacts(submission, facts) {
   if (submission.commitSha === null) {
     const artifacts = submittedPaths(submission.deliverables, "deliverables");
     return [
@@ -89,7 +103,6 @@ function deliveryFacts(submission) {
     ].join("\n");
   }
   if (!isSha(submission.commitSha)) throw new Error("submitted cut has an invalid delivery commit SHA");
-  const facts = readSubmissionFacts(submission);
   const files = submittedPaths(facts.changedFiles, "changedFiles");
   if (facts.kind === "legacy")
     return [
@@ -141,6 +154,7 @@ function findSection(sections, aliases) {
 function authoredSources(closeout, profileId) {
   const sections = markdownSections(closeout),
     sources = Object.fromEntries(PR_SECTIONS.map(({ title, aliases }) => [title, findSection(sections, aliases)]));
+  sources[DEPENDENCY_CHANGE.title] = findSection(sections, DEPENDENCY_CHANGE.aliases);
   if (profileId !== LIGHTWEIGHT_PROFILE) return sources;
   sources["What Changed"] ??= sources.Summary;
   sources["Residual Risk"] ??= LIGHTWEIGHT_RESIDUAL_RISK;
@@ -204,9 +218,31 @@ function fillSection(body, title, content) {
   return `${body.slice(0, start)}\n\n${content.trim()}${keptMarkers}\n\n${body.slice(end)}`;
 }
 
+/** Collapse closeout prose onto the one machine-readable line G31 parses. */
+function dependencyDescription(content) {
+  return content
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => line.replace(/^(?:[-*+]|\d+\.)[ \t]+/u, ""))
+    .join(" ");
+}
+
+function declareDependencyChange(body, content) {
+  assertInjectable(DEPENDENCY_CHANGE.title, content);
+  const description = dependencyDescription(content),
+    declarations = readDependencyDeclarations(body);
+  if (declarations.length !== 1)
+    throw new Error(
+      `PR body must contain exactly one Dependency-Change: declaration line; found ${declarations.length}`,
+    );
+  return replaceDependencyDeclaration(body, description);
+}
+
 export function renderTaskPrBody({ taskId, receipt, template, body = template, closeout }) {
   const { submission, profileId } = taskProjection(receipt, taskId),
-    facts = deliveryFacts(submission),
+    submissionFacts = readSubmissionFacts(submission),
+    delivery = deliveryFacts(submission, submissionFacts),
     stripped = withoutFacts(body),
     baseline = withoutFacts(template),
     sources = authoredSources(typeof closeout === "string" ? closeout : "", profileId);
@@ -222,9 +258,17 @@ export function renderTaskPrBody({ taskId, receipt, template, body = template, c
     assertInjectable(title, content);
     rendered = fillSection(rendered, title, content);
   }
+  if (hasDependencyChange(submissionFacts.changedFiles)) {
+    const content = sources[DEPENDENCY_CHANGE.title];
+    if (typeof content !== "string" || content.trim().length === 0) missing.push(DEPENDENCY_CHANGE.title);
+    else rendered = declareDependencyChange(rendered, content);
+  }
   if (missing.length > 0) throw new Error(`closeout.md is missing required section(s): ${missing.join(", ")}`);
-  const { start, end } = markerPair(rendered, "PR template");
-  return `${rendered.slice(0, start + START.length)}\n${facts}\n${rendered.slice(end)}`;
+  const { start, end } = markerPair(rendered, "PR template"),
+    finalBody = `${rendered.slice(0, start + START.length)}\n${delivery}\n${rendered.slice(end)}`,
+    declarationErrors = validateDependencyDeclaration(submissionFacts.changedFiles, finalBody);
+  if (declarationErrors.length > 0) throw new Error(declarationErrors.join("\n"));
+  return finalBody;
 }
 
 function parseArgs(argv) {

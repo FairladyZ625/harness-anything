@@ -50,13 +50,29 @@ export function validateLockfile(rootDir) {
   return errors;
 }
 
+/** The dependency surface G31 judges, shared with the PR body renderer so both use one predicate. */
+export function hasDependencyChange(paths) {
+  return paths.some((filePath) => filePath === "package-lock.json" || /(?:^|\/)package\.json$/u.test(filePath));
+}
+
+/** The declaration line format G31 parses, shared with the renderer that writes it. */
+export function readDependencyDeclarations(prBody) {
+  return [...prBody.matchAll(DECLARATION)].map((match) => match[1]);
+}
+
+export function replaceDependencyDeclaration(prBody, description) {
+  return prBody.replace(DECLARATION, (declaration) => {
+    // G31's line pattern tolerates whitespace after the value (including CRLF); keep it so
+    // replacing the declaration never changes the body's line structure.
+    const trailingWhitespace = /\s*$/u.exec(declaration)?.[0] ?? "";
+    return `Dependency-Change: ${description}${trailingWhitespace}`;
+  });
+}
+
 export function validateDependencyDeclaration(paths, prBody, declarationRequired = true) {
   if (!declarationRequired) return [];
-  const dependencyChanged = paths.some(
-    (filePath) => filePath === "package-lock.json" || /(?:^|\/)package\.json$/u.test(filePath),
-  );
-  if (!dependencyChanged) return [];
-  const declarations = [...prBody.matchAll(DECLARATION)].map((match) => match[1]);
+  if (!hasDependencyChange(paths)) return [];
+  const declarations = readDependencyDeclarations(prBody);
   if (declarations.length !== 1)
     return [`dependency changes require exactly one Dependency-Change: declaration; found ${declarations.length}`];
   if (declarations[0].length === 0 || /^(?:none|n\/a)$/iu.test(declarations[0]))

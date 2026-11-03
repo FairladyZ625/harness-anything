@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { checkPrBody } from "../../check-pr-body.mjs";
+import { validateDependencyDeclaration } from "../dependency-policy.mjs";
 import { renderTaskPrBody } from "../render-task-pr-body.mjs";
 
 const taskId = "task-private-example",
@@ -49,7 +50,22 @@ Not emitted into the PR body.
     changedFiles: ["packages/kernel/a.ts", "docs/change.md", "packages/old.ts"],
     outputs: ["Deleted-Production-Paths: packages/old.ts"],
     productionDelta: { baseSha, added: 5, deleted: 2, changed: [], unclassified: [] },
-  };
+  },
+  dependencySubmission = {
+    ...codeSubmission,
+    deliverables: ["packages/authorization-gui/package.json"],
+    changedFiles: ["packages/authorization-gui/package.json"],
+    outputs: [],
+  },
+  dependencyCloseout = closeout.replace(
+    "## Same Mechanism Elsewhere",
+    `## Dependency Change
+
+- Added the \`./testing\` exports subpath.
+- No dependency range changed; the lockfile stays in sync.
+
+## Same Mechanism Elsewhere`,
+  );
 
 function receipt(submission, metadata = {}) {
   return {
@@ -101,6 +117,57 @@ test("PR renderer fills the four authored sections from closeout and passes chec
   assert.equal((body.match(/## Delivery Facts/gu) ?? []).length, 1);
   assert.doesNotMatch(body, new RegExp(taskId, "u"), "the renderer does not add the task id on its own");
   assertPassesPrBodyCheck(body);
+});
+
+test("PR renderer keeps the none sentinel when the cut does not touch the dependency surface", () => {
+  assert.match(render(), /^Dependency-Change: none$/mu);
+});
+
+test("PR renderer describes a package.json change instead of the rejected none sentinel", () => {
+  const body = render(dependencySubmission, { closeout: dependencyCloseout });
+  assert.match(
+    body,
+    /^Dependency-Change: Added the `\.\/testing` exports subpath\. No dependency range changed; the lockfile stays in sync\.$/mu,
+  );
+  assert.doesNotMatch(body, /^Dependency-Change: none$/mu);
+  assert.doesNotMatch(body, /## Dependency Change/u, "the closeout-only section is not injected as a new PR section");
+  assert.deepEqual(
+    validateDependencyDeclaration(dependencySubmission.changedFiles, body),
+    [],
+    "the rendered body passes G31's own declaration check",
+  );
+  assertPassesPrBodyCheck(body, dependencySubmission);
+});
+
+test("PR renderer treats a lockfile-only cut as a dependency change", () => {
+  const body = render(
+    { ...dependencySubmission, changedFiles: ["package-lock.json"] },
+    { closeout: dependencyCloseout },
+  );
+  assert.match(body, /^Dependency-Change: Added the `\.\/testing` exports subpath\./mu);
+  assert.deepEqual(validateDependencyDeclaration(["package-lock.json"], body), []);
+});
+
+test("PR renderer names Dependency Change when a dependency cut has no closeout section", () => {
+  assert.throws(
+    () => render(dependencySubmission),
+    /closeout\.md is missing required section\(s\): Dependency Change/u,
+  );
+  assert.throws(
+    () => render({ ...dependencySubmission, changedFiles: ["package-lock.json"] }),
+    /closeout\.md is missing required section\(s\): Dependency Change/u,
+  );
+});
+
+test("PR renderer rejects a Dependency Change section that G31 rejects", () => {
+  const sentinel = closeout.replace(
+    "## Same Mechanism Elsewhere",
+    "## Dependency Change\n\nnone\n\n## Same Mechanism Elsewhere",
+  );
+  assert.throws(
+    () => render(dependencySubmission, { closeout: sentinel }),
+    /must describe the deterministic dependency change/u,
+  );
 });
 
 test("PR renderer maps a lightweight closeout onto the four template sections", () => {
