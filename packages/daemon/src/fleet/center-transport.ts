@@ -559,20 +559,23 @@ export async function serve(
           error,
         });
       if (socket.destroyed) return;
-      await enqueue(
-        immediate({
-          schema: "fleet.error/v1",
-          messageId: mid(frame?.messageId ?? "invalid", "error"),
-          inReplyTo: frame?.messageId ?? "invalid",
-          code: fault.code,
-          message: fault.message,
-          retryable: fault.retryable,
-          resumeOffset: fault.resumeOffset,
-        }),
-      ).catch((deliveryError: unknown) => {
+      const errorFrame = {
+        schema: "fleet.error/v1" as const,
+        messageId: mid(frame?.messageId ?? "invalid", "error"),
+        inReplyTo: frame?.messageId ?? "invalid",
+        code: fault.code,
+        message: fault.message,
+        retryable: fault.retryable,
+        resumeOffset: fault.resumeOffset,
+      };
+      await enqueue(immediate(errorFrame)).catch((deliveryError: unknown) => {
         if (peerDisconnected(socket, deliveryError)) return;
         throw deliveryError;
       });
+      options.onErrorReply?.(
+        frame?.messageId ?? "invalid",
+        Buffer.byteLength(`${JSON.stringify(errorFrame)}\n`, "utf8"),
+      );
       if (fault.code === "authentication_failed") socket.end();
     }
     window.requestRepos.delete(frame.messageId);

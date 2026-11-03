@@ -1232,6 +1232,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       () => onReplicationStart(...args),
     ),
   );
+  const pendingErrorReplies = new Map<string, (bytes: number) => void>();
   const observedHandle = AsyncLocalStorage.bind((...args: Parameters<typeof handle>) => {
     const [nodeId, frame] = args,
       scope = beginDaemonOperation({
@@ -1320,9 +1321,16 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           },
         };
       } catch (error) {
-        scope.handle.update({ outcome: "error" });
-        recordTraffic(false, fleetErrorCode(error));
-        scope.end();
+        const messageId = "messageId" in frame ? frame.messageId : "invalid";
+        pendingErrorReplies.set(messageId, (bytes) => {
+          replyBytes = bytes;
+          mark("serialization");
+          mark("reply");
+          scope.handle.update({ outcome: "error", replyBytes: bytes });
+          recordTraffic(false, fleetErrorCode(error));
+          scope.end();
+          pendingErrorReplies.delete(messageId);
+        });
         throw error;
       }
     });
@@ -1333,6 +1341,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       {
         ...options,
         commandResourceBudget: resourceBudget,
+        onErrorReply: (messageId, bytes) => {
+          const pending = pendingErrorReplies.get(messageId);
+          if (pending) pending(bytes);
+          else options.onErrorReply?.(messageId, bytes);
+        },
         authenticate: observedAuthenticate,
         onReplicationStart: observedReplicationStart,
         onVersionWarning: (nodeId, warning) => {

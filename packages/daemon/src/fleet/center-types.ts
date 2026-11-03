@@ -12,6 +12,8 @@ import type { ResourceBudget } from "./resource-budget.ts";
 export interface FleetCenterOptions {
   /** Persist one transport record per completed frame; the runtime wires this to the conn log. */
   readonly recordTraffic?: (entry: import("../conn-log.ts").DaemonTrafficLogEntry) => void;
+  /** Bytes of a transport-generated fleet.error frame, keyed by the request message id. */
+  readonly onErrorReply?: (messageId: string, bytes: number) => void;
   readonly commandResourceBudget?: ResourceBudget;
   readonly storage?: Readonly<Record<string, import("@harness-anything/storage").DaemonStorageConfig>>;
   readonly host: Pick<

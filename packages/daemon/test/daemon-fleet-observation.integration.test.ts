@@ -96,7 +96,9 @@ test("real Fleet callbacks bind their observer across TLS queues without recordi
   assert.ok(failed);
   assert.equal(failed.outcome, "error");
   assert.ok(Number(failed.requestBytes) > 0);
-  assert.equal(failed.replyBytes, 0);
+  assert.ok(Number(failed.replyBytes) > 0);
+  assert.ok((failed.phaseSequence as string[]).includes("serialization"), JSON.stringify(failed.phaseSequence));
+  assert.ok((failed.phaseSequence as string[]).includes("reply"), JSON.stringify(failed.phaseSequence));
   assert.ok(!JSON.stringify(observed.records).includes("machine-secret"));
   assert.equal(observed.active.size, 0);
 });
