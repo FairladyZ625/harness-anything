@@ -138,10 +138,18 @@ Every required heading must be present (empty output means ready):
 
 ```bash
 comm -23 \
-  <(awk '/^      label: /{label=substr($0,14)} /^      required: true$/{print "### " label}' \
-    .github/ISSUE_TEMPLATE/issue.yml | sort) \
+  <(awk '
+    /^  - type: /{if (label != "" && req) print "### " label; label=""; req=0}
+    /^      label: /{label=substr($0,14)}
+    /^      required: true$/{req=1}
+    /^          required: true$/{req=1}
+    END{if (label != "" && req) print "### " label}
+  ' .github/ISSUE_TEMPLATE/issue.yml | sort) \
   <(grep '^### ' "$body_file" | sort)
 ```
+
+The second `required: true` line is an option inside a checkboxes field; any required
+option makes the whole field required.
 
 The body must not introduce a heading the form does not define (empty output
 means ready):
