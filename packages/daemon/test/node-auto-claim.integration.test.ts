@@ -493,6 +493,9 @@ test(
           return overview.sessions.some((session) => session.activity.outcome !== null);
         });
         phase = "launch explicitly allowed task";
+        // The spawner's capacity census reads the edge projection. Join the edge to the center's
+        // current head so the settled predecessors are terminal in the view that spawn reads.
+        await catchUpEdge(edge, "node-one", "settled predecessor terminals");
         await configure(["person-two"], 2);
         await waitForLaunch(edge, tasks.denied);
         assert.deepEqual(
@@ -533,6 +536,7 @@ test(
         });
 
         phase = "fill first concurrency slot";
+        await catchUpEdge(edge, "node-one", "settled predecessor terminals");
         await configure(["person-two"], 1);
         await createAssignedTask(tasks.next, "node-one", "node-one");
         await catchUpEdge(edge, "node-one", "next queued assignment");
@@ -563,6 +567,7 @@ test(
         );
         await launches.find((launch) => launch.taskId === tasks.next)!.finish();
         assert.equal((await settled).status, "ready");
+        await catchUpEdge(edge, "node-one", "settled predecessor terminal");
         await waitForLaunch(edge, "task-50-waits-for-b-slot");
         let startedOnB: Awaited<ReturnType<typeof fixture.host.read>>;
         try {
