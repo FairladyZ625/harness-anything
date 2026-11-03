@@ -32,6 +32,7 @@ export function syncRuntimeSkills(options = {}) {
   const skillsRoot = path.join(repoRoot, "skills");
   const skillNames = discoverRepositorySkills(repoRoot);
   const targetDirs = options.targetDirs ?? runtimeSkillTargetDirs;
+  const platform = options.platform ?? process.platform;
   if (!Array.isArray(targetDirs) || targetDirs.length === 0) {
     throw new Error("至少指定一个技能目标目录");
   }
@@ -58,7 +59,7 @@ export function syncRuntimeSkills(options = {}) {
         preserved.push(path.relative(repoRoot, link).split(path.sep).join("/"));
         continue;
       }
-      ensureSkillSymlink(link, source, targetDir);
+      ensureSkillSymlink(link, source, targetDir, platform);
       linked.push(path.relative(repoRoot, link).split(path.sep).join("/"));
     }
 
@@ -89,11 +90,18 @@ function linkTarget(link) {
   return path.resolve(realpathSync(path.dirname(link)), readlinkSync(link));
 }
 
-function ensureSkillSymlink(link, source, targetDir) {
+function ensureSkillSymlink(link, source, targetDir, platform) {
   assertSkillTarget(link, source);
   if (lstatSync(link, { throwIfNoEntry: false })) return;
+  const resolvedSource = realpathSync(source);
+  if (platform === "win32") {
+    // A junction takes an absolute target, needs neither developer mode nor elevation, and reads
+    // back as that same path so the next run recognises it as this source.
+    symlinkSync(resolvedSource, link, "junction");
+    return;
+  }
   // Relative to the resolved folders: a symlinked ancestor (macOS /var, a linked home) changes the depth.
-  const relativeSource = path.relative(realpathSync(targetDir), realpathSync(source)).split(path.sep).join("/");
+  const relativeSource = path.relative(realpathSync(targetDir), resolvedSource).split(path.sep).join("/");
   symlinkSync(relativeSource, link, "dir");
 }
 

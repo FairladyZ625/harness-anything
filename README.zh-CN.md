@@ -48,7 +48,7 @@ Harness Anything 是一个会自我进化的 harness，也让你的仓库持续�
 ```text
 读取 https://github.com/FairladyZ625/harness-anything 中的 skills/harness-download/SKILL.md，
 使用它带我完成 Harness Anything 首次接入：检查环境，
-把源码放到持久目录，将整套技能软链接到我选定的 Agent 用户目录，
+把源码放到持久目录，将整套技能链接到我选定的 Agent 用户目录，
 然后继续初始化当前仓库、建立主控知识入口，并用 harness-ceo 带完一个真实任务。
 能从项目和环境查到的信息请直接读取；
 需要我选择或批准时，给出具体方案后再问，已确认内容不要重复确认。

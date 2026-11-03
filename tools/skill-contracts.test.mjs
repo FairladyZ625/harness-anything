@@ -94,6 +94,32 @@ test("runtime skill sync links every repository skill into project runtime dirs"
   }
 });
 
+test("Windows 技能链接用绝对目录联接，其他平台保持相对符号链接且可重复同步", () => {
+  const tempRoot = mkdtempSync(path.join(os.tmpdir(), "ha-runtime-skill-junction-"));
+  try {
+    const sourceRoot = path.join(tempRoot, "source");
+    const skillRoot = path.join(sourceRoot, "skills", "example");
+    mkdirSync(skillRoot, { recursive: true });
+    writeFileSync(path.join(skillRoot, "SKILL.md"), "source");
+
+    const windowsTarget = path.join(tempRoot, "windows");
+    syncRuntimeSkills({ repoRoot: sourceRoot, targetDirs: [windowsTarget], platform: "win32" });
+    const windowsLink = path.join(windowsTarget, "example");
+    assert.equal(readlinkSync(windowsLink), realpathSync(skillRoot), "a junction must store the absolute source");
+    assert.equal(realpathSync(windowsLink), realpathSync(skillRoot));
+    // The second run reads the absolute target back and must not report a conflict.
+    syncRuntimeSkills({ repoRoot: sourceRoot, targetDirs: [windowsTarget], platform: "win32" });
+
+    if (process.platform !== "win32") {
+      const posixTarget = path.join(tempRoot, "posix");
+      syncRuntimeSkills({ repoRoot: sourceRoot, targetDirs: [posixTarget], platform: "linux" });
+      assert.equal(path.isAbsolute(readlinkSync(path.join(posixTarget, "example"))), false);
+    }
+  } finally {
+    rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("adoption skills route to the branch that carries them and to each other", () => {
   const install = readFileSync(path.join(skillsRoot, "harness-install", "SKILL.md"), "utf8");
   const migration = readFileSync(path.join(skillsRoot, "harness-migration", "SKILL.md"), "utf8");
