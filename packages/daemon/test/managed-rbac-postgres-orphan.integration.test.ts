@@ -62,7 +62,7 @@ test(
   {
     skip:
       process.platform === "win32"
-        ? "requires POSIX daemon orphan and process image inspection semantics"
+        ? "requires POSIX daemon orphan semantics"
         : process.getuid?.() === 0
           ? "PostgreSQL initdb refuses to run as root"
           : false,
@@ -132,7 +132,7 @@ test(
       foreignPid = startPostgres(binaries.pgCtl, foreignData, foreignLogs, foreignPort);
       writeFileSync(
         path.join(data, "postmaster.pid"),
-        `${foreignPid}\n${data}\n${Date.now()}\n${managedPort}\n/var/run/postgresql\n127.0.0.1\n0\nready\n`,
+        `${foreignPid}\n${foreignData}\n${Date.now()}\n${foreignPort}\n/var/run/postgresql\n127.0.0.1\n0\nready\n`,
         { mode: 0o600 },
       );
       await assert.rejects(service.start(), { code: "rbac_process_failed" });
@@ -142,7 +142,7 @@ test(
           `server is running (PID: ${foreignPid})`,
         ),
         true,
-        "the postmaster whose working directory belongs to another data directory remains alive",
+        "the postmaster recorded for another data directory remains alive",
       );
     } finally {
       try {

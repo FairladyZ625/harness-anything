@@ -8,6 +8,7 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   renameSync,
   rmSync,
   statSync,
@@ -23,7 +24,6 @@ import type { ManagedRbacRequest, ManagedRbacListener, CertificateMode } from "@
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 import { keycloakLoginAttributes, keycloakLoginMappers } from "./keycloak-login-client.ts";
 import { transientTransportFailure } from "./oidc-session-helpers.ts";
-import { stopManagedPostgresOrphan } from "./managed-postgres-orphan.ts";
 import {
   alignSessionLifetime,
   sessionLifetimeBounds,
@@ -502,14 +502,26 @@ export class ManagedRbacService {
       pgCtl = managedExecutable(this.#root, "runtime/postgres/bin/pg_ctl", this.#ports.platform),
       data = path.join(this.#root, "data", "postgres"),
       logs = path.join(this.#root, "logs");
-    await stopManagedPostgresOrphan({
-      host: this.#host,
-      pgCtl,
-      binary,
-      data,
-      port: config.postgresPort,
-      platform: this.#ports.platform,
-    });
+    const pidFile = path.join(data, "postmaster.pid");
+    if (existsSync(pidFile)) {
+      const [, pidData, , port] = readFileSync(pidFile, "utf8").split(/\r?\n/u);
+      if (
+        pidData &&
+        existsSync(pidData) &&
+        realpathSync(pidData) === realpathSync(data) &&
+        Number(port) === config.postgresPort
+      ) {
+        const runPgCtl = (args: readonly string[], timeoutMs: number) =>
+          this.#host.runProcessExitAsync(pgCtl, args, undefined, undefined, undefined, undefined, { timeoutMs });
+        if ((await runPgCtl(["status", "-D", data], 5_000)).exitCode === 0) {
+          const stopped = await runPgCtl(["stop", "-D", data, "-m", "fast", "-t", "30"], 35_000);
+          if (stopped.exitCode !== 0)
+            throw Object.assign(new Error("The managed PostgreSQL postmaster could not be stopped cleanly."), {
+              code: "rbac_postgres_orphan_stop_failed",
+            });
+        }
+      }
+    }
     await this.#hardenPostgresAuthentication(binary, data);
     mkdirSync(logs, { recursive: true, mode: 0o700 });
     return this.#spawnUntilReady(
