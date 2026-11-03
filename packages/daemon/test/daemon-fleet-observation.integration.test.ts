@@ -57,10 +57,14 @@ test("real Fleet callbacks bind their observer across TLS queues without recordi
   assert.equal(request.nodeId, f.subject.nodeId);
   assert.deepEqual(Object.keys(request).sort(), [
     "actor",
+    "endedAtMs",
     "method",
     "nodeId",
+    "outcome",
     "phase",
+    "replyBytes",
     "repoId",
+    "requestBytes",
     "spanId",
     "startedAt",
     "startedAtMs",
