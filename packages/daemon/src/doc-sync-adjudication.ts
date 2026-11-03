@@ -202,6 +202,7 @@ export function scannerRead(input: Input): DocCandidateScan {
     ...(!taskScoped ? { selection: input.action.paths as string[] } : {}),
     ...(typeof input.action.taskId === "string" ? { taskId: input.action.taskId } : {}),
     ...(executionId === null ? {} : { executionId }),
+    ...(input.authoredCandidateInventory ? { inventory: input.authoredCandidateInventory } : {}),
   });
   if (!taskScoped) validateSelectedDocPaths(input.action.paths as string[], scan);
   return scan;

@@ -32,6 +32,7 @@ import {
   measureTaskReviewExecution,
   measureTaskReviewResponses,
 } from "../../../packages/daemon/test/fixtures/g38-lifecycle-cost.mjs";
+import { measureWorktreeDocuments } from "../../../packages/daemon/test/fixtures/g38-worktree-document-cost.mjs";
 import { signReceipt } from "../receipt-verify.mjs";
 import {
   DECISION_PROBES,
@@ -615,4 +616,17 @@ test("task amend applies every supplied patch through the production mutation", 
     large: await measureTaskAmendPatches(process.cwd(), 2000),
   };
   assert.deepEqual(evaluateCollectionCosts({ "task-amend:patches": measured }).errors, []);
+});
+
+// The task package observed in production had 34,000 outputs. File-count work must stay linear.
+test("worktree document bases scale through the 34,000-file production case", async (t) => {
+  const measurements = [];
+  for (const size of [100, 2000, 34000]) measurements.push(await measureWorktreeDocuments(process.cwd(), size));
+  assert.deepEqual(
+    evaluateCollectionCosts({
+      "task-submit:worktree-documents": { small: measurements[0], large: measurements[1] },
+    }).errors,
+    [],
+  );
+  for (const measurement of measurements) t.diagnostic(JSON.stringify(measurement));
 });

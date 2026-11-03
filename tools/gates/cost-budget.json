@@ -269,7 +269,8 @@
         },
         "task-submit": {
           "measurements": [
-            "task-submit:task-artifacts"
+            "task-submit:task-artifacts",
+            "task-submit:worktree-documents"
           ]
         },
         "decision-repin": {

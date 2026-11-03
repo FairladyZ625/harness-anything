@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -8,6 +8,7 @@ import { makeTaskEventReader } from "@harness-anything/storage";
 import { type TaskProjection } from "@harness-anything/kernel";
 import { runDocAction } from "../src/doc-sync-actions.ts";
 import { scannerRead, scannerSubmit } from "../src/doc-sync-adjudication.ts";
+import { taskWorktreeDocumentBase } from "../src/worktree-setup.ts";
 import { runtimeExecutionActor } from "../src/runtime-execution-credential.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -17,8 +18,7 @@ import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 // Agenda B13/B22: a dispatched worker updates an artifact that already exists in its own task
 // package, and the update reaches the center through the one authorized doc channel. The worktree
-// mirror shares hard links with the canonical ledger, so an editor that replaces a file atomically
-// leaves the canonical copy stale; `task submit` already read the worktree (#3926), and `doc sync`
+// mirror keeps independent copies of the canonical ledger; `task submit` reads the worktree, and `doc sync`
 // must read the same candidate inventory or the worker's own package edit silently reports no_changes.
 const holder = withPolicyGroup(
   {
@@ -271,9 +271,8 @@ test("doc sync carries a worker's atomic replacement of an existing own-package 
   const fixture = await ownPackageFixture("sync"),
     body = "# Worker artifact v2\n\nrewritten in the worktree\n";
   try {
-    assert.equal(statSync(fixture.workerArtifact).ino, statSync(fixture.canonicalArtifact).ino);
-    // Editors write atomically: the replacement breaks the worktree/center hard link and only the
-    // worktree copy holds the authored bytes.
+    assert.notEqual(statSync(fixture.workerArtifact).ino, statSync(fixture.canonicalArtifact).ino);
+    // Only the worker copy holds authored bytes, including after an editor replaces it atomically.
     const scratch = `${fixture.workerArtifact}.tmp`;
     writeFileSync(scratch, body);
     renameSync(scratch, fixture.workerArtifact);
@@ -396,5 +395,55 @@ test("a worker's path selection that leaves its task package stays a cross-task 
     );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("accepted worktree documents advance their bases across edits and an acknowledgement retry", async () => {
+  const fixture = await ownPackageFixture("sequential"),
+    taskRoot = path.join(fixture.rootDir, ".worktrees", fixture.taskId);
+  try {
+    const sync = async () => {
+      const receipt = await fixture.cell.run({ kind: "doc-submit", taskId: fixture.taskId }, holder);
+      if (receipt.outcome === "applied") await waitForFixturePublication(fixture.cell, receipt.opId, holder);
+      return receipt;
+    };
+    for (const body of ["# First edit\n", "# Second edit\n"]) {
+      writeFileSync(fixture.workerArtifact, body);
+      assert.equal(
+        readFileSync(fixture.canonicalArtifact, "utf8"),
+        body === "# First edit\n" ? "# Worker artifact v1\n" : "# First edit\n",
+      );
+      const status = await fixture.cell.run({ kind: "doc-status", taskId: fixture.taskId }, holder);
+      assert.match(String(status.summary), /eligible: 1/u, "status reads independent worker copies too");
+      const receipt = await sync();
+      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      assert.equal(readFileSync(fixture.canonicalArtifact, "utf8"), body);
+    }
+    // Canonical acceptance survives even if a crash loses the local acknowledgement.
+    writeFileSync(taskWorktreeDocumentBase(taskRoot, fixture.artifactPath), "# Worker artifact v1\n");
+    assert.equal((await sync()).outcome, "no_changes");
+    writeFileSync(fixture.workerArtifact, "# Third edit\n");
+    const receipt = await sync();
+    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    assert.equal(readFileSync(fixture.canonicalArtifact, "utf8"), "# Third edit\n");
+  } finally {
+    await fixture.cell.close();
+    rmSync(fixture.rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a missing worktree base cannot adopt the current center version for a worker edit", async () => {
+  const fixture = await ownPackageFixture("missing-base");
+  try {
+    const taskRoot = path.join(fixture.rootDir, ".worktrees", fixture.taskId);
+    unlinkSync(taskWorktreeDocumentBase(taskRoot, fixture.artifactPath));
+    writeFileSync(fixture.workerArtifact, "# Edited without a known base\n");
+    const receipt = await fixture.cell.run({ kind: "doc-submit", taskId: fixture.taskId }, holder);
+    assert.equal(receipt.code, "base_blob_changed", JSON.stringify(receipt));
+    assert.equal(readFileSync(fixture.canonicalArtifact, "utf8"), "# Worker artifact v1\n");
+    assert.equal(readFileSync(fixture.workerArtifact, "utf8"), "# Edited without a known base\n");
+  } finally {
+    await fixture.cell.close();
+    rmSync(fixture.rootDir, { recursive: true, force: true });
   }
 });

@@ -3,6 +3,7 @@ import { createHash, Hash } from "node:crypto";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { durableActionKinds, getExecutableEntityAction } from "@harness-anything/kernel";
+import { measureWorktreeDocuments } from "./g38-worktree-document-cost.mjs";
 import { DECISION_PROBES, measureDecisionCollection } from "./g38-decision-cost.mjs";
 import {
   measureTaskReviewConsent,
@@ -747,6 +748,11 @@ export const COLLECTION_PROBES = Object.freeze({
         : [];
     }),
   ),
+  "task-submit:worktree-documents": {
+    action: "task-submit",
+    dimension: "worktree-documents",
+    run: measureWorktreeDocuments,
+  },
   "task-submit:task-artifacts": { action: "task-submit", dimension: "task-artifacts", run: measureTaskSubmitArtifacts },
   "doc-submit:documents": { action: "doc-submit", dimension: "documents", run: measureDocuments },
   "doc-submit:event-bytes": {

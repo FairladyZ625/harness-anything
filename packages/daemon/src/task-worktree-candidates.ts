@@ -1,17 +1,17 @@
 import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
-import { resolveHarnessLayout, sha256Bytes, type TaskProjection } from "@harness-anything/kernel";
+import { documentPath, resolveDocRoute, resolveHarnessLayout, type TaskProjection } from "@harness-anything/kernel";
 import { makeGitReadinessSource } from "./process-port.ts";
 import { presetSnapshotReader, taskWorktreeBinding } from "./task-worktree.ts";
 import type { AuthoredCandidateInventoryV1 } from "./doc-sync-candidate-scanner.ts";
+import { taskWorktreeDocumentBase } from "./worktree-setup.ts";
 import type { Snapshot } from "./repo-cell-types.ts";
 
 /**
  * One reader for the task worktree's package bytes: `task submit` and `doc sync` both carry the
  * worker's authored files to the center from here. A dispatch worktree mirrors its own task package
- * with hard links, so an editor that replaces a file atomically leaves the canonical copy stale and
- * only the worktree holds the authored bytes. Duplicating this walk per entry point is how the two
- * channels drift apart.
+ * with independent copies and projection bases. Only changes relative to those bases are authored inputs.
+ * Duplicating this walk per entry point is how the two channels drift apart.
  */
 export function taskWorktreeRoot(
   cell: { readonly rootDir: string; readonly projection: TaskProjection },
@@ -33,10 +33,10 @@ export function taskWorktreeCandidateInventory(
   taskRoot: string,
   packagePath: string | null,
   baseLedgerSha: AuthoredCandidateInventoryV1["baseLedgerSha"],
-  projection: TaskProjection,
 ): AuthoredCandidateInventoryV1 | undefined {
   if (packagePath === null) return undefined;
   const layout = resolveHarnessLayout(rootDir),
+    baseRoot = taskWorktreeDocumentBase(taskRoot, packagePath),
     authoredRelative = path.relative(layout.rootDir, layout.authoredRoot),
     authoredOutsideCheckout =
       authoredRelative === ".." || authoredRelative.startsWith(`..${path.sep}`) || path.isAbsolute(authoredRelative),
@@ -50,13 +50,14 @@ export function taskWorktreeCandidateInventory(
   return {
     schema: "harness-authored-candidate-inventory/v1",
     baseLedgerSha,
-    rows: rows.filter((row) => {
-      const closeoutPath = `${packagePath}/closeout.md`,
-        isCloseout = row.path === closeoutPath,
-        isArtifact = row.path.startsWith(`${packagePath}/artifacts/`) && !row.path.endsWith("/.gitkeep");
-      if (!isCloseout && !isArtifact) return false;
-      const current = projection.readDocument(row.path).document;
-      return row.safe && row.bytes !== null && (!current || sha256Bytes(row.bytes) !== current.blobSha256);
+    rows: rows.flatMap((row) => {
+      if (row.path.endsWith("/.gitkeep") || !resolveDocRoute(documentPath(row.path)).allowed) return [];
+      const basePath = path.join(baseRoot, ...row.path.slice(packagePath.length + 1).split("/")),
+        baseStat = lstatSync(basePath, { throwIfNoEntry: false }),
+        baseBytes = baseStat?.isFile() && !baseStat.isSymbolicLink() ? readFileSync(basePath) : null;
+      return row.safe && row.bytes !== null && baseBytes !== null && Buffer.from(row.bytes).equals(baseBytes)
+        ? []
+        : [{ ...row, baseBytes }];
     }),
   };
 }

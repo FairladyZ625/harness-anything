@@ -17,38 +17,45 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { addManagedWorktree, reclaimManagedWorktree } from "../src/schedule-occurrence-workspace.ts";
-import { runWorktreeSetup, workerLedgerPath } from "../src/worktree-setup.ts";
+import { runWorktreeSetup, taskWorktreeDocumentBase, workerLedgerPath } from "../src/worktree-setup.ts";
 
 const taskId = "task-x",
   packageName = `${taskId}-fixture`,
   plan = path.join("harness", "tasks", packageName, "task_plan.md"),
   skill = path.join("harness", "skills", "review", "SKILL.md");
 
-test("a managed worktree holds only its own task package link, and out-of-package ledger writes cannot reach the canonical checkout", async (t) => {
+test("a managed worktree holds only its own task package copy, and out-of-package ledger writes cannot reach the canonical checkout", async (t) => {
   const root = repositoryFixture(t),
     worktree = { cwd: path.join(root, ".worktrees", taskId), branch: taskId, baseRef: "origin/main" },
     mirror = path.join(worktree.cwd, "harness");
   await addManagedWorktree(root, worktree);
   assert.equal(existsSync(mirror), false, "git checks out no ledger of its own");
   await runWorktreeSetup({ rootDir: root, cwd: worktree.cwd, taskId, steps: [] });
-  // Every later start or dispatch prepares again: it keeps the own-package link and sweeps what an
+  // Every later start or dispatch prepares again: it keeps the own-package copy and sweeps what an
   // older layout left behind.
   mkdirSync(path.join(root, "harness", "facts"));
   await runWorktreeSetup({ rootDir: root, cwd: worktree.cwd, taskId, steps: [] });
 
-  // One real directory holding one link: the dispatch's own task package, whose writes are the
-  // doc-sync channel. No other ledger directory resolves under the worktree root.
+  // One real directory holding independent copies: only accepted doc-sync writes reach the center. No other ledger directory resolves under the worktree root.
   assert.equal(lstatSync(mirror).isDirectory(), true);
   const workerPackage = path.join(mirror, "tasks", packageName),
     workerPlan = path.join(workerPackage, "task_plan.md"),
     canonicalPlan = path.join(root, plan);
   writeFileSync(workerPlan, "# Updated Plan\n");
-  assert.equal(readFileSync(canonicalPlan, "utf8"), "# Updated Plan\n", "existing docs share the doc-sync file");
+  assert.equal(readFileSync(canonicalPlan, "utf8"), "# Plan\n", "worker edits do not mutate canonical files");
   writeFileSync(path.join(workerPackage, "closeout.md"), "# Closeout\n");
   assert.equal(
     readFileSync(path.join(root, "harness", "tasks", packageName, "closeout.md"), "utf8"),
-    "# Closeout\n",
-    "the own package stays the doc-sync write channel into the ledger",
+    "# Old Closeout\n",
+    "the own package reaches the ledger only through versioned doc-sync",
+  );
+
+  await runWorktreeSetup({ rootDir: root, cwd: worktree.cwd, taskId, steps: [] });
+  assert.equal(readFileSync(workerPlan, "utf8"), "# Updated Plan\n", "repeated setup retains worker edits");
+  assert.equal(
+    readFileSync(taskWorktreeDocumentBase(worktree.cwd, `tasks/${packageName}/task_plan.md`), "utf8"),
+    "# Plan\n",
+    "repeated setup retains the original version base",
   );
 
   // A worker deleting or writing an out-of-package private file under its own root fails right
@@ -139,7 +146,7 @@ test("an executable ledger entry is copied with the sibling modules it imports",
   assert.equal(readFileSync(sibling, "utf8"), "export const helper = true;\n", "the canonical sibling is only read");
 });
 
-test("a worktree materialized by the all-links layout is swept to the own-package link at the next setup", async (t) => {
+test("a worktree materialized by the all-links layout is swept to the own-package copy at the next setup", async (t) => {
   const root = repositoryFixture(t),
     worktree = { cwd: path.join(root, ".worktrees", taskId), branch: taskId, baseRef: "origin/main" },
     mirror = path.join(worktree.cwd, "harness");
@@ -219,6 +226,7 @@ test("a worktree kept for uncommitted work keeps its work and loses only the lin
   });
   assert.equal(readFileSync(path.join(worktree.cwd, "README.md"), "utf8"), "edited in the worktree\n");
   assert.deepEqual(readdirSync(path.join(worktree.cwd, "harness")), []);
+  assert.equal(existsSync(taskWorktreeDocumentBase(worktree.cwd, "")), false, "reclamation removes local bases too");
   assert.equal(readFileSync(path.join(root, plan), "utf8"), "# Plan\n");
 });
 

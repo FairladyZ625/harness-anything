@@ -162,7 +162,7 @@ export async function checkoutTaskWorktree(
       if (fresh) await addManagedWorktree(rootDir, { cwd, branch: binding.branch, baseRef: acceptedCommit });
       const verify = () => verifyHandoffWorktree(cwd, acceptedCommit);
       await verify();
-      const prepared = await runWorktreeSetup({ rootDir, cwd, taskId, steps, stepTimeoutMs });
+      const prepared = await runWorktreeSetup({ rootDir, cwd, taskId, steps, stepTimeoutMs, fresh });
       await verify();
       return { cwd, branch: binding.branch, baseRef: fresh ? acceptedCommit : null, setup: prepared };
     }
@@ -178,7 +178,7 @@ export async function checkoutTaskWorktree(
         await runProcessTextAsync("git", ["-C", cwd, "merge-base", "--is-ancestor", stackedCommit, "HEAD"]);
       };
       await verify();
-      const prepared = await runWorktreeSetup({ rootDir, cwd, taskId, steps, stepTimeoutMs });
+      const prepared = await runWorktreeSetup({ rootDir, cwd, taskId, steps, stepTimeoutMs, fresh });
       await verify();
       return { cwd, branch: binding.branch, baseRef: fresh ? stackedCommit : null, setup: prepared };
     }
@@ -203,7 +203,7 @@ export async function checkoutTaskWorktree(
       cwd,
       branch,
       baseRef: fresh ? (published ?? defaultRef) : null,
-      setup: await runWorktreeSetup({ rootDir, cwd, taskId, steps, stepTimeoutMs }),
+      setup: await runWorktreeSetup({ rootDir, cwd, taskId, steps, stepTimeoutMs, fresh }),
     };
   });
 }
