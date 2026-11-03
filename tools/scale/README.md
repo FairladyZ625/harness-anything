@@ -1,5 +1,8 @@
 # PLT-Scale W1 fixture generator and measurement harness
 
+For a dedicated product daemon with lightweight edge sessions, traffic-log replay, capacity
+curves and incident injection, see [the center bench](CENTER-BENCH.md).
+
 These scripts are deliberately standalone and do not change product code.
 Fixtures are written below the repository's ignored `tmp/scale-fixtures/`
 directory.
