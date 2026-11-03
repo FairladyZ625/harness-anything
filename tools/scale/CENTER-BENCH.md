@@ -72,6 +72,10 @@ covers representative task/document reads, a fact write, and GUI polling (`obser
 `repo.agentRuntime.overview`). Unbound commands stop replay before issuing traffic. Programmatic
 `replayTraffic` and the isolated CLI `--bindings <json>` accept exact `method:command` to synthetic
 parameter mappings. Do not pass production request payloads or credentials.
+The default GUI calibration keeps one events cursor per modeled node: it bootstraps history,
+then passes the returned live cursor to follow requests, matching the GUI's transport behavior.
+Trace arrivals remain open-loop; GUI rendering, page-driven catch-up cadence and provider discovery
+are not measured. Custom bindings retain control of their own payloads.
 
 Replay preserves a one-times trace's method composition, gaps and connection reuse within the
 selected duration; arrivals at or after `durationMs` are excluded. Each node

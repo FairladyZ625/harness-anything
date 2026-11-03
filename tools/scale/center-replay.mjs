@@ -111,6 +111,8 @@ export async function replayTraffic({
   const lastByConnection = new Map();
   for (const [index, row] of window.entries()) lastByConnection.set(row.connection, index);
   const sessions = new Map(),
+    observeCursors = new Map(),
+    observePolls = { history: 0, follow: 0 },
     pending = new Set(),
     accumulator = requestAccumulator();
   const started = performance.now();
@@ -149,10 +151,17 @@ export async function replayTraffic({
       session.active++;
       session.lastIssued ||= row.index === lastByConnection.get(row.connection);
       const client = await session.ready;
+      const params = syntheticParams(row, fixture, number, bindings);
+      const managedObserve =
+        row.method === "observe.tail" && !(bindings[`${row.method}:${row.command}`] ?? bindings[row.method]);
+      if (managedObserve) {
+        const cursor = observeCursors.get(row.node);
+        if (cursor) params.payload = { kind: "events", direction: "follow", cursor };
+        observePolls[params.payload.direction]++;
+      }
       const result =
-        row.method === "protocol.hello"
-          ? session.helloResult
-          : await client.request(row.method, syntheticParams(row, fixture, number, bindings), timeoutMs);
+        row.method === "protocol.hello" ? session.helloResult : await client.request(row.method, params, timeoutMs);
+      if (managedObserve && result.liveCursor) observeCursors.set(row.node, result.liveCursor);
       ok = result.ok !== false && !["op_rejected", "indeterminate"].includes(result.outcome);
       code = ok ? null : (result.code ?? result.error?.code ?? result.outcome ?? "request_failed");
     } catch (error) {
@@ -211,6 +220,7 @@ export async function replayTraffic({
       traceTag,
       elapsedMs,
       implicitHellos,
+      observePolls,
       maxInFlightObserved: highWater,
       plannedMethods: Object.fromEntries(
         [...new Set(window.map((row) => row.method))].map((method) => [

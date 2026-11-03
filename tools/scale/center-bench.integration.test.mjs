@@ -87,7 +87,7 @@ test(
     const full = process.env.FLEET_STRESS_CENTER_ISOLATED === "1";
     const nodes = full ? (process.env.FLEET_STRESS_CENTER_NODES ?? "1,10,100,500,1000").split(",").map(Number) : [1, 2];
     const scale = full ? Number(process.env.FLEET_STRESS_CENTER_SCALE ?? "1") : 0.001;
-    const durationMs = full ? Number(process.env.FLEET_STRESS_CENTER_DURATION_MS ?? "10000") : 2000;
+    const durationMs = full ? Number(process.env.FLEET_STRESS_CENTER_DURATION_MS ?? "10000") : 3000;
     const model = process.env.FLEET_STRESS_CENTER_MODEL
       ? JSON.parse(Buffer.from(process.env.FLEET_STRESS_CENTER_MODEL, "base64").toString())
       : defaultTrafficModel();
@@ -119,6 +119,10 @@ test(
         );
         assert.equal(row.replication.connectedAfter, row.nodes);
         assert.ok(row.replication.commitsReceived > 0, "replica sinks decode incremental commits during replay");
+        assert.ok(
+          row.observePolls.history >= row.nodes && row.observePolls.follow >= row.nodes,
+          "GUI calibration bootstraps history then follows the returned live cursor",
+        );
       }
     }
     const fault = (name) => report.faults.find((row) => row.scenario === name).observations;
