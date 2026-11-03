@@ -70,7 +70,7 @@ export function publishConvertedGeneration(input: {
       ledger.rootDir,
       authoredRef,
       parent,
-      certifiedFollowerRevision(ledger, parent, input.store),
+      certifiedFollowerRevision(ledger, parent, input.store, true),
       cut,
       files,
     );
@@ -222,9 +222,10 @@ export function certifiedFollowerRevision(
   ledger: ReturnType<typeof resolveLedgerGitLayout>,
   commit: string,
   source: FollowerCheckpointSource,
+  resetPriorGeneration = false,
 ): number {
   const bytes = localGitObjectRefStore.readPath(ledger.rootDir, commit, ledgerGitPath(ledger, followerManifestPath));
-  return bytes ? manifestRevision(bytes, source) : 0;
+  return bytes ? manifestRevision(bytes, source, resetPriorGeneration) : 0;
 }
 
 /** The revision the worktree's own manifest names, or 0 (settle the whole closure) when it names no SQLite cut. */
@@ -237,14 +238,14 @@ export function physicalWorktreeRevision(
   return manifestRevision(node.bytes, source);
 }
 
-function manifestRevision(bytes: Buffer, source: FollowerCheckpointSource): number {
+function manifestRevision(bytes: Buffer, source: FollowerCheckpointSource, resetPriorGeneration = false): number {
   const parsed = decodeFollowerManifest(bytes),
     revision = Number(parsed.cut?.revision),
     metadata = source.metadata();
   // A prior generation cannot certify any prefix of this ledger, even at the same integer revision.
   if (
-    metadata.generation === 3 &&
-    (parsed.generation === 1 || parsed.generation === 2) &&
+    ((metadata.generation === 3 && (parsed.generation === 1 || parsed.generation === 2)) ||
+      (resetPriorGeneration && metadata.generation === 2 && parsed.generation === 1)) &&
     parsed.cut?.repoId === metadata.repoId &&
     Number.isSafeInteger(revision) &&
     revision >= 0
