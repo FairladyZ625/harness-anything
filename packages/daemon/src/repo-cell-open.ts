@@ -1132,5 +1132,5 @@ export async function openRepoWriterCell(
     },
     lock,
   };
-  return { ...createRepoCellApi(apiContext), backup, pruneReplicationLog };
+  return Object.assign(createRepoCellApi(apiContext), { backup, pruneReplicationLog });
 }
