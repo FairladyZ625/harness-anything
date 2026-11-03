@@ -71,6 +71,34 @@ export const clientLocalCommands = [
     ].join("\n"),
   },
   {
+    id: "daemon-probe",
+    path: ["daemon", "probe"],
+    usage:
+      "ha daemon probe [--interval 5s] [--timeout 2s] [--slow-ms 1000] [--unresponsive 30s] [--cpu-percent 90] [--cpu-sustain 60s] [--rss-bytes <bytes>] [--cooldown 10m] [--capture-dir <path>] [--kept-days 7] [--iterations <n>] [--duration <span>] [--sample-seconds 5] [--js-stack-method <rpc>] [--user-root <path>] [--daemon-id <id>] [--json]",
+    summary:
+      "Long-running external liveness and resource probe; captures a scene when the daemon is unresponsive or saturated.",
+    help: [
+      "    Read-only: hello + status each with --timeout, then CPU/RSS/thread/fd from ps/lsof or /proc.",
+      "    A capture runs once per event after --unresponsive down, --cpu-sustain above --cpu-percent,",
+      "    or RSS above --rss-bytes; --cooldown separates events. Samples land in <user-root>/logs/.",
+      "    Ctrl-C stops it; --iterations/--duration bound a run for acceptance evidence.",
+    ].join("\n"),
+  },
+  {
+    id: "daemon-probe-summary",
+    path: ["daemon", "probe"],
+    usage:
+      "ha daemon probe summary [--window 15m|1h|6h|24h|7d] [--day YYYYMMDD] [--min-silence 5m] [--user-root <path>] [--daemon-id <id>] [--json]",
+    summary:
+      "Summarize probe availability and reconstruct starts, attach durations, and downtime from conn/lifecycle logs.",
+    help: [
+      "    Reads the probe timeline for availability, downtime, slow segments, and capture files.",
+      "    Always adds the offline view: process starts per day, repo attach latency, and downtime",
+      "    inferred from process_exit or a missing exit dated by the pid's last conn activity.",
+      "    --day selects one UTC day; no samples reports unobserved, never 0% availability.",
+    ].join("\n"),
+  },
+  {
     id: "ledger-restore-offline",
     path: ["restore"],
     usage: "ha restore <backup-directory> --to <absolute-directory>",

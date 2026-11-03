@@ -32,6 +32,7 @@
     "./internal/lifecycle-log": "./src/lifecycle-log.ts",
     "./internal/offline-storage-command": "./src/offline-storage-command.ts",
     "./internal/process-port": "./src/process-port.ts",
+    "./internal/probe-log-sink": "./src/probe-log-sink.ts",
     "./internal/protocol/daemon-protocol-commands": "./src/protocol/daemon-protocol-commands.ts",
     "./internal/protocol/daemon-protocol-commands-task": "./src/protocol/daemon-protocol-commands-task.ts",
     "./internal/protocol/daemon-protocol-gui-types": "./src/protocol/daemon-protocol-gui-types.ts",

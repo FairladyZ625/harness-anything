@@ -40,6 +40,7 @@ import { parseDaemonSloOptions, renderDaemonSlo, runDaemonSlo } from "./slo.ts";
 import { parseDaemonTopOptions, runDaemonTop } from "./top.ts";
 import { renderDaemonFleetStatus, runDaemonFleetStatus } from "./fleet-status.ts";
 import { applyNodeAutoClaimControl, parseNodeAutoClaimControl } from "./node-auto-claim.ts";
+import { runDaemonProbeControl } from "./probe/probe-control.ts";
 const fleetNumber = { port: /^(?:0|[1-9][0-9]{0,4})$/u, quota: /^[1-9][0-9]{0,15}$/u };
 type ReceiptEmitter = (receipt: Record<string, unknown>, json: boolean) => void;
 type ControlFinisher = (receipt: Record<string, unknown>, exitCode: number) => number;
@@ -54,8 +55,16 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
     );
     return 1;
   }
+  const subcommand = argv[at + 2];
+  const json = argv.includes("--json"),
+    userRoot = path.resolve(daemonOption(argv, "--user-root") ?? daemonUserRoot()),
+    invokingRoot = path.resolve(daemonOption(argv, "--root") ?? process.cwd());
+  const daemonId = daemonOption(argv, "--daemon-id") ?? daemonIdFromEnv(),
+    finish: ControlFinisher = (receipt, exitCode) => finishControlReceipt(renderReceipt, receipt, json, exitCode);
   // A worker's execution authority never includes local service controls or their signal ladder.
-  if (process.env.HARNESS_EXECUTION_CREDENTIAL) {
+  // `probe` is the exception: it sends only hello/status, reads process counters, and captures with
+  // read-only tools, so the dispatched task can produce its own real-center availability evidence.
+  if (process.env.HARNESS_EXECUTION_CREDENTIAL && command !== "probe") {
     renderReceipt(
       daemonFailure(
         `${argv[at]}-${argv[at + 1] ?? "status"}`,
@@ -67,13 +76,8 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
     return 1;
   }
   if (argv[at] === "gui") return runGuiLaunch(argv, {}, renderReceipt);
-  const subcommand = argv[at + 2];
-  const json = argv.includes("--json"),
-    userRoot = path.resolve(daemonOption(argv, "--user-root") ?? daemonUserRoot()),
-    invokingRoot = path.resolve(daemonOption(argv, "--root") ?? process.cwd());
-  const daemonId = daemonOption(argv, "--daemon-id") ?? daemonIdFromEnv(),
-    finish: ControlFinisher = (receipt, exitCode) => finishControlReceipt(renderReceipt, receipt, json, exitCode);
   try {
+    if (command === "probe") return await runDaemonProbeControl(argv, userRoot, daemonId, finish);
     if (!(command === "status" || command === undefined)) assertCanonicalCliEntry();
     const observed = await runDaemonObserverCommand(command, argv, userRoot, daemonId, json, finish);
     if (observed !== undefined) return observed;
