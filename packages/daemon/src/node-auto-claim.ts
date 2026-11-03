@@ -224,7 +224,7 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
       const policy = configured.policy;
       let ownerPersonId: string | null;
       try {
-        ownerPersonId = await input.ownerPersonIdFor(repo);
+        ownerPersonId = policy.enabled ? await input.ownerPersonIdFor(repo) : null;
       } catch (error) {
         record({
           repoId,

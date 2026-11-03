@@ -378,6 +378,28 @@ export function readObservedRuntimeSession(
   );
 }
 
+/** Local terminal evidence is written before the canonical outcome. Orchestration joins the
+ * canonical settlement, retaining observed liveness only for the existing post-exit grace. */
+export function readSettlementRuntimeSession(
+  projection: Pick<TaskProjection, "readRuntimeSession" | "readRuntimeDispatch">,
+  rootDir: string,
+  runtimeSessionId: string,
+): RuntimeSession | null {
+  const canonical = projection.readRuntimeSession(runtimeSessionId);
+  if (!canonical || canonical.outcome !== null) return canonical;
+  const observed = readObservedRuntimeSession(projection, rootDir, runtimeSessionId)!;
+  // An explicit archive authorization refusal cannot publish under the revoked binding.
+  // Keep the existing local failed observation; it neither accepts an outcome nor releases a lease.
+  if (observed.reasonCode === "authorization_denied") return observed;
+  return {
+    ...observed,
+    outcome: null,
+    exitCode: canonical.exitCode,
+    resultRef: canonical.resultRef,
+    reasonCode: canonical.reasonCode,
+  };
+}
+
 export function sessionWithActivityEvidence(
   session: RuntimeSession,
   evidence: RuntimeSessionActivityEvidence | undefined,

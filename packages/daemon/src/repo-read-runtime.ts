@@ -7,7 +7,7 @@ import {
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
 import { makeDaemonProjectionReader, makeTaskEventReader } from "@harness-anything/storage";
-import { readObservedRuntimeSession } from "./agent-runtime-read.ts";
+import { readObservedRuntimeSession, readSettlementRuntimeSession } from "./agent-runtime-read.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { readRuntimeSessionActivityEvidence } from "./dispatch-read.ts";
 import { makeEntityActionCatalogExecutor, type EntityActionCatalogRuntimes } from "./entity-action-catalog-executor.ts";
@@ -316,20 +316,7 @@ export function makeRepoReadRuntime(
     run,
     readSession,
     readSettlementSession: (runtimeSessionId: string) =>
-      reader.withSession((projection) => {
-        const canonical = projection.readRuntimeSession(runtimeSessionId);
-        if (!canonical || canonical.outcome !== null) return canonical;
-        const observed = readObservedRuntimeSession(projection, input.rootDir, runtimeSessionId);
-        // Local terminal evidence precedes canonical publication. It supplies liveness/grace,
-        // while only the canonical outcome can release an orchestration waiter immediately.
-        return {
-          ...observed!,
-          outcome: null,
-          exitCode: canonical.exitCode,
-          resultRef: canonical.resultRef,
-          reasonCode: canonical.reasonCode,
-        };
-      }),
+      reader.withSession((projection) => readSettlementRuntimeSession(projection, input.rootDir, runtimeSessionId)),
     canAttach: (session: NonNullable<ReturnType<typeof readSession>>) =>
       session.liveness !== "exited" &&
       query((projection) => {
