@@ -260,7 +260,8 @@ export function repositoryEventQueries(
           .filter(
             (event): event is Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> =>
               isAgentRuntimeEvent(event) && event.type === "runtime_dispatch_requested",
-          ),
+          )
+          .map(publicRuntimeDispatch),
       ),
     readRuntimeDispatchesByTaskIds: (taskIds) =>
       withRead((db) => {
@@ -277,7 +278,8 @@ export function repositoryEventQueries(
           .filter(
             (event): event is Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> =>
               isAgentRuntimeEvent(event) && event.type === "runtime_dispatch_requested",
-          );
+          )
+          .map(publicRuntimeDispatch);
       }),
     readRuntimeDispatchByDispatchIdPrefix: (prefix, limit) =>
       withRead((db) => {

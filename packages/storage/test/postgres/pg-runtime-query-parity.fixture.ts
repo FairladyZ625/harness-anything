@@ -94,6 +94,7 @@ export async function appendRuntimeQueryFixtures(
         taskId: "task-parity",
         executionId: "execution-parity",
         agentId: "parity-agent",
+        ...(id === "runtime-query-a" ? { cwd: "/private/pg-parity-example" } : {}),
         ...(id === "runtime-query-a" || id === "runtime-query-b"
           ? {
               squadId: "parity-squad",
@@ -227,6 +228,16 @@ function dispatchContract(
   );
   assert.equal(queries.countRuntimeDispatchesByAgent("parity-agent"), 3);
   assert.equal(queries.countRuntimeDispatchesByAgent("missing-agent"), 0);
+  for (const keyed of [
+    queries.readRuntimeDispatchesByTaskIds(["task-parity"]),
+    queries.readRuntimeDispatchEventsBySession("runtime-query-session"),
+    queries.readRuntimeDispatchByDispatchIdPrefix("runtime-query-", 10).map(({ event }) => event),
+  ])
+    assert.ok(
+      keyed.every(({ payload }) => !("cwd" in payload)),
+      "keyed dispatch reads must apply the public dispatch mapper",
+    );
+  assert.equal("cwd" in byId!.event.payload, false);
   assert.deepEqual(
     queries.readRuntimeDispatchEventsBySession("runtime-query-session").map(({ payload }) => payload.dispatchId),
     ["runtime-query-a", "runtime-query-b", "runtime-query-c"],
