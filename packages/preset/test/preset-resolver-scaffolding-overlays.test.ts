@@ -266,6 +266,9 @@ test("repository init plan consumes the declaration and composes package-local A
       assert.match(agents?.body ?? "", /## Context Loading/u);
       assert.match(agents?.body ?? "", /## Harness CLI \(software\/coding\)/u);
       assert.match(agents?.body ?? "", /## Repository Specifics/u);
+      // Issue #4257: the delivery path must not promise independent review unconditionally; the
+      // low-tier exception has to reach every generated AGENTS.md locale.
+      assert.match(agents?.body ?? "", /review waived: effective risk tier low/u);
       assert.equal(agents?.requiredAnchors.includes(vertical.repositoryScaffold.agentsEntry.repoSpecificsAnchor), true);
       assert.equal(
         plan.documents.some(

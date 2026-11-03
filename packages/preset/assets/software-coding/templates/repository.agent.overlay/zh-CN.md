@@ -10,7 +10,7 @@
   3. **实施与取证**：在隔离环境中编码与编写测试，使用 `ha fact record --statement "..." --source "..." --task <task-id>` 记录关键测试证据；
   4. **收口提炼（Closeout）**：`closeout.md` 已由 task create 物化为固定骨架（Summary / What Changed / Verification / Residual Risk / Same Mechanism Elsewhere），直接改写每节内容即可；提交只读取正文，不比较标题、也不拒绝保留提示句。What Changed 逐条写行为变化，PR 正文直接取用；最后一节写清机制、搜索范围和发现。**重要：系统执行记录（Execution）直接从 closeout.md 提炼吸收**，切忌只更新工件而漏写收口；
      `ha task submit <task-id>` 会在冻结交付前接纳当前任务包文档与 artifacts。Summary 不选择文件或指定 revision。
-  5. **提交与独立把关**：`ha task submit <task-id>` 提交交付包；由独立评审者基于客观测试证据进行复核（执行者严禁自审，自审以 `actor_unauthorized` 拒绝），门禁通过后 `ha task complete <task-id>` 完成销账；
+  5. **提交与独立把关**：`ha task submit <task-id>` 提交交付包；由独立评审者基于客观测试证据进行复核（执行者严禁自审，自审以 `actor_unauthorized` 拒绝），门禁通过后 `ha task complete <task-id>` 完成销账。低风险档是例外：生效等级为 low 时按设计关闭评审与 consent 门，submit 与 complete 回执会打印 `review waived: effective risk tier low (declared by <actor>)`。仓库下限脚本可能抬高申报的 low 档，只有生效等级仍为 low 时才出现该提示；
   6. **动态查证**：CLI 完全自描述，随时运行 `ha <command> --help` 或 `ha capabilities` 查看当前命令语法，严禁死记静态命令序列。
 
 ## Repository Scaffolds

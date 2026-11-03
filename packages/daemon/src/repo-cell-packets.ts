@@ -242,6 +242,29 @@ export function submissionPacket(action: RepoTaskAction): GuiSubmissionV1 {
   return value as unknown as GuiSubmissionV1;
 }
 
+/**
+ * A low effective tier closes the review gate. The receipt says so on its own: without this line a
+ * single session can submit and complete a low-tier task with no visible sign that independent
+ * review was skipped. The actor comes from the task creator already in the ledger; no new stored
+ * declaration field is added.
+ */
+function reviewWaiverLine(
+  task: Snapshot["task"],
+  execution: Snapshot["executions"][number] | undefined,
+): string | null {
+  const submission = execution?.submission;
+  if (!submission || submission.completionContract.closeoutGates.review !== false) return null;
+  const effectiveTier = submission.riskTierAssessment?.effectiveTier ?? task?.metadata?.riskTier ?? "medium";
+  if (effectiveTier !== "low") return null;
+  const creator = task?.createdBy,
+    declaredBy = creator === undefined ? null : (creator.executor?.id ?? creator.principal.personId);
+  return (
+    "review waived: effective risk tier low (" +
+    (declaredBy === null ? "declared tier source: task metadata" : `declared by ${declaredBy}`) +
+    ")"
+  );
+}
+
 export function lifecycleReceipt(
   cell: Pick<RepoCellOperationalContext, "projection" | "rootDir">,
   event: Extract<ReturnType<ReturnType<typeof makeTaskEventStore>["readEvent"]>, { readonly schema: "task-event/v1" }>,
@@ -299,6 +322,7 @@ export function lifecycleReceipt(
         : []),
     ],
     changedPaths = (event.payload.documentClaims ?? []).map((claim) => claim.path),
+    waiver = reviewWaiverLine(snapshot.task, execution),
     summary =
       event.type === "execution_annotated"
         ? `task-annotate: ${event.payload.annotation.kind} (execution: ${executionId})`
@@ -307,7 +331,12 @@ export function lifecycleReceipt(
             "consented again."
           : event.type === "execution_submitted"
             ? `task-submit: submitted (execution: ${executionId})`
-            : undefined;
+            : undefined,
+    // Submit and complete are the two receipts that close a cut; only they carry the waiver notice.
+    noticedSummary =
+      waiver !== null && (event.type === "execution_submitted" || event.type === "task_completed")
+        ? `${summary ?? "task-complete: applied"}\n${waiver}`
+        : summary;
   return {
     outcome: "applied",
     opId: event.opId,
@@ -328,6 +357,6 @@ export function lifecycleReceipt(
     eventId: event.eventId,
     ...publication,
     worktreeVisible: true,
-    ...(summary ? { summary } : {}),
+    ...(noticedSummary ? { summary: noticedSummary } : {}),
   } as WriteReceipt;
 }
