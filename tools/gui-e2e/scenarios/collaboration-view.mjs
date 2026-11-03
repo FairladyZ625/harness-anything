@@ -341,11 +341,12 @@ export default {
     assert.match(detailText, /未提供/u, "fields the read cannot see say so");
     assert.match(
       detailText,
-      /disconnected; lastOnlineAt=unavailable \(no-replication-session-observed\)/u,
-      "a historical slot cannot invent an unobserved last online time",
+      /中心尚未观测到此节点的复制会话/u,
+      "a lease-only fixture without a center listener cannot invent session observations",
     );
     // 机器码不进可见文本,只保留在 data-reason/title 供断言与诊断。
     assert.doesNotMatch(detailText, /no-center-session-observation/u, "machine codes stay out of visible text");
+    await details.locator('[data-reason="no-center-session-observation"]').waitFor();
     assert.match(detailText, /中心尚未收到此节点的构建提交/u);
     // 详情底部的读面声明渲染为人话图例,不再露出 key=value 调试串。
     const notesText = await page.getByTestId("collaboration-read-notes").innerText();

@@ -57,6 +57,8 @@ for (let round = 0; round < 30; round += 1) {
     },
     sessions,
     new Map(),
+    { hello() {}, online() {}, failure() {} },
+    { recordActivity() {}, clearActivity() {}, recordFailure() {} },
   );
   socket.emit(
     "data",

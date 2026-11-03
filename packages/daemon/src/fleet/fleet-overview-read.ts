@@ -297,7 +297,12 @@ export function buildFleetOverview(input: FleetOverviewInput): FleetOverviewResu
           : replicaReasonOf(replica),
       watch: isCenter
         ? { kind: "value", text: "local canonical writer" }
-        : { kind: "unavailable", reason: WATCH_REASON },
+        : replica?.activity == null
+          ? { kind: "unavailable", reason: WATCH_REASON }
+          : {
+              kind: "value",
+              text: `center phase=${replica.activity.phase} since=${replica.activity.since} lastProgressAt=${replica.activity.lastProgressAt}${replica.activity.bytesSent === null ? "" : ` bytesSent=${replica.activity.bytesSent}/${replica.activity.totalBytes}`}; edge watch unavailable (${WATCH_REASON})`,
+            },
       lastFailure:
         session?.lastFailure == null
           ? { kind: "unavailable", reason: "no-session-failure-observed" }
@@ -345,7 +350,11 @@ export function buildFleetOverview(input: FleetOverviewInput): FleetOverviewResu
     events: fleetEventRows(input.events, leasesByNode, dispatchByTask),
     ...(input.versionWarning === undefined ? {} : { versionWarning: input.versionWarning }),
     // notes 是稳定机器码(key=value),人话解释归 GUI i18n;daemon 不内嵌单语言文案。
-    notes: ["events-attribution=current-lease", "edge-online=center-replication-session", "sync-internals=unavailable"],
+    notes: [
+      "events-attribution=current-lease",
+      "edge-online=center-replication-session",
+      "sync-internals=center-sender-phase",
+    ],
     warnings: [
       ...new Set(
         [...input.nodeOwners.values()]

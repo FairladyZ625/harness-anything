@@ -2,6 +2,26 @@ import type { ReplicationPosition } from "@harness-anything/storage";
 import type { FleetReplicaStatus } from "./center-types.ts";
 import { replicationSlotKey, type ReplicationSlotKey, type ReplicationSlots } from "@harness-anything/storage";
 
+export type ReplicaSyncPhase =
+  | "preparing_replica"
+  | "authorizing"
+  | "waiting_backup"
+  | "backup_queued"
+  | "building_backup"
+  | "waiting_shared_backup"
+  | "sending_backup"
+  | "sending_commits"
+  | "awaiting_ack"
+  | "waiting_for_commit"
+  | "waiting_socket_drain";
+export interface ReplicaSyncActivity {
+  readonly phase: ReplicaSyncPhase;
+  readonly since: string;
+  readonly lastProgressAt: string;
+  readonly bytesSent: number | null;
+  readonly totalBytes: number | null;
+}
+
 export interface ReplicaSyncFailure {
   readonly code: string;
   readonly message: string;
@@ -13,16 +33,46 @@ export function createReplicaStatusTracker(input: {
   readonly head: (repoId: string) => ReplicationPosition;
   readonly isConnected: (key: ReplicationSlotKey) => boolean;
   readonly diskQuotaBytes: number | null;
+  readonly now?: () => string;
 }) {
+  const activity = new Map<string, ReplicaSyncActivity>();
   const failures = new Map<string, ReplicationSlotKey & { readonly failure: ReplicaSyncFailure }>();
   return {
+    recordActivity(
+      key: ReplicationSlotKey,
+      phase: ReplicaSyncPhase,
+      transfer?: { readonly bytesSent: number; readonly totalBytes: number },
+    ): void {
+      const id = replicationSlotKey(key),
+        previous = activity.get(id),
+        now = input.now?.() ?? new Date().toISOString();
+      activity.set(id, {
+        phase,
+        since: previous?.phase === phase ? previous.since : now,
+        lastProgressAt:
+          transfer === undefined && phase !== "waiting_for_commit" ? (previous?.lastProgressAt ?? now) : now,
+        bytesSent:
+          transfer?.bytesSent ??
+          (phase === "awaiting_ack" || phase === "waiting_socket_drain" ? (previous?.bytesSent ?? null) : null),
+        totalBytes:
+          transfer?.totalBytes ??
+          (phase === "awaiting_ack" || phase === "waiting_socket_drain" ? (previous?.totalBytes ?? null) : null),
+      });
+    },
+    clearActivity(key: ReplicationSlotKey): void {
+      activity.delete(replicationSlotKey(key));
+    },
     recordFailure(key: ReplicationSlotKey, failure: ReplicaSyncFailure): void {
+      // A refused start may name an arbitrary repo. Keep only attached-repo keys, so retries
+      // cannot turn this latest-state map into a history of unauthorised repository names.
+      if (!input.attachedRepositories().has(key.repoId)) return;
       failures.set(replicationSlotKey(key), { ...key, failure });
     },
     clearFailure(key: ReplicationSlotKey): void {
       failures.delete(replicationSlotKey(key));
     },
     removeNode(nodeId: string): void {
+      for (const key of activity.keys()) if (key.startsWith(`${nodeId}\0`)) activity.delete(key);
       for (const [key, record] of failures) if (record.nodeId === nodeId) failures.delete(key);
     },
     snapshot(): FleetReplicaStatus[] {
@@ -58,6 +108,7 @@ export function createReplicaStatusTracker(input: {
             delivery: lagCommits === null ? "snapshot_required" : lagCommits === 0 ? "current" : "delta",
             diskQuotaBytes: input.diskQuotaBytes,
             syncFailure: failure ?? null,
+            activity: activity.get(replicationSlotKey(key)) ?? null,
           },
         ];
       });
@@ -81,6 +132,7 @@ export function createReplicaStatusTracker(input: {
           delivery: "snapshot_required",
           diskQuotaBytes: input.diskQuotaBytes,
           syncFailure: record.failure,
+          activity: activity.get(key) ?? null,
         });
       }
       return rows;

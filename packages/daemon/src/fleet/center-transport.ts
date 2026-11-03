@@ -1,3 +1,4 @@
+import type { createReplicaStatusTracker } from "./replica-status.ts";
 import type { createNodeSessionStatus } from "./node-session-status.ts";
 import { once } from "node:events";
 import { randomUUID } from "node:crypto";
@@ -84,6 +85,10 @@ export async function serve(
   sessions: Map<string, Set<TLSSocket>>,
   replicationOwners: Map<string, TLSSocket>,
   nodeSessions: Pick<ReturnType<typeof createNodeSessionStatus>, "hello" | "online" | "failure">,
+  replicaStatus: Pick<
+    ReturnType<typeof createReplicaStatusTracker>,
+    "recordActivity" | "clearActivity" | "recordFailure"
+  >,
 ): Promise<void> {
   const disconnected = new AbortController();
   // The hello-failure budget is charged to this pre-authentication source, which the hello frame
@@ -115,6 +120,7 @@ export async function serve(
   let replicationMode = false,
     replicationStarted = false,
     sessionFailure = false;
+  let replicationRepoId: string | null = null;
   const recordFailure = (error: unknown, fallback: string): void => {
     if (nodeId === null) return; // An unauthenticated hello cannot attribute facts to another node.
     const code =
@@ -122,11 +128,10 @@ export async function serve(
         ? error.code
         : fallback;
     const message = error instanceof Error ? error.message : String(error);
-    nodeSessions.failure(
-      nodeId,
-      code,
-      `${message}; peer=${JSON.stringify({ nodeId, remoteAddress: socket.remoteAddress, remotePort: socket.remotePort })}`,
-    );
+    const summary = `${message}; peer=${JSON.stringify({ nodeId, repoId: replicationRepoId, remoteAddress: socket.remoteAddress, remotePort: socket.remotePort })}`;
+    nodeSessions.failure(nodeId, code, summary);
+    if (replicationRepoId !== null)
+      replicaStatus.recordFailure({ nodeId, repoId: replicationRepoId }, { code, message: summary });
     sessionFailure = true;
   };
   socket.on("error", (error) => {
@@ -239,8 +244,11 @@ export async function serve(
   const replicationPeer: ReplicationPeer = {
     send: async (frame) => {
       const line = serializeReplicationFrame(frame);
-      if (!socket.write(line))
+      if (!socket.write(line)) {
+        if (nodeId !== null && replicationRepoId !== null)
+          replicaStatus.recordActivity({ nodeId, repoId: replicationRepoId }, "waiting_socket_drain");
         await untilAborted(() => once(socket, "drain", { signal: disconnected.signal }), disconnected.signal);
+      }
     },
     receive: async (signal) => {
       signal?.throwIfAborted();
@@ -299,10 +307,14 @@ export async function serve(
       return;
     }
     replicationOwners.set(key, socket);
+    replicationRepoId = frame.repoId;
     replicationStarted = true;
     nodeSessions.online(node);
     socket.once("close", () => {
-      if (replicationOwners.get(key) === socket) replicationOwners.delete(key);
+      if (replicationOwners.get(key) === socket) {
+        replicationOwners.delete(key);
+        replicaStatus.clearActivity({ nodeId: node, repoId: frame.repoId });
+      }
     });
     replicationMode = true;
     replicationFrames.push(frame);
@@ -311,7 +323,9 @@ export async function serve(
       return;
     }
     void options.onReplicationStart(node, accessToken, frame, replicationPeer, disconnected.signal).catch((error) => {
-      if (!sessionFailure && !disconnected.signal.aborted) recordFailure(error, "replication_failed");
+      // A definite admission fault must survive a peer closing while its authority check resolves.
+      if (error instanceof FleetFault || (!sessionFailure && !disconnected.signal.aborted))
+        recordFailure(error, "replication_failed");
       // A peer that went away aborts its stream; any other end is a center failure worth reporting.
       if (!disconnected.signal.aborted && !peerDisconnected(socket, error))
         (options.onError ?? ((entry) => console.error("[fleet-center] replication failed", entry)))({

@@ -1,12 +1,13 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { TASK_EVENT_SHAPE_COMPAT_VERSION, deriveBasePolicyGroups } from "@harness-anything/kernel";
 import { daemonBuildStamp } from "../src/build-identity.ts";
 import { buildFleetOverview } from "../src/fleet/fleet-overview-read.ts";
 import type { FleetTlsCenter } from "../src/fleet/center.ts";
+import { serializeReplicationFrame, type ReplicationFrame } from "../src/fleet/protocol.ts";
 import { createNodeSessionStatus } from "../src/fleet/node-session-status.ts";
 import {
   fleetReplicationFixture,
@@ -62,7 +63,8 @@ test(
     assert.deepEqual(edge("edge-one").online, { kind: "value", text: "connected" });
     assert.equal(edge("edge-one").build.kind, "value");
     assert.match((edge("edge-one").build as { text: string }).text, /0000000000.*version mismatch/u);
-    assert.equal(edge("edge-one").watch.kind, "unavailable");
+    assert.equal(edge("edge-one").watch.kind, "value");
+    assert.match((edge("edge-one").watch as { text: string }).text, /center phase=/u);
     // A syntactically valid JSON object with an invalid replication shape. Neither the raw
     // payload nor credentials may enter the center's persisted failure summary.
     now = ended;
@@ -207,5 +209,110 @@ test(
     state.online("legacy-node");
     state.failure("legacy-node", "connection_closed", "late close callback");
     assert.deepEqual(state.snapshot([], new Set()), [], "late socket callbacks cannot revive a removed node");
+  },
+);
+
+// The edge deliberately withholds its durable/apply ACK after receiving a complete real backup.
+// The center must identify that wait directly, without treating an old ACK as a failure detector.
+test(
+  "a connected replica waiting for its ACK exposes its exact phase and progress time",
+  { timeout: 60_000 },
+  async (t) => {
+    let now = first;
+    const fixture = await fleetReplicationFixture(t, { now: () => now }),
+      center = await fixture.openCenter();
+    const peer = await replicationPeer(fixture.track, center.port, fixture.cert, "edge-one", "secret-edge-one");
+    await peer.request({
+      type: "replica.start",
+      repoId: replicationRepoId,
+      position: null,
+      edgeBuildCommit: null,
+      taskEventShapeVersion: TASK_EVENT_SHAPE_COMPAT_VERSION,
+    });
+    let backup: Extract<ReplicationFrame, { type: "replica.backup" }> | undefined;
+    for (;;) {
+      const frame = await peer.receive();
+      if (frame.type === "replica.backup") backup = frame;
+      if (frame.type === "replica.backup.end") break;
+    }
+    assert.ok(backup);
+    const activity = () => center.status().replicas.find((row) => row.nodeId === "edge-one")!.activity;
+    await waitForState(() => activity()?.phase === "awaiting_ack", "sender to wait for the edge ACK");
+    now = ended;
+    const stalled = overview(center).nodes.find((node) => node.nodeId === "edge-one")!;
+    assert.deepEqual(stalled.online, { kind: "value", text: "connected" });
+    assert.equal(stalled.replica?.ackRevision, null);
+    assert.match(
+      (stalled.watch as { text: string }).text,
+      /center phase=awaiting_ack since=2026-11-03T01:00:00.000Z lastProgressAt=2026-11-03T01:00:00.000Z bytesSent=/u,
+    );
+    assert.match((stalled.watch as { text: string }).text, /edge watch unavailable/u);
+    const position = backup.metadata.position;
+    peer.sendRawBytes(
+      Buffer.from(serializeReplicationFrame({ type: "replica.ack", durable: position, applied: position })),
+    );
+    assert.equal((await peer.receive()).type, "replica.progress");
+    peer.sendRawBytes(
+      Buffer.from(serializeReplicationFrame({ type: "replica.ack", durable: position, applied: position })),
+    );
+    await waitForState(() => activity()?.phase === "waiting_for_commit", "sender to wait for a new center commit");
+    assert.match(
+      (overview(center).nodes.find((node) => node.nodeId === "edge-one")!.watch as { text: string }).text,
+      /center phase=waiting_for_commit/u,
+    );
+    assert.equal(activity()?.bytesSent, null, "the completed backup counter is not a commit-transfer counter");
+    fixture.owners.keycloak.endInteractiveSession("device-token-edge-one");
+    const appended = await fixture.centerRun({
+      kind: "task-create",
+      taskId: "task_000000000000000000000099",
+      title: "wake the authorized sender for its next authority check",
+    });
+    assert.equal(appended.outcome, "applied", JSON.stringify(appended));
+    await peer.closed;
+    await waitForState(
+      () => center.status().nodeSessions[0]?.lastFailure?.code === "human_confirmation_required",
+      "a later authority rejection after the successful backup",
+    );
+    const rejected = overview(center).nodes.find((node) => node.nodeId === "edge-one")!;
+    assert.match((rejected.lastFailure as { text: string }).text, /human_confirmation_required @ /u);
+    assert.equal(rejected.watch.kind, "unavailable", "closed sessions cannot retain an active sender phase");
+  },
+);
+
+test(
+  "a rejected interactive session is visible before any slot ACK and creates no backup",
+  { timeout: 60_000 },
+  async (t) => {
+    const fixture = await fleetReplicationFixture(t),
+      center = await fixture.openCenter();
+    const peer = await replicationPeer(fixture.track, center.port, fixture.cert, "edge-one", "secret-edge-one");
+    fixture.owners.keycloak.endInteractiveSession("device-token-edge-one");
+    peer.sendRawBytes(
+      Buffer.from(
+        serializeReplicationFrame({
+          type: "replica.start",
+          repoId: replicationRepoId,
+          position: null,
+          edgeBuildCommit: null,
+          taskEventShapeVersion: TASK_EVENT_SHAPE_COMPAT_VERSION,
+        }),
+      ),
+    );
+    await peer.closed;
+    await waitForState(
+      () =>
+        center.status().nodeSessions.find((row) => row.nodeId === "edge-one")?.lastFailure?.code ===
+        "human_confirmation_required",
+      "the interactive-session refusal to persist",
+    );
+    const edge = overview(center).nodes.find((node) => node.nodeId === "edge-one")!;
+    assert.ok(edge, "a rejected replica with no ACK must remain observable");
+    assert.equal(edge.replicaReason, "sync-failure:human_confirmation_required");
+    assert.match((edge.lastFailure as { text: string }).text, /human_confirmation_required @ /u);
+    assert.equal(
+      existsSync(path.join(fixture.stateRoot, "replication-backups")),
+      false,
+      "authorization precedes any archive creation",
+    );
   },
 );

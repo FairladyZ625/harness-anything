@@ -334,7 +334,7 @@
   "collaboration.reason.replicaSyncFailure": "The center recorded a sync failure; the original error is shown under last failure.",
   "collaboration.note.eventsAttribution": "Events are attributed to the node currently holding each task's lease; older events may predate the current holder.",
   "collaboration.note.edgeOnline": "Online state comes from the center's live replication sessions; unobserved last online times are unknown.",
-  "collaboration.note.syncInternals": "Some edge sync internals remain unavailable; the latest failure recorded by the center appears on its node card.",
+  "collaboration.note.syncInternals": "Center sender phases and progress are shown when observed; edge-local watch internals remain unavailable.",
   "collaboration.warning.ownerRegistryUnavailable": "The node owner registry could not be queried; owner shows as not provided on affected nodes.",
   "collaboration.leasePhaseMissing": "lease phase not provided",
   "collaboration.dispatchStartedAt": "dispatched {at}",

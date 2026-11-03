@@ -268,9 +268,12 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     peer: import("./protocol.ts").ReplicationPeer,
     signal: AbortSignal,
   ) => {
+    const replicaKeyForNode = { nodeId, repoId: frame.repoId };
+    replicaStatus.recordActivity(replicaKeyForNode, "authorizing");
     let readerProfile: { personId: string; nodeId: string };
     try {
       ({ readerProfile } = await admitReplica(nodeId, frame.repoId, accessToken));
+      signal.throwIfAborted();
       nodeAdmission.assertOpen(nodeId);
     } catch (error) {
       if (error instanceof FleetFault && error.code === "authorization_denied") {
@@ -279,14 +282,13 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       }
       throw error;
     }
-    const centerBuildCommit = daemonBuildStamp().commit,
-      replicaKeyForNode = { nodeId, repoId: frame.repoId };
+    const centerBuildCommit = daemonBuildStamp().commit;
+    replicaStatus.recordActivity(replicaKeyForNode, "preparing_replica");
     if ((frame.taskEventShapeVersion ?? 0) < TASK_EVENT_SHAPE_COMPAT_VERSION) {
       const failure = {
         code: "edge_upgrade_required",
         message: `Edge must upgrade to center build ${centerBuildCommit?.slice(0, 7) ?? "unknown"} before applying task event shape ${TASK_EVENT_SHAPE_COMPAT_VERSION}.`,
       };
-      replicaStatus.recordFailure(replicaKeyForNode, failure);
       await peer.send({
         type: "replica.reject",
         ...failure,
@@ -365,6 +367,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       backup: async (backupSignal: AbortSignal) => {
         const cached = backupCache.get(frame.repoId);
         if (cached) {
+          replicaStatus.recordActivity(replicaKeyForNode, "waiting_shared_backup");
           cached.users += 1;
           return {
             ...(await cached.archive),
@@ -379,7 +382,9 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           frame.repoId,
           previous.then(() => turn),
         );
+        replicaStatus.recordActivity(replicaKeyForNode, "backup_queued");
         await previous;
+        if (!backupSignal.aborted) replicaStatus.recordActivity(replicaKeyForNode, "building_backup");
         // Pin a start no later than the snapshot, so the log keeps the suffix this backup resumes from.
         const unpin = retention.pin(store.replicationPosition());
         const directory = path.join(backupsRoot, randomUUID());
@@ -420,7 +425,9 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         slots,
         lease,
         signal,
-        onFailure: (failure) => replicaStatus.recordFailure(replicaKeyForNode, failure),
+        onActivity: (phase, transfer) => {
+          if (!signal.aborted) replicaStatus.recordActivity(replicaKeyForNode, phase, transfer);
+        },
         onAcknowledged: () => replicaStatus.clearFailure(replicaKeyForNode),
       });
     } finally {
@@ -1164,6 +1171,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     head: readReplicationHead,
     isConnected: (key) => replicationOwners.has(replicationSlotKey(key)),
     diskQuotaBytes: options.replicaDiskQuotaBytes ?? null,
+    now,
   });
   // One limiter for every connection: the failure budget lives per connection source across
   // sessions, not per socket and not per claimed node id. Each unauthenticated socket holds a
@@ -1191,6 +1199,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       sessions,
       replicationOwners,
       nodeSessions,
+      replicaStatus,
     ),
   );
   server.on("connection", (socket: TLSSocket) => {

@@ -127,7 +127,11 @@ function overview(overrides: Partial<FleetOverviewRead> = {}): FleetOverviewRead
         nodeId: "center",
       },
     ],
-    notes: ["events-attribution=current-lease", "edge-online=center-replication-session", "sync-internals=unavailable"],
+    notes: [
+      "events-attribution=current-lease",
+      "edge-online=center-replication-session",
+      "sync-internals=center-sender-phase",
+    ],
     warnings: [],
     ...overrides,
   };
@@ -566,6 +570,10 @@ describe("协作页舰队拓扑契约", () => {
       ...data.nodes[1]!,
       online: { kind: "value", text: "disconnected; lastOnlineAt=2026-11-03T01:00:00.000Z" },
       build: { kind: "value", text: "abcdef (version mismatch; ha update)" },
+      watch: {
+        kind: "value",
+        text: "center phase=awaiting_ack since=2026-11-03T01:00:00.000Z; edge watch unavailable",
+      },
       lastFailure: { kind: "value", text: "invalid_frame @ 2026-11-03T01:00:00.000Z: peer=edge; frame=backup" },
     };
     const view = renderView({ data });
@@ -573,6 +581,7 @@ describe("协作页舰队拓扑契约", () => {
     const details = view.host.querySelector('[data-testid="collaboration-node-details"]')!;
     expect(details.textContent).toContain("disconnected; lastOnlineAt=2026-11-03T01:00:00.000Z");
     expect(details.textContent).toContain("abcdef (version mismatch; ha update)");
+    expect(details.textContent).toContain("center phase=awaiting_ack since=2026-11-03T01:00:00.000Z");
     expect(details.textContent).toContain("invalid_frame @ 2026-11-03T01:00:00.000Z: peer=edge; frame=backup");
   });
 

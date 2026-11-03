@@ -35,6 +35,7 @@ function replica(nodeId: string, overrides: Partial<FleetReplicaStatus> = {}): F
     delivery: "current",
     diskQuotaBytes: null,
     syncFailure: null,
+    activity: null,
     ...overrides,
   };
 }
@@ -197,7 +198,7 @@ test("edge fields the read surface cannot see are unavailable with a reason, nev
   assert.deepEqual(result.notes, [
     "events-attribution=current-lease",
     "edge-online=center-replication-session",
-    "sync-internals=unavailable",
+    "sync-internals=center-sender-phase",
   ]);
   assert.equal(result.links[0]!.state, "lag");
 });

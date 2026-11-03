@@ -1,3 +1,4 @@
+import type { ReplicaSyncPhase } from "./replica-status.ts";
 import { createReadStream } from "node:fs";
 import { replicationContentClaims, type ReplicationCommit, type ReplicationPosition } from "@harness-anything/storage";
 import { type PersistedCanonicalEventV1 } from "@harness-anything/kernel";
@@ -24,6 +25,7 @@ async function sendBytes(
   peer: ReplicationPeer,
   chunks: AsyncIterable<Uint8Array> | Iterable<Uint8Array>,
   signal: AbortSignal,
+  onProgress?: (bytes: number) => void,
 ): Promise<void> {
   let offset = 0;
   for await (const chunk of chunks) {
@@ -32,6 +34,7 @@ async function sendBytes(
       const bytes = Buffer.from(chunk.subarray(start, start + REPLICATION_CHUNK_BYTES));
       await peer.send({ type: "replica.data", offset, data: bytes.toString("base64") });
       offset += bytes.length;
+      onProgress?.(offset);
     }
   }
 }
@@ -45,6 +48,10 @@ export async function runWalSender(input: {
   readonly signal: AbortSignal;
   readonly onFailure?: (failure: { readonly code: string; readonly message: string }) => void;
   readonly onAcknowledged?: () => void;
+  readonly onActivity?: (
+    phase: ReplicaSyncPhase,
+    transfer?: { readonly bytesSent: number; readonly totalBytes: number },
+  ) => void;
 }): Promise<void> {
   const { peer, source, slots, lease, signal } = input;
   const assertOwner = () => {
@@ -52,6 +59,7 @@ export async function runWalSender(input: {
     if (!slots.current(lease)) throw new Error("replication session fenced");
   };
   const acknowledge = async (sent: ReplicationPosition) => {
+    input.onActivity?.("awaiting_ack");
     const frame = await peer.receive(signal);
     if (frame.type === "replica.failure") {
       input.onFailure?.({ code: frame.code, message: frame.message });
@@ -76,12 +84,14 @@ export async function runWalSender(input: {
   let position = start.position;
   for (;;) {
     assertOwner();
+    input.onActivity?.("authorizing");
     await source.authorize?.();
     const read = readReplicationPage(source, position),
       page = read.page,
       reason = read.reason;
     if (page === null) {
       if (position !== null) await peer.send({ type: "replica.resync", reason });
+      input.onActivity?.("waiting_backup");
       const archive = await source.backup(signal);
       try {
         assertOwner();
@@ -93,7 +103,15 @@ export async function runWalSender(input: {
           size: archive.size,
           sha256: archive.sha256,
         });
-        await sendBytes(peer, createReadStream(archive.file, { highWaterMark: REPLICATION_CHUNK_BYTES }), signal);
+        const progress = (bytesSent: number) =>
+          input.onActivity?.("sending_backup", { bytesSent, totalBytes: archive.size });
+        progress(0);
+        await sendBytes(
+          peer,
+          createReadStream(archive.file, { highWaterMark: REPLICATION_CHUNK_BYTES }),
+          signal,
+          progress,
+        );
         await peer.send({ type: "replica.backup.end" });
         await acknowledge(archive.metadata.position);
         position = archive.metadata.position;
@@ -102,6 +120,7 @@ export async function runWalSender(input: {
       }
       continue;
     }
+    input.onActivity?.("sending_commits");
     for (const commit of page.commits) {
       assertOwner();
       const bytes = Buffer.from(JSON.stringify(commit));
@@ -122,7 +141,10 @@ export async function runWalSender(input: {
     await peer.send({ type: "replica.progress", head: position! });
     await acknowledge(position!);
     // S advances on every commit, including eventless outcomes. Only the reader's done terminates a page walk.
-    if (page.done) await source.wait(position!, signal);
+    if (page.done) {
+      input.onActivity?.("waiting_for_commit");
+      await source.wait(position!, signal);
+    }
   }
 }
 

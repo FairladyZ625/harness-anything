@@ -17,6 +17,10 @@ test("fleet status renders center-observed online time, build mismatch and times
         ...node,
         online: { kind: "value", text: "disconnected; lastOnlineAt=2026-11-03T01:00:00.000Z" },
         build: { kind: "value", text: "abcdef (version mismatch; ha update)" },
+        watch: {
+          kind: "value",
+          text: "center phase=awaiting_ack since=2026-11-03T01:00:00.000Z; edge watch unavailable",
+        },
         lastFailure: {
           kind: "value",
           text: "center_upgrade_required @ 2026-11-03T01:00:00.000Z: unsupported frame; peer=edge; frame=backup",
@@ -27,6 +31,7 @@ test("fleet status renders center-observed online time, build mismatch and times
   const text = renderDaemonFleetStatus(result as unknown as Record<string, unknown>);
   assert.match(text, /online disconnected; lastOnlineAt=2026-11-03T01:00:00.000Z/u);
   assert.match(text, /build abcdef \(version mismatch; ha update\)/u);
+  assert.match(text, /watch center phase=awaiting_ack since=/u);
   assert.match(text, /lastFailure center_upgrade_required @ .*peer=edge; frame=backup/u);
 });
 
@@ -183,7 +188,11 @@ function overview(): FleetOverview {
         nodeId: "edge-caught-up",
       },
     ],
-    notes: ["events-attribution=current-lease", "edge-online=center-replication-session", "sync-internals=unavailable"],
+    notes: [
+      "events-attribution=current-lease",
+      "edge-online=center-replication-session",
+      "sync-internals=center-sender-phase",
+    ],
     warnings: [],
   };
 }
@@ -223,7 +232,7 @@ test("fleet status render keeps honest three-state fields and never-acked visibl
   assert.match(text, /links 2/u);
   assert.match(
     text,
-    /notes events-attribution=current-lease \| edge-online=center-replication-session \| sync-internals=unavailable/u,
+    /notes events-attribution=current-lease \| edge-online=center-replication-session \| sync-internals=center-sender-phase/u,
   );
 });
 

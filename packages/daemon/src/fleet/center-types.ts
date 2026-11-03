@@ -100,6 +100,7 @@ export interface FleetReplicaStatus extends ReplicationSlotKey {
   readonly delivery: "current" | "delta" | "snapshot_required";
   readonly diskQuotaBytes: number | null;
   readonly syncFailure: { readonly code: string; readonly message: string } | null;
+  readonly activity: import("./replica-status.ts").ReplicaSyncActivity | null;
 }
 
 export interface FleetTlsCenter {
