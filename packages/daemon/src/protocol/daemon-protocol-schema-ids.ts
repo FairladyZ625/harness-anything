@@ -130,6 +130,7 @@ export const DAEMON_AGENDA_SCHEMA = Object.freeze({
     "regionWeights",
     "inFlight",
     "stalled",
+    "awaitingRestart",
     "awaitingRework",
     "awaitingAdjudication",
     "underReview",

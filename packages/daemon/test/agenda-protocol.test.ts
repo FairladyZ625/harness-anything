@@ -112,6 +112,7 @@ test("agenda result schema rejects mistyped pin state and misgrouped awaiting ro
       regionWeights: { mine: 13.14, stuck: 3, run: 3, review: 5, queue: 0, recent: 4, works: 8 },
       inFlight: [],
       stalled: [],
+      awaitingRestart: [],
       awaitingRework: [],
       awaitingAdjudication: [execution],
       underReview: [],
@@ -171,6 +172,15 @@ test("agenda result schema rejects mistyped pin state and misgrouped awaiting ro
   // awaitingRework is required now that the mixed shape is gone: omitting it is refused.
   const { awaitingRework: _omit, ...withoutRework } = agenda;
   assert.notDeepEqual(validateDaemonAgenda(withoutRework), []);
+  // awaitingRestart rows carry the same task shape plus the shared completion next; a missing
+  // command or a missing group is refused.
+  assert.deepEqual(
+    validateDaemonAgenda({ ...agenda, awaitingRestart: [{ ...task, next: "ha task start task-current" }] }),
+    [],
+  );
+  assert.notDeepEqual(validateDaemonAgenda({ ...agenda, awaitingRestart: [{ ...task, next: "" }] }), []);
+  const { awaitingRestart: _omitRestart, ...withoutRestart } = agenda;
+  assert.notDeepEqual(validateDaemonAgenda(withoutRestart), []);
   assert.notDeepEqual(validateDaemonAgenda({ ...agenda, undeclaredGroup: [] }), []);
   // awaitingYou rows carry a closed ask-kind and a task/decision source; the awaits blocker is its own shape.
   const { awaitingYou: _omitAwaits, ...withoutAwaits } = agenda;

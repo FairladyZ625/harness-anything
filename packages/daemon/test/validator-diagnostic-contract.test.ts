@@ -189,6 +189,7 @@ const relationGraph = {
     regionWeights: { mine: 1.5, stuck: 3, run: 3, review: 3, queue: 0, recent: 4, works: 8 },
     inFlight: [agendaTask],
     stalled: [],
+    awaitingRestart: [],
     awaitingRework: [],
     awaitingAdjudication: [],
     underReview: [],

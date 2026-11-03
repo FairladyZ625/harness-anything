@@ -203,6 +203,7 @@ async function mountBoard(options: {
       inFlight: [],
       pinnedEntities: [],
       pinnedEntityOverflow: 0,
+      awaitingRestart: [],
       awaitingRework: [],
       awaitingAdjudication: [],
       underReview: [],

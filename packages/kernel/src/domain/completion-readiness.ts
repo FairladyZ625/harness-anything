@@ -193,14 +193,8 @@ function evaluateCompletion(
       `ha task contract migrate --apply --task ${task.taskId}`,
       "The task contract declares no closeout document; migrate the contract before continuing completion.",
     );
-  if (task.status === "active" && execution?.state === "active" && snapshot.lease === null)
-    return one(
-      "not_in_review",
-      "lifecycle",
-      `ha task start ${task.taskId}`,
-      "The execution lease was released and the execution is still active; start reconnects to that execution. " +
-        `To abandon the round instead, run ha task transition ${task.taskId} planned --reason <why>.`,
-    );
+  const restart = releasedLeaseRestartNext(snapshot, execution);
+  if (restart) return [{ code: "not_in_review" as const, gate: "lifecycle", next: restart }];
   // A work root is a map, not an execution (dec_mr7v4h6t): its status derives from the subtree at
   // read time, so a root off the corridor never reaches completion — say so instead of pointing at start.
   if (
@@ -436,6 +430,28 @@ export function reviewDispositionCommand(taskId: string, executionId: string, re
   return (
     `ha task review-consent ${taskId} --execution-id ${executionId} ` +
     `--review-id ${quoted(reviewId)} --dispose ${quoted(reviewId)} --rationale <why>`
+  );
+}
+
+/**
+ * The one judgment behind both `ha task show`'s "start reconnects" guidance and the agenda's
+ * owner-action group: an active execution whose lease was released has no worker, so the owner's
+ * next move is `ha task start` (which reconnects to that execution) or a transition off the round.
+ * Callers that can see runtime evidence must only use this when no dispatch is still live; the
+ * command and reason stay defined here so no surface invents a second copy.
+ */
+export function releasedLeaseRestartNext(
+  snapshot: TaskLifecycleSnapshot,
+  execution: { readonly executionId: string; readonly state: string } | undefined,
+): CompletionNext | null {
+  const task = snapshot.task;
+  if (!task || task.status !== "active" || snapshot.lease !== null || execution?.state !== "active") return null;
+  return completionGuidance(
+    snapshot,
+    execution.executionId,
+    `ha task start ${task.taskId}`,
+    "The execution lease was released and the execution is still active; start reconnects to that execution. " +
+      `To abandon the round instead, run ha task transition ${task.taskId} planned --reason <why>.`,
   );
 }
 

@@ -228,6 +228,7 @@ async function mountApp(options: {
         inFlight: [],
         pinnedEntities: [],
         pinnedEntityOverflow: 0,
+        awaitingRestart: [],
         awaitingRework: [],
         awaitingAdjudication: [],
         underReview: [],

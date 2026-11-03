@@ -353,6 +353,22 @@ test("agenda groups a changes_requested return into awaiting rework, not the in-
         ...readyCut,
         rows: taskIds.map((taskId) => ({ taskId, status: "active" })),
       }),
+      // The restarted round has a dispatched worker, so it is genuinely in flight.
+      readRuntimeDispatchesByTaskExecution: (taskId: string, executionId: string) =>
+        taskId === "task_resubmitted" && executionId === "exe_new"
+          ? [
+              {
+                outcome: null,
+                event: {
+                  payload: {
+                    dispatchId: `dispatch_${createHash("sha256").update("resubmitted").digest("hex").slice(0, 24)}`,
+                    runtimeSessionId: "runtime_resubmitted",
+                  },
+                },
+              },
+            ]
+          : [],
+      readRuntimeSession: () => null,
     } as unknown as TaskProjection,
     result = makeTaskQueryReadModel({
       rootDir: canonicalRoot(process.cwd()),
@@ -399,7 +415,7 @@ test("agenda flags a stopped worker without delivery, but excludes leased, submi
   const taskRow = (taskId: string, executionId: string, options: { lease?: boolean; submitted?: boolean } = {}) => {
       const row = protocolTaskRow(taskId, [], { status: "active" }),
         execution = {
-          ...executionRow(executionId, 0, "active", taskId),
+          ...executionRow(executionId, 0, options.submitted ? "submitted" : "active", taskId),
           submission: options.submitted ? { commitSha: "a".repeat(40), artifacts: [] } : null,
         };
       return {
@@ -488,10 +504,123 @@ test("agenda flags a stopped worker without delivery, but excludes leased, submi
     result.attentionItems.filter(({ kind }) => kind === "unsubmitted-delivery").map(({ ref, region }) => [ref, region]),
     [["task/task_unsubmitted", "mine"]],
   );
+  // A stopped worker releases the lease and leaves the execution active for `ha task start` to
+  // reconnect; no worker is running, so the in-flight "just wait" line is the wrong place.
   assert.equal(
     result.inFlight.some(({ taskId }) => taskId === "task_unsubmitted"),
-    true,
+    false,
   );
+  assert.deepEqual(
+    result.awaitingRestart
+      .filter(({ taskId }) => taskId === "task_unsubmitted")
+      .map(({ taskId, next }) => [taskId, next]),
+    [["task_unsubmitted", "ha task start task_unsubmitted"]],
+  );
+  assert.deepEqual(validateDaemonAgenda(result), []);
+});
+
+test("agenda keeps a leased or live-runtime execution in flight and names start for a released lease", () => {
+  const taskRow = (taskId: string, executionId: string, lease = false) => {
+      const row = protocolTaskRow(taskId, [], { status: "active" });
+      return {
+        ...row,
+        snapshot: {
+          ...row.snapshot,
+          executions: [executionRow(executionId, 0, "active", taskId)],
+          ...(lease
+            ? {
+                lease: {
+                  schema: "lease/v1",
+                  taskId,
+                  executionId,
+                  actor: { principal: { personId: "person-owner" }, executor: null },
+                  source: "local",
+                  phase: "held",
+                  expiresAt: "2026-08-30T03:00:00.000Z",
+                  ttlMs: 60000,
+                  version: 1,
+                },
+              }
+            : {}),
+        },
+      };
+    },
+    dispatch = (
+      taskId: string,
+      executionId: string,
+      dispatchId: string,
+      runtimeSessionId: string,
+      outcome: "stopped" | "failed" | null,
+    ) => ({
+      outcome,
+      event: {
+        occurredAt: "2026-10-22T01:00:00.000Z",
+        payload: {
+          taskId,
+          executionId,
+          dispatchId: `dispatch_${createHash("sha256").update(dispatchId).digest("hex").slice(0, 24)}`,
+          runtimeSessionId,
+        },
+      },
+    }),
+    dispatches = [
+      dispatch("task_restart", "exe_restart", "dispatch_restart", "runtime_restart", "stopped"),
+      dispatch("task_failed", "exe_failed", "dispatch_failed", "runtime_failed", "failed"),
+      dispatch("task_live", "exe_live", "dispatch_live", "runtime_live", null),
+      dispatch("task_lease", "exe_lease", "dispatch_lease", "runtime_lease", "stopped"),
+    ],
+    base = projectionStub({
+      taskRows: [
+        taskRow("task_restart", "exe_restart"),
+        taskRow("task_failed", "exe_failed"),
+        taskRow("task_live", "exe_live"),
+        taskRow("task_lease", "exe_lease", true),
+      ],
+    }),
+    projection = {
+      ...base,
+      readTaskStatuses: (taskIds: readonly string[]) => ({
+        ...readyCut,
+        rows: taskIds.map((taskId) => ({ taskId, status: "active" as const })),
+      }),
+      readRuntimeDispatchesByTaskExecution: (taskId: string, executionId: string) =>
+        dispatches.filter(({ event }) => event.payload.taskId === taskId && event.payload.executionId === executionId),
+      readRuntimeSession: (runtimeSessionId: string) =>
+        runtimeSessionId === "runtime_live"
+          ? ({ runtimeSessionId, liveness: "live", outcome: null, taskBindings: [] } as never)
+          : null,
+      readRuntimeSessionEvents: () => [],
+      readRuntimeDispatchByResumeSource: () => null,
+    } as unknown as TaskProjection,
+    result = makeTaskQueryReadModel({
+      rootDir: canonicalRoot(process.cwd()),
+      projection,
+      readPinnedEntities: () => [],
+      judgments: {
+        closeout: (() => ({ readiness: "missing", blocker: "execution", gates: [] })) as never,
+        blocking: ((tasks: readonly { taskId: string }[]) =>
+          tasks.map(({ taskId }) => ({ taskId, state: "clear", label: "none", blockers: [], warnings: [] }))) as never,
+      },
+    }).agenda();
+
+  assert.deepEqual(
+    result.inFlight.map(({ taskId }) => taskId),
+    ["task_lease", "task_live"],
+  );
+  assert.deepEqual(
+    result.awaitingRestart.map(({ taskId, next }) => [taskId, next]),
+    [
+      ["task_failed", "ha task start task_failed"],
+      ["task_restart", "ha task start task_restart"],
+    ],
+  );
+  assert.match(result.summary, /在飞线 \(2\)[\s\S]*task_lease[\s\S]*task_live/u);
+  assert.match(
+    result.summary,
+    /待你重启 \(2\)[\s\S]*task_failed[\s\S]*下一步: ha task start task_failed[\s\S]*task_restart[\s\S]*下一步: ha task start task_restart/u,
+  );
+  const inFlightSection = result.summary.split("\n\n").find((section) => section.startsWith("在飞线"));
+  assert.doesNotMatch(inFlightSection ?? "", /task_restart/u);
   assert.deepEqual(validateDaemonAgenda(result), []);
 });
 

@@ -25,6 +25,7 @@ const executionRow = (taskId: string, executionId: string) => ({
   submittedAt: AT,
   blockingAssessment: blocking,
 });
+const restartRow = (taskId: string) => ({ ...row(taskId), next: `ha task start ${taskId}` });
 const decisionRow = (decisionId: string) => ({
   decisionId,
   title: `决策 ${decisionId}`,
@@ -76,6 +77,7 @@ const page = (over: Partial<AgendaRead> = {}): AgendaSuccess => {
     pinnedEntityOverflow: 0,
     awaitingYou: [],
     answeredForYou: [],
+    awaitingRestart: [],
     awaitingRework: [],
     awaitingAdjudication: [],
     underReview: [],
@@ -168,6 +170,7 @@ describe("agenda read discipline", () => {
         status: "pending",
         awaitingYou: [awaitsRow("rel_a")],
         answeredForYou: [answeredRow("rel_old")],
+        awaitingRestart: [restartRow("task_restart")],
         awaitingRework: [row("task_rework")],
         awaitingAdjudication: [executionRow("task_sub", "exe_sub")],
         underReview: [executionRow("task_rev", "exe_rev")],
@@ -197,6 +200,7 @@ describe("agenda read discipline", () => {
       page({
         awaitingYou: [awaitsRow("rel_a", 2), awaitsRow("rel_b")],
         answeredForYou: [answeredRow("rel_old"), answeredRow("rel_new")],
+        awaitingRestart: [restartRow("task_restart"), restartRow("task_restart_2")],
         awaitingRework: [row("task_rework")],
         awaitingAdjudication: [executionRow("task_sub2", "exe_sub2")],
         underReview: [executionRow("task_rev", "exe_rev")],
@@ -224,6 +228,7 @@ describe("agenda read discipline", () => {
     ]);
     expect(joined.answeredForYou.map(({ relationId }) => relationId)).toEqual(["rel_old", "rel_new"]);
     expect(joined.awaitingRework.map(({ taskId }) => taskId)).toEqual(["task_rework"]);
+    expect(joined.awaitingRestart.map(({ taskId }) => taskId)).toEqual(["task_restart", "task_restart_2"]);
     expect(joined.awaitingAdjudication.map(({ executionId }) => executionId)).toEqual(["exe_sub", "exe_sub2"]);
     expect(joined.underReview.map(({ executionId }) => executionId)).toEqual(["exe_rev"]);
     expect(joined.awaitingDecision.map(({ decisionId }) => decisionId)).toEqual(["dec_one", "dec_two"]);

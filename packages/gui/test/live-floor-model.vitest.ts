@@ -399,6 +399,7 @@ describe("live floor model", () => {
         ],
         awaitingDecision: [{ decisionId: "dec-1", title: "决策一" }],
         awaitingDecisionReview: [{ decisionId: "dec-2", title: "决策二" }],
+        awaitingRestart: [],
         awaitingRework: [{ taskId: "task-2", title: "打回的任务" }],
         awaitingAdjudication: [{ taskId: "task-3", title: "待派审任务", executionId: "exe-3" }],
       },
@@ -476,6 +477,7 @@ describe("live floor model", () => {
       awaitingYou: [],
       awaitingDecision: [],
       awaitingDecisionReview: [],
+      awaitingRestart: [],
       awaitingRework: [],
       awaitingAdjudication: [],
       pinnedEntities: [

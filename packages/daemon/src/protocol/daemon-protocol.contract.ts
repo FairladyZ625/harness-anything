@@ -428,6 +428,7 @@ export type {
   AgendaDecisionRow,
   AgendaExecutionRow,
   AgendaPinnedEntityRow,
+  AgendaRestartRow,
   AgendaRulingRow,
   AgendaTaskRow,
   AgendaWorkRef,

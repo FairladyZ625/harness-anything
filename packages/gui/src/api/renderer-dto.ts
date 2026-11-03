@@ -52,6 +52,7 @@ export type AgendaRead = DaemonGuiReadResultMap["repo.agenda.read"];
 export type AgendaAttentionItem = AgendaRead["attentionItems"][number];
 export type AgendaRegionWeights = AgendaRead["regionWeights"];
 export type AgendaTaskRow = AgendaRead["inFlight"][number];
+export type AgendaRestartRow = AgendaRead["awaitingRestart"][number];
 export type AgendaExecutionRow = AgendaRead["awaitingAdjudication"][number];
 export type AgendaDecisionRow = AgendaRead["awaitingDecision"][number];
 export type AgendaDecisionReviewRow = AgendaRead["decisionReviewInProgress"][number];

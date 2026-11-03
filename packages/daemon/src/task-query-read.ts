@@ -14,6 +14,8 @@ import {
   isTerminalStatus,
   parseAwaitsRequest,
   relationIsCurrent,
+  releasedLeaseRestartNext,
+  runtimeSessionIsRunning,
   taskBoardPlacement,
   taskCapabilities,
   taskPhase,
@@ -50,6 +52,7 @@ import {
   type AgendaDecisionRow,
   type AgendaExecutionRow,
   type AgendaPinnedEntityRow,
+  type AgendaRestartRow,
   type AgendaRulingRow,
   type AgendaTaskRow,
   type AgendaWorkRef,
@@ -572,9 +575,25 @@ export function makeTaskQueryReadModel(input: {
           now().toISOString(),
         );
       },
+      // 「在飞」只收真有人在干的行:有效 lease,或当前 active execution 上还有未结算的
+      // dispatch / 存活的 runtime。active execution 本身不代表有人;它留在 active 是为了
+      // `ha task start` 能重连(见 kernel completion-readiness 的同一判定)。
+      liveWorkerByTask = new Map<string, boolean>(
+        (active?.rows ?? []).map((row) => [row.taskId, hasLiveWorker(projection, row)]),
+      ),
       inFlight = (active?.rows ?? [])
-        .filter((row) => row.snapshot.lease !== null || row.snapshot.executions.some(({ state }) => state === "active"))
+        .filter((row) => row.snapshot.lease !== null || liveWorkerByTask.get(row.taskId) === true)
         .map(agendaTaskRow)
+        .sort(compareAgendaTasks),
+      // lease 已交回、execution 仍 active、且没有存活 worker:这是 owner 的下一步,
+      // next 与 `ha task show` 的 completion next 取同一 kernel 判定。
+      awaitingRestart = (active?.rows ?? [])
+        .filter((row) => row.snapshot.lease === null && !liveWorkerByTask.get(row.taskId))
+        .flatMap((row) => {
+          const restart = restartRow(row);
+          return restart === null ? [] : [restart];
+        })
+        .filter(({ taskId }) => assignmentFor(`task/${taskId}`))
         .sort(compareAgendaTasks),
       // 评审打回、球已回到使用者手里的那批:执行已关闭、lease 已释放,既不在飞也不待裁。
       awaitingRework = (active?.rows ?? [])
@@ -904,6 +923,7 @@ export function makeTaskQueryReadModel(input: {
       regionWeights,
       inFlight,
       stalled,
+      awaitingRestart,
       awaitingRework,
       awaitingAdjudication,
       underReview,
@@ -923,6 +943,7 @@ export function makeTaskQueryReadModel(input: {
         answeredForYou,
         attentionItems,
         inFlight,
+        awaitingRestart,
         awaitingRework,
         awaitingAdjudication,
         underReview,
@@ -1258,6 +1279,30 @@ function agendaTaskRow(row: AgendaSourceRow): AgendaTaskRow {
  */
 function leaseReturnedRows(rows: readonly AgendaSourceRow[]): readonly AgendaSourceRow[] {
   return rows.filter((row) => row.snapshot.lease === null);
+}
+
+/**
+ * An active execution has a live worker while any dispatch on it has not settled or its runtime
+ * session is still running. Per row this reads only that task's execution dispatch index, never the
+ * repository-wide dispatch table.
+ */
+function hasLiveWorker(projection: TaskProjection, row: AgendaSourceRow): boolean {
+  for (const execution of row.snapshot.executions) {
+    if (execution.state !== "active") continue;
+    for (const dispatch of projection.readRuntimeDispatchesByTaskExecution(row.taskId, execution.executionId)) {
+      if (dispatch.outcome !== null) continue;
+      const session = projection.readRuntimeSession(dispatch.event.payload.runtimeSessionId);
+      if (session === null || runtimeSessionIsRunning(session)) return true;
+    }
+  }
+  return false;
+}
+
+/** The owner-action row for a lease-released active execution, or null for every other shape. */
+function restartRow(row: AgendaSourceRow): AgendaRestartRow | null {
+  const execution = latestExecution(row.snapshot.executions.filter(({ state }) => state === "active")),
+    next = releasedLeaseRestartNext(row.snapshot, execution)?.action;
+  return next === undefined ? null : { ...agendaTaskRow(row), next };
 }
 
 /** 最新一轮 execution:按 iteration 取最大者的 state,不回看更早历史(同一轮内后到者胜出)。 */
