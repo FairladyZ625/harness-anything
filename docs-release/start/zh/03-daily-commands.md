@@ -111,8 +111,8 @@ ha settings read                                               # 查看 settings
 工作树里的被派工 worker 经 daemon 发布分支，不用个人 Git 登录：
 
 ```bash
-ha task push <task-id>        # 经 daemon 代持凭据发布任务分支
-gh pr create --head <task-id> # 用本机 gh 登录开 pull request
+ha task submit <task-id>      # 发布前冻结交付 cut
+ha task push <task-id> --body-file <path> # 经 daemon 创建或更新 PR，并提交仓库正文
 gh pr checks <task-id> --watch  # 阻塞到 PR head 的检查出结论
 ```
 

@@ -185,8 +185,8 @@ A dispatched worker in that worktree publishes through the daemon, not with a
 personal Git login:
 
 ```bash
-ha task push <task-id>        # publish the task branch through the daemon-held credential
-gh pr create --head <task-id> # open the pull request with the machine's gh login
+ha task submit <task-id>      # freeze the delivery before publication
+ha task push <task-id> --body-file <path> # create/update the PR with repository-authored Markdown
 gh pr checks <task-id> --watch  # block until the PR head's checks settle
 ```
 

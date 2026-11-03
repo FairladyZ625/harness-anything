@@ -145,14 +145,14 @@ test("settlement-none publication receipts render their next lane in text mode",
       evidence: "Worker branch pushed: task_x @ 0123456789.",
       next: [
         {
-          command: "gh pr create --head task_x",
-          reason: "open the task's pull request with the machine's own gh login",
+          command: "ha task push task_x",
+          reason: "retry daemon publication",
         },
       ],
     }),
     {
       stream: "stdout",
-      text: "task-push: applied\nnext: gh pr create --head task_x (open the task's pull request with the machine's own gh login)",
+      text: "task-push: applied\nnext: ha task push task_x (retry daemon publication)",
     },
   );
 });

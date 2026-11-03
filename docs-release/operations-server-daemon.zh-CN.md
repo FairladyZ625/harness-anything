@@ -153,12 +153,12 @@ ha gui
 ## 任务分支发布与 direct-push 保护
 
 产出为仓库变更的任务在 Harness 管理的工作树中运行，分支以任务标识命名。被派工的
-worker 在其中提交，并直接继承操作者的 GitHub 凭据来 push、开 PR、读 CI；
-`ha task push` 仍是经 daemon 发布的路径：
+worker 在其中提交并运行 task submit，再用 `ha task push` 经 daemon 代持凭据发布
+分支与 PR；结算复用同一发布端口：
 
 ```bash
-ha task push <task-id>        # 经 daemon 代持凭据发布任务分支
-gh pr create --head <task-id> # 用本机 gh 登录开 pull request
+ha task submit <task-id>      # 发布前冻结交付 cut
+ha task push <task-id> --body-file <path> # 经 daemon 创建或更新 PR，并提交仓库正文
 gh pr checks <task-id> --watch  # 阻塞到 PR head 的检查出结论
 ```
 

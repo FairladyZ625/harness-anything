@@ -157,7 +157,12 @@ function parseTaskPush(
   if (!nonEmpty(taskId)) return rejected("missing_field", "Run ha task push <task-id>.", json);
   const flags = readFlags("task-push", args.slice(3), inputs);
   if (!flags.ok) return rejected(flags.code, flags.nextAction, json);
-  return accepted(rootDir, repoId, json, { kind: "task-push", taskId });
+  const bodyFile = flags.one.get("--body-file");
+  return accepted(rootDir, repoId, json, {
+    kind: "task-push",
+    taskId,
+    ...(bodyFile === undefined ? {} : { bodyFile }),
+  });
 }
 
 function parseTaskShow(

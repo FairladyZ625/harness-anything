@@ -594,6 +594,26 @@ test("a CLI write returns its daemon receipt after one command round trip and ke
     assert.deepEqual(actions, [{ kind: "decision-rematerialize", all: true, dryRun: true }]);
 
     methods.length = 0;
+    actions.length = 0;
+    const bodyFile = path.join(parent, "pr-body.md"),
+      body = "# Repository convention\n\nLiteral `$()` and Unicode 交付.\n";
+    writeFileSync(bodyFile, body);
+    const pushed = await spawnCli(root, userRoot, ["task", "push", "task-1", "--body-file", bodyFile]);
+    assert.equal(pushed.status, 0, `${pushed.stderr}\n${pushed.stdout}`);
+    assert.deepEqual(methods, ["repo.task.run"]);
+    assert.deepEqual(actions, [{ kind: "task-push", taskId: "task-1", body }]);
+    methods.length = 0;
+    const missing = await spawnCli(root, userRoot, [
+      "task",
+      "push",
+      "task-1",
+      "--body-file",
+      path.join(parent, "missing"),
+    ]);
+    assert.notEqual(missing.status, 0);
+    assert.deepEqual(methods, [], "an unreadable local body never reaches the daemon");
+
+    methods.length = 0;
     reply = rejected;
     const refused = await spawnCli(root, userRoot, ["task", "create", "--title", "Refused"]);
     assert.equal(refused.status, 1, `${refused.stderr}\n${refused.stdout}`);

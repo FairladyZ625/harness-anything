@@ -673,7 +673,7 @@ test("a workflow-scope rejection reports the dedicated code and the CEO handoff 
   );
 });
 
-test("the queued task-push receipt points the publisher at gh pr create", async (context) => {
+test("the queued task-push receipt defers PR publication until submission", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-receipt-")),
     bare = path.join(root, "remote.git");
   context.after(() => rmSync(root, { recursive: true, force: true }));
@@ -699,6 +699,7 @@ test("the queued task-push receipt points the publisher at gh pr create", async 
       read: () => ({
         snapshot: {
           task: { taskId: "task_push_receipt", taskClass: "standard", presetSnapshotDigest: "digest" },
+          executions: [],
         },
       }),
       readPresetSnapshot: () => ({ snapshot: { profile: { outputShape: "repository-diff" } } }),
@@ -718,15 +719,13 @@ test("the queued task-push receipt points the publisher at gh pr create", async 
     source: "local",
   } satisfies RepoCellBinding)) as {
     readonly evidence: string;
+    readonly summary: string;
     readonly next: readonly { readonly command: string }[];
   };
   assert.match(receipt.evidence, /Worker branch pushed: task_push_receipt @/u);
-  assert.deepEqual(receipt.next, [
-    {
-      command: "gh pr create --head task_push_receipt",
-      reason: "open the task's pull request with the machine's own gh login",
-    },
-  ]);
+  assert.equal(receipt.next, undefined);
+  assert.equal(receipt.summary, receipt.evidence);
+  assert.match(receipt.evidence, /Submit the delivery before publishing its pull request/u);
 });
 
 function git(root, ...args) {

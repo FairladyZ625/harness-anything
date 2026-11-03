@@ -32,6 +32,6 @@
 - 描述完成结果与原因、验证结果和残余风险；commit 与变更文件以冻结的 submission 为准。
 - 交付前先 rebase 到最新 `origin/main`，再重跑证据命令。
 - 提交时会接纳任务包文档；这些文件不再单独运行文档同步。
-- 仓库交付在最终代码 commit 后先运行 `ha task submit <task-id>` 冻结交付事实，再用 `ha task push <task-id>` 发布、用 `gh pr create --head <task-id>` 创建 PR，并运行 `gh pr checks <task-id> --watch` 等待当前 PR head 的 checks 出结论。Worker 不得合并。
+- 仓库交付在最终代码 commit 后先运行 `ha task submit <task-id>` 冻结交付事实，再用 `ha task push <task-id>` 经 daemon 发布分支并创建或更新 PR（仓库正文可用 `--body-file <path>` 原样提交），并运行 `gh pr checks <task-id> --watch` 等待当前 PR head 的 checks 出结论。Worker 不得合并。
 - 任务交付时序、检查等待期间的工作、失败修复与会话交接统一遵循 `# Worker Role`。任务合同声明的 CI 仍是完成门禁。
 - 如果 PR 冲突，先 rebase 到最新 `origin/main`，再次推送并重读检查。

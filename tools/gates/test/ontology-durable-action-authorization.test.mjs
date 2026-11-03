@@ -385,8 +385,11 @@ for (const mutation of [
   {
     name: "prepared side effect import",
     file: "write-queue-external-reads",
-    before: 'from "./runtime-worker-push.ts"',
-    after: 'from "./unrelated-worker-push.ts"',
+    before: 'from "./runtime-task-publication.ts"',
+    after: 'from "./unrelated-task-publication.ts"',
+    // The callback also imports the push-failure classifier; disconnect both local handlers.
+    extraBefore: 'from "./runtime-worker-push.ts"',
+    extraAfter: 'from "./unrelated-worker-push.ts"',
   },
   {
     name: "prepared publication return",

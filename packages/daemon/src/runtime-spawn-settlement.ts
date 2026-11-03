@@ -12,7 +12,6 @@ import { archiveRuntimeDispatch, type RuntimeDispatchArchive } from "./doc-sync-
 import type { ActiveRuntime, ReviewerReviewArtifacts } from "./runtime-spawn-types.ts";
 import { runtimeSpendCapReason, runtimeSpendCapReasonCode } from "./runtime-spend-cap.ts";
 import {
-  pushTaskWorkerBranch,
   squadWorkerBranchHasDelivery,
   workerBranchHasDelivery,
   workerGitIdentityForPerson,
@@ -32,6 +31,7 @@ import { scheduleOutcomeFromRuntime } from "./schedule-runtime-outcome.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { presetSnapshotReader, taskOutputShape } from "./task-worktree.ts";
+import { publishTaskWorkerBranch } from "./runtime-task-publication.ts";
 import { detectHostingProvider } from "./hosting-provider.ts";
 import { boundedRuntimeConclusion, currentWorktreeHead } from "./runtime-continuation-context.ts";
 import { reviewCutSupersededExplanation } from "./repo-cell-execution-selection.ts";
@@ -301,7 +301,7 @@ export async function publishExit(
       body +=
         `\n\nTask ${active.task!.taskId} execution ${active.task!.executionId} has an accepted submission; ` +
         "the submitted cut is delivered. The runtime stalled during post-submit wrap-up. The owner/CEO should " +
-        "open or link the PR and finish any missing delivery report or handoff before review.";
+        "inspect the PR publication result and finish any missing delivery report or handoff before review.";
     if (reviewResultMissing) body = `${body}\n\nReview ${reviewId} was not registered before reviewer settlement.`;
     if (
       !active.finalText?.trim() &&
@@ -346,13 +346,14 @@ export async function publishExit(
       try {
         // Edge publication belongs to submit preparation; settlement must never replace its accepted cut.
         const projection = context.requiredRuntimeProjection(context.input),
-          submittedCommitSha = projection
-            ?.read(active.task.taskId)
-            .snapshot.executions.find((execution) => execution.executionId === active.task?.executionId)
-            ?.submission?.commitSha,
+          snapshot = projection.read(active.task.taskId).snapshot,
+          submission = snapshot.executions.find(
+            (execution) => execution.executionId === active.task?.executionId,
+          )?.submission,
+          submittedCommitSha = submission?.commitSha,
           hosting = await detectHostingProvider(context.input.rootDir, undefined, true),
           env = hosting ? await context.prepareDaemonGitEnvironment(active.instanceId, hosting.kind) : undefined,
-          push = await pushTaskWorkerBranch({
+          publication = await publishTaskWorkerBranch({
             cwd: active.cwd,
             canonicalRoot: context.input.rootDir,
             taskId: active.task.taskId,
@@ -361,7 +362,11 @@ export async function publishExit(
             forceWithLease: false,
             classifyRemoteAhead: submittedCommitSha !== undefined,
             env,
-          });
+            ...(hosting && submission?.commitSha
+              ? { pullRequest: { hosting, taskTitle: snapshot.task?.title ?? active.task.taskId, submission } }
+              : {}),
+          }),
+          push = publication.push;
         hasDelivery = push.attempted && push.pushedCommit !== null;
         if (push.attempted)
           body = push.ok
@@ -376,10 +381,14 @@ export async function publishExit(
                     push.head && push.head !== push.pushedCommit ? ` (worker HEAD ${push.head})` : ""
                   }: ${push.detail}`,
                 ].join(" ");
+        if (publication.pullRequest) body += `\n\nTask pull request published: ${publication.pullRequest.url}`;
       } catch (error) {
         consumeKnownError(error);
         const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512);
-        body = `${body}\n\nWorker branch push failed (no retry): ${detail || "GitHub credential resolution failed."}`;
+        body =
+          runtimeErrorCode(error) === "delivery_publish_failed"
+            ? `${body}\n\n${detail}`
+            : `${body}\n\nWorker branch push failed (no retry): ${detail || "GitHub credential resolution failed."}`;
       }
     }
     const submissionRecovery = unsubmittedDeliveryRecovery(context, active, outcome, hasDelivery);

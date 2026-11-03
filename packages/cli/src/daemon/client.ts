@@ -160,7 +160,9 @@ export async function runCommandThroughDaemon(
   options: { readonly autostart?: boolean; readonly env?: NodeJS.ProcessEnv } = {},
   timeRequest?: (typeof import("../cli/timing.ts"))["timedDaemonRequest"],
 ): Promise<JsonObject> {
-  command = materializeArtifactSource(materializePromptFile(materializeScheduleMission(command)));
+  command = materializeArtifactSource(
+    materializePromptFile(materializeScheduleMission(materializeTaskPrBody(command))),
+  );
   const env = options.env ?? process.env;
   assertCanonicalCliEntry();
   const rpc = await import("@harness-anything/daemon/internal/client/local-json-rpc-client"),
@@ -446,6 +448,12 @@ function bootstrapParams(action: ThinCommand["action"], socketPath: string): Jso
     throw Object.assign(new Error("The administrator password file could not be read."), { code: "invalid_field" });
   }
   return { ...params, password } as JsonObject;
+}
+
+function materializeTaskPrBody(command: ThinCommand): ThinCommand {
+  if (command.action.kind !== "task-push" || typeof command.action.bodyFile !== "string") return command;
+  const { bodyFile, ...action } = command.action;
+  return { ...command, action: { ...action, body: readFileSync(path.resolve(command.rootDir, bodyFile), "utf8") } };
 }
 
 function materializeScheduleMission(command: ThinCommand): ThinCommand {

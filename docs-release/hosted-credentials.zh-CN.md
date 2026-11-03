@@ -68,17 +68,18 @@ daemon 用这份 token 执行的是一组固定操作。只对工作区要发布
 | 经 HTTPS 推送任务分支 | `ha task push` | Contents: Read and write |
 
 classic personal access token 用 `repo` scope 覆盖同一组操作。没有推送权限的
-token 在 `ha task push` 失败。轮换 token 即存新条目并改绑；daemon 只有在
+token 在 `ha task push` 失败。创建或更新 PR 还需要 Pull requests: Read and write。轮换 token 即存新条目并改绑；daemon 只有在
 没有其他 instance 或凭据设置还引用某条目时才会删除它。
 
 ## 当前限制
 
-GitHub 与 GitLab 任务发布均受支持。GitHub token 推送需要仓库内容写权限；GitLab
-token 推送需要 `write_repository`。daemon 按 provider 解析绑定引用，仅向自身 git/API
-操作提供 token。开 PR 与读检查（`gh pr create`、`gh pr checks --watch`、
-`gh run view --log-failed`）用操作者本人的 GitHub 登录：daemon 每次 runtime 启动都
-把它作为 `GH_TOKEN` 注入，并注入 github.com 的 `gh auth git-credential` helper，因此
-隔离的实例 HOME 不再需要各自的 `gh auth login`。provider 默认从
+GitHub 与 GitLab 任务发布均受支持。GitHub token 需要仓库内容写权限与 pull requests 写权限；
+GitLab token 需要 `write_repository` 推送权限与 `api` 合并请求权限。daemon 解析绑定引用，
+仅向自身 Git/API 操作提供 token。`ha task push` 推送后自动创建或更新已提交任务的 PR，
+结算复用同一端口。用 `--body-file <path>` 原样提交仓库格式的 Markdown；没有正文时，
+新 PR 使用冻结 submission 的摘要，重复结算保留已有正文。发布失败写入推送回执与持久
+结算报告，修复后重跑 `ha task push`。读取 CI（`gh pr checks --watch`、
+`gh run view --log-failed`）仍需 shell 侧凭据；发布不会等待 CI。provider 默认从
 `origin` 推断；无法识别或自建 GitLab host 时，在仓库 settings 声明
 `hosting.provider` 与 `hosting.host`。GitLab CI 使用 REST API
 v4；daemon 管理的发布无需 `glab`（见

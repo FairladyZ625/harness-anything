@@ -1,13 +1,14 @@
 import path from "node:path";
-import { type WriteReceiptDraft } from "@harness-anything/kernel";
+import { currentSubmittedExecutions, type WriteReceiptDraft } from "@harness-anything/kernel";
 import { artifactImportSourceResolution, prepareArtifactEntityImportSource } from "./artifact-entity-action.ts";
 import type { RepoCellApiContext } from "./repo-cell-api.ts";
 import { taskWorktreeInput } from "./repo-cell-action-dispatch.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { resolveStackedTaskBaseline } from "./stacked-task-start.ts";
 import { prepareTaskStartWorktree, presetSnapshotReader, taskWorktreeBinding } from "./task-worktree.ts";
-import { pushTaskWorkerBranch, workerPushFailureCode } from "./runtime-worker-push.ts";
+import { workerPushFailureCode } from "./runtime-worker-push.ts";
 import { requireCurrentExecutionScope } from "./runtime-execution-scope.ts";
+import { publishTaskWorkerBranch } from "./runtime-task-publication.ts";
 import { detectHostingProvider } from "./hosting-provider.ts";
 
 type QueuedPublication = ((
@@ -64,7 +65,8 @@ export function readBeforeWriteQueue(
     return (async () => {
       const taskId = typeof action.taskId === "string" ? action.taskId : null;
       if (taskId === null) throw context.cellCodedError("invalid_command", "Task branch push requires a task id.");
-      const task = context.projection.read(taskId).snapshot.task,
+      const snapshot = context.projection.read(taskId).snapshot,
+        task = snapshot.task,
         worktree = taskWorktreeBinding(task, presetSnapshotReader(context.projection));
       if (!worktree)
         throw context.cellCodedError(
@@ -95,30 +97,52 @@ export function readBeforeWriteQueue(
           }
         : undefined;
       return async (_action: RepoTaskAction, _binding: RepoCellBinding) => {
-        const pushed = await pushTaskWorkerBranch({
-          cwd,
-          canonicalRoot: context.rootDir,
-          taskId,
-          ...(gitEnvironment ? { env: gitEnvironment } : {}),
-        });
+        const latest = context.projection.read(taskId).snapshot,
+          executionId = binding.executionPrincipal?.executionId,
+          executions = executionId
+            ? latest.executions.filter((execution) => execution.executionId === executionId)
+            : currentSubmittedExecutions(latest);
+        if (executions.length > 1)
+          throw context.cellCodedError(
+            "ambiguous_execution",
+            "Publish from the worker bound to the intended submitted execution.",
+          );
+        const submission = executions[0]?.submission,
+          publication = await publishTaskWorkerBranch({
+            cwd,
+            canonicalRoot: context.rootDir,
+            taskId,
+            ...(gitEnvironment ? { env: gitEnvironment } : {}),
+            ...(hosting && submission?.commitSha
+              ? {
+                  pullRequest: {
+                    hosting,
+                    taskTitle: latest.task?.title ?? taskId,
+                    submission,
+                    ...(typeof action.body === "string" ? { body: action.body } : {}),
+                  },
+                }
+              : {}),
+          }),
+          pushed = publication.push;
         if (!pushed.attempted || !pushed.ok)
           throw context.cellCodedError(
             workerPushFailureCode(pushed),
             pushed.attempted ? pushed.detail : `Task branch push refused: ${pushed.reason}.`,
           );
-        // `next` rides the receipt the same way the lifecycle settlement receipts carry it: as a
-        // draft extension outside the kernel receipt schema.
+        const evidence =
+          `Worker branch pushed: ${pushed.branch} @ ${pushed.pushedCommit}.` +
+          (publication.pullRequest
+            ? ` Pull request: ${publication.pullRequest.url}.`
+            : submission?.commitSha
+              ? " Origin is not a supported PR host."
+              : " Submit the delivery before publishing its pull request.");
         return context.withHumanSummary({
           outcome: "applied",
           opId: `task-push:${taskId}:${pushed.pushedCommit}`,
           revision: context.store.readHead()?.revision ?? 0,
-          evidence: `Worker branch pushed: ${pushed.branch} @ ${pushed.pushedCommit}.`,
-          next: [
-            {
-              command: `gh pr create --head ${taskId}`,
-              reason: "open the task's pull request with the machine's own gh login",
-            },
-          ],
+          evidence,
+          summary: evidence,
         } as WriteReceiptDraft);
       };
     })();
