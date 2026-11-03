@@ -402,18 +402,6 @@
         "reason": "S4 return-path visibility creates only an exact temporary authored symlink before atomic worktree publication."
       },
       {
-        "value": "bypass-write-079",
-        "api": "open",
-        "ref": "task_01KZXGJWVCKCA6B0MKB220PKFB",
-        "reason": "The durable settlement worker opens each exact temporary target before writing and syncing frozen bytes."
-      },
-      {
-        "value": "bypass-write-080",
-        "api": "open",
-        "ref": "task_01KZXGJWVCKCA6B0MKB220PKFB",
-        "reason": "The durable settlement worker opens every changed parent directory for fsync before acknowledgment."
-      },
-      {
         "value": "bypass-write-081",
         "api": "unlinkSync",
         "ref": "task_01KZXGJWVCKCA6B0MKB220PKFB",

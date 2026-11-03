@@ -333,7 +333,6 @@
       "packages/storage/src/store/ledger-backup.ts#drillLedgerBackup",
       "packages/storage/src/store/local-version-control-commands.ts#currentBranch",
       "packages/storage/src/store/local-version-control-commands.ts#originHeadBranch",
-      "packages/storage/src/store/local-version-control-system.ts#<module>",
       "packages/storage/src/store/local-version-control-system.ts#currentBranch",
       "packages/storage/src/store/local-version-control-system.ts#gitTopLevel",
       "packages/storage/src/store/local-version-control-system.ts#hasCommit",

@@ -21,10 +21,8 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { open as openAsync } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { isMainThread, parentPort, Worker, workerData } from "node:worker_threads";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import {
   normalizeRelativeDocumentPath,
@@ -778,21 +776,17 @@ export const localGitWorktreeSettlement = Object.freeze({
             : `${file.mode ?? "100644"} ${gitBlobOidBytes(asBytes(file.body))}\t${file.target}\0`,
         )
         .join("");
-    localGitProcesses += 1;
-    // Start the worker before taking an epoch transaction; startup is not publication.
-    if (withFence) getSettlementWorker();
-    const publish = () =>
-      awaitDurableSettlement(
-        beginDurableSettlement({
-          index: {
-            repoRoot,
-            input: indexInput,
-            skipWorktreeInput: skipWorktree
-              ? files.map((file) => `${"delete" in file ? file.delete : file.target}\0`).join("")
-              : undefined,
-          },
-        }),
-      );
+    // The synchronous Git port joins the index write before releasing ownership. A timed
+    // worker wait could release the fence while its update-index child was still running.
+    const publish = () => {
+      localGitBytes(repoRoot, ["update-index", "-z", "--index-info"], Buffer.from(indexInput));
+      if (skipWorktree)
+        localGitBytes(
+          repoRoot,
+          ["update-index", "--skip-worktree", "-z", "--stdin"],
+          Buffer.from(files.map((file) => `${"delete" in file ? file.delete : file.target}\0`).join("")),
+        );
+    };
     if (withFence) withFence(publish);
     else publish();
     return 1;
@@ -1036,125 +1030,6 @@ function commandErrorSummary(error: unknown): string | undefined {
   }
   if (error instanceof Error) return error.message.split(/\r?\n/u)[0] ?? error.message;
   return String(error);
-}
-const settlementWorkerKind = "harness-durable-settlement/v1";
-let settlementWorker: Worker | null = null;
-interface DurableSettlementInput {
-  readonly files?: readonly { readonly temporary: string; readonly body: string | Uint8Array }[];
-  readonly directories?: readonly string[];
-  readonly index?: { readonly repoRoot: string; readonly input: string; readonly skipWorktreeInput?: string };
-}
-interface DurableSettlementWait {
-  readonly state: Int32Array;
-  readonly errorBytes: Uint8Array;
-  readonly worker: Worker;
-}
-function beginDurableSettlement(input: DurableSettlementInput): DurableSettlementWait | null {
-  if (!input.files?.length && !input.directories?.length && !input.index) return null;
-  const state = new Int32Array(new SharedArrayBuffer(8)),
-    errorBytes = new Uint8Array(new SharedArrayBuffer(4096)),
-    worker = getSettlementWorker();
-  worker.ref();
-  worker.postMessage({ ...input, state, errorBytes });
-  return { state, errorBytes, worker };
-}
-function awaitDurableSettlement(pending: DurableSettlementWait | null): void {
-  if (!pending) return;
-  const wait = Atomics.wait(pending.state, 0, 0, 30_000);
-  pending.worker.unref();
-  if (wait === "timed-out") throw new Error("durable settlement worker timed out");
-  if (Atomics.load(pending.state, 0) !== 1)
-    throw new Error(
-      new TextDecoder().decode(pending.errorBytes.subarray(0, Atomics.load(pending.state, 1))) ||
-        "durable settlement worker failed",
-    );
-}
-function getSettlementWorker(): Worker {
-  if (settlementWorker) return settlementWorker;
-  const ready = new Int32Array(new SharedArrayBuffer(4)),
-    worker = new Worker(new URL(import.meta.url), {
-      execArgv: process.execArgv.filter(
-        (argument) => argument === "--experimental-strip-types" || argument === "--enable-source-maps",
-      ),
-      workerData: { kind: settlementWorkerKind, ready },
-    });
-  worker.unref();
-  if (Atomics.wait(ready, 0, 0, 5_000) === "timed-out") {
-    void worker.terminate();
-    throw new Error("durable settlement worker failed to start");
-  }
-  settlementWorker = worker;
-  return worker;
-}
-if (!isMainThread && workerData?.kind === settlementWorkerKind) {
-  const ready = workerData.ready as Int32Array;
-  parentPort!.on(
-    "message",
-    async (
-      request: DurableSettlementInput & {
-        readonly state: Int32Array;
-        readonly errorBytes: Uint8Array;
-      },
-    ) => {
-      try {
-        const durability = [
-          ...(request.files ?? []).map((file) => async () => {
-            const descriptor = await /* @gate-identity check-bypass-write-boundary/bypass-write-079 */
-            openAsync(file.temporary, "w", 0o644);
-            try {
-              await descriptor.writeFile(file.body);
-              await descriptor.sync();
-            } finally {
-              await descriptor.close();
-            }
-          }),
-          ...(process.platform === "win32"
-            ? []
-            : (request.directories ?? []).map((directory) => async () => {
-                const descriptor = await /* @gate-identity check-bypass-write-boundary/bypass-write-080 */
-                openAsync(directory, "r");
-                try {
-                  await descriptor.sync();
-                } finally {
-                  await descriptor.close();
-                }
-              })),
-        ];
-        if (request.index) {
-          const invocation = gitInvocation(request.index.repoRoot, ["update-index", "-z", "--index-info"]);
-          /* @gate-identity check-sync-subprocess/sync-subprocess-017 */
-          execFileSync(invocation.command, invocation.args, {
-            input: Buffer.from(request.index.input),
-            stdio: ["pipe", "pipe", "pipe"],
-            windowsHide: true,
-            ...(process.platform === "win32" ? { windowsVerbatimArguments: true } : {}),
-          });
-          if (request.index.skipWorktreeInput)
-            localGitBytes(
-              request.index.repoRoot,
-              ["update-index", "--skip-worktree", "-z", "--stdin"],
-              Buffer.from(request.index.skipWorktreeInput),
-            );
-        }
-        // Bound descriptors and fsync pressure while retaining parallelism. The
-        // request already contains only paths touched by this publication cut.
-        for (let offset = 0; offset < durability.length; offset += 128)
-          await Promise.all(durability.slice(offset, offset + 128).map((settle) => settle()));
-        Atomics.store(request.state, 0, 1);
-      } catch (error) {
-        consumeKnownError(error);
-        const bytes = new TextEncoder().encode(error instanceof Error ? error.message : String(error)),
-          length = Math.min(bytes.length, request.errorBytes.length);
-        request.errorBytes.set(bytes.subarray(0, length));
-        Atomics.store(request.state, 1, length);
-        Atomics.store(request.state, 0, 2);
-      } finally {
-        Atomics.notify(request.state, 0);
-      }
-    },
-  );
-  Atomics.store(ready, 0, 1);
-  Atomics.notify(ready, 0);
 }
 let localGitProcesses = 0;
 export function localGitProcessCount(): number {
