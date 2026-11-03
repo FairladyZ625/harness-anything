@@ -27,7 +27,10 @@ export function prepareE2EProbeGui(rootDir = repositoryRoot, env = process.env) 
   const guiRoot = path.join(rootDir, "packages", "gui"),
     vite = path.join(rootDir, "node_modules", "vite", "bin", "vite.js");
   if (!existsSync(vite)) throw probeError("gui_dependencies_missing", `Missing ${vite}; run npm install first.`);
-  for (const config of ["vite.config.ts", "vite.preload.config.ts"])
+  // Keep this order in step with packages/gui `build`: the preload build owns cleaning
+  // dist-electron (emptyOutDir), so the main bundle the isolated lane launches must be
+  // rebuilt after it instead of surviving from whatever an earlier build left behind.
+  for (const config of ["vite.config.ts", "vite.preload.config.ts", "vite.main.config.ts"])
     try {
       execFileSync(process.execPath, [vite, "build", "--config", config], {
         cwd: guiRoot,
