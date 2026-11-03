@@ -589,7 +589,12 @@ test("the shared provider stub fixture launches with the exact argv on every pla
       codex: {},
       auth: { mode: "subscription" },
     });
-    assert.deepEqual(await store.authStatus("codex-stub-argv"), { status: "ready", code: null, hint: null });
+    assert.deepEqual(await store.authStatus("codex-stub-argv"), {
+      status: "ready",
+      code: null,
+      hint: null,
+      basis: "metadata",
+    });
     assert.equal(readFileSync(witness, "utf8"), JSON.stringify(["login", "status"]));
   } finally {
     rmSync(root, { recursive: true, force: true });

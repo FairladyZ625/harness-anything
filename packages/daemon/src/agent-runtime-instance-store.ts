@@ -775,7 +775,7 @@ export function openRuntimeInstanceStore(input: {
             ...base,
             instance,
             evidence: JSON.stringify(instance),
-            summary: `runtime-instance-show: ${instanceId}\npermissionMode: ${instance.permissionMode}`,
+            summary: `runtime-instance-show: ${instanceId}\nauth: ${authReadinessLabel(instance.authReadiness)}\npermissionMode: ${instance.permissionMode}`,
           };
         });
       const instance = publicConfig(config, readiness.get(config.instanceId));
@@ -783,7 +783,7 @@ export function openRuntimeInstanceStore(input: {
         ...base,
         instance,
         evidence: JSON.stringify(instance),
-        summary: `runtime-instance-show: ${instanceId}\npermissionMode: ${instance.permissionMode}`,
+        summary: `runtime-instance-show: ${instanceId}\nauth: ${authReadinessLabel(instance.authReadiness)}\npermissionMode: ${instance.permissionMode}`,
       };
     }
     if (kind === "runtime-instance-delete") {
@@ -1028,5 +1028,8 @@ export function openRuntimeInstanceStore(input: {
 }
 
 function authReadinessLabel(readiness: RuntimeAuthReadiness): string {
-  return readiness.code === "runtime_auth_not_checked" ? "not-checked" : readiness.status;
+  if (readiness.code === "runtime_auth_not_checked") return "not-checked";
+  // A ready verdict built from local login state must not print as bare "ready": the
+  // first real request is the only thing that can verify a refresh token.
+  return readiness.status === "ready" && readiness.basis === "metadata" ? "ready (metadata)" : readiness.status;
 }
