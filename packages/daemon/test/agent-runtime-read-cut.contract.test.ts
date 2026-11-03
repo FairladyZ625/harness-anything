@@ -83,6 +83,124 @@ test("runtime lifecycle cursors stay at the projection cut while the canonical s
   }
 });
 
+test("runtime overview reads dispatches per returned session instead of the whole dispatch history", async () => {
+  const small = await overviewDispatchReads(2),
+    large = await overviewDispatchReads(1_200);
+  assert.deepEqual(large, small, "overview dispatch-read work must not grow with the number of historical dispatches");
+  assert.equal(large.dispatchEventsRead, large.sessions, "one indexed dispatch lookup per returned session");
+});
+
+/** Counts the dispatch events the overview hands to JSON.parse at two history sizes. */
+async function overviewDispatchReads(
+  dispatchHistorySize: number,
+): Promise<{ readonly dispatchEventsRead: number; readonly sessions: number }> {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-overview-scale-"));
+  let projection: ReturnType<typeof makeTaskProjection> | undefined,
+    store: ReturnType<typeof makeTaskEventStore> | undefined;
+  try {
+    initRepo(rootDir);
+    store = makeTaskEventStore({ repoId: "runtime-overview-scale", rootDir });
+    projection = makeTaskProjection({ rootDir, eventStore: store });
+    const definition = {
+        schema: "agent-definition-snapshot/v1",
+        configVersion: 1,
+        instanceId: "instance-overview",
+        installationId: "installation-overview",
+        kindId: "codex",
+        providerId: "openai",
+        model: "gpt-5.6-sol",
+        reasoningEffort: "high",
+        baseUrl: null,
+        authMode: "subscription",
+      } as const,
+      actor = { principal: { personId: "person-overview-scale" }, executor: null } as const,
+      sessions = ["session-overview-a", "session-overview-b"];
+    let revision = 0;
+    const at = (offset: number) => new Date(Date.UTC(2026, 8, 3) + offset * 1_000).toISOString(),
+      runtimeEvent = <T extends AgentRuntimeEventV1["type"]>(
+        type: T,
+        payload: Extract<AgentRuntimeEventV1, { readonly type: T }>["payload"],
+      ): AgentRuntimeEventV1 => {
+        revision += 1;
+        return {
+          schema: "agent-runtime-event/v1",
+          eventId: `event-overview-${revision}`,
+          workspaceRevision: revision,
+          opId: `op-overview-${revision}`,
+          actor,
+          source: "local",
+          occurredAt: at(revision),
+          type,
+          payload,
+        } as AgentRuntimeEventV1;
+      },
+      events: AgentRuntimeEventV1[] = [
+        runtimeEvent("runtime_installation_observed", {
+          installationId: definition.installationId,
+          kindId: definition.kindId,
+          protocolFamily: "codex",
+          hostRef: "host:local",
+          version: "1.0.0",
+          discoverySource: "wrapper",
+          capabilities: ["structured_witness", "attach"],
+        }),
+        ...sessions.map((runtimeSessionId) =>
+          runtimeEvent("runtime_session_started", {
+            runtimeSessionId,
+            instanceId: definition.instanceId,
+            installationId: definition.installationId,
+            kindId: definition.kindId,
+            definitionSnapshotRef: "artifact:runtime-definition/test",
+            launchGeneration: 1,
+            attachable: true,
+          }),
+        ),
+      ];
+    for (let index = 0; index < dispatchHistorySize; index += 1)
+      events.push(
+        runtimeEvent("runtime_dispatch_requested", {
+          dispatchId: `dispatch-overview-${index}`,
+          runtimeSessionId: sessions[index % sessions.length]!,
+          instanceId: definition.instanceId,
+          installationId: definition.installationId,
+          kindId: definition.kindId,
+          dispatchKey: `dispatch-key-overview-${index}`,
+          definitionSnapshotRef: "artifact:runtime-definition/test",
+          definitionSnapshot: definition,
+        }),
+      );
+    for (const event of events) {
+      store.append({ event, plan: runtimeWritePlan(event), blobs: [] });
+      projection.apply(event);
+    }
+    let dispatchEventsRead = 0;
+    const counted = new Proxy(projection, {
+      get: (target, property, receiver) => {
+        const value = Reflect.get(target, property, receiver);
+        if (property === "readRuntimeDispatches")
+          return () => {
+            const dispatches = target.readRuntimeDispatches();
+            dispatchEventsRead += dispatches.length;
+            return dispatches;
+          };
+        if (property === "readRuntimeDispatch")
+          return (runtimeSessionId: string, definitionSnapshotRef?: string) => {
+            const dispatch = target.readRuntimeDispatch(runtimeSessionId, definitionSnapshotRef);
+            if (dispatch !== null) dispatchEventsRead += 1;
+            return dispatch;
+          };
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const overview = makeAgentRuntimeReadModel({ store, projection: counted }).overview({});
+    return { dispatchEventsRead, sessions: overview.sessions.length };
+  } finally {
+    await store?.drain();
+    projection?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+}
+
 function runtimeEvents(): readonly AgentRuntimeEventV1[] {
   const actor = { principal: { personId: "person-runtime-cut" }, executor: null } as const,
     definition = {

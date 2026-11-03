@@ -209,16 +209,10 @@ export function makeAgentRuntimeReadModel(input: {
       const installationsById = new Map(
         installations.map((installation) => [installation.installationId, installation]),
       );
-      const dispatchBySessionKey = new Map<
-        string,
-        Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>
-      >();
-      for (const event of input.projection.readRuntimeDispatches()) {
-        const key = `${event.payload.runtimeSessionId}\0${event.payload.definitionSnapshotRef}`;
-        if (!dispatchBySessionKey.has(key)) dispatchBySessionKey.set(key, event);
-      }
+      // One indexed lookup per returned session, never a walk over every dispatch ever recorded:
+      // the full-history read parsed the whole set on every overview request (F-28FB7113).
       const dispatchEventFor = (session: RuntimeSession) =>
-        dispatchBySessionKey.get(`${session.runtimeSessionId}\0${session.definitionSnapshotRef}`);
+        input.projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef);
       return {
         ok: true,
         status: cut.status,
