@@ -23,6 +23,7 @@ import type { ManagedRbacRequest, ManagedRbacListener, CertificateMode } from "@
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 import { keycloakLoginAttributes, keycloakLoginMappers } from "./keycloak-login-client.ts";
 import { transientTransportFailure } from "./oidc-session-helpers.ts";
+import { stopManagedPostgresOrphan } from "./managed-postgres-orphan.ts";
 import {
   alignSessionLifetime,
   sessionLifetimeBounds,
@@ -498,8 +499,17 @@ export class ManagedRbacService {
     if (active) return active;
     const config = this.#readManagedConfig(),
       binary = managedExecutable(this.#root, "runtime/postgres/bin/postgres", this.#ports.platform),
+      pgCtl = managedExecutable(this.#root, "runtime/postgres/bin/pg_ctl", this.#ports.platform),
       data = path.join(this.#root, "data", "postgres"),
       logs = path.join(this.#root, "logs");
+    await stopManagedPostgresOrphan({
+      host: this.#host,
+      pgCtl,
+      binary,
+      data,
+      port: config.postgresPort,
+      platform: this.#ports.platform,
+    });
     await this.#hardenPostgresAuthentication(binary, data);
     mkdirSync(logs, { recursive: true, mode: 0o700 });
     return this.#spawnUntilReady(
