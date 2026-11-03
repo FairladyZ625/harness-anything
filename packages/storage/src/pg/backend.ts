@@ -15,20 +15,8 @@ export interface PgStorageBackendOptions {
 }
 
 export function resolvePostgresEventStoreScope(scope: StorageScope | undefined): PostgresEventStoreScope {
-  if (
-    typeof scope?.tenantId !== "string" ||
-    !scope.tenantId ||
-    typeof scope.projectId !== "string" ||
-    !scope.projectId ||
-    !Number.isSafeInteger(scope.policyEpoch) ||
-    scope.policyEpoch! < 0
-  )
+  if (!scope?.tenantId || !scope.projectId || !Number.isSafeInteger(scope.policyEpoch) || scope.policyEpoch! < 0)
     throw new TypeError("PostgreSQL storage requires tenant, project, and non-negative policy epoch scope");
-  if (
-    scope.readers !== undefined &&
-    (!Array.isArray(scope.readers) || scope.readers.some((reader) => typeof reader !== "string" || !reader))
-  )
-    throw new TypeError("PostgreSQL readers must be an array of nonempty identities");
   return {
     tenantId: scope.tenantId,
     projectId: scope.projectId,

@@ -522,7 +522,6 @@ function bootstrapMessage(input: RepoCellOpenInput, canonicalStore: boolean): Re
     schema: "harness-repo-writer-bootstrap/v1",
     protocolVersion: REPO_WRITER_PROTOCOL_VERSION,
     config: {
-      ...(input.storage ? { storage: input.storage } : {}),
       repoId: input.repoId,
       rootDir: input.rootDir,
       ownerId: input.ownerId,

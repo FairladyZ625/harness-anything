@@ -24,9 +24,6 @@ import {
   type PostgresAppendHooks,
   type PostgresEventStoreScope,
 } from "./pg-event-store.ts";
-import { withPostgresTransaction } from "./transaction.ts";
-import { migrationWritable } from "../migration/types.ts";
-import { TaskEventStoreError } from "@harness-anything/kernel";
 
 export interface PostgresWriterFence {
   readonly repoId: string;
@@ -51,9 +48,6 @@ export type PostgresTaskEventStoreRequest =
       readonly writerFence: PostgresWriterFence;
     }
   | { readonly operation: "head" }
-  | { readonly operation: "prune"; readonly beforeSequence: number; readonly writerFence: PostgresWriterFence }
-  | { readonly operation: "stream" }
-  | { readonly operation: "batch"; readonly cursor: string | null; readonly maxItems: number }
   | {
       readonly operation: "events";
       readonly afterRevision?: number;
@@ -73,9 +67,7 @@ export type PostgresTaskEventStoreResult =
   | CanonicalEventV1
   | Uint8Array
   | number
-  | null
-  | ReturnType<CanonicalEventStore["read"]>
-  | ReturnType<CanonicalEventStore["readBatch"]>;
+  | null;
 
 export interface PostgresTaskEventCapabilityOptions extends PostgresAppendHooks {
   /** Borrowed from the async host. A4 owns pool creation, drain, and close. */
@@ -133,42 +125,6 @@ export function makePostgresTaskEventStore(options: PostgresTaskEventCapabilityO
   ): Promise<PostgresTaskEventStoreResult> => {
     signal?.throwIfAborted();
     switch (request.operation) {
-      case "prune":
-        await withPostgresTransaction(
-          pool,
-          async (client) => {
-            const keys = [scope.tenantId, scope.projectId, repoId],
-              row = (
-                await client.query<{
-                  writer_epoch: string;
-                  writer_holder_id: string;
-                  migration_control: Parameters<typeof migrationWritable>[0];
-                }>(
-                  "UPDATE ha_repo_heads SET revision=revision WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 RETURNING writer_epoch,writer_holder_id,migration_control",
-                  keys,
-                )
-              ).rows[0];
-            if (
-              !row ||
-              !migrationWritable(row.migration_control) ||
-              Number(row.writer_epoch) !== request.writerFence.epoch ||
-              row.writer_holder_id !== request.writerFence.holderId
-            )
-              throw new TaskEventStoreError("revision_conflict", "replication pruning writer epoch is stale");
-            await client.query(
-              "DELETE FROM ha_replication_positions WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND sequence<$4 AND sequence<(SELECT MAX(sequence) FROM ha_replication_positions WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3)",
-              [...keys, request.beforeSequence],
-            );
-          },
-          scope,
-        );
-        return null;
-      case "stream":
-      case "batch":
-        return (await executePostgresRead(pool, scope, request.operation, {
-          ...request,
-          repoId,
-        })) as PostgresTaskEventStoreResult;
       case "append":
         return append(freezeTransportBundle(request.bundle), request.expectedRevision, request.writerFence, signal);
       case "reject": {

@@ -63,26 +63,6 @@ test("write-road registry rejects an unregistered replication receiver", () =>
     );
   }));
 
-// dec_D90F19C8AAAF39747F8F0D6698 CH6/CH12: PG and fleet share one tree writer;
-// only the receiving edge imports a portable seed into its existing SQLite replica.
-for (const sink of [
-  "packages/storage/src/canonical-tree-materialization.ts",
-  "packages/storage/src/fleet-replica-seed.ts",
-]) {
-  test(`write-road registry requires the shared PG/fleet sink ${sink}`, () =>
-    withFixture((root) => {
-      write(root, sink, 'import { writeFileSync } from "node:fs"; writeFileSync(target, body);\n');
-      assert.match(findWriteRoadRegistryViolations(root).join("\n"), /physical write sink is not declared/u);
-      const file = path.join(root, "tools/write-road-registry.json");
-      const registry = JSON.parse(readFileSync(file, "utf8"));
-      registry.physicalWriteFiles.push(sink);
-      writeFileSync(file, JSON.stringify(registry));
-      assert.deepEqual(findWriteRoadRegistryViolations(root), []);
-      write(root, sink, "export {};\n");
-      assert.match(findWriteRoadRegistryViolations(root).join("\n"), /stale physicalWriteFiles/u);
-    }));
-}
-
 test("write-road registry binds the workspace admission lock to RepoCell", () =>
   withFixture((root) => {
     const file = path.join(root, "tools/write-road-registry.json"),

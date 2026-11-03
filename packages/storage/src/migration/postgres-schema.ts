@@ -7,11 +7,9 @@ export const POSTGRES_STORAGE_MIGRATION_SCHEMA = Object.freeze([
     repo_id text PRIMARY KEY,
     writer_epoch bigint NOT NULL DEFAULT 0 CHECK (writer_epoch >= 0),
     writer_holder_id text,
-    writer_issued_at text,
     migration_control jsonb,
     activation_markers jsonb NOT NULL DEFAULT '{}'::jsonb
   )`,
-  "ALTER TABLE ha_repo_writer_epochs ADD COLUMN IF NOT EXISTS writer_issued_at text",
   "REVOKE ALL ON ha_repo_writer_epochs FROM PUBLIC",
   // All append/rejection transactions first INSERT ... ON CONFLICT on their scoped head. A trigger
   // runs even on conflict, before that head's row lock. Its shared repository lock lasts until commit;

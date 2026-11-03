@@ -92,7 +92,6 @@ export type FleetPeer = Awaited<ReturnType<typeof openPeer>>;
 const REPLICATION_IDLE_TIMEOUT_MS = 45_000;
 
 export interface FleetReplicaStreamOptions extends FleetPeerOptions {
-  readonly onRevoked?: () => void;
   readonly viewRoot: string;
   readonly diskQuotaBytes: number;
   /**
@@ -275,7 +274,6 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
       },
       revoke: async () => {
         revokeReplicaView(viewRoot);
-        options.onRevoked?.();
         await generations.collect();
       },
     };

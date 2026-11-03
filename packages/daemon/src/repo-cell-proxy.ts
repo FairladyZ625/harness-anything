@@ -6,7 +6,7 @@ import { readEdgeDocWorkspace } from "./fleet-edge-doc-read.ts";
 import type { FleetMirrorView } from "./fleet-edge-mirror.ts";
 import type { RepositoryReadFrame } from "./protocol/repository-read-frame.ts";
 import { readEdgeViewBlob } from "./runtime-result-read.ts";
-import { makeTaskEventReader, makeDaemonProjectionReader, acquireRepoStorageLock } from "@harness-anything/storage";
+import { makeTaskEventReader, makeTaskProjectionReader } from "@harness-anything/storage";
 import {
   consumeKnownError,
   isDomainStatus,
@@ -71,7 +71,7 @@ const validTaskStatusFilter = (value: string | undefined): boolean => value === 
 export async function openRepoCellProxy(
   input: RepoCellOpenInput & { readonly onStatus?: (status: ReturnType<RepoCell["status"]>) => void },
 ): Promise<RepoCell> {
-  const lock = await acquireRepoStorageLock(input.storage, () => acquireWorkspaceLock(input.rootDir));
+  const lock = await acquireWorkspaceLock(input.rootDir);
   let relayRuntimeSignal: NonNullable<RepoCellOpenInput["onRuntimeSignal"]> = () => undefined;
   // Orchestration waiters (runtime batch, agent create, sessions.await) park on these sets; an exit
   // signal or outcome notification re-checks the domain settle predicate. Activity and heartbeat
@@ -179,18 +179,8 @@ export async function openRepoCellProxy(
     };
   }
   let ledgerReader: ReturnType<typeof makeTaskEventReader> | null = null;
-  const reader = makeDaemonProjectionReader({
-      repoId: input.repoId,
-      rootDir: input.rootDir,
-      storage: input.storage,
-      ...(input.now ? { now: input.now } : {}),
-    }),
-    ledgerOptions = {
-      repoId: input.repoId,
-      rootDir: input.rootDir,
-      authoredBranch: input.authoredBranch,
-      storage: input.storage,
-    },
+  const reader = makeTaskProjectionReader({ rootDir: input.rootDir, ...(input.now ? { now: input.now } : {}) }),
+    ledgerOptions = { repoId: input.repoId, rootDir: input.rootDir, authoredBranch: input.authoredBranch },
     // 一个惰性创建的长连接只读读者:WAL 模式下只读连接上每条语句自成一个读事务,
     // 已能看到最新提交,读最新数据不需要每次重开连接。全部读共用同一个 store
     // 引用,entity fold 的 WeakMap<CanonicalEventStore,…> 缓存才会命中(逐请求

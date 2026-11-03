@@ -2,7 +2,8 @@ import { mkdir, open, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import {
-  openReplicaProjection,
+  makeTaskEventReader,
+  makeTaskProjection,
   openReplicaStore,
   type ReplicationCommit,
   type ReplicationPosition,
@@ -26,12 +27,12 @@ export function openWalReceiverGeneration(generation: ReplicaGeneration) {
     generation: generation.metadata.ledgerGeneration,
   });
   try {
-    const model = openReplicaProjection({
-        ...generation,
-        repoId: generation.metadata.repoId,
-        generation: generation.metadata.ledgerGeneration,
-      }),
-      projection = model.projection;
+    const events = makeTaskEventReader({ rootDir: generation.rootDir, repoId: generation.metadata.repoId });
+    const projection = makeTaskProjection({
+      rootDir: generation.rootDir,
+      projectionPath: generation.projectionPath,
+      eventStore: events,
+    });
     const objectRoot = path.join(path.dirname(generation.ledgerPath), "objects", "sha256");
     return {
       position: store.position,
@@ -47,7 +48,8 @@ export function openWalReceiverGeneration(generation: ReplicaGeneration) {
         await projection.catchUpAsync!();
       },
       close: async () => {
-        model.close();
+        projection.close();
+        await events.drain();
         store.close();
       },
     };

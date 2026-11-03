@@ -8,7 +8,6 @@ export const POSTGRES_EVENT_LEDGER_TABLES = Object.freeze([
   "ha_content_blobs",
   "ha_document_heads",
   "ha_replication_positions",
-  "ha_replication_slots",
 ] as const);
 
 /** DDL owned by the event-ledger adapter; callers run it as the schema owner before runtime access. */
@@ -124,11 +123,6 @@ export const POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS: readonly string[] = Object
       REFERENCES ha_repo_heads (tenant_id, project_id, repo_id)
   )`,
   ...POSTGRES_STORAGE_MIGRATION_SCHEMA,
-  `CREATE TABLE IF NOT EXISTS ha_replication_slots (
-    tenant_id text NOT NULL, project_id text NOT NULL, repo_id text NOT NULL, node_id text NOT NULL,
-    fence bigint NOT NULL, history text NOT NULL, ack text, acked_at text,
-    ${scopeColumns()}, PRIMARY KEY(tenant_id,project_id,repo_id,node_id)
-  )`,
   ...POSTGRES_EVENT_LEDGER_TABLES.flatMap((tableName) => postgresScopeRlsStatements(tableName)),
 ]);
 

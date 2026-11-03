@@ -455,23 +455,18 @@ export function completionContext(
   if (presetSnapshotDigest !== snapshot.task?.presetSnapshotDigest)
     throw cell.cellCodedError("preset_snapshot_mismatch", `Run ha preset upgrade ${taskId} before completion.`);
   const canonical = readCompletionContext(cell.projection, taskId, snapshot, "ready", cell.rootDir),
-    // Node task commands carry their changed documents through the atomic task route, just
-    // like submission. The center's worktree is not that caller's candidate inventory.
-    rows =
-      typeof binding.source === "object" && binding.source.kind === "node"
-        ? []
-        : scanDocCandidates({
-            rootDir: cell.rootDir,
-            workspaceId: cell.input.repoId,
-            store: cell.store,
-            projection: cell.projection,
-            actor: binding.actor,
-            source: binding.source,
-            now: cell.now(),
-            taskId,
-          }).rows,
-    eligible = rows.filter((row) => row.state === "eligible"),
-    invalid = rows.find((row) => row.state === "blocked" || row.state === "conflict" || row.state === "deletion");
+    scan = scanDocCandidates({
+      rootDir: cell.rootDir,
+      workspaceId: cell.input.repoId,
+      store: cell.store,
+      projection: cell.projection,
+      actor: binding.actor,
+      source: binding.source,
+      now: cell.now(),
+      taskId,
+    }),
+    eligible = scan.rows.filter((row) => row.state === "eligible"),
+    invalid = scan.rows.find((row) => row.state === "blocked" || row.state === "conflict" || row.state === "deletion");
   return {
     ...canonical,
     closeoutGates: readEffectiveCloseoutGates(cell.projection, snapshot),

@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import type { CanonicalEventStore, TaskProjection } from "@harness-anything/kernel";
-import { ledgerGitPath, localGitWorktreeSettlement, findCanonicalLedgerGitLayout } from "@harness-anything/storage";
+import { ledgerGitPath, localGitWorktreeSettlement, resolveLedgerGitLayout } from "@harness-anything/storage";
 import {
   classifyRawArtifactPath,
   classifyTextualArtifactPath,
@@ -495,11 +495,11 @@ function taskArtifactTarget(input: Input, taskId: string, destinationValue: stri
       "destination must be an artifact path under the current task artifacts/ directory",
     );
   const layout = resolveHarnessLayout(input.rootDir),
-    ledger = findCanonicalLedgerGitLayout(input.rootDir, input.store),
+    ledger = resolveLedgerGitLayout(input.rootDir),
     authoredTarget = path.join(layout.authoredRoot, ...destination.split("/")),
-    gitTarget = ledger ? ledgerGitPath(ledger, destination) : destination,
+    gitTarget = ledgerGitPath(ledger, destination),
     projected = input.projection.readDocument(destination),
-    tracked = ledger !== null && gitTracked(ledger.rootDir, gitTarget),
+    tracked = gitTracked(ledger.rootDir, gitTarget),
     sameUntrackedSource = sourceAbsolute === authoredTarget && !tracked && projected.document === null;
   return {
     taskId,
@@ -508,7 +508,7 @@ function taskArtifactTarget(input: Input, taskId: string, destinationValue: stri
     rawClassification,
     authoredTarget,
     gitTarget,
-    ledgerRootDir: ledger?.rootDir ?? layout.authoredRoot,
+    ledgerRootDir: ledger.rootDir,
     projected,
     tracked,
     sameUntrackedSource,

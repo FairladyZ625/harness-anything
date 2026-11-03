@@ -290,28 +290,24 @@ export function readIntervals(db: DatabaseSync, taskId: string): readonly LeaseI
 }
 
 export function reserve(db: DatabaseSync, lease: LeaseV1, now: string): LeaseV1 {
-  const current = effectiveLease(db, lease.taskId, now),
-    count = prepareQuery(db, COUNT_ACTIVE_LEASES_SQL, (sql) =>
-      /* @gate-identity check-bypass-write-boundary/bypass-write-026 */ db.prepare(sql),
-    ).get(now) as { readonly count: number };
-  assertLeaseReservation(lease, current, count.count);
-  prepareQuery(db, UPSERT_LEASE_SQL, (sql) =>
-    /* @gate-identity check-bypass-write-boundary/bypass-write-027 */ db.prepare(sql),
-  ).run(lease.taskId, canonicalJson(lease));
-  return lease;
-}
-
-export function assertLeaseReservation(lease: LeaseV1, current: LeaseV1 | null, activeCount: number): void {
   checkedLease(lease);
+  const current = effectiveLease(db, lease.taskId, now);
   if (current !== null && current.phase !== "orphaned" && current.phase !== "released")
     throw new Error(`lease conflict for task ${lease.taskId}`);
-  if (activeCount >= TASK_LEASE_BROKER_CONTRACT.capacity)
+  const count = prepareQuery(db, COUNT_ACTIVE_LEASES_SQL, (sql) =>
+    /* @gate-identity check-bypass-write-boundary/bypass-write-026 */ db.prepare(sql),
+  ).get(now) as { readonly count: number };
+  if (count.count >= TASK_LEASE_BROKER_CONTRACT.capacity)
     throw new Error(
       `lease capacity ${TASK_LEASE_BROKER_CONTRACT.capacity} exhausted; wait for a lease to be released or expire`,
     );
   const expectedVersion = current === null ? 0 : current.version + 1;
   if (lease.phase !== "reserving" || lease.version !== expectedVersion)
     throw new Error(`stale lease reservation for task ${lease.taskId}`);
+  prepareQuery(db, UPSERT_LEASE_SQL, (sql) =>
+    /* @gate-identity check-bypass-write-boundary/bypass-write-027 */ db.prepare(sql),
+  ).run(lease.taskId, canonicalJson(lease));
+  return lease;
 }
 
 export function changeLease(
@@ -321,17 +317,7 @@ export function changeLease(
   expiresAt: string,
   now: string,
 ): LeaseV1 {
-  const next = changedLeaseAtCut(effectiveLease(db, expected.taskId, now), expected, phase, expiresAt);
-  runSql(db, UPDATE_LEASE_SQL, canonicalJson(next), next.taskId);
-  return next;
-}
-
-export function changedLeaseAtCut(
-  current: LeaseV1 | null,
-  expected: LeaseV1,
-  phase: "held" | "released",
-  expiresAt: string,
-): LeaseV1 {
+  const current = effectiveLease(db, expected.taskId, now);
   const allowed =
     phase === "released" ? ["reserving", "held"] : expected.phase === "reserving" ? ["reserving"] : ["held"];
   if (
@@ -341,9 +327,17 @@ export function changedLeaseAtCut(
     canonicalJson(current.source) !== canonicalJson(expected.source) ||
     current.version !== expected.version ||
     !allowed.includes(current.phase)
-  )
+  ) {
     throw new Error(`stale lease CAS for task ${expected.taskId}`);
-  return checkedLease({ ...current, phase, expiresAt, version: current.version + 1 });
+  }
+  const next = checkedLease({
+    ...current,
+    phase,
+    expiresAt,
+    version: current.version + 1,
+  });
+  runSql(db, UPDATE_LEASE_SQL, canonicalJson(next), next.taskId);
+  return next;
 }
 
 export function effectiveLease(db: DatabaseSync, taskId: string, now: string): LeaseV1 | null {

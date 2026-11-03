@@ -9,6 +9,8 @@ import { type AgentDefinitionSnapshot, type RuntimeInstallationWitness } from "@
 import type { RuntimeInstanceSummary } from "../src/agent-runtime-instances.ts";
 import { requireExecutionRequestScope } from "../src/runtime-execution-scope.ts";
 import { CAUSAL_CONTEXT_MAX_BYTES } from "../src/dispatch-causal-context.ts";
+import { launchArgs } from "../src/agent-runtime-launch-config.ts";
+import type { RuntimePermissionMode } from "../src/runtime-permissions.ts";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import type { RepoCellBinding } from "../src/repo-cell-types.ts";
@@ -600,7 +602,7 @@ test("a portable Agent dispatches in a repository whose skills live in repositor
   }
 });
 
-test("artifact task dispatch confines writes to its package despite bypass declarations and cwd overrides", async () => {
+test("artifact task cwd preserves request, agent and instance permission precedence", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-dispatch-package-"));
   let cell: Cell | undefined;
   let prepared:
@@ -613,6 +615,8 @@ test("artifact task dispatch confines writes to its package despite bypass decla
     | undefined;
   let launches = 0;
   let useZcode = false;
+  let configuredPermission: RuntimePermissionMode = "bypass";
+  let args: string[] = [];
   try {
     initRepo(root);
     cell = await openRepoCell({
@@ -624,9 +628,26 @@ test("artifact task dispatch confines writes to its package despite bypass decla
         daemonId: "dispatch-package-test",
         endpoint: localUserDaemonEndpoint(path.join(root, ".daemon-user"), "dispatch-package-test"),
       },
-      runtimeInstances: () => [{ ...instance(), kindId: useZcode ? "zcode" : "codex", permissionMode: "bypass" }],
+      runtimeInstances: () => [
+        { ...instance(), kindId: useZcode ? "zcode" : "codex", permissionMode: configuredPermission },
+      ],
       prepareRuntimeLaunch: (_instanceId, request) => {
         prepared = request;
+        args = launchArgs(
+          {
+            ...instance(),
+            kindId: useZcode ? "zcode" : "codex",
+            permissionMode: configuredPermission,
+            auth: { mode: "subscription" },
+          },
+          definition.model,
+          request.prompt,
+          request.providerSessionId,
+          null,
+          request.permissionMode ?? configuredPermission,
+          false,
+          request.callbackRelayPath,
+        );
         return {
           definition: { ...definition, kindId: useZcode ? "zcode" : "codex" },
           installation: { ...installation, kindId: useZcode ? "zcode" : "codex" },
@@ -663,7 +684,33 @@ test("artifact task dispatch confines writes to its package despite bypass decla
       binding,
     );
     assert.equal(installed.outcome, "applied", JSON.stringify(installed));
-    for (const [index, override] of [undefined, "bypass", "read-only"].entries()) {
+    const restricted = await cell.run(
+      {
+        kind: "agent-install",
+        declaration: {
+          schema: "agent-declaration/v1",
+          id: "package-reader",
+          name: "Package Reader",
+          instructions: "Read the task report.",
+          runtimes: [{ type: "codex" }],
+          permissionMode: "read-only",
+        },
+      },
+      binding,
+    );
+    assert.equal(restricted.outcome, "applied", JSON.stringify(restricted));
+    const cases = [
+      { instance: "bypass", expected: "bypass" },
+      { instance: "bypass", agent: "package-worker", expected: "bypass" },
+      { instance: "workspace-write", agent: "package-reader", request: "bypass", expected: "bypass" },
+      { instance: "bypass", agent: "package-worker", request: "workspace-write", expected: "workspace-write" },
+      { instance: "bypass", agent: "package-worker", request: "read-only", expected: "read-only" },
+      { instance: "bypass", agent: "package-reader", expected: "read-only" },
+      { instance: "workspace-write", expected: "workspace-write" },
+      { instance: "read-only", expected: "read-only" },
+    ] as const;
+    for (const [index, spec] of cases.entries()) {
+      configuredPermission = spec.instance;
       const taskId = `task_package_${index}`;
       const packagePath = await createTask(cell, root, {
         taskId,
@@ -673,22 +720,30 @@ test("artifact task dispatch confines writes to its package despite bypass decla
       const receipt = await cell.spawnRuntime(
         {
           runtimeInstanceId: definition.instanceId,
-          agentId: "package-worker",
+          ...("agent" in spec ? { agentId: spec.agent } : {}),
           taskId,
           dispatchKey: `package-${index}`,
           cwd: { scope: "repo-root" },
-          ...(override ? { permissionMode: override } : {}),
+          ...("request" in spec ? { permissionMode: spec.request } : {}),
         },
         binding,
       );
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
       assert.equal(prepared?.cwd, path.join(root, "harness", packagePath));
-      assert.equal(prepared?.permissionMode, override === "read-only" ? "read-only" : "workspace-write");
-      if (process.platform === "win32") assert.equal(prepared?.callbackRelayPath, undefined);
-      else assert.match(prepared?.callbackRelayPath ?? "", /^\/tmp\/harness-anything-\d+\/r-[a-f0-9]{24}\.sock$/u);
+      assert.equal(prepared?.permissionMode ?? configuredPermission, spec.expected, JSON.stringify({ spec, args }));
+      if (spec.expected === "bypass") {
+        assert.equal(prepared?.callbackRelayPath, undefined);
+        assert.deepEqual(args, ["exec", "--json", "--sandbox", "danger-full-access", "--model", definition.model, "-"]);
+      } else {
+        if (process.platform === "win32") assert.equal(prepared?.callbackRelayPath, undefined);
+        else assert.match(prepared?.callbackRelayPath ?? "", /^\/tmp\/harness-anything-\d+\/r-[a-f0-9]{24}\.sock$/u);
+        assert.equal(args.includes("danger-full-access"), false);
+      }
+      assert.equal(prepared?.prompt.includes("# Read-only Dispatch Contract"), spec.expected === "read-only");
       assert.ok(prepared?.prompt.includes(`Worker repository root: ${prepared.cwd}`));
     }
-    assert.equal(launches, 3);
+    assert.equal(launches, cases.length);
+    configuredPermission = "bypass";
     const taskId = "task_package_code_control";
     await createTask(cell, root, { taskId, title: "Implement a code change" });
     const workerRoot = path.join(root, "worker-control");
@@ -713,20 +768,18 @@ test("artifact task dispatch confines writes to its package despite bypass decla
       title: "Investigate with ZCode",
       presetId: "code-impact-analysis",
     });
-    await assert.rejects(
-      cell.spawnRuntime(
-        {
-          runtimeInstanceId: definition.instanceId,
-          taskId: "task_package_zcode",
-          dispatchKey: "package-zcode",
-          permissionMode: "bypass",
-        },
-        binding,
-      ),
-      (error: unknown) =>
-        error instanceof Error && "code" in error && error.code === "zcode_unattended_permission_mode_unsupported",
+    const zcodeReceipt = await cell.spawnRuntime(
+      {
+        runtimeInstanceId: definition.instanceId,
+        taskId: "task_package_zcode",
+        dispatchKey: "package-zcode",
+        permissionMode: "bypass",
+      },
+      binding,
     );
-    assert.equal(launches, 4, "the unsupported provider must never start with bypass permissions");
+    assert.equal(zcodeReceipt.outcome, "applied", JSON.stringify(zcodeReceipt));
+    assert.equal(prepared?.permissionMode, "bypass");
+    assert.equal(launches, cases.length + 2);
   } finally {
     await cell?.close();
     rmSync(root, { recursive: true, force: true });

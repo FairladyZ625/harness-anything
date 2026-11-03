@@ -123,8 +123,6 @@ daemon 文档说明当前运维形态和限制：本地 daemon 服务管理、�
 
 → **[operations-server-daemon.zh-CN.md](operations-server-daemon.zh-CN.md)**
 
-PostgreSQL 中心的部署配置、可选 Git 与边缘恢复见 [PostgreSQL daemon deployment](postgres-daemon.md)。
-
 ## 配置托管 Git 凭据
 
 任务分支推送使用操作者绑定、存于本机原生凭据库的 token，由 daemon 代办；GitHub 的

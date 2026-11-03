@@ -1,6 +1,4 @@
 import { createPgTaskQueryReader } from "../pg/pg-task-query-reader.ts";
-import { makePgTaskProjection } from "../pg/pg-task-projection.ts";
-import { resolvePostgresEventStoreScope } from "../pg/backend.ts";
 // @write-boundary-exemption rebuildable-projection
 import { resolveHarnessLayout } from "@harness-anything/kernel/internal/layout/index.ts";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
@@ -102,7 +100,7 @@ export type {
 export type { TaskProjectionCatchUpProgress } from "@harness-anything/kernel/internal/ports/task-projection-source.ts";
 
 export interface TaskProjectionFactoryOptions {
-  readonly storage?: SqliteStorageBackendConfig | PostgresStorageBackendConfig;
+  readonly storage?: SqliteStorageBackendConfig;
   readonly rootDir: string;
   readonly eventStore: EventStreamPort;
   readonly projectionPath?: string;
@@ -133,12 +131,7 @@ export function makeTaskProjection(options: PostgresTaskProjectionFactoryOptions
 export function makeTaskProjection(options: TaskProjectionFactoryOptions): TaskProjection;
 export function makeTaskProjection(
   options: TaskProjectionFactoryOptions | PostgresTaskProjectionFactoryOptions,
-): TaskProjection;
-export function makeTaskProjection(
-  options: TaskProjectionFactoryOptions | PostgresTaskProjectionFactoryOptions,
 ): TaskProjection | TaskProjectionPort {
-  if (options.storage?.backend === "postgres")
-    return makePgTaskProjection(options as PostgresTaskProjectionFactoryOptions);
   requireSqliteBackend(options);
   const projectionPath = options.projectionPath ?? defaultLifecycleTaskProjectionPath(options.rootDir);
   const limit = options.catchUpLimit ?? 4096,
@@ -298,14 +291,22 @@ export function makeTaskProjectionReader(
   options: TaskProjectionReaderFactoryOptions | PostgresTaskProjectionReaderFactoryOptions,
 ): TaskProjectionReader | TaskProjectionReaderPort {
   if (options.storage?.backend === "postgres") {
-    const repoId = "repoId" in options ? options.repoId : undefined;
+    const scope = options.storage.scope,
+      repoId = "repoId" in options ? options.repoId : undefined;
     if (!repoId) throw new TypeError("PostgreSQL projection reader requires a repository id");
-    const scope = resolvePostgresEventStoreScope(options.storage.scope);
+    if (!scope?.tenantId || !scope.projectId || !Number.isSafeInteger(scope.policyEpoch) || scope.policyEpoch! < 0)
+      throw new TypeError(
+        "PostgreSQL projection reader requires tenant, project, and a non-negative safe policy epoch",
+      );
     return createPgTaskQueryReader({
       connectionString: options.storage.connectionString,
       repoId,
-      requireRuntimeRole: true,
-      scope,
+      scope: {
+        tenantId: scope.tenantId,
+        projectId: scope.projectId,
+        policyEpoch: scope.policyEpoch!,
+        readers: scope.readers,
+      },
       ...(options.projectionPath === undefined ? {} : { path: options.projectionPath }),
       now: options.now,
     });

@@ -154,42 +154,11 @@ export function restoreRequestedDocuments(
         "target" in file ? [[ledgerAuthoredPath(currentLedger, file.target), file] as const] : [],
       ),
     ),
-    restored = restoreCanonicalDocumentSelection({
-      ledger: currentLedger,
-      layout: context.layout(),
-      headDigest: accepted.headDigest,
-      canonical,
-      paths: logicals,
-      killpoint: context.killpoint,
-    });
-  for (const file of restored.written) {
-    context.worktreeConflicts.delete(file.target);
-    context.acceptedWorktree.delete(ledgerAuthoredPath(currentLedger, file.target));
-  }
-  if (restored.written.length > 0) localGitWorktreeSettlement.index(currentLedger.rootDir, restored.written);
-  return {
-    status: "visible",
-    commitSha: ledgerCommitSha(context.repoId, parent),
-    settlements: restored.settlements,
-    conflicts: restored.conflicts,
-  };
-}
-
-/** Explicit selections share the existing compare/preserve/rename settlement on every backend. */
-export function restoreCanonicalDocumentSelection(input: {
-  readonly ledger: LedgerGitLayout;
-  readonly layout: HarnessLayout;
-  readonly headDigest: string;
-  readonly canonical: ReadonlyMap<string, PublicationWrite>;
-  readonly paths: readonly string[];
-  readonly killpoint?: (point: EventPublicationKillpoint) => void;
-}) {
-  const currentLedger = input.ledger,
     settlements: MaterializationSettlement[] = [],
     conflicts: string[] = [],
     written: PublicationWrite[] = [];
-  for (const logical of input.paths) {
-    const file = input.canonical.get(logical);
+  for (const logical of logicals) {
+    const file = canonical.get(logical);
     if (!file || !("target" in file))
       throw new TaskEventStoreError("invalid_write_plan", `canonical holds no restorable document at ${logical}`);
     const target = file.target,
@@ -202,16 +171,16 @@ export function restoreCanonicalDocumentSelection(input: {
       target,
       settled,
       new Map([[target, entry]]),
-      input.killpoint,
+      context.killpoint,
       (hooks) => {
         const node = localGitWorktreeSettlement.readNode(`${currentLedger.rootDir}/${target}`);
         if (node && node.sha256 !== publicationDigest(file.body)) {
           hooks.beforeRename();
           copy = localGitWorktreeSettlement.preserveVisibleConflict(
-            input.layout,
+            context.layout(),
             `${currentLedger.rootDir}/${target}`,
             target,
-            input.headDigest,
+            accepted.headDigest,
           );
         }
         localGitWorktreeSettlement.visible(currentLedger.rootDir, [file], hooks);
@@ -227,8 +196,16 @@ export function restoreCanonicalDocumentSelection(input: {
       action: entry === "missing" ? "restore" : "overwrite",
       copy: copy === null ? null : ledgerAuthoredPath(currentLedger, copy),
     });
+    context.worktreeConflicts.delete(target);
+    context.acceptedWorktree.delete(logical);
   }
-  return { written, settlements, conflicts };
+  if (written.length > 0) localGitWorktreeSettlement.index(currentLedger.rootDir, written);
+  return {
+    status: "visible",
+    commitSha: ledgerCommitSha(context.repoId, parent),
+    settlements,
+    conflicts,
+  };
 }
 
 /**

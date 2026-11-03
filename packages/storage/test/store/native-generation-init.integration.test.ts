@@ -12,7 +12,6 @@ import {
   openSqliteEventStore,
 } from "../../src/index.ts";
 import { resolveActiveGeneration, sqliteLedgerPath } from "../../src/store/sqlite-event-store.ts";
-import { generationThreeUpgradeStatus } from "../../src/store/generation-three-selection.ts";
 import { taskLifecycleWritePlan } from "@harness-anything/kernel/internal/domain/task-lifecycle-publication.ts";
 import { eventAt, initRepo } from "./task-event-store.fixtures.ts";
 
@@ -21,10 +20,8 @@ const repoId = "native-generation-init";
 test("a truly empty repository is born on generation 3 and accepts its first write there", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-native-generation-"));
   initRepo(rootDir);
-  assert.equal(generationThreeUpgradeStatus({ rootInput: rootDir, repoId }), "empty");
   const store = makeTaskEventStore({ repoId, rootDir, activationPreflight: activateEmptyCanonicalGeneration });
   try {
-    assert.equal(generationThreeUpgradeStatus({ rootInput: rootDir, repoId }), "active");
     assert.equal(resolveActiveGeneration({ rootInput: rootDir, repoId }), 3);
     assert.equal(store.ledgerMetadata().generation, 3);
     assert.equal(existsSync(sqliteLedgerPath(rootDir, 1)), false);
@@ -52,7 +49,6 @@ test("an existing generation 1 ledger is not mistaken for an empty repository", 
   const legacy = openSqliteEventStore({ repoId, rootInput: rootDir, generation: 1 });
   legacy.close();
   try {
-    assert.equal(generationThreeUpgradeStatus({ rootInput: rootDir, repoId }), "incomplete");
     assert.throws(() => resolveActiveGeneration({ rootInput: rootDir, repoId }), /upgrade is incomplete/u);
     assert.throws(() => activateEmptyCanonicalGeneration({ rootInput: rootDir, repoId }), /upgrade is incomplete/u);
     assert.equal(existsSync(sqliteLedgerPath(rootDir, 3)), false);

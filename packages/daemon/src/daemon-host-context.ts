@@ -45,7 +45,7 @@ export interface DaemonRuntimePorts {
 export interface RegisteredRepoInput {
   readonly repoId: string;
   readonly canonicalRoot: string;
-  readonly authoredBranch: string | null;
+  readonly authoredBranch: string;
   readonly mode: DaemonRepoMode;
 }
 

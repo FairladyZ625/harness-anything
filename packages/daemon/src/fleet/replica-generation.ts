@@ -4,7 +4,7 @@ import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import * as tar from "tar";
-import { hydrateReplicaSeed, makeTaskProjectionReader, openSqliteEventStore } from "@harness-anything/storage";
+import { makeTaskProjectionReader, openSqliteEventStore } from "@harness-anything/storage";
 import { syncDirectory, syncFile, writeFileDurably } from "@harness-anything/storage";
 import type { BaseBackupMetadata } from "@harness-anything/storage";
 import { BASE_BACKUP_ARCHIVE_ROOT } from "@harness-anything/storage";
@@ -42,7 +42,7 @@ const isGenerationPointer = (value: unknown): value is { id: string; metadata: B
   typeof value === "object" &&
   typeof (value as { id?: unknown }).id === "string" &&
   /^[A-Za-z0-9-]+$/u.test((value as { id: string }).id) &&
-  (value as { metadata?: { schema?: unknown } | null }).metadata?.schema === "fleet-basebackup/v3";
+  (value as { metadata?: { schema?: unknown } | null }).metadata?.schema === "fleet-basebackup/v2";
 
 /** A pointer of any other shape (the retired cut/pull replica's current.json) names no generation. */
 export function readReplicaGeneration(root: string): ReplicaGeneration | null {
@@ -141,7 +141,6 @@ export async function installReplicaGeneration(input: {
     await pipeline(createReadStream(input.archive), unpack);
     // The archive can be intact but belong to another offer or an unsupported database schema.
     // Open the actual common readers before publishing a generation; do not invent an edge schema check.
-    await hydrateReplicaSeed(temporary, input.metadata);
     const stagedLedger = path.join(temporary, path.relative(next.rootDir, next.ledgerPath));
     const stagedProjection = path.join(temporary, path.relative(next.rootDir, next.projectionPath));
     if (!existsSync(stagedLedger) || !existsSync(stagedProjection)) throw new Error("base backup database missing");

@@ -97,21 +97,19 @@ test(
       path.join(edgeUser, "rbac", "config.json"),
       JSON.stringify({ schema: "harness-managed-rbac/v1", mode: "external" }),
     );
-    const signInViewer = (accessToken: string) =>
-      managedRbacSessionStore(edgeUser, `${f.owners.url}/realms/harness`, "harness").write(
-        JSON.stringify({
-          schema: "harness-oidc-session/v3",
-          issuer: `${f.owners.url}/realms/harness`,
-          accessToken,
-          subject: "person-one",
-          personId: "person-one",
-          expiresAt: Date.now() + 3_600_000,
-          roles: [],
-          loginTarget: edgeRoot,
-          authority: { url: f.owners.url, realm: "harness" },
-        }),
-      );
-    signInViewer("token-person-one");
+    managedRbacSessionStore(edgeUser, `${f.owners.url}/realms/harness`, "harness").write(
+      JSON.stringify({
+        schema: "harness-oidc-session/v3",
+        issuer: `${f.owners.url}/realms/harness`,
+        accessToken: "token-person-one",
+        subject: "person-one",
+        personId: "person-one",
+        expiresAt: Date.now() + 3_600_000,
+        roles: [],
+        loginTarget: edgeRoot,
+        authority: { url: f.owners.url, realm: "harness" },
+      }),
+    );
     const providerConfig = JSON.parse(readFileSync(path.join(edgeUser, "rbac/config.json"), "utf8")) as {
       readonly mode: string;
       readonly url?: string;
@@ -262,10 +260,6 @@ test(
     // bootstrap-status asks the edge to reset the device session before reporting the
     // center authority. Model the required human re-approval explicitly for the next read.
     f.owners.keycloak.interactiveSession("person-one", "node-one", f.owners.url, "device-token-node-one");
-    // Re-approval also replaces the edge's old token. A resident stream now rechecks that token
-    // on every page, so retaining the pre-bootstrap token cannot represent a signed-in viewer.
-    signInViewer("device-token-node-one");
-    await pull();
     const lifetime = await rpc.handle({
       jsonrpc: "2.0",
       id: 4,

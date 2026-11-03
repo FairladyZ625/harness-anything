@@ -6,24 +6,9 @@ import { createPgTaskProjectionSource } from "./pg-task-source.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 import { POSTGRES_SCOPE_SCHEMA_CONTRACT } from "../postgres/scope-schema.ts";
 import { PG_TASK_QUERY_METHODS } from "./pg-task-query-contract.ts";
-import { createPgStorageBackend } from "./backend.ts";
-import type { PostgresTaskEventStoreRequest } from "../postgres/pg-task-event-store.ts";
-import type { CanonicalEventV1, LeaseV1 } from "@harness-anything/kernel";
-import { changePgLease } from "./pg-lease-cas.ts";
-import { rebuildPgProjection } from "./pg-task-event-materialize.ts";
-import { withPostgresTransaction } from "../postgres/transaction.ts";
-import { pgEpochTransactions, type PgEpochRequest } from "../postgres/pg-epoch-transaction.ts";
-import { pgReplicationHead, pgReplicationPage } from "../postgres/pg-replication.ts";
-import type { ReplicationPosition } from "../store/replication-log.ts";
-import { pgSlotOperation } from "../postgres/pg-slot-operations.ts";
-import path from "node:path";
-import { localGitWorktreeSettlement } from "../store/local-version-control-system.ts";
 
 interface PgQueryWorkerData {
   readonly connectionString: string;
-  readonly authorityConnectionString?: string;
-  readonly requireRuntimeRole?: boolean;
-  readonly authoredRoot?: string;
   readonly scope: PgProjectionScope;
   readonly repoId: string;
   readonly path: string;
@@ -34,7 +19,7 @@ interface PgQueryWorkerData {
 
 interface PgQueryWorkerRequest {
   readonly id: number;
-  readonly op: "begin" | "query" | "end" | "close" | "canonical" | "lease" | "rebuild" | "epoch" | "replication";
+  readonly op: "begin" | "query" | "end" | "close";
   readonly method?: string;
   readonly args?: readonly unknown[];
   readonly now?: string;
@@ -45,21 +30,6 @@ if (!isMainThread && data && parentPort) startWorker(data);
 
 function startWorker(input: PgQueryWorkerData): void {
   const pool = new Pool({ connectionString: input.connectionString, max: 4 });
-  const authorityPool = input.authorityConnectionString
-      ? new Pool({ connectionString: input.authorityConnectionString, max: 1 })
-      : null,
-    epochs = authorityPool ? pgEpochTransactions(authorityPool) : null;
-  const backend = createPgStorageBackend({
-    pool,
-    repoId: input.repoId,
-    scope: { ...input.scope, readers: input.scope.readers ?? [] },
-    readAuthoredDocument: input.authoredRoot
-      ? (logical) => {
-          const node = localGitWorktreeSettlement.readNode(path.join(input.authoredRoot!, ...logical.split("/")));
-          return node ? { ...node, nodeKind: node.mode === "120000" ? "symbolic-link" : "file" } : null;
-        }
-      : undefined,
-  });
   let source: ReturnType<typeof createPgTaskProjectionSource> | null = null,
     sessionClient: PoolClient | null = null,
     savepoint = 0;
@@ -90,7 +60,6 @@ function startWorker(input: PgQueryWorkerData): void {
     parentPort!.close();
   };
   pool.on("error", fail);
-  authorityPool?.on("error", fail);
   process.on("uncaughtExceptionMonitor", fail);
   process.on("exit", (code) =>
     fail(Object.assign(new Error(`PostgreSQL task query worker exited (${code})`), { code: "pg_query_worker_exited" })),
@@ -98,21 +67,7 @@ function startWorker(input: PgQueryWorkerData): void {
 
   const initialize = async () => {
     const client = await pool.connect();
-    try {
-      if (input.requireRuntimeRole) {
-        const row = (
-          await client.query<{ unsafe: boolean }>(
-            "SELECT r.rolsuper OR r.rolbypassrls OR EXISTS (SELECT 1 FROM pg_tables WHERE schemaname='public' AND tablename LIKE 'ha_%' AND tableowner=current_user) AS unsafe FROM pg_roles r WHERE rolname=current_user",
-          )
-        ).rows[0];
-        if (!row || row.unsafe)
-          throw Object.assign(new Error("PostgreSQL runtime requires a non-owner role without BYPASSRLS"), {
-            code: "pg_runtime_role_unsafe",
-          });
-      }
-    } finally {
-      client.release();
-    }
+    client.release();
     source = createPgTaskProjectionSource({
       pool: sessionPool(),
       scope: input.scope,
@@ -166,108 +121,6 @@ function startWorker(input: PgQueryWorkerData): void {
 
   const handle = async (request: PgQueryWorkerRequest) => {
     try {
-      if (request.op === "replication") {
-        if (sessionClient) throw new Error("replication operations cannot nest in a query session");
-        const scope = { ...input.scope, readers: input.scope.readers ?? [] },
-          args = request.args?.[0] as { after: ReplicationPosition; limit: number } | undefined;
-        const result = await withPostgresTransaction(
-          pool,
-          async (client) => {
-            if (request.method === "head") return pgReplicationHead(client, scope, input.repoId);
-            if (request.method === "slots")
-              return pgSlotOperation(
-                client,
-                scope,
-                input.repoId,
-                request.args![0] as Parameters<typeof pgSlotOperation>[3],
-              );
-            if (request.method === "page" && args)
-              return pgReplicationPage(client, scope, input.repoId, args.after, args.limit);
-            throw new Error("unknown PG replication operation");
-          },
-          scope,
-          { isolationLevel: "repeatable read" },
-        );
-        respond(request.id, input.state, result);
-        return;
-      }
-      if (request.op === "epoch") {
-        if (sessionClient || !epochs)
-          throw new Error("PG epoch authority is unavailable during a read session or without a management connection");
-        respond(request.id, input.state, await epochs.execute(request.args![0] as PgEpochRequest));
-        return;
-      }
-      if (request.op === "lease") {
-        if (sessionClient) throw new Error("lease writes cannot run inside a projection read session");
-        const [operation, expected, now, expiresAt] = request.args as [
-          "reserve" | "activate" | "renew" | "release",
-          LeaseV1,
-          string,
-          string | undefined,
-        ];
-        respond(
-          request.id,
-          input.state,
-          await changePgLease({
-            pool,
-            scope: { ...input.scope, readers: input.scope.readers ?? [] },
-            repoId: input.repoId,
-            operation,
-            expected,
-            now,
-            expiresAt,
-          }),
-        );
-        return;
-      }
-      if (request.op === "rebuild") {
-        if (sessionClient) throw new Error("rebuild cannot run inside a projection read session");
-        await withPostgresTransaction(
-          pool,
-          async (client) => {
-            const keys = [input.scope.tenantId, input.scope.projectId, input.repoId];
-            const head = (
-              await client.query<{ revision: string }>(
-                "SELECT revision FROM ha_repo_heads WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 FOR UPDATE",
-                keys,
-              )
-            ).rows[0];
-            const events = (
-              await client.query<{ event_json: string; readers: string[] }>(
-                "SELECT event_json,readers FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 ORDER BY revision",
-                keys,
-              )
-            ).rows;
-            const readers = new Map(
-              events.map((row) => [(JSON.parse(row.event_json) as CanonicalEventV1).opId, row.readers]),
-            );
-            await rebuildPgProjection(client, input.scope, {
-              events: events.map((row) => JSON.parse(row.event_json) as CanonicalEventV1),
-              sourceRevision: Number(head?.revision ?? 0),
-              readEventReaders: (event) => readers.get(event.opId) ?? [],
-              readContentBlob: async (sha256) =>
-                (
-                  await client.query<{ body: Buffer }>(
-                    "SELECT body FROM ha_content_blobs WHERE tenant_id=$1 AND project_id=$2 AND sha256=$3",
-                    [input.scope.tenantId, input.scope.projectId, sha256],
-                  )
-                ).rows[0]?.body ?? null,
-            });
-          },
-          input.scope,
-        );
-        respond(request.id, input.state, null);
-        return;
-      }
-      if (request.op === "canonical") {
-        if (sessionClient) throw new Error("canonical operations cannot run inside a projection read session");
-        respond(
-          request.id,
-          input.state,
-          await backend.eventStore.execute(request.args![0] as PostgresTaskEventStoreRequest),
-        );
-        return;
-      }
       if (request.op === "begin") {
         if (sessionClient) throw new Error("PostgreSQL query session is already active");
         sessionClient = await pool.connect();
@@ -313,8 +166,6 @@ function startWorker(input: PgQueryWorkerData): void {
       }
       if (request.op === "close") {
         await finishSession("ROLLBACK");
-        await epochs?.close();
-        await authorityPool?.end();
         await pool.end();
         respond(request.id, input.state, null);
         stopped = true;
@@ -363,8 +214,6 @@ function startWorker(input: PgQueryWorkerData): void {
       }
       let failure = error;
       try {
-        await epochs?.close();
-        await authorityPool?.end();
         await pool.end();
       } catch (closeError) {
         failure = new AggregateError([error, closeError], "PostgreSQL task query worker failed to start and close.");

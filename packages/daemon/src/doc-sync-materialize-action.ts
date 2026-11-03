@@ -34,28 +34,24 @@ export function runDocMaterialize(input: Input): DocSettlementReceipt {
       "rerun with --path <path>... for an explicit selection or --all for the whole cut",
     ].join("\n");
     return Object.assign(
-      rejectDocSyncAction(
-        `materialize:${result.commitSha?.sha ?? `cut-${revision}`}`,
-        "doc_materialize_confirmation_required",
-        {
-          kind: "doc_sync",
-          code: "doc_materialize_confirmation_required",
-          baseLedgerSha: input.store.currentCut(),
-          currentLedgerSha: input.store.currentCut(),
-          paths: result.settlements.map((row) => ({
-            path: row.path,
-            baseBlobSha256: null,
-            currentBlobSha256: null,
-            candidateBlobSha256: null,
-          })),
-          holder: null,
-          differences: [],
-          unresolvedTouches: result.settlements.map((row) =>
-            touch(row.path, "doc-materialize", `would ${row.action} this path`),
-          ),
-          deletions: [],
-        },
-      ),
+      rejectDocSyncAction(`materialize:${result.commitSha.sha}`, "doc_materialize_confirmation_required", {
+        kind: "doc_sync",
+        code: "doc_materialize_confirmation_required",
+        baseLedgerSha: input.store.currentCut(),
+        currentLedgerSha: input.store.currentCut(),
+        paths: result.settlements.map((row) => ({
+          path: row.path,
+          baseBlobSha256: null,
+          currentBlobSha256: null,
+          candidateBlobSha256: null,
+        })),
+        holder: null,
+        differences: [],
+        unresolvedTouches: result.settlements.map((row) =>
+          touch(row.path, "doc-materialize", `would ${row.action} this path`),
+        ),
+        deletions: [],
+      }),
       // rejectionExplanation is the field the CLI's human hint chain promotes, so the confirmation
       // list itself — not just the code — reaches the operator.
       { summary, rejectionExplanation: summary },
@@ -67,7 +63,7 @@ export function runDocMaterialize(input: Input): DocSettlementReceipt {
     // outcome is "no changes": a whole-closure pass may still create or retire directories, which
     // the file settlements do not list.
     outcome: paths !== null && result.conflicts.length === 0 ? "applied" : visible ? "applied" : "pending",
-    opId: `materialize:${result.commitSha?.sha ?? `cut-${revision}`}`,
+    opId: `materialize:${result.commitSha.sha}`,
     revision,
     acceptance: null,
     evidence: `doc-materialize:${stableStringify({ settlements: result.settlements, conflicts: result.conflicts })}`,

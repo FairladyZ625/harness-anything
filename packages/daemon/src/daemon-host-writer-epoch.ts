@@ -26,26 +26,18 @@ export function openDaemonWriterEpochs(input: {
   readonly userRoot: string;
   readonly daemonId: string;
   readonly now: () => string;
-  readonly storage?: Readonly<Record<string, import("@harness-anything/storage").DaemonStorageConfig>>;
 }): DaemonWriterEpochs {
   const stateRoot = path.join(input.userRoot, "fleet");
-  const daemonWriterEpochs = new Map<string, PersistentWriterEpoch>();
+  let daemonWriterEpoch: PersistentWriterEpoch | null = null;
   const daemonWriterLeases = new Map<string, WriterEpochLease>(),
-    epoch = (repoId: string): PersistentWriterEpoch => {
-      let authority = daemonWriterEpochs.get(repoId);
-      if (!authority) {
-        authority = openPersistentWriterEpoch({
-          stateRoot,
-          holderId: `local-daemon:${input.daemonId}:${process.pid}`,
-          now: input.now,
-          storage: input.storage?.[repoId],
-        });
-        daemonWriterEpochs.set(repoId, authority);
-      }
-      return authority;
-    },
+    epoch = (): PersistentWriterEpoch =>
+      (daemonWriterEpoch ??= openPersistentWriterEpoch({
+        stateRoot,
+        holderId: `local-daemon:${input.daemonId}:${process.pid}`,
+        now: input.now,
+      })),
     writerEpochLease = (repoId: string, rootDir?: string): WriterEpochLease => {
-      epoch(repoId);
+      epoch();
       const existing = daemonWriterLeases.get(repoId);
       if (existing) return existing;
       const repo = readDaemonRegistry({ userRoot: input.userRoot }).repos.find((entry) => entry.repoId === repoId);
@@ -53,10 +45,8 @@ export function openDaemonWriterEpochs(input: {
       // takes its lease before the registry row exists, so the caller passes the root it will write.
       // An edge's local ledger is a center-owned mirror; it cannot establish that edge's epoch floor.
       const observedLedgerEpoch =
-        repo?.mode === "remote-edge"
-          ? 0
-          : readLedgerWriterEpoch(repoId, repo?.canonicalRoot ?? rootDir, input.storage?.[repoId]);
-      const lease = epoch(repoId).acquire(repoId, observedLedgerEpoch);
+        repo?.mode === "remote-edge" ? 0 : readLedgerWriterEpoch(repoId, repo?.canonicalRoot ?? rootDir);
+      const lease = epoch().acquire(repoId, observedLedgerEpoch);
       daemonWriterLeases.set(repoId, lease);
       return lease;
     },
@@ -70,14 +60,14 @@ export function openDaemonWriterEpochs(input: {
         holderId: lease.holderId,
       };
     },
-    writerEpochHighWatermark = (repoId: string): number => epoch(repoId).highWatermark(repoId),
+    writerEpochHighWatermark = (repoId: string): number => epoch().highWatermark(repoId),
     retireWriterEpoch = (repoId: string): void => {
-      epoch(repoId).retireCurrent(repoId);
+      epoch().retireCurrent(repoId);
       daemonWriterLeases.delete(repoId);
     },
     closeDaemonWriterEpoch = (): void => {
-      for (const authority of daemonWriterEpochs.values()) authority.close();
-      daemonWriterEpochs.clear();
+      daemonWriterEpoch?.close();
+      daemonWriterEpoch = null;
       daemonWriterLeases.clear();
     },
     daemonWriterBinding = (

@@ -58,35 +58,12 @@ export function createFactProjectionTables(db: DatabaseSync): void {
   `);
 }
 
-interface FactAdmissionState {
-  readonly row: FactProjectionRow | null;
-  readonly domainTypes: ReturnType<typeof listFactDomainTypeRows>;
-  readonly supersededTarget: { readonly ref: string } | null;
-  readonly relations: ReturnType<typeof livenessRelations>;
-}
-
 export function assertFactAdmission(db: DatabaseSync, event: FactEventV1): void {
+  const ownRef = factRef(event.factId);
   const record = prepareQuery(db, "SELECT row_json FROM fact WHERE fact_id = ?").get(event.factId) as
       | { readonly row_json: string }
       | undefined,
-    ref = event.payload.supersedes?.factRef,
-    target = ref
-      ? (prepareQuery(db, "SELECT ref FROM fact WHERE ref = ?").get(ref) as { readonly ref: string } | undefined)
-      : undefined;
-  assertFactAdmissionAtCut(
-    {
-      row: record ? (JSON.parse(record.row_json) as FactProjectionRow) : null,
-      domainTypes: listFactDomainTypeRows(db),
-      supersededTarget: target ?? null,
-      relations: target ? livenessRelations(db, [target.ref]) : [],
-    },
-    event,
-  );
-}
-
-export function assertFactAdmissionAtCut(state: FactAdmissionState, event: FactEventV1): void {
-  const ownRef = factRef(event.factId),
-    row = state.row;
+    row = record ? (JSON.parse(record.row_json) as FactProjectionRow) : null;
   if (event.type === "fact_archived" || event.type === "fact_unarchived") {
     if (!row) throw new FactProjectionError("entity_not_found", `Fact ${ownRef} does not exist.`);
     if (event.type === "fact_archived" && row.archived === true)
@@ -119,15 +96,17 @@ export function assertFactAdmissionAtCut(state: FactAdmissionState, event: FactE
       throw new FactProjectionError("invalid_transition", `Fact ${ownRef} reclassification changed observation data.`);
   }
   if (event.payload.registersDomainType) {
-    if (state.domainTypes.some(({ domainType }) => domainType === event.payload.registersDomainType))
+    if (prepareQuery(db, "SELECT 1 FROM fact_domain_type WHERE domain_type = ?").get(event.payload.registersDomainType))
       throw new FactProjectionError(
         "invalid_transition",
         `Fact domain type ${event.payload.registersDomainType} is already registered.`,
       );
   }
   for (const domainType of event.payload.domainTypes ?? [])
-    if (!state.domainTypes.some((row) => row.domainType === domainType)) {
-      const registered = state.domainTypes.map(({ domainType: value }) => value).join(", ");
+    if (!prepareQuery(db, "SELECT 1 FROM fact_domain_type WHERE domain_type = ?").get(domainType)) {
+      const registered = listFactDomainTypeRows(db)
+        .map(({ domainType: value }) => value)
+        .join(", ");
       throw new FactProjectionError(
         "fact_type_unregistered",
         `Fact domain type ${domainType} is not registered. Registered: ${registered || "none yet"}.`,
@@ -135,8 +114,10 @@ export function assertFactAdmissionAtCut(state: FactAdmissionState, event: FactE
     }
   const supersedes = event.payload.supersedes;
   if (!supersedes) return;
-  const target = state.supersededTarget;
-  if (target && factLiveness(target, state.relations) === "superseded_fact")
+  const target = prepareQuery(db, "SELECT ref FROM fact WHERE ref = ?").get(supersedes.factRef) as
+    | { readonly ref: string }
+    | undefined;
+  if (target && factLiveness(target, livenessRelations(db, [target.ref])) === "superseded_fact")
     throw new FactProjectionError(
       "relation_invalid",
       `Superseded endpoint ${supersedes.factRef} is already superseded.`,

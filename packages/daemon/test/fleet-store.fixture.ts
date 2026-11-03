@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import { binding as deriveBinding } from "../src/daemon-host-binding.ts";
-import { openSqliteEventStore, readDaemonStorageConfig } from "@harness-anything/storage";
+import { openSqliteEventStore } from "@harness-anything/storage";
 import type { DaemonHost } from "../src/daemon-host.ts";
 import { openPersistentWriterEpoch } from "@harness-anything/storage";
 import { serveKeycloak, signInAt, IdentitySessionPort } from "./keycloak.fixtures.ts";
@@ -9,21 +9,17 @@ import { actionDeclarations, deriveBasePolicyGroups, effectivePolicyGroupScopes 
 
 export function fleetHostWriterOptions(userRoot: string, repoIds: readonly string[]) {
   const writerEpochStateRoot = path.join(userRoot, "fleet"),
-    storage = readDaemonStorageConfig(userRoot),
-    authorities = repoIds.map((repoId) =>
-      openPersistentWriterEpoch({ stateRoot: writerEpochStateRoot, storage: storage[repoId] }),
-    );
+    authority = openPersistentWriterEpoch({ stateRoot: writerEpochStateRoot });
   try {
     const leases = new Map(
-      repoIds.map((repoId, index) => {
-        const lease = authorities[index].current(repoId);
+      repoIds.map((repoId) => {
+        const lease = authority.current(repoId);
         assert.ok(lease, `host writer lease missing for ${repoId}`);
         return [repoId, lease] as const;
       }),
     );
     return {
       writerEpochStateRoot,
-      storage,
       writerEpochLease: (repoId: string) => {
         const lease = leases.get(repoId);
         assert.ok(lease, `unexpected fixture repo ${repoId}`);
@@ -31,7 +27,7 @@ export function fleetHostWriterOptions(userRoot: string, repoIds: readonly strin
       },
     };
   } finally {
-    for (const authority of authorities) authority.close();
+    authority.close();
   }
 }
 
