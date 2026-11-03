@@ -11,14 +11,20 @@ export function publishFollowerCut(
   checkpoint: number,
   cut: LedgerCutIdentity,
   files: readonly PublicationFile[],
-  killpoint?: (point: EventPublicationKillpoint) => void,
+  options: {
+    readonly killpoint?: (point: EventPublicationKillpoint) => void;
+    readonly withFence?: <T>(operation: () => T) => T;
+  } = {},
 ): string {
   if (checkpoint >= cut.revision) return parent;
   const temporaryRef = `refs/ha-sqlite-outbox/${cut.headDigest.slice(7)}`,
     commit = prepareCommit(repoRoot, temporaryRef, parent, files, `outbox-${cut.revision}`, new Date().toISOString());
-  killpoint?.("after_git_commit");
-  finalizeRefs(repoRoot, authoredRef, commit, parent, temporaryRef);
-  killpoint?.("after_git_ref_update");
+  options.killpoint?.("after_git_commit");
+  // The fence protects the authoritative ref/checkpoint, not slow object import or worktree I/O.
+  const advance = () => finalizeRefs(repoRoot, authoredRef, commit, parent, temporaryRef);
+  if (options.withFence) options.withFence(advance);
+  else advance();
+  options.killpoint?.("after_git_ref_update");
   return commit;
 }
 

@@ -31,6 +31,7 @@ import {
 } from "../../src/store/sqlite-event-store.ts";
 import { makeTaskEventStore, readCertifiedGitFollower } from "../../src/store/task-event-store.ts";
 import { assertAuthorizedReplacements } from "../../src/store/task-event-store-replacement-authorization.ts";
+import { openPersistentWriterEpoch } from "../../src/writer-epoch.ts";
 import { decisionProposal, docBundle, eventAt, git, initRepo } from "./task-event-store.fixtures.ts";
 
 const repoId = "sqlite-canonical-contract";
@@ -193,6 +194,63 @@ test(
     }
   },
 );
+
+test("takeover during Git preparation leaves the stale publisher unable to advance the checkpoint", async (t) => {
+  const rootDir = fixture("publication-takeover", t),
+    stateRoot = path.join(rootDir, ".epoch-state");
+  initRepo(rootDir);
+  const initialHead = git(rootDir, "rev-parse", "HEAD"),
+    first = openPersistentWriterEpoch({ stateRoot, holderId: "publisher-a" }),
+    second = openPersistentWriterEpoch({ stateRoot, holderId: "publisher-b" }),
+    lease = first.acquire(repoId);
+  let takenOver = false;
+  const store = makeTaskEventStore({
+    repoId,
+    rootDir,
+    writerFence: () => lease,
+    withAppendFence: (operation) => first.withAppendFence(repoId, lease.epoch, lease.holderId, operation),
+    killpoint: (point) => {
+      if (point === "after_git_commit" && !takenOver) {
+        second.acquire(repoId);
+        takenOver = true;
+      }
+    },
+  });
+  try {
+    const event = eventAt(1);
+    store.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
+    assert.throws(
+      () => store.materialize(),
+      (error: { code?: string }) => error.code === "writer_epoch_stale",
+    );
+    assert.equal(takenOver, true, "object preparation must not hold the epoch write transaction");
+    assert.equal(git(rootDir, "rev-parse", "HEAD"), initialHead);
+    assert.equal(store.readHead()?.revision, 1);
+    assert.equal(store.readCommandOutcome(event.opId)?.status, "accepted_durable");
+    await store.drain();
+
+    const successorLease = second.current(repoId)!,
+      successor = makeTaskEventStore({
+        repoId,
+        rootDir,
+        writerFence: () => successorLease,
+        withAppendFence: (operation) =>
+          second.withAppendFence(repoId, successorLease.epoch, successorLease.holderId, operation),
+      });
+    try {
+      await successor.settlePendingMaterialization?.("recover the accepted cut under its new owner");
+      assert.equal(successor.currentCut().revision, 1);
+      assert.equal(successor.followerStatus().git.cut?.revision, 1);
+      assert.equal(successor.followerStatus().git.status, "verified");
+    } finally {
+      await successor.drain();
+    }
+  } finally {
+    await store.drain();
+    first.close();
+    second.close();
+  }
+});
 
 test("same canonical event values replay despite a different object key order", async (t) => {
   const rootDir = fixture("canonical-replay", t);

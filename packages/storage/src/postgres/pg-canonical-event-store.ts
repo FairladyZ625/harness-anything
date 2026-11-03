@@ -174,7 +174,10 @@ export function makePgCanonicalEventStore(
           cut.revision,
         ),
         files = followerFiles(ledger, events, readContentBlob, cut, 3),
-        commit = publishFollowerCut(ledger.rootDir, authoredRef, parent, checkpoint, cut, files, options.killpoint);
+        commit = publishFollowerCut(ledger.rootDir, authoredRef, parent, checkpoint, cut, files, {
+          killpoint: options.killpoint,
+          withFence: options.withAppendFence,
+        });
       git = { status: "verified", cut, commitSha: commit };
       if (materializeTree) {
         localGitWorktreeSettlement.index(ledger.rootDir, files);
@@ -200,7 +203,6 @@ export function makePgCanonicalEventStore(
         options.storage.materialize === false ? Infinity : (worktree.cut?.revision ?? 0),
         options.storage.gitFollower ? (git.cut?.revision ?? 0) : (head()?.revision ?? 0),
       ),
-    withFence: options.withAppendFence,
     onHealthChange: options.onMaterializationHealthChange,
   });
   if (options.mutable !== false) void publisher.request();

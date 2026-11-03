@@ -334,15 +334,10 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
           .map((target) => ledgerAuthoredPath(currentLedger, target)),
       };
     }
-    const commit = publishFollowerCut(
-      currentLedger.rootDir,
-      currentRef,
-      parent,
-      verifiedRevision,
-      accepted,
-      files,
-      options.killpoint,
-    );
+    const commit = publishFollowerCut(currentLedger.rootDir, currentRef, parent, verifiedRevision, accepted, files, {
+      killpoint: options.killpoint,
+      withFence: options.withAppendFence,
+    });
     certified = { commit, revision: accepted.revision };
     follower = {
       git: { status: "verified", cut: accepted, commitSha: commit },
@@ -400,7 +395,6 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
         : publishFollower(request !== undefined, request?.preview),
     revision: sqlite.revision,
     checkpoint: () => follower.git.cut?.revision ?? 0,
-    withFence: options.withAppendFence,
     onHealthChange: options.onMaterializationHealthChange,
     onFailure: (reason) => {
       const pending = pendingFollower(reason);

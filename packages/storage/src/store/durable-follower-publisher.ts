@@ -13,7 +13,6 @@ export function createDurableFollowerPublisher(input: {
   readonly publish: (request?: MaterializationRequest) => MaterializationReceipt;
   readonly revision: () => number;
   readonly checkpoint: () => number;
-  readonly withFence?: <T>(operation: () => T) => T;
   readonly onFailure?: (reason: string) => void;
   readonly onHealthChange?: (health: MaterializationHealth) => void;
 }) {
@@ -36,7 +35,7 @@ export function createDurableFollowerPublisher(input: {
     };
   };
   const publish = (request?: MaterializationRequest) => {
-    const receipt = input.withFence ? input.withFence(() => input.publish(request)) : input.publish(request);
+    const receipt = input.publish(request);
     if (!request?.preview) {
       lastError = undefined;
       checkpointAt = new Date().toISOString();
