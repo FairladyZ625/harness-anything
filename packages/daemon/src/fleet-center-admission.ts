@@ -44,6 +44,7 @@ export interface FleetCenterAdmissionRequest {
   readonly host: FleetCenterOptions["host"];
   readonly buildDraining?: FleetCenterOptions["buildDraining"];
   readonly onDeliverySettled?: FleetCenterOptions["onDeliverySettled"];
+  readonly recordTraffic?: FleetCenterOptions["recordTraffic"];
   readonly userRoot: string;
   readonly nodes: Pick<
     FleetCenterOptions,
@@ -109,6 +110,7 @@ export async function prepareFleetCenterAdmission(input: FleetCenterAdmissionReq
     storage: input.storage,
     buildDraining: input.buildDraining,
     onDeliverySettled: input.onDeliverySettled,
+    ...(input.recordTraffic ? { recordTraffic: input.recordTraffic } : {}),
     stateRoot: request.stateRoot ?? path.join(input.userRoot, "fleet"),
     writerEpochStateRoot: path.join(input.userRoot, "fleet"),
     ...(input.writerEpochLease ? { writerEpochLease: input.writerEpochLease } : {}),

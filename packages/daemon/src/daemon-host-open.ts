@@ -160,6 +160,8 @@ export interface DaemonHostOpenInput {
   readonly recordLifecycle?: DaemonLifecycleRecorder;
   readonly buildDraining?: () => boolean;
   readonly onRepoStatusChange?: () => void;
+  /** One persisted transport record per completed request, shared with local JSON-RPC traffic. */
+  readonly recordTraffic?: (entry: import("./conn-log.ts").DaemonTrafficLogEntry) => void;
   /** The daemon's one OIDC session service; the transport binds requests through the same instance. */
   readonly oidc?: IdentitySessionPort;
   /** The managed identity center's lifecycle; a hermetic host substitutes it to stage its resume. */
@@ -1278,6 +1280,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           storage: input.storage,
           buildDraining: input.buildDraining,
           onDeliverySettled: input.onRepoStatusChange,
+          recordTraffic: input.recordTraffic,
           userRoot: input.userRoot,
           writerEpochLease: hostContext.writerEpochLease,
           payload: config,

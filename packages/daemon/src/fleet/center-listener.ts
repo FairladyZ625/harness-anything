@@ -1238,11 +1238,44 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         requestBytes: Buffer.byteLength(JSON.stringify(frame), "utf8"),
       });
     if (!scope) return nodeAdmission.run(nodeId, () => handle(...args));
+    const startedAt = Date.now(),
+      method = "method" in frame ? String(frame.method) : frame.schema,
+      repoId = "repoId" in frame ? String(frame.repoId) : null;
+    let recorded = false,
+      replyBytes = 0;
+    const recordTraffic = (ok: boolean, code: string | null): void => {
+      if (recorded || !options.recordTraffic) return;
+      recorded = true;
+      const trace = scope.handle.trace(),
+        repliedAt = Date.now();
+      options.recordTraffic({
+        conn: `fleet:${nodeId}`,
+        transport: "fleet-tls",
+        method,
+        repoId,
+        actor: `node:${nodeId}`,
+        nodeId,
+        frameReceivedAt: startedAt,
+        handlerStartedAt: startedAt,
+        repliedAt,
+        startedAt,
+        dispatchDelayMs: 0,
+        serviceMs: Math.max(0, repliedAt - startedAt),
+        durationMs: Math.max(0, repliedAt - startedAt),
+        requestBytes: trace.requestBytes,
+        replyBytes,
+        traceId: trace.traceId,
+        spanId: trace.spanId,
+        phases: trace.phases,
+        ok,
+        code,
+        detail: null,
+      });
+    };
     return scope.run(async () => {
       markDaemonOperationPhase("authorization");
       try {
         const delivery = await nodeAdmission.run(nodeId, () => handle(...args));
-        let replyBytes = 0;
         return {
           ...delivery,
           onSent: (bytes: number) => {
@@ -1252,17 +1285,20 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           },
           onComplete: () => {
             scope.handle.update({ outcome: "ok" });
+            recordTraffic(true, null);
             scope.end();
             delivery.onComplete?.();
           },
           onFailure: (error: unknown) => {
             scope.handle.update({ outcome: "error" });
+            recordTraffic(false, fleetErrorCode(error));
             scope.end();
             delivery.onFailure?.(error);
           },
         };
       } catch (error) {
         scope.handle.update({ outcome: "error" });
+        recordTraffic(false, fleetErrorCode(error));
         scope.end();
         throw error;
       }
@@ -1372,4 +1408,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     },
     versionWarnings: () => [...versionWarnings.values()],
   };
+}
+
+function fleetErrorCode(error: unknown): string | null {
+  return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+    ? error.code
+    : null;
 }

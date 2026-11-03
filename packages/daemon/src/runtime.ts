@@ -204,6 +204,7 @@ export async function startDaemon(input: {
         oidc,
         onRepoStatusChange: requestDrainCheck,
         buildDraining,
+        recordTraffic: connLog.request,
       }),
     );
     // One sink for the daemon; the protocol server is created per connection and reports into it.

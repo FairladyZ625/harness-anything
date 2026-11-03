@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import { fleetBaseBackupTrace } from "@harness-anything/storage";
 import type { JsonRpcRequest } from "./protocol/json-rpc-types.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
-import { shouldTraceRequest } from "./daemon-request-sampling.ts";
 
 /** One closed request stage, measured on the process monotonic clock (milliseconds). */
 export interface DaemonOperationPhaseSpan {
@@ -218,7 +217,7 @@ export function observeDaemonRequest<T>(
     },
     context = current.getStore(),
     activeObserver = observer ?? context?.observer;
-  if (!activeObserver || !shouldTraceRequest(fields.method)) return body();
+  if (!activeObserver) return body();
   const operation = startOperation(activeObserver, fields);
   return current.run({ observer: activeObserver, operation }, () => settleOperation(operation, body));
 }
