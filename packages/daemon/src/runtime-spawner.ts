@@ -601,6 +601,11 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 ? (selfContainedMission ?? mission)
                 : `${selfContainedMission ?? mission}\n\n${selfIteration}`,
               effectivePermissionMode,
+              {
+                kindId: runtimeInstance?.kindId ?? "",
+                platform: hostPlatform,
+                reviewer: reviewerBinding,
+              },
             ),
             // A worktree checks out no private ledger, so every `harness/…` reference the agent
             // declaration or the mission carries is answered with the path this worker can open;

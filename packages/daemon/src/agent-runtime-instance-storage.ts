@@ -294,6 +294,7 @@ export function writeCodexConfig(
   config: RuntimeInstanceConfig,
   bearerToken?: string,
   baseUrlOverride?: string,
+  platform: NodeJS.Platform = process.platform,
 ): void {
   const provider = runtimeProviderConfig(config),
     effort = provider.reasoningEffort,
@@ -305,6 +306,10 @@ export function writeCodexConfig(
       `model_provider = ${tomlString(config.providerId)}`,
       ...(effort ? [`model_reasoning_effort = ${tomlString(effort)}`] : []),
       "allow_login_shell = false",
+      // An isolated CODEX_HOME has no Windows sandbox selection. Codex rejects
+      // restricted commands before process creation when that backend is disabled.
+      // Restricted-token execution needs no host account or firewall provisioning.
+      ...(platform === "win32" ? ['windows.sandbox = "unelevated"'] : []),
     ];
   if (config.providerId !== "openai" || bearerToken)
     lines.push(

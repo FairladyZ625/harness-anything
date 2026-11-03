@@ -312,6 +312,8 @@ export function observeProviderFault(active: ActiveRuntime, frame: ProviderFrame
     active.providerFault = null;
     if (frame.toolCallSucceeded) active.successfulToolCallAfterReconnect = true;
   }
+  if (frame.localCommandSucceeded !== undefined)
+    active.localCommandSucceeded = active.localCommandSucceeded === true || frame.localCommandSucceeded;
   if (frame.finalText?.trim()) {
     active.nonEmptyAgentOutputObserved = true;
     if ((active.providerReconnectCount ?? 0) > 0) active.finalAgentMessageAfterReconnect = true;

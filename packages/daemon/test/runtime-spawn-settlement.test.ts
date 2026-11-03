@@ -640,9 +640,11 @@ test("a read-only task attach requires its dispatch report, while a reviewer sti
     for (const sample of [
       { report: true, role: null, expected: "succeeded" },
       { report: false, role: null, expected: "stopped" },
-      { report: true, role: "reviewer", expected: "failed" },
+      { report: true, role: "reviewer", registered: false, expected: "failed" },
+      { report: true, role: "reviewer", registered: true, expected: "failed" },
     ] as const) {
-      const outcomes: Record<string, unknown>[] = [],
+      const reviewerRegistered = "registered" in sample && sample.registered,
+        outcomes: Record<string, unknown>[] = [],
         runtime = {
           ...tasklessSettlementRuntime(rootDir, "scan report"),
           task: { taskId: "task-read-only-scan", executionId: "exe-read-only-scan" },
@@ -665,7 +667,13 @@ test("a read-only task attach requires its dispatch report, while a reviewer sti
           requiredRuntimeProjection: () => ({
             read: () => ({
               packagePath: "tasks/task-read-only-scan",
-              snapshot: { executions: [], reviews: [] },
+              snapshot: {
+                executions: [],
+                reviews:
+                  sample.role === "reviewer" && reviewerRegistered
+                    ? [{ reviewId: `review-${runtime.dispatchId}` }]
+                    : [],
+              },
             }),
             readDocument: (documentPath: string) => ({
               document:
@@ -685,12 +693,17 @@ test("a read-only task attach requires its dispatch report, while a reviewer sti
         } as unknown as RuntimeSpawnerContext;
       await publishExit(context, runtime, 0);
       assert.equal(outcomes[0]?.outcome, sample.expected, JSON.stringify(sample));
-      if (sample.role === "reviewer") {
+      if (sample.role === "reviewer" && !reviewerRegistered) {
         assert.equal(outcomes[0]?.reasonCode, "review_result_missing");
         assert.match(
           String((outcomes[0]?.attempt as { readonly reason?: string })?.reason),
           /review-.*was not registered/u,
         );
+      }
+      if (sample.role === "reviewer" && reviewerRegistered) {
+        const attempt = outcomes[0]?.attempt as { classification: string; reason: string };
+        assert.equal(attempt.classification, "gate_red");
+        assert.match(attempt.reason, /no successful local command evidence/u);
       }
     }
   } finally {

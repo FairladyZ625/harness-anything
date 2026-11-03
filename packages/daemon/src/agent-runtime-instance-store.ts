@@ -395,7 +395,7 @@ export function openRuntimeInstanceStore(input: {
           "Cloud relay launches require a Codex API-key runtime instance.",
         );
       const configPath = path.join(env.CODEX_HOME!, "config.toml");
-      writeCodexConfig(configPath, config, request.cloudRelay.token, request.cloudRelay.baseUrl);
+      writeCodexConfig(configPath, config, request.cloudRelay.token, request.cloudRelay.baseUrl, platform);
       rememberAuthReadiness(config.instanceId, available());
       if (launchTempDirectory) mkdirSync(launchTempDirectory, { recursive: true, mode: 0o700 });
       return {
@@ -430,7 +430,7 @@ export function openRuntimeInstanceStore(input: {
     }
     if (config.kindId === "codex") {
       const configPath = path.join(env.CODEX_HOME!, "config.toml");
-      writeCodexConfig(configPath, config, secret);
+      writeCodexConfig(configPath, config, secret, undefined, platform);
     } else if (config.kindId === "zcode") {
       const home = env.HOME ?? env.USERPROFILE;
       if (!home)
@@ -981,7 +981,8 @@ export function openRuntimeInstanceStore(input: {
     // complete native config until that launch is ready.
     if (config.kindId === "codex") {
       const configPath = path.join(provider, "config.toml");
-      if (config.auth.mode === "subscription" || !existsSync(configPath)) writeCodexConfig(configPath, config);
+      if (config.auth.mode === "subscription" || !existsSync(configPath))
+        writeCodexConfig(configPath, config, undefined, undefined, platform);
     }
     if (config.auth.mode === "subscription") {
       const authFile = providerAuthFile(config.kindId),

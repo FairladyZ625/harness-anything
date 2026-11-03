@@ -752,6 +752,12 @@ export async function fixture(
       const pending = pendingProviders.at(-1)!;
       pending.output?.(`${JSON.stringify({ type: "thread.started", thread_id: "review-provider-session" })}\n`);
       pending.output?.(
+        `${JSON.stringify({
+          type: "item.completed",
+          item: { type: "command_execution", status: "completed", exit_code: 0, aggregated_output: "review evidence" },
+        })}\n`,
+      );
+      pending.output?.(
         `${JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: resultText } })}\n`,
       );
       pending.output?.(`${JSON.stringify({ type: "turn.completed", usage: {} })}\n`);
@@ -763,6 +769,7 @@ export async function fixture(
       runtimeSessionId: string,
       resultText: string,
       reportText: string | null = null,
+      commandExitCode = 0,
     ) => {
       if (reportText !== null) {
         const report = path.join(root, "harness", packagePath, "artifacts", "reports", `${dispatchId}.md`);
@@ -771,6 +778,17 @@ export async function fixture(
       }
       const pending = pendingProviders.at(-1)!;
       pending.output?.(`${JSON.stringify({ type: "thread.started", thread_id: "review-provider-session" })}\n`);
+      pending.output?.(
+        `${JSON.stringify({
+          type: "item.completed",
+          item: {
+            type: "command_execution",
+            status: commandExitCode === 0 ? "completed" : "failed",
+            exit_code: commandExitCode,
+            aggregated_output: "review evidence",
+          },
+        })}\n`,
+      );
       pending.output?.(
         `${JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: resultText } })}\n`,
       );

@@ -113,7 +113,7 @@ export function parseCodexFrame(value: Record<string, unknown>, providerSessionI
   if (value.type === "item.started") {
     const item = value.item;
     return isPlainRecord(item) && typeof item.type === "string" && codexToolItemTypes.has(item.type)
-      ? { toolCallObserved: true }
+      ? { toolCallObserved: true, ...(item.type === "command_execution" ? { localCommandSucceeded: false } : {}) }
       : {};
   }
   if (value.type === "item.completed" || value.type === "item.updated") {
@@ -149,6 +149,7 @@ export function parseCodexFrame(value: Record<string, unknown>, providerSessionI
         signals: [{ type: "activity", activity: "tool", content: JSON.stringify(item) }],
         toolCallObserved: true,
         toolCallSucceeded: codexToolItemSucceeded(itemType, item),
+        ...(itemType === "command_execution" ? { localCommandSucceeded: codexToolItemSucceeded(itemType, item) } : {}),
         writeItemObserved: itemType === "file_change" && item.status === "completed",
         ...(writePaths.length ? { writePaths } : {}),
       };

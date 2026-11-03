@@ -181,6 +181,13 @@ export async function publishExit(
               : { superseded: false };
           })()
         : { superseded: false };
+    const reviewerCommandEvidenceMissing =
+      !cancelled &&
+      !reviewSuperseded.superseded &&
+      active.kindId === "codex" &&
+      active.role === "reviewer" &&
+      active.permissionMode === "read-only" &&
+      !active.localCommandSucceeded;
     const reviewId = `review-${active.dispatchId}`;
     const providerAlreadyFailed = outcome === "failed";
     // A reviewer owes a registered review, not merely a report or a clean provider exit. Check
@@ -198,8 +205,10 @@ export async function publishExit(
       !reviewRegistered
     ) {
       const recoverReview = context.input.remote?.recoverReviewerReview ?? context.input.recoverReviewerReview;
+      // Recovery records a durable Review; reject missing local evidence before invoking its writer.
       if (
         !providerAlreadyFailed &&
+        !reviewerCommandEvidenceMissing &&
         active.task !== null &&
         reviewReport !== null &&
         reviewPacket !== null &&
@@ -239,8 +248,15 @@ export async function publishExit(
         reviewResultMissing = true;
       }
     }
+    // Keep the terminal check as a final guard against any later success witness.
+    const reviewerCommandEvidenceGate =
+      reviewerCommandEvidenceMissing && (outcome === "succeeded" || (reviewResultMissing && !providerAlreadyFailed));
+    if (reviewerCommandEvidenceGate) outcome = "failed";
+    const attemptClassification = reviewerCommandEvidenceGate
+      ? { ...classifiedAttempt, classification: "gate_red" as const }
+      : classifiedAttempt;
     const attemptOutcome = {
-      ...classifiedAttempt,
+      ...attemptClassification,
       // Provider failures are the classifications a fallback continuation carries forward, and
       // their reason is a raw diagnostic excerpt — shape those into one line plus the dispatch
       // stream reference. Worker-stop and gate-red reasons stay byte-identical to before.
@@ -248,11 +264,13 @@ export async function publishExit(
         ? reviewSuperseded.reason!
         : reviewResultMissing && !providerAlreadyFailed
           ? `Review ${reviewId} was not registered before reviewer settlement.`
-          : isProviderFailureClassification(classifiedAttempt.classification)
-            ? attemptOutcomeReason(classifiedAttempt.reason, active.stream.ref)
-            : outcome === "succeeded"
-              ? "Worker completed the attempt successfully."
-              : String(scrubProviderValue(classifiedAttempt.reason)).slice(0, 1024),
+          : reviewerCommandEvidenceGate
+            ? "Read-only reviewer produced no successful local command evidence."
+            : isProviderFailureClassification(attemptClassification.classification)
+              ? attemptOutcomeReason(attemptClassification.reason, active.stream.ref)
+              : outcome === "succeeded"
+                ? "Worker completed the attempt successfully."
+                : String(scrubProviderValue(attemptClassification.reason)).slice(0, 1024),
     };
     const endedAt = context.input.now(),
       exitHead = active.task ? await currentWorktreeHead(active.cwd) : null,

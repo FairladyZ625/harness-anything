@@ -93,6 +93,58 @@ for (const registeredByWorker of [true, false]) {
 }
 
 test(
+  "settlement rejects an approved packet when every local command fails before recovery",
+  { timeout: 20_000 },
+  async () => {
+    const f = await fixture(false, true, false, false, false, { autoSubmit: false, closeoutProfile: "standard" });
+    try {
+      await f.install();
+      await f.submit();
+      const dispatch = f.events().find((event) => event.type === "runtime_dispatch_requested");
+      assert.ok(dispatch?.type === "runtime_dispatch_requested");
+      const { dispatchId, runtimeSessionId } = dispatch.payload,
+        report = f.reportPath(dispatchId),
+        packet = report.replace(/\.md$/u, ".json");
+      mkdirSync(path.dirname(report), { recursive: true });
+      writeFileSync(report, "# Review\n\nApproved packet without successful local evidence.\n");
+      writeFileSync(
+        packet,
+        JSON.stringify({
+          verdict: "approved",
+          reason: "The reviewer claims the submitted execution is acceptable.",
+          evidenceChecked: ["submitted execution", "closeout.md"],
+          findings: [],
+        }),
+      );
+
+      assert.equal(
+        f.events().filter((event) => event.type === "review_recorded").length,
+        0,
+        "the approved packet must not already be registered",
+      );
+      assert.equal(await f.settleReview(dispatchId, runtimeSessionId, "Report written.", null, 1), "failed");
+
+      const terminal = f
+        .events()
+        .find(
+          (event) =>
+            event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,
+        );
+      assert.ok(terminal?.type === "runtime_session_outcome_observed");
+      assert.equal(terminal.payload.outcome, "failed");
+      assert.equal(terminal.payload.attempt?.classification, "gate_red");
+      assert.equal(
+        f.events().filter((event) => event.type === "review_recorded").length,
+        0,
+        "an approved packet without successful local command evidence must never be persisted",
+      );
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test(
   "settlement cannot take reviewer identity from an artifact's self-reported actor",
   { timeout: 20_000 },
   async () => {
