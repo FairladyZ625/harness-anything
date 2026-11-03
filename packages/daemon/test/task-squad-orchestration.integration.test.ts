@@ -181,7 +181,7 @@ test(
     assert.match(leader.prompt, /delivery contract with the CEO/u);
     assert.ok(leader.prompt.includes(taskPrPublicationNote));
     assert.doesNotMatch(
-      leader.prompt.replace(taskPrPublicationNote, ""),
+      leader.prompt.replaceAll(taskPrPublicationNote, ""),
       /ha task push <task-id>|ha task pr <task-id>|task delivery commands/u,
     );
     assert.match(leader.prompt, /Do not merge/u);
