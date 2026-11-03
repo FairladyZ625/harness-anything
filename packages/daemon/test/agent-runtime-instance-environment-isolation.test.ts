@@ -665,6 +665,11 @@ test("win32 instances derive USERPROFILE/TEMP/APPDATA isolation without POSIX va
       readFileSync(path.join(launch.env.CODEX_HOME!, "config.toml"), "utf8"),
       /experimental_bearer_token = "instance-secret"/u,
     );
+    assert.match(
+      readFileSync(path.join(launch.env.CODEX_HOME!, "config.toml"), "utf8"),
+      /^windows\.sandbox = "unelevated"$/mu,
+      "isolated Windows config must select a backend before Codex evaluates restricted commands",
+    );
     assert.equal("HOME" in launch.env, false);
     assert.equal("TMPDIR" in launch.env, false);
     assert.equal("XDG_RUNTIME_DIR" in launch.env, false);

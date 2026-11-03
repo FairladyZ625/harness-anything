@@ -33,6 +33,7 @@ export function active(overrides: Partial<ActiveRuntime>): ActiveRuntime {
     errorOverflowed: false,
     errorBuffer: "",
     toolCallObserved: false,
+    localCommandSucceeded: null,
     failureText: null,
     lossReason: null,
     planIncomplete: false,

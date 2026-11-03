@@ -234,6 +234,18 @@ export function classifyRuntimeExit(
           ? "Worker reported failure after tool activity."
           : `Worker stopped after tool activity with provider exit ${String(exitCode)}.`),
     );
+  if (
+    active.kindId === "codex" &&
+    active.role === "reviewer" &&
+    active.permissionMode === "read-only" &&
+    active.localCommandSucceeded !== true &&
+    (active.localCommandSucceeded === false ||
+      /\b(?:exec_command|shell(?:_command)?) failed: CreateProcess\b/u.test(active.errorBuffer))
+  )
+    return {
+      ...classified("gate_red", "Read-only reviewer produced no successful local command evidence."),
+      outcome: "failed",
+    };
   return classified("worker_stop", workerStopReason(active, outcome));
 }
 
@@ -312,6 +324,8 @@ export function observeProviderFault(active: ActiveRuntime, frame: ProviderFrame
     active.providerFault = null;
     if (frame.toolCallSucceeded) active.successfulToolCallAfterReconnect = true;
   }
+  if (frame.localCommandSucceeded !== undefined)
+    active.localCommandSucceeded = active.localCommandSucceeded === true || frame.localCommandSucceeded;
   if (frame.finalText?.trim()) {
     active.nonEmptyAgentOutputObserved = true;
     if ((active.providerReconnectCount ?? 0) > 0) active.finalAgentMessageAfterReconnect = true;

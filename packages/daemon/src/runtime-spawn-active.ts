@@ -36,6 +36,7 @@ type ActiveRuntimeBase = Omit<
   | "lossSignal"
   | "lossExitCode"
   | "toolCallObserved"
+  | "localCommandSucceeded"
   | "nonEmptyAgentOutputObserved"
   | "providerUsageEmpty"
   | "providerFault"
@@ -99,6 +100,7 @@ export function createActiveRuntime(base: ActiveRuntimeBase): ActiveRuntime {
     lossSignal: null,
     lossExitCode: null,
     toolCallObserved: false,
+    localCommandSucceeded: null,
     nonEmptyAgentOutputObserved: false,
     providerUsageEmpty: false,
     providerFault: null,

@@ -256,6 +256,8 @@ export type ActiveRuntime = {
   lossSignal: string | null;
   lossExitCode: number | null;
   toolCallObserved: boolean;
+  /** Null until a local command is attempted; true once any local command succeeds. */
+  localCommandSucceeded: boolean | null;
   nonEmptyAgentOutputObserved: boolean;
   providerUsageEmpty: boolean;
   providerFault: RuntimeProviderFault | null;
@@ -296,6 +298,7 @@ export type ProviderFrame = {
   /** Set only when the settled tool call succeeded; a failed command is an answered-but-red tool
    * result and does not prove the provider resumed serving the attempt. */
   readonly toolCallSucceeded?: boolean;
+  readonly localCommandSucceeded?: boolean;
   readonly providerUsageEmpty?: boolean;
   /** Token usage a provider nests below the frame top level, handed to the shared usage counters. */
   readonly usage?: Record<string, unknown>;

@@ -485,6 +485,7 @@ function active(overrides: Partial<ActiveRuntime>): ActiveRuntime {
     errorOverflowed: false,
     errorBuffer: "",
     toolCallObserved: false,
+    localCommandSucceeded: null,
     nonEmptyAgentOutputObserved: false,
     providerUsageEmpty: false,
     providerOutcome: null,
