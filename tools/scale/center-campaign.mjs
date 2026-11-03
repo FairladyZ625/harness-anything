@@ -137,13 +137,13 @@ export async function connectReplicas(fixture, nodes, { fresh = false, timeoutMs
 }
 
 export const faultScenarios = Object.freeze([
-  "drain-hang",
-  "build-switch",
   "reconnect",
   "base-backup",
+  "legacy-frame",
+  "drain-hang",
+  "build-switch",
   "large-document",
   "slow-read",
-  "legacy-frame",
 ]);
 
 export async function runFaultScenario(name, { fixture, model, bindings = {}, nodes = 1, durationMs = 1000 }) {

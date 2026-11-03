@@ -7,6 +7,7 @@ import { serializePersistedCanonicalEvent } from "../../packages/kernel/src/doma
 import { canonicalLedgerCut } from "../../packages/kernel/src/ports/canonical-event-store.ts";
 import { OPAQUE_TEXTUAL_POLICY_ID } from "../../packages/kernel/src/domain/artifact-text-classification.ts";
 import { openSqliteEventStore } from "../../packages/storage/src/store/sqlite-event-store.ts";
+import { makeTaskEventStore } from "../../packages/storage/src/store/task-event-store.ts";
 import { docBundle, initRepo } from "../../packages/storage/test/store/task-event-store.fixtures.ts";
 
 export const canonicalShape = Object.freeze({
@@ -201,6 +202,21 @@ export async function generateCenterLedger({
       }
     }
     flush();
+    // Match a settled canonical ledger, rather than making cold attach publish the entire offline seed.
+    onProgress({ phase: "publication", generated });
+    const publisher = makeTaskEventStore({
+      rootDir,
+      repoId,
+      writerFence: () => ({ repoId, holderId: fence.holder, epoch: fence.epoch }),
+    });
+    let follower;
+    try {
+      await publisher.settlePendingMaterialization();
+      const status = publisher.followerStatus();
+      follower = { git: status.git.status, worktree: status.worktree.status, cut: status.git.cut?.revision ?? null };
+    } finally {
+      await publisher.drain();
+    }
     const result = {
       schema: "center-ledger/v1",
       seed,
@@ -208,6 +224,7 @@ export async function generateCenterLedger({
       baselineRevision: baseline,
       revision: store.revision(),
       generatedEvents: generated,
+      follower,
       documents: paths.size,
       tasks: profile.tasks,
       eventTypes: types,

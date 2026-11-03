@@ -5,6 +5,7 @@ import { currentDaemonProtocolVersion } from "../../packages/daemon/src/protocol
 import { allDaemonProtocolMethods } from "../../packages/daemon/src/protocol/daemon-protocol-commands.ts";
 import { requestAccumulator, replaySchedule } from "./center-model.mjs";
 import { withWatchdog } from "../stress/core/controller.mjs";
+let nextReplayId = 0;
 
 // Bindings are workload choices, not copies of the action catalog. Unbound commands fail before load starts.
 export function syntheticParams(row, fixture, serial = 0, bindings = {}) {
@@ -113,6 +114,7 @@ export async function replayTraffic({
     pending = new Set(),
     accumulator = requestAccumulator();
   const started = performance.now();
+  const traceTag = `center-bench-trace-${++nextReplayId}`;
   let serial = 0,
     implicitHellos = 0,
     highWater = 0;
@@ -136,7 +138,7 @@ export async function replayTraffic({
           if (row.method !== "protocol.hello") implicitHellos++;
           session.helloResult = await client.request(
             "protocol.hello",
-            syntheticParams({ ...row, method: "protocol.hello" }, fixture, number),
+            { ...syntheticParams({ ...row, method: "protocol.hello" }, fixture, number), invokingCommand: traceTag },
             timeoutMs,
           );
           return client;
@@ -206,6 +208,7 @@ export async function replayTraffic({
     const elapsedMs = performance.now() - started;
     return {
       nodes,
+      traceTag,
       elapsedMs,
       implicitHellos,
       maxInFlightObserved: highWater,

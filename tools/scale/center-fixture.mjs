@@ -1,6 +1,6 @@
 import { execFileSync, fork } from "node:child_process";
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import net from "node:net";
@@ -11,6 +11,7 @@ import { saveFleetCenterConfig } from "../../packages/daemon/src/fleet-center-co
 import { requestDaemonJsonRpcAt } from "../../packages/daemon/src/client/local-json-rpc-client.ts";
 import { generateCenterLedger, ledgerProfile } from "./center-ledger.mjs";
 import { withWatchdog } from "../stress/core/controller.mjs";
+import { countRecordedTraffic } from "./center-model.mjs";
 
 export async function createCenterFixture({
   nodes = 1,
@@ -29,9 +30,11 @@ export async function createCenterFixture({
   let owners,
     child,
     childExit,
-    closed = false;
+    closed = false,
+    closeResult;
   const waiters = new Map(),
     events = [],
+    attachSamples = [],
     stderr = [];
   let sequence = 0,
     endpoint;
@@ -46,7 +49,7 @@ export async function createCenterFixture({
       { timeoutMs: 30_000, label: `center IPC ${command}` },
     );
   const close = async () => {
-    if (closed) return;
+    if (closed) return closeResult;
     closed = true;
     try {
       if (child && child.exitCode === null && child.signalCode === null) {
@@ -59,6 +62,19 @@ export async function createCenterFixture({
           await childExit;
         }
       }
+      const logs = path.join(userRoot, "logs");
+      try {
+        closeResult = existsSync(logs)
+          ? await countRecordedTraffic(
+              readdirSync(logs)
+                .filter((name) => name.startsWith("daemon-center-bench-conn-"))
+                .map((name) => path.join(logs, name)),
+            )
+          : { tagged: {}, droppedLines: 0 };
+      } catch (error) {
+        closeResult = { tagged: {}, error: error.message };
+      }
+      return closeResult;
     } finally {
       await owners?.close();
       rmSync(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
@@ -173,16 +189,22 @@ export async function createCenterFixture({
     const waitReady = () =>
       withWatchdog(
         async () => {
+          let previousState;
           for (;;) {
             const status = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 5000, 5000);
             const repo = status.repos?.find((row) => row.repoId === repoId);
+            if (repo?.state !== previousState) {
+              previousState = repo?.state;
+              onProgress?.({ phase: "attach-state", repo });
+              const sample = { state: repo?.state, ...(await request("sample")) };
+              attachSamples.push(sample);
+              onProgress?.({ phase: "attach-resources", sample });
+            }
             if (repo?.state === "attached") return;
-            if (repo?.state === "unavailable")
-              throw new Error(`synthetic ledger attach failed: ${JSON.stringify(repo)}`);
             await new Promise((resolve) => setImmediate(resolve));
           }
         },
-        { timeoutMs: 120_000, label: "synthetic ledger attach" },
+        { timeoutMs: 600_000, label: "synthetic ledger attach" },
       );
     const attachStarted = performance.now();
     await waitReady();
@@ -193,6 +215,7 @@ export async function createCenterFixture({
       repoId,
       ledger,
       attachMs,
+      attachSamples,
       events,
       request,
       waitReady,

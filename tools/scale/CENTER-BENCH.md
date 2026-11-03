@@ -29,6 +29,11 @@ JSON documents with the production opaque-text policy; later rewrites retain the
 The production SQLite append boundary validates and persists these events. Fixture construction
 batches up to 256 events per transaction and excludes command/CLI overhead. Its output is an
 ordinary canonical SQLite ledger, not a collection of JSON files approximating the schema.
+Before launching the daemon, the production Git/worktree followers settle the offline seed. Cold
+attachment therefore does not inherit an artificial backlog of unpublished fixture documents.
+The follower cut is recorded. The product's normal attach budget remains enabled; the controller
+records state transitions and resource samples and waits at most ten minutes for background
+attachment to become ready.
 
 This matches counts and document sizes, not production's lifecycle, runtime, relation, fact or
 historical object-churn distributions. Each report states actual counts, event types, JSON bytes,

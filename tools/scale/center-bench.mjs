@@ -10,7 +10,7 @@ export function defaultTrafficModel() {
   // Calibration only. A measured baseline must supply a model extracted from connection logs.
   const records = [];
   for (let index = 0; index < 20; index++) {
-    const method = index % 10 === 9 ? "repo.task.run" : index % 2 ? "observe.tail" : "repo.agentRuntime.overview";
+    const method = index % 10 === 1 ? "repo.task.run" : index % 2 ? "observe.tail" : "repo.agentRuntime.overview";
     for (const [offset, name, command] of [
       [0, "protocol.hello", "protocol.hello"],
       [1, method, method === "repo.task.run" ? "fact-record" : method],
@@ -95,6 +95,7 @@ export async function runCenterBenchmark({
     model: { methods: model.methods, classes: model.classes, rate: model.rate },
     ledger: fixture.ledger,
     attachMs: fixture.attachMs,
+    attachSamples: fixture.attachSamples,
     capacity: [],
     faults: [],
     limitations: [
@@ -117,8 +118,16 @@ export async function runCenterBenchmark({
         );
         report.capacity.push({
           ...row,
-          replication: connected.report,
-          valid: connected.report.recovered === count && !row.errors.generator_concurrency_limit,
+          replication: {
+            ...connected.report,
+            connectedAfter: connected.clients.filter(({ state }) => !state.closed && !state.error).length,
+            commitsReceived: connected.clients.reduce((sum, { state }) => sum + state.commits, 0),
+            streamErrors: connected.clients.filter(({ state }) => state.error).map(({ state }) => state.error.message),
+          },
+          valid:
+            connected.report.recovered === count &&
+            connected.clients.every(({ state }) => !state.closed && !state.error) &&
+            !row.errors.generator_concurrency_limit,
         });
         onProgress({ phase: "capacity-result", result: report.capacity.at(-1) });
       } finally {
@@ -139,7 +148,8 @@ export async function runCenterBenchmark({
     }
     return report;
   } finally {
-    await fixture.close();
+    report.recordedTraffic = await fixture.close();
+    for (const row of report.capacity) row.wireObservedMethods = report.recordedTraffic?.tagged[row.traceTag] ?? {};
   }
 }
 

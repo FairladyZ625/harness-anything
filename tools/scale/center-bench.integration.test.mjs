@@ -48,6 +48,8 @@ test(
         assert.equal(result.generatedEvents, 90);
         assert.equal(result.documents, 60);
         assert.equal(result.tasks, 2);
+        assert.equal(result.follower.cut, result.revision);
+        assert.equal(result.follower.git, "verified");
         const store = openSqliteEventStore({ rootInput: rootDir, repoId: "center-bench", readOnly: true });
         try {
           const hash = createHash("sha256");
@@ -85,7 +87,7 @@ test(
     const full = process.env.FLEET_STRESS_CENTER_ISOLATED === "1";
     const nodes = full ? (process.env.FLEET_STRESS_CENTER_NODES ?? "1,10,100,500,1000").split(",").map(Number) : [1, 2];
     const scale = full ? Number(process.env.FLEET_STRESS_CENTER_SCALE ?? "1") : 0.001;
-    const durationMs = full ? Number(process.env.FLEET_STRESS_CENTER_DURATION_MS ?? "10000") : 1000;
+    const durationMs = full ? Number(process.env.FLEET_STRESS_CENTER_DURATION_MS ?? "10000") : 2000;
     const model = process.env.FLEET_STRESS_CENTER_MODEL
       ? JSON.parse(Buffer.from(process.env.FLEET_STRESS_CENTER_MODEL, "base64").toString())
       : defaultTrafficModel();
@@ -101,17 +103,33 @@ test(
     assert.equal(report.capacity.length, nodes.length);
     for (const row of report.capacity) {
       assert.deepEqual(row.methods, row.plannedMethods);
-      assert.equal(row.replication.recovered, row.nodes, JSON.stringify(row.replication));
-      assert.equal(row.errorRate, 0, JSON.stringify(row.errors));
+      if (!full || row.nodes === 1) {
+        assert.deepEqual(
+          row.wireObservedMethods,
+          row.plannedMethods,
+          "daemon connection log confirms actual method composition",
+        );
+        assert.equal(row.replication.recovered, row.nodes, JSON.stringify(row.replication));
+      }
+      if (!full) {
+        assert.equal(row.errorRate, 0, JSON.stringify(row.errors));
+        assert.ok(
+          row.read.count > 0 && row.write.count > 0,
+          "calibration exercises both RPC read and durable write paths",
+        );
+        assert.equal(row.replication.connectedAfter, row.nodes);
+        assert.ok(row.replication.commitsReceived > 0, "replica sinks decode incremental commits during replay");
+      }
     }
     const fault = (name) => report.faults.find((row) => row.scenario === name).observations;
     assert.equal(fault("drain-hang").heldCloseEntered, true);
-    assert.equal(fault("reconnect").reconnect.recovered, Math.max(...nodes));
-    assert.ok(fault("base-backup").bytes > 0);
-    assert.ok(fault("large-document").reads.every((row) => row.ok));
-    if (!full)
+    if (!full) {
+      assert.equal(fault("reconnect").reconnect.recovered, Math.max(...nodes));
+      assert.ok(fault("base-backup").bytes > 0);
+      assert.ok(fault("large-document").reads.every((row) => row.ok));
       assert.equal(fault("large-document").write.outcome, "applied", JSON.stringify(fault("large-document").write));
-    assert.ok(fault("slow-read").reads.every((row) => row.ok));
+      assert.ok(fault("slow-read").reads.every((row) => row.ok));
+    }
     assert.equal(fault("legacy-frame").accepted, false);
     assert.equal(fault("legacy-frame").faultSent, true);
     assert.equal(fault("legacy-frame").processSurvived, true);

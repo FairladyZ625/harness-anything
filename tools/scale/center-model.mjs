@@ -82,8 +82,7 @@ export function extractTrafficModel(records) {
   };
 }
 
-export async function readTrafficLogs(files, { from = -Infinity, until = Infinity } = {}) {
-  const records = [];
+async function* readConnRecords(files) {
   for (const file of files) {
     const lines = createInterface({ input: createReadStream(file), crlfDelay: Infinity });
     let lineNumber = 0;
@@ -96,11 +95,30 @@ export async function readTrafficLogs(files, { from = -Infinity, until = Infinit
       } catch (error) {
         throw new Error(`${file}:${lineNumber}: ${error.message}`, { cause: error });
       }
-      const at = Date.parse(row.at);
-      if (at >= from && at < until) records.push(row);
+      yield row;
     }
   }
+}
+
+export async function readTrafficLogs(files, { from = -Infinity, until = Infinity } = {}) {
+  const records = [];
+  for await (const row of readConnRecords(files)) {
+    const at = Date.parse(row.at);
+    if (at >= from && at < until) records.push(row);
+  }
   return extractTrafficModel(records);
+}
+
+export async function countRecordedTraffic(files) {
+  const tagged = {};
+  let droppedLines = 0;
+  for await (const row of readConnRecords(files)) {
+    if (row.event === "dropped_lines") droppedLines += row.count;
+    if (row.event !== "request" || !row.command?.startsWith("center-bench-trace-")) continue;
+    const methods = (tagged[row.command] ??= {});
+    methods[row.method] = (methods[row.method] ?? 0) + 1;
+  }
+  return { tagged, droppedLines };
 }
 
 // Iterate arrivals, then nodes: O(trace + N) memory, rather than an N-fold copied schedule.
