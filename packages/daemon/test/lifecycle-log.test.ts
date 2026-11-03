@@ -35,3 +35,29 @@ test("one long-lived recorder rechecks the size cap before every append", (t) =>
   assert.equal(records.at(-1)?.runtimeSessionId, "session-199");
   assert.ok(records.length > 1, "kept generations still hold readable history");
 });
+
+test("diagnostics uses the lifecycle rotation policy in a separate schema and file", (t) => {
+  const userRoot = mkdtempSync(path.join(os.tmpdir(), "ha-diag-log-"));
+  t.after(() => rmSync(userRoot, { recursive: true, force: true }));
+  const log = openDaemonLifecycleLog({
+    userRoot,
+    daemonId: "test",
+    logKind: "diagnostics",
+    maxBytes: 600,
+    keptFiles: 2,
+  });
+  for (let index = 0; index < 100; index++) log.record({ event: "diagnostics", reason: "metrics", revision: index });
+  const dir = path.join(userRoot, "logs"),
+    names = readdirSync(dir);
+  assert.deepEqual(names.sort(), [
+    "daemon-test-diagnostics.jsonl",
+    "daemon-test-diagnostics.jsonl.1",
+    "daemon-test-diagnostics.jsonl.2",
+  ]);
+  const last = JSON.parse(
+    readFileSync(path.join(dir, "daemon-test-diagnostics.jsonl"), "utf8").trim().split("\n").at(-1)!,
+  );
+  assert.equal(last.schema, "daemon-diagnostics/v1");
+  assert.equal(last.revision, 99);
+  assert.deepEqual(readDaemonLifecycleRecords(userRoot, "test"), []);
+});

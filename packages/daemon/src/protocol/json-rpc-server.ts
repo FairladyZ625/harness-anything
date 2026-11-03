@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { observeDaemonRequest, updateDaemonOperation, type DaemonOperationObserver } from "../daemon-operation.ts";
 import { accessAdminOperations } from "./daemon-protocol.contract.ts";
 import { executionCredentialRejected } from "../runtime-execution-credential.ts";
 import { localDefaultBinding } from "../daemon-host-binding.ts";
@@ -93,6 +94,7 @@ export function createJsonRpcProtocolServer(options: {
   readonly connectionId?: string;
   readonly recordRequest?: (entry: DaemonRequestLogEntry) => void;
   readonly recordTraffic?: (entry: DaemonTrafficLogEntry) => void;
+  readonly operationObserver?: DaemonOperationObserver;
   readonly requestShutdown?: () => void;
   readonly buildDrainStatus?: () => DaemonBuildDrainStatus;
   /** True after build drift closes normal RPC admission and until the old daemon exits. */
@@ -288,6 +290,7 @@ export function createJsonRpcProtocolServer(options: {
         return reply(method, protocolFailure(method, error));
       }
     }
+    updateDaemonOperation({ phase: "dispatch", actor: trafficActorForLog(observed.executor, options.authContext) });
     const remoteProxy = options.host.remoteProxy;
     if (method === "daemon.repo.bootstrap" && typeof params.repoId === "string" && remoteProxy?.route(params.repoId))
       return reply(
@@ -959,12 +962,18 @@ export function createJsonRpcProtocolServer(options: {
     }
   };
   return {
-    handle: async (message, timing) =>
-      Array.isArray(message)
-        ? (await Promise.all(message.map((request) => one(request, timing?.frameReceivedAt)))).filter(
-            (item): item is JsonRpcResponse => item !== undefined,
-          )
-        : one(message, timing?.frameReceivedAt),
+    handle: async (message, timing) => {
+      const observedOne = (request: JsonRpcRequest) =>
+        observeDaemonRequest(
+          request,
+          options.authContext,
+          () => one(request, timing?.frameReceivedAt),
+          options.operationObserver,
+        );
+      return Array.isArray(message)
+        ? (await Promise.all(message.map(observedOne))).filter((item): item is JsonRpcResponse => item !== undefined)
+        : observedOne(message);
+    },
     close: () => {
       options.authContext.connectionSignal?.removeEventListener("abort", releaseHello);
       releaseHello();
@@ -1014,15 +1023,12 @@ export function createJsonRpcProtocolServer(options: {
       }),
     );
   }
-  // Command attribution in one place: the caller's own CLI declaration wins (it is exact even for
-  // alias commands); an action-resolved kind follows; a request that resolved no action is keyed by
-  // its sole owning CLI command when one exists (repo.agenda.read → agenda), else by method.
+  // Attribute commands to the CLI declaration, resolved action, or sole owning CLI command.
   function observedCommand(method: string | null, actionCommand: string): string {
     if (method === null || actionCommand !== method) return actionCommand;
     return commandIdForDaemonMethod(method) ?? method;
   }
-  // Daemon-scoped counterpart: every request including hello and pre-dispatch rejections gets one
-  // line, so connection-level forensics never depends on repo binding.
+  // Traffic includes hello and pre-dispatch rejections, independently of repository binding.
   function traffic(
     method: string | null,
     repoId: string | null,

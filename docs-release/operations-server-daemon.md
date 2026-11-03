@@ -394,3 +394,36 @@ The local daemon socket is the access boundary. Its directory is created with
 mode `0700` and the socket file with mode `0600`; do not widen either
 permission. The endpoint tunnel in the view-only flow remains user-managed and
 should not expose a daemon socket as a public listener.
+
+## Diagnostics during a stall or shutdown
+
+Run `ha daemon status --diagnostics --json` on the daemon host. The same status
+command reads a sibling local socket served by a watchdog worker, so it remains
+available while the main JavaScript thread is blocked or shutting down. Without
+`--json`, the summary names active operations and their current phases.
+
+The socket uses the existing owner-only local transport (0700 directory, 0600
+socket); there is no TCP listener. It accepts only status and protocol handshake.
+It reports process state, heartbeat age, drain waiters, active operations, recent
+stalls, current RSS, and the last main-thread metrics sample with its age. Heap
+and event-loop histogram values are last-observed values while the main thread
+is blocked; the independent heartbeat and RSS continue updating.
+
+Event-loop mean and p99 come from the histogram. Its raw peak is `histogramMax`;
+`max` also includes lateness of the existing monotonic heartbeat, so resetting a
+histogram window cannot hide a native-blocking interval.
+
+Every 10 seconds, structured `daemon-diagnostics/v1` records go to
+`<userRoot>/logs/daemon-<daemonId>-diagnostics.jsonl`. They use the lifecycle
+log's 4 MiB rotation threshold and four retained generations. A heartbeat overdue
+by two seconds produces a stall-start record immediately; recovery records its
+observed duration. Inspector stack capture is best effort, uses an in-process
+session, and records function locations only. No request payloads, tokens, local
+variables, heap dumps, retries, timeouts on work, or automatic restarts are added.
+
+Within the daemon package, `observeDaemonOperation(fields, body)` registers work
+through settlement, and `markDaemonOperationPhase("phase-name")` updates the
+current operation through async context. These are the single phase-marking
+ports for subsequent request tracing. Registration, phase changes and removal
+send constant-size messages; the watchdog owns the map. A full status or stall
+snapshot costs O(concurrent operations), independent of retained request history.

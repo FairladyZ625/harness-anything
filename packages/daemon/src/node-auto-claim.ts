@@ -1,3 +1,4 @@
+import { observeDaemonOperation } from "./daemon-operation.ts";
 import { randomUUID } from "node:crypto";
 import { readNodeAutoClaimPolicy, type NodeAutoClaimPolicy } from "./node-auto-claim-config.ts";
 
@@ -338,14 +339,17 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
         const controller = new AbortController();
         controllers.add(controller);
         let completed = false;
-        const run = input
-          .claimAndRun(
-            repo,
-            candidate,
-            agentId,
-            `node-auto-claim:${repoId}:${taskId}:${randomUUID()}`,
-            controller.signal,
-          )
+        const run = observeDaemonOperation(
+          { method: "node.auto-claim.run", repoId, actor: "daemon", phase: "claim-and-runtime" },
+          () =>
+            input.claimAndRun(
+              repo,
+              candidate,
+              agentId,
+              `node-auto-claim:${repoId}:${taskId}:${randomUUID()}`,
+              controller.signal,
+            ),
+        )
           .then(
             () => {
               completed = true;
@@ -392,7 +396,10 @@ export function openNodeAutoClaimLoop<TRepo, TCandidate>(
       let nextReason: string | null = reason;
       while (!closed && nextReason !== null) {
         queuedReason = null;
-        await scan(nextReason);
+        const reason = nextReason;
+        await observeDaemonOperation({ method: "node.auto-claim.scan", actor: "daemon", phase: reason }, () =>
+          scan(reason),
+        );
         nextReason = queuedReason;
       }
     })().finally(() => {

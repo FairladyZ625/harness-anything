@@ -1,6 +1,7 @@
 import path from "node:path";
 import {
   localUserDaemonEndpoint,
+  daemonDiagnosticsEndpoint,
   resolveLocalDaemonTarget,
 } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
@@ -30,7 +31,15 @@ export async function status(
   const endpoint = resolved?.socketPath ?? localUserDaemonEndpoint(userRoot, daemonId);
   let result: Record<string, unknown>;
   try {
-    result = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 75, undefined, undefined, true);
+    result = await requestDaemonJsonRpcAt(
+      argv.includes("--diagnostics") ? daemonDiagnosticsEndpoint(endpoint) : endpoint,
+      "daemon.status",
+      {},
+      75,
+      argv.includes("--diagnostics") ? 2_000 : undefined,
+      undefined,
+      true,
+    );
   } catch (error) {
     const stoppedAt = readDaemonStoppedAt(userRoot, daemonId);
     const shuttingDownProcesses = liveShutdownProcesses(userRoot, daemonId);

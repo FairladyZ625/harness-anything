@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { observeDaemonOperation } from "./daemon-operation.ts";
 import {
   consumeKnownError,
   readDaemonRegistry,
@@ -70,7 +71,12 @@ export function openRegistered(
     readonly attachTotal: number;
   },
 ): Promise<void> {
-  const tracked = context.openings.get(repo.repoId) ?? context.performOpenRegistered(repo, progress);
+  const tracked =
+    context.openings.get(repo.repoId) ??
+    observeDaemonOperation(
+      { method: "repo.attach", repoId: repo.repoId, actor: "daemon", phase: "opening-and-recovery" },
+      () => context.performOpenRegistered(repo, progress),
+    );
   if (!context.openings.has(repo.repoId)) {
     context.openings.set(repo.repoId, tracked);
     void tracked.then(clearOpening, clearOpening);

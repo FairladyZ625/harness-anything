@@ -25,10 +25,10 @@ import {
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 import { daemonFailure } from "../src/daemon/control-support.ts";
 
-test("daemon stopping guidance names the counts that status reports", () => {
+test("daemon stopping guidance uses independent diagnostics during a blocked drain", () => {
   const { hint } = humanError({ code: "daemon_stopping" });
-  assert.match(hint, /ha daemon status/u);
-  assert.match(hint, /counts of queued writes and attaching repositories/u);
+  assert.match(hint, /ha daemon status --diagnostics/u);
+  assert.match(hint, /what is still draining/u);
 });
 
 test("missing workspace packets identify the root used for relative paths", () => {

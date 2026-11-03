@@ -1,3 +1,4 @@
+import { markDaemonOperationPhase } from "./daemon-operation.ts";
 import { readdirSync } from "node:fs";
 import path from "node:path";
 import {
@@ -200,6 +201,7 @@ export function readArtifactsGui(
   context: ArtifactsGuiReadContext,
   payload: Readonly<Record<string, unknown>> = {},
 ): ArtifactsListResult {
+  markDaemonOperationPhase("artifacts.scan");
   const kind: ArtifactGuiKind = payload.kind === "md" || payload.kind === "raw" ? payload.kind : "html",
     cut = context.projection.readTaskStatuses(),
     walk = walkAllTaskArtifacts(resolveHarnessLayout(context.rootDir).tasksRoot, kind),

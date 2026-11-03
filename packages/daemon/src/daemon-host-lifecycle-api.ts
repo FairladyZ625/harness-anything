@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { observeDaemonOperation, markDaemonOperationPhase } from "./daemon-operation.ts";
 import type { DaemonHost } from "./daemon-host.ts";
 import type { DaemonHostApiContext } from "./daemon-host-context.ts";
 import { readDaemonRegistry } from "@harness-anything/kernel";
@@ -125,10 +126,13 @@ export function createDaemonHostLifecycleApi(
       const preamble = await Promise.allSettled([
         (async () => {
           context.scheduleScheduler.close();
+          markDaemonOperationPhase("initial-attachments");
           if (context.initialAttachments) await context.initialAttachments;
+          markDaemonOperationPhase("openings-and-replica-syncs");
           await settleBackground();
           for (const repoId of [...context.warming.keys()]) context.settleWarming(repoId);
           try {
+            markDaemonOperationPhase("fleet-center.close");
             if (context.fleetCenter) await context.fleetCenter.close();
           } finally {
             context.closeDaemonWriterEpoch();
@@ -141,7 +145,15 @@ export function createDaemonHostLifecycleApi(
       // Every cell gets its close awaited even when one of them rejects (Promise.all would return on
       // the first rejection while the others were still tearing down), and the first rejection still
       // propagates so a drain failure is not swallowed.
-      const settled = await Promise.allSettled([...context.cells.values()].map((cell) => cell.close())),
+      markDaemonOperationPhase("repo-cells.close");
+      const settled = await Promise.allSettled(
+          [...context.cells.entries()].map(([repoId, cell]) =>
+            observeDaemonOperation(
+              { method: "repo.close", repoId, actor: "daemon", phase: "writer-and-git-follower" },
+              () => cell.close(),
+            ),
+          ),
+        ),
         rejected = [...settled, ...preamble].find(
           (outcome): outcome is PromiseRejectedResult => outcome.status === "rejected",
         );

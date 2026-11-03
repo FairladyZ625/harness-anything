@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { chmodSync, existsSync, lstatSync, mkdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+
 import type { DaemonRegistryRepo } from "@harness-anything/kernel";
 import {
   canonicalRoot as bindCanonicalRoot,
@@ -12,6 +13,11 @@ import {
   type EndpointIdentity,
   type WorkspaceId,
 } from "../protocol/daemon-protocol.contract.ts";
+
+/** A sibling local socket; shares the existing owner-only directory and transport boundary. */
+export function daemonDiagnosticsEndpoint(endpoint: string): string {
+  return endpoint.endsWith(".sock") ? `${endpoint.slice(0, -5)}.diag` : `${endpoint}.diag`;
+}
 
 export interface LocalDaemonTarget {
   readonly repoId: WorkspaceId;
