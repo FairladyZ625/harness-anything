@@ -1,6 +1,15 @@
 import { requestDaemonJsonRpcAt } from "../../packages/daemon/src/client/local-json-rpc-client.ts";
-import { runFleetWriteClient } from "../../packages/daemon/src/fleet/peer.ts";
-import { parseReplicationFrame } from "../../packages/daemon/src/fleet/protocol.ts";
+import { runFleetWriteClient, runFleetReplicaStream } from "../../packages/daemon/src/fleet/peer.ts";
+import { createServer } from "node:tls";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { once } from "node:events";
+import {
+  FleetUtf8LineDecoder,
+  FLEET_FRAME_BYTES,
+  FLEET_CHUNK_BYTES,
+  serializeFleetFrame,
+} from "../../packages/daemon/src/fleet/command-protocol.ts";
 import { replayTraffic } from "./center-replay.mjs";
 import { openSyntheticReplica } from "./center-replica.mjs";
 import { syntheticJson } from "./center-ledger.mjs";
@@ -48,8 +57,14 @@ export async function measureCenter(fixture, operation) {
     probing = true;
     const atMs = performance.now() - started;
     try {
-      const receipt = await status(fixture);
-      probes.push({ atMs, endMs: performance.now() - started, ok: receipt.ok !== false });
+      const receipt = await requestDaemonJsonRpcAt(
+        fixture.endpoint,
+        "repo.tasks.list",
+        { repo: { repoId: fixture.repoId }, payload: { limit: 1 } },
+        5000,
+        10_000,
+      );
+      probes.push({ atMs, endMs: performance.now() - started, ok: receipt.ok === true && receipt.status === "ready" });
     } catch (error) {
       probes.push({ atMs, endMs: performance.now() - started, ok: false, code: error.code ?? error.message });
     } finally {
@@ -86,7 +101,7 @@ export async function measureCenter(fixture, operation) {
       probes,
       unavailableMs,
       unavailableDefinition:
-        "failed daemon.status probe start to next successful probe completion; 250ms probe cadence",
+        "failed ready-state repo.tasks.list(limit=1) probe start to next successful probe completion; 250ms probe cadence",
       instrumentation:
         "CPU/RSS and event loop histograms sampled inside the dedicated product daemon process; excludes load generator",
     };
@@ -131,7 +146,7 @@ export const faultScenarios = Object.freeze([
   "legacy-frame",
 ]);
 
-export async function runFaultScenario(name, { fixture, model, nodes = 1, durationMs = 1000 }) {
+export async function runFaultScenario(name, { fixture, model, bindings = {}, nodes = 1, durationMs = 1000 }) {
   if (!faultScenarios.includes(name)) throw new Error(`unknown fault scenario: ${name}`);
   return measureCenter(fixture, async () => {
     const at = performance.now();
@@ -155,11 +170,13 @@ export async function runFaultScenario(name, { fixture, model, nodes = 1, durati
       }
       await event(fixture, "build_superseded", after);
       await event(fixture, "listening", after);
+      await fixture.waitReady();
     } else if (name === "build-switch") {
       const after = fixture.events.length;
       observations = await replayTraffic({
         model,
         fixture,
+        bindings,
         nodes,
         durationMs,
         onRequest: async ({ serial }) => {
@@ -171,6 +188,7 @@ export async function runFaultScenario(name, { fixture, model, nodes = 1, durati
       });
       await event(fixture, "build_superseded", after);
       await event(fixture, "listening", after);
+      await fixture.waitReady();
     } else if (name === "reconnect") {
       const first = await connectReplicas(fixture, nodes);
       for (const replica of first.clients) replica.close();
@@ -249,25 +267,78 @@ export async function runFaultScenario(name, { fixture, model, nodes = 1, durati
         }
       }
     } else {
-      // Frozen pre-upgrade wire shape from the actual v2/v3 split. Does not run a historical edge binary.
-      const frame = {
-        type: "replica.backup",
-        metadata: { schema: "fleet-basebackup/v2" },
-        size: 0,
-        sha256: "0".repeat(64),
-      };
-      try {
-        parseReplicationFrame(JSON.stringify(frame));
-        observations = { accepted: true };
-      } catch (error) {
-        observations = {
-          accepted: false,
-          code: error.code ?? null,
-          message: error.message,
-          historicalMatch: "old backup metadata against current decoder; historical #4253 binary remains unverified",
-        };
-      }
+      observations = await legacyFrameProbe(fixture);
     }
     return { scenario: name, elapsedMs: performance.now() - at, observations };
   });
+}
+
+async function legacyFrameProbe(fixture) {
+  const root = path.dirname(fixture.rootDir),
+    sockets = new Set();
+  let faultSent = false;
+  const server = createServer(
+    { key: readFileSync(path.join(root, "tls.key")), cert: readFileSync(path.join(root, "tls.crt")) },
+    (socket) => {
+      sockets.add(socket);
+      socket.on("close", () => sockets.delete(socket));
+      const decoder = new FleetUtf8LineDecoder();
+      socket.on("data", (chunk) => {
+        for (const line of decoder.push(chunk)) {
+          const frame = JSON.parse(line);
+          if (frame.schema === "fleet.session.hello/v1")
+            socket.write(
+              serializeFleetFrame({
+                schema: "fleet.session.ready/v1",
+                messageId: "legacy-ready",
+                inReplyTo: frame.messageId,
+                sessionId: "legacy-fixture",
+                maxFrameBytes: FLEET_FRAME_BYTES,
+                chunkBytes: FLEET_CHUNK_BYTES,
+              }),
+            );
+          if (frame.type === "replica.start") {
+            faultSent = true;
+            socket.write(
+              JSON.stringify({
+                type: "replica.backup",
+                metadata: { schema: "fleet-basebackup/v2" },
+                size: 0,
+                sha256: "0".repeat(64),
+              }) + "\n",
+            );
+          }
+        }
+      });
+    },
+  );
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  try {
+    await withWatchdog(
+      (signal) =>
+        runFleetReplicaStream({
+          ...fixture.peer(0),
+          port: server.address().port,
+          viewRoot: path.join(root, "legacy-edge"),
+          diskQuotaBytes: 64 * 1024 ** 2,
+          signal,
+        }),
+      { timeoutMs: 10_000, label: "old frame on real edge callback" },
+    );
+    return { accepted: true, faultSent };
+  } catch (error) {
+    return {
+      accepted: false,
+      faultSent,
+      code: error.code ?? null,
+      message: error.message,
+      processSurvived: true,
+      historicalMatch:
+        "old v2 metadata through a real current TLS edge stream; historical #4253 binary remains unverified",
+    };
+  } finally {
+    for (const socket of sockets) socket.destroy();
+    await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  }
 }

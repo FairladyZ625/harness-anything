@@ -2,6 +2,8 @@
 import { parseArgs } from "node:util";
 import { readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+import { execFileSync } from "node:child_process";
+import path from "node:path";
 import { readTrafficLogs, extractTrafficModel } from "./center-model.mjs";
 
 export function defaultTrafficModel() {
@@ -74,8 +76,16 @@ export async function runCenterBenchmark({
   const report = {
     schema: "center-bench/v1",
     source: {
-      head: process.env.HARNESS_BUILD_COMMIT ?? null,
-      base: process.env.HARNESS_BASE_COMMIT ?? null,
+      head: execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: path.resolve(import.meta.dirname, "../.."),
+        encoding: "utf8",
+      }).trim(),
+      base: process.env.FLEET_STRESS_CENTER_BASE ?? null,
+      dirty:
+        execFileSync("git", ["status", "--porcelain", "--untracked-files=no"], {
+          cwd: path.resolve(import.meta.dirname, "../.."),
+          encoding: "utf8",
+        }).trim().length > 0,
       platform: `${process.platform}-${process.arch}`,
       node: process.version,
     },
@@ -92,8 +102,9 @@ export async function runCenterBenchmark({
       "Warm-edge curves start at the replication head; fresh base-backup admission is measured separately.",
       "A curve point is invalid if required replicas fail to connect or the generator hits its concurrency limit.",
       "Capacity points reuse the same ledger in increasing node order; caches and writes carry forward.",
-      "Probe traffic adds four daemon.status requests/s plus hello; measurement IPC adds one sample/s.",
+      "Probe traffic adds four repo.tasks.list(limit=1) requests/s plus hello; measurement IPC adds one sample/s.",
       "Historical #4253 edge binary and the original 37s attach environment are not reconstructed by this run.",
+      "Authorization uses the repository Keycloak fixture and one owner with many device sessions; real IAM capacity is not measured.",
     ],
   };
   try {
@@ -116,9 +127,14 @@ export async function runCenterBenchmark({
     }
     for (const name of scenarios ?? campaign.faultScenarios) {
       onProgress({ phase: "fault", scenario: name });
-      report.faults.push(
-        await campaign.runFaultScenario(name, { fixture, model, nodes: Math.max(...nodes), durationMs }),
-      );
+      try {
+        report.faults.push(
+          await campaign.runFaultScenario(name, { fixture, model, bindings, nodes: Math.max(...nodes), durationMs }),
+        );
+      } catch (error) {
+        // A product failure in one fault must not discard already measured capacity points.
+        report.faults.push({ scenario: name, error: { code: error.code ?? null, message: error.message } });
+      }
       onProgress({ phase: "fault-result", result: report.faults.at(-1) });
     }
     return report;

@@ -6,13 +6,13 @@ import { openRepoCell } from "../../packages/daemon/src/repo-cell-open.ts";
 import { openSqliteEventStore } from "../../packages/storage/src/store/sqlite-event-store.ts";
 
 const config = JSON.parse(readFileSync(process.argv[2], "utf8"));
+const generation = Number(process.argv[3]);
 const loop = monitorEventLoopDelay({ resolution: 10 });
 loop.enable();
 let daemon,
   drifted = false,
   closeGate = null,
-  releaseClose = null,
-  generation = 0;
+  releaseClose = null;
 let lastCpu = process.cpuUsage(),
   lastTime = performance.now();
 const send = (message) => process.send?.(message);
@@ -44,14 +44,12 @@ async function launch() {
         },
       };
     },
-    onSupersededExit: async () => {
-      send({ event: "build_superseded", generation });
-      drifted = false;
-      await launch();
+    onSupersededExit: () => {
+      // Product caches have process lifetime. A successor must be a fresh process, like the resident entry.
+      process.send({ event: "build_superseded", generation }, () => process.exit(0));
     },
   });
   if (!("stop" in daemon)) throw new Error("benchmark child failed singleton claim");
-  generation++;
   send({ event: "listening", endpoint: daemon.endpoint, generation });
 }
 
@@ -64,8 +62,9 @@ process.on("message", (message) => {
       const result = {
         rssBytes: process.memoryUsage().rss,
         cpuPercent: ((cpu.user - lastCpu.user + cpu.system - lastCpu.system) / 1000 / elapsedMs) * 100,
-        eventLoopP99Ms: loop.percentile(99) / 1e6,
-        eventLoopMaxMs: loop.max / 1e6,
+        eventLoopSamples: loop.count,
+        eventLoopP99Ms: loop.count ? loop.percentile(99) / 1e6 : null,
+        eventLoopMaxMs: loop.count ? loop.max / 1e6 : null,
         elapsedMs,
         generation,
       };

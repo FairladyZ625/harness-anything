@@ -126,32 +126,40 @@ export async function createCenterFixture({
     writeFileSync(configFile, JSON.stringify({ rootDir, userRoot, repoId }));
     const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("HARNESS_")));
     Object.assign(env, { HARNESS_DAEMON_USER_ROOT: userRoot, HARNESS_DAEMON_ID: "center-bench" });
-    child = fork(path.join(import.meta.dirname, "center-process.mjs"), [configFile], {
-      env,
-      stdio: ["ignore", "ignore", "pipe", "ipc"],
-    });
-    childExit = once(child, "exit");
-    child.stderr.on("data", (chunk) => {
-      stderr.push(String(chunk));
-      if (stderr.length > 20) stderr.shift();
-    });
-    child.on("message", (message) => {
-      if (message.event) {
-        events.push(message);
-        if (message.endpoint) endpoint = message.endpoint;
-      }
-      const waiter = waiters.get(message.id);
-      if (waiter) {
-        waiters.delete(message.id);
-        if (message.error) waiter.reject(new Error(message.error));
-        else waiter.resolve(message.result);
-      }
-    });
-    child.on("exit", (code, signal) => {
-      for (const waiter of waiters.values())
-        waiter.reject(new Error(`center exited ${code}/${signal}: ${stderr.join("")}`));
-      waiters.clear();
-    });
+    let generation = 0;
+    const launch = () => {
+      const current = fork(path.join(import.meta.dirname, "center-process.mjs"), [configFile, String(++generation)], {
+        env,
+        stdio: ["ignore", "ignore", "pipe", "ipc"],
+      });
+      child = current;
+      childExit = once(current, "exit");
+      let superseded = false;
+      current.stderr.on("data", (chunk) => {
+        stderr.push(String(chunk));
+        if (stderr.length > 20) stderr.shift();
+      });
+      current.on("message", (message) => {
+        if (message.event) {
+          if (message.event === "build_superseded") superseded = true;
+          events.push(message);
+          if (message.endpoint) endpoint = message.endpoint;
+        }
+        const waiter = waiters.get(message.id);
+        if (waiter) {
+          waiters.delete(message.id);
+          if (message.error) waiter.reject(new Error(message.error));
+          else waiter.resolve(message.result);
+        }
+      });
+      current.on("exit", (code, signal) => {
+        for (const waiter of waiters.values())
+          waiter.reject(new Error(`center exited ${code}/${signal}: ${stderr.join("")}`));
+        waiters.clear();
+        if (superseded && !closed) launch();
+      });
+    };
+    launch();
     await withWatchdog(
       async () => {
         while (!endpoint) {
@@ -162,19 +170,22 @@ export async function createCenterFixture({
       },
       { timeoutMs: 30_000, label: "center socket bind" },
     );
+    const waitReady = () =>
+      withWatchdog(
+        async () => {
+          for (;;) {
+            const status = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 5000, 5000);
+            const repo = status.repos?.find((row) => row.repoId === repoId);
+            if (repo?.state === "attached") return;
+            if (repo?.state === "unavailable")
+              throw new Error(`synthetic ledger attach failed: ${JSON.stringify(repo)}`);
+            await new Promise((resolve) => setImmediate(resolve));
+          }
+        },
+        { timeoutMs: 120_000, label: "synthetic ledger attach" },
+      );
     const attachStarted = performance.now();
-    await withWatchdog(
-      async () => {
-        for (;;) {
-          const status = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 5000, 5000);
-          const repo = status.repos?.find((row) => row.repoId === repoId);
-          if (repo?.state === "attached") return;
-          if (repo?.state === "unavailable") throw new Error(`synthetic ledger attach failed: ${JSON.stringify(repo)}`);
-          await new Promise((resolve) => setImmediate(resolve));
-        }
-      },
-      { timeoutMs: 120_000, label: "synthetic ledger attach" },
-    );
+    await waitReady();
     const attachMs = performance.now() - attachStarted;
     return {
       rootDir,
@@ -184,6 +195,7 @@ export async function createCenterFixture({
       attachMs,
       events,
       request,
+      waitReady,
       close,
       get endpoint() {
         return endpoint;

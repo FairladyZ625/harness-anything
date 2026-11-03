@@ -113,6 +113,8 @@ test(
       assert.equal(fault("large-document").write.outcome, "applied", JSON.stringify(fault("large-document").write));
     assert.ok(fault("slow-read").reads.every((row) => row.ok));
     assert.equal(fault("legacy-frame").accepted, false);
+    assert.equal(fault("legacy-frame").faultSent, true);
+    assert.equal(fault("legacy-frame").processSurvived, true);
     assert.equal(fault("legacy-frame").code, "center_upgrade_required");
   },
 );

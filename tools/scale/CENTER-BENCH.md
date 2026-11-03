@@ -107,19 +107,19 @@ Add `--scenario <name>` to run one named fault (repeat to select several):
 | `base-backup`    | Start a replica at null position and consume the product base backup over TLS.                                        |
 | `large-document` | Read the largest generated JSON document and attempt a same-size Fleet upload; report admission failures as failures. |
 | `slow-read`      | Run eight simultaneous largest-document reads while sampling daemon responsiveness and event loop delay.              |
-| `legacy-frame`   | Present the old v2 backup metadata shape to the current decoder and record the exact rejection.                       |
+| `legacy-frame`   | Send old v2 backup metadata through a real current TLS edge stream and record the rejection and process survival.     |
 
 Faults are triggered by observable request/close boundaries. No test sleeps arrange intermediate
 states. An external watchdog bounds each control operation. The harness does not replace product
 drain logic or inject a fake CPU spin. The historical edge binary is not exercised by the legacy
-metadata probe; it cannot prove the original crash occurred.
+metadata probe; it cannot prove the original crash occurred in that binary.
 
 ## Reading reports
 
 Read/write p50 and p99 cover successful requests from scheduled arrival to terminal reply,
 including generator lag. Error rate includes all scheduled requests, including overload drops.
 Throughput uses successful terminal replies. Failed-request exposure is reported separately from
-unavailability, which is measured by daemon.status probes at 250 ms cadence. CPU, RSS and event
+unavailability, which is measured by ready-state `repo.tasks.list(limit=1)` probes at 250 ms cadence. CPU, RSS and event
 loop delay are sampled in the dedicated daemon process, not the generator. Monitor IPC adds one
 sample/s; probes add four requests/s plus their hellos.
 
@@ -131,4 +131,6 @@ resource samples, fixture deviations and source identity before drawing an SLO c
 
 The implementation reuses the existing stress controller's watchdog, the storage store fixtures,
 the accepted CLI entity bench's preset bootstrap path, and the real daemon/fleet protocol codecs.
-No benchmark-only product endpoint or second action registry is introduced.
+Successors start in fresh OS processes, matching product cache lifetimes. Authorization uses the
+repository Keycloak fixture and one owner with multiple device sessions; real IAM capacity is
+not measured. No benchmark-only product endpoint or second action registry is introduced.
