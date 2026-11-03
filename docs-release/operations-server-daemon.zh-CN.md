@@ -325,3 +325,24 @@ ha doc sync --submit --path governance/standards/README.md --path context/README
 本地 daemon socket 是访问边界。其目录以 `0700`、socket 文件以 `0600` 创建；不要扩大
 任一权限。纯展示流程中的 endpoint tunnel 由用户管理，且不应把 daemon socket 暴露为公网
 listener。
+
+## 卡顿与关停期间的诊断
+
+在 daemon 所在主机运行 `ha daemon status --diagnostics --json`。同一个 status
+命令通过独立看守线程持有的本机 socket 读取状态，在主线程同步阻塞或排空时仍可用。
+不带 `--json` 时，摘要会列出当前操作名称与阶段。
+
+诊断 socket 沿用 0700 目录、0600 socket 的本机 owner 边界，不开 TCP 端口，
+只允许状态读取和协议握手。响应包含进程状态、心跳年龄、排空等待项、在飞操作、
+最近卡顿、当前 RSS，以及最后一次主线程指标与采样年龄。主线程卡住时，堆与
+事件循环直方图是最后采样值；独立心跳判断和 RSS 继续更新。
+
+每 10 秒向 `<userRoot>/logs/daemon-<daemonId>-diagnostics.jsonl` 写入
+`daemon-diagnostics/v1` 结构化记录，复用 lifecycle 日志的 4 MiB 阈值与四代轮转。
+心跳逾期两秒会立即保存卡顿开始证据，恢复后保存观测到的持续时间。Inspector 栈
+捕获为尽力获取，使用进程内会话，只记录函数位置，不保存局部变量或请求 payload。
+不增加业务超时、重试或自动重启。
+
+后续请求分阶段追踪可在 daemon 包内复用 `observeDaemonOperation(fields, body)`
+与单行 `markDaemonOperationPhase("阶段名")`。登记、更新、删除发送固定大小消息，
+看守线程持有 Map；完整诊断快照复杂度为 O(并发操作数)，不读取历史请求集合。

@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { observeDaemonOperation } from "./daemon-operation.ts";
 import {
   consumeKnownError,
   INITIAL_SETTINGS_V1,
@@ -85,7 +86,8 @@ export function makeScheduleScheduler(input: {
 
   const refresh = (): Promise<void> => {
     if (!started || closed) return Promise.resolve();
-    const pending = tail.then(reconcile, reconcile);
+    const run = () => observeDaemonOperation({ method: "schedule.reconcile", actor: "daemon" }, reconcile);
+    const pending = tail.then(run, run);
     tail = pending.then(
       () => undefined,
       () => undefined,
@@ -128,7 +130,8 @@ export function makeScheduleScheduler(input: {
     timer = setTimer(
       () => {
         timer = null;
-        const pending = tail.then(tick, tick);
+        const run = () => observeDaemonOperation({ method: "schedule.tick", actor: "daemon" }, tick);
+        const pending = tail.then(run, run);
         tail = pending.then(
           () => undefined,
           () => undefined,
@@ -157,13 +160,17 @@ export function makeScheduleScheduler(input: {
         if (attempted.has(key)) return;
         attempted.add(key);
         try {
-          await occurrence.target.execute({
-            kind: "schedule-run-now",
-            scheduleId: occurrence.scheduleId,
-            scheduledFor: occurrence.scheduledFor,
-            observedDefinitionRevision: occurrence.definitionRevision,
-            idempotencyKey: key,
-          });
+          await observeDaemonOperation(
+            { method: "schedule.run", repoId: occurrence.target.repoId, actor: "daemon", phase: occurrence.scheduleId },
+            () =>
+              occurrence.target.execute({
+                kind: "schedule-run-now",
+                scheduleId: occurrence.scheduleId,
+                scheduledFor: occurrence.scheduledFor,
+                observedDefinitionRevision: occurrence.definitionRevision,
+                idempotencyKey: key,
+              }),
+          );
         } catch (error) {
           consumeKnownError(error);
           console.warn(

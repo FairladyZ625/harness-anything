@@ -226,8 +226,8 @@ const guidanceTemplates = new Map<string, GuidanceTemplate>([
     "failure:daemon-stopping",
     () =>
       "The daemon is draining its write queues before it exits and admits no new work; it releases its " +
-      "endpoint, pid file and singleton lock together when the drain finishes. Run ha daemon status for " +
-      "counts of queued writes and attaching repositories, then retry — the next command starts the replacement daemon.",
+      "endpoint, pid file and singleton lock together when the drain finishes. Run ha daemon status --diagnostics to see " +
+      "what is still draining, then retry — the next command starts the replacement daemon.",
   ],
   [
     "failure:squad-leader",

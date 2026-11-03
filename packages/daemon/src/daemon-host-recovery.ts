@@ -1,5 +1,6 @@
 import { consumeKnownError, readDaemonRegistry } from "@harness-anything/kernel";
 import { makeRecoveryProbe } from "./recovery-state.ts";
+import { observeDaemonOperation } from "./daemon-operation.ts";
 import { latchReprobeThrottleMs } from "./repo-cell.ts";
 import type { DaemonHostRegistryContext } from "./daemon-host-context.ts";
 import type { RegisteredRepoInput } from "./daemon-host-context.ts";
@@ -25,7 +26,9 @@ export async function attemptHostRecovery(context: DaemonHostRegistryContext, re
     return;
   }
   try {
-    await context.openRegistered(repo);
+    await observeDaemonOperation({ method: "repo.recovery", repoId, actor: "daemon" }, () =>
+      context.openRegistered(repo),
+    );
     context.unavailableProbes.delete(repoId);
   } catch (error) {
     consumeKnownError(error);

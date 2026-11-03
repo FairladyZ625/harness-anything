@@ -1,4 +1,5 @@
 import { Worker } from "node:worker_threads";
+import { tracingChannel } from "node:diagnostics_channel";
 import path from "node:path";
 import type { ReplicationPosition } from "./store/replication-log.ts";
 
@@ -29,6 +30,8 @@ export interface PostgresBaseBackupInput {
   readonly directory: string;
 }
 export type BaseBackupInput = SqliteBaseBackupInput | PostgresBaseBackupInput;
+/** Observational span lasts through archive completion, beyond the earlier writer-barrier release. */
+export const fleetBaseBackupTrace = tracingChannel<{ repoId: string | null }>("harness.fleet.basebackup");
 
 /** Call under the repo writer/projection barrier; release it once this resolves, not after complete. */
 export function startBaseBackup(
@@ -45,6 +48,7 @@ export function startBaseBackup(
     resolveComplete = resolve;
     rejectComplete = reject;
   });
+  const trace = { repoId: "repoId" in input ? input.repoId : null };
   // Handlers and captured state exist before the worker can report its first message.
   return new Promise((resolve, reject) => {
     signal?.throwIfAborted();
@@ -54,6 +58,7 @@ export function startBaseBackup(
         workerData: input,
       },
     );
+    fleetBaseBackupTrace.start.publish(trace);
     const abort = () => {
       void worker.terminate();
     };
@@ -69,6 +74,8 @@ export function startBaseBackup(
         message: { kind: "pinned"; metadata: BaseBackupMetadata } | { kind: "complete"; archive: BaseBackupArchive },
       ) => {
         if (message.kind === "pinned") {
+          trace.repoId = message.metadata.repoId;
+          fleetBaseBackupTrace.asyncStart.publish(trace);
           pinned = true;
           resolve({ metadata: message.metadata, complete });
         } else {
@@ -79,6 +86,7 @@ export function startBaseBackup(
     );
     worker.on("error", fail);
     worker.on("exit", (code) => {
+      fleetBaseBackupTrace.end.publish(trace);
       signal?.removeEventListener("abort", abort);
       if (!completed) fail(new Error(`base backup worker exited before completion (${code})`));
     });

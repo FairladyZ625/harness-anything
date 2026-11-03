@@ -56,3 +56,51 @@ test("status exposes a live old process alongside its successor and while the en
     rmSync(userRoot, { recursive: true, force: true });
   }
 });
+
+test(
+  "status --diagnostics names the held shutdown phase through the independent socket",
+  { timeout: 15_000 },
+  async () => {
+    const userRoot = mkdtempSync(path.join(tmpdir(), "ha-status-diag-")),
+      daemonId = "status-diag";
+    let release!: () => void, reached!: () => void;
+    const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      }),
+      blocked = new Promise<void>((resolve) => {
+        reached = resolve;
+      }),
+      daemon = await startDaemon({
+        userRoot,
+        daemonId,
+        runtimeDiscover: () => [],
+        managedRbac: {
+          resume: async () => {},
+          run: async () => ({ ok: true }),
+          loginListenerCertificate: () => null,
+          stop: async () => {
+            reached();
+            await gate;
+          },
+        },
+      });
+    assert.ok("stop" in daemon);
+    const stopping = daemon.stop();
+    try {
+      await blocked;
+      const result = await status(userRoot, daemonId, ["--root", userRoot, "--diagnostics"]);
+      assert.equal(result.ok, true);
+      assert.equal(result.state, "stopping");
+      assert.match(String(result.summary), /daemon.close.*phase=managed-rbac.stop/u);
+      assert.ok(
+        (result.waitingFor as { method: string; phase: string }[]).some(
+          (op) => op.method === "daemon.close" && op.phase === "managed-rbac.stop",
+        ),
+      );
+    } finally {
+      release();
+      await stopping;
+      rmSync(userRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+    }
+  },
+);

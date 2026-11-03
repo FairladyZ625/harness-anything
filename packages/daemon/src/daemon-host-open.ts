@@ -1,3 +1,4 @@
+import { markDaemonOperationPhase } from "./daemon-operation.ts";
 import type { FleetDeviceLoginNotice, IdentityManagementPort, IdentitySessionPort } from "@harness-anything/kernel";
 import { readHomeOverview } from "./home/home-overview-read.ts";
 import { readFleetCenterConfig } from "./fleet-center-config.ts";
@@ -1144,13 +1145,14 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     },
     close: async () => {
       parkedWaitController.abort();
+      markDaemonOperationPhase("auto-claim.close");
       await autoClaimLoop.close();
       for (const { controller } of replicaSyncControllers.values()) controller.abort();
       replicaSyncControllers.clear();
-      // A failed resume is already refused at every request; cleanup still stops whatever the
-      // failed attempt launched before the host reports itself closed.
+      markDaemonOperationPhase("rbac-resume-and-access-admin.close");
       await rbacResumed.catch(consumeKnownError);
       await accessAdmin.close();
+      markDaemonOperationPhase("managed-rbac.stop");
       await managedRbac.stop();
       await lifecycle.close();
     },

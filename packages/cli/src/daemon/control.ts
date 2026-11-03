@@ -163,7 +163,7 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
         [
           "Use daemon projection rebuild, daemon repo register|update,",
           "daemon connection add|update|remove|probe, fleet status, fleet center start, fleet edge sync,",
-          "service install|uninstall|status, start --service, status, metrics, or stop.",
+          "service install|uninstall|status, start --service, status [--diagnostics], metrics, or stop.",
         ].join(" "),
       ),
       2,
@@ -633,8 +633,7 @@ function drainingStopReceipt(pid: number): Record<string, unknown> {
       `daemon-stop: pid ${pid} accepted the stop and is draining its write queues; its endpoint, ` +
       "pid file and singleton lock are released together when the drain finishes.",
     nextAction:
-      "Run `ha daemon status` for counts of queued writes and attaching repositories; " +
-      "`ha daemon stop --force` ends it without draining.",
+      "Run `ha daemon status --diagnostics` to see what is still draining; `ha daemon stop --force` ends it without draining.",
   };
 }
 function finishControlReceipt(

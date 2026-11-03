@@ -21,6 +21,7 @@ export const daemonLogDefaultMaxBytes = 4 * 1024 * 1024;
 export const daemonLogDefaultKeptFiles = 4;
 
 export type DaemonLifecycleEvent =
+  | "diagnostics"
   | "process_start"
   | "process_stopping"
   | "socket_bound"
@@ -101,13 +102,17 @@ export function guiStdioLogPath(userRoot: string, daemonId: string): string {
 export function openDaemonLifecycleLog(input: {
   readonly userRoot: string;
   readonly daemonId: string;
+  readonly logKind?: "diagnostics";
   readonly maxBytes?: number;
   readonly keptFiles?: number;
   readonly now?: () => Date;
   readonly pid?: number;
   readonly onFailure?: (error: unknown) => void;
 }): DaemonLifecycleLog {
-  const logPath = daemonLifecycleLogPath(input.userRoot, input.daemonId),
+  const logPath = daemonLifecycleLogPath(input.userRoot, input.daemonId).replace(
+      /-lifecycle\.jsonl$/u,
+      `-${input.logKind ?? "lifecycle"}.jsonl`,
+    ),
     maxBytes = input.maxBytes ?? daemonLogDefaultMaxBytes,
     keptFiles = input.keptFiles ?? daemonLogDefaultKeptFiles,
     now = input.now ?? (() => new Date()),
@@ -126,7 +131,7 @@ export function openDaemonLifecycleLog(input: {
         rotateLifecycleLog(logPath, maxBytes, keptFiles);
         appendFileSync(
           logPath,
-          `${JSON.stringify({ schema: DAEMON_LIFECYCLE_LOG_SCHEMA.id, at: now().toISOString(), daemonId: input.daemonId, pid, ...entry } satisfies DaemonLifecycleRecord)}\n`,
+          `${JSON.stringify({ schema: input.logKind ? "daemon-diagnostics/v1" : DAEMON_LIFECYCLE_LOG_SCHEMA.id, at: now().toISOString(), daemonId: input.daemonId, pid, ...entry } satisfies DaemonLifecycleRecord)}\n`,
           "utf8",
         );
       } catch (error) {

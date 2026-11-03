@@ -69,7 +69,7 @@ export {
   WriterEpochError,
 } from "./writer-epoch.ts";
 export type { PersistentWriterEpoch, WriterEpochFenceDescriptor, WriterEpochLease } from "./writer-epoch.ts";
-export { startBaseBackup } from "./fleet-basebackup.ts";
+export { startBaseBackup, fleetBaseBackupTrace } from "./fleet-basebackup.ts";
 export type { BaseBackupArchive, BaseBackupInput, BaseBackupMetadata } from "./fleet-basebackup.ts";
 export { BASE_BACKUP_ARCHIVE_ROOT } from "./fleet-basebackup-layout.ts";
 
