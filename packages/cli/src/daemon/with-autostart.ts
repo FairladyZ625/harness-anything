@@ -27,28 +27,15 @@ export async function withAutostart(
   // never observe a change.
   const { readDaemonPid } = await import("@harness-anything/daemon/internal/daemon-singleton"),
     outgoingPid = options.userRoot && options.daemonId ? readDaemonPid(options.userRoot, options.daemonId) : null;
-  // Every request on every recovery branch passes through this one state machine. A successor may
-  // bind its socket before its Keycloak identity authority is ready; that refusal proves nothing was
-  // applied, so resend it once. The previous version only wrapped the first request, which let the
-  // same refusal escape after a daemon_stopping handoff or an autostart reconnect.
-  const requestWithIdentityRecovery = async (): Promise<{ result: JsonObject; identityRetries: number }> => {
-    const first = await request();
-    if (options.commandCategory === "daemon-lifecycle" || !isRetryableIdentityRefusal(first))
-      return { result: first, identityRetries: 0 };
-    await delay(250);
-    return { result: await request(), identityRetries: 1 };
-  };
   try {
-    const attempt = await requestWithIdentityRecovery();
-    let result = attempt.result,
-      identityRetries = attempt.identityRetries;
+    const result = await request();
     if (
       !isDaemonStopping(result) ||
       options.commandCategory === "daemon-lifecycle" ||
       !options.userRoot ||
       !options.daemonId
     )
-      return withIdentityRetryMetadata(result, identityRetries, startedAt);
+      return result;
     const { DaemonAutostartError, ensureLocalDaemonRunning, waitForDaemonGenerationChange } = await import(
         "@harness-anything/daemon/internal/client/daemon-autostart"
       ),
@@ -88,12 +75,9 @@ export async function withAutostart(
       }
     }
     try {
-      const successor = await requestWithIdentityRecovery();
-      result = successor.result;
-      identityRetries += successor.identityRetries;
-      if (isDaemonStopping(result))
-        return daemonRestartingReceipt(Date.now() - startedAt, 1 + successor.identityRetries);
-      return withIdentityRetryMetadata(result, 1 + identityRetries, startedAt);
+      const successor = await request();
+      if (isDaemonStopping(successor)) return daemonRestartingReceipt(Date.now() - startedAt, 1);
+      return { ...successor, daemonRestart: { waitedMs: Date.now() - startedAt, retries: 1 } };
     } catch (error) {
       const { isDaemonUnreachable } = await import("@harness-anything/daemon/internal/client/daemon-autostart");
       if (options.autostart && isDaemonUnreachable(error)) return daemonRestartingReceipt(Date.now() - startedAt, 1);
@@ -126,18 +110,15 @@ export async function withAutostart(
       socketPath,
       invokingRoot: options.invokingRoot,
       launch,
+      readyTimeoutMs: Math.min(10_000, Math.max(0, budgetMs - (Date.now() - startedAt) - 550)),
+      // Lifecycle controls only need the transport; repository operations also need the managed
+      // identity services, whose resume is part of the one startup readiness signal.
+      requireIdentityReady: options.commandCategory !== "daemon-lifecycle",
       onProgress: (progress) => process.stderr.write(`${progress.message}\n`),
     });
     if (!started.ok) throw new DaemonAutostartError(started);
-    const recovered = await requestWithIdentityRecovery();
-    return withIdentityRetryMetadata(recovered.result, recovered.identityRetries, startedAt);
+    return await request();
   }
-}
-
-/** Report a successful identity retry the same way a successful daemon restart is reported. */
-function withIdentityRetryMetadata(result: JsonObject, retries: number, startedAt: number): JsonObject {
-  if (retries === 0 || isKeycloakUnavailable(result) || isDaemonStopping(result)) return result;
-  return { ...result, daemonRestart: { waitedMs: Date.now() - startedAt, retries } };
 }
 
 function isDaemonStopping(result: JsonObject): boolean {
@@ -146,24 +127,6 @@ function isDaemonStopping(result: JsonObject): boolean {
       ? (result.error as JsonObject)
       : null;
   return result.code === "daemon_stopping" || error?.code === "daemon_stopping";
-}
-
-/** The daemon refused before applying the action because Keycloak did not answer in the startup window. */
-function isKeycloakUnavailable(result: JsonObject): boolean {
-  const error =
-    result.error && typeof result.error === "object" && !Array.isArray(result.error)
-      ? (result.error as JsonObject)
-      : null;
-  return result.code === "keycloak_unavailable" || error?.code === "keycloak_unavailable";
-}
-
-/** A refusal that proves the action never reached the ledger, so replaying it cannot duplicate a write. */
-function isRetryableIdentityRefusal(result: JsonObject): boolean {
-  return isKeycloakUnavailable(result) && (result.outcome === undefined || result.outcome === "op_rejected");
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function daemonRestartingReceipt(waitedMs: number, retries: number): JsonObject {

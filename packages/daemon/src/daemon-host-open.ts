@@ -914,15 +914,19 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   // Every center consultation awaits this start barrier. A failed resume is therefore not absorbed:
   // the same rejection refuses the request with the real cause instead of letting it reach a center
   // whose policy sync never completed. The recording handler only observes the failure; it does not
-  // turn the barrier into a resolved promise.
+  // turn the barrier into a resolved promise. The same settlement is the startup readiness fact the
+  // CLI's single wait port reads: either the managed services are up or their real failure is known.
   const resumed = managedRbac.resume();
   rbacResumed = resumed;
-  void resumed.catch((error: unknown) => {
-    input.recordLifecycle?.({
-      event: "rbac_resume_failed",
-      error: error instanceof Error ? error.message : String(error),
-    });
-  });
+  void resumed.then(
+    () => input.recordLifecycle?.({ event: "identity_ready" }),
+    (error: unknown) => {
+      input.recordLifecycle?.({
+        event: "rbac_resume_failed",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    },
+  );
   const parkedWaitController = new AbortController(),
     edgeJoinProgress = createEdgeJoinProgressTap();
   const host: DaemonHost = {
