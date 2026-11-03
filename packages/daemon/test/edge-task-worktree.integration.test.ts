@@ -164,6 +164,58 @@ test("a node that takes a task over continues from the branch the previous node 
   assert.equal(git(fixture.remote, "merge-base", "--is-ancestor", delivered, continued), "");
 });
 
+test("a checkout moved to another delivery branch is judged against the branch it holds", async (t) => {
+  const fixture = nodesFixture(t),
+    checkout = (await checkoutTaskWorktree(fixture.nodeA, taskId, binding, noWorktreeSetup()))!,
+    delivered = commit(checkout.cwd, "slice-a.txt"),
+    deliveryBranch = `${taskId}-slice-a-v2`;
+  git(checkout.cwd, "switch", "-q", "-c", deliveryBranch);
+  git(checkout.cwd, "push", "-q", "-u", "origin", deliveryBranch);
+  // The task-id branch keeps moving with unrelated work: the checkout delivers on the branch it holds.
+  commit(fixture.nodeA, "old-branch-only.txt");
+  git(fixture.nodeA, "push", "-q", "origin", `HEAD:refs/heads/${taskId}`);
+
+  const resumed = (await checkoutTaskWorktree(fixture.nodeA, taskId, binding, noWorktreeSetup()))!;
+  assert.equal(resumed.cwd, checkout.cwd);
+  assert.equal(resumed.branch, deliveryBranch, "the checkout reports the branch it delivers on");
+  assert.equal(git(checkout.cwd, "branch", "--show-current"), deliveryBranch);
+  assert.equal(git(checkout.cwd, "rev-parse", "HEAD"), delivered);
+  assert.equal(git(checkout.cwd, "status", "--porcelain"), "");
+});
+
+test("a switched delivery branch that is behind its published copy is still refused", async (t) => {
+  const fixture = nodesFixture(t),
+    checkout = (await checkoutTaskWorktree(fixture.nodeA, taskId, binding, noWorktreeSetup()))!,
+    deliveryBranch = `${taskId}-slice-a-v2`,
+    delivered = commit(checkout.cwd, "slice-a.txt");
+  git(checkout.cwd, "switch", "-q", "-c", deliveryBranch);
+  git(checkout.cwd, "push", "-q", "-u", "origin", deliveryBranch);
+  // Another delivery publishes a commit on the same branch, then this checkout commits something else.
+  commit(checkout.cwd, "published-elsewhere.txt");
+  git(checkout.cwd, "push", "-q", "origin", `HEAD:refs/heads/${deliveryBranch}`);
+  git(checkout.cwd, "reset", "-q", "--hard", delivered);
+  commit(checkout.cwd, "local-only.txt");
+  const head = git(checkout.cwd, "rev-parse", "HEAD"),
+    status = git(checkout.cwd, "status", "--porcelain");
+
+  await checkoutTaskWorktree(fixture.nodeA, taskId, binding, noWorktreeSetup()).then(
+    () => assert.fail("a checkout behind its published branch was expected to stay refused"),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal((error as { code?: unknown }).code, "task_worktree_diverged");
+      assert.equal(
+        error.message.includes(`origin/${deliveryBranch}`),
+        true,
+        "the refusal names the branch it compares",
+      );
+      assert.equal(error.message.includes(`behind origin/${taskId} `), false);
+      assert.equal(error.message.includes(`git -C ${checkout.cwd} rebase origin/${deliveryBranch}`), true);
+    },
+  );
+  assert.equal(git(checkout.cwd, "rev-parse", "HEAD"), head);
+  assert.equal(git(checkout.cwd, "status", "--porcelain"), status);
+});
+
 test("a node whose checkout predates another node's push cannot overwrite the published task branch", async (t) => {
   const fixture = nodesFixture(t),
     // Both nodes check the task out before either delivers: each starts from the default branch.

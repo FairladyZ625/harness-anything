@@ -123,12 +123,11 @@ export interface TaskWorktreeCheckout {
 /**
  * Checks a binding out on this node, or finds it already there, then runs the Settings setup steps that have not
  * succeeded in it yet. The binding is all it takes: this node derives it from its projection, an edge receives it
- * from the center (dec_57370FF2021DADF04E3B21724D CH2). A checkout continues the task's own branch — a new one
- * starts from the copy another node pushed before the default branch, an existing one is brought up to it (CH3);
- * with no pushed copy, an existing one that never worked is advanced to the present default branch instead, so a
- * checkout a refused or cancelled dispatch left behind never pins its retry to a stale baseline. A node
- * without a default branch (a Git-less edge, a repository before its first commit) has no worktree to give: null,
- * not a failure.
+ * from the center (dec_57370FF2021DADF04E3B21724D CH2). A checkout continues the delivery branch it holds — a new
+ * one starts from the copy another node pushed before the default branch (CH3); with no pushed copy, an existing
+ * one that never worked is advanced to the present default branch instead, so a checkout a refused or cancelled
+ * dispatch left behind never pins its retry to a stale baseline. A node without a default branch (a Git-less edge,
+ * a repository before its first commit) has no worktree to give: null, not a failure.
  * An accepted handoff commit instead requires that exact, retrievable SHA and a clean checkout before and after
  * setup. An existing checkout at another commit is preserved and refused.
  */
@@ -189,8 +188,12 @@ export async function checkoutTaskWorktree(
     if (fresh && !defaultRef) return null;
     // A runtime that stopped mid-rebase or mid-merge leaves conflict residue; clear it before judging the branch.
     if (!fresh) await abortInterruptedWorktreeOperation(rootDir, cwd);
-    const published = await publishedBranchRef(rootDir, binding.branch);
-    if (fresh) await addManagedWorktree(rootDir, { cwd, branch: binding.branch, baseRef: published ?? defaultRef! });
+    // The delivery branch is the one the checkout holds; the task id only names the branch a fresh checkout is cut
+    // as. A worker may move a task to another delivery branch, and judging it against origin/<task id> then measures
+    // the abandoned branch.
+    const branch = fresh ? binding.branch : ((await heldBranch(cwd)) ?? binding.branch),
+      published = await publishedBranchRef(rootDir, branch);
+    if (fresh) await addManagedWorktree(rootDir, { cwd, branch, baseRef: published ?? defaultRef! });
     // A checkout this node already had, or a branch that survived one, may predate another node's push.
     if (published) await continuePublishedBranch(cwd, published);
     // With no published task branch to continue, a checkout a refused or cancelled dispatch cut may also predate
@@ -198,11 +201,21 @@ export async function checkoutTaskWorktree(
     else if (defaultRef) await advanceIdleCheckout(cwd, defaultRef);
     return {
       cwd,
-      branch: binding.branch,
+      branch,
       baseRef: fresh ? (published ?? defaultRef) : null,
       setup: await runWorktreeSetup({ rootDir, cwd, taskId, steps, stepTimeoutMs }),
     };
   });
+}
+
+/**
+ * The branch a checkout delivers on; null on a detached HEAD, where the binding's branch still names the delivery.
+ * A worker may switch a task to another delivery branch (a slice under a new name), so the checkout is the only
+ * place that records which branch is now the task's.
+ */
+async function heldBranch(cwd: string): Promise<string | null> {
+  const branch = (await runProcessTextAsync("git", ["-C", cwd, "branch", "--show-current"])).trim();
+  return branch || null;
 }
 
 /**
