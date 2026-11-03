@@ -88,14 +88,15 @@ export const clientLocalCommands = [
     id: "daemon-probe-summary",
     path: ["daemon", "probe"],
     usage:
-      "ha daemon probe summary [--window 15m|1h|6h|24h|7d] [--day YYYYMMDD] [--min-silence 5m] [--user-root <path>] [--daemon-id <id>] [--json]",
+      "ha daemon probe summary [--window 15m|1h|6h|24h|7d] [--day YYYYMMDD] [--until <iso>] [--min-silence 5m] [--user-root <path>] [--daemon-id <id>] [--json]",
     summary:
       "Summarize probe availability and reconstruct starts, attach durations, and downtime from conn/lifecycle logs.",
     help: [
       "    Reads the probe timeline for availability, downtime, slow segments, and capture files.",
       "    Always adds the offline view: process starts per day, repo attach latency, and downtime",
       "    inferred from process_exit or a missing exit dated by the pid's last conn activity.",
-      "    --day selects one UTC day; no samples reports unobserved, never 0% availability.",
+      "    --day selects one UTC day; --until freezes a reproducible snapshot of a day still running.",
+      "    No samples reports unobserved, never 0% availability.",
     ].join("\n"),
   },
   {

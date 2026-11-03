@@ -69,8 +69,12 @@ again, and a cleared/re-fired event waits out `--cooldown`. Capture artifacts go
 ```bash
 ha daemon probe summary --window 24h
 ha daemon probe summary --day 20261103
+ha daemon probe summary --day 20261103 --until 2026-11-03T15:20:00Z
 ha daemon probe summary --window 1h --min-silence 5m --json
 ```
+
+`--until <ISO-8601>` freezes the window end, so a day that is still running can be
+summarized reproducibly from later evidence.
 
 The summary prints two independent views:
 

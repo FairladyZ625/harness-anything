@@ -69,7 +69,14 @@ const probeValueFlags: readonly string[] = [
   "--daemon-id",
 ];
 
-const summaryValueFlags: readonly string[] = ["--window", "--day", "--min-silence", "--user-root", "--daemon-id"];
+const summaryValueFlags: readonly string[] = [
+  "--window",
+  "--day",
+  "--until",
+  "--min-silence",
+  "--user-root",
+  "--daemon-id",
+];
 
 const summaryWindows = Object.freeze({
   "15m": 900_000,
@@ -150,29 +157,37 @@ export function parseSummaryArgs(argv: readonly string[], nowMs = Date.now()): P
   const silence = durationFlag(at("--min-silence"), "--min-silence", 300_000);
   if (!silence.ok) return silence;
   if (silence.value < 60_000) return { ok: false, message: "Use --min-silence of at least 60s." };
+  const untilRaw = at("--until"),
+    untilOverride = untilRaw === undefined ? null : parseUtcInstant(untilRaw);
+  if (untilOverride === null && untilRaw !== undefined)
+    return { ok: false, message: "Use --until as an ISO-8601 instant, for example 2026-11-03T15:20:00Z." };
   const day = at("--day");
   if (day !== undefined) {
     const parsed = parseUtcDay(day);
     if (parsed === null) return { ok: false, message: "Use --day YYYYMMDD or YYYY-MM-DD (UTC)." };
+    const dayEnd = parsed + 86_400_000,
+      until = untilOverride === null ? dayEnd : Math.min(dayEnd, untilOverride);
+    if (until <= parsed) return { ok: false, message: "Use --until inside the selected --day and after its start." };
     return {
       ok: true,
       value: {
         sinceMs: parsed,
-        untilMs: parsed + 86_400_000,
-        windowLabel: `day ${new Date(parsed).toISOString().slice(0, 10)} UTC`,
+        untilMs: until,
+        windowLabel: `day ${new Date(parsed).toISOString().slice(0, 10)} UTC${untilOverride === null ? "" : ` until ${new Date(until).toISOString()}`}`,
         dayLabel: new Date(parsed).toISOString().slice(0, 10).replaceAll("-", ""),
         minSilenceMs: silence.value,
         json: flags.value.get("--json") === "true",
       },
     };
   }
-  const span = summaryWindows[window as keyof typeof summaryWindows];
+  const span = summaryWindows[window as keyof typeof summaryWindows],
+    untilMs = untilOverride ?? nowMs;
   return {
     ok: true,
     value: {
-      sinceMs: nowMs - span,
-      untilMs: nowMs,
-      windowLabel: window,
+      sinceMs: untilMs - span,
+      untilMs,
+      windowLabel: untilOverride === null ? window : `${window} until ${new Date(untilMs).toISOString()}`,
       dayLabel: null,
       minSilenceMs: silence.value,
       json: flags.value.get("--json") === "true",
@@ -248,6 +263,11 @@ export function parseDurationMs(raw: string): number | null {
     factor = unit === "ms" ? 1 : unit === "s" ? 1_000 : unit === "m" ? 60_000 : 3_600_000;
   const value = amount * factor;
   return Number.isSafeInteger(value) ? value : null;
+}
+
+function parseUtcInstant(raw: string): number | null {
+  const value = Date.parse(raw);
+  return Number.isFinite(value) ? value : null;
 }
 
 function parseUtcDay(raw: string): number | null {

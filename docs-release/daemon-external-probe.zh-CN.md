@@ -50,8 +50,11 @@ ha daemon probe --duration 10m
 ```bash
 ha daemon probe summary --window 24h
 ha daemon probe summary --day 20261103
+ha daemon probe summary --day 20261103 --until 2026-11-03T15:20:00Z
 ha daemon probe summary --window 1h --min-silence 5m --json
 ```
+
+`--until <ISO-8601>` 冻结窗口终点，正在进行的当天也能在事后复现同一份统计。
 
 汇总输出两个互相独立的视图：
 

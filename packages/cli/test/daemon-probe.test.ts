@@ -169,6 +169,30 @@ test("summary accepts a UTC day and rejects an impossible one", () => {
   const window = parseSummaryArgs(["daemon", "probe", "summary", "--window", "1h"], 1_000_000);
   assert.equal(window.ok, true);
   if (window.ok) assert.equal(window.value.sinceMs, 1_000_000 - 3_600_000);
+  const until = parseSummaryArgs([
+    "daemon",
+    "probe",
+    "summary",
+    "--day",
+    "20261103",
+    "--until",
+    "2026-11-03T15:20:00Z",
+  ]);
+  assert.equal(until.ok, true);
+  if (until.ok) {
+    assert.equal(until.value.sinceMs, Date.parse("2026-11-03T00:00:00.000Z"));
+    assert.equal(until.value.untilMs, Date.parse("2026-11-03T15:20:00.000Z"));
+  }
+  const beforeDay = parseSummaryArgs([
+    "daemon",
+    "probe",
+    "summary",
+    "--day",
+    "20261103",
+    "--until",
+    "2026-11-02T23:00:00Z",
+  ]);
+  assert.equal(beforeDay.ok, false);
 });
 
 test("process counter parsers keep unavailable fields null", () => {
