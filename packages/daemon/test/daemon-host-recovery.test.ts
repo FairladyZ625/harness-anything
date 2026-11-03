@@ -1138,7 +1138,7 @@ test("daemon attach heals a same-revision cache that pins another ledger's diges
   try {
     const attached = host.status().repos.find((repo) => repo.repoId === "identity-rebuild")!;
     assert.equal(attached.state, "attached", JSON.stringify(attached));
-    const healed = new DatabaseSync(cache, { readOnly: true }),
+    const healed = new DatabaseSync(cache, { readOnly: true, timeout: 5000 }),
       rePinned = healed.prepare("SELECT head_digest FROM projection_meta WHERE singleton=1").get() as {
         readonly head_digest: string;
       };

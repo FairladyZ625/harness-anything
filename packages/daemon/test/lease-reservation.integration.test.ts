@@ -160,7 +160,7 @@ test("task-bound spawn exit keeps its released execution visible after a v12 cac
     assert.ok(started >= 0 && started < bound, sequence.join(" -> "));
     assert.ok(bound < release && release < outcome, sequence.join(" -> "));
 
-    const rebuilt = new DatabaseSync(cache, { readOnly: true }),
+    const rebuilt = new DatabaseSync(cache, { readOnly: true, timeout: 5000 }),
       version = rebuilt.prepare("SELECT schema_version FROM projection_meta WHERE singleton = 1").get() as {
         readonly schema_version: number;
       },

@@ -87,7 +87,7 @@ test("local CLI initializes and accepts the native generation-3 SQLite ledger", 
     assert.equal(manifest.cut.repoId, repoId);
     assert.equal(manifest.cut.revision, counts.events);
     assert.match(manifest.cut.headDigest, /^sha256:[0-9a-f]{64}$/u);
-    const db = new DatabaseSync(databasePath, { readOnly: true });
+    const db = new DatabaseSync(databasePath, { readOnly: true, timeout: 5000 });
     try {
       assert.equal(Number(db.prepare("SELECT COUNT(*) AS count FROM event").get()!.count), counts.events);
     } finally {
@@ -195,7 +195,13 @@ function invoke(
 }
 
 function sqliteCounts(root: string): { readonly events: number; readonly outcomes: number; readonly objects: number } {
-  const db = new DatabaseSync(path.join(root, ".harness/store/generations/3/ledger.sqlite"), { readOnly: true });
+  // The daemon's Git follower writes this ledger concurrently; without a busy timeout the read-only
+  // connection fails with SQLITE_BUSY ("database is locked") the moment a write lock is held. 5000 ms
+  // matches the ledger connection budget in packages/storage/src/store/sqlite-ledger-connections.ts.
+  const db = new DatabaseSync(path.join(root, ".harness/store/generations/3/ledger.sqlite"), {
+    readOnly: true,
+    timeout: 5000,
+  });
   try {
     return {
       events: Number(db.prepare("SELECT COUNT(*) AS count FROM event").get()!.count),
