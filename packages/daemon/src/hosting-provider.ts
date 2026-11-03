@@ -24,8 +24,8 @@ export function hostingCredentialConfigurationAdvice(
 ): string {
   const scopes =
     provider === "github"
-      ? "the token needs repository contents write for task pushes and Actions read for CI"
-      : "the token needs write_repository for pushes and read_api for pipelines, jobs, and traces";
+      ? "the token needs repository contents write for task pushes, pull requests write for PR publication, and Actions read for CI"
+      : "the token needs write_repository for pushes and api for merge request publication and CI reads";
   return `ha runtime instance hosting-credential set ${instanceId} --provider ${provider} --ref <opaque-reference>; ${scopes}`;
 }
 

@@ -185,13 +185,13 @@ ha gui
 ## Task branch publishing and direct-push protection
 
 A task whose output is a repository change runs in a Harness-managed worktree
-on the branch named after the task. The dispatched worker commits there and
-inherits the operator's GitHub credential for its own push, pull request, and
-CI reads; `ha task push` remains the daemon-mediated path:
+on the branch named after the task. The dispatched worker commits there, submits
+the delivery, then uses `ha task push` to publish the branch and PR through the
+daemon-held credential. Terminal settlement uses the same publication port:
 
 ```bash
-ha task push <task-id>        # publish the task branch through the daemon-held credential
-gh pr create --head <task-id> # open the pull request with the machine's gh login
+ha task submit <task-id>      # freeze the delivery before publication
+ha task push <task-id> --body-file <path> # create/update the PR with repository-authored Markdown
 gh pr checks <task-id> --watch  # block until the PR head's checks settle
 ```
 

@@ -184,8 +184,9 @@ test("worker handoff templates delegate delivery timing to the role and retain p
     assert.match(body, /changed-file facts live in the frozen submission|变更文件以冻结的 submission 为准/u);
     assert.doesNotMatch(body, /Do not push|不要 push/u);
     // The CI loop is the only delivery path: wait for a verdict, triage red against main, fix.
-    // The worker opens the PR and waits with the machine's own gh; the daemon holds no CI wait.
-    assert.match(body, /gh pr create --head <task-id>/u);
+    // Daemon publication owns the PR; CI waiting stays outside the daemon.
+    assert.match(body, /ha task push <task-id>/u);
+    assert.doesNotMatch(body, /gh pr create/u);
     assert.match(body, /gh pr checks <task-id> --watch/u);
     assert.doesNotMatch(body, /ha task pr/u);
     assert.match(
@@ -236,7 +237,7 @@ test("the repository guide passes its generated body file to task-bound PR creat
     guide,
     /node tools\/gates\/render-task-pr-body\.mjs --task <task-id> > \/tmp\/harness-anything-pr-body\.md/u,
   );
-  assert.match(guide, /gh pr create --head <task-id> --body-file \/tmp\/harness-anything-pr-body\.md/u);
+  assert.match(guide, /ha task push <task-id> --body-file \/tmp\/harness-anything-pr-body\.md/u);
   assert.match(example, /frozen submission by `tools\/gates\/render-task-pr-body\.mjs`/u);
   assert.match(example, /read from the PR checks after opening/u);
   assert.doesNotMatch(example, /rewrite-ci` run URL/u);

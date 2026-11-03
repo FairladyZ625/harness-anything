@@ -9,7 +9,7 @@ Coding agent 与人类遵守同一份公开贡献合同。加载
 本页与 `harness-contributing` skill 描述的是其中一种模型：agent 用操作者自己的
 Git 凭据做贡献——自己 push contribution branch、自己开 PR。另一种模型是已注册
 Harness 工作区内被派工的任务绑定 worker：它经 daemon 用 `ha task push` 发布分支，
-再用 `gh pr create --head <task-id>` 开 PR、`gh pr checks <task-id> --watch` 等待检查；direct-push 保护把 daemon 代发的推送限制在本任务自己的分支上。见
+daemon 在推送后自动创建或更新 PR，仓库正文用 `ha task push <task-id> --body-file <path>` 原样提交；`gh pr checks <task-id> --watch` 等待检查；direct-push 保护把 daemon 代发的推送限制在本任务自己的分支上。见
 [任务分支发布](../../operations-server-daemon.zh-CN.md#任务分支发布与-direct-push-保护)。
 
 两种模型共享同一条边界：合入归 maintainer。

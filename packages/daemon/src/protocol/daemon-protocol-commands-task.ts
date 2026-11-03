@@ -153,9 +153,11 @@ export const taskExecutionProtocolCommands = Object.freeze([
     actionKind: "task-push",
     phase: "W3",
     path: ["task", "push", "<task-id>"],
-    summary: "Publish the current task worktree branch through the daemon-held Git credential.",
+    summary:
+      "Publish the task branch and create or update its submitted pull request through daemon-held hosting credentials.",
     method: "repo.task.run",
-    inputs: [],
+    inputs: [cliInput("--body-file", "single", false, { code: "invalid_field" }, { field: "body" })],
+    payloadFields: [{ field: "body", type: "string", required: false }],
     commandClass: "repo-write" as const,
     admission: {
       local: "direct" as const,

@@ -1337,6 +1337,27 @@ test("thin parser exposes task push as a task-bound daemon action", () => {
   assert.equal(parseThinCommand(["task", "push", "task-1", "--main"]).ok, false);
 });
 
+test("task push parses caller-local body files without reading them", (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-push-body-"));
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  const file = path.join(root, "body.md"),
+    body = "# Repo convention\n\nLiteral `$()` and Unicode 交付.\n";
+  writeFileSync(file, body);
+  const parsed = parseThinCommand(["task", "push", "task-1", "--body-file", file]);
+  assert.equal(parsed.ok, true, JSON.stringify(parsed));
+  if (parsed.ok) {
+    assert.equal(parsed.command.action.bodyFile, file);
+    assert.equal(parsed.command.action.body, undefined);
+  }
+  assert.equal(parseThinCommand(["task", "push", "task-1", "--body-file", path.join(root, "missing")]).ok, true);
+  const targeted = parseThinCommand(
+    ["--root", path.join(root, "other"), "task", "push", "task-1", "--body-file", "body.md"],
+    root,
+  );
+  assert.equal(targeted.ok, true);
+  if (targeted.ok) assert.equal(targeted.command.action.bodyFile, file);
+});
+
 test("thin parser validates only the selected command descriptor", () => {
   const selected = daemonProtocolCommands.find((command) => command.id === "task-show");
   assert.ok(selected);

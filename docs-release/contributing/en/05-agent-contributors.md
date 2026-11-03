@@ -10,8 +10,7 @@ This page and the `harness-contributing` skill describe one model: an agent
 contributing with its operator's own Git credentials — it pushes the
 contribution branch and opens the PR itself. The other model is a dispatched,
 task-bound worker inside a registered Harness workspace: it publishes the branch
-through the daemon with `ha task push`, then opens the PR with
-`gh pr create --head <task-id>` and waits with `gh pr checks <task-id> --watch`.
+and PR through the daemon with `ha task push` (use `--body-file <path>` for repository-authored Markdown) and waits with `gh pr checks <task-id> --watch`.
 Direct-push protection limits any daemon-mediated push to the task's own
 branch. See
 [Task branch publishing](../../operations-server-daemon.md#task-branch-publishing-and-direct-push-protection).

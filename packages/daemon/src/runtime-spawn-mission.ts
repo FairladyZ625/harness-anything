@@ -521,8 +521,9 @@ export function livingDeliverableProtocol(
  * owns the credentialed channel, the body convention is the delivered repository's own. */
 export const taskPrPublicationNote =
   "仅有任务包交付时直接 `ha task submit <task-id>`，不为台账制造代码 commit、push 或 PR；不得强加被忽略的台账路径。" +
-  "最终代码 commit 后先运行 `ha task submit <task-id>` 冻结交付事实，再推送并用 `gh pr create --head <task-id>` 开 PR。" +
-  "正文遵循本仓库的 PR 规范；正文和 closeout 中的机器派生交付事实从 submission 读取，不要手填或重新计算。";
+  "最终代码 commit 后先运行 `ha task submit <task-id>` 冻结交付事实，再运行 `ha task push <task-id>`；daemon 在推送后创建或更新 PR，结算也走同一入口。" +
+  "正文遵循本仓库的 PR 规范，可用 `ha task push <task-id> --body-file <path>` 原样提交正文；正文和 closeout 中的机器派生交付事实从 submission 读取，不要手填或重新计算。" +
+  "submit 后发布失败会写入推送回执和持久结算报告，可重跑 task push；无需用 task escalate 改变已冻结的评审生命周期。";
 
 /**
  * The managed rework record of the iteration a re-dispatched worker must answer: the rendered

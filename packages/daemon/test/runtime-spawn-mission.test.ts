@@ -418,15 +418,16 @@ test("taskPlanSection names the package root once and carries the body trimmed a
   assert.match(taskPlanSection(body), /^本任务的 task_plan\.md 全文如下/u, "package root is optional");
 });
 
-test("PR publication freezes machine facts before the repository opens the PR", () => {
+test("PR publication freezes facts before the daemon opens the PR", () => {
   for (const riskTier of ["low", "medium", "high"] as const) {
     const mission = explicitPromptMission("task_x", null, "Go.", riskTier);
     assert.match(mission, /最终代码 commit 后先运行 `ha task submit <task-id>` 冻结交付事实/u);
-    assert.match(mission, /再推送并用 `gh pr create --head <task-id>` 开 PR/u);
+    assert.match(mission, /ha task push <task-id>/u);
+    assert.doesNotMatch(mission, /gh pr create/u);
     assert.match(mission, /正文遵循本仓库的 PR 规范/u);
     assert.match(mission, /机器派生交付事实从 submission 读取，不要手填或重新计算/u);
     assert.ok(
-      mission.indexOf("ha task submit <task-id>") < mission.indexOf("gh pr create --head <task-id>"),
+      mission.indexOf("ha task submit <task-id>") < mission.indexOf("ha task push <task-id>"),
       "the submission cut is frozen before publication",
     );
     assert.doesNotMatch(mission, /# PR Body Delivery Protocol/u);
@@ -461,7 +462,7 @@ test("reviewer task-bound missions keep the guidance and Reviewer Role but omit 
 
   const workerPrompt = assembleUnboundPrompt(explicitPromptMission("task_x", null, "Do the work.", "medium"));
   assert.match(workerPrompt, /# Living Deliverable Protocol/u, "worker dispatches keep the living protocol");
-  assert.match(workerPrompt, /gh pr create/u, "worker dispatches keep the PR publication note");
+  assert.match(workerPrompt, /ha task push/u, "worker dispatches keep the PR publication note");
 });
 
 test("work missions omit the task maintenance protocol because work explainers are derived", () => {
