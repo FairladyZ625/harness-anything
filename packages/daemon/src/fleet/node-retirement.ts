@@ -67,18 +67,16 @@ export function createNodeRetirement(input: {
               )
                 leases.push({ repoId: repo.repoId, taskId: row.taskId, executionId: lease.executionId });
             }
-            const owned = new Set(
-              projection
-                .readRuntimeDispatches()
-                .filter(
+            for (const session of projection.readRuntimeSessions()) {
+              if (session.liveness === "exited") continue;
+              const owned = projection
+                .readRuntimeDispatchEventsBySession(session.runtimeSessionId)
+                .some(
                   (event) =>
                     typeof event.source === "object" && event.source.kind === "node" && event.source.nodeId === nodeId,
-                )
-                .map((event) => event.payload.runtimeSessionId),
-            );
-            for (const session of projection.readRuntimeSessions())
-              if (session.liveness !== "exited" && owned.has(session.runtimeSessionId))
-                executions.push({ repoId: repo.repoId, runtimeSessionId: session.runtimeSessionId });
+                );
+              if (owned) executions.push({ repoId: repo.repoId, runtimeSessionId: session.runtimeSessionId });
+            }
           });
         } finally {
           reader.close();

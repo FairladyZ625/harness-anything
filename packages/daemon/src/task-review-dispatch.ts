@@ -243,7 +243,7 @@ function previousReviewerContinuation(
   const lanePrefix = `task-review-lane:${input.reviewerId}:${input.taskId}:`,
     seatPrefix = `task-review:${input.taskId}:`;
   const candidates = cell.projection
-    .readRuntimeDispatches()
+    .readRuntimeDispatchesByTaskIds([input.taskId])
     .filter((row) => {
       const payload = row.payload;
       const reportRef = `${input.packagePath}/artifacts/reports/${payload.dispatchId}.md`;

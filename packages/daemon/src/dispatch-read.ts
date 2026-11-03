@@ -152,9 +152,7 @@ export function readTaskDispatches(
     !batch.rows.find((row) => row.taskId === singleTaskId)?.packagePath
   )
     throw Object.assign(new Error(`Task ${singleTaskId} has no projected package.`), { code: "task_not_found" });
-  const dispatchEvents = projection
-      .readRuntimeDispatches()
-      .filter((event) => event.payload.taskId && tasks.has(event.payload.taskId)),
+  const dispatchEvents = tasks.size === 0 ? [] : projection.readRuntimeDispatchesByTaskIds([...tasks]),
     annotations = rootDir
       ? readDecisionAnnotationsByDispatch(
           rootDir,

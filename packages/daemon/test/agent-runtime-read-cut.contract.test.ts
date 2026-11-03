@@ -83,6 +83,56 @@ test("runtime lifecycle cursors stay at the projection cut while the canonical s
   }
 });
 
+test("dispatch short-id resolution uses indexed lookups instead of the dispatch history", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-dispatch-id-"));
+  let projection: ReturnType<typeof makeTaskProjection> | undefined,
+    store: ReturnType<typeof makeTaskEventStore> | undefined;
+  try {
+    initRepo(rootDir);
+    store = makeTaskEventStore({ repoId: "runtime-dispatch-id", rootDir });
+    projection = makeTaskProjection({ rootDir, eventStore: store });
+    const events = runtimeEvents();
+    for (const event of events) {
+      store.append({ event, plan: runtimeWritePlan(event), blobs: [] });
+      projection.apply(event);
+    }
+    let fullCalls = 0,
+      exactCalls = 0,
+      prefixCalls = 0;
+    const measured = new Proxy(projection, {
+      get: (target, property, receiver) => {
+        if (property === "readRuntimeDispatches")
+          return () => {
+            fullCalls += 1;
+            return target.readRuntimeDispatches();
+          };
+        if (property === "readRuntimeDispatchById")
+          return (dispatchId: string) => {
+            exactCalls += 1;
+            return target.readRuntimeDispatchById(dispatchId);
+          };
+        if (property === "readRuntimeDispatchByDispatchIdPrefix")
+          return (prefix: string, limit: number) => {
+            prefixCalls += 1;
+            return target.readRuntimeDispatchByDispatchIdPrefix(prefix, limit);
+          };
+        const value = Reflect.get(target, property, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const reads = makeAgentRuntimeReadModel({ store, projection: measured });
+    for (const id of ["dispatch-runtime", "dispatch-run"])
+      assert.equal(reads.session({ runtimeSessionId: id }).session.runtimeSessionId, "runtime-session");
+    assert.equal(fullCalls, 0, "a dispatch id must not materialize the dispatch history");
+    assert.equal(exactCalls, 2, "the full id is one exact lookup");
+    assert.equal(prefixCalls, 1, "only the short prefix scans its bounded id range");
+  } finally {
+    await store?.drain();
+    projection?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("runtime overview reads dispatches per returned session instead of the whole dispatch history", async () => {
   const small = await overviewDispatchReads(2),
     large = await overviewDispatchReads(1_200);

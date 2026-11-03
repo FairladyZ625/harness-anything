@@ -154,15 +154,18 @@ export function makeAgentRuntimeReadModel(input: {
     if (runtimeSessionId === null) return null;
     const exact = input.projection.readRuntimeSession(runtimeSessionId);
     if (exact !== null) return exact;
-    // CLI status accepts the dispatch id printed by `ha task dispatches` as well.
+    // CLI status accepts the dispatch id printed by `ha task dispatches` as well. A full id is an
+    // indexed lookup; only a genuine short-id prefix scans that prefix's bounded id range.
     if (runtimeSessionId.startsWith("dispatch")) {
-      const dispatches = input.projection.readRuntimeDispatches(),
+      const exactDispatch = input.projection.readRuntimeDispatchById(runtimeSessionId)?.event;
+      if (exactDispatch) return input.projection.readRuntimeSession(exactDispatch.payload.runtimeSessionId);
+      const rows = input.projection.readRuntimeDispatchByDispatchIdPrefix(runtimeSessionId, 100),
         match = resolveUniquePrefix(
           runtimeSessionId,
-          dispatches.map((event) => event.payload.dispatchId),
+          rows.map(({ event }) => event.payload.dispatchId),
         );
       if (match.matched) {
-        const dispatch = dispatches.find((event) => event.payload.dispatchId === match.id)!;
+        const dispatch = rows.find(({ event }) => event.payload.dispatchId === match.id)!.event;
         return input.projection.readRuntimeSession(dispatch.payload.runtimeSessionId);
       }
       if (match.candidates.length > 1)
@@ -247,13 +250,15 @@ export function makeAgentRuntimeReadModel(input: {
     },
     sessionGroups: (payload: Readonly<Record<string, unknown>>): AgentRuntimeSessionGroupsResult => {
       const query = sessionGroupsQuery(payload),
-        cut = input.projection.readCut(),
-        dispatchEvents = input.projection.readRuntimeDispatches();
+        cut = input.projection.readCut();
       const sessions = input.projection
           .readRuntimeSessions()
           .filter((session) => runtimeSessionInActivityWindow(session, query.since)),
-        sessionIds = new Set(sessions.map(({ runtimeSessionId }) => runtimeSessionId)),
-        windowedDispatchEvents = dispatchEvents.filter((event) => sessionIds.has(event.payload.runtimeSessionId)),
+        // Read the window sessions' own dispatches; the previous full-class scan made this
+        // projection facet's cost follow total dispatch history (F-28FB7113).
+        windowedDispatchEvents = sessions.flatMap((session) =>
+          input.projection.readRuntimeDispatchEventsBySession(session.runtimeSessionId),
+        ),
         dispatchStartedAt = latestDispatchStartedAt(windowedDispatchEvents),
         dispatches = input.readDispatches?.({ sessions, events: windowedDispatchEvents }) ?? [],
         taskIds = [

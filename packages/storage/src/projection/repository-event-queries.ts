@@ -51,6 +51,21 @@ const RUNTIME_DISPATCHES_BY_TASK_EXECUTION_SQL = RUNTIME_DISPATCHES_SQL.replace(
   "ORDER BY workspace_revision",
   "AND json_extract(event_json, '$.payload.taskId') = ? AND json_extract(event_json, '$.payload.executionId') = ? ORDER BY workspace_revision",
 );
+const RUNTIME_DISPATCHES_BY_TASK_IDS_SQL = (count: number) =>
+  RUNTIME_DISPATCHES_SQL.replace(
+    "ORDER BY workspace_revision",
+    `AND json_extract(event_json, '$.payload.taskId') IN (${Array.from({ length: count }, () => "?").join(",")}) ORDER BY workspace_revision`,
+  );
+const RUNTIME_DISPATCH_BY_ID_PREFIX_SQL = RUNTIME_DISPATCHES_SQL.replace(
+  "ORDER BY workspace_revision",
+  "AND json_extract(event_json, '$.payload.dispatchId') >= ? AND json_extract(event_json, '$.payload.dispatchId') < ? ORDER BY json_extract(event_json, '$.payload.dispatchId')",
+).concat(" LIMIT ?");
+const RUNTIME_DISPATCH_COUNT_BY_AGENT_SQL = [
+  "SELECT COUNT(*) AS count FROM event_index",
+  "WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
+  "AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'",
+  "AND json_extract(event_json, '$.payload.agentId') = ?",
+].join(" ");
 // The member page answers "an executor's newest dispatches" in one index scan: newest first,
 // bounded by the caller's limit, so a detail-page first screen never pays for total history.
 const RUNTIME_DISPATCHES_BY_MEMBER_SQL = (member: "agentId" | "squadId") =>
@@ -128,6 +143,10 @@ export function repositoryEventQueries(
   | "readRuntimeDispatchByDispatchKey"
   | "readRuntimeDispatchByResumeSource"
   | "readRuntimeDispatchesBySession"
+  | "readRuntimeDispatchEventsBySession"
+  | "readRuntimeDispatchesByTaskIds"
+  | "readRuntimeDispatchByDispatchIdPrefix"
+  | "countRuntimeDispatchesByAgent"
   | "readRuntimeDispatchesByTaskExecution"
   | "readRuntimeDispatchesByAttemptGroup"
   | "readRuntimeDispatchesByDecision"
@@ -234,6 +253,45 @@ export function repositoryEventQueries(
           return projected ? [projected] : [];
         }),
       ),
+    readRuntimeDispatchEventsBySession: (runtimeSessionIdValue) =>
+      withRead((db) =>
+        queryRows(db, RUNTIME_DISPATCHES_BY_FIELD_SQL("runtimeSessionId"), runtimeSessionIdValue)
+          .map((row) => JSON.parse(String(row.event_json)))
+          .filter(
+            (event): event is Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> =>
+              isAgentRuntimeEvent(event) && event.type === "runtime_dispatch_requested",
+          ),
+      ),
+    readRuntimeDispatchesByTaskIds: (taskIds) =>
+      withRead((db) => {
+        if (
+          !Array.isArray(taskIds) ||
+          taskIds.length === 0 ||
+          taskIds.length > 500 ||
+          taskIds.some((taskId) => typeof taskId !== "string" || taskId.length === 0) ||
+          new Set(taskIds).size !== taskIds.length
+        )
+          throw new Error("runtime dispatch task read requires 1..500 unique task ids");
+        return queryRows(db, RUNTIME_DISPATCHES_BY_TASK_IDS_SQL(taskIds.length), ...taskIds)
+          .map((row) => JSON.parse(String(row.event_json)))
+          .filter(
+            (event): event is Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> =>
+              isAgentRuntimeEvent(event) && event.type === "runtime_dispatch_requested",
+          );
+      }),
+    readRuntimeDispatchByDispatchIdPrefix: (prefix, limit) =>
+      withRead((db) => {
+        if (typeof prefix !== "string" || prefix.length === 0)
+          throw new Error("runtime dispatch id prefix requires a non-empty prefix");
+        if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500)
+          throw new Error("runtime dispatch id prefix limit must be from 1 to 500");
+        return queryRows(db, RUNTIME_DISPATCH_BY_ID_PREFIX_SQL, prefix, `${prefix}\uFFFF`, limit).flatMap((row) => {
+          const projected = projectedDispatch(db, row);
+          return projected ? [projected] : [];
+        });
+      }),
+    countRuntimeDispatchesByAgent: (agentId) =>
+      withRead((db) => Number(queryRow(db, RUNTIME_DISPATCH_COUNT_BY_AGENT_SQL, agentId)?.count ?? 0)),
     readRuntimeDispatchesByTaskExecution: (taskId, executionId) =>
       withRead((db) =>
         queryRows(db, RUNTIME_DISPATCHES_BY_TASK_EXECUTION_SQL, taskId, executionId).flatMap((row) => {

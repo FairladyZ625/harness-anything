@@ -185,6 +185,7 @@ export interface TaskProjection {
     runtimeSessionIdValue: string,
     definitionSnapshotRef?: string,
   ) => Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> | null;
+  /** Whole-class read for projection parity/export only; request paths use the keyed reads below. */
   readonly readRuntimeDispatches: () => readonly Extract<
     AgentRuntimeEventV1,
     { readonly type: "runtime_dispatch_requested" }
@@ -193,6 +194,21 @@ export interface TaskProjection {
   readonly readRuntimeDispatchByDispatchKey: (dispatchKey: string) => RuntimeDispatchProjectionRow | null;
   readonly readRuntimeDispatchByResumeSource: (dispatchId: string) => RuntimeDispatchProjectionRow | null;
   readonly readRuntimeDispatchesBySession: (runtimeSessionId: string) => readonly RuntimeDispatchProjectionRow[];
+  /** A session's dispatch events only: callers that need no outcome row skip its extra lookup. */
+  readonly readRuntimeDispatchEventsBySession: (
+    runtimeSessionId: string,
+  ) => readonly Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>[];
+  /** Every dispatch bound to one of the requested tasks, revision order. At most 500 task ids. */
+  readonly readRuntimeDispatchesByTaskIds: (
+    taskIds: readonly string[],
+  ) => readonly Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>[];
+  /** Dispatch ids starting with `prefix`, id order, capped at `limit` (`1..500`). */
+  readonly readRuntimeDispatchByDispatchIdPrefix: (
+    prefix: string,
+    limit: number,
+  ) => readonly RuntimeDispatchProjectionRow[];
+  /** One agent's dispatch count, without materializing the dispatch events. */
+  readonly countRuntimeDispatchesByAgent: (agentId: string) => number;
   readonly readRuntimeDispatchesByTaskExecution: (
     taskId: string,
     executionId: string,

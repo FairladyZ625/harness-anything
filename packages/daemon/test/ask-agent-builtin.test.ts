@@ -79,7 +79,7 @@ test("system-bundled agents close their lifecycle: retire and delete are rejecte
           action: { kind: "agent-delete", agentId: "ask-agent", expectedVersion: 1, reason: "replace it" },
           entityStore: { get: () => ({ value: edited, workspaceRevision: 1, documentSha256: "sha" }) } as never,
           projection: {
-            readRuntimeDispatches: () => [],
+            countRuntimeDispatchesByAgent: () => 0,
             listEntities: () => [],
             readRelationQuery: () => ({ rows: [] }),
           } as never,
