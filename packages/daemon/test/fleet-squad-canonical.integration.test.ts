@@ -25,6 +25,7 @@ import { squadRunObservation } from "../src/squad-observation.ts";
 import { makeTaskEventReader, openPersistentWriterEpoch } from "@harness-anything/storage";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 import { waitForState } from "./fleet-replication.fixture.ts";
+import { makeFleetSquadCoordinator } from "../src/fleet-squad-coordinator.ts";
 
 test("owner edge Squad launch publishes a canonical run visible on another edge", { timeout: 180_000 }, async (t) => {
   const witness = {
@@ -554,6 +555,57 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
     /owner|control state/iu,
   );
   assert.equal(kills, 0, "querying node cannot cancel the owner's runtime");
+  const coldKills: string[] = [],
+    coldCancel = (personId: string) =>
+      makeFleetSquadCoordinator({
+        request: {
+          ...configuration,
+          workspaceRoot: a.edgeRoot,
+          method: "repo.squad.control",
+          action: { kind: "squad-cancel", squadRunId: runId },
+        },
+        peer: f.peer("node-one"),
+        controlBinding: async () => ({
+          actor: { principal: { personId }, executor: null },
+          source: { kind: "node", nodeId: "node-one" },
+        }),
+        spawner: {
+          spawnCoordinated: async () => {
+            throw new Error("Cold cancellation must not spawn a runtime.");
+          },
+          spawnScheduledCoordinated: async () => {
+            throw new Error("Cold cancellation must not spawn a scheduled runtime.");
+          },
+          cancel: async (payload, binding) => {
+            assert.equal(binding.actor.principal.personId, "person-one");
+            coldKills.push(String(payload.runtimeSessionId));
+            return { status: "cancelled" };
+          },
+        },
+        sync: async () => {
+          throw new Error("Cold cancellation must not sync before local termination.");
+        },
+        prepareWorkspace: async () => {
+          throw new Error("Cold cancellation must not prepare a workspace.");
+        },
+        readWorktreeSetup: () => {
+          throw new Error("Cold cancellation must not read workspace setup.");
+        },
+        readResult: () => {
+          throw new Error("Cold cancellation must not read runtime results.");
+        },
+      });
+  await assert.rejects(coldCancel("person-other").run({ kind: "squad-cancel", squadRunId: runId }), {
+    code: "authorization_denied",
+  });
+  assert.deepEqual(coldKills, [], "an unrelated principal cannot use the admitted cached replica");
+  await assert.rejects(coldCancel("person-one").run({ kind: "squad-cancel", squadRunId: runId }), {
+    code: "ECONNREFUSED",
+  });
+  assert.ok(
+    coldKills.length > 0,
+    "a cold coordinator kills from the admitted replica before offline publication fails",
+  );
   await assert.rejects(
     a.host.fleet.edgeRuntime(
       {
