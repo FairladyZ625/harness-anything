@@ -37,25 +37,29 @@ export async function updateTestCenter(argv) {
     const failure = path.join(root, "failed-update.json");
     if (existsSync(failure))
       throw new Error(
-        `Previous main deployment failed; inspect ${failure}, roll back explicitly, then remove this marker before the next attempt.`,
+        `Previous main update failed; inspect ${failure}, roll back explicitly, then remove this marker before the next attempt.`,
       );
-    await execute("git", ["fetch", "--no-tags", "origin", "main"], { cwd: repository });
-    const { stdout } = await execute("git", ["rev-parse", "FETCH_HEAD^{commit}"], { cwd: repository }),
-      revision = stdout.trim();
-    if (before.current === revision) return { ok: true, unchanged: true, commit: revision };
-    if (!existsSync(path.join(root, "versions", revision, "release.json")))
-      await runReleaseCommand(["install", "--root", root, "--repository", repository, "--revision", revision]);
-    const target = [
-      "--root",
-      root,
-      "--user-root",
-      values["user-root"],
-      "--daemon-id",
-      values["daemon-id"],
-      "--workspace",
-      values.workspace,
-    ];
+    let revision = null;
     try {
+      await execute("git", ["fetch", "--no-tags", "origin", "main"], { cwd: repository, timeout: 60_000 });
+      const { stdout } = await execute("git", ["rev-parse", "FETCH_HEAD^{commit}"], {
+        cwd: repository,
+        timeout: 5_000,
+      });
+      revision = stdout.trim();
+      if (before.current === revision) return { ok: true, unchanged: true, commit: revision };
+      if (!existsSync(path.join(root, "versions", revision, "release.json")))
+        await runReleaseCommand(["install", "--root", root, "--repository", repository, "--revision", revision]);
+      const target = [
+        "--root",
+        root,
+        "--user-root",
+        values["user-root"],
+        "--daemon-id",
+        values["daemon-id"],
+        "--workspace",
+        values.workspace,
+      ];
       return await runReleaseCommand(["switch", "--revision", revision, ...target]);
     } catch (error) {
       writeFileSync(

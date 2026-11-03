@@ -200,6 +200,7 @@ export function createJsonRpcProtocolServer(options: {
       );
       return request.id === undefined ? undefined : { jsonrpc: "2.0", id, result };
     };
+    if (request.method === "protocol.hello") handshaken = false;
     const parsed = parseDaemonRpcParams(request.method, request.params);
     if (!parsed.ok) return reply(request.method, invalidParamsReceipt(request.method, parsed.errors));
     const call = parsed.call,
@@ -219,7 +220,6 @@ export function createJsonRpcProtocolServer(options: {
       wait: isDaemonParkedWaitMethod(method),
     };
     if (request.method === "protocol.hello" && method === request.method) {
-      handshaken = false;
       const mismatch = daemonHelloMismatch(params.protocolVersion, { commit: params.buildCommit }, options.build);
       if (mismatch) return reply(method, daemonProtocolError(method, mismatch.code, mismatch.message));
       if (params.sessionEnvironment === undefined) Reflect.deleteProperty(options.authContext, "sessionEnvironment");

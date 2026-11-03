@@ -47,7 +47,6 @@ export async function streamDaemonFacetAt(input: {
   readonly method: keyof DaemonStreamPayloadMap;
   readonly payload: DaemonStreamPayloadMap[keyof DaemonStreamPayloadMap];
   readonly onValue: (value: unknown) => void;
-  readonly onHello?: (value: unknown) => void;
   readonly timeoutMs?: number;
   readonly onClosed?: (failure: DaemonStreamLost) => void;
   /** CLI command id this stream serves; recorded by the daemon's request logs. */
@@ -122,7 +121,6 @@ export async function streamDaemonFacetAt(input: {
             if (value.error) throw new Error(value.error.message ?? "Daemon rejected hello");
             assertDaemonHello(value.result);
             handshaken = true;
-            input.onHello?.(value.result);
             const payload =
               input.method === "repo.agentRuntime.attach"
                 ? { ...(input.payload as object), afterCursor: cursor }

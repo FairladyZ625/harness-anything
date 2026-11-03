@@ -683,7 +683,7 @@ test("multi-target runtime status --wait issues one daemon await and renders the
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
       helloRequests += 1;
-      reply(socket, request.id, { ok: true });
+      reply(socket, request.id, fixtureDaemonHello());
       return;
     }
     assert.equal(request.method, "repo.agentRuntime.sessions.await");

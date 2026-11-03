@@ -175,9 +175,12 @@ async function switchRelease(root, revision, state, values) {
     }
     return { ok: true, command: "switch", ...next, status };
   } catch (error) {
-    throw new Error(
-      `Release ${revision} failed: ${error.message}. Recovery: node tools/release-installation.mjs rollback --root ${JSON.stringify(root)} --user-root ${JSON.stringify(context.userRoot)} --daemon-id ${JSON.stringify(context.daemonId)} --workspace ${JSON.stringify(context.workspace)}`,
-      { cause: error },
+    throw Object.assign(
+      new Error(
+        `Release ${revision} failed: ${error.message}. Recovery: node tools/release-installation.mjs rollback --root ${JSON.stringify(root)} --user-root ${JSON.stringify(context.userRoot)} --daemon-id ${JSON.stringify(context.daemonId)} --workspace ${JSON.stringify(context.workspace)}`,
+        { cause: error },
+      ),
+      { code: error.code },
     );
   }
 }
@@ -201,10 +204,11 @@ async function cli(release, args, allowFailure = false) {
     [path.join(release, "packages/cli/dist/cli/src/index.js"), ...args],
     release,
     process.env,
-    allowFailure,
+    true,
   );
   const receipt = JSON.parse(result.stdout);
-  if (!allowFailure && receipt.ok !== true) throw new Error(JSON.stringify(receipt));
+  if (!allowFailure && receipt.ok !== true)
+    throw Object.assign(new Error(JSON.stringify(receipt)), { code: receipt.code });
   return receipt;
 }
 async function run(command, args, cwd, env, allowFailure = false) {

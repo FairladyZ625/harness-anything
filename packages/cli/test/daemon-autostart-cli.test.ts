@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { fixtureDaemonHello } from "../../daemon/test/fixtures/daemon-hello.ts";
 import test, { type TestContext } from "node:test";
 import { fork } from "node:child_process";
 import { once } from "node:events";

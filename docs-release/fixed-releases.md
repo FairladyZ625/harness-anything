@@ -35,7 +35,7 @@ node tools/release-installation.mjs status --root "$INSTALL_ROOT"
 
 Rollback uses the same stop/start/readiness path. It refuses when no previous release exists. Recovery of ledger data is separate: take and test a consistent backup before upgrading. An executable rollback cannot undo an incompatible data change.
 
-A deployment lock belongs to one installer process. After a crash, inspect the PID in `.deployment-lock`, prove the process has exited, and remove that lock explicitly before retrying. Preserve failed-release logs and directories. Never rebuild an installed version in place.
+A deployment lock belongs to one installer process; the updater has its own `.main-update-lock` with the same crash-recovery rule. After a crash, inspect the PID in `.deployment-lock`, prove the process has exited, and remove that lock explicitly before retrying. Preserve failed-release logs and directories. Never rebuild an installed version in place.
 
 ## Test center updates
 
@@ -49,7 +49,7 @@ node tools/test-center-update.mjs \
   --workspace "$TEST_LEDGER" --user-root "$TEST_STATE" --daemon-id test-center
 ```
 
-An existing host scheduler can run it periodically; the tool does not install one. It needs no webhook, GitHub write token or CI SSH credential. Overlapping updater attempts are refused. A failed switch writes `failed-update.json` and prevents further deployments until an operator inspects it, rolls back, and removes the marker. Successful updates retain synthetic data so soak testing spans accumulated state.
+An existing host scheduler can run it periodically; the tool does not install one. It needs no webhook, GitHub write token or CI SSH credential. Overlapping updater attempts are refused. A failed update attempt (fetch, install or switch) writes `failed-update.json` and prevents further deployments until an operator inspects it, rolls back, and removes the marker. Successful updates retain synthetic data so soak testing spans accumulated state.
 
 The private-cloud image recipe is [deploy/center.Dockerfile](../deploy/center.Dockerfile). Build an image from a qualified full commit and run it with a distinct data volume. Mounting a volume, selecting an approved network listener, configuring TLS/identity and installing a scheduler remain operator deployment actions. The image is planned for the private-cloud target; this document does not claim a deployed center or a completed soak run.
 

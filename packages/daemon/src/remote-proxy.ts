@@ -96,7 +96,6 @@ export function openRemoteProxyManager(userRoot: string): RemoteProxyManager {
           repoId,
           method,
           payload,
-          onHello: (hello) => assertExactProtocol(isJsonRecord(hello) ? hello : {}),
           onValue: (value) => {
             if (!isJsonRecord(value)) return;
             if (initial === undefined) {
@@ -202,7 +201,6 @@ class RemoteEndpointConnector {
           { protocolVersion: currentDaemonProtocolVersion },
           helloTimeoutMs,
         );
-      assertExactProtocol(hello);
       const connection = { socket, client, hello };
       this.connected = connection;
       socket.once("close", () => {
@@ -228,28 +226,8 @@ interface RemoteEndpointConnection {
   readonly hello: JsonObject;
 }
 
-function assertExactProtocol(hello: JsonObject): void {
-  const protocol = isJsonRecord(hello.protocolVersion) ? hello.protocolVersion : null;
-  if (
-    hello.ok !== true ||
-    protocol?.major !== currentDaemonProtocolVersion.major ||
-    protocol.minor !== currentDaemonProtocolVersion.minor
-  )
-    throw remoteProxyError(
-      "remote_proxy_protocol_mismatch",
-      "The remote daemon protocol version must exactly match the local daemon.",
-    );
-}
-
 function classifyRemoteProxyError(error: unknown): Error {
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    ((error as { readonly code?: unknown }).code === "remote_proxy_protocol_mismatch" ||
-      daemonHelloFailureCode(error) !== null)
-  )
-    return error as unknown as Error;
+  if (daemonHelloFailureCode(error) !== null) return error as Error;
   const message = error instanceof Error ? error.message : String(error);
   return remoteProxyError("remote_proxy_unavailable", `Remote daemon is unavailable: ${message}`);
 }

@@ -160,3 +160,37 @@ test("a second refused hello revokes previously admitted business requests", asy
     server.close();
   }
 });
+
+// A malformed hello must revoke the earlier admission too: validation runs before dispatch.
+test("a malformed second hello cannot leave an earlier handshake admitted", async () => {
+  let stops = 0;
+  const server = createJsonRpcProtocolServer({
+    host: {} as never,
+    build: { commit: "fixed-release" },
+    authContext: { transportKind: "unix-socket" },
+    emit: async () => undefined,
+    requestShutdown: () => {
+      stops += 1;
+    },
+  });
+  try {
+    await server.handle({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "protocol.hello",
+      params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: "fixed-release" },
+    });
+    const malformed = await server.handle({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "protocol.hello",
+      params: { protocolVersion: { major: "wrong", minor: 0 } },
+    });
+    assert.equal((malformed as { result: { ok: boolean } }).result.ok, false);
+    const stop = await server.handle({ jsonrpc: "2.0", id: 3, method: "daemon.stop", params: {} });
+    assert.equal((stop as { result: { code: string } }).result.code, "hello_required");
+    assert.equal(stops, 0);
+  } finally {
+    server.close();
+  }
+});

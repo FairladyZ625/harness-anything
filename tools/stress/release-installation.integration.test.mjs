@@ -61,6 +61,7 @@ test(
           cpSync(name, path.join(repository, name), {
             recursive: true,
             mode: constants.COPYFILE_FICLONE,
+            verbatimSymlinks: true,
             filter: (source) =>
               !["node_modules", "dist", "dist-electron", ".git", ".harness"].includes(path.basename(source)) &&
               !source.endsWith(".tsbuildinfo"),
@@ -165,7 +166,16 @@ test(
       console.log("MAIN UNCHANGED", JSON.stringify(unchanged));
       // Positive drift control: mutate only a test-owned development copy, never an installed version.
       const development = path.join(parent, "development");
-      cpSync(path.join(root, "versions", a), development, { recursive: true, mode: constants.COPYFILE_FICLONE });
+      cpSync(path.join(root, "versions", a), development, {
+        recursive: true,
+        mode: constants.COPYFILE_FICLONE,
+        verbatimSymlinks: true,
+      });
+      assert.equal(
+        realpathSync(path.join(development, "node_modules/@harness-anything/daemon/package.json")),
+        path.join(development, "packages/daemon/package.json"),
+        "The development copy must launch its own daemon, not the installed release behind an absolutized link.",
+      );
       const devUser = path.join(parent, "dev-user"),
         devId = "development-control";
       const devCli = async (...args) =>

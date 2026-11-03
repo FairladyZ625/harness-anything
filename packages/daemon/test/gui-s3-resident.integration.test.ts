@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { fixtureDaemonHello } from "./fixtures/daemon-hello.ts";
 import { daemonBuildStamp } from "../src/build-identity.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
@@ -31,7 +32,7 @@ test("a caller that names a response deadline gets a classified failure instead 
       for (const line of String(chunk).split("\n").filter(Boolean)) {
         const request = JSON.parse(line) as { readonly id: number; readonly method: string };
         if (request.method === "protocol.hello")
-          socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ok: true } })}\n`);
+          socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: fixtureDaemonHello() })}\n`);
       }
     });
   });
@@ -55,7 +56,7 @@ test("a caller that names a response deadline gets a classified failure instead 
         2_000,
         2_000,
       ),
-      { ok: true },
+      fixtureDaemonHello(),
     );
   } finally {
     server.close();

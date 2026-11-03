@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, unlinkSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { runReleaseCommand } from "./release-installation.mjs";
@@ -112,10 +112,11 @@ else receipt={ok:true,pid:42,build:{loadedBuildId:own},repos:[{rootDir:workspace
       const b = await git("rev-parse", "HEAD");
       await runReleaseCommand(["install", "--root", root, "--repository", repository, "--revision", b]);
       write(path.join(userRoot, "fail"), b);
-      await assert.rejects(
-        runReleaseCommand(["switch", "--revision", b, ...target]),
-        /fixture_start_failed.*rollback/u,
-      );
+      await assert.rejects(runReleaseCommand(["switch", "--revision", b, ...target]), (error) => {
+        assert.equal(error.code, "fixture_start_failed");
+        assert.match(error.message, /fixture_start_failed.*rollback/u);
+        return true;
+      });
       assert.deepEqual((await runReleaseCommand(["status", "--root", root])).previous, a);
       const recovered = await runReleaseCommand(["rollback", ...target]);
       assert.equal(recovered.current, a);
@@ -126,6 +127,16 @@ else receipt={ok:true,pid:42,build:{loadedBuildId:own},repos:[{rootDir:workspace
       assert.equal(deployed.previous, a);
       assert.equal((await updateTestCenter([...target, "--repository", repository])).unchanged, true);
       assert.equal((await runReleaseCommand(["rollback", ...target])).current, a);
+      await git("remote", "set-url", "origin", path.join(parent, "missing-remote"));
+      await assert.rejects(updateTestCenter([...target, "--repository", repository]));
+      assert.equal(
+        existsSync(path.join(root, "failed-update.json")),
+        true,
+        "fetch failure must stop repeated installations too",
+      );
+      await assert.rejects(updateTestCenter([...target, "--repository", repository]), /Previous main update failed/u);
+      assert.equal((await runReleaseCommand(["status", "--root", root])).current, a);
+      unlinkSync(path.join(root, "failed-update.json"));
       write(path.join(root, ".deployment-lock"), `${process.pid}\n`);
       await assert.rejects(runReleaseCommand(["switch", "--revision", b, ...target]), { code: "EEXIST" });
       assert.equal(existsSync(path.join(root, ".deployment-lock")), true);
