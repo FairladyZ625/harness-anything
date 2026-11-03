@@ -68,7 +68,7 @@ test(
           : false,
   },
   async () => {
-    const userRoot = mkdtempSync(path.join(tmpdir(), "ha-rbac-postgres-orphan-integration-")),
+    const userRoot = mkdtempSync(path.join(tmpdir(), "ha-rbac-postgres orphan-integration-")),
       rbac = path.join(userRoot, "rbac"),
       data = path.join(rbac, "data", "postgres"),
       foreignData = path.join(userRoot, "foreign-postgres"),
@@ -119,6 +119,30 @@ test(
       initializePostgres(binaries.initdb, data, passwordFile);
       initializePostgres(binaries.initdb, foreignData, passwordFile);
 
+      foreignPid = startPostgres(binaries.pgCtl, foreignData, foreignLogs, foreignPort);
+      writeFileSync(
+        path.join(data, "postmaster.pid"),
+        // A stale managed pidfile retains its directory/port when its PID is reused elsewhere.
+        `${foreignPid}\n${data}\n${Date.now()}\n${managedPort}\n/var/run/postgresql\n127.0.0.1\n0\nready\n`,
+        { mode: 0o600 },
+      );
+      let startError: unknown;
+      try {
+        await service.start();
+      } catch (error) {
+        startError = error;
+      }
+      process.kill(foreignPid, 0);
+      assert.equal((startError as { code?: string } | undefined)?.code, "rbac_process_failed");
+      assert.equal(
+        execFileSync(binaries.pgCtl, ["-D", foreignData, "status"], { encoding: "utf8" }).includes(
+          `server is running (PID: ${foreignPid})`,
+        ),
+        true,
+        "the postmaster recorded for another data directory remains alive",
+      );
+      rmSync(path.join(data, "postmaster.pid"), { force: true });
+
       orphanPid = startPostgres(binaries.pgCtl, data, rbacLogs, managedPort);
       const parentPid = Number(
         execFileSync("ps", ["-o", "ppid=", "-p", String(orphanPid)], { encoding: "utf8" }).trim(),
@@ -128,22 +152,6 @@ test(
       const successorPid = Number(readFileSync(path.join(data, "postmaster.pid"), "utf8").split(/\r?\n/u)[0]);
       assert.notEqual(successorPid, orphanPid, "the predecessor was stopped and managed PostgreSQL started again");
       await service.stop();
-
-      foreignPid = startPostgres(binaries.pgCtl, foreignData, foreignLogs, foreignPort);
-      writeFileSync(
-        path.join(data, "postmaster.pid"),
-        `${foreignPid}\n${foreignData}\n${Date.now()}\n${foreignPort}\n/var/run/postgresql\n127.0.0.1\n0\nready\n`,
-        { mode: 0o600 },
-      );
-      await assert.rejects(service.start(), { code: "rbac_process_failed" });
-      process.kill(foreignPid, 0);
-      assert.equal(
-        execFileSync(binaries.pgCtl, ["-D", foreignData, "status"], { encoding: "utf8" }).includes(
-          `server is running (PID: ${foreignPid})`,
-        ),
-        true,
-        "the postmaster recorded for another data directory remains alive",
-      );
     } finally {
       try {
         await service?.stop();
