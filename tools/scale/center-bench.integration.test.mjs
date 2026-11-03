@@ -100,6 +100,10 @@ test(
       onProgress: (row) => console.log(`CENTER_PROGRESS\t${JSON.stringify(row)}`),
     });
     console.log(`CENTER_BENCH_REPORT\t${JSON.stringify(report)}`);
+    assert.ok(
+      report.recordedTraffic.lifecycle.length > 0,
+      "retain the product lifecycle log before deleting the owned fixture",
+    );
     assert.equal(report.capacity.length, nodes.length);
     for (const row of report.capacity) {
       assert.deepEqual(row.methods, row.plannedMethods);

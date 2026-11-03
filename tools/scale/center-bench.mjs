@@ -39,6 +39,8 @@ export function markdownReport(report) {
       `Ledger: ${JSON.stringify(report.ledger)}`,
       `Attach samples: ${JSON.stringify(report.attachSamples)}`,
       `Product diagnostics: ${JSON.stringify(report.attachDiagnostics)}`,
+      `Lifecycle: ${JSON.stringify(report.recordedTraffic?.lifecycle ?? [])}`,
+      `Child stderr: ${JSON.stringify(report.recordedTraffic?.stderr ?? "")}`,
       "Capacity and fault scenarios were not measured because setup did not complete.",
       "",
     ].join("\n");
@@ -131,6 +133,7 @@ export async function runCenterBenchmark({
         if (row.phase === "ledger-ready") report.ledger = row.ledger;
         if (!fixture && row.phase === "attach-resources") report.attachSamples.push(row.sample);
         if (!fixture && row.phase === "attach-diagnostics") report.attachDiagnostics.push(row.sample);
+        if (row.phase === "fixture-closed") report.recordedTraffic = row.recordedTraffic;
         onProgress(row);
       },
     });

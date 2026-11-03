@@ -11,6 +11,7 @@ import { fleetNodeOwners } from "../../packages/daemon/test/fleet-store.fixture.
 import { saveFleetCenterConfig } from "../../packages/daemon/src/fleet-center-config.ts";
 import { requestDaemonJsonRpcAt } from "../../packages/daemon/src/client/local-json-rpc-client.ts";
 import { daemonDiagnosticsEndpoint } from "../../packages/daemon/src/client/local-daemon-target.ts";
+import { readDaemonLifecycleRecords } from "../../packages/daemon/src/lifecycle-log.ts";
 import { generateCenterLedger, ledgerProfile } from "./center-ledger.mjs";
 import { withWatchdog } from "../stress/core/controller.mjs";
 import { countRecordedTraffic } from "./center-model.mjs";
@@ -99,6 +100,9 @@ export async function createCenterFixture({
       } catch (error) {
         closeResult = { tagged: {}, error: error.message };
       }
+      closeResult.lifecycle = readDaemonLifecycleRecords(userRoot, "center-bench").slice(-100);
+      closeResult.stderr = stderr.join("");
+      onProgress?.({ phase: "fixture-closed", recordedTraffic: closeResult });
       return closeResult;
     } finally {
       await owners?.close();

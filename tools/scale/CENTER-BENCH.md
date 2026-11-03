@@ -104,6 +104,8 @@ in the dispatcher's returned stdout. `markdownReport` renders the capacity table
 If fixture setup fails, the report retains its source, error, completed ledger metadata and attach
 resource samples, with empty capacity/fault arrays. The standalone CLI saves both reports and
 exits nonzero; missing measurements are not success values.
+Cleanup retains the last 100 product lifecycle records and the bounded child-stderr buffer, so a
+background attach failure after the initial deadline is not lost when the temporary root is removed.
 
 Inside an owner-prepared isolated environment, the equivalent standalone command is:
 
