@@ -71,7 +71,8 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
       readonly partitionToken?: string;
       readonly loadError?: string;
     } | null>(null);
-    const loggingIn = useRef(false);
+    const loggingIn = useRef(false),
+      sessionRequest = useRef(0);
     useEffect(
       () => () => {
         if (loggingIn.current) void auth.cancelLogin();
@@ -80,18 +81,23 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
     );
 
     const refresh = async () => {
-      let nextSession: RecordValue;
-      try {
-        nextSession = (await auth.status(repoId, rootDir)) as RecordValue;
-      } catch (error) {
+      const request = ++sessionRequest.current;
+      const statusReply = await auth.status(repoId, rootDir).then(
+        (reply) => ({ ok: true as const, reply: reply as RecordValue }),
+        (error: unknown) => ({ ok: false as const, error }),
+      );
+      // A read superseded by a newer request or a repository change must not write state.
+      if (sessionRequest.current !== request) return;
+      if (!statusReply.ok) {
         // A failed identity read must not leave the previous session labelled as current.
         setSession(null);
         setSessionFailed(true);
-        throw error;
+        throw statusReply.error;
       }
-      setSession(nextSession);
+      setSession(statusReply.reply);
       setSessionFailed(false);
       const nextBinding = (await auth.bindingStatus(repoId, rootDir)) as RecordValue;
+      if (sessionRequest.current !== request) return;
       if (nextBinding.configured === false) {
         setBinding(null);
         setBootstrapRequired(false);
@@ -99,6 +105,7 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
       }
       setBinding(nextBinding);
       const bootstrap = (await auth.bootstrapStatus(repoId, rootDir)) as RecordValue;
+      if (sessionRequest.current !== request) return;
       setBootstrapRequired(bootstrap.required === true);
     };
 
@@ -106,6 +113,9 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
       setSession(null);
       setSessionFailed(false);
       void refresh().catch((error: unknown) => setFeedback(message(error)));
+      return () => {
+        sessionRequest.current += 1;
+      };
     }, [repoId, rootDir]);
 
     const run = async (operation: () => Promise<unknown>) => {
@@ -126,18 +136,22 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
     };
 
     useEffect(() => {
-      const refreshRequests = () =>
+      const refreshRequests = () => {
+        const request = ++sessionRequest.current;
         void auth.status(repoId, rootDir).then(
           (reply) => {
+            if (sessionRequest.current !== request) return;
             setSession(reply as RecordValue);
             setSessionFailed(false);
           },
           (error: unknown) => {
+            if (sessionRequest.current !== request) return;
             setSession(null);
             setSessionFailed(true);
             setFeedback(message(error));
           },
         );
+      };
       const interval = setInterval(refreshRequests, 3_000);
       return () => clearInterval(interval);
     }, [auth, repoId, rootDir]);

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { RepoMode } from "../components/RepoModeBadge.tsx";
 import { TabPanel } from "../components/primitives/EntryBoundary.tsx";
 import { Tabs } from "../components/primitives/Tabs.tsx";
@@ -50,13 +50,17 @@ export function IdentityAccessView({
     access = bridge?.access?.forRepository(repoId),
     [tab, setTab] = useState<AccessTab>("grants");
 
-  const [identity, setIdentity] = useState<CurrentIdentity>({ phase: "loading" });
+  const [identity, setIdentity] = useState<CurrentIdentity>({ phase: "loading" }),
+    identityRequest = useRef(0);
   useEffect(() => {
     setIdentity({ phase: "loading" });
     const refreshIdentity = () => {
       if (!auth) return;
+      const request = ++identityRequest.current;
       void auth.status(repoId, rootDir).then(
         (reply) => {
+          // A read that started before the repository changed must not restore its person.
+          if (identityRequest.current !== request) return;
           const status = reply as { readonly authenticated?: boolean; readonly personId?: string };
           setIdentity({
             phase: "ready",
@@ -67,13 +71,17 @@ export function IdentityAccessView({
         () => {
           // A failed read invalidates the previous account; the page says "unavailable" instead of
           // keeping a stale person or pretending the session was signed out.
+          if (identityRequest.current !== request) return;
           setIdentity({ phase: "failed" });
         },
       );
     };
     refreshIdentity();
     window.addEventListener("harness-auth-changed", refreshIdentity);
-    return () => window.removeEventListener("harness-auth-changed", refreshIdentity);
+    return () => {
+      identityRequest.current += 1;
+      window.removeEventListener("harness-auth-changed", refreshIdentity);
+    };
   }, [auth, repoId, rootDir]);
   if (!auth) return <p role="alert">{t("identityAccess.electronOnly")}</p>;
   const identityText =

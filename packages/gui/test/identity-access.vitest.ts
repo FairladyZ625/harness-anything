@@ -211,6 +211,30 @@ describe("IdentityAccessView", () => {
     expect(container.textContent).toContain("身份不可用");
     expect(container.textContent).not.toContain("尚未登录");
   });
+
+  it("ignores an identity read that resolves after its repository was replaced", async () => {
+    const pending: Array<(value: unknown) => void> = [];
+    const status = vi.fn((repoId?: string) => {
+      if (repoId === "repo-a") return new Promise((resolve) => pending.push(resolve));
+      return Promise.reject(new Error("repo-b unavailable"));
+    });
+    Object.defineProperty(window, "harness", {
+      configurable: true,
+      value: { auth: auth({ status }) },
+    });
+    await act(async () => root.render(createElement(IdentityAccessView, { repoId: "repo-a" })));
+    await act(async () => undefined);
+    expect(pending).toHaveLength(2);
+    await act(async () => root.render(createElement(IdentityAccessView, { repoId: "repo-b" })));
+    await act(async () => undefined);
+    expect(container.textContent).toContain("身份不可用");
+    await act(async () => {
+      for (const resolve of pending) resolve({ ok: true, authenticated: true, personId: "person-a" });
+    });
+    await act(async () => undefined);
+    expect(container.textContent).not.toContain("person-a");
+    expect(container.textContent).toContain("身份不可用");
+  });
 });
 
 it("classifies a binding mode as builtin, Keycloak, or unknown", () => {
