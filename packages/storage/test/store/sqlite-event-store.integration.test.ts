@@ -673,9 +673,13 @@ test("single writer serializes revision allocation and rejects a competing revis
     second = openSqliteEventStore({ repoId, databasePath });
   try {
     first.claimWriter(fence);
+    assert.equal(first.headIdentity(), null);
     assert.equal(first.appendCommand(command(first, 1)).lastRevision, 1);
+    assert.deepEqual(second.headIdentity(), first.eventIdentityAtRevision(1));
     assert.throws(() => second.appendCommand(command(second, 1, "second-op")), /allocated revision 2/u);
+    assert.equal(first.headIdentity()?.revision, 1);
     assert.equal(second.appendCommand(command(second, 2, "second-op")).lastRevision, 2);
+    assert.deepEqual(first.headIdentity(), second.eventIdentityAtRevision(2));
     assert.deepEqual(
       second.events().map((event) => event.workspaceRevision),
       [1, 2],
@@ -699,6 +703,7 @@ test("a stale holder rolls back before SQLite records an event or outcome", (t) 
         error instanceof Error && "code" in error && error.code === "revision_conflict" && /stale/u.test(error.message),
     );
     assert.equal(stale.revision(), 0);
+    assert.equal(stale.headIdentity(), null);
     assert.deepEqual(stale.events(), []);
     assert.equal(stale.outcome(eventAt(1).opId), null);
   } finally {

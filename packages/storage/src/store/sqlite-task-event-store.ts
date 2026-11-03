@@ -112,7 +112,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     follower = pendingFollower("Git follower has not published this ledger cut"),
     certified: { readonly commit: string; readonly revision: number } | null = null;
 
-  const head = (): EventHead | null => sqlite.eventIdentityAtRevision(sqlite.revision());
+  const head = (): EventHead | null => sqlite.headIdentity();
   const cut = () => canonicalLedgerCut(options.repoId, head());
   const readContent = (sha256: string) => sqlite.readContentObject(sha256);
   const acceptedWorktree = new Map<string, { fingerprint: string; preserve: boolean }>(),

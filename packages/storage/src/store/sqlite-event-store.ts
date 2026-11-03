@@ -549,6 +549,12 @@ function openSqliteEventStoreInternal(
       readEvent(query, "json_extract(event_json, '$.eventId')", eventId, "ORDER BY revision LIMIT 1"),
     eventAtRevision: (revision) => readEvent(query, "revision", revision),
     eventIdentity: (opId) => readEventIdentity(query, "op_id", opId),
+    headIdentity: () =>
+      eventIdentityFromRow(
+        query(
+          "SELECT revision, op_id, digest FROM event WHERE revision=(SELECT revision FROM ledger_meta WHERE singleton=1)",
+        ).at(0),
+      ),
     eventIdentityAtRevision: (revision) => readEventIdentity(query, "revision", revision),
     documentHead: (documentPath) => readDocumentHead(query, documentPath),
     eventsAfter: (revision, limit = 4096) =>
@@ -778,7 +784,9 @@ function readEventIdentity(
   column: "op_id" | "revision",
   value: string | number,
 ): SqliteEventIdentity | null {
-  const row = query(`SELECT revision, op_id, digest FROM event WHERE ${column}=?`, [value]).at(0);
+  return eventIdentityFromRow(query(`SELECT revision, op_id, digest FROM event WHERE ${column}=?`, [value]).at(0));
+}
+function eventIdentityFromRow(row: SqliteRow | undefined): SqliteEventIdentity | null {
   return row
     ? { revision: Number(row.revision), opId: String(row.op_id), eventDigest: String(row.digest) as `sha256:${string}` }
     : null;

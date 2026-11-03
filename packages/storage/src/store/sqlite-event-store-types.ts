@@ -142,6 +142,7 @@ export interface SqliteEventStore {
   readonly eventById: (eventId: string) => CanonicalEventV1 | null;
   readonly eventAtRevision: (revision: number) => CanonicalEventV1 | null;
   readonly eventIdentity: (opId: string) => SqliteEventIdentity | null;
+  readonly headIdentity: () => SqliteEventIdentity | null;
   readonly eventIdentityAtRevision: (revision: number) => SqliteEventIdentity | null;
   readonly documentHead: (documentPath: string) => SqliteDocumentHead | "retired" | undefined;
   readonly eventsAfter: (revision: number, limit?: number) => readonly CanonicalEventV1[];
