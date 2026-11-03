@@ -59,10 +59,12 @@ test(
       ).outcome,
       "applied",
     );
-    const e = await stage("edge-open", () =>
-      fleetEdgeHostFixture(t, f, { writeEdgeConfig: false, waitForAttachments: false }),
+    const e = await stage("edge-fixture", () =>
+      fleetEdgeHostFixture(t, f, {
+        writeEdgeConfig: false,
+        diagnostic: (name, state) => console.error(`[edge-sync-stage] ${Date.now()} ${name}`, JSON.stringify(state)),
+      }),
     );
-    await stage("edge-attachments", () => e.host.attachmentsSettled(), e.host.status);
     const configFile = path.join(e.edgeRoot, "fleet-edge.json");
     assert.equal(existsSync(configFile), false);
     const { schema: _schema, waitTimeoutMs: _wait, ...connection } = e.config;

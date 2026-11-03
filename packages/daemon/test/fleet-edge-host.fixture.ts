@@ -29,6 +29,8 @@ export async function fleetEdgeHostFixture(
   },
   options: {
     readonly name?: string;
+    /** Temporary edge sync CI stage capture; removed after diagnosis. */
+    readonly diagnostic?: (stage: string, state?: unknown) => void;
     readonly oidcPorts?: Partial<OidcSessionPorts>;
     readonly centerPort?: number;
     readonly openCell?: Parameters<typeof openDaemonHost>[0]["openCell"];
@@ -147,7 +149,9 @@ export async function fleetEdgeHostFixture(
     waitTimeoutMs: 2000,
   };
   if (options.writeEdgeConfig !== false) writeFileSync(path.join(edgeRoot, "fleet-edge.json"), JSON.stringify(config));
+  options.diagnostic?.("before-open start");
   await options.beforeOpen?.(edgeRoot);
+  options.diagnostic?.("before-open done");
   if (authority.url)
     await createIdentitySession(edgeUser, {
       fetch,
@@ -162,6 +166,7 @@ export async function fleetEdgeHostFixture(
       },
       true,
     );
+  options.diagnostic?.("open-host start");
   const host = await openDaemonHost({
     daemonId: `${name}-daemon`,
     ...(options.now ? { now: options.now } : {}),
@@ -175,12 +180,15 @@ export async function fleetEdgeHostFixture(
       loginAuthority: fixtureLoginAuthority,
     }),
   });
+  options.diagnostic?.("open-host done", host.status());
   let closePromise: Promise<void> | null = null;
   const close = (): Promise<void> => {
     if (closePromise) return closePromise;
     closePromise = (async () => {
       try {
+        options.diagnostic?.("edge-close start", host.status());
         await host.close();
+        options.diagnostic?.("edge-close done");
       } catch (cause) {
         throw new Error(`edge host ${name} failed to close`, { cause });
       }
@@ -189,7 +197,11 @@ export async function fleetEdgeHostFixture(
     return closePromise;
   };
   t.after(close);
-  if (options.waitForAttachments !== false) await host.attachmentsSettled();
+  if (options.waitForAttachments !== false) {
+    options.diagnostic?.("attachments start", host.status());
+    await host.attachmentsSettled();
+    options.diagnostic?.("attachments done", host.status());
+  }
   const rpc = createJsonRpcProtocolServer({
     host,
     build: daemonBuildStamp(),
@@ -198,12 +210,14 @@ export async function fleetEdgeHostFixture(
     emit: async () => undefined,
   });
   t.after(() => rpc.close());
+  options.diagnostic?.("hello start", host.status());
   await rpc.handle({
     jsonrpc: "2.0",
     id: 0,
     method: "protocol.hello",
     params: { protocolVersion: currentDaemonProtocolVersion, buildCommit: daemonBuildStamp().commit },
   });
+  options.diagnostic?.("hello done", host.status());
   let id = 0;
   /** One CLI edge task command, as `ha task ...` sends it to the local daemon. */
   const command = async (action: Record<string, unknown>): Promise<Record<string, unknown>> => {
