@@ -11,6 +11,7 @@ import {
   realpathSync,
   rmSync,
   symlinkSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -18,6 +19,7 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { addManagedWorktree, reclaimManagedWorktree } from "../src/schedule-occurrence-workspace.ts";
 import { runWorktreeSetup, taskWorktreeDocumentBase, workerLedgerPath } from "../src/worktree-setup.ts";
+import { taskWorktreeCandidateInventory } from "../src/task-worktree-candidates.ts";
 
 const taskId = "task-x",
   packageName = `${taskId}-fixture`,
@@ -268,4 +270,114 @@ function repositoryFixture(t: TestContext): string {
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+}
+
+for (const retired of [false, true]) {
+  test(`a pre-base package recovers acknowledged reports and preserves ${retired ? "retired" : "updated"} foreign documents without clocks`, (t) => {
+    const root = mkdtempSync(path.join(tmpdir(), "ha-legacy-document-bases-")),
+      worker = path.join(root, "worker"),
+      packagePath = "tasks/task-legacy-fixture",
+      report = `${packagePath}/artifacts/report.md`,
+      ruling = `${packagePath}/artifacts/ruling.md`,
+      fresh = `${packagePath}/artifacts/new.md`,
+      sender = {
+        actor: { principal: { personId: "owner" }, executor: { kind: "agent", id: "new-runtime" } },
+        source: "local",
+        executionId: "execution-legacy",
+      } as const,
+      oldActor = { principal: { personId: "owner" }, executor: { kind: "agent", id: "old-runtime" } },
+      ceo = { principal: { personId: "owner" }, executor: null },
+      blobs = new Map([
+        ["report-v1", Buffer.from("report v1\n")],
+        ["ruling-v1", Buffer.from("ruling v1\n")],
+        ["ruling-v2", Buffer.from("CEO supplement\n")],
+      ]);
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    mkdirSync(path.join(root, "harness"));
+    mkdirSync(path.dirname(path.join(worker, "harness", report)), { recursive: true });
+    writeFileSync(path.join(worker, "harness", report), "worker report v2\n");
+    writeFileSync(path.join(worker, "harness", ruling), "ruling v1\n");
+    writeFileSync(path.join(worker, "harness", fresh), "new worker output\n");
+    const change = (target: string, sha256: string | null) => ({
+        path: target,
+        baseBlobSha256: null,
+        candidate: sha256 === null ? null : { sha256, size: blobs.get(sha256)!.length, mediaType: "text/markdown" },
+      }),
+      events = [
+        {
+          schema: "doc-event/v1",
+          type: "documents_written",
+          workspaceRevision: 2,
+          occurredAt: "1900-01-01T00:00:00.000Z",
+          actor: ceo,
+          source: "local",
+          payload: { executionId: null, changes: [change(ruling, retired ? null : "ruling-v2")] },
+        },
+        {
+          schema: "doc-event/v1",
+          type: "documents_written",
+          workspaceRevision: 1,
+          occurredAt: "2100-01-01T00:00:00.000Z",
+          actor: oldActor,
+          source: "local",
+          payload: {
+            executionId: sender.executionId,
+            changes: [change(report, "report-v1"), change(ruling, "ruling-v1")],
+          },
+        },
+      ];
+    let queries = 0;
+    const inventory = taskWorktreeCandidateInventory(
+      root,
+      worker,
+      packagePath,
+      { repoId: "legacy", revision: 2, headDigest: `sha256:${"0".repeat(64)}` },
+      {
+        sender,
+        projection: {
+          readDocument: (logical: string) => ({
+            document: logical === fresh || (retired && logical === ruling) ? null : {},
+            watermark: 2,
+            sourceRevision: 2,
+            status: "ready",
+          }),
+        } as never,
+        store: {
+          queryEvents: ({ revisionBound }: { revisionBound?: number }) => {
+            queries += 1;
+            return events
+              .filter((event) => revisionBound === undefined || event.workspaceRevision < revisionBound)
+              .slice(0, 1);
+          },
+          readContentBlob: (sha256: string) => blobs.get(sha256) ?? null,
+        } as never,
+      },
+    );
+    assert.deepEqual(inventory!.rows.map((row) => row.path).sort(), [fresh, report].sort());
+    assert.equal(Buffer.from(inventory!.rows.find((row) => row.path === report)!.baseBytes!).toString(), "report v1\n");
+    assert.equal(inventory!.rows.find((row) => row.path === fresh)!.baseBytes, null);
+    assert.equal(queries, 3, "revision pages cross the last page and stop on EOF");
+    assert.equal(readFileSync(taskWorktreeDocumentBase(worker, ruling), "utf8"), "ruling v1\n");
+    unlinkSync(taskWorktreeDocumentBase(worker, ruling));
+    writeFileSync(path.join(worker, "harness", ruling), "unidentifiable foreign edit\n");
+    const unknown = taskWorktreeCandidateInventory(
+      root,
+      worker,
+      packagePath,
+      { repoId: "legacy", revision: 2, headDigest: `sha256:${"0".repeat(64)}` },
+      {
+        projection: { readDocument: () => ({ document: {} }) } as never,
+        store: {
+          queryEvents: ({ revisionBound }: { revisionBound?: number }) =>
+            events.filter((event) => revisionBound === undefined || event.workspaceRevision < revisionBound),
+          readContentBlob: (sha256: string) => blobs.get(sha256) ?? null,
+        } as never,
+      },
+    );
+    assert.equal(
+      unknown!.rows.find((row) => row.path === ruling)!.baseBytes,
+      null,
+      "unknown edits never adopt the CEO's current version",
+    );
+  });
 }

@@ -137,7 +137,13 @@ function withWorktreeCandidates(input: Input): Input {
   const task = input.projection.read(taskId),
     taskRoot = task.packagePath === null ? null : taskWorktreeRoot(input, task.snapshot);
   if (taskRoot === null) return input;
-  const inventory = taskWorktreeCandidateInventory(input.rootDir, taskRoot, task.packagePath, input.store.currentCut());
+  const inventory = taskWorktreeCandidateInventory(
+    input.rootDir,
+    taskRoot,
+    task.packagePath,
+    input.store.currentCut(),
+    { ...input, sender: { ...input.binding, executionId: task.snapshot.lease?.executionId ?? null } },
+  );
   if (inventory === undefined) return input;
   return { ...input, authoredCandidateInventory: inventory };
 }

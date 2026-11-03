@@ -4,7 +4,8 @@ import { documentPath, resolveDocRoute, resolveHarnessLayout, type TaskProjectio
 import { makeGitReadinessSource } from "./process-port.ts";
 import { presetSnapshotReader, taskWorktreeBinding } from "./task-worktree.ts";
 import type { AuthoredCandidateInventoryV1 } from "./doc-sync-candidate-scanner.ts";
-import { taskWorktreeDocumentBase } from "./worktree-setup.ts";
+import { recoverTaskWorktreeDocumentBases, taskWorktreeDocumentBase } from "./worktree-setup.ts";
+import type { CanonicalEventStore } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 import type { Snapshot } from "./repo-cell-types.ts";
 
 /**
@@ -33,6 +34,11 @@ export function taskWorktreeCandidateInventory(
   taskRoot: string,
   packagePath: string | null,
   baseLedgerSha: AuthoredCandidateInventoryV1["baseLedgerSha"],
+  history?: {
+    readonly store: CanonicalEventStore;
+    readonly projection: Pick<TaskProjection, "readDocument">;
+    readonly sender?: Parameters<typeof recoverTaskWorktreeDocumentBases>[3];
+  },
 ): AuthoredCandidateInventoryV1 | undefined {
   if (packagePath === null) return undefined;
   const layout = resolveHarnessLayout(rootDir),
@@ -47,6 +53,17 @@ export function taskWorktreeCandidateInventory(
     throw new Error(`Task package ${packagePath} escapes its bound worktree.`);
   const rows: Array<AuthoredCandidateInventoryV1["rows"][number]> = [];
   collectTaskPackageCandidates(packageRoot, packagePath, rows);
+  if (history !== undefined) {
+    const legacyPackage = !lstatSync(baseRoot, { throwIfNoEntry: false });
+    const missing = rows.filter(
+      (row) =>
+        row.safe &&
+        resolveDocRoute(documentPath(row.path)).allowed &&
+        !lstatSync(taskWorktreeDocumentBase(taskRoot, row.path), { throwIfNoEntry: false }) &&
+        (legacyPackage || history.projection.readDocument(row.path).document !== null),
+    );
+    recoverTaskWorktreeDocumentBases(taskRoot, missing, history.store, history.sender);
+  }
   return {
     schema: "harness-authored-candidate-inventory/v1",
     baseLedgerSha,

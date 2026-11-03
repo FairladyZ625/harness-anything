@@ -15,11 +15,19 @@ import {
 import path from "node:path";
 import {
   DEFAULT_WORKTREE_SETUP_STEP_TIMEOUT_MS,
+  canonicalDocumentClaims,
+  isDocEvent,
+  isTaskBootstrapEvent,
+  isSameExecution,
+  sameWriteSource,
   resolveHarnessLayout,
+  type ActorIdentity,
+  type WriteSource,
   type RepositorySettingsV1,
 } from "@harness-anything/kernel";
 import { posixShellFallback, runProcessExitAsync, runProcessTextAsync, startDetachedProcess } from "./process-port.ts";
 import { nodeModulesSetupAdapter } from "./worktree-setup-node-modules.ts";
+import type { CanonicalEventStore } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 
 // dec_8B3FCCD256CAC5B0BF3CCEDE58 CH3: the repository declares in Settings `worktree.setup` what a fresh worktree
 // needs; the node that checks the worktree out runs those steps once, in order, inside it. What ran is observed
@@ -372,9 +380,65 @@ export function taskWorktreeDocumentBase(cwd: string, logicalPath: string): stri
 
 /** Advance only the node-local acknowledged base, never an authored canonical document. */
 export function acceptTaskWorktreeDocumentBase(cwd: string, logicalPath: string, bytes: Uint8Array): void {
+  detachTaskDocument(path.join(resolveHarnessLayout(cwd).authoredRoot, ...logicalPath.split("/")));
   const base = taskWorktreeDocumentBase(cwd, logicalPath);
   mkdirSync(path.dirname(base), { recursive: true });
   writeFileSync(base, bytes);
+}
+
+/**
+ * Pre-base mirrors recorded no ledger SHA. Recover unchanged historical bytes or a
+ * sender's accepted write, never infer its base from today's center document.
+ * Initial task claims also precede every checkout. Unidentifiable edits retain null
+ * bases and the existing CAS refuses them. One history walk serves the whole package.
+ * Remove after all pre-fix worktrees are reclaimed; review deletion on 2026-11-18.
+ */
+export function recoverTaskWorktreeDocumentBases(
+  cwd: string,
+  documents: readonly { readonly path: string; readonly bytes: Uint8Array | null }[],
+  store: CanonicalEventStore,
+  sender?: { readonly actor: ActorIdentity; readonly source: WriteSource; readonly executionId: string | null },
+): void {
+  if (documents.length === 0 || store.queryEvents === undefined) return;
+  const pending = new Map(documents.map((document) => [document.path, document.bytes])),
+    acknowledged = new Map<string, Uint8Array>(),
+    blobs = new Map<string, Uint8Array>();
+  let revisionBound: number | undefined;
+  while (pending.size > 0) {
+    const events = store.queryEvents({ revisionBound, limit: 1_000 });
+    if (events.length === 0) break;
+    for (const event of events) {
+      const senderWrite =
+        sender !== undefined &&
+        isDocEvent(event) &&
+        sameWriteSource(event.source, sender.source) &&
+        (isSameExecution(event.actor, sender.actor) ||
+          (sender.executionId !== null && event.payload.executionId === sender.executionId));
+      for (const claim of canonicalDocumentClaims(event)) {
+        if (!pending.has(claim.path)) continue;
+        let bytes = blobs.get(claim.sha256);
+        if (bytes === undefined) {
+          const original = store.readContentBlob(claim.sha256);
+          if (original === null)
+            throw new Error(`Missing original worktree document blob ${claim.sha256} for ${claim.path}.`);
+          bytes = original;
+          blobs.set(claim.sha256, bytes);
+        }
+        const candidate = pending.get(claim.path);
+        if (candidate !== null && candidate !== undefined && Buffer.from(candidate).equals(bytes)) {
+          acceptTaskWorktreeDocumentBase(cwd, claim.path, bytes);
+          pending.delete(claim.path);
+        } else if (!acknowledged.has(claim.path) && (senderWrite || isTaskBootstrapEvent(event))) {
+          acknowledged.set(claim.path, bytes);
+        }
+      }
+    }
+    revisionBound = events.at(-1)!.workspaceRevision;
+  }
+  for (const logical of pending.keys()) {
+    const bytes = acknowledged.get(logical);
+    if (bytes !== undefined) acceptTaskWorktreeDocumentBase(cwd, logical, bytes);
+  }
 }
 
 function mirrorTaskPackage(source: string, destination: string, base: string): void {
@@ -398,12 +462,15 @@ function mirrorTaskPackage(source: string, destination: string, base: string): v
       const stat = lstatSync(to);
       if (stat.isSymbolicLink()) throw new Error(`Task package mirror ${to} must not be a symbolic link.`);
       // Detach an older mirror without inventing a base for edits whose original version is unknown.
-      if (stat.nlink > 1) {
-        copyFileSync(to, `${to}.detach`);
-        renameSync(`${to}.detach`, to);
-      }
+      detachTaskDocument(to);
     }
   }
+}
+
+function detachTaskDocument(target: string): void {
+  if ((lstatSync(target, { throwIfNoEntry: false })?.nlink ?? 0) <= 1) return;
+  copyFileSync(target, `${target}.detach`);
+  renameSync(`${target}.detach`, target);
 }
 
 function worktreeLedgerMarkerPath(cwd: string): string | null {

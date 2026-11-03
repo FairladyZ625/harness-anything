@@ -419,6 +419,12 @@ test("accepted worktree documents advance their bases across edits and an acknow
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
       assert.equal(readFileSync(fixture.canonicalArtifact, "utf8"), body);
     }
+    // A pre-fix execution may have accepted several edits without any node-local bases.
+    unlinkSync(taskWorktreeDocumentBase(taskRoot, fixture.artifactPath));
+    writeFileSync(fixture.workerArtifact, "# Legacy continuation\n");
+    const continued = await sync();
+    assert.equal(continued.outcome, "applied", JSON.stringify(continued));
+    assert.equal(readFileSync(fixture.canonicalArtifact, "utf8"), "# Legacy continuation\n");
     // Canonical acceptance survives even if a crash loses the local acknowledgement.
     writeFileSync(taskWorktreeDocumentBase(taskRoot, fixture.artifactPath), "# Worker artifact v1\n");
     assert.equal((await sync()).outcome, "no_changes");
@@ -432,15 +438,16 @@ test("accepted worktree documents advance their bases across edits and an acknow
   }
 });
 
-test("a missing worktree base cannot adopt the current center version for a worker edit", async () => {
+test("a missing worktree base recovers its original accepted version for a worker edit", async () => {
   const fixture = await ownPackageFixture("missing-base");
   try {
     const taskRoot = path.join(fixture.rootDir, ".worktrees", fixture.taskId);
     unlinkSync(taskWorktreeDocumentBase(taskRoot, fixture.artifactPath));
     writeFileSync(fixture.workerArtifact, "# Edited without a known base\n");
     const receipt = await fixture.cell.run({ kind: "doc-submit", taskId: fixture.taskId }, holder);
-    assert.equal(receipt.code, "base_blob_changed", JSON.stringify(receipt));
-    assert.equal(readFileSync(fixture.canonicalArtifact, "utf8"), "# Worker artifact v1\n");
+    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    await waitForFixturePublication(fixture.cell, receipt.opId, holder);
+    assert.equal(readFileSync(fixture.canonicalArtifact, "utf8"), "# Edited without a known base\n");
     assert.equal(readFileSync(fixture.workerArtifact, "utf8"), "# Edited without a known base\n");
   } finally {
     await fixture.cell.close();

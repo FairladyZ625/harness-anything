@@ -622,6 +622,8 @@ test("task amend applies every supplied patch through the production mutation", 
 test("worktree document bases scale through the 34,000-file production case", async (t) => {
   const measurements = [];
   for (const size of [100, 2000, 34000]) measurements.push(await measureWorktreeDocuments(process.cwd(), size));
+  for (const size of [100, 2000, 34000])
+    t.diagnostic(JSON.stringify(await measureWorktreeDocuments(process.cwd(), size, true)));
   assert.deepEqual(
     evaluateCollectionCosts({
       "task-submit:worktree-documents": { small: measurements[0], large: measurements[1] },
