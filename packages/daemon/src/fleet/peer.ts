@@ -211,6 +211,8 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
     // The center admits a replica on the node owner's signed-in session; the hello is the only
     // frame of this conversation that can carry it.
     const accessToken = await options.readAccessToken?.();
+    signal.throwIfAborted();
+    if (closed) throw closed;
     await new Promise<void>((resolve, reject) => {
       const commandDecoder = new FleetUtf8LineDecoder();
       const onData = (chunk: Buffer) => {
