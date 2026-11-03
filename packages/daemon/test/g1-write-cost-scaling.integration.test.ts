@@ -1,7 +1,17 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import { G1_METRICS, G1_OPERATIONS, measureWriteCostScaling } from "./fixtures/g1-write-cost-scaling.ts";
+
+test("task-create retains its existing SQL row budget at the gate's 200-event scale", async () => {
+  const measured = await measureWriteCostScaling(200),
+    rows = measured.counts["task-create"].sqlRowsRead,
+    budget = JSON.parse(readFileSync(new URL("../../../tools/gates/cost-budget.json", import.meta.url), "utf8"))
+      .writeCostScaling.budgets["task-create"].sqlRowsRead;
+  console.log(`G1_TASK_CREATE_ROWS_200 actual=${rows} budget=${budget}`);
+  assert.ok(rows <= budget, `task-create read ${rows} SQL rows; existing budget is ${budget}`);
+});
 
 test("measureWriteCostScaling drives every G1 operation through the production daemon request path", async () => {
   const measured = await measureWriteCostScaling(5);

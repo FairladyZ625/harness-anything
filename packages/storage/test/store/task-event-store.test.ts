@@ -16,12 +16,13 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { attachReceiptAcceptance } from "@harness-anything/kernel/internal/composition/receipt-acceptance.ts";
 import { compileDecisionWrite } from "@harness-anything/kernel/internal/domain/decision-event-document.ts";
+import type { CanonicalEventV1 } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import { serializePersistedCanonicalEvent } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import { taskLifecycleWritePlan } from "@harness-anything/kernel/internal/domain/task-lifecycle-publication.ts";
 import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { localContentObjectFileSystem } from "@harness-anything/kernel/internal/local/local-layout-file-system.ts";
 import { localGitObjectRefStore, localGitWorktreeSettlement } from "../../src/store/local-version-control-system.ts";
-import { captureGitBaseline } from "../../src/store/sqlite-task-event-publication.ts";
+import { captureGitBaseline, followerEventsAfter } from "../../src/store/sqlite-task-event-publication.ts";
 import {
   activateEmptyCanonicalGeneration,
   openSqliteEventStore,
@@ -30,12 +31,31 @@ import {
 } from "../../src/store/sqlite-event-store.ts";
 import { makeTaskEventStore, readCertifiedGitFollower } from "../../src/store/task-event-store.ts";
 import { assertAuthorizedReplacements } from "../../src/store/task-event-store-replacement-authorization.ts";
+import { openPersistentWriterEpoch } from "../../src/writer-epoch.ts";
 import { decisionProposal, docBundle, eventAt, git, initRepo } from "./task-event-store.fixtures.ts";
 
 const repoId = "sqlite-canonical-contract";
 const writerFence = () => ({ repoId, holderId: "contract-writer", epoch: 1 });
 const replacementRepoId = "replacement-authorization-delta";
 const replacementFence: SqliteWriterFence = { repoId: replacementRepoId, holder: "writer-a", epoch: 1 };
+
+test("follower event reads page the pending suffix and reject an incomplete page", () => {
+  const events = Array.from({ length: 8_193 }, (_, index) => ({
+      workspaceRevision: index + 1,
+    })) as unknown as CanonicalEventV1[],
+    limits: number[] = [],
+    readEvents = (after: number, limit: number) => {
+      limits.push(limit);
+      return events.filter((event) => event.workspaceRevision > after).slice(0, limit);
+    },
+    actual = [...followerEventsAfter(readEvents, 0, events.length)];
+  assert.deepEqual(limits, [4_096, 4_096, 1]);
+  assert.equal(actual.length, events.length);
+  assert.throws(
+    () => [...followerEventsAfter(() => [], 0, 1)],
+    (error: { code?: string }) => error.code === "publication_indeterminate",
+  );
+});
 
 test(
   "Git baseline preserves symlink mode and reports an absent target as missing",
@@ -123,6 +143,194 @@ test("before_event_write and after_event_write bound one atomic SQLite acceptanc
     assert.equal(store.readCommandOutcome(event.opId)?.status, "accepted_durable");
   } finally {
     await store.drain();
+  }
+});
+
+test(
+  "a failed SQLite Git publication retries its durable cut without another append",
+  { timeout: 5_000 },
+  async (t) => {
+    const rootDir = fixture("durable-follower-retry", t);
+    initRepo(rootDir);
+    let rejectFirstPublication = true,
+      reportFailure!: () => void,
+      reportRecovery!: () => void;
+    const failureReported = new Promise<void>((resolve) => {
+        reportFailure = resolve;
+      }),
+      recoveryReported = new Promise<void>((resolve) => {
+        reportRecovery = resolve;
+      }),
+      store = makeTaskEventStore({
+        repoId,
+        rootDir,
+        writerFence,
+        killpoint: (point) => {
+          if (rejectFirstPublication && point === "after_git_commit") {
+            rejectFirstPublication = false;
+            throw new Error("injected first Git ref publication failure");
+          }
+        },
+        onMaterializationHealthChange: (health) => {
+          if (health.state === "failed") reportFailure();
+          else if (health.state === "ok" && health.lastCheckpointRevision === 1) reportRecovery();
+        },
+      });
+    try {
+      const event = eventAt(1);
+      store.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
+      await failureReported;
+      assert.equal(store.readHead()?.revision, 1);
+      assert.equal(store.materializationHealth().state, "failed");
+
+      await recoveryReported;
+      assert.equal(store.currentCut().revision, 1, "the consumer recovered without a later append");
+      assert.equal(store.followerStatus().git.status, "verified");
+      assert.equal(store.followerStatus().git.cut?.revision, 1);
+      assert.equal(git(rootDir, "show", "HEAD:harness/events/segments/manifest.json").includes('"revision":1'), true);
+      assert.equal(store.materializationHealth().state, "ok");
+    } finally {
+      await store.drain();
+    }
+  },
+);
+
+for (const named of [false, true])
+  test(`a stale SQLite owner cannot restore ${named ? "a named path" : "an already certified cut"}`, async (t) => {
+    const rootDir = fixture(`stale-restore-${named}`, t),
+      stateRoot = path.join(rootDir, ".epoch-state");
+    initRepo(rootDir);
+    const first = openPersistentWriterEpoch({ stateRoot, holderId: "old" }),
+      second = openPersistentWriterEpoch({ stateRoot, holderId: "new" }),
+      lease = first.acquire(repoId),
+      store = makeTaskEventStore({
+        repoId,
+        rootDir,
+        writerFence: () => lease,
+        withAppendFence: (operation) => first.withAppendFence(repoId, lease.epoch, lease.holderId, operation),
+      });
+    try {
+      store.append(docBundle(store, "canonical", 1, "stale-restore", "context/stale.md"));
+      store.materialize();
+      second.acquire(repoId);
+      const target = path.join(rootDir, "harness/context/stale.md");
+      writeFileSync(target, "operator bytes");
+      assert.throws(
+        () => store.materialize(named ? { paths: ["context/stale.md"] } : undefined),
+        (error: { code?: string }) => error.code === "writer_epoch_stale",
+      );
+      assert.equal(readFileSync(target, "utf8"), "operator bytes");
+    } finally {
+      await store.drain();
+      first.close();
+      second.close();
+    }
+  });
+
+test("takeover between worktree renames keeps the successor's content, index and checkpoint", async (t) => {
+  const rootDir = fixture("worktree-takeover", t),
+    stateRoot = path.join(rootDir, ".epoch-state");
+  initRepo(rootDir);
+  const first = openPersistentWriterEpoch({ stateRoot, holderId: "old" }),
+    second = openPersistentWriterEpoch({ stateRoot, holderId: "new" }),
+    lease = first.acquire(repoId);
+  let armed = false,
+    successor: ReturnType<typeof makeTaskEventStore> | undefined;
+  const store = makeTaskEventStore({
+    repoId,
+    rootDir,
+    writerFence: () => lease,
+    withAppendFence: (operation) => first.withAppendFence(repoId, lease.epoch, lease.holderId, operation),
+    killpoint: (point) => {
+      if (point !== "after_worktree_rename" || !armed) return;
+      armed = false;
+      const next = second.acquire(repoId);
+      successor = makeTaskEventStore({
+        repoId,
+        rootDir,
+        writerFence: () => next,
+        withAppendFence: (operation) => second.withAppendFence(repoId, next.epoch, next.holderId, operation),
+      });
+      successor.append(docBundle(successor, "new cut", 2, "new-cut", "context/epoch.md"));
+      successor.materialize();
+    },
+  });
+  try {
+    store.append(docBundle(store, "old cut", 1, "old-cut", "context/epoch.md"));
+    armed = true;
+    assert.throws(
+      () => store.materialize(),
+      (error: { code?: string }) => error.code === "writer_epoch_stale",
+    );
+    assert.equal(armed, false);
+    assert.equal(readFileSync(path.join(rootDir, "harness/context/epoch.md"), "utf8"), "new cut");
+    assert.equal(git(rootDir, "show", ":harness/context/epoch.md"), "new cut");
+    assert.equal(
+      JSON.parse(readFileSync(path.join(rootDir, "harness/events/segments/manifest.json"), "utf8")).cut.revision,
+      2,
+    );
+  } finally {
+    await store.drain();
+    await successor?.drain();
+    first.close();
+    second.close();
+  }
+});
+
+test("takeover during Git preparation leaves the stale publisher unable to advance the checkpoint", async (t) => {
+  const rootDir = fixture("publication-takeover", t),
+    stateRoot = path.join(rootDir, ".epoch-state");
+  initRepo(rootDir);
+  const initialHead = git(rootDir, "rev-parse", "HEAD"),
+    first = openPersistentWriterEpoch({ stateRoot, holderId: "publisher-a" }),
+    second = openPersistentWriterEpoch({ stateRoot, holderId: "publisher-b" }),
+    lease = first.acquire(repoId);
+  let takenOver = false;
+  const store = makeTaskEventStore({
+    repoId,
+    rootDir,
+    writerFence: () => lease,
+    withAppendFence: (operation) => first.withAppendFence(repoId, lease.epoch, lease.holderId, operation),
+    killpoint: (point) => {
+      if (point === "after_git_commit" && !takenOver) {
+        second.acquire(repoId);
+        takenOver = true;
+      }
+    },
+  });
+  try {
+    const event = eventAt(1);
+    store.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
+    assert.throws(
+      () => store.materialize(),
+      (error: { code?: string }) => error.code === "writer_epoch_stale",
+    );
+    assert.equal(takenOver, true, "object preparation must not hold the epoch write transaction");
+    assert.equal(git(rootDir, "rev-parse", "HEAD"), initialHead);
+    assert.equal(store.readHead()?.revision, 1);
+    assert.equal(store.readCommandOutcome(event.opId)?.status, "accepted_durable");
+    await store.drain();
+
+    const successorLease = second.current(repoId)!,
+      successor = makeTaskEventStore({
+        repoId,
+        rootDir,
+        writerFence: () => successorLease,
+        withAppendFence: (operation) =>
+          second.withAppendFence(repoId, successorLease.epoch, successorLease.holderId, operation),
+      });
+    try {
+      await successor.settlePendingMaterialization?.("recover the accepted cut under its new owner");
+      assert.equal(successor.currentCut().revision, 1);
+      assert.equal(successor.followerStatus().git.cut?.revision, 1);
+      assert.equal(successor.followerStatus().git.status, "verified");
+    } finally {
+      await successor.drain();
+    }
+  } finally {
+    await store.drain();
+    first.close();
+    second.close();
   }
 });
 

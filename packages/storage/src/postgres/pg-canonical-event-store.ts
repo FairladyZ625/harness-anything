@@ -1,13 +1,16 @@
-import { ledgerCommitSha } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
+import {
+  ledgerCommitSha,
+  serializePersistedCanonicalEvent,
+} from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import path from "node:path";
 import {
   isTaskEvent,
-  consumeKnownError,
   resolveHarnessLayout,
   type CanonicalEventV1,
   type CanonicalFollowerFacet,
   type PublicationWrite,
 } from "@harness-anything/kernel";
+import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import {
   canonicalEventCut,
   canonicalLedgerCut,
@@ -25,9 +28,15 @@ import type { PostgresTaskEventStoreOptions } from "../store/task-event-store-fa
 import { applyCanonicalTree } from "../canonical-tree-materialization.ts";
 import { resolveLedgerGitLayout } from "../store/ledger-git-layout.ts";
 import { localGitObjectRefStore, localGitWorktreeSettlement } from "../store/local-version-control-system.ts";
-import { followerFiles } from "../store/sqlite-task-event-publication.ts";
-import { prepareCommit, finalizeRefs } from "../store/task-event-store-git-refs.ts";
+import {
+  certifiedFollowerRevision,
+  followerEventsAfter,
+  followerFiles,
+  physicalWorktreeRevision,
+} from "../store/sqlite-task-event-publication.ts";
+import { publishFollowerCut } from "../store/task-event-store-git-refs.ts";
 import { restoreCanonicalDocumentSelection } from "../store/sqlite-task-event-materialize.ts";
+import { createDurableFollowerPublisher } from "../store/durable-follower-publisher.ts";
 
 /** The existing PG worker bridge owns whole accepting transactions and the driver pool. */
 export function makePgCanonicalEventStore(
@@ -47,6 +56,19 @@ export function makePgCanonicalEventStore(
       execute({ operation: "head" }) as ReturnType<CanonicalEventStore["readHead"]>,
     readEvents = (afterRevision = 0, limit?: number) =>
       execute({ operation: "events", afterRevision, limit }) as readonly CanonicalEventV1[],
+    checkpointSource = {
+      metadata: () => ({ repoId: options.repoId, generation: 3, revision: head()?.revision ?? 0 }),
+      eventIdentityAtRevision: (revision: number) => {
+        const event = execute({ operation: "event", key: "revision", value: revision }) as CanonicalEventV1 | null;
+        return event
+          ? {
+              revision: event.workspaceRevision,
+              opId: event.opId,
+              eventDigest: `sha256:${sha256Text(serializePersistedCanonicalEvent(event))}` as const,
+            }
+          : null;
+      },
+    },
     readContentBlob: CanonicalEventStore["readContentBlob"] = (sha256) =>
       execute({ operation: "content", sha256 }) as Uint8Array | null,
     readContentBlobRange: CanonicalEventStore["readContentBlobRange"] = (sha256, offset, maxBytes) => {
@@ -67,9 +89,7 @@ export function makePgCanonicalEventStore(
       cut: null,
       commitSha: null,
       reason: "Git follower is not configured",
-    },
-    scheduled: Promise<void> | null = null,
-    lastMaterializationError: string | undefined;
+    };
   const publishFollower = (
     request?: Parameters<CanonicalEventStore["materialize"]>[0],
   ): ReturnType<CanonicalEventStore["materialize"]> => {
@@ -103,6 +123,7 @@ export function makePgCanonicalEventStore(
                   ]),
               ),
               killpoint: options.killpoint,
+              withFence: options.withAppendFence,
             })
           : null,
       result = materializeTree
@@ -115,6 +136,7 @@ export function makePgCanonicalEventStore(
             preview: request?.preview,
             selectedPaths: request?.preview ? undefined : request?.paths,
             readContent: (logical) => readContentBlob(entries.get(logical)!.sha256),
+            withFence: options.withAppendFence,
           })
         : { settlements: [], dirtyPaths: [] };
     if (request?.preview)
@@ -140,28 +162,33 @@ export function makePgCanonicalEventStore(
         }
       : { status: "pending", cut: null, commitSha: null, reason: "Authored tree materialization is disabled" };
     const follower = options.storage.gitFollower;
-    if (follower && git.cut?.revision !== cut.revision && cut.revision > 0) {
+    if (follower && cut.revision > 0) {
       const ledger = resolveLedgerGitLayout(rootInput),
         authoredRef = `refs/heads/${follower.branch}`,
         parent = localGitObjectRefStore.resolveCommit(ledger.rootDir, authoredRef),
-        temporaryRef = `refs/ha-pg-outbox/${cut.revision}`,
-        files = followerFiles(ledger, readEvents(), readContentBlob, cut, 3),
-        commit = prepareCommit(
-          ledger.rootDir,
-          temporaryRef,
-          parent,
-          files,
-          `outbox-${cut.revision}`,
-          new Date().toISOString(),
-        );
-      finalizeRefs(ledger.rootDir, authoredRef, commit, parent, temporaryRef);
+        checkpoint =
+          git.commitSha === parent && git.cut
+            ? git.cut.revision
+            : certifiedFollowerRevision(ledger, parent, checkpointSource),
+        events = followerEventsAfter(
+          readEvents,
+          materializeTree ? Math.min(checkpoint, physicalWorktreeRevision(ledger, checkpointSource)) : checkpoint,
+          cut.revision,
+        ),
+        files = followerFiles(ledger, events, readContentBlob, cut, 3),
+        commit = publishFollowerCut(ledger.rootDir, authoredRef, parent, checkpoint, cut, files, {
+          killpoint: options.killpoint,
+          withFence: options.withAppendFence,
+        });
+      git = { status: "verified", cut, commitSha: commit };
       if (materializeTree) {
-        localGitWorktreeSettlement.index(ledger.rootDir, files);
+        localGitWorktreeSettlement.index(ledger.rootDir, files, false, options.withAppendFence);
         // followerFiles puts its generated cut manifest last; authored documents were settled by
         // the common tree owner above, which preserves concurrent edits instead of overwriting them.
-        localGitWorktreeSettlement.visible(ledger.rootDir, [files.at(-1)! as PublicationWrite]);
+        localGitWorktreeSettlement.visible(ledger.rootDir, [files.at(-1)! as PublicationWrite], {
+          withFence: options.withAppendFence,
+        });
       }
-      git = { status: "verified", cut, commitSha: commit };
     }
     return {
       status: "visible",
@@ -170,47 +197,20 @@ export function makePgCanonicalEventStore(
       conflicts: restored?.conflicts ?? result.dirtyPaths,
     };
   };
-  const materializationCheckpoint = () =>
-    options.storage.materialize === false
-      ? options.storage.gitFollower
-        ? (git.cut?.revision ?? 0)
-        : (head()?.revision ?? 0)
-      : (worktree.cut?.revision ?? 0);
-  const materializationHealth = (state: "ok" | "failed", lastError?: string) => ({
-    state,
-    lastCheckpointRevision: materializationCheckpoint(),
-    lastCheckpointAt: null,
-    pendingWalEvents: (head()?.revision ?? 0) - materializationCheckpoint(),
-    ...(lastError ? { reason: "deterministic_failure" as const, lastError } : {}),
-  });
-  const follow = (request?: Parameters<CanonicalEventStore["materialize"]>[0]) => {
-    const receipt = options.withAppendFence
-      ? options.withAppendFence(() => publishFollower(request))
-      : publishFollower(request);
-    if (request === undefined) {
-      lastMaterializationError = undefined;
-      options.onMaterializationHealthChange?.(materializationHealth("ok"));
-    }
-    return receipt;
-  };
   // Acceptance and follower publication are separate: this detached consumer always rereads the
   // current PG cut, so its failure cannot turn a committed append into an ambiguous write result.
-  const schedule = (): Promise<void> =>
-    (scheduled ??= new Promise<void>((resolve) =>
-      setImmediate(() => {
-        try {
-          follow();
-        } catch (error) {
-          lastMaterializationError = error instanceof Error ? error.message : String(error);
-          consumeKnownError(error);
-          options.onMaterializationHealthChange?.(materializationHealth("failed", lastMaterializationError));
-        } finally {
-          scheduled = null;
-          resolve();
-        }
-      }),
-    ));
-  if (options.mutable !== false) void schedule();
+  const publisher = createDurableFollowerPublisher({
+    publish: publishFollower,
+    withFence: options.withAppendFence,
+    revision: () => head()?.revision ?? 0,
+    checkpoint: () =>
+      Math.min(
+        options.storage.materialize === false ? Infinity : (worktree.cut?.revision ?? 0),
+        options.storage.gitFollower ? (git.cut?.revision ?? 0) : (head()?.revision ?? 0),
+      ),
+    onHealthChange: options.onMaterializationHealthChange,
+  });
+  if (options.mutable !== false) void publisher.request();
   return {
     canonicalRef: "postgres:canonical",
     read: () => execute({ operation: "stream" }) as ReturnType<CanonicalEventStore["read"]>,
@@ -245,7 +245,7 @@ export function makePgCanonicalEventStore(
           : bundle.event.workspaceRevision - 1,
         writerFence: fence(),
       }) as CanonicalEventAppendReceipt;
-      void schedule();
+      void publisher.request();
       return receipt;
     },
     appendRejection: (rejection) => {
@@ -257,24 +257,11 @@ export function makePgCanonicalEventStore(
         writerFence: fence(),
       }) as CanonicalCommandOutcome;
     },
-    materialize: follow,
-    materializationHealth: () => {
-      const revision = head()?.revision ?? 0,
-        checkpoint = materializationCheckpoint();
-      return {
-        state: lastMaterializationError ? "failed" : scheduled ? "retrying" : "ok",
-        lastCheckpointRevision: checkpoint,
-        lastCheckpointAt: null,
-        pendingWalEvents: revision - checkpoint,
-        ...(lastMaterializationError ? { reason: "deterministic_failure", lastError: lastMaterializationError } : {}),
-      };
-    },
-    settlePendingMaterialization: async () => {
-      await scheduled;
-      follow();
-    },
+    materialize: publisher.publish,
+    materializationHealth: publisher.health,
+    settlePendingMaterialization: publisher.request,
     drain: async () => {
-      await scheduled;
+      await publisher.drain();
       reader.close();
     },
     pruneReplicationLog: (beforeSequence) => {

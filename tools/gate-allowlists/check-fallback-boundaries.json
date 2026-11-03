@@ -43,19 +43,12 @@
       "decision": null,
       "errors": "execution_missing on an ordinary late edge callback",
       "reason": "An ordinary edge callback can arrive after its task execution has already settled and its lease is gone. In that state there is no active execution that a ruling could block, so settlement preserves the ordinary terminal result. Reviewer callbacks and the escalation-specific stop propagate execution_missing."
-    },
-    "packages/storage/src/postgres/pg-canonical-event-store.ts#schedule": {
-      "task": "task_1ebf93f76444748526868eed92",
-      "decision": "dec_D90F19C8AAAF39747F8F0D6698",
-      "errors": "authored-tree or optional Git follower publication failure after durable PG acceptance",
-      "reason": "The detached follower consumes the current PG cut and reuses applyCanonicalTree plus the existing Git VCS publication port. Its boundary records failed health without changing the already-returned PG append receipt. The next append, explicit settlePendingMaterialization operation, or store reopen re-reads the current PG head and retries publication; a separate durable consumer/checkpoint has no existing owner or port to reuse."
     }
   },
   "entries": {
     "consumeKnownError": [
       "packages/storage/src/pg/pg-task-query-worker.ts#handle",
       "packages/storage/src/pg/pg-task-query-worker.ts#startWorker",
-      "packages/storage/src/postgres/pg-canonical-event-store.ts#schedule",
       "packages/dsh-plugin/src/client.ts#openTabWhenSessionMounts",
       "packages/dsh-plugin/src/tutorial.ts#writeClipboard",
       "packages/daemon/src/skill-eval-runner.ts#runCase",
@@ -340,7 +333,6 @@
       "packages/storage/src/store/ledger-backup.ts#drillLedgerBackup",
       "packages/storage/src/store/local-version-control-commands.ts#currentBranch",
       "packages/storage/src/store/local-version-control-commands.ts#originHeadBranch",
-      "packages/storage/src/store/local-version-control-system.ts#<module>",
       "packages/storage/src/store/local-version-control-system.ts#currentBranch",
       "packages/storage/src/store/local-version-control-system.ts#gitTopLevel",
       "packages/storage/src/store/local-version-control-system.ts#hasCommit",
@@ -352,13 +344,13 @@
       "packages/storage/src/store/local-version-control-system.ts#readNode",
       "packages/storage/src/store/local-version-control-system.ts#readPath",
       "packages/storage/src/store/local-version-control-system.ts#removeNode",
-      "packages/storage/src/store/local-version-control-system.ts#retireEmptyDirectories",
+      "packages/storage/src/store/local-version-control-system.ts#retireEmptyDirectory",
       "packages/storage/src/store/local-version-control-system.ts#sweepStaleSettlementMarkers",
       "packages/storage/src/store/sqlite-ledger-connections.ts#configureLedgerConnection",
       "packages/storage/src/store/sqlite-event-store.ts#transaction",
       "packages/storage/src/store/sqlite-ledger-reconcile.ts#reconcileSqliteEvents",
       "packages/storage/src/store/sqlite-task-event-publication.ts#decodeFollowerManifest",
-      "packages/storage/src/store/sqlite-task-event-store.ts#scheduleFollower",
+      "packages/storage/src/store/durable-follower-publisher.ts#request",
       "packages/preset/src/preset-installation.ts#activeDigest",
       "packages/preset/src/preset-process-service.ts#complete",
       "packages/preset/src/preset-process-service.ts#execute",

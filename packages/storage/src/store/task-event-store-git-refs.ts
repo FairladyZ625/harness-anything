@@ -1,5 +1,32 @@
 import { localGitObjectRefStore as gitObjects } from "./local-version-control-system.ts";
 import type { PublicationFile } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
+import type { EventPublicationKillpoint } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
+import type { LedgerCutIdentity } from "@harness-anything/kernel/internal/domain/write-chain.contract.ts";
+
+/** Advances the durable follower checkpoint with the authored ref, or reuses its certified cut. */
+export function publishFollowerCut(
+  repoRoot: string,
+  authoredRef: string,
+  parent: string,
+  checkpoint: number,
+  cut: LedgerCutIdentity,
+  files: readonly PublicationFile[],
+  options: {
+    readonly killpoint?: (point: EventPublicationKillpoint) => void;
+    readonly withFence?: <T>(operation: () => T) => T;
+  } = {},
+): string {
+  if (checkpoint >= cut.revision) return parent;
+  const temporaryRef = `refs/ha-sqlite-outbox/${cut.headDigest.slice(7)}`,
+    commit = prepareCommit(repoRoot, temporaryRef, parent, files, `outbox-${cut.revision}`, new Date().toISOString());
+  options.killpoint?.("after_git_commit");
+  // The fence protects the authoritative ref/checkpoint, not slow object import or worktree I/O.
+  const advance = () => finalizeRefs(repoRoot, authoredRef, commit, parent, temporaryRef);
+  if (options.withFence) options.withFence(advance);
+  else advance();
+  options.killpoint?.("after_git_ref_update");
+  return commit;
+}
 
 export function prepareCommit(
   repoRoot: string,

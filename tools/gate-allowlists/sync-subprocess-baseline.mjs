@@ -17,5 +17,4 @@ export const syncSubprocessBaseline = Object.freeze([
   { key: "sync-subprocess-014", kind: "import", api: "execFileSync" }, // execFileSync import @ <module>
   { key: "sync-subprocess-015", kind: "call", api: "execFileSync" }, // execFileSync call @ runGit
   { key: "sync-subprocess-016", kind: "call", api: "execFileSync" }, // execFileSync call @ runGitText
-  { key: "sync-subprocess-017", kind: "call", api: "execFileSync" }, // execFileSync call @ runGit
 ]);

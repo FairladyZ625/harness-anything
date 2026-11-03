@@ -13,9 +13,10 @@ test("repository inventory freezes the governed API and syntax-kind multisets", 
   const counts = inventoryCounts(scanSyncSubprocess(repoRoot));
   // dec_BBA713052997C3EF5F5D3DD952 moved schedule occurrence worktrees onto the async managed-worktree path,
   // retiring its five synchronous git sites.
-  assert.equal(counts.total, 13);
-  assert.deepEqual(counts.kinds, { import: 5, call: 8 });
-  assert.deepEqual(counts.apis, { execFileSync: 11, spawnSync: 2 });
+  // The retired settlement worker's update-index site now reuses the existing joined Git port.
+  assert.equal(counts.total, 12);
+  assert.deepEqual(counts.kinds, { import: 5, call: 7 });
+  assert.deepEqual(counts.apis, { execFileSync: 10, spawnSync: 2 });
 });
 
 test("renamed named imports are resolved while comments and strings are ignored", () => {

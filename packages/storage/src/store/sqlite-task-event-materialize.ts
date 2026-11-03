@@ -1,3 +1,4 @@
+import type { WriteFence } from "../durable-file.ts";
 import {
   isTaskEvent,
   ledgerCommitSha,
@@ -29,6 +30,7 @@ import {
 export interface MaterializeStoreContext {
   readonly repoId: string;
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
+  readonly withFence?: WriteFence;
   readonly cut: () => LedgerCutIdentity;
   readonly ledger: () => LedgerGitLayout;
   readonly authoredRef: () => string;
@@ -161,12 +163,14 @@ export function restoreRequestedDocuments(
       canonical,
       paths: logicals,
       killpoint: context.killpoint,
+      withFence: context.withFence,
     });
   for (const file of restored.written) {
     context.worktreeConflicts.delete(file.target);
     context.acceptedWorktree.delete(ledgerAuthoredPath(currentLedger, file.target));
   }
-  if (restored.written.length > 0) localGitWorktreeSettlement.index(currentLedger.rootDir, restored.written);
+  if (restored.written.length > 0)
+    localGitWorktreeSettlement.index(currentLedger.rootDir, restored.written, false, context.withFence);
   return {
     status: "visible",
     commitSha: ledgerCommitSha(context.repoId, parent),
@@ -183,6 +187,7 @@ export function restoreCanonicalDocumentSelection(input: {
   readonly canonical: ReadonlyMap<string, PublicationWrite>;
   readonly paths: readonly string[];
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
+  readonly withFence?: WriteFence;
 }) {
   const currentLedger = input.ledger,
     settlements: MaterializationSettlement[] = [],
@@ -216,6 +221,7 @@ export function restoreCanonicalDocumentSelection(input: {
         }
         localGitWorktreeSettlement.visible(currentLedger.rootDir, [file], hooks);
       },
+      input.withFence,
     );
     if (!restored) {
       conflicts.push(logical);

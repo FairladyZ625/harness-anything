@@ -4,14 +4,14 @@ import test from "node:test";
 import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixture.ts";
-import { taskLifecycleWritePlan, type CanonicalEventStore } from "@harness-anything/kernel";
+import { resolveHarnessLayout, taskLifecycleWritePlan, type CanonicalEventStore } from "@harness-anything/kernel";
 import { sha256Bytes } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
 import { makeTaskProjection, makeTaskProjectionReader } from "../../src/projection/rebuildable-task-projection.ts";
 import { pgRuntimeFixture } from "./pg-runtime.fixture.ts";
 import { createPgStorageBackend } from "../../src/pg/backend.ts";
 import { openPersistentWriterEpoch } from "../../src/writer-epoch.ts";
-import { initRepo } from "../store/task-event-store.fixtures.ts";
+import { docBundle, initRepo } from "../store/task-event-store.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { openReplicationSlots } from "../../src/fleet-replication-slot.ts";
 import { openFleetStorage } from "../../src/storage-daemon-composition.ts";
@@ -85,6 +85,49 @@ test("daemon PG storage factories expose canonical lifecycle ports without local
         payload: { ...base.payload, task: { ...base.payload.task, taskId } },
       };
     };
+    await t.test(
+      "failed PG tree publication retries its durable cut without another append",
+      { timeout: 5_000 },
+      async () => {
+        const retryRoot = join(fixture.root, "tree-follower-retry"),
+          marker = join(retryRoot, ".harness", "fleet-materialized.json"),
+          retryRepoId = "pg-tree-follower-retry";
+        mkdirSync(join(retryRoot, ".harness"), { recursive: true });
+        writeFileSync(marker, "{\n");
+        let reportFailure!: () => void, reportRecovery!: () => void;
+        const failureReported = new Promise<void>((resolve) => {
+            reportFailure = resolve;
+          }),
+          recoveryReported = new Promise<void>((resolve) => {
+            reportRecovery = resolve;
+          }),
+          retryStore = makeTaskEventStore({
+            rootDir: retryRoot,
+            repoId: retryRepoId,
+            storage: {
+              ...storage,
+              scope: { ...storage.scope, tenantId: "tenant-tree-retry", projectId: "project-tree-retry" },
+            },
+            onMaterializationHealthChange: (health) => {
+              if (health.state === "failed") reportFailure();
+              else if (health.state === "ok") reportRecovery();
+            },
+          }),
+          event = createdAt("task-pg-tree-follower-retry", 1);
+        try {
+          const receipt = retryStore.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
+          assert.equal(receipt.status, "applied");
+          await failureReported;
+          unlinkSync(marker);
+          await recoveryReported;
+          assert.equal(retryStore.readHead()?.revision, 1);
+          assert.equal(retryStore.materializationHealth().state, "ok");
+          assert.equal(JSON.parse(readFileSync(marker, "utf8")).revision, 1);
+        } finally {
+          await retryStore.drain();
+        }
+      },
+    );
     await t.test("two node transactions compete for the same canonical revision", async () => {
       const backend = createPgStorageBackend({ pool: fixture.pool, repoId, scope: storage.scope }),
         before = store!.readHead()!.revision,
@@ -191,52 +234,74 @@ test("daemon PG storage factories expose canonical lifecycle ports without local
         await follower.drain();
       }
     });
-    await t.test("failed PG tree publication is replayed from the committed head", async () => {
-      const retryRoot = join(fixture.root, "follower-retry"),
-        marker = join(retryRoot, ".harness", "fleet-materialized.json"),
-        retryRepoId = "pg-follower-retry";
-      mkdirSync(join(retryRoot, ".harness"), { recursive: true });
-      writeFileSync(marker, "{\n");
-      let reportFailure!: () => void, reportRecovery!: () => void;
-      const failureReported = new Promise<void>((resolve) => {
-          reportFailure = resolve;
-        }),
-        recoveryReported = new Promise<void>((resolve) => {
-          reportRecovery = resolve;
-        }),
-        retryStore = makeTaskEventStore({
-          rootDir: retryRoot,
-          repoId: retryRepoId,
-          storage: {
-            ...storage,
-            scope: { ...storage.scope, tenantId: "tenant-follower-retry", projectId: "project-follower-retry" },
-          },
-          onMaterializationHealthChange: (health) => {
-            if (health.state === "failed") reportFailure();
-            else if (health.state === "ok") reportRecovery();
-          },
-        }),
-        event = createdAt("task-pg-follower-retry", 1);
-      try {
-        const receipt = retryStore.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
-        assert.equal(receipt.status, "applied", "post-commit follower failure must not replace PG acceptance");
-        await failureReported;
-        assert.equal(retryStore.readHead()?.revision, 1);
-        assert.equal(retryStore.materializationHealth().state, "failed");
-        assert.equal(retryStore.materializationHealth().pendingWalEvents, 1);
+    await t.test(
+      "failed PG Git publication retries its durable cut without another append",
+      { timeout: 5_000 },
+      async () => {
+        const retryRoot = join(fixture.root, "follower-retry"),
+          retryRepoId = "pg-follower-retry";
+        mkdirSync(retryRoot, { recursive: true });
+        initRepo(retryRoot);
+        const branch = execFileSync("git", ["-C", retryRoot, "symbolic-ref", "--short", "HEAD"], {
+          encoding: "utf8",
+        }).trim();
+        let rejectFirstPublication = true,
+          reportFailure!: () => void,
+          reportRecovery!: () => void;
+        const failureReported = new Promise<void>((resolve) => {
+            reportFailure = resolve;
+          }),
+          recoveryReported = new Promise<void>((resolve) => {
+            reportRecovery = resolve;
+          }),
+          retryStore = makeTaskEventStore({
+            rootDir: retryRoot,
+            repoId: retryRepoId,
+            storage: {
+              ...storage,
+              scope: { ...storage.scope, tenantId: "tenant-follower-retry", projectId: "project-follower-retry" },
+              gitFollower: { branch },
+            },
+            killpoint: (point) => {
+              if (rejectFirstPublication && point === "after_git_commit") {
+                rejectFirstPublication = false;
+                throw new Error("injected first PG Git publication failure");
+              }
+            },
+            onMaterializationHealthChange: (health) => {
+              if (health.state === "failed") reportFailure();
+              else if (health.state === "ok") reportRecovery();
+            },
+          }),
+          event = createdAt("task-pg-follower-retry", 1);
+        try {
+          const receipt = retryStore.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
+          assert.equal(receipt.status, "applied", "post-commit follower failure must not replace PG acceptance");
+          await failureReported;
+          assert.equal(retryStore.readHead()?.revision, 1);
+          assert.equal(retryStore.materializationHealth().state, "failed");
+          assert.equal(retryStore.materializationHealth().pendingWalEvents, 1);
 
-        unlinkSync(marker);
-        await retryStore.settlePendingMaterialization!("replay PG follower after repair");
-        assert.equal(retryStore.followerStatus().worktree.status, "verified");
-        assert.equal(retryStore.followerStatus().worktree.cut?.revision, 1);
-        await recoveryReported;
-        assert.equal(retryStore.materializationHealth().state, "ok");
-        assert.equal(retryStore.materializationHealth().pendingWalEvents, 0);
-        assert.equal(JSON.parse(readFileSync(marker, "utf8")).revision, 1);
-      } finally {
-        await retryStore.drain();
-      }
-    });
+          await recoveryReported;
+          assert.equal(retryStore.followerStatus().git.status, "verified");
+          assert.equal(retryStore.followerStatus().git.cut?.revision, 1);
+          assert.equal(retryStore.followerStatus().worktree.status, "verified");
+          assert.equal(retryStore.followerStatus().worktree.cut?.revision, 1);
+          assert.equal(retryStore.materializationHealth().state, "ok");
+          assert.equal(retryStore.materializationHealth().pendingWalEvents, 0);
+          assert.equal(
+            JSON.parse(
+              execFileSync("git", ["-C", retryRoot, "show", `${branch}:harness/events/segments/manifest.json`], {
+                encoding: "utf8",
+              }),
+            ).cut.revision,
+            1,
+          );
+        } finally {
+          await retryStore.drain();
+        }
+      },
+    );
     await t.test("Git following can advance its cut while authored tree materialization is disabled", async () => {
       const branch = execFileSync("git", ["-C", rootDir, "symbolic-ref", "--short", "HEAD"], {
           encoding: "utf8",
@@ -260,6 +325,110 @@ test("daemon PG storage factories expose canonical lifecycle ports without local
         assert.throws(() => follower.materialize({ paths: ["harness.yaml"] }), /disabled/u);
       } finally {
         await follower.drain();
+      }
+    });
+    for (const named of [false, true])
+      await t.test(`PG without Git rejects stale ${named ? "named-path" : "whole-tree"} materialization`, async () => {
+        const id = `pg-stale-tree-${named}`,
+          root = join(fixture.root, id),
+          configuration = {
+            ...storage,
+            scope: { ...storage.scope, projectId: id },
+            authorityConnectionString: fixture.managementConnectionString,
+          },
+          first = openPersistentWriterEpoch({ stateRoot: root, storage: configuration, holderId: "old" }),
+          second = openPersistentWriterEpoch({ stateRoot: root, storage: configuration, holderId: "new" }),
+          lease = first.acquire(id),
+          old = makeTaskEventStore({
+            rootDir: root,
+            repoId: id,
+            storage: configuration,
+            writerFence: () => lease,
+            withAppendFence: (operation) => first.withAppendFence(id, lease.epoch, lease.holderId, operation),
+          }),
+          logical = "context/epoch.md",
+          target = join(resolveHarnessLayout(root).authoredRoot, logical);
+        try {
+          old.append(docBundle(old, "old cut", 1, "old-cut", logical));
+          old.materialize();
+          second.acquire(id);
+          writeFileSync(target, "operator bytes");
+          const marker = join(resolveHarnessLayout(root).localRoot, "fleet-materialized.json"),
+            before = readFileSync(marker, "utf8");
+          assert.throws(
+            () => old.materialize(named ? { paths: [logical] } : undefined),
+            (error: { code?: string }) => error.code === "writer_epoch_stale",
+          );
+          assert.equal(readFileSync(target, "utf8"), "operator bytes");
+          assert.equal(readFileSync(marker, "utf8"), before);
+        } finally {
+          await old.drain();
+          first.close();
+          second.close();
+        }
+      });
+    await t.test("PG takeover during content preparation cannot regress the successor's tree or marker", async () => {
+      let armed = false,
+        successor: CanonicalEventStore | undefined;
+      const id = "pg-tree-takeover",
+        root = join(fixture.root, id),
+        configuration = {
+          ...storage,
+          scope: { ...storage.scope, projectId: id },
+          authorityConnectionString: fixture.managementConnectionString,
+        },
+        first = openPersistentWriterEpoch({ stateRoot: root, storage: configuration, holderId: "old" }),
+        second = openPersistentWriterEpoch({ stateRoot: root, storage: configuration, holderId: "new" }),
+        lease = first.acquire(id),
+        old = makeTaskEventStore({
+          rootDir: root,
+          repoId: id,
+          storage: configuration,
+          writerFence: () => lease,
+          withAppendFence: (operation) => {
+            // The old body's durable temporary proves preparation finished, before its final rename.
+            if (
+              armed &&
+              readdirSync(join(layout.authoredRoot, "context")).some(
+                (name) => name.startsWith("epoch.md.") && name.endsWith(".tmp"),
+              )
+            ) {
+              armed = false;
+              const next = second.acquire(id);
+              successor = makeTaskEventStore({
+                rootDir: root,
+                repoId: id,
+                storage: configuration,
+                writerFence: () => next,
+                withAppendFence: (publish) => second.withAppendFence(id, next.epoch, next.holderId, publish),
+              });
+              successor.append(docBundle(successor, "new cut", 2, "new-cut", logical));
+              successor.materialize();
+            }
+            return first.withAppendFence(id, lease.epoch, lease.holderId, operation);
+          },
+        }),
+        layout = resolveHarnessLayout(root),
+        logical = "context/epoch.md",
+        target = join(layout.authoredRoot, logical),
+        markerPath = join(layout.localRoot, "fleet-materialized.json");
+      try {
+        old.append(docBundle(old, "old cut", 1, "old-cut", logical));
+        old.materialize();
+        unlinkSync(target);
+        armed = true;
+        assert.throws(
+          () => old.materialize(),
+          (error: { code?: string }) => error.code === "writer_epoch_stale",
+        );
+        assert.equal(armed, false, "takeover completed while the old owner's body was staged");
+        assert.equal(readFileSync(target, "utf8"), "new cut");
+        assert.equal(JSON.parse(readFileSync(markerPath, "utf8")).revision, 2);
+      } finally {
+        await old.drain();
+        await successor?.drain();
+        first.close();
+        second.close();
       }
     });
     await t.test("restart allocates a newer PG epoch and fences the former center", () => {
