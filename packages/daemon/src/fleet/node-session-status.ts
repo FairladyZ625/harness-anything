@@ -4,6 +4,7 @@ import { writeCenterDurableJson } from "./center-transport.ts";
 export interface FleetNodeSessionFact {
   readonly nodeId: string;
   readonly buildCommit: string | null;
+  readonly lastRepoId: string | null;
   /** Last time the transport observed a replication connection, never an ACK timestamp. */
   readonly lastOnlineAt: string | null;
   readonly lastFailure: { readonly code: string; readonly at: string; readonly message: string } | null;
@@ -25,6 +26,7 @@ export function createNodeSessionStatus(input: { readonly file: string; readonly
     empty = (nodeId: string): FleetNodeSessionFact => ({
       nodeId,
       buildCommit: null,
+      lastRepoId: null,
       lastOnlineAt: null,
       lastFailure: null,
     }),
@@ -35,8 +37,9 @@ export function createNodeSessionStatus(input: { readonly file: string; readonly
   return {
     hello: (nodeId: string, buildCommit: string | null): void =>
       write(nodeId, buildCommit === null ? {} : { buildCommit }),
-    online(nodeId: string): void {
-      if (rows.has(nodeId)) write(nodeId, { lastOnlineAt: input.now() });
+    online(nodeId: string, repoId?: string): void {
+      if (rows.has(nodeId))
+        write(nodeId, { lastOnlineAt: input.now(), ...(repoId === undefined ? {} : { lastRepoId: repoId }) });
     },
     failure(nodeId: string, code: string, message: string): void {
       if (rows.has(nodeId)) write(nodeId, { lastFailure: { code, at: input.now(), message: message.slice(0, 4096) } });

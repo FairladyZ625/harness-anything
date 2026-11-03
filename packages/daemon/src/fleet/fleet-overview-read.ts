@@ -242,6 +242,7 @@ export function buildFleetOverview(input: FleetOverviewInput): FleetOverviewResu
       leasesByNode.set(lease.nodeId, list);
     }
   const sessionByNode = new Map(input.nodeSessions.map((row) => [row.nodeId, row]));
+  for (const session of input.nodeSessions) if (session.lastRepoId === input.repoId) nodeIds.add(session.nodeId);
   const replicaByNode = new Map<string, FleetReplicaStatus>();
   for (const replica of input.replicas) {
     nodeIds.add(replica.nodeId);
@@ -703,7 +704,11 @@ export async function readFleetOverviewFromHost(input: {
       };
     }
   };
-  for (const nodeId of new Set([...input.fleetReplicas.map((replica) => replica.nodeId), ...leaseNodes]))
+  for (const nodeId of new Set([
+    ...input.fleetReplicas.map((replica) => replica.nodeId),
+    ...leaseNodes,
+    ...input.nodeSessions.filter((session) => session.lastRepoId === input.repoId).map((session) => session.nodeId),
+  ]))
     nodeOwners.set(nodeId, await ownerOf(nodeId));
   return buildFleetOverview({
     repoId: input.repoId,
@@ -715,7 +720,7 @@ export async function readFleetOverviewFromHost(input: {
       version: process.env.npm_package_version ?? "0.0.0",
       commitSha: daemonBuildStamp().commit,
     },
-    nodeSessions: input.nodeSessions,
+    nodeSessions: input.nodeSessions.filter((session) => !retiredNodes.has(session.nodeId)),
     replicas: input.fleetReplicas.filter((replica) => !retiredNodes.has(replica.nodeId)),
     leaseReads: leaseFacts.ok
       ? {

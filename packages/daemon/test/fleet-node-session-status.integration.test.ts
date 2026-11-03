@@ -200,7 +200,14 @@ test(
     const fixture = await fleetReplicationFixture(t);
     const state = createNodeSessionStatus({ file: path.join(fixture.root, "observations.json"), now: () => first });
     assert.deepEqual(state.snapshot(["legacy-node"], new Set()), [
-      { nodeId: "legacy-node", connected: false, buildCommit: null, lastOnlineAt: null, lastFailure: null },
+      {
+        nodeId: "legacy-node",
+        connected: false,
+        buildCommit: null,
+        lastRepoId: null,
+        lastOnlineAt: null,
+        lastFailure: null,
+      },
     ]);
     state.hello("legacy-node", "a".repeat(40));
     state.hello("legacy-node", null);
@@ -313,6 +320,29 @@ test(
       existsSync(path.join(fixture.stateRoot, "replication-backups")),
       false,
       "authorization precedes any archive creation",
+    );
+    await center.close();
+    const reopened = await fixture.openCenter();
+    const retained = overview(reopened).nodes.find((node) => node.nodeId === "edge-one")!;
+    assert.ok(retained, "a refused node with no slot must remain discoverable after center restart");
+    assert.deepEqual(retained.lastFailure, edge.lastFailure);
+    assert.match((retained.online as { text: string }).text, /^disconnected;/u);
+    const otherRepo = buildFleetOverview({
+      repoId: "unrelated-repo",
+      mode: "remote-center",
+      generatedAt: ended,
+      center: { daemonId: "center", startedAt: first, version: "0.1", commitSha: null },
+      replicas: [],
+      nodeSessions: reopened.status().nodeSessions,
+      leaseReads: { ok: true, leases: [], dispatches: [] },
+      events: [],
+      nodeOwners: new Map(),
+      centerRevision: 0,
+    });
+    assert.deepEqual(
+      otherRepo.nodes.map((node) => node.nodeId),
+      ["center"],
+      "repository discovery stays scoped",
     );
   },
 );

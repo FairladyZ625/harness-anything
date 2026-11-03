@@ -120,24 +120,26 @@ export async function runWalSender(input: {
       }
       continue;
     }
-    input.onActivity?.("sending_commits");
+    const commitProgress = () => input.onActivity?.("sending_commits");
+    commitProgress();
     for (const commit of page.commits) {
       assertOwner();
       const bytes = Buffer.from(JSON.stringify(commit));
       await peer.send({ type: "replica.commit", size: bytes.length });
-      await sendBytes(peer, [bytes], signal);
+      await sendBytes(peer, [bytes], signal, commitProgress);
       const objects = new Map<string, number>();
       for (const row of commit.events)
         for (const claim of replicationContentClaims(JSON.parse(row.eventJson) as PersistedCanonicalEventV1))
           objects.set(claim.sha256, claim.size);
       for (const [sha256, size] of objects) {
         await peer.send({ type: "replica.object", sha256, size });
-        await sendBytes(peer, source.object(sha256), signal);
+        await sendBytes(peer, source.object(sha256), signal, commitProgress);
         await peer.send({ type: "replica.object.end" });
       }
       await peer.send({ type: "replica.commit.end" });
       position = commit.position;
     }
+    commitProgress();
     await peer.send({ type: "replica.progress", head: position! });
     await acknowledge(position!);
     // S advances on every commit, including eventless outcomes. Only the reader's done terminates a page walk.

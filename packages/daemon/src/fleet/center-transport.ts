@@ -309,7 +309,7 @@ export async function serve(
     replicationOwners.set(key, socket);
     replicationRepoId = frame.repoId;
     replicationStarted = true;
-    nodeSessions.online(node);
+    nodeSessions.online(node, frame.repoId);
     socket.once("close", () => {
       if (replicationOwners.get(key) === socket) {
         replicationOwners.delete(key);

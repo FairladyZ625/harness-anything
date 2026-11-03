@@ -217,6 +217,7 @@ test("replica failure is carried to the node row while disconnected", () => {
           connected: false,
           buildCommit: null,
           lastOnlineAt: null,
+          lastRepoId: null,
           lastFailure: { ...syncFailure, at: "2026-11-03T00:00:00.000Z" },
         },
       ],

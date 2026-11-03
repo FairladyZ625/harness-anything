@@ -49,8 +49,7 @@ export function createReplicaStatusTracker(input: {
       activity.set(id, {
         phase,
         since: previous?.phase === phase ? previous.since : now,
-        lastProgressAt:
-          transfer === undefined && phase !== "waiting_for_commit" ? (previous?.lastProgressAt ?? now) : now,
+        lastProgressAt: now,
         bytesSent:
           transfer?.bytesSent ??
           (phase === "awaiting_ack" || phase === "waiting_socket_drain" ? (previous?.bytesSent ?? null) : null),
