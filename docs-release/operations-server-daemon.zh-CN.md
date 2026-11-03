@@ -337,6 +337,9 @@ listener。
 最近卡顿、当前 RSS，以及最后一次主线程指标与采样年龄。主线程卡住时，堆与
 事件循环直方图是最后采样值；独立心跳判断和 RSS 继续更新。
 
+事件循环 mean/p99 来自直方图，原始峰值保留为 `histogramMax`；`max` 同时包含
+既有单调心跳的调度延迟，避免直方图窗口重置漏掉原生阻塞区间。
+
 每 10 秒向 `<userRoot>/logs/daemon-<daemonId>-diagnostics.jsonl` 写入
 `daemon-diagnostics/v1` 结构化记录，复用 lifecycle 日志的 4 MiB 阈值与四代轮转。
 心跳逾期两秒会立即保存卡顿开始证据，恢复后保存观测到的持续时间。Inspector 栈

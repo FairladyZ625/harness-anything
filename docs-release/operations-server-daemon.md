@@ -409,6 +409,10 @@ stalls, current RSS, and the last main-thread metrics sample with its age. Heap
 and event-loop histogram values are last-observed values while the main thread
 is blocked; the independent heartbeat and RSS continue updating.
 
+Event-loop mean and p99 come from the histogram. Its raw peak is `histogramMax`;
+`max` also includes lateness of the existing monotonic heartbeat, so resetting a
+histogram window cannot hide a native-blocking interval.
+
 Every 10 seconds, structured `daemon-diagnostics/v1` records go to
 `<userRoot>/logs/daemon-<daemonId>-diagnostics.jsonl`. They use the lifecycle
 log's 4 MiB rotation threshold and four retained generations. A heartbeat overdue

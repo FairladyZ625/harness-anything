@@ -28,7 +28,8 @@ export async function openDaemonDiagnostics(options: DaemonDiagnosticsOptions) {
       },
     });
   let nextId = 0,
-    closed = false;
+    closed = false,
+    heartbeatDelayMax = 0;
   const send = (message: object): void => {
     if (!closed) worker.postMessage(message);
   };
@@ -61,10 +62,14 @@ export async function openDaemonDiagnostics(options: DaemonDiagnosticsOptions) {
       };
     },
   };
-  const pulse = (): void => {
-    Atomics.store(heartbeat, 0, process.hrtime.bigint() / 1_000_000n);
-  };
-  pulse();
+  const heartbeatMs = options.heartbeatMs ?? 250,
+    nowMs = (): bigint => process.hrtime.bigint() / 1_000_000n,
+    heartbeatDelay = (): number => Math.max(0, Number(nowMs() - Atomics.load(heartbeat, 0)) - heartbeatMs),
+    pulse = (): void => {
+      heartbeatDelayMax = Math.max(heartbeatDelayMax, heartbeatDelay());
+      Atomics.store(heartbeat, 0, nowMs());
+    };
+  Atomics.store(heartbeat, 0, nowMs());
   histogram.enable();
   const sampleMetrics = (): void => {
     const memory = process.memoryUsage();
@@ -79,14 +84,18 @@ export async function openDaemonDiagnostics(options: DaemonDiagnosticsOptions) {
         eventLoopDelayMs: {
           mean: Number.isFinite(histogram.mean) ? histogram.mean / 1e6 : 0,
           p99: histogram.percentile(99) / 1e6,
-          max: histogram.max / 1e6,
+          // Histogram timer/reset ordering can miss a native-blocking interval. The existing
+          // heartbeat also measures scheduling delay, without adding another timer or probe.
+          max: Math.max(histogram.max / 1e6, heartbeatDelayMax, heartbeatDelay()),
+          histogramMax: histogram.max / 1e6,
         },
       },
     });
     histogram.reset();
+    heartbeatDelayMax = 0;
   };
   sampleMetrics();
-  const timer = setInterval(pulse, options.heartbeatMs ?? 250),
+  const timer = setInterval(pulse, heartbeatMs),
     metrics = setInterval(() => setImmediate(sampleMetrics), options.metricsIntervalMs ?? 10_000);
   timer.unref();
   metrics.unref();
