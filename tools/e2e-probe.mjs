@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 import { randomUUID } from "node:crypto";
-import { once } from "node:events";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -180,9 +179,9 @@ export async function runE2EProbeJourney({
 async function closeElectronApp(electronApp) {
   const child = electronApp.process();
   if (child.exitCode !== null || child.signalCode !== null) return;
-  const exited = once(child, "exit");
-  child.kill("SIGKILL");
-  await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 5_000))]);
+  // Playwright launches Electron through a shell on Windows, so killing this child would only
+  // terminate the wrapper. Close through the launcher API and wait for the app's process tree.
+  await electronApp.close();
 }
 
 async function main(argv) {
