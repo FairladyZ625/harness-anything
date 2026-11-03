@@ -10,6 +10,13 @@ const taskId = "task-private-example",
   commitSha = "2".repeat(40),
   baseSha = "3".repeat(40),
   template = readFileSync(new URL("../../../.github/pull_request_template.md", import.meta.url), "utf8"),
+  lightweightCloseout = readFileSync(
+    new URL(
+      "../../../packages/preset/assets/software-coding/presets/standard-task/templates/task.closeout.lightweight/en-US.md",
+      import.meta.url,
+    ),
+    "utf8",
+  ),
   summary = "The renderer fills this summary from the task closeout.",
   whatChanged = "- Read the closeout sections.\n- Fill the four PR sections.",
   verification = "- Isolated renderer test passed.",
@@ -44,11 +51,11 @@ Not emitted into the PR body.
     productionDelta: { baseSha, added: 5, deleted: 2, changed: [], unclassified: [] },
   };
 
-function receipt(submission) {
+function receipt(submission, metadata = {}) {
   return {
     ok: true,
     evidence: JSON.stringify({
-      task: { taskId, iteration: 1 },
+      task: { taskId, iteration: 1, metadata },
       executions: [
         { taskId, iteration: 0, submittedAt: "2026-10-20T00:00:00.000Z", submission: { commitSha: firstSha } },
         {
@@ -94,6 +101,32 @@ test("PR renderer fills the four authored sections from closeout and passes chec
   assert.equal((body.match(/## Delivery Facts/gu) ?? []).length, 1);
   assert.doesNotMatch(body, new RegExp(taskId, "u"), "the renderer does not add the task id on its own");
   assertPassesPrBodyCheck(body);
+});
+
+test("PR renderer maps a lightweight closeout onto the four template sections", () => {
+  const body = renderTaskPrBody({
+    taskId,
+    receipt: receipt(codeSubmission, { profileId: "lightweight" }),
+    template,
+    closeout: lightweightCloseout,
+  });
+  assert.match(body, /## What Changed\n\nSummarize the completed behavior change\./u);
+  assert.match(body, /## Verification\n\nOne test command and its receipt:/u);
+  assert.match(body, /## Residual Risk\n\nAccepted residual risks are recorded in the Verification section\./u);
+  assertPassesPrBodyCheck(body);
+});
+
+test("a lightweight closeout without Summary cannot invent What Changed", () => {
+  assert.throws(
+    () =>
+      renderTaskPrBody({
+        taskId,
+        receipt: receipt(codeSubmission, { profileId: "lightweight" }),
+        template,
+        closeout: "# Closeout\n\n## Verification\n\nRan the test.\n",
+      }),
+    /closeout\.md is missing required section\(s\): Summary, What Changed/u,
+  );
 });
 
 test("PR renderer names every missing closeout section and invents no placeholder prose", () => {
