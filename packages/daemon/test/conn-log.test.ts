@@ -374,3 +374,35 @@ test("a request record carries OpenTelemetry span fields, stage windows, bytes a
   assert.equal(otel.endTimeUnixNano, String(BigInt(Date.parse("2026-11-04T01:00:01.000Z")) * 1_000_000n));
   assert.ok(Array.isArray(otel.attributes));
 });
+
+test("a Fleet transport record persists through the same conn-log sink", async (t) => {
+  const userRoot = tempRoot(t),
+    log = openDaemonConnLog({ userRoot, daemonId: "test-daemon", now: at("2026-11-04T01:00:03Z") });
+  log.request({
+    conn: "fleet:node-7",
+    transport: "fleet-tls",
+    method: "repo.task.dispatches",
+    repoId: "repo-a",
+    actor: "node:node-7",
+    nodeId: "node-7",
+    traceId: "c".repeat(32),
+    spanId: "d".repeat(16),
+    requestBytes: 300,
+    replyBytes: 900,
+    frameReceivedAt: Date.parse("2026-11-04T01:00:02.000Z"),
+    handlerStartedAt: Date.parse("2026-11-04T01:00:02.001Z"),
+    repliedAt: Date.parse("2026-11-04T01:00:02.010Z"),
+    startedAt: Date.parse("2026-11-04T01:00:02.001Z"),
+    durationMs: 9,
+    ok: true,
+    code: null,
+    detail: null,
+  });
+  await log.settle();
+  const record = recordsOf(userRoot).find((value) => value.event === "request")!;
+  assert.equal(record.transport, "fleet-tls");
+  assert.equal(record.nodeId, "node-7");
+  assert.equal(record.requestBytes, 300);
+  assert.equal(record.replyBytes, 900);
+  assert.equal(record.traceId, "c".repeat(32));
+});
