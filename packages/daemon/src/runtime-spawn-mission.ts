@@ -36,6 +36,7 @@ import {
   latestRuntimeContinuationSeed,
 } from "./runtime-continuation-context.ts";
 import { readDispatchRuling } from "./runtime-ruling.ts";
+import { claudeWorkspaceWriteCli } from "./runtime-inventory.ts";
 
 export function resolveRuntimeCwd(root: string, value: unknown): string {
   if (!value || typeof value !== "object" || Array.isArray(value))
@@ -106,8 +107,26 @@ export function assembleUnboundPrompt(mission: string, role?: AgentRole, private
 export function dispatchMissionForPermission(
   mission: string,
   permissionMode: string | undefined,
-  runtime?: { readonly kindId: string; readonly platform: NodeJS.Platform; readonly reviewer: boolean },
+  runtime?: {
+    readonly kindId: string;
+    readonly platform: NodeJS.Platform;
+    readonly reviewer: boolean;
+    readonly taskBound?: boolean;
+  },
 ): string {
+  if (permissionMode === "workspace-write" && runtime?.kindId === "claude" && runtime.taskBound)
+    return [
+      mission,
+      "",
+      "# Workspace-write CLI access",
+      `Approved CLI entries: ${claudeWorkspaceWriteCli.prefixes.map((prefix) => `\`${prefix}\``).join(", ")}.`,
+      `Approved subcommands: ${claudeWorkspaceWriteCli.commands.map((command) => `\`${command}\``).join(", ")}.`,
+      "Use the daemon-installed `ha` on PATH; never use a repository-local node or npx entry for daemon access.",
+      "The native Bash sandbox automatically approves commands within its filesystem and network boundary, including tests and git commits.",
+      "The approved ha subcommands run outside that sandbox to reach the daemon; the daemon enforces this dispatch's task write scope.",
+      "Read canonical ledger documents outside the working directory with `ha doc show --path <ledger path> --raw`.",
+      "Run ha calls, tests, git add, and git commit as separate Bash calls; compound commands can require approval.",
+    ].join("\n");
   if (permissionMode !== "read-only") return mission;
   return [
     mission,

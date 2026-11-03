@@ -26,6 +26,17 @@ import {
 
 const daemonRoute = { userRoot: "/tmp/ha/user", daemonId: "default", endpoint: "/tmp/ha/user/daemon.sock" };
 
+test("unbound Claude prompts do not carry task delivery permission guidance", () => {
+  assert.equal(
+    dispatchMissionForPermission("Inspect the repository", "workspace-write", {
+      kindId: "claude",
+      platform: process.platform,
+      reviewer: false,
+    }),
+    "Inspect the repository",
+  );
+});
+
 test("continuation context compares the settled HEAD and includes only the bounded conclusion", () => {
   const context = continuationContext(
     {

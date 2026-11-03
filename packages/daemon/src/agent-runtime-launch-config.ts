@@ -16,7 +16,7 @@ import {
   available,
   unavailable,
 } from "./agent-runtime-instance-values.ts";
-import { runtimeKindForId, type RuntimeProviderDeclaration } from "./runtime-inventory.ts";
+import { claudeWorkspaceWriteSandbox, runtimeKindForId, type RuntimeProviderDeclaration } from "./runtime-inventory.ts";
 
 // Platform-derived isolation environment. POSIX keeps HOME/TMPDIR/XDG_RUNTIME_DIR
 // semantics; Windows derives the same guarantees from USERPROFILE/TEMP/APPDATA and
@@ -67,7 +67,19 @@ export function launchArgs(
   permissionMode: RuntimePermissionMode | undefined = undefined,
   fast = false,
   callbackRelayPath?: string,
+  platform: NodeJS.Platform = process.platform,
 ): string[] {
+  if (
+    config.kindId === "claude" &&
+    permissionMode === "workspace-write" &&
+    platform !== "darwin" &&
+    platform !== "linux"
+  )
+    throw runtimeInstanceError(
+      "claude_workspace_sandbox_unavailable",
+      "Claude workspace-write requires its native Bash sandbox, available on macOS and Linux/WSL2. " +
+        "Choose a supported execution host or a different runtime/permission mode; unsandboxed execution is not allowed.",
+    );
   const declaration = runtimeKindForId(config.kindId),
     launch: RuntimeProviderDeclaration["launch"] = declaration.launch,
     callbackProfileParent =
@@ -77,6 +89,13 @@ export function launchArgs(
         launch.permissionArgs[permissionMode])
       : [];
   return launch.argumentTemplate.flatMap((token) => {
+    if (token === "$claude-settings")
+      return [
+        JSON.stringify({
+          attribution: { commit: "", pr: "", sessionUrl: false },
+          ...(permissionMode === "workspace-write" ? { sandbox: claudeWorkspaceWriteSandbox } : {}),
+        }),
+      ];
     if (token === "$model") return [model];
     if (token === "$prompt") return [prompt];
     // A CLI --sandbox override selects Codex's legacy policy and discards named profiles.
