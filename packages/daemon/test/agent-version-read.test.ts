@@ -201,15 +201,16 @@ test("a stored declaration this cut cannot interpret is unavailable, not missing
   // problem and send the caller to install a different agent; the honest answer is that this
   // agent's versions cannot be read until it is reinstalled.
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-version-degraded-"));
+  let projection: ReturnType<typeof makeTaskProjection> | undefined;
   try {
     appendLegacyAgentDeclaration(rootDir);
-    const store = makeTaskEventStore({ repoId: "agent-entities", rootDir }),
-      projection = makeTaskProjection({ rootDir, eventStore: store });
+    const store = makeTaskEventStore({ repoId: "agent-entities", rootDir });
+    projection = makeTaskProjection({ rootDir, eventStore: store });
     projection.catchUp();
     assert.equal(projection.getEntity("agent", "legacy-worker")?.freshness, "unknown", "fixture sanity");
     for (const read of [
-      () => readAgentHistory({ projection, store }, { agentId: "legacy-worker" }),
-      () => readAgentVersion({ projection, store }, { agentId: "legacy-worker", revision: 1 }),
+      () => readAgentHistory({ projection: projection!, store }, { agentId: "legacy-worker" }),
+      () => readAgentVersion({ projection: projection!, store }, { agentId: "legacy-worker", revision: 1 }),
     ])
       assert.throws(read, (error: Error & { readonly code?: string }) => {
         assert.equal(error.code, "agent_version_unavailable");
@@ -218,7 +219,7 @@ test("a stored declaration this cut cannot interpret is unavailable, not missing
         return true;
       });
   } finally {
-    projection.close();
+    projection?.close();
     closeSqliteEventStoresUnder(rootDir);
     rmSync(rootDir, { recursive: true, force: true });
   }
