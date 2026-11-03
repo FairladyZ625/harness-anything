@@ -37,11 +37,11 @@ export function createDurableFollowerPublisher(input: {
     };
   };
   const publish = (request?: MaterializationRequest) => {
-    // Even an already-certified cut or an empty named selection must reject a stale owner.
-    // Each actual mutation rechecks ownership; no slow publication I/O runs in this transaction.
-    if (!request?.preview) input.withFence?.(() => undefined);
     const receipt = input.publish(request);
     if (!request?.preview) {
+      // A takeover after the last mutation (or on a no-op certified cut) must not report success.
+      // Actual mutations fence themselves; no publication I/O runs in this final ownership check.
+      input.withFence?.(() => undefined);
       lastError = undefined;
       checkpointAt = new Date().toISOString();
       retryDelay = initialRetryMs;
