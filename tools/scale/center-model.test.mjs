@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { extractTrafficModel, replaySchedule, summarizeRequests } from "./center-model.mjs";
+import { runCenterBenchmark, markdownReport } from "./center-bench.mjs";
 
 const log = (at, method, command = method, conn = "1") => ({
   schema: "daemon-conn-log/v1",
@@ -78,4 +79,14 @@ test("reports distinguish failed requests and generator lag from successful read
   assert.equal(result.failureExposureMs, 110);
   assert.ok(Math.abs(result.generatorLag.p99Ms - 5) < 0.01);
   assert.equal(result.successfulRequestsPerSecond, 10);
+});
+
+test("setup rejection leaves a machine report with unmeasured capacity instead of losing the run", async () => {
+  const report = await runCenterBenchmark({ nodes: [1], scale: 0 });
+  assert.match(report.setupError.message, /scale/u);
+  assert.equal(report.ledger, null);
+  assert.equal(report.attachMs, null);
+  assert.deepEqual(report.capacity, []);
+  assert.deepEqual(report.faults, []);
+  assert.match(markdownReport(report), /not measured because setup did not complete/u);
 });

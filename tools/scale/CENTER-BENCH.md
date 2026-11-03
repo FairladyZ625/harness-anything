@@ -101,6 +101,9 @@ default model is an explicitly synthetic calibration, not a measured traffic cla
 base, operating system, Node version and scale accompany every report. `CENTER_PROGRESS` frames
 include completed curve points; `CENTER_BENCH_REPORT` contains the final machine-readable report
 in the dispatcher's returned stdout. `markdownReport` renders the capacity table and fault evidence.
+If fixture setup fails, the report retains its source, error, completed ledger metadata and attach
+resource samples, with empty capacity/fault arrays. The standalone CLI saves both reports and
+exits nonzero; missing measurements are not success values.
 
 Inside an owner-prepared isolated environment, the equivalent standalone command is:
 

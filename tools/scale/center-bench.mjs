@@ -30,6 +30,17 @@ export function defaultTrafficModel() {
 }
 
 export function markdownReport(report) {
+  if (report.setupError)
+    return [
+      "# Center benchmark: setup failed",
+      "",
+      `Source: ${JSON.stringify(report.source)}`,
+      `Error: ${JSON.stringify(report.setupError)}`,
+      `Ledger: ${JSON.stringify(report.ledger)}`,
+      `Attach samples: ${JSON.stringify(report.attachSamples)}`,
+      "Capacity and fault scenarios were not measured because setup did not complete.",
+      "",
+    ].join("\n");
   const lines = [
     "# Center benchmark",
     "",
@@ -72,7 +83,6 @@ export async function runCenterBenchmark({
     import("./center-replay.mjs"),
     import("./center-campaign.mjs"),
   ]);
-  const fixture = await createCenterFixture({ nodes: Math.max(...nodes), scale, seed, track, onProgress });
   const report = {
     schema: "center-bench/v1",
     source: {
@@ -93,9 +103,9 @@ export async function runCenterBenchmark({
     scale,
     durationMs,
     model: { methods: model.methods, classes: model.classes, rate: model.rate },
-    ledger: fixture.ledger,
-    attachMs: fixture.attachMs,
-    attachSamples: fixture.attachSamples,
+    ledger: null,
+    attachMs: null,
+    attachSamples: [],
     capacity: [],
     faults: [],
     limitations: [
@@ -108,6 +118,26 @@ export async function runCenterBenchmark({
       "Authorization uses the repository Keycloak fixture and one owner with many device sessions; real IAM capacity is not measured.",
     ],
   };
+  let fixture;
+  try {
+    fixture = await createCenterFixture({
+      nodes: Math.max(...nodes),
+      scale,
+      seed,
+      track,
+      onProgress: (row) => {
+        if (row.phase === "ledger-ready") report.ledger = row.ledger;
+        if (!fixture && row.phase === "attach-resources") report.attachSamples.push(row.sample);
+        onProgress(row);
+      },
+    });
+    report.ledger = fixture.ledger;
+    report.attachMs = fixture.attachMs;
+    report.attachSamples = fixture.attachSamples;
+  } catch (error) {
+    report.setupError = { code: error.code ?? null, message: error.message };
+    return report;
+  }
   try {
     for (const count of nodes) {
       onProgress({ phase: "capacity", nodes: count });
@@ -212,6 +242,7 @@ async function main() {
     });
     writeFileSync(values.out, JSON.stringify(report, null, 2) + "\n");
     writeFileSync(values.out + ".md", markdownReport(report));
+    if (report.setupError) process.exitCode = 1;
   } else throw new Error("expected model or run");
 }
 
