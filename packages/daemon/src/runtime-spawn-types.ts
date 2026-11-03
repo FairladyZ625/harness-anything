@@ -256,8 +256,8 @@ export type ActiveRuntime = {
   lossSignal: string | null;
   lossExitCode: number | null;
   toolCallObserved: boolean;
-  /** Null until a local command is attempted; true once any local command succeeds. */
-  localCommandSucceeded: boolean | null;
+  /** True once any local command succeeds. */
+  localCommandSucceeded: boolean;
   nonEmptyAgentOutputObserved: boolean;
   providerUsageEmpty: boolean;
   providerFault: RuntimeProviderFault | null;

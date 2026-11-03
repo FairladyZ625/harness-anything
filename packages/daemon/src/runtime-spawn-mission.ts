@@ -103,7 +103,11 @@ export function assembleUnboundPrompt(mission: string, role?: AgentRole, private
   return [agentRolePrompt(role), ...(privateReads === null ? [] : [privateReads]), "# Mission", mission].join("\n\n");
 }
 
-export function dispatchMissionForPermission(mission: string, permissionMode: string | undefined): string {
+export function dispatchMissionForPermission(
+  mission: string,
+  permissionMode: string | undefined,
+  runtime?: { readonly kindId: string; readonly platform: NodeJS.Platform; readonly reviewer: boolean },
+): string {
   if (permissionMode !== "read-only") return mission;
   return [
     mission,
@@ -113,6 +117,11 @@ export function dispatchMissionForPermission(mission: string, permissionMode: st
     "Repository writes and daemon-ledger commands are unavailable in this runtime.",
     "Do not call `ha task progress append`, `ha fact record`, or `ha doc sync --submit`;",
     "return the complete report in final stdout for the dispatcher to persist.",
+    ...(runtime?.kindId === "codex" && runtime.platform === "win32" && runtime.reviewer
+      ? [
+          "For every local command, set the Codex `exec_command` tool's `shell` field to `cmd.exe` and use cmd syntax (for example `type`, `dir`, and `findstr`). The Windows read-only sandbox cannot launch its default PowerShell process.",
+        ]
+      : []),
   ].join("\n");
 }
 

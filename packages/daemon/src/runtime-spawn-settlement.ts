@@ -239,8 +239,22 @@ export async function publishExit(
         reviewResultMissing = true;
       }
     }
+    // Completion witnesses (including a recovered Review) cannot replace local evidence.
+    // Apply this once after witness recovery, preserving failures and registration diagnostics.
+    const reviewerCommandEvidenceMissing =
+      !cancelled &&
+      !reviewSuperseded.superseded &&
+      outcome === "succeeded" &&
+      active.kindId === "codex" &&
+      active.role === "reviewer" &&
+      active.permissionMode === "read-only" &&
+      !active.localCommandSucceeded;
+    if (reviewerCommandEvidenceMissing) outcome = "failed";
+    const attemptClassification = reviewerCommandEvidenceMissing
+      ? { ...classifiedAttempt, classification: "gate_red" as const }
+      : classifiedAttempt;
     const attemptOutcome = {
-      ...classifiedAttempt,
+      ...attemptClassification,
       // Provider failures are the classifications a fallback continuation carries forward, and
       // their reason is a raw diagnostic excerpt — shape those into one line plus the dispatch
       // stream reference. Worker-stop and gate-red reasons stay byte-identical to before.
@@ -248,11 +262,13 @@ export async function publishExit(
         ? reviewSuperseded.reason!
         : reviewResultMissing && !providerAlreadyFailed
           ? `Review ${reviewId} was not registered before reviewer settlement.`
-          : isProviderFailureClassification(classifiedAttempt.classification)
-            ? attemptOutcomeReason(classifiedAttempt.reason, active.stream.ref)
-            : outcome === "succeeded"
-              ? "Worker completed the attempt successfully."
-              : String(scrubProviderValue(classifiedAttempt.reason)).slice(0, 1024),
+          : reviewerCommandEvidenceMissing
+            ? "Read-only reviewer produced no successful local command evidence."
+            : isProviderFailureClassification(attemptClassification.classification)
+              ? attemptOutcomeReason(attemptClassification.reason, active.stream.ref)
+              : outcome === "succeeded"
+                ? "Worker completed the attempt successfully."
+                : String(scrubProviderValue(attemptClassification.reason)).slice(0, 1024),
     };
     const endedAt = context.input.now(),
       exitHead = active.task ? await currentWorktreeHead(active.cwd) : null,

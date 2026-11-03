@@ -38,7 +38,7 @@ for (const scenario of [
   },
   { name: "successful local retry after a blocked command", items: [blocked, read], expected: "succeeded" },
   { name: "failed command after a successful local read", items: [read, blocked], expected: "succeeded" },
-  { name: "no local command attempted", items: [], expected: "succeeded" },
+  { name: "no local command attempted", items: [], expected: "failed" },
   { name: "another provider", kindId: "claude", items: [blocked], expected: "succeeded" },
   { name: "implementation worker", role: "worker", items: [blocked], expected: "succeeded" },
 ] as const)

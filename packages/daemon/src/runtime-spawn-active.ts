@@ -100,7 +100,7 @@ export function createActiveRuntime(base: ActiveRuntimeBase): ActiveRuntime {
     lossSignal: null,
     lossExitCode: null,
     toolCallObserved: false,
-    localCommandSucceeded: null,
+    localCommandSucceeded: false,
     nonEmptyAgentOutputObserved: false,
     providerUsageEmpty: false,
     providerFault: null,

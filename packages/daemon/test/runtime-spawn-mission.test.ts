@@ -14,6 +14,7 @@ import {
   assembleScheduledMission,
   assembleTaskMission,
   assembleUnboundPrompt,
+  dispatchMissionForPermission,
   explicitPromptMission,
   livingDeliverableProtocol,
   resolveRuntimeMission,
@@ -509,6 +510,32 @@ test("implementation missions use the escalation CLI and reviewers receive only 
   assert.doesNotMatch(reviewerMission, /ha task escalate/u);
   // Unbound prompts have no task package, so there is nowhere to write the ruling artifact.
   assert.doesNotMatch(explicitPromptMission(null, null, "Free-form prompt.", "medium"), /无人值守会话/u);
+});
+
+test("Windows Codex read-only reviewers are directed to the runnable cmd shell", () => {
+  const codex = dispatchMissionForPermission("Review the frozen cut.", "read-only", {
+      kindId: "codex",
+      platform: "win32",
+      reviewer: true,
+    }),
+    otherProvider = dispatchMissionForPermission("Review the frozen cut.", "read-only", {
+      kindId: "claude",
+      platform: "win32",
+      reviewer: true,
+    }),
+    worker = dispatchMissionForPermission("Inspect the worktree.", "read-only", {
+      kindId: "codex",
+      platform: "win32",
+      reviewer: false,
+    }),
+    nonWindows = dispatchMissionForPermission("Review the frozen cut.", "read-only", {
+      kindId: "codex",
+      platform: "darwin",
+      reviewer: true,
+    });
+  assert.match(codex, /`shell` field to `cmd\.exe`/u);
+  assert.match(codex, /use cmd syntax/u);
+  for (const prompt of [otherProvider, worker, nonWindows]) assert.doesNotMatch(prompt, /cmd\.exe/u);
 });
 
 test("every task-bound mission sends progress to a file and keeps the rule model-neutral", () => {

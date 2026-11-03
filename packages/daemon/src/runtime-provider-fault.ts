@@ -234,18 +234,6 @@ export function classifyRuntimeExit(
           ? "Worker reported failure after tool activity."
           : `Worker stopped after tool activity with provider exit ${String(exitCode)}.`),
     );
-  if (
-    active.kindId === "codex" &&
-    active.role === "reviewer" &&
-    active.permissionMode === "read-only" &&
-    active.localCommandSucceeded !== true &&
-    (active.localCommandSucceeded === false ||
-      /\b(?:exec_command|shell(?:_command)?) failed: CreateProcess\b/u.test(active.errorBuffer))
-  )
-    return {
-      ...classified("gate_red", "Read-only reviewer produced no successful local command evidence."),
-      outcome: "failed",
-    };
   return classified("worker_stop", workerStopReason(active, outcome));
 }
 

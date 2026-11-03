@@ -752,6 +752,12 @@ export async function fixture(
       const pending = pendingProviders.at(-1)!;
       pending.output?.(`${JSON.stringify({ type: "thread.started", thread_id: "review-provider-session" })}\n`);
       pending.output?.(
+        `${JSON.stringify({
+          type: "item.completed",
+          item: { type: "command_execution", status: "completed", exit_code: 0, aggregated_output: "review evidence" },
+        })}\n`,
+      );
+      pending.output?.(
         `${JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: resultText } })}\n`,
       );
       pending.output?.(`${JSON.stringify({ type: "turn.completed", usage: {} })}\n`);
@@ -771,6 +777,12 @@ export async function fixture(
       }
       const pending = pendingProviders.at(-1)!;
       pending.output?.(`${JSON.stringify({ type: "thread.started", thread_id: "review-provider-session" })}\n`);
+      pending.output?.(
+        `${JSON.stringify({
+          type: "item.completed",
+          item: { type: "command_execution", status: "completed", exit_code: 0, aggregated_output: "review evidence" },
+        })}\n`,
+      );
       pending.output?.(
         `${JSON.stringify({ type: "item.completed", item: { type: "agent_message", text: resultText } })}\n`,
       );
