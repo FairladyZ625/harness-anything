@@ -70,7 +70,12 @@ export async function createCenterFixture({
         new Promise((resolve, reject) => {
           const id = ++sequence;
           waiters.set(id, { resolve, reject });
-          child.send({ command, id });
+          child.send({ command, id }, (error) => {
+            if (error) {
+              waiters.delete(id);
+              reject(error);
+            }
+          });
         }),
       { timeoutMs: 30_000, label: `center IPC ${command}` },
     );

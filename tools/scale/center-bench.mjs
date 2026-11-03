@@ -9,16 +9,28 @@ import { readTrafficLogs, extractTrafficModel } from "./center-model.mjs";
 export function defaultTrafficModel() {
   // Calibration only. A measured baseline must supply a model extracted from connection logs.
   const records = [];
+  const commands = [
+    ["repo.agentRuntime.overview", "repo.agentRuntime.overview"],
+    ["repo.task.run", "fact-record"],
+    ["observe.tail", "observe.tail"],
+    ["repo.task.read", "task-show"],
+    ["repo.agenda.read", "repo.agenda.read"],
+    ["repo.agentRuntime.sessions.read", "repo.agentRuntime.sessions.read"],
+    ["repo.tasks.list", "repo.tasks.list"],
+    ["daemon.gui.system.read", "daemon.gui.system.read"],
+    ["daemon.status", "daemon.status"],
+    ["observe.tail", "observe.tail"],
+  ];
   for (let index = 0; index < 20; index++) {
-    const method = index % 10 === 1 ? "repo.task.run" : index % 2 ? "observe.tail" : "repo.agentRuntime.overview";
+    const [method, action] = commands[index % commands.length];
     for (const [offset, name, command] of [
       [0, "protocol.hello", "protocol.hello"],
-      [1, method, method === "repo.task.run" ? "fact-record" : method],
+      [1, method, action],
     ]) {
       records.push({
         schema: "daemon-conn-log/v1",
         event: "request",
-        at: new Date(index * 500 + offset).toISOString(),
+        at: new Date(index * 250 + offset).toISOString(),
         method: name,
         command,
         conn: String(index),
@@ -61,7 +73,11 @@ export function markdownReport(report) {
     );
   lines.push("", "## Fault observations", "");
   for (const row of report.faults)
-    lines.push(`- ${row.scenario}: ${JSON.stringify(row.observations)}; unavailable ${row.unavailableMs} ms.`);
+    lines.push(
+      `- ${row.scenario}: ${JSON.stringify(row.observations ?? row.error)}; unavailable ${row.unavailableMs} ms.`,
+    );
+  if (report.campaignError)
+    lines.push("", `Campaign stopped: ${JSON.stringify(report.campaignError)}; remaining nodes were not measured.`);
   lines.push("", "## Limits", "", ...report.limitations.map((line) => `- ${line}`));
   return lines.join("\n") + "\n";
 }
@@ -105,6 +121,8 @@ export async function runCenterBenchmark({
     seed,
     scale,
     durationMs,
+    requestedNodes: [...nodes],
+    requestedScenarios: [...(scenarios ?? campaign.faultScenarios)],
     model: { methods: model.methods, classes: model.classes, rate: model.rate },
     ledger: null,
     attachMs: null,
@@ -124,6 +142,8 @@ export async function runCenterBenchmark({
   };
   let fixture;
   try {
+    for (const name of scenarios ?? [])
+      if (!campaign.faultScenarios.includes(name)) throw new Error(`unknown fault scenario: ${name}`);
     fixture = await createCenterFixture({
       nodes: Math.max(...nodes),
       scale,
@@ -183,6 +203,9 @@ export async function runCenterBenchmark({
       }
       onProgress({ phase: "fault-result", result: report.faults.at(-1) });
     }
+    return report;
+  } catch (error) {
+    report.campaignError = { code: error.code ?? null, message: error.message };
     return report;
   } finally {
     report.recordedTraffic = await fixture.close();
@@ -249,7 +272,7 @@ async function main() {
     });
     writeFileSync(values.out, JSON.stringify(report, null, 2) + "\n");
     writeFileSync(values.out + ".md", markdownReport(report));
-    if (report.setupError) process.exitCode = 1;
+    if (report.setupError || report.campaignError) process.exitCode = 1;
   } else throw new Error("expected model or run");
 }
 

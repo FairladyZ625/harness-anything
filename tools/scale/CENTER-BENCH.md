@@ -4,6 +4,8 @@ The bench starts one dedicated product daemon and one load generator. Up to 1,00
 TLS replication sinks run in the generator process. Each campaign owns a temporary repository,
 user root, certificate, ports and sockets, and closes them on completion. It never connects to a
 resident daemon. Product code is unchanged.
+RPC replay uses the daemon's local JSON-RPC socket. Fleet admission, replication, backups and
+document uploads use TLS. WAN latency and per-request remote-proxy authorization are unverified.
 
 Run the two registered tests through your repository's isolated-test dispatcher:
 
@@ -24,7 +26,8 @@ documents are 10, 50 and 286 MB at scale one; scale ten repeats that size distri
 making a string larger than the supported runtime permits. Calibration profiles below one scale
 their large documents down as well.
 
-The production preset compiler creates task bootstrap events. Remaining events write synthetic
+The production preset compiler creates task bootstrap events. Four canonical runtime events seed
+one installation, dispatch/definition and exited session, without starting an agent. Remaining events write synthetic
 JSON documents with the production opaque-text policy; later rewrites retain the same content.
 The production SQLite append boundary validates and persists these events. Fixture construction
 batches up to 256 events per transaction and excludes command/CLI overhead. Its output is an
@@ -74,6 +77,8 @@ covers representative task/document reads, a fact write, and GUI polling (`obser
 parameter mappings. Do not pass production request payloads or credentials.
 The default GUI calibration keeps one events cursor per modeled node: it bootstraps history,
 then passes the returned live cursor to follow requests, matching the GUI's transport behavior.
+It also exercises every method in the supplied measured baseline window. Session-detail lookups
+use the terminal synthetic session; one sample does not reproduce a populated runtime history.
 Trace arrivals remain open-loop; GUI rendering, page-driven catch-up cadence and provider discovery
 are not measured. Custom bindings retain control of their own payloads.
 
@@ -97,6 +102,10 @@ node <isolation-dispatcher> --target server \
 ```
 
 `FLEET_STRESS_CENTER_MODEL` carries base64-encoded model JSON in the same dispatcher call. The
+optional `FLEET_STRESS_CENTER_SCENARIOS` selects comma-separated faults; an empty value measures
+capacity only. For example, `--test-env FLEET_STRESS_CENTER_SCENARIOS=reconnect` selects just the
+reconnect fault after the configured capacity points. Unknown names fail before fixture creation.
+The
 default model is an explicitly synthetic calibration, not a measured traffic claim. Source HEAD,
 base, operating system, Node version and scale accompany every report. `CENTER_PROGRESS` frames
 include completed curve points; `CENTER_BENCH_REPORT` contains the final machine-readable report
@@ -106,6 +115,11 @@ resource samples, with empty capacity/fault arrays. The standalone CLI saves bot
 exits nonzero; missing measurements are not success values.
 Cleanup retains the last 100 product lifecycle records and the bounded child-stderr buffer, so a
 background attach failure after the initial deadline is not lost when the temporary root is removed.
+Failed fault controls retain diagnostic samples and business probes. A capacity-stage exception
+retains completed points and a `campaignError`; the CLI exits nonzero for incomplete setup or capacity.
+The short integration calibration asserts successful fault plumbing. Opt-in pressure runs assert
+report completeness and pilot wire composition; failed fault outcomes remain measurements rather
+than SLO passes. Always inspect errors, outage duration and invalid-point reasons.
 
 Inside an owner-prepared isolated environment, the equivalent standalone command is:
 

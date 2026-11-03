@@ -53,7 +53,8 @@ export function syntheticParams(row, fixture, serial = 0, bindings = {}) {
   if (row.method === "repo.agentRuntime.overview") return { repo, payload: { limit: 20 } };
   if (row.method === "repo.task.dispatches") return { repo, payload: { taskId } };
   if (row.method === "repo.tasks.assignmentDirectory") return { repo, payload: { taskId } };
-  if (row.method === "repo.agentRuntime.sessions.read") return { repo, payload: {} };
+  if (row.method === "repo.agentRuntime.sessions.read")
+    return { repo, payload: { runtimeSessionId: fixture.ledger.sampleRuntimeSessions[0] } };
   const descriptor = allDaemonProtocolMethods.find((candidate) => candidate.method === row.method);
   // A no-payload repository read is fully specified by its production schema.
   if (row.kind === "read" && descriptor?.requiresRepo && !descriptor.params.fields.payload) return { repo };

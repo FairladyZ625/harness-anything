@@ -30,7 +30,7 @@ const event = (fixture, name, after = 0) =>
     { timeoutMs: 30_000, label: `center ${name}` },
   );
 
-export async function measureCenter(fixture, operation) {
+export async function measureCenter(fixture, operation, { captureError = false } = {}) {
   const samples = [],
     probes = [],
     productDiagnostics = [];
@@ -43,7 +43,6 @@ export async function measureCenter(fixture, operation) {
   let sampling = false,
     readingDiagnostics = false,
     probing = false;
-  await fixture.request("sample");
   const sample = async () => {
     if (sampling) return;
     sampling = true;
@@ -85,48 +84,52 @@ export async function measureCenter(fixture, operation) {
       readingDiagnostics = false;
     }
   };
-  const sampleTimer = setInterval(() => {
-      monitor(sample);
-      monitor(diagnostic);
-    }, 1000),
-    probeTimer = setInterval(() => {
-      monitor(probe);
-    }, 250);
+  const diagnosticTimer = setInterval(() => monitor(diagnostic), 1000),
+    probeTimer = setInterval(() => monitor(probe), 250);
+  let sampleTimer,
+    result,
+    resetComplete = false;
   try {
     await diagnostic();
+    await fixture.request("sample");
+    resetComplete = true;
+    sampleTimer = setInterval(() => monitor(sample), 1000);
     await probe();
-    const result = await operation();
-    clearInterval(sampleTimer);
-    clearInterval(probeTimer);
-    await Promise.all(pending);
-    await sample();
-    await probe();
-    let unavailableMs = 0,
-      since = null;
-    for (const row of probes) {
-      if (!row.ok && since === null) since = row.atMs;
-      if (row.ok && since !== null) {
-        unavailableMs += row.endMs - since;
-        since = null;
-      }
-    }
-    if (since !== null) unavailableMs += performance.now() - started - since;
-    return {
-      ...result,
-      daemonSamples: samples,
-      productDiagnostics,
-      probes,
-      unavailableMs,
-      unavailableDefinition:
-        "failed ready-state repo.tasks.list(limit=1) probe start to next successful probe completion; 250ms probe cadence",
-      instrumentation:
-        "CPU/RSS and event loop histograms sampled inside the dedicated product daemon process; excludes load generator",
-    };
+    result = await operation();
+  } catch (error) {
+    if (!captureError) throw error;
+    result = { error: { code: error.code ?? null, message: error.message } };
   } finally {
     clearInterval(sampleTimer);
+    clearInterval(diagnosticTimer);
     clearInterval(probeTimer);
     await Promise.all(pending);
   }
+  if (resetComplete) await sample();
+  await diagnostic();
+  await probe();
+  let unavailableMs = 0,
+    since = null;
+  for (const row of probes) {
+    if (!row.ok && since === null) since = row.atMs;
+    if (row.ok && since !== null) {
+      unavailableMs += row.endMs - since;
+      since = null;
+    }
+  }
+  if (since !== null) unavailableMs += performance.now() - started - since;
+  return {
+    ...result,
+    measurementMs: performance.now() - started,
+    daemonSamples: samples,
+    productDiagnostics,
+    probes,
+    unavailableMs,
+    unavailableDefinition:
+      "failed ready-state repo.tasks.list(limit=1) probe start to next successful probe completion; 250ms probe cadence",
+    instrumentation:
+      "CPU/RSS and event loop histograms sampled inside the dedicated product daemon process; excludes load generator",
+  };
 }
 
 export async function connectReplicas(fixture, nodes, { fresh = false, timeoutMs = 600_000 } = {}) {
@@ -164,130 +167,139 @@ export const faultScenarios = Object.freeze([
 ]);
 
 export async function runFaultScenario(name, { fixture, model, bindings = {}, nodes = 1, durationMs = 1000 }) {
-  if (!faultScenarios.includes(name)) throw new Error(`unknown fault scenario: ${name}`);
-  return measureCenter(fixture, async () => {
-    const at = performance.now();
-    let observations;
-    if (name === "drain-hang") {
-      const after = fixture.events.length;
-      await fixture.request("hold-drain");
-      try {
-        await fixture.request("supersede");
-        await status(fixture);
-        await event(fixture, "drain-entered", after);
-        const whileHeld = await status(fixture);
-        observations = {
-          heldCloseEntered: true,
-          statusWhileHeld: whileHeld.ok,
-          drainSummary: whileHeld.summary,
-          historicalMatch: "controlled RepoCell.close stall; not proof of the original stuck owner's root cause",
-        };
-      } finally {
-        await fixture.request("release-drain");
-      }
-      await event(fixture, "build_superseded", after);
-      await event(fixture, "listening", after);
-      await fixture.waitReady();
-    } else if (name === "build-switch") {
-      const after = fixture.events.length;
-      observations = await replayTraffic({
-        model,
-        fixture,
-        bindings,
-        nodes,
-        durationMs,
-        onRequest: async ({ serial }) => {
-          if (serial === 1) {
+  return {
+    scenario: name,
+    ...(await measureCenter(
+      fixture,
+      async () => {
+        const at = performance.now();
+        let observations;
+        if (name === "drain-hang") {
+          const after = fixture.events.length;
+          await fixture.request("hold-drain");
+          try {
             await fixture.request("supersede");
             await status(fixture);
+            await event(fixture, "drain-entered", after);
+            const whileHeld = await status(fixture);
+            observations = {
+              heldCloseEntered: true,
+              statusWhileHeld: whileHeld.ok,
+              drainSummary: whileHeld.summary,
+              historicalMatch: "controlled RepoCell.close stall; not proof of the original stuck owner's root cause",
+            };
+          } finally {
+            await fixture.request("release-drain");
           }
-        },
-      });
-      await event(fixture, "build_superseded", after);
-      await event(fixture, "listening", after);
-      await fixture.waitReady();
-    } else if (name === "reconnect") {
-      const first = await connectReplicas(fixture, nodes);
-      for (const replica of first.clients) replica.close();
-      const reconnect = await connectReplicas(fixture, nodes);
-      try {
-        observations = { initial: first.report, reconnect: reconnect.report };
-      } finally {
-        for (const replica of reconnect.clients) replica.close();
-      }
-    } else if (name === "base-backup") {
-      const result = await connectReplicas(fixture, 1, { fresh: true });
-      try {
-        observations = { ...result.report, bytes: result.clients.reduce((sum, row) => sum + row.state.backupBytes, 0) };
-      } finally {
-        for (const replica of result.clients) replica.close();
-      }
-    } else if (name === "large-document" || name === "slow-read") {
-      const largest = [...fixture.ledger.sampleDocuments].sort((a, b) => b.size - a.size)[0];
-      const read = async () => {
-        const start = performance.now();
-        try {
-          const receipt = await requestDaemonJsonRpcAt(
-            fixture.endpoint,
-            "repo.task.read",
-            {
-              repo: { repoId: fixture.repoId },
-              payload: { action: { kind: "doc-show", path: largest.path } },
+          await event(fixture, "build_superseded", after);
+          await event(fixture, "listening", after);
+          await fixture.waitReady();
+        } else if (name === "build-switch") {
+          const after = fixture.events.length;
+          observations = await replayTraffic({
+            model,
+            fixture,
+            bindings,
+            nodes,
+            durationMs,
+            onRequest: async ({ serial }) => {
+              if (serial === 1) {
+                await fixture.request("supersede");
+                await status(fixture);
+              }
             },
-            10_000,
-            30_000,
-          );
-          return {
-            ok: receipt.ok !== false,
-            outcome: receipt.outcome,
-            code: receipt.code ?? null,
-            elapsedMs: performance.now() - start,
-          };
-        } catch (error) {
-          return { ok: false, code: error.code ?? error.message, elapsedMs: performance.now() - start };
-        }
-      };
-      const reads = await Promise.all(Array.from({ length: name === "slow-read" ? 8 : 1 }, read));
-      observations = {
-        bytes: largest.size,
-        reads,
-        historicalMatch:
-          "real canonical document reads; whether they block the event loop is measured, not injected as a synthetic CPU spin",
-      };
-      if (name === "large-document") {
-        const body = syntheticJson("fault-write", 0, largest.size),
-          writeAt = performance.now();
-        try {
-          const receipt = await runFleetWriteClient({
-            ...fixture.peer(0),
-            channel: "collaborator",
-            changes: [
-              {
-                path: "context/center-bench/fault-write.json",
-                body,
-                mediaType: "application/json",
-                policyId: OPAQUE_TEXTUAL_POLICY_ID,
-              },
-            ],
           });
-          observations.write = {
-            outcome: receipt.center.outcome,
-            code: receipt.center.code,
-            elapsedMs: performance.now() - writeAt,
+          await event(fixture, "build_superseded", after);
+          await event(fixture, "listening", after);
+          await fixture.waitReady();
+        } else if (name === "reconnect") {
+          const first = await connectReplicas(fixture, nodes);
+          for (const replica of first.clients) replica.close();
+          const reconnect = await connectReplicas(fixture, nodes);
+          try {
+            observations = { initial: first.report, reconnect: reconnect.report };
+          } finally {
+            for (const replica of reconnect.clients) replica.close();
+          }
+        } else if (name === "base-backup") {
+          const result = await connectReplicas(fixture, 1, { fresh: true });
+          try {
+            observations = {
+              ...result.report,
+              bytes: result.clients.reduce((sum, row) => sum + row.state.backupBytes, 0),
+            };
+          } finally {
+            for (const replica of result.clients) replica.close();
+          }
+        } else if (name === "large-document" || name === "slow-read") {
+          const largest = [...fixture.ledger.sampleDocuments].sort((a, b) => b.size - a.size)[0];
+          const read = async () => {
+            const start = performance.now();
+            try {
+              const receipt = await requestDaemonJsonRpcAt(
+                fixture.endpoint,
+                "repo.task.read",
+                {
+                  repo: { repoId: fixture.repoId },
+                  payload: { action: { kind: "doc-show", path: largest.path } },
+                },
+                10_000,
+                30_000,
+              );
+              return {
+                ok: receipt.ok !== false,
+                outcome: receipt.outcome,
+                code: receipt.code ?? null,
+                elapsedMs: performance.now() - start,
+              };
+            } catch (error) {
+              return { ok: false, code: error.code ?? error.message, elapsedMs: performance.now() - start };
+            }
           };
-        } catch (error) {
-          observations.write = {
-            outcome: "failed",
-            code: error.code ?? error.message,
-            elapsedMs: performance.now() - writeAt,
+          const reads = await Promise.all(Array.from({ length: name === "slow-read" ? 8 : 1 }, read));
+          observations = {
+            bytes: largest.size,
+            reads,
+            historicalMatch:
+              "real canonical document reads; whether they block the event loop is measured, not injected as a synthetic CPU spin",
           };
+          if (name === "large-document") {
+            const body = syntheticJson("fault-write", 0, largest.size),
+              writeAt = performance.now();
+            try {
+              const receipt = await runFleetWriteClient({
+                ...fixture.peer(0),
+                channel: "collaborator",
+                changes: [
+                  {
+                    path: "context/center-bench/fault-write.json",
+                    body,
+                    mediaType: "application/json",
+                    policyId: OPAQUE_TEXTUAL_POLICY_ID,
+                  },
+                ],
+              });
+              observations.write = {
+                outcome: receipt.center.outcome,
+                code: receipt.center.code,
+                elapsedMs: performance.now() - writeAt,
+              };
+            } catch (error) {
+              observations.write = {
+                outcome: "failed",
+                code: error.code ?? error.message,
+                elapsedMs: performance.now() - writeAt,
+              };
+            }
+          }
+        } else {
+          observations = await legacyFrameProbe(fixture);
         }
-      }
-    } else {
-      observations = await legacyFrameProbe(fixture);
-    }
-    return { scenario: name, elapsedMs: performance.now() - at, observations };
-  });
+        return { elapsedMs: performance.now() - at, observations };
+      },
+      { captureError: true },
+    )),
+  };
 }
 
 async function legacyFrameProbe(fixture) {

@@ -133,6 +133,7 @@ export async function generateCenterLedger({
     if (events.length === 256) flush();
   };
   const actor = { principal: { personId: "center-bench" }, executor: { kind: "agent", id: "center-bench" } };
+  const runtimeSessionId = `runtime_${digest(`${seed}:runtime`).slice(0, 24)}`;
   try {
     for (let index = 0; index < profile.tasks; index++) {
       const revision = baseline + generated + 1,
@@ -157,6 +158,77 @@ export async function generateCenterLedger({
         }),
       );
       if (sampleTasks.length < 20) sampleTasks.push(taskId);
+    }
+    flush();
+    // A real terminal runtime chain makes session reads meaningful without starting an agent.
+    const definition = {
+      schema: "agent-definition-snapshot/v1",
+      configVersion: 1,
+      instanceId: "center-bench-instance",
+      installationId: "center-bench-installation",
+      kindId: "codex",
+      providerId: "openai",
+      model: "synthetic-model",
+      reasoningEffort: "low",
+      baseUrl: null,
+      authMode: "subscription",
+    };
+    const definitionSnapshotRef = "artifact:runtime-definition/center-bench";
+    for (const [type, payload] of [
+      [
+        "runtime_installation_observed",
+        {
+          installationId: definition.installationId,
+          kindId: definition.kindId,
+          protocolFamily: "codex",
+          hostRef: "host:synthetic",
+          version: "synthetic",
+          discoverySource: "wrapper",
+          capabilities: ["structured_witness"],
+        },
+      ],
+      [
+        "runtime_dispatch_requested",
+        {
+          dispatchId: "dispatch-center-bench",
+          runtimeSessionId,
+          instanceId: definition.instanceId,
+          installationId: definition.installationId,
+          kindId: definition.kindId,
+          dispatchKey: "center-bench",
+          definitionSnapshotRef,
+          definitionSnapshot: definition,
+        },
+      ],
+      [
+        "runtime_session_started",
+        {
+          runtimeSessionId,
+          instanceId: definition.instanceId,
+          installationId: definition.installationId,
+          kindId: definition.kindId,
+          definitionSnapshotRef,
+          launchGeneration: 1,
+          attachable: false,
+        },
+      ],
+      ["runtime_session_exited", { runtimeSessionId }],
+    ]) {
+      const revision = baseline + generated + 1;
+      accept({
+        event: {
+          schema: "agent-runtime-event/v1",
+          type,
+          payload,
+          actor,
+          source: "local",
+          eventId: `event-center-${seed}-${revision}`,
+          opId: `op-center-${seed}-${revision}`,
+          workspaceRevision: revision,
+          occurredAt: new Date(Date.UTC(2026, 0, 1) + revision * 1000).toISOString(),
+        },
+        blobs: [],
+      });
     }
     flush();
     const bootstrapDocuments = paths.size,
@@ -233,6 +305,7 @@ export async function generateCenterLedger({
       jsonBytes: eventJsonBytes + contentJsonBytes,
       largeJsonBytes: large,
       sampleTasks,
+      sampleRuntimeSessions: [runtimeSessionId],
       sampleDocuments,
       position: store.replicationPosition(),
       deviation: {
@@ -241,7 +314,7 @@ export async function generateCenterLedger({
         jsonBytesRatio: (eventJsonBytes + contentJsonBytes) / profile.jsonBytes,
       },
       limitations: [
-        "Task bootstrap uses the production preset compiler; remaining activity is documents_written.",
+        "Task bootstrap uses the production preset compiler; four runtime events seed one terminal session; remaining activity is documents_written.",
         "Document rewrites repeat content: event density matches; historical object churn does not.",
         "JSON byte count covers generated event serialization and newly supplied content, excluding fixture settings.",
       ],

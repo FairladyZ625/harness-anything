@@ -88,6 +88,10 @@ test(
     const nodes = full ? (process.env.FLEET_STRESS_CENTER_NODES ?? "1,10,100,500,1000").split(",").map(Number) : [1, 2];
     const scale = full ? Number(process.env.FLEET_STRESS_CENTER_SCALE ?? "1") : 0.001;
     const durationMs = full ? Number(process.env.FLEET_STRESS_CENTER_DURATION_MS ?? "10000") : 3000;
+    const scenarios =
+      full && process.env.FLEET_STRESS_CENTER_SCENARIOS !== undefined
+        ? process.env.FLEET_STRESS_CENTER_SCENARIOS.split(",").filter(Boolean)
+        : undefined;
     const model = process.env.FLEET_STRESS_CENTER_MODEL
       ? JSON.parse(Buffer.from(process.env.FLEET_STRESS_CENTER_MODEL, "base64").toString())
       : defaultTrafficModel();
@@ -96,6 +100,7 @@ test(
       scale,
       durationMs,
       model,
+      scenarios,
       track: (close) => t.after(close),
       onProgress: (row) => console.log(`CENTER_PROGRESS\t${JSON.stringify(row)}`),
     });
@@ -105,6 +110,11 @@ test(
       "retain the product lifecycle log before deleting the owned fixture",
     );
     assert.equal(report.capacity.length, nodes.length);
+    assert.equal(report.campaignError, undefined, JSON.stringify(report.campaignError));
+    assert.deepEqual(
+      report.faults.map((row) => row.scenario),
+      report.requestedScenarios,
+    );
     for (const row of report.capacity) {
       assert.deepEqual(row.methods, row.plannedMethods);
       if (!full || row.nodes === 1) {
@@ -139,17 +149,17 @@ test(
       }
     }
     const fault = (name) => report.faults.find((row) => row.scenario === name).observations;
-    assert.equal(fault("drain-hang").heldCloseEntered, true);
     if (!full) {
+      assert.equal(fault("drain-hang").heldCloseEntered, true);
       assert.equal(fault("reconnect").reconnect.recovered, Math.max(...nodes));
       assert.ok(fault("base-backup").bytes > 0);
       assert.ok(fault("large-document").reads.every((row) => row.ok));
       assert.equal(fault("large-document").write.outcome, "applied", JSON.stringify(fault("large-document").write));
       assert.ok(fault("slow-read").reads.every((row) => row.ok));
+      assert.equal(fault("legacy-frame").accepted, false);
+      assert.equal(fault("legacy-frame").faultSent, true);
+      assert.equal(fault("legacy-frame").processSurvived, true);
+      assert.equal(fault("legacy-frame").code, "center_upgrade_required");
     }
-    assert.equal(fault("legacy-frame").accepted, false);
-    assert.equal(fault("legacy-frame").faultSent, true);
-    assert.equal(fault("legacy-frame").processSurvived, true);
-    assert.equal(fault("legacy-frame").code, "center_upgrade_required");
   },
 );

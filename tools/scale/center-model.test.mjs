@@ -1,8 +1,14 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { extractTrafficModel, replaySchedule, summarizeRequests } from "./center-model.mjs";
-import { runCenterBenchmark, markdownReport } from "./center-bench.mjs";
+import { runCenterBenchmark, markdownReport, defaultTrafficModel } from "./center-bench.mjs";
+import { syntheticParams } from "./center-replay.mjs";
+import { validateDaemonRpcCall } from "../../packages/daemon/src/protocol/daemon-protocol-rpc-validation.ts";
+import { measureCenter } from "./center-campaign.mjs";
 
 const log = (at, method, command = method, conn = "1") => ({
   schema: "daemon-conn-log/v1",
@@ -63,6 +69,23 @@ test("write classification includes arbiter commands and typed duplicate method 
   assert.equal(model.classes.control, 0);
 });
 
+test("calibration bindings satisfy the real RPC validator, including session selectors", () => {
+  const fixture = {
+    repoId: "center-bench",
+    ledger: {
+      sampleTasks: ["task_bench"],
+      sampleRuntimeSessions: ["runtime_bench"],
+      sampleDocuments: [{ path: "context/center-bench/doc-0.json" }],
+    },
+  };
+  for (const row of defaultTrafficModel().requests)
+    assert.deepEqual(
+      validateDaemonRpcCall({ method: row.method, params: syntheticParams(row, fixture) }),
+      [],
+      row.method,
+    );
+});
+
 test("reports distinguish failed requests and generator lag from successful read/write latency", () => {
   const result = summarizeRequests(
     [
@@ -89,4 +112,45 @@ test("setup rejection leaves a machine report with unmeasured capacity instead o
   assert.deepEqual(report.capacity, []);
   assert.deepEqual(report.faults, []);
   assert.match(markdownReport(report), /not measured because setup did not complete/u);
+  const unknown = await runCenterBenchmark({ nodes: [1], scenarios: ["unknown-fault"] });
+  assert.match(unknown.setupError.message, /unknown fault scenario/u);
+  assert.equal(unknown.ledger, null);
+});
+
+test("failed measurement controls and faults retain independent diagnostics and unavailable probes", async (t) => {
+  const scratch = mkdtempSync(path.join(tmpdir(), "ha-center-failed-control-"));
+  t.after(() => rmSync(scratch, { recursive: true, force: true }));
+  const fixture = {
+    endpoint: path.join(scratch, "missing.sock"),
+    repoId: "center-bench",
+    request: async () => {
+      throw Object.assign(new Error("closed IPC"), { code: "ERR_IPC_CHANNEL_CLOSED" });
+    },
+    diagnostics: async () => ({ heartbeatAgeMs: 7, state: "running" }),
+  };
+  let called = false;
+  const control = await measureCenter(
+    fixture,
+    async () => {
+      called = true;
+    },
+    { captureError: true },
+  );
+  assert.equal(called, false);
+  assert.equal(control.error.code, "ERR_IPC_CHANNEL_CLOSED");
+  assert.ok(control.productDiagnostics.length >= 2);
+  assert.equal(control.productDiagnostics[0].heartbeatAgeMs, 7);
+  assert.ok(control.probes.some((row) => !row.ok));
+  assert.ok(Number.isFinite(control.unavailableMs));
+  fixture.request = async () => ({ cpuPercent: 1, rssBytes: 123 });
+  const fault = await measureCenter(
+    fixture,
+    async () => {
+      throw Object.assign(new Error("fault injection failed"), { code: "injected_fault" });
+    },
+    { captureError: true },
+  );
+  assert.equal(fault.error.code, "injected_fault");
+  assert.ok(fault.daemonSamples.length > 0);
+  assert.ok(fault.productDiagnostics.length >= 2);
 });
