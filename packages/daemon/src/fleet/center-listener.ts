@@ -1232,12 +1232,9 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       () => onReplicationStart(...args),
     ),
   );
-  const pendingErrorReplies = new Map<
-    string,
-    { readonly start: () => void; readonly finish: (bytes: number) => void }
-  >();
-  const observedHandle = AsyncLocalStorage.bind((...args: Parameters<typeof handle>) => {
-    const [nodeId, frame, window] = args,
+  const observedHandle = AsyncLocalStorage.bind((...args: Parameters<Parameters<typeof serve>[2]>) => {
+    const [nodeId, frame, window, clientGone, signal, progress, errorReply] = args,
+      runHandle = () => nodeAdmission.run(nodeId, () => handle(nodeId, frame, window, clientGone, signal, progress)),
       scope = beginDaemonOperation({
         method: "method" in frame ? String(frame.method) : frame.schema,
         repoId: "repoId" in frame ? String(frame.repoId) : null,
@@ -1246,7 +1243,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         phase: "authentication",
         requestBytes: Buffer.byteLength(JSON.stringify(frame), "utf8"),
       });
-    if (!scope) return nodeAdmission.run(nodeId, () => handle(...args));
+    if (!scope) return runHandle();
     const startedAt = Date.now(),
       method = "method" in frame ? String(frame.method) : frame.schema,
       repoId = "repoId" in frame ? String(frame.repoId) : null;
@@ -1286,60 +1283,42 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     return scope.run(async () => {
       const mark = bindDaemonOperationPhase();
       markDaemonOperationPhase("authorization");
-      try {
-        const delivery = await nodeAdmission.run(nodeId, () => handle(...args));
-        return {
-          ...delivery,
-          frames: (async function* () {
-            for await (const out of delivery.frames) {
-              const result = fleetFrameBusinessOutcome(out);
-              if (!result.ok) {
-                businessOk = false;
-                businessCode = result.code;
-              }
-              mark("serialization");
-              yield out;
+      const delivery = await runHandle().catch(errorReply);
+      return {
+        ...delivery,
+        frames: (async function* () {
+          for await (const out of delivery.frames) {
+            const result = fleetFrameBusinessOutcome(out);
+            if (!result.ok) {
+              businessOk = false;
+              businessCode = result.code;
             }
-          })(),
-          beforeSend: () => {
-            mark("reply");
-            delivery.beforeSend?.();
-          },
-          onSent: (bytes: number) => {
-            replyBytes += bytes;
-            delivery.onSent?.(bytes);
-            scope.handle.update({ replyBytes });
-          },
-          onComplete: () => {
-            scope.handle.update({ outcome: businessOk ? "ok" : "error" });
-            recordTraffic(businessOk, businessCode);
-            scope.end();
-            delivery.onComplete?.();
-          },
-          onFailure: (error: unknown) => {
-            scope.handle.update({ outcome: "error" });
-            recordTraffic(false, fleetErrorCode(error));
-            scope.end();
-            delivery.onFailure?.(error);
-          },
-        };
-      } catch (error) {
-        const messageId = `${window.holderId}:${"messageId" in frame ? frame.messageId : "invalid"}`;
-        pendingErrorReplies.set(messageId, {
-          start: () => {
             mark("serialization");
-            mark("reply");
-          },
-          finish: (bytes) => {
-            replyBytes = bytes;
-            scope.handle.update({ outcome: "error", replyBytes: bytes });
-            recordTraffic(false, fleetErrorCode(error));
-            scope.end();
-            pendingErrorReplies.delete(messageId);
-          },
-        });
-        throw error;
-      }
+            yield out;
+          }
+        })(),
+        beforeSend: () => {
+          mark("reply");
+          delivery.beforeSend?.();
+        },
+        onSent: (bytes: number) => {
+          replyBytes += bytes;
+          delivery.onSent?.(bytes);
+          scope.handle.update({ replyBytes });
+        },
+        onComplete: () => {
+          scope.handle.update({ outcome: businessOk ? "ok" : "error" });
+          recordTraffic(businessOk, businessCode);
+          scope.end();
+          delivery.onComplete?.();
+        },
+        onFailure: (error: unknown) => {
+          scope.handle.update({ outcome: "error" });
+          recordTraffic(false, fleetErrorCode(error));
+          scope.end();
+          delivery.onFailure?.(error);
+        },
+      };
     });
   });
   const server: Server = createServer({ key: options.key, cert: options.cert }, (socket) =>
@@ -1348,18 +1327,6 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       {
         ...options,
         commandResourceBudget: resourceBudget,
-        onErrorReplyStart: (holderId, messageId) => {
-          const key = `${holderId}:${messageId}`,
-            pending = pendingErrorReplies.get(key);
-          if (pending) pending.start();
-          else options.onErrorReplyStart?.(holderId, messageId);
-        },
-        onErrorReply: (holderId, messageId, bytes) => {
-          const key = `${holderId}:${messageId}`,
-            pending = pendingErrorReplies.get(key);
-          if (pending) pending.finish(bytes);
-          else options.onErrorReply?.(holderId, messageId, bytes);
-        },
         authenticate: observedAuthenticate,
         onReplicationStart: observedReplicationStart,
         onVersionWarning: (nodeId, warning) => {

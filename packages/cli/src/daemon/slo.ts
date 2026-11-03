@@ -414,7 +414,11 @@ async function* readJsonLines(file: string, state: ReadState): AsyncGenerator<Re
     }
     if (!missing && buffer.length > 0) yield* consumeLine(buffer, false);
   } finally {
-    input.close();
+    try {
+      await iterator.return?.();
+    } finally {
+      input.destroy();
+    }
   }
   if (missing) state.missingFiles.push(file);
 }

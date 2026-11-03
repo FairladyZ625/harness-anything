@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, ReadStream, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -248,28 +248,56 @@ test("a non-ENOENT access error is surfaced instead of being reported as a missi
   }
 });
 
-test("a multi-chunk log keeps at most one stream listener", async () => {
+test("multi-chunk SLO logs keep bounded listeners and close on EOF or a corrupt line", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-slo-chunks-")),
     dir = path.join(root, "logs"),
     lines = Array.from({ length: 4_000 }, () => JSON.stringify(request({ detail: "x".repeat(800) })));
   mkdirSync(dir, { recursive: true });
-  writeFileSync(path.join(dir, "daemon-test-daemon-conn-20260101.jsonl"), `${lines.join("\n")}\n`);
-  const warnings: Error[] = [];
-  const onWarning = (warning: Error) => warnings.push(warning);
-  process.on("warning", onWarning);
+  const file = path.join(dir, "daemon-test-daemon-conn-20260101.jsonl"),
+    emit = ReadStream.prototype.emit,
+    read = ReadStream.prototype.read;
+  let chunks = 0,
+    maxListeners = 0,
+    closed = Promise.withResolvers<void>();
+  const streams = new Set<ReadStream>();
+  t.mock.method(ReadStream.prototype, "read", function (this: ReadStream, ...args: unknown[]) {
+    const chunk = Reflect.apply(read, this, args);
+    if (String(this.path) === file) {
+      streams.add(this);
+      if (chunk !== null) chunks += 1;
+      for (const event of this.eventNames()) maxListeners = Math.max(maxListeners, this.listenerCount(event));
+    }
+    return chunk;
+  });
+  t.mock.method(ReadStream.prototype, "emit", function (this: ReadStream, event: string | symbol, ...args: unknown[]) {
+    if (String(this.path) === file && event === "close") closed.resolve();
+    return Reflect.apply(emit, this, [event, ...args]);
+  });
   try {
-    await runDaemonSlo({
+    const options = {
       day: "20260101",
       thresholdMs: 1_000,
       userRoot: root,
       daemonId: "test-daemon",
       json: false,
       slowLimit: 200,
-    });
-    await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(warnings.filter((warning) => warning.name === "MaxListenersExceededWarning").length, 0);
+    };
+    writeFileSync(file, `${lines.join("\n")}\n`);
+    const receipt = await runDaemonSlo(options);
+    await closed.promise;
+    assert.equal((receipt.requests as Record<string, unknown>).count, lines.length);
+    assert.ok(chunks >= 40, `read ${chunks} chunks`);
+    assert.ok(maxListeners <= 2, `max listeners per event: ${maxListeners}`);
+    assert.ok([...streams].every((stream) => stream.destroyed && stream.closed));
+    chunks = maxListeners = 0;
+    closed = Promise.withResolvers<void>();
+    writeFileSync(file, `${lines.join("\n")}\n{broken}\n`);
+    await assert.rejects(runDaemonSlo(options), /jsonl:4001/u);
+    await closed.promise;
+    assert.ok(chunks >= 40, `read ${chunks} chunks before corrupt line`);
+    assert.ok(maxListeners <= 2, `max listeners per event on error: ${maxListeners}`);
+    assert.ok([...streams].every((stream) => stream.destroyed && stream.closed));
   } finally {
-    process.off("warning", onWarning);
     rmSync(root, { recursive: true, force: true });
   }
 });
