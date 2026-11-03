@@ -1185,13 +1185,19 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   });
   // Bind once at the daemon composition boundary. TLS/frame queues need not inherit ALS.
   const observedAuthenticate = AsyncLocalStorage.bind((nodeId: string, credential: string, source: string) =>
-    observeDaemonOperation({ method: "fleet.hello", actor: null, phase: "authentication" }, () =>
+    observeDaemonOperation({ method: "fleet.hello", actor: null, nodeId, phase: "authentication" }, () =>
       guardedAuthenticate(nodeId, credential, source),
     ),
   );
   const observedReplicationStart = AsyncLocalStorage.bind((...args: Parameters<typeof onReplicationStart>) =>
     observeDaemonOperation(
-      { method: "replica.start", repoId: args[2].repoId, actor: `node:${args[0]}`, phase: "replication-stream" },
+      {
+        method: "replica.start",
+        repoId: args[2].repoId,
+        actor: `node:${args[0]}`,
+        nodeId: args[0],
+        phase: "replication-stream",
+      },
       () => onReplicationStart(...args),
     ),
   );
@@ -1201,6 +1207,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         method: "method" in args[1] ? String(args[1].method) : args[1].schema,
         repoId: "repoId" in args[1] ? String(args[1].repoId) : null,
         actor: `node:${args[0]}`,
+        nodeId: args[0],
         phase: "fleet-dispatch",
       },
       () => nodeAdmission.run(args[0], () => handle(...args)),

@@ -190,7 +190,12 @@ export async function startDaemon(input: {
     if (entry.event === "runtime_exit" || entry.event === "attachments_settled") requestDrainCheck();
   };
   try {
-    diagnostics = await openDaemonDiagnostics({ ...input, endpoint });
+    diagnostics = await openDaemonDiagnostics({
+      ...input,
+      endpoint,
+      writeQueues: () =>
+        (host?.status().repos ?? []).map((repo) => ({ repoId: repo.repoId, queueDepth: repo.queueDepth ?? null })),
+    });
     const oidc = createIdentitySession(input.userRoot);
     host = await withDaemonObservation(diagnostics.observer, () =>
       openDaemonHost({
@@ -209,6 +214,8 @@ export async function startDaemon(input: {
     transport = createUnixSocketTransportServer({
       daemonId: input.daemonId,
       socketPath: endpoint,
+      takeEventLoopStallMs: () => diagnostics?.takeEventLoopStallMs() ?? 0,
+      currentEventLoopDelayMs: () => diagnostics?.currentEventLoopDelayMs() ?? 0,
       createProtocolServer: (authContext, emit, connectionId, signal) =>
         createJsonRpcProtocolServer({
           host: host!,

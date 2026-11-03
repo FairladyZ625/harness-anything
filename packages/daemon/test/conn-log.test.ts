@@ -318,3 +318,59 @@ test("a close for a connection this sink never saw is ignored instead of corrupt
   assert.equal((records.at(-1) as { active: number }).active, 0);
   rmSync(userRoot, { recursive: true, force: true });
 });
+
+test("a request record carries OpenTelemetry span fields, stage windows, bytes and source node", async (t) => {
+  const userRoot = tempRoot(t),
+    log = openDaemonConnLog({ userRoot, daemonId: "test-daemon", now: at("2026-11-04T01:00:02Z") });
+  const conn = log.connectionOpened("uuid-trace", "fleet-tls");
+  log.request({
+    conn,
+    transport: "fleet-tls",
+    method: "repo.task.run",
+    repoId: "repo-a",
+    command: "task-run",
+    actor: "node:node-7",
+    nodeId: "node-7",
+    frameReceivedAt: Date.parse("2026-11-04T01:00:00.000Z"),
+    handlerStartedAt: Date.parse("2026-11-04T01:00:00.250Z"),
+    repliedAt: Date.parse("2026-11-04T01:00:01.000Z"),
+    startedAt: Date.parse("2026-11-04T01:00:00.250Z"),
+    eventLoopStallMs: 250,
+    requestBytes: 1_234,
+    replyBytes: 5_678,
+    traceId: "a".repeat(32),
+    spanId: "b".repeat(16),
+    phases: [
+      { name: "authentication", startedAtMs: 1_000, endedAtMs: 1_010 },
+      { name: "write-queue", startedAtMs: 1_010, endedAtMs: 1_300 },
+      { name: "write-execution", startedAtMs: 1_300, endedAtMs: 1_900 },
+    ],
+    durationMs: 750,
+    ok: false,
+    code: "timeout",
+    detail: "too slow",
+  });
+  const record = recordsOf(userRoot).find((value) => value.event === "request")!;
+  assert.equal(record.dispatchDelayMs, 250);
+  assert.equal(record.eventLoopStallMs, 250);
+  assert.equal(record.requestBytes, 1_234);
+  assert.equal(record.replyBytes, 5_678);
+  assert.equal(record.nodeId, "node-7");
+  assert.equal(record.traceId, "a".repeat(32));
+  assert.equal(record.spanId, "b".repeat(16));
+  assert.deepEqual(record.phases, [
+    { name: "authentication", startedAtMs: 1_000, endedAtMs: 1_010 },
+    { name: "write-queue", startedAtMs: 1_010, endedAtMs: 1_300 },
+    { name: "write-execution", startedAtMs: 1_300, endedAtMs: 1_900 },
+  ]);
+  const otel = record.otel as Record<string, unknown>;
+  assert.equal(otel.traceId, "a".repeat(32));
+  assert.equal(otel.spanId, "b".repeat(16));
+  assert.equal(otel.kind, "SERVER");
+  assert.equal(otel.name, "repo.task.run");
+  assert.deepEqual(otel.status, { code: 2 });
+  assert.equal(otel.startTimeUnixNano, String(BigInt(Date.parse("2026-11-04T01:00:00.250Z")) * 1_000_000n));
+  assert.equal(otel.endTimeUnixNano, String(BigInt(Date.parse("2026-11-04T01:00:01.000Z")) * 1_000_000n));
+  assert.ok(Array.isArray(otel.attributes));
+  await log.settle();
+});

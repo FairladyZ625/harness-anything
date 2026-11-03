@@ -43,6 +43,13 @@ export interface JsonRpcStreamOptions {
   ) => TransportAuthenticationResult;
   readonly connectionId?: string;
   readonly onError?: (error: Error) => void;
+  /**
+   * Main-thread scheduling delay observed since the previous loop turn. A frame read after a stall
+   * arrived during it, so subtract the stall from its observed time to expose the queue wait.
+   */
+  readonly takeEventLoopStallMs?: () => number;
+  /** The delay of the loop turn currently running, when the heartbeat pulse has not run yet. */
+  readonly currentEventLoopDelayMs?: () => number;
 }
 
 // A stopping daemon gives an in-flight request this long to reply before the
@@ -70,12 +77,12 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
 
   options.input.on("data", (chunk: Buffer | string) => {
     const batch = reader.push(chunk);
-    enqueueFrames(batch.frames);
+    enqueueFrames(batch.frames, batch.frameBytes);
     if (batch.error) failConnection(parseError(batch.error));
   });
   options.input.on("end", () => {
     const batch = reader.flush();
-    enqueueFrames(batch.frames);
+    enqueueFrames(batch.frames, batch.frameBytes);
     if (batch.error) failConnection(parseError(batch.error));
     else queue = queue.finally(() => server?.close());
   });
@@ -114,18 +121,27 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
     },
   };
 
-  function enqueueFrames(frames: ReadonlyArray<unknown>): void {
-    const frameReceivedAt = Date.now();
-    for (const frame of frames) {
+  function enqueueFrames(frames: ReadonlyArray<unknown>, frameBytes?: ReadonlyArray<number>): void {
+    const observedAt = Date.now(),
+      eventLoopStallMs = Math.max(0, options.takeEventLoopStallMs?.() ?? 0, options.currentEventLoopDelayMs?.() ?? 0),
+      frameReceivedAt = Math.max(0, observedAt - eventLoopStallMs);
+    for (let index = 0; index < frames.length; index += 1) {
+      const frame = frames[index],
+        bytes = frameBytes?.[index];
       queue = queue
-        .then(() => handleFrame(frame, frameReceivedAt))
+        .then(() => handleFrame(frame, frameReceivedAt, bytes, eventLoopStallMs))
         .catch((error: unknown) => {
           failConnection(error instanceof Error ? error : new Error(String(error)));
         });
     }
   }
 
-  async function handleFrame(frame: unknown, frameReceivedAt: number): Promise<void> {
+  async function handleFrame(
+    frame: unknown,
+    frameReceivedAt: number,
+    frameBytes: number | undefined,
+    eventLoopStallMs: number,
+  ): Promise<void> {
     if (waitingForAuthentication) {
       const result = options.authenticateFirstFrame?.(frame, authContext);
       if (!result?.ok) {
@@ -143,7 +159,11 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
       writeFrame(streamErrorResponse(null, -32600, "Invalid Request"));
       return;
     }
-    const response = await server.handle(frame as JsonRpcRequest | JsonRpcRequest[], { frameReceivedAt });
+    const response = await server.handle(frame as JsonRpcRequest | JsonRpcRequest[], {
+      frameReceivedAt,
+      ...(frameBytes === undefined ? {} : { frameBytes }),
+      ...(eventLoopStallMs > 0 ? { eventLoopStallMs } : {}),
+    });
     if (response !== undefined) writeFrame(response);
   }
 

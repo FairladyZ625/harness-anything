@@ -24,6 +24,7 @@ import {
   type RuntimeProcessEventV1,
 } from "./repo-writer-protocol.ts";
 import { launchNative } from "./runtime-spawn-process.ts";
+import { captureDaemonOperation, type DaemonOperationHandle } from "./daemon-operation.ts";
 import type { RuntimeProcess } from "./runtime-spawn.ts";
 
 export interface WriterSupervisor {
@@ -101,6 +102,8 @@ export async function openWriterSupervisor(
         readonly cleanup: () => void;
         readonly retainSessionToken: boolean;
         readonly storeAbort?: AbortController;
+        readonly operation: DaemonOperationHandle | null;
+        readonly phase: string;
       }
     >(),
     runtimeProcesses = new Map<string, RuntimeProcess>(),
@@ -120,7 +123,8 @@ export async function openWriterSupervisor(
       await ready;
       if (closed || !worker) throw new Error("RepoWriterCell is closed");
       if (signal?.aborted) throw abortError(signal);
-      const storeAbort = method === "canonicalStore" ? new AbortController() : undefined;
+      const storeAbort = method === "canonicalStore" ? new AbortController() : undefined,
+        operation = captureDaemonOperation();
       const requestId = randomUUID(),
         serializedBinding = binding ? serializableRepoCellBinding(binding) : undefined,
         request: RepoWriterRequestV1 = {
@@ -153,6 +157,8 @@ export async function openWriterSupervisor(
           reject,
           cleanup,
           storeAbort,
+          operation,
+          phase: phaseForWriterMethod(method),
           // Preset admission returns before produce; keep its session until the terminal witness.
           retainSessionToken:
             method === "presetRun" && (payload as { action: { kind: string } }).action.kind === "preset-run-start",
@@ -239,6 +245,8 @@ export async function openWriterSupervisor(
           )
             releaseSessionToken(message.requestId);
           operation.cleanup();
+          if (typeof message.startedAtMs === "number" && typeof message.finishedAtMs === "number")
+            operation.operation?.phaseSpan(operation.phase, message.startedAtMs, message.finishedAtMs);
           status = { ...status, queueDepth: Math.max(0, (status.queueDepth ?? 1) - 1) };
           if (message.outcome === "ok") operation.resolve(message.value);
           else operation.reject(deserializeWriterError(message.error!));
@@ -344,7 +352,14 @@ export async function openWriterSupervisor(
         command,
       };
     return new Promise<void>((resolve, reject) => {
-      pending.set(requestId, { resolve: () => resolve(), reject, cleanup: () => undefined, retainSessionToken: false });
+      pending.set(requestId, {
+        resolve: () => resolve(),
+        reject,
+        cleanup: () => undefined,
+        retainSessionToken: false,
+        operation: null,
+        phase: "write-execution",
+      });
       worker!.postMessage(control);
     });
   }
@@ -503,6 +518,10 @@ export async function openWriterSupervisor(
       ...event,
     } satisfies RuntimeProcessEventV1);
   }
+}
+
+function phaseForWriterMethod(method: RepoWriterRequestV1["method"]): string {
+  return method === "catalog" || method === "hasBuiltinExecutor" ? "projection-read" : "write-execution";
 }
 
 function statusWithCurrentRetryElapsed(status: RepoCellStatus, observedAt: number): RepoCellStatus {

@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { observeDaemonRequest, updateDaemonOperation, type DaemonOperationObserver } from "../daemon-operation.ts";
+import {
+  currentDaemonOperationTrace,
+  markDaemonOperationPhase,
+  observeDaemonRequest,
+  updateDaemonOperation,
+  type DaemonOperationObserver,
+} from "../daemon-operation.ts";
 import { accessAdminOperations } from "./daemon-protocol.contract.ts";
 import { executionCredentialRejected } from "../runtime-execution-credential.ts";
 import { localDefaultBinding } from "../daemon-host-binding.ts";
@@ -9,6 +15,7 @@ import type { DaemonTrafficLogEntry } from "../conn-log.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import {
   actionForDaemonMethod,
+  commandClassForAction,
   commandIdForDaemonMethod,
   daemonProtocolError,
   invalidParamsReceipt,
@@ -57,10 +64,16 @@ import { remoteProxyEventMethod } from "../remote-proxy.ts";
 import { daemonBuildStaleNotice, withDaemonDrainSummary } from "../daemon-build-drain.ts";
 import { quoteAgentRuntimeBudget } from "../runtime/cloud-dispatch-relay.ts";
 import { isSkillEvalCall, dispatchSkillEvalCall } from "./skill-eval-rpc.ts";
+import { attachEncodedJsonRpcFrame, encodeJsonRpcFrame, encodedFrameBytes } from "./json-rpc-encoding.ts";
 export interface JsonRpcProtocolServer {
   readonly handle: (
     message: JsonRpcRequest | JsonRpcRequest[],
-    timing?: { readonly frameReceivedAt: number },
+    timing?: {
+      readonly frameReceivedAt: number;
+      readonly frameBytes?: number;
+      /** Main-thread scheduling delay observed when the frame was first read. */
+      readonly eventLoopStallMs?: number;
+    },
   ) => Promise<JsonRpcResponse | JsonRpcResponse[] | undefined>;
   readonly close: () => void;
 }
@@ -139,6 +152,8 @@ export function createJsonRpcProtocolServer(options: {
     request: JsonRpcRequest,
     frameReceivedAt = Date.now(),
     admittedBeforeBuildDrain = false,
+    requestBytes = 0,
+    eventLoopStallMs = 0,
   ): Promise<JsonRpcResponse | undefined> => {
     const id = request.id ?? null,
       startedAt = Date.now(),
@@ -170,8 +185,11 @@ export function createJsonRpcProtocolServer(options: {
       method: Method,
       result: DaemonRpcResult<Method>,
     ): JsonRpcResponse | undefined => {
+      markDaemonOperationPhase("serialization");
       const repliedAt = Date.now(),
-        serviceMs = repliedAt - startedAt;
+        serviceMs = repliedAt - startedAt,
+        response = request.id === undefined ? undefined : { jsonrpc: "2.0" as const, id, result },
+        replyBytes = response === undefined ? 0 : encodeAndAttach(response);
       // Reading retained request history must not append itself to that history. Transport
       // traffic still records this diagnostic, including failures, through the separate sink.
       const payload = isJsonObject(request.params) ? request.params.payload : undefined;
@@ -184,20 +202,25 @@ export function createJsonRpcProtocolServer(options: {
         )
       )
         recordRequest(method, observed, result, dispatchDelayMs, serviceMs);
+      const ok = resultOk(result);
+      updateDaemonOperation({ outcome: ok ? "ok" : "error", replyBytes });
       traffic(
         method,
         observed.repoId || null,
         frameReceivedAt,
         startedAt,
         repliedAt,
-        resultOk(result),
+        ok,
         resultErrorCode(result),
         resultErrorDetail(result),
         invokingCommand ?? observedCommand(method, observed.command),
         observed.wait,
         observed.executor,
+        requestBytes,
+        replyBytes,
+        eventLoopStallMs,
       );
-      return request.id === undefined ? undefined : { jsonrpc: "2.0", id, result };
+      return response;
     };
     if (request.method === "protocol.hello") handshaken = false;
     const parsed = parseDaemonRpcParams(request.method, request.params);
@@ -250,6 +273,7 @@ export function createJsonRpcProtocolServer(options: {
       method === "daemon.status" || method === "daemon.stop" || method === "daemon.nodeAutoClaim.configure";
     if (daemonControl && executionCredential !== undefined)
       return reply(method, protocolFailure(method, executionCredentialRejected()));
+    markDaemonOperationPhase("authorization");
     const relayExecution =
       executionCredential !== undefined &&
       method === "daemon.fleet.task.run" &&
@@ -284,7 +308,11 @@ export function createJsonRpcProtocolServer(options: {
         return reply(method, protocolFailure(method, error));
       }
     }
-    updateDaemonOperation({ phase: "dispatch", actor: trafficActorForLog(observed.executor, options.authContext) });
+    markDaemonOperationPhase("repository-admission");
+    updateDaemonOperation({
+      actor: trafficActorForLog(observed.executor, options.authContext),
+      nodeId: options.authContext.nodePrincipal?.nodeId ?? null,
+    });
     const remoteProxy = options.host.remoteProxy;
     if (method === "daemon.repo.bootstrap" && typeof params.repoId === "string" && remoteProxy?.route(params.repoId))
       return reply(
@@ -687,6 +715,7 @@ export function createJsonRpcProtocolServer(options: {
     }
     if (method === "daemon.gui.system.read") {
       try {
+        markDaemonOperationPhase("projection-read");
         return reply(method, parseDaemonGuiReadResult(method, options.host.system(options.authContext)));
       } catch (error) {
         return reply(method, protocolFailure(method, error));
@@ -694,6 +723,7 @@ export function createJsonRpcProtocolServer(options: {
     }
     if (method === "daemon.gui.home.read") {
       try {
+        markDaemonOperationPhase("projection-read");
         return reply(method, parseDaemonGuiReadResult(method, await options.host.home(options.authContext)));
       } catch (error) {
         return reply(method, protocolFailure(method, error));
@@ -755,6 +785,7 @@ export function createJsonRpcProtocolServer(options: {
       const { method, params } = call,
         repo = params.repo.repoId;
       try {
+        markDaemonOperationPhase("projection-read");
         // host.read is the single exit validator for repo GUI reads; re-validating its return
         // here would walk every result a second time in the same process.
         return reply(
@@ -882,8 +913,11 @@ export function createJsonRpcProtocolServer(options: {
       // its own direct branch above and never resolves to this command family.
       wait: action.wait === true,
     };
-    if (action.kind === "preset-run-start" || action.kind === "preset-run-status")
+    if (action.kind === "preset-run-start" || action.kind === "preset-run-status") {
+      markDaemonOperationPhase(action.kind === "preset-run-status" ? "projection-read" : "write-queue");
       return reply(commandMethod, await options.host.presetRun(repo, action, options.authContext));
+    }
+    markDaemonOperationPhase(commandClassForAction(action.kind) === "repo-read" ? "projection-read" : "write-queue");
     const receipt = await options.host.run(repo, action, options.authContext);
     try {
       // Receipt assembly is result validation too: a squad-control result naming another
@@ -907,7 +941,12 @@ export function createJsonRpcProtocolServer(options: {
       );
     }
   };
-  const one = async (request: JsonRpcRequest, frameReceivedAt = Date.now()): Promise<JsonRpcResponse | undefined> => {
+  const one = async (
+    request: JsonRpcRequest,
+    frameReceivedAt = Date.now(),
+    frameBytes = 0,
+    eventLoopStallMs = 0,
+  ): Promise<JsonRpcResponse | undefined> => {
     const method = typeof request.method === "string" ? request.method : "";
     // Parked waits are observations, not work: counting one would pin a superseded daemon resident
     // for as long as any --wait client cares to watch, which is exactly what the drain exists to end.
@@ -927,7 +966,7 @@ export function createJsonRpcProtocolServer(options: {
         if (admitted) options.onRequestStarted?.(method);
       }
       try {
-        return await run(request, frameReceivedAt);
+        return await run(request, frameReceivedAt, false, frameBytes, eventLoopStallMs);
       } finally {
         if (!handshaken || options.authContext.connectionSignal?.aborted) releaseHello();
       }
@@ -937,7 +976,7 @@ export function createJsonRpcProtocolServer(options: {
       releaseHello();
       // Register abandonment around authentication as well as the host read: neither phase owns work.
       const response = await raceParkedWait(
-        run(request, frameReceivedAt, admitted),
+        run(request, frameReceivedAt, admitted, frameBytes, eventLoopStallMs),
         parkedWaitAborts,
         options.authContext.connectionSignal,
         options.host.parkedWaitSignal,
@@ -950,7 +989,7 @@ export function createJsonRpcProtocolServer(options: {
     if (admitted) options.onRequestStarted?.(method);
     releaseHello();
     try {
-      return await run(request, frameReceivedAt, admitted);
+      return await run(request, frameReceivedAt, admitted, frameBytes, eventLoopStallMs);
     } finally {
       if (admitted) options.onRequestSettled?.(method);
     }
@@ -961,12 +1000,16 @@ export function createJsonRpcProtocolServer(options: {
         observeDaemonRequest(
           request,
           options.authContext,
-          () => one(request, timing?.frameReceivedAt),
+          () => one(request, timing?.frameReceivedAt, timing?.frameBytes, timing?.eventLoopStallMs),
           options.operationObserver,
         );
-      return Array.isArray(message)
-        ? (await Promise.all(message.map(observedOne))).filter((item): item is JsonRpcResponse => item !== undefined)
-        : observedOne(message);
+      if (!Array.isArray(message)) return observedOne(message);
+      const responses = (await Promise.all(message.map(observedOne))).filter(
+        (item): item is JsonRpcResponse => item !== undefined,
+      );
+      // Batch replies are one transport frame; pre-encoded items keep this the only serialization.
+      if (responses.length > 0) attachEncodedJsonRpcFrame(responses, encodeJsonRpcFrame(responses));
+      return responses;
     },
     close: () => {
       options.authContext.connectionSignal?.removeEventListener("abort", releaseHello);
@@ -1035,8 +1078,12 @@ export function createJsonRpcProtocolServer(options: {
     command = method,
     wait = false,
     executor: DaemonRequestLogEntry["executor"] = null,
+    requestBytes = 0,
+    replyBytes = 0,
+    eventLoopStallMs = 0,
   ): void {
     if (!options.recordTraffic) return;
+    const trace = currentDaemonOperationTrace();
     options.recordTraffic({
       conn: connectionId,
       transport: options.authContext.transportKind,
@@ -1047,6 +1094,17 @@ export function createJsonRpcProtocolServer(options: {
       repliedAt,
       startedAt: handlerStartedAt,
       dispatchDelayMs: Math.max(0, handlerStartedAt - frameReceivedAt),
+      ...(eventLoopStallMs > 0 ? { eventLoopStallMs } : {}),
+      requestBytes,
+      replyBytes,
+      nodeId: trace?.nodeId ?? options.authContext.nodePrincipal?.nodeId ?? null,
+      ...(trace === null
+        ? {}
+        : {
+            traceId: trace.traceId,
+            spanId: trace.spanId,
+            phases: trace.phases,
+          }),
       serviceMs: Math.max(0, repliedAt - handlerStartedAt),
       durationMs: Math.max(0, repliedAt - handlerStartedAt),
       ok,
@@ -1057,6 +1115,13 @@ export function createJsonRpcProtocolServer(options: {
       actor: trafficActorForLog(executor, options.authContext),
     });
   }
+}
+
+function encodeAndAttach(response: JsonRpcResponse): number {
+  markDaemonOperationPhase("reply");
+  const encoded = encodeJsonRpcFrame(response);
+  attachEncodedJsonRpcFrame(response, encoded);
+  return encodedFrameBytes(encoded);
 }
 
 function trafficActorForLog(

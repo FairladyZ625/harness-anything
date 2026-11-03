@@ -20,6 +20,9 @@ export interface UnixSocketTransportOptions {
   ) => JsonRpcProtocolServer;
   readonly onConnection?: (connection: DaemonTransportConnection) => void;
   readonly onConnectionClosed?: (connection: DaemonTransportConnection) => void;
+  /** Main-thread scheduling delay observed since the previous loop turn, for queue-wait accounting. */
+  readonly takeEventLoopStallMs?: () => number;
+  readonly currentEventLoopDelayMs?: () => number;
 }
 
 export interface UnixSocketTransportServer {
@@ -62,6 +65,10 @@ export function createUnixSocketTransportServer(options: UnixSocketTransportOpti
       authContext,
       connectionId,
       createProtocolServer: options.createProtocolServer,
+      ...(options.takeEventLoopStallMs === undefined ? {} : { takeEventLoopStallMs: options.takeEventLoopStallMs }),
+      ...(options.currentEventLoopDelayMs === undefined
+        ? {}
+        : { currentEventLoopDelayMs: options.currentEventLoopDelayMs }),
     });
     connections.add(connection);
     options.onConnection?.(connection);

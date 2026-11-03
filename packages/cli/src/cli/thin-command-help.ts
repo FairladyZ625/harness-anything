@@ -49,6 +49,28 @@ export const clientLocalCommands = [
     help: "    Defaults to 24h. Retained samples only; no CLI-only or complete-window traffic estimate.",
   },
   {
+    id: "daemon-top",
+    path: ["daemon", "top"],
+    usage: "ha daemon top [--once] [--interval 1s|500ms] [--user-root <path>] [--daemon-id <id>] [--json]",
+    summary: "Live per-second requests, per-method p50/p99, in-flight work, write queues and edge-node traffic.",
+    help: [
+      "    Reads the daemon's independent diagnostics socket, so it still answers while the main thread",
+      "    is stalled or the daemon is draining. Repeats every second until interrupted; --once prints",
+      "    one snapshot. On a build without request tracing it reports the trace as unavailable.",
+    ].join("\n"),
+  },
+  {
+    id: "daemon-slo",
+    path: ["daemon", "slo"],
+    usage: "ha daemon slo [--day YYYYMMDD] [--threshold 1s|500ms] [--user-root <path>] [--daemon-id <id>] [--json]",
+    summary: "Daily availability, per-method p99 and over-threshold requests from the conn log and the probe timeline.",
+    help: [
+      "    Availability comes only from the external probe's daemon-probe/v1 timeline; without probe",
+      "    samples it is reported unobserved rather than recomputed from request noise. Request latency,",
+      "    bytes and slow-request details come from the same daemon conn log that carries the span fields.",
+    ].join("\n"),
+  },
+  {
     id: "ledger-restore-offline",
     path: ["restore"],
     usage: "ha restore <backup-directory> --to <absolute-directory>",

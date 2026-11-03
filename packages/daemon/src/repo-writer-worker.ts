@@ -255,11 +255,18 @@ async function startRepoWriterWorker(): Promise<void> {
   }
 
   async function handleRequest(request: RepoWriterRequestV1): Promise<void> {
-    const abort = new AbortController();
+    const abort = new AbortController(),
+      startedAtMs = monotonicMs();
     activeRequests.set(request.requestId, abort);
     if (!cell || draining) {
       activeRequests.delete(request.requestId);
-      return postReceipt(request.requestId, undefined, new Error("RepoWriterCell is unavailable"));
+      return postReceipt(
+        request.requestId,
+        undefined,
+        new Error("RepoWriterCell is unavailable"),
+        startedAtMs,
+        monotonicMs(),
+      );
     }
     try {
       const binding = reviveBinding(
@@ -354,11 +361,11 @@ async function startRepoWriterWorker(): Promise<void> {
       }
       // A drain that lands while this request is in flight closes the cell and posts "closed" itself.
       if (cell) postStatus({ kind: "cut", status: cell.status() });
-      postReceipt(request.requestId, value);
+      postReceipt(request.requestId, value, undefined, startedAtMs, monotonicMs());
     } catch (error) {
       consumeKnownError(error);
       if (cell) postStatus({ kind: "status", status: cell.status() });
-      postReceipt(request.requestId, undefined, error);
+      postReceipt(request.requestId, undefined, error, startedAtMs, monotonicMs());
     } finally {
       activeRequests.delete(request.requestId);
     }
@@ -548,14 +555,26 @@ function sameWriterEpochFence(
   );
 }
 
-function postReceipt(requestId: string, value?: unknown, error?: unknown): void {
+function postReceipt(
+  requestId: string,
+  value?: unknown,
+  error?: unknown,
+  startedAtMs?: number,
+  finishedAtMs?: number,
+): void {
   parentPort!.postMessage({
     schema: "harness-repo-writer-receipt/v1",
     protocolVersion: REPO_WRITER_PROTOCOL_VERSION,
     requestId,
     outcome: error === undefined ? "ok" : "error",
     ...(error === undefined ? { value } : { error: serializeWriterError(error) }),
+    ...(startedAtMs === undefined ? {} : { startedAtMs }),
+    ...(finishedAtMs === undefined ? {} : { finishedAtMs }),
   } satisfies RepoWriterReceiptV1);
+}
+
+function monotonicMs(): number {
+  return Number(process.hrtime.bigint() / 1_000_000n);
 }
 
 function postStatus(status: Omit<RepoWriterStatusV1, "schema" | "protocolVersion">): void {
