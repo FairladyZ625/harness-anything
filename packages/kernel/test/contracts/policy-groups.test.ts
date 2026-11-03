@@ -47,7 +47,8 @@ test("every declaration has one minimum Base tier and one unique Keycloak scope"
   );
   // task_6569c05452127015cf461219de: automatic claim policy is a node-local administrator action.
   // task_b61f743f47a04298a7a96704e0 adds the task witness run action.
-  assert.equal(actionDeclarations.length, 173);
+  // task_e69543d4d51e21794937b7e713: independently revocable Fleet overview read (viewer).
+  assert.equal(actionDeclarations.length, 174);
   assert.equal(actionDeclarations.find(({ kind }) => kind === "migrate-storage")?.policyTier, "admin");
   assert.equal(actionDeclarations.find(({ kind }) => kind === "daemon-node-auto-claim")?.policyTier, "admin");
   assert.equal(
@@ -78,7 +79,7 @@ test("every declaration has one minimum Base tier and one unique Keycloak scope"
 test("Base composite inheritance expands monotonically without a handwritten action mirror", () => {
   const groups = deriveBasePolicyGroups(),
     effective = (id: string) => effectivePolicyGroupScopes(groups, id);
-  assert.deepEqual(effective("viewer"), ["repository-read"]);
+  assert.deepEqual(effective("viewer"), ["fleet-overview-read", "repository-read"]);
   assert.equal(effective("contributor").length < effective("maintainer").length, true);
   assert.equal(effective("maintainer").length < effective("admin").length, true);
   assert.deepEqual(

@@ -168,6 +168,14 @@ test("a legacy base-backup frame ends only its TLS replication session", { timeo
     },
   );
   assert.equal(fake.counts()["replica.start"], 1, "the session reached replication before the bad frame");
+  await waitForState(() => fake.counts()["replica.failure"] === 1, "the decoder failure report reached the center");
+  const reported = fake.received.find((frame) => frame.type === "replica.failure")!;
+  assert.equal(reported.type, "replica.failure");
+  if (reported.type === "replica.failure") {
+    assert.equal(reported.code, "center_upgrade_required");
+    assert.match(reported.message, /peer=.*edge-one/u);
+    assert.match(reported.message, /frame=.*fleet-basebackup\/v2/u);
+  }
 });
 test(
   "an unrecognized replication frame ends only its TLS session and records its source",
@@ -216,6 +224,12 @@ test(
       );
       await fake.waitSocketCount(0);
       assert.equal(fake.counts()["replica.start"], 1, "the invalid frame ended its authenticated session");
+      const reported = fake.received.find((frame) => frame.type === "replica.failure");
+      assert.equal(reported?.type, "replica.failure");
+      if (reported?.type === "replica.failure") {
+        assert.equal(reported.code, "invalid_frame");
+        assert.doesNotMatch(reported.message, /do-not-log-this-content|secret-edge-one/u);
+      }
     } finally {
       controller.abort();
       await running;

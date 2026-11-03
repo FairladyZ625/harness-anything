@@ -51,6 +51,7 @@ test(
       type: "replica.start" as const,
       repoId: replicationRepoId,
       position: null,
+      edgeBuildCommit: null,
       taskEventShapeVersion: TASK_EVENT_SHAPE_COMPAT_VERSION,
     };
     assert.equal((await a.request(start)).type, "replica.accept");
@@ -120,6 +121,7 @@ test("authenticated replication rejection preserves the upgrade code and timesta
     type: "replica.start",
     repoId: replicationRepoId,
     position: null,
+    edgeBuildCommit: null,
     taskEventShapeVersion: 0,
   });
   assert.equal(rejected.type, "replica.reject");
@@ -164,6 +166,7 @@ test(
       type: "replica.start",
       repoId: replicationRepoId,
       position: null,
+      edgeBuildCommit: null,
       taskEventShapeVersion: TASK_EVENT_SHAPE_COMPAT_VERSION,
     });
     peer.sendRawBytes(

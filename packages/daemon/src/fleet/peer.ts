@@ -195,7 +195,7 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
           socket.once("close", resolve);
           const code = "code" in failure && typeof failure.code === "string" ? failure.code : "invalid_frame";
           socket.end(
-            serializeReplicationFrame({ type: "replica.failure", code, message: failure.message.slice(0, 4096) }),
+            serializeReplicationFrame({ type: "replica.failure", code, message: failure.message.slice(0, 512) }),
             resolve,
           );
         });

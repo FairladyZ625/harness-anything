@@ -490,7 +490,16 @@ export async function replicationPeer(
     }
   });
   const nextLine = () =>
-      lines.length ? Promise.resolve(lines.shift()!) : new Promise<string>((resolve) => waiters.push(resolve)),
+      lines.length
+        ? Promise.resolve(lines.shift()!)
+        : Promise.race([
+            new Promise<string>((resolve) => waiters.push(resolve)),
+            closed.then(() => {
+              throw Object.assign(new Error("Replication peer closed before the next frame"), {
+                code: "connection_closed",
+              });
+            }),
+          ]),
     next = async () => parseReplicationFrame(await nextLine()),
     request = async (frame: ReplicationFrame) => {
       socket.write(serializeReplicationFrame(frame));

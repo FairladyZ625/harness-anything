@@ -636,7 +636,7 @@ describe("协作页舰队拓扑契约", () => {
     view.click(view.nodeCard("cc90-ubuntu"));
     const notes = view.host.querySelector('[data-testid="collaboration-read-notes"]')!;
     expect(notes.textContent).toContain("事件按任务当前租约归属节点");
-    expect(notes.textContent).toContain("在线状态依赖中心 TLS 会话事实");
+    expect(notes.textContent).toContain("在线状态来自中心当前持有的复制会话");
     expect(notes.textContent).not.toContain("events-attribution=");
     expect(notes.textContent).not.toContain("edge-online=");
     // 原始声明串保留在 title 供诊断与测试断言。
