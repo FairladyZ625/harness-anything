@@ -775,7 +775,7 @@ export function openRuntimeInstanceStore(input: {
             ...base,
             instance,
             evidence: JSON.stringify(instance),
-            summary: `runtime-instance-show: ${instanceId}\nauth: ${authReadinessLabel(instance.authReadiness)}\npermissionMode: ${instance.permissionMode}`,
+            summary: `runtime-instance-show: ${instanceId}\nmodels: ${instance.models.join(", ")}\nauth: ${authReadinessLabel(instance.authReadiness)}\npermissionMode: ${instance.permissionMode}`,
           };
         });
       const instance = publicConfig(config, readiness.get(config.instanceId));
@@ -783,7 +783,7 @@ export function openRuntimeInstanceStore(input: {
         ...base,
         instance,
         evidence: JSON.stringify(instance),
-        summary: `runtime-instance-show: ${instanceId}\nauth: ${authReadinessLabel(instance.authReadiness)}\npermissionMode: ${instance.permissionMode}`,
+        summary: `runtime-instance-show: ${instanceId}\nmodels: ${instance.models.join(", ")}\nauth: ${authReadinessLabel(instance.authReadiness)}\npermissionMode: ${instance.permissionMode}`,
       };
     }
     if (kind === "runtime-instance-delete") {

@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -16,6 +17,7 @@ import test from "node:test";
 import { makeTaskEventStore, makeTaskProjection } from "@harness-anything/storage";
 import { getEntityKindContract } from "@harness-anything/kernel";
 import {
+  agentRuntimeSelectionIssue,
   prepareAgentEntityInstall,
   readAgentDeclaration,
   readAgentEntityGuiProjection,
@@ -568,6 +570,8 @@ test("an unpinned Agent installs with several compatible instances and a declare
         }),
       (error: unknown) => (error as { code?: string }).code === "agent_instance_unavailable",
     );
+    // A kind mismatch names the instance's kind and models, the declared runtime kinds, and the
+    // route that actually fixes it: editing the agent's runtimes, not the instance's model list.
     await assert.rejects(
       () =>
         install({
@@ -579,12 +583,83 @@ test("an unpinned Agent installs with several compatible instances and a declare
             { instanceId: "claude-a", kindId: "claude", models: ["opus"], enabled: true },
           ],
         }),
-      (error: unknown) => (error as { code?: string }).code === "agent_instance_incompatible",
+      (error: unknown) => {
+        const failure = error as { code?: string; message?: string },
+          message = String(failure.message);
+        return (
+          failure.code === "agent_instance_incompatible" &&
+          /declares instance claude-a/u.test(message) &&
+          /whose kind is claude/u.test(message) &&
+          /models: opus/u.test(message) &&
+          /runtimes require codex/u.test(message) &&
+          /Change the agent's runtimes to include claude/u.test(message) &&
+          !/runtime instance update/u.test(message)
+        );
+      },
+    );
+    // A model mismatch names the requested kind:model, the instance's model catalog, and the
+    // exact update command that adds the requested model without dropping the existing ones.
+    await assert.rejects(
+      () =>
+        install({
+          rootDir,
+          kind: "agent-install",
+          declaration: {
+            ...agent,
+            id: "wrong-model",
+            instance: "codex-a",
+            runtimes: [{ type: "codex", model: "gpt-5.6-luna" }],
+          },
+          runtimeInstances,
+        }),
+      (error: unknown) => {
+        const failure = error as { code?: string; message?: string },
+          message = String(failure.message);
+        return (
+          failure.code === "agent_instance_incompatible" &&
+          /codex:gpt-5\.6-luna/u.test(message) &&
+          /codex-a \(codex, models: gpt-5\.6-sol, gpt-5\.6-terra\)/u.test(message) &&
+          /ha runtime instance update codex-a --model gpt-5\.6-sol --model gpt-5\.6-terra --model gpt-5\.6-luna/u.test(
+            message,
+          )
+        );
+      },
     );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+test(
+  "the model-mismatch recovery command preserves a JSON provider/model tuple as one shell argument",
+  { skip: process.platform === "win32" },
+  () => {
+    const tupleModel = '["openai","GPT-6.1-Astra"]',
+      declaration = {
+        ...agent,
+        id: "tuple-model",
+        name: "Tuple Model",
+        instance: "codex-a",
+        runtimes: [{ type: "codex", model: tupleModel }],
+      },
+      instances = [{ instanceId: "codex-a", kindId: "codex", models: ["gpt-5.6-sol"], enabled: true }];
+    const issue = agentRuntimeSelectionIssue(declaration, instances);
+    assert.equal(issue?.code, "agent_instance_incompatible");
+    const message = String(issue?.message),
+      command = message.slice(message.indexOf("ha runtime instance update "), -1);
+    assert.match(command, /--model '\["openai","GPT-6\.1-Astra"\]'/u);
+    // Let the shell parse the emitted command; printf echoes each resulting argv entry NUL-separated.
+    const shell = spawnSync("/bin/sh", ["-c", `printf '%s\\0' ${command.replace(/^ha /u, "")}`], {
+      encoding: "utf8",
+    });
+    assert.equal(shell.status, 0, shell.stderr);
+    const argv = shell.stdout.split("\0").slice(0, -1),
+      added = argv.flatMap((value, index) => (argv[index - 1] === "--model" ? [value] : []));
+    assert.deepEqual(argv.slice(0, 5), ["runtime", "instance", "update", "codex-a", "--model"]);
+    assert.deepEqual(added, ["gpt-5.6-sol", tupleModel]);
+    assert.equal(agentRuntimeSelectionIssue(declaration, [{ ...instances[0], models: added }]), null);
+  },
+);
 
 test("entity validation names every malformed manifest and refuses squads that reference missing agents", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-entity-errors-")),

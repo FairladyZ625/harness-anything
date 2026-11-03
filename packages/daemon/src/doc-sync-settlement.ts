@@ -10,8 +10,9 @@ import {
 import type { DocIntentChannel } from "./doc-sync-adjudication.ts";
 import { publicScan, type DocCandidateScan } from "./doc-sync-candidate-scanner.ts";
 import type { DocSettlementReceipt, Input } from "./doc-sync-command-actions.ts";
-import { detail, formatShellCommand, holder, isTaskPackagePath, touch } from "./doc-sync-details.ts";
+import { detail, holder, isTaskPackagePath, touch } from "./doc-sync-details.ts";
 import { localProseSource, proof, rejectDocSyncAction } from "./doc-sync-files.ts";
+import { formatShellCommand } from "./shell-command-text.ts";
 
 export function scanReceipt(input: Input, scan: DocCandidateScan): DocSettlementReceipt {
   const revision = input.store.readHead()?.revision ?? 0,
