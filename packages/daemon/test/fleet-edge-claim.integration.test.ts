@@ -20,15 +20,15 @@ test("failed-spawn release is fenced against a replacement lease on either node"
     (await fixture.command("node-one", { kind: "task-create", taskId, title: "Lease fence" })).outcome,
     "applied",
   );
-  assert.equal((await fixture.command("node-one", { kind: "task-start", taskId })).outcome, "applied");
+  const started = await fixture.command("node-one", { kind: "task-start", taskId });
+  assert.equal(started.outcome, "applied");
   const context = () =>
     fixture.host.read("lease-repo", "repo.tasks.runtimeContext.read", { taskId }, localAuthFixture());
-  const original = (await context()).snapshot.lease!;
+  assert.equal((await context()).snapshot.lease?.phase, "held");
   const release = {
     kind: "task-release",
     taskId,
-    expectedExecutionId: original.executionId,
-    expectedLeaseVersion: original.version,
+    claimOpId: started.receipt?.opId,
   };
   assert.equal((await fixture.command("node-one", release)).outcome, "applied");
   for (const nodeId of ["node-one", "node-two"]) {

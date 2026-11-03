@@ -545,11 +545,8 @@ export function openFleetEdgeRuntime(input: {
               started.code ?? "task_start_rejected",
               `The center could not start task ${taskId}: ${String(started.code ?? started.outcome)}.`,
             );
-          const claimedLease = withEdgeReadModel(
-            { ...request, principalId: replicaOwner, includeEntries: false },
-            (projection) => projection.currentLease(taskId),
-          );
-          if (claimedLease?.phase === "held")
+          const claimOpId = started.receipt?.opId;
+          if (started.receipt?.outcome === "applied" && typeof claimOpId === "string")
             onClaimed?.(async () => {
               const released = await runFleetEdgeWrite({
                 viewRoot: request.viewRoot,
@@ -566,8 +563,7 @@ export function openFleetEdgeRuntime(input: {
                     action: {
                       kind: "task-release",
                       taskId,
-                      expectedExecutionId: claimedLease.executionId,
-                      expectedLeaseVersion: claimedLease.version,
+                      claimOpId,
                       reason: "Runtime spawn failed after acquiring the task lease.",
                     },
                   }),
