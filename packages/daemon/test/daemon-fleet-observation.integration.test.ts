@@ -216,13 +216,16 @@ test("two Fleet nodes reuse a messageId, fail together and settle their own deli
     assert.equal((await b).schema, "fleet.error/v1");
     await waitForState(() => traffic.length === 1, "B settled while A waits for drain");
     assert.equal(traffic[0]!.nodeId, "node-two");
-    assert.equal(traffic[0]!.code, "handler_failed");
     assert.equal(observed.active.size, 1);
   } finally {
     socket.emit("drain");
   }
   assert.equal((await a).schema, "fleet.error/v1");
-  await waitForState(() => traffic.length === 2, "both error deliveries settled");
+  // Drain resumes only promise/iterator continuations. Cross a macrotask boundary to let
+  // the pump finish, then assert both owners, before checking individual error details.
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(traffic.length, 2, JSON.stringify({ traffic, active: [...observed.active.values()] }));
+  assert.equal(traffic[0]!.code, "handler_failed");
   const failed = observed.records.filter((row) => row.method === frame.schema);
   assert.equal(failed.length, 2, JSON.stringify(failed));
   for (const row of failed) {
