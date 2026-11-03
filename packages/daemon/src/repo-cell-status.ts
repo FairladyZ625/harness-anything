@@ -1,4 +1,5 @@
 import type { CanonicalEventStore, TaskProjection } from "@harness-anything/kernel";
+import { ProjectionIdentityMismatchError } from "@harness-anything/storage";
 import type { RepoCellStatus } from "./repo-cell-types.ts";
 
 export function repoCellStatus(context: {
@@ -30,8 +31,8 @@ export function repoCellStatus(context: {
       (read === null || read.ready),
     generation: context.generation,
     queueDepth: context.queueDepth,
-    lastError: context.lastError,
-    causeClass: context.causeClass,
+    lastError: read?.failure?.message ?? context.lastError,
+    causeClass: read?.failure ? "projection" : context.causeClass,
     recoveryMs: context.recovery.elapsedMs,
     // Git-less edges mirror the center cut; their local store is not a canonical Git publisher.
     materialization: context.mode === "remote-edge" ? null : context.store.materializationHealth(),
@@ -50,9 +51,16 @@ export function repoCellStatusCuts(
 }
 function readStatusCut(context: StatusReadContext) {
   if (context.state !== "attached") return null;
-  const cut = context.projection.readCut();
-  return {
-    ready: cut.status === "ready",
-    cuts: { projectionWatermark: cut.watermark, ledgerRevision: context.store.readHead()?.revision ?? 0 },
-  };
+  try {
+    const cut = context.projection.readCut();
+    return {
+      ready: cut.status === "ready",
+      cuts: { projectionWatermark: cut.watermark, ledgerRevision: context.store.readHead()?.revision ?? 0 },
+    };
+  } catch (error) {
+    // Health publication must report a corrupt cache without preventing its backup/repair.
+    // Query readers retain the original identity refusal; no data or completed cut is substituted.
+    if (!(error instanceof ProjectionIdentityMismatchError)) throw error;
+    return { ready: false, failure: error };
+  }
 }

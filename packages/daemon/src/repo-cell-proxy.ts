@@ -335,7 +335,12 @@ export async function openRepoCellProxy(
       });
     },
     runtime,
-    status: supervisor.status,
+    status: () => {
+      const status = supervisor.status();
+      if (!closed && status.state === "attached") return status;
+      const { projectionWatermark: _watermark, ledgerRevision: _revision, ...unreadable } = status;
+      return unreadable;
+    },
     statusCuts: () => {
       // A remote edge can serve its installed replica while its local writer/projection is
       // unavailable. Do not make host status depend on querying that unrelated local projection.

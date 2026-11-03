@@ -235,15 +235,9 @@ export const openBootstrappedRepoCell: typeof openProductRepoCell = async (input
     ...(input.runtimeInstances ? { runtimeInstances: input.runtimeInstances() } : {}),
     writerEpochFence: defaultWriterEpochFence,
   });
-  const cell = await openProductRepoCell({ keycloakCenter: policyTestCenter, ...input, defaultWriterEpochFence });
-  try {
-    await cell.read("repo.settings.read");
-  } catch (error) {
-    if ((error as { readonly code?: string }).code !== "projection_pending") return cell;
-    await cell.close();
-    throw error;
-  }
-  return cell;
+  // Settings were accepted above and writer open verifies its completed projection cut.
+  // A cold query here measures reader startup after product open and delays fixture callbacks.
+  return openProductRepoCell({ keycloakCenter: policyTestCenter, ...input, defaultWriterEpochFence });
 };
 
 async function settleSettingsEvent(input: {

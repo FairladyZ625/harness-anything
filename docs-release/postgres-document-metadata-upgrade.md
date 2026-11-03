@@ -33,7 +33,7 @@ rewrite is required.
    bodies. Previous readers and writers stay usable throughout. Rollback to the previous
    binary leaves the additive column and trigger in place; keep both through the window.
 
-The backfill visits O(D) document rows and decodes each missing body-containing serialization
+The backfill visits O(D) document rows and scans each missing body-containing serialization
 once. Each transaction holds at most 64 row locks; it does not lock a full scope or keep
 an unbounded queue. Body size still determines the cost of one legacy write/backfill row.
 Current list reads transfer and parse metadata only. The temporary extractor removes the
