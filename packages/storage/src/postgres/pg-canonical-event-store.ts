@@ -48,6 +48,10 @@ export function makePgCanonicalEventStore(
       execute({ operation: "events", afterRevision, limit }) as readonly CanonicalEventV1[],
     readContentBlob: CanonicalEventStore["readContentBlob"] = (sha256) =>
       execute({ operation: "content", sha256 }) as Uint8Array | null,
+    readContentBlobRange: CanonicalEventStore["readContentBlobRange"] = (sha256, offset, maxBytes) =>
+      execute({ operation: "content-range", sha256, offset, maxBytes }) as Uint8Array | null,
+    readContentBlobSize: CanonicalEventStore["readContentBlobSize"] = (sha256) =>
+      execute({ operation: "content-size", sha256 }) as number | null,
     readEvent: CanonicalEventStore["readEvent"] = (value) =>
       execute({ operation: "event", key: "op_id", value }) as CanonicalEventV1 | null,
     writable = () => {
@@ -225,6 +229,8 @@ export function makePgCanonicalEventStore(
     readBatch: (cursor, maxItems) =>
       execute({ operation: "batch", cursor, maxItems }) as ReturnType<CanonicalEventStore["readBatch"]>,
     readContentBlob,
+    readContentBlobRange,
+    readContentBlobSize,
     layout: () => "sharded-sha256-2/v1",
     append: (bundle) => {
       writable();
