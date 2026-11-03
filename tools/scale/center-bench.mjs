@@ -4,6 +4,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
+import { readProjectionShape } from "./center-shape.mjs";
 import { readTrafficLogs, extractTrafficModel } from "./center-model.mjs";
 
 export function defaultTrafficModel() {
@@ -61,7 +62,7 @@ export function markdownReport(report) {
     "",
     `Source: ${JSON.stringify(report.source)}`,
     "",
-    `Synthetic ledger: ${report.ledger.generatedEvents} events, ${report.ledger.documents} documents, ${report.ledger.jsonBytes} JSON bytes.`,
+    `Synthetic ledger: ${report.ledger.generatedEvents} events, ${report.ledger.documents} documents, ${report.ledger.documentJsonBytes} projected document JSON bytes.`,
     `Attach: ${report.attachMs.toFixed(1)} ms.`,
     "",
     "| Nodes | Connected | Read p50 ms | Read p99 ms | Write p50 ms | Write p99 ms | Errors | Unavailable ms |",
@@ -159,10 +160,13 @@ export async function runCenterBenchmark({
     });
     report.ledger = fixture.ledger;
     report.attachMs = fixture.attachMs;
+    // Offline read-only aggregate, outside replay timings; this warms the projection cache.
+    report.projectionShape = readProjectionShape(fixture.rootDir);
     report.attachSamples = fixture.attachSamples;
     report.attachDiagnostics = fixture.attachDiagnostics;
   } catch (error) {
     report.setupError = { code: error.code ?? null, message: error.message };
+    if (fixture) report.recordedTraffic = await fixture.close();
     return report;
   }
   try {

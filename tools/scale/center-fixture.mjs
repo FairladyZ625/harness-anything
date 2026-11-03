@@ -170,7 +170,7 @@ export async function createCenterFixture({
       keyPath,
       certPath,
       stateRoot: path.join(scratch, "fleet"),
-      quotaBytes: Math.max(64 * 1024 ** 2, profile.jsonBytes * 4),
+      quotaBytes: Math.max(64 * 1024 ** 2, profile.documentJsonBytes * 4),
     });
     const configFile = path.join(scratch, "process.json");
     writeFileSync(configFile, JSON.stringify({ rootDir, userRoot, repoId }));

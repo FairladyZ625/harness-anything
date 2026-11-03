@@ -21,7 +21,7 @@ host, start Docker locally, or point them at an existing daemon.
 ## Synthetic ledger
 
 The scale-one profile targets 225,000 events, 135,000 distinct logical documents, 5,000 tasks and
-1.9 GB of serialized event and document JSON. Scale 0.1 and 10 multiply these counts. Large JSON
+1.9 GB of projected `document.value_json` (the canonical measurement). Scale 0.1 and 10 multiply these counts. Large JSON
 documents are 10, 50 and 286 MB at scale one; scale ten repeats that size distribution instead of
 making a string larger than the supported runtime permits. Calibration profiles below one scale
 their large documents down as well.
@@ -41,9 +41,14 @@ Readiness probes run at 250 ms cadence; local lifecycle-event checks run at 25 m
 Both wait for observed state transitions and stop at their watchdog deadline.
 
 This matches counts and document sizes, not production's lifecycle, runtime, relation, fact or
-historical object-churn distributions. Each report states actual counts, event types, JSON bytes,
+historical object-churn distributions. Each report states actual counts, event types, projected document JSON bytes, separate event/content bytes,
 large-document sizes and deviation from the requested profile. Read latency involving empty
 runtime histories is not evidence about a populated runtime history.
+
+The generator counts UTF-8 JSON string escaping and row metadata, replacing prior rows on rewrites.
+After attach, a read-only SQLite aggregate records actual document/event counts, total bytes and
+largest document; this scan runs outside replay timings and warms the cache. The estimate excludes
+the fixture settings row. Event sizes and lifecycle mixes remain distinct shape deviations.
 
 Inside an already isolated benchmark environment, generate a reusable new repository:
 

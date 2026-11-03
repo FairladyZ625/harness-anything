@@ -154,3 +154,39 @@ test("failed measurement controls and faults retain independent diagnostics and 
   assert.ok(fault.daemonSamples.length > 0);
   assert.ok(fault.productDiagnostics.length >= 2);
 });
+
+// Projection bytes must be comparable to canonical document.value_json, not content + event bytes.
+test("projected row accounting counts JSON escaping and replaces rewritten rows", async () => {
+  const { projectedBodyBytes, projectedRowBytes, documentShapeTracker } = await import("./center-shape.mjs");
+  const body = '漢字😀"\\\n\t\u0000';
+  const claim = {
+    path: "context/test.json",
+    sha256: "a".repeat(64),
+    size: Buffer.byteLength(body),
+    mediaType: "application/json",
+    policyId: "opaque-textual/v1",
+  };
+  const actual = Buffer.byteLength(
+    JSON.stringify({
+      path: claim.path,
+      blobSha256: claim.sha256,
+      body,
+      size: claim.size,
+      mediaType: claim.mediaType,
+      policyId: claim.policyId,
+      workspaceRevision: 9,
+    }),
+  );
+  assert.equal(projectedRowBytes(claim, 9, projectedBodyBytes(body)), actual);
+  const tracker = documentShapeTracker();
+  for (const revision of [8, 9])
+    tracker.accept({
+      event: {
+        type: "documents_written",
+        workspaceRevision: revision,
+        payload: { changes: [{ path: claim.path, candidate: claim, policyId: claim.policyId }] },
+      },
+      blobs: revision === 8 ? [{ ...claim, body }] : [],
+    });
+  assert.equal(tracker.bytes, actual);
+});

@@ -1,3 +1,4 @@
+import { documentShapeTracker, projectedRowBytes } from "./center-shape.mjs";
 import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -14,7 +15,7 @@ export const canonicalShape = Object.freeze({
   events: 225_000,
   documents: 135_000,
   tasks: 5000,
-  jsonBytes: 1_900_000_000,
+  documentJsonBytes: 1_900_000_000,
   largeJsonBytes: [10, 50, 286].map((mb) => mb * 1_000_000),
 });
 const digest = (body) => createHash("sha256").update(body).digest("hex");
@@ -58,7 +59,7 @@ export function ledgerProfile(scale = 1) {
     events: Math.max(2, Math.round(canonicalShape.events * scale)),
     documents: Math.max(1, Math.round(canonicalShape.documents * scale)),
     tasks: Math.max(1, Math.round(canonicalShape.tasks * scale)),
-    jsonBytes: Math.round(canonicalShape.jsonBytes * scale),
+    documentJsonBytes: Math.round(canonicalShape.documentJsonBytes * scale),
     largeJsonBytes: Array.from({ length: Math.ceil(scale) }, () =>
       canonicalShape.largeJsonBytes.map((bytes) => Math.round(bytes * Math.min(scale, 1))),
     ).flat(),
@@ -123,6 +124,7 @@ export async function generateCenterLedger({
     blobs = [];
   };
   const accept = (bundle) => {
+    shape.accept(bundle);
     events.push(bundle.event);
     blobs.push(...bundle.blobs);
     eventJsonBytes += Buffer.byteLength(serializePersistedCanonicalEvent(bundle.event));
@@ -132,6 +134,7 @@ export async function generateCenterLedger({
     generated++;
     if (events.length === 256) flush();
   };
+  const shape = documentShapeTracker();
   const actor = { principal: { personId: "center-bench" }, executor: { kind: "agent", id: "center-bench" } };
   const runtimeSessionId = `runtime_${digest(`${seed}:runtime`).slice(0, 24)}`;
   try {
@@ -235,13 +238,22 @@ export async function generateCenterLedger({
       needed = profile.documents - bootstrapDocuments;
     if (needed < 1 || needed > profile.events - generated)
       throw new Error("profile needs room for task documents and document events");
-    const large = profile.largeJsonBytes.slice(0, needed),
-      largeTotal = large.reduce((sum, n) => sum + n, 0);
-    // The 225-event calibration measured about 0.8 KB per document event. Emit the actual deviation too.
+    const large = profile.largeJsonBytes.slice(0, needed);
+    const rowOverhead = projectedRowBytes(
+      {
+        path: `context/center-bench/doc-${needed}.json`,
+        sha256: "0".repeat(64),
+        size: profile.documentJsonBytes,
+        mediaType: "application/json",
+        policyId: OPAQUE_TEXTUAL_POLICY_ID,
+      },
+      baseline + profile.events,
+      9,
+    ); // syntheticJson adds 9 escaped quotes/newline bytes.
     const smallBytes = Math.max(
       128,
       Math.floor(
-        (profile.jsonBytes - contentJsonBytes - eventJsonBytes - (profile.events - generated) * 800 - largeTotal) /
+        (profile.documentJsonBytes - shape.bytes - large.reduce((sum, n) => sum + n, 0) - needed * rowOverhead) /
           Math.max(1, needed - large.length),
       ),
     );
@@ -302,7 +314,7 @@ export async function generateCenterLedger({
       eventTypes: types,
       eventJsonBytes,
       contentJsonBytes,
-      jsonBytes: eventJsonBytes + contentJsonBytes,
+      documentJsonBytes: shape.bytes,
       largeJsonBytes: large,
       sampleTasks,
       sampleRuntimeSessions: [runtimeSessionId],
@@ -311,12 +323,12 @@ export async function generateCenterLedger({
       deviation: {
         events: generated - profile.events,
         documents: paths.size - profile.documents,
-        jsonBytesRatio: (eventJsonBytes + contentJsonBytes) / profile.jsonBytes,
+        documentJsonBytesRatio: shape.bytes / profile.documentJsonBytes,
       },
       limitations: [
         "Task bootstrap uses the production preset compiler; four runtime events seed one terminal session; remaining activity is documents_written.",
         "Document rewrites repeat content: event density matches; historical object churn does not.",
-        "JSON byte count covers generated event serialization and newly supplied content, excluding fixture settings.",
+        "documentJsonBytes estimates current document.value_json rows, excluding fixture settings; event/content bytes are separate metrics. Actual SQLite aggregates are recorded after attach.",
       ],
     };
     mkdirSync(path.join(rootDir, ".harness"), { recursive: true });

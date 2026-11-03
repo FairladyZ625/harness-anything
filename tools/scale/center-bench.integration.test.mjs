@@ -35,7 +35,7 @@ test(
           events: 90,
           documents: 60,
           tasks: 2,
-          jsonBytes: 1_000_000,
+          documentJsonBytes: 1_000_000,
           largeJsonBytes: [1000, 3000, 5000],
         };
         const result = await generateCenterLedger({
@@ -48,6 +48,10 @@ test(
         assert.equal(result.generatedEvents, 90);
         assert.equal(result.documents, 60);
         assert.equal(result.tasks, 2);
+        assert.ok(
+          result.deviation.documentJsonBytesRatio > 0.99 && result.deviation.documentJsonBytesRatio <= 1.01,
+          JSON.stringify(result.deviation),
+        );
         assert.equal(result.follower.cut, result.revision);
         assert.equal(result.follower.git, "verified");
         const store = openSqliteEventStore({ rootInput: rootDir, repoId: "center-bench", readOnly: true });
@@ -110,6 +114,12 @@ test(
       "retain the product lifecycle log before deleting the owned fixture",
     );
     assert.equal(report.capacity.length, nodes.length);
+    assert.equal(report.projectionShape.document.count, report.ledger.documents + 1);
+    assert.equal(report.projectionShape.event.count, report.ledger.revision);
+    assert.ok(
+      Math.abs(report.projectionShape.document.jsonBytes - report.ledger.documentJsonBytes) < 5000,
+      JSON.stringify({ actual: report.projectionShape, expected: report.ledger.documentJsonBytes }),
+    );
     assert.equal(report.campaignError, undefined, JSON.stringify(report.campaignError));
     assert.deepEqual(
       report.faults.map((row) => row.scenario),
