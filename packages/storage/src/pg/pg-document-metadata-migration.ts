@@ -26,6 +26,8 @@ export function documentMetadataDdl(): readonly string[] {
       BEFORE INSERT OR UPDATE OF value ON ha_projection_values
       FOR EACH ROW WHEN (NEW.model = 'document')
       EXECUTE FUNCTION ha_document_metadata_previous_writer()`,
+    `CREATE INDEX IF NOT EXISTS ha_projection_document_metadata_pending ON ha_projection_values
+      (tenant_id,project_id,policy_epoch,owner_id,entity_id) WHERE model='document' AND document_metadata IS NULL`,
     `CREATE OR REPLACE FUNCTION ha_backfill_document_metadata(
         tenant text, project text, epoch bigint, after_owner text DEFAULT '', after_entity text DEFAULT '')
       RETURNS TABLE(processed integer, next_owner text, next_entity text)
@@ -35,7 +37,7 @@ export function documentMetadataDdl(): readonly string[] {
           SELECT tenant_id,project_id,policy_epoch,model,owner_id,entity_id
           FROM ha_projection_values
           WHERE tenant_id=tenant AND project_id=project AND policy_epoch=epoch
-            AND model='document' AND (owner_id,entity_id) > (after_owner,after_entity)
+            AND model='document' AND document_metadata IS NULL AND (owner_id,entity_id) > (after_owner,after_entity)
           ORDER BY owner_id,entity_id LIMIT 64 FOR UPDATE
         )
         , filled AS (

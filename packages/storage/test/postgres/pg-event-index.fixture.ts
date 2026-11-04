@@ -2,11 +2,12 @@ import assert from "node:assert/strict";
 import type { Pool } from "pg";
 import { createPgTaskProjectionSource } from "../../src/pg/pg-task-source.ts";
 import { withPostgresTransaction } from "../../src/postgres/transaction.ts";
-import { tracedPgReads, explainNodes } from "./pg-explain.fixture.ts";
+import { tracedPgReads, explainNodes, reportPgVersion, measurePgRead } from "./pg-explain.fixture.ts";
 
 const scope = { tenantId: "event-index", projectId: "event-index", policyEpoch: 1 },
   repoId = "event-index";
 export async function assertEventIndexes(pool: Pool, seedPool: Pool, backend: string): Promise<void> {
+  await reportPgVersion(pool, backend);
   await withPostgresTransaction(
     seedPool,
     async (client) => {
@@ -102,6 +103,17 @@ export async function assertEventIndexes(pool: Pool, seedPool: Pool, backend: st
     { factRef: "fact/F-4", factId: "F-4", taskId: "target", sourcePath: "event:target-4" },
   ]);
   process.stdout.write(`EVENT_INDEX ${backend} ${JSON.stringify(plans)}\n`);
+  const timed = createPgTaskProjectionSource({ pool, scope, repoId, ownsPool: false });
+  await measurePgRead(backend, "readScheduleEvents(id)", () => timed.readScheduleEvents("target"));
+  await measurePgRead(backend, "readScheduleEvents(all)", () => timed.readScheduleEvents());
+  await measurePgRead(backend, "readRuntimeSessionEvents", () =>
+    timed.readRuntimeSessionEvents("session-target", 0, 1),
+  );
+  await measurePgRead(backend, "readScheduleOutputEvents", () => timed.readScheduleOutputEvents(["session-output"]));
+  await measurePgRead(backend, "readReckoningEvents", () =>
+    timed.readReckoningEvents({ type: "fact_recorded", after: "2026-11-04", before: "2026-11-04" }),
+  );
+  await measurePgRead(backend, "readFactAnchors(refs)", () => timed.readFactAnchors(["fact/F-4"]));
   const scans = explainNodes(plans).filter((row) => row["Relation Name"] === "ha_events");
   assert.ok(scans.length >= 5, "every production event query must be explained");
   for (const entry of plans as { sql: string; plan: unknown }[]) {

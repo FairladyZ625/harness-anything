@@ -1,4 +1,4 @@
-import { tracedPgReads, explainNodes } from "./pg-explain.fixture.ts";
+import { tracedPgReads, explainNodes, reportPgVersion, measurePgRead } from "./pg-explain.fixture.ts";
 import assert from "node:assert/strict";
 import type { Pool } from "pg";
 import { createPgTaskProjectionSource } from "../../src/pg/pg-task-source.ts";
@@ -9,6 +9,7 @@ const scope = { tenantId: "value-index", projectId: "value-index", policyEpoch: 
 
 /** Explain the exact adapter SQL, using its runtime RLS connection and unforced planner. */
 export async function assertValueIndexes(pool: Pool, seedPool: Pool, backend: string): Promise<void> {
+  await reportPgVersion(pool, backend);
   await withPostgresTransaction(
     seedPool,
     async (client) => {
@@ -61,12 +62,14 @@ export async function assertValueIndexes(pool: Pool, seedPool: Pool, backend: st
   const plans: unknown[] = [],
     traced = tracedPgReads(pool, plans, (sql) => /^\s*SELECT[\s\S]*FROM ha_projection_values/u.test(sql));
   const source = createPgTaskProjectionSource({ pool: traced, scope, repoId: "value-index", ownsPool: false });
+  const timed = createPgTaskProjectionSource({ pool, scope, repoId: "value-index", ownsPool: false });
   const graph = await source.readFactGraph();
   process.stdout.write(`VALUE_INDEX ${backend} fact-edges ${JSON.stringify(plans)}\n`);
   assert.deepEqual(
     graph.edges.map((row) => row.relationId),
     ["target-a", "target-b", "target-c"],
   );
+  await measurePgRead(backend, "readFactGraph", () => timed.readFactGraph());
   for (const row of scans(plans))
     assert.ok(
       Number(row["Actual Rows"]) + Number(row["Rows Removed by Filter"] ?? 0) <= 3,
@@ -78,6 +81,7 @@ export async function assertValueIndexes(pool: Pool, seedPool: Pool, backend: st
     ["task/b", "task/c", "task/a"],
   );
   process.stdout.write(`VALUE_INDEX ${backend} pins ${JSON.stringify(plans)}\n`);
+  await measurePgRead(backend, "listPinnedEntities", () => timed.listPinnedEntities());
   plans.length = 0;
   const intervals = await source.readLeaseIntervals("task-target");
   assert.equal(intervals.length, 100001);
@@ -85,6 +89,7 @@ export async function assertValueIndexes(pool: Pool, seedPool: Pool, backend: st
   assert.equal(intervals.at(-1)!.executionId, "live");
   process.stdout.write(`VALUE_INDEX ${backend} intervals ${JSON.stringify(plans)}\n`);
   assert.ok(!explainNodes(plans).some((row) => row["Node Type"] === "Sort"), "interval order must come from its index");
+  await measurePgRead(backend, "readLeaseIntervals", () => timed.readLeaseIntervals("task-target"));
   await assertOnlineReadIndexUpgrade(pool, seedPool);
 }
 function scans(value: unknown) {

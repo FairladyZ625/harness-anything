@@ -53,3 +53,21 @@ export function explainNodes(value: unknown): Record<string, unknown>[] {
   const row = value as Record<string, unknown>;
   return [row, ...Object.values(row).flatMap(explainNodes)];
 }
+
+/** Positive engine evidence, never inferred from the factory name or a refusal test. */
+export async function reportPgVersion(pool: Pool, backend: string): Promise<void> {
+  const result = await pool.query<{ version: string; server_version_num: string }>(
+    "SELECT version() AS version,current_setting('server_version_num') AS server_version_num",
+  );
+  assert.match(result.rows[0]!.version, /^PostgreSQL/u);
+  process.stdout.write(`PG_ENGINE ${backend} ${JSON.stringify({ node: process.versions.node, ...result.rows[0] })}\n`);
+}
+/** A separate warm invocation excludes fixture setup, downloads and EXPLAIN instrumentation. */
+export async function measurePgRead<T>(backend: string, method: string, read: () => Promise<T>): Promise<T> {
+  const started = performance.now();
+  const result = await read();
+  process.stdout.write(
+    `PG_READ_TIME ${backend} ${JSON.stringify({ method, phase: "warm-after-explain", elapsedMs: performance.now() - started })}\n`,
+  );
+  return result;
+}

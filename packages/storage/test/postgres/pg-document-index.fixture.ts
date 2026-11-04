@@ -1,3 +1,4 @@
+import { reportPgVersion, measurePgRead } from "./pg-explain.fixture.ts";
 import assert from "node:assert/strict";
 import type { Pool } from "pg";
 import { pgValueQueries } from "../../src/pg/pg-value-queries.ts";
@@ -8,6 +9,7 @@ const scope = { tenantId: "document-index", projectId: "document-index", policyE
 
 /** Exercise the production read, including its RLS identity, and explain the SQL it actually issues. */
 export async function assertDocumentIndex(pool: Pool, seedPool: Pool, backend: string): Promise<void> {
+  await reportPgVersion(pool, backend);
   await withPostgresTransaction(
     seedPool,
     async (client) => {
@@ -75,6 +77,8 @@ export async function assertDocumentIndex(pool: Pool, seedPool: Pool, backend: s
     ["target/%_/a", "target/%_/b", "target/%_/深😀"],
   );
   process.stdout.write(`DOCUMENT_INDEX ${backend} ${JSON.stringify(plans)}\n`);
+  const timed = pgValueQueries({ pool, scope, repoId: "document-index" });
+  await measurePgRead(backend, "readDocuments(prefix)", () => timed.readDocuments("target/%_/"));
   const nodes = (plan: unknown): Record<string, unknown>[] => {
     if (Array.isArray(plan)) return plan.flatMap(nodes);
     if (typeof plan !== "object" || plan === null) return [];

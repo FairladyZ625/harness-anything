@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import type { Pool } from "pg";
 import { createPgTaskProjectionSource } from "../../src/pg/pg-task-source.ts";
 import { withPostgresTransaction } from "../../src/postgres/transaction.ts";
-import { tracedPgReads, explainNodes } from "./pg-explain.fixture.ts";
+import { tracedPgReads, explainNodes, reportPgVersion, measurePgRead } from "./pg-explain.fixture.ts";
+
+import { assertDispatchIndexes } from "./pg-dispatch-index.fixture.ts";
 
 const scope = { tenantId: "session-index", projectId: "session-index", policyEpoch: 1 };
 export async function assertSessionIndexes(pool: Pool, seedPool: Pool, backend: string): Promise<void> {
+  await reportPgVersion(pool, backend);
   await withPostgresTransaction(
     seedPool,
     async (client) => {
@@ -24,8 +27,7 @@ export async function assertSessionIndexes(pool: Pool, seedPool: Pool, backend: 
       VALUES($1,$2,$3,'target',1,'{"task":{"title":"Target"}}')`,
         [scope.tenantId, scope.projectId, scope.policyEpoch],
       );
-      await client.query("ANALYZE ha_projection_values");
-      await client.query("ANALYZE ha_runtime_session_tasks");
+      await client.query("ANALYZE");
       assert.equal(
         (
           await client.query(
@@ -48,6 +50,9 @@ export async function assertSessionIndexes(pool: Pool, seedPool: Pool, backend: 
   const batch = await source.readTaskRuntimeBatch({ taskIds: ["target"] });
   assert.equal(batch.rows[0]!.sessions.length, 200);
   process.stdout.write(`SESSION_INDEX ${backend} binding-and-batch ${JSON.stringify(plans)}\n`);
+  const timed = createPgTaskProjectionSource({ pool, scope, repoId: "session-index", ownsPool: false });
+  await measurePgRead(backend, "readRuntimeSessionsForTask", () => timed.readRuntimeSessionsForTask("target"));
+  await measurePgRead(backend, "readTaskRuntimeBatch", () => timed.readTaskRuntimeBatch({ taskIds: ["target"] }));
   for (const scan of explainNodes(plans).filter((row) =>
     ["ha_projection_values", "ha_runtime_session_tasks"].includes(String(row["Relation Name"])),
   ))
@@ -75,4 +80,8 @@ export async function assertSessionIndexes(pool: Pool, seedPool: Pool, backend: 
   );
   assert.equal((await source.readRuntimeSessionPage({ limit: 2 })).rows[0]!.runtimeSessionId, "session-000001");
   process.stdout.write(`SESSION_INDEX ${backend} pages-including-legacy-exact-count ${JSON.stringify(plans)}\n`);
+  await measurePgRead(backend, "readRuntimeSessionPage (legacy exact count)", () =>
+    timed.readRuntimeSessionPage({ limit: 64 }),
+  );
+  await assertDispatchIndexes(pool, seedPool, backend);
 }
