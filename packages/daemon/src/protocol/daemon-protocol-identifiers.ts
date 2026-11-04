@@ -1,6 +1,9 @@
+import type { ContractVersion } from "@harness-anything/kernel/contract-version";
 import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { DaemonProtocolContractError } from "./json-rpc-types.ts";
+
+export const currentDaemonProtocolVersion = Object.freeze({ major: 1, minor: 0 }) satisfies ContractVersion;
 
 declare const safePathBrand: unique symbol,
   canonicalRootBrand: unique symbol,
