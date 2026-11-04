@@ -6,6 +6,7 @@ import {
   archiveDispatchStream,
   readDispatchStream,
   readDispatchStreamHeader,
+  readDispatchStreamHeaders,
   readDispatchStreamSummary,
   reopenDispatchStream,
   type DispatchStreamHeader,
@@ -48,21 +49,28 @@ export async function adoptRuntimes(
   onProgress?: (completed: number) => void,
   options?: { readonly runtimeSessionId?: string; readonly authorizationBinding?: RuntimeBinding },
 ): Promise<readonly RuntimeRecoveryResult[]> {
-  // Recovery owes nothing to a settled session: the read layer returns only unsettled ones, so
-  // startup work follows what is still running instead of the repository's whole history.
+  // Canonical settlement can precede a crash before the local archive rename. Recover
+  // unsettled sessions plus live streams, never the repository's archived session history.
   const query = { unsettledOnly: true } as const;
   const sessions = context.input.remote
     ? await context.input.remote.readRuntimeSessions(query)
     : context.requiredRuntimeProjection(context.input).readRuntimeSessions(query);
+  const candidates = new Map<string, RuntimeSessionSelection | undefined>(
+    sessions.map((session) => [session.runtimeSessionId, session]),
+  );
+  for (const header of readDispatchStreamHeaders(context.input.rootDir)) {
+    const metadata = adoptableMetadata(header);
+    if (metadata && ownedByRuntimeSpawner(metadata.binding, context.input.runtimeNode, header))
+      if (!candidates.has(header.runtimeSessionId)) candidates.set(header.runtimeSessionId, undefined);
+  }
   let pending = recoveries.get(context);
   if (!pending) recoveries.set(context, (pending = new Map()));
   let completed = 0;
   // Point reads, including archived streams, belong to each recovery. A stalled
   // remote header lookup must not delay a sibling's restoration.
-  const attempts = sessions
-    .filter((session) => !options?.runtimeSessionId || session.runtimeSessionId === options.runtimeSessionId)
-    .map((session) => {
-      const runtimeSessionId = session.runtimeSessionId;
+  const attempts = [...candidates]
+    .filter(([id]) => !options?.runtimeSessionId || id === options.runtimeSessionId)
+    .map(([runtimeSessionId, candidate]) => {
       const existing = pending.get(runtimeSessionId);
       if (existing && !existing.result) return existing.promise;
       const alreadyOwned = hasLocalRuntimeOwner(context, runtimeSessionId);
@@ -72,6 +80,14 @@ export async function adoptRuntimes(
           .then(async () => {
             // The launch may not have written its stream header yet either.
             if (context.ownsModelSlot?.(runtimeSessionId)) return "ready" as const;
+            // Keep each point lookup inside its own recovery so a stalled edge read does not
+            // hold up siblings. The live directory bounds these extra canonical session reads.
+            const session =
+              candidate ??
+              (context.input.remote
+                ? (await context.input.remote.readRuntimeSessions({ runtimeSessionId }))[0]
+                : context.requiredRuntimeProjection(context.input).readRuntimeSession(runtimeSessionId));
+            if (!session) return "foreign" as const;
             const dispatch = context.input.remote
               ? await context.input.remote.readRuntimeDispatch(runtimeSessionId)
               : context.requiredRuntimeProjection(context.input).readRuntimeDispatch(runtimeSessionId);

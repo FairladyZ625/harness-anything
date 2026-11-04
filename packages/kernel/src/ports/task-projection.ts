@@ -53,6 +53,8 @@ import type { DecisionListFilters, DecisionPageQuery } from "./decision-projecti
 import type { EntityFreshness, EntityVersion, EntityVersionWitness } from "../domain/entity-freshness.ts";
 
 export interface RuntimeSessionReadQuery {
+  /** Point lookup for a local live stream whose canonical session may already be settled. */
+  readonly runtimeSessionId?: string;
   /** Only sessions whose canonical outcome is still unset. Recovery must not scan settled history. */
   readonly unsettledOnly?: boolean;
 }

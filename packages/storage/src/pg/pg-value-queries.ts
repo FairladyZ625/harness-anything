@@ -102,6 +102,10 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
     // happens after the value read. SQLite is the default daemon backend and has the expression
     // index that makes this read proportional to unsettled sessions.
     readRuntimeSessions: async (query) => {
+      if (query?.runtimeSessionId !== undefined) {
+        const session = await get<RuntimeSession>("runtime-session", query.runtimeSessionId);
+        return session && (!query.unsettledOnly || session.outcome === null) ? [session] : [];
+      }
       const sessions = await list<RuntimeSession>("runtime-session");
       return query?.unsettledOnly ? sessions.filter((session) => session.outcome === null) : sessions;
     },

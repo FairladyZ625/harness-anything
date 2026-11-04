@@ -722,7 +722,7 @@ export function openFleetEdgeRuntime(input: {
         // Recovery needs the center's published outcome. Local terminal evidence is for public
         // reads; treating it as publication would skip replay after a lost write. Read the
         // replica projection directly so startup follows unsettled sessions, not full history.
-        if (!query?.unsettledOnly)
+        if (!query?.unsettledOnly && query?.runtimeSessionId === undefined)
           return readFleetRuntimeSessionsPaged(async (payload) =>
             withEdgeReadModel(
               { ...request, principalId: (await input.readBinding()).actor.principal.personId, includeEntries: false },
@@ -741,7 +741,7 @@ export function openFleetEdgeRuntime(input: {
           );
         const principalId = (await input.readBinding()).actor.principal.personId;
         return withEdgeReadModel({ ...request, principalId, includeEntries: false }, (projection) =>
-          projection.readRuntimeSessions({ unsettledOnly: true }).map((session) => ({
+          projection.readRuntimeSessions(query).map((session) => ({
             runtimeSessionId: session.runtimeSessionId,
             providerSessionId: session.providerSessionId,
             instanceId: session.instanceId,

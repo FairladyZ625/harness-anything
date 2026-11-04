@@ -62,6 +62,23 @@ test("unsettled-only runtime read filters in SQL and an existing projection pick
       ["runtime-open-a", "runtime-open-b"],
     );
     assert.equal(reopened.readRuntimeSessions().length, settledCount + 2);
+    assert.deepEqual(
+      reopened
+        .readRuntimeSessions({ runtimeSessionId: "runtime-settled-00000" })
+        .map(({ runtimeSessionId }) => runtimeSessionId),
+      ["runtime-settled-00000"],
+    );
+    assert.deepEqual(reopened.readRuntimeSessions({ runtimeSessionId: "runtime-missing" }), []);
+    assert.deepEqual(
+      reopened.readRuntimeSessions({ runtimeSessionId: "runtime-settled-00000", unsettledOnly: true }),
+      [],
+    );
+    assert.deepEqual(
+      reopened
+        .readRuntimeSessions({ runtimeSessionId: "runtime-open-a", unsettledOnly: true })
+        .map(({ runtimeSessionId }) => runtimeSessionId),
+      ["runtime-open-a"],
+    );
     reopened.close();
 
     // The read stays proportional to unsettled sessions only if SQLite answers it from the index;

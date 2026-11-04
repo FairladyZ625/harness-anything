@@ -6,7 +6,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { adoptRuntimes } from "../src/runtime-spawn-adoption.ts";
-import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
+import {
+  appendRuntimeWorkerRecord,
+  archiveDispatchStream,
+  dispatchStreamPath,
+  openDispatchStream,
+} from "../src/dispatch-stream.ts";
 import { publishExit } from "../src/runtime-spawn-settlement.ts";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
 import type { RuntimeSessionReadQuery } from "@harness-anything/kernel";
@@ -121,3 +126,107 @@ test("startup recovery reads only unsettled sessions and never point-reads settl
   assert.deepEqual(published, ["runtime_session_exited", "runtime_session_outcome_observed"]);
   assert.equal(context.processes.size, 0);
 });
+
+for (const mode of ["local", "remote"] as const) {
+  for (const state of ["dead", "alive", "foreign", "fallback"] as const) {
+    test(`${mode} recovery repairs only a live settled stream and preserves ${state} ownership`, async (t) => {
+      const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-adoption-live-"));
+      t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+      const dispatchId = "dispatch_888888888888888888888888",
+        runtimeSessionId = "runtime-settled-live",
+        binding = {
+          actor: { principal: { personId: "owner" }, executor: null },
+          source: { kind: "node", nodeId: "node-a" } as const,
+        },
+        header = {
+          dispatchId,
+          runtimeSessionId,
+          taskId: null,
+          executionId: null,
+          instanceId: "deepseek-worker",
+          startedAt: "2026-11-04T00:00:00.000Z",
+          dispatchOpId: dispatchId,
+          kindId: "deepseek-harness",
+          permissionMode: "read-only" as const,
+          cwd: rootDir,
+          binding,
+          prompt: "repair only the live stream",
+          model: "test",
+          reasoningEffort: null,
+        };
+      // Archived history is deliberately present on disk as well as in the canonical store.
+      for (let index = 0; index < 20; index++) {
+        const archivedId = `dispatch_${String(index).padStart(24, "0")}`;
+        openDispatchStream(rootDir, { ...header, dispatchId: archivedId, runtimeSessionId: `history-${index}` });
+        archiveDispatchStream(rootDir, archivedId);
+      }
+      const stream = openDispatchStream(rootDir, header);
+      appendRuntimeWorkerRecord(rootDir, dispatchId, {
+        kind: "process_started",
+        pid: state === "alive" ? process.pid : 2_147_483_647,
+      });
+      if (state === "fallback")
+        stream.appendFallbackState(
+          {
+            state: "scheduled",
+            delayMs: 1,
+            notBeforeAt: "2026-11-04T00:01:00.000Z",
+            nextProvider: { instance: "next" },
+          },
+          "2026-11-04T00:00:01.000Z",
+        );
+      const session = { runtimeSessionId, instanceId: header.instanceId, outcome: "succeeded", liveness: "exited" },
+        queries: (RuntimeSessionReadQuery | undefined)[] = [],
+        sessionReads: string[] = [],
+        dispatchReads: string[] = [],
+        projection = {
+          readRuntimeSessions: (query?: RuntimeSessionReadQuery) => {
+            queries.push(query);
+            if (query?.runtimeSessionId !== undefined) return [projection.readRuntimeSession(query.runtimeSessionId)];
+            assert.equal(query?.unsettledOnly, true, "recovery cannot read all sessions");
+            return [];
+          },
+          readRuntimeSession: (id: string) => {
+            sessionReads.push(id);
+            assert.equal(id, runtimeSessionId, "archived history cannot be point-read");
+            return session;
+          },
+          readRuntimeDispatch: (id: string) => {
+            dispatchReads.push(id);
+            return {
+              ...binding,
+              source: state === "foreign" ? { kind: "node", nodeId: "node-b" } : binding.source,
+              payload: { dispatchId },
+            };
+          },
+        },
+        context = {
+          input: {
+            rootDir,
+            runtimeNode: { nodeId: "node-a" },
+            ...(mode === "remote" ? { remote: projection } : {}),
+          },
+          requiredRuntimeProjection: () => projection,
+          processes: new Map(),
+          exiting: new Set(),
+          publishExit: () => assert.fail("archive repair cannot settle the runtime again"),
+          publishRuntimeEvent: () => assert.fail("archive repair cannot publish canonical events"),
+        } as unknown as RuntimeSpawnerContext;
+      const results = await adoptRuntimes(context);
+      assert.deepEqual(sessionReads, [runtimeSessionId]);
+      assert.deepEqual(dispatchReads, [runtimeSessionId]);
+      assert.deepEqual(queries, [{ unsettledOnly: true }, ...(mode === "remote" ? [{ runtimeSessionId }] : [])]);
+      assert.equal(results[0]?.outcome, state === "foreign" ? "foreign" : "settled");
+      assert.equal(
+        path.basename(path.dirname(dispatchStreamPath(rootDir, dispatchId))),
+        state === "dead" ? "archive" : "dispatches",
+      );
+      sessionReads.length = 0;
+      dispatchReads.length = 0;
+      await adoptRuntimes(context);
+      assert.deepEqual(sessionReads, state === "dead" ? [] : [runtimeSessionId]);
+      assert.deepEqual(dispatchReads, state === "dead" ? [] : [runtimeSessionId]);
+      assert.equal(context.processes.size, 0);
+    });
+  }
+}

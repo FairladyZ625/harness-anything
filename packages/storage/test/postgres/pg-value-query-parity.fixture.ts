@@ -63,6 +63,13 @@ function valueContract(queries: ValueQueries) {
     installations: queries.readRuntimeInstallations(),
     session: queries.readRuntimeSession("runtime-query-session"),
     sessions: queries.readRuntimeSessions(),
+    pointSession: queries.readRuntimeSessions({ runtimeSessionId: "runtime-query-session" }),
+    missingPointSession: queries.readRuntimeSessions({ runtimeSessionId: "missing" }),
+    unsettledPointSession: queries.readRuntimeSessions({
+      runtimeSessionId: "runtime-query-session",
+      unsettledOnly: true,
+    }),
+    unsettledSessions: queries.readRuntimeSessions({ unsettledOnly: true }),
     sessionsForTask: queries.readRuntimeSessionsForTask("task-parity"),
     emptySessions: queries.readRuntimeSessionsForTask("missing"),
     page: queries.readRuntimeSessionPage({ limit: 1 }),

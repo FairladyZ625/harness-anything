@@ -372,6 +372,10 @@ export function readRuntimeSession(db: DatabaseSync, sessionId: string): Runtime
   return row ? (JSON.parse(String(row.value_json)) as RuntimeSession) : null;
 }
 export function readRuntimeSessions(db: DatabaseSync, query?: RuntimeSessionReadQuery): RuntimeSession[] {
+  if (query?.runtimeSessionId !== undefined) {
+    const session = readRuntimeSession(db, query.runtimeSessionId);
+    return session && (!query.unsettledOnly || session.outcome === null) ? [session] : [];
+  }
   // runtime_session_unsettled indexes this exact expression, so recovery reads only the sessions
   // that still need work instead of scanning every session the repository ever ran.
   const sql = query?.unsettledOnly
