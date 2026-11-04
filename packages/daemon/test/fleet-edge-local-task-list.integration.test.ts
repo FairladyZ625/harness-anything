@@ -24,7 +24,10 @@ test(
           .outcome,
         "applied",
       );
-    const e = await fleetEdgeHostFixture(t, f);
+    // This case drives each pull explicitly, then injects an offline sync failure. Install the
+    // config after attachment so a resident reconnect cannot overwrite that failure during a read.
+    const e = await fleetEdgeHostFixture(t, f, { writeEdgeConfig: false });
+    writeFileSync(path.join(e.edgeRoot, "fleet-edge.json"), JSON.stringify(e.config));
     const pull = () =>
       catchUpReplica({
         ...f.peer("node-one"),
