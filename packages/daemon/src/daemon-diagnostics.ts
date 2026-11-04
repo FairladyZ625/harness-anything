@@ -2,7 +2,8 @@ import { Worker } from "node:worker_threads";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import type { DaemonOperationObserver, DaemonOperationUpdate } from "./daemon-operation.ts";
+import { createDaemonOperationTable } from "./daemon-operation-table.ts";
+import type { DaemonOperationObserver } from "./daemon-operation.ts";
 
 export interface DaemonDiagnosticsOptions {
   readonly userRoot: string;
@@ -14,6 +15,7 @@ export interface DaemonDiagnosticsOptions {
 }
 export async function openDaemonDiagnostics(options: DaemonDiagnosticsOptions) {
   const heartbeat = new BigInt64Array(new SharedArrayBuffer(16)),
+    operations = createDaemonOperationTable(),
     histogram = monitorEventLoopDelay({ resolution: 20 }),
     extension = path.extname(fileURLToPath(import.meta.url)),
     worker = new Worker(new URL(`./daemon-diagnostics-worker${extension}`, import.meta.url), {
@@ -25,42 +27,18 @@ export async function openDaemonDiagnostics(options: DaemonDiagnosticsOptions) {
         stallThresholdMs: options.stallThresholdMs,
         metricsIntervalMs: options.metricsIntervalMs,
         heartbeat: heartbeat.buffer,
+        operations: operations.buffer,
       },
     });
-  let nextId = 0,
-    closed = false,
+  let closed = false,
     heartbeatDelayMax = 0;
   const send = (message: object): void => {
     if (!closed) worker.postMessage(message);
   };
   const observer: DaemonOperationObserver = {
-    begin: (fields) => {
-      const id = String(++nextId);
-      send({
-        type: "begin",
-        operation: {
-          id,
-          method: fields.method.slice(0, 256),
-          repoId: fields.repoId?.slice(0, 256) ?? null,
-          actor: fields.actor?.slice(0, 256) ?? null,
-          phase: fields.phase?.slice(0, 256) ?? "started",
-          startedAt: new Date().toISOString(),
-        },
-      });
-      return {
-        update: (update: DaemonOperationUpdate) =>
-          send({
-            type: "update",
-            id,
-            fields: {
-              ...(update.phase === undefined ? {} : { phase: update.phase.slice(0, 256) }),
-              ...(update.repoId === undefined ? {} : { repoId: update.repoId?.slice(0, 256) ?? null }),
-              ...(update.actor === undefined ? {} : { actor: update.actor?.slice(0, 256) ?? null }),
-            },
-          }),
-        end: () => send({ type: "end", id }),
-      };
-    },
+    // Registration is published through shared memory, so a request that blocks the main thread
+    // immediately after `begin` is already visible to the watchdog.
+    begin: (fields) => operations.begin(fields),
   };
   const heartbeatMs = options.heartbeatMs ?? 250,
     nowMs = (): bigint => process.hrtime.bigint() / 1_000_000n,
