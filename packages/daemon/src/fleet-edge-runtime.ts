@@ -30,6 +30,7 @@ import {
   resolveHarnessLayout,
   validateScheduleV1,
   type AgentRuntimeEventV1,
+  type RuntimeSessionReadQuery,
   type ScheduleV1,
   type TaskWorktreeBindingV1,
 } from "@harness-anything/kernel";
@@ -53,7 +54,7 @@ import { applyFleetMirrorCut, locateFleetMirrorView } from "./fleet-edge-mirror.
 import { transitionDocumentReadinessContract } from "./transition-document-access.ts";
 import { validateAgentRuntimeOverview, type AgentRuntimeOverviewResult } from "./agent-runtime-contract.ts";
 import { makeRuntimeSpawner, type RuntimeDaemonRoute, type RuntimeLauncher } from "./runtime-spawn.ts";
-import type { ReviewerReviewRecoveryInput, RuntimeAgent } from "./runtime-spawn-types.ts";
+import type { ReviewerReviewRecoveryInput, RuntimeAgent, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { readReplicaGeneration } from "./fleet/replica-generation.ts";
@@ -197,6 +198,25 @@ export async function readFleetRuntimeSessionsPaged(readPage: (payload: JsonObje
     if (cursor !== null) seen.add(cursor);
   } while (cursor !== null);
   return sessions;
+}
+
+/**
+ * The unsettled/point-read recovery input reads the replica projection by key or unsettled set.
+ * Every selected field must survive: `providerUnreachable` is the center's persisted fault
+ * classification, so dropping it here would make adoption silently clear a live fault.
+ */
+export function readEdgeRuntimeSessions(
+  projection: Pick<TaskProjection, "readRuntimeSessions">,
+  query?: RuntimeSessionReadQuery,
+): readonly RuntimeSessionSelection[] {
+  return projection.readRuntimeSessions(query).map((session) => ({
+    runtimeSessionId: session.runtimeSessionId,
+    providerSessionId: session.providerSessionId,
+    instanceId: session.instanceId,
+    liveness: session.liveness,
+    outcome: session.outcome,
+    providerUnreachable: session.providerUnreachable ?? null,
+  }));
 }
 
 export function createFleetEdgeRuntimeWorkQueue(onError: (error: unknown) => void) {
@@ -742,13 +762,7 @@ export function openFleetEdgeRuntime(input: {
           );
         const principalId = (await input.readBinding()).actor.principal.personId;
         return withEdgeReadModel({ ...request, principalId, includeEntries: false }, (projection) =>
-          projection.readRuntimeSessions(query).map((session) => ({
-            runtimeSessionId: session.runtimeSessionId,
-            providerSessionId: session.providerSessionId,
-            instanceId: session.instanceId,
-            liveness: session.liveness,
-            outcome: session.outcome,
-          })),
+          readEdgeRuntimeSessions(projection, query),
         );
       },
       readRuntimeDispatch: async (runtimeSessionId) =>
