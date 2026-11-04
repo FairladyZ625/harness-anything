@@ -1,1 +1,1 @@
-export { currentDaemonProtocolVersion } from "./daemon-protocol.contract.ts";
+export { currentDaemonProtocolVersion } from "./daemon-protocol-identifiers.ts";

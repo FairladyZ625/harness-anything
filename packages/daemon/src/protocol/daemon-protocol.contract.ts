@@ -1,5 +1,7 @@
 import { presetMethods } from "@harness-anything/preset/internal/preset-command-contract";
 import type { ContractVersion } from "@harness-anything/kernel/contract-version";
+import { currentDaemonProtocolVersion } from "./daemon-protocol-identifiers.ts";
+export { currentDaemonProtocolVersion } from "./daemon-protocol-identifiers.ts";
 import type { FleetTaskAction } from "../fleet/command-protocol.ts";
 import { daemonOwnedProtocolCommands } from "./daemon-protocol-commands.ts";
 import {
@@ -68,8 +70,6 @@ export {
   taskStatusWords,
 };
 export { builtInRuntimeProviderInputDeclaration } from "./daemon-protocol-commands-runtime-config.ts";
-
-export const currentDaemonProtocolVersion = Object.freeze({ major: 1, minor: 0 }) satisfies ContractVersion;
 
 // Build-time projections of the kernel status vocabularies (register:
 // packages/kernel/src/domain/status-vocabulary.ts, blueprint 铁律四). This module sits
