@@ -109,7 +109,10 @@ test("injected entity readers interpret the same accepted declaration for every 
         done: true,
         accessedItems: cursor === null ? 1 : 0,
       }),
-      readContentBlob: (sha: string) => candidate.blobs.find((blob) => blob.sha256 === sha)?.body ?? null,
+      readContentBlob: (sha: string) => {
+        const body = candidate.blobs.find((blob) => blob.sha256 === sha)?.body;
+        return body === undefined ? null : new TextEncoder().encode(body);
+      },
     };
   const expected = createEntityStore(source).get("agent", "neutral-agent");
   assert.ok(expected);
