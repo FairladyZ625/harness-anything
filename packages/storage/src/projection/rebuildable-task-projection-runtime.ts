@@ -378,26 +378,20 @@ export function readRuntimeSessions(db: DatabaseSync, query?: RuntimeSessionRead
     if (query.unsettledOnly && session.outcome !== null) return [];
     if (
       query.executionOwnerNodeId !== undefined &&
-      !runtimeSessionOwnedByNode(db, session.runtimeSessionId, query.executionOwnerNodeId)
+      runtimeSessionExecutionNode(db, session.runtimeSessionId) !== query.executionOwnerNodeId
     )
       return [];
     return [session];
   }
   const clauses: string[] = [],
     values: string[] = [];
-  // runtime_session_unsettled indexes this exact expression, so recovery reads only the sessions
-  // that still need work instead of scanning every session the repository ever ran.
+  // runtime_session_unsettled_order covers the outcome filter and the recovery ORDER BY together,
+  // so the read cannot fall back to scanning the repository's settled history.
   if (query?.unsettledOnly) clauses.push("json_extract(value_json, '$.outcome') IS NULL");
-  // Edge recovery is scoped to its own dispatches. The event index makes the authoritative
-  // execution owner the driving set, so another node's unsettled sessions never become candidates.
+  // Edge recovery is scoped by the canonical dispatch source stored beside the session. The
+  // node_unsettled index applies both predicates before any session row is visited.
   if (query?.executionOwnerNodeId !== undefined) {
-    clauses.push(`runtime_session_id IN (
-      SELECT json_extract(event_json, '$.payload.runtimeSessionId')
-      FROM event_index
-      WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
-        AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'
-        AND json_extract(event_json, '$.source.nodeId') = ?
-    )`);
+    clauses.push("execution_node_id = ?");
     values.push(query.executionOwnerNodeId);
   }
   const where = clauses.length === 0 ? "" : ` WHERE ${clauses.join(" AND ")}`;
@@ -405,21 +399,13 @@ export function readRuntimeSessions(db: DatabaseSync, query?: RuntimeSessionRead
     (row) => JSON.parse(String(row.value_json)) as RuntimeSession,
   );
 }
-function runtimeSessionOwnedByNode(db: DatabaseSync, runtimeSessionId: string, nodeId: string): boolean {
-  return (
-    queryRows(
-      db,
-      [
-        "SELECT 1 AS owned FROM event_index",
-        "WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
-        "AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'",
-        "AND json_extract(event_json, '$.payload.runtimeSessionId') = ?",
-        "AND json_extract(event_json, '$.source.nodeId') = ? LIMIT 1",
-      ].join(" "),
-      runtimeSessionId,
-      nodeId,
-    ).length > 0
-  );
+function runtimeSessionExecutionNode(db: DatabaseSync, runtimeSessionId: string): string | null {
+  const row = queryRows(
+    db,
+    "SELECT execution_node_id FROM runtime_session WHERE runtime_session_id = ?",
+    runtimeSessionId,
+  )[0];
+  return row === undefined ? null : String(row.execution_node_id ?? "");
 }
 export function readRuntimeSessionsForTask(db: DatabaseSync, taskId: string): RuntimeSession[] {
   return queryRows(

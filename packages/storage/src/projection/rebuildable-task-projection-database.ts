@@ -76,6 +76,7 @@ const projectionClosers = new Map<string, Set<() => void>>();
 const projectionBusyTimeoutMs = 250;
 const runtimeBindingBatchSize = 256;
 const runtimeBindingMaintenanceKey = "runtime-session-task-binding-v1";
+const runtimeSessionExecutionNodeMaintenanceKey = "runtime-session-execution-node-v1";
 type ProjectionProgress = (progress: { readonly applied: number; readonly total: number }) => void;
 let queryOnlySession: {
   readonly projectionPath: string;
@@ -467,6 +468,7 @@ function configureDatabase(db: DatabaseSync): void {
 }
 
 function createTables(db: DatabaseSync, onValidationProgress?: ProjectionProgress): void {
+  ensureRuntimeSessionExecutionNodeColumn(db);
   /* @gate-identity check-bypass-write-boundary/bypass-write-009 */
   db.exec(`
     CREATE TABLE IF NOT EXISTS archived_entity (
@@ -553,11 +555,45 @@ ${REPOSITORY_READ_TABLES_SQL}
       completed_at TEXT NOT NULL
     );
   `);
+  backfillRuntimeSessionExecutionNode(db);
   backfillRuntimeSessionBindings(db, onValidationProgress);
   createTaskRelationProjectionTable(db);
   createRelationGraphProjectionTables(db);
   createFactProjectionTables(db);
   createDecisionProjectionTables(db);
+}
+
+/** Existing projections predate the owner column; add it before the DDL creates its index. */
+function ensureRuntimeSessionExecutionNodeColumn(db: DatabaseSync): void {
+  if (queryRows(db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='runtime_session'").length === 0) return;
+  const columns = queryRows(db, "PRAGMA table_info(runtime_session)");
+  if (columns.some(({ name }) => name === "execution_node_id")) return;
+  runSql(db, "ALTER TABLE runtime_session ADD COLUMN execution_node_id TEXT NOT NULL DEFAULT ''");
+}
+
+/** Backfill only still-unsettled rows: settled history never consults the recovery index again. */
+function backfillRuntimeSessionExecutionNode(db: DatabaseSync): void {
+  if (
+    queryRows(db, "SELECT 1 FROM projection_maintenance WHERE key = ?", runtimeSessionExecutionNodeMaintenanceKey)
+      .length > 0
+  )
+    return;
+  runSql(
+    db,
+    `UPDATE runtime_session SET execution_node_id = COALESCE((
+       SELECT json_extract(event_json, '$.source.nodeId') FROM event_index
+       WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
+         AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'
+         AND json_extract(event_json, '$.payload.runtimeSessionId') = runtime_session.runtime_session_id
+         AND json_extract(event_json, '$.source.nodeId') IS NOT NULL
+       LIMIT 1), '')
+     WHERE execution_node_id = '' AND json_extract(value_json, '$.outcome') IS NULL`,
+  );
+  runSql(
+    db,
+    "INSERT OR IGNORE INTO projection_maintenance(key, completed_at) VALUES (?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
+    runtimeSessionExecutionNodeMaintenanceKey,
+  );
 }
 
 function backfillRuntimeSessionBindings(db: DatabaseSync, onProgress?: ProjectionProgress): void {
