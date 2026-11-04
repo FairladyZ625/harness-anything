@@ -15,6 +15,7 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { connect } from "node:tls";
+import { replicationSocketLines } from "./fleet-replication-lines.mjs";
 import { parseFleetFrame, serializeFleetFrame } from "../../src/fleet/command-protocol.ts";
 import { parseReplicationFrame, serializeReplicationFrame } from "../../src/fleet/protocol.ts";
 import { runWalReceiver, openWalReceiverGeneration } from "../../src/fleet/walreceiver.ts";
@@ -101,32 +102,7 @@ async function runOneSession() {
     candidate.once("error", reject);
   });
   socket.on("error", () => undefined);
-  let buffer = "";
-  const lines = [];
-  const waiters = [];
-  const rejects = [];
-  socket.on("data", (chunk) => {
-    buffer += chunk.toString("utf8");
-    for (;;) {
-      const end = buffer.indexOf("\n");
-      if (end < 0) break;
-      const waiter = waiters.shift();
-      const line = buffer.slice(0, end);
-      buffer = buffer.slice(end + 1);
-      if (waiter) waiter(line);
-      else lines.push(line);
-    }
-  });
-  socket.on("close", () => {
-    while (rejects.length) rejects.shift()(new Error("replication socket closed"));
-  });
-  const nextLine = () =>
-    lines.length
-      ? Promise.resolve(lines.shift())
-      : new Promise((resolve, reject) => {
-          waiters.push(resolve);
-          rejects.push(reject);
-        });
+  const nextLine = replicationSocketLines(socket);
   socket.write(
     serializeFleetFrame({
       schema: "fleet.session.hello/v1",
