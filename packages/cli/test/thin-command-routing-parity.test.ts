@@ -872,6 +872,27 @@ test("a fully hidden domain still answers its command's --help without advertisi
   assert.doesNotMatch(output, /ha distill candidate/u, "the hidden command must not be advertised");
 });
 
+test("every visible domain stays accepted by the help gate, including client-local entries", async () => {
+  for (const domain of cliCommandDomains)
+    assert.ok(declaredCommandDomains.includes(domain), `visible domain ${domain} must be declared`);
+  const logs: string[] = [],
+    log = console.log;
+  let exit: number;
+  console.log = (value: unknown) => {
+    logs.push(String(value));
+  };
+  try {
+    // `gui` is declared only in clientLocalCommands; omitting that source rejected this call.
+    exit = await main(["gui", "--help"]);
+  } finally {
+    console.log = log;
+  }
+  const output = logs.join("\n");
+  assert.equal(exit, 0, output);
+  assert.match(output, /Commands for gui:/u);
+  assert.match(output, /ha gui \[--browser/u);
+});
+
 test("event commands project list filters and the show positional into read actions", () => {
   const list = parseThinCommand([
     "event",
