@@ -16,7 +16,13 @@ existing migration path; no ad-hoc repair script or canonical attach conversion 
    readers. It adds document metadata, scalar read columns, binding tables, indexes and
    shared materialization triggers. It does **not** backfill or change the generation. Keep this
    DDL transaction short: it acquires a table schema lock, so run it outside a replay or
-   other long transaction. Runtime logins do not perform DDL.
+   other long transaction. In that same schema-owner transaction, call
+   `grantPgProjectionRuntimeAccess(client)` immediately after `ensurePgProjectionSchema(client)`
+   and commit both together. It grants the existing runtime/migration roles access to the
+   new `ha_runtime_session_tasks` and `ha_entity_declaration_heads` tables as well as the
+   existing projection tables. Old grants do not cover newly created tables; do not assume
+   deployment-specific default privileges. Commit these grants before allowing previous or
+   current writers to invoke the shared binding triggers. Runtime logins do not perform DDL.
 2. Backfill each tenant/project/policy-epoch scope using the existing management connection
    and transaction-local RLS claims (`ha.tenant_id`, `ha.project_id`, `ha.policy_epoch`).
    Start with empty cursor strings. Run one call per transaction and commit before saving

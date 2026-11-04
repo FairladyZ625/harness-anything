@@ -5,6 +5,28 @@ import test from "node:test";
 import { applyDecision, projectionFixture, proposal } from "./relation-graph-projection.fixtures.ts";
 import { withTempStoreAsync } from "./helpers.ts";
 import { ensureRuntimeMemberIndex } from "../../src/projection/runtime-member-index.ts";
+import { REPOSITORY_READ_TABLES_SQL } from "../../src/projection/projection-tables.ts";
+
+test("SQLite task point reads remain indexed through the member expansion", (t) => {
+  const db = new DatabaseSync(":memory:"),
+    plans: Record<string, unknown> = {},
+    explain = () => db.prepare("EXPLAIN QUERY PLAN SELECT task_id FROM event_index WHERE task_id=?").all("task");
+  try {
+    db.exec(REPOSITORY_READ_TABLES_SQL);
+    plans.before = explain();
+    db.exec("ALTER TABLE event_index ADD COLUMN runtime_session_present INTEGER");
+    plans.afterColumn = explain();
+    ensureRuntimeMemberIndex(db);
+    plans.afterExpansion = explain();
+    t.diagnostic(`SQLITE_TASK_POINT_PLANS ${JSON.stringify(plans)}`);
+    for (const plan of Object.values(plans) as { detail: string }[][]) {
+      assert.ok(plan.some(({ detail }) => /SEARCH event_index .*\(task_id=\?\)/u.test(detail)));
+      assert.ok(plan.every(({ detail }) => !/SCAN event_index/u.test(detail)));
+    }
+  } finally {
+    db.close();
+  }
+});
 
 test("SQLite member reads skip duplicate and orphan dispatch history", async (t) => {
   await withTempStoreAsync(async (rootDir) => {

@@ -6,7 +6,7 @@ import { taskLifecycleWritePlan, type CanonicalEventV1 } from "@harness-anything
 import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixture.ts";
 import { canonicalEventWritePlan, type CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
 import { createPgStorageBackend } from "../../src/pg/backend.ts";
-import { ensurePgProjectionSchema } from "../../src/pg/pg-projection-schema.ts";
+import { ensurePgProjectionSchema, grantPgProjectionRuntimeAccess } from "../../src/pg/pg-projection-schema.ts";
 import { rebuildPgProjection } from "../../src/pg/pg-task-event-materialize.ts";
 import { backfillPgEntityDeclarationPage } from "../../src/pg/pg-entity-declaration-catchup.ts";
 import { withPostgresTransaction } from "../../src/postgres/transaction.ts";
@@ -22,6 +22,7 @@ test("external PG release sequence upgrades populated read indexes before reader
   const fixture = await pgRuntimeFixture(),
     repoId = "read-index-upgrade",
     scope = { tenantId: "upgrade", projectId: "upgrade", policyEpoch: 1, readers: [] },
+    roles = POSTGRES_SCOPE_SCHEMA_CONTRACT.roles,
     { eventStore, projection } = createPgStorageBackend({ pool: fixture.pool, repoId, scope }),
     events: CanonicalEventV1[] = [],
     blobs = new Map<string, Uint8Array>(),
@@ -89,12 +90,24 @@ test("external PG release sequence upgrades populated read indexes before reader
         runtime_session_id=NULL,task_index_id=NULL,runtime_session_present=false,runtime_session_unsettled=false`);
       await client.query("DELETE FROM ha_runtime_session_tasks");
       await client.query("DELETE FROM ha_entity_declaration_heads");
+      await client.query(
+        `REVOKE ALL ON ha_runtime_session_tasks,ha_entity_declaration_heads FROM "${roles.runtime}","${roles.migration}"`,
+      );
       await client.query("UPDATE ha_projection_meta SET entity_declaration_watermark=0");
     });
+    await assert.rejects(
+      withPostgresTransaction(
+        fixture.pool,
+        (client) => client.query("SELECT 1 FROM ha_runtime_session_tasks LIMIT 0"),
+        scope,
+      ),
+      { code: "42501" },
+    );
     // Phase 1 installs expansion only; it must not silently backfill legacy rows.
     await manage(async (client) => {
-      await client.query(`SET LOCAL ROLE "${POSTGRES_SCOPE_SCHEMA_CONTRACT.roles.schemaOwner}"`);
+      await client.query(`SET LOCAL ROLE "${roles.schemaOwner}"`);
       await ensurePgProjectionSchema(client);
+      await grantPgProjectionRuntimeAccess(client);
     });
     for (const operation of [
       () => projection.readRuntimeSessions({ unsettledOnly: true }),
@@ -135,20 +148,24 @@ test("external PG release sequence upgrades populated read indexes before reader
       (error) => error === interrupted,
     );
     assert.equal(await countPending(), remainder);
-    // Previous binary's original-column update remains valid during rollout and rollback.
-    await manage(async (client) => {
-      await client.query(
-        "UPDATE ha_projection_values SET value=value WHERE model='runtime-session' AND entity_id='upgrade-session-129'",
-      );
-      assert.equal(
-        (
-          await client.query<{ read_index_version: number }>(
-            "SELECT read_index_version FROM ha_projection_values WHERE model='runtime-session' AND entity_id='upgrade-session-129'",
-          )
-        ).rows[0]!.read_index_version,
-        2,
-      );
-    });
+    // Previous binary's original-column update uses the actual runtime login.
+    await withPostgresTransaction(
+      fixture.pool,
+      async (client) => {
+        await client.query(
+          "UPDATE ha_projection_values SET value=value WHERE model='runtime-session' AND entity_id='upgrade-session-129'",
+        );
+        assert.equal(
+          (
+            await client.query<{ read_index_version: number }>(
+              "SELECT read_index_version FROM ha_projection_values WHERE model='runtime-session' AND entity_id='upgrade-session-129'",
+            )
+          ).rows[0]!.read_index_version,
+          2,
+        );
+      },
+      scope,
+    );
     const pages: Record<string, number[]> = { projection: [first], event: [] };
     for (const kind of ["projection", "event"] as const) {
       for (;;) {

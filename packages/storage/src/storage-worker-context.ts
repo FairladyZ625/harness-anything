@@ -1,4 +1,4 @@
-import type { StorageBackendConfig } from "./storage-backend.ts";
+import type { PGliteStorageBackendConfig, StorageBackendConfig } from "./storage-backend.ts";
 import {
   preparePGliteWorkerContext,
   installPGliteWorkerContext,
@@ -7,9 +7,16 @@ import {
 
 export type StorageWorkerContext = PGliteWorkerContext;
 
+/** Transferred physical capabilities cannot be rebound by changing a query's JSON config. */
+export function requiresStorageWorkerContext(
+  storage: StorageBackendConfig | undefined,
+): storage is PGliteStorageBackendConfig {
+  return storage?.backend === "pglite";
+}
+
 /** Physical storage capabilities cross worker boundaries separately from public JSON config. */
 export function prepareStorageWorkerContext(storage: StorageBackendConfig | undefined, repoId: string) {
-  return storage?.backend === "pglite"
+  return requiresStorageWorkerContext(storage)
     ? preparePGliteWorkerContext(repoId, storage)
     : { context: undefined, transferList: [], close: () => undefined };
 }

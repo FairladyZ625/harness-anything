@@ -1,4 +1,8 @@
-import { prepareStorageWorkerContext, type StorageWorkerContext } from "@harness-anything/storage";
+import {
+  prepareStorageWorkerContext,
+  requiresStorageWorkerContext,
+  type StorageWorkerContext,
+} from "@harness-anything/storage";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { Worker } from "node:worker_threads";
@@ -39,11 +43,18 @@ type Job = {
   readonly reject: (error: Error) => void;
   readonly settled: () => void;
 };
-type Slot = { worker: Worker | null; job: Job | null; owner: object | null; stopping: Promise<void> | null };
+type Slot = {
+  worker: Worker | null;
+  job: Job | null;
+  owner: object | null;
+  contextOwner: object | null;
+  stopping: Promise<void> | null;
+};
 const slots: Slot[] = Array.from({ length: REPO_READ_WORKERS }, () => ({
   worker: null,
   job: null,
   owner: null,
+  contextOwner: null,
   stopping: null,
 }));
 const queue: Job[] = [];
@@ -137,7 +148,12 @@ function pump(): void {
   for (const slot of slots) {
     if (slot.job || slot.stopping || queue.length === 0) continue;
     const job = queue.shift()!;
-    if (slot.worker && slot.owner !== job.owner) {
+    if (
+      slot.worker &&
+      slot.owner !== job.owner &&
+      (slot.contextOwner !== null ||
+        requiresStorageWorkerContext((job.request.payload as RepoReadPayload).config.storage))
+    ) {
       queue.unshift(job);
       void stop(slot);
       continue;
@@ -172,6 +188,9 @@ function pump(): void {
             throw error;
           }
           worker.once("exit", context.close);
+          // Only transferred physical capabilities bind a worker to its creating client.
+          // Other readers already close/reopen their query runtime when config changes.
+          slot.contextOwner = context.context === undefined ? null : job.owner;
           slot.worker = worker;
           worker.on("message", (receipt: RepoWriterReceiptV1) => {
             const active = slot.job;
@@ -207,6 +226,7 @@ function stop(slot: Slot): Promise<void> {
   const worker = slot.worker;
   slot.worker = null;
   slot.owner = null;
+  slot.contextOwner = null;
   slot.stopping = (worker ? worker.terminate().then(() => undefined) : Promise.resolve()).finally(() => {
     slot.stopping = null;
     pump();

@@ -90,5 +90,9 @@ export { configureWriterEpochStorage } from "./writer-epoch-storage.ts";
 
 export { openReplicaProjection } from "./replica-projection.ts";
 
-export { prepareStorageWorkerContext, installStorageWorkerContext } from "./storage-worker-context.ts";
+export {
+  prepareStorageWorkerContext,
+  installStorageWorkerContext,
+  requiresStorageWorkerContext,
+} from "./storage-worker-context.ts";
 export type { StorageWorkerContext } from "./storage-worker-context.ts";
