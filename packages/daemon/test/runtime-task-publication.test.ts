@@ -27,6 +27,33 @@ const frozen = (commitSha: string): SubmissionV1 => ({
   completionContract: {} as never,
 });
 
+const frozenFacts = (commitSha: string, added: number, deleted: number): SubmissionV1 => ({
+  ...frozen(commitSha),
+  productionDelta: {
+    baseSha: "b".repeat(40),
+    added,
+    deleted,
+    changed: [],
+    unclassified: [],
+  },
+});
+
+const factsBody = (commitSha: string, added: number, deleted: number): string =>
+  [
+    "# Pull request",
+    "",
+    "Authored summary stays.",
+    "",
+    "<!-- harness:submission-facts:start -->",
+    "## Delivery Facts",
+    `- Delivery commit: \`${commitSha}\``,
+    `- Merge base: \`${"b".repeat(40)}\``,
+    `- Production delta: +${String(added)}/-${String(deleted)} (net +${String(added - deleted)}).`,
+    "<!-- harness:submission-facts:end -->",
+    "",
+    "Authored tail stays.",
+  ].join("\n");
+
 test("publication creates then updates one PR for the submitted branch using daemon credentials", async (context) => {
   const fixture = workerGitFixture(context, "publication", { reachableRemote: true }),
     head = git(fixture.worker, "rev-parse", "HEAD").trim(),
@@ -96,6 +123,54 @@ function publicationFixture(context: Parameters<typeof workerGitFixture>[0], slu
     },
   };
 }
+
+test("a reworked push refreshes the machine delivery facts and keeps authored prose", async (context) => {
+  const fixture = workerGitFixture(context, "publication-facts", { reachableRemote: true }),
+    first = git(fixture.worker, "rev-parse", "HEAD").trim(),
+    requests: { method: string; body: Record<string, unknown> | null }[] = [];
+  let existing: Record<string, unknown> | undefined;
+  context.mock.method(globalThis, "fetch", async (_url: string | URL, options: RequestInit = {}) => {
+    const method = options.method ?? "GET";
+    if (method === "GET" && !String(_url).includes("/pulls")) return Response.json({ default_branch: "main" });
+    if (method === "GET") return Response.json(existing ? [existing] : []);
+    const body = JSON.parse(String(options.body)) as Record<string, unknown>;
+    requests.push({ method, body });
+    existing = { number: 42, html_url: "https://github.com/acme/repo/pull/42", ...body };
+    return Response.json(existing);
+  });
+  const input = {
+      cwd: fixture.worker,
+      canonicalRoot: fixture.canonical,
+      taskId: fixtureTaskId,
+      env: { GH_TOKEN: "daemon-only-fixture" },
+      pullRequest: {
+        hosting: { kind: "github" as const, host: "github.com", repository: "acme/repo" },
+        taskTitle: "Delivered task",
+        submission: frozenFacts(first, 71, 30),
+        body: factsBody(first, 71, 30),
+      },
+    },
+    initial = input.pullRequest.submission;
+  await publishTaskWorkerBranch({ ...input, submittedCommitSha: first });
+  writeFileSync(path.join(fixture.worker, "rework.txt"), "reworked\n");
+  git(fixture.worker, "add", "rework.txt");
+  git(fixture.worker, "commit", "--quiet", "-m", "fix: rework the cut");
+  const second = git(fixture.worker, "rev-parse", "HEAD").trim(),
+    reworked = frozenFacts(second, 322, 56);
+  await publishTaskWorkerBranch({
+    ...input,
+    submittedCommitSha: second,
+    pullRequest: { ...input.pullRequest, submission: reworked, body: undefined },
+  });
+  assert.notEqual(second, first);
+  assert.match(String(requests[0]!.body?.body), new RegExp(`Delivery commit: \\x60${initial.commitSha}\\x60`, "u"));
+  assert.match(String(requests[0]!.body?.body), /Production delta: \+71\/-30/u);
+  assert.match(String(requests[1]!.body?.body), new RegExp(`Delivery commit: \\x60${second}\\x60`, "u"));
+  assert.match(String(requests[1]!.body?.body), /Production delta: \+322\/-56/u);
+  assert.doesNotMatch(String(requests[1]!.body?.body), /Production delta: \+71\/-30/u);
+  assert.match(String(requests[1]!.body?.body), /Authored summary stays\./u);
+  assert.match(String(requests[1]!.body?.body), /Authored tail stays\./u);
+});
 
 test("settlement default uses frozen prose and preserves repository-authored bodies on repeat", async (context) => {
   const { input } = publicationFixture(context, "publication-body"),

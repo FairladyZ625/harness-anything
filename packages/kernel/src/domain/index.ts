@@ -118,8 +118,16 @@ export {
   isTestPath,
   normalizeRepoPath,
   productionDeltaFromNumstat,
+  parseNumstatRecords,
 } from "./production-delta.ts";
-export { historicalReadConclusions, readSubmissionFacts } from "./submission-facts.ts";
+export {
+  SUBMISSION_FACTS_END,
+  SUBMISSION_FACTS_START,
+  historicalReadConclusions,
+  readSubmissionFacts,
+  renderSubmissionFacts,
+  replaceSubmissionFacts,
+} from "./submission-facts.ts";
 
 export {
   taskBoardPlacement,

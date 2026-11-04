@@ -10,6 +10,7 @@ import {
   isTaskEvent,
   resolveCompletionContract,
   productionDeltaFromNumstat,
+  parseNumstatRecords,
   submissionFromCloseout,
   submissionDigest,
   sameWriteSource,
@@ -301,20 +302,18 @@ function deriveCloseoutSubmissionData(
       .split("\0")
       .filter(Boolean)
       .sort();
-    const numstat = runProcessText("git", ["diff", "--no-renames", "--numstat", "-z", base, commitSha, "--"], root)
-      .split("\0")
-      .filter(Boolean)
-      .map((record) => {
-        const firstTab = record.indexOf("\t"),
-          secondTab = record.indexOf("\t", firstTab + 1);
-        if (firstTab < 0 || secondTab < 0)
-          throw cell.cellCodedError("invalid_submission", "Git produced an invalid numstat record.");
-        return {
-          addedText: record.slice(0, firstTab),
-          deletedText: record.slice(firstTab + 1, secondTab),
-          filePath: record.slice(secondTab + 1),
-        };
-      });
+    const numstatOutput = runProcessText(
+        "git",
+        ["diff", "--no-renames", "--numstat", "-z", base, commitSha, "--"],
+        root,
+      ),
+      numstat = (() => {
+        try {
+          return parseNumstatRecords(numstatOutput);
+        } catch (error) {
+          throw cell.cellCodedError("invalid_submission", error instanceof Error ? error.message : String(error));
+        }
+      })();
     productionDelta = { baseSha: base, ...productionDeltaFromNumstat(numstat) };
     deliverables = runProcessText(
       "git",

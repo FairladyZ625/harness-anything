@@ -3,6 +3,10 @@ import type { ProductionDeltaV1, SubmissionV1 } from "./execution.ts";
 
 export const DELETED_OUTPUT_PREFIX = "Deleted-Production-Paths: ";
 
+/** The one machine-owned delivery-facts region in a PR body. */
+export const SUBMISSION_FACTS_START = "<!-- harness:submission-facts:start -->",
+  SUBMISSION_FACTS_END = "<!-- harness:submission-facts:end -->";
+
 export const historicalReadConclusions = Object.freeze([
   {
     kind: "read-conclusion",
@@ -82,4 +86,101 @@ function isUnambiguousLegacyPath(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+function record(value: unknown): value is Readonly<Record<string, unknown>> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isSha(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{40}$/u.test(value);
+}
+
+function submittedPaths(value: unknown, name: string): readonly string[] {
+  if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string"))
+    throw new Error(`submitted cut has an invalid ${name} list`);
+  return [...new Set(value)].sort();
+}
+
+function inlineCode(value: string): string {
+  return `\`${value.replaceAll("`", "\\`")}\``;
+}
+
+function pathCode(value: string): string {
+  const encoded = JSON.stringify(value),
+    longestTickRun = Math.max(0, ...(encoded.match(/`+/gu) ?? []).map((run) => run.length)),
+    delimiter = "`".repeat(longestTickRun + 1);
+  return `${delimiter}${encoded}${delimiter}`;
+}
+
+/** The single machine rendering of frozen delivery facts; the renderer and every publication use it. */
+export function renderSubmissionFacts(
+  submission: SubmissionV1,
+  facts: SubmissionFacts = readSubmissionFacts(submission),
+): string {
+  if (submission.commitSha === null) {
+    const artifacts = submittedPaths(submission.deliverables, "deliverables");
+    return [
+      "## Delivery Facts",
+      "- Delivery: artifact-only; no public Git commit.",
+      `- Delivered artifacts: ${String(artifacts.length)} center-accepted artifact(s); ` +
+        "paths remain in the private submission record.",
+    ].join("\n");
+  }
+  if (!isSha(submission.commitSha)) throw new Error("submitted cut has an invalid delivery commit SHA");
+  const files = submittedPaths(facts.changedFiles, "changedFiles");
+  if (facts.kind === "legacy")
+    return [
+      "## Delivery Facts",
+      `- Delivery commit: ${inlineCode(submission.commitSha)}`,
+      "- Legacy submission facts: this historical cut predates frozen changedFiles and productionDelta.",
+      "- Changed paths (stored delivery evidence):",
+      ...(files.length ? files.map((filePath) => `  - ${pathCode(filePath)}`) : ["  - none"]),
+      "- Production delta: unavailable on this legacy cut.",
+    ].join("\n");
+  const delta = facts.productionDelta;
+  if (
+    !record(delta) ||
+    !isSha(delta.baseSha) ||
+    !Number.isSafeInteger(delta.added) ||
+    (delta.added as number) < 0 ||
+    !Number.isSafeInteger(delta.deleted) ||
+    (delta.deleted as number) < 0 ||
+    !Array.isArray(delta.changed) ||
+    !delta.changed.every((entry) => record(entry) && typeof entry.filePath === "string") ||
+    !Array.isArray(delta.unclassified) ||
+    !delta.unclassified.every((entry) => typeof entry === "string")
+  )
+    throw new Error("submitted code cut has no valid frozen productionDelta");
+  const added = delta.added as number,
+    deleted = delta.deleted as number,
+    net = added - deleted,
+    unclassified = delta.unclassified.length
+      ? ["- G33 unclassified production paths:", ...delta.unclassified.map((entry) => `  - ${pathCode(entry)}`)]
+      : ["- G33 classification: complete."],
+    changed = files.length ? files.map((filePath) => `  - ${pathCode(filePath)}`) : ["  - none"];
+  return [
+    "## Delivery Facts",
+    `- Delivery commit: ${inlineCode(submission.commitSha)}`,
+    `- Merge base: ${inlineCode(delta.baseSha)}`,
+    `- Production delta: +${String(added)}/-${String(deleted)} (net ${net >= 0 ? "+" : ""}${String(net)}).`,
+    "- Changed files:",
+    ...changed,
+    ...unclassified,
+  ].join("\n");
+}
+
+/** Replace the machine-owned facts region of an existing body; null when it has no single marker pair. */
+export function replaceSubmissionFacts(body: string, block: string): string | null {
+  const start = body.indexOf(SUBMISSION_FACTS_START),
+    end = body.indexOf(SUBMISSION_FACTS_END);
+  if (
+    start < 0 ||
+    end < 0 ||
+    start >= end ||
+    body.indexOf(SUBMISSION_FACTS_START, start + SUBMISSION_FACTS_START.length) >= 0 ||
+    body.indexOf(SUBMISSION_FACTS_END, end + SUBMISSION_FACTS_END.length) >= 0
+  )
+    return null;
+  return `${body.slice(0, start + SUBMISSION_FACTS_START.length)}\n${block}\n${body.slice(end)}`;
 }

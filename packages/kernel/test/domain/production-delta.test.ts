@@ -1,7 +1,12 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { classifyPath, normalizeRepoPath, productionDeltaFromNumstat } from "../../src/domain/production-delta.ts";
+import {
+  classifyPath,
+  normalizeRepoPath,
+  parseNumstatRecords,
+  productionDeltaFromNumstat,
+} from "../../src/domain/production-delta.ts";
 
 test("production path policy classifies source, tests, and non-source files consistently", () => {
   assert.deepEqual(classifyPath("packages/kernel/src/domain/task.ts"), { module: "kernel", kind: "production" });
@@ -40,4 +45,18 @@ test("production numstat rejects binary source and malformed line counts", () =>
     () => productionDeltaFromNumstat([{ addedText: "x", deletedText: "0", filePath: "packages/kernel/src/data.ts" }]),
     /invalid numstat record/u,
   );
+});
+
+test("G33's plugin module shares the submission classifier", () => {
+  assert.deepEqual(classifyPath("packages/dsh-plugin/src/broker.ts"), {
+    module: "dsh-plugin",
+    kind: "production",
+  });
+});
+
+test("the shared numstat parser reads the NUL-delimited git format", () => {
+  assert.deepEqual(parseNumstatRecords("4\t2\tpackages/kernel/src/a.ts\0"), [
+    { addedText: "4", deletedText: "2", filePath: "packages/kernel/src/a.ts" },
+  ]);
+  assert.throws(() => parseNumstatRecords("broken\0"), /invalid numstat record/u);
 });
