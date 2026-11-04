@@ -1,13 +1,10 @@
-import { requireExecutionRequestScope } from "./runtime-execution-scope.ts";
-import { authenticateRuntimeExecutionPrincipal } from "./runtime-execution-credential.ts";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { consumeKnownError } from "@harness-anything/kernel";
+import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import { localUserDaemonEndpoint } from "./client/local-daemon-target.ts";
 import { acquireDaemonSingleton, daemonPidPath } from "./daemon-singleton.ts";
-import { openDaemonHost } from "./daemon-host.ts";
-import { createJsonRpcProtocolServer } from "./protocol/json-rpc-server.ts";
-import { openDaemonRequestLog } from "./request-log.ts";
+import type { openDaemonHost } from "./daemon-host.ts";
+import type { openDaemonRequestLog } from "./request-log.ts";
 import { openDaemonLifecycleLog } from "./lifecycle-log.ts";
 import { openDaemonConnLog } from "./conn-log.ts";
 import { daemonBuildStamp, observeDaemonBuild, type DaemonBuildObserver } from "./build-identity.ts";
@@ -16,10 +13,7 @@ import { createUnixSocketTransportServer } from "./transport/unix-socket.ts";
 import type { DaemonHostOpenInput } from "./daemon-host-open.ts";
 import type { DaemonLifecycleEntry, DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import type { DaemonBuildDrainStatus } from "./protocol/daemon-protocol.contract.ts";
-import { createIdentitySession } from "./authorization-provider.ts";
-import { readRuntimeExecutionPrincipal } from "./runtime-execution-principal-store.ts";
-import { openDaemonDiagnostics } from "./daemon-diagnostics.ts";
-import { withDaemonObservation, observeDaemonOperation } from "./daemon-operation.ts";
+import type { openDaemonDiagnostics } from "./daemon-diagnostics.ts";
 
 export interface RunningDaemon {
   readonly endpoint: string;
@@ -83,6 +77,7 @@ export async function startDaemon(input: {
   lifecycle.record({ event: "process_start", endpoint, ...buildObserver.status() });
   // Connection- and request-level traffic sink; async by design so the socket hot path never waits on disk.
   const connLog = openDaemonConnLog({ userRoot: input.userRoot, daemonId: input.daemonId });
+  let observation: typeof import("./daemon-operation.ts");
   let diagnostics: Awaited<ReturnType<typeof openDaemonDiagnostics>> | undefined;
   let host: Awaited<ReturnType<typeof openDaemonHost>> | undefined,
     requestLog: ReturnType<typeof openDaemonRequestLog> | null = null,
@@ -143,8 +138,10 @@ export async function startDaemon(input: {
       // exists to prevent.
       try {
         // RepoCell.close drains each Git follower before the daemon advertises its terminal boundary.
-        await withDaemonObservation(diagnostics!.observer, () =>
-          observeDaemonOperation({ method: "daemon.close", actor: "daemon", phase: "host.close" }, () => host!.close()),
+        await observation.withDaemonObservation(diagnostics!.observer, () =>
+          observation.observeDaemonOperation({ method: "daemon.close", actor: "daemon", phase: "host.close" }, () =>
+            host!.close(),
+          ),
         );
       } finally {
         lifecycle.record({ event: "process_exit", outcome });
@@ -190,13 +187,37 @@ export async function startDaemon(input: {
     if (entry.event === "runtime_exit" || entry.event === "attachments_settled") requestDrainCheck();
   };
   try {
+    // Loading the server graph is part of startup, not a prerequisite for reporting it. The
+    // singleton already owns this generation, so the existing process_start covers cold imports.
+    const [
+      { requireExecutionRequestScope },
+      { authenticateRuntimeExecutionPrincipal },
+      { openDaemonHost },
+      { createJsonRpcProtocolServer },
+      { openDaemonRequestLog },
+      { createIdentitySession },
+      { readRuntimeExecutionPrincipal },
+      { openDaemonDiagnostics },
+      operations,
+    ] = await Promise.all([
+      import("./runtime-execution-scope.ts"),
+      import("./runtime-execution-credential.ts"),
+      import("./daemon-host.ts"),
+      import("./protocol/json-rpc-server.ts"),
+      import("./request-log.ts"),
+      import("./authorization-provider.ts"),
+      import("./runtime-execution-principal-store.ts"),
+      import("./daemon-diagnostics.ts"),
+      import("./daemon-operation.ts"),
+    ]);
+    observation = operations;
     diagnostics = await openDaemonDiagnostics({
       ...input,
       endpoint,
       writeQueues: () => host?.writeQueues() ?? [],
     });
     const oidc = createIdentitySession(input.userRoot);
-    host = await withDaemonObservation(diagnostics.observer, () =>
+    host = await observation.withDaemonObservation(diagnostics.observer, () =>
       openDaemonHost({
         ...input,
         endpoint,
@@ -301,11 +322,11 @@ export async function startDaemon(input: {
         }),
       onConnectionClosed: (connection) => connLog.connectionClosed(connection.connectionId),
     });
-    await withDaemonObservation(diagnostics.observer, () => transport!.start());
+    await observation.withDaemonObservation(diagnostics.observer, () => transport!.start());
     socketBound = true;
     lifecycle.record({ event: "socket_bound", endpoint });
     diagnostics.state("running");
-    withDaemonObservation(diagnostics.observer, () => host!.startAttachments());
+    observation.withDaemonObservation(diagnostics.observer, () => host!.startAttachments());
   } catch (error) {
     clearInterval(buildDrainRecheck);
     clearTimeout(fleetDrainDeadline);

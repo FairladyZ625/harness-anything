@@ -447,7 +447,7 @@
       "packages/daemon/src/repo-cell-task-progress.ts#completeTask",
       "packages/daemon/src/runtime-session-action-runtime.ts#commitRuntimeSessionAction",
       "packages/daemon/src/runtime-spawn-settlement.ts#publishExit",
-      "packages/daemon/src/runtime-worker-push.ts#canonicalPath",
+      "packages/daemon/src/canonical-path.ts#canonicalPath",
       "packages/daemon/src/terminal-environment.ts#terminalEnvironment",
       "packages/gui/src/main/local-composition-root.ts#bootstrapLocalRepository",
       "packages/gui/src/main/local-composition-root.ts#daemonRpc",

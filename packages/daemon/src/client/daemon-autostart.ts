@@ -9,7 +9,7 @@ import {
 } from "../daemon-singleton.ts";
 import { daemonStdioLogPath, readDaemonLifecycleGeneration } from "../lifecycle-log.ts";
 import { startDetachedProcessChecked } from "../process-port.ts";
-import { canonicalPath } from "../runtime-worker-push.ts";
+import { canonicalPath } from "../canonical-path.ts";
 import {
   daemonServiceCommands,
   daemonServiceUnit,

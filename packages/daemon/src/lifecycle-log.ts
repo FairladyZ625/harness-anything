@@ -11,7 +11,7 @@ import {
   statSync,
 } from "node:fs";
 import path from "node:path";
-import { consumeKnownError } from "@harness-anything/kernel";
+import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import type { DaemonEntry } from "./build-identity.ts";
 import { readLatestLineInTail } from "./dispatch-stream-tail.ts";
 

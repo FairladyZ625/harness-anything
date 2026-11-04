@@ -12,7 +12,7 @@ import {
   type CanonicalRoot,
   type EndpointIdentity,
   type WorkspaceId,
-} from "../protocol/daemon-protocol.contract.ts";
+} from "../protocol/daemon-protocol-identifiers.ts";
 
 /** A sibling local socket; shares the existing owner-only directory and transport boundary. */
 export function daemonDiagnosticsEndpoint(endpoint: string): string {
