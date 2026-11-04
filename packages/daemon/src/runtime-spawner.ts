@@ -118,6 +118,26 @@ import { providerErrorLimit } from "./runtime-spawn-limits.ts";
 export const resultMediaType = "text/plain; charset=utf-8" as const;
 // Captured at module level: spawnAttempt's local `process` names the launched RuntimeProcess.
 const hostPlatform = process.platform;
+type RuntimeTaskClaimScope = { release?: () => Promise<void> };
+
+function releaseFailedTaskClaim<Args extends unknown[]>(
+  spawn: (claim: RuntimeTaskClaimScope, ...args: Args) => Promise<JsonObject>,
+): (...args: Args) => Promise<JsonObject> {
+  return async (...args) => {
+    const claim: RuntimeTaskClaimScope = {};
+    try {
+      return await spawn(claim, ...args);
+    } catch (error) {
+      try {
+        await claim.release?.();
+      } catch (releaseError) {
+        throw new AggregateError([error, releaseError], "Runtime spawn and task claim release both failed.");
+      }
+      throw error;
+    }
+  };
+}
+
 export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   const processes = new Map<string, ActiveRuntime>(),
     exiting = new Set<string>(),
@@ -164,6 +184,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       now: input.now(),
     });
   };
+  const spawnAttempt = releaseFailedTaskClaim(spawnClaimAttempt);
   const extracted: RuntimeSpawnerContext = {
     closed: () => fallbackClosed,
     input,
@@ -217,7 +238,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         stream,
       }),
   };
-  const spawnAttempt = async (
+  async function spawnClaimAttempt(
+    claim: RuntimeTaskClaimScope,
     payload: JsonObject,
     binding: RuntimeBinding,
     inheritedFallback?: RuntimeFallbackAttempt,
@@ -229,7 +251,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     handoffRollout?: Uint8Array,
     onDispatched?: (dispatchId: string, runtimeSessionId: string) => void,
     onPrepared?: (dispatchId: string, runtimeSessionId: string) => void,
-  ): Promise<JsonObject> => {
+  ): Promise<JsonObject> {
     const dryRun = payload.dryRun === true,
       dispatchUsageLimit = input.readSettings?.().runtime.dispatchUsageLimit ?? 0;
     const { requestedDispatchId, resumed, inherited, handoffEnabled } = resolveRuntimeResume(input, payload, handoff);
@@ -296,6 +318,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               taskId,
               missionName,
               role === "reviewer" ? { executionId: requestedExecutionId } : undefined,
+              (release) => {
+                claim.release = release;
+              },
             )
           : null,
       projection = input.remote ? null : requiredRuntimeProjection(input);
@@ -1275,7 +1300,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           ...(readOnlyDispatch ? { ledgerAccess: "unavailable", reportDelivery: "stdout" } : {}),
           authorizationDecision: authorizationDecision as unknown as JsonObject | null,
         };
-  };
+  }
   return {
     /** Checks a task dispatch's worktree out and prepares it; runs before the dispatch is queued for writing. */
     prepareWorktree: async (payload: JsonObject) => {

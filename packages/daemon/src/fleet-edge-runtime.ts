@@ -226,6 +226,8 @@ export function openFleetEdgeRuntime(input: {
   readonly ports: RuntimePorts;
   /** Waits for an in-flight resident stream to publish its first readable generation. */
   readonly waitForReplicaReady?: (signal?: AbortSignal) => Promise<boolean>;
+  /** Reports a released task once its canonical runtime outcome is readable on this node. */
+  readonly onTaskSettled?: (taskId: string) => void;
   readonly launch?: RuntimeLauncher;
   readonly now?: () => string;
 }) {
@@ -495,7 +497,7 @@ export function openFleetEdgeRuntime(input: {
             review.reviewId === reviewId || review.actor.executor?.id === `runtime-session:${runtimeSessionId}`,
         );
       },
-      taskContext: async (taskId, missionName, review) => {
+      taskContext: async (taskId, missionName, review, onClaimed) => {
         // Pull only in write preparation; repository values themselves use the shared local query.
         await pullRuntimeReplica();
         let runtimeContext = taskRuntimeContext(
@@ -543,6 +545,39 @@ export function openFleetEdgeRuntime(input: {
               started.code ?? "task_start_rejected",
               `The center could not start task ${taskId}: ${String(started.code ?? started.outcome)}.`,
             );
+          const claimOpId = started.receipt?.opId;
+          if (started.receipt?.outcome === "applied" && typeof claimOpId === "string")
+            onClaimed?.(async () => {
+              const released = await runFleetEdgeWrite({
+                viewRoot: request.viewRoot,
+                repoId: request.repoId,
+                nodeId: request.nodeId,
+                timeoutMs: centerWriteWaitMs,
+                write: () =>
+                  runFleetTaskCommandClient({
+                    ...writePeer,
+                    repoId: request.repoId,
+                    taskId,
+                    opId: `${taskStartOpId}-release`,
+                    waitMs: centerWriteWaitMs,
+                    action: {
+                      kind: "task-release",
+                      taskId,
+                      claimOpId,
+                      reason: "Runtime spawn failed after acquiring the task lease.",
+                    },
+                  }),
+              });
+              if (
+                released.outcome !== "applied" &&
+                released.code !== "lease_not_found" &&
+                released.code !== "runtime_terminal_superseded"
+              )
+                throw edgeRuntimeError(
+                  released.code ?? "runtime_lease_release_failed",
+                  `Center rejected failed-spawn lease release: ${String(released.code ?? released.outcome)}.`,
+                );
+            });
           await pullRuntimeReplica();
           runtimeContext = taskRuntimeContext(await readReplica("repo.tasks.runtimeContext.read", { taskId }), taskId);
           current = runtimeContext.snapshot;
@@ -814,6 +849,15 @@ export function openFleetEdgeRuntime(input: {
             },
           }),
       ),
+    onRuntimeOutcome: (event) => {
+      // publish() has joined the outcome's replica sequence. Release and capacity census
+      // now share that cut; task-release alone precedes the runtime outcome publication.
+      withEdgeReadModel({ ...request, principalId: replicaOwner, includeEntries: false }, (projection) => {
+        const session = projection.readRuntimeSession(event.payload.runtimeSessionId);
+        for (const { taskId } of session?.taskBindings ?? [])
+          if (projection.currentLease(taskId)?.phase !== "held") input.onTaskSettled?.(taskId);
+      });
+    },
     onAttemptTerminal: async (terminal) => {
       if (terminal.task) {
         const { taskId, executionId } = terminal.task,

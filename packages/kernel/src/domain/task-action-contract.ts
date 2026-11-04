@@ -673,6 +673,7 @@ export const declarations: readonly Declaration[] = Object.freeze([
       wire(field("terminalExecutionId"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
       wire(field("terminalRuntimeSessionId"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
       field("terminalProcessGroupPid", "number", false),
+      field("claimOpId"),
     ]),
     "lease_conflict",
     "The Task has a releasable lease owned by the authenticated holder or an authorized recovery actor.",
