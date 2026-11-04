@@ -2,8 +2,11 @@
 // pattern. PGlite and every query execute on the worker; no socket, Docker or host service.
 import { parentPort, workerData } from "node:worker_threads";
 import pg from "pg";
+import { canonicalEventCut } from "@harness-anything/kernel";
 import path from "node:path";
 import { localGitWorktreeSettlement } from "../../../storage/src/store/local-version-control-system.ts";
+import { rebuildPgProjection } from "../../../storage/src/pg/pg-task-event-materialize.ts";
+import { withPostgresTransaction } from "../../../storage/src/postgres/transaction.ts";
 import { createPGliteStorageBackend } from "../../../storage/src/pglite/storage-backend.ts";
 import { seedReadLedger } from "./g38-read-ledger.mjs";
 import { installReadProbe, resetReadProbe, snapshotReadProbe, planRowsRead } from "./g38-read-probe.mjs";
@@ -54,22 +57,25 @@ try {
       scope: { tenantId: "g38", projectId: "read", policyEpoch: 0 },
     },
   });
+  const bundles = [];
   await seedReadLedger(
     {
       append: async (bundle) => {
-        // Plans lose their frozen marker across structured-clone boundaries; seeding lives here.
-        const accepted = await backend.eventStore.append(bundle, bundle.event.workspaceRevision - 1, {
-          repoId: "g38-read",
-          holderId: "read-fixture",
-          epoch: 1,
-        });
-        cut = accepted.cut;
+        bundles.push(bundle);
+        const { opId: _opId, ...identity } = canonicalEventCut("g38-read", bundle.event);
+        cut = identity;
       },
       currentCut: () => cut,
     },
     dimension,
     size,
   );
+  const last = bundles.pop();
+  await backend.eventStore.append({ ...last, preceding: bundles }, 0, {
+    repoId: "g38-read",
+    holderId: "read-fixture",
+    epoch: 1,
+  });
   respond({ ready: true });
 } catch (error) {
   respond({ error: { message: error.message, stack: error.stack } });
@@ -88,6 +94,38 @@ parentPort.on("message", async ({ method, args = [] }) => {
     } else if (method === "close") {
       await backend.close();
       parentPort.close();
+    } else if (method === "rebuild") {
+      await withPostgresTransaction(
+        backend.pool,
+        async (client) => {
+          const keys = ["g38", "read", "g38-read"];
+          const rows = (
+            await client.query(
+              "SELECT event_json,readers FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 ORDER BY revision",
+              keys,
+            )
+          ).rows;
+          const events = rows.map((row) => JSON.parse(row.event_json));
+          const readers = new Map(rows.map((row, index) => [events[index].opId, row.readers]));
+          await rebuildPgProjection(
+            client,
+            { tenantId: "g38", projectId: "read", policyEpoch: 0 },
+            {
+              events,
+              sourceRevision: events.at(-1)?.workspaceRevision ?? 0,
+              readEventReaders: (event) => readers.get(event.opId) ?? [],
+              readContentBlob: async (sha256) =>
+                (
+                  await client.query(
+                    "SELECT body FROM ha_content_blobs WHERE tenant_id=$1 AND project_id=$2 AND sha256=$3",
+                    ["g38", "read", sha256],
+                  )
+                ).rows[0]?.body ?? null,
+            },
+          );
+        },
+        { tenantId: "g38", projectId: "read", policyEpoch: 0, readers: [] },
+      );
     } else if (method === "canonical") result = await backend.eventStore.execute(args[0]);
     else result = await backend.projection[method](...args);
     respond({ result });

@@ -8,6 +8,7 @@ import { pathToFileURL } from "node:url";
 import { COLLECTION_PROBES, measureCollectionCosts } from "../../packages/daemon/test/fixtures/g38-collection-cost.mjs";
 import { repoRoot } from "./git.mjs";
 import { loadReceipts, verifyReceipt } from "./receipt-verify.mjs";
+import { runReadLane } from "./cost-budget-read-lane.mjs";
 import { removeTemporaryDirectory } from "../temporary-directory-cleanup.mjs";
 
 const METRICS = Object.freeze(["projectionRebuildGitProcesses"]);
@@ -459,13 +460,24 @@ export function evaluateCollectionCosts(measured) {
 }
 
 function parseArgs(argv) {
-  const options = {};
+  const options = {
+    phase: process.env.G38_PHASE,
+    backend: process.env.G38_BACKEND,
+    dimension: process.env.G38_DIMENSION,
+    output: process.env.G38_OUTPUT,
+    resultsDir: process.env.G38_RESULTS,
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--root") options.rootDir = argv[++index];
     else if (arg === "--budget") options.budgetPath = argv[++index];
     else if (arg === "--fixture") options.fixturePath = argv[++index];
     else if (arg === "--receipts") options.receiptsDir = argv[++index];
+    else if (arg === "--phase") options.phase = argv[++index];
+    else if (arg === "--backend") options.backend = argv[++index];
+    else if (arg === "--dimension") options.dimension = argv[++index];
+    else if (arg === "--output") options.output = argv[++index];
+    else if (arg === "--results") options.resultsDir = argv[++index];
     else throw new Error(`unknown argument: ${arg}`);
   }
   return options;
@@ -475,6 +487,8 @@ export async function main(argv = process.argv.slice(2), defaultRoot = repoRoot(
   try {
     const options = parseArgs(argv);
     const rootDir = options.rootDir ?? defaultRoot;
+    if (![undefined, "legacy", "read", "read-summary"].includes(options.phase)) throw new Error("invalid G38 phase");
+    if (options.phase === "read" || options.phase === "read-summary") return await runReadLane({ rootDir, ...options });
     const budgetPath = options.budgetPath ?? path.join(rootDir, "tools/gates/cost-budget.json"),
       section = parseJsonFile(budgetPath).writeCostScaling;
     // Reject new unregistered canonical writes before opening ledgers or starting workers.
@@ -508,6 +522,7 @@ export async function main(argv = process.argv.slice(2), defaultRoot = repoRoot(
       for (const error of errors) console.error(`G38 cost-budget: ${error}`);
       return 1;
     }
+    if (options.phase !== "legacy" && (await runReadLane({ rootDir, ...options })) !== 0) return 1;
     console.log("G38 cost-budget: pass");
     return 0;
   } catch (error) {

@@ -5,6 +5,8 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 export const READ_SCALES = Object.freeze({ small: 200, large: 2000 });
+export const READ_OUTPUT_SCALES = Object.freeze({ small: 3400, large: 34000 });
+export const readScalesFor = (dimension) => (dimension === "task-outputs" ? READ_OUTPUT_SCALES : READ_SCALES);
 export const READ_BACKENDS = Object.freeze(["sqlite", "pglite"]);
 export const READ_DIMENSIONS = Object.freeze([
   "runtime-sessions",
@@ -12,6 +14,7 @@ export const READ_DIMENSIONS = Object.freeze([
   "task-outputs",
   "relations",
   "event-bytes",
+  "source-events",
 ]);
 // Protocol methods are enumerated below. These non-RPC entry points were traced from
 // repo-cell-open, daemon-host-open/recovery, squad-coordinator and schedule-scheduler.
@@ -51,15 +54,25 @@ export async function readInventory(rootDir) {
   const { daemonProtocolCommands, allDaemonProtocolMethods } = await import(
     pathToFileURL(path.join(rootDir, "packages/daemon/src/protocol/daemon-protocol-commands.ts")).href
   );
+  const { daemonRpcRoutingDeclarations } = await import(
+    pathToFileURL(path.join(rootDir, "packages/daemon/src/rpc-command-routing.ts")).href
+  );
   return [
-    ...deriveReadInventory({ daemonProtocolCommands, allDaemonProtocolMethods }),
+    ...deriveReadInventory({
+      daemonProtocolCommands,
+      allDaemonProtocolMethods,
+      routes: daemonRpcRoutingDeclarations(),
+    }),
     ...BACKGROUND_READ_PATHS.map((name) => ({ id: `background:${name}`, method: null })),
   ].sort((a, b) => a.id.localeCompare(b.id));
 }
 
-export function deriveReadInventory({ daemonProtocolCommands, allDaemonProtocolMethods }) {
+export function deriveReadInventory({ daemonProtocolCommands, allDaemonProtocolMethods, routes = [] }) {
   const commands = daemonProtocolCommands.filter((entry) => entry.commandClass === "repo-read"),
-    readMethods = new Set(commands.map((entry) => entry.method));
+    readMethods = new Set([
+      ...commands.map((entry) => entry.method),
+      ...routes.filter((entry) => entry.topology.commandClass === "repo-read").map((entry) => entry.method),
+    ]);
   return [
     ...commands.map((entry) => ({ id: `command:${entry.id}`, method: entry.method })),
     ...allDaemonProtocolMethods
@@ -110,6 +123,7 @@ export function evaluateReadMeasurements({
   probes,
   measured,
   dimensions = READ_DIMENSIONS,
+  backends = READ_BACKENDS,
   now = new Date(),
 }) {
   required(
@@ -137,12 +151,15 @@ export function evaluateReadMeasurements({
   }
   const usedExemptions = new Set();
   for (const id of selected)
-    for (const backend of READ_BACKENDS)
-      for (const dimension of dimensions) {
-        const pair = measured[backend]?.[dimension]?.[id];
+    for (const backend of backends)
+      for (const dimension of dimensions.filter((value) =>
+        probes[id].sourceAudit ? value === "source-events" : value !== "source-events",
+      )) {
+        const pair = measured[backend]?.[dimension]?.[id],
+          scales = readScalesFor(dimension);
         required(pair, `missing read measurement ${backend}/${dimension}/${id}`);
         required(
-          pair.small.size === READ_SCALES.small && pair.large.size === READ_SCALES.large,
+          pair.small.size === scales.small && pair.large.size === scales.large,
           "read measurements must use the committed 10x scales",
         );
         required(
@@ -162,37 +179,66 @@ export function evaluateReadMeasurements({
               Number.isSafeInteger(small) && small >= 0 && Number.isSafeInteger(large) && large >= 0,
               `invalid read measurement ${key} (${phase})`,
             );
+            if (probes[id].sourceAudit) {
+              const smallInput = pair.small.inputSize,
+                largeInput = pair.large.inputSize,
+                ceiling = probes[id].sourceAudit.maxPerInput[metric];
+              required(
+                smallInput === READ_SCALES.small && largeInput === READ_SCALES.large,
+                `${key}: audit input k must use the committed scales`,
+              );
+              required(Number.isFinite(ceiling) && ceiling > 0, `${key}: audit requires a per-input cost ceiling`);
+              // Same 10% constant-term tolerance as G38's existing collection rule.
+              // An audit may visit its explicit inputs once; quadratic revisits must fail.
+              if (large > small * (largeInput / smallInput) * 1.1 || large > largeInput * ceiling)
+                errors.push(
+                  `${key} (${phase}): source audit ${small}/${smallInput} -> ${large}/${largeInput} exceeds linear slope or ${ceiling} per-input ceiling`,
+                );
+              continue;
+            }
             if (large <= small + margin) continue;
             if (exemptionKeys.has(key)) usedExemptions.add(key);
             else
               errors.push(
-                `${key} (${phase}): ${small} at ${READ_SCALES.small} grew to ${large} at ${READ_SCALES.large}, fixed margin ${margin}; no knownScaling exemption`,
+                `${key} (${phase}): ${small} at ${scales.small} grew to ${large} at ${scales.large}, fixed margin ${margin}; no knownScaling exemption`,
               );
           }
       }
   for (const entry of exemptions) {
     const key = [entry.probe, entry.backend, entry.dimension, entry.metric].join("/");
-    if (dimensions.includes(entry.dimension) && !usedExemptions.has(key))
+    if (backends.includes(entry.backend) && dimensions.includes(entry.dimension) && !usedExemptions.has(key))
       errors.push(`${key}: knownScaling exemption is stale; remove it`);
   }
   return { ok: errors.length === 0, errors, measured, inventory, knownScaling: exemptions };
 }
 
-export async function measureReadCosts(rootDir, { dimensions = READ_DIMENSIONS, probeIds } = {}) {
+export async function measureReadCosts(
+  rootDir,
+  { dimensions = READ_DIMENSIONS, backends = READ_BACKENDS, probeIds } = {},
+) {
   const { measureReadScale, READ_PROBES } = await import(
     pathToFileURL(path.join(rootDir, "packages/daemon/test/fixtures/g38-read-cost.mjs")).href
   );
   const selected = probeIds ?? Object.keys(READ_PROBES),
     measured = {},
     started = performance.now();
-  for (const backend of READ_BACKENDS) {
+  for (const backend of backends) {
     measured[backend] = {};
     for (const dimension of dimensions) {
-      const small = await measureReadScale(backend, dimension, READ_SCALES.small, { probeIds: selected }),
-        large = await measureReadScale(backend, dimension, READ_SCALES.large, { probeIds: selected });
-      measured[backend][dimension] = Object.fromEntries(
-        selected.map((id) => [id, { small: small[id], large: large[id] }]),
+      const dimensionProbes = selected.filter((id) =>
+        READ_PROBES[id].sourceAudit ? dimension === "source-events" : dimension !== "source-events",
       );
+      const small = await measureReadScale(backend, dimension, readScalesFor(dimension).small, {
+          probeIds: dimensionProbes,
+        }),
+        large = await measureReadScale(backend, dimension, readScalesFor(dimension).large, {
+          probeIds: dimensionProbes,
+        });
+      measured[backend][dimension] = Object.fromEntries(
+        dimensionProbes.map((id) => [id, { small: small[id], large: large[id] }]),
+      );
+      for (const [id, pair] of Object.entries(measured[backend][dimension]))
+        console.log(JSON.stringify({ g38Measurement: { backend, dimension, id, pair } }));
     }
   }
   return { measured, durationMs: performance.now() - started };
@@ -202,6 +248,7 @@ export async function evaluateReadCostScaling({
   rootDir,
   budgetPath = path.join(rootDir, "tools/gates/cost-budget.json"),
   dimensions = READ_DIMENSIONS,
+  backends = READ_BACKENDS,
   now = new Date(),
 } = {}) {
   const section = JSON.parse(readFileSync(budgetPath, "utf8")).readCostScaling,
@@ -210,9 +257,9 @@ export async function evaluateReadCostScaling({
     ),
     inventory = await readInventory(rootDir),
     probeIds = validateReadCoverage(section, inventory, READ_PROBES),
-    { measured, durationMs } = await measureReadCosts(rootDir, { dimensions, probeIds });
+    { measured, durationMs } = await measureReadCosts(rootDir, { dimensions, backends, probeIds });
   return {
-    ...evaluateReadMeasurements({ section, inventory, probes: READ_PROBES, measured, dimensions, now }),
+    ...evaluateReadMeasurements({ section, inventory, probes: READ_PROBES, measured, dimensions, backends, now }),
     durationMs,
   };
 }

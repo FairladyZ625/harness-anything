@@ -928,6 +928,8 @@
     "schema": "read-cost-scaling-budget/v1",
     "readCoverage": {
       "measured": {
+        "background:projection-recovery": { "measurements": ["projection-recovery"] },
+        "method:repo.agentRuntime.attach": { "measurements": ["runtime-attach"] },
         "background:archive-maintenance": {
           "measurements": [
             "archive-maintenance"
@@ -1405,7 +1407,8 @@
         },
         "method:repo.tasks.document.read": {
           "measurements": [
-            "document-point"
+            "document-point",
+            "output-point-same-task"
           ]
         },
         "method:repo.tasks.documents.list": {
@@ -1475,6 +1478,14 @@
         }
       },
       "notApplicable": [
+        {
+          "reads": ["method:daemon.skillEval.cases.list"],
+          "reason": "Returns the selected skill evaluation catalog cases from the host-local catalog (skill-eval-production.ts), not canonical repository history; selected catalog cases are the explicit result k."
+        },
+        {
+          "reads": ["method:daemon.fleet.center.read", "method:daemon.fleet.center.external-address.read"],
+          "reason": "Reads the current fleet-center listener/address singleton in daemon host state (json-rpc-server.ts), with no repository projection or history enumeration."
+        },
         {
           "reads": [
             "command:daemon-status",
@@ -1557,12 +1568,6 @@
             "method:repo.terminal.sessions.list"
           ],
           "reason": "Operate on current in-memory terminal sessions/processes, not canonical runtime-session history (daemon-host-runtime-api.ts)."
-        },
-        {
-          "reads": [
-            "background:projection-recovery"
-          ],
-          "reason": "Explicit projection rebuild/catch-up consumes the unreplayed event delta as its input k; G38 already measures rebuild Git-process cost. Not a fixed-result projection query (repo-cell.ts initialization)."
         },
         {
           "reads": [

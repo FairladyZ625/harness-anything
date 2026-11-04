@@ -25,6 +25,8 @@ import { appendTaskEventQueryFixtures } from "../../../storage/test/postgres/pg-
 import { appendRuntimeQueryFixtures } from "../../../storage/test/postgres/pg-runtime-query-parity.fixture.ts";
 
 export const READ_TASK_ID = "task_111111111111111111111111";
+export const HISTORY_OUTPUT_TASK_ID = "task_333333333333333333333333";
+export const READ_ACTIVE_SESSION_ID = "history-active";
 export const READ_SESSION_ID = "runtime-query-session";
 export const READ_DOCUMENT = `tasks/${READ_TASK_ID}-g38/artifacts/selected.md`;
 
@@ -82,6 +84,7 @@ export async function seedReadLedger({ append, currentCut }, dimension, size) {
   const created = eventAt(next);
   created.taskId = READ_TASK_ID;
   created.payload.task.taskId = READ_TASK_ID;
+  created.payload.task.title = "G38";
   const snapshotValue = {
       schema: "preset-snapshot/v1",
       id: "standard-task",
@@ -195,57 +198,87 @@ export async function seedReadLedger({ append, currentCut }, dimension, size) {
       }),
     );
 
+  const historyTask = eventAt(next);
+  historyTask.taskId = HISTORY_OUTPUT_TASK_ID;
+  Object.assign(historyTask.payload.task, { taskId: HISTORY_OUTPUT_TASK_ID, title: "G38 History" });
+  await add({ event: historyTask, plan: taskLifecycleWritePlan(historyTask), blobs: [] });
+  await add(
+    docBundle(
+      { currentCut },
+      "Selected historical task output\n",
+      next,
+      "history-selected",
+      `tasks/${HISTORY_OUTPUT_TASK_ID}-g38-history/artifacts/selected.md`,
+    ),
+  );
+
+  const settledSession = async (id, settled = true) => {
+    const start = {
+      schema: "agent-runtime-event/v1",
+      type: "runtime_session_started",
+      eventId: `session-${id}`,
+      opId: `session-${id}`,
+      workspaceRevision: next,
+      occurredAt: "2026-08-01T00:00:00.000Z",
+      actor: { principal: { personId: "person-g38" }, executor: null },
+      source: "local",
+      payload: {
+        runtimeSessionId: `history-${id}`,
+        instanceId: "history-instance",
+        installationId: "runtime-query-installation",
+        kindId: "codex",
+        definitionSnapshotRef: "artifact:runtime-definitions/codex/v1",
+        taskBinding: { taskId: "history-task", executionId: `history-${id}` },
+        launchGeneration: 1,
+        attachable: false,
+      },
+    };
+    await add({ event: start, plan: canonicalEventWritePlan(start, "agent-runtime/v1", start.opId), blobs: [] });
+    if (!settled) return;
+    const exited = {
+      ...start,
+      eventId: `exited-${id}`,
+      opId: `exited-${id}`,
+      workspaceRevision: next,
+      type: "runtime_session_exited",
+      payload: { runtimeSessionId: `history-${id}` },
+    };
+    await add({ event: exited, plan: canonicalEventWritePlan(exited, "agent-runtime/v1", exited.opId), blobs: [] });
+    const outcome = {
+      ...start,
+      eventId: `outcome-${id}`,
+      opId: `outcome-${id}`,
+      workspaceRevision: next,
+      type: "runtime_session_outcome_observed",
+      payload: { runtimeSessionId: `history-${id}`, outcome: "succeeded", reasonCode: null, resultRef: null },
+    };
+    await add({
+      event: outcome,
+      plan: null, // add() attaches the complete result claim before compiling this plan.
+      blobs: [],
+    });
+  };
+  await settledSession("active", false);
+  if (dimension === "dispatches") await settledSession("dispatch-source");
+
   // Every dimension varies alone. All history belongs to an unrelated subject, and
   // its fixed-width ids/body metadata prevent decimal-id growth looking like IO noise.
   for (let index = 0; index < size; index++) {
     const id = String(index).padStart(8, "0");
-    if (dimension === "runtime-sessions") {
-      const start = {
-        schema: "agent-runtime-event/v1",
-        type: "runtime_session_started",
-        eventId: `session-${id}`,
-        opId: `session-${id}`,
-        workspaceRevision: next,
-        occurredAt: "2026-08-01T00:00:00.000Z",
-        actor: { principal: { personId: "person-g38" }, executor: null },
-        source: "local",
-        payload: {
-          runtimeSessionId: `history-${id}`,
-          instanceId: "history-instance",
-          installationId: "runtime-query-installation",
-          kindId: "codex",
-          definitionSnapshotRef: "artifact:runtime-definitions/codex/v1",
-          taskBinding: { taskId: "history-task", executionId: `history-${id}` },
-          launchGeneration: 1,
-          attachable: false,
-        },
-      };
-      await add({ event: start, plan: canonicalEventWritePlan(start, "agent-runtime/v1", start.opId), blobs: [] });
-      const exited = {
-        ...start,
-        eventId: `exited-${id}`,
-        opId: `exited-${id}`,
-        workspaceRevision: next,
-        type: "runtime_session_exited",
-        payload: { runtimeSessionId: `history-${id}` },
-      };
-      await add({ event: exited, plan: canonicalEventWritePlan(exited, "agent-runtime/v1", exited.opId), blobs: [] });
-      const outcome = {
-        ...start,
-        eventId: `outcome-${id}`,
-        opId: `outcome-${id}`,
-        workspaceRevision: next,
-        type: "runtime_session_outcome_observed",
-        payload: { runtimeSessionId: `history-${id}`, outcome: "succeeded", reasonCode: null, resultRef: null },
-      };
-      await add({
-        event: outcome,
-        plan: null, // add() attaches the complete result claim before compiling this plan.
-        blobs: [],
-      });
+    if (dimension === "source-events") {
+      const event = eventAt(next);
+      await add({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
+    } else if (dimension === "runtime-sessions") {
+      await settledSession(id);
     } else if (dimension === "task-outputs") {
       await add(
-        docBundle({ currentCut }, "Historical output\n", next, `output-${id}`, `tasks/g38-history/artifacts/${id}.md`),
+        docBundle(
+          { currentCut },
+          "Historical output\n",
+          next,
+          `output-${id}`,
+          `tasks/${HISTORY_OUTPUT_TASK_ID}-g38-history/artifacts/${id}.md`,
+        ),
       );
     } else if (dimension === "dispatches") {
       const event = structuredClone(dispatchSource);
@@ -258,7 +291,9 @@ export async function seedReadLedger({ append, currentCut }, dimension, size) {
       Object.assign(event.payload, {
         dispatchId: `dispatch-history-${id}`,
         dispatchKey: `history-${id}`,
-        runtimeSessionId: `history-${id}`,
+        runtimeSessionId: "history-dispatch-source",
+        attemptGroupId: `history-attempt-${id}`,
+        attemptIndex: 1,
         taskId: "history-task",
         executionId: `history-${id}`,
         startedAt: "2026-08-01T00:00:00.000Z",

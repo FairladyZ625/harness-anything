@@ -78,5 +78,7 @@ export function planRowsRead(plan) {
         (plan["Rows Removed by Index Recheck"] ?? 0)) *
       (plan["Actual Loops"] ?? 1)
     : 0;
-  return own + (plan.Plans ?? []).reduce((sum, child) => sum + planRowsRead(child), 0);
+  // JSON EXPLAIN emits rounded per-loop averages (e.g. 0.33 × 3 = 0.99).
+  // Round each scan upward to an integer visit count before adding sibling scans.
+  return Math.ceil(own) + (plan.Plans ?? []).reduce((sum, child) => sum + planRowsRead(child), 0);
 }

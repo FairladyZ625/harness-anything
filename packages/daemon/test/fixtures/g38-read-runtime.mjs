@@ -18,6 +18,8 @@ import { executeRepoReadAction } from "../../src/repo-cell-action-dispatch.ts";
 import { dispatchRead } from "../../src/repo-cell-command.ts";
 import { requiredCellText } from "../../src/repo-cell-settlement.ts";
 import { cellCodedError } from "../../src/repo-cell-errors.ts";
+import { makeAgentRuntimeStreamHub } from "../../src/agent-runtime-stream.ts";
+import { readObservedRuntimeSession } from "../../src/agent-runtime-read.ts";
 import { repositoryRuntimeReads } from "../../src/repository-runtime-reads.ts";
 
 export async function createReadFixtureRuntime({ projection, store, rootDir }, now) {
@@ -74,6 +76,19 @@ export async function createReadFixtureRuntime({ projection, store, rootDir }, n
       schedule: makeScheduleActionRuntime(context, () => settings.read().worktree),
     },
   };
+  const runtimeStream = makeAgentRuntimeStreamHub({
+    readSession: (id) => readObservedRuntimeSession(projection, rootDir, id),
+    canAttach: (session) => {
+      // The deterministic fixture grants a local worker; retain both real admission reads.
+      if (
+        !projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef) ||
+        !projection.readRuntimeInstallation(session.installationId)
+      )
+        throw new Error("Attach fixture lacks a dispatch/installation");
+      return true;
+    },
+    now: () => new Date(now()),
+  });
   const api = createRepoCellApi({
     extracted: context,
     mode: "local",
@@ -84,6 +99,7 @@ export async function createReadFixtureRuntime({ projection, store, rootDir }, n
     store,
     now,
     settings,
+    runtimeStream,
     runtimeReads: repositoryRuntimeReads(projection, store, now, rootDir, false),
     dispatchRead,
     requiredCellText,
@@ -147,6 +163,7 @@ export async function createReadFixtureRuntime({ projection, store, rootDir }, n
   );
   return {
     ...api,
+    actionContext: context,
     binding,
     nodeBinding: { ...binding, source: { kind: "node", nodeId: "node-g38" } },
     keycloakCenter,
@@ -156,6 +173,7 @@ export async function createReadFixtureRuntime({ projection, store, rootDir }, n
     read: api.read,
     run: (action, binding) => executeRepoReadAction(context, action, binding),
     close: async () => {
+      runtimeStream.close();
       globalThis.fetch = originalFetch;
     },
   };

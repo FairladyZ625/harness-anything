@@ -1,15 +1,22 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { parse } from "yaml";
+import { combineReadShards } from "../cost-budget-read-lane.mjs";
 import { planRowsRead } from "../../../packages/daemon/test/fixtures/g38-read-probe.mjs";
 import {
   deriveReadInventory,
+  evaluateReadCostScaling,
+  BACKGROUND_READ_PATHS,
   evaluateReadMeasurements,
   validateReadCoverage,
   READ_BACKENDS,
   READ_DIMENSIONS,
   READ_MARGINS,
-  READ_SCALES,
+  readScalesFor,
 } from "../cost-budget-reads.mjs";
 
 const inventory = [{ id: "method:repo.fixture.read" }],
@@ -28,7 +35,7 @@ function fixture() {
           dimension,
           {
             fixture: Object.fromEntries(
-              Object.entries(READ_SCALES).map(([scale, size]) => [
+              Object.entries(readScalesFor(dimension)).map(([scale, size]) => [
                 scale,
                 {
                   size,
@@ -68,11 +75,13 @@ test("G38 derives read methods and multiplexed command reads from the protocol r
       { method: "repo.task.read" },
       { method: "repo.gui.read", commandClass: "repo-read" },
       { method: "repo.write", commandClass: "repo-write" },
+      { method: "host.registered-read" },
     ],
   };
+  input.routes = [{ method: "host.registered-read", topology: { commandClass: "repo-read" } }];
   assert.deepEqual(
     deriveReadInventory(input).map(({ id }) => id),
-    ["command:first", "method:repo.gui.read", "method:repo.task.read"],
+    ["command:first", "method:host.registered-read", "method:repo.gui.read", "method:repo.task.read"],
   );
   const f = fixture();
   assert.throws(
@@ -167,10 +176,129 @@ test("PG scan accounting sees rows hidden by aggregates, filters and repeated lo
   };
   assert.equal(planRowsRead(plan), 2009);
   assert.equal(planRowsRead({ "Node Type": "Result", "Actual Rows": 1 }), 0);
+  assert.equal(
+    planRowsRead({ "Node Type": "Index Scan", "Actual Rows": 0.33, "Rows Removed by Filter": 0.66, "Actual Loops": 3 }),
+    3,
+  );
 });
 
 test("G38 rejects a cold scan even when the warm cache is flat", () => {
   const f = fixture();
   f.measured.sqlite["runtime-sessions"].fixture.large.firstCall.sqlRowsRead = 2000;
   assert.match(evaluateReadMeasurements(f).errors.join("\n"), /firstCall.*2000/u);
+});
+
+test("G38 source audits enforce linear input slope and an absolute per-input ceiling", () => {
+  const f = fixture();
+  f.probes = {
+    fixture: {
+      reads: probes.fixture.reads,
+      sourceAudit: { maxPerInput: Object.fromEntries(Object.keys(READ_MARGINS).map((key) => [key, 10])) },
+    },
+  };
+  for (const backend of READ_BACKENDS)
+    for (const scale of ["small", "large"]) {
+      const value = f.measured[backend]["source-events"].fixture[scale];
+      value.inputSize = value.size;
+      value.counts.sqlRowsRead = value.size * 2;
+      value.firstCall.sqlRowsRead = value.size * 2;
+    }
+  assert.equal(evaluateReadMeasurements(f).ok, true);
+  f.measured.pglite["source-events"].fixture.large.counts.sqlRowsRead = 5000;
+  assert.match(evaluateReadMeasurements(f).errors.join("\n"), /source audit.*linear slope/u);
+  f.measured.pglite["source-events"].fixture.small.counts.sqlRowsRead = 3000;
+  f.measured.pglite["source-events"].fixture.large.counts.sqlRowsRead = 30000;
+  assert.match(evaluateReadMeasurements(f).errors.join("\n"), /per-input ceiling/u);
+});
+
+test("G38 shard join rejects missing, duplicate and unknown backend/dimension slices", () => {
+  const f = fixture();
+  const shards = READ_BACKENDS.flatMap((backend) =>
+    READ_DIMENSIONS.map((dimension) => ({
+      schema: "g38-read-shard/v1",
+      measured: { [backend]: { [dimension]: f.measured[backend][dimension] } },
+    })),
+  );
+  assert.deepEqual(combineReadShards(shards), f.measured);
+  assert.throws(() => combineReadShards(shards.slice(1)), /missing G38 shard/u);
+  assert.throws(() => combineReadShards([...shards, shards[0]]), /duplicate G38 shard/u);
+  assert.throws(
+    () => combineReadShards([{ schema: "g38-read-shard/v1", measured: { other: {} } }]),
+    /unknown G38 backend/u,
+  );
+});
+
+test("G38 CI retains the legacy budget and joins every Node26 backend/collection shard", () => {
+  const workflow = parse(readFileSync(new URL("../../../.github/workflows/rewrite-ci.yml", import.meta.url), "utf8"));
+  const jobs = workflow.jobs;
+  const legacy = jobs["cost-budget"],
+    reads = jobs["cost-budget-reads"],
+    summary = jobs["cost-budget-read-summary"];
+  assert.ok(
+    legacy.steps.some((step) => step.run === "node tools/gates/cost-budget.mjs" && step.env?.G38_PHASE === "legacy"),
+  );
+  assert.deepEqual(reads.strategy.matrix.backend, [...READ_BACKENDS]);
+  assert.deepEqual(reads.strategy.matrix.dimension, [...READ_DIMENSIONS]);
+  assert.equal(reads.strategy["fail-fast"], false);
+  assert.ok(reads.steps.some((step) => step.with?.["node-version"] === 26));
+  assert.ok(
+    reads.steps.some(
+      (step) =>
+        step.run === "node tools/gates/cost-budget.mjs" && step.env?.G38_PHASE === "read" && !step["continue-on-error"],
+    ),
+  );
+  assert.ok(summary.needs.includes("cost-budget-reads"));
+  assert.ok(
+    summary.steps.some(
+      (step) =>
+        step.run === "node tools/gates/cost-budget.mjs" &&
+        step.env?.G38_PHASE === "read-summary" &&
+        !step["continue-on-error"],
+    ),
+  );
+  const manifest = JSON.parse(readFileSync(new URL("../../gate-manifest.json", import.meta.url), "utf8"));
+  const gate = manifest.gates.find((entry) => entry.id === "cost-budget");
+  for (const id of ["cost-budget", "cost-budget-reads", "cost-budget-read-summary"])
+    assert.ok(gate.executionSurfaces.rewriteCi.pullRequestJobs.includes(id));
+});
+
+test("G38 entrypoint rejects a protocol registration without a measurement before opening a backend", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-g38-unregistered-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  for (const relative of ["tools/gates", "packages/daemon/src/protocol", "packages/daemon/test/fixtures"])
+    mkdirSync(path.join(rootDir, relative), { recursive: true });
+  writeFileSync(
+    path.join(rootDir, "packages/daemon/src/protocol/daemon-protocol-commands.ts"),
+    'export const daemonProtocolCommands=[]; export const allDaemonProtocolMethods=[{method:"repo.new.read",commandClass:"repo-read"}];\n',
+  );
+  writeFileSync(
+    path.join(rootDir, "packages/daemon/src/rpc-command-routing.ts"),
+    "export const daemonRpcRoutingDeclarations=()=>[];\n",
+  );
+  writeFileSync(
+    path.join(rootDir, "packages/daemon/test/fixtures/g38-read-cost.mjs"),
+    'export const READ_PROBES={}; export const measureReadScale=()=>{throw new Error("backend must not open")};\n',
+  );
+  writeFileSync(
+    path.join(rootDir, "tools/gates/cost-budget.json"),
+    JSON.stringify({
+      readCostScaling: {
+        schema: "read-cost-scaling-budget/v1",
+        knownScaling: [],
+        readCoverage: {
+          measured: {},
+          notApplicable: [
+            {
+              reads: BACKGROUND_READ_PATHS.map((name) => `background:${name}`),
+              reason: "Fixture declares no background reads",
+            },
+          ],
+        },
+      },
+    }),
+  );
+  await assert.rejects(
+    () => evaluateReadCostScaling({ rootDir, backends: ["sqlite"] }),
+    /readCoverage is missing reads: method:repo.new.read/u,
+  );
 });
