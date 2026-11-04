@@ -128,6 +128,18 @@ test(
   },
 );
 
+test(
+  "a schedule frame without the caller's business key is rejected instead of borrowing the request id",
+  { timeout: 90_000 },
+  async (t) => {
+    const fixture = await claimRaceFixture(t);
+    await assert.rejects(
+      fixture.command("edge-alpha", { kind: "schedule-run-now", scheduleId, scheduledFor }, randomUUID()),
+      (error: unknown) => (error as { readonly code?: unknown }).code === "invalid_field",
+    );
+  },
+);
+
 function claimAfter(
   gate: Promise<void>,
   fixture: Awaited<ReturnType<typeof claimRaceFixture>>,
@@ -255,21 +267,24 @@ async function claimRaceFixture(t: TestContext) {
     owners.auth({ nodeId: "edge-alpha" }),
   );
   assert.equal(created.outcome, "applied", JSON.stringify(created));
-  const claim = async (nodeId: string, key: string, opId = randomUUID()): Promise<ClaimResult> =>
-    runFleetScheduleCommandClient({
-      port: center!.port,
-      ca: certificate,
-      servername: "localhost",
-      nodeId,
-      credential: `credential-${nodeId}`,
-      readAccessToken: owners.readAccessToken(nodeId),
-      opId,
-      repoId,
-      scheduleId,
-      action: { kind: "schedule-run-now", scheduleId, scheduledFor, idempotencyKey: key },
-    });
+  const command = (nodeId: string, action: Readonly<Record<string, unknown>>, opId: string): Promise<ClaimResult> =>
+      runFleetScheduleCommandClient({
+        port: center!.port,
+        ca: certificate,
+        servername: "localhost",
+        nodeId,
+        credential: `credential-${nodeId}`,
+        readAccessToken: owners.readAccessToken(nodeId),
+        opId,
+        repoId,
+        scheduleId,
+        action: action as { readonly kind: string } & Readonly<Record<string, unknown>>,
+      }),
+    claim = (nodeId: string, key: string, opId = randomUUID()): Promise<ClaimResult> =>
+      command(nodeId, { kind: "schedule-run-now", scheduleId, scheduledFor, idempotencyKey: key }, opId);
   return {
     claim,
+    command,
     eventCount: () => makeTaskEventReader({ rootDir: repo, repoId }).read().events.length,
     claimEvents: () =>
       makeTaskEventReader({ rootDir: repo, repoId })
