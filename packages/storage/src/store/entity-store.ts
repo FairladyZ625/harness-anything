@@ -120,31 +120,27 @@ export function createEntityStore(
   options: PostgresEntityDeclarationStoreOptions,
 ): EntityDeclarationStorePort;
 export function createEntityStore(source: EntityEventSource): EntityStore;
-export function createEntityStore(source: EntityEventSource, options: SqliteEntityStoreOptions): EntityStore;
+export function createEntityStore(source: EntityEventSource, options: StorageBackendOptions): EntityStore;
 export function createEntityStore(
   source: EntityEventSource,
   dynamicContracts: readonly EntityStoreKindContract[],
-  options?: SqliteEntityStoreOptions,
+  options?: StorageBackendOptions,
 ): EntityStore;
 export function createEntityStore(
   source: EntityEventSource,
   dynamicContractsOrOptions: readonly EntityStoreKindContract[] | StorageBackendOptions = [],
-  options: StorageBackendOptions = {},
+  _options: StorageBackendOptions = {},
 ): EntityStore | EntityDeclarationStorePort {
   const dynamicContracts = Array.isArray(dynamicContractsOrOptions) ? dynamicContractsOrOptions : [];
-  const backendOptions: StorageBackendOptions = Array.isArray(dynamicContractsOrOptions)
-    ? options
-    : (dynamicContractsOrOptions as StorageBackendOptions);
-  const backend = resolveStorageBackend(backendOptions);
-  if (backend.backend !== "sqlite") throw unsupportedStorageBackendError(backend.backend);
-  const sqliteSource = source as EntityEventSource;
+  // The supplied event source already owns backend selection and scope. This reader compiles
+  // bundles and interprets accepted declarations; it never opens another physical database.
   const contractForKind = (kind: string): EntityStoreKindContract => {
     const dynamic = dynamicContracts.find((candidate) => candidate.kind === kind);
     if (dynamic) return dynamic;
     try {
       return requireEntityStoreKindContract(kind);
     } catch (error) {
-      const declaration = [...(entityEventCache(sqliteSource).get(kind)?.values() ?? [])].find(
+      const declaration = [...(entityEventCache(source).get(kind)?.values() ?? [])].find(
         (event) => event.type === "entity_content_observed" || event.type === "entity_reference_declared",
       );
       if (
@@ -157,20 +153,20 @@ export function createEntityStore(
   };
   const latestEvents = (kind: string): ReadonlyMap<string, StoredEntityEventV1> => {
     const contract = contractForKind(kind);
-    return entityEventCache(sqliteSource).get(contract.kind) ?? new Map<string, StoredEntityEventV1>();
+    return entityEventCache(source).get(contract.kind) ?? new Map<string, StoredEntityEventV1>();
   };
   const records = (kind: string): readonly StoredEntity[] => {
     const contract = contractForKind(kind);
     return [...latestEvents(kind).values()]
       .map((event) => {
-        const record = entityEventRecord(event, sqliteSource, contract);
-        return kind === "agent" && retiredAgents.get(sqliteSource)?.has(record.id)
+        const record = entityEventRecord(event, source, contract);
+        return kind === "agent" && retiredAgents.get(source)?.has(record.id)
           ? ({
               ...record,
               value: {
                 ...(record.value as Record<string, unknown>),
                 lifecycleState: "retired",
-                retirement: retiredAgents.get(sqliteSource)!.get(record.id),
+                retirement: retiredAgents.get(source)!.get(record.id),
               },
             } as StoredEntity)
           : record;
@@ -183,15 +179,15 @@ export function createEntityStore(
       const contract = contractForKind(kind),
         event = latestEvents(kind).get(id);
       if (event === undefined) return null;
-      const record = entityEventRecord(event, sqliteSource, contract);
+      const record = entityEventRecord(event, source, contract);
       return (
-        kind === "agent" && retiredAgents.get(sqliteSource)?.has(id)
+        kind === "agent" && retiredAgents.get(source)?.has(id)
           ? {
               ...record,
               value: {
                 ...(record.value as Record<string, unknown>),
                 lifecycleState: "retired",
-                retirement: retiredAgents.get(sqliteSource)!.get(id),
+                retirement: retiredAgents.get(source)!.get(id),
               },
             }
           : record

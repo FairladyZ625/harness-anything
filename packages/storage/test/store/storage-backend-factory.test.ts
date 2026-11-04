@@ -13,6 +13,7 @@ import {
   type StorageBackendOptions,
   type StorageScope,
 } from "../../src/store/task-event-store.ts";
+import { compileEntityUpsert } from "@harness-anything/kernel/internal/domain/entity-event-compile.ts";
 import type { EntityDeclarationStorePort, StoredEntity } from "../../src/store/entity-store.ts";
 import {
   makeTaskProjectionReader,
@@ -70,13 +71,6 @@ test("postgres factories require explicit scope before connecting", () => {
   );
   assert.throws(
     () =>
-      createEntityStore(emptyEventSource, {
-        storage: { backend: "postgres", connectionString: "postgres://localhost/ha", scope },
-      }),
-    /storage backend "postgres" is not implemented by kernel Wave 1/u,
-  );
-  assert.throws(
-    () =>
       openEntityStore("/tmp/unused", { storage: { backend: "postgres", connectionString: "postgres://localhost/ha" } }),
     /storage backend "postgres" is not implemented by kernel Wave 1/u,
   );
@@ -88,6 +82,47 @@ test("postgres factories require explicit scope before connecting", () => {
       }),
     /requires tenant, project, and non-negative policy epoch scope/u,
   );
+});
+
+test("injected entity readers interpret the same accepted declaration for every storage config", () => {
+  const candidate = compileEntityUpsert({
+      entityKind: "agent",
+      entity: {
+        schema: "agent-declaration/v1",
+        id: "neutral-agent",
+        name: "Neutral",
+        instructions: "Shared source",
+        runtimes: [{ type: "codex" }],
+      },
+      eventId: "neutral-agent-event",
+      opId: "neutral-agent-op",
+      workspaceRevision: 1,
+      actor: { principal: { personId: "test" }, executor: null },
+      source: "local",
+      occurredAt: "2026-11-04T00:00:00.000Z",
+    }),
+    source = {
+      readBatch: (cursor: string | null) => ({
+        sourceRevision: 1,
+        events: cursor === null ? [candidate.event] : [],
+        cursor: "1",
+        done: true,
+        accessedItems: cursor === null ? 1 : 0,
+      }),
+      readContentBlob: (sha: string) => candidate.blobs.find((blob) => blob.sha256 === sha)?.body ?? null,
+    };
+  const expected = createEntityStore(source).get("agent", "neutral-agent");
+  assert.ok(expected);
+  for (const config of [
+    { storage: { backend: "sqlite", scope } },
+    { storage: { backend: "postgres", connectionString: "postgres://unused", scope } },
+    { storage: { backend: "pglite", scope } },
+  ] satisfies StorageBackendOptions[]) {
+    const store = createEntityStore(source, config);
+    assert.deepEqual(store.get("agent", "neutral-agent"), expected);
+    assert.deepEqual(store.list("agent"), [expected]);
+    assert.equal(store.get("agent", "missing"), null);
+  }
 });
 
 const emptyEventSource = {
