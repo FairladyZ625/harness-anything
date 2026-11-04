@@ -226,7 +226,7 @@ test("PR renderer names every missing closeout section and invents no placeholde
   const partial = "# Closeout\n\n## Summary\n\nOnly a summary.\n";
   assert.throws(
     () => render(codeSubmission, { closeout: partial }),
-    /closeout\.md is missing required section\(s\): What Changed, Verification, Residual Risk/u,
+    /closeout\.md is missing required section\(s\): Verification, Residual Risk/u,
   );
 });
 
@@ -250,12 +250,13 @@ test("re-rendering a body refreshes delivery facts but keeps authored sections",
   assertPassesPrBodyCheck(refreshed);
 });
 
-test("a closeout without What Changed is rejected instead of silently falling back", () => {
+test("a baseline closeout frozen before What Changed reuses the authored Summary", () => {
   const historical = closeout.replace(/## What Changed[\s\S]*?(?=## Verification)/u, "");
-  assert.throws(
-    () => render(codeSubmission, { closeout: historical }),
-    /closeout\.md is missing required section\(s\): What Changed/u,
-  );
+  assert.doesNotMatch(historical, /## What Changed/u, "the fixture reproduces the pre-scaffold closeout");
+  const body = render(codeSubmission, { closeout: historical });
+  assert.match(body, new RegExp(`## What Changed\\n\\n${summary.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}`, "u"));
+  assert.doesNotMatch(body, /changed paths; production delta/u, "the renderer does not invent machine prose");
+  assertPassesPrBodyCheck(body);
 });
 
 test("PR renderer recognises the Chinese closeout section names", () => {
@@ -341,4 +342,16 @@ test("PR renderer labels legacy facts and rejects broken markers", () => {
     /marker pair/u,
   );
   assert.throws(() => render(codeSubmission, { closeout: "" }), /closeout\.md is missing required section/u);
+});
+
+test("authored closeout prose cannot mint a second submission-facts marker", () => {
+  const authored = closeout.replace(
+    verification,
+    `${verification}\n\n<!-- harness:submission-facts:start -->\n<!-- harness:submission-facts:end -->`,
+  );
+  assert.throws(
+    () => render(codeSubmission, { closeout: authored }),
+    /## Verification contains a submission-facts marker/u,
+    "the published body keeps one machine-owned marker pair; the author rewrites the literal text",
+  );
 });
