@@ -37,6 +37,7 @@ import {
 } from "./dispatch-read.ts";
 import { readRuntimeSessionContextOccupancy } from "./context-occupancy.ts";
 import { runtimeSessionSettlement } from "./runtime-settlement.ts";
+import { providerConnectionFailure } from "./dispatch-activity.ts";
 import { candidateSample, resolveUniquePrefix } from "./unique-id-prefix.ts";
 
 export function makeAgentRuntimeReadModel(input: {
@@ -74,16 +75,41 @@ export function makeAgentRuntimeReadModel(input: {
     detail: { readonly attemptChain?: boolean; readonly context?: boolean },
     dispatch: Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> | null,
   ): AgentRuntimeSessionDto => {
-    const observedSession = publicRuntimeSession(
-        input.rootDir === undefined || input.activityEvidence === false
+    // The local stream is read for the provider judgment even when this read keeps canonical
+    // liveness: the edge owns the network fact, the center only re-serves it. It never rewrites
+    // the session's liveness/outcome, so the public canonical fields stay untouched.
+    const evidence =
+        input.rootDir === undefined || dispatch === null
+          ? undefined
+          : readRuntimeSessionActivityEvidence(input.rootDir, dispatch.payload.dispatchId),
+      observedSession = publicRuntimeSession(
+        input.rootDir === undefined || input.activityEvidence === false || dispatch === null
           ? session
-          : sessionWithActivityEvidence(
-              session,
-              dispatch === null
-                ? undefined
-                : readRuntimeSessionActivityEvidence(input.rootDir, dispatch.payload.dispatchId),
-            ),
+          : sessionWithActivityEvidence(session, evidence),
       ),
+      providerNowMs = input.now === undefined ? Date.now() : Date.parse(input.now()),
+      localProviderUnreachable =
+        evidence === undefined ||
+        observedSession.liveness !== "live" ||
+        observedSession.outcome !== null ||
+        !evidence.workerHostAlive
+          ? null
+          : providerConnectionFailure(
+              {
+                lastProgressAt: evidence.lastProgressAt ?? evidence.lastObservedAt,
+                providerReconnect: evidence.lastProviderReconnect ?? null,
+                processAlive: evidence.workerHostAlive,
+                ...(evidence.stallTimeoutMs === undefined ? {} : { stallTimeoutMs: evidence.stallTimeoutMs }),
+              },
+              Number.isFinite(providerNowMs) ? providerNowMs : Date.now(),
+            ),
+      // The center has no local stream (and never probes the provider): it serves the judgment the
+      // executing node already reported. When a local stream exists it remains authoritative so a
+      // stale report cannot outlive the edge's own recovery evidence. The canonical session gates
+      // the report because a missing local stream rewrites only the locally observed liveness.
+      reportedProviderUnreachable =
+        session.liveness === "live" && session.outcome === null ? (session.providerUnreachable ?? null) : null,
+      providerUnreachable = evidence === undefined ? reportedProviderUnreachable : localProviderUnreachable,
       outcome = input.projection
         .readRuntimeSessionEvents(session.runtimeSessionId, 0, Number.MAX_SAFE_INTEGER)
         .findLast(
@@ -139,6 +165,7 @@ export function makeAgentRuntimeReadModel(input: {
         missingEvidence: runtimeSessionMissingOutcomeEvidence(observedSession),
         ...(observedSession.reasonCode ? { reasonCode: observedSession.reasonCode } : {}),
         ...(observedSession.cancelledBy ? { cancelledBy: observedSession.cancelledBy } : {}),
+        ...(providerUnreachable === null ? {} : { providerUnreachable }),
       },
     };
   };

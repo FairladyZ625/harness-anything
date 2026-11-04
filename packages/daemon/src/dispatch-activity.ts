@@ -1,10 +1,50 @@
-import type { TaskDispatchRow } from "./protocol/task-dispatch-contract.ts";
+import type { ProviderUnreachableEvidence, TaskDispatchRow } from "./protocol/task-dispatch-contract.ts";
 
 /** A live dispatch with no observation for this long is surfaced as silent. */
 export const DISPATCH_SILENT_AFTER_MS = 10 * 60_000;
 
 export type DispatchActivityStatus = "thinking" | "tool" | "waiting" | "silent" | "stalled" | "unknown";
 export type DispatchProviderActivity = Exclude<DispatchActivityStatus, "silent" | "stalled" | "unknown">;
+
+/** The provider's own reconnect record as it survives in the dispatch stream. */
+export interface ProviderReconnectEvidence {
+  readonly occurredAt: string;
+  readonly diagnostic: string;
+}
+
+/**
+ * The one judgment for "the worker is alive and its last provider signal is a failed connection".
+ * A reconnect attempt is not progress: when the provider keeps reporting `Reconnecting...` while
+ * the attempt makes no provider or workspace progress for the configured stall threshold, the
+ * dispatch is visibly waiting on an unreachable provider. This never cancels or re-dispatches:
+ * the provider may recover and continue the same turn.
+ */
+export function providerConnectionFailure(
+  input: {
+    readonly lastProgressAt: string;
+    readonly providerReconnect: ProviderReconnectEvidence | null;
+    readonly processAlive: boolean | null;
+    readonly stallTimeoutMs?: number;
+  },
+  nowMs = Date.now(),
+): ProviderUnreachableEvidence | null {
+  const reconnect = input.providerReconnect;
+  if (reconnect === null || input.processAlive === false) return null;
+  const progressAt = Date.parse(input.lastProgressAt),
+    errorAt = Date.parse(reconnect.occurredAt);
+  if (!Number.isFinite(progressAt) || !Number.isFinite(errorAt) || errorAt < progressAt) return null;
+  const thresholdMs =
+    input.stallTimeoutMs !== undefined && Number.isFinite(input.stallTimeoutMs) && input.stallTimeoutMs > 0
+      ? input.stallTimeoutMs
+      : DISPATCH_SILENT_AFTER_MS;
+  if (nowMs - progressAt < thresholdMs) return null;
+  return {
+    state: "provider_unreachable",
+    lastProgressAt: new Date(progressAt).toISOString(),
+    lastErrorAt: new Date(errorAt).toISOString(),
+    lastError: reconnect.diagnostic,
+  };
+}
 
 /**
  * The daemon owns this judgment so every renderer sees the same activity state. A submitted
@@ -23,11 +63,28 @@ export function dispatchActivityStatus(
     readonly stalledAt?: string | null;
     readonly processAlive: boolean | null;
     readonly providerActivity: DispatchProviderActivity | null;
+    readonly providerReconnect?: ProviderReconnectEvidence | null;
+    /** Already judged by the executing node and read back from the canonical runtime session; the
+     * center consumes it instead of recomputing a network fact it cannot observe. */
+    readonly reportedProviderUnreachable?: ProviderUnreachableEvidence | null;
   },
   nowMs = Date.now(),
 ): DispatchActivityStatus {
   if (input.status !== "running") return "unknown";
   if (input.stalledAt) return "stalled";
+  if (input.reportedProviderUnreachable !== undefined && input.reportedProviderUnreachable !== null) return "stalled";
+  if (
+    providerConnectionFailure(
+      {
+        lastProgressAt: input.lastProgressAt ?? input.lastObservedAt,
+        providerReconnect: input.providerReconnect ?? null,
+        processAlive: input.processAlive,
+        ...(input.stallTimeoutMs === undefined ? {} : { stallTimeoutMs: input.stallTimeoutMs }),
+      },
+      nowMs,
+    ) !== null
+  )
+    return "stalled";
   const progressAt = Date.parse(input.lastProgressAt ?? input.lastObservedAt);
   if (
     input.processAlive !== false &&

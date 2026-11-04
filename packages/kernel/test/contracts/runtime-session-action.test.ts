@@ -277,3 +277,75 @@ test("RuntimeSession events use one-time fields, ordered liveness, and terminal 
     session,
   );
 });
+
+test("RuntimeSession liveness carries the executing node's provider connectivity report and clears it", () => {
+  const event = (type: AgentRuntimeEventV1["type"], payload: Record<string, unknown>) =>
+    ({
+      schema: "agent-runtime-event/v1",
+      eventId: `event-${type}`,
+      workspaceRevision: 1,
+      opId: `request-${type}`,
+      actor,
+      source,
+      occurredAt: compileInput.occurredAt,
+      type,
+      payload,
+    }) as AgentRuntimeEventV1;
+  let session = reduceRuntimeSession(
+    null,
+    event("runtime_session_started", {
+      runtimeSessionId: "runtime-provider-report",
+      instanceId: "instance-a",
+      installationId: "installation-a",
+      kindId: "codex",
+      definitionSnapshotRef: "artifact:runtime-definition/action-a",
+      launchGeneration: 1,
+      attachable: true,
+    }),
+  );
+  assert.ok(session);
+  const evidence = {
+      state: "provider_unreachable",
+      lastProgressAt: "2026-09-01T00:00:00.000Z",
+      lastErrorAt: "2026-09-01T00:05:00.000Z",
+      lastError: "Reconnecting... 5/5 (failed to connect to websocket: IO error: tls handshake eof)",
+    },
+    action = getExecutableEntityAction("runtime_session_liveness_changed");
+  const draft = action?.execution?.compile?.({
+    ...compileInput,
+    currentEntity: session,
+    action: {
+      kind: "runtime_session_liveness_changed",
+      runtimeSessionId: session.runtimeSessionId,
+      liveness: "live",
+      providerUnreachable: evidence,
+    },
+  });
+  assert.equal(draft?.kind, "runtime-session");
+  if (draft?.kind !== "runtime-session") return;
+  assert.deepEqual(draft.event.payload, {
+    runtimeSessionId: session.runtimeSessionId,
+    liveness: "live",
+    providerUnreachable: evidence,
+  });
+  session = reduceRuntimeSession(session, draft.event);
+  assert.ok(session);
+  assert.deepEqual(session.providerUnreachable, evidence);
+
+  const cleared = action?.execution?.compile?.({
+    ...compileInput,
+    currentEntity: session,
+    action: {
+      kind: "runtime_session_liveness_changed",
+      runtimeSessionId: session.runtimeSessionId,
+      liveness: "live",
+      providerUnreachable: null,
+    },
+  });
+  assert.equal(cleared?.kind, "runtime-session");
+  if (cleared?.kind !== "runtime-session") return;
+  assert.equal(cleared.event.payload.providerUnreachable, null);
+  const after = reduceRuntimeSession(session, cleared.event);
+  assert.ok(after);
+  assert.equal(after.providerUnreachable, null);
+});

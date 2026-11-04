@@ -22,6 +22,7 @@ export type {
   RuntimeKind,
   RuntimeKindId,
   RuntimeProtocolFamily,
+  RuntimeProviderUnreachable,
   RuntimeResultClaim,
   RuntimeSession,
   RuntimeSessionSemanticState,

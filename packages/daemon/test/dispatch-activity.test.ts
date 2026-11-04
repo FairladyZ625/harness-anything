@@ -5,6 +5,7 @@ import {
   dispatchActivityStatus,
   DISPATCH_SILENT_AFTER_MS,
   dispatchProviderActivity,
+  providerConnectionFailure,
 } from "../src/dispatch-activity.ts";
 
 const now = Date.parse("2026-10-21T08:00:00.000Z");
@@ -208,4 +209,58 @@ test("provider frames project thinking, tool, and waiting without exposing provi
   );
   assert.equal(dispatchProviderActivity("codex", { type: "turn.completed" }), "waiting");
   assert.equal(dispatchProviderActivity("claude", { type: "result" }), "waiting");
+});
+
+test("a live connection failure becomes provider_unreachable only after the progress threshold", () => {
+  const reconnect = {
+      occurredAt: new Date(now - 2 * 60_000).toISOString(),
+      diagnostic: "Reconnecting... 5/5 (failed to connect to websocket: IO error: tls handshake eof)",
+    },
+    lastProgressAt = new Date(now - 10 * 60_000).toISOString();
+  assert.deepEqual(
+    providerConnectionFailure(
+      { lastProgressAt, providerReconnect: reconnect, processAlive: true, stallTimeoutMs: 5 * 60_000 },
+      now,
+    ),
+    {
+      state: "provider_unreachable",
+      lastProgressAt,
+      lastErrorAt: reconnect.occurredAt,
+      lastError: reconnect.diagnostic,
+    },
+  );
+  // Progress after the reconnect means the provider recovered; the historical error is not a verdict.
+  assert.equal(
+    providerConnectionFailure(
+      {
+        lastProgressAt: new Date(now - 60_000).toISOString(),
+        providerReconnect: reconnect,
+        processAlive: true,
+        stallTimeoutMs: 5 * 60_000,
+      },
+      now,
+    ),
+    null,
+  );
+  // A dead process is a different verdict; silence must not be relabelled as a provider fault.
+  assert.equal(
+    providerConnectionFailure(
+      { lastProgressAt, providerReconnect: reconnect, processAlive: false, stallTimeoutMs: 5 * 60_000 },
+      now,
+    ),
+    null,
+  );
+  // Below the threshold the same evidence is just an in-flight reconnect.
+  assert.equal(
+    providerConnectionFailure(
+      {
+        lastProgressAt: new Date(now - 30_000).toISOString(),
+        providerReconnect: { ...reconnect, occurredAt: new Date(now - 10_000).toISOString() },
+        processAlive: true,
+        stallTimeoutMs: 5 * 60_000,
+      },
+      now,
+    ),
+    null,
+  );
 });

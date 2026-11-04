@@ -10,6 +10,7 @@ import {
 import { createRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { tailRuntimeSteerCommands } from "./runtime-worker-control.ts";
 import { runAcpProviderSession } from "./runtime-worker-acp.ts";
+import { providerReconnectFromFrame } from "./runtime-provider-fault.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import type { RuntimeCallbackRelay } from "./runtime-spawn-types.ts";
 import { establishRuntimeProcessGroup } from "./runtime/process-group-reconciler.ts";
@@ -141,7 +142,11 @@ export async function runRuntimeWorkerHost(): Promise<void> {
       dispatch !== null && dispatch.taskId !== null && dispatch.squadId === undefined && dispatch.role !== "read-only";
   // The control channel is the dispatch stream, not this process's stdin: the daemon that
   // steers may be a successor that adopted the host after a restart and has no pipe to it.
-  const control = { handler: null as ((prompt: string) => void) | null };
+  const control = { handler: null as ((prompt: string) => void) | null },
+    // The host writes provider frames before any daemon reads them, so it is the only writer that
+    // can stamp a reconnect with the provider-progress clock at creation time. The stamp is stable
+    // across a failure run: only a non-reconnect frame advances it.
+    providerProgress = { lastProgressAt: dispatch?.startedAt ?? new Date().toISOString() };
   const stream = dispatchStreamPath(manifest.rootDir, manifest.dispatchId),
     // One descriptor for the host's whole lifetime: provider output appends once per line.
     appender = openDispatchStreamAppender(stream);
@@ -274,7 +279,7 @@ export async function runRuntimeWorkerHost(): Promise<void> {
         outputBuffer = flush ? "" : trailing;
         for (const line of [...lines, ...(flush && trailing.trim() ? [trailing] : [])]) {
           if (!line.trim()) continue;
-          const parsed = appendProviderLine(append, line),
+          const parsed = appendProviderLine(append, line, manifest.kindId, providerProgress),
             state = parsed ? providerSteerState(parsed, manifest.kindId) : {};
           if (state.sessionId) providerSessionId = state.sessionId;
           if (state.toolStart) activeTools.add(state.toolStart);
@@ -416,10 +421,18 @@ export async function runRuntimeWorkerHost(): Promise<void> {
 function appendProviderLine(
   append: (value: Readonly<Record<string, unknown>>) => void,
   line: string,
+  kindId: string | undefined,
+  progress: { lastProgressAt: string },
 ): Record<string, unknown> | null {
   try {
-    const event = JSON.parse(line) as Record<string, unknown>;
-    append({ kind: "provider_event", event: scrubProviderValue(event) });
+    const event = JSON.parse(line) as Record<string, unknown>,
+      reconnect = providerReconnectFromFrame(kindId ?? "", event);
+    if (reconnect === null) progress.lastProgressAt = new Date().toISOString();
+    append({
+      kind: "provider_event",
+      event: scrubProviderValue(event),
+      ...(reconnect === null ? {} : { lastProgressAt: progress.lastProgressAt }),
+    });
     return event;
   } catch (error) {
     consumeKnownError(error);

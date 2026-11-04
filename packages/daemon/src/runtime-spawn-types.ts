@@ -10,6 +10,7 @@ import type {
   ActorIdentity,
   AgentRuntimeEventV1,
   AuthorizationDecision,
+  RuntimeProviderUnreachable,
   RuntimeSession,
   SessionIdentity,
   WriteSource,
@@ -219,6 +220,11 @@ export type ActiveRuntime = {
   readonly stallTimeoutMs: number;
   /** Last provider event or workspace change observed by the owner daemon. */
   lastProgressAtMs: number;
+  /** Last provider or workspace event that was real progress; reconnect attempts stay out so the
+   * provider-unreachable judgment and the reconnect stamp share one clock. */
+  lastRealProgressAtMs: number;
+  /** The condition last reported to the center; null until the stall threshold is crossed. */
+  providerUnreachable: RuntimeProviderUnreachable | null;
   workspaceActivityCount: number;
   stalledAt: string | null;
   recordProviderProgress: (() => void) | null;
@@ -335,7 +341,7 @@ export type ResumeProcessObservation = {
 
 export type RuntimeSessionSelection = Pick<
   RuntimeSession,
-  "runtimeSessionId" | "providerSessionId" | "instanceId" | "liveness" | "outcome"
+  "runtimeSessionId" | "providerSessionId" | "instanceId" | "liveness" | "outcome" | "providerUnreachable"
 >;
 
 export interface RemoteRuntimePersistence {

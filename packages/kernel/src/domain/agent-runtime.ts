@@ -157,6 +157,18 @@ export interface RuntimeTaskSessionLink {
   readonly transcriptRef: string | null;
   readonly boundAt: string;
 }
+/** A live session whose last provider signal is a failed connection while no real progress has
+ * happened for the frozen stall threshold. The executing node makes this judgment and reports it
+ * through `runtime_session_liveness_changed`; the center only re-serves the reported value. */
+export interface RuntimeProviderUnreachable {
+  readonly state: "provider_unreachable";
+  /** Last provider or workspace progress; reconnect attempts are not progress. */
+  readonly lastProgressAt: string;
+  /** When the provider reported the most recent failed connection attempt. */
+  readonly lastErrorAt: string;
+  readonly lastError: string;
+}
+
 export interface RuntimeSession {
   readonly runtimeSessionId: string;
   readonly instanceId: string;
@@ -175,6 +187,8 @@ export interface RuntimeSession {
   readonly reasonCode?: string;
   readonly cancelledBy?: ActorIdentity;
   readonly lastObservedAt: string;
+  /** Reported by the executing node; absent on sessions that never classified a connection fault. */
+  readonly providerUnreachable?: RuntimeProviderUnreachable | null;
 }
 export type RuntimeInstallationState = "present" | "missing";
 export type RuntimeSessionSemanticState =
@@ -410,6 +424,8 @@ interface RuntimePayloads {
     readonly runtimeSessionId: string;
     readonly liveness: Exclude<RuntimeLiveness, "exited">;
     readonly processGroupPid?: number;
+    /** `null` clears a previously reported connection fault once real progress resumes. */
+    readonly providerUnreachable?: RuntimeProviderUnreachable | null;
   };
   readonly runtime_session_cancelled: { readonly runtimeSessionId: string };
   readonly runtime_session_exited: { readonly runtimeSessionId: string };
@@ -556,7 +572,7 @@ function validateAgentRuntimePayloadFields(
       : type === "runtime_session_started"
         ? ["taskBinding"]
         : type === "runtime_session_liveness_changed"
-          ? ["processGroupPid"]
+          ? ["processGroupPid", "providerUnreachable"]
           : type === "runtime_dispatch_requested"
             ? [
                 "startedAt",
@@ -651,6 +667,13 @@ function validateAgentRuntimePayloadFields(
   )
     return ["runtime process group identity is invalid"];
   if (
+    type === "runtime_session_liveness_changed" &&
+    value.providerUnreachable !== undefined &&
+    value.providerUnreachable !== null &&
+    !validRuntimeProviderUnreachable(value.providerUnreachable)
+  )
+    return ["runtime provider connectivity evidence is invalid"];
+  if (
     type === "runtime_session_outcome_observed" &&
     (!["succeeded", "failed", "unknown", "cancelled", "stopped"].includes(String(value.outcome)) ||
       (value.exitCode !== null && (!Number.isInteger(value.exitCode) || (value.exitCode as number) < 0)) ||
@@ -711,6 +734,18 @@ function validRuntimeDispatchMetrics(value: unknown): value is RuntimeDispatchMe
     [value.inputTokens, value.cacheReadTokens, value.outputTokens, value.totalTokens, value.toolCallCount].every(
       (count) => Number.isSafeInteger(count) && Number(count) >= 0,
     ) && typeof value.usageUnavailable === "boolean"
+  );
+}
+function validRuntimeProviderUnreachable(value: unknown): value is RuntimeProviderUnreachable {
+  return (
+    isRecord(value) &&
+    hasOnlyFields(value, ["state", "lastProgressAt", "lastErrorAt", "lastError"]) &&
+    value.state === "provider_unreachable" &&
+    typeof value.lastProgressAt === "string" &&
+    timestamp(value.lastProgressAt) &&
+    typeof value.lastErrorAt === "string" &&
+    timestamp(value.lastErrorAt) &&
+    isNonEmptyString(value.lastError)
   );
 }
 export function validateAgentRuntimeEvent(value: unknown): readonly string[] {
@@ -923,6 +958,9 @@ export function reduceRuntimeSession(
       ...current,
       liveness: event.payload.liveness,
       attachable: event.payload.liveness === "live" ? true : current.attachable,
+      ...(event.payload.providerUnreachable === undefined
+        ? {}
+        : { providerUnreachable: event.payload.providerUnreachable }),
       lastObservedAt: event.occurredAt,
     };
   }

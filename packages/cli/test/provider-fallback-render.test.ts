@@ -126,6 +126,30 @@ test("runtime status renders the actor that requested cancellation", () => {
   );
 });
 
+test("runtime status names an unreachable provider with last progress and the raw error", () => {
+  const unreachable = {
+      state: "provider_unreachable",
+      lastProgressAt: "2026-11-04T07:28:00.000Z",
+      lastErrorAt: "2026-11-04T07:30:00.000Z",
+      lastError: "Reconnecting... 5/5 (failed to connect to websocket: IO error: tls handshake eof)",
+    },
+    session = {
+      runtimeSessionId: "runtime-stalled",
+      instanceId: "provider-a",
+      providerSessionId: "thread-a",
+      liveness: "live",
+      activity: { outcome: null, resultRef: null, providerUnreachable: unreachable },
+    };
+  assert.match(
+    renderRuntimeStatus({ session }),
+    /liveness: live\noutcome: -\nresult: -\nprovider: provider_unreachable\nlast-progress: 2026-11-04T07:28:00\.000Z\nprovider-error-at: 2026-11-04T07:30:00\.000Z\nprovider-error: Reconnecting\.\.\. 5\/5 \(failed to connect/u,
+  );
+  assert.match(
+    renderRuntimeStatus({ sessions: [session] }),
+    /SESSION\tINSTANCE\tLIVENESS\tACTIVITY\tOUTCOME\tRESULT\nruntime-stalled\tprovider-a\tlive\tprovider_unreachable\t-\t-/u,
+  );
+});
+
 test("CLI dispatch and nested receipt errors are handled by closed tagged branches", () => {
   assert.deepEqual(
     cliDispatchError({ error: new Error("start failed"), directCode: "daemon_start_failed", timeoutCode: null }),

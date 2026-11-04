@@ -296,6 +296,8 @@ async function restoreRuntime(
     tokenLimit: stream.header.tokenLimit ?? null,
     stallTimeoutMs: stream.header.stallTimeoutMs ?? DEFAULT_RUNTIME_STALL_TIMEOUT_MS,
     lastProgressAtMs: Date.parse(streamSummary?.lastProgressAt ?? stream.header.startedAt),
+    lastRealProgressAtMs: Date.parse(streamSummary?.lastProgressAt ?? stream.header.startedAt),
+    providerUnreachable: session?.providerUnreachable ?? null,
     workspaceActivityCount: streamSummary?.workspaceActivityCount ?? 0,
     stalledAt: streamSummary?.stalledAt ?? null,
     startedAt: stream.header.startedAt,
