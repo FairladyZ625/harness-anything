@@ -9,6 +9,7 @@ import {
   evaluateReadMeasurements,
 } from "../../../tools/gates/cost-budget-reads.mjs";
 import { READ_PROBES, measureReadScale } from "./fixtures/g38-read-cost.mjs";
+import { sqliteWorkProbeUnavailableReason } from "./fixtures/g38-sqlite-work.mjs";
 
 if (process.env.FLEET_STRESS_G38_LEGACY_BENCH === "1") {
   test("G38 existing lane runs unchanged before read-scale integration", async () => {
@@ -26,9 +27,10 @@ if (process.env.FLEET_STRESS_G38_LEGACY_BENCH === "1") {
       `G38 ${backend} executes all production read probes`,
       {
         skip:
-          !full && backend === "pglite" && Number(process.versions.node.split(".")[0]) < 26
+          (!full && sqliteWorkProbeUnavailableReason()) ||
+          (!full && backend === "pglite" && Number(process.versions.node.split(".")[0]) < 26
             ? "G38 PGlite measurement is pinned to Node 26; the dual-backend CI lane fails closed on older Node"
-            : false,
+            : false),
       },
       async (t) => {
         assert.ok(["sqlite", "pglite"].includes(backend));

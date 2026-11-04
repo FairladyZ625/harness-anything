@@ -1,9 +1,10 @@
-// All instrumentation stays in the G38 fixture. Include bytes returned by SQL: a COUNT
-// or a single JSON row can conceal a growing collection from a row-only counter.
+// All instrumentation stays in the G38 fixture. Result bytes expose growing JSON
+// payloads; native VM work and Count-page visits expose scans behind fixed results.
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { StatementSync } from "node:sqlite";
 import { installCostProbe, resetCostProbe, snapshotCostProbe } from "./g1-cost-probe.mjs";
+import { installSqliteWorkProbe, resetSqliteWork, snapshotSqliteWork } from "./g38-sqlite-work.mjs";
 let installed = false,
   sqlResultBytes = 0,
   asyncFileReadBytes = 0,
@@ -11,6 +12,7 @@ let installed = false,
 const bytes = (row) => Buffer.byteLength(JSON.stringify(row) ?? "", "utf8");
 export function installReadProbe() {
   if (installed) return;
+  installSqliteWorkProbe();
   installed = true;
   installCostProbe();
   for (const name of ["get", "all"]) {
@@ -60,13 +62,20 @@ export function installReadProbe() {
 }
 export function resetReadProbe() {
   resetCostProbe();
+  resetSqliteWork();
   sqlResultBytes = 0;
   asyncFileReadBytes = 0;
   directoryEntries = 0;
 }
 export function snapshotReadProbe() {
   const counts = snapshotCostProbe();
-  return { ...counts, fileReadBytes: counts.fileReadBytes + asyncFileReadBytes, sqlResultBytes, directoryEntries };
+  return {
+    ...counts,
+    fileReadBytes: counts.fileReadBytes + asyncFileReadBytes,
+    sqlResultBytes,
+    directoryEntries,
+    ...snapshotSqliteWork(),
+  };
 }
 
 // EXPLAIN reports per-loop row averages. Include filtered/rechecked rows and every

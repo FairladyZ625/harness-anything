@@ -64,6 +64,12 @@ export const BACKGROUND_READ_PATHS = Object.freeze([
 // sqlResultBytes also catches a single row carrying an entire collection/event body: ids
 // have fixed width in these fixtures, so a flat point/page read has zero byte drift.
 export const READ_MARGINS = Object.freeze({
+  // An indexed point lookup executes a fixed program. 128 covers bookkeeping and
+  // bounded plan changes; even a 200→2000 one-row COUNT adds thousands of VM steps.
+  sqliteVmSteps: 128,
+  // OP_Count may walk a B-tree inside one VM instruction. Cache hits + misses
+  // observe those visits even with a warm cache; 8 allows incidental point-page work.
+  sqliteScanPages: 8,
   sqlRowsRead: 20,
   sqlResultBytes: 512,
   sha256Calls: 2,

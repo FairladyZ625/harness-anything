@@ -10,6 +10,13 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { localGitObjectRefStore } from "@harness-anything/storage";
 
+// Read-side instrumentation must bypass its own observer SQL even when G38's
+// legacy phase installed these wrappers before dynamically loading the read fixture.
+export const rawSqliteStatementMethods = Object.freeze({
+  get: StatementSync.prototype.get,
+  all: StatementSync.prototype.all,
+});
+
 const counters = { sqlRowsRead: 0, sha256Calls: 0, sha256Bytes: 0, fileReadBytes: 0 };
 let gitBaseline = 0;
 let installed = false;

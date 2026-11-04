@@ -10,6 +10,8 @@ import { seedReadLedger, READ_HISTORY_BATCH_SIZE } from "./g38-read-ledger.mjs";
 import { installReadProbe, resetReadProbe, snapshotReadProbe } from "./g38-read-probe.mjs";
 
 export async function openReadBackend(backend, dimension, size) {
+  // Install before opening any measured connection, including canonical point readers.
+  installReadProbe();
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-g38-read-"));
   initRepo(rootDir);
   writeFileSync(

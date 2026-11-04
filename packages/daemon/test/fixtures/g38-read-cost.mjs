@@ -20,6 +20,8 @@ export const READ_PROBES = Object.freeze({
     sourceAudit: {
       inputCollection: "canonical replay events",
       maxPerInput: {
+        sqliteVmSteps: 4096,
+        sqliteScanPages: 256,
         sqlRowsRead: 32,
         sqlResultBytes: 32768,
         sha256Calls: 32,
@@ -41,6 +43,8 @@ export const READ_PROBES = Object.freeze({
       // The full audit compares each source event, outcome and content claim. Ceilings
       // bound these visits and encoded event bytes; they do not apply to projection reads.
       maxPerInput: {
+        sqliteVmSteps: 4096,
+        sqliteScanPages: 256,
         sqlRowsRead: 16,
         sqlResultBytes: 16384,
         sha256Calls: 32,
@@ -55,6 +59,11 @@ export const READ_PROBES = Object.freeze({
   "runtime-overview-default": {
     reads: ["command:runtime-status", "method:repo.agentRuntime.overview"],
     run: ({ runtime }) => runtime.read("repo.agentRuntime.overview", {}),
+    size: (result) => result.sessions.length,
+  },
+  "runtime-overview-page": {
+    reads: ["command:runtime-status", "method:repo.agentRuntime.overview"],
+    run: ({ runtime }) => runtime.read("repo.agentRuntime.overview", { limit: 1 }),
     size: (result) => result.sessions.length,
   },
   "runtime-overview": {
@@ -156,7 +165,7 @@ export async function measureReadScale(
   backend,
   dimension,
   size,
-  { probeIds = Object.keys(READ_PROBES), wholeClassControl = false } = {},
+  { probeIds = Object.keys(READ_PROBES), wholeClassControl = false, quadraticArchiveControl = false } = {},
 ) {
   const started = performance.now();
   const fixture = await openReadBackend(backend, dimension, size);
@@ -173,6 +182,7 @@ export async function measureReadScale(
   }
   const context = {
     ...fixture,
+    ...(quadraticArchiveControl ? { archiveReadRepeats: size / 100 } : {}),
     runtime,
     recovery: {
       input: {

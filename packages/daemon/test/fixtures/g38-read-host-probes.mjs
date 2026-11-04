@@ -3,14 +3,8 @@ import { readSquadRecoveryState } from "../../src/squad-run-state.ts";
 import { READ_SESSION_ID } from "./g38-read-ledger.mjs";
 import { readRollback } from "../../../cli/test/fixtures/g38-read-rollback.mjs";
 import { readEffectiveDispatchArchiveRetention } from "../../src/repo-cell-settings-state.ts";
-import {
-  readFactEvidenceSources,
-  pruneDispatchStreamArchive,
-  scheduleArchivedDispatchStreamCompaction,
-} from "../../src/dispatch-stream-archive.ts";
-import { mkdirSync, writeFileSync } from "node:fs";
-import path from "node:path";
-import { sha256Text } from "@harness-anything/kernel";
+import { readFactEvidenceSources } from "../../src/dispatch-stream-archive.ts";
+import { ARCHIVE_READ_PROBES } from "./g38-read-archive.mjs";
 import { readHomeOverview } from "../../src/home/home-overview-read.ts";
 import { readFleetOverviewFromHost } from "../../src/fleet/fleet-overview-read.ts";
 import { readClaimableTasks } from "../../src/task-claimable-read.ts";
@@ -21,47 +15,7 @@ import { READ_TASK_ID } from "./g38-read-ledger.mjs";
 const now = () => "2026-11-05T00:00:00.000Z";
 
 export const HOST_READ_PROBES = {
-  "archive-maintenance": {
-    reads: ["background:archive-maintenance"],
-    // repo-cell-open schedules this maintenance pass over its explicit archive inputs;
-    // it is not a fixed-page projection read (CEO ruling 2026-11-05).
-    sourceAudit: {
-      inputCollection: "archived dispatch stream headers and compaction admission",
-      maxPerInput: {
-        sqlRowsRead: 16,
-        sqlResultBytes: 16384,
-        sha256Calls: 2,
-        sha256Bytes: 512,
-        gitProcesses: 1,
-        // Each fixed-width header is 90 bytes; 256 includes constant metadata reads.
-        fileReadBytes: 256,
-        // Compaction admission and retention each enumerate the input directory once.
-        directoryEntries: 4,
-      },
-    },
-    prepare: ({ rootDir }, dimension, size) => {
-      const archive = path.join(rootDir, ".harness/runtime/dispatches/archive");
-      mkdirSync(archive, { recursive: true });
-      for (let index = 0; index < (dimension === "source-events" ? size : 2); index++) {
-        const dispatchId = `dispatch_${sha256Text(`dispatch-history-${String(index).padStart(8, "0")}`).slice(0, 24)}`;
-        writeFileSync(
-          path.join(archive, `${dispatchId}.jsonl`),
-          `${JSON.stringify({ dispatchId, startedAt: "2026-08-01T00:00:00.000Z" })}\n`,
-        );
-      }
-    },
-    run: ({ rootDir, projection }) => {
-      // Admission enumerates the archive; each deferred compaction consumes one named file.
-      scheduleArchivedDispatchStreamCompaction(rootDir, () => {});
-      pruneDispatchStreamArchive(
-        rootDir,
-        readEffectiveDispatchArchiveRetention(projection),
-        readFactEvidenceSources(projection),
-        Date.parse(now()),
-      );
-    },
-    size: () => 0,
-  },
+  ...ARCHIVE_READ_PROBES,
   "agent-rollback": {
     reads: ["command:agent-rollback"],
     run: readRollback,
