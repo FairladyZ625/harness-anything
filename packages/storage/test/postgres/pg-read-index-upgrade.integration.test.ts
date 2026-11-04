@@ -1,7 +1,8 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { PoolClient } from "pg";
+import { Pool, type PoolClient } from "pg";
+import { setImmediate as yieldTurn } from "node:timers/promises";
 import { taskLifecycleWritePlan, type CanonicalEventV1 } from "@harness-anything/kernel";
 import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixture.ts";
 import { canonicalEventWritePlan, type CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
@@ -295,6 +296,7 @@ test("Decision expansion resumes 64-owner batches and repairs an interrupted con
           .rows[0]!.indisvalid,
         true,
       );
+      await assertOnlineIndexDml(admin, fixture.port, keys);
     } finally {
       admin.release();
     }
@@ -303,3 +305,78 @@ test("Decision expansion resumes 64-owner batches and repairs an interrupted con
     await fixture.close();
   }
 });
+
+/** Pin a real concurrent build at PostgreSQL's writer wait, then commit a new writer.
+ * No desktop/system services or timed scheduling participate in this test.
+ */
+async function assertOnlineIndexDml(admin: PoolClient, port: number, keys: readonly unknown[]) {
+  const peers = new Pool({ host: "127.0.0.1", port, user: "postgres", database: "postgres", max: 2 }),
+    blocker = await peers.connect(),
+    observer = await peers.connect(),
+    entered = Promise.withResolvers<void>(),
+    resume = Promise.withResolvers<void>();
+  let holding = false;
+  await admin.query("DROP INDEX ha_decisions_state_order");
+  const pid = (await admin.query("SELECT pg_backend_pid() AS pid")).rows[0]!.pid;
+  const proxy = new Proxy(admin, {
+    get(target, key) {
+      if (key === "query")
+        return async (sql: string, ...args: unknown[]) => {
+          if (sql.startsWith("CREATE INDEX CONCURRENTLY IF NOT EXISTS ha_decisions_state_order")) {
+            entered.resolve();
+            await resume.promise;
+          }
+          return Reflect.apply(target.query, target, [sql, ...args]);
+        };
+      const value: unknown = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  await admin.query("SET statement_timeout=15000");
+  const build = ensurePgProjectionSchema(proxy);
+  const insert = (client: PoolClient, id: string) =>
+    client.query(
+      `INSERT INTO ha_decisions
+    (tenant_id,project_id,policy_epoch,decision_id,workspace_revision,value)
+    VALUES($1,$2,$3,$4,1,'{"state":"proposed"}'::jsonb)`,
+      [...keys, id],
+    );
+  try {
+    await Promise.race([
+      entered.promise,
+      build.then(() => {
+        throw new Error("concurrent build did not reach the Decision index");
+      }),
+    ]);
+    await blocker.query("BEGIN");
+    holding = true;
+    await insert(blocker, "dec_online_blocker");
+    resume.resolve();
+    const deadline = Date.now() + 10000;
+    for (;;) {
+      const phase = (await observer.query("SELECT phase FROM pg_stat_progress_create_index WHERE pid=$1", [pid]))
+        .rows[0]?.phase;
+      if (phase === "waiting for writers before build") break;
+      assert.ok(Date.now() < deadline, `concurrent build did not enter its writer wait; phase=${phase}`);
+      await yieldTurn();
+    }
+    await observer.query("SET statement_timeout=2000");
+    await insert(observer, "dec_online_new_writer");
+    await observer.query("RESET statement_timeout");
+    await blocker.query("COMMIT");
+    holding = false;
+    await build;
+    process.stdout.write('ONLINE_INDEX_DML {"phase":"waiting for writers before build","newWriterCommitted":true}\n');
+  } finally {
+    resume.resolve();
+    try {
+      if (holding) await blocker.query("ROLLBACK");
+      await build;
+    } finally {
+      blocker.release();
+      observer.release();
+      await peers.end();
+      await admin.query("RESET statement_timeout");
+    }
+  }
+}
