@@ -78,6 +78,8 @@ export interface AuthoredCandidateInventoryV1 {
     readonly safe: boolean;
     readonly size: number | null;
     readonly bytes: Uint8Array | null;
+    /** Original or task-execution-acknowledged bytes; null means no known base. */
+    readonly baseBytes?: Uint8Array | null;
     readonly conflicts: readonly string[];
   }[];
 }
@@ -198,10 +200,16 @@ export function scanDocCandidates(input: {
       // same name. The shared inspector applies this rule and the edge's identical byte cap.
       effective = inspection.classification,
       bytes = rawBytes === null ? null : canonicalProseBytes(rawBytes, effective?.policyId),
-      base = projected.document?.blobSha256 ?? null,
+      current = projected.document?.blobSha256 ?? null,
+      base =
+        inventoried?.baseBytes === undefined
+          ? current
+          : inventoried.baseBytes === null
+            ? null
+            : sha256Bytes(canonicalProseBytes(inventoried.baseBytes, effective?.policyId)),
       candidate = bytes === null ? null : sha256Bytes(bytes);
     if (inspection.kind === "route-owned") {
-      if (safe && candidate !== null && candidate === base)
+      if (safe && candidate !== null && candidate === current)
         return scannedCandidateRow("clean", null, bytes, base, candidate, effective?.mediaType ?? null);
       // A route-owned document is a pure projection of its owning event route: local bytes are
       // never an input to this channel (the Git-less edge already drops them), so drift is
@@ -251,7 +259,7 @@ export function scanDocCandidates(input: {
         "task_package_unregistered",
         "doc-sync",
       );
-    if (effective === null && candidate !== null && candidate === base)
+    if (effective === null && candidate !== null && candidate === current)
       return scannedCandidateRow("clean", null, bytes, base, candidate, null);
     // A non-textual type with no canonical document at the path is not doc-sync
     // business at all — inapplicable, not blocked: blocked stays the "a human must
@@ -328,7 +336,7 @@ export function scanDocCandidates(input: {
         projected.document ? "deletion_forbidden" : null,
       );
     const { mediaType, policyId } = effective;
-    if (candidate === base)
+    if (candidate === current || (inventoried && candidate === base))
       return scannedCandidateRow(
         conflicts.length ? "conflict" : "clean",
         conflicts.length ? "local conflict scratch requires resolution" : null,

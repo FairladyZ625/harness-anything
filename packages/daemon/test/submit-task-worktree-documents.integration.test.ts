@@ -24,7 +24,7 @@ import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-sett
 import { git, initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
-test("task submit refreshes rename-replaced artifacts and carries new worktree artifacts", async () => {
+test("task submit refreshes worker artifacts and carries new worktree artifacts", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-submit-worktree-docs-")),
     ledger = path.join(rootDir, "harness"),
     taskId = "task-submit-doc-carry",
@@ -108,14 +108,14 @@ test("task submit refreshes rename-replaced artifacts and carries new worktree a
     const centerBeforeRename = statSync(canonicalArtifact),
       workerBeforeRename = statSync(workerArtifact);
     assert.equal(workerBeforeRename.dev, centerBeforeRename.dev);
-    assert.equal(workerBeforeRename.ino, centerBeforeRename.ino, "worktree and center initially share a hard link");
+    assert.notEqual(workerBeforeRename.ino, centerBeforeRename.ino, "worktree files are independent from the center");
     const replacementPath = path.join(path.dirname(workerArtifact), ".worker-generated.md.tmp");
     writeFileSync(replacementPath, amendedArtifactBody);
     renameSync(replacementPath, workerArtifact);
     assert.notEqual(
       statSync(workerArtifact).ino,
       statSync(canonicalArtifact).ino,
-      "atomic replacement must break the worktree hard link",
+      "atomic replacement keeps the worktree independent",
     );
     assert.equal(readFileSync(canonicalArtifact, "utf8"), originalArtifactBody);
 
@@ -145,7 +145,7 @@ test("task submit refreshes rename-replaced artifacts and carries new worktree a
     assert.equal(event.payload.execution.submission?.commitSha, deliveryHead);
     assert.ok(
       event.payload.execution.submission?.artifacts?.some((artifact) => artifact.path === artifactPath),
-      `submission must refresh the changed hard-linked artifact ${artifactPath}`,
+      `submission must refresh the changed worker artifact ${artifactPath}`,
     );
     assert.ok(
       event.payload.execution.submission?.artifacts?.some((artifact) => artifact.path === newArtifactPath),

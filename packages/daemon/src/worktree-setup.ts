@@ -2,12 +2,12 @@ import {
   appendFileSync,
   copyFileSync,
   existsSync,
-  linkSync,
   lstatSync,
   mkdirSync,
   readFileSync,
   readdirSync,
   realpathSync,
+  renameSync,
   rmdirSync,
   unlinkSync,
   writeFileSync,
@@ -15,11 +15,14 @@ import {
 import path from "node:path";
 import {
   DEFAULT_WORKTREE_SETUP_STEP_TIMEOUT_MS,
+  canonicalDocumentClaims,
+  isDocEvent,
   resolveHarnessLayout,
   type RepositorySettingsV1,
 } from "@harness-anything/kernel";
 import { posixShellFallback, runProcessExitAsync, runProcessTextAsync, startDetachedProcess } from "./process-port.ts";
 import { nodeModulesSetupAdapter } from "./worktree-setup-node-modules.ts";
+import type { CanonicalEventStore } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 
 // dec_8B3FCCD256CAC5B0BF3CCEDE58 CH3: the repository declares in Settings `worktree.setup` what a fresh worktree
 // needs; the node that checks the worktree out runs those steps once, in order, inside it. What ran is observed
@@ -58,6 +61,8 @@ export interface WorktreeSetupInput {
   /** The task the worktree serves, exported to every step as HARNESS_TASK_ID; null for a schedule occurrence. */
   readonly taskId: string | null;
   readonly steps: readonly string[];
+  /** True only immediately after checkout, before the worker can edit tracked ledger files. */
+  readonly fresh?: boolean;
   readonly stepTimeoutMs?: number;
 }
 
@@ -76,7 +81,7 @@ export type WorktreeSetupResult =
  * yet; stops at the first that fails.
  */
 export async function runWorktreeSetup(input: WorktreeSetupInput): Promise<WorktreeSetupResult> {
-  linkWorktreeLedger(input.rootDir, input.cwd, input.taskId);
+  linkWorktreeLedger(input.rootDir, input.cwd, input.taskId, input.fresh === true);
   if (input.steps.length === 0) return { ok: true, ran: [] };
   const directory = await setupDirectory(input.cwd),
     succeeded = readSucceeded(directory),
@@ -233,10 +238,9 @@ function readSucceeded(directory: string): string[] {
 
 // The project repository ignores its ledger, so a worktree checks none out, and a worker handed ledger paths that
 // resolve only under the canonical checkout takes that checkout for its repository root (F-3AC0AFF0). The worker
-// gets a real task-package directory containing hard links to its existing files: edits to those files remain the
-// doc-sync channel (the daemon scans the canonical working copy), while `..` stays inside the worker checkout and
-// cannot walk from the package into sibling ledger directories. New artifacts are created locally and published
-// through the task artifact command. Other ledger files handed to a runtime are copied into an ignored private
+// gets independent task-package files plus immutable projection bases: authored edits reach the center only through
+// doc-sync and its version check. `..` stays inside the worker checkout and cannot walk into sibling ledger
+// directories. Other ledger files handed to a runtime are copied into an ignored private
 // directory inside the worktree, so consumers can read and mutate them without reaching the canonical ledger or
 // being told the canonical checkout path. Worktrees materialized while every ledger directory was linked are swept
 // to this layout at the next setup.
@@ -319,7 +323,7 @@ function removeMirrorEntry(target: string): void {
  * not resolve under the worktree root, or a worker's writes there reach the canonical checkout. A root without a
  * ledger, an occurrence without a task, and a task without a package get no mirror.
  */
-function linkWorktreeLedger(rootDir: string, cwd: string, taskId: string | null): void {
+function linkWorktreeLedger(rootDir: string, cwd: string, taskId: string | null, fresh: boolean): void {
   const { authoredRoot, mirror } = ledgerMirror(rootDir, cwd);
   if (mirror === authoredRoot || !existsSync(authoredRoot)) return;
   const marker = worktreeLedgerMarkerPath(cwd);
@@ -329,7 +333,20 @@ function linkWorktreeLedger(rootDir: string, cwd: string, taskId: string | null)
     ownershipMarker = lstatSync(marker, { throwIfNoEntry: false }) ? marker : legacyMarker,
     own = taskId === null ? null : ownPackageDirectory(authoredRoot, taskId),
     ownership = mirrorOwnership(mirror, ownershipMarker);
-  if (ownership === "foreign") return;
+  if (ownership === "foreign") {
+    // A repository may track its authored ledger. Git already checked those bytes out independently;
+    // capture their base only at fresh checkout, never adopt an existing worker's edits as originals.
+    const checkedOut = own === null ? null : path.join(mirror, "tasks", path.basename(own));
+    if (fresh && checkedOut !== null) {
+      const base = taskWorktreeDocumentBase(cwd, `tasks/${path.basename(own!)}`);
+      mkdirSync(path.dirname(base), { recursive: true });
+      if (existsSync(checkedOut)) copyWorkerLedgerEntry(checkedOut, base);
+      // Keep versions for documents publication has not checked out, without injecting untracked
+      // authored files into a Git-owned tree. Existing checkout bases retain their original bytes.
+      copyWorkerLedgerEntry(own!, base);
+    }
+    return;
+  }
   if (ownership === "legacy") {
     for (const entry of readdirSync(mirror)) unlinkSync(path.join(mirror, entry));
   } else if (ownership === "ours") {
@@ -345,28 +362,117 @@ function linkWorktreeLedger(rootDir: string, cwd: string, taskId: string | null)
   mkdirSync(path.dirname(packageMirror), { recursive: true });
   mkdirSync(path.dirname(marker), { recursive: true });
   writeFileSync(marker, worktreeLedgerMarker);
-  mirrorTaskPackage(own, packageMirror);
+  mirrorTaskPackage(own, packageMirror, taskWorktreeDocumentBase(cwd, `tasks/${path.basename(own)}`));
   if (legacyMarker !== null && legacyMarker !== marker && lstatSync(legacyMarker, { throwIfNoEntry: false })) {
     clearWorktreeLedgerCopies(legacyMarker);
     unlinkSync(legacyMarker);
   }
 }
 
-function mirrorTaskPackage(source: string, destination: string): void {
+/** Local baseline bytes are not canonical writes; only doc-sync may accept a worker's edits. */
+export function taskWorktreeDocumentBase(cwd: string, logicalPath: string): string {
+  const gitPath = path.join(cwd, ".git"),
+    gitDirectory = lstatSync(gitPath).isFile()
+      ? path.resolve(cwd, /^gitdir: (.+)$/mu.exec(readFileSync(gitPath, "utf8"))![1]!.trim())
+      : gitPath;
+  return path.join(gitDirectory, "harness-ledger-base", ...logicalPath.split("/"));
+}
+
+/** Advance only the node-local acknowledged base, never an authored canonical document. */
+export function acceptTaskWorktreeDocumentBase(cwd: string, logicalPath: string, bytes: Uint8Array): void {
+  writeTaskWorktreeDocumentBase(cwd, taskWorktreeDocumentBase(cwd, ""), logicalPath, bytes);
+}
+
+function writeTaskWorktreeDocumentBase(cwd: string, directory: string, logicalPath: string, bytes: Uint8Array): void {
+  detachTaskDocument(path.join(resolveHarnessLayout(cwd).authoredRoot, ...logicalPath.split("/")));
+  const base = path.join(directory, ...logicalPath.split("/"));
+  mkdirSync(path.dirname(base), { recursive: true });
+  writeFileSync(base, bytes);
+}
+
+/**
+ * Pre-base mirrors recorded no ledger SHA. Recover unchanged historical bytes or
+ * this task's accepted execution write, never infer a base from the observer's identity.
+ * Unidentifiable edits retain null bases and the existing CAS refuses them.
+ * One history walk serves the whole package.
+ * Remove after all pre-fix worktrees are reclaimed; review deletion on 2026-11-18.
+ */
+export function recoverTaskWorktreeDocumentBases(
+  cwd: string,
+  documents: readonly { readonly path: string; readonly bytes: Uint8Array | null }[],
+  store: CanonicalEventStore,
+  executionIds: readonly string[] = [],
+): void {
+  if (documents.length === 0 || store.queryEvents === undefined) return;
+  const directory = taskWorktreeDocumentBase(cwd, ""),
+    pending = new Map(documents.map((document) => [document.path, document.bytes])),
+    acknowledged = new Map<string, Uint8Array>(),
+    blobs = new Map<string, Uint8Array>(),
+    executions = new Set(executionIds);
+  let revisionBound: number | undefined;
+  while (pending.size > 0) {
+    const events = store.queryEvents({ revisionBound, limit: 1_000 });
+    if (events.length === 0) break;
+    for (const event of events) {
+      const executionWrite =
+        isDocEvent(event) && event.payload.executionId !== null && executions.has(event.payload.executionId);
+      for (const claim of canonicalDocumentClaims(event)) {
+        if (!pending.has(claim.path)) continue;
+        let bytes = blobs.get(claim.sha256);
+        if (bytes === undefined) {
+          const original = store.readContentBlob(claim.sha256);
+          if (original === null)
+            throw new Error(`Missing original worktree document blob ${claim.sha256} for ${claim.path}.`);
+          bytes = original;
+          blobs.set(claim.sha256, bytes);
+        }
+        const candidate = pending.get(claim.path);
+        if (candidate !== null && candidate !== undefined && Buffer.from(candidate).equals(bytes)) {
+          writeTaskWorktreeDocumentBase(cwd, directory, claim.path, bytes);
+          pending.delete(claim.path);
+        } else if (!acknowledged.has(claim.path) && executionWrite) {
+          acknowledged.set(claim.path, bytes);
+        }
+      }
+    }
+    revisionBound = events.at(-1)!.workspaceRevision;
+  }
+  for (const logical of pending.keys()) {
+    const bytes = acknowledged.get(logical);
+    if (bytes !== undefined) writeTaskWorktreeDocumentBase(cwd, directory, logical, bytes);
+  }
+}
+
+function mirrorTaskPackage(source: string, destination: string, base: string): void {
   if (!existsSync(destination)) mkdirSync(destination, { recursive: true });
   else if (lstatSync(destination).isSymbolicLink() || !lstatSync(destination).isDirectory())
     throw new Error(`Task package directory ${destination} must be a real directory.`);
+  mkdirSync(base, { recursive: true });
   for (const entry of readdirSync(source, { withFileTypes: true })) {
     const from = path.join(source, entry.name),
       to = path.join(destination, entry.name);
     if (entry.isDirectory()) {
-      mirrorTaskPackage(from, to);
+      mirrorTaskPackage(from, to, path.join(base, entry.name));
       continue;
     }
     if (!entry.isFile()) throw new Error(`Task package entry ${from} is not a regular file or directory.`);
-    if (!existsSync(to)) linkSync(from, to);
-    else if (lstatSync(to).isSymbolicLink()) throw new Error(`Task package mirror ${to} must not be a symbolic link.`);
+    if (!existsSync(to)) {
+      const original = path.join(base, entry.name);
+      if (!existsSync(original)) copyFileSync(from, original);
+      copyFileSync(original, to);
+    } else {
+      const stat = lstatSync(to);
+      if (stat.isSymbolicLink()) throw new Error(`Task package mirror ${to} must not be a symbolic link.`);
+      // Detach an older mirror without inventing a base for edits whose original version is unknown.
+      detachTaskDocument(to);
+    }
   }
+}
+
+function detachTaskDocument(target: string): void {
+  if ((lstatSync(target, { throwIfNoEntry: false })?.nlink ?? 0) <= 1) return;
+  copyFileSync(target, `${target}.detach`);
+  renameSync(`${target}.detach`, target);
 }
 
 function worktreeLedgerMarkerPath(cwd: string): string | null {
@@ -386,7 +492,7 @@ function legacyWorktreeLedgerMarkerPath(cwd: string): string | null {
   return match === null ? null : path.join(path.resolve(cwd, match[1]!.trim()), "harness-ledger-mirror");
 }
 
-/** Removes the worker-local mirror before a worktree is reclaimed; hard links leave canonical files untouched. */
+/** Removes the worker-local mirror before a worktree is reclaimed; canonical files stay untouched. */
 export function unlinkWorktreeLedger(rootDir: string, cwd: string): void {
   const { authoredRoot, mirror } = ledgerMirror(rootDir, cwd);
   if (mirror === authoredRoot) return;
@@ -394,6 +500,8 @@ export function unlinkWorktreeLedger(rootDir: string, cwd: string): void {
     legacyMarker = legacyWorktreeLedgerMarkerPath(cwd),
     ownershipMarker = marker !== null && lstatSync(marker, { throwIfNoEntry: false }) ? marker : legacyMarker,
     ownership = mirrorOwnership(mirror, ownershipMarker);
+  const base = taskWorktreeDocumentBase(cwd, "");
+  if (existsSync(base)) removeMirrorEntry(base);
   if (ownership === "legacy") {
     for (const entry of readdirSync(mirror)) unlinkSync(path.join(mirror, entry));
   } else if (ownership === "ours") {

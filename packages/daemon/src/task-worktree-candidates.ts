@@ -1,17 +1,29 @@
 import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
-import { resolveHarnessLayout, sha256Bytes, type TaskProjection } from "@harness-anything/kernel";
+import {
+  documentPath,
+  isDocEvent,
+  resolveDocRoute,
+  resolveHarnessLayout,
+  type CanonicalEventV1,
+  type TaskProjection,
+} from "@harness-anything/kernel";
 import { makeGitReadinessSource } from "./process-port.ts";
 import { presetSnapshotReader, taskWorktreeBinding } from "./task-worktree.ts";
 import type { AuthoredCandidateInventoryV1 } from "./doc-sync-candidate-scanner.ts";
+import {
+  acceptTaskWorktreeDocumentBase,
+  recoverTaskWorktreeDocumentBases,
+  taskWorktreeDocumentBase,
+} from "./worktree-setup.ts";
+import type { CanonicalEventStore } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 import type { Snapshot } from "./repo-cell-types.ts";
 
 /**
  * One reader for the task worktree's package bytes: `task submit` and `doc sync` both carry the
  * worker's authored files to the center from here. A dispatch worktree mirrors its own task package
- * with hard links, so an editor that replaces a file atomically leaves the canonical copy stale and
- * only the worktree holds the authored bytes. Duplicating this walk per entry point is how the two
- * channels drift apart.
+ * with independent copies and projection bases. Only changes relative to those bases are authored inputs.
+ * Duplicating this walk per entry point is how the two channels drift apart.
  */
 export function taskWorktreeRoot(
   cell: { readonly rootDir: string; readonly projection: TaskProjection },
@@ -33,10 +45,15 @@ export function taskWorktreeCandidateInventory(
   taskRoot: string,
   packagePath: string | null,
   baseLedgerSha: AuthoredCandidateInventoryV1["baseLedgerSha"],
-  projection: TaskProjection,
+  history?: {
+    readonly store: CanonicalEventStore;
+    readonly executionIds?: readonly string[];
+    readonly projection?: Pick<TaskProjection, "readDocument">;
+  },
 ): AuthoredCandidateInventoryV1 | undefined {
   if (packagePath === null) return undefined;
   const layout = resolveHarnessLayout(rootDir),
+    baseRoot = taskWorktreeDocumentBase(taskRoot, packagePath),
     authoredRelative = path.relative(layout.rootDir, layout.authoredRoot),
     authoredOutsideCheckout =
       authoredRelative === ".." || authoredRelative.startsWith(`..${path.sep}`) || path.isAbsolute(authoredRelative),
@@ -47,16 +64,57 @@ export function taskWorktreeCandidateInventory(
     throw new Error(`Task package ${packagePath} escapes its bound worktree.`);
   const rows: Array<AuthoredCandidateInventoryV1["rows"][number]> = [];
   collectTaskPackageCandidates(packageRoot, packagePath, rows);
+  if (history !== undefined) {
+    const missing = rows.filter(
+      (row) =>
+        row.safe &&
+        resolveDocRoute(documentPath(row.path)).allowed &&
+        !lstatSync(path.join(baseRoot, ...row.path.slice(packagePath.length + 1).split("/")), {
+          throwIfNoEntry: false,
+        }),
+    );
+    recoverTaskWorktreeDocumentBases(taskRoot, missing, history.store, history.executionIds);
+  }
+  const executions = new Set(history?.executionIds),
+    accepted = new Map<number, CanonicalEventV1 | undefined>();
   return {
     schema: "harness-authored-candidate-inventory/v1",
     baseLedgerSha,
-    rows: rows.filter((row) => {
-      const closeoutPath = `${packagePath}/closeout.md`,
-        isCloseout = row.path === closeoutPath,
-        isArtifact = row.path.startsWith(`${packagePath}/artifacts/`) && !row.path.endsWith("/.gitkeep");
-      if (!isCloseout && !isArtifact) return false;
-      const current = projection.readDocument(row.path).document;
-      return row.safe && row.bytes !== null && (!current || sha256Bytes(row.bytes) !== current.blobSha256);
+    rows: rows.flatMap((row) => {
+      if (row.path.endsWith("/.gitkeep") || !resolveDocRoute(documentPath(row.path)).allowed) return [];
+      const basePath = path.join(baseRoot, ...row.path.slice(packagePath.length + 1).split("/")),
+        baseStat = lstatSync(basePath, { throwIfNoEntry: false });
+      let baseBytes = baseStat?.isFile() && !baseStat.isSymbolicLink() ? readFileSync(basePath) : null;
+      if (row.safe && row.bytes !== null && baseBytes !== null && Buffer.from(row.bytes).equals(baseBytes)) return [];
+      // A task execution can also author through the canonical checkout. Its accepted current write
+      // acknowledges that version, but does not make an untouched stale mirror a new candidate.
+      const current = baseBytes === null ? null : history?.projection?.readDocument(row.path).document;
+      if (current && history?.store.queryEvents) {
+        const currentBytes = history.store.readContentBlob(current.blobSha256);
+        if (currentBytes === null)
+          throw new Error(`Missing accepted worktree document blob ${current.blobSha256} for ${row.path}.`);
+        // An already accepted copy is unchanged too. Leaving it in the overlay would hide a
+        // real canonical edit before the scanner can apply its CAS and lease checks.
+        if (row.safe && row.bytes !== null && Buffer.from(row.bytes).equals(currentBytes)) {
+          acceptTaskWorktreeDocumentBase(taskRoot, row.path, row.bytes);
+          return [];
+        }
+        if (!accepted.has(current.workspaceRevision))
+          accepted.set(
+            current.workspaceRevision,
+            history.store.queryEvents({ revisionBound: current.workspaceRevision + 1, limit: 1 })[0],
+          );
+        const event = accepted.get(current.workspaceRevision);
+        if (
+          event &&
+          isDocEvent(event) &&
+          event.payload.executionId !== null &&
+          executions.has(event.payload.executionId)
+        ) {
+          baseBytes = Buffer.from(currentBytes);
+        }
+      }
+      return [{ ...row, baseBytes }];
     }),
   };
 }

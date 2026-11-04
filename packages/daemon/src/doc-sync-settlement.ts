@@ -80,7 +80,7 @@ export function scanDetail(input: Input, scan: DocCandidateScan, code: string): 
     paths: scan.rows.map((row) => ({
       path: row.path,
       baseBlobSha256: row.baseBlobSha256,
-      currentBlobSha256: row.baseBlobSha256,
+      currentBlobSha256: input.projection.readDocument(row.path).document?.blobSha256 ?? null,
       candidateBlobSha256: row.candidateBlobSha256,
     })),
     holder: holder(scan.lease),

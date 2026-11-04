@@ -11,44 +11,53 @@ import {
   realpathSync,
   rmSync,
   symlinkSync,
+  unlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { addManagedWorktree, reclaimManagedWorktree } from "../src/schedule-occurrence-workspace.ts";
-import { runWorktreeSetup, workerLedgerPath } from "../src/worktree-setup.ts";
+import { runWorktreeSetup, taskWorktreeDocumentBase, workerLedgerPath } from "../src/worktree-setup.ts";
+import { taskWorktreeCandidateInventory } from "../src/task-worktree-candidates.ts";
 
 const taskId = "task-x",
   packageName = `${taskId}-fixture`,
   plan = path.join("harness", "tasks", packageName, "task_plan.md"),
   skill = path.join("harness", "skills", "review", "SKILL.md");
 
-test("a managed worktree holds only its own task package link, and out-of-package ledger writes cannot reach the canonical checkout", async (t) => {
+test("a managed worktree holds only its own task package copy, and out-of-package ledger writes cannot reach the canonical checkout", async (t) => {
   const root = repositoryFixture(t),
     worktree = { cwd: path.join(root, ".worktrees", taskId), branch: taskId, baseRef: "origin/main" },
     mirror = path.join(worktree.cwd, "harness");
   await addManagedWorktree(root, worktree);
   assert.equal(existsSync(mirror), false, "git checks out no ledger of its own");
   await runWorktreeSetup({ rootDir: root, cwd: worktree.cwd, taskId, steps: [] });
-  // Every later start or dispatch prepares again: it keeps the own-package link and sweeps what an
+  // Every later start or dispatch prepares again: it keeps the own-package copy and sweeps what an
   // older layout left behind.
   mkdirSync(path.join(root, "harness", "facts"));
   await runWorktreeSetup({ rootDir: root, cwd: worktree.cwd, taskId, steps: [] });
 
-  // One real directory holding one link: the dispatch's own task package, whose writes are the
-  // doc-sync channel. No other ledger directory resolves under the worktree root.
+  // One real directory holding independent copies: only accepted doc-sync writes reach the center. No other ledger directory resolves under the worktree root.
   assert.equal(lstatSync(mirror).isDirectory(), true);
   const workerPackage = path.join(mirror, "tasks", packageName),
     workerPlan = path.join(workerPackage, "task_plan.md"),
     canonicalPlan = path.join(root, plan);
   writeFileSync(workerPlan, "# Updated Plan\n");
-  assert.equal(readFileSync(canonicalPlan, "utf8"), "# Updated Plan\n", "existing docs share the doc-sync file");
+  assert.equal(readFileSync(canonicalPlan, "utf8"), "# Plan\n", "worker edits do not mutate canonical files");
   writeFileSync(path.join(workerPackage, "closeout.md"), "# Closeout\n");
   assert.equal(
     readFileSync(path.join(root, "harness", "tasks", packageName, "closeout.md"), "utf8"),
-    "# Closeout\n",
-    "the own package stays the doc-sync write channel into the ledger",
+    "# Old Closeout\n",
+    "the own package reaches the ledger only through versioned doc-sync",
+  );
+
+  await runWorktreeSetup({ rootDir: root, cwd: worktree.cwd, taskId, steps: [] });
+  assert.equal(readFileSync(workerPlan, "utf8"), "# Updated Plan\n", "repeated setup retains worker edits");
+  assert.equal(
+    readFileSync(taskWorktreeDocumentBase(worktree.cwd, `tasks/${packageName}/task_plan.md`), "utf8"),
+    "# Plan\n",
+    "repeated setup retains the original version base",
   );
 
   // A worker deleting or writing an out-of-package private file under its own root fails right
@@ -139,7 +148,7 @@ test("an executable ledger entry is copied with the sibling modules it imports",
   assert.equal(readFileSync(sibling, "utf8"), "export const helper = true;\n", "the canonical sibling is only read");
 });
 
-test("a worktree materialized by the all-links layout is swept to the own-package link at the next setup", async (t) => {
+test("a worktree materialized by the all-links layout is swept to the own-package copy at the next setup", async (t) => {
   const root = repositoryFixture(t),
     worktree = { cwd: path.join(root, ".worktrees", taskId), branch: taskId, baseRef: "origin/main" },
     mirror = path.join(worktree.cwd, "harness");
@@ -219,6 +228,7 @@ test("a worktree kept for uncommitted work keeps its work and loses only the lin
   });
   assert.equal(readFileSync(path.join(worktree.cwd, "README.md"), "utf8"), "edited in the worktree\n");
   assert.deepEqual(readdirSync(path.join(worktree.cwd, "harness")), []);
+  assert.equal(existsSync(taskWorktreeDocumentBase(worktree.cwd, "")), false, "reclamation removes local bases too");
   assert.equal(readFileSync(path.join(root, plan), "utf8"), "# Plan\n");
 });
 
@@ -260,4 +270,153 @@ function repositoryFixture(t: TestContext): string {
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+}
+
+for (const retired of [false, true]) {
+  test(`a pre-base package recovers acknowledged reports and preserves ${retired ? "retired" : "updated"} foreign documents without clocks`, (t) => {
+    const root = mkdtempSync(path.join(tmpdir(), "ha-legacy-document-bases-")),
+      worker = path.join(root, "worker"),
+      packagePath = "tasks/task-legacy-fixture",
+      report = `${packagePath}/artifacts/report.md`,
+      ruling = `${packagePath}/artifacts/ruling.md`,
+      fresh = `${packagePath}/artifacts/new.md`,
+      executionIds = ["execution-legacy-old", "execution-legacy-new"],
+      oldActor = { principal: { personId: "owner" }, executor: { kind: "agent", id: "old-runtime" } },
+      ceo = { principal: { personId: "owner" }, executor: null },
+      blobs = new Map([
+        ["report-v1", Buffer.from("report v1\n")],
+        ["unrelated-report", Buffer.from("unrelated execution report\n")],
+        ["ruling-v1", Buffer.from("ruling v1\n")],
+        ["ruling-v2", Buffer.from("CEO supplement\n")],
+      ]);
+    t.after(() => rmSync(root, { recursive: true, force: true }));
+    mkdirSync(path.join(root, "harness"));
+    mkdirSync(path.dirname(path.join(worker, "harness", report)), { recursive: true });
+    mkdirSync(path.join(worker, ".git"));
+    writeFileSync(path.join(worker, "harness", report), "worker report v2\n");
+    writeFileSync(path.join(worker, "harness", ruling), "ruling v1\n");
+    writeFileSync(path.join(worker, "harness", fresh), "new worker output\n");
+    if (retired) {
+      // A crash can leave only part of the legacy package's bases recovered.
+      const base = taskWorktreeDocumentBase(worker, report);
+      mkdirSync(path.dirname(base), { recursive: true });
+      writeFileSync(base, "report v1\n");
+    }
+    const change = (target: string, sha256: string | null) => ({
+        path: target,
+        baseBlobSha256: null,
+        candidate: sha256 === null ? null : { sha256, size: blobs.get(sha256)!.length, mediaType: "text/markdown" },
+      }),
+      events = [
+        {
+          schema: "doc-event/v1",
+          type: "documents_written",
+          workspaceRevision: 3,
+          actor: oldActor,
+          source: "local",
+          payload: { executionId: "execution-another-task", changes: [change(report, "unrelated-report")] },
+        },
+        {
+          schema: "doc-event/v1",
+          type: "documents_written",
+          workspaceRevision: 2,
+          occurredAt: "1900-01-01T00:00:00.000Z",
+          actor: ceo,
+          source: "local",
+          payload: { executionId: null, changes: [change(ruling, retired ? null : "ruling-v2")] },
+        },
+        {
+          schema: "doc-event/v1",
+          type: "documents_written",
+          workspaceRevision: 1,
+          occurredAt: "2100-01-01T00:00:00.000Z",
+          actor: oldActor,
+          source: "local",
+          payload: {
+            executionId: "execution-legacy-old",
+            changes: [change(report, "report-v1"), change(ruling, "ruling-v1")],
+          },
+        },
+      ];
+    let queries = 0;
+    const inventory = taskWorktreeCandidateInventory(
+      root,
+      worker,
+      packagePath,
+      { repoId: "legacy", revision: 2, headDigest: `sha256:${"0".repeat(64)}` },
+      {
+        executionIds,
+        store: {
+          queryEvents: ({ revisionBound }: { revisionBound?: number }) => {
+            queries += 1;
+            return events
+              .filter((event) => revisionBound === undefined || event.workspaceRevision < revisionBound)
+              .slice(0, 1);
+          },
+          readContentBlob: (sha256: string) => blobs.get(sha256) ?? null,
+        } as never,
+      },
+    );
+    assert.deepEqual(inventory!.rows.map((row) => row.path).sort(), [fresh, report].sort());
+    assert.equal(Buffer.from(inventory!.rows.find((row) => row.path === report)!.baseBytes!).toString(), "report v1\n");
+    assert.equal(inventory!.rows.find((row) => row.path === fresh)!.baseBytes, null);
+    assert.equal(queries, 4, "revision pages cross the last page and stop on EOF");
+    assert.equal(readFileSync(taskWorktreeDocumentBase(worker, ruling), "utf8"), "ruling v1\n");
+    unlinkSync(taskWorktreeDocumentBase(worker, ruling));
+    writeFileSync(path.join(worker, "harness", ruling), "unidentifiable foreign edit\n");
+    const unknown = taskWorktreeCandidateInventory(
+      root,
+      worker,
+      packagePath,
+      { repoId: "legacy", revision: 2, headDigest: `sha256:${"0".repeat(64)}` },
+      {
+        store: {
+          queryEvents: ({ revisionBound }: { revisionBound?: number }) =>
+            events.filter((event) => revisionBound === undefined || event.workspaceRevision < revisionBound),
+          readContentBlob: (sha256: string) => blobs.get(sha256) ?? null,
+        } as never,
+      },
+    );
+    assert.equal(
+      unknown!.rows.find((row) => row.path === ruling)!.baseBytes,
+      null,
+      "unknown edits never adopt the CEO's current version",
+    );
+  });
+}
+
+for (const dirty of [false, true]) {
+  test(`tracked ledger bases stay outside Git's visible worktree and are reclaimed with a ${dirty ? "retained" : "removed"} checkout`, async (t) => {
+    const root = repositoryFixture(t),
+      worktree = { cwd: path.join(root, ".worktrees", taskId), branch: taskId, baseRef: "origin/main" };
+    // This repository deliberately does not ignore its localRoot.
+    writeFileSync(path.join(root, ".gitignore"), "/.worktrees/\n/harness/.git/\n");
+    git(root, "add", ".gitignore", "harness/tasks", "harness/harness.yaml");
+    git(root, "commit", "-qm", "tracked authored documents");
+    git(root, "update-ref", "refs/remotes/origin/main", "HEAD");
+    const lateDocument = `harness/tasks/${packageName}/artifacts/accepted-after-checkout.md`;
+    mkdirSync(path.dirname(path.join(root, lateDocument)), { recursive: true });
+    writeFileSync(path.join(root, lateDocument), "accepted center bytes\n");
+    await addManagedWorktree(root, worktree);
+    await runWorktreeSetup({ rootDir: root, cwd: worktree.cwd, taskId, steps: [], fresh: true });
+    const base = taskWorktreeDocumentBase(worktree.cwd, ""),
+      original = taskWorktreeDocumentBase(worktree.cwd, `tasks/${packageName}/task_plan.md`);
+    assert.equal(path.relative(worktree.cwd, base).startsWith(`..${path.sep}`), true);
+    assert.equal(readFileSync(original, "utf8"), "# Plan\n");
+    assert.equal(
+      existsSync(path.join(worktree.cwd, lateDocument)),
+      false,
+      "setup does not add authored files outside Git checkout",
+    );
+    assert.equal(
+      readFileSync(taskWorktreeDocumentBase(worktree.cwd, lateDocument.slice("harness/".length)), "utf8"),
+      "accepted center bytes\n",
+    );
+    assert.equal(git(worktree.cwd, "status", "--porcelain", "--untracked-files=all"), "");
+    if (dirty) writeFileSync(path.join(worktree.cwd, "README.md"), "unfinished work\n");
+    const reclaimed = await reclaimManagedWorktree(root, worktree);
+    assert.equal(reclaimed.outcome, dirty ? "retained" : "removed");
+    assert.equal(existsSync(base), false, "node-local bases leave with worktree reclamation");
+    if (dirty) assert.equal(readFileSync(path.join(worktree.cwd, "README.md"), "utf8"), "unfinished work\n");
+  });
 }

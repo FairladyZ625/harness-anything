@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readFileSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { CanonicalEventStore, TaskProjection } from "@harness-anything/kernel";
 import { ledgerGitPath, localGitWorktreeSettlement, findCanonicalLedgerGitLayout } from "@harness-anything/storage";
@@ -41,6 +41,7 @@ import { publishDocIntent } from "./doc-sync-publication.ts";
 import { readAction, readDocReceipt } from "./doc-sync-reads.ts";
 import { runDocMaterialize } from "./doc-sync-materialize-action.ts";
 import { taskWorktreeCandidateInventory, taskWorktreeRoot } from "./task-worktree-candidates.ts";
+import { acceptTaskWorktreeDocumentBase } from "./worktree-setup.ts";
 import { executionCredentialRejected, type RuntimeExecutionPrincipal } from "./runtime-execution-credential.ts";
 import { requireExecutionDocumentSelection, selectedDocPaths } from "./runtime-execution-scope.ts";
 import {
@@ -141,21 +142,14 @@ function withWorktreeCandidates(input: Input): Input {
     taskRoot,
     task.packagePath,
     input.store.currentCut(),
-    input.projection,
+    {
+      store: input.store,
+      projection: input.projection,
+      executionIds: task.snapshot.executions.map((execution) => execution.executionId),
+    },
   );
   if (inventory === undefined) return input;
-  // The newer authored copy wins: a stale worktree mirror must not shadow a canonical edit, and the
-  // worker's atomic replacement must still publish over an untouched canonical scaffold.
-  const layout = resolveHarnessLayout(input.rootDir),
-    authoredRelative = path.relative(layout.rootDir, layout.authoredRoot),
-    rows = inventory.rows.filter((row) => {
-      const target = path.join(layout.authoredRoot, ...row.path.split("/")),
-        mirrored = path.join(taskRoot, authoredRelative, ...row.path.split("/"));
-      if (!existsSync(target)) return true;
-      if (!existsSync(mirrored)) return false;
-      return statSync(mirrored).mtimeMs > statSync(target).mtimeMs;
-    });
-  return rows.length === 0 ? input : { ...input, authoredCandidateInventory: { ...inventory, rows } };
+  return { ...input, authoredCandidateInventory: inventory };
 }
 
 function singleSelectedTask(input: Input): string | null {
@@ -182,7 +176,7 @@ export function runDocAction(input: Input): DocSettlementReceipt | Promise<DocSe
     return runDocMaterialize(input);
   }
   if (input.action.kind === "doc-retire") return runDocRetire(input);
-  if (input.action.kind !== "doc-submit") return readAction(input);
+  if (input.action.kind !== "doc-submit") return readAction(withWorktreeCandidates(input));
   requireOwnTaskDocSelection(input);
   if (Array.isArray(input.action.paths)) {
     const derived = input.action.paths.find((candidate) => {
@@ -233,6 +227,15 @@ export function runDocAction(input: Input): DocSettlementReceipt | Promise<DocSe
       };
     }
   }
+  if (scan?.rows.some((row) => row.rejectionCode === "base_blob_changed"))
+    return Object.assign(
+      rejectDocSyncAction(
+        scanCommandId(input, scan),
+        "base_blob_changed",
+        scanDetail(input, scan, "base_blob_changed"),
+      ),
+      { summary: scanRejectionSummary("base_blob_changed", scan) },
+    );
   if (scan && !scan.rows.some((row) => row.state === "eligible")) {
     const code = scanRejectionCode(scan),
       blocked = scanDetail(input, scan, code ?? "preview_blocked");
@@ -240,7 +243,7 @@ export function runDocAction(input: Input): DocSettlementReceipt | Promise<DocSe
       ? Object.assign(rejectDocSyncAction(scanCommandId(input, scan), code ?? "preview_blocked", blocked), {
           summary: scanRejectionSummary(code ?? "preview_blocked", scan),
         })
-      : noOp(input, scan);
+      : acceptWorktreeBases(scanInput, scan, noOp(input, scan));
   }
   const prepared = scan ? intentFromScan(scan, input.workspaceId) : null,
     intent = prepared?.intent ?? nodeIntent(input);
@@ -254,9 +257,30 @@ export function runDocAction(input: Input): DocSettlementReceipt | Promise<DocSe
     scan?.lease ??
       (intent.executionId === null ? null : input.projection.currentLeaseForExecution(intent.executionId, input.now())),
   );
-  return scan && (receipt.outcome === "applied" || receipt.outcome === "pending")
-    ? scannerSettlement(input, scan, receipt)
-    : receipt;
+  if (scan && (receipt.outcome === "applied" || receipt.outcome === "pending")) {
+    acceptWorktreeBases(scanInput, scan, receipt);
+    return scannerSettlement(input, scan, receipt);
+  }
+  return receipt;
+}
+
+/** Acknowledged bytes become the next local base; rejected paths never advance it. */
+function acceptWorktreeBases(
+  input: Input,
+  scan: DocCandidateScan,
+  receipt: DocSettlementReceipt,
+): DocSettlementReceipt {
+  const taskId = singleSelectedTask(input),
+    taskRoot = taskId === null ? null : taskWorktreeRoot(input, input.projection.read(taskId).snapshot),
+    rows = new Map(input.authoredCandidateInventory?.rows.map((row) => [row.path, row]));
+  if (taskRoot === null || rows.size === 0) return receipt;
+  for (const row of scan.rows) {
+    const candidate = rows.get(row.path);
+    if (!candidate?.bytes || row.candidateBlobSha256 !== input.projection.readDocument(row.path).document?.blobSha256)
+      continue;
+    acceptTaskWorktreeDocumentBase(taskRoot, row.path, candidate.bytes);
+  }
+  return receipt;
 }
 
 function scanCommandId(input: Input, scan: DocCandidateScan): string {

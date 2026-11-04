@@ -779,13 +779,11 @@ export async function submitTask(
     authoredCandidateInventory =
       taskRoot === null || (typeof binding.source === "object" && binding.source.kind === "node")
         ? undefined
-        : taskWorktreeCandidateInventory(
-            cell.rootDir,
-            taskRoot,
-            current.packagePath,
-            cell.store.currentCut(),
-            cell.projection,
-          ),
+        : taskWorktreeCandidateInventory(cell.rootDir, taskRoot, current.packagePath, cell.store.currentCut(), {
+            store: cell.store,
+            projection: cell.projection,
+            executionIds: current.snapshot.executions.map((execution) => execution.executionId),
+          }),
     synced =
       typeof binding.source === "object" && binding.source.kind === "node"
         ? null
