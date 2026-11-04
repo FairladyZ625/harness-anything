@@ -14,6 +14,7 @@ import { taskProjectionSchemaVersion } from "../projection/projection-schema.ts"
 import { canonicalLedgerCut } from "@harness-anything/kernel/internal/ports/canonical-event-store.ts";
 import { TaskEventStoreError } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 import { sqliteLedgerPath } from "./sqlite-ledger-layout.ts";
+import { configureLedgerConnection } from "./sqlite-ledger-connections.ts";
 import type { GenerationThreeActivation } from "./generation-three-activation.ts";
 
 type SelectionInput = { readonly rootInput: HarnessLayoutInput; readonly repoId?: string };
@@ -79,6 +80,7 @@ function assertGenerationThreeActivationLedger(
     );
   }
   try {
+    configureLedgerConnection((sql) => ledger.exec(sql), true);
     const hasMetadata = ledger.prepare("SELECT 1 FROM sqlite_schema WHERE type='table' AND name='ledger_meta'").get(),
       metadata = hasMetadata
         ? ledger.prepare("SELECT repo_id, generation, revision FROM ledger_meta WHERE singleton=1").get()
