@@ -79,22 +79,29 @@ test("shared RPC traffic remains unattributed instead of observing every alias",
     commands: [
       descriptor("runtime-batch", "repo.agentRuntime.spawn"),
       descriptor("runtime-run", "repo.agentRuntime.spawn"),
+      // A hidden owner of the same shared method: the uncertainty must survive into the
+      // retirement disposition instead of becoming zero-use evidence.
+      { ...descriptor("task-pin", "repo.agentRuntime.spawn"), hiddenSince: "2026-11-05" },
     ],
     requestRecords: [row("2026-09-07T00:00:00.000Z", undefined, { method: "repo.agentRuntime.spawn" })],
     nowMs: Date.parse("2026-09-08T00:00:00.000Z"),
   });
   assert.deepEqual(
     report.denominator.map((item) => item.observedRequests),
-    [0, 0],
+    [0, 0, 0],
   );
   assert.deepEqual(
     report.denominator.map((item) => item.sharedMethodObservedRequests),
-    [1, 1],
+    [1, 1, 1],
   );
   assert.equal(report.observation.methodAttribution.sharedMethodRequests, 1);
   assert.deepEqual(
     report.denominator.map((item) => item.status),
-    ["unattributed-shared-method", "unattributed-shared-method"],
+    ["unattributed-shared-method", "unattributed-shared-method", "unattributed-shared-method"],
+  );
+  assert.deepEqual(
+    report.denominator.map((item) => item.retirementDisposition),
+    ["needs-human-review", "needs-human-review", "hidden-unattributed-shared"],
   );
   assert.equal(report.zeroObservation.length, 0);
 });
@@ -310,4 +317,43 @@ test("conn log discovery finds day files and size generations under the user roo
     ["daemon-default-conn-20261017.jsonl", "daemon-default-conn-20261017.jsonl.2"],
   );
   assert.deepEqual(discoverConnLogFiles(path.join(root, "absent")), []);
+});
+
+test("hidden commands keep their observation date in the sweep denominator", () => {
+  const now = Date.parse("2026-11-05T00:00:00.000Z"),
+    hidden = { ...descriptor("settings-show", "repo.task.read"), hiddenSince: "2026-11-05" },
+    report = auditCliUsage({
+      commands: buildCommandDenominator([hidden]),
+      requestRecords: [],
+      nowMs: now,
+    });
+  assert.equal(report.denominator[0].hiddenSince, "2026-11-05");
+  assert.equal(report.denominator[0].retirementDisposition, "hidden-zero-calls");
+  assert.equal(report.zeroObservation[0].id, "settings-show");
+  assert.equal(report.zeroObservation[0].hiddenSince, "2026-11-05");
+});
+
+test("a still-called hidden command is flagged instead of being reported as retained", () => {
+  const at = "2026-11-05T00:00:00.000Z",
+    hidden = { ...descriptor("task-pin", "repo.task.read"), hiddenSince: "2026-11-05" },
+    report = auditCliUsage({
+      commands: buildCommandDenominator([hidden]),
+      requestRecords: [row(at, "task-pin")],
+      nowMs: Date.parse(at),
+    });
+  assert.equal(report.denominator[0].retirementDisposition, "hidden-but-observed");
+});
+
+test("a hidden daemon-scoped command is not called zero-use from a repo-only log", () => {
+  const hidden = {
+      ...descriptor("permission-request-create", "daemon.rbac.manage"),
+      hiddenSince: "2026-11-05",
+    },
+    report = auditCliUsage({
+      commands: buildCommandDenominator([hidden]),
+      requestRecords: [],
+      nowMs: Date.parse("2026-11-05T00:00:00.000Z"),
+    });
+  assert.equal(report.denominator[0].retirementDisposition, "hidden-not-observable");
+  assert.deepEqual(report.zeroObservation, []);
 });

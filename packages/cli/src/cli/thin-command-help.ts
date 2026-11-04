@@ -190,6 +190,21 @@ export const commandDomains = Object.freeze(sortedCommandDomains.map(([name, ids
 
 export const cliCommandDomains: readonly string[] = Object.freeze(commandDomains.map(({ name }) => name));
 
+// The help gate accepts every declared domain, not only the visible one: a hidden command stays
+// executable, so `ha <hidden-domain> <command> --help` must not be refused as an unknown domain.
+// Both declaration sources participate — daemon-owned commands and the client-local entries — so a
+// visible domain can never fall outside this set. Unknown-domain hints still use the visible list
+// above, so hidden domains are not advertised.
+const declaredDomainNames = new Map<string, true>();
+for (const command of [...daemonProtocolCommands, ...clientLocalCommands]) {
+  if ("internal" in command && command.internal) continue;
+  const domain = command.path[0];
+  if (domain) declaredDomainNames.set(domain, true);
+}
+export const declaredCommandDomains: readonly string[] = Object.freeze(
+  [...declaredDomainNames.keys()].sort((left, right) => left.localeCompare(right)),
+);
+
 export function unsupportedCommandHint(args: readonly string[]): string {
   const domains = cliCommandDomains,
     domain = args[0],

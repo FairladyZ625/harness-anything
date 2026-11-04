@@ -417,6 +417,8 @@ export {
   commandDescriptorForAction,
   commandIdForDaemonMethod,
   daemonProtocolCommands,
+  hiddenCliCommands,
+  hiddenSince,
   resolveThinCliCommand,
   thinCliCommands,
 } from "./daemon-protocol-commands.ts";

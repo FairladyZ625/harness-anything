@@ -438,6 +438,8 @@ export const agentProtocolCommands = Object.freeze([
   }),
   defineEdgeReplicaQueryOnlyReadCommand({
     id: "entity-get",
+    // GUI `repo.entity.rows.read` / `repo.entity.content.read` cover this read surface.
+    hiddenSince: "2026-11-05",
     phase: "Runtime-B",
     path: ["entity", "get", "<kind>"],
     summary: "Read one canonical Entity declaration.",
@@ -451,6 +453,7 @@ export const agentProtocolCommands = Object.freeze([
   }),
   defineEdgeReplicaQueryOnlyReadCommand({
     id: "entity-list",
+    hiddenSince: "2026-11-05",
     phase: "Runtime-B",
     path: ["entity", "list", "<kind>"],
     summary: "List canonical declarations for one registered Entity kind.",
@@ -876,6 +879,8 @@ export const agentProtocolCommands = Object.freeze([
   defineHostAdminCommand({
     id: "permission-request-create",
     actionKind: "permission-request-create",
+    // GUI covers this lifecycle through daemon.rbac.manage; the CLI entry point had no callers.
+    hiddenSince: "2026-11-05",
     phase: "W3",
     path: ["access", "request-create"],
     summary: "Create a versioned permission request.",
@@ -889,6 +894,7 @@ export const agentProtocolCommands = Object.freeze([
   defineHostAdminCommand({
     id: "permission-request-decide",
     actionKind: "permission-request-decide",
+    hiddenSince: "2026-11-05",
     phase: "W3",
     path: ["access", "request-decide"],
     summary: "Approve or reject a versioned permission request.",
@@ -908,6 +914,7 @@ export const agentProtocolCommands = Object.freeze([
   defineHostAdminCommand({
     id: "permission-request-withdraw",
     actionKind: "permission-request-withdraw",
+    hiddenSince: "2026-11-05",
     phase: "W3",
     path: ["access", "request-withdraw"],
     summary: "Withdraw a pending permission request.",

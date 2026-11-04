@@ -36,6 +36,7 @@ export { helpDomain } from "./thin-command-help.ts";
 export { helpCommandPrefix } from "./thin-command-help.ts";
 export { deriveThinCliInputs } from "./thin-command-inputs.ts";
 export { cliCommandDomains } from "./thin-command-help.ts";
+export { declaredCommandDomains } from "./thin-command-help.ts";
 export { unsupportedCommandHint } from "./thin-command-help.ts";
 export type { ThinHelpCatalogEntry } from "./thin-command-help.ts";
 export type { ThinHelpWorkEntry } from "./thin-command-help.ts";

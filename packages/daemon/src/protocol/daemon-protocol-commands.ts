@@ -79,6 +79,7 @@ const settingsWriteTopology = {
     defineEdgeReplicaQueryOnlyReadCommand({
       id: "settings-show",
       actionKind: "settings-read",
+      hiddenSince: "2026-11-05",
       phase: "Settings-Kind",
       path: ["settings", "show"],
       summary: "Alias of settings read: show the repository Settings entity from the canonical projection.",
@@ -181,8 +182,29 @@ export const daemonOwnedProtocolCommands = Object.freeze([
 
 export const daemonProtocolCommands = Object.freeze([...daemonOwnedProtocolCommands, ...presetCommands]);
 
+/**
+ * A declaration opts out of the visible command directory and help by carrying `hiddenSince`, the
+ * date its retirement observation window opened. The marker and the date are the same field on
+ * purpose: presence is the flag, and the value is what the periodic sweep reads to age the window.
+ * Hiding never touches the execution path — `resolveThinCliCommand` still matches the declaration.
+ */
+export function hiddenSince(command: object): string | null {
+  if (!("hiddenSince" in command)) return null;
+  const value = (command as { readonly hiddenSince?: unknown }).hiddenSince;
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/u.test(value))
+    throw new TypeError("hiddenSince must be a YYYY-MM-DD date string");
+  return value;
+}
+
 export const thinCliCommands = Object.freeze(
-  daemonProtocolCommands.filter((command) => !("internal" in command && command.internal)).map((command) => command),
+  daemonProtocolCommands.filter(
+    (command) => !("internal" in command && command.internal) && hiddenSince(command) === null,
+  ),
+);
+
+/** The hidden half of the same declaration list, so the retirement sweep can age each window. */
+export const hiddenCliCommands = Object.freeze(
+  daemonProtocolCommands.filter((command) => hiddenSince(command) !== null),
 );
 
 // Derived from the command registry, never a hand-copied list: a method owned by exactly one CLI

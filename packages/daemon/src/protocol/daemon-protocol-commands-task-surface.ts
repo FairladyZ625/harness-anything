@@ -12,6 +12,7 @@ import { AGENDA_PIN_CRITERIA } from "./daemon-protocol-vocabulary.ts";
 export const taskSurfaceProtocolCommands = Object.freeze([
   defineCenterForwardWriteCommand({
     id: "task-witness-run",
+    hiddenSince: "2026-11-05",
     phase: "W3",
     path: ["task", "witness-run", "<task-id>"],
     summary: "Request the center to execute one declared completion source; no caller-supplied result is accepted.",
@@ -24,6 +25,8 @@ export const taskSurfaceProtocolCommands = Object.freeze([
   ...["claim", "settle", "revoke", "rerun"].map((operation) =>
     (operation === "revoke" || operation === "rerun" ? defineCenterForwardWriteCommand : defineLedgerWriteCommand)({
       id: `task-witness-${operation}`,
+      // `rerun` stays visible: gate-customization and the completion-readiness next action name it.
+      ...(operation === "rerun" ? {} : { hiddenSince: "2026-11-05" }),
       phase: "W3",
       path: ["task", `witness-${operation}`, "<task-id>"],
       summary:
@@ -193,6 +196,8 @@ export const taskSurfaceProtocolCommands = Object.freeze([
   defineCenterForwardWriteCommand({
     id: "task-pin",
     actionKind: "entity-pin",
+    // Alias of `ha pin`; entity-pin is the surviving entry point.
+    hiddenSince: "2026-11-05",
     phase: "W3",
     path: ["task", "pin", "<task-id>"],
     summary: `Pin a task only when it is ${AGENDA_PIN_CRITERIA}.`,
@@ -202,6 +207,8 @@ export const taskSurfaceProtocolCommands = Object.freeze([
   defineCenterForwardWriteCommand({
     id: "task-unpin",
     actionKind: "entity-unpin",
+    // Alias of `ha unpin`; entity-unpin is the surviving entry point.
+    hiddenSince: "2026-11-05",
     phase: "W3",
     path: ["task", "unpin", "<task-id>"],
     summary: "Remove a task pin so its agenda group uses the standard order.",
@@ -509,6 +516,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
   }),
   defineEdgeReplicaQueryOnlyReadCommand({
     id: "relation-triples",
+    hiddenSince: "2026-11-05",
     phase: "Governed-Entity-W1-D",
     path: ["relation", "triples"],
     summary: "List writable canonical relation triples, optionally filtered by endpoint kind.",
