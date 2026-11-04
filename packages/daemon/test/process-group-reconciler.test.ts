@@ -8,6 +8,7 @@ import { appendRuntimeWorkerRecord, openDispatchStream, readDispatchStreamSummar
 import {
   probeProcessGroup,
   reconcileProcessGroup,
+  requestProcessGroupStop,
   sweepOrphanedProcessGroup,
   type ProcessGroupReconcilerDeps,
 } from "../src/runtime/process-group-reconciler.ts";
@@ -77,6 +78,31 @@ test("Windows termination requests require zero accounting, and inaccessible job
       }),
       "unknown_unreachable",
     );
+});
+
+test("Windows runtime stop requests target containment and retain an unproven failure", () => {
+  const identity = { pid: 42, containmentId: "Global\\HarnessRuntime-test" };
+  assert.doesNotThrow(() =>
+    requestProcessGroupStop(identity, {
+      platform: "win32",
+      signalGroup: () => assert.fail("must not terminate a recycled PID"),
+      observeWindowsGroup: (name, terminate) => {
+        assert.equal(name, identity.containmentId);
+        assert.equal(terminate, true);
+        return { activeProcesses: 1, uptimeMs: 100 };
+      },
+    }),
+  );
+  assert.throws(
+    () =>
+      requestProcessGroupStop(identity, {
+        platform: "win32",
+        observeWindowsGroup: () => {
+          throw new Error("access denied");
+        },
+      }),
+    { code: "runtime_process_group_unproven" },
+  );
 });
 
 test("Windows legacy recovery persists one uptime witness and proves only an observed system restart", () => {

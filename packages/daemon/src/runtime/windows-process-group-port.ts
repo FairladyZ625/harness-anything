@@ -47,6 +47,8 @@ public static class HarnessRuntimeJob {
   [DllImport("kernel32.dll")]
   static extern IntPtr GetCurrentProcess();
   [DllImport("kernel32.dll", SetLastError=true)]
+  static extern bool GetProcessTimes(IntPtr process, out long created, out long exited, out long kernel, out long user);
+  [DllImport("kernel32.dll", SetLastError=true)]
   static extern bool DuplicateHandle(IntPtr sourceProcess, IntPtr source, IntPtr targetProcess,
     out IntPtr target, uint access, bool inherit, uint options);
   [DllImport("kernel32.dll")]
@@ -65,9 +67,15 @@ public static class HarnessRuntimeJob {
       ExtendedLimits limits = new ExtendedLimits();
       limits.Basic.Flags = 0x2000; // KILL_ON_JOB_CLOSE; neither breakaway flag is allowed.
       Check(SetInformationJobObject(job, 9, ref limits, (uint)Marshal.SizeOf(limits)));
-      IntPtr worker = OpenProcess(0x0100 | 0x0001 | 0x0040, false, pid);
+      IntPtr worker = OpenProcess(0x0100 | 0x0001 | 0x0040 | 0x1000, false, pid);
       if (worker == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
       try {
+        long workerCreated, helperCreated, exited, kernel, user;
+        Check(GetProcessTimes(worker, out workerCreated, out exited, out kernel, out user));
+        Check(GetProcessTimes(GetCurrentProcess(), out helperCreated, out exited, out kernel, out user));
+        // A reused PID belongs to a process created after this helper, never to its parent.
+        // Keep the checked handle pinned through assignment and duplication.
+        if (workerCreated >= helperCreated) throw new InvalidOperationException("Runtime parent PID was reused");
         Check(AssignProcessToJobObject(job, worker));
         IntPtr ownedHandle;
         // The worker owns the only lasting, non-inheritable handle. Its OS exit closes it,

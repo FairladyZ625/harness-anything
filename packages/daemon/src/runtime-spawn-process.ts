@@ -29,6 +29,7 @@ import type {
 } from "./runtime-spawn-types.ts";
 import { exitNotificationTimeoutMs, providerErrorLimit, resumeAdmissionTimeoutMs } from "./runtime-spawn-limits.ts";
 import { runProcessTextAsync } from "./process-port.ts";
+import { requestProcessGroupStop } from "./runtime/process-group-reconciler.ts";
 
 export function requiredRuntimeStore(input: { readonly store?: () => CanonicalEventStore }): CanonicalEventStore {
   if (!input.store)
@@ -319,7 +320,7 @@ async function awaitRuntimeProcessExit(pids: readonly number[], timeoutMs: numbe
 export async function terminateRuntimeTree(rootDir: string, dispatchId: string, rootPid: number): Promise<void> {
   if (!Number.isInteger(rootPid) || rootPid < 1) return;
   if (process.platform === "win32") {
-    terminateRuntimePid(rootPid);
+    requestProcessGroupStop({ pid: rootPid, dispatch: { rootDir, dispatchId } });
     return;
   }
   let allRows: readonly PosixProcessRow[];
@@ -655,7 +656,7 @@ function observeDispatchProcess(
       if (exited) queueMicrotask(() => listener(exitCode, lossReason));
     },
     terminate: () => {
-      terminateRuntimePid(pid);
+      requestProcessGroupStop({ pid, dispatch: { rootDir, dispatchId } });
       removeRuntimeCallbackRelay(dispatchId);
     },
     terminateTree: async () => {

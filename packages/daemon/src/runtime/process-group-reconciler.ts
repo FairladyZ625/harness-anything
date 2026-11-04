@@ -1,5 +1,5 @@
 import type { RuntimeKind } from "@harness-anything/kernel";
-import { childProcessErrorCode } from "../runtime-process-signals.ts";
+import { childProcessErrorCode, terminateRuntimePid } from "../runtime-process-signals.ts";
 import { appendRuntimeWorkerRecord, readDispatchStreamSummary } from "../dispatch-stream.ts";
 import {
   establishWindowsProcessGroup,
@@ -59,6 +59,18 @@ export function processGroupRecoveryHint(): string {
         "A lower OS uptime proves that every process from the observed execution stopped; " +
         "if it is not lower, the lease stays fenced. Do not edit ledger or lock files."
     : "";
+}
+
+/** A stop request is not a stop proof. Windows must target the witnessed job, never a reused PID. */
+export function requestProcessGroupStop(input: ProcessGroupIdentity, deps: ProcessGroupReconcilerDeps = {}): void {
+  if ((deps.platform ?? process.platform) !== "win32") {
+    terminateRuntimePid(groupPid(input));
+    return;
+  }
+  if (reconcileProcessGroup(input, deps) === "unknown_unreachable")
+    throw Object.assign(new Error(`Runtime process containment could not be reached.${processGroupRecoveryHint()}`), {
+      code: "runtime_process_group_unproven",
+    });
 }
 
 function windowsVerdict(
