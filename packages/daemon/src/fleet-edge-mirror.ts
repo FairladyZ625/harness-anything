@@ -13,6 +13,7 @@ import {
   serializeEventHead,
   sha256Bytes,
   sha256Text,
+  type TaskProjectionQueries,
 } from "@harness-anything/kernel";
 import { BASE_BACKUP_ARCHIVE_ROOT } from "@harness-anything/storage";
 import { withReplicaGeneration, type ReplicaGeneration } from "./fleet/replica-generation.ts";
@@ -139,62 +140,9 @@ export function locateFleetMirrorView(
         projectionPath: generation.projectionPath,
       });
       try {
-        const entries =
-          options.includeEntries === false
-            ? new Map<string, FleetMirrorBlob>()
-            : new Map<string, FleetMirrorBlob>(
-                options.entryPaths
-                  ? options.entryPaths.flatMap((logical) => {
-                      const doc = reader.withSession((queries) => queries.readDocument(logical)).document;
-                      return doc
-                        ? [
-                            [
-                              logical,
-                              {
-                                sha256: doc.blobSha256,
-                                size: doc.size,
-                                mediaType: doc.mediaType,
-                                policyId: doc.policyId,
-                              },
-                            ] as const,
-                          ]
-                        : [];
-                    })
-                  : reader
-                      .withSession((queries) => queries.readDocuments(options.entriesPrefix ?? ""))
-                      .documents.map((doc) => [
-                        doc.path,
-                        { sha256: doc.blobSha256, size: doc.size, mediaType: doc.mediaType, policyId: doc.policyId },
-                      ]),
-              );
-        // The replica holds the center's ledger, so its cut identity is the center's ledger cut at the
-        // same revision: a mirrorBaseCut the edge sends is checked against exactly this digest.
-        const ledger = openSqliteEventStore({
-          databasePath: generation.ledgerPath,
-          repoId,
-          generation: generation.metadata.ledgerGeneration,
-          readOnly: true,
-        });
-        let headDigest: string;
-        try {
-          const head = ledger.eventIdentityAtRevision(generation.metadata.position.revision);
-          headDigest = `sha256:${sha256Text(head === null ? "null\n" : serializeEventHead(head))}`;
-        } finally {
-          ledger.close();
-        }
-        return {
-          repoId,
-          viewId: entry.name,
-          viewDir,
-          revision: generation.metadata.position.revision,
-          schemaGeneration: generation.metadata.projectionSchema,
-          headDigest,
-          manifestDigest: `sha256:${generation.metadata.position.history}:${generation.metadata.position.sequence}`,
-          ledgerGeneration: generation.metadata.ledgerGeneration,
-          readerProfile: generation.metadata.readerProfile ?? null,
-          authorizationShapeDigest: "",
-          entries,
-        };
+        return reader.withSession((projection) =>
+          fleetMirrorViewAtProjection(viewDir, repoId, generation, projection, options),
+        );
       } finally {
         reader.close();
       }
@@ -202,6 +150,77 @@ export function locateFleetMirrorView(
     if (view && (!best || view.revision > best.revision)) best = view;
   }
   return best;
+}
+
+/** The frame, document bases and rows must come from the same projection read transaction. */
+export function fleetMirrorViewAtProjection(
+  viewDir: string,
+  repoId: string,
+  generation: ReplicaGeneration,
+  projection: TaskProjectionQueries,
+  options: {
+    readonly includeEntries?: boolean;
+    readonly entriesPrefix?: string;
+    readonly entryPaths?: readonly string[];
+  } = {},
+): FleetMirrorView {
+  const revision = projection.readCut().watermark;
+  const entries =
+    options.includeEntries === false
+      ? new Map<string, FleetMirrorBlob>()
+      : new Map<string, FleetMirrorBlob>(
+          options.entryPaths
+            ? options.entryPaths.flatMap((logical) => {
+                const doc = projection.readDocument(logical).document;
+                return doc
+                  ? [
+                      [
+                        logical,
+                        {
+                          sha256: doc.blobSha256,
+                          size: doc.size,
+                          mediaType: doc.mediaType,
+                          policyId: doc.policyId,
+                        },
+                      ] as const,
+                    ]
+                  : [];
+              })
+            : projection
+                .readDocuments(options.entriesPrefix ?? "")
+                .documents.map((doc) => [
+                  doc.path,
+                  { sha256: doc.blobSha256, size: doc.size, mediaType: doc.mediaType, policyId: doc.policyId },
+                ]),
+        );
+  // The replica holds the center's ledger, so its cut identity is the center's ledger cut at the
+  // same revision: a mirrorBaseCut the edge sends is checked against exactly this digest.
+  const ledger = openSqliteEventStore({
+    databasePath: generation.ledgerPath,
+    repoId,
+    generation: generation.metadata.ledgerGeneration,
+    readOnly: true,
+  });
+  let headDigest: string;
+  try {
+    const head = ledger.eventIdentityAtRevision(revision);
+    headDigest = `sha256:${sha256Text(head === null ? "null\n" : serializeEventHead(head))}`;
+  } finally {
+    ledger.close();
+  }
+  return {
+    repoId,
+    viewId: path.basename(viewDir),
+    viewDir,
+    revision: revision,
+    schemaGeneration: generation.metadata.projectionSchema,
+    headDigest,
+    manifestDigest: `sha256:${generation.metadata.position.history}:${generation.metadata.position.sequence}`,
+    ledgerGeneration: generation.metadata.ledgerGeneration,
+    readerProfile: generation.metadata.readerProfile ?? null,
+    authorizationShapeDigest: "",
+    entries,
+  };
 }
 export function fleetMirrorTaskPaths(view: FleetMirrorView, taskId: string): string[] {
   return [...view.entries.keys()].filter((p) => {

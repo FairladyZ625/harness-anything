@@ -1,7 +1,8 @@
+import path from "node:path";
 import { statSync, watch } from "node:fs";
 import { makeTaskProjectionReader } from "@harness-anything/storage";
 import { type EdgeReadFreshness, type TaskProjectionQueries } from "@harness-anything/kernel";
-import { locateFleetMirrorView, type FleetMirrorView } from "./fleet-edge-mirror.ts";
+import { locateFleetMirrorView, fleetMirrorViewAtProjection, type FleetMirrorView } from "./fleet-edge-mirror.ts";
 import { withReplicaGeneration } from "./fleet/replica-generation.ts";
 import type { RepositoryReadFrame } from "./protocol/repository-read-frame.ts";
 
@@ -33,30 +34,30 @@ export function withEdgeReadModel<T>(
   read: (projection: TaskProjectionQueries, frame: RepositoryReadFrame, view: FleetMirrorView) => T,
   now: () => number = Date.now,
 ): T {
-  const view = locateFleetMirrorView(input.viewRoot, input.repoId, input.nodeId, {
-    includeEntries: input.includeEntries ?? true,
-  });
-  if (!view) throw new EdgeReadError("replica_unavailable", "The edge replica generation is unavailable.");
-  // The read pins its generation, so an install landing mid-read cannot collect the files under it.
-  return withReplicaGeneration(view.viewDir, (generation) => {
+  const viewDir = path.join(input.viewRoot, "repos", input.repoId, "views", input.nodeId);
+  // A generation pin protects files; its admission-time position is not the query's snapshot.
+  return withReplicaGeneration(viewDir, (generation) => {
     if (!generation) throw new EdgeReadError("replica_unavailable", "The edge replica generation is unavailable.");
     const owner = generation.metadata.readerProfile;
     if (!owner?.personId || owner.personId !== input.principalId || owner.nodeId !== input.nodeId)
       throw new EdgeReadError("authorization_denied", "Only the admitted node owner may read this replica.");
     const reader = makeTaskProjectionReader({ rootDir: generation.rootDir, projectionPath: generation.projectionPath });
     try {
-      const fresh = edgeFreshness(view, generation.metadata.position.revision, input, now);
-      return reader.withSession((projection) =>
-        read(
+      return reader.withSession((projection) => {
+        const view = fleetMirrorViewAtProjection(viewDir, input.repoId, generation, projection, {
+            includeEntries: input.includeEntries ?? true,
+          }),
+          fresh = edgeFreshness(view, view.revision, input, now);
+        return read(
           projection,
           {
-            cut: { revision: generation.metadata.position.revision, headDigest: view.headDigest },
+            cut: { revision: view.revision, headDigest: view.headDigest },
             freshness: fresh.freshness,
             warning: fresh.warning,
           },
           view,
-        ),
-      );
+        );
+      });
     } finally {
       reader.close();
     }
