@@ -1,0 +1,30 @@
+{
+  "schema": "submission-facts-rework-fixture/v1",
+  "beforeBody": "# English\n\n## Summary\n\nAuthored prose stays.\n\n<!-- harness:submission-facts:start -->\n## Delivery Facts\n- Delivery commit: `94bc388e25d9164319b41faa7fbf2c5d50061b41`\n- Merge base: `a87940d55047be448849b22b7afaa3936121b90d`\n- Production delta: +71/-30 (net +41).\n- Changed files:\n  - `\"packages/daemon/src/fleet-edge-runtime.ts\"`\n- G33 classification: complete.\n<!-- harness:submission-facts:end -->\n\n## Verification\n\n- Authored verification stays.\n",
+  "afterBody": "# English\n\n## Summary\n\nAuthored prose stays.\n\n<!-- harness:submission-facts:start -->\n## Delivery Facts\n- Delivery commit: `7006e862669e18a00053d37e18f7c00e639c7d9e`\n- Merge base: `025c30b698b9896240c76a525d565afbea130114`\n- Production delta: +322/-56 (net +266).\n- Changed files:\n  - `\"packages/daemon/src/fleet-edge-runtime.ts\"`\n  - `\"packages/daemon/src/runtime-spawn-adoption.ts\"`\n  - `\"packages/daemon/test/runtime-adoption-unsettled.test.ts\"`\n  - `\"packages/storage/src/pg/pg-projection-values.ts\"`\n  - `\"packages/storage/src/projection/rebuildable-task-projection-runtime.ts\"`\n- G33 classification: complete.\n<!-- harness:submission-facts:end -->\n\n## Verification\n\n- Authored verification stays.\n",
+  "submission": {
+    "commitSha": "7006e862669e18a00053d37e18f7c00e639c7d9e",
+    "deliverables": [
+      "packages/storage/src/pg/pg-projection-values.ts"
+    ],
+    "outputs": [],
+    "changedFiles": [
+      "packages/storage/src/pg/pg-projection-values.ts",
+      "packages/storage/src/projection/rebuildable-task-projection-runtime.ts",
+      "packages/daemon/src/fleet-edge-runtime.ts",
+      "packages/daemon/src/runtime-spawn-adoption.ts",
+      "packages/daemon/test/runtime-adoption-unsettled.test.ts"
+    ],
+    "verificationNotes": [],
+    "knownGaps": [],
+    "residualRisks": [],
+    "completionContract": {},
+    "productionDelta": {
+      "baseSha": "025c30b698b9896240c76a525d565afbea130114",
+      "added": 322,
+      "deleted": 56,
+      "changed": [],
+      "unclassified": []
+    }
+  }
+}
