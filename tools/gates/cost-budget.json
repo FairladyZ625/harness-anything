@@ -923,5 +923,667 @@
         }
       ]
     }
+  },
+  "readCostScaling": {
+    "schema": "read-cost-scaling-budget/v1",
+    "readCoverage": {
+      "measured": {
+        "background:archive-maintenance": {
+          "measurements": [
+            "archive-maintenance"
+          ]
+        },
+        "background:archive-retention-inputs": {
+          "measurements": [
+            "archive-retention-inputs"
+          ]
+        },
+        "background:in-flight-work": {
+          "measurements": [
+            "in-flight-work"
+          ]
+        },
+        "background:node-auto-claim-assignments": {
+          "measurements": [
+            "node-auto-claim-assignments"
+          ]
+        },
+        "background:schedule-poll": {
+          "measurements": [
+            "schedule-poll"
+          ]
+        },
+        "background:squad-recovery": {
+          "measurements": [
+            "squad-recovery"
+          ]
+        },
+        "background:startup-adopt": {
+          "measurements": [
+            "startup-adopt"
+          ]
+        },
+        "background:startup-temp-sweep": {
+          "measurements": [
+            "startup-temp-sweep"
+          ]
+        },
+        "command:agenda": {
+          "measurements": [
+            "agenda"
+          ]
+        },
+        "command:agent-diff": {
+          "measurements": [
+            "cli-agent-diff"
+          ]
+        },
+        "command:agent-history": {
+          "measurements": [
+            "cli-agent-history"
+          ]
+        },
+        "command:agent-inspect": {
+          "measurements": [
+            "cli-agent-inspect"
+          ]
+        },
+        "command:agent-list": {
+          "measurements": [
+            "cli-agent-list"
+          ]
+        },
+        "command:agent-rollback": {
+          "measurements": [
+            "agent-rollback"
+          ]
+        },
+        "command:agent-version-read": {
+          "measurements": [
+            "cli-agent-version-read"
+          ]
+        },
+        "command:decision-list": {
+          "measurements": [
+            "cli-decision-list"
+          ]
+        },
+        "command:decision-show": {
+          "measurements": [
+            "cli-decision-show"
+          ]
+        },
+        "command:decision-validate": {
+          "measurements": [
+            "cli-decision-validate"
+          ]
+        },
+        "command:decision-verify": {
+          "measurements": [
+            "cli-decision-verify"
+          ]
+        },
+        "command:doc-show": {
+          "measurements": [
+            "cli-doc-show"
+          ]
+        },
+        "command:doc-status": {
+          "measurements": [
+            "cli-doc-status"
+          ]
+        },
+        "command:doc-sync-dry-run": {
+          "measurements": [
+            "cli-doc-sync-dry-run"
+          ]
+        },
+        "command:doctor-health": {
+          "measurements": [
+            "cli-doctor-health"
+          ]
+        },
+        "command:entity-get": {
+          "measurements": [
+            "cli-entity-get"
+          ]
+        },
+        "command:entity-list": {
+          "measurements": [
+            "cli-entity-list"
+          ]
+        },
+        "command:event-list": {
+          "measurements": [
+            "cli-event-list"
+          ]
+        },
+        "command:event-show": {
+          "measurements": [
+            "cli-event-show"
+          ]
+        },
+        "command:explain": {
+          "measurements": [
+            "explain-actions"
+          ]
+        },
+        "command:fact-show": {
+          "measurements": [
+            "cli-fact-show"
+          ]
+        },
+        "command:fact-type-list": {
+          "measurements": [
+            "cli-fact-type-list"
+          ]
+        },
+        "command:graph": {
+          "measurements": [
+            "cli-graph"
+          ]
+        },
+        "command:ledger-reconcile": {
+          "measurements": [
+            "ledger-reconcile"
+          ]
+        },
+        "command:receipt-show": {
+          "measurements": [
+            "cli-receipt-show"
+          ]
+        },
+        "command:relation-list": {
+          "measurements": [
+            "cli-relation-list",
+            "relation-page"
+          ]
+        },
+        "command:relation-triples": {
+          "measurements": [
+            "cli-relation-triples"
+          ]
+        },
+        "command:runtime-sessions-await": {
+          "measurements": [
+            "runtime-await"
+          ]
+        },
+        "command:runtime-status": {
+          "measurements": [
+            "runtime-overview-default",
+            "runtime-overview"
+          ]
+        },
+        "command:schedule-list": {
+          "measurements": [
+            "cli-schedule-list"
+          ]
+        },
+        "command:schedule-reckon": {
+          "measurements": [
+            "cli-schedule-reckon"
+          ]
+        },
+        "command:schedule-runs": {
+          "measurements": [
+            "cli-schedule-runs"
+          ]
+        },
+        "command:schedule-show": {
+          "measurements": [
+            "cli-schedule-show"
+          ]
+        },
+        "command:settings-read": {
+          "measurements": [
+            "cli-settings-read"
+          ]
+        },
+        "command:settings-show": {
+          "measurements": [
+            "cli-settings-show"
+          ]
+        },
+        "command:squad-inspect": {
+          "measurements": [
+            "cli-squad-inspect"
+          ]
+        },
+        "command:squad-list": {
+          "measurements": [
+            "cli-squad-list"
+          ]
+        },
+        "command:squad-status": {
+          "measurements": [
+            "cli-squad-status"
+          ]
+        },
+        "command:task-dispatches": {
+          "measurements": [
+            "task-dispatches"
+          ]
+        },
+        "command:task-list": {
+          "measurements": [
+            "cli-task-list"
+          ]
+        },
+        "command:task-read-set": {
+          "measurements": [
+            "cli-task-read-set"
+          ]
+        },
+        "command:task-review": {
+          "measurements": [
+            "cli-task-review"
+          ]
+        },
+        "command:task-show": {
+          "measurements": [
+            "cli-task-show"
+          ]
+        },
+        "command:todo-list": {
+          "measurements": [
+            "cli-todo-list"
+          ]
+        },
+        "command:todo-show": {
+          "measurements": [
+            "cli-todo-show"
+          ]
+        },
+        "command:vertical-kind-list": {
+          "measurements": [
+            "cli-vertical-kind-list"
+          ]
+        },
+        "command:vertical-kind-show": {
+          "measurements": [
+            "cli-vertical-kind-show"
+          ]
+        },
+        "command:work-list": {
+          "measurements": [
+            "cli-work-list"
+          ]
+        },
+        "command:work-show": {
+          "measurements": [
+            "cli-work-show"
+          ]
+        },
+        "method:daemon.gui.home.read": {
+          "measurements": [
+            "home-overview"
+          ]
+        },
+        "method:observe.tail": {
+          "measurements": [
+            "event-tail"
+          ]
+        },
+        "method:repo.agenda.read": {
+          "measurements": [
+            "agenda"
+          ]
+        },
+        "method:repo.agent.entities.list": {
+          "measurements": [
+            "repo.agent.entities.list"
+          ]
+        },
+        "method:repo.agent.entity.read": {
+          "measurements": [
+            "repo.agent.entity.read"
+          ]
+        },
+        "method:repo.agent.history.read": {
+          "measurements": [
+            "repo.agent.history.read"
+          ]
+        },
+        "method:repo.agent.version.read": {
+          "measurements": [
+            "agent-version-rpc"
+          ]
+        },
+        "method:repo.agentRuntime.events.read": {
+          "measurements": [
+            "runtime-events"
+          ]
+        },
+        "method:repo.agentRuntime.overview": {
+          "measurements": [
+            "runtime-overview-default",
+            "runtime-overview"
+          ]
+        },
+        "method:repo.agentRuntime.sessions.await": {
+          "measurements": [
+            "runtime-await"
+          ]
+        },
+        "method:repo.agentRuntime.sessions.read": {
+          "measurements": [
+            "runtime-session"
+          ]
+        },
+        "method:repo.agentRuntime.tokenUsage": {
+          "measurements": [
+            "repo.agentRuntime.tokenUsage"
+          ]
+        },
+        "method:repo.agentRuntime.tokenUsageDetail": {
+          "measurements": [
+            "repo.agentRuntime.tokenUsageDetail"
+          ]
+        },
+        "method:repo.artifacts.list": {
+          "measurements": [
+            "repo.artifacts.list"
+          ]
+        },
+        "method:repo.decision.list": {
+          "measurements": [
+            "repo.decision.list"
+          ]
+        },
+        "method:repo.decision.show": {
+          "measurements": [
+            "repo.decision.show"
+          ]
+        },
+        "method:repo.decisions.list": {
+          "measurements": [
+            "repo.decisions.list"
+          ]
+        },
+        "method:repo.doc.show": {
+          "measurements": [
+            "repo.doc.show"
+          ]
+        },
+        "method:repo.entity.actions.explain": {
+          "measurements": [
+            "explain-actions"
+          ]
+        },
+        "method:repo.entity.content.read": {
+          "measurements": [
+            "repo.entity.content.read"
+          ]
+        },
+        "method:repo.entity.kinds.read": {
+          "measurements": [
+            "repo.entity.kinds.read"
+          ]
+        },
+        "method:repo.entity.locator.read": {
+          "measurements": [
+            "repo.entity.locator.read"
+          ]
+        },
+        "method:repo.entity.rows.read": {
+          "measurements": [
+            "repo.entity.rows.read"
+          ]
+        },
+        "method:repo.fleet.overview.read": {
+          "measurements": [
+            "fleet-overview"
+          ]
+        },
+        "method:repo.projection.read": {
+          "measurements": [
+            "projection:schedule-plane",
+            "projection:schedule-run-history",
+            "projection:runtime-session-groups"
+          ]
+        },
+        "method:repo.receipt.show": {
+          "measurements": [
+            "repo.receipt.show"
+          ]
+        },
+        "method:repo.reckoning.signals.read": {
+          "measurements": [
+            "repo.reckoning.signals.read"
+          ]
+        },
+        "method:repo.settings.read": {
+          "measurements": [
+            "repo.settings.read"
+          ]
+        },
+        "method:repo.squad.entities.list": {
+          "measurements": [
+            "repo.squad.entities.list"
+          ]
+        },
+        "method:repo.squad.entity.read": {
+          "measurements": [
+            "repo.squad.entity.read"
+          ]
+        },
+        "method:repo.squad.run.read": {
+          "measurements": [
+            "repo.squad.run.read"
+          ]
+        },
+        "method:repo.squad.runs.list": {
+          "measurements": [
+            "repo.squad.runs.list"
+          ]
+        },
+        "method:repo.task.dispatches": {
+          "measurements": [
+            "task-dispatches"
+          ]
+        },
+        "method:repo.tasks.assignmentDirectory": {
+          "measurements": [
+            "assignment-directory"
+          ]
+        },
+        "method:repo.tasks.claimable": {
+          "measurements": [
+            "claimable-tasks"
+          ]
+        },
+        "method:repo.tasks.completion.read": {
+          "measurements": [
+            "repo.tasks.completion.read"
+          ]
+        },
+        "method:repo.tasks.deliveryDiff.read": {
+          "measurements": [
+            "repo.tasks.deliveryDiff.read"
+          ]
+        },
+        "method:repo.tasks.document.read": {
+          "measurements": [
+            "document-point"
+          ]
+        },
+        "method:repo.tasks.documents.list": {
+          "measurements": [
+            "document-prefix"
+          ]
+        },
+        "method:repo.tasks.list": {
+          "measurements": [
+            "task-list"
+          ]
+        },
+        "method:repo.tasks.runtimeContext.read": {
+          "measurements": [
+            "repo.tasks.runtimeContext.read"
+          ]
+        },
+        "method:repo.tasks.wip": {
+          "measurements": [
+            "repo.tasks.wip"
+          ]
+        },
+        "method:repo.todo.list": {
+          "measurements": [
+            "repo.todo.list"
+          ]
+        },
+        "method:repo.todo.show": {
+          "measurements": [
+            "repo.todo.show"
+          ]
+        },
+        "method:repo.triadic.relationGraph": {
+          "measurements": [
+            "relation-page"
+          ]
+        },
+        "method:repo.vertical.declaration.read": {
+          "measurements": [
+            "repo.vertical.declaration.read"
+          ]
+        },
+        "method:repo.work.topology.read": {
+          "measurements": [
+            "repo.work.topology.read"
+          ]
+        },
+        "method:repo.works.briefs.read": {
+          "measurements": [
+            "repo.works.briefs.read"
+          ]
+        },
+        "method:repo.works.index": {
+          "measurements": [
+            "repo.works.index"
+          ]
+        },
+        "method:repo.workspace.scope.read": {
+          "measurements": [
+            "repo.workspace.scope.read"
+          ]
+        },
+        "method:repo.workspace.summary.read": {
+          "measurements": [
+            "workspace-summary"
+          ]
+        }
+      },
+      "notApplicable": [
+        {
+          "reads": [
+            "command:daemon-status",
+            "command:daemon-service-status",
+            "method:daemon.status",
+            "method:protocol.hello",
+            "method:daemon.gui.system.read",
+            "method:daemon.gui.control.receipt"
+          ],
+          "reason": "Host status/handshake/control-receipt readers expose current daemon, process, registry or bounded control state, not canonical repository history (daemon-host-open.ts, gui-system-read.ts, gui-s3-control.ts)."
+        },
+        {
+          "reads": [
+            "method:repo.task.read"
+          ],
+          "reason": "Transport envelope dispatches the registered repo-read CLI actions. Every action is independently enumerated and covered as command:<id>; the envelope itself performs no projection read (repo-cell-action-dispatch.ts)."
+        },
+        {
+          "reads": [
+            "command:agent-validate",
+            "command:squad-validate"
+          ],
+          "reason": "Validate the supplied declaration/source and current runtime instance catalog; validateAgentEntityAction does not query ledger history (agent-entities.ts:validateAgentEntityAction)."
+        },
+        {
+          "reads": [
+            "command:preset-audit",
+            "command:preset-check",
+            "command:preset-inspect",
+            "command:preset-list",
+            "command:preset-validate",
+            "command:script-inspect",
+            "command:script-list",
+            "command:template-list",
+            "command:template-render",
+            "command:vertical-validate",
+            "method:repo.preset.audit",
+            "method:repo.preset.check",
+            "method:repo.preset.inspect",
+            "method:repo.preset.list",
+            "method:repo.preset.validate",
+            "method:repo.script.inspect",
+            "method:repo.script.list",
+            "method:repo.template.list",
+            "method:repo.template.render",
+            "method:repo.vertical.validate"
+          ],
+          "reason": "Read/validate current selected package assets or current active preset pointers (preset-system.ts, preset-catalog.ts); no canonical event, runtime, dispatch, output or relation history query. Canonical Settings selection is covered by cli-settings-read and repo.settings.read. Catalog size is the explicit result/input k."
+        },
+        {
+          "reads": [
+            "method:repo.gui.catalog.preset.read",
+            "method:repo.gui.catalog.reread",
+            "method:repo.gui.catalog.snapshot"
+          ],
+          "reason": "Compose the current asset catalog plus one Settings singleton (gui-catalog.ts:openGuiCatalog); rereread invalidates the catalog digest. No history enumeration. Settings dependency is independently measured; current catalog membership is result k."
+        },
+        {
+          "reads": [
+            "method:repo.preset.run.status"
+          ],
+          "reason": "Reads one local run status receipt by runId, not canonical history (preset-run-status reader)."
+        },
+        {
+          "reads": [
+            "method:repo.agent.skills.list"
+          ],
+          "reason": "Discovers the currently installed skill directories (agent-skills.ts); no canonical ledger query. Returned installed skills are the explicit result k."
+        },
+        {
+          "reads": [
+            "method:repo.policy.metadata.read"
+          ],
+          "reason": "Reads current external Keycloak policy metadata (readPolicyMetadata), not repository history. No network or credentials are used by this repository-scale fixture."
+        },
+        {
+          "reads": [
+            "method:repo.terminal.attach",
+            "method:repo.terminal.detach",
+            "method:repo.terminal.sessions.list"
+          ],
+          "reason": "Operate on current in-memory terminal sessions/processes, not canonical runtime-session history (daemon-host-runtime-api.ts)."
+        },
+        {
+          "reads": [
+            "background:projection-recovery"
+          ],
+          "reason": "Explicit projection rebuild/catch-up consumes the unreplayed event delta as its input k; G38 already measures rebuild Git-process cost. Not a fixed-result projection query (repo-cell.ts initialization)."
+        },
+        {
+          "reads": [
+            "background:host-reattach"
+          ],
+          "reason": "Enumerates current registered repositories and opens each independently; current registry entries are input k (daemon-host-recovery.ts). Per-repository canonical startup readers are separately measured."
+        },
+        {
+          "reads": [
+            "background:squad-reconcile"
+          ],
+          "reason": "After measured squad-recovery hydrates state, reconciles current active runs from its in-memory Map and keyed dispatch/task reads; loop population is active work k (squad-coordinator.ts:reconcile)."
+        },
+        {
+          "reads": [
+            "background:worktree-reconcile"
+          ],
+          "reason": "Enumerates currently materialized local task worktrees, then reads each named task/snapshot; current worktrees are explicit input k, not a canonical task-history scan (task-worktree.ts:reconcileAbandonedTaskWorktrees)."
+        }
+      ]
+    },
+    "knownScaling": []
   }
 }

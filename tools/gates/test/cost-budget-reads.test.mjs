@@ -1,0 +1,176 @@
+// harness-test-tier: contract
+import assert from "node:assert/strict";
+import test from "node:test";
+import { planRowsRead } from "../../../packages/daemon/test/fixtures/g38-read-probe.mjs";
+import {
+  deriveReadInventory,
+  evaluateReadMeasurements,
+  validateReadCoverage,
+  READ_BACKENDS,
+  READ_DIMENSIONS,
+  READ_MARGINS,
+  READ_SCALES,
+} from "../cost-budget-reads.mjs";
+
+const inventory = [{ id: "method:repo.fixture.read" }],
+  probes = { fixture: { reads: inventory.map(({ id }) => id) } };
+function fixture() {
+  const section = {
+    schema: "read-cost-scaling-budget/v1",
+    readCoverage: { measured: { [inventory[0].id]: { measurements: ["fixture"] } }, notApplicable: [] },
+    knownScaling: [],
+  };
+  const measured = Object.fromEntries(
+    READ_BACKENDS.map((backend) => [
+      backend,
+      Object.fromEntries(
+        READ_DIMENSIONS.map((dimension) => [
+          dimension,
+          {
+            fixture: Object.fromEntries(
+              Object.entries(READ_SCALES).map(([scale, size]) => [
+                scale,
+                {
+                  size,
+                  resultSize: 1,
+                  counts: Object.fromEntries(Object.keys(READ_MARGINS).map((metric) => [metric, 0])),
+                },
+              ]),
+            ),
+          },
+        ]),
+      ),
+    ]),
+  );
+  for (const backend of Object.values(measured))
+    for (const dimension of Object.values(backend))
+      for (const pair of Object.values(dimension))
+        for (const value of Object.values(pair)) {
+          value.firstResultSize = value.resultSize;
+          value.firstCall = { ...value.counts };
+        }
+  return { section, inventory, probes, measured, now: new Date("2026-11-05T00:00:00Z") };
+}
+const exemption = {
+  probe: "fixture",
+  backend: "pglite",
+  dimension: "runtime-sessions",
+  metric: "sqlRowsRead",
+  reason: "Pre-existing whole-class read",
+  deletionTaskId: "task_fixture",
+  expiresAt: "2026-11-12T00:00:00Z",
+};
+
+test("G38 derives read methods and multiplexed command reads from the protocol registration", () => {
+  const input = {
+    daemonProtocolCommands: [{ id: "first", commandClass: "repo-read", method: "repo.task.read" }],
+    allDaemonProtocolMethods: [
+      { method: "repo.task.read" },
+      { method: "repo.gui.read", commandClass: "repo-read" },
+      { method: "repo.write", commandClass: "repo-write" },
+    ],
+  };
+  assert.deepEqual(
+    deriveReadInventory(input).map(({ id }) => id),
+    ["command:first", "method:repo.gui.read", "method:repo.task.read"],
+  );
+  const f = fixture();
+  assert.throws(
+    () => validateReadCoverage(f.section, [...inventory, { id: "method:repo.new.read" }], probes),
+    /missing reads: method:repo.new.read/u,
+  );
+  assert.throws(
+    () => validateReadCoverage(f.section, [...inventory, { id: "command:new-multiplexed-read" }], probes),
+    /missing reads: command:new-multiplexed-read/u,
+  );
+});
+
+test("G38 requires matching production probes and rejects blank or duplicate inapplicability", () => {
+  const f = fixture();
+  f.section.readCoverage.measured[inventory[0].id].measurements = ["not-a-probe"];
+  assert.throws(() => validateReadCoverage(f.section, inventory, probes), /matching production measurement/u);
+  f.section.readCoverage.measured = {};
+  f.section.readCoverage.notApplicable = [{ reads: [inventory[0].id], reason: " " }];
+  assert.throws(() => validateReadCoverage(f.section, inventory, {}), /reason is required/u);
+  f.section.readCoverage.notApplicable[0].reason = "Only reads process configuration";
+  assert.deepEqual(validateReadCoverage(f.section, inventory, {}), []);
+  f.section.readCoverage.notApplicable.push(f.section.readCoverage.notApplicable[0]);
+  assert.throws(() => validateReadCoverage(f.section, inventory, {}), /duplicates read/u);
+});
+
+test("G38 judges the full backend × dimension × probe matrix without silently dropping a measurement", () => {
+  const f = fixture();
+  assert.equal(evaluateReadMeasurements(f).ok, true);
+  delete f.measured.pglite.relations;
+  assert.throws(() => evaluateReadMeasurements(f), /missing read measurement pglite\/relations/u);
+});
+
+test("G38 whole-class positive control is red with a fixed result k", (t) => {
+  const f = fixture();
+  f.measured.pglite["runtime-sessions"].fixture.small.counts.sqlRowsRead = 200;
+  f.measured.pglite["runtime-sessions"].fixture.large.counts.sqlRowsRead = 2000;
+  const result = evaluateReadMeasurements(f);
+  assert.equal(result.ok, false);
+  assert.match(result.errors.join("\n"), /200 at 200 grew to 2000 at 2000.*no knownScaling/u);
+  t.diagnostic(result.errors.join("\n"));
+});
+
+test("G38 does not accept different result sizes as a history-independent read measurement", () => {
+  const f = fixture();
+  f.measured.sqlite.dispatches.fixture.large.resultSize = 2;
+  assert.throws(() => evaluateReadMeasurements(f), /result size k changed/u);
+});
+
+test("G38 catches growing bytes even if SQL returns one row", () => {
+  const f = fixture();
+  f.measured.sqlite["event-bytes"].fixture.large.counts.sqlResultBytes = 2000;
+  assert.equal(evaluateReadMeasurements(f).ok, false);
+});
+
+test("G38 exemptions bind an exact backend/dimension/metric and expire or become stale", () => {
+  const f = fixture();
+  f.measured.pglite["runtime-sessions"].fixture.large.counts.sqlRowsRead = 2000;
+  f.section.knownScaling = [{ ...exemption }];
+  assert.equal(evaluateReadMeasurements(f).ok, true);
+  f.measured.sqlite["runtime-sessions"].fixture.large.counts.sqlRowsRead = 2000;
+  assert.equal(evaluateReadMeasurements(f).ok, false);
+  f.measured.sqlite["runtime-sessions"].fixture.large.counts.sqlRowsRead = 0;
+  f.section.knownScaling[0].expiresAt = "2026-11-04T00:00:00Z";
+  assert.match(evaluateReadMeasurements(f).errors.join("\n"), /expired/u);
+  f.section.knownScaling[0] = { ...exemption };
+  f.measured.pglite["runtime-sessions"].fixture.large.counts.sqlRowsRead = 0;
+  assert.match(evaluateReadMeasurements(f).errors.join("\n"), /stale/u);
+});
+
+test("G38 rejects incomplete exemption provenance, duplicate exemptions and invalid counts", () => {
+  for (const field of ["probe", "backend", "dimension", "metric", "reason", "deletionTaskId", "expiresAt"]) {
+    const f = fixture();
+    f.section.knownScaling = [{ ...exemption, [field]: "" }];
+    assert.throws(() => evaluateReadMeasurements(f), /knownScaling/u, field);
+  }
+  const f = fixture();
+  f.section.knownScaling = [exemption, exemption];
+  assert.throws(() => evaluateReadMeasurements(f), /duplicate knownScaling/u);
+  f.section.knownScaling = [];
+  f.measured.sqlite.relations.fixture.small.counts.sqlRowsRead = -1;
+  assert.throws(() => evaluateReadMeasurements(f), /invalid read measurement/u);
+});
+
+test("PG scan accounting sees rows hidden by aggregates, filters and repeated loops", () => {
+  const plan = {
+    "Node Type": "Aggregate",
+    "Actual Rows": 1,
+    Plans: [
+      { "Node Type": "Seq Scan", "Actual Rows": 1, "Rows Removed by Filter": 1999, "Actual Loops": 1 },
+      { "Node Type": "Index Scan", "Actual Rows": 2, "Rows Removed by Index Recheck": 1, "Actual Loops": 3 },
+    ],
+  };
+  assert.equal(planRowsRead(plan), 2009);
+  assert.equal(planRowsRead({ "Node Type": "Result", "Actual Rows": 1 }), 0);
+});
+
+test("G38 rejects a cold scan even when the warm cache is flat", () => {
+  const f = fixture();
+  f.measured.sqlite["runtime-sessions"].fixture.large.firstCall.sqlRowsRead = 2000;
+  assert.match(evaluateReadMeasurements(f).errors.join("\n"), /firstCall.*2000/u);
+});
