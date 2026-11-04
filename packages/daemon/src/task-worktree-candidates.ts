@@ -101,6 +101,9 @@ export function taskWorktreeCandidateInventory(
           const acknowledged = history.store.readContentBlob(current.blobSha256);
           if (acknowledged === null)
             throw new Error(`Missing accepted worktree document blob ${current.blobSha256} for ${row.path}.`);
+          // An already accepted copy is unchanged too. Leaving it in the overlay would hide a
+          // real canonical edit before the scanner can apply its CAS and lease checks.
+          if (row.safe && row.bytes !== null && Buffer.from(row.bytes).equals(acknowledged)) return [];
           baseBytes = Buffer.from(acknowledged);
         }
       }
