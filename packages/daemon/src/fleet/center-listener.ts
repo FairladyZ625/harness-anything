@@ -1024,15 +1024,23 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         if (frame.scheduleId !== frame.action.scheduleId)
           throw new FleetFault("schedule_scope_mismatch", "Schedule command IDs must match.");
         // A schedule write carries its own business idempotency key (the occurrence key). The
-        // transport request id is correlation only; the center must never substitute one for the other.
-        if (
+        // transport request id is correlation only; a frame that names its business key never has
+        // the request id substituted for it.
+        //
+        // Tolerant reader for the previous fleet protocol shape (dec_659E15CF): before the business
+        // key moved into the action, an edge sent it as frame.opId. A schedule write without the
+        // field keeps that old dedup source instead of being rejected. A frame cannot name its
+        // protocol version here, so current-build frames without the field take the same branch
+        // during the window; the strict invalid_field check returns with the branch's deletion.
+        // 兼容分支：已部署边缘全部升级到带 idempotencyKey 的构建后删除，最迟 2026-12-05。
+        const action =
           commandClassForAction(frame.action.kind) !== "repo-read" &&
           (typeof frame.action.idempotencyKey !== "string" || frame.action.idempotencyKey.trim() === "")
-        )
-          throw new FleetFault("invalid_field", "Schedule commands must carry the caller's business idempotencyKey.");
+            ? { ...frame.action, idempotencyKey: frame.opId }
+            : frame.action;
         assertFrameEpoch(a.repoId, frame.writerEpoch);
         const ingressAuth = await auth(a),
-          receipt = await observedRunCenterWriter(a.repoId, frame.action, ingressAuth);
+          receipt = await observedRunCenterWriter(a.repoId, action, ingressAuth);
         if (isRecoverableReceipt(receipt)) rememberRequestReceipt(a.repoId, frame.opId, receipt.opId);
         if (isSquadControlResult(receipt))
           throw new FleetFault(

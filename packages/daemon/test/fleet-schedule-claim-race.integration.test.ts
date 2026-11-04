@@ -135,14 +135,27 @@ test(
 );
 
 test(
-  "a schedule frame without the caller's business key is rejected instead of borrowing the request id",
+  "a previous-version schedule frame without the business key keeps the old frame-opId dedup semantics",
   { timeout: 90_000 },
   async (t) => {
-    const fixture = await claimRaceFixture(t);
-    await assert.rejects(
-      fixture.command("edge-alpha", { kind: "schedule-run-now", scheduleId, scheduledFor }, randomUUID()),
-      (error: unknown) => (error as { readonly code?: unknown }).code === "invalid_field",
-    );
+    const fixture = await claimRaceFixture(t),
+      legacyOpId = randomUUID(),
+      legacyAction = { kind: "schedule-run-now", scheduleId, scheduledFor } as const;
+    // The previous protocol shape carried the occurrence key in frame.opId; the center keeps that
+    // old source only for frames that cannot express action.idempotencyKey.
+    const accepted = await fixture.command("edge-alpha", legacyAction, legacyOpId);
+    assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
+    const claimed = activeRun(accepted);
+    assert.equal(claimed.occurrenceId, expectedOccurrenceId(legacyOpId));
+    // Same shape and same request id: the old semantics replay the same business occurrence.
+    const replayed = await fixture.command("edge-alpha", legacyAction, legacyOpId);
+    assert.equal(replayed.outcome, "applied", JSON.stringify(replayed));
+    assert.equal(activeRun(replayed).claimFence, claimed.claimFence, "the old shape still dedups on frame.opId");
+    // A different request id is a different old-style business key, so it does not replay; it
+    // reaches the Schedule single-flight check and is rejected while the first claim is live.
+    const second = await fixture.command("edge-alpha", legacyAction, randomUUID());
+    assert.equal(second.outcome, "op_rejected", JSON.stringify(second));
+    assert.equal(second.code, "schedule_single_flight_active");
   },
 );
 
