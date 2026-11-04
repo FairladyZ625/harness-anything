@@ -12,6 +12,8 @@ import path from "node:path";
 import { createServer } from "node:https";
 import test from "node:test";
 import { readFleetEdgeConfig, writeFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
+import { KeycloakPolicyAdapter } from "@harness-anything/authorization-keycloak";
+import { keycloakNodeRegistry } from "../src/fleet-center-admission.ts";
 import { AccessAdminService } from "../src/access-admin-service.ts";
 import { createIdentitySession } from "../src/authorization-provider.ts";
 import { FleetFault } from "../src/fleet/center-types.ts";
@@ -101,38 +103,47 @@ test(
     );
     const loginPort = (loginServer.address() as { port: number }).port,
       loginUrl = `https://localhost:${loginPort}`;
-    // Stands in for the center's Keycloak check: the edge fixture's device token names person-one.
     const memberAdmin = new AccessAdminService(
       createIdentitySession(f.userRoot, { fetch: f.owners.keycloak.fetch }),
       f.userRoot,
       { fetch: f.owners.keycloak.fetch, daemonId: "lease-center", edgeJoins: invites },
     );
     t.after(() => memberAdmin.close());
+    const adapter = new KeycloakPolicyAdapter(
+      { url: f.owners.url, realm: "harness", resourceServerClientId: "harness-center" },
+      f.owners.keycloak.fetch,
+    );
+    let droppedCredential: string | undefined;
     const center = await f.openCenter(f.host, undefined, {
+      ...keycloakNodeRegistry(async () => ({
+        url: f.owners.url,
+        realm: "harness",
+        clientId: "harness-center",
+        accessToken: "center-token",
+        provider: adapter,
+      })),
+      ...{ edgeJoinStatus: (input: { joinId: string; accessToken: string }) => memberAdmin.edgeJoinStatus(input) },
       createMemberEdgeJoin: (repos, person, token) => memberAdmin.createMemberEdgeJoin(repos, person, token),
-      invitationClientForNode: (nodeId) => {
-        const invite = invites.records().find((record) => record.nodeId === nodeId && record.consumedAt);
-        return invite ? { clientId: invite.loginClientId, personId: invite.personId } : undefined;
-      },
-      edgeJoin: ({ joinId, inviteToken, accessToken }) => {
-        const invite = invites.assertConsumable(joinId, inviteToken);
-        const personId = accessToken?.startsWith("device-token-") ? "person-one" : "unknown";
-        if (personId !== invite.personId) throw new FleetFault("person_mismatch", "another person's invitation");
-        const issuedNodeId = `issued-${invite.joinId}`;
-        invites.consume(invite.joinId, issuedNodeId);
-        f.owners.keycloak.node(issuedNodeId, personId);
+      invitationClientForNode: (nodeId) => memberAdmin.invitationClientForNode(nodeId),
+      edgeJoin: async (input) => {
+        const admitted = await memberAdmin.admitEdgeJoin(input);
+        const invite = invites.get(input.joinId)!;
         f.owners.keycloak.interactiveSession(
-          personId,
-          issuedNodeId,
+          admitted.personId,
+          admitted.nodeId,
           loginUrl,
-          `device-token-${issuedNodeId}`,
+          `device-token-${admitted.nodeId}`,
           invite.loginClientId,
         );
+        if (droppedCredential === undefined) {
+          droppedCredential = admitted.credential;
+          throw new FleetFault("join_reply_lost", "Admission committed before credential delivery.");
+        }
         return {
-          joinId: invite.joinId,
-          nodeId: issuedNodeId,
-          personId,
-          credential: `secret-${issuedNodeId}`,
+          joinId: admitted.joinId,
+          nodeId: admitted.nodeId,
+          personId: admitted.personId,
+          credential: admitted.credential,
           repositories: [
             {
               repoId: "lease-repo",
@@ -252,21 +263,47 @@ test(
         `device-token-${nodeName}`,
         decodeEdgeJoinLink(invitation.link).loginClientId,
       );
-      const { edge, response, workspaceRoot } = await join(nodeName, invitation.link, nodeName === "node-one"),
-        result = response.result as Record<string, unknown>;
+      const joined = await join(nodeName, invitation.link, nodeName === "node-one"),
+        { edge, workspaceRoot } = joined;
+      let response = joined.response;
+      if (nodeName === "node-one") {
+        assert.match(JSON.stringify(response), /join_reply_lost/u);
+        assert.equal(existsSync(path.join(workspaceRoot, "lease-repo", "fleet-edge.json")), false);
+        response = (await edge.rpc.handle({
+          jsonrpc: "2.0",
+          id: 22,
+          method: "daemon.rbac.manage",
+          params: { operation: "edge-join", link: invitation.link, workspaceRoot },
+        })) as Record<string, unknown>;
+      }
+      const result = response.result as Record<string, unknown>;
       assert.equal(result?.ok, true, JSON.stringify(response));
       assert.equal(result.joinId, invitation.joinId);
       assert.equal(result.state, "synced");
       const issuedNodeId = String(result.nodeId);
-      assert.equal(
-        JSON.stringify(response).includes(`secret-${issuedNodeId}`),
-        false,
-        "the receipt carries no credential",
-      );
+      const credential = f.owners.keycloak.nodeClients.get(`harness-node-${issuedNodeId}`)!.secret;
+      assert.equal(JSON.stringify(response).includes(credential), false, "the receipt carries no credential");
       const repoWorkspace = path.join(workspaceRoot, "lease-repo"),
         config = readFleetEdgeConfig(repoWorkspace);
       assert.equal(config?.nodeId, issuedNodeId);
-      assert.equal(config?.credential, `secret-${issuedNodeId}`);
+      assert.equal(config?.credential, credential);
+      assert.equal(await adapter.authenticateNode(issuedNodeId, credential), true);
+      if (nodeName === "node-one") {
+        assert.notEqual(credential, droppedCredential);
+        assert.equal(await adapter.authenticateNode(issuedNodeId, droppedCredential!), false);
+      }
+      const count = f.owners.keycloak.nodeClients.size;
+      const repeated = await edge.rpc.handle({
+        jsonrpc: "2.0",
+        id: 23,
+        method: "daemon.rbac.manage",
+        params: { operation: "edge-join", link: invitation.link, workspaceRoot },
+      });
+      assert.equal((repeated.result as Record<string, unknown>)?.ok, true, JSON.stringify(repeated));
+      assert.equal((repeated.result as Record<string, unknown>).nodeId, issuedNodeId);
+      assert.equal(readFleetEdgeConfig(repoWorkspace)!.credential, credential);
+      assert.equal(f.owners.keycloak.nodeClients.size, count);
+      assert.equal(JSON.stringify(repeated).includes(credential), false);
       joinedEdges.set(issuedNodeId, edge);
       if (nodeName === "node-one") {
         assert.equal(config?.host, "127.0.0.1");
@@ -306,7 +343,7 @@ test(
     f.owners.keycloak.interactiveSession("person-one", "node-four", loginUrl, "device-token-node-four", "harness-gui");
     const refused = await join("node-four", wrongPerson.link);
     assert.equal("result" in refused.response && (refused.response.result as { ok?: unknown }).ok === true, false);
-    assert.match(JSON.stringify(refused.response), /person_mismatch|another person/u);
+    assert.match(JSON.stringify(refused.response), /person_mismatch|another person|human_confirmation_required/u);
     assert.equal(existsSync(path.join(refused.workspaceRoot, "fleet-edge.json")), false);
     const formerOwnerNodeId = [...joinedEdges.keys()][0]!,
       formerOwnerEdge = joinedEdges.get(formerOwnerNodeId)!;
