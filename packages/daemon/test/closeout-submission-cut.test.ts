@@ -674,6 +674,64 @@ test("submission facts freeze the full changed-path set and G33 result at the de
   });
 });
 
+test("a reworked cut recomputes production delta from its new commit, not the previous submission", (t) => {
+  const { root } = fixture(t);
+  put(root, "packages/daemon/src/retired.ts", "export const retired = 1;\n");
+  put(root, "packages/storage/src/keep.ts", "export const keep = 1;\n");
+  const mainBase = commit(root);
+  git(root, "update-ref", "refs/remotes/origin/main", mainBase);
+  git(root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
+  git(root, "checkout", "-q", "-b", "feature");
+  put(root, "packages/daemon/src/runtime.ts", "export const runtime = 1;\n");
+  git(root, "rm", "-q", "packages/daemon/src/retired.ts");
+  const firstSha = commit(root),
+    first = derive(
+      root,
+      `Delivered ${firstSha}.`,
+      undefined,
+      ["lint"],
+      undefined,
+      { kind: "commit", commitSha: mainBase },
+      firstSha,
+    );
+  assert.deepEqual([first.productionDelta?.added, first.productionDelta?.deleted], [1, 1]);
+
+  put(root, "packages/storage/src/keep.ts", "export const keep = 2;\nexport const extra = 3;\n");
+  put(root, "packages/storage/src/rework.ts", "export const rework = 1;\n");
+  put(root, "packages/daemon/src/follow-up.ts", "export const follow = 1;\nexport const up = 2;\n");
+  const secondSha = commit(root),
+    second = derive(
+      root,
+      `Reworked ${secondSha}.`,
+      undefined,
+      ["lint"],
+      undefined,
+      { kind: "commit", commitSha: mainBase },
+      secondSha,
+      "repository-diff",
+      undefined,
+      first,
+    ),
+    expected = git(root, "diff", "--no-renames", "--numstat", mainBase, secondSha, "--")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        const [added, deleted, filePath] = line.split("\t");
+        return { added: Number(added), deleted: Number(deleted), filePath };
+      })
+      .filter(({ filePath }) => /^packages\/(?:daemon|storage)\/src\//u.test(filePath));
+
+  assert.notEqual(second.commitSha, first.commitSha);
+  assert.deepEqual(
+    [second.productionDelta?.added, second.productionDelta?.deleted],
+    [expected.reduce((sum, entry) => sum + entry.added, 0), expected.reduce((sum, entry) => sum + entry.deleted, 0)],
+  );
+  assert.deepEqual([...new Set(second.productionDelta?.changed.map(({ module }) => module))].sort(), [
+    "daemon",
+    "storage",
+  ]);
+});
+
 test("amending the same legacy commit recomputes missing submission facts", (t) => {
   const { root, base } = fixture(t);
   put(root, "packages/kernel/src/new.ts", "export const added = 1;\n");

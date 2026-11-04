@@ -1,8 +1,7 @@
 import { appendFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { git, repoRoot } from "./git.mjs";
-import { productionDeltaFromNumstat } from "../../packages/kernel/src/domain/production-delta.ts";
-import { classifyModule, isProductionPath } from "./module-policy.mjs";
+import { parseNumstatRecords, productionDeltaFromNumstat } from "../../packages/kernel/src/domain/production-delta.ts";
 import { writeCiGateResult } from "../ci-gate-result.mjs";
 
 // The delta describes the branch, so it is measured from the merge-base with the target ref.
@@ -19,40 +18,7 @@ export function computeProductionDelta({ rootDir, base, head }) {
         ? ["diff", "--no-renames", "--numstat", "-z", deltaBase, "--"]
         : ["diff", "--no-renames", "--numstat", "-z", deltaBase, head, "--"],
     );
-  const records = [];
-  for (const record of output.split("\0").filter(Boolean)) {
-    const firstTab = record.indexOf("\t");
-    const secondTab = record.indexOf("\t", firstTab + 1);
-    if (firstTab < 0 || secondTab < 0) throw new Error("git produced an invalid numstat record");
-    records.push({
-      addedText: record.slice(0, firstTab),
-      deletedText: record.slice(firstTab + 1, secondTab),
-      filePath: record.slice(secondTab + 1),
-    });
-  }
-
-  const computed = productionDeltaFromNumstat(records),
-    dshChanges = records
-      .filter(({ filePath }) => isProductionPath(filePath) && classifyModule(filePath) === "dsh-plugin")
-      .map(({ addedText, deletedText, filePath }) => {
-        if (addedText === "-" || deletedText === "-") throw new Error(`production source must be text: ${filePath}`);
-        if (!/^\d+$/u.test(addedText) || !/^\d+$/u.test(deletedText))
-          throw new Error(`git produced an invalid numstat record for ${filePath}`);
-        return {
-          filePath,
-          module: "dsh-plugin",
-          added: Number.parseInt(addedText, 10),
-          deleted: Number.parseInt(deletedText, 10),
-        };
-      });
-  if (dshChanges.length === 0) return computed;
-  const dshPaths = new Set(dshChanges.map(({ filePath }) => filePath));
-  return {
-    added: computed.added + dshChanges.reduce((sum, change) => sum + change.added, 0),
-    deleted: computed.deleted + dshChanges.reduce((sum, change) => sum + change.deleted, 0),
-    changed: [...computed.changed, ...dshChanges],
-    unclassified: computed.unclassified.filter((filePath) => !dshPaths.has(filePath)),
-  };
+  return productionDeltaFromNumstat(parseNumstatRecords(output));
 }
 
 export function evaluateProductionDelta({ rootDir, base, head }) {

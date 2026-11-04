@@ -6,7 +6,12 @@ import process from "node:process";
 import { pathToFileURL } from "node:url";
 import { checkPrBody } from "../check-pr-body.mjs";
 import { classifyProtectedChanges, deriveProtectedSurfaceRules } from "../check-pr-governance.mjs";
-import { readSubmissionFacts } from "../../packages/kernel/src/domain/submission-facts.ts";
+import {
+  SUBMISSION_FACTS_END,
+  SUBMISSION_FACTS_START,
+  readSubmissionFacts,
+  renderSubmissionFacts,
+} from "../../packages/kernel/src/domain/submission-facts.ts";
 import { markdownSections } from "../../packages/kernel/src/domain/transition-document-readiness.ts";
 import {
   hasDependencyChange,
@@ -16,8 +21,8 @@ import {
 } from "./dependency-policy.mjs";
 import { repoRoot } from "./git.mjs";
 
-const START = "<!-- harness:submission-facts:start -->";
-const END = "<!-- harness:submission-facts:end -->";
+const START = SUBMISSION_FACTS_START,
+  END = SUBMISSION_FACTS_END;
 
 // The PR template owns the four authored sections; this mapping only says which closeout section
 // feeds each one. The closeout is the single authoring place (dec_BB2BCE9F995CD3A126E2918734 CH1),
@@ -48,8 +53,11 @@ function record(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-function isSha(value) {
-  return typeof value === "string" && /^[0-9a-f]{40}$/u.test(value);
+function pathCode(value) {
+  const encoded = JSON.stringify(value),
+    longestTickRun = Math.max(0, ...(encoded.match(/`+/gu) ?? []).map((run) => run.length)),
+    delimiter = "`".repeat(longestTickRun + 1);
+  return `${delimiter}${encoded}${delimiter}`;
 }
 
 function taskProjection(receipt, taskId) {
@@ -75,73 +83,6 @@ function taskProjection(receipt, taskId) {
     packagePath: projection.packagePath,
     profileId: record(task.metadata) && typeof task.metadata.profileId === "string" ? task.metadata.profileId : null,
   };
-}
-
-function submittedPaths(value, name) {
-  if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string"))
-    throw new Error(`submitted cut has an invalid ${name} list`);
-  return [...new Set(value)].sort();
-}
-
-function inlineCode(value) {
-  return `\`${value.replaceAll("`", "\\`")}\``;
-}
-
-function pathCode(value) {
-  const encoded = JSON.stringify(value),
-    longestTickRun = Math.max(0, ...(encoded.match(/`+/gu) ?? []).map((run) => run.length)),
-    delimiter = "`".repeat(longestTickRun + 1);
-  return `${delimiter}${encoded}${delimiter}`;
-}
-
-function deliveryFacts(submission, facts) {
-  if (submission.commitSha === null) {
-    const artifacts = submittedPaths(submission.deliverables, "deliverables");
-    return [
-      "## Delivery Facts",
-      "- Delivery: artifact-only; no public Git commit.",
-      `- Delivered artifacts: ${artifacts.length} center-accepted artifact(s); paths remain in the private submission record.`,
-    ].join("\n");
-  }
-  if (!isSha(submission.commitSha)) throw new Error("submitted cut has an invalid delivery commit SHA");
-  const files = submittedPaths(facts.changedFiles, "changedFiles");
-  if (facts.kind === "legacy")
-    return [
-      "## Delivery Facts",
-      `- Delivery commit: ${inlineCode(submission.commitSha)}`,
-      "- Legacy submission facts: this historical cut predates frozen changedFiles and productionDelta.",
-      "- Changed paths (stored delivery evidence):",
-      ...(files.length ? files.map((filePath) => `  - ${pathCode(filePath)}`) : ["  - none"]),
-      "- Production delta: unavailable on this legacy cut.",
-    ].join("\n");
-  const delta = facts.productionDelta;
-  if (
-    !record(delta) ||
-    !isSha(delta.baseSha) ||
-    !Number.isSafeInteger(delta.added) ||
-    delta.added < 0 ||
-    !Number.isSafeInteger(delta.deleted) ||
-    delta.deleted < 0 ||
-    !Array.isArray(delta.changed) ||
-    !delta.changed.every((entry) => record(entry) && typeof entry.filePath === "string") ||
-    !Array.isArray(delta.unclassified) ||
-    !delta.unclassified.every((entry) => typeof entry === "string")
-  )
-    throw new Error("submitted code cut has no valid frozen productionDelta");
-  const net = delta.added - delta.deleted,
-    unclassified = delta.unclassified.length
-      ? ["- G33 unclassified production paths:", ...delta.unclassified.map((entry) => `  - ${pathCode(entry)}`)]
-      : ["- G33 classification: complete."],
-    changed = files.length ? files.map((filePath) => `  - ${pathCode(filePath)}`) : ["  - none"];
-  return [
-    "## Delivery Facts",
-    `- Delivery commit: ${inlineCode(submission.commitSha)}`,
-    `- Merge base: ${inlineCode(delta.baseSha)}`,
-    `- Production delta: +${delta.added}/-${delta.deleted} (net ${net >= 0 ? "+" : ""}${net}).`,
-    "- Changed files:",
-    ...changed,
-    ...unclassified,
-  ].join("\n");
 }
 
 function findSection(sections, aliases) {
@@ -256,7 +197,7 @@ function declareProtectedSurfaces(body, taskId, changedFiles, manifest) {
 export function renderTaskPrBody({ taskId, receipt, template, body = template, closeout, manifest }) {
   const { submission, profileId } = taskProjection(receipt, taskId),
     submissionFacts = readSubmissionFacts(submission),
-    delivery = deliveryFacts(submission, submissionFacts),
+    delivery = renderSubmissionFacts(submission, submissionFacts),
     stripped = withoutFacts(body),
     baseline = withoutFacts(template),
     sources = authoredSources(typeof closeout === "string" ? closeout : "", profileId);

@@ -2,7 +2,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { SubmissionV1 } from "../../src/domain/execution.ts";
-import { readSubmissionFacts } from "../../src/domain/submission-facts.ts";
+import {
+  SUBMISSION_FACTS_END,
+  SUBMISSION_FACTS_START,
+  readSubmissionFacts,
+  renderSubmissionFacts,
+  replaceSubmissionFacts,
+} from "../../src/domain/submission-facts.ts";
 
 const base = {
   completionClaim: "Delivered the change.",
@@ -105,4 +111,35 @@ test("artifact-only submissions have no code facts", () => {
     changedFiles: [],
     productionDelta: null,
   });
+});
+
+test("the shared facts renderer names the frozen commit, base, and production delta", () => {
+  const submission: SubmissionV1 = {
+      ...base,
+      commitSha: "a".repeat(40),
+      changedFiles: ["packages/kernel/new.ts"],
+      productionDelta: {
+        baseSha: "b".repeat(40),
+        added: 2,
+        deleted: 1,
+        changed: [],
+        unclassified: [],
+      },
+    },
+    block = renderSubmissionFacts(submission);
+  assert.match(block, /^## Delivery Facts$/mu);
+  assert.match(block, new RegExp(`Delivery commit: \\x60${"a".repeat(40)}\\x60`, "u"));
+  assert.match(block, new RegExp(`Merge base: \\x60${"b".repeat(40)}\\x60`, "u"));
+  assert.match(block, /Production delta: \+2\/-1 \(net \+1\)/u);
+});
+
+test("the facts replacement keeps authored prose and replaces only the marker region", () => {
+  const body = `Intro.\n\n${SUBMISSION_FACTS_START}\nold facts\n${SUBMISSION_FACTS_END}\n\nOutro.`,
+    replaced = replaceSubmissionFacts(body, "new facts");
+  assert.equal(replaced, `Intro.\n\n${SUBMISSION_FACTS_START}\nnew facts\n${SUBMISSION_FACTS_END}\n\nOutro.`);
+  assert.equal(replaceSubmissionFacts("no markers", "new facts"), null);
+  assert.equal(
+    replaceSubmissionFacts(`${SUBMISSION_FACTS_START}${SUBMISSION_FACTS_START}${SUBMISSION_FACTS_END}`, "x"),
+    null,
+  );
 });

@@ -1,4 +1,4 @@
-import { type SubmissionV1 } from "@harness-anything/kernel";
+import { type SubmissionV1, renderSubmissionFacts, replaceSubmissionFacts } from "@harness-anything/kernel";
 import type { HostingProvider } from "./hosting-provider.ts";
 import { pushTaskWorkerBranch } from "./runtime-worker-push.ts";
 import { scrubProviderValue } from "./dispatch-stream.ts";
@@ -11,7 +11,7 @@ type PullRequestInput = {
   /** Existing PR metadata changes only when explicitly supplied by the caller. */
   readonly title?: string;
   readonly submission: SubmissionV1;
-  /** Repository-authored Markdown is passed through; settlement never replaces an existing body. */
+  /** Authored body; the marked machine facts inside it are refreshed from the submission on publication. */
   readonly body?: string;
 };
 /** The only task publication port: both explicit push and terminal settlement use it. */
@@ -92,13 +92,16 @@ async function upsertPullRequest(branch: string, input: PullRequestInput, env?: 
   const update = async (existing: unknown) => {
     const number = isJsonObject(existing) ? existing[github ? "number" : "iid"] : undefined;
     if (typeof number !== "number") throw new Error("Hosting pull request has no number.");
-    if (input.title === undefined && input.body === undefined) return existing;
-    return (
-      await request(`${collection}/${number}`, github ? "PATCH" : "PUT", {
+    const existingBody = isJsonObject(existing) ? existing[github ? "body" : "description"] : undefined,
+      // The machine facts region is framework-owned: a reworked cut must not leave the previous
+      // delivery's commit and production delta on the PR, while authored prose stays untouched.
+      body = publishedBody(existingBody, input),
+      patch = {
         ...(input.title === undefined ? {} : { title: input.title }),
-        ...(input.body === undefined ? {} : { [github ? "body" : "description"]: input.body }),
-      })
-    ).value;
+        ...(body === undefined || body === existingBody ? {} : { [github ? "body" : "description"]: body }),
+      };
+    if (Object.keys(patch).length === 0) return existing;
+    return (await request(`${collection}/${number}`, github ? "PATCH" : "PUT", patch)).value;
   };
   let existing = await find(),
     result: unknown;
@@ -107,7 +110,7 @@ async function upsertPullRequest(branch: string, input: PullRequestInput, env?: 
     const created = await request(collection, "POST", {
       title: input.title ?? input.taskTitle,
       ...(github ? { head: branch, base } : { source_branch: branch, target_branch: base }),
-      [github ? "body" : "description"]: input.body ?? submittedBody(input.submission),
+      [github ? "body" : "description"]: publishedBody(undefined, input) ?? submittedBody(input.submission),
     });
     // Concurrent edge settlements can both observe absence. The hosting conflict is a value;
     // reconcile it against the branch identity, otherwise surface the original HTTP failure.
@@ -120,6 +123,13 @@ async function upsertPullRequest(branch: string, input: PullRequestInput, env?: 
   const url = isJsonObject(result) ? result[github ? "html_url" : "web_url"] : undefined;
   if (typeof url !== "string") throw new Error("Hosting pull request response has no URL.");
   return url;
+}
+
+/** Refresh only the marked machine facts; an edited or marker-less body keeps its authored text. */
+function publishedBody(existingBody: unknown, input: PullRequestInput): string | undefined {
+  const block = renderSubmissionFacts(input.submission),
+    candidate = typeof input.body === "string" ? input.body : existingBody;
+  return typeof candidate === "string" ? (replaceSubmissionFacts(candidate, block) ?? candidate) : undefined;
 }
 
 /** These are the framework's frozen closeout fields, not a repository PR template. */

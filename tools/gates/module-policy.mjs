@@ -1,19 +1,12 @@
 import {
-  classifyModule as classifyKernelModule,
+  classifyModule,
   classifyPath,
   isProductionPath,
   isTestPath,
   normalizeRepoPath,
 } from "../../packages/kernel/src/domain/production-delta.ts";
 
-export function classifyModule(filePath) {
-  const moduleName = classifyKernelModule(filePath);
-  if (moduleName !== null) return moduleName;
-  const normalized = normalizeRepoPath(filePath);
-  return normalized?.startsWith("packages/dsh-plugin/") ? "dsh-plugin" : null;
-}
-
-export { classifyPath, isProductionPath, isTestPath, normalizeRepoPath };
+export { classifyModule, classifyPath, isProductionPath, isTestPath, normalizeRepoPath };
 
 export const BUDGETED_MODULES = Object.freeze([
   "kernel",

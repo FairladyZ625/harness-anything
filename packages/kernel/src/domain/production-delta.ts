@@ -22,7 +22,7 @@ const SOURCE_EXTENSION = /\.(?:c|m)?js$|\.(?:d\.)?tsx?$/u;
 const TEST_SEGMENT = /(?:^|\/)(?:__tests__|e2e|fixtures?|test|tests)(?:\/|$)/u;
 const TEST_FILE = /\.(?:integration\.)?(?:spec|test)\.[^.]+$/u;
 const CANONICAL_MODULE =
-  /^(?:packages|src)\/(kernel|task-lifecycle|doc-sync|preset|cli|gui|daemon|storage|authority-write-path|identity-rbac)(?:\/|$)/u;
+  /^(?:packages|src)\/(kernel|task-lifecycle|doc-sync|preset|cli|gui|daemon|storage|authority-write-path|identity-rbac|dsh-plugin)(?:\/|$)/u;
 const CONCEPT_MODULE =
   /^packages\/(?:kernel\/src\/(?:domain|schemas)\/(decision|fact)-event|kernel\/src\/projection\/(decision|fact)-event-projection|application\/src\/(decision|fact)-service|daemon\/src\/(decision|fact)-actions)\.ts$/u;
 
@@ -93,6 +93,22 @@ export function classifyPath(filePath: string): {
     module: classifyModule(normalized),
     kind: isProductionPath(normalized) ? "production" : isTestPath(normalized) ? "test" : "other",
   };
+}
+
+/** Parse `git diff --numstat -z` output; both submit and G33 read the same records. */
+export function parseNumstatRecords(output: string): ProductionNumstatRecord[] {
+  const records: ProductionNumstatRecord[] = [];
+  for (const record of output.split("\0").filter(Boolean)) {
+    const firstTab = record.indexOf("\t"),
+      secondTab = record.indexOf("\t", firstTab + 1);
+    if (firstTab < 0 || secondTab < 0) throw new Error("git produced an invalid numstat record");
+    records.push({
+      addedText: record.slice(0, firstTab),
+      deletedText: record.slice(firstTab + 1, secondTab),
+      filePath: record.slice(secondTab + 1),
+    });
+  }
+  return records;
 }
 
 export function productionDeltaFromNumstat(records: readonly ProductionNumstatRecord[]): ProductionDeltaCounts {
