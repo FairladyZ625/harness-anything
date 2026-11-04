@@ -30,7 +30,7 @@ export function restoreEdgeJoinStore(
 
 export async function admitEdgeJoin(input: {
   readonly joinId: string;
-  readonly inviteToken: string;
+  readonly inviteToken?: string;
   readonly accessToken: string;
   readonly oidc: IdentitySessionPort;
   readonly edgeJoins: ReturnType<typeof createEdgeJoinStore>;

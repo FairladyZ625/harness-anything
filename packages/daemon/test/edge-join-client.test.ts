@@ -301,6 +301,20 @@ test("one invitation creates and syncs an independent workspace for every reposi
       return true;
     },
   );
+  await joinFleetEdge(
+    { link: encodeEdgeJoinLink({ ...invite.link, token: undefined }), workspaceRoot: path.join(temp, "member-device") },
+    {
+      ...ports,
+      join: async (input) => {
+        assert.equal(
+          Object.hasOwn(input, "inviteToken"),
+          false,
+          "the same join port receives no token for a member link",
+        );
+        return ports.join!({ ...input, inviteToken: invite.link.token! });
+      },
+    },
+  );
 });
 
 test("ssh-reverse writes the login authority before the first sync", async (t) => {

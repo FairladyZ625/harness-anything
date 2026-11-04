@@ -410,3 +410,13 @@ test("work team operations preserve versions and reject renderer authority field
     accessAdminParams({ operation: "team-member-add", ...change, personId: "alice", actor: "admin" }, () => "id"),
   );
 });
+
+test("member device creation uses the existing typed operation without person, groups, or token", () => {
+  const params = accessAdminParams(
+    { operation: "edge-join-create", joinMode: "member-device", repoIds: ["repo-a"] },
+    () => "unused",
+  );
+  assert.deepEqual(params, { operation: "edge-join-create", joinMode: "member-device", repoIds: ["repo-a"] });
+  assert.throws(() => accessAdminParams({ ...params, personId: "another-person" }, () => "unused"));
+  assert.throws(() => accessAdminParams({ ...params, groupIds: ["admin"] }, () => "unused"));
+});

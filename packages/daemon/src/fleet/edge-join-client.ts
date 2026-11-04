@@ -86,10 +86,6 @@ export async function joinFleetEdge(
   const link = decodeEdgeJoinLink(request.link);
   if (request.quotaBytes !== undefined && (!Number.isSafeInteger(request.quotaBytes) || request.quotaBytes <= 0))
     throw Object.assign(new Error("Edge join quota must be a positive integer."), { code: "edge_join_quota_invalid" });
-  if (!link.token)
-    throw Object.assign(new Error("The invitation has no token; ask for a new invitation."), {
-      code: "edge_join_invalid",
-    });
   const authority = {
     url: link.loginUrl,
     realm: link.loginRealm,
@@ -154,7 +150,7 @@ export async function joinFleetEdge(
       port,
       servername: centerServername,
       joinId: link.joinId,
-      inviteToken: link.token,
+      ...(link.token === undefined ? {} : { inviteToken: link.token }),
       accessToken: session.accessToken,
       spkiSha256: link.spkiSha256,
     }),

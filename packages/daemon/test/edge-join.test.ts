@@ -47,7 +47,7 @@ test("an invitation uses a pasteable harness-edge string and persists only a tok
   assert.deepEqual(store.list()[0]?.groupIds, ["contributor"]);
   assert.equal(Object.hasOwn(created.record, "token"), false);
   assert.equal(JSON.stringify(created.record).includes("opaque-token"), false);
-  assert.equal(created.record.tokenDigest.length, 64);
+  assert.equal(created.record.tokenDigest!.length, 64);
   assert.equal(store.status(created.record.joinId).state, "pending");
   assert.throws(
     () => decodeEdgeJoinLink("https://center.example:8443/join#v=1&join=join-id"),
@@ -384,4 +384,53 @@ test("the join result carries layouts for every invited repository", () => {
       frame.repositories.map(({ repoId }) => repoId),
       ["repo-a", "repo-b"],
     );
+});
+
+test("a member-device link has no token and cannot bypass an invitation token", () => {
+  const store = createEdgeJoinStore({ randomToken: () => assert.fail("member links must not mint a token") });
+  const member = store.create({ ...inviteInput, mode: "member-device" });
+  assert.equal(member.record.mode, "member-device");
+  assert.equal(Object.hasOwn(member.link, "token"), false);
+  assert.equal(Object.hasOwn(member.record, "tokenDigest"), false);
+  assert.deepEqual(decodeEdgeJoinLink(encodeEdgeJoinLink(member.link)), member.link);
+  assert.equal(store.assertConsumable(member.record.joinId, undefined).personId, "person-a");
+  assert.throws(() => decodeEdgeJoinLink("https://center.example"), { code: "edge_join_invalid" });
+  assert.throws(() => decodeEdgeJoinLink(encodeEdgeJoinLink({ ...member.link, spkiSha256: "" })), {
+    code: "edge_join_invalid",
+  });
+  const invitation = createEdgeJoinStore().create(inviteInput);
+  assert.throws(
+    () => createEdgeJoinStore({ records: [invitation.record] }).assertConsumable(invitation.record.joinId, undefined),
+    { code: "edge_join_invalid" },
+  );
+});
+
+test("the pinned join frame accepts no invite token but still requires a human access token", () => {
+  const frame = {
+    schema: "fleet.edge.join/v1",
+    messageId: "member-join",
+    joinId: "member-one",
+    accessToken: "human-token",
+  };
+  assert.equal(parseFleetFrame(JSON.stringify(frame)).schema, "fleet.edge.join/v1");
+  const { accessToken: _token, ...anonymous } = frame;
+  assert.throws(() => parseFleetFrame(JSON.stringify(anonymous)));
+  assert.throws(() => parseFleetFrame(JSON.stringify({ ...frame, inviteToken: "" })));
+});
+
+test("a member link response carries a complete pinned link beyond the short text field limit", () => {
+  const created = createEdgeJoinStore().create({
+    ...inviteInput,
+    mode: "member-device",
+    repoIds: Array.from({ length: 20 }, (_, index) => `repo-${index}`),
+  });
+  const link = encodeEdgeJoinLink(created.link);
+  assert.ok(link.length > 512);
+  const response = {
+    schema: "fleet.edge.link.created/v1",
+    messageId: "created-member",
+    inReplyTo: "request-member",
+    result: { ok: true, joinId: created.record.joinId, state: "pending", expiresAt: created.record.expiresAt, link },
+  };
+  assert.equal(parseFleetFrame(JSON.stringify(response)).schema, "fleet.edge.link.created/v1");
 });

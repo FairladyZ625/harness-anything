@@ -53,6 +53,7 @@ export interface FleetCenterAdmissionRequest {
     | "invitationClientForNode"
     | "loginAuthority"
     | "verifyHuman"
+    | "createMemberEdgeJoin"
     | "deviceLoginNotice"
     | "revokeDeviceSessions"
   > & {

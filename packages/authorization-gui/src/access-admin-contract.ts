@@ -4,6 +4,26 @@ export type EdgeJoinPlatform = "darwin" | "linux" | "win32";
 export const ACCESS_ADMIN_CHANNEL = "harness:access:admin";
 
 /** The facets of one declared action, as the daemon reads them from ActionDeclaration. */
+export type EdgeJoinCreateInput = {
+  readonly repoIds: readonly string[];
+  readonly nodeLabel?: string;
+  readonly platform?: EdgeJoinPlatform;
+  readonly transport?: "direct" | "ssh-reverse";
+  readonly sshTarget?: string;
+} & (
+  | {
+      readonly joinMode: "member-device";
+    }
+  | {
+      readonly joinMode?: "invitation";
+      readonly personId: string;
+      readonly username?: string;
+      readonly email?: string;
+      readonly displayName?: string;
+      readonly groupIds: readonly string[];
+    }
+);
+
 export interface AccessAction {
   readonly action: string;
   readonly presentation: { readonly domain: string; readonly name: string; readonly description: string };
@@ -198,23 +218,7 @@ export type AccessAdminRequest = { readonly repoId?: string } & (
       readonly sessionLifetimeSeconds: number;
       readonly expectedVersion: string;
     }
-  | {
-      /**
-       * Creates the invited provider user, multi-repository grants and one-time pinned link on the daemon
-       * writer. Username, email, and displayName create a new member; an existing person is invited without them.
-       */
-      readonly operation: "edge-join-create";
-      readonly personId: string;
-      readonly username?: string;
-      readonly email?: string;
-      readonly displayName?: string;
-      readonly repoIds: readonly string[];
-      readonly groupIds: readonly string[];
-      readonly nodeLabel?: string;
-      readonly platform?: EdgeJoinPlatform;
-      readonly transport?: "direct" | "ssh-reverse";
-      readonly sshTarget?: string;
-    }
+  | ({ readonly operation: "edge-join-create" } & EdgeJoinCreateInput)
   | { readonly operation: "edge-join-status"; readonly joinId: string }
   | { readonly operation: "edge-join-list" }
   | { readonly operation: "edge-join-revoke"; readonly joinId: string }
@@ -289,19 +293,7 @@ export interface AccessAdminApi {
     readonly sessionLifetimeSeconds: number;
     readonly expectedVersion: string;
   }) => Reply<AccessReceipt>;
-  readonly issueEdgeJoin: (input: {
-    readonly personId: string;
-    /** New-member fields; the daemon ignores them when the person already exists. */
-    readonly username?: string;
-    readonly email?: string;
-    readonly displayName?: string;
-    readonly repoIds: readonly string[];
-    readonly groupIds: readonly string[];
-    readonly nodeLabel?: string;
-    readonly platform?: EdgeJoinPlatform;
-    readonly transport?: "direct" | "ssh-reverse";
-    readonly sshTarget?: string;
-  }) => Reply<EdgeJoinIssued>;
+  readonly issueEdgeJoin: (input: EdgeJoinCreateInput) => Reply<EdgeJoinIssued>;
   readonly edgeJoinStatus: (input: { readonly joinId: string }) => Reply<EdgeJoinStatusReply>;
   readonly edgeJoinList: () => Reply<{ readonly joins: readonly EdgeJoinSummary[] }>;
   readonly revokeEdgeJoin: (input: { readonly joinId: string }) => Reply<EdgeJoinStatusReply>;

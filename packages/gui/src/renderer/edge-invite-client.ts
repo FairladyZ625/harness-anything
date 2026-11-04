@@ -2,7 +2,7 @@ import type {
   AccessAction,
   AccessPolicyGroup,
   EdgeJoinIssued,
-  EdgeJoinPlatform,
+  EdgeJoinCreateInput,
   EdgeJoinStatusReply,
   EdgeJoinSummary,
 } from "@harness-anything/authorization-gui/access-admin-contract";
@@ -13,19 +13,7 @@ import { isRendererRecord, rendererReadError } from "./result-validation.ts";
 export type EdgeInvitePerson = { readonly personId: string; readonly username: string };
 
 /** Invitation create, status, list, and revoke all use the center typed access-admin channel. */
-type CreateJoinInput = {
-  readonly personId: string;
-  /** New-member fields; the daemon requires them only when the person does not exist yet. */
-  readonly username?: string;
-  readonly email?: string;
-  readonly displayName?: string;
-  readonly repoIds: readonly string[];
-  readonly groupIds: readonly string[];
-  readonly nodeLabel?: string;
-  readonly platform?: EdgeJoinPlatform;
-  readonly transport?: "direct" | "ssh-reverse";
-  readonly sshTarget?: string;
-};
+type CreateJoinInput = EdgeJoinCreateInput;
 type AccessBridge = {
   readonly groups: () => Promise<unknown>;
   readonly grants: () => Promise<unknown>;

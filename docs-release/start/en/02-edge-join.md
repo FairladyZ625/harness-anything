@@ -64,13 +64,27 @@ ssh -N \
 If an invitation hostname is not already a local address on the edge machine, map it to the SSH listener with a local
 loopback alias or local DNS/hosts entry first. Forwarded ports must match the invitation URLs.
 
+### Existing members: add your own device
+
+Select your repository on a signed-in device or the center GUI, open **Identity & access → My devices**, and choose **Add my device**. Copy the link into **Join a center** on your other device and sign in with the same account.
+
+The link uses the same `harness-edge://join/…` v2 format, carries the center address and SPKI pin, and contains no invitation token. It changes no grants: current repository access is checked both when issuing and consuming it. The link expires after 72 hours and is used once. Each new device receives an independent nodeId; replay returns `already_consumed` without creating another node. Generate another link for another device. Bare center addresses and links without a pin are refused.
+
+From a signed-in repository directory, the CLI can issue the same link (repeat `--join-repo` for additional authorized repositories):
+
+```bash
+ha bootstrap --operation edge-join-create --join-mode member-device --join-repo <repo-id>
+```
+
+Run `ha edge join '<complete-link>'` on the new device. Login, protected local credential storage, and first sync use the invitation join flow.
+
 ## 3. Join from the invitation link
 
 Either way works:
 
 - Click the `harness-edge://join/…` link in the invitation message; the app opens with the link pre-filled, or
 - Open the app, click **Join a center** on the home page (the empty state before any project exists) or in the top-left
-  project switcher, and paste the invitation link into the **Invitation link** field.
+  project switcher, and paste the invitation link into the **Join link** field.
 
 Click **Start joining**. The link stays on this machine and is never uploaded or logged; the invitation link already
 carries the trust information, so no manual configuration is needed.

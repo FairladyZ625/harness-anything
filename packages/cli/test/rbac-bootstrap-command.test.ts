@@ -597,3 +597,18 @@ test("edge join prepares its workspace root before reaching the daemon", async (
     rmSync(userRoot, { recursive: true, force: true });
   }
 });
+
+test("a signed-in member requests her own device link without selecting a person or permission groups", () => {
+  const parsed = parseThinCommand(
+    ["bootstrap", "--operation", "edge-join-create", "--join-mode", "member-device", "--join-repo", "repo-a"],
+    "/repo",
+  );
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  assert.equal(parsed.command.method, "daemon.rbac.manage");
+  assert.equal(parsed.command.action.joinMode, "member-device");
+  assert.equal(parsed.command.action.rootDir, "/repo");
+  assert.deepEqual(parsed.command.action.repoIds, ["repo-a"]);
+  assert.equal(Object.hasOwn(parsed.command.action, "personId"), false);
+  assert.equal(Object.hasOwn(parsed.command.action, "groupIds"), false);
+});

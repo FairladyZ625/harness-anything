@@ -1,3 +1,4 @@
+import { createFleetMemberDeviceLink } from "./fleet/peer.ts";
 import { markDaemonOperationPhase } from "./daemon-operation.ts";
 import type { FleetDeviceLoginNotice, IdentityManagementPort, IdentitySessionPort } from "@harness-anything/kernel";
 import { readHomeOverview } from "./home/home-overview-read.ts";
@@ -1028,6 +1029,27 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
               throw hostCodedError("oidc_center_required", "Select a repository root to choose its identity center.");
             return loginTarget;
           };
+        if (request.operation === "edge-join-create" && request.joinMode === "member-device" && loginTarget) {
+          const edge = readFleetEdgeConfig(loginTarget);
+          if (edge) {
+            // Identity and permissions are checked by the center; this daemon forwards only intent.
+            return {
+              ...(await createFleetMemberDeviceLink(
+                {
+                  hostname: edge.host,
+                  port: edge.port,
+                  ca: readFileSync(edge.caPath),
+                  ...(edge.servername ? { servername: edge.servername } : {}),
+                  nodeId: edge.nodeId,
+                  credential: edge.credential,
+                  repoId: edge.repoId,
+                  readAccessToken: async () => (await oidc.bind(auth, loginTarget)).oidcPrincipal?.accessToken,
+                },
+                (request.repoIds ?? []) as readonly string[],
+              )),
+            };
+          }
+        }
         if (request.operation === "edge-join") {
           return joinFleetEdge(
             {
@@ -1307,6 +1329,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
                 }
               : {}),
             verifyHuman: (auth) => oidc.bind(auth),
+            createMemberEdgeJoin: (repos, person, token) => accessAdmin.createMemberEdgeJoin(repos, person, token),
             edgeJoin: (input) =>
               accessAdmin.admitEdgeJoin({
                 joinId: input.joinId,

@@ -1122,6 +1122,22 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         });
       });
     }
+    if (frame.schema === "fleet.edge.link.create/v1") {
+      const principal = await repoAdmission(await nodeContext(nodeId, frame.repoId, frame.accessToken));
+      if (!options.createMemberEdgeJoin || !principal.oidcPrincipal)
+        throw new FleetFault("edge_join_unavailable", "Member device links are unavailable.");
+      const result = await options.createMemberEdgeJoin(
+        frame.repoIds,
+        principal.oidcPrincipal.personId,
+        principal.oidcPrincipal.accessToken,
+      );
+      return immediate({
+        schema: "fleet.edge.link.created/v1",
+        messageId: mid(frame.messageId, "member-link"),
+        inReplyTo: frame.messageId,
+        result,
+      });
+    }
     if (frame.schema === "fleet.operational.read/v1") {
       const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
       if (frame.repoId !== a.repoId)

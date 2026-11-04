@@ -845,6 +845,13 @@ export const agentProtocolCommands = Object.freeze([
       cliInput("--group-id", "single", false, { code: "invalid_field" }, { field: "groupId" }),
       cliInput("--resource", "single", false, { code: "invalid_field" }),
       cliInput("--credential-file", "single", false, { code: "invalid_field" }, { field: "credentialFile" }),
+      cliInput(
+        "--join-mode",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { field: "joinMode", enum: ["invitation", "member-device"] },
+      ),
       cliInput("--join-id", "single", false, { code: "invalid_field" }, { field: "joinId" }),
       cliInput("--join-repo", "repeated", false, { code: "invalid_field" }),
       cliInput("--join-group", "repeated", false, { code: "invalid_field" }),

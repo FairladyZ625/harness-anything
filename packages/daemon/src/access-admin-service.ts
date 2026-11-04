@@ -126,8 +126,23 @@ export class AccessAdminService {
 
   /** Pre-session admission used only by the fleet edge.join frame. The whole invite/node write is
    * serialized by the OIDC writer, and the machine credential is returned only to this caller. */
-  async admitEdgeJoin(input: { readonly joinId: string; readonly inviteToken: string; readonly accessToken: string }) {
+  async admitEdgeJoin(input: { readonly joinId: string; readonly inviteToken?: string; readonly accessToken: string }) {
     return this.#edgeJoinAdmin.admit(input);
+  }
+
+  /** The fleet transport supplies an independently verified person and human access token. */
+  createMemberEdgeJoin(repoIds: readonly string[], personId: string, accessToken: string) {
+    return this.#oidc.serialize(() =>
+      this.#edgeJoinAdmin.create(
+        {
+          operation: "edge-join-create",
+          joinMode: "member-device",
+          repoIds,
+        },
+        personId,
+        accessToken,
+      ),
+    );
   }
 
   invitationClientForNode(nodeId: string): { readonly clientId: string; readonly personId: string } | undefined {
@@ -151,17 +166,18 @@ export class AccessAdminService {
       throw coded("human_confirmation_required", "An execution credential cannot decide permission requests.");
     if (request.operation === "permission-request-create" && requester !== undefined)
       return this.#createPermissionRequest(request, requester);
-    const ownDevices = request.operation?.startsWith("device-") === true,
+    const ownDevices =
+        request.operation?.startsWith("device-") === true ||
+        (request.operation === "edge-join-create" && request.joinMode === "member-device"),
       publicRequest =
         request.operation === "permission-request-create" || request.operation === "permission-request-withdraw",
-      actor = (
-        await (ownDevices ||
-        publicRequest ||
-        request.operation === "permission-request-list" ||
-        request.operation === "permission-request-decide"
-          ? this.#oidc.requireSession(request.rootDir)
-          : this.#oidc.requireAccessManagement(request.rootDir))
-      ).personId;
+      actorSession = await (ownDevices ||
+      publicRequest ||
+      request.operation === "permission-request-list" ||
+      request.operation === "permission-request-decide"
+        ? this.#oidc.requireSession(request.rootDir)
+        : this.#oidc.requireAccessManagement(request.rootDir)),
+      actor = actorSession.personId;
     switch (request.operation as AccessAdminOperation) {
       case "group-list":
         return this.#listGroups();
@@ -205,7 +221,7 @@ export class AccessAdminService {
           planNodeRetirement(session, request, this.#ports.nodeRetirement!),
         );
       case "edge-join-create":
-        return this.#oidc.serialize(() => this.#edgeJoinAdmin.create(request, actor));
+        return this.#oidc.serialize(() => this.#edgeJoinAdmin.create(request, actor, actorSession.accessToken));
       case "edge-join-status":
         return this.#oidc.serialize(async () => ({
           ok: true,
