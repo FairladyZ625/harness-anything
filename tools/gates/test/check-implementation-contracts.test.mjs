@@ -214,7 +214,7 @@ test("real implementation gate accepts renamed titles and rejects each missing o
       for (const match of source.matchAll(/^[ \t]*\/\/ harness-contract: ([a-z0-9.-]+)$/gm))
         anchors.push({ file, marker: match[0], id: match[1] });
     }
-    assert.equal(anchors.length, 15);
+    assert.equal(anchors.length, 13);
     const run = () =>
       spawnSync(process.execPath, [path.join(root, "tools/check-implementation-contracts.mjs")], {
         cwd: fixture,
@@ -236,7 +236,7 @@ test("real implementation gate accepts renamed titles and rejects each missing o
         ),
       );
     }
-    assert.equal(renamedCount, 15);
+    assert.equal(renamedCount, 13);
     const renamed = run();
     assert.equal(renamed.status, 0, renamed.stderr);
     assert.equal(renamed.stdout, baseline.stdout);

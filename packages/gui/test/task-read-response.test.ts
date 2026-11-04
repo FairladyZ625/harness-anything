@@ -44,7 +44,7 @@ for (const code of ["repo_unavailable", "authorization_denied", "isolated rows"]
     process.env.HARNESS_DAEMON_USER_ROOT = parent;
     process.env.HARNESS_DAEMON_ID = "task-response";
     try {
-      assert.deepEqual(await createLocalGuiServiceBridge(parent).invoke("getTasks", { repoId: "proxy-repo" }), receipt);
+      assert.deepEqual(await createLocalGuiServiceBridge().invoke("getTasks", { repoId: "proxy-repo" }), receipt);
       assert.deepEqual(
         warn.mock.calls.map((call) => call.arguments),
         code === "isolated rows"

@@ -70,7 +70,7 @@ test("GUI registry bridge lists, creates, updates, deletes, and probes a runtime
   process.env.HARNESS_DAEMON_ID = daemonId;
   await transport.start();
   try {
-    const base = createLocalGuiServiceBridge(rootDir),
+    const base = createLocalGuiServiceBridge(),
       bridge = addLocalMainControls({
         bridge: base,
         target: async () => ({ repoId: "unused", socketPath: endpoint, userRoot, daemonId }),

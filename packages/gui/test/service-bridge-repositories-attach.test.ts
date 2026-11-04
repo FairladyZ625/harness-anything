@@ -68,7 +68,7 @@ test("GUI bridge switches between two enabled RepoCells without leaking task row
       1_000,
     );
     assert.equal(created.ok, true, JSON.stringify(created));
-    const bridge = createLocalGuiServiceBridge(fixture.rootDir);
+    const bridge = createLocalGuiServiceBridge();
     const [repoA, repoB] = await Promise.all([
       bridge.invoke("getTasks", { repoId: fixture.repoId }),
       bridge.invoke("getTasks", { repoId: repoBId }),

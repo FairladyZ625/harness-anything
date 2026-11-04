@@ -8,7 +8,8 @@ type Target = {
 };
 export function addLocalMainControls(input: {
   readonly bridge: GuiServiceBridge;
-  readonly target: (repoId?: string) => Promise<Target>;
+  /** The attached daemon; only its user root is overlaid, so no repository is required. */
+  readonly target: () => Promise<Pick<Target, "userRoot">>;
 }): GuiServiceBridge {
   return {
     stream: input.bridge.stream,

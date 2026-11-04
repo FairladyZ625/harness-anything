@@ -25,7 +25,7 @@ test("GUI assignment carries the read version and preserves assignment through a
   delete process.env.HARNESS_DAEMON_ENDPOINT;
   Object.assign(process.env, fixture.env);
   try {
-    const bridge = createLocalGuiServiceBridge(fixture.rootDir),
+    const bridge = createLocalGuiServiceBridge(),
       scope = { repoId: fixture.repoId, taskId: "task-gui-assignment" },
       read = async () => {
         const row = parseDaemonGuiReadResult(

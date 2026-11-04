@@ -22,7 +22,13 @@ export { DEFAULT_GUI_CONNECT_TIMEOUT_MS, DEFAULT_GUI_REQUEST_TIMEOUT_MS };
 // app's life, like any other startup configuration.
 const guiTimeoutsByRoot = new Map<string, GuiRequestTimeouts>();
 
-export function guiRequestTimeouts(rootDir: string): GuiRequestTimeouts {
+/** `rootDir === null` means the request names no repository; the declared defaults govern. */
+export function guiRequestTimeouts(rootDir: string | null): GuiRequestTimeouts {
+  if (rootDir === null)
+    return {
+      connectTimeoutMs: DEFAULT_GUI_CONNECT_TIMEOUT_MS,
+      requestTimeoutMs: DEFAULT_GUI_REQUEST_TIMEOUT_MS,
+    };
   const cached = guiTimeoutsByRoot.get(rootDir);
   if (cached) return cached;
   // A root with no local settings file is the normal state before the first settings update; the

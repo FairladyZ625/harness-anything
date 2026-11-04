@@ -29,7 +29,7 @@ test("GUI pin/unpin reach the ledger through the resident daemon write path", as
   delete process.env.HARNESS_DAEMON_ENDPOINT;
   Object.assign(process.env, fixture.env);
   try {
-    const bridge = createLocalGuiServiceBridge(fixture.rootDir),
+    const bridge = createLocalGuiServiceBridge(),
       scope = { repoId: fixture.repoId },
       taskSnapshot = async () =>
         parseDaemonGuiReadResult("repo.tasks.list", await bridge.invoke("getTasks", scope)).rows.find(
@@ -89,7 +89,7 @@ test("GUI entity unpin clears a CLI-pinned decision through the resident daemon 
   delete process.env.HARNESS_DAEMON_ENDPOINT;
   Object.assign(process.env, fixture.env);
   try {
-    const bridge = createLocalGuiServiceBridge(fixture.rootDir),
+    const bridge = createLocalGuiServiceBridge(),
       scope = { repoId: fixture.repoId },
       pinnedRefs = async () =>
         parseDaemonGuiReadResult("repo.agenda.read", await bridge.invoke("getAgenda", scope)).pinnedEntities.map(

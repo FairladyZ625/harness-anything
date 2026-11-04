@@ -47,7 +47,7 @@ test("GUI answers an awaits ask through the resident daemon write path", async (
       1_000,
     );
     assert.equal(related.ok, true, JSON.stringify(related));
-    const bridge = createLocalGuiServiceBridge(fixture.rootDir),
+    const bridge = createLocalGuiServiceBridge(),
       scope = { repoId: fixture.repoId },
       agenda = async () => parseDaemonGuiReadResult("repo.agenda.read", await bridge.invoke("getAgenda", scope));
     const asked = await agenda(),

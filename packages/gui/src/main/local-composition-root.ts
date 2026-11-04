@@ -1,4 +1,3 @@
-import path from "node:path";
 import { daemonProtocolError, isDaemonGuiActionMethod, isDaemonGuiReadMethod } from "@harness-anything/daemon/client";
 import type { DaemonTaskSnapshotListResult, DaemonStreamPayloadMap } from "@harness-anything/daemon/protocol";
 import {
@@ -7,7 +6,6 @@ import {
   parseDaemonGuiReadResult,
 } from "@harness-anything/daemon/client";
 import { guiDaemonReadOnly, guiDaemonUserRoot, guiGlobalDaemonTarget } from "./gui-daemon-target.ts";
-import { validateProjectPath } from "../api/local-api.ts";
 import { createGuiServiceBridgeForDaemon, type GuiServiceBridge, type ShippedGuiRoute } from "../api/service-bridge.ts";
 import { streamDaemonFacetAt } from "./agent-runtime-stream-client.ts";
 import type { FirstRunBootstrapInput } from "../api/first-run-contract.ts";
@@ -38,15 +36,15 @@ let client: Promise<DaemonClient> | undefined;
 // 没有 layout 覆写入口:GUI 的每一次读写都走 daemon JSON-RPC,authored root 由 daemon 按
 // 目标仓库自己的 harness.yaml 解析(非默认 authoredRoot 也因此照常可读)。GUI 侧再开一个
 // 覆写参数只会让人以为它能改别人的 authored root。
-export function createLocalGuiServiceBridge(rootDir: string): GuiServiceBridge {
-  const root = path.resolve(rootDir);
-  validateProjectPath(root, ".");
+// 根目录不归主进程持有:每条仓库级请求用自己的 repoId 解析它,窗口内换项目后下一次请求
+// 就是新项目。启动时捕获的 HARNESS_GUI_ROOT 会让旧根在换项目后继续被校验(issue #4267)。
+export function createLocalGuiServiceBridge(): GuiServiceBridge {
   return createGuiServiceBridgeForDaemon(
-    (route, payload) => request(root, route, payload),
+    (route, payload) => request(route, payload),
     async (route, payload, emit) => {
       const daemon = await loadClient(),
         scoped = repoPayload(payload),
-        target = repoTarget(daemon, root, scoped.repoId);
+        target = repoTarget(daemon, scoped.repoId);
       // A stream that exhausts its reconnect budget reaches the renderer through the same frame
       // channel a failed open already uses, so a lost pane says so instead of going quietly blank.
       return streamDaemonFacetAt({
@@ -83,7 +81,7 @@ export async function bootstrapLocalRepository(input: FirstRunBootstrapInput): P
     return failure("init", "Repository setup failed", error);
   }
 }
-async function request(rootDir: string, route: ShippedGuiRoute, payload: unknown): Promise<JsonObject> {
+async function request(route: ShippedGuiRoute, payload: unknown): Promise<JsonObject> {
   try {
     const daemon = await loadClient(),
       scoped =
@@ -100,7 +98,8 @@ async function request(rootDir: string, route: ShippedGuiRoute, payload: unknown
         "GUI read-only daemon attachment rejects write operations",
         Object.assign(new Error("gui_read_only"), { code: "gui_read_only" }),
       );
-    const target = scoped ? repoTarget(daemon, rootDir, scoped.repoId) : globalTarget();
+    const scopedTarget = scoped ? repoTarget(daemon, scoped.repoId) : null,
+      target = scopedTarget ?? globalTarget();
     const daemonPayload = scoped?.payload ?? ((payload ?? {}) as JsonObject);
     const body: JsonObject = route.inputSchemaId === "gui.empty/v1" ? {} : { payload: daemonPayload },
       params: JsonObject = scoped ? { repo: { repoId: scoped.repoId }, ...body } : body;
@@ -116,7 +115,10 @@ async function request(rootDir: string, route: ShippedGuiRoute, payload: unknown
         reportInvalidTaskSnapshotRows(parsed as unknown as DaemonTaskSnapshotListResult);
       return parsed;
     };
-    const timeouts = guiRequestTimeouts(rootDir),
+    // Repository-scoped reads take their deadlines from the repository that answered, so a
+    // window switch also switches the settings file. Global reads have no repository and use
+    // the declared defaults.
+    const timeouts = guiRequestTimeouts(scopedTarget?.canonicalRoot ?? null),
       invoke = () =>
         daemon.requestLocalDaemonJsonRpcForTarget(
           target,
@@ -232,18 +234,36 @@ function globalTarget() {
   return guiGlobalDaemonTarget();
 }
 
-/** repo 作用域 target:local 仓走严格判定,启用中的 remote-proxy 仓回退全局 socket(见 repo-scoped-target.ts)。 */
+/**
+ * repo 作用域 target:local 仓走严格判定,启用中的 remote-proxy 仓回退全局 socket(见 repo-scoped-target.ts)。
+ * rootDir 从请求自己的 repoId 在 registry 里取 —— 进程启动时捕获的根目录会在窗口换项目后过期。
+ * 停用的 repoId 仍交给 resolver 产生原有错误码;未登记的直接给出同一错误码,避免占位根
+ * 先触发 invalid_root。userRoot 只作不会过期的 bind 基准。
+ */
 function repoTarget(
   daemon: DaemonClient,
-  rootDir: string,
   repoId: string,
 ): ReturnType<DaemonClient["resolveLocalDaemonTargetFromRepos"]> {
   return resolveRepoScopedTarget(
-    () =>
-      daemon.resolveLocalDaemonTargetFromRepos(
-        { rootDir, repoIdOverride: repoId, userRoot: guiDaemonUserRoot() },
-        defaultRegistryReader().repos,
-      ),
+    () => {
+      const repos = defaultRegistryReader().repos,
+        repo = repos.find((candidate) => candidate.repoId === repoId);
+      // No registry row means no root to bind. Fail with the registry's own code instead of
+      // handing its resolver a placeholder path, which would surface as invalid_root.
+      if (repo === undefined)
+        throw Object.assign(
+          new Error(`workspace is not registered; run ha daemon repo register --repo-id ${repoId} --root <workspace>`),
+          { code: "workspace_not_registered" },
+        );
+      return daemon.resolveLocalDaemonTargetFromRepos(
+        {
+          rootDir: repo.canonicalRoot ?? guiDaemonUserRoot(),
+          repoIdOverride: repoId,
+          userRoot: guiDaemonUserRoot(),
+        },
+        repos,
+      );
+    },
     defaultRegistryReader,
     globalTarget,
     repoId,
@@ -257,15 +277,10 @@ export async function requestDaemonAdminRpc(method: string, params: JsonObject):
 }
 
 /** repo 作用域的一次性 RPC(主进程侧消费,如产物物化副本的正文读取)。 */
-export async function requestRepoScopedRpc(
-  rootDir: string,
-  repoId: string,
-  method: string,
-  params: JsonObject,
-): Promise<JsonObject> {
+export async function requestRepoScopedRpc(repoId: string, method: string, params: JsonObject): Promise<JsonObject> {
   if (guiDaemonReadOnly() && method !== "repo.tasks.document.read") return readOnlyFailure(method);
   const daemon = await loadClient();
-  return daemonRpc(repoTarget(daemon, rootDir, repoId), method, params);
+  return daemonRpc(repoTarget(daemon, repoId), method, params);
 }
 
 async function daemonRpc(

@@ -30,7 +30,7 @@ test(
       restoreEnv("HARNESS_DAEMON_REPO_ID", previous.repoId);
     });
 
-    const bridge = createLocalGuiServiceBridge(fixture.rootDir);
+    const bridge = createLocalGuiServiceBridge();
     let payload: {
       readonly repoId: string;
       readonly title: string;

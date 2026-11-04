@@ -102,7 +102,7 @@ test("GUI and CLI write the same canonical through one resident daemon", async (
     ]);
     assert.equal(instance.status, 0, JSON.stringify(instance));
 
-    const bridge = createLocalGuiServiceBridge(root),
+    const bridge = createLocalGuiServiceBridge(),
       guiWrite = bridge.invoke("saveAgent", {
         repoId,
         declaration: {

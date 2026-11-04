@@ -38,15 +38,15 @@ test("GUI worktree stays attach-only when absent then reuses a canonical residen
     writeFileSync(path.join(worktree, ".git"), "gitdir: ../../.git/worktrees/feature\n", "utf8");
     writeFileSync(path.join(rootDir, ".git", "worktrees", "feature", "commondir"), "../..\n", "utf8");
 
-    const canonical = await createLocalGuiServiceBridge(rootDir).invoke("getTasks", { repoId: "gui-host-root" });
+    const canonical = await createLocalGuiServiceBridge().invoke("getTasks", { repoId: "gui-host-root" });
     assert.equal(canonical.ok, true, JSON.stringify(canonical));
     const canonicalPid = readDaemonPid(userRoot, daemonId);
     assert.ok(canonicalPid, "the operator-started canonical resident must be reachable");
-    const reused = await createLocalGuiServiceBridge(worktree).invoke("getTasks", { repoId: "gui-host-root" });
+    const reused = await createLocalGuiServiceBridge().invoke("getTasks", { repoId: "gui-host-root" });
     assert.equal(reused.ok, true, JSON.stringify(reused));
     assert.equal(readDaemonPid(userRoot, daemonId), canonicalPid, "the worktree must reuse the canonical resident");
     await daemon.stop();
-    const refusal = (await createLocalGuiServiceBridge(worktree).invoke("getTasks", {
+    const refusal = (await createLocalGuiServiceBridge().invoke("getTasks", {
       repoId: "gui-host-root",
     })) as Failure;
     assert.equal(refusal.error?.code, "daemon_unavailable", JSON.stringify(refusal));
