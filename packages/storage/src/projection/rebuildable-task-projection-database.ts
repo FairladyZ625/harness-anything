@@ -114,8 +114,10 @@ export function closeQueryOnlyReader(projectionPath: string): void {
   const key = canonicalProjectionPath(projectionPath),
     connection = queryOnlyConnections.get(key);
   if (!connection) return;
-  closeQueryOnlyConnection(connection);
   queryOnlyConnections.delete(key);
+  // A nested reader borrows the outer transaction. Retire the cache entry now, but let
+  // that transaction's finally release its connection after every borrower has returned.
+  if (queryOnlySession?.db !== connection.db) closeQueryOnlyConnection(connection);
 }
 
 /** Test fixtures can close all projection databases before removing a temporary repository. */
@@ -240,6 +242,7 @@ export function withQueryOnlyDatabaseSession<A>(
     throw error;
   } finally {
     queryOnlySession = null;
+    if (queryOnlyConnections.get(resolvedProjectionPath) !== connection) closeQueryOnlyConnection(connection);
   }
 }
 export function discardDatabase(
