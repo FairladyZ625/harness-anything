@@ -249,6 +249,64 @@ test("a canonical runtime occurrence archives only its dispatch artifacts withou
   if (!foreign.accepted) assert.equal(foreign.code, "lease_conflict");
 });
 
+test("an abnormal dispatch archive publishes evidence keyed to its own dispatch id", () => {
+  const runtimeActor = {
+      principal: actor.principal,
+      executor: { kind: "agent", id: "runtime-session:runtime-forensics" },
+    } as const,
+    scope = {
+      dispatchId: "dispatch_0123456789abcdef01234567",
+      runtimeSessionId: "runtime-forensics",
+      taskId: "task-owner",
+      executionId: "execution-1",
+      packagePath: "tasks/task-owner-docs",
+    },
+    root = `tasks/task-owner-docs/artifacts/dispatches/${scope.dispatchId}`,
+    evidence = [
+      [`${root}/stream.jsonl`, '{"record":"stream"}\n'],
+      [`${root}/provider-rollout.jsonl`, '{"record":"rollout"}\n'],
+      [`${root}/request-trace.json`, '{"schema":"runtime-dispatch-evidence/v1"}\n'],
+    ] as const,
+    paths = [`tasks/task-owner-docs/artifacts/dispatches/${scope.dispatchId}.json`, ...evidence.map(([path]) => path)],
+    bodies = [JSON.stringify({ schema: "runtime-dispatch/v1" }), ...evidence.map(([, body]) => body)],
+    entries = paths.map((path, index) => [path, bodies[index]!] as const),
+    run = (targets: readonly (readonly [string, string])[] = entries) =>
+      decideDocWrite({
+        intent: {
+          schema: "doc-write-intent/v1",
+          executionId: null,
+          baseLedgerSha,
+          changes: targets.map(([path, body]) => ({
+            path: documentPath(path),
+            baseBlobSha256: null,
+            policyId: OPAQUE_TEXTUAL_POLICY_ID,
+            candidate: opaqueClaim(body, path.endsWith(".json") ? "application/json" : "text/plain"),
+          })),
+        },
+        opId: "runtime-forensics-op",
+        eventId: "runtime-forensics-event",
+        workspaceRevision: 3,
+        actor: runtimeActor,
+        source: "local",
+        occurredAt: "2026-08-12T11:00:00.000Z",
+        currentLedgerSha,
+        lease: null,
+        authorizationDecision: authorizeDocWrite(runtimeActor),
+        runtimeArchive: scope,
+        documents: targets.map(() => null),
+        claims: targets.map(([, body]) => Buffer.from(body)),
+        resolvedTaskIds: targets.map(() => scope.taskId),
+      });
+  const accepted = run();
+  assert.equal(accepted.accepted, true, JSON.stringify(accepted));
+  const foreign = run([
+    entries[0]!,
+    [`${root.replace(scope.dispatchId, "dispatch_ffffffffffffffffffffffff")}/stream.jsonl`, "{}"] as const,
+  ]);
+  assert.equal(foreign.accepted, false, "another dispatch's evidence cannot be published by this archive");
+  if (!foreign.accepted) assert.equal(foreign.code, "lease_conflict");
+});
+
 test("an opaque artifact write reclassifies an existing prose record without a policy upgrade", () => {
   const base = "---\ntitle: Legacy report\n---\n\n# Same\n\n# Same\n",
     candidate = "---\ntitle: Rewritten report\n---\n\n# Same\n\n# Same\n\nAll bytes are opaque.\n",

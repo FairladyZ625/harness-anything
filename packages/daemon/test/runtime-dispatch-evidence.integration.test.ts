@@ -1,0 +1,204 @@
+// harness-test-tier: integration
+import assert from "node:assert/strict";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import test from "node:test";
+import { makeTaskEventReader } from "@harness-anything/storage";
+import { readDispatchStreamSummary } from "../src/dispatch-stream.ts";
+import { purgeRepoCache } from "../src/repo-cache-purge.ts";
+import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
+import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { definition, installation, initIngressRepo } from "./fixtures/runtime-ingress.ts";
+import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+
+test(
+  "an abnormal dispatch keeps its evidence readable after the dispatches cache is purged",
+  { timeout: 30_000 },
+  async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "ha-dispatch-evidence-")),
+      providerHome = path.join(root, "provider-home"),
+      providerSessionId = "provider-evidence";
+    mkdirSync(providerHome, { recursive: true });
+    initIngressRepo(root, process.getuid?.() ?? 0);
+    let output: ((chunk: string, persisted?: boolean) => void) | undefined,
+      exit: ((code: number | null) => void) | undefined;
+    const cell = await openRepoCell({
+      repoId: workspaceId("dispatch-evidence"),
+      rootDir: canonicalRoot(root),
+      ownerId: "dispatch-evidence-test",
+      runtimeDaemonRoute: {
+        userRoot: path.join(root, ".daemon-user"),
+        daemonId: "dispatch-evidence-test",
+        endpoint: path.join(root, ".daemon-user", "daemon.sock"),
+      },
+      runtimeInstances: () => [
+        {
+          schemaVersion: 2,
+          instanceId: definition.instanceId,
+          name: "Codex Evidence",
+          kindId: definition.kindId,
+          installationId: definition.installationId,
+          providerId: definition.providerId,
+          models: [definition.model],
+          defaultModel: definition.model,
+          enabled: true,
+          permissionMode: "workspace-write",
+          codex: {},
+          authMode: definition.authMode,
+          authState: "configured",
+          authReadiness: { status: "ready", code: null, hint: null },
+          isolationState: "enforced",
+        },
+      ],
+      prepareRuntimeLaunch: async (_instanceId, request) => ({
+        definition,
+        installation,
+        executablePath: installation.executablePath,
+        args: ["exec", "--json", "-"],
+        env: { ...process.env, CODEX_HOME: providerHome },
+        cwd: request.cwd,
+        prompt: request.prompt,
+      }),
+      runtimeLaunch: () => ({
+        pid: process.pid,
+        onOutput: (listener) => {
+          output = listener;
+        },
+        onErrorOutput: () => undefined,
+        onExit: (listener) => {
+          exit = listener;
+        },
+        terminate: () => undefined,
+      }),
+    });
+    try {
+      const binding = withPolicyGroup(
+          { actor: { principal: { personId: "person-evidence" }, executor: null }, source: "local" as const },
+          "admin",
+        ),
+        taskId = "task-dispatch-evidence",
+        created = await cell.run(
+          { kind: "task-create", taskId, title: "Dispatch evidence", presetId: "docs-task" },
+          binding,
+        );
+      assert.equal(created.outcome, "applied", JSON.stringify(created));
+      await waitForFixturePublication(cell, created.opId, binding);
+      const packagePath = String((created as Record<string, unknown>).packagePath);
+      await realizeTaskPlanFixture(
+        root,
+        packagePath,
+        (planPath) => cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
+        "Dispatch evidence",
+      );
+      assert.equal((await cell.run({ kind: "task-start", taskId }, binding)).outcome, "applied");
+      const receipt = await cell.spawnRuntime(
+          {
+            runtimeInstanceId: definition.instanceId,
+            cwd: { scope: "repo-root" },
+            prompt: "Preserve the transport before it is compacted",
+            taskId,
+            dispatchKey: "forensics",
+          },
+          binding,
+        ),
+        dispatchId = String(receipt.dispatchId);
+      assert.ok(output, "the runtime output listener must be attached");
+      assert.ok(exit, "the runtime exit listener must be attached");
+      output(
+        [
+          JSON.stringify({ type: "thread.started", thread_id: providerSessionId, request_id: "request-1" }),
+          JSON.stringify({
+            type: "item.completed",
+            item: { type: "agent_message", text: "authorization: Bearer sk-provider-secret" },
+          }),
+          JSON.stringify({ type: "turn.failed", error: { message: "provider disconnected" } }),
+        ]
+          .map((record) => `${record}\n`)
+          .join(""),
+      );
+      await eventually(() => readDispatchStreamSummary(root, dispatchId)?.providerSessionId === providerSessionId);
+      const rollout = path.join(
+        providerHome,
+        "sessions",
+        "2026",
+        "11",
+        "05",
+        `rollout-2026-11-05T00-00-00-${providerSessionId}.jsonl`,
+      );
+      mkdirSync(path.dirname(rollout), { recursive: true });
+      writeFileSync(
+        rollout,
+        `${JSON.stringify({
+          type: "session_meta",
+          payload: { id: providerSessionId, token: "sk-provider-secret", turn_id: "turn-1" },
+        })}\n`,
+      );
+      exit(1);
+      const terminal = await eventuallyValue(() => readDispatchStreamSummary(root, dispatchId)?.terminalOutcome);
+      assert.ok(
+        ["failed", "stopped", "unknown"].includes(terminal.payload.outcome),
+        `abnormal settlement expected, got ${terminal.payload.outcome}`,
+      );
+      await eventually(() =>
+        makeTaskEventReader({ repoId: workspaceId("dispatch-evidence"), rootDir: root })
+          .read()
+          .events.some(
+            (event) =>
+              event.type === "runtime_session_outcome_observed" &&
+              event.payload.runtimeSessionId === String(receipt.runtimeSessionId),
+          ),
+      );
+      const evidenceDir = path.join(root, "harness", packagePath, "artifacts", "dispatches", dispatchId),
+        streamPath = path.join(evidenceDir, "stream.jsonl"),
+        rolloutPath = path.join(evidenceDir, "provider-rollout.jsonl"),
+        tracePath = path.join(evidenceDir, "request-trace.json");
+      await eventually(() => existsSync(tracePath) && existsSync(streamPath) && existsSync(rolloutPath));
+      const streamBody = readFileSync(streamPath, "utf8"),
+        rolloutBody = readFileSync(rolloutPath, "utf8"),
+        traceBody = readFileSync(tracePath, "utf8");
+      for (const body of [streamBody, rolloutBody, traceBody])
+        assert.doesNotMatch(body, /sk-provider-secret/u, "no snapshot may carry the provider token");
+      assert.match(traceBody, /request-1/u);
+      assert.match(traceBody, /turn-1/u);
+      // Wait for the settlement compaction to finish before deleting the same archive root: the
+      // evidence copy is already durable, and this removes the teardown race from the fixture.
+      const archiveDir = path.join(root, ".harness", "runtime", "dispatches", "archive");
+      await eventually(
+        () =>
+          existsSync(path.join(archiveDir, `${dispatchId}.jsonl`)) &&
+          !readdirSync(archiveDir).some((name) => name.endsWith(".tmp")),
+      );
+      // The cache purge deletes the whole runtime/dispatches root, including the archived stream
+      // that settlement just compacted. The evidence copy lives in the task package and survives.
+      const removed = purgeRepoCache(root);
+      assert.ok(removed.includes(".harness/runtime/dispatches"), JSON.stringify(removed));
+      assert.equal(existsSync(path.join(root, ".harness", "runtime", "dispatches")), false);
+      assert.equal(readFileSync(streamPath, "utf8"), streamBody);
+      assert.equal(readFileSync(rolloutPath, "utf8"), rolloutBody);
+      assert.equal(readFileSync(tracePath, "utf8"), traceBody);
+    } finally {
+      await cell.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
+
+async function eventually(check: () => boolean): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (!check()) {
+    assert.ok(Date.now() < deadline, "expected dispatch evidence did not arrive");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+async function eventuallyValue<T>(check: () => T | null | undefined): Promise<T> {
+  const deadline = Date.now() + 10_000;
+  while (true) {
+    const value = check();
+    if (value !== null && value !== undefined) return value;
+    assert.ok(Date.now() < deadline, "expected dispatch evidence did not arrive");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}

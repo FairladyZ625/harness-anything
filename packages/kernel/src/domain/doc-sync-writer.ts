@@ -307,6 +307,12 @@ function validRuntimeArchiveChanges(input: DocWriteDecisionInput, scope: Runtime
       `${artifactRoot}/reports/${scope.dispatchId}.md`,
       `${artifactRoot}/missions/${scope.dispatchId}.md`,
       `${artifactRoot}/rulings/${scope.dispatchId}.md`,
+      // The abnormal-settlement evidence set is keyed by the same dispatch id. It is copied from
+      // the execution node before archive retention rewrites or deletes the live stream, so every
+      // path must stay inside this dispatch's own evidence directory.
+      `${artifactRoot}/dispatches/${scope.dispatchId}/stream.jsonl`,
+      `${artifactRoot}/dispatches/${scope.dispatchId}/provider-rollout.jsonl`,
+      `${artifactRoot}/dispatches/${scope.dispatchId}/request-trace.json`,
     ]),
     paths = input.intent.changes.map(({ path }) => String(path));
   return (

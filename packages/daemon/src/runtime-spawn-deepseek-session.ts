@@ -1,4 +1,4 @@
-import { globSync, readFileSync } from "node:fs";
+import { globSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { zstdDecompressSync } from "node:zlib";
 import { consumeKnownError } from "@harness-anything/kernel";
@@ -46,6 +46,29 @@ export function deepSeekSessionUsageTotals(providerHome: string, sessionId: stri
   try {
     const raw = readFileSync(path.join(sessionsRoot, matches[0]!));
     return foldSessionUsage(decompressSessionLog(raw, matches[0]!.endsWith(".zstd")));
+  } catch (error) {
+    consumeKnownError(error);
+    return null;
+  }
+}
+
+/**
+ * The raw transcript bytes the provider itself durably logged, for the same session the usage
+ * fold reads. Callers that retain evidence cap the result before copying it; a missing or corrupt
+ * transcript answers null instead of a partial log.
+ */
+export function readDeepSeekSessionTranscript(providerHome: string, sessionId: string): Buffer | null {
+  const sessionsRoot = path.join(providerHome, "sessions"),
+    matches = globSync(`**/${sessionId}/session.v4.jsonl*`, { cwd: sessionsRoot });
+  if (matches.length !== 1) return null;
+  try {
+    const file = path.join(sessionsRoot, matches[0]!),
+      stat = statSync(file, { throwIfNoEntry: false });
+    // Evidence retention reads one session once; a compressed log past this bound is not copied
+    // whole because decompressing it would be an unbounded allocation on the settlement path.
+    if (!stat?.isFile() || stat.size > 16 * 1024 * 1024) return null;
+    const raw = readFileSync(file);
+    return decompressSessionLog(raw, matches[0]!.endsWith(".zstd"));
   } catch (error) {
     consumeKnownError(error);
     return null;

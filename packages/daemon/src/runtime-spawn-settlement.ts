@@ -36,6 +36,7 @@ import { detectHostingProvider } from "./hosting-provider.ts";
 import { boundedRuntimeConclusion, currentWorktreeHead } from "./runtime-continuation-context.ts";
 import { reviewCutSupersededExplanation } from "./repo-cell-execution-selection.ts";
 import { disposeActiveRuntimeObservations } from "./runtime-spawn-active.ts";
+import { captureDispatchForensics } from "./runtime-dispatch-evidence.ts";
 
 export async function publishExit(
   context: RuntimeSpawnerContext,
@@ -450,11 +451,50 @@ export async function publishExit(
       ...(ruling === null ? {} : { ruling: { path: ruling.path, body: ruling.body } }),
       ...(reviewReport === null ? {} : { reviewReport }),
     };
+    // Copy an abnormal dispatch's transport evidence while the live stream is still on disk: the
+    // archive below is what renames and compacts it, and a later cache purge deletes the whole
+    // dispatches root. The copy rides the same settlement artifact transaction as the dispatch
+    // record, so a success or an owner-ruling wait stores nothing extra.
+    let forensics: ReturnType<typeof captureDispatchForensics> = null;
+    if (active.task !== null || active.decisionReviewTarget !== null) {
+      try {
+        forensics = captureDispatchForensics({
+          rootDir: context.input.rootDir,
+          dispatchId: active.dispatchId,
+          runtimeSessionId: active.runtimeSessionId,
+          taskId: active.task?.taskId ?? null,
+          executionId: active.task?.executionId ?? null,
+          instanceId: active.instanceId,
+          kindId: active.kindId,
+          providerSessionId: active.providerSessionId,
+          resolvedProviderDirectory: active.resolvedProviderDirectory,
+          outcome,
+          classification: attemptOutcome.classification,
+          reason: attemptOutcome.reason,
+          endedAt,
+        });
+      } catch (error) {
+        consumeKnownError(error);
+        const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512);
+        console.error(`[runtime-forensics] ${active.dispatchId} could not be captured: ${detail}`);
+      }
+    }
     // A Decision review dispatch owns no task execution; its archive binds the reviewed Decision.
     const archive: RuntimeDispatchArchive | null = active.task
-      ? { ...archiveBase, taskId: active.task.taskId, executionId: active.task.executionId }
+      ? {
+          ...archiveBase,
+          taskId: active.task.taskId,
+          executionId: active.task.executionId,
+          ...(forensics === null ? {} : { forensics }),
+        }
       : active.decisionReviewTarget
-        ? { ...archiveBase, taskId: null, executionId: null, decisionReview: active.decisionReviewTarget }
+        ? {
+            ...archiveBase,
+            taskId: null,
+            executionId: null,
+            decisionReview: active.decisionReviewTarget,
+            ...(forensics === null ? {} : { forensics }),
+          }
         : null;
     if (archive) {
       try {
