@@ -33,6 +33,7 @@ import {
 } from "./local-composition-root.ts";
 import { registerConnectionAdminIpc } from "./connection-admin-ipc.ts";
 import { addLocalMainControls } from "./local-main-controls.ts";
+import { resolveLocalDaemonTarget } from "@harness-anything/daemon/client";
 import {
   evaluateHtmlArtifactAttachment,
   evaluateHtmlArtifactRequest,
@@ -111,14 +112,24 @@ app.on("open-url", (event, url) => {
   event.preventDefault();
   deliverEdgeJoinLink(link);
 });
-// Windows/Linux 把协议激活作为「第二个实例」的命令行参数送达(进程已存在时不再开新窗);
-// 锁按 user-data-dir 隔离,测试/e2e 的独立 profile 不会与用户正在用的实例互抢。
-const singleInstanceLock = app.requestSingleInstanceLock();
+// 第二个 `ha gui --root <new>` 进程拿不到单实例锁,但它的启动意图必须送达持锁进程:
+// rootDir 经 requestSingleInstanceLock 的 additionalData 随 second-instance 事件到达。
+// 这里只把根作为「打开哪个项目」的入口参数,不把它变成进程级读上下文(issue #4267)。
+const guiLaunchRoot = path.resolve(process.env.HARNESS_GUI_ROOT ?? process.cwd());
+let pendingRequestedProjectRoot: string | null = null;
+let openRequestedProjectRoot: ((rootDir: string) => void) | null = null;
+function requestProjectRoot(rootDir: string): void {
+  if (openRequestedProjectRoot === null) pendingRequestedProjectRoot = rootDir;
+  else openRequestedProjectRoot(rootDir);
+}
+const singleInstanceLock = app.requestSingleInstanceLock({ rootDir: guiLaunchRoot });
 if (!singleInstanceLock) app.quit();
 else
-  app.on("second-instance", (_event, argv) => {
+  app.on("second-instance", (_event, argv, _workingDirectory, additionalData) => {
     const link = edgeJoinLinkFromArgv(argv);
     if (link !== null) deliverEdgeJoinLink(link);
+    const requestedRoot = (additionalData as { readonly rootDir?: unknown } | undefined)?.rootDir;
+    if (typeof requestedRoot === "string" && requestedRoot.length > 0) requestProjectRoot(requestedRoot);
   });
 
 /** Per-sign-in login webview boundary; created once so its certificate-error handler is, too. */
@@ -490,6 +501,21 @@ export async function startGuiApp(): Promise<void> {
   registerLocalDocIpc(registrar, { homeDir: () => homedir() }, trustPolicy);
   registerProjectWindowIpc(registrar, projectWindows, trustPolicy);
   projectWindows.newWindow(null);
+  // A second `ha gui --root <new>` asks the live process to open that project through the
+  // existing per-window seed path: resolve the registered repo and let openProjectWindow
+  // create/focus its window. Requests inside that window still resolve their own repo root.
+  openRequestedProjectRoot = (rootDir) => {
+    void resolveLocalDaemonTarget({ rootDir, userRoot: guiDaemonUserRoot() }).then(
+      (target) => projectWindows.openProjectWindow(target.repoId),
+      (error) => console.warn("[gui] requested project root could not be opened:", error),
+    );
+  };
+  const openRoot = openRequestedProjectRoot;
+  if (pendingRequestedProjectRoot !== null) {
+    const rootDir = pendingRequestedProjectRoot;
+    pendingRequestedProjectRoot = null;
+    openRoot(rootDir);
+  }
   // Windows/Linux 协议激活在冷启动参数里;窗口已建,直接送达(macOS 冷启动走 open-url 暂存路径)。
   const argvLink = edgeJoinLinkFromArgv(process.argv);
   if (argvLink !== null) deliverEdgeJoinLink(argvLink);

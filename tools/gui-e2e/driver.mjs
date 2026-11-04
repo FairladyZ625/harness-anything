@@ -5,8 +5,9 @@ import path from "node:path";
 import electronPath from "electron";
 import { _electron as electron } from "playwright-core";
 
-export async function startGuiDriver({ workspaceRoot, rootDir, env, runRoot, headless = true, mainPath }) {
-  const profile = mkdtempSync(path.join(tmpdir(), "hg-profile-"));
+export async function startGuiDriver({ workspaceRoot, rootDir, env, runRoot, headless = true, mainPath, userDataDir }) {
+  const ownsProfile = userDataDir === undefined,
+    profile = userDataDir ?? mkdtempSync(path.join(tmpdir(), "hg-profile-"));
   const consoleFailures = [];
   const args = [
     mainPath ?? path.join(workspaceRoot, "packages/gui/src/main/electron-main.ts"),
@@ -51,6 +52,7 @@ export async function startGuiDriver({ workspaceRoot, rootDir, env, runRoot, hea
     return {
       app,
       page,
+      profile,
       consoleFailures,
       assertBackground,
       async nav(label) {
@@ -67,14 +69,14 @@ export async function startGuiDriver({ workspaceRoot, rootDir, env, runRoot, hea
       },
       async close() {
         await stopElectronApp(app);
-        rmSync(profile, { recursive: true, force: true });
+        if (ownsProfile) rmSync(profile, { recursive: true, force: true });
       },
     };
   } catch (error) {
     // The profile is owned by this run: a launch that never returned a driver must
     // still not leave it behind (and must not leave a window-less Electron process).
     if (app) await stopElectronApp(app);
-    rmSync(profile, { recursive: true, force: true });
+    if (ownsProfile) rmSync(profile, { recursive: true, force: true });
     throw error;
   }
 }
