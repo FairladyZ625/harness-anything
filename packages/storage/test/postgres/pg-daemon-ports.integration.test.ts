@@ -1,4 +1,6 @@
 // harness-test-tier: integration
+import { assertEntityFactory } from "../entity-factory.assertions.ts";
+import { openEntityStore } from "../../src/store/entity-store.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
@@ -62,6 +64,7 @@ test("daemon PG storage factories expose canonical lifecycle ports without local
       executionId: "execution-pg-daemon",
       reader: () => makeTaskProjectionReader({ repoId, storage }),
     });
+    assertEntityFactory({ store, open: () => openEntityStore(rootDir, { repoId, storage }) });
     const createdAt = (taskId: string, revision: number): TaskCreatedEvent => {
       const base = events[0] as TaskCreatedEvent;
       return {

@@ -1,4 +1,6 @@
 // harness-test-tier: integration
+import { assertEntityFactory } from "../entity-factory.assertions.ts";
+import { openEntityStore } from "../../src/store/entity-store.ts";
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import test from "node:test";
@@ -29,14 +31,15 @@ pgliteIntegrationSuite("PGlite synchronous factories", () => {
           executionId: "execution-factory",
           reader: () => makeTaskProjectionReader({ repoId, storage }),
         });
+        assertEntityFactory({ store, open: () => openEntityStore(rootDir, { repoId, storage }) });
         // Closing one facade cannot stop the owner still used by the other facade.
         projection.close();
-        assert.equal(store.readHead()?.revision, events.length);
+        assert.equal(store.readHead()?.revision, events.length + 5);
         await store.drain();
         const reopened = makeTaskEventStore({ repoId, rootDir, storage }),
           reader = makeTaskProjectionReader({ repoId, storage });
         try {
-          assert.equal(reopened.readHead()?.revision, events.length);
+          assert.equal(reopened.readHead()?.revision, events.length + 5);
           assert.deepEqual(
             reader.withSession((queries) => queries.read("task-factory").snapshot),
             snapshot,

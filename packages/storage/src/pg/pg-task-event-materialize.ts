@@ -894,13 +894,16 @@ async function updateProjectionMeta(
     throw new Error(`projection watermark ${watermark} exceeds ledger head ${sourceRevision}`);
   await client.query(
     `INSERT INTO ha_projection_meta
-       (tenant_id, project_id, policy_epoch, projection_name, schema_version, watermark, source_revision, state_digest, updated_at)
-     VALUES ($1, $2, $3, 'task/v1', $4, $5, $6, NULL, clock_timestamp())
+       (tenant_id, project_id, policy_epoch, projection_name, schema_version, watermark, source_revision, state_digest, updated_at, entity_declaration_watermark)
+     VALUES ($1, $2, $3, 'task/v1', $4, $5, $6, NULL, clock_timestamp(), $5)
      ON CONFLICT (tenant_id, project_id, policy_epoch, projection_name) DO UPDATE SET
        policy_epoch = excluded.policy_epoch, schema_version = excluded.schema_version,
        readers = '{}',
        watermark = GREATEST(ha_projection_meta.watermark, excluded.watermark),
        source_revision = GREATEST(ha_projection_meta.source_revision, excluded.source_revision),
+       entity_declaration_watermark = CASE WHEN ha_projection_meta.entity_declaration_watermark >= ha_projection_meta.watermark
+         THEN GREATEST(ha_projection_meta.entity_declaration_watermark, excluded.entity_declaration_watermark)
+         ELSE ha_projection_meta.entity_declaration_watermark END,
        updated_at = excluded.updated_at`,
     [scope.tenantId, scope.projectId, scope.policyEpoch, PG_PROJECTION_SCHEMA_VERSION, watermark, sourceRevision],
   );

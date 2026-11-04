@@ -200,6 +200,10 @@ export type EventPublicationKillpoint =
   | "before_response_write"
   | "after_response_write";
 export interface CanonicalEventStore {
+  /** Current accepted declarations; implementations index live identities rather than replay history. */
+  readonly readEntityDeclarations?: (
+    query: import("./entity-declarations.ts").EntityDeclarationReadQuery,
+  ) => readonly import("./entity-declarations.ts").EntityDeclarationState[];
   readonly canonicalRef: string;
   readonly read: () => CanonicalEventStreamV1;
   readonly readHead: () => EventHead | null;

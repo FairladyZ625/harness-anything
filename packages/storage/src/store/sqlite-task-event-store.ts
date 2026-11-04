@@ -456,6 +456,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     readEventById: sqlite.eventById,
     readEventAtRevision: sqlite.eventAtRevision,
     queryEvents: sqlite.queryEvents,
+    readEntityDeclarations: sqlite.readEntityDeclarations,
     readTaskEvent: (opId) => {
       const event = sqlite.event(opId);
       return event && isTaskEvent(event) ? event : null;

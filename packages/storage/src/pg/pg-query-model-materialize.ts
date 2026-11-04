@@ -1,3 +1,4 @@
+import { materializePgEntityDeclaration } from "./pg-entity-declarations.ts";
 import { assertPgReadIndexReady } from "./pg-read-index-migration.ts";
 import { interpretReplayDeclaration } from "../projection/entity-declaration-replay.ts";
 import type { PoolClient } from "pg";
@@ -16,7 +17,11 @@ import {
   runtimeSessionId,
   runtimeSessionEntityV1,
 } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
-import { isEntityEvent, isEntityDeclarationEvent } from "@harness-anything/kernel/internal/domain/entity-event.ts";
+import {
+  isEntityEvent,
+  isEntityDeclarationEvent,
+  contractForDeclarationEvent,
+} from "@harness-anything/kernel/internal/domain/entity-event.ts";
 import { isEntityPinEvent } from "@harness-anything/kernel/internal/domain/entity-pin-event.ts";
 import {
   isTaskEvent,
@@ -88,6 +93,7 @@ export async function materializePgQueryModels(
     for (const projection of interpretEmbeddedEntityProjections(contract, event)) await entityRow(projection);
 
   if (isEntityEvent(event)) {
+    await materializePgEntityDeclaration(client, scope, event);
     const { entityKind, entityId } = event.payload,
       model = `entity:${entityKind}`;
     await put(
@@ -113,8 +119,7 @@ export async function materializePgQueryModels(
           },
         });
     } else if (isEntityDeclarationEvent(event)) {
-      const contract = entityKindContracts.find(({ kind }) => kind === entityKind);
-      if (!contract) throw new Error(`EntityKindContract is unavailable for ${entityKind}`);
+      const contract = contractForDeclarationEvent(event);
       let raw: unknown;
       if (event.type === "entity_reference_declared") raw = event.payload.descriptor;
       else {

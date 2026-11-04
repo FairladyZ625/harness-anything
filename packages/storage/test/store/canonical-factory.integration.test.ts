@@ -1,4 +1,6 @@
 // harness-test-tier: integration
+import { assertEntityFactory } from "../entity-factory.assertions.ts";
+import { openEntityStore } from "../../src/store/entity-store.ts";
 import test from "node:test";
 import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
 import { makeTaskProjection, makeTaskProjectionReader } from "../../src/projection/rebuildable-task-projection.ts";
@@ -19,6 +21,7 @@ test("SQLite synchronous factories satisfy the shared canonical lifecycle contra
         executionId: "execution-factory",
         reader: () => makeTaskProjectionReader({ rootDir }),
       });
+      assertEntityFactory({ store, open: () => openEntityStore(rootDir) });
     } finally {
       projection.close();
       await store.drain();

@@ -72,7 +72,7 @@ test("postgres factories require explicit scope before connecting", () => {
   assert.throws(
     () =>
       openEntityStore("/tmp/unused", { storage: { backend: "postgres", connectionString: "postgres://localhost/ha" } }),
-    /storage backend "postgres" is not implemented by kernel Wave 1/u,
+    /requires tenant, project, and non-negative policy epoch scope/u,
   );
   assert.throws(
     () =>

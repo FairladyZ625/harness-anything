@@ -1,4 +1,5 @@
 import type { PoolClient } from "pg";
+import { entityDeclarationDdl } from "./pg-entity-declarations.ts";
 import { eventReadIndexDdl } from "./pg-event-read-index-migration.ts";
 import { readIndexDdl } from "./pg-read-index-migration.ts";
 import { documentMetadataDdl } from "./pg-document-metadata-migration.ts";
@@ -19,6 +20,7 @@ export const PG_PROJECTION_TABLES = Object.freeze([
   "ha_projection_meta",
   "ha_projection_values",
   "ha_runtime_session_tasks",
+  "ha_entity_declaration_heads",
 ] as const);
 
 // Metadata is an additive expansion of v5; retain the generation understood by previous binaries.
@@ -171,6 +173,7 @@ export function projectionDdl(): readonly string[] {
       updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
       PRIMARY KEY (tenant_id, project_id, policy_epoch, projection_name)
     )`,
+    ...entityDeclarationDdl,
     ...PG_PROJECTION_TABLES.map(
       (table) => `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS readers text[] NOT NULL DEFAULT '{}'`,
     ),

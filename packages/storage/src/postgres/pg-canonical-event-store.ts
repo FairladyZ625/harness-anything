@@ -231,6 +231,10 @@ export function makePgCanonicalEventStore(
     readEventAtRevision: (value) => execute({ operation: "event", key: "revision", value }) as CanonicalEventV1 | null,
     readEventById: (value) => execute({ operation: "event", key: "event_id", value }) as CanonicalEventV1 | null,
     queryEvents: (query) => execute({ operation: "events", query }) as readonly CanonicalEventV1[],
+    readEntityDeclarations: (query) =>
+      execute({ operation: "entity-declarations", query }) as ReturnType<
+        NonNullable<CanonicalEventStore["readEntityDeclarations"]>
+      >,
     readTaskEvent: (opId) => {
       const event = readEvent(opId);
       return event && isTaskEvent(event) ? event : null;
