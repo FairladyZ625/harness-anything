@@ -5,13 +5,16 @@ import { daemonHelloMismatch } from "./client/daemon-hello.ts";
 import { daemonBuildStamp } from "./build-identity.ts";
 import { daemonDiagnosticsEndpoint } from "./client/local-daemon-target.ts";
 import { openDaemonLifecycleLog } from "./lifecycle-log.ts";
+import { readDaemonOperationTable } from "./daemon-operation-table.ts";
 import type { DaemonDiagnosticsOptions } from "./daemon-diagnostics.ts";
-import type { DaemonOperation } from "./daemon-operation.ts";
 import type { JsonObject, JsonValue, JsonRpcRequest, JsonRpcResponse } from "./protocol/json-rpc-types.ts";
 
-const options = workerData as DaemonDiagnosticsOptions & { heartbeat: SharedArrayBuffer },
+const options = workerData as DaemonDiagnosticsOptions & {
+    heartbeat: SharedArrayBuffer;
+    operations: SharedArrayBuffer;
+  },
   heartbeat = new BigInt64Array(options.heartbeat),
-  operations = new Map<string, DaemonOperation>(),
+  operations = readDaemonOperationTable(options.operations),
   log = openDaemonLifecycleLog({ ...options, logKind: "diagnostics" }),
   threshold = options.stallThresholdMs ?? 2_000;
 let metrics: JsonObject | null = null,
@@ -25,7 +28,8 @@ const record = (event: string, detail: JsonObject): void =>
   log.record({ event: "diagnostics", reason: event, ...detail });
 const snapshot = (): JsonObject => {
   const state = ["starting", "running", "draining", "stopping"][Number(Atomics.load(heartbeat, 1))]!,
-    heartbeatAgeMs = age();
+    heartbeatAgeMs = age(),
+    inFlight = operations.snapshot();
   return {
     ok: true,
     command: "daemon-status",
@@ -34,10 +38,10 @@ const snapshot = (): JsonObject => {
     state,
     stalled: heartbeatAgeMs >= threshold,
     heartbeatAgeMs,
-    inFlight: [...operations.values()] as unknown as JsonObject[],
+    inFlight: inFlight as unknown as JsonObject[],
     waitingFor:
       state === "draining" || state === "stopping"
-        ? [...operations.values()].map((op) => ({
+        ? inFlight.map((op) => ({
             method: op.method,
             repoId: op.repoId,
             phase: op.phase,
@@ -49,8 +53,8 @@ const snapshot = (): JsonObject => {
     mainSampleAgeMs: metrics ? Math.max(0, Date.now() - Date.parse(String(metrics.sampledAt))) : null,
     rss: process.memoryUsage.rss(),
     summary:
-      `daemon status: pid=${process.pid} state=${state} heartbeatAgeMs=${heartbeatAgeMs} inFlight=${operations.size}\n` +
-      [...operations.values()]
+      `daemon status: pid=${process.pid} state=${state} heartbeatAgeMs=${heartbeatAgeMs} inFlight=${inFlight.length}\n` +
+      inFlight
         .slice(0, 20)
         .map((op) => `${op.method} repo=${op.repoId ?? "none"} phase=${op.phase} since=${op.startedAt}`)
         .join("\n"),
@@ -85,7 +89,7 @@ const timer = setInterval(() => {
       startedAt: new Date(Date.now() - heartbeatAgeMs).toISOString(),
       detectedAt: new Date().toISOString(),
       heartbeatAgeMs,
-      inFlight: [...operations.values()] as unknown as JsonObject[],
+      inFlight: operations.snapshot() as unknown as JsonObject[],
       metrics,
       rss: process.memoryUsage.rss(),
       stackStatus: "pending",
@@ -106,7 +110,7 @@ const recordMetrics = (): void =>
     metrics,
     rss: process.memoryUsage.rss(),
     heartbeatAgeMs: age(),
-    inFlight: operations.size,
+    inFlight: operations.activeCount,
     recentStalls: recentStalls.length,
   });
 const metricsTimer = setInterval(() => {
@@ -148,12 +152,7 @@ const transport = createUnixSocketTransportServer({
 });
 await transport.start();
 parentPort!.on("message", (message) => {
-  if (message.type === "begin") operations.set(message.operation.id, message.operation);
-  else if (message.type === "update") {
-    const previous = operations.get(message.id);
-    if (previous) operations.set(message.id, { ...previous, ...message.fields });
-  } else if (message.type === "end") operations.delete(message.id);
-  else if (message.type === "metrics") {
+  if (message.type === "metrics") {
     metrics = message.metrics;
     lastMetricsReceivedAt = nowMs();
     // Persist each completed histogram window before a newer one can overwrite its peak.
