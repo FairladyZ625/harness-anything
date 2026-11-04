@@ -12,6 +12,7 @@ import type {
   TaskProjection,
 } from "@harness-anything/kernel";
 import { makeAgentRuntimeReadModel } from "../src/agent-runtime-read.ts";
+import { readFleetRuntimeSessionsPaged } from "../src/fleet-edge-runtime.ts";
 import { validateAgentRuntimeOverview } from "../src/agent-runtime-contract.ts";
 import { readTaskDispatches } from "../src/dispatch-read.ts";
 import { appendRuntimeWorkerRecord, openDispatchStream, readDispatchStreamSummary } from "../src/dispatch-stream.ts";
@@ -532,41 +533,59 @@ test("the live persisted worker-host path reports and clears without sliding the
   }
 });
 
-test("adoption restores an already reported fault so the first real progress clears it", async () => {
-  const now = Date.now(),
+test("fleet adoption mapping preserves a reported fault so the first real progress clears it", async () => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "ha-provider-fleet-adoption-")),
+    now = Date.now(),
+    startedAt = new Date(now - 30 * 60_000).toISOString(),
     evidence: RuntimeProviderUnreachable = {
       state: "provider_unreachable",
       lastProgressAt: new Date(now - 10 * 60_000).toISOString(),
       lastErrorAt: new Date(now - 9 * 60_000).toISOString(),
       lastError: reconnectError,
-    },
-    // Adoption reconstructs ActiveRuntime from the canonical session; the reported fault must
-    // survive that reconstruction, otherwise the later real frame sees null and never emits the
-    // clearing `null` event.
-    active = createActiveRuntime({
-      runtimeSessionId,
-      kindId: "codex",
-      binding: {},
-      stallTimeoutMs: 5 * 60_000,
-      lastProgressAtMs: Date.parse(evidence.lastProgressAt),
-      lastRealProgressAtMs: Date.parse(evidence.lastProgressAt),
-      providerUnreachable: evidence,
-      workspaceActivityCount: 0,
-      stalledAt: null,
-    } as never),
-    published: { readonly payload: Record<string, unknown> }[] = [],
-    context = {
-      exiting: new Set<string>(),
-      publishRuntimeEvent: async (_type: string, payload: Record<string, unknown>) => {
-        published.push({ payload });
-        return {};
-      },
-    } as unknown as RuntimeSpawnerContext;
-  assert.deepEqual(active.providerUnreachable, evidence);
-  await noteProviderProgress(context, active, now);
-  assert.equal(published.length, 1);
-  assert.equal(published[0]?.payload.providerUnreachable, null);
-  assert.equal(active.providerUnreachable, null);
+    };
+  try {
+    const overview = makeAgentRuntimeReadModel({
+        store: { readContentBlob: () => null },
+        projection: projection(startedAt, evidence),
+        rootDir,
+        now: () => new Date(now).toISOString(),
+      }).overview({}),
+      // The real remote adoption input is this paged DTO mapping, not the projection directly.
+      mapped = await readFleetRuntimeSessionsPaged(async () => ({
+        ...overview,
+        page: { limit: 16, cursor: null, nextCursor: null, remainingCount: 0 },
+      }));
+    assert.deepEqual(mapped[0]?.providerUnreachable, evidence);
+    assert.ok(mapped[0]);
+    // Adoption reconstructs ActiveRuntime from that mapped session; the reported fault must
+    // survive, otherwise the later real frame sees null and never emits the clearing event.
+    const active = createActiveRuntime({
+        runtimeSessionId: mapped[0].runtimeSessionId,
+        kindId: "codex",
+        binding: {},
+        stallTimeoutMs: 5 * 60_000,
+        lastProgressAtMs: Date.parse(evidence.lastProgressAt),
+        lastRealProgressAtMs: Date.parse(evidence.lastProgressAt),
+        providerUnreachable: mapped[0].providerUnreachable,
+        workspaceActivityCount: 0,
+        stalledAt: null,
+      } as never),
+      published: { readonly payload: Record<string, unknown> }[] = [],
+      context = {
+        exiting: new Set<string>(),
+        publishRuntimeEvent: async (_type: string, payload: Record<string, unknown>) => {
+          published.push({ payload });
+          return {};
+        },
+      } as unknown as RuntimeSpawnerContext;
+    assert.deepEqual(active.providerUnreachable, evidence);
+    await noteProviderProgress(context, active, now);
+    assert.equal(published.length, 1);
+    assert.equal(published[0]?.payload.providerUnreachable, null);
+    assert.equal(active.providerUnreachable, null);
+  } finally {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
 });
 
 test("an old head marker does not mask a newer tail progress stamp", () => {

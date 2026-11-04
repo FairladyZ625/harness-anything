@@ -6,6 +6,7 @@ import {
   canStartExecution,
   isNativeExecution,
   type RepositorySettingsV1,
+  type RuntimeProviderUnreachable,
   type TaskProjection,
 } from "@harness-anything/kernel";
 import { readEdgeRuntimeRepository } from "./fleet-edge-runtime-read.ts";
@@ -159,6 +160,7 @@ export async function readFleetRuntimeSessionsPaged(readPage: (payload: JsonObje
     readonly instanceId: string;
     readonly liveness: "live" | "stale" | "unknown" | "exited";
     readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped" | null;
+    readonly providerUnreachable: RuntimeProviderUnreachable | null;
   }[]
 > {
   const sessions: Array<{
@@ -167,6 +169,7 @@ export async function readFleetRuntimeSessionsPaged(readPage: (payload: JsonObje
     readonly instanceId: string;
     readonly liveness: "live" | "stale" | "unknown" | "exited";
     readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped" | null;
+    readonly providerUnreachable: RuntimeProviderUnreachable | null;
   }> = [];
   const seen = new Set<string>();
   let cursor: string | null = null;
@@ -184,6 +187,7 @@ export async function readFleetRuntimeSessionsPaged(readPage: (payload: JsonObje
         instanceId,
         liveness,
         outcome: activity.outcome,
+        providerUnreachable: activity.providerUnreachable ?? null,
       })),
     );
     cursor = overview.page.nextCursor;
