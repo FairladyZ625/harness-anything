@@ -64,11 +64,15 @@ export function dispatchActivityStatus(
     readonly processAlive: boolean | null;
     readonly providerActivity: DispatchProviderActivity | null;
     readonly providerReconnect?: ProviderReconnectEvidence | null;
+    /** Already judged by the executing node and read back from the canonical runtime session; the
+     * center consumes it instead of recomputing a network fact it cannot observe. */
+    readonly reportedProviderUnreachable?: ProviderUnreachableEvidence | null;
   },
   nowMs = Date.now(),
 ): DispatchActivityStatus {
   if (input.status !== "running") return "unknown";
   if (input.stalledAt) return "stalled";
+  if (input.reportedProviderUnreachable !== undefined && input.reportedProviderUnreachable !== null) return "stalled";
   if (
     providerConnectionFailure(
       {

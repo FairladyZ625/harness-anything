@@ -562,7 +562,9 @@ function canonicalDispatchRow(
           : runtimePidIsAlive(dispatchStream.process.pid),
     providerUnreachable =
       dispatchStream === null
-        ? null
+        ? session !== null && session !== undefined && session.liveness === "live" && session.outcome === null
+          ? (session.providerUnreachable ?? null)
+          : null
         : providerConnectionFailure({
             lastProgressAt: dispatchStream.lastProgressAt,
             providerReconnect: dispatchStream.lastProviderReconnect,
@@ -582,6 +584,7 @@ function canonicalDispatchRow(
       processAlive,
       providerActivity: dispatchStream?.lastProviderActivity?.kind ?? null,
       providerReconnect: dispatchStream?.lastProviderReconnect ?? null,
+      reportedProviderUnreachable: dispatchStream === null ? providerUnreachable : null,
     }),
     activityIdleMinutes = dispatchActivityIdleMinutes(activityProjectionObservedAt),
     fallbackReason = dispatchStream?.records.findLast(

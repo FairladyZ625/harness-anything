@@ -1180,6 +1180,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       tokenLimit,
       stallTimeoutMs,
       lastProgressAtMs: Date.parse(streamStartedAt),
+      lastRealProgressAtMs: Date.parse(streamStartedAt),
       startedAt: streamStartedAt,
       stream: openStream(),
       fallbackAttempt: fallbackAttempt ?? null,

@@ -12,7 +12,8 @@ import { observeRuntimeModels } from "./agent-runtime-installation-discovery.ts"
 import type { ActiveRuntime, ProviderFrame, RuntimeBinding } from "./runtime-spawn-types.ts";
 import type { FleetRuntimeDispatchContext } from "./fleet/command-protocol.ts";
 import { transcriptRefForSessionIdentity } from "./session-identity/index.ts";
-import { observeProviderFault } from "./runtime-provider-fault.ts";
+import { observeProviderFault, providerReconnectFromFrame } from "./runtime-provider-fault.ts";
+import { noteProviderProgress, noteProviderReconnect } from "./runtime-provider-connectivity.ts";
 import { escapesWorkerWorktree, strayWriteWarning } from "./runtime-write-boundary.ts";
 import {
   runtimeEventHasType,
@@ -104,11 +105,6 @@ export async function consumeProviderLine(
   let value: unknown;
   try {
     value = JSON.parse(line);
-    if (!persisted) active.stream.appendProviderEvent(value, context.input.now());
-    // The worker host persists provider frames before the daemon tails them.  Persistence
-    // provenance controls whether we append a duplicate record, not whether the frame is
-    // meaningful progress for the idle watchdog.
-    active.recordProviderProgress?.();
     active.durableOutputCount += 1;
   } catch (error) {
     if (persisted) active.durableOutputCount += 1;
@@ -116,6 +112,23 @@ export async function consumeProviderLine(
     context.markProtocolError(active);
     return;
   }
+  if (!persisted) {
+    const observedAt = context.input.now(),
+      reconnect = providerRecord(value) ? providerReconnectFromFrame(active.kindId, value) : null;
+    // A reconnect frame is stamped with the last real progress known at write time. The bounded
+    // tail read can then recover the true clock even when reconnect diagnostics fill the window.
+    active.stream.appendProviderEvent(
+      value,
+      observedAt,
+      reconnect === null ? undefined : { lastProgressAt: new Date(active.lastRealProgressAtMs).toISOString() },
+    );
+    if (reconnect === null) await noteProviderProgress(context, active, Date.parse(observedAt));
+    else await noteProviderReconnect(context, active, reconnect, Date.parse(observedAt));
+  }
+  // The worker host persists provider frames before the daemon tails them.  Persistence
+  // provenance controls whether we append a duplicate record, not whether the frame is
+  // meaningful progress for the idle watchdog.
+  active.recordProviderProgress?.();
   observeRuntimeMetrics(active, value);
   let parsed: ProviderFrame;
   try {

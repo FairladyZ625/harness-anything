@@ -5,6 +5,7 @@ import { statSync, watch, type FSWatcher } from "node:fs";
 import path from "node:path";
 import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS, resolveHarnessLayout } from "@harness-anything/kernel";
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
+import { noteProviderProgress } from "./runtime-provider-connectivity.ts";
 import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
 
 type ActiveRuntimeBase = Omit<
@@ -28,6 +29,8 @@ type ActiveRuntimeBase = Omit<
   | "cancelOpId"
   | "spendCapExceeded"
   | "lastProgressAtMs"
+  | "lastRealProgressAtMs"
+  | "providerUnreachable"
   | "workspaceActivityCount"
   | "stalledAt"
   | "recordProviderProgress"
@@ -56,6 +59,7 @@ type ActiveRuntimeBase = Omit<
   | "fallbackAttempt"
 > & {
   readonly lastProgressAtMs: number;
+  readonly lastRealProgressAtMs?: number;
   readonly providerSessionId?: string | null;
   readonly fallbackAttempt?: ActiveRuntime["fallbackAttempt"];
   readonly workspaceActivityCount?: number;
@@ -67,7 +71,10 @@ export function createActiveRuntime(base: ActiveRuntimeBase): ActiveRuntime {
       Number.isSafeInteger(base.stallTimeoutMs) && base.stallTimeoutMs >= 10_000
         ? base.stallTimeoutMs
         : DEFAULT_RUNTIME_STALL_TIMEOUT_MS,
-    lastProgressAtMs = Number.isFinite(base.lastProgressAtMs) ? base.lastProgressAtMs : Date.now();
+    lastProgressAtMs = Number.isFinite(base.lastProgressAtMs) ? base.lastProgressAtMs : Date.now(),
+    lastRealProgressAtMs = Number.isFinite(base.lastRealProgressAtMs)
+      ? (base.lastRealProgressAtMs as number)
+      : lastProgressAtMs;
   return {
     ...base,
     releaseAuthorization: base.binding.retainAuthorization?.(),
@@ -92,6 +99,8 @@ export function createActiveRuntime(base: ActiveRuntimeBase): ActiveRuntime {
     cancelOpId: null,
     spendCapExceeded: false,
     lastProgressAtMs,
+    lastRealProgressAtMs,
+    providerUnreachable: null,
     workspaceActivityCount: base.workspaceActivityCount ?? 0,
     stalledAt: base.stalledAt ?? null,
     recordProviderProgress: null,
@@ -256,8 +265,12 @@ function attachRuntimeObservations(
     const observedAtMs = Date.now();
     active.lastProgressAtMs = observedAtMs;
     if (workspaceChanged) {
+      // A file change is real progress even while the provider is retrying: move the reported
+      // clock and clear a previously emitted connection fault through the same event channel.
       active.workspaceActivityCount += 1;
+      active.lastRealProgressAtMs = Math.max(active.lastRealProgressAtMs, observedAtMs);
       active.stream.appendWorkspaceActivity?.(context.input.now());
+      context.input.schedule(() => noteProviderProgress(context, active, observedAtMs), active.binding);
     }
     armStallDeadline(context, active, handles);
   };

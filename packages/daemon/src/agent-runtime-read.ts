@@ -88,7 +88,7 @@ export function makeAgentRuntimeReadModel(input: {
           : sessionWithActivityEvidence(session, evidence),
       ),
       providerNowMs = input.now === undefined ? Date.now() : Date.parse(input.now()),
-      providerUnreachable =
+      localProviderUnreachable =
         evidence === undefined ||
         observedSession.liveness !== "live" ||
         observedSession.outcome !== null ||
@@ -103,6 +103,13 @@ export function makeAgentRuntimeReadModel(input: {
               },
               Number.isFinite(providerNowMs) ? providerNowMs : Date.now(),
             ),
+      // The center has no local stream (and never probes the provider): it serves the judgment the
+      // executing node already reported. When a local stream exists it remains authoritative so a
+      // stale report cannot outlive the edge's own recovery evidence. The canonical session gates
+      // the report because a missing local stream rewrites only the locally observed liveness.
+      reportedProviderUnreachable =
+        session.liveness === "live" && session.outcome === null ? (session.providerUnreachable ?? null) : null,
+      providerUnreachable = evidence === undefined ? reportedProviderUnreachable : localProviderUnreachable,
       outcome = input.projection
         .readRuntimeSessionEvents(session.runtimeSessionId, 0, Number.MAX_SAFE_INTEGER)
         .findLast(

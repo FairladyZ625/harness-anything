@@ -144,7 +144,14 @@ export type DispatchStallEvidence = {
 
 export interface DispatchStreamWriter {
   readonly ref: string;
-  readonly appendProviderEvent: (value: unknown, occurredAt: string) => void;
+  /** `connectionFailure` stamps a reconnect frame with the last real progress known when the
+   * frame was written. A bounded tail read can then recover the true progress clock even when
+   * the reconnect diagnostics themselves fill more than the retained tail window. */
+  readonly appendProviderEvent: (
+    value: unknown,
+    occurredAt: string,
+    connectionFailure?: { readonly lastProgressAt: string },
+  ) => void;
   readonly appendWorkspaceActivity: (occurredAt: string) => void;
   readonly appendStalled: (occurredAt: string, evidence?: DispatchStallEvidence) => void;
   readonly appendProviderBinding: (providerSessionId: string, occurredAt: string) => void;
@@ -253,11 +260,12 @@ export function openDispatchStream(
   }
   return {
     ref,
-    appendProviderEvent: (value, occurredAt) =>
+    appendProviderEvent: (value, occurredAt, connectionFailure) =>
       appendJsonl(dispatchStreamPath(rootDir, header.dispatchId), {
         schema: streamSchema,
         kind: "provider_event",
         occurredAt,
+        ...(connectionFailure === undefined ? {} : { lastProgressAt: connectionFailure.lastProgressAt }),
         event: scrubProviderValue(value),
       }),
     appendWorkspaceActivity: (occurredAt) =>
@@ -424,28 +432,51 @@ export function readDispatchStreamSummary(rootDir: string, dispatchId: string): 
   if (!header) return null;
   const headerEnd = firstLineEndOffset(target, stat.size);
   const chunks = readBoundedStreamWindows(target, stat.size, headerEnd),
-    records: DispatchStreamRecord[] = [];
+    records: DispatchStreamRecord[] = [],
+    // The two head windows and the tail window leave a middle gap on a long stream. Facts found
+    // only inside that gap cannot be recovered in O(1), so the tail must carry a conservative
+    // bound instead of letting the summary fall back to the (old) header.
+    tailStart = Math.max(0, stat.size - summaryTailBytes),
+    coveredEnd = Math.min(stat.size, Math.max(summaryHeadBytes, headerEnd + summaryHeadBytes)),
+    hasGap = coveredEnd < tailStart;
   let lastProviderActivity: DispatchStreamActivity | null = null,
     lastProviderReconnect: DispatchProviderReconnect | null = null,
-    lastProgressAt = header.startedAt;
+    lastProgressAt = header.startedAt,
+    lastReconnectProgressAt: string | null = null,
+    lastReconnectInTail = false,
+    firstTailRecordAt: string | null = null;
   const seenOffsets = new Set<number>();
   for (const chunk of chunks) {
     for (const line of completeLines(chunk.text, chunk.offset)) {
       if (line.offset === 0 || seenOffsets.has(line.offset)) continue;
       seenOffsets.add(line.offset);
-      const kind = lineKind(line.value);
+      const kind = lineKind(line.value),
+        record = kind === null ? null : parseRecord(line.value);
+      if (
+        hasGap &&
+        line.offset >= tailStart &&
+        record &&
+        typeof record.occurredAt === "string" &&
+        (firstTailRecordAt === null || Date.parse(record.occurredAt) < Date.parse(firstTailRecordAt))
+      )
+        firstTailRecordAt = record.occurredAt;
       if (kind === "provider_event") {
-        const record = parseRecord(line.value),
-          activity = record && providerActivityRecord(header.kindId, record),
+        const activity = record && providerActivityRecord(header.kindId, record),
           reconnect = record && providerReconnectRecord(header.kindId, record);
         // A reconnect attempt is the provider failing to carry the turn, not the turn progressing:
         // it records the connection error but must not move the real-progress clock.
-        if (reconnect !== null) {
+        if (record && reconnect !== null) {
           if (
             lastProviderReconnect === null ||
             Date.parse(reconnect.occurredAt) > Date.parse(lastProviderReconnect.occurredAt)
-          )
+          ) {
             lastProviderReconnect = reconnect;
+            lastReconnectProgressAt =
+              typeof record.lastProgressAt === "string" && Number.isFinite(Date.parse(record.lastProgressAt))
+                ? record.lastProgressAt
+                : null;
+            lastReconnectInTail = line.offset >= tailStart;
+          }
         } else if (
           record &&
           typeof record.occurredAt === "string" &&
@@ -456,7 +487,6 @@ export function readDispatchStreamSummary(rootDir: string, dispatchId: string): 
         continue;
       }
       if (!kind || !summaryKinds.has(kind)) continue;
-      const record = parseRecord(line.value);
       if (record) {
         records.push(record);
         if (
@@ -467,6 +497,17 @@ export function readDispatchStreamSummary(rootDir: string, dispatchId: string): 
           lastProgressAt = record.occurredAt;
       }
     }
+  }
+  if (hasGap) {
+    // Prefer the progress clock stamped on the latest reconnect frame: it is exact and costs no
+    // extra scan. Legacy frames without the stamp fall back to the first complete tail record —
+    // a conservative upper bound on real progress, so a long reconnect flood cannot trigger the
+    // classification earlier than the true stall threshold.
+    const bound =
+      lastReconnectInTail && lastReconnectProgressAt !== null
+        ? lastReconnectProgressAt
+        : (firstTailRecordAt ?? new Date(stat.mtimeMs).toISOString());
+    if (Number.isFinite(Date.parse(bound)) && Date.parse(bound) > Date.parse(lastProgressAt)) lastProgressAt = bound;
   }
   const value = summarizeDispatch(
     header,

@@ -1,18 +1,14 @@
+import type { RuntimeProviderUnreachable } from "@harness-anything/kernel";
+
 export type TaskDispatchResume = {
   readonly dispatchId: string;
   readonly agentId: string | null;
 };
 
 /** The single read-side judgment that a live dispatch is waiting on a provider it cannot reach.
- * `lastError` is the provider's own reconnect diagnostic, kept verbatim. */
-export interface ProviderUnreachableEvidence {
-  readonly state: "provider_unreachable";
-  /** Last provider or workspace progress; reconnect attempts are not progress. */
-  readonly lastProgressAt: string;
-  /** When the provider reported the most recent failed connection attempt. */
-  readonly lastErrorAt: string;
-  readonly lastError: string;
-}
+ * `lastError` is the provider's own reconnect diagnostic, kept verbatim. The same shape crosses
+ * the edge-to-center runtime event channel, so its source of truth is the kernel event contract. */
+export type ProviderUnreachableEvidence = RuntimeProviderUnreachable;
 
 export interface TaskDispatchAdvisory {
   readonly evaluatedAt: string;
