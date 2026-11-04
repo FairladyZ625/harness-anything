@@ -5,7 +5,7 @@ import { withPostgresTransaction } from "../../src/postgres/transaction.ts";
 import { tracedPgReads, explainNodes, reportPgVersion, measurePgRead } from "./pg-explain.fixture.ts";
 
 import { assertDispatchIndexes } from "./pg-dispatch-index.fixture.ts";
-import { measureLegacySelector } from "./pg-legacy-read-plans.fixture.ts";
+import { legacyValueSql, measureLegacySelector } from "./pg-legacy-read-plans.fixture.ts";
 
 const scope = { tenantId: "session-index", projectId: "session-index", policyEpoch: 1 };
 export async function assertSessionIndexes(pool: Pool, seedPool: Pool, backend: string): Promise<void> {
@@ -42,6 +42,16 @@ export async function assertSessionIndexes(pool: Pool, seedPool: Pool, backend: 
     },
     scope,
   );
+  // These three old methods loaded this complete model before their JS task/page selection.
+  // Measure the archived selector separately: it excludes that decoding/filtering cost.
+  for (const method of ["readRuntimeSessionsForTask", "readTaskRuntimeBatch", "readRuntimeSessionPage (bounded)"])
+    await measureLegacySelector(pool, scope, backend, method, legacyValueSql(), [
+      scope.tenantId,
+      scope.projectId,
+      scope.policyEpoch,
+      "runtime-session",
+      [],
+    ]);
   const plans: unknown[] = [],
     traced = tracedPgReads(pool, plans, (sql) =>
       /^\s*(?:SELECT|WITH RECURSIVE)[\s\S]*(?:FROM ha_projection_values|FROM ha_runtime_session_tasks|FROM ha_events|JOIN ha_projection_values)/u.test(
