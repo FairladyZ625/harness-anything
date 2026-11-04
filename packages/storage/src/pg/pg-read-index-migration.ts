@@ -19,12 +19,15 @@ export function readIndexDdl(): readonly string[] {
     "ALTER TABLE ha_projection_values ADD COLUMN IF NOT EXISTS execution_id text",
     "ALTER TABLE ha_projection_values ADD COLUMN IF NOT EXISTS interval_open boolean",
     "ALTER TABLE ha_projection_values ADD COLUMN IF NOT EXISTS fact_edge boolean",
-    // json's getter also unescapes unrelated strings. Replace only actual NUL escapes in
-    // this disposable parsing copy; preserve escaped backslashes and every canonical byte.
-    // Indexed identities already cross PostgreSQL text columns; their write boundary rejects NUL.
+    // Even json getters decode unrelated strings. Tokenize escapes in the disposable copy:
+    // preserve valid surrogate pairs and escaped backslashes; repair only NUL/lone surrogates.
+    // Canonical text is untouched. Indexed identities already cross PostgreSQL text columns.
     String.raw`CREATE OR REPLACE FUNCTION ha_read_index_json(serialized text) RETURNS jsonb
       LANGUAGE sql IMMUTABLE STRICT AS $function$
-        SELECT regexp_replace(serialized,$pattern$(?<!\\)((?:\\\\)*)\\u0000$pattern$,$replacement$\1\\ufffd$replacement$,'g')::jsonb
+        SELECT COALESCE(string_agg(CASE WHEN part[1] ~ $unsafe$^\\u(?:0000|[dD][89a-fA-F][0-9A-Fa-f]{2})$$unsafe$
+          THEN $replacement$\ufffd$replacement$ ELSE part[1] END,'' ORDER BY position),'')::jsonb
+        FROM regexp_matches(serialized,$tokens$(\\u[dD][89aAbB][0-9A-Fa-f]{2}\\u[dD][c-fC-F][0-9A-Fa-f]{2}|\\u[0-9A-Fa-f]{4}|\\.|[^\\]+)$tokens$,'g')
+          WITH ORDINALITY AS tokens(part,position)
       $function$`,
     `CREATE OR REPLACE FUNCTION ha_projection_read_index_fields() RETURNS trigger
       LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$

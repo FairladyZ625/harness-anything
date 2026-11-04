@@ -101,7 +101,16 @@ async function assertOnlineReadIndexUpgrade(pool: Pool, seedPool: Pool): Promise
   await withPostgresTransaction(
     seedPool,
     async (client) => {
-      for (const value of ["NUL\0\0😀", "literal\\u0000", "mixed\\\0", "Unicode 😀"]) {
+      for (const value of [
+        "NUL\0\0😀",
+        "literal\\u0000",
+        "mixed\\\0",
+        "Unicode 😀",
+        "high\ud800",
+        "low\udc00",
+        "literal\\ud800\udc00",
+        "prefix\\😀",
+      ]) {
         const serialized = JSON.stringify({ memo: value, pinnedAt: "2026-01-01" });
         const row = (
           await client.query<{ metadata: string; copy: string }>(
@@ -110,7 +119,10 @@ async function assertOnlineReadIndexUpgrade(pool: Pool, seedPool: Pool): Promise
           )
         ).rows[0]!;
         assert.equal(row.metadata, "2026-01-01");
-        assert.equal(JSON.parse(row.copy).memo, value.replaceAll("\0", "�"));
+        assert.equal(
+          JSON.parse(row.copy).memo,
+          new TextDecoder().decode(new TextEncoder().encode(value)).replaceAll("\0", "�"),
+        );
       }
     },
     scope,
@@ -165,7 +177,7 @@ async function assertOnlineReadIndexUpgrade(pool: Pool, seedPool: Pool): Promise
           oldScope.tenantId,
           oldScope.projectId,
           oldScope.policyEpoch,
-          JSON.stringify({ entityRef: "001", pinnedAt: "2026-12-01", pinnedBy: "person/test", memo: "note\0😀" }),
+          JSON.stringify({ entityRef: "001", pinnedAt: "2026-12-01", pinnedBy: "person/test", memo: "note\0😀\ud800" }),
         ],
       );
       await putPgProjectionValue(client, oldScope, "runtime-session", "session-old", "", 1, {

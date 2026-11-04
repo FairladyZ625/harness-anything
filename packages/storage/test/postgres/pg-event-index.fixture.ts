@@ -117,8 +117,13 @@ export async function assertEventIndexes(pool: Pool, seedPool: Pool, backend: st
   const scans = explainNodes(plans).filter((row) => row["Relation Name"] === "ha_events");
   assert.ok(scans.length >= 5, "every production event query must be explained");
   for (const entry of plans as { sql: string; plan: unknown }[]) {
+    // A request for every schedule returns one third of this corpus. PG may legitimately
+    // prefer a sequential scan there: permit constant work per returned row, without forcing
+    // the optimizer. Narrow predicates must still read at most their two matching rows.
     const budget =
-      entry.sql.includes("event_schema = 'schedule-event/v1'") && !entry.sql.includes("event_entity_id") ? 33335 : 2;
+      entry.sql.includes("event_schema = 'schedule-event/v1'") && !entry.sql.includes("event_entity_id")
+        ? 4 * 33335
+        : 2;
     for (const scan of explainNodes(entry.plan).filter((row) =>
       ["ha_events", "ha_facts"].includes(String(row["Relation Name"])),
     ))
@@ -138,7 +143,7 @@ export async function assertEventIndexes(pool: Pool, seedPool: Pool, backend: st
           )
         ).rows[0]!.event_json,
         event = JSON.parse(before),
-        value = JSON.stringify({ ...event, payload: { ...event.payload, statement: "NUL\0\0😀" } });
+        value = JSON.stringify({ ...event, payload: { ...event.payload, statement: "NUL\0\0😀\ud800" } });
       await client.query("UPDATE ha_events SET event_json=$2 WHERE tenant_id=$1 AND revision=100004", [
         scope.tenantId,
         value,

@@ -12,6 +12,12 @@ export async function assertDispatchIndexes(pool: Pool, seedPool: Pool, backend:
     seedPool,
     async (client) => {
       await client.query(
+        `INSERT INTO ha_repo_heads
+      (tenant_id,project_id,policy_epoch,repo_id,revision,head_op_id,head_event_digest,head_digest)
+      VALUES($1,$2,$3,$4,100002,'fixture','fixture','fixture')`,
+        [scope.tenantId, scope.projectId, scope.policyEpoch, repoId],
+      );
+      await client.query(
         `INSERT INTO ha_projection_meta
       (tenant_id,project_id,policy_epoch,schema_version,watermark,source_revision)
       VALUES($1,$2,$3,5,100002,100002)`,
