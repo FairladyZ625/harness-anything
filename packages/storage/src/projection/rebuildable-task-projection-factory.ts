@@ -70,6 +70,7 @@ import type {
 import type { LedgerEventStorePort } from "@harness-anything/kernel";
 import {
   closeDatabase,
+  closeQueryOnlyReader,
   discardDatabase,
   ProjectionIdentityMismatchError,
   ProjectionSchemaMismatchError,
@@ -460,6 +461,6 @@ export function makeTaskProjectionReader(
           publishedHead = null;
         }
       }),
-    close: () => undefined,
+    close: () => closeQueryOnlyReader(projectionPath),
   };
 }

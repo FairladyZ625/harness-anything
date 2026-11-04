@@ -6,65 +6,21 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import test, { type TestContext } from "node:test";
-import { Worker } from "node:worker_threads";
+import test from "node:test";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { readFleetEdgeConfig, writeFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
-
-// Temporary CEO-requested diagnostics; remove after the stalled stage is identified.
-async function stage<T>(name: string, run: () => Promise<T>, state?: () => unknown): Promise<T> {
-  console.error(`[edge-sync-stage] ${Date.now()} ${name} start`, state?.());
-  try {
-    const value = await run();
-    console.error(`[edge-sync-stage] ${Date.now()} ${name} done`, state?.());
-    return value;
-  } catch (error) {
-    console.error(`[edge-sync-stage] ${Date.now()} ${name} failed`, error, state?.());
-    throw error;
-  }
-}
-function cpuLoad(t: TestContext): void {
-  const count = Number(process.env.FLEET_STRESS_EDGE_CPU ?? 0);
-  assert.ok(Number.isInteger(count) && count >= 0 && count <= 2);
-  const stop = new Int32Array(new SharedArrayBuffer(4));
-  const workers = Array.from(
-    { length: count },
-    () =>
-      new Worker(
-        'const {workerData}=require("node:worker_threads"); while (!Atomics.load(new Int32Array(workerData),0)) {}',
-        { eval: true, workerData: stop.buffer },
-      ),
-  );
-  console.error(`[edge-sync-stage] CPU load workers=${count}`);
-  t.after(async () => {
-    Atomics.store(stop, 0, 1);
-    await Promise.all(workers.map((worker) => worker.terminate()));
-  });
-}
 
 test(
   "a successful edge sync persists its connection and starts the resident stream",
   { timeout: 180_000 },
   async (t) => {
-    cpuLoad(t);
-    const f = await stage("center-fixture", () =>
-      fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, true),
-    );
+    const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, true);
     assert.equal(
-      (
-        await stage("create-synced-0", () =>
-          f.command("center-node", { kind: "task-create", taskId: "synced-0", title: "Synced 0" }),
-        )
-      ).outcome,
+      (await f.command("center-node", { kind: "task-create", taskId: "synced-0", title: "Synced 0" })).outcome,
       "applied",
     );
-    const e = await stage("edge-fixture", () =>
-      fleetEdgeHostFixture(t, f, {
-        writeEdgeConfig: false,
-        diagnostic: (name, state) => console.error(`[edge-sync-stage] ${Date.now()} ${name}`, JSON.stringify(state)),
-      }),
-    );
+    const e = await fleetEdgeHostFixture(t, f, { writeEdgeConfig: false });
     const configFile = path.join(e.edgeRoot, "fleet-edge.json");
     assert.equal(existsSync(configFile), false);
     const { schema: _schema, waitTimeoutMs: _wait, ...connection } = e.config;
@@ -82,7 +38,7 @@ test(
       return response.result as Record<string, unknown>;
     };
 
-    const first = await stage("first-sync", () => edgeSync(connection), e.host.status);
+    const first = await edgeSync(connection);
     assert.equal(first.ok, true, JSON.stringify(first));
     assert.equal(first.outcome, "applied");
     assert.deepEqual(readFleetEdgeConfig(e.edgeRoot), connection);
@@ -103,15 +59,11 @@ test(
 
     // A changed connection is rewritten and the stream restarts on it; sync waits on the new stream.
     assert.equal(
-      (
-        await stage("create-synced-1", () =>
-          f.command("center-node", { kind: "task-create", taskId: "synced-1", title: "Synced 1" }),
-        )
-      ).outcome,
+      (await f.command("center-node", { kind: "task-create", taskId: "synced-1", title: "Synced 1" })).outcome,
       "applied",
     );
     const changed = { ...connection, quotaBytes: connection.quotaBytes * 2 };
-    const second = await stage("second-sync", () => edgeSync(changed), e.host.status);
+    const second = await edgeSync(changed);
     assert.equal(second.ok, true, JSON.stringify(second));
     const persisted = readFleetEdgeConfig(e.edgeRoot)!;
     const {
@@ -124,7 +76,7 @@ test(
     assert.deepEqual(persistedConnection, changed);
     assert.equal(persisted?.loginUrl, f.owners.url);
     assert.equal(persisted?.loginBrowserUrl, f.owners.url);
-    const listed = await stage("task-list", () => e.command({ kind: "task-list" }), e.host.status);
+    const listed = await e.command({ kind: "task-list" });
     const rows = listed.rows as Array<{ readonly taskId?: string }>;
     assert.deepEqual(
       rows

@@ -109,6 +109,15 @@ function closeQueryOnlyConnection(connection: QueryOnlyConnection): void {
   connection.fingerprint = null;
 }
 
+/** Release the cached query connection when its reader owner leaves the repository. */
+export function closeQueryOnlyReader(projectionPath: string): void {
+  const key = canonicalProjectionPath(projectionPath),
+    connection = queryOnlyConnections.get(key);
+  if (!connection) return;
+  closeQueryOnlyConnection(connection);
+  queryOnlyConnections.delete(key);
+}
+
 /** Test fixtures can close all projection databases before removing a temporary repository. */
 export function closeTaskProjectionsUnder(rootDir: string): void {
   const resolvedRoot = canonicalProjectionPath(rootDir),
