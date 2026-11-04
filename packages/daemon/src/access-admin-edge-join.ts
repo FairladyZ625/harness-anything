@@ -10,7 +10,12 @@ import {
 import type { AuthorizationGrant, AuthorizationProvider } from "@harness-anything/kernel";
 import type { AccessAdminPorts, AccessAdminRequest } from "./access-admin-contract.ts";
 import { coded, names, requiredUserId, text, uniqueSorted } from "./access-admin-utils.ts";
-import { admitEdgeJoin, restoreEdgeJoinStore } from "./fleet/edge-join-admission.ts";
+import {
+  admitEdgeJoin,
+  restoreEdgeJoinStore,
+  authenticateEdgeJoin,
+  type EdgeJoinRecovery,
+} from "./fleet/edge-join-admission.ts";
 import {
   createEdgeJoinStore,
   edgeJoinPlatforms,
@@ -211,7 +216,13 @@ export class EdgeJoinAdminService {
     }
   }
 
-  async admit(input: { readonly joinId: string; readonly inviteToken?: string; readonly accessToken: string }) {
+  async admit(input: {
+    readonly joinId: string;
+    readonly inviteToken?: string;
+    readonly accessToken: string;
+    readonly recovery?: EdgeJoinRecovery;
+  }) {
+    if (input.recovery) return this.#recover(input, input.recovery);
     const result = await admitEdgeJoin({
       ...input,
       oidc: this.#oidc,
@@ -246,13 +257,63 @@ export class EdgeJoinAdminService {
     return record ? { clientId: record.loginClientId, personId: record.personId } : undefined;
   }
 
-  status(joinId: string) {
-    const record = this.#joins.get(joinId),
-      status = this.#joins.status(joinId);
-    return {
-      ...status,
-      ...(record?.sshTarget ? { tunnelState: this.#sshTunnels.state(record.sshTarget) } : {}),
-    };
+  status(joinId: string, personId: string) {
+    const record = this.#joins.get(joinId);
+    if (!record || record.personId !== personId)
+      throw coded("authorization_denied", "This join belongs to another person.");
+    return this.#joins.status(joinId);
+  }
+
+  async authenticatedStatus(input: { readonly joinId: string; readonly accessToken: string }) {
+    const record = this.#joins.get(input.joinId);
+    if (!record) throw coded("authorization_denied", "This join is unavailable.");
+    await authenticateEdgeJoin(record, this.#oidc, input.accessToken);
+    return this.#oidc.serialize(async () => this.status(input.joinId, record.personId));
+  }
+
+  async #recover(input: { readonly joinId: string; readonly accessToken: string }, recovery: EdgeJoinRecovery) {
+    const record = this.#joins.get(input.joinId);
+    if (!record?.consumedAt || record.nodeId !== recovery.nodeId)
+      throw coded("edge_join_invalid", "Recovery requires the node consumed by this join.");
+    const session = await this.#session(),
+      observed = await session.adapter.readNode(session.token, recovery.nodeId);
+    await authenticateEdgeJoin(record, this.#oidc, input.accessToken);
+    return this.#oidc.serialize(async () => {
+      const current = await session.adapter.readNode(session.token, recovery.nodeId);
+      if (!current || current.state === "removed") throw coded("device_removed", "Use a new link to add a new device.");
+      if (current.personId !== record.personId) throw coded("person_mismatch", "The device owner has changed.");
+      if (current.state !== "active" || current.revocation !== "complete")
+        throw coded("device_paused", "Resume this device before recovering its connection.");
+      if (!observed || current.revision !== observed.revision)
+        throw coded("version_conflict", "The device changed during recovery; retry the join.");
+      await this.#validateSnapshot(record, input.accessToken);
+      if (
+        recovery.credential !== undefined &&
+        (await session.adapter.authenticateNode(current.nodeId, recovery.credential))
+      ) {
+        return {
+          joinId: record.joinId,
+          nodeId: current.nodeId,
+          personId: record.personId,
+          credential: recovery.credential,
+          repoIds: record.repoIds,
+        };
+      }
+      const credential = randomBytes(32).toString("base64url");
+      // One authority write replaces the secret and advances the concurrency fence together.
+      await session.adapter.rotateNodeCredential(
+        session.token,
+        { ...current, revision: current.revision + 1 },
+        credential,
+      );
+      return {
+        joinId: record.joinId,
+        nodeId: current.nodeId,
+        personId: record.personId,
+        credential,
+        repoIds: record.repoIds,
+      };
+    });
   }
 
   list() {

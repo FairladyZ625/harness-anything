@@ -62,6 +62,7 @@ export function createDevicesTab(host: KeycloakUiHost) {
       [editing, setEditing] = useState<AccessDevice | null>(null),
       [name, setName] = useState(""),
       [issued, setIssued] = useState<EdgeJoinIssued | null>(null),
+      [copied, setCopied] = useState(false),
       [confirm, setConfirm] = useState<{
         label: string;
         write: () => Promise<({ readonly ok: true } & AccessReceipt) | AccessRejection>;
@@ -82,12 +83,23 @@ export function createDevicesTab(host: KeycloakUiHost) {
       if (!repoId) return;
       setBusy(true);
       setIssued(null);
+      setCopied(false);
       try {
         const reply = await access.issueEdgeJoin({ joinMode: "member-device", repoIds: [repoId] }).catch(asRejection);
         setRefusal(isRejection(reply) ? reply : null);
         if (!isRejection(reply)) setIssued(reply);
       } finally {
         setBusy(false);
+      }
+    }
+    async function copyLink() {
+      if (!issued) return;
+      try {
+        await navigator.clipboard.writeText(issued.link);
+        setCopied(true);
+      } catch (error) {
+        setRefusal(asRejection(error));
+        return { ok: false };
       }
     }
     return (
@@ -110,9 +122,14 @@ export function createDevicesTab(host: KeycloakUiHost) {
               <p className="ui-meta text-text-muted">
                 {t("devices.addExpires")} {formatTime(issued.expiresAt, { style: "date-time" })}
               </p>
-              <Button testId="devices-add-dismiss" onClick={() => setIssued(null)}>
-                {t("devices.addDone")}
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="primary" testId="devices-add-copy" onClick={() => void copyLink()}>
+                  {t(copied ? "devices.linkCopied" : "devices.copyLink")}
+                </Button>
+                <Button testId="devices-add-dismiss" onClick={() => setIssued(null)}>
+                  {t("devices.addDone")}
+                </Button>
+              </div>
             </div>
           )}
           <p className="ui-body text-text-muted" data-testid="devices-security-boundary">

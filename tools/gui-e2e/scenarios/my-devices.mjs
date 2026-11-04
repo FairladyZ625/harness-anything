@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { saveFleetCenterConfig } from "../../../packages/daemon/src/fleet-center-config.ts";
-/* global window, document */
+/* global window, document, navigator */
 import assert from "node:assert/strict";
 
 export default {
@@ -54,6 +54,20 @@ export default {
     assert.equal(Object.hasOwn(payload, "token"), false);
     assert.equal(payload.spkiSha256.length, 64);
     assert.deepEqual(payload.repoIds, [fixture.repoId]);
+    // Explicit isolated clipboard boundary: capture only the newly requested text, never touch the OS clipboard.
+    await page.evaluate(() => {
+      Object.defineProperty(navigator, "clipboard", {
+        configurable: true,
+        value: {
+          writeText: async (text) => {
+            window.__deviceLinkCopy = text;
+          },
+        },
+      });
+    });
+    await page.getByTestId("devices-add-copy").press("Enter");
+    await page.waitForFunction((link) => window.__deviceLinkCopy === link, link);
+    assert.match(await page.getByTestId("devices-add-copy").innerText(), /链接已复制|Link copied/u);
     await shot("my-devices-add-link");
     await page.getByTestId("devices-add-dismiss").click();
     await issued.waitFor({ state: "hidden" });

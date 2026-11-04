@@ -54,6 +54,7 @@ export interface FleetCenterAdmissionRequest {
     | "loginAuthority"
     | "verifyHuman"
     | "createMemberEdgeJoin"
+    | "edgeJoinStatus"
     | "deviceLoginNotice"
     | "revokeDeviceSessions"
   > & {

@@ -105,6 +105,8 @@ for (const kind of ["builtin", "keycloak"] as const) {
       assert.equal(node.personId, "owner");
       await provider.writeNode(token, { ...node, displayName: "Renamed" });
       await provider.rotateNodeCredential(token, node, "rotated");
+      assert.equal(await provider.authenticateNode(node.nodeId, "credential"), false);
+      assert.equal(await provider.authenticateNode(node.nodeId, "rotated"), true);
       await provider.revokeNodeConsent(token, node.nodeId, node.personId);
       await provider.transferNode(token, node, "owner");
       await provider.revokeNode(token, node);

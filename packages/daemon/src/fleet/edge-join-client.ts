@@ -10,7 +10,7 @@ import { runProcessTextAsync } from "../process-port.ts";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
 import type { OidcLoginAuthority } from "@harness-anything/kernel";
 import { decodeEdgeJoinLink } from "./edge-join.ts";
-import { probeFleetEdgeCenterAddress, requestFleetEdgeJoinPinned } from "./peer.ts";
+import { probeFleetEdgeCenterAddress, requestFleetEdgeJoinPinned, requestFleetEdgeJoinStatusPinned } from "./peer.ts";
 import { fetchWithTlsCa, systemCaCertificates } from "../tls-ca-certificate.ts";
 import { fleetEdgeRepositoryGitFailure } from "../fleet-edge-git-preflight.ts";
 
@@ -67,6 +67,7 @@ export interface EdgeJoinClientPorts {
   readonly register: (rootDir: string, repoId: string) => Promise<unknown>;
   readonly sync: (payload: JsonObject) => Promise<Record<string, unknown>>;
   readonly join?: typeof requestFleetEdgeJoinPinned;
+  readonly status?: typeof requestFleetEdgeJoinStatusPinned;
   readonly probeCenter?: typeof probeFleetEdgeCenterAddress;
   readonly probeLogin?: (authority: OidcLoginAuthority) => Promise<void>;
   readonly homeDir?: string;
@@ -145,16 +146,39 @@ export async function joinFleetEdge(
       ...(link.transport ? { transport: link.transport } : {}),
     };
   const port = Number(center.port || 443),
-    admitted = await (ports.join ?? requestFleetEdgeJoinPinned)({
+    address = {
       hostname: center.hostname,
       port,
       servername: centerServername,
-      joinId: link.joinId,
-      ...(link.token === undefined ? {} : { inviteToken: link.token }),
-      accessToken: session.accessToken,
       spkiSha256: link.spkiSha256,
-    }),
-    certificate = new X509Certificate(Buffer.from(admitted.certificate, "base64")).toString(),
+      joinId: link.joinId,
+      accessToken: session.accessToken,
+    },
+    join = ports.join ?? requestFleetEdgeJoinPinned;
+  const admitted = await join({ ...address, ...(link.token === undefined ? {} : { inviteToken: link.token }) }).catch(
+    async (error: unknown) => {
+      if ((error as { code?: string }).code !== "already_consumed") throw error;
+      const status = await (ports.status ?? requestFleetEdgeJoinStatusPinned)(address);
+      if (status.state !== "consumed" || !status.nodeId) throw error;
+      const saved = link.repoIds
+        .map((repoId) =>
+          readFleetEdgeConfig(edgeWorkspaceRoot(repoId, request.workspaceRoot, ports.homeDir ?? homedir())),
+        )
+        .find(
+          (config) =>
+            config !== null &&
+            config.nodeId === status.nodeId &&
+            config.host === center.hostname &&
+            config.port === port &&
+            (config.servername ?? center.hostname) === centerServername,
+        );
+      return join({
+        ...address,
+        recovery: { nodeId: status.nodeId, ...(saved ? { credential: saved.credential } : {}) },
+      });
+    },
+  );
+  const certificate = new X509Certificate(Buffer.from(admitted.certificate, "base64")).toString(),
     repositories = [] as {
       readonly repoId: string;
       readonly workspaceRoot: string;
@@ -177,6 +201,32 @@ export async function joinFleetEdge(
       center: repository,
       operation: "edge sync",
     });
+    // The pinned certificate is public; it becomes the trust anchor every later connection verifies against.
+    writeFileDurably(caPath, certificate);
+    const previous = readFleetEdgeConfig(root),
+      saved = previous?.nodeId === admitted.nodeId ? previous : null,
+      quotaBytes =
+        request.quotaBytes ??
+        saved?.quotaBytes ??
+        deriveEdgeJoinQuotaBytes(root, ports.availableBytes ?? ((directory) => availableFilesystemBytes(directory)));
+    writeFleetEdgeConfig(root, {
+      ...(saved?.waitTimeoutMs === undefined ? {} : { waitTimeoutMs: saved.waitTimeoutMs }),
+      ...(saved?.maxAgeMs === undefined ? {} : { maxAgeMs: saved.maxAgeMs }),
+      ...(saved?.maxLagRevisions === undefined ? {} : { maxLagRevisions: saved.maxLagRevisions }),
+      repoId: repository.repoId,
+      host: center.hostname,
+      port,
+      servername: centerServername,
+      caPath,
+      nodeId: admitted.nodeId,
+      credential: admitted.credential,
+      loginUrl: authority.url,
+      ...(authority.servername ? { loginServername: authority.servername } : {}),
+      ...(authority.browserUrl ? { loginBrowserUrl: authority.browserUrl } : {}),
+      ...(authority.certificate ? { loginCertificate: authority.certificate } : {}),
+      viewRoot: `${root}-view`,
+      quotaBytes,
+    });
     if (preflightFailure) {
       report("failed");
       repositories.push({
@@ -187,29 +237,8 @@ export async function joinFleetEdge(
       });
       continue;
     }
-    // The pinned certificate is public; it becomes the trust anchor every later connection verifies against.
-    writeFileDurably(caPath, certificate);
     report("register");
     await ports.register(root, repository.repoId);
-    const quotaBytes =
-      request.quotaBytes ??
-      deriveEdgeJoinQuotaBytes(root, ports.availableBytes ?? ((directory) => availableFilesystemBytes(directory)));
-    if (link.transport === "ssh-reverse")
-      writeFleetEdgeConfig(root, {
-        repoId: repository.repoId,
-        host: center.hostname,
-        port,
-        servername: centerServername,
-        caPath,
-        nodeId: admitted.nodeId,
-        credential: admitted.credential,
-        loginUrl: authority.url,
-        ...(authority.servername ? { loginServername: authority.servername } : {}),
-        ...(authority.browserUrl ? { loginBrowserUrl: authority.browserUrl } : {}),
-        ...(authority.certificate ? { loginCertificate: authority.certificate } : {}),
-        viewRoot: `${root}-view`,
-        quotaBytes,
-      });
     report("sync");
     const synced = await ports.sync({
       repoId: repository.repoId,
@@ -233,17 +262,6 @@ export async function joinFleetEdge(
         ...edgeJoinSyncFailure(repository.repoId, synced),
       });
       continue;
-    }
-    if (link.transport === "ssh-reverse") {
-      const existing = readFleetEdgeConfig(root);
-      if (!existing) throw new Error("Fleet edge sync did not persist its connection configuration.");
-      writeFleetEdgeConfig(root, {
-        ...existing,
-        loginUrl: authority.url,
-        loginServername: authority.servername,
-        loginBrowserUrl: authority.browserUrl,
-        ...(authority.certificate ? { loginCertificate: authority.certificate } : {}),
-      });
     }
     report("synced");
     repositories.push({

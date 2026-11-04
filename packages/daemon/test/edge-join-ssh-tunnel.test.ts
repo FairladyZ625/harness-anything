@@ -491,7 +491,11 @@ test("resume restores consumed SSH invitations without probing the login listene
   assert.equal(spawnedArgs.length, 1);
   assert.ok(spawnedArgs[0]!.includes("127.0.0.1:41231:10.211.55.2:7545"));
   assert.ok(spawnedArgs[0]!.includes("127.0.0.1:41232:login.example:18544"));
-  assert.equal(admin.status(created.record.joinId).state, "consumed");
+  assert.deepEqual(admin.status(created.record.joinId, "person-edge"), {
+    joinId: created.record.joinId,
+    state: "consumed",
+    nodeId: "node-edge",
+  });
   await admin.close();
   assert.equal(children[0]!.killed(), true);
 });

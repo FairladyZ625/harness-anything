@@ -1330,10 +1330,12 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
               : {}),
             verifyHuman: (auth) => oidc.bind(auth),
             createMemberEdgeJoin: (repos, person, token) => accessAdmin.createMemberEdgeJoin(repos, person, token),
+            edgeJoinStatus: (input) => accessAdmin.edgeJoinStatus(input),
             edgeJoin: (input) =>
               accessAdmin.admitEdgeJoin({
                 joinId: input.joinId,
                 inviteToken: input.inviteToken,
+                ...(input.recovery ? { recovery: input.recovery } : {}),
                 accessToken: input.accessToken,
               }),
           },

@@ -137,10 +137,6 @@ export function readJoinStatus(value: unknown): EdgeJoinStatusReply {
     joinId: value.joinId,
     state: value.state as EdgeJoinStatusReply["state"],
     ...(typeof value.nodeId === "string" ? { nodeId: value.nodeId } : {}),
-    ...(typeof value.tunnelState === "string" &&
-    ["connecting", "connected", "reconnecting", "stopped"].includes(value.tunnelState)
-      ? { tunnelState: value.tunnelState as EdgeJoinStatusReply["tunnelState"] }
-      : {}),
   };
 }
 
@@ -159,6 +155,10 @@ function readJoinSummary(value: unknown): EdgeJoinSummary {
     throw rendererReadError(value, "Edge join list returned an invalid invitation.");
   return {
     ...status,
+    ...(typeof value.tunnelState === "string" &&
+    ["connecting", "connected", "reconnecting", "stopped"].includes(value.tunnelState)
+      ? { tunnelState: value.tunnelState as EdgeJoinSummary["tunnelState"] }
+      : {}),
     personId: value.personId,
     repoIds: value.repoIds as string[],
     groupIds: value.groupIds as string[],

@@ -434,3 +434,27 @@ test("a member link response carries a complete pinned link beyond the short tex
   };
   assert.equal(parseFleetFrame(JSON.stringify(response)).schema, "fleet.edge.link.created/v1");
 });
+
+test("recovery status is a closed credential-free schema and both pre-session requests require human authentication", () => {
+  const status = {
+    schema: "fleet.edge.join.status.result/v1",
+    messageId: "status",
+    inReplyTo: "query",
+    joinId: "join",
+    state: "consumed",
+    nodeId: "node",
+  };
+  assert.equal(parseFleetFrame(status).schema, status.schema);
+  for (const extra of [
+    { credential: "secret" },
+    { token: "token" },
+    { tunnelState: "connected" },
+    { personId: "person" },
+  ])
+    assert.throws(() => parseFleetFrame({ ...status, ...extra }));
+  for (const schema of ["fleet.edge.join/v1", "fleet.edge.join.status/v1"]) {
+    const request = { schema, messageId: "request", joinId: "join" };
+    assert.throws(() => parseFleetFrame(request));
+    assert.equal(parseFleetFrame({ ...request, accessToken: "human-token" }).schema, schema);
+  }
+});

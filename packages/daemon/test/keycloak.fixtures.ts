@@ -247,6 +247,8 @@ export function fakeKeycloak(issuer = keycloakIssuer) {
         return new Response(null, { status: 204 });
       }
       if (method === "GET") return json({ ...nodeClient, secret: undefined });
+      // Admin client PUT replaces its secret in the same update as the device metadata.
+      if (typeof body!.secret === "string") nodeClient.secret = body!.secret;
       if (typeof body!.enabled === "boolean") nodeClient.enabled = body!.enabled;
       nodeClient.attributes = { ...nodeClient.attributes, ...(body!.attributes as Record<string, string>) };
       return new Response(null, { status: 204 });

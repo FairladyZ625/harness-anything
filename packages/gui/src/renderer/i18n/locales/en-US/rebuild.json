@@ -432,6 +432,8 @@
   "devices.add": "Add my device",
   "devices.addHint": "Paste this link on your other device and sign in with the same account. It has no token; current permissions apply when joining.",
   "devices.addExpires": "Link expires",
+  "devices.copyLink": "Copy link",
+  "devices.linkCopied": "Link copied",
   "devices.addDone": "Dismiss link",
   "devices.title": "My devices",
   "devices.localMode": "Built-in identity is in single-machine mode. This computer is your only device.",

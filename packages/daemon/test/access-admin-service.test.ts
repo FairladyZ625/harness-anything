@@ -812,7 +812,7 @@ test("edge invitations grant each selected repository and reject inherited permi
   );
   assert.equal(keycloak.nodeClients.size, nodeCount, "permission drift fails before minting an edge credential");
   assert.deepEqual(
-    (await admin.run({ operation: "edge-join-status", joinId: link.joinId })).state,
+    (await admin.edgeJoinStatus({ joinId: link.joinId, accessToken: "invited-token" })).state,
     "pending",
     "a refused admission leaves the invite available for a fresh decision",
   );
@@ -1081,5 +1081,5 @@ test("an invitation is refused at consume when its repository was disabled or re
   unbindDaemonRepo("repo-b", { userRoot: root });
   await assert.rejects(admit(), { code: "repo_namespace_unknown" }, "a removed repository refuses the consume");
   assert.equal(keycloak.nodeClients.size, nodeCount, "no edge node is minted for a refused repository check");
-  assert.equal((await run({ operation: "edge-join-status", joinId: link.joinId })).state, "pending");
+  assert.equal((await admin.edgeJoinStatus({ joinId: link.joinId, accessToken: "invited-token" })).state, "pending");
 });

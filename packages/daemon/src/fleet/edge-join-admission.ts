@@ -28,6 +28,11 @@ export function restoreEdgeJoinStore(
   });
 }
 
+export interface EdgeJoinRecovery {
+  readonly nodeId: string;
+  readonly credential?: string;
+}
+
 export async function admitEdgeJoin(input: {
   readonly joinId: string;
   readonly inviteToken?: string;
@@ -45,14 +50,7 @@ export async function admitEdgeJoin(input: {
 }> {
   const initial = input.edgeJoins.assertConsumable(input.joinId, input.inviteToken),
     nodeId = randomUUID();
-  const auth = await input.oidc.bind({
-    transportKind: "fleet-tls",
-    humanAccessToken: input.accessToken,
-    fleetExpectedAzps: [{ clientId: initial.loginClientId, personId: initial.personId }],
-    nodePrincipal: { nodeId, personId: initial.personId },
-  });
-  if (auth.oidcPrincipal?.personId !== initial.personId)
-    throw coded("person_mismatch", "The signed-in person does not match the invitation.");
+  await authenticateEdgeJoin(initial, input.oidc, input.accessToken, nodeId);
   return input.oidc.serialize(async () => {
     // Revocation and competing consumption share the OIDC writer with this final check and transition.
     const record = input.edgeJoins.assertConsumable(input.joinId, input.inviteToken);
@@ -65,4 +63,21 @@ export async function admitEdgeJoin(input: {
     input.edgeJoins.consume(input.joinId, nodeId);
     return { joinId: record.joinId, nodeId, personId: record.personId, credential, repoIds: record.repoIds };
   });
+}
+
+/** Verify the link's person without allowing a browser login to transfer an existing device. */
+export async function authenticateEdgeJoin(
+  record: EdgeJoinRecord,
+  oidc: IdentitySessionPort,
+  accessToken: string,
+  nodeId = randomUUID(),
+): Promise<void> {
+  const auth = await oidc.bind({
+    transportKind: "fleet-tls",
+    humanAccessToken: accessToken,
+    fleetExpectedAzps: [{ clientId: record.loginClientId, personId: record.personId }],
+    nodePrincipal: { nodeId, personId: record.personId },
+  });
+  if (auth.oidcPrincipal?.personId !== record.personId)
+    throw coded("person_mismatch", "The signed-in person does not match the invitation.");
 }

@@ -62,7 +62,17 @@ import type { FleetDeviceLoginNotice } from "@harness-anything/kernel";
 export type FleetFrameV1 =
   | Msg<"fleet.edge.link.create/v1", { repoId: string; repoIds: readonly string[] }>
   | Msg<"fleet.edge.link.created/v1", { inReplyTo: string; result: import("./edge-join.ts").EdgeJoinCreated }>
-  | Msg<"fleet.edge.join/v1", { joinId: string; inviteToken?: string; accessToken: string }>
+  | Msg<
+      "fleet.edge.join/v1",
+      {
+        joinId: string;
+        inviteToken?: string;
+        accessToken: string;
+        recovery?: import("./edge-join-admission.ts").EdgeJoinRecovery;
+      }
+    >
+  | Msg<"fleet.edge.join.status/v1", { joinId: string; accessToken: string }>
+  | Msg<"fleet.edge.join.status.result/v1", { inReplyTo: string } & import("./edge-join.ts").EdgeJoinStatusResult>
   | Msg<
       "fleet.edge.join.result/v1",
       {
@@ -742,7 +752,20 @@ const schemas: Readonly<Record<string, Check>> = {
       link: bodyText,
     }),
   }),
-  "fleet.edge.join/v1": optionalShape({ ...common, joinId: id, inviteToken: text }, ["schema", "messageId", "joinId"]),
+  "fleet.edge.join/v1": optionalShape(
+    { ...common, joinId: id, inviteToken: text, recovery: optionalShape({ nodeId: id, credential: text }, ["nodeId"]) },
+    ["schema", "messageId", "joinId"],
+  ),
+  "fleet.edge.join.status/v1": shape({ ...common, joinId: id }),
+  "fleet.edge.join.status.result/v1": optionalShape(
+    {
+      ...reply,
+      joinId: id,
+      state: (value) => ["pending", "consumed", "expired", "revoked"].includes(String(value)),
+      nodeId: id,
+    },
+    ["schema", "messageId", "inReplyTo", "joinId", "state"],
+  ),
   "fleet.edge.join.result/v1": shape({
     ...reply,
     joinId: id,
@@ -969,7 +992,8 @@ function validateFleetFrame(value: unknown): FleetFrameV1 {
   if (
     !record(value) ||
     (value.accessToken !== undefined && !accessToken(value.accessToken)) ||
-    (value.schema === "fleet.edge.join/v1" && typeof value.accessToken !== "string") ||
+    (["fleet.edge.join/v1", "fleet.edge.join.status/v1"].includes(String(value.schema)) &&
+      typeof value.accessToken !== "string") ||
     (value.humanClientId !== undefined &&
       (typeof value.humanClientId !== "string" || value.humanClientId.length === 0)) ||
     typeof value.schema !== "string" ||
