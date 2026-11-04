@@ -12,6 +12,7 @@ import type {
   AuthorizationDecision,
   RuntimeProviderUnreachable,
   RuntimeSession,
+  RuntimeSessionReadQuery,
   SessionIdentity,
   WriteSource,
 } from "@harness-anything/kernel";
@@ -400,7 +401,7 @@ export interface RemoteRuntimePersistence {
     /** The worktree binding the center derived for this task; null when it is closed or changes no repository files. */
     readonly worktree: TaskWorktreeBindingV1 | null;
   }>;
-  readonly readRuntimeSessions: () => Promise<readonly RuntimeSessionSelection[]>;
+  readonly readRuntimeSessions: (query?: RuntimeSessionReadQuery) => Promise<readonly RuntimeSessionSelection[]>;
   /** Read the canonical dispatch owner when a daemon-local stream is unavailable. */
   readonly readRuntimeDispatch: (runtimeSessionId: string) => Promise<RuntimeDispatchOwnerEvidence | null>;
   readonly publish: (draft: {

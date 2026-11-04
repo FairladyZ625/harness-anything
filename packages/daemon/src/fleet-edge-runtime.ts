@@ -718,25 +718,38 @@ export function openFleetEdgeRuntime(input: {
           worktree,
         };
       },
-      readRuntimeSessions: () =>
-        readFleetRuntimeSessionsPaged(async (payload) =>
-          withEdgeReadModel(
-            { ...request, principalId: (await input.readBinding()).actor.principal.personId, includeEntries: false },
-            (projection, frame, view) => ({
-              // Recovery needs the center's published outcome. Local terminal evidence is
-              // for public reads; treating it as publication would skip replay after a lost write.
-              ...repositoryRuntimeReads(
-                projection as TaskProjection,
-                {
-                  readContentBlob: (sha256) => readEdgeViewBlob(view, sha256),
-                },
-                undefined,
-                request.viewRoot,
-              ).overview(payload),
-              ...frame,
-            }),
-          ),
-        ),
+      readRuntimeSessions: async (query) => {
+        // Recovery needs the center's published outcome. Local terminal evidence is for public
+        // reads; treating it as publication would skip replay after a lost write. Read the
+        // replica projection directly so startup follows unsettled sessions, not full history.
+        if (!query?.unsettledOnly)
+          return readFleetRuntimeSessionsPaged(async (payload) =>
+            withEdgeReadModel(
+              { ...request, principalId: (await input.readBinding()).actor.principal.personId, includeEntries: false },
+              (projection, frame, view) => ({
+                ...repositoryRuntimeReads(
+                  projection as TaskProjection,
+                  {
+                    readContentBlob: (sha256) => readEdgeViewBlob(view, sha256),
+                  },
+                  undefined,
+                  request.viewRoot,
+                ).overview(payload),
+                ...frame,
+              }),
+            ),
+          );
+        const principalId = (await input.readBinding()).actor.principal.personId;
+        return withEdgeReadModel({ ...request, principalId, includeEntries: false }, (projection) =>
+          projection.readRuntimeSessions({ unsettledOnly: true }).map((session) => ({
+            runtimeSessionId: session.runtimeSessionId,
+            providerSessionId: session.providerSessionId,
+            instanceId: session.instanceId,
+            liveness: session.liveness,
+            outcome: session.outcome,
+          })),
+        );
+      },
       readRuntimeDispatch: async (runtimeSessionId) =>
         withEdgeReadModel(
           {

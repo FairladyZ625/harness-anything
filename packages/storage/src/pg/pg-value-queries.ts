@@ -98,7 +98,13 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
     readRuntimeInstallation: (id) => get("runtime-installation", id),
     readRuntimeInstallations: () => list("runtime-installation"),
     readRuntimeSession: (id) => get("runtime-session", id),
-    readRuntimeSessions: () => list("runtime-session"),
+    // PG stores projection values as JSON text (documents may contain NUL), so unsettled filtering
+    // happens after the value read. SQLite is the default daemon backend and has the expression
+    // index that makes this read proportional to unsettled sessions.
+    readRuntimeSessions: async (query) => {
+      const sessions = await list<RuntimeSession>("runtime-session");
+      return query?.unsettledOnly ? sessions.filter((session) => session.outcome === null) : sessions;
+    },
     readRuntimeSessionsForTask: async (taskId) =>
       (await list<RuntimeSession>("runtime-session")).filter((session) =>
         session.taskBindings.some((binding) => binding.taskId === taskId),

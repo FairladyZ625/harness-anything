@@ -43,6 +43,10 @@ export const REPOSITORY_READ_TABLES_SQL = `
       workspace_revision INTEGER NOT NULL,
       value_json TEXT NOT NULL
     );
+    -- Startup recovery asks only for unsettled sessions. This expression index keeps that read
+    -- proportional to the sessions still running instead of the repository's whole history.
+    CREATE INDEX IF NOT EXISTS runtime_session_unsettled
+      ON runtime_session(json_extract(value_json, '$.outcome'));
     CREATE TABLE IF NOT EXISTS runtime_session_task_binding (
       task_id TEXT NOT NULL,
       runtime_session_id TEXT NOT NULL,

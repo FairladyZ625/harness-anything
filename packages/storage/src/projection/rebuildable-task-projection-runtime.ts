@@ -26,7 +26,11 @@ import {
   runSql,
 } from "./rebuildable-task-projection-sql.ts";
 import type { LeaseInterval } from "@harness-anything/kernel";
-import type { RuntimeSessionPageQuery, RuntimeSessionPageRead } from "@harness-anything/kernel";
+import type {
+  RuntimeSessionPageQuery,
+  RuntimeSessionPageRead,
+  RuntimeSessionReadQuery,
+} from "@harness-anything/kernel";
 import { readRelationProjectionRows, readRelationProjectionRowsForTargets } from "./relation-entity-projection.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "@harness-anything/kernel";
@@ -367,10 +371,16 @@ export function readRuntimeSession(db: DatabaseSync, sessionId: string): Runtime
   const row = queryRows(db, "SELECT value_json FROM runtime_session WHERE runtime_session_id = ?", sessionId)[0];
   return row ? (JSON.parse(String(row.value_json)) as RuntimeSession) : null;
 }
-export function readRuntimeSessions(db: DatabaseSync): RuntimeSession[] {
-  return queryRows(db, "SELECT value_json FROM runtime_session ORDER BY runtime_session_id").map(
-    (row) => JSON.parse(String(row.value_json)) as RuntimeSession,
-  );
+export function readRuntimeSessions(db: DatabaseSync, query?: RuntimeSessionReadQuery): RuntimeSession[] {
+  // runtime_session_unsettled indexes this exact expression, so recovery reads only the sessions
+  // that still need work instead of scanning every session the repository ever ran.
+  const sql = query?.unsettledOnly
+    ? [
+        "SELECT value_json FROM runtime_session",
+        "WHERE json_extract(value_json, '$.outcome') IS NULL ORDER BY runtime_session_id",
+      ].join(" ")
+    : "SELECT value_json FROM runtime_session ORDER BY runtime_session_id";
+  return queryRows(db, sql).map((row) => JSON.parse(String(row.value_json)) as RuntimeSession);
 }
 export function readRuntimeSessionsForTask(db: DatabaseSync, taskId: string): RuntimeSession[] {
   return queryRows(

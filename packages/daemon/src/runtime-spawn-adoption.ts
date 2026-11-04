@@ -48,9 +48,12 @@ export async function adoptRuntimes(
   onProgress?: (completed: number) => void,
   options?: { readonly runtimeSessionId?: string; readonly authorizationBinding?: RuntimeBinding },
 ): Promise<readonly RuntimeRecoveryResult[]> {
+  // Recovery owes nothing to a settled session: the read layer returns only unsettled ones, so
+  // startup work follows what is still running instead of the repository's whole history.
+  const query = { unsettledOnly: true } as const;
   const sessions = context.input.remote
-    ? await context.input.remote.readRuntimeSessions()
-    : context.requiredRuntimeProjection(context.input).readRuntimeSessions();
+    ? await context.input.remote.readRuntimeSessions(query)
+    : context.requiredRuntimeProjection(context.input).readRuntimeSessions(query);
   let pending = recoveries.get(context);
   if (!pending) recoveries.set(context, (pending = new Map()));
   let completed = 0;
