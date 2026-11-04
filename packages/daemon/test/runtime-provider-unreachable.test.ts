@@ -17,7 +17,7 @@ import { validateAgentRuntimeOverview } from "../src/agent-runtime-contract.ts";
 import { readTaskDispatches } from "../src/dispatch-read.ts";
 import { appendRuntimeWorkerRecord, openDispatchStream, readDispatchStreamSummary } from "../src/dispatch-stream.ts";
 import { noteProviderProgress, noteProviderReconnect } from "../src/runtime-provider-connectivity.ts";
-import { createActiveRuntime } from "../src/runtime-spawn-active.ts";
+import { makeRuntimeSpawner } from "../src/runtime-spawner.ts";
 import { isStructuredSuccessResult, parseProviderFrame } from "../src/runtime-spawn-provider-frames.ts";
 import { consumeProviderLine } from "../src/runtime-spawn-provider-stream.ts";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
@@ -533,58 +533,142 @@ test("the live persisted worker-host path reports and clears without sliding the
   }
 });
 
-test("fleet adoption mapping preserves a reported fault so the first real progress clears it", async () => {
+test("remote fleet adoption clears a reported fault on the next real provider progress", async () => {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "ha-provider-fleet-adoption-")),
+    // The center view has no dispatch stream; the edge root below owns the adopted stream. Keeping
+    // them separate is what makes the paged DTO the only carrier of the reported classification.
+    centerRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ha-provider-fleet-center-")),
     now = Date.now(),
     startedAt = new Date(now - 30 * 60_000).toISOString(),
+    progressAt = new Date(now - 10 * 60_000).toISOString(),
+    lastErrorAt = new Date(now - 9 * 60_000).toISOString(),
     evidence: RuntimeProviderUnreachable = {
       state: "provider_unreachable",
-      lastProgressAt: new Date(now - 10 * 60_000).toISOString(),
-      lastErrorAt: new Date(now - 9 * 60_000).toISOString(),
+      lastProgressAt: progressAt,
+      lastErrorAt,
       lastError: reconnectError,
-    };
+    },
+    published: { readonly type: string; readonly payload: Record<string, unknown> }[] = [],
+    cleared = Promise.withResolvers<Record<string, unknown>>();
+  let runtime: ReturnType<typeof makeRuntimeSpawner> | undefined,
+    mappedProviderUnreachable: RuntimeProviderUnreachable | null | undefined;
   try {
+    // A live edge stream already carries a real progress frame. The center has published the
+    // executing node's unreachable classification, so this session is adopted while unhealthy.
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: null,
+      executionId: null,
+      runtimeSessionId,
+      instanceId: "instance-codex",
+      startedAt,
+      dispatchOpId: "fleet-adoption-dispatch",
+      kindId: "codex",
+      permissionMode: "read-only",
+      binding: {
+        actor: { principal: { personId: "fleet-adoption" }, executor: null },
+        source: { kind: "node", nodeId: "edge-node" },
+      },
+      cwd: rootDir,
+      prompt: "fleet adoption replay",
+      model: "gpt-5",
+      reasoningEffort: null,
+      stallTimeoutMs: 5 * 60_000,
+    });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, {
+      kind: "process_started",
+      occurredAt: startedAt,
+      pid: process.pid,
+    });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, {
+      kind: "provider_event",
+      occurredAt: progressAt,
+      event: { type: "turn.started" },
+    });
+
     const overview = makeAgentRuntimeReadModel({
-        store: { readContentBlob: () => null },
-        projection: projection(startedAt, evidence),
-        rootDir,
-        now: () => new Date(now).toISOString(),
-      }).overview({}),
-      // The real remote adoption input is this paged DTO mapping, not the projection directly.
-      mapped = await readFleetRuntimeSessionsPaged(async () => ({
-        ...overview,
-        page: { limit: 16, cursor: null, nextCursor: null, remainingCount: 0 },
-      }));
-    assert.deepEqual(mapped[0]?.providerUnreachable, evidence);
-    assert.ok(mapped[0]);
-    // Adoption reconstructs ActiveRuntime from that mapped session; the reported fault must
-    // survive, otherwise the later real frame sees null and never emits the clearing event.
-    const active = createActiveRuntime({
-        runtimeSessionId: mapped[0].runtimeSessionId,
-        kindId: "codex",
-        binding: {},
-        stallTimeoutMs: 5 * 60_000,
-        lastProgressAtMs: Date.parse(evidence.lastProgressAt),
-        lastRealProgressAtMs: Date.parse(evidence.lastProgressAt),
-        providerUnreachable: mapped[0].providerUnreachable,
-        workspaceActivityCount: 0,
-        stalledAt: null,
-      } as never),
-      published: { readonly payload: Record<string, unknown> }[] = [],
-      context = {
-        exiting: new Set<string>(),
-        publishRuntimeEvent: async (_type: string, payload: Record<string, unknown>) => {
-          published.push({ payload });
-          return {};
+      store: { readContentBlob: () => null },
+      projection: projection(startedAt, evidence),
+      rootDir: centerRoot,
+      now: () => new Date(now).toISOString(),
+    }).overview({});
+
+    runtime = makeRuntimeSpawner({
+      repoId: "fleet-adoption-replay",
+      rootDir,
+      daemonGeneration: 1,
+      runtimeNode: { nodeId: "edge-node" },
+      now: () => new Date().toISOString(),
+      stream: { publish: () => undefined },
+      prepareLaunch: async () => {
+        throw new Error("adoption must not relaunch");
+      },
+      schedule: async (work) => {
+        await work();
+      },
+      remote: {
+        // The real remote adoption input is this paged DTO mapping, not the projection directly.
+        readRuntimeSessions: async () => {
+          const mapped = await readFleetRuntimeSessionsPaged(async () => ({
+            ...overview,
+            page: { limit: 16, cursor: null, nextCursor: null, remainingCount: 0 },
+          }));
+          mappedProviderUnreachable = mapped[0]?.providerUnreachable;
+          return mapped;
         },
-      } as unknown as RuntimeSpawnerContext;
-    assert.deepEqual(active.providerUnreachable, evidence);
-    await noteProviderProgress(context, active, now);
-    assert.equal(published.length, 1);
-    assert.equal(published[0]?.payload.providerUnreachable, null);
-    assert.equal(active.providerUnreachable, null);
+        readRuntimeDispatch: async () =>
+          ({
+            payload: { dispatchId },
+            source: { kind: "node", nodeId: "edge-node" },
+          }) as never,
+        publish: async (draft) => {
+          published.push({ type: draft.type, payload: draft.payload });
+          if (draft.type === "runtime_session_liveness_changed" && draft.payload.providerUnreachable === null)
+            cleared.resolve(draft.payload);
+          return {
+            event: {
+              schema: "agent-runtime-event/v1",
+              type: draft.type,
+              occurredAt: new Date().toISOString(),
+              payload: draft.payload,
+            } as AgentRuntimeEventV1,
+            receipt: { outcome: "applied" },
+          };
+        },
+      } as never,
+    });
+
+    const recovery = await runtime.adopt();
+    assert.equal(recovery[0]?.outcome, "ready");
+    // Adoption may republish the liveness the center could not observe, but replaying durable
+    // history must not clear the fault; only the next real frame does.
+    assert.equal(
+      published.some(
+        (entry) => entry.type === "runtime_session_liveness_changed" && entry.payload.providerUnreachable === null,
+      ),
+      false,
+    );
+
+    appendRuntimeWorkerRecord(rootDir, dispatchId, {
+      kind: "provider_event",
+      occurredAt: new Date().toISOString(),
+      event: { type: "item.completed", item: { type: "agent_message", text: "network restored" } },
+    });
+    const deadline = setTimeout(
+      () => cleared.reject(new Error("adopted runtime never published the clearing event")),
+      5_000,
+    );
+    try {
+      assert.equal((await cleared.promise).providerUnreachable, null);
+    } finally {
+      clearTimeout(deadline);
+    }
+    // The clearing event is reachable only because the paged DTO kept the reported fault.
+    assert.deepEqual(mappedProviderUnreachable, evidence);
   } finally {
+    runtime?.close();
     fs.rmSync(rootDir, { recursive: true, force: true });
+    fs.rmSync(centerRoot, { recursive: true, force: true });
   }
 });
 
