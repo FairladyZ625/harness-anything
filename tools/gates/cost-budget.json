@@ -5078,6 +5078,339 @@
         "reason": "After PG read-downpush merge #4307, the real unsettled startup reader still scans 180 rows at 200 historical sessions -> 940 at 2000, warm and firstCall, while result k remains 1. This is the PG unsettled read responsibility explicitly assigned to task_b8a3cd12; engine work, not only returned rows, must become bounded. No margin change.",
         "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
         "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "agent-rollback",
+        "backend": "sqlite",
+        "dimension": "task-history",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "agent-version-rpc",
+        "backend": "sqlite",
+        "dimension": "task-history",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "cli-agent-diff",
+        "backend": "sqlite",
+        "dimension": "task-history",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "cli-agent-history",
+        "backend": "sqlite",
+        "dimension": "task-history",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "cli-agent-version-read",
+        "backend": "sqlite",
+        "dimension": "task-history",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "cli-doc-status",
+        "backend": "sqlite",
+        "dimension": "task-history",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite task_package longest-prefix ownership lookup scans historical task rows; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "cli-doc-sync-dry-run",
+        "backend": "sqlite",
+        "dimension": "task-history",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite task_package longest-prefix ownership lookup scans historical task rows; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "cli-event-list",
+        "backend": "sqlite",
+        "dimension": "task-history",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "repo.agent.history.read",
+        "backend": "sqlite",
+        "dimension": "task-history",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "agent-rollback",
+        "backend": "sqlite",
+        "dimension": "runtime-sessions",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "agent-version-rpc",
+        "backend": "sqlite",
+        "dimension": "runtime-sessions",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "cli-agent-diff",
+        "backend": "sqlite",
+        "dimension": "runtime-sessions",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "cli-agent-history",
+        "backend": "sqlite",
+        "dimension": "runtime-sessions",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "cli-agent-version-read",
+        "backend": "sqlite",
+        "dimension": "runtime-sessions",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "cli-event-list",
+        "backend": "sqlite",
+        "dimension": "runtime-sessions",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "repo.agent.history.read",
+        "backend": "sqlite",
+        "dimension": "runtime-sessions",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "agent-rollback",
+        "backend": "sqlite",
+        "dimension": "dispatches",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "agent-version-rpc",
+        "backend": "sqlite",
+        "dimension": "dispatches",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "cli-agent-diff",
+        "backend": "sqlite",
+        "dimension": "dispatches",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "cli-agent-history",
+        "backend": "sqlite",
+        "dimension": "dispatches",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "cli-agent-version-read",
+        "backend": "sqlite",
+        "dimension": "dispatches",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "cli-event-list",
+        "backend": "sqlite",
+        "dimension": "dispatches",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "repo.agent.history.read",
+        "backend": "sqlite",
+        "dimension": "dispatches",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "agent-rollback",
+        "backend": "sqlite",
+        "dimension": "task-outputs",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "agent-version-rpc",
+        "backend": "sqlite",
+        "dimension": "task-outputs",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "cli-agent-diff",
+        "backend": "sqlite",
+        "dimension": "task-outputs",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "cli-agent-history",
+        "backend": "sqlite",
+        "dimension": "task-outputs",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "cli-agent-version-read",
+        "backend": "sqlite",
+        "dimension": "task-outputs",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "cli-event-list",
+        "backend": "sqlite",
+        "dimension": "task-outputs",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "repo.agent.history.read",
+        "backend": "sqlite",
+        "dimension": "task-outputs",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "agent-rollback",
+        "backend": "sqlite",
+        "dimension": "relations",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "agent-version-rpc",
+        "backend": "sqlite",
+        "dimension": "relations",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "cli-agent-diff",
+        "backend": "sqlite",
+        "dimension": "relations",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "cli-agent-history",
+        "backend": "sqlite",
+        "dimension": "relations",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "cli-agent-version-read",
+        "backend": "sqlite",
+        "dimension": "relations",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "cli-event-list",
+        "backend": "sqlite",
+        "dimension": "relations",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
+      },
+      {
+        "probe": "repo.agent.history.read",
+        "backend": "sqlite",
+        "dimension": "relations",
+        "metric": "sqliteVmSteps",
+        "reason": "SQLite event_summary type/entity JSON filtering scans unrelated historical events; observed fixed-k VM growth in G38 native counters; CEO 2026-11-05 assigns the indexed-query fix to this deletion task.",
+        "deletionTaskId": "task_68d4034af0ce943dca26370b12",
+        "expiresAt": "2026-11-26T00:00:00.000Z"
       }
     ]
   }
