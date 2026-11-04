@@ -51,7 +51,12 @@ export async function adoptRuntimes(
 ): Promise<readonly RuntimeRecoveryResult[]> {
   // Canonical settlement can precede a crash before the local archive rename. Recover
   // unsettled sessions plus live streams, never the repository's archived session history.
-  const query = { unsettledOnly: true } as const;
+  // A node scopes its scan to dispatches whose canonical source names it, so another node's
+  // unsettled runtimes never become candidates or trigger a dispatch point read.
+  const query = {
+    unsettledOnly: true,
+    ...(context.input.runtimeNode ? { executionOwnerNodeId: context.input.runtimeNode.nodeId } : {}),
+  } as const;
   const sessions = context.input.remote
     ? await context.input.remote.readRuntimeSessions(query)
     : context.requiredRuntimeProjection(context.input).readRuntimeSessions(query);
@@ -420,25 +425,31 @@ function attachAdoptedObservations(context: RuntimeSpawnerContext, active: Activ
  *  archived dispatch streams. Other repositories share the node's instance store, so an
  *  unknown session must be retained. Locally adopted/settling sessions are still in use. */
 export async function sweepSettledRuntimeTempDirectories(context: RuntimeSpawnerContext): Promise<void> {
-  if (!context.input.reclaimSettledRuntimeTempDirectories) return;
-  const [sessionRead] = await Promise.allSettled([
-    Promise.resolve().then(() =>
-      context.input.remote
-        ? context.input.remote.readRuntimeSessions()
-        : context.requiredRuntimeProjection(context.input).readRuntimeSessions(),
-    ),
-  ]);
-  // Without an authoritative session read, settled-ness cannot be verified; leave every
-  // directory for the next start instead of guessing.
-  if (sessionRead.status !== "fulfilled") return;
-  const settledRuntimeSessionIds = sessionRead.value
-    .filter(
-      (session) =>
-        session.outcome !== null &&
-        !context.processes.has(session.runtimeSessionId) &&
-        !context.exiting.has(session.runtimeSessionId),
-    )
-    .map((session) => session.runtimeSessionId);
+  if (!context.input.reclaimSettledRuntimeTempDirectories || !context.input.listRuntimeTempSessionIds) return;
+  // Local temp directories are the only reclaim candidates. Point-reading exactly those names
+  // keeps startup maintenance at D reads instead of reading the repository's whole session table.
+  const runtimeSessionIds = [...new Set(context.input.listRuntimeTempSessionIds())];
+  if (runtimeSessionIds.length === 0) {
+    context.input.reclaimSettledRuntimeTempDirectories([]);
+    return;
+  }
+  const sessionReads = await Promise.allSettled(
+    runtimeSessionIds.map(async (runtimeSessionId) => {
+      if (context.input.remote)
+        return (await context.input.remote.readRuntimeSessions({ runtimeSessionId }))[0] ?? null;
+      return context.requiredRuntimeProjection(context.input).readRuntimeSession(runtimeSessionId);
+    }),
+  );
+  // Without an authoritative session read for a directory, leave that directory for the next
+  // start instead of guessing; an unknown session may belong to another repository on this node.
+  const settledRuntimeSessionIds: string[] = [];
+  for (const [index, read] of sessionReads.entries()) {
+    if (read.status !== "fulfilled" || !read.value || read.value.outcome === null) continue;
+    const runtimeSessionId = runtimeSessionIds[index]!;
+    if (context.processes.has(runtimeSessionId) || context.exiting.has(runtimeSessionId)) continue;
+    settledRuntimeSessionIds.push(runtimeSessionId);
+  }
+  if (settledRuntimeSessionIds.length === 0) return;
   const reclaimFailures = context.input.reclaimSettledRuntimeTempDirectories(settledRuntimeSessionIds);
   for (const failure of reclaimFailures)
     logRuntimeTempReclaimFailure(failure.instanceId, failure.runtimeSessionId, "by the startup sweep", failure.error);

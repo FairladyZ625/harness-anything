@@ -75,7 +75,10 @@ export function projectionDdl(): readonly string[] {
       PRIMARY KEY (tenant_id,project_id,policy_epoch,model,owner_id,entity_id)
     )`,
     `CREATE INDEX IF NOT EXISTS ha_projection_values_lookup ON ha_projection_values (tenant_id,project_id,policy_epoch,model,entity_id)`,
-    ...documentMetadataDdl(),
+...documentMetadataDdl(),
+    // Recovery asks only for runtime sessions. The partial predicate keeps the JSONB cast off
+    // document values (which may contain NUL) and lets the unsettled predicate use the index.
+    `CREATE INDEX IF NOT EXISTS ha_projection_values_runtime_unsettled ON ha_projection_values (tenant_id,project_id,policy_epoch,((value::jsonb)->>'outcome')) WHERE model = 'runtime-session'`,
     `CREATE TABLE IF NOT EXISTS ha_task_snapshots (
       ${POSTGRES_SCOPE_COLUMNS_SQL},
       readers text[] NOT NULL DEFAULT '{}',

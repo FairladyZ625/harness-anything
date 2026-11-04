@@ -10,7 +10,7 @@ import type {
 import type { DocumentState } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
 import { eventIndexEvent, readCutInTransaction, readEventRowsInTransaction } from "./pg-event-queries.ts";
-import { getPgProjectionValue, listPgProjectionValues } from "./pg-projection-values.ts";
+import { getPgProjectionValue, listPgProjectionValues, listPgRuntimeSessions } from "./pg-projection-values.ts";
 import type { PgTaskProjectionSourceOptions } from "./pg-task-source.ts";
 import type { AsyncQueries } from "./pg-runtime-dispatch-queries.ts";
 
@@ -98,17 +98,9 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
     readRuntimeInstallation: (id) => get("runtime-installation", id),
     readRuntimeInstallations: () => list("runtime-installation"),
     readRuntimeSession: (id) => get("runtime-session", id),
-    // PG stores projection values as JSON text (documents may contain NUL), so unsettled filtering
-    // happens after the value read. SQLite is the default daemon backend and has the expression
-    // index that makes this read proportional to unsettled sessions.
-    readRuntimeSessions: async (query) => {
-      if (query?.runtimeSessionId !== undefined) {
-        const session = await get<RuntimeSession>("runtime-session", query.runtimeSessionId);
-        return session && (!query.unsettledOnly || session.outcome === null) ? [session] : [];
-      }
-      const sessions = await list<RuntimeSession>("runtime-session");
-      return query?.unsettledOnly ? sessions.filter((session) => session.outcome === null) : sessions;
-    },
+    // Runtime sessions stay JSON text because documents may contain NUL, but the unsettled and
+    // node-owner predicates are evaluated by PostgreSQL against the partial expression index.
+    readRuntimeSessions: (query) => read((client) => listPgRuntimeSessions(client, scope, repoId, query)),
     readRuntimeSessionsForTask: async (taskId) =>
       (await list<RuntimeSession>("runtime-session")).filter((session) =>
         session.taskBindings.some((binding) => binding.taskId === taskId),

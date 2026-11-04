@@ -8,6 +8,7 @@ type RuntimeInstances = Pick<
   | "prepareLaunch"
   | "prepareCloudRelay"
   | "reclaimRuntimeTempDirectory"
+  | "listRuntimeTempSessionIds"
   | "reclaimSettledRuntimeTempDirectories"
   | "prepareDaemonGitEnvironment"
 >;
@@ -22,6 +23,7 @@ export function openDaemonRuntimePorts(input: {
     prepareRuntimeLaunch: input.instances.prepareLaunch,
     prepareCloudRelay: input.instances.prepareCloudRelay,
     reclaimRuntimeTempDirectory: input.instances.reclaimRuntimeTempDirectory,
+    listRuntimeTempSessionIds: input.instances.listRuntimeTempSessionIds,
     reclaimSettledRuntimeTempDirectories: input.instances.reclaimSettledRuntimeTempDirectories,
     prepareDaemonGitEnvironment: input.instances.prepareDaemonGitEnvironment,
   };

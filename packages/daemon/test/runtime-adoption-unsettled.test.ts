@@ -215,7 +215,10 @@ for (const mode of ["local", "remote"] as const) {
       const results = await adoptRuntimes(context);
       assert.deepEqual(sessionReads, [runtimeSessionId]);
       assert.deepEqual(dispatchReads, [runtimeSessionId]);
-      assert.deepEqual(queries, [{ unsettledOnly: true }, ...(mode === "remote" ? [{ runtimeSessionId }] : [])]);
+      assert.deepEqual(queries, [
+        { unsettledOnly: true, executionOwnerNodeId: "node-a" },
+        ...(mode === "remote" ? [{ runtimeSessionId }] : []),
+      ]);
       assert.equal(results[0]?.outcome, state === "foreign" ? "foreign" : "settled");
       assert.equal(
         path.basename(path.dirname(dispatchStreamPath(rootDir, dispatchId))),
@@ -230,3 +233,52 @@ for (const mode of ["local", "remote"] as const) {
     });
   }
 }
+
+test("edge recovery scopes the session read to this node and never point-reads a foreign dispatch", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-adoption-edge-scope-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  const localId = "runtime-local-node-a",
+    foreignId = "runtime-foreign-node-b",
+    binding = {
+      actor: { principal: { personId: "owner" }, executor: null },
+      source: { kind: "node", nodeId: "node-a" } as const,
+    },
+    queries: (RuntimeSessionReadQuery | undefined)[] = [],
+    dispatchReads: string[] = [],
+    context = {
+      input: {
+        rootDir,
+        runtimeNode: { nodeId: "node-a" },
+        remote: {
+          // The production read layer returns only this node's unsettled sessions for the query.
+          readRuntimeSessions: async (query?: RuntimeSessionReadQuery) => {
+            queries.push(query);
+            return [
+              {
+                runtimeSessionId: localId,
+                instanceId: "worker",
+                providerSessionId: null,
+                liveness: "exited",
+                outcome: "succeeded" as const,
+              },
+            ];
+          },
+          readRuntimeDispatch: async (id: string) => {
+            dispatchReads.push(id);
+            return id === localId ? { ...binding, payload: { dispatchId: "dispatch_000000000000000000000001" } } : null;
+          },
+        },
+      },
+      processes: new Map(),
+      exiting: new Set(),
+      publishRuntimeEvent: () => assert.fail("a settled local session needs no canonical publication"),
+      publishExit: () => assert.fail("a settled local session cannot be settled twice"),
+    } as unknown as RuntimeSpawnerContext;
+  const results = await adoptRuntimes(context);
+  assert.deepEqual(queries, [{ unsettledOnly: true, executionOwnerNodeId: "node-a" }]);
+  assert.deepEqual(dispatchReads, [localId], `foreign ${foreignId} must not reach a dispatch point read`);
+  assert.deepEqual(
+    results.map(({ runtimeSessionId, outcome }) => [runtimeSessionId, outcome]),
+    [[localId, "settled"]],
+  );
+});

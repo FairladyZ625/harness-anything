@@ -451,6 +451,8 @@ export async function openWriterSupervisor(
         const error = input.reclaimRuntimeTempDirectory!(payload.instanceId, payload.runtimeSessionId);
         return error ? serializeWriterError(error) : null;
       }
+      case "listRuntimeTempSessionIds":
+        return input.listRuntimeTempSessionIds!();
       case "reclaimSettledRuntimeTempDirectories":
         return input.reclaimSettledRuntimeTempDirectories!(call.payload as readonly string[]).map((failure) => ({
           ...failure,
@@ -578,6 +580,7 @@ function bootstrapMessage(input: RepoCellOpenInput, canonicalStore: boolean): Re
       keycloakSession: input.keycloakSession !== undefined,
       prepareRuntimeLaunch: input.prepareRuntimeLaunch !== undefined,
       reclaimRuntimeTempDirectory: input.reclaimRuntimeTempDirectory !== undefined,
+      listRuntimeTempSessionIds: input.listRuntimeTempSessionIds !== undefined,
       reclaimSettledRuntimeTempDirectories: input.reclaimSettledRuntimeTempDirectories !== undefined,
       prepareDaemonGitEnvironment: input.prepareDaemonGitEnvironment !== undefined,
       // Runtime worker hosts belong to the daemon process, not the replaceable

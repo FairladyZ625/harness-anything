@@ -183,6 +183,11 @@ async function startRepoWriterWorker(): Promise<void> {
               },
             }
           : {}),
+        ...(bootstrap.capabilities.listRuntimeTempSessionIds
+          ? {
+              listRuntimeTempSessionIds: () => syncCapability<string[]>("listRuntimeTempSessionIds", null),
+            }
+          : {}),
         ...(bootstrap.capabilities.reclaimSettledRuntimeTempDirectories
           ? {
               reclaimSettledRuntimeTempDirectories: (ids) =>

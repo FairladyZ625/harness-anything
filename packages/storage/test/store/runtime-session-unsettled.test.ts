@@ -49,9 +49,31 @@ test("unsettled-only runtime read filters in SQL and an existing projection pick
       const runtimeSessionId = `runtime-settled-${String(index).padStart(5, "0")}`;
       insert.run(runtimeSessionId, index + 1, JSON.stringify(session(runtimeSessionId, "succeeded")));
     }
-    for (const runtimeSessionId of ["runtime-open-a", "runtime-open-b"]) {
+    for (const runtimeSessionId of ["runtime-open-a", "runtime-open-b", "runtime-open-c"]) {
       insert.run(runtimeSessionId, settledCount + 1, JSON.stringify(session(runtimeSessionId, null)));
     }
+    // Canonical dispatch ownership is the edge's authority: open-a/open-c ran on node-a, open-b on
+    // node-b. A node-scoped read must never return the other node's unsettled session.
+    const insertDispatch = db.prepare(
+      "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)",
+    );
+    let dispatchRevision = settledCount + 10;
+    const dispatch = (runtimeSessionId: string, opId: string, nodeId: string) =>
+      insertDispatch.run(
+        opId,
+        dispatchRevision++,
+        null,
+        JSON.stringify({
+          schema: "agent-runtime-event/v1",
+          type: "runtime_dispatch_requested",
+          source: { kind: "node", nodeId },
+          payload: { runtimeSessionId },
+        }),
+      );
+    dispatch("runtime-open-a", "op-open-a", "node-a");
+    dispatch("runtime-open-b", "op-open-b", "node-b");
+    dispatch("runtime-open-c", "op-open-c", "node-a");
+    dispatch("runtime-settled-00000", "op-settled", "node-a");
     db.close();
 
     // Reopening runs the idempotent table/index DDL against the pre-existing file, exactly as the
@@ -59,9 +81,26 @@ test("unsettled-only runtime read filters in SQL and an existing projection pick
     const reopened = makeTaskProjection({ rootDir, eventStore: store, projectionPath });
     assert.deepEqual(
       reopened.readRuntimeSessions({ unsettledOnly: true }).map(({ runtimeSessionId }) => runtimeSessionId),
-      ["runtime-open-a", "runtime-open-b"],
+      ["runtime-open-a", "runtime-open-b", "runtime-open-c"],
     );
-    assert.equal(reopened.readRuntimeSessions().length, settledCount + 2);
+    assert.deepEqual(
+      reopened
+        .readRuntimeSessions({ unsettledOnly: true, executionOwnerNodeId: "node-a" })
+        .map(({ runtimeSessionId }) => runtimeSessionId),
+      ["runtime-open-a", "runtime-open-c"],
+    );
+    assert.deepEqual(
+      reopened
+        .readRuntimeSessions({ unsettledOnly: true, executionOwnerNodeId: "node-b" })
+        .map(({ runtimeSessionId }) => runtimeSessionId),
+      ["runtime-open-b"],
+    );
+    assert.deepEqual(
+      reopened.readRuntimeSessions({ runtimeSessionId: "runtime-open-b", executionOwnerNodeId: "node-a" }),
+      [],
+      "a point read cannot borrow another node's session",
+    );
+    assert.equal(reopened.readRuntimeSessions().length, settledCount + 3);
     assert.deepEqual(
       reopened
         .readRuntimeSessions({ runtimeSessionId: "runtime-settled-00000" })
@@ -83,7 +122,8 @@ test("unsettled-only runtime read filters in SQL and an existing projection pick
 
     // The read stays proportional to unsettled sessions only if SQLite answers it from the index;
     // a plan that scans runtime_session would restore the O(history) startup cost.
-    const planDb = new DatabaseSync(projectionPath, { readOnly: true });
+    const planDb = new DatabaseSync(projectionPath);
+    planDb.exec("ANALYZE");
     const plan = planDb
       .prepare(
         [
@@ -93,11 +133,31 @@ test("unsettled-only runtime read filters in SQL and an existing projection pick
         ].join(" "),
       )
       .all();
+    const nodePlan = planDb
+      .prepare(
+        [
+          "EXPLAIN QUERY PLAN",
+          "SELECT value_json FROM runtime_session INDEXED BY runtime_session_unsettled",
+          "WHERE json_extract(value_json, '$.outcome') IS NULL",
+          "AND runtime_session_id IN (SELECT json_extract(event_json, '$.payload.runtimeSessionId')",
+          "FROM event_index INDEXED BY event_index_runtime_dispatch_node",
+          "WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
+          "AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'",
+          "AND json_extract(event_json, '$.source.nodeId') = 'node-a')",
+          "ORDER BY runtime_session_id",
+        ].join(" "),
+      )
+      .all();
     planDb.close();
     assert.match(
       plan.map(({ detail }) => String(detail)).join("\n"),
       /runtime_session_unsettled/,
       `unsettled read must use runtime_session_unsettled: ${JSON.stringify(plan)}`,
+    );
+    assert.match(
+      nodePlan.map(({ detail }) => String(detail)).join("\n"),
+      /event_index_runtime_dispatch_node/,
+      `the node index must cover the source-node predicate: ${JSON.stringify(nodePlan)}`,
     );
 
     await store.drain();

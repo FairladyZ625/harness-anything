@@ -98,6 +98,7 @@ type RuntimePorts = {
   readonly prepareRuntimeLaunch: (instanceId: string, request: RuntimeLaunchRequest) => Promise<PreparedRuntimeLaunch>;
   readonly prepareCloudRelay: NonNullable<Parameters<typeof makeRuntimeSpawner>[0]["prepareCloudRelay"]>;
   readonly reclaimRuntimeTempDirectory: (instanceId: string, runtimeSessionId: string) => Error | null;
+  readonly listRuntimeTempSessionIds?: () => readonly string[];
   readonly reclaimSettledRuntimeTempDirectories: (
     settledRuntimeSessionIds: readonly string[],
   ) => { readonly instanceId: string; readonly runtimeSessionId: string; readonly error: Error }[];
@@ -843,6 +844,9 @@ export function openFleetEdgeRuntime(input: {
     prepareLaunch: input.ports.prepareRuntimeLaunch,
     prepareCloudRelay: input.ports.prepareCloudRelay,
     reclaimRuntimeTempDirectory: input.ports.reclaimRuntimeTempDirectory,
+    ...(input.ports.listRuntimeTempSessionIds
+      ? { listRuntimeTempSessionIds: input.ports.listRuntimeTempSessionIds }
+      : {}),
     reclaimSettledRuntimeTempDirectories: input.ports.reclaimSettledRuntimeTempDirectories,
     prepareDaemonGitEnvironment: input.ports.prepareDaemonGitEnvironment,
     resolveAgent: (agentId) => trustedScheduleAgents.get(agentId) ?? mirroredAgentDeclaration(request, agentId),

@@ -57,6 +57,9 @@ export interface RuntimeSessionReadQuery {
   readonly runtimeSessionId?: string;
   /** Only sessions whose canonical outcome is still unset. Recovery must not scan settled history. */
   readonly unsettledOnly?: boolean;
+  /** Only sessions whose canonical dispatch names this execution node as its source. Edge recovery
+   *  must not traverse another node's unsettled runtimes. */
+  readonly executionOwnerNodeId?: string;
 }
 export interface RuntimeSessionPageQuery {
   readonly taskId?: string;
