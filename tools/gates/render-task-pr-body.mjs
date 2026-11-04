@@ -42,10 +42,12 @@ const DEPENDENCY_CHANGE = Object.freeze({
   aliases: Object.freeze(["dependency change", "dependency-change", "依赖变更", "依赖改动", "依赖变化"]),
 });
 
-// The lightweight closeout materializes only Summary and Verification. Map Summary onto the PR
-// template's What Changed and point Residual Risk at Verification, where that profile records
-// accepted risks (dec_BB2BCE9F995CD3A126E2918734 CH1), so lightweight tasks need no second
-// authoring place. A hand-authored section wins when the closeout carries one.
+// A closeout materialized before the What Changed scaffold existed keeps that shape for the life of
+// the task package and is frozen at submit, so map its authored Summary onto the PR template's What
+// Changed instead of failing the only publication path. The lightweight closeout materializes only
+// Summary and Verification; it also points Residual Risk at Verification, where that profile records
+// accepted risks (dec_BB2BCE9F995CD3A126E2918734 CH1). A hand-authored section wins when the
+// closeout carries one.
 const LIGHTWEIGHT_PROFILE = "lightweight",
   LIGHTWEIGHT_RESIDUAL_RISK = "Accepted residual risks are recorded in the Verification section.";
 
@@ -97,9 +99,8 @@ function authoredSources(closeout, profileId) {
   const sections = markdownSections(closeout),
     sources = Object.fromEntries(PR_SECTIONS.map(({ title, aliases }) => [title, findSection(sections, aliases)]));
   sources[DEPENDENCY_CHANGE.title] = findSection(sections, DEPENDENCY_CHANGE.aliases);
-  if (profileId !== LIGHTWEIGHT_PROFILE) return sources;
   sources["What Changed"] ??= sources.Summary;
-  sources["Residual Risk"] ??= LIGHTWEIGHT_RESIDUAL_RISK;
+  if (profileId === LIGHTWEIGHT_PROFILE) sources["Residual Risk"] ??= LIGHTWEIGHT_RESIDUAL_RISK;
   return sources;
 }
 
