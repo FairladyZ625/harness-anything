@@ -442,6 +442,31 @@ test("a clean rebase-equivalent task checkout continues when the published branc
   assert.equal(git(onB.cwd, "status", "--porcelain"), "");
 });
 
+test("a rebased checkout with a local commit and an uncommitted change continues and keeps both", async (t) => {
+  const fixture = nodesFixture(t),
+    onA = (await checkoutTaskWorktree(fixture.nodeA, taskId, binding, noWorktreeSetup()))!,
+    onB = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup()))!;
+  commit(onA.cwd, "task-change.txt");
+  commit(onB.cwd, "task-change.txt");
+  assert.equal((await pushWorkerBranch({ cwd: onA.cwd, canonicalRoot: fixture.nodeA, taskId })).attempted, true);
+
+  // Node B rebases its copy of the published commit onto a newer default branch, adds a commit and leaves a change.
+  commit(fixture.nodeA, "main-change.txt");
+  git(fixture.nodeA, "push", "-q", "origin", "main");
+  git(fixture.nodeB, "fetch", "-q", "origin");
+  git(onB.cwd, "rebase", "-q", "origin/main");
+  const localTip = commit(onB.cwd, "local-more.txt");
+  writeFileSync(path.join(onB.cwd, "src", "index.txt"), "edited on node b\n");
+  const status = git(onB.cwd, "status", "--porcelain");
+  assert.match(status, /src\/index\.txt/u);
+
+  const resumed = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup()))!;
+  assert.equal(resumed.cwd, onB.cwd);
+  assert.equal(resumed.baseRef, null, "the checkout was already here");
+  assert.equal(git(onB.cwd, "rev-parse", "HEAD"), localTip, "the rebased commit and the local commit are kept");
+  assert.equal(git(onB.cwd, "status", "--porcelain"), status, "the uncommitted change is left as it was");
+});
+
 const launchSentinel = "edge launch reached";
 function launched(error: unknown): boolean {
   return error instanceof Error && error.message === launchSentinel;

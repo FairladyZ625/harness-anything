@@ -106,7 +106,8 @@ async function interruptedGitOperation(cwd: string): Promise<"rebase" | "merge" 
  * continues what the previous node pushed. A published commit the checkout lacks is refused: taking the local
  * branch would drop it. A branch rewritten here — every published-only commit present by patch, with newer local
  * work on top, whatever default branch it was based on — is the same task's newer progress and is kept as it is.
- * Uncommitted changes are likewise left exactly as they are: nothing here discards work.
+ * Uncommitted changes do not opt a checkout out of that judgment — `git cherry` reads commits — and are left
+ * exactly as they are: nothing here discards work.
  */
 export async function continuePublishedBranch(cwd: string, published: string): Promise<void> {
   if ((await git(cwd, "rev-list", "--count", `HEAD..${published}`)) === "0") return;
@@ -116,9 +117,9 @@ export async function continuePublishedBranch(cwd: string, published: string): P
     await git(cwd, "merge", "--quiet", "--ff-only", published);
     return;
   }
-  const publishedOnly = dirty ? [] : (await git(cwd, "cherry", "HEAD", published)).split("\n").filter(Boolean),
+  const publishedOnly = (await git(cwd, "cherry", "HEAD", published)).split("\n").filter(Boolean),
     missing = publishedOnly.filter((line) => line.startsWith("+"));
-  if (aheadCount !== 0 && !dirty && missing.length === 0) return;
+  if (aheadCount !== 0 && missing.length === 0) return;
   const localDifferent =
       aheadCount === 0 ? [] : (await git(cwd, "log", "--format=%h", `${published}..HEAD`)).split("\n").filter(Boolean),
     different = [...missing.map((line) => line.slice(2)), ...localDifferent];
