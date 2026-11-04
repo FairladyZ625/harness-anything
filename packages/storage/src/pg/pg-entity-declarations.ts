@@ -6,7 +6,7 @@ import type {
   EntityDeclarationState,
   EntityDeclarationReadQuery,
 } from "@harness-anything/kernel/internal/ports/entity-declarations.ts";
-import type { StoredEntityEventV1 } from "@harness-anything/kernel/internal/domain/entity-event.ts";
+import { type StoredEntityEventV1 } from "@harness-anything/kernel/internal/domain/entity-event.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 
 export const entityDeclarationDdl = [
@@ -22,6 +22,23 @@ export const entityDeclarationDdl = [
 ] as const;
 
 export async function materializePgEntityDeclaration(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  event: StoredEntityEventV1,
+): Promise<void> {
+  const meta = (
+      await client.query<{ watermark: string; entity_declaration_watermark: string }>(
+        "SELECT watermark,entity_declaration_watermark FROM ha_projection_meta WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND projection_name='task/v1'",
+        [scope.tenantId, scope.projectId, scope.policyEpoch],
+      )
+    ).rows[0],
+    prefix = Number(meta?.entity_declaration_watermark ?? 0);
+  // During expansion, only ordered backfill owns the new model. Live writes must not overwrite its prefix.
+  if (prefix !== event.workspaceRevision - 1 || prefix < Number(meta?.watermark ?? 0)) return;
+  await reduceAndStoreDeclaration(client, scope, event);
+}
+
+export async function reduceAndStoreDeclaration(
   client: PoolClient,
   scope: PgProjectionScope,
   event: StoredEntityEventV1,
@@ -53,7 +70,7 @@ export async function readPgEntityDeclarations(
   const keys = [scope.tenantId, scope.projectId, scope.policyEpoch],
     readiness = (
       await client.query<{ ready: boolean }>(
-        `SELECT COALESCE(m.entity_declaration_watermark,0)>=h.revision AS ready
+        `SELECT COALESCE(m.entity_declaration_watermark,0)=h.revision AS ready
       FROM ha_repo_heads h LEFT JOIN ha_projection_meta m ON m.tenant_id=h.tenant_id AND m.project_id=h.project_id
       AND m.policy_epoch=h.policy_epoch AND m.projection_name='task/v1'
       WHERE h.tenant_id=$1 AND h.project_id=$2 AND h.policy_epoch=$3 AND h.repo_id=$4`,

@@ -76,6 +76,40 @@ test("daemon PG storage factories expose canonical lifecycle ports without local
         }
       },
     });
+    await t.test("projection catch-up warms an old declaration index without a full rebuild", async () => {
+      const scope = storage.scope;
+      await withPostgresTransaction(
+        fixture.pool,
+        async (client) => {
+          await client.query(
+            "DELETE FROM ha_entity_declaration_heads WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3",
+            [scope.tenantId, scope.projectId, scope.policyEpoch],
+          );
+          await client.query(
+            "UPDATE ha_projection_meta SET entity_declaration_watermark=0 WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3",
+            [scope.tenantId, scope.projectId, scope.policyEpoch],
+          );
+        },
+        scope,
+      );
+      const progress: number[] = [],
+        warmed = makeTaskProjection({
+          rootDir,
+          storage,
+          eventStore: store!,
+          catchUpLimit: 2,
+          onProgress: ({ watermark }) => progress.push(watermark),
+        });
+      try {
+        const receipt = warmed.catchUp!();
+        assert.equal(receipt.watermark, store!.readHead()!.revision);
+        assert.equal(receipt.metrics.maxBatchItems, 2);
+        assert.equal(progress.at(-1), receipt.watermark);
+        assert.equal((await warmed.catchUpAsync!()).metrics.reducedItems, 0);
+      } finally {
+        warmed.close();
+      }
+    });
     const createdAt = (taskId: string, revision: number): TaskCreatedEvent => {
       const base = events[0] as TaskCreatedEvent;
       return {

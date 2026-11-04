@@ -33,6 +33,7 @@ export interface PgTaskQueryReader {
     expiresAt?: string,
   ) => LeaseV1;
   readonly rebuild: () => void;
+  readonly warmIndexes: (maxItems?: number) => import("./pg-entity-declaration-catchup.ts").EntityIndexPage;
   readonly writerEpoch: (request: PgEpochRequest) => WriterEpochLease | number | null;
   readonly replication: (operation: "head" | "page" | "slots", payload?: unknown) => unknown;
 }
@@ -147,7 +148,17 @@ export function createPgTaskQueryReader(
   }
 
   const request = <Result>(
-    op: "begin" | "query" | "end" | "close" | "canonical" | "lease" | "rebuild" | "epoch" | "replication",
+    op:
+      | "begin"
+      | "query"
+      | "end"
+      | "close"
+      | "canonical"
+      | "lease"
+      | "rebuild"
+      | "warm-indexes"
+      | "epoch"
+      | "replication",
     method?: string,
     args?: readonly unknown[],
   ): Result => {
@@ -206,6 +217,10 @@ export function createPgTaskQueryReader(
     rebuild: () => {
       if (activeSession) throw new Error("rebuild cannot run inside a projection read session");
       request("rebuild");
+    },
+    warmIndexes: (maxItems = 64) => {
+      if (activeSession) throw new Error("index catch-up cannot run inside a projection read session");
+      return request("warm-indexes", undefined, [maxItems]);
     },
     writerEpoch: (value) => request("epoch", undefined, [value]),
     replication: (operation, payload) => request("replication", operation, [payload]),

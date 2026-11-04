@@ -1,4 +1,5 @@
 import { borrowPgReadClient } from "./pg-read-savepoint.ts";
+import { backfillPgEntityDeclarationPage } from "./pg-entity-declaration-catchup.ts";
 import { readCutInTransaction } from "./pg-event-queries.ts";
 import { isMainThread, parentPort, workerData, type MessagePort } from "node:worker_threads";
 import { Pool, type PoolClient } from "pg";
@@ -34,7 +35,17 @@ export interface PgQuerySessionInput {
 
 interface PgQueryWorkerRequest {
   readonly id: number;
-  readonly op: "begin" | "query" | "end" | "close" | "canonical" | "lease" | "rebuild" | "epoch" | "replication";
+  readonly op:
+    | "begin"
+    | "query"
+    | "end"
+    | "close"
+    | "canonical"
+    | "lease"
+    | "rebuild"
+    | "warm-indexes"
+    | "epoch"
+    | "replication";
   readonly method?: string;
   readonly args?: readonly unknown[];
   readonly now?: string;
@@ -295,6 +306,15 @@ function startWorker(
           input.scope,
         );
         respond(request.id, input.state, null);
+        return;
+      }
+      if (request.op === "warm-indexes") {
+        if (sessionClient) throw new Error("index catch-up cannot run inside a projection read session");
+        respond(
+          request.id,
+          input.state,
+          await backfillPgEntityDeclarationPage(pool, input.scope, input.repoId, Number(request.args?.[0] ?? 64)),
+        );
         return;
       }
       if (request.op === "canonical") {

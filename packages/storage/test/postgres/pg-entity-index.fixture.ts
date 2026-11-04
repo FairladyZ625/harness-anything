@@ -4,6 +4,7 @@ import { compileEntityUpsert } from "@harness-anything/kernel/internal/domain/en
 import type { CanonicalEventV1 } from "@harness-anything/kernel";
 import { createPgStorageBackend } from "../../src/pg/backend.ts";
 import { readPgEntityDeclarations } from "../../src/pg/pg-entity-declarations.ts";
+import { backfillPgEntityDeclarationPage } from "../../src/pg/pg-entity-declaration-catchup.ts";
 import { rebuildPgProjection } from "../../src/pg/pg-task-event-materialize.ts";
 import { withPostgresTransaction } from "../../src/postgres/transaction.ts";
 import { tracedPgReads, explainNodes, reportPgVersion, measurePgRead } from "./pg-explain.fixture.ts";
@@ -157,4 +158,103 @@ export async function assertEntityIndexes(pool: Pool, seedPool: Pool, backend: s
     scope,
   );
   assert.deepEqual((await read({ kind: "agent", id: "target-a" }, pool))[0]!.declaration, unprojected.event);
+  // Expansion must catch up in bounded transactions while normal acceptance continues.
+  for (let revision = 7; revision <= 130; revision++) {
+    const candidate = bundle(eventAt(revision));
+    await storage.eventStore.append(candidate, revision - 1, { repoId, holderId: "index", epoch: 1 });
+    events.push(candidate.event);
+  }
+  await withPostgresTransaction(
+    seedPool,
+    async (client) => {
+      await client.query(
+        "DELETE FROM ha_entity_declaration_heads WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3",
+        [scope.tenantId, scope.projectId, scope.policyEpoch],
+      );
+      await client.query(
+        "UPDATE ha_projection_meta SET entity_declaration_watermark=0 WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3",
+        [scope.tenantId, scope.projectId, scope.policyEpoch],
+      );
+    },
+    scope,
+  );
+  assert.deepEqual(await backfillPgEntityDeclarationPage(pool, scope, repoId), {
+    watermark: 64,
+    sourceRevision: 130,
+    processed: 64,
+  });
+  const concurrent = compileEntityUpsert({
+    eventId: "entity-concurrent",
+    opId: "entity-concurrent",
+    workspaceRevision: 131,
+    actor: { principal: { personId: "index" }, executor: null },
+    source: "local",
+    occurredAt: "2026-11-04T00:00:00.000Z",
+    entityKind: "agent",
+    entity: {
+      schema: "agent-declaration/v1",
+      id: "target-b",
+      name: "Concurrent update",
+      instructions: "Ordered online expansion",
+      runtimes: [{ type: "codex" }],
+    },
+  });
+  await storage.eventStore.append(concurrent, 130, { repoId, holderId: "index", epoch: 1 });
+  events.push(concurrent.event);
+  for (const blob of concurrent.blobs) blobs.set(blob.sha256, new TextEncoder().encode(blob.body));
+  await assert.rejects(read({ kind: "agent" }, pool), { code: "projection_pending" });
+  const intermediate = await withPostgresTransaction(
+    pool,
+    (client) =>
+      client.query<{ workspace_revision: string }>(
+        "SELECT workspace_revision FROM ha_entity_declaration_heads WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND entity_id='target-b'",
+        [scope.tenantId, scope.projectId, scope.policyEpoch],
+      ),
+    scope,
+  );
+  assert.equal(
+    Number(intermediate.rows[0]!.workspace_revision),
+    2,
+    "new writes cannot overwrite a partially replayed prefix",
+  );
+  assert.deepEqual(await backfillPgEntityDeclarationPage(pool, scope, repoId), {
+    watermark: 128,
+    sourceRevision: 131,
+    processed: 64,
+  });
+  assert.deepEqual(await backfillPgEntityDeclarationPage(pool, scope, repoId, 2), {
+    watermark: 130,
+    sourceRevision: 131,
+    processed: 2,
+  });
+  assert.deepEqual(await backfillPgEntityDeclarationPage(pool, scope, repoId), {
+    watermark: 131,
+    sourceRevision: 131,
+    processed: 1,
+  });
+  assert.deepEqual(await backfillPgEntityDeclarationPage(pool, scope, repoId), {
+    watermark: 131,
+    sourceRevision: 131,
+    processed: 0,
+  });
+  const warmed = await read({ kind: "agent" }, pool);
+  assert.deepEqual(
+    warmed.find((row) => row.declaration?.payload.entityId === "target-b")!.declaration,
+    concurrent.event,
+  );
+  await withPostgresTransaction(
+    seedPool,
+    (client) =>
+      rebuildPgProjection(client, scope, {
+        events,
+        sourceRevision: 131,
+        readContentBlob: (sha256) => blobs.get(sha256) ?? null,
+      }),
+    scope,
+  );
+  assert.deepEqual(
+    await read({ kind: "agent" }, pool),
+    warmed,
+    "online expansion and full rebuild use the same reducer",
+  );
 }

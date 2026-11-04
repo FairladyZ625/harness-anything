@@ -10,6 +10,7 @@ import { assertWriterEpochFactory } from "../writer-epoch-factory.assertions.ts"
 import { assertCanonicalFactoryLifecycle } from "../canonical-factory.assertions.ts";
 import { withTempStoreAsync } from "../store/helpers.ts";
 import { pgliteIntegrationSuite } from "./pglite-runtime.fixture.ts";
+import { createPGliteStorageBackend } from "../../src/pglite/storage-backend.ts";
 
 pgliteIntegrationSuite("PGlite synchronous factories", () => {
   test("canonical, projection and independent readers share one durable owner", async () => {
@@ -47,15 +48,40 @@ pgliteIntegrationSuite("PGlite synchronous factories", () => {
         projection.close();
         assert.equal(store.readHead()?.revision, events.length + 5);
         await store.drain();
-        const reopened = makeTaskEventStore({ repoId, rootDir, storage }),
-          reader = makeTaskProjectionReader({ repoId, storage });
+        // Simulate a pre-expansion database, using the physical owner only after all facades closed.
+        const old = await createPGliteStorageBackend({ repoId, storage });
         try {
+          await old.pool.query("DELETE FROM ha_entity_declaration_heads");
+          await old.pool.query("UPDATE ha_projection_meta SET entity_declaration_watermark=0");
+        } finally {
+          await old.close();
+        }
+        const progress: number[] = [];
+        const reopened = makeTaskEventStore({ repoId, rootDir, storage }),
+          reader = makeTaskProjectionReader({ repoId, storage }),
+          warmed = makeTaskProjection({
+            rootDir,
+            eventStore: reopened,
+            storage,
+            catchUpLimit: 1,
+            onProgress: ({ watermark }) => progress.push(watermark),
+          });
+        try {
+          const receipt = await warmed.catchUpAsync!();
+          assert.equal(receipt.watermark, events.length + 5);
+          assert.equal(receipt.metrics.maxBatchItems, 1);
+          assert.deepEqual(
+            progress,
+            Array.from({ length: events.length + 5 }, (_, i) => i + 1),
+          );
+          assert.equal(warmed.catchUp!().metrics.reducedItems, 0);
           assert.equal(reopened.readHead()?.revision, events.length + 5);
           assert.deepEqual(
             reader.withSession((queries) => queries.read("task-factory").snapshot),
             snapshot,
           );
         } finally {
+          warmed.close();
           reader.close();
           await reopened.drain();
         }

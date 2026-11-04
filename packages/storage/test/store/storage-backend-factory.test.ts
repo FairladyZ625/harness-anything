@@ -133,6 +133,20 @@ const emptyEventSource = {
   readContentBlob: () => null,
 };
 
+test("all projection factories reject invalid catch-up limits before opening storage", () => {
+  for (const storage of [
+    { backend: "sqlite" as const },
+    { backend: "postgres" as const, connectionString: "postgres://unused", scope },
+    { backend: "pglite" as const, scope },
+  ])
+    for (const catchUpLimit of [0, 4097, 1.5]) {
+      assert.throws(
+        () => makeTaskProjection({ rootDir: "/unused", eventStore: null as never, storage, catchUpLimit }),
+        /catch-up limit/u,
+      );
+    }
+});
+
 declare const ledgerPort: LedgerEventStorePort;
 declare const projectionPort: TaskProjectionPort;
 declare const projectionReaderPort: TaskProjectionReaderPort;
@@ -182,6 +196,12 @@ void [
 void syncPortMethodTypes;
 
 function rejectsLegacyTopLevelConfig(): void {
+  // @ts-expect-error SQL projection construction needs canonical metadata, beyond a replay-only event source.
+  makeTaskProjection({
+    rootDir: "/unused",
+    eventStore: { ...emptyEventSource, readHead: () => null },
+    storage: { backend: "postgres", connectionString: "postgres://unused", scope },
+  });
   // @ts-expect-error backend belongs inside the single storage config field.
   const backendOption: StorageBackendOptions = { backend: "postgres" };
   // @ts-expect-error connectionString belongs inside the postgres storage config.

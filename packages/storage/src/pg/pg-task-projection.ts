@@ -3,6 +3,7 @@ import { assertFactAdmissionAtCut } from "../projection/fact-event-projection.ts
 import { assertDecisionAdmissionAtCut } from "../projection/decision-projection-admission.ts";
 import { createSqlTaskQueryReader } from "./sql-task-query-reader.ts";
 import { PG_TASK_QUERY_METHODS } from "./pg-task-query-contract.ts";
+import { projectionCatchUpLimit } from "../projection/catch-up-limit.ts";
 import type {
   PostgresTaskProjectionFactoryOptions,
   PGliteTaskProjectionFactoryOptions,
@@ -12,7 +13,8 @@ import type {
 export function makePgTaskProjection(
   options: PostgresTaskProjectionFactoryOptions | PGliteTaskProjectionFactoryOptions,
 ): TaskProjection {
-  const now = options.now ?? (() => new Date().toISOString()),
+  const limit = projectionCatchUpLimit(options.catchUpLimit),
+    now = options.now ?? (() => new Date().toISOString()),
     reader = createSqlTaskQueryReader({
       storage: options.storage,
       repoId: options.eventStore.ledgerMetadata().repoId,
@@ -24,10 +26,32 @@ export function makePgTaskProjection(
         (...args: unknown[]) => reader.withSession((q) => Reflect.apply(q[method], q, args)),
       ]),
     ) as unknown as TaskProjectionQueries,
-    catchUp = () => {
+    catchUpRounds = function* (): Generator<undefined, ReturnType<NonNullable<TaskProjection["catchUp"]>>> {
       const cut = queries.readCut();
       if (cut.status !== "ready") throw new Error(`PG projection is pending at ${cut.watermark}/${cut.sourceRevision}`);
-      return { watermark: cut.watermark, metrics: { storeTransactions: 0, reducedItems: 0, maxBatchItems: 0 } };
+      const metrics = { storeTransactions: 0, reducedItems: 0, maxBatchItems: 0 };
+      for (;;) {
+        const page = reader.warmIndexes(limit);
+        if (page.processed) {
+          metrics.storeTransactions++;
+          metrics.reducedItems += page.processed;
+          metrics.maxBatchItems = Math.max(metrics.maxBatchItems, page.processed);
+          options.onProgress?.({
+            applied: metrics.reducedItems,
+            total: metrics.reducedItems + page.sourceRevision - page.watermark,
+            watermark: page.watermark,
+          });
+        }
+        if (page.watermark === page.sourceRevision) return { watermark: page.watermark, metrics };
+        yield;
+      }
+    },
+    catchUp = () => {
+      const rounds = catchUpRounds();
+      for (;;) {
+        const next = rounds.next();
+        if (next.done) return next.value;
+      }
     };
   return {
     ...queries,
@@ -39,7 +63,14 @@ export function makePgTaskProjection(
       return { metrics: { storeTransactions: 1, reducedItems: 1 } };
     },
     catchUp,
-    catchUpAsync: async () => catchUp(),
+    catchUpAsync: async () => {
+      const rounds = catchUpRounds();
+      for (;;) {
+        const next = rounds.next();
+        if (next.done) return next.value;
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+    },
     rebuild: () => {
       reader.rebuild();
       return {

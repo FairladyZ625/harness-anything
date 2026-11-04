@@ -1,3 +1,4 @@
+import { projectionCatchUpLimit } from "./catch-up-limit.ts";
 import { createSqlTaskQueryReader } from "../pg/sql-task-query-reader.ts";
 import { makePgTaskProjection } from "../pg/pg-task-projection.ts";
 // @write-boundary-exemption rebuildable-projection
@@ -102,16 +103,23 @@ export type {
 
 export type { TaskProjectionCatchUpProgress } from "@harness-anything/kernel/internal/ports/task-projection-source.ts";
 
-export interface TaskProjectionFactoryOptions {
-  readonly storage?: SqliteStorageBackendConfig | PostgresStorageBackendConfig | PGliteStorageBackendConfig;
+interface CommonTaskProjectionFactoryOptions {
   readonly rootDir: string;
-  readonly eventStore: EventStreamPort;
   readonly projectionPath?: string;
   readonly catchUpLimit?: number;
   readonly now?: () => string;
   readonly onValidationProgress?: (progress: { readonly applied: number; readonly total: number }) => void;
   readonly onProgress?: (progress: TaskProjectionCatchUpProgress) => void;
 }
+export interface SqliteTaskProjectionFactoryOptions extends CommonTaskProjectionFactoryOptions {
+  readonly storage?: SqliteStorageBackendConfig;
+  readonly eventStore: EventStreamPort;
+}
+export interface CanonicalTaskProjectionFactoryOptions extends CommonTaskProjectionFactoryOptions {
+  readonly storage?: SqliteStorageBackendConfig | PostgresStorageBackendConfig | PGliteStorageBackendConfig;
+  readonly eventStore: LedgerEventStorePort;
+}
+export type TaskProjectionFactoryOptions = SqliteTaskProjectionFactoryOptions | CanonicalTaskProjectionFactoryOptions;
 export interface PostgresTaskProjectionFactoryOptions
   extends Omit<TaskProjectionFactoryOptions, "eventStore" | "storage"> {
   readonly storage: PostgresStorageBackendConfig;
@@ -146,12 +154,10 @@ export function makeTaskProjection(
     return makePgTaskProjection(options as PostgresTaskProjectionFactoryOptions | PGliteTaskProjectionFactoryOptions);
   requireSqliteBackend(options);
   const projectionPath = options.projectionPath ?? defaultLifecycleTaskProjectionPath(options.rootDir);
-  const limit = options.catchUpLimit ?? 4096,
+  const limit = projectionCatchUpLimit(options.catchUpLimit),
     now = options.now ?? (() => new Date().toISOString()),
     onProgress = options.onProgress ?? (() => undefined),
     readHead = options.eventStore.readHead;
-  if (!Number.isInteger(limit) || limit < 1 || limit > 4096)
-    throw new Error("task projection catch-up limit must be between 1 and 4096");
   if (localRuntimeStateFileSystem.exists(projectionPath)) {
     try {
       withDatabase(projectionPath, readHead, () => undefined, options.onValidationProgress);
