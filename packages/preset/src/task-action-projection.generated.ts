@@ -356,7 +356,7 @@ export const taskActionDescriptorProjection = {
         exactlyOneOf: [],
       },
       explain:
-        "Return exhausted, owner-blocked, or owner-consented cuts to rework with an owner reason; resume the worker.",
+        "Return a review cut, or a review-exempt submitted cut, to rework with an owner reason; resume the worker.",
       execution: {
         ingress: "task-rework",
         topology: "ledger-write",
