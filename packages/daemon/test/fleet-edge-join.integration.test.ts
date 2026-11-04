@@ -21,6 +21,7 @@ import { EdgeJoinSshTunnelManager } from "../src/fleet/edge-join-ssh-tunnel.ts";
 import { joinFleetEdge } from "../src/fleet/edge-join-client.ts";
 import { listenFleetTls } from "../src/fleet/center.ts";
 import { requestFleetEdgeJoinStatusPinned } from "../src/fleet/peer.ts";
+import { keycloakUrl } from "./keycloak.fixtures.ts";
 import { accessAdminFixture, edgeJoinCenter } from "./access-admin-service.fixture.ts";
 import { readFleetCenterConfig } from "../src/fleet-center-config.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
@@ -351,7 +352,10 @@ test(
           throw new FleetFault("join_reply_lost", "Admission committed before reply delivery.");
         }
         return {
-          ...result,
+          joinId: result.joinId,
+          nodeId: result.nodeId,
+          personId: result.personId,
+          credential: result.credential,
           repositories: [
             {
               repoId: "repo-a",

@@ -9,8 +9,11 @@ const request = { operation: "edge-join-create", joinMode: "member-device", repo
 const linkFrom = (reply: Record<string, unknown>): EdgeJoinLink =>
   JSON.parse(Buffer.from(String(reply.link).slice("harness-edge://join/".length), "base64url").toString("utf8"));
 
-async function member(t: Parameters<typeof accessAdminFixture>[0]) {
-  const f = await edgeJoinCenter(t, await accessAdminFixture(t));
+async function member(
+  t: Parameters<typeof accessAdminFixture>[0],
+  ports: Parameters<typeof accessAdminFixture>[1] = {},
+) {
+  const f = await edgeJoinCenter(t, await accessAdminFixture(t, ports));
   f.keycloak.account("alice");
   f.keycloak.account("bob");
   f.keycloak.permit("alice", "repo-a", ["repository-read"]);
@@ -156,4 +159,42 @@ test("a lost credential is replaced on the same node; concurrent recovery has on
   await f.run({ operation: "device-remove", nodeId: lost.nodeId, expectedVersion: String(active.revision) });
   await assert.rejects(recover(), { code: "device_removed" });
   assert.equal(await f.provider.authenticateNode(lost.nodeId, recovered.value.credential), false);
+  const nextLink = linkFrom(await f.run(request));
+  const next = await f.admin.admitEdgeJoin({ joinId: nextLink.joinId, accessToken: input.accessToken });
+  assert.notEqual(next.nodeId, lost.nodeId, "a removed device rejoins under a new identity");
+});
+
+test("a rejected credential replacement leaves the old credential and revision valid, and an explicit retry recovers", async (t) => {
+  let rejectWrite = true,
+    replacements = 0;
+  const f = await member(t, {
+    wrapFetch: (inner) => async (input, init) => {
+      if (
+        init?.method === "PUT" &&
+        String(input).includes("/clients/") &&
+        typeof init.body === "string" &&
+        typeof JSON.parse(init.body).secret === "string"
+      ) {
+        replacements += 1;
+        if (rejectWrite) return new Response(null, { status: 503 });
+      }
+      return inner(input, init);
+    },
+  });
+  const link = linkFrom(await f.run(request));
+  f.keycloak.interactiveSession("alice", "existing-device", keycloakUrl, "alice-login", link.loginClientId);
+  const input = { joinId: link.joinId, accessToken: "alice-login" },
+    lost = await f.admin.admitEdgeJoin(input);
+  const original = await f.provider.readNode("center-token", lost.nodeId);
+  const recover = () => f.admin.admitEdgeJoin({ ...input, recovery: { nodeId: lost.nodeId } });
+  await assert.rejects(recover(), { code: "keycloak_admin_rejected" });
+  assert.equal(replacements, 1, "no automatic retry of a credential mutation");
+  assert.equal(await f.provider.authenticateNode(lost.nodeId, lost.credential), true);
+  assert.deepEqual(await f.provider.readNode("center-token", lost.nodeId), original);
+  rejectWrite = false;
+  const recovered = await recover();
+  assert.equal(replacements, 2);
+  assert.equal(recovered.nodeId, lost.nodeId);
+  assert.equal(await f.provider.authenticateNode(lost.nodeId, lost.credential), false);
+  assert.equal(await f.provider.authenticateNode(lost.nodeId, recovered.credential), true);
 });

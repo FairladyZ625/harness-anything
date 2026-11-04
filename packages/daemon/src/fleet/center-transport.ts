@@ -457,7 +457,8 @@ export async function serve(
         : new FleetFault(
             contractError
               ? "invalid_frame"
-              : typeof (error as { code?: unknown })?.code === "string"
+              : (frame.schema === "fleet.edge.join/v1" || frame.schema === "fleet.edge.join.status/v1") &&
+                  typeof (error as { code?: unknown })?.code === "string"
                 ? (error as { code: string }).code
                 : "handler_failed",
             error instanceof Error ? error.message : String(error),
