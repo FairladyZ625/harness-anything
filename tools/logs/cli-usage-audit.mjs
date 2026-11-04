@@ -197,17 +197,22 @@ export function auditCliUsage({
               ? "unobserved-needs-review"
               : "not-observable-in-request-log",
       // The sweep's decision input: a hidden command that still draws calls must stay visible;
-      // a hidden command with no calls is the deletion candidate once the window is old enough.
+      // shared-method traffic cannot be assigned to one owner, so it is uncertainty, not zero use;
+      // only an observable command with neither direct nor shared traffic is a deletion candidate.
       retirementDisposition:
         count > 0
           ? command.hiddenSince
             ? "hidden-but-observed"
             : "retain-observed"
-          : command.hiddenSince
-            ? observable
-              ? "hidden-zero-calls"
-              : "hidden-not-observable"
-            : "needs-human-review",
+          : counts.shared > 0
+            ? command.hiddenSince
+              ? "hidden-unattributed-shared"
+              : "needs-human-review"
+            : command.hiddenSince
+              ? observable
+                ? "hidden-zero-calls"
+                : "hidden-not-observable"
+              : "needs-human-review",
     };
   });
   const sourceAttribution = {

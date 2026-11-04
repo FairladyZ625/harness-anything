@@ -79,22 +79,29 @@ test("shared RPC traffic remains unattributed instead of observing every alias",
     commands: [
       descriptor("runtime-batch", "repo.agentRuntime.spawn"),
       descriptor("runtime-run", "repo.agentRuntime.spawn"),
+      // A hidden owner of the same shared method: the uncertainty must survive into the
+      // retirement disposition instead of becoming zero-use evidence.
+      { ...descriptor("task-pin", "repo.agentRuntime.spawn"), hiddenSince: "2026-11-05" },
     ],
     requestRecords: [row("2026-09-07T00:00:00.000Z", undefined, { method: "repo.agentRuntime.spawn" })],
     nowMs: Date.parse("2026-09-08T00:00:00.000Z"),
   });
   assert.deepEqual(
     report.denominator.map((item) => item.observedRequests),
-    [0, 0],
+    [0, 0, 0],
   );
   assert.deepEqual(
     report.denominator.map((item) => item.sharedMethodObservedRequests),
-    [1, 1],
+    [1, 1, 1],
   );
   assert.equal(report.observation.methodAttribution.sharedMethodRequests, 1);
   assert.deepEqual(
     report.denominator.map((item) => item.status),
-    ["unattributed-shared-method", "unattributed-shared-method"],
+    ["unattributed-shared-method", "unattributed-shared-method", "unattributed-shared-method"],
+  );
+  assert.deepEqual(
+    report.denominator.map((item) => item.retirementDisposition),
+    ["needs-human-review", "needs-human-review", "hidden-unattributed-shared"],
   );
   assert.equal(report.zeroObservation.length, 0);
 });
