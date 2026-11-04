@@ -47,6 +47,114 @@ test("manifest gate runner executes gates declared for non-pull-request workflow
   ]);
 });
 
+test("manifest gate runner fails when a workflow job selects zero gates on the firing event", () => {
+  const manifest = {
+    gates: [
+      {
+        id: "test-integration",
+        command: "npm run test:integration",
+        executionSurfaces: { rewriteCi: { pullRequestJobs: [], nonPullRequestJobs: ["windows-integration-shard"] } },
+      },
+    ],
+  };
+  const options = parseManifestGateArgs(["--workflow-job", "windows-integration-shard"]);
+  options.eventName = "pull_request";
+
+  assert.throws(
+    () => buildManifestGatePlan(manifest, options),
+    (error) => {
+      assert.match(
+        error.message,
+        /workflow job "windows-integration-shard" selected 0 gates for event "pull_request"/u,
+      );
+      assert.match(error.message, /declared only in nonPullRequestJobs/u);
+      return true;
+    },
+  );
+});
+
+test("manifest gate runner fails when no gate declares the workflow job on any surface", () => {
+  const manifest = {
+    gates: [
+      {
+        id: "check-existing",
+        command: "node check-existing.mjs",
+        executionSurfaces: { rewriteCi: { pullRequestJobs: ["boundaries"] } },
+      },
+    ],
+  };
+  const options = parseManifestGateArgs(["--workflow-job", "no-such-job"]);
+  options.eventName = "pull_request";
+
+  assert.throws(
+    () => buildManifestGatePlan(manifest, options),
+    /no gate declares it in executionSurfaces\.rewriteCi or executionSurfaces\.prBody/u,
+  );
+});
+
+test("manifest gate runner reports aggregate-only declarations instead of a bare empty plan", () => {
+  const manifest = {
+    gates: [
+      {
+        id: "aggregate-full-check",
+        command: "npm run check",
+        aggregate: true,
+        executionSurfaces: { rewriteCi: { nonPullRequestJobs: ["nightly-soak"] } },
+      },
+    ],
+  };
+  const options = parseManifestGateArgs(["--workflow-job", "nightly-soak"]);
+  options.eventName = "schedule";
+
+  assert.throws(() => buildManifestGatePlan(manifest, options), /all 1 declaration\(s\) are aggregate gates/u);
+});
+
+test("manifest gate runner reports an exclusion that removes every gate", () => {
+  const manifest = {
+    gates: [
+      {
+        id: "check-example",
+        command: "node check-example.mjs",
+        executionSurfaces: { rewriteCi: { pullRequestJobs: ["boundaries"] } },
+      },
+    ],
+  };
+  const options = parseManifestGateArgs(["--workflow-job", "boundaries", "--exclude", "check-example"]);
+  options.eventName = "pull_request";
+
+  assert.throws(() => buildManifestGatePlan(manifest, options), /removed by --exclude/u);
+});
+
+test("manifest gate runner fails when --changed narrows a workflow job to zero changed paths", () => {
+  const manifest = {
+    gates: [
+      {
+        id: "check-docs",
+        command: "node check-docs.mjs",
+        localPathGlobs: ["docs-release/**"],
+        executionSurfaces: { rewriteCi: { pullRequestJobs: ["boundaries"] } },
+      },
+    ],
+  };
+  const options = parseManifestGateArgs(["--workflow-job", "boundaries", "--changed", "origin/main"]);
+  options.eventName = "pull_request";
+  options.changedPaths = [];
+
+  assert.throws(() => buildManifestGatePlan(manifest, options), /--changed origin\/main reported 0 changed paths/u);
+});
+
+test("every workflow job that invokes the manifest runner selects at least one gate", () => {
+  const manifest = JSON.parse(readFileSync(path.resolve(import.meta.dirname, "gate-manifest.json"), "utf8"));
+  const workflow = readFileSync(path.resolve(import.meta.dirname, "../.github/workflows/rewrite-ci.yml"), "utf8");
+  const jobNames = [...new Set([...workflow.matchAll(/--workflow-job\s+([A-Za-z0-9_-]+)/gu)].map((match) => match[1]))];
+
+  assert.ok(jobNames.length > 0, "the workflow invokes the manifest runner");
+  for (const jobName of jobNames) {
+    const options = parseManifestGateArgs(["--workflow-job", jobName]);
+    assert.ok(buildManifestGatePlan(manifest, options).length > 0, `${jobName} selected 0 gates`);
+  }
+});
+
 test("manifest gate runner selects workflow gates for the current event surface", () => {
   const manifest = {
     gates: [
