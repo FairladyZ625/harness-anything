@@ -1,8 +1,11 @@
+import { prefixUpperBound } from "../projection/document-read-range.ts";
+import { checkedPageLimit } from "./pg-query-page.ts";
+import { readPgTaskSessions, readPgSessionPage } from "./pg-runtime-session-queries.ts";
+import { assertPgReadIndexReady } from "./pg-read-index-migration.ts";
 import type { PoolClient } from "pg";
 import type {
   EntityProjectionRow,
   PinnedEntityProjectionRow,
-  RuntimeSession,
   LeaseInterval,
   SquadRunProjectionRow,
   CanonicalEventV1,
@@ -43,16 +46,31 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
   const get = <Result>(model: string, id: string) =>
     read((client) => getPgProjectionValue<Result>(client, scope, model, id));
   const list = <Result>(model: string) => read((client) => listPgProjectionValues<Result>(client, scope, model));
-  const documents = async (client: PoolClient, prefix: string) => {
+  const documents = async (
+    client: PoolClient,
+    prefix: string,
+    page?: { readonly limit: number; readonly afterPath?: string },
+  ) => {
     const upper = prefixUpperBound(prefix),
+      values: unknown[] = [
+        scope.tenantId,
+        scope.projectId,
+        scope.policyEpoch,
+        readers,
+        prefix,
+        ...(upper === null ? [] : [upper]),
+      ],
+      after = page?.afterPath,
+      afterPredicate = after === undefined ? "" : `AND entity_id COLLATE "C" > $${values.push(after)}`,
+      limitClause = page === undefined ? "" : `LIMIT $${values.push(checkedPageLimit(page.limit, 500) + 1)}`,
       result = await client.query<{ value: string | null }>(
         `SELECT document_metadata AS value FROM ha_projection_values
          WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model='document'
            AND owner_id='' AND entity_id COLLATE "C" >= $5
            ${upper === null ? "" : 'AND entity_id COLLATE "C" < $6'}
            AND (cardinality($4::text[])=0 OR readers && $4::text[])
-         ORDER BY entity_id COLLATE "C"`,
-        [scope.tenantId, scope.projectId, scope.policyEpoch, readers, prefix, ...(upper === null ? [] : [upper])],
+         ${afterPredicate} ORDER BY entity_id COLLATE "C" ${limitClause}`,
+        values,
       );
     return result.rows.map(({ value }) => {
       if (value === null)
@@ -87,45 +105,37 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
         );
         return row.rows[0] ? (JSON.parse(row.rows[0].value) as EntityProjectionRow) : null;
       }),
-    listPinnedEntities: async () =>
-      (await list<PinnedEntityProjectionRow>("pin")).toSorted((a, b) =>
-        a.pinnedAt === b.pinnedAt ? compare(a.entityRef, b.entityRef) : compare(b.pinnedAt, a.pinnedAt),
-      ),
+    listPinnedEntities: () =>
+      read(async (client) => {
+        await assertPgReadIndexReady(client, scope, "pin");
+        const result = await client.query<{ value: string }>(
+          `SELECT value FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+          AND model='pin' AND (cardinality($4::text[])=0 OR readers && $4::text[])
+          ORDER BY order_at DESC,entity_id`,
+          [scope.tenantId, scope.projectId, scope.policyEpoch, readers],
+        );
+        return result.rows.map(({ value }) => JSON.parse(value) as PinnedEntityProjectionRow);
+      }),
     readRuntimeInstallation: (id) => get("runtime-installation", id),
     readRuntimeInstallations: () => list("runtime-installation"),
     readRuntimeSession: (id) => get("runtime-session", id),
-    // Runtime sessions stay JSON text because documents may contain NUL, but the unsettled and
-    // node-owner predicates are evaluated by PostgreSQL against the partial expression index.
     readRuntimeSessions: (query) => read((client) => listPgRuntimeSessions(client, scope, repoId, query)),
-    readRuntimeSessionsForTask: async (taskId) =>
-      (await list<RuntimeSession>("runtime-session")).filter((session) =>
-        session.taskBindings.some((binding) => binding.taskId === taskId),
-      ),
-    readRuntimeSessionPage: (query) =>
-      read(async (client) => {
-        if (!Number.isInteger(query.limit) || query.limit < 1 || query.limit > 64)
-          throw new Error("runtime session page limit must be between 1 and 64");
-        const matched = (await listPgProjectionValues<RuntimeSession>(client, scope, "runtime-session")).filter(
-            (session) =>
-              (!query.taskId || session.taskBindings.some(({ taskId }) => taskId === query.taskId)) &&
-              (query.afterRuntimeSessionId === undefined || session.runtimeSessionId > query.afterRuntimeSessionId),
-          ),
-          rows = matched.slice(0, query.limit),
-          remainingCount = matched.length - rows.length;
-        return {
-          rows,
-          remainingCount,
-          nextRuntimeSessionId: remainingCount > 0 ? rows.at(-1)!.runtimeSessionId : null,
-        };
-      }),
+    readRuntimeSessionsForTask: (taskId) =>
+      read(async (client) => (await readPgTaskSessions(client, scope, [taskId])).get(taskId) ?? []),
+    readRuntimeSessionPage: (query) => read((client) => readPgSessionPage(client, scope, query)),
     readSquadRun: (id) => get<SquadRunProjectionRow>("squad-run", id),
     readSquadRuns: () => list<SquadRunProjectionRow>("squad-run"),
     readLeaseIntervals: (taskId) =>
-      read(async (client) =>
-        [...(await listPgProjectionValues<LeaseInterval>(client, scope, "lease-interval", taskId))].sort(
-          (a, b) => a.acquiredRevision - b.acquiredRevision,
-        ),
-      ),
+      read(async (client) => {
+        await assertPgReadIndexReady(client, scope, "lease-interval");
+        const result = await client.query<{ value: string }>(
+          `SELECT value FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+          AND model='lease-interval' AND owner_id=$5 AND (cardinality($4::text[])=0 OR readers && $4::text[])
+          ORDER BY order_revision`,
+          [scope.tenantId, scope.projectId, scope.policyEpoch, readers, taskId],
+        );
+        return result.rows.map(({ value }) => JSON.parse(value) as LeaseInterval);
+      }),
     readArtifactEntityState: (kind, id) => get(`artifact:${kind}`, id),
     readPresetSnapshot: (id) =>
       read(async (client) => ({
@@ -152,11 +162,19 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
         ...(await readCutInTransaction(client, scope, readers, repoId)),
         document: await getPgProjectionValue<DocumentState>(client, scope, "document", path),
       })),
-    readDocuments: (prefix) =>
-      read(async (client) => ({
-        ...(await readCutInTransaction(client, scope, readers, repoId)),
-        documents: await documents(client, prefix),
-      })),
+    readDocuments: (prefix, page) =>
+      read(async (client) => {
+        const cut = await readCutInTransaction(client, scope, readers, repoId),
+          rows = await documents(client, prefix, page),
+          selected = page === undefined ? rows : rows.slice(0, page.limit);
+        return {
+          ...cut,
+          documents: selected,
+          ...(page === undefined
+            ? {}
+            : { page: { nextPath: rows.length > page.limit ? selected.at(-1)!.path : null } }),
+        };
+      }),
     readReplicaBasis: (after) =>
       read(async (client) => {
         if (after !== null && (!Number.isSafeInteger(after) || after < 0))
@@ -187,27 +205,6 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
       }),
   };
 }
-/** Exclusive UTF-8/C-collation boundary; wildcard characters remain literal path bytes. */
-function prefixUpperBound(prefix: string): string | null {
-  const points = Array.from(prefix, (character) => character.codePointAt(0)!);
-  for (let index = points.length - 1; index >= 0; index--) {
-    const point = points[index]!;
-    if (point < 0x10ffff) {
-      const next = point === 0xd7ff ? 0xe000 : point + 1;
-      return (
-        points
-          .slice(0, index)
-          .map((value) => String.fromCodePoint(value))
-          .join("") + String.fromCodePoint(next)
-      );
-    }
-  }
-  return null;
-}
-function compare(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
-}
-
 /** Raw path ancestors preserve the port's literal prefix semantics, including repeated slashes. */
 function documentPathAncestors(path: string): readonly string[] {
   const paths = [path];

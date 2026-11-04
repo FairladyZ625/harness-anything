@@ -105,7 +105,19 @@ export function makePgCanonicalEventStore(
       return { status: "visible", commitSha: null, settlements: [], conflicts: [] };
     }
     const layout = resolveHarnessLayout(rootInput),
-      documents = materializeTree ? reader.withSession((q) => q.readDocuments("").documents) : [],
+      documents = materializeTree
+        ? reader.withSession((q) => {
+            const documents: ReturnType<typeof q.readDocuments>["documents"][number][] = [];
+            let afterPath: string | undefined;
+            for (;;) {
+              const result = q.readDocuments("", { limit: 500, ...(afterPath === undefined ? {} : { afterPath }) });
+              documents.push(...result.documents);
+              if (result.page!.nextPath === null) break;
+              afterPath = result.page!.nextPath;
+            }
+            return documents;
+          })
+        : [],
       entries = new Map(documents.map((doc) => [doc.path, { sha256: doc.blobSha256 }])),
       restored =
         request?.paths && !request.preview

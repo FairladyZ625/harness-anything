@@ -251,7 +251,10 @@ export interface TaskProjection {
   readonly readEventWitness: (
     revision: number,
   ) => Pick<CanonicalEventV1, "workspaceRevision" | "occurredAt" | "actor" | "source"> | null;
-  readonly readDocuments: (prefix: string) => {
+  readonly readDocuments: (
+    prefix: string,
+    page?: { readonly limit: number; readonly afterPath?: string },
+  ) => {
     readonly status: "ready" | "pending";
     readonly documents: readonly {
       readonly path: string;
@@ -260,6 +263,8 @@ export interface TaskProjection {
       readonly mediaType: string;
       readonly policyId: string | null;
     }[];
+    /** Present for an explicit keyset read; null is the authoritative end signal. */
+    readonly page?: { readonly nextPath: string | null };
     readonly watermark: number;
     readonly sourceRevision: number;
   };

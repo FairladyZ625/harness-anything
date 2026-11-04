@@ -1,3 +1,5 @@
+import { prefixUpperBound } from "./document-read-range.ts";
+import { checkedPageLimit } from "./task-query-projection.ts";
 import { readArtifactEntityState } from "./artifact-entity-state-projection.ts";
 import { readEventList } from "./event-list-query.ts";
 import {
@@ -165,7 +167,18 @@ export function repositoryEventQueries(
   return {
     readArtifactEntityState: (kind, id) => withRead((db) => readArtifactEntityState(db, kind, id)),
     readEventList: (query) => withRead((db) => readEventList(db, query)),
-    readDocuments: (prefix) => withRead((db, cut) => ({ ...cut, documents: readDocumentRows(db, prefix) })),
+    readDocuments: (prefix, page) =>
+      withRead((db, cut) => {
+        const rows = readDocumentRows(db, prefix, page),
+          selected = page === undefined ? rows : rows.slice(0, page.limit);
+        return {
+          ...cut,
+          documents: selected,
+          ...(page === undefined
+            ? {}
+            : { page: { nextPath: rows.length > page.limit ? selected.at(-1)!.path : null } }),
+        };
+      }),
     readEventWitness: (revision) =>
       withRead((db) => {
         const row = queryRow(db, "SELECT witness_json FROM event_summary WHERE workspace_revision = ?", revision);
@@ -430,15 +443,23 @@ function projectedDispatch(
 }
 
 /** Document descriptors at this cut, shared by replica publication and repository document lists. */
-export function readDocumentRows(db: DatabaseSync, prefix: string) {
+export function readDocumentRows(
+  db: DatabaseSync,
+  prefix: string,
+  page?: { readonly limit: number; readonly afterPath?: string },
+) {
+  const upper = prefixUpperBound(prefix),
+    values: (string | number)[] = [prefix, ...(upper === null ? [] : [upper])],
+    afterPredicate = page?.afterPath === undefined ? "" : "AND path > ?";
+  if (page?.afterPath !== undefined) values.push(page.afterPath);
+  if (page !== undefined) values.push(checkedPageLimit(page.limit) + 1);
   return queryRows(
     db,
     "SELECT path, json_extract(value_json, '$.blobSha256') AS blob_sha256, " +
       "json_extract(value_json, '$.size') AS size, json_extract(value_json, '$.mediaType') AS media_type, " +
       "json_extract(value_json, '$.policyId') AS policy_id " +
-      "FROM document WHERE substr(path, 1, length(?)) = ? ORDER BY path",
-    prefix,
-    prefix,
+      `FROM document WHERE path >= ? ${upper === null ? "" : "AND path < ?"} ${afterPredicate} ORDER BY path ${page === undefined ? "" : "LIMIT ?"}`,
+    ...values,
   ).map((row) => ({
     path: String(row.path),
     blobSha256: String(row.blob_sha256),

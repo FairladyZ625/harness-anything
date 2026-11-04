@@ -113,6 +113,8 @@ export async function readEntityVersionWitnesses(
 
 export interface PgRelationQuery {
   readonly source?: string;
+  readonly excludeFactOwned?: boolean;
+  readonly targetRoot?: string;
   readonly taskOwned?: boolean;
   readonly target?: string;
   readonly targets?: readonly string[];
@@ -143,6 +145,13 @@ export async function readVersionedRelationsInTransaction(
       "policy_epoch = $3",
       "(cardinality($4::text[]) = 0 OR readers && $4::text[])",
     ];
+  if (query.excludeFactOwned) where.push(`(source_ref COLLATE "C" < 'fact/' OR source_ref COLLATE "C" >= 'fact0')`);
+  if (query.targetRoot !== undefined) {
+    values.push(query.targetRoot, `${query.targetRoot}/`, `${query.targetRoot}0`);
+    where.push(
+      `(target_ref=$${values.length - 2} OR (target_ref COLLATE "C" >= $${values.length - 1} AND target_ref COLLATE "C" < $${values.length}))`,
+    );
+  }
   if (query.taskOwned === true) where.push("starts_with(source_ref, 'task/')");
   if (query.source !== undefined) {
     values.push(query.source);

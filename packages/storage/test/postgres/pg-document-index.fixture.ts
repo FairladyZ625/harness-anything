@@ -93,6 +93,22 @@ export async function assertDocumentIndex(pool: Pool, seedPool: Pool, backend: s
     (await queries.readDocuments("最大/😀/")).documents.map(({ path }) => path),
     ["最大/😀/a"],
   );
+  const first = await queries.readDocuments("target/%_/", { limit: 2 });
+  assert.deepEqual(
+    first.documents.map((row) => row.path),
+    ["target/%_/a", "target/%_/b"],
+  );
+  assert.equal(first.page!.nextPath, "target/%_/b");
+  const last = await queries.readDocuments("target/%_/", { limit: 2, afterPath: first.page!.nextPath! });
+  assert.deepEqual(
+    last.documents.map((row) => row.path),
+    ["target/%_/深😀"],
+  );
+  assert.equal(last.page!.nextPath, null);
+  assert.deepEqual(
+    (await queries.readDocuments("target/%_/", { limit: 2, afterPath: "target/%_/深😀" })).documents,
+    [],
+  );
   assert.deepEqual((await queries.readDocuments("absent/")).documents, []);
   assert.equal((await queries.readDocuments("")).documents.length, 100006);
   assert.equal(await queries.taskIdForDocumentPath("tasks/parent/nested/a.md"), "child");

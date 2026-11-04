@@ -1,5 +1,5 @@
 import type { PoolClient } from "pg";
-import type { RuntimeSession, TaskProjectionQueries } from "@harness-anything/kernel";
+import type { TaskProjectionQueries } from "@harness-anything/kernel";
 import type { DecisionState } from "@harness-anything/kernel/internal/domain/decision-event.ts";
 import { isDomainStatus } from "@harness-anything/kernel/internal/domain/lifecycle-status.ts";
 import { blockingOf } from "@harness-anything/kernel/internal/domain/task-blocking.ts";
@@ -16,7 +16,7 @@ import { withPostgresTransaction } from "../postgres/transaction.ts";
 import { readCutInTransaction, readEventRowsInTransaction } from "./pg-event-queries.ts";
 import { readRelationsInTransaction } from "./pg-relation-queries.ts";
 import { PG_PROJECTION_TABLES } from "./pg-projection-schema.ts";
-import { listPgProjectionValues } from "./pg-projection-values.ts";
+import { readPgTaskSessions } from "./pg-runtime-session-queries.ts";
 import type { PgTaskProjectionSourceOptions } from "./pg-task-source.ts";
 import type { AsyncQueries } from "./pg-runtime-dispatch-queries.ts";
 
@@ -94,7 +94,7 @@ export function pgAggregateQueries(options: PgTaskProjectionSourceOptions): PgAg
            AND (cardinality($4::text[])=0 OR readers && $4::text[]) AND task_id=ANY($5::text[]) ORDER BY task_id`,
             [...parameters, taskIds],
           ),
-          sessions = await listPgProjectionValues<RuntimeSession>(client, scope, "runtime-session");
+          sessions = await readPgTaskSessions(client, scope, taskIds);
         return {
           ...(await readCutInTransaction(client, scope, readers, repoId)),
           taskIds,
@@ -102,9 +102,7 @@ export function pgAggregateQueries(options: PgTaskProjectionSourceOptions): PgAg
             taskId: task_id,
             title,
             packagePath: package_path,
-            sessions: sessions
-              .filter((session) => session.taskBindings.some(({ taskId }) => taskId === task_id))
-              .map(publicRuntimeSession),
+            sessions: (sessions.get(task_id) ?? []).map(publicRuntimeSession),
           })),
           page: {
             limit,

@@ -1,3 +1,4 @@
+import { assertPgEventReadIndexReady } from "./pg-event-read-index-migration.ts";
 import { assertPgProjectionSchemaVersion } from "./pg-projection-schema.ts";
 import type { AgentRuntimeEventV1, CanonicalEventV1 } from "@harness-anything/kernel";
 import { canonicalEventEntityRefs } from "@harness-anything/kernel";
@@ -65,8 +66,8 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
             readers,
             repoId,
             scheduleId === undefined
-              ? "event_json::jsonb ->> 'schema' = 'schedule-event/v1'"
-              : "event_json::jsonb ->> 'schema' = 'schedule-event/v1' AND event_json::jsonb #>> '{entity,id}' = $6",
+              ? "event_schema = 'schedule-event/v1'"
+              : "event_schema = 'schedule-event/v1' AND event_entity_id = $6",
             scheduleId === undefined ? [] : [scheduleId],
           );
         return { ...cut, events };
@@ -83,7 +84,7 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
           claims,
           readers,
           repoId,
-          "event_type = $6 AND event_json::jsonb ->> 'occurredAt' >= $7 AND event_json::jsonb ->> 'occurredAt' <= $8",
+          "event_type = $6 AND occurred_at >= $7 AND occurred_at <= $8",
           [type, after, before],
         ),
       claims,
@@ -100,7 +101,7 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
               claims,
               readers,
               repoId,
-              "event_json::jsonb #>> '{actor,executor,id}' = ANY($6::text[]) AND event_json::jsonb ->> 'schema' = ANY($7::text[])",
+              "executor_id = ANY($6::text[]) AND event_schema = ANY($7::text[])",
               [
                 runtimeSessionIds.map((id) => `runtime-session:${id}`),
                 ["fact-event/v1", "decision-event/v1", "task-event/v1"],
@@ -124,7 +125,7 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
           claims,
           readers,
           repoId,
-          "revision > $6 AND event_type <> ALL($7::text[]) AND event_json::jsonb #>> '{payload,runtimeSessionId}' = $8",
+          "revision > $6 AND event_type <> ALL($7::text[]) AND runtime_session_id = $8",
           [afterRevision, privateRuntimeEventTypes, runtimeSessionId],
           "LIMIT $9",
           [limit],
@@ -341,6 +342,7 @@ export async function readEventRowsInTransaction(
   suffix = "",
   suffixValues: readonly unknown[] = [],
 ): Promise<PgEventRow[]> {
+  await assertPgEventReadIndexReady(client, claims, repoId);
   const parameters = [claims.tenantId, claims.projectId, repoId, claims.policyEpoch, readers, ...predicateValues];
   if (limit !== undefined) parameters.push(limit);
   parameters.push(...suffixValues);
