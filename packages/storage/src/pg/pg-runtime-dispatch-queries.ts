@@ -116,12 +116,15 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
     readRuntimeDispatchById: async (id) => (await byField("dispatchId", id, true))[0] ?? null,
     readRuntimeDispatchByDispatchKey: (key) =>
       transaction(async (client) => {
+        // The scalar column covers both historical and current non-reviewer spellings. Reviewer
+        // keys are qualified by a read-time transform, so their normalized projection row remains
+        // the only place that carries the qualified bytes; both branches are index seeks.
         const [event] = await readDispatchRows(
           client,
-          `revision = (SELECT workspace_revision FROM ha_projection_values
+          `(dispatch_key=$6 OR revision = (SELECT workspace_revision FROM ha_projection_values
             WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$4
               AND model='runtime-dispatch-key' AND entity_id=$6
-              AND (cardinality($5::text[])=0 OR readers && $5::text[]) ORDER BY workspace_revision LIMIT 1)`,
+              AND (cardinality($5::text[])=0 OR readers && $5::text[]) ORDER BY workspace_revision LIMIT 1))`,
           [key],
           "ha_events.revision",
           1,

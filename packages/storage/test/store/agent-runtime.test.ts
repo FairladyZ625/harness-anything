@@ -15,9 +15,11 @@ import { serializeCanonicalEvent } from "@harness-anything/kernel/internal/domai
 import {
   parseCanonicalEvent,
   serializeCanonicalEventUnchecked,
+  serializePersistedCanonicalEvent,
 } from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events.ts";
 import { makeTaskEventReader } from "../../src/store/task-event-store-factory.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
+import { ensureRuntimeMemberIndex } from "../../src/projection/runtime-member-index.ts";
 import {
   canonicalEventWritePlan,
   makeTaskEventStore,
@@ -355,6 +357,56 @@ test("historical reviewer dispatch is indexed under its reviewer-qualified key w
     assert.equal(projected?.opId, dispatch.opId);
     assert.equal(projected?.payload.dispatchId, dispatch.payload.dispatchId);
     assert.equal(projected?.payload.runtimeSessionId, dispatch.payload.runtimeSessionId);
+    projection.close();
+  });
+});
+
+test("historical idempotencyKey dispatch is readable by the unified dispatch key", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const store = makeTaskEventStore({ repoId: "test-repo", rootDir }),
+      projection = makeTaskProjection({ rootDir, eventStore: store }),
+      current = eventFromProviderWitness(witness("runtime_dispatch_requested"), envelope(1))!;
+    assert.equal(current.type, "runtime_dispatch_requested");
+    if (current.type !== "runtime_dispatch_requested") return;
+    const { dispatchKey, ...currentPayload } = current.payload,
+      historical = {
+        ...current,
+        payload: { ...currentPayload, idempotencyKey: dispatchKey },
+      } as unknown as AgentRuntimeEventV1;
+    // Write the current shape so the ledger head matches, then leave the cache carrying the
+    // pre-rename bytes as an existing projection does before the read-index expansion runs.
+    store.append(bundle(current));
+    projection.apply(current);
+    const db = new DatabaseSync(projection.path);
+    try {
+      db.exec("DROP TRIGGER IF EXISTS runtime_dispatch_key_0; DROP TRIGGER IF EXISTS runtime_dispatch_key_1");
+      db.prepare("UPDATE event_index SET event_json=?,dispatch_key=NULL WHERE op_id=?").run(
+        serializePersistedCanonicalEvent(historical),
+        current.opId,
+      );
+      ensureRuntimeMemberIndex(db);
+    } finally {
+      db.close();
+    }
+    const projected = projection.readRuntimeDispatchByDispatchKey(dispatchKey);
+    assert.equal(projected?.event.payload.dispatchId, current.payload.dispatchId);
+    assert.equal(projected?.event.payload.dispatchKey, dispatchKey);
+    assert.equal(Object.hasOwn(projected!.event.payload, "idempotencyKey"), false);
+    const planDb = new DatabaseSync(projection.path, { readOnly: true });
+    try {
+      const plan = planDb
+        .prepare(
+          "EXPLAIN QUERY PLAN SELECT event_json FROM event_index WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested' AND dispatch_key = ? ORDER BY workspace_revision LIMIT 1",
+        )
+        .all(dispatchKey) as readonly { readonly detail: string }[];
+      assert.match(
+        plan.map(({ detail }) => detail).join("\n"),
+        /SEARCH event_index USING INDEX event_index_runtime_dispatch_key/u,
+      );
+    } finally {
+      planDb.close();
+    }
     projection.close();
   });
 });

@@ -11,8 +11,11 @@ export const privateRuntimeEventTypes = [
 export function publicRuntimeDispatch<T extends Extract<AgentRuntimeEventV1, { type: "runtime_dispatch_requested" }>>(
   event: T,
 ): T {
-  const { cwd: _cwd, ...payload } = event.payload;
-  return { ...event, payload };
+  const { cwd: _cwd, ...payload } = event.payload as T["payload"] & { readonly idempotencyKey?: string };
+  const dispatchKey = payload.dispatchKey ?? payload.idempotencyKey;
+  if (dispatchKey === undefined) return { ...event, payload };
+  const { idempotencyKey: _idempotencyKey, ...current } = payload;
+  return { ...event, payload: { ...current, dispatchKey } } as T;
 }
 
 export function publicRuntimeSession(session: RuntimeSession): RuntimeSession {
