@@ -479,3 +479,25 @@ for (const document of ["artifact", "bootstrap"] as const) {
     }
   });
 }
+
+test("a task's accepted canonical write acknowledges later worker edits while its untouched mirror stays clean", async () => {
+  const fixture = await ownPackageFixture("canonical-ack");
+  try {
+    writeFileSync(fixture.canonicalArtifact, "# Accepted canonical task edit\n");
+    const accepted = await fixture.cell.run({ kind: "doc-submit", taskId: fixture.taskId }, holder);
+    assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
+    await waitForFixturePublication(fixture.cell, accepted.opId, holder);
+    assert.equal(readFileSync(fixture.workerArtifact, "utf8"), "# Worker artifact v1\n");
+    const untouched = await fixture.cell.run({ kind: "doc-submit", taskId: fixture.taskId }, holder);
+    assert.equal(untouched.outcome, "no_changes", JSON.stringify(untouched));
+    assert.equal(readFileSync(fixture.canonicalArtifact, "utf8"), "# Accepted canonical task edit\n");
+    writeFileSync(fixture.workerArtifact, "# Continued from worker\n");
+    const continued = await fixture.cell.run({ kind: "doc-submit", taskId: fixture.taskId }, holder);
+    assert.equal(continued.outcome, "applied", JSON.stringify(continued));
+    await waitForFixturePublication(fixture.cell, continued.opId, holder);
+    assert.equal(readFileSync(fixture.canonicalArtifact, "utf8"), "# Continued from worker\n");
+  } finally {
+    await fixture.cell.close();
+    rmSync(fixture.rootDir, { recursive: true, force: true });
+  }
+});

@@ -292,6 +292,7 @@ for (const retired of [false, true]) {
     t.after(() => rmSync(root, { recursive: true, force: true }));
     mkdirSync(path.join(root, "harness"));
     mkdirSync(path.dirname(path.join(worker, "harness", report)), { recursive: true });
+    mkdirSync(path.join(worker, ".git"));
     writeFileSync(path.join(worker, "harness", report), "worker report v2\n");
     writeFileSync(path.join(worker, "harness", ruling), "ruling v1\n");
     writeFileSync(path.join(worker, "harness", fresh), "new worker output\n");
@@ -381,5 +382,29 @@ for (const retired of [false, true]) {
       null,
       "unknown edits never adopt the CEO's current version",
     );
+  });
+}
+
+for (const dirty of [false, true]) {
+  test(`tracked ledger bases stay outside Git's visible worktree and are reclaimed with a ${dirty ? "retained" : "removed"} checkout`, async (t) => {
+    const root = repositoryFixture(t),
+      worktree = { cwd: path.join(root, ".worktrees", taskId), branch: taskId, baseRef: "origin/main" };
+    // This repository deliberately does not ignore its localRoot.
+    writeFileSync(path.join(root, ".gitignore"), "/.worktrees/\n/harness/.git/\n");
+    git(root, "add", ".gitignore", "harness/tasks", "harness/harness.yaml");
+    git(root, "commit", "-qm", "tracked authored documents");
+    git(root, "update-ref", "refs/remotes/origin/main", "HEAD");
+    await addManagedWorktree(root, worktree);
+    await runWorktreeSetup({ rootDir: root, cwd: worktree.cwd, taskId, steps: [], fresh: true });
+    const base = taskWorktreeDocumentBase(worktree.cwd, ""),
+      original = taskWorktreeDocumentBase(worktree.cwd, `tasks/${packageName}/task_plan.md`);
+    assert.equal(path.relative(worktree.cwd, base).startsWith(`..${path.sep}`), true);
+    assert.equal(readFileSync(original, "utf8"), "# Plan\n");
+    assert.equal(git(worktree.cwd, "status", "--porcelain", "--untracked-files=all"), "");
+    if (dirty) writeFileSync(path.join(worktree.cwd, "README.md"), "unfinished work\n");
+    const reclaimed = await reclaimManagedWorktree(root, worktree);
+    assert.equal(reclaimed.outcome, dirty ? "retained" : "removed");
+    assert.equal(existsSync(base), false, "node-local bases leave with worktree reclamation");
+    if (dirty) assert.equal(readFileSync(path.join(worktree.cwd, "README.md"), "utf8"), "unfinished work\n");
   });
 }

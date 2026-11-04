@@ -1,6 +1,13 @@
 import { lstatSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import path from "node:path";
-import { documentPath, resolveDocRoute, resolveHarnessLayout, type TaskProjection } from "@harness-anything/kernel";
+import {
+  documentPath,
+  isDocEvent,
+  resolveDocRoute,
+  resolveHarnessLayout,
+  type CanonicalEventV1,
+  type TaskProjection,
+} from "@harness-anything/kernel";
 import { makeGitReadinessSource } from "./process-port.ts";
 import { presetSnapshotReader, taskWorktreeBinding } from "./task-worktree.ts";
 import type { AuthoredCandidateInventoryV1 } from "./doc-sync-candidate-scanner.ts";
@@ -37,6 +44,7 @@ export function taskWorktreeCandidateInventory(
   history?: {
     readonly store: CanonicalEventStore;
     readonly executionIds?: readonly string[];
+    readonly projection?: Pick<TaskProjection, "readDocument">;
   },
 ): AuthoredCandidateInventoryV1 | undefined {
   if (packagePath === null) return undefined;
@@ -57,21 +65,46 @@ export function taskWorktreeCandidateInventory(
       (row) =>
         row.safe &&
         resolveDocRoute(documentPath(row.path)).allowed &&
-        !lstatSync(taskWorktreeDocumentBase(taskRoot, row.path), { throwIfNoEntry: false }),
+        !lstatSync(path.join(baseRoot, ...row.path.slice(packagePath.length + 1).split("/")), {
+          throwIfNoEntry: false,
+        }),
     );
     recoverTaskWorktreeDocumentBases(taskRoot, missing, history.store, history.executionIds);
   }
+  const executions = new Set(history?.executionIds),
+    accepted = new Map<number, CanonicalEventV1 | undefined>();
   return {
     schema: "harness-authored-candidate-inventory/v1",
     baseLedgerSha,
     rows: rows.flatMap((row) => {
       if (row.path.endsWith("/.gitkeep") || !resolveDocRoute(documentPath(row.path)).allowed) return [];
       const basePath = path.join(baseRoot, ...row.path.slice(packagePath.length + 1).split("/")),
-        baseStat = lstatSync(basePath, { throwIfNoEntry: false }),
-        baseBytes = baseStat?.isFile() && !baseStat.isSymbolicLink() ? readFileSync(basePath) : null;
-      return row.safe && row.bytes !== null && baseBytes !== null && Buffer.from(row.bytes).equals(baseBytes)
-        ? []
-        : [{ ...row, baseBytes }];
+        baseStat = lstatSync(basePath, { throwIfNoEntry: false });
+      let baseBytes = baseStat?.isFile() && !baseStat.isSymbolicLink() ? readFileSync(basePath) : null;
+      if (row.safe && row.bytes !== null && baseBytes !== null && Buffer.from(row.bytes).equals(baseBytes)) return [];
+      // A task execution can also author through the canonical checkout. Its accepted current write
+      // acknowledges that version, but does not make an untouched stale mirror a new candidate.
+      const current = baseBytes === null ? null : history?.projection?.readDocument(row.path).document;
+      if (current && history?.store.queryEvents) {
+        if (!accepted.has(current.workspaceRevision))
+          accepted.set(
+            current.workspaceRevision,
+            history.store.queryEvents({ revisionBound: current.workspaceRevision + 1, limit: 1 })[0],
+          );
+        const event = accepted.get(current.workspaceRevision);
+        if (
+          event &&
+          isDocEvent(event) &&
+          event.payload.executionId !== null &&
+          executions.has(event.payload.executionId)
+        ) {
+          const acknowledged = history.store.readContentBlob(current.blobSha256);
+          if (acknowledged === null)
+            throw new Error(`Missing accepted worktree document blob ${current.blobSha256} for ${row.path}.`);
+          baseBytes = Buffer.from(acknowledged);
+        }
+      }
+      return [{ ...row, baseBytes }];
     }),
   };
 }

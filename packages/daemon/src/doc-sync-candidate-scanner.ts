@@ -78,7 +78,7 @@ export interface AuthoredCandidateInventoryV1 {
     readonly safe: boolean;
     readonly size: number | null;
     readonly bytes: Uint8Array | null;
-    /** Immutable worktree projection bytes; null means the worker created this path. */
+    /** Original or task-execution-acknowledged bytes; null means no known base. */
     readonly baseBytes?: Uint8Array | null;
     readonly conflicts: readonly string[];
   }[];

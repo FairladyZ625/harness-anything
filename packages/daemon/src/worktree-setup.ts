@@ -370,13 +370,21 @@ function linkWorktreeLedger(rootDir: string, cwd: string, taskId: string | null,
 
 /** Local baseline bytes are not canonical writes; only doc-sync may accept a worker's edits. */
 export function taskWorktreeDocumentBase(cwd: string, logicalPath: string): string {
-  return path.join(resolveHarnessLayout(cwd).localRoot, "ledger-base", ...logicalPath.split("/"));
+  const gitPath = path.join(cwd, ".git"),
+    gitDirectory = lstatSync(gitPath).isFile()
+      ? path.resolve(cwd, /^gitdir: (.+)$/mu.exec(readFileSync(gitPath, "utf8"))![1]!.trim())
+      : gitPath;
+  return path.join(gitDirectory, "harness-ledger-base", ...logicalPath.split("/"));
 }
 
 /** Advance only the node-local acknowledged base, never an authored canonical document. */
 export function acceptTaskWorktreeDocumentBase(cwd: string, logicalPath: string, bytes: Uint8Array): void {
+  writeTaskWorktreeDocumentBase(cwd, taskWorktreeDocumentBase(cwd, ""), logicalPath, bytes);
+}
+
+function writeTaskWorktreeDocumentBase(cwd: string, directory: string, logicalPath: string, bytes: Uint8Array): void {
   detachTaskDocument(path.join(resolveHarnessLayout(cwd).authoredRoot, ...logicalPath.split("/")));
-  const base = taskWorktreeDocumentBase(cwd, logicalPath);
+  const base = path.join(directory, ...logicalPath.split("/"));
   mkdirSync(path.dirname(base), { recursive: true });
   writeFileSync(base, bytes);
 }
@@ -395,7 +403,8 @@ export function recoverTaskWorktreeDocumentBases(
   executionIds: readonly string[] = [],
 ): void {
   if (documents.length === 0 || store.queryEvents === undefined) return;
-  const pending = new Map(documents.map((document) => [document.path, document.bytes])),
+  const directory = taskWorktreeDocumentBase(cwd, ""),
+    pending = new Map(documents.map((document) => [document.path, document.bytes])),
     acknowledged = new Map<string, Uint8Array>(),
     blobs = new Map<string, Uint8Array>(),
     executions = new Set(executionIds);
@@ -418,7 +427,7 @@ export function recoverTaskWorktreeDocumentBases(
         }
         const candidate = pending.get(claim.path);
         if (candidate !== null && candidate !== undefined && Buffer.from(candidate).equals(bytes)) {
-          acceptTaskWorktreeDocumentBase(cwd, claim.path, bytes);
+          writeTaskWorktreeDocumentBase(cwd, directory, claim.path, bytes);
           pending.delete(claim.path);
         } else if (!acknowledged.has(claim.path) && executionWrite) {
           acknowledged.set(claim.path, bytes);
@@ -429,7 +438,7 @@ export function recoverTaskWorktreeDocumentBases(
   }
   for (const logical of pending.keys()) {
     const bytes = acknowledged.get(logical);
-    if (bytes !== undefined) acceptTaskWorktreeDocumentBase(cwd, logical, bytes);
+    if (bytes !== undefined) writeTaskWorktreeDocumentBase(cwd, directory, logical, bytes);
   }
 }
 
@@ -490,12 +499,12 @@ export function unlinkWorktreeLedger(rootDir: string, cwd: string): void {
     legacyMarker = legacyWorktreeLedgerMarkerPath(cwd),
     ownershipMarker = marker !== null && lstatSync(marker, { throwIfNoEntry: false }) ? marker : legacyMarker,
     ownership = mirrorOwnership(mirror, ownershipMarker);
+  const base = taskWorktreeDocumentBase(cwd, "");
+  if (existsSync(base)) removeMirrorEntry(base);
   if (ownership === "legacy") {
     for (const entry of readdirSync(mirror)) unlinkSync(path.join(mirror, entry));
   } else if (ownership === "ours") {
     clearWorktreeLedgerMirror(mirror, null);
-    const base = taskWorktreeDocumentBase(cwd, "");
-    if (existsSync(base)) removeMirrorEntry(base);
     if (marker !== null) clearWorktreeLedgerCopies(marker);
   }
   if (ownership === "ours" && marker !== null && lstatSync(marker, { throwIfNoEntry: false })) unlinkSync(marker);

@@ -14,15 +14,15 @@ export async function measureWorktreeDocuments(rootDir, size, legacy = false) {
     worker = path.join(scratch, "worker"),
     packagePath = "tasks/task-cost-package",
     documents = path.join(worker, "harness", packagePath, "artifacts"),
-    bases = path.join(worker, ".harness", "ledger-base", packagePath, "artifacts"),
-    counts = { fileReads: 0, fileReadBytes: 0 },
+    bases = path.join(scratch, "git-state", "harness-ledger-base", packagePath, "artifacts"),
+    counts = { fileReads: 0, fileReadBytes: 0, metadataReads: 0 },
     recovery = { queries: 0, blobs: 0 },
     read = fs.readFileSync;
   try {
     mkdirSync(path.join(scratch, "harness"));
     mkdirSync(documents, { recursive: true });
     mkdirSync(bases, { recursive: true });
-    if (legacy) writeFileSync(path.join(worker, ".git"), "legacy checkout fixture\n");
+    writeFileSync(path.join(worker, ".git"), "gitdir: ../git-state\n");
     for (let index = 0; index < size; index += 1) {
       const name = `${String(index).padStart(5, "0")}.md`;
       writeFileSync(path.join(documents, name), index === size - 1 ? "worker edit\n" : "original\n");
@@ -31,8 +31,11 @@ export async function measureWorktreeDocuments(rootDir, size, legacy = false) {
     fs.readFileSync = function (file, ...args) {
       const result = read(file, ...args);
       if (String(file).startsWith(scratch + path.sep)) {
-        counts.fileReads += 1;
-        counts.fileReadBytes += Buffer.byteLength(result);
+        if (String(file) === path.join(worker, ".git")) counts.metadataReads += 1;
+        else {
+          counts.fileReads += 1;
+          counts.fileReadBytes += Buffer.byteLength(result);
+        }
       }
       return result;
     };
@@ -81,6 +84,7 @@ export async function measureWorktreeDocuments(rootDir, size, legacy = false) {
     assert.equal(inventory.rows.length, 1, "unchanged files never become writes");
     assert.equal(inventory.rows[0].path, `${packagePath}/artifacts/${String(size - 1).padStart(5, "0")}.md`);
     assert.equal(counts.fileReads, 2 * size, "each worker file and its base are read exactly once");
+    assert.equal(counts.metadataReads, legacy ? 2 : 1, "Git metadata is resolved per batch, never per file");
     if (legacy) {
       assert.equal(recovery.queries, 2, "one historical page plus EOF covers every missing base");
       assert.equal(recovery.blobs, 1, "the shared original blob is read exactly once");

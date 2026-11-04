@@ -18,7 +18,9 @@ test("center start uses the signed-in person's authority repository permission w
     userRoot = path.join(root, "user"),
     repo = path.join(root, "repo"),
     realm = await serveKeycloak();
+  let host: Awaited<ReturnType<typeof openDaemonHost>> | undefined = undefined;
   t.after(async () => {
+    await host?.close();
     await realm.close();
     rmSync(root, { recursive: true, force: true });
   });
@@ -66,9 +68,8 @@ test("center start uses the signed-in person's authority repository permission w
     ],
     { stdio: "ignore" },
   );
-  const host = await openDaemonHost({ daemonId: "s6-host-auth", userRoot }),
-    request = { port: 0, bind: "127.0.0.1", keyPath, certPath, repoId: "authority", quotaBytes: 64 * 1024 * 1024 };
-  t.after(() => host.close());
+  host = await openDaemonHost({ daemonId: "s6-host-auth", userRoot });
+  const request = { port: 0, bind: "127.0.0.1", keyPath, certPath, repoId: "authority", quotaBytes: 64 * 1024 * 1024 };
   signInAt(userRoot, "person-other");
   await assert.rejects(host.fleet.startCenter(request, auth), { code: "authorization_denied" });
   // A local authored role cannot change the authority's decision.

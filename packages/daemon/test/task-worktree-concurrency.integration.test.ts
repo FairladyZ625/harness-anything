@@ -19,6 +19,7 @@ import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
+import { taskWorktreeDocumentBase } from "../src/worktree-setup.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const holder = withPolicyGroup(
@@ -106,7 +107,7 @@ for (const shape of ["current", "legacy-copy", "legacy-hardlink"] as const) {
             renameSync(`${canonicalRuling}.tmp`, canonicalRuling);
             await sync([rulingPath], center);
             if (shape !== "current") {
-              rmSync(path.join(workerRoot, ".harness", "ledger-base"), { recursive: true, force: true });
+              rmSync(taskWorktreeDocumentBase(workerRoot, ""), { recursive: true, force: true });
               writeFileSync(workerReport, "# Updated worker report\n");
             }
             assert.equal(readFileSync(workerRuling, "utf8"), original);

@@ -144,6 +144,7 @@ function withWorktreeCandidates(input: Input): Input {
     input.store.currentCut(),
     {
       store: input.store,
+      projection: input.projection,
       executionIds: task.snapshot.executions.map((execution) => execution.executionId),
     },
   );
