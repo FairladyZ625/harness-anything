@@ -18,7 +18,7 @@ import {
 import { readDispatchLiveIndex, readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
 import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
 import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
-import { reconcileProcessGroup } from "./runtime/process-group-reconciler.ts";
+import { reconcileProcessGroup, processGroupRecoveryHint } from "./runtime/process-group-reconciler.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 import type { RuntimeLeaseReleasePending } from "./runtime-spawn-types.ts";
@@ -160,7 +160,7 @@ function taskMutationWithStopResult(
         binding.source,
       );
       if (verdict !== "proven_stopped") {
-        const reason = `Runtime process group for ${proofRuntimeSessionId} is ${verdict}; lease release waits for a stop proof.`;
+        const reason = `Runtime process group for ${proofRuntimeSessionId} is ${verdict}; lease release waits for a stop proof.${processGroupRecoveryHint()}`;
         if (returnUnprovenStop)
           return {
             outcome: "lease_unproven",
@@ -513,7 +513,13 @@ function terminalRuntimeStopProof(
     if (pids.length === 1) {
       if (suppliedProcessGroupPid !== null && suppliedProcessGroupPid !== pids[0]) return "unknown_unreachable";
       if (edgeProcessGroup) return suppliedProcessGroupPid !== null ? "proven_stopped" : "unknown_unreachable";
-      return reconcileProcessGroup({ pid: pids[0]!, pgid: pids[0]! });
+      return reconcileProcessGroup({
+        pid: pids[0]!,
+        pgid: pids[0]!,
+        ...(eligibleHeaders.length === 1
+          ? { dispatch: { rootDir: cell.rootDir, dispatchId: eligibleHeaders[0]!.dispatchId } }
+          : {}),
+      });
     }
     if (edgeProcessGroup && suppliedProcessGroupPid !== null) return "proven_stopped";
     if (ended) return "proven_stopped";
@@ -531,7 +537,11 @@ function terminalRuntimeStopProof(
             : null;
   if (!matched) return "unknown_unreachable";
   if (suppliedPid !== undefined && Number(suppliedPid) !== matched.process.pid) return "unknown_unreachable";
-  return reconcileProcessGroup({ pid: matched.process.pid, pgid: matched.process.pid });
+  return reconcileProcessGroup({
+    pid: matched.process.pid,
+    pgid: matched.process.pid,
+    dispatch: { rootDir: cell.rootDir, dispatchId: matched.header.dispatchId },
+  });
 }
 
 function optionalReleaseText(value: unknown): string | null {

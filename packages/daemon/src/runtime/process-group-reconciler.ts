@@ -1,5 +1,11 @@
 import type { RuntimeKind } from "@harness-anything/kernel";
-import { childProcessErrorCode } from "../runtime-process-signals.ts";
+import { childProcessErrorCode, terminateRuntimePid } from "../runtime-process-signals.ts";
+import { appendRuntimeWorkerRecord, readDispatchStreamSummary } from "../dispatch-stream.ts";
+import {
+  establishWindowsProcessGroup,
+  observeWindowsProcessGroup,
+  type WindowsGroupObservation,
+} from "./windows-process-group-port.ts";
 
 /** The only terminal proof accepted for a detached runtime lease. */
 export type ProviderGroupSweepVerdict = "running" | "proven_stopped" | "unknown_unreachable";
@@ -10,6 +16,10 @@ export interface ProcessGroupIdentity {
   readonly pgid?: number;
   readonly startedAt?: string;
   readonly runtime?: RuntimeKind | string;
+  /** Local dispatch witness, never a remote node's process table. */
+  readonly dispatch?: { readonly rootDir: string; readonly dispatchId: string };
+  readonly containmentId?: string;
+  readonly recoveryUptimeMs?: number;
 }
 
 export interface ProcessGroupReconcilerDeps {
@@ -18,6 +28,7 @@ export interface ProcessGroupReconcilerDeps {
   readonly site?: string;
   readonly supervised?: boolean;
   readonly readProcessRow?: (pid: number) => unknown | Promise<unknown>;
+  readonly observeWindowsGroup?: (containmentId: string | undefined, terminate: boolean) => WindowsGroupObservation;
   readonly [key: string]: unknown;
 }
 
@@ -37,13 +48,84 @@ function errorCode(error: unknown): string {
   return childProcessErrorCode(error);
 }
 
+/** Establish containment before the host creates any provider process. */
+export async function establishRuntimeProcessGroup(): Promise<string | undefined> {
+  return process.platform === "win32" ? establishWindowsProcessGroup() : undefined;
+}
+
+export function processGroupRecoveryHint(): string {
+  return process.platform === "win32"
+    ? " Retry recovery once to record system uptime, choose Windows Restart, then retry recovery promptly. " +
+        "A lower OS uptime proves that every process from the observed execution stopped; " +
+        "if it is not lower, the lease stays fenced. Do not edit ledger or lock files."
+    : "";
+}
+
+/** A stop request is not a stop proof. Windows must target the witnessed job, never a reused PID. */
+export function requestProcessGroupStop(input: ProcessGroupIdentity, deps: ProcessGroupReconcilerDeps = {}): void {
+  if ((deps.platform ?? process.platform) !== "win32") {
+    terminateRuntimePid(groupPid(input));
+    return;
+  }
+  if (reconcileProcessGroup(input, deps) === "unknown_unreachable")
+    throw Object.assign(new Error(`Runtime process containment could not be reached.${processGroupRecoveryHint()}`), {
+      code: "runtime_process_group_unproven",
+    });
+}
+
+function windowsVerdict(
+  input: number | ProcessGroupIdentity,
+  deps: ProcessGroupReconcilerDeps,
+  terminate: boolean,
+): ProviderGroupSweepVerdict {
+  const identity = typeof input === "number" ? { pid: input } : input,
+    dispatch = identity.dispatch,
+    records = dispatch ? readDispatchStreamSummary(dispatch.rootDir, dispatch.dispatchId)?.records : undefined,
+    witness = records?.find((record) => record.kind === "process_containment" && record.pid === groupPid(input)),
+    containmentId =
+      identity.containmentId ?? (typeof witness?.containmentId === "string" ? witness.containmentId : undefined),
+    recoveryUptimeMs =
+      records?.reduce<number | undefined>(
+        (uptime, record) =>
+          record.kind === "process_stop_unproven" &&
+          record.pid === groupPid(input) &&
+          typeof record.uptimeMs === "number"
+            ? Math.max(uptime ?? 0, record.uptimeMs)
+            : uptime,
+        identity.recoveryUptimeMs,
+      ) ?? identity.recoveryUptimeMs;
+  if (!containmentId && !records && recoveryUptimeMs === undefined) return "unknown_unreachable";
+  let observation: WindowsGroupObservation;
+  try {
+    observation = (deps.observeWindowsGroup ?? observeWindowsProcessGroup)(containmentId, terminate);
+  } catch {
+    // Inaccessible jobs and failed accounting remain evidence gaps, just like POSIX EPERM.
+    return "unknown_unreachable";
+  }
+  if (containmentId && observation.activeProcesses !== null)
+    return observation.activeProcesses === 0 ? "proven_stopped" : "running";
+  // GetTickCount64 is monotonic within one boot, including suspend, and independent of wall-clock
+  // changes. A reset since an earlier failed recovery is a stop proof for legacy, uncontained runs.
+  // A later boot with greater uptime remains unknown, deliberately losing availability, not safety.
+  if (recoveryUptimeMs !== undefined && observation.uptimeMs < recoveryUptimeMs) return "proven_stopped";
+  if (dispatch && records && recoveryUptimeMs === undefined)
+    appendRuntimeWorkerRecord(dispatch.rootDir, dispatch.dispatchId, {
+      kind: "process_stop_unproven",
+      pid: groupPid(input),
+      uptimeMs: observation.uptimeMs,
+      occurredAt: new Date().toISOString(),
+    });
+  return "unknown_unreachable";
+}
+
 /** Probe an OS process group. EPERM is deliberately not treated as stopped. */
 export function probeProcessGroup(
   input: number | ProcessGroupIdentity,
   deps: ProcessGroupReconcilerDeps = {},
 ): ProviderGroupSweepVerdict {
   const pid = groupPid(input);
-  if (!validGroupPid(pid) || (deps.platform ?? process.platform) === "win32") return "unknown_unreachable";
+  if (!validGroupPid(pid)) return "unknown_unreachable";
+  if ((deps.platform ?? process.platform) === "win32") return windowsVerdict(input, deps, false);
   try {
     (deps.signalGroup ?? defaultSignalGroup)(pid, 0);
     return "running";
@@ -64,7 +146,8 @@ export function sweepOrphanedProcessGroup(
   deps: ProcessGroupReconcilerDeps = {},
 ): ProviderGroupSweepVerdict {
   const pid = groupPid(input);
-  if (!validGroupPid(pid) || (deps.platform ?? process.platform) === "win32") return "unknown_unreachable";
+  if (!validGroupPid(pid)) return "unknown_unreachable";
+  if ((deps.platform ?? process.platform) === "win32") return windowsVerdict(input, deps, true);
   const signalGroup = deps.signalGroup ?? defaultSignalGroup;
   const before = probeProcessGroup(pid, deps);
   if (before !== "running") return before;
