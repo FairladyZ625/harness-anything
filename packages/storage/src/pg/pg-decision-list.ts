@@ -3,10 +3,11 @@ import type {
   DecisionListFilters,
   DecisionProjectionRow,
 } from "@harness-anything/kernel/internal/ports/decision-projection-model.ts";
-import { decisionIdSortKey, decisionLegacyNumber } from "../projection/decision-projection-reads.ts";
+import { decisionIdSortKey, decisionLegacyId, decisionLegacyNumber } from "../projection/decision-projection-reads.ts";
 import { decodePageCursor, encodePageCursor } from "../projection/task-query-projection.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 import { checkedPageLimit } from "./pg-query-page.ts";
+import { assertPgDecisionIndexReady } from "./pg-decision-index-migration.ts";
 import { readPgDecisionRows } from "./pg-decision-reads.ts";
 import { searchPgDecisionIds } from "./pg-decision-search.ts";
 
@@ -25,13 +26,7 @@ export async function listPgDecisionRows(
       "policy_epoch=$3",
       "(cardinality($4::text[])=0 OR readers && $4::text[])",
     ];
-  const pending = await client.query(
-    `SELECT 1 FROM ha_decisions WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
-      AND decision_sort_key IS NULL LIMIT 1`,
-    values.slice(0, 3),
-  );
-  if (pending.rows.length)
-    throw Object.assign(new Error("Decision read-index backfill is pending"), { code: "projection_pending" });
+  await assertPgDecisionIndexReady(client, scope);
   const bind = (value: unknown) => {
     values.push(value);
     return `$${values.length}`;
@@ -41,7 +36,11 @@ export async function listPgDecisionRows(
   if (filters.productLine) where.push(`value->'appliesTo'->'productLines' ? ${bind(filters.productLine)}`);
   if (filters.legacyId) {
     const match = /^E([1-9][0-9]*)$/u.exec(filters.legacyId);
-    where.push(match ? `legacy_group=0 AND legacy_number=${bind(Number(match[1]))}` : "false");
+    where.push(
+      match && decisionLegacyId(`dec_${filters.legacyId}`) === filters.legacyId
+        ? `legacy_group=0 AND legacy_number=${bind(Number(match[1]))}`
+        : "false",
+    );
   }
   if (filters.legacyRange)
     where.push(

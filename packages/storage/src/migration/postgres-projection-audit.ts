@@ -25,9 +25,10 @@ async function rows(client: PoolClient, tuple: Pick<MigrationTuple, "scope">) {
   }
   return result;
 }
-/** A same-dialect replay compares every physical projection row, including models without public list methods.
- * Wall-clock cache timestamps and the optional lazily-computed digest are excluded; every other column remains.
- * The management transaction owns an isolated schema; exported source rows are read only by the granted login.
+/** A same-dialect replay compares complete model values, including models without public lists.
+ * Allocation slots resolve to exact words; unused dictionary addresses have no search meaning.
+ * Every posting column remains. Wall-clock timestamps and the lazily computed digest are excluded.
+ * The management transaction owns an isolated schema; the source is read by its granted login.
  */
 export async function auditPgProjectionRows(
   admin: Pool,

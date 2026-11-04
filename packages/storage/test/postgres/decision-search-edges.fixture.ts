@@ -26,6 +26,8 @@ export async function assertDecisionSearchEdges(pool: Pool, backend: string) {
       query: Array.from({ length: 400 }, (_, i) => `word${i}`).join(" "),
     },
     { body: "not adjacent alpha gap needle", query: "alpha needle" },
+    { body: "legacy precision boundary", query: "legacy precision boundary" },
+    { body: "legacy precision boundary", query: "legacy precision boundary" },
   ];
   try {
     await withPostgresTransaction(
@@ -40,7 +42,8 @@ export async function assertDecisionSearchEdges(pool: Pool, backend: string) {
       scope,
     );
     for (const [index, sample] of samples.entries()) {
-      const id = `dec_SEARCH_${index}`,
+      const id =
+          index >= 6 ? `dec_E${index === 6 ? "9007199254740992" : "9007199254740993"}_${index}` : `dec_SEARCH_${index}`,
         draft = proposal(index + 1, id),
         compiled = compileDecisionWrite({
           decisionReviewRequirement: "off",
@@ -115,6 +118,12 @@ export async function assertDecisionSearchEdges(pool: Pool, backend: string) {
         `POSITION_PARITY ${JSON.stringify({ backend, queryBytes: Buffer.byteLength(sample.query), ids: actual.decisions.map((r) => r.decisionId) })}\n`,
       );
     }
+    for (const legacyId of ["E9007199254740992", "E9007199254740993"]) {
+      for (const limit of [undefined, 10]) {
+        const filters = { legacyId, ...(limit === undefined ? {} : { limit }) };
+        assert.deepEqual((await pg.listDecisions(filters)).decisions, listDecisionRowsPage(sqlite, filters).rows);
+      }
+    }
     const visible = createPgTaskProjectionSource({
         pool,
         scope: { ...scope, readers: ["visible"] },
@@ -137,6 +146,33 @@ export async function assertDecisionSearchEdges(pool: Pool, backend: string) {
       async (client) => {
         await client.query(
           "UPDATE ha_decisions SET value=jsonb_set(value,'{title}','\"replacement\"') WHERE decision_id='dec_SEARCH_0'",
+        );
+      },
+      scope,
+    );
+    await withPostgresTransaction(
+      pool,
+      async (client) => {
+        await client.query(
+          "UPDATE ha_decisions SET decision_sort_key=NULL,decision_state=NULL WHERE decision_id='dec_SEARCH_0'",
+        );
+      },
+      scope,
+    );
+    await assert.rejects(() => pg.listDecisionAgendaPage({ state: "proposed" }), { code: "projection_pending" });
+    await assert.rejects(() => pg.listDecisions({ limit: 1 }), { code: "projection_pending" });
+    await withPostgresTransaction(
+      pool,
+      async (client) => {
+        assert.equal(
+          (
+            await client.query<{ processed: number }>("SELECT ha_backfill_decision_indexes($1,$2,$3) AS processed", [
+              scope.tenantId,
+              scope.projectId,
+              scope.policyEpoch,
+            ])
+          ).rows[0]!.processed,
+          1,
         );
       },
       scope,

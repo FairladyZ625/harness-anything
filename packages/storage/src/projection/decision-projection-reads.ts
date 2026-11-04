@@ -335,7 +335,7 @@ function listDecisionRowsPageFromIndex(
 
   if (filters.legacyId) {
     const match = /^E([1-9][0-9]*)$/u.exec(filters.legacyId);
-    if (match) {
+    if (match && decisionLegacyId(`dec_${filters.legacyId}`) === filters.legacyId) {
       legacyWhere.push("legacy_number = ?");
       legacyValues.push(Number(match[1]));
     } else legacyWhere.push("0");

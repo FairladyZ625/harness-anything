@@ -1,3 +1,5 @@
+import type { PoolClient } from "pg";
+import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 import { decisionIdSortKey } from "../projection/decision-projection-reads.ts";
 
 /** Additive v5 expansion. Keep the previous-writer trigger through 2026-11-19.
@@ -51,4 +53,15 @@ export function decisionIndexDdl(): readonly string[] {
         RETURN processed;
       END $function$`,
   ];
+}
+
+/** New readers must not treat an unfilled scalar index as an empty ready result. */
+export async function assertPgDecisionIndexReady(client: PoolClient, scope: PgProjectionScope): Promise<void> {
+  const pending = await client.query(
+    `SELECT 1 FROM ha_decisions WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+    AND decision_sort_key IS NULL LIMIT 1`,
+    [scope.tenantId, scope.projectId, scope.policyEpoch],
+  );
+  if (pending.rows.length)
+    throw Object.assign(new Error("Decision read-index backfill is pending"), { code: "projection_pending" });
 }

@@ -35,6 +35,7 @@ import type { FactProjectionRow } from "@harness-anything/kernel/internal/ports/
 import type { EventListPage, EventListQuery } from "@harness-anything/kernel/internal/domain/event-list.ts";
 import { factInvalidated, factLiveness } from "@harness-anything/kernel/internal/domain/fact-liveness.ts";
 import { readPgDecisionRows } from "./pg-decision-reads.ts";
+import { assertPgDecisionIndexReady } from "./pg-decision-index-migration.ts";
 import { listPgDecisionRows } from "./pg-decision-list.ts";
 import { effectiveLeaseValue } from "../projection/rebuildable-task-projection-runtime.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
@@ -486,6 +487,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
     withPostgresTransaction(
       options.pool,
       async (client) => {
+        await assertPgDecisionIndexReady(client, options.scope);
         const cut = await readCutInTransaction(client, claims, readers, repoId),
           cursor = query.cursor === undefined ? null : (decodeTaskListCursor(query.cursor, 1)[0] ?? null),
           limit = checkedPageLimit(query.limit ?? 100),

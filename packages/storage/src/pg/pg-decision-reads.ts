@@ -71,27 +71,29 @@ export async function readPgDecisionRows(
       },
     ]),
   );
+  const relationsByOwner = new Map<string, EntityRelationRecord[]>();
+  for (const { value: relation } of relations.rows) {
+    const owner = relationOwnerRef(String(relation.source)),
+      bucket = relationsByOwner.get(owner) ?? [];
+    bucket.push({
+      relation_id: relation.id,
+      source: relation.source,
+      target: relation.target,
+      type: relation.type,
+      direction: relation.direction,
+      strength: relation.strength,
+      origin: relation.origin,
+      rationale: relation.rationale,
+      state: relation.state,
+    } as EntityRelationRecord);
+    relationsByOwner.set(owner, bucket);
+  }
   return rows.map(({ decision_id, value }) => {
     const row = decisionProjectionRow(decision_id, value);
     return {
       ...row,
       body: bodyByPath.get(row.path) ?? null,
-      relations: relations.rows
-        .filter(({ value: relation }) => relationOwnerRef(String(relation.source)) === `decision/${decision_id}`)
-        .map(
-          ({ value: relation }) =>
-            ({
-              relation_id: relation.id,
-              source: relation.source,
-              target: relation.target,
-              type: relation.type,
-              direction: relation.direction,
-              strength: relation.strength,
-              origin: relation.origin,
-              rationale: relation.rationale,
-              state: relation.state,
-            }) as EntityRelationRecord,
-        ),
+      relations: relationsByOwner.get(`decision/${decision_id}`) ?? [],
     };
   });
 }
