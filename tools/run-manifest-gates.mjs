@@ -184,6 +184,12 @@ function pathMatchesGlob(filePath, glob) {
 
 export function buildManifestGatePlan(manifest, options) {
   const gateIds = selectManifestGateIds(manifest, options);
+  // A workflow job that runs zero gates still exits 0: it reads as green while proving nothing. The
+  // guard is scoped to --workflow-job because standalone --changed legitimately selects nothing when
+  // the working tree has no changes; a CI job has no such legitimate empty state.
+  if (options.workflowJob && gateIds.length === 0) {
+    throw new Error(explainEmptyWorkflowJobSelection(manifest, options));
+  }
   const gatesById = new Map(manifest.gates.map((gate) => [gate.id, gate]));
   const gates = gateIds.map((id) => {
     const gate = gatesById.get(id);
@@ -197,6 +203,65 @@ export function buildManifestGatePlan(manifest, options) {
   });
 
   return collapseCompositeCoveredCommands(dedupeCommands(applyShardOption(gates, options.shard)));
+}
+
+/**
+ * Names the job, the event surface the runner read, and the concrete reason the selection was empty.
+ * A bare "no gates selected" would force the next reader to re-derive the selector, which is the
+ * defect this guard exists to remove.
+ */
+function explainEmptyWorkflowJobSelection(manifest, options) {
+  const job = options.workflowJob;
+  const eventName = options.eventName ?? null;
+  const selectedJobKey = eventName === "pull_request" ? "pullRequestJobs" : eventName ? "nonPullRequestJobs" : null;
+  const declarations = jobDeclarations(manifest, job);
+  const selected =
+    selectedJobKey === null ? declarations : declarations.filter((entry) => entry.jobKey === selectedJobKey);
+  const selectedIds = uniqueIds(selected);
+  const header = `workflow job "${job}" selected 0 gates for event "${eventName ?? "unknown"}"`;
+  const consequence = "A job that runs no gates proves nothing.";
+
+  if (Array.isArray(options.changedPaths) && options.changedPaths.length === 0) {
+    return `${header}. --changed ${options.changed ?? "<base>"} reported 0 changed paths, so changed-path narrowing removed every gate. Re-run with a base that differs, or drop --changed so the job runs its declared gates. ${consequence}`;
+  }
+  if (declarations.length === 0) {
+    return `${header}: no gate declares it in executionSurfaces.rewriteCi or executionSurfaces.prBody (pullRequestJobs/nonPullRequestJobs). Add the job to the gate declarations for the events its \`if:\` allows, or remove the manifest-runner step from the job. ${consequence}`;
+  }
+  if (selected.length === 0) {
+    const otherJobKey = selectedJobKey === "pullRequestJobs" ? "nonPullRequestJobs" : "pullRequestJobs";
+    const otherIds = uniqueIds(declarations.filter((entry) => entry.jobKey === otherJobKey));
+    return `${header}: event "${eventName}" selects ${selectedJobKey}, but the job is declared only in ${otherJobKey} (${otherIds.length} gate(s): ${summarizeIds(otherIds)}). A declaration on the surface for another event is invisible to this run. Add the job to ${selectedJobKey} for the gates that must run, or change the job's \`if:\` to the events whose surface declares it. ${consequence}`;
+  }
+  if (selected.every((entry) => entry.gate.aggregate)) {
+    return `${header}: all ${selectedIds.length} declaration(s) are aggregate gates (${summarizeIds(selectedIds)}), and job selection excludes aggregate gates. Declare the concrete gates on ${selectedJobKey}. ${consequence}`;
+  }
+  const exclude = options.exclude ?? new Set();
+  if (selected.every((entry) => entry.gate.aggregate || exclude.has(entry.gate.id))) {
+    return `${header}: every concrete gate it selects is removed by --exclude (${summarizeIds(selectedIds)}). Excluding every gate leaves the job green over nothing; narrow the exclusion. ${consequence}`;
+  }
+  return `${header}. Add at least one gate to the selected surface for this job. ${consequence}`;
+}
+
+function jobDeclarations(manifest, job) {
+  const declarations = [];
+  for (const gate of manifest.gates) {
+    for (const surfaceName of ["rewriteCi", "prBody"]) {
+      const surface = gate.executionSurfaces?.[surfaceName];
+      if (!surface) continue;
+      for (const jobKey of ["pullRequestJobs", "nonPullRequestJobs"]) {
+        if ((surface[jobKey] ?? []).includes(job)) declarations.push({ gate, jobKey });
+      }
+    }
+  }
+  return declarations;
+}
+
+function uniqueIds(declarations) {
+  return [...new Set(declarations.map((entry) => entry.gate.id))];
+}
+
+function summarizeIds(ids) {
+  return ids.length <= 5 ? ids.join(", ") : `${ids.slice(0, 5).join(", ")}, +${ids.length - 5} more`;
 }
 
 function dedupeCommands(gates) {
