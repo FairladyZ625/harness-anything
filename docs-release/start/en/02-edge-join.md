@@ -84,7 +84,7 @@ Either way works:
 
 - Click the `harness-edge://join/…` link in the invitation message; the app opens with the link pre-filled, or
 - Open the app, click **Join a center** on the home page (the empty state before any project exists) or in the top-left
-  project switcher, and paste the invitation link into the **Invitation link** field.
+  project switcher, and paste the invitation link into the **Join link** field.
 
 Click **Start joining**. The link stays on this machine and is never uploaded or logged; the invitation link already
 carries the trust information, so no manual configuration is needed.
