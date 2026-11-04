@@ -152,6 +152,10 @@ export interface DispatchStreamWriter {
     occurredAt: string,
     connectionFailure?: { readonly lastProgressAt: string },
   ) => void;
+  /** A tiny record written next to every live reconnect frame. It carries the daemon's exact
+   * last real progress (provider or workspace), so a bounded tail read does not have to infer
+   * that clock from a sliding window. */
+  readonly appendProviderProgress: (occurredAt: string, lastProgressAt: string) => void;
   readonly appendWorkspaceActivity: (occurredAt: string) => void;
   readonly appendStalled: (occurredAt: string, evidence?: DispatchStallEvidence) => void;
   readonly appendProviderBinding: (providerSessionId: string, occurredAt: string) => void;
@@ -267,6 +271,13 @@ export function openDispatchStream(
         occurredAt,
         ...(connectionFailure === undefined ? {} : { lastProgressAt: connectionFailure.lastProgressAt }),
         event: scrubProviderValue(value),
+      }),
+    appendProviderProgress: (occurredAt, lastProgressAt) =>
+      appendJsonl(dispatchStreamPath(rootDir, header.dispatchId), {
+        schema: streamSchema,
+        kind: "provider_progress",
+        occurredAt,
+        lastProgressAt,
       }),
     appendWorkspaceActivity: (occurredAt) =>
       appendJsonl(dispatchStreamPath(rootDir, header.dispatchId), {
@@ -444,6 +455,7 @@ export function readDispatchStreamSummary(rootDir: string, dispatchId: string): 
     lastProgressAt = header.startedAt,
     lastReconnectProgressAt: string | null = null,
     lastReconnectInTail = false,
+    lastProgressMarkerAt: string | null = null,
     firstTailRecordAt: string | null = null;
   const seenOffsets = new Set<number>();
   for (const chunk of chunks) {
@@ -460,6 +472,16 @@ export function readDispatchStreamSummary(rootDir: string, dispatchId: string): 
         (firstTailRecordAt === null || Date.parse(record.occurredAt) < Date.parse(firstTailRecordAt))
       )
         firstTailRecordAt = record.occurredAt;
+      if (kind === "provider_progress") {
+        if (
+          record &&
+          typeof record.lastProgressAt === "string" &&
+          Number.isFinite(Date.parse(record.lastProgressAt)) &&
+          (lastProgressMarkerAt === null || Date.parse(record.lastProgressAt) > Date.parse(lastProgressMarkerAt))
+        )
+          lastProgressMarkerAt = record.lastProgressAt;
+        continue;
+      }
       if (kind === "provider_event") {
         const activity = record && providerActivityRecord(header.kindId, record),
           reconnect = record && providerReconnectRecord(header.kindId, record);
@@ -498,11 +520,13 @@ export function readDispatchStreamSummary(rootDir: string, dispatchId: string): 
       }
     }
   }
-  if (hasGap) {
-    // Prefer the progress clock stamped on the latest reconnect frame: it is exact and costs no
-    // extra scan. Legacy frames without the stamp fall back to the first complete tail record —
-    // a conservative upper bound on real progress, so a long reconnect flood cannot trigger the
-    // classification earlier than the true stall threshold.
+  if (lastProgressMarkerAt !== null && Date.parse(lastProgressMarkerAt) > Date.parse(lastProgressAt))
+    lastProgressAt = lastProgressMarkerAt;
+  if (hasGap && lastProgressMarkerAt === null) {
+    // Legacy streams have no daemon marker. Prefer the progress clock stamped on the latest
+    // reconnect frame when it is in the tail; otherwise fall back to the first complete tail
+    // record. Both are conservative upper bounds on real progress, so a long reconnect flood
+    // cannot trigger the classification earlier than the true stall threshold.
     const bound =
       lastReconnectInTail && lastReconnectProgressAt !== null
         ? lastReconnectProgressAt

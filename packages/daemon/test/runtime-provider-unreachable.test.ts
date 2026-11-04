@@ -16,6 +16,8 @@ import { validateAgentRuntimeOverview } from "../src/agent-runtime-contract.ts";
 import { readTaskDispatches } from "../src/dispatch-read.ts";
 import { appendRuntimeWorkerRecord, openDispatchStream, readDispatchStreamSummary } from "../src/dispatch-stream.ts";
 import { noteProviderProgress, noteProviderReconnect } from "../src/runtime-provider-connectivity.ts";
+import { isStructuredSuccessResult, parseProviderFrame } from "../src/runtime-spawn-provider-frames.ts";
+import { consumeProviderLine } from "../src/runtime-spawn-provider-stream.ts";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
 import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
 
@@ -429,4 +431,102 @@ test("the executing node reports the classification and its recovery once each",
     } as unknown as ActiveRuntime;
   await noteProviderReconnect(calmContext, calm, { attempt: 5, limit: 5, diagnostic: reconnectError }, now);
   assert.deepEqual(calmPublished, []);
+});
+
+test("the live persisted worker-host path reports and clears without sliding the progress clock", async () => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "ha-provider-persisted-")),
+    now = Date.now(),
+    startedAt = new Date(now - 30 * 60_000).toISOString(),
+    progressAt = new Date(now - 10 * 60_000).toISOString(),
+    padding = "z".repeat(10_000),
+    stream = openDispatchStream(rootDir, {
+      dispatchId,
+      taskId,
+      executionId: "execution-provider-stalled",
+      runtimeSessionId,
+      instanceId: "instance-codex",
+      installationId: "installation-codex",
+      kindId: "codex",
+      startedAt,
+      stallTimeoutMs: 5 * 60_000,
+    }),
+    active = {
+      runtimeSessionId,
+      kindId: "codex",
+      stream,
+      durableOutputCount: 0,
+      lastRealProgressAtMs: Date.parse(startedAt),
+      providerUnreachable: null,
+      lossReason: null,
+      cancelRequested: false,
+      stalledAt: null,
+      stallTimeoutMs: 5 * 60_000,
+      binding: {},
+    } as unknown as ActiveRuntime;
+  let clock = Date.parse(progressAt);
+  const published: { readonly type: string; readonly payload: Record<string, unknown> }[] = [];
+  const context = {
+    input: {
+      now: () => new Date(clock).toISOString(),
+      stream: { publish: () => undefined },
+    },
+    parseProviderFrame,
+    isStructuredSuccessResult,
+    bindProvider: async () => undefined,
+    markProtocolError: () => assert.fail("valid persisted provider output was rejected"),
+    publishRuntimeEvent: async (type: string, payload: Record<string, unknown>) => {
+      published.push({ type, payload });
+      return {};
+    },
+    exiting: new Set<string>(),
+  } as unknown as RuntimeSpawnerContext;
+  const consumePersisted = async (event: Record<string, unknown>, occurredAt: string): Promise<void> => {
+    // The worker host writes first; the daemon tails the same record with persisted=true.
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "provider_event", occurredAt, event });
+    clock = Date.parse(occurredAt);
+    await consumeProviderLine(context, active, JSON.stringify(event), true);
+  };
+  try {
+    await consumePersisted({ type: "turn.started" }, progressAt);
+    assert.equal(active.lastRealProgressAtMs, Date.parse(progressAt));
+    // A reconnect flood larger than the 128KB tail window: every persisted frame must still be
+    // observed live, and every frame carries a stable marker for the true progress clock.
+    let lastReconnectAt = "",
+      firstReconnectAt = "";
+    for (let index = 0; index < 20; index += 1) {
+      lastReconnectAt = new Date(now - 2 * 60_000 + index * 1_000).toISOString();
+      if (index === 0) firstReconnectAt = lastReconnectAt;
+      await consumePersisted({ type: "error", message: `${reconnectError} ${padding}` }, lastReconnectAt);
+    }
+    assert.equal(published.length, 1);
+    assert.deepEqual(published[0]?.payload.providerUnreachable, {
+      state: "provider_unreachable",
+      lastProgressAt: progressAt,
+      lastErrorAt: firstReconnectAt,
+      lastError: `${reconnectError} ${padding}`,
+    });
+    const summary = readDispatchStreamSummary(rootDir, dispatchId)!;
+    assert.equal(summary.lastProgressAt, progressAt);
+
+    // Recovery through the same persisted path clears the report.
+    const recoveryAt = new Date(Date.parse(lastReconnectAt) + 1_000).toISOString();
+    await consumePersisted({ type: "item.completed", item: { type: "agent_message", text: "resumed" } }, recoveryAt);
+    assert.equal(published.length, 2);
+    assert.equal(published[1]?.payload.providerUnreachable, null);
+    assert.equal(readDispatchStreamSummary(rootDir, dispatchId)!.lastProgressAt, recoveryAt);
+
+    // Adoption replay uses publishSignals=false: it must neither report nor re-stamp.
+    const replayActive = { ...active, lastRealProgressAtMs: Date.parse(recoveryAt) } as ActiveRuntime;
+    await consumeProviderLine(
+      context,
+      replayActive,
+      JSON.stringify({ type: "error", message: `${reconnectError} ${padding}` }),
+      true,
+      false,
+    );
+    assert.equal(published.length, 2);
+    assert.equal(readDispatchStreamSummary(rootDir, dispatchId)!.lastProgressAt, recoveryAt);
+  } finally {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
 });

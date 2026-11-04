@@ -112,18 +112,30 @@ export async function consumeProviderLine(
     context.markProtocolError(active);
     return;
   }
-  if (!persisted) {
-    const observedAt = context.input.now(),
-      reconnect = providerRecord(value) ? providerReconnectFromFrame(active.kindId, value) : null;
-    // A reconnect frame is stamped with the last real progress known at write time. The bounded
-    // tail read can then recover the true clock even when reconnect diagnostics fill the window.
+  const observedAt = context.input.now(),
+    reconnect = providerRecord(value) ? providerReconnectFromFrame(active.kindId, value) : null;
+  if (!persisted)
     active.stream.appendProviderEvent(
       value,
       observedAt,
       reconnect === null ? undefined : { lastProgressAt: new Date(active.lastRealProgressAtMs).toISOString() },
     );
+  // `persisted` only says the worker host already wrote the frame; it is still the live stream.
+  // `publishSignals=false` is the historical adoption replay and must not report or re-stamp.
+  // The daemon writes a tiny progress marker next to every live reconnect frame because the host
+  // writer cannot know workspace progress; the marker keeps the true clock in the tail window.
+  if (
+    publishSignals &&
+    active.lossReason == null &&
+    active.stalledAt == null &&
+    !active.cancelRequested &&
+    context.exiting?.has?.(active.runtimeSessionId) !== true
+  ) {
     if (reconnect === null) await noteProviderProgress(context, active, Date.parse(observedAt));
-    else await noteProviderReconnect(context, active, reconnect, Date.parse(observedAt));
+    else {
+      active.stream.appendProviderProgress(observedAt, new Date(active.lastRealProgressAtMs).toISOString());
+      await noteProviderReconnect(context, active, reconnect, Date.parse(observedAt));
+    }
   }
   // The worker host persists provider frames before the daemon tails them.  Persistence
   // provenance controls whether we append a duplicate record, not whether the frame is
