@@ -28,6 +28,7 @@ type SuccessfulFlags = Extract<ReturnType<typeof readFlags>, { ok: true }>;
 
 function edgeJoinFields(f: SuccessfulFlags): Record<string, unknown> {
   return {
+    ...(f.one.get("--join-mode") ? { joinMode: f.one.get("--join-mode") } : {}),
     ...(f.one.get("--join-id") ? { joinId: f.one.get("--join-id") } : {}),
     ...(f.many.get("--join-repo") ? { repoIds: f.many.get("--join-repo") } : {}),
     ...(f.many.get("--join-group") ? { groupIds: f.many.get("--join-group") } : {}),
@@ -45,7 +46,11 @@ function validateEdgeJoinBootstrap(f: SuccessfulFlags, json: boolean): ThinParse
   if (operation === "edge-join-create") {
     // The daemon decides whether username, email, and display name are needed: only a person
     // who is not a member yet creates an account, and the daemon alone knows the difference.
-    if (!f.one.get("--person-id") || !f.many.get("--join-repo")?.length || !f.many.get("--join-group")?.length)
+    if (
+      !f.many.get("--join-repo")?.length ||
+      (f.one.get("--join-mode") !== "member-device" &&
+        (!f.one.get("--person-id") || !f.many.get("--join-group")?.length))
+    )
       return rejected(
         "missing_field",
         "Edge invitations require --person-id and at least one --join-repo and --join-group.",
@@ -154,7 +159,8 @@ function parseRbacBootstrap(
     {
       kind: "rbac-bootstrap",
       ...(["login", "session", "logout", "health"].includes(f.one.get("--operation") ?? "") ||
-      f.one.get("--mode") === "external"
+      f.one.get("--mode") === "external" ||
+      f.one.get("--join-mode") === "member-device"
         ? { rootDir }
         : {}),
       ...(f.one.get("--operation") ? { operation: f.one.get("--operation") } : {}),

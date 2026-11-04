@@ -12,6 +12,8 @@ import path from "node:path";
 import { createServer } from "node:https";
 import test from "node:test";
 import { readFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
+import { AccessAdminService } from "../src/access-admin-service.ts";
+import { createIdentitySession } from "../src/authorization-provider.ts";
 import { FleetFault } from "../src/fleet/center-types.ts";
 import { createEdgeJoinStore, decodeEdgeJoinLink, encodeEdgeJoinLink } from "../src/fleet/edge-join.ts";
 import { saveFleetCenterConfig } from "../src/fleet-center-config.ts";
@@ -20,7 +22,7 @@ import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { fleetNodeClaimFixture, localAuthFixture } from "./fleet-node-claim.fixtures.ts";
 
 test(
-  "two edges join with their own invitations and see center tasks; another person's invitation is refused",
+  "an invited edge issues a token-free member link for its second device; both sync and wrong-person joins fail",
   {
     timeout: 240_000,
   },
@@ -94,7 +96,14 @@ test(
     const loginPort = (loginServer.address() as { port: number }).port,
       loginUrl = `https://localhost:${loginPort}`;
     // Stands in for the center's Keycloak check: the edge fixture's device token names person-one.
+    const memberAdmin = new AccessAdminService(
+      createIdentitySession(f.userRoot, { fetch: f.owners.keycloak.fetch }),
+      f.userRoot,
+      { fetch: f.owners.keycloak.fetch, daemonId: "lease-center", edgeJoins: invites },
+    );
+    t.after(() => memberAdmin.close());
     const center = await f.openCenter(f.host, undefined, {
+      createMemberEdgeJoin: (repos, person, token) => memberAdmin.createMemberEdgeJoin(repos, person, token),
       invitationClientForNode: (nodeId) => {
         const invite = invites.records().find((record) => record.nodeId === nodeId && record.consumedAt);
         return invite ? { clientId: invite.loginClientId, personId: invite.personId } : undefined;
@@ -206,7 +215,26 @@ test(
 
     const joinedEdges = new Map<string, Awaited<ReturnType<typeof fleetEdgeHostFixture>>>();
     for (const nodeName of ["node-one", "node-two"]) {
-      const invitation = await link("person-one", spkiSha256, nodeName === "node-one");
+      const firstEdge = [...joinedEdges.values()][0];
+      const memberReply = firstEdge
+        ? await firstEdge.rpc.handle({
+            jsonrpc: "2.0",
+            id: 21,
+            method: "daemon.rbac.manage",
+            params: {
+              operation: "edge-join-create",
+              joinMode: "member-device",
+              repoId: "lease-repo",
+              repoIds: ["lease-repo"],
+            },
+          })
+        : undefined;
+      const memberResult = memberReply?.result as Record<string, unknown> | undefined;
+      if (firstEdge) assert.equal(memberResult?.ok, true, JSON.stringify(memberReply));
+      const invitation = memberResult
+        ? { joinId: String(memberResult.joinId), link: String(memberResult.link) }
+        : await link("person-one", spkiSha256, true);
+      if (memberResult) assert.equal(Object.hasOwn(decodeEdgeJoinLink(invitation.link), "token"), false);
       if (nodeName === "node-one") {
         assert.ok(sshArgs[0]!.includes(`127.0.0.1:0:10.211.55.2:${center.port}`));
         assert.ok(sshArgs[0]!.includes(`127.0.0.1:0:localhost:${loginPort}`));
@@ -249,6 +277,7 @@ test(
       );
     }
 
+    assert.equal(joinedEdges.size, 2, "the member's second device has an independent node identity");
     const wrongPin = await link("person-one", "f".repeat(64));
     f.owners.keycloak.interactiveSession(
       "person-one",

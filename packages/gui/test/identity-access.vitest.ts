@@ -424,3 +424,38 @@ describe("device identity modes", () => {
     expect(devices).toHaveBeenCalledOnce();
   });
 });
+
+it("adds my device through the shared create operation, displays its token-free link, and clears a refusal", async () => {
+  const issueEdgeJoin = vi.fn(async () => ({
+    ok: true,
+    joinId: "member-link",
+    state: "pending",
+    expiresAt: "2026-11-06T00:00:00Z",
+    link: "harness-edge://join/member-device",
+  }));
+  Object.defineProperty(window, "harness", {
+    configurable: true,
+    value: {
+      auth: auth(),
+      access: {
+        forRepository: () => ({ issueEdgeJoin, devices: async () => ({ ok: true, nodes: [], version: "v1" }) }),
+      },
+    },
+  });
+  await act(async () => root.render(createElement(IdentityAccessView, { repoId: "repo-a" })));
+  const tab = [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(
+    (tab) => tab.textContent === "我的设备",
+  );
+  await act(async () => tab!.click());
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-testid="devices-add"]')!.click());
+  expect(issueEdgeJoin).toHaveBeenCalledWith({ joinMode: "member-device", repoIds: ["repo-a"] });
+  expect(container.querySelector<HTMLTextAreaElement>('[data-testid="devices-add-link"] textarea')!.value).toBe(
+    "harness-edge://join/member-device",
+  );
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-testid="devices-add-dismiss"]')!.click());
+  expect(container.querySelector('[data-testid="devices-add-link"]')).toBeNull();
+  issueEdgeJoin.mockImplementationOnce(async () => ({ ok: false, code: "authorization_denied" }) as never);
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-testid="devices-add"]')!.click());
+  expect(container.querySelector('[data-testid="devices-add-link"]')).toBeNull();
+  expect(container.querySelector('[data-testid="device-refusal"]')).not.toBeNull();
+});

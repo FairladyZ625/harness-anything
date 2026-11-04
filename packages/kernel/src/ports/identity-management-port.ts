@@ -26,6 +26,7 @@ export interface AccessAdminRequest {
   readonly sshTarget?: string;
   readonly credentialFile?: string;
   readonly joinId?: string;
+  readonly joinMode?: "invitation" | "member-device";
   readonly requestId?: string;
   readonly requestVersion?: number;
   readonly decision?: "approve" | "reject";

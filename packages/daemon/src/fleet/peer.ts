@@ -876,7 +876,7 @@ export async function requestFleetEdgeJoinPinned(options: {
   readonly port: number;
   readonly servername?: string;
   readonly joinId: string;
-  readonly inviteToken: string;
+  readonly inviteToken?: string;
   readonly accessToken: string;
   readonly spkiSha256: string;
   readonly timeoutMs?: number;
@@ -913,7 +913,7 @@ export async function requestFleetEdgeJoinPinned(options: {
             schema: "fleet.edge.join/v1",
             messageId,
             joinId: options.joinId,
-            inviteToken: options.inviteToken,
+            ...(options.inviteToken === undefined ? {} : { inviteToken: options.inviteToken }),
             accessToken: options.accessToken,
           }),
         );
@@ -985,6 +985,22 @@ export async function probeFleetEdgeCenterAddress(options: {
     socket.destroy();
   }
 }
+export async function createFleetMemberDeviceLink(options: FleetPeerOptions, repoIds: readonly string[]) {
+  const peer = await openPeer(options);
+  try {
+    const reply = await peer.request({
+      schema: "fleet.edge.link.create/v1",
+      messageId: peer.messageId(),
+      repoId: options.repoId,
+      repoIds,
+    });
+    if (reply.schema !== "fleet.edge.link.created/v1") throw new Error("Member device link expected.");
+    return reply.result;
+  } finally {
+    peer.close();
+  }
+}
+
 export async function reportFleetDeviceLogin(
   options: Omit<FleetPeerOptions, "repoId">,
   notice: FleetDeviceLoginNotice,

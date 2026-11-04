@@ -589,6 +589,7 @@ export const daemonProtocolMethods = Object.freeze([
       platform: "string?",
       credentialFile: "string?",
       joinId: "string?",
+      joinMode: optionalEnum(["invitation", "member-device"] as const),
       link: "string?",
       workspaceRoot: "string?",
       quotaBytes: "number?",

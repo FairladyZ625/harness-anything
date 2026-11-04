@@ -17,6 +17,7 @@ import {
   encodeEdgeJoinLink,
   isEdgeJoinPlatform,
   type EdgeJoinRecord,
+  type EdgeJoinCreated,
 } from "./fleet/edge-join.ts";
 import { readFleetCenterConfig } from "./fleet-center-config.ts";
 import { EdgeJoinSshTunnelManager, validateSshTarget, type EdgeJoinTunnelPorts } from "./fleet/edge-join-ssh-tunnel.ts";
@@ -68,8 +69,9 @@ export class EdgeJoinAdminService {
     this.#scheduleExpirySweep();
   }
 
-  async create(request: AccessAdminRequest, actor: string): Promise<Record<string, unknown>> {
-    const personId = text(request.personId, "personId"),
+  async create(request: AccessAdminRequest, actor: string, accessToken: string): Promise<EdgeJoinCreated> {
+    const mode = request.joinMode ?? "invitation",
+      personId = mode === "member-device" ? actor : text(request.personId, "personId"),
       repoIds = uniqueSorted(names(request.repoIds, "repoIds") ?? []),
       groupIds = uniqueSorted(names(request.groupIds, "groupIds") ?? []),
       nodeLabel = request.nodeLabel?.trim() || undefined,
@@ -81,7 +83,19 @@ export class EdgeJoinAdminService {
     if (transport !== "ssh-reverse" && request.sshTarget !== undefined)
       throw coded("edge_join_invalid", "An SSH target is only valid with the ssh-reverse transport.");
     if (repoIds.length === 0) throw coded("edge_join_invalid", "Select at least one repository.");
-    if (groupIds.length === 0) throw coded("edge_join_invalid", "Select at least one permission group.");
+    if (mode !== "invitation" && mode !== "member-device")
+      throw coded("edge_join_invalid", "Choose invitation or member-device.");
+    if (
+      mode === "member-device" &&
+      ((request.personId !== undefined && request.personId !== actor) ||
+        groupIds.length > 0 ||
+        request.username !== undefined ||
+        request.email !== undefined ||
+        request.displayName !== undefined)
+    )
+      throw coded("authorization_denied", "Add your own device using your current permissions.");
+    if (mode === "invitation" && groupIds.length === 0)
+      throw coded("edge_join_invalid", "Select at least one permission group.");
     if (repoIds.some((repoId) => !/^[a-z][a-z0-9-]{0,62}$/u.test(repoId)))
       throw coded("edge_join_invalid", "Repository ids must use lowercase letters, digits, and hyphens.");
     if (platform !== undefined && !isEdgeJoinPlatform(platform))
@@ -100,7 +114,7 @@ export class EdgeJoinAdminService {
         .update(certificate.publicKey.export({ type: "spki", format: "der" }))
         .digest("hex"),
       session = await this.#session(),
-      groups = await session.adapter.readPolicyGroups(session.token),
+      groups = mode === "invitation" ? await session.adapter.readPolicyGroups(session.token) : [],
       permissionSnapshot = groupIds.map((groupId) => {
         const group = groups.find((candidate) => candidate.id === groupId);
         if (!group) throw coded("policy_group_unknown", `Policy group ${groupId} does not exist.`);
@@ -110,6 +124,9 @@ export class EdgeJoinAdminService {
         return { groupId, version: edgeJoinPermissionVersion(groupId, effectiveScopes) };
       });
 
+    if (mode === "member-device") {
+      await this.#assertMemberPermissions(session, accessToken, repoIds);
+    }
     const login = await this.#oidc.interactiveAuthority();
     try {
       const loginAddress = new URL(login.url),
@@ -124,7 +141,7 @@ export class EdgeJoinAdminService {
             })
           : undefined,
         tunnelFields = sshTarget && tunnel ? sshJoinFields(config.externalUrl!, login.url, tunnel) : undefined;
-      if (!(await session.adapter.findUserId(session.token, personId)))
+      if (mode === "invitation" && !(await session.adapter.findUserId(session.token, personId)))
         // Already inside the edge-join-create write queue; invite renews the session in place.
         // Username, email, and displayName are new-user fields: an existing member needs none.
         await this.#oidc.invite(
@@ -136,21 +153,24 @@ export class EdgeJoinAdminService {
           },
           true,
         );
-      const userId = await requiredUserId(session.adapter, session.token, personId),
-        grants: readonly AuthorizationGrant[] = await session.adapter.readGrants(session.token);
-      for (const repoId of repoIds) {
-        const resource = encodeAuthorizationResource({ kind: "repository", repoId });
-        for (const { groupId } of permissionSnapshot) {
-          const existing = grants.find((grant) => grant.groupId === groupId && grant.resource === resource),
-            userIds = uniqueSorted([...(existing?.userIds ?? []), userId]);
-          await session.adapter.writeGrant(
-            session.token,
-            { groupId, resource, userIds },
-            effectivePolicyGroupScopes(groups, groupId),
-          );
+      if (mode === "invitation") {
+        const userId = await requiredUserId(session.adapter, session.token, personId),
+          grants: readonly AuthorizationGrant[] = await session.adapter.readGrants(session.token);
+        for (const repoId of repoIds) {
+          const resource = encodeAuthorizationResource({ kind: "repository", repoId });
+          for (const { groupId } of permissionSnapshot) {
+            const existing = grants.find((grant) => grant.groupId === groupId && grant.resource === resource),
+              userIds = uniqueSorted([...(existing?.userIds ?? []), userId]);
+            await session.adapter.writeGrant(
+              session.token,
+              { groupId, resource, userIds },
+              effectivePolicyGroupScopes(groups, groupId),
+            );
+          }
         }
       }
       const created = this.#joins.create({
+        mode,
         centerOrigin: tunnelFields?.centerOrigin ?? centerOrigin,
         ...(tunnelFields
           ? {
@@ -191,12 +211,12 @@ export class EdgeJoinAdminService {
     }
   }
 
-  async admit(input: { readonly joinId: string; readonly inviteToken: string; readonly accessToken: string }) {
+  async admit(input: { readonly joinId: string; readonly inviteToken?: string; readonly accessToken: string }) {
     const result = await admitEdgeJoin({
       ...input,
       oidc: this.#oidc,
       edgeJoins: this.#joins,
-      validateSnapshot: (record) => this.#validateSnapshot(record),
+      validateSnapshot: (record) => this.#validateSnapshot(record, input.accessToken),
       registerNode: async (record, nodeId) => {
         const session = await this.#session(),
           current = await session.adapter.readNode(session.token, nodeId);
@@ -366,10 +386,14 @@ export class EdgeJoinAdminService {
     }, delayMs);
   }
 
-  async #validateSnapshot(record: EdgeJoinRecord): Promise<void> {
+  async #validateSnapshot(record: EdgeJoinRecord, accessToken: string): Promise<void> {
     this.#assertRepositories(record.repoIds);
-    const session = await this.#session(),
-      groups = await session.adapter.readPolicyGroups(session.token),
+    const session = await this.#session();
+    if (record.mode === "member-device") {
+      await this.#assertMemberPermissions(session, accessToken, record.repoIds);
+      return;
+    }
+    const groups = await session.adapter.readPolicyGroups(session.token),
       userId = await requiredUserId(session.adapter, session.token, record.personId),
       grants: readonly AuthorizationGrant[] = await session.adapter.readGrants(session.token);
     for (const snapshot of record.permissionSnapshot) {
@@ -387,6 +411,18 @@ export class EdgeJoinAdminService {
         if (!grant?.userIds.includes(userId))
           throw coded("permission_snapshot_changed", `The invited person's grant for ${repoId} changed.`);
       }
+    }
+  }
+
+  async #assertMemberPermissions(session: Session, accessToken: string, repoIds: readonly string[]): Promise<void> {
+    for (const repoId of repoIds) {
+      const decision = await session.adapter.authorize({
+        userAccessToken: accessToken,
+        action: "repository-read",
+        resource: { kind: "repository", repoId },
+      });
+      if (decision.outcome !== "allowed")
+        throw coded("authorization_denied", `You no longer have repository access to ${repoId}.`);
     }
   }
 

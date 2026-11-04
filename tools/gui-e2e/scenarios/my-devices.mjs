@@ -1,3 +1,6 @@
+import { execFileSync } from "node:child_process";
+import path from "node:path";
+import { saveFleetCenterConfig } from "../../../packages/daemon/src/fleet-center-config.ts";
 /* global window, document */
 import assert from "node:assert/strict";
 
@@ -12,6 +15,48 @@ export default {
     fixture.keycloak.node("another-owner", "person-bo");
     await page.getByRole("button", { name: /^(?:账号与访问控制|Identity & access)$/u }).click();
     await page.getByRole("tab", { name: /^(?:我的设备|My devices)$/u }).click();
+    const keyPath = path.join(fixture.userRoot, "member-device.key"),
+      certPath = path.join(fixture.userRoot, "member-device.pem");
+    execFileSync(
+      "openssl",
+      [
+        "req",
+        "-x509",
+        "-newkey",
+        "rsa:2048",
+        "-nodes",
+        "-keyout",
+        keyPath,
+        "-out",
+        certPath,
+        "-subj",
+        "/CN=127.0.0.1",
+        "-days",
+        "1",
+      ],
+      { stdio: "ignore" },
+    );
+    saveFleetCenterConfig(fixture.userRoot, fixture.daemonId, {
+      bind: "127.0.0.1",
+      port: 8443,
+      externalUrl: "https://127.0.0.1:8443",
+      repoId: fixture.repoId,
+      keyPath,
+      certPath,
+      stateRoot: path.join(fixture.userRoot, "fleet-state"),
+      quotaBytes: 1024 * 1024,
+    });
+    await page.getByTestId("devices-add").click();
+    const issued = page.getByTestId("devices-add-link");
+    await issued.waitFor();
+    const link = await issued.locator("textarea").inputValue(),
+      payload = JSON.parse(Buffer.from(link.slice("harness-edge://join/".length), "base64url").toString("utf8"));
+    assert.equal(Object.hasOwn(payload, "token"), false);
+    assert.equal(payload.spkiSha256.length, 64);
+    assert.deepEqual(payload.repoIds, [fixture.repoId]);
+    await shot("my-devices-add-link");
+    await page.getByTestId("devices-add-dismiss").click();
+    await issued.waitFor({ state: "hidden" });
     const a = page.getByTestId("device-device-a");
     await a.waitFor();
     assert.equal(await page.getByTestId("device-another-owner").count(), 0);

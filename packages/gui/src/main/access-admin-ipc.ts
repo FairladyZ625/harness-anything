@@ -53,6 +53,7 @@ const operationFields: Readonly<Record<string, Readonly<Record<string, Field>>>>
   // The center typed join method owns invite, repository grants, snapshots, and the one-time link.
   // Username, email, and displayName create a new member; the daemon requires them only for one.
   "edge-join-create": {
+    joinMode: "optional-text",
     personId: "text",
     username: "optional-text",
     email: "optional-text",
@@ -113,7 +114,15 @@ export function registerAccessAdminIpc(
 export function accessAdminParams(input: unknown, operationId: () => string): JsonObject {
   const request = (typeof input === "object" && input !== null ? input : {}) as Readonly<Record<string, unknown>>,
     operation = String(request.operation),
-    fields = Object.hasOwn(operationFields, operation) ? operationFields[operation] : undefined;
+    declaredFields = Object.hasOwn(operationFields, operation) ? operationFields[operation] : undefined,
+    fields =
+      operation === "edge-join-create" && request.joinMode === "member-device" && declaredFields
+        ? Object.fromEntries(
+            Object.entries(declaredFields).filter(
+              ([field]) => !["personId", "groupIds", "username", "email", "displayName"].includes(field),
+            ),
+          )
+        : declaredFields;
   if (!fields) throw new Error(`Access administration does not offer ${operation}.`);
   const unknown = Object.keys(request).filter(
     (key) => key !== "operation" && key !== "repoId" && !Object.hasOwn(fields, key),

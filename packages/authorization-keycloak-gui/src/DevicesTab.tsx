@@ -5,6 +5,7 @@ import type {
   AccessDevice,
   AccessReceipt,
   AccessRejection,
+  EdgeJoinIssued,
 } from "@harness-anything/authorization-gui/access-admin-contract";
 import { createAccessModel } from "./access-model.js";
 import { createAccessParts } from "./AccessParts.js";
@@ -31,7 +32,7 @@ export function createDevicesTab(host: KeycloakUiHost) {
       [auth, repoId, rootDir],
     );
     const { data, rejection, reload } = useAccessRead(readBinding);
-    if (data && data.mode !== "builtin") return <ManagedDevicesTab access={access} />;
+    if (data && data.mode !== "builtin") return <ManagedDevicesTab key={repoId} access={access} repoId={repoId} />;
     return (
       <Region
         title={t("devices.title")}
@@ -54,12 +55,13 @@ export function createDevicesTab(host: KeycloakUiHost) {
     );
   }
 
-  function ManagedDevicesTab({ access }: { readonly access: AccessAdminApi }) {
+  function ManagedDevicesTab({ access, repoId }: { readonly access: AccessAdminApi; readonly repoId?: string }) {
     const { data, rejection, reload } = useAccessRead(access.devices),
       [busy, setBusy] = useState(false),
       [refusal, setRefusal] = useState<AccessRejection | null>(null),
       [editing, setEditing] = useState<AccessDevice | null>(null),
       [name, setName] = useState(""),
+      [issued, setIssued] = useState<EdgeJoinIssued | null>(null),
       [confirm, setConfirm] = useState<{
         label: string;
         write: () => Promise<({ readonly ok: true } & AccessReceipt) | AccessRejection>;
@@ -76,6 +78,18 @@ export function createDevicesTab(host: KeycloakUiHost) {
         setBusy(false);
       }
     }
+    async function addDevice() {
+      if (!repoId) return;
+      setBusy(true);
+      setIssued(null);
+      try {
+        const reply = await access.issueEdgeJoin({ joinMode: "member-device", repoIds: [repoId] }).catch(asRejection);
+        setRefusal(isRejection(reply) ? reply : null);
+        if (!isRejection(reply)) setIssued(reply);
+      } finally {
+        setBusy(false);
+      }
+    }
     return (
       <Region
         title={t("devices.title")}
@@ -86,6 +100,21 @@ export function createDevicesTab(host: KeycloakUiHost) {
         }
       >
         <div data-testid="my-devices" className="flex min-h-0 flex-col gap-3 p-3">
+          <Button testId="devices-add" disabled={busy || !repoId} onClick={() => void addDevice()}>
+            {t("devices.add")}
+          </Button>
+          {issued && (
+            <div data-testid="devices-add-link" className="flex flex-col gap-2">
+              <p className="ui-body text-text-muted">{t("devices.addHint")}</p>
+              <textarea readOnly aria-label={t("devices.add")} className={INPUT} value={issued.link} />
+              <p className="ui-meta text-text-muted">
+                {t("devices.addExpires")} {formatTime(issued.expiresAt, { style: "date-time" })}
+              </p>
+              <Button testId="devices-add-dismiss" onClick={() => setIssued(null)}>
+                {t("devices.addDone")}
+              </Button>
+            </div>
+          )}
           <p className="ui-body text-text-muted" data-testid="devices-security-boundary">
             {t("devices.boundary")}
           </p>

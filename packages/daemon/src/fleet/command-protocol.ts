@@ -60,7 +60,9 @@ export type { FleetDeviceLoginNotice } from "@harness-anything/kernel";
 import type { FleetDeviceLoginNotice } from "@harness-anything/kernel";
 
 export type FleetFrameV1 =
-  | Msg<"fleet.edge.join/v1", { joinId: string; inviteToken: string; accessToken: string }>
+  | Msg<"fleet.edge.link.create/v1", { repoId: string; repoIds: readonly string[] }>
+  | Msg<"fleet.edge.link.created/v1", { inReplyTo: string; result: import("./edge-join.ts").EdgeJoinCreated }>
+  | Msg<"fleet.edge.join/v1", { joinId: string; inviteToken?: string; accessToken: string }>
   | Msg<
       "fleet.edge.join.result/v1",
       {
@@ -729,7 +731,18 @@ const common = { schema: text, messageId: id } as const,
 const schemas: Readonly<Record<string, Check>> = {
   // accessToken is validated separately below and deliberately excluded from the
   // closed-schema payload so the secret never enters generic shape validation.
-  "fleet.edge.join/v1": shape({ ...common, joinId: id, inviteToken: text }),
+  "fleet.edge.link.create/v1": shape({ ...common, repoId: id, repoIds: array(id) }),
+  "fleet.edge.link.created/v1": shape({
+    ...reply,
+    result: shape({
+      ok: (value) => value === true,
+      joinId: id,
+      state: (value) => value === "pending",
+      expiresAt: text,
+      link: bodyText,
+    }),
+  }),
+  "fleet.edge.join/v1": optionalShape({ ...common, joinId: id, inviteToken: text }, ["schema", "messageId", "joinId"]),
   "fleet.edge.join.result/v1": shape({
     ...reply,
     joinId: id,

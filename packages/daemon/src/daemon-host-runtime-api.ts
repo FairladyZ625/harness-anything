@@ -486,6 +486,7 @@ export function createDaemonHostRuntimeApi(
             payload: request,
             nodes: {
               ...keycloakNodeRegistry(context.keycloakCenter),
+              invitationClientForNode: (nodeId) => context.accessAdmin.invitationClientForNode(nodeId),
               loginAuthority: (nodeId) => context.oidc.discovery(nodeId),
               ...(context.oidc.revokeDeviceSessions
                 ? { revokeDeviceSessions: (nodeId: string) => context.oidc.revokeDeviceSessions!(nodeId) }
@@ -497,6 +498,8 @@ export function createDaemonHostRuntimeApi(
                   }
                 : {}),
               verifyHuman: (auth) => context.oidc.bind(auth),
+              createMemberEdgeJoin: (repos, person, token) =>
+                context.accessAdmin.createMemberEdgeJoin(repos, person, token),
               edgeJoin: (input) =>
                 context.accessAdmin.admitEdgeJoin({
                   joinId: input.joinId,

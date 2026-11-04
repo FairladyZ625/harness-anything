@@ -29,11 +29,11 @@ export interface EdgeJoinPermissionSnapshot {
 }
 export interface EdgeJoinRecord {
   readonly joinId: string;
-  readonly mode: "invitation";
+  readonly mode: "invitation" | "member-device";
   readonly personId: string;
   readonly repoIds: readonly string[];
   readonly permissionSnapshot: readonly EdgeJoinPermissionSnapshot[];
-  readonly tokenDigest: string;
+  readonly tokenDigest?: string;
   readonly nodeLabel?: string;
   readonly platform?: EdgeJoinPlatform;
   readonly centerOrigin: string;
@@ -58,6 +58,13 @@ export interface EdgeJoinRecord {
   readonly revokedBy?: string;
   readonly nodeId?: string;
 }
+export type EdgeJoinCreated = {
+  readonly ok: true;
+  readonly joinId: string;
+  readonly state: "pending";
+  readonly expiresAt: string;
+  readonly link: string;
+};
 export interface EdgeJoinStatusResult {
   readonly joinId: string;
   readonly state: EdgeJoinState;
@@ -215,6 +222,7 @@ export function createEdgeJoinStore(options: EdgeJoinStoreOptions = {}) {
   return {
     create(
       input: Omit<EdgeJoinLink, "version" | "joinId" | "token" | "expiresAt"> & {
+        readonly mode?: EdgeJoinRecord["mode"];
         readonly personId: string;
         readonly repoIds: readonly string[];
         readonly permissionSnapshot: readonly EdgeJoinPermissionSnapshot[];
@@ -230,16 +238,16 @@ export function createEdgeJoinStore(options: EdgeJoinStoreOptions = {}) {
     ): { readonly record: EdgeJoinRecord; readonly link: EdgeJoinLink } {
       if (!Number.isSafeInteger(input.ttlMs) || input.ttlMs <= 0) throw new RangeError("ttlMs must be positive");
       const createdAt = now(),
-        rawToken = token(),
+        rawToken = input.mode === "member-device" ? undefined : token(),
         loginCertificate =
           input.loginCertificate === undefined ? undefined : normalizeRootCaCertificate(input.loginCertificate),
         record: EdgeJoinRecord = {
           joinId: randomUUID(),
-          mode: "invitation",
+          mode: input.mode ?? "invitation",
           personId: input.personId,
           repoIds: [...input.repoIds],
           permissionSnapshot: clone(input.permissionSnapshot),
-          tokenDigest: tokenDigest(rawToken).toString("hex"),
+          ...(rawToken === undefined ? {} : { tokenDigest: tokenDigest(rawToken).toString("hex") }),
           ...(input.nodeLabel ? { nodeLabel: input.nodeLabel } : {}),
           ...(input.platform ? { platform: input.platform } : {}),
           centerOrigin: input.centerOrigin,
@@ -270,7 +278,7 @@ export function createEdgeJoinStore(options: EdgeJoinStoreOptions = {}) {
           ...(record.centerServername ? { centerServername: record.centerServername } : {}),
           repoIds: record.repoIds,
           spkiSha256: record.spkiSha256,
-          token: rawToken,
+          ...(rawToken === undefined ? {} : { token: rawToken }),
           loginUrl: record.loginUrl,
           ...(record.loginServername ? { loginServername: record.loginServername } : {}),
           ...(record.loginBrowserUrl ? { loginBrowserUrl: record.loginBrowserUrl } : {}),
@@ -289,14 +297,17 @@ export function createEdgeJoinStore(options: EdgeJoinStoreOptions = {}) {
     records(): readonly EdgeJoinRecord[] {
       return [...records.values()].map(clone);
     },
-    assertConsumable(joinId: string, suppliedToken: string): EdgeJoinRecord {
+    assertConsumable(joinId: string, suppliedToken?: string): EdgeJoinRecord {
       const record = records.get(joinId);
-      if (!record || !isText(suppliedToken))
-        throw new EdgeJoinError("edge_join_invalid", "The edge join invitation is invalid.");
-      const expected = Buffer.from(record.tokenDigest, "hex"),
-        actual = tokenDigest(suppliedToken);
-      if (expected.length !== actual.length || !timingSafeEqual(expected, actual))
-        throw new EdgeJoinError("edge_join_invalid", "The edge join invitation is invalid.");
+      if (!record) throw new EdgeJoinError("edge_join_invalid", "The edge join link is invalid.");
+      if (record.mode === "invitation") {
+        if (!isText(suppliedToken) || !record.tokenDigest)
+          throw new EdgeJoinError("edge_join_invalid", "The edge join invitation is invalid.");
+        const expected = Buffer.from(record.tokenDigest, "hex"),
+          actual = tokenDigest(suppliedToken);
+        if (expected.length !== actual.length || !timingSafeEqual(expected, actual))
+          throw new EdgeJoinError("edge_join_invalid", "The edge join invitation is invalid.");
+      }
       if (state(record) === "expired")
         throw new EdgeJoinError("join_token_expired", "The edge join invitation has expired.");
       if (state(record) === "revoked") throw new EdgeJoinError("join_revoked", "The edge join invitation was revoked.");
