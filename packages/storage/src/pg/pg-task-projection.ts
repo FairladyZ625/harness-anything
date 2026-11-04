@@ -1,17 +1,20 @@
 import type { TaskProjection, TaskProjectionQueries } from "@harness-anything/kernel";
 import { assertFactAdmissionAtCut } from "../projection/fact-event-projection.ts";
 import { assertDecisionAdmissionAtCut } from "../projection/decision-projection-admission.ts";
-import { createPgTaskQueryReader } from "./pg-task-query-reader.ts";
-import { resolvePostgresEventStoreScope } from "./backend.ts";
+import { createSqlTaskQueryReader } from "./sql-task-query-reader.ts";
 import { PG_TASK_QUERY_METHODS } from "./pg-task-query-contract.ts";
-import type { PostgresTaskProjectionFactoryOptions } from "../projection/rebuildable-task-projection-factory.ts";
+import type {
+  PostgresTaskProjectionFactoryOptions,
+  PGliteTaskProjectionFactoryOptions,
+} from "../projection/rebuildable-task-projection-factory.ts";
 
 /** Acceptance materializes PG in the canonical transaction; this facade never writes a second projection. */
-export function makePgTaskProjection(options: PostgresTaskProjectionFactoryOptions): TaskProjection {
+export function makePgTaskProjection(
+  options: PostgresTaskProjectionFactoryOptions | PGliteTaskProjectionFactoryOptions,
+): TaskProjection {
   const now = options.now ?? (() => new Date().toISOString()),
-    reader = createPgTaskQueryReader({
-      connectionString: options.storage.connectionString,
-      scope: resolvePostgresEventStoreScope(options.storage.scope),
+    reader = createSqlTaskQueryReader({
+      storage: options.storage,
       repoId: options.eventStore.ledgerMetadata().repoId,
       now,
     }),

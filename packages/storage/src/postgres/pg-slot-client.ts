@@ -1,13 +1,14 @@
 import type { ReplicationSlots } from "../fleet-replication-slot.ts";
-import { createPgTaskQueryReader } from "../pg/pg-task-query-reader.ts";
-import { resolvePostgresEventStoreScope } from "../pg/backend.ts";
-import type { PostgresStorageBackendConfig } from "../storage-backend.ts";
+import { createSqlTaskQueryReader } from "../pg/sql-task-query-reader.ts";
+import type { PostgresStorageBackendConfig, PGliteStorageBackendConfig } from "../storage-backend.ts";
 
-export function openPgReplicationSlots(repoId: string, storage: PostgresStorageBackendConfig): ReplicationSlots {
-  const reader = createPgTaskQueryReader({
-      connectionString: storage.connectionString,
+export function openPgReplicationSlots(
+  repoId: string,
+  storage: PostgresStorageBackendConfig | PGliteStorageBackendConfig,
+): ReplicationSlots {
+  const reader = createSqlTaskQueryReader({
+      storage,
       requireRuntimeRole: true,
-      scope: resolvePostgresEventStoreScope(storage.scope),
       repoId,
     }),
     call = <T>(method: string, ...args: unknown[]): T => reader.replication("slots", { method, args }) as T;

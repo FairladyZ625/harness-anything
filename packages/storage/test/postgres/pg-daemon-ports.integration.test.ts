@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixture.ts";
+import { assertWriterEpochFactory } from "../writer-epoch-factory.assertions.ts";
+import { assertCanonicalFactoryLifecycle } from "../canonical-factory.assertions.ts";
 import { resolveHarnessLayout, taskLifecycleWritePlan, type CanonicalEventStore } from "@harness-anything/kernel";
 import { sha256Bytes } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
@@ -54,25 +55,12 @@ test("daemon PG storage factories expose canonical lifecycle ports without local
       );
       await assertContentBlobRangeContract(contentTest, store!, sha256, body);
     });
-    const events = lifecycleFixture({ taskId: "task-pg-daemon", executionId: "execution-pg-daemon" }).events;
-    for (const event of events) {
-      store.append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
-      projection.apply(event, taskLifecycleWritePlan(event));
-    }
-    const snapshot = projection.read("task-pg-daemon").snapshot;
-    assert.equal(snapshot.task?.status, "done");
-    const reader = makeTaskProjectionReader({ repoId, storage });
-    try {
-      assert.deepEqual(
-        reader.withSession((queries) => queries.read("task-pg-daemon").snapshot),
-        snapshot,
-      );
-    } finally {
-      reader.close();
-    }
-    await t.test("cold rebuild retains the canonical lifecycle", () => {
-      projection!.rebuild();
-      assert.deepEqual(projection!.read("task-pg-daemon").snapshot, snapshot);
+    const { events } = assertCanonicalFactoryLifecycle({
+      store,
+      projection,
+      taskId: "task-pg-daemon",
+      executionId: "execution-pg-daemon",
+      reader: () => makeTaskProjectionReader({ repoId, storage }),
     });
     const createdAt = (taskId: string, revision: number): TaskCreatedEvent => {
       const base = events[0] as TaskCreatedEvent;
@@ -194,6 +182,13 @@ test("daemon PG storage factories expose canonical lifecycle ports without local
         source.close();
         slots.close();
       }
+    });
+    await t.test("shared writer epoch factory contract", async () => {
+      await assertWriterEpochFactory({
+        rootDir: join(fixture.root, "epoch-shared"),
+        repoId: "pg-shared-epoch",
+        storage: { ...storage, materialize: false, authorityConnectionString: fixture.managementConnectionString },
+      });
     });
     await t.test("slot and epoch runtime connections reject schema-owner credentials", () => {
       const unsafe = {

@@ -27,6 +27,8 @@ export interface PGliteStorageBackendConfig {
   readonly backend: "pglite";
   readonly dataDir?: string;
   readonly scope?: StorageScope;
+  readonly gitFollower?: { readonly branch: string };
+  readonly materialize?: boolean;
 }
 
 export type StorageBackendConfig =

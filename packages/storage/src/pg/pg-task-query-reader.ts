@@ -37,6 +37,28 @@ export interface PgTaskQueryReader {
   readonly replication: (operation: "head" | "page" | "slots", payload?: unknown) => unknown;
 }
 
+/** Internal endpoint: PG owns a worker; embedded storage supplies a logical MessagePort. */
+export interface PgQueryEndpoint {
+  postMessage(value: unknown): void;
+  terminate(): void | Promise<number>;
+  unref(): void;
+  on(event: "error", listener: (error: Error) => void): unknown;
+  on(event: "exit", listener: (code: number) => void): unknown;
+}
+export type PgQueryConnectionOptions = Omit<
+  PgTaskQueryReaderOptions,
+  "connectionString" | "authorityConnectionString" | "requireRuntimeRole"
+>;
+export type PgQueryConnector = (
+  input: PgQueryConnectionOptions & {
+    readonly path: string;
+    readonly ready: Int32Array;
+    readonly state: Int32Array;
+    readonly responsePort: MessagePort;
+    readonly requestPort: MessagePort;
+  },
+) => PgQueryEndpoint;
+
 interface WorkerResponse {
   readonly id: number;
   readonly fatal?: boolean;
@@ -55,31 +77,42 @@ const DEFAULT_QUERY_TIMEOUT_MS = 30_000;
  * Synchronous query facade for the asynchronous PG driver. A session is one worker-owned
  * repeatable-read transaction; each port method is one RPC, not one RPC per returned row.
  */
-export function createPgTaskQueryReader(options: PgTaskQueryReaderOptions): PgTaskQueryReader {
+export function createPgTaskQueryReader(options: PgTaskQueryReaderOptions): PgTaskQueryReader;
+export function createPgTaskQueryReader(
+  options: PgQueryConnectionOptions,
+  connect: PgQueryConnector,
+): PgTaskQueryReader;
+export function createPgTaskQueryReader(
+  options: PgTaskQueryReaderOptions | PgQueryConnectionOptions,
+  connect?: PgQueryConnector,
+): PgTaskQueryReader {
+  const postgres = options as PgTaskQueryReaderOptions;
   const path = options.path ?? "postgres:task-projection",
     startupTimeoutMs = checkedTimeout(options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS, "startup"),
     queryTimeoutMs = checkedTimeout(options.queryTimeoutMs ?? DEFAULT_QUERY_TIMEOUT_MS, "query"),
     { port1, port2 } = new MessageChannel(),
     ready = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT)),
     state = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT)),
-    worker = new Worker(new URL(`./pg-task-query-worker${extname(import.meta.filename)}`, import.meta.url), {
-      workerData: {
-        connectionString: options.connectionString,
-        authorityConnectionString: options.authorityConnectionString,
-        requireRuntimeRole: options.requireRuntimeRole,
-        authoredRoot: options.authoredRoot,
-        scope: options.scope,
-        repoId: options.repoId,
-        path,
-        ready,
-        state,
-        responsePort: port2,
-      },
-      transferList: [port2],
-      execArgv: process.execArgv.filter(
-        (argument) => argument === "--experimental-strip-types" || argument === "--enable-source-maps",
-      ),
-    });
+    worker =
+      connect?.({ ...options, path, ready, state, responsePort: port2, requestPort: port1 }) ??
+      new Worker(new URL(`./pg-task-query-worker${extname(import.meta.filename)}`, import.meta.url), {
+        workerData: {
+          connectionString: postgres.connectionString,
+          authorityConnectionString: postgres.authorityConnectionString,
+          requireRuntimeRole: postgres.requireRuntimeRole,
+          authoredRoot: options.authoredRoot,
+          scope: options.scope,
+          repoId: options.repoId,
+          path,
+          ready,
+          state,
+          responsePort: port2,
+        },
+        transferList: [port2],
+        execArgv: process.execArgv.filter(
+          (argument) => argument === "--experimental-strip-types" || argument === "--enable-source-maps",
+        ),
+      });
   let requestId = 0,
     activeSession = false,
     closed = false;
@@ -212,7 +245,7 @@ function waitForWorker(
   port: MessagePort,
   requestId: number,
   timeoutMs: number,
-  worker: Worker,
+  worker: PgQueryEndpoint,
   timeoutMessage: string,
 ): WorkerResponse {
   if (Atomics.wait(state, 0, 0, timeoutMs) === "timed-out") {
@@ -240,3 +273,5 @@ function restoreError(error: NonNullable<WorkerResponse["error"]>): Error {
   restored.name = error.name;
   return restored;
 }
+
+export { waitForWorker as waitForPgQueryWorker, restoreError as restorePgQueryError };

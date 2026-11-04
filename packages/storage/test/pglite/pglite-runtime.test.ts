@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createPgDialectStorageBackend, createPGliteStorage, createPGliteStorageBackend } from "../../src/index.ts";
 import { createPostgresPool } from "../../src/postgres/transaction.ts";
+import { makeTaskEventStore } from "../../src/store/task-event-store.ts";
+import { makeTaskProjectionReader } from "../../src/projection/rebuildable-task-projection.ts";
 
 const scope = { tenantId: "runtime-tenant", projectId: "runtime-project", policyEpoch: 0 };
 
@@ -23,6 +25,8 @@ test("PGlite rejects unsupported Node before reading options or constructing WAS
       assert.throws(() => createPGliteStorage(options), expected);
       assert.throws(() => createPGliteStorage(), expected);
       const storage = { backend: "pglite", scope } as const;
+      assert.throws(() => makeTaskEventStore({ repoId: "runtime", storage }), expected);
+      assert.throws(() => makeTaskProjectionReader({ repoId: "runtime", storage }), expected);
       await assert.rejects(createPGliteStorageBackend({ repoId: "runtime", storage }), expected);
       await assert.rejects(createPgDialectStorageBackend({ repoId: "runtime", storage }), expected);
     }

@@ -43,6 +43,24 @@
       "decision": null,
       "errors": "execution_missing on an ordinary late edge callback",
       "reason": "An ordinary edge callback can arrive after its task execution has already settled and its lease is gone. In that state there is no active execution that a ruling could block, so settlement preserves the ordinary terminal result. Reviewer callbacks and the escalation-specific stop propagate execution_missing."
+    },
+    "packages/storage/src/pglite/query-owner-worker.ts#startOwner": {
+      "task": "task_b8a3cd12e10741592471c378a3",
+      "decision": null,
+      "errors": "PGlite initialization failure",
+      "reason": "Serialize the original startup error onto the synchronous RPC response and wake the waiting caller. The caller restores the original code and throws; no fallback backend, retry or result is produced."
+    },
+    "packages/storage/src/pglite/query-owner-worker.ts#connect": {
+      "task": "task_b8a3cd12e10741592471c378a3",
+      "decision": null,
+      "errors": "logical session disposal failure",
+      "reason": "Escalate a failed logical-session disposal to a fatal owner response, preserving the error code and waking all clients. Disposal never substitutes successful rows or silently reopens the database."
+    },
+    "packages/storage/src/pglite/query-owner-worker.ts#dispatch": {
+      "task": "task_b8a3cd12e10741592471c378a3",
+      "decision": null,
+      "errors": "physical owner shutdown failure",
+      "reason": "Serialize an unsuccessful physical shutdown as a fatal owner response. The synchronous close caller observes the original error rather than a replacement close receipt."
     }
   },
   "entries": {
@@ -362,7 +380,10 @@
       "tools/gates/derived-contracts.mjs#validateCliCommandInputs",
       "tools/gates/platform-smoke.mjs#evaluatePlatformSmoke",
       "tools/gates/sample-canonical-events.mjs#sampleCanonicalEventShapes",
-      "tools/gates/windows-first-run.mjs#harness"
+      "tools/gates/windows-first-run.mjs#harness",
+      "packages/storage/src/pglite/query-owner-worker.ts#startOwner",
+      "packages/storage/src/pglite/query-owner-worker.ts#connect",
+      "packages/storage/src/pglite/query-owner-worker.ts#dispatch"
     ],
     "fullHistoryScans": [
       {

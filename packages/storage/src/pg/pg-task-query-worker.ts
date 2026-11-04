@@ -19,9 +19,8 @@ import { pgSlotOperation } from "../postgres/pg-slot-operations.ts";
 import path from "node:path";
 import { localGitWorktreeSettlement } from "../store/local-version-control-system.ts";
 
-interface PgQueryWorkerData {
-  readonly connectionString: string;
-  readonly authorityConnectionString?: string;
+export interface PgQuerySessionInput {
+  readonly requestPort: MessagePort;
   readonly requireRuntimeRole?: boolean;
   readonly authoredRoot?: string;
   readonly scope: PgProjectionScope;
@@ -40,15 +39,42 @@ interface PgQueryWorkerRequest {
   readonly now?: string;
 }
 
-const data = workerData as PgQueryWorkerData | undefined;
-if (!isMainThread && data && parentPort) startWorker(data);
-
-function startWorker(input: PgQueryWorkerData): void {
-  const pool = new Pool({ connectionString: input.connectionString, max: 4 });
-  const authorityPool = input.authorityConnectionString
-      ? new Pool({ connectionString: input.authorityConnectionString, max: 1 })
+type StandalonePgWorkerInput = Omit<PgQuerySessionInput, "requestPort"> & {
+  readonly connectionString: string;
+  readonly authorityConnectionString?: string;
+};
+const data = workerData as StandalonePgWorkerInput | undefined;
+if (!isMainThread && parentPort && typeof data?.connectionString === "string") {
+  const pool = new Pool({ connectionString: data.connectionString, max: 4 }),
+    authority = data.authorityConnectionString
+      ? new Pool({ connectionString: data.authorityConnectionString, max: 1 })
       : null,
-    epochs = authorityPool ? pgEpochTransactions(authorityPool) : null;
+    session = startWorker({ ...data, requestPort: parentPort }, pool, authority);
+  process.on("uncaughtExceptionMonitor", session.fail);
+  process.on("exit", (code) =>
+    session.fail(
+      Object.assign(new Error(`PostgreSQL task query worker exited (${code})`), { code: "pg_query_worker_exited" }),
+    ),
+  );
+}
+export { startWorker as startPgQuerySession };
+
+function startWorker(
+  input: PgQuerySessionInput,
+  pool: Pool,
+  authorityPool: Pool | null,
+  options: {
+    readonly ownsPools?: boolean;
+    readonly onClose?: () => void;
+    readonly epochs?: ReturnType<typeof pgEpochTransactions>;
+    readonly canonical?: <Result>(
+      request: PostgresTaskEventStoreRequest,
+      operation: () => Promise<Result>,
+    ) => Promise<Result>;
+  } = {},
+): { readonly close: () => Promise<void>; readonly fail: (error: Error) => void } {
+  const ownsPools = options.ownsPools !== false,
+    epochs = options.epochs ?? (authorityPool ? pgEpochTransactions(authorityPool) : null);
   const backend = createPgStorageBackend({
     pool,
     repoId: input.repoId,
@@ -85,16 +111,14 @@ function startWorker(input: PgQueryWorkerData): void {
     // reused after an asynchronous connection error.
     sessionClient?.release(error);
     sessionClient = null;
-    void pool.end();
+    if (ownsPools) void pool.end();
     input.responsePort.close();
-    parentPort!.close();
+    input.requestPort.close();
   };
-  pool.on("error", fail);
-  authorityPool?.on("error", fail);
-  process.on("uncaughtExceptionMonitor", fail);
-  process.on("exit", (code) =>
-    fail(Object.assign(new Error(`PostgreSQL task query worker exited (${code})`), { code: "pg_query_worker_exited" })),
-  );
+  if (ownsPools) {
+    pool.on("error", fail);
+    authorityPool?.on("error", fail);
+  }
 
   const initialize = async () => {
     const client = await pool.connect();
@@ -164,7 +188,27 @@ function startWorker(input: PgQueryWorkerData): void {
     client.removeListener("error", fail);
   };
 
+  let closing: Promise<void> | undefined;
+  const closeResources = () =>
+    (closing ??= (async () => {
+      await finishSession("ROLLBACK");
+      await epochs?.close();
+      if (ownsPools) {
+        await authorityPool?.end();
+        await pool.end();
+      }
+      options.onClose?.();
+    })());
+  const close = async () => {
+    if (stopped) return;
+    await closeResources();
+    stopped = true;
+    input.responsePort.close();
+    input.requestPort.close();
+  };
+
   const handle = async (request: PgQueryWorkerRequest) => {
+    if (stopped || closing) return;
     try {
       if (request.op === "replication") {
         if (sessionClient) throw new Error("replication operations cannot nest in a query session");
@@ -261,16 +305,19 @@ function startWorker(input: PgQueryWorkerData): void {
       }
       if (request.op === "canonical") {
         if (sessionClient) throw new Error("canonical operations cannot run inside a projection read session");
-        respond(
-          request.id,
-          input.state,
-          await backend.eventStore.execute(request.args![0] as PostgresTaskEventStoreRequest),
-        );
+        const value = request.args![0] as PostgresTaskEventStoreRequest,
+          operation = () => backend.eventStore.execute(value);
+        respond(request.id, input.state, await (options.canonical ? options.canonical(value, operation) : operation()));
         return;
       }
       if (request.op === "begin") {
         if (sessionClient) throw new Error("PostgreSQL query session is already active");
-        sessionClient = await pool.connect();
+        const connected = await pool.connect();
+        if (stopped || closing) {
+          connected.release();
+          throw new Error("PostgreSQL query reader closed before its session began");
+        }
+        sessionClient = connected;
         sessionClient.on("error", fail);
         await sessionClient.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
         const names = POSTGRES_SCOPE_SCHEMA_CONTRACT.claims;
@@ -312,14 +359,11 @@ function startWorker(input: PgQueryWorkerData): void {
         return;
       }
       if (request.op === "close") {
-        await finishSession("ROLLBACK");
-        await epochs?.close();
-        await authorityPool?.end();
-        await pool.end();
+        await closeResources();
         respond(request.id, input.state, null);
         stopped = true;
         input.responsePort.close();
-        parentPort!.close();
+        input.requestPort.close();
         return;
       }
       throw new Error(`unknown PostgreSQL task query operation: ${String(request.op)}`);
@@ -354,7 +398,7 @@ function startWorker(input: PgQueryWorkerData): void {
     () => {
       if (stopped) return;
       respond(0, input.ready, null);
-      parentPort!.on("message", (request: PgQueryWorkerRequest) => void handle(request));
+      input.requestPort.on("message", (request: PgQueryWorkerRequest) => void handle(request));
     },
     async (error: unknown) => {
       if (stopped) {
@@ -363,9 +407,7 @@ function startWorker(input: PgQueryWorkerData): void {
       }
       let failure = error;
       try {
-        await epochs?.close();
-        await authorityPool?.end();
-        await pool.end();
+        await closeResources();
       } catch (closeError) {
         failure = new AggregateError([error, closeError], "PostgreSQL task query worker failed to start and close.");
         consumeKnownError(closeError);
@@ -373,9 +415,10 @@ function startWorker(input: PgQueryWorkerData): void {
       respond(0, input.ready, undefined, failure);
       consumeKnownError(failure);
       input.responsePort.close();
-      parentPort!.close();
+      input.requestPort.close();
     },
   );
+  return { close, fail };
 }
 
 function serializeError(value: unknown): {
@@ -389,3 +432,5 @@ function serializeError(value: unknown): {
     if (key in value) fields[key] = Reflect.get(value, key);
   return { name: value.name, message: value.message, fields };
 }
+
+export { serializeError as serializePgQueryError };

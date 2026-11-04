@@ -116,13 +116,17 @@ export function openReplicationSlots(
   file: string,
   storageByRepo?: Readonly<Record<string, StorageBackendConfig>>,
 ): ReplicationSlots {
-  if (!storageByRepo || !Object.values(storageByRepo).some((storage) => storage.backend === "postgres"))
+  if (
+    !storageByRepo ||
+    !Object.values(storageByRepo).some((storage) => storage.backend === "postgres" || storage.backend === "pglite")
+  )
     return openSqliteReplicationSlots(file);
   let local: ReplicationSlots | undefined;
   const stores = new Map<string, ReplicationSlots>(),
     forRepo = (repoId: string): ReplicationSlots => {
       const storage = storageByRepo[repoId];
-      if (storage?.backend !== "postgres") return (local ??= openSqliteReplicationSlots(file));
+      if (storage?.backend !== "postgres" && storage?.backend !== "pglite")
+        return (local ??= openSqliteReplicationSlots(file));
       let slots = stores.get(repoId);
       if (!slots) {
         slots = openPgReplicationSlots(repoId, storage);
@@ -132,7 +136,7 @@ export function openReplicationSlots(
     },
     all = () => {
       for (const [repoId, storage] of Object.entries(storageByRepo))
-        if (storage.backend === "postgres") forRepo(repoId);
+        if (storage.backend === "postgres" || storage.backend === "pglite") forRepo(repoId);
       if (existsSync(file)) local ??= openSqliteReplicationSlots(file);
       return [...new Set([...(local ? [local] : []), ...stores.values()])];
     };

@@ -204,7 +204,7 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
           ),
           candidate = (after: boolean) => `SELECT d.event_json,p.value AS session,d.runtime_session_id
             FROM ha_events d JOIN ha_projection_values p ON p.tenant_id=d.tenant_id AND p.project_id=d.project_id
-              AND p.policy_epoch=d.policy_epoch AND p.model='runtime-session' AND p.owner_id='' AND p.entity_id=d.runtime_session_id
+              AND p.policy_epoch=d.policy_epoch AND p.model='runtime-session' AND p.owner_id='' AND p.entity_id=d.runtime_session_id COLLATE "default"
             WHERE d.tenant_id=$1 AND d.project_id=$2 AND d.repo_id=$3 AND d.policy_epoch=$4
               AND d.revision <= (SELECT watermark FROM ha_projection_meta WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$4 AND projection_name='task/v1')
               AND (cardinality($5::text[])=0 OR (d.readers && $5::text[] AND p.readers && $5::text[]))

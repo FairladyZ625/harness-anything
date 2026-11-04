@@ -21,10 +21,9 @@ import {
   type CanonicalCommandOutcome,
   type CanonicalEventAppendReceipt,
 } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
-import { createPgTaskQueryReader } from "../pg/pg-task-query-reader.ts";
+import { createSqlTaskQueryReader } from "../pg/sql-task-query-reader.ts";
 import { validateContentRange } from "../content-blob-range.ts";
-import { resolvePostgresEventStoreScope } from "../pg/backend.ts";
-import type { PostgresTaskEventStoreOptions } from "../store/task-event-store-factory.ts";
+import type { PostgresTaskEventStoreOptions, PGliteTaskEventStoreOptions } from "../store/task-event-store-factory.ts";
 import { applyCanonicalTree } from "../canonical-tree-materialization.ts";
 import { resolveLedgerGitLayout } from "../store/ledger-git-layout.ts";
 import { localGitObjectRefStore, localGitWorktreeSettlement } from "../store/local-version-control-system.ts";
@@ -40,16 +39,14 @@ import { createDurableFollowerPublisher } from "../store/durable-follower-publis
 
 /** The existing PG worker bridge owns whole accepting transactions and the driver pool. */
 export function makePgCanonicalEventStore(
-  options: PostgresTaskEventStoreOptions,
+  options: PostgresTaskEventStoreOptions | PGliteTaskEventStoreOptions,
 ): CanonicalEventStore & { readonly pruneReplicationLog: (beforeSequence: number) => void } {
-  const reader = createPgTaskQueryReader({
-      connectionString: options.storage.connectionString,
-      requireRuntimeRole: true,
-      ...((options.rootInput ?? options.rootDir) === undefined
-        ? {}
-        : { authoredRoot: resolveHarnessLayout((options.rootInput ?? options.rootDir)!).authoredRoot }),
+  const rootInput = options.rootInput ?? options.rootDir,
+    reader = createSqlTaskQueryReader({
+      storage: options.storage,
       repoId: options.repoId,
-      scope: resolvePostgresEventStoreScope(options.storage.scope),
+      requireRuntimeRole: true,
+      ...(rootInput === undefined ? {} : { authoredRoot: resolveHarnessLayout(rootInput).authoredRoot }),
     }),
     execute = reader.executeCanonical,
     head: CanonicalEventStore["readHead"] = () =>
