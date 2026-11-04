@@ -274,7 +274,15 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       }
     },
     resolveRequestReceipt = (repoId: string, requestOpId: string): string =>
-      requestReceiptTargets.get(requestReceiptKey(repoId, requestOpId)) ?? requestOpId;
+      requestReceiptTargets.get(requestReceiptKey(repoId, requestOpId)) ?? requestOpId,
+    // A no_changes or rejection receipt may name an id that was never appended. Remember only a
+    // target receipt-show can actually resolve, so a legal retry cannot overwrite an earlier
+    // committed mapping with an unpublished id (review F3).
+    isRecoverableReceipt = (receipt: unknown): boolean => {
+      if (typeof receipt !== "object" || receipt === null) return false;
+      const value = receipt as { readonly outcome?: unknown; readonly event?: unknown };
+      return value.outcome === "applied" || (value.event !== null && value.event !== undefined);
+    };
   const projectionReady = new Map<string, Promise<void>>();
   const backupQueues = new Map<string, Promise<void>>();
   type CachedBackup = {
@@ -953,7 +961,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         }
         try {
           const receipt = await observedRunCenterWriter(a.repoId, action, commandAuth);
-          rememberRequestReceipt(a.repoId, frame.opId, receipt.opId);
+          if (isRecoverableReceipt(receipt)) rememberRequestReceipt(a.repoId, frame.opId, receipt.opId);
           if (reservation) connectionSignal.throwIfAborted();
           const result = {
             outcome:
@@ -1025,7 +1033,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         assertFrameEpoch(a.repoId, frame.writerEpoch);
         const ingressAuth = await auth(a),
           receipt = await observedRunCenterWriter(a.repoId, frame.action, ingressAuth);
-        rememberRequestReceipt(a.repoId, frame.opId, receipt.opId);
+        if (isRecoverableReceipt(receipt)) rememberRequestReceipt(a.repoId, frame.opId, receipt.opId);
         if (isSquadControlResult(receipt))
           throw new FleetFault(
             "execution_scope_mismatch",
@@ -1087,7 +1095,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             },
             await auth(a),
           );
-          rememberRequestReceipt(a.repoId, frame.opId, receipt.opId ?? runtimeEventOpId);
+          if (isRecoverableReceipt(receipt))
+            rememberRequestReceipt(a.repoId, frame.opId, receipt.opId ?? runtimeEventOpId);
         } catch (error) {
           const code = runtimeErrorCode(error);
           if (code) throw new FleetFault(code, runtimeErrorMessage(error));
