@@ -255,6 +255,26 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     typeof receipt === "object" && receipt !== null && "outcome" in receipt && receipt.outcome === "applied"
       ? replicationHead(repoId)
       : null;
+  // A Fleet request opId is correlation, not the stored command id. Keep a bounded, process-local
+  // request -> canonical-op mapping so a caller that lost the response can recover the committed
+  // receipt by its request id. Losing this map on restart only drops the correlation; the write
+  // itself stays authoritative (dec_3E49EDAB CH1).
+  const requestReceiptTargets = new Map<string, string>(),
+    REQUEST_RECEIPT_LIMIT = 1_024,
+    requestReceiptKey = (repoId: string, requestOpId: string) => `${repoId}\0${requestOpId}`,
+    rememberRequestReceipt = (repoId: string, requestOpId: string, canonicalOpId: unknown): void => {
+      if (typeof canonicalOpId !== "string" || canonicalOpId.length === 0) return;
+      const key = requestReceiptKey(repoId, requestOpId);
+      requestReceiptTargets.delete(key);
+      requestReceiptTargets.set(key, canonicalOpId);
+      while (requestReceiptTargets.size > REQUEST_RECEIPT_LIMIT) {
+        const oldest = requestReceiptTargets.keys().next().value;
+        if (oldest === undefined) break;
+        requestReceiptTargets.delete(oldest);
+      }
+    },
+    resolveRequestReceipt = (repoId: string, requestOpId: string): string =>
+      requestReceiptTargets.get(requestReceiptKey(repoId, requestOpId)) ?? requestOpId;
   const projectionReady = new Map<string, Promise<void>>();
   const backupQueues = new Map<string, Promise<void>>();
   type CachedBackup = {
@@ -624,9 +644,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
     if (frame.schema === "fleet.receipt.get/v1") {
       const a = await nodeContext(nodeId, frame.repoId, frame.accessToken),
+        canonicalOpId = resolveRequestReceipt(a.repoId, frame.opId),
         receipt = await observedRunCenterWriter(
           a.repoId,
-          { kind: "receipt-show", opId: frame.opId },
+          { kind: "receipt-show", opId: canonicalOpId },
           await readerAuth(a),
         );
       return immediate({
@@ -932,6 +953,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         }
         try {
           const receipt = await observedRunCenterWriter(a.repoId, action, commandAuth);
+          rememberRequestReceipt(a.repoId, frame.opId, receipt.opId);
           if (reservation) connectionSignal.throwIfAborted();
           const result = {
             outcome:
@@ -939,8 +961,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
                 ? ("op_rejected" as const)
                 : ("applied" as const),
             // The frame opId is the caller's request identity for this round trip. The receipt's
-            // opId remains the canonical command identity (content + revision), which is what
-            // receipt-show resolves; the two planes must not be conflated.
+            // opId remains the canonical command identity (content + revision); receipt-show
+            // resolves either the request id (through the correlation map) or that canonical id.
             opId: frame.opId,
             revision: receipt.revision ?? null,
             replicationSequence: writeReplicationSequence(a.repoId, receipt),
@@ -1003,6 +1025,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         assertFrameEpoch(a.repoId, frame.writerEpoch);
         const ingressAuth = await auth(a),
           receipt = await observedRunCenterWriter(a.repoId, frame.action, ingressAuth);
+        rememberRequestReceipt(a.repoId, frame.opId, receipt.opId);
         if (isSquadControlResult(receipt))
           throw new FleetFault(
             "execution_scope_mismatch",
@@ -1047,6 +1070,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           resultBody = bytes.toString("utf8");
         }
         let receipt: Awaited<ReturnType<typeof options.host.runtimeIngress>>;
+        // The frame opId correlates the caller's request; the center mints the event's stored
+        // identity here. Reusing a frame opId therefore cannot hit storage dedup/op_conflict:
+        // the RuntimeSession reducer decides duplicate, late, and interleaved transitions.
+        const runtimeEventOpId = randomUUID();
         try {
           receipt = await options.host.runtimeIngress(
             a.repoId,
@@ -1054,14 +1081,13 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
               kind: "event",
               type: frame.eventType as import("@harness-anything/kernel").AgentRuntimeEventV1["type"],
               payload: frame.payload,
-              // Request/event correlation only. The RuntimeSession reducer decides duplicate,
-              // late, and invalid transitions; it no longer replays by this opId (dec_3E49EDAB CH3).
-              opId: frame.opId,
+              opId: runtimeEventOpId,
               ...(resultBody === undefined ? {} : { resultBody }),
               ...(frame.dispatchContext === null ? {} : { dispatchContext: frame.dispatchContext }),
             },
             await auth(a),
           );
+          rememberRequestReceipt(a.repoId, frame.opId, receipt.opId ?? runtimeEventOpId);
         } catch (error) {
           const code = runtimeErrorCode(error);
           if (code) throw new FleetFault(code, runtimeErrorMessage(error));

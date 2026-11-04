@@ -26,7 +26,7 @@ import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-set
 import { openRuntimeInstanceStore } from "../src/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
-import { runFleetScheduleCommandClient } from "../src/fleet/peer.ts";
+import { readFleetReceiptClient, runFleetScheduleCommandClient } from "../src/fleet/peer.ts";
 
 const repoId = "schedule-claim-race",
   scheduleId = "claim-race",
@@ -99,6 +99,12 @@ test(
     assert.equal(replay.outcome, "applied", JSON.stringify(replay));
     assert.equal(activeRun(replay).claimFence, claimed.claimFence, "a retry replays the winning fence");
     assert.equal(fixture.eventCount(), before + 1, "a replayed claim appends nothing");
+
+    // The caller may lose the response and only keep its request opId. receipt-show must resolve
+    // the committed canonical receipt through the listener's correlation map.
+    const recovered = await fixture.receipt(winner.nodeId, winnerOpId);
+    assert.equal(recovered.outcome, "applied", JSON.stringify(recovered));
+    assert.equal(recovered.opId, winner.result.receipt?.opId);
 
     // Reusing the same frame opId for a different business intent is a different request. If the
     // center still used frame.opId as the business key it would replay the winner's applied
@@ -285,6 +291,17 @@ async function claimRaceFixture(t: TestContext) {
   return {
     claim,
     command,
+    receipt: (nodeId: string, opId: string) =>
+      readFleetReceiptClient({
+        port: center!.port,
+        ca: certificate,
+        servername: "localhost",
+        nodeId,
+        credential: `credential-${nodeId}`,
+        readAccessToken: owners.readAccessToken(nodeId),
+        repoId,
+        opId,
+      }),
     eventCount: () => makeTaskEventReader({ rootDir: repo, repoId }).read().events.length,
     claimEvents: () =>
       makeTaskEventReader({ rootDir: repo, repoId })
