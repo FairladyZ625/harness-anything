@@ -1,4 +1,5 @@
 import { makeRuntimeRecoveryWork } from "./runtime-recovery-work.ts";
+import { localOperatorBinding } from "./daemon-host-binding.ts";
 import { scheduleOccurrenceSettlementOwner } from "./schedule-runtime-outcome.ts";
 import { dispatchTaskReview } from "./task-review-dispatch.ts";
 import { reviewDispatchKey } from "./review-dispatch-key.ts";
@@ -496,6 +497,12 @@ export async function openRepoWriterCell(
     now,
     schedule,
     writeRuntime: recoveryWork.write,
+    ...(input.keycloakSession
+      ? {
+          localRecoveryBinding: async () =>
+            localOperatorBinding(await input.keycloakSession!(rootDir), input.defaultWriterEpochFence),
+        }
+      : {}),
     runtimeInstances: input.runtimeInstances,
     runtimeProviderHealth: input.runtimeProviderHealth,
     keycloakCenter: input.keycloakCenter,

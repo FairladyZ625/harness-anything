@@ -3,6 +3,7 @@ import { actionDeclarations } from "@harness-anything/kernel";
 import { hostCodedError } from "./daemon-host-errors.ts";
 import { type RepoCellBinding } from "./repo-cell.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
+import type { RuntimeOperatorSession } from "./runtime-online-binding.ts";
 import { withWriterEpochFenceDescriptor, type WriterEpochFenceDescriptor } from "@harness-anything/storage";
 
 export function localSystemBinding(
@@ -88,6 +89,24 @@ export function localDefaultBinding(
     },
     auth,
   );
+}
+
+/**
+ * The cell-owned local binding for work the daemon performs without a request, such as settling a
+ * migration-imported runtime session. It reuses the socket-owner local construction and carries the
+ * current operator session plus the cell's default writer fence.
+ */
+export function localOperatorBinding(
+  session: RuntimeOperatorSession,
+  fence?: NonNullable<RepoCellBinding["writerEpochFence"]>,
+): RepoCellBinding {
+  const { daemonSocketOwner: _daemonSocketOwner, ...base } = defaultLocalBinding(process.getuid?.() ?? 0, null),
+    binding: RepoCellBinding = {
+      ...base,
+      actor: { principal: { personId: session.personId }, executor: null },
+      keycloakAuthorization: { session },
+    };
+  return fence === undefined ? binding : withDaemonWriterEpochFence(binding, fence);
 }
 
 function withSessionEnvironment(binding: RepoCellBinding, auth: DaemonAuthenticationContext): RepoCellBinding {

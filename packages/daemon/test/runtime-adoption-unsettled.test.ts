@@ -319,6 +319,10 @@ test("an imported session without a dispatch is settled once and leaves the unse
       rootDir,
       now: () => "2026-11-05T00:00:00.000Z",
       resultMediaType: "text/plain; charset=utf-8",
+      localRecoveryBinding: async () => ({
+        actor: { principal: { personId: "owner" }, executor: null },
+        source: "local" as const,
+      }),
     },
     processes: new Map(),
     exiting: new Set(),

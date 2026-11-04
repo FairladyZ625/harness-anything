@@ -242,10 +242,15 @@ async function settleImportedRuntimeSession(
     .readRuntimeSessionEvents(runtimeSessionId, 0, 1)
     .find((event) => event.type === "runtime_session_started");
   if (!started || started.source !== MIGRATION_IMPORT_SOURCE) return false;
+  // Reuse the cell-owned local binding (current operator session + cell-default writer fence)
+  // instead of minting a local source in the recovery path. The settlement is attributed to the
+  // session's creator, so only that person's daemon session can authorize it.
+  const cellBinding = await context.input.localRecoveryBinding?.();
+  if (!cellBinding) return false;
   const resultBody = IMPORTED_RUNTIME_TERMINAL_BODY,
     result = importedRuntimeTerminalResult(),
     opId = `runtime-recovery-imported-${runtimeSessionId}`,
-    binding: RuntimeBinding = { actor: started.actor, source: "local" };
+    binding = { ...cellBinding, actor: started.actor };
   await context.publishRuntimeEvent("runtime_session_exited", { runtimeSessionId }, `${opId}-exited`, binding);
   await context.publishRuntimeEvent(
     "runtime_session_outcome_observed",
