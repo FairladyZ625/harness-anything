@@ -302,13 +302,6 @@ class OperationTrackerImpl implements OperationTracker {
     this.endedAtMs = monotonicMs();
     this.closeOpen(this.endedAtMs);
     const trace = this.snapshot();
-    this.raw.update({
-      nodeId: this.nodeId,
-      requestBytes: this.requestBytes,
-      replyBytes: this.replyBytes,
-      outcome: this.outcome,
-      endedAtMs: this.endedAtMs,
-    });
     this.raw.end(trace);
   };
 

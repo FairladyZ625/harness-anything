@@ -22,6 +22,7 @@ interface TopTrace {
     readonly last60s: number;
   };
   readonly completed: number;
+  readonly droppedCompletions: number;
   readonly errors: number;
   readonly inFlight: number;
   readonly byMethod: readonly {
@@ -124,6 +125,10 @@ export function renderDaemonTop(snapshot: JsonObject, options?: { readonly daemo
     `rps 1s=${trace.requestsPerSecond.last1s} 5s=${trace.requestsPerSecond.last5s} 60s=${trace.requestsPerSecond.last60s}` +
       ` completed=${trace.completed} errors=${trace.errors}`,
   );
+  if (trace.droppedCompletions > 0)
+    lines.push(
+      `trace samples dropped=${trace.droppedCompletions}; rates and percentiles are incomplete (SLO uses conn-log)`,
+    );
   if (trace.byMethod.length > 0) {
     lines.push("methods (last 60s): method count p50ms p99ms maxms errors");
     for (const row of trace.byMethod)
@@ -166,6 +171,7 @@ function topTrace(value: unknown): TopTrace | null {
       last60s: numberField(value.requestsPerSecond, "last60s"),
     },
     completed: numberField(value, "completed"),
+    droppedCompletions: numberField(value, "droppedCompletions"),
     errors: numberField(value, "errors"),
     inFlight: numberField(value, "inFlight"),
     byMethod: array(value.byMethod).flatMap((row) =>

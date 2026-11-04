@@ -162,3 +162,43 @@ test(
     }
   },
 );
+
+// Observe each transition through the real socket; message accounting stays outside the CPU window.
+test("diagnostics publishes every in-flight phase instead of retaining the first update", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-diag-messages-")),
+    endpoint = localUserDaemonEndpoint(root, "diagnostics-messages"),
+    diagnostics = await openDaemonDiagnostics({ userRoot: root, daemonId: "messages", endpoint });
+  try {
+    await withDaemonObservation(diagnostics.observer, () =>
+      observeDaemonOperation({ method: "fixture.request" }, async () => {
+        for (const phase of [
+          "authorization",
+          "repository-admission",
+          "write-queue",
+          "write-execution",
+          "serialization",
+          "reply",
+        ]) {
+          markDaemonOperationPhase(phase);
+          const status = await requestDaemonJsonRpcAt(
+            daemonDiagnosticsEndpoint(endpoint),
+            "daemon.status",
+            {},
+            1_000,
+            2_000,
+          );
+          const operations = status.inFlight as { method: string; phase: string }[];
+          assert.deepEqual(
+            operations.map(({ method, phase }) => ({ method, phase })),
+            [{ method: "fixture.request", phase }],
+          );
+        }
+      }),
+    );
+    const status = await requestDaemonJsonRpcAt(daemonDiagnosticsEndpoint(endpoint), "daemon.status", {}, 1_000, 2_000);
+    assert.deepEqual(status.inFlight, []);
+  } finally {
+    await diagnostics.close();
+    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});

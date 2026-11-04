@@ -34,6 +34,7 @@ test("daemon top renders per-second rate, method percentiles, queues, nodes and 
     trace: {
       requestsPerSecond: { last1s: 4, last5s: 3.2, last60s: 1.5 },
       completed: 90,
+      droppedCompletions: 2,
       errors: 2,
       inFlight: 1,
       byMethod: [{ method: "repo.task.run", count: 10, p50Ms: 8, p99Ms: 400, maxMs: 900, errors: 1 }],
@@ -45,6 +46,7 @@ test("daemon top renders per-second rate, method percentiles, queues, nodes and 
   });
   assert.match(text, /rps 1s=4 5s=3\.2 60s=1\.5 completed=90 errors=2/u);
   assert.match(text, /repo\.task\.run 10 8 400 900 1/u);
+  assert.match(text, /trace samples dropped=2; rates and percentiles are incomplete/u);
   assert.match(text, /repo-a 3 800/u);
   assert.match(text, /node-7 8/u);
   assert.match(text, /repo\.task\.run 900ms/u);
