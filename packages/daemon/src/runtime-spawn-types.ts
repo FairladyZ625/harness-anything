@@ -12,6 +12,7 @@ import type {
   AuthorizationDecision,
   RuntimeProviderUnreachable,
   RuntimeSession,
+  RuntimeSessionReadQuery,
   SessionIdentity,
   WriteSource,
 } from "@harness-anything/kernel";
@@ -400,7 +401,7 @@ export interface RemoteRuntimePersistence {
     /** The worktree binding the center derived for this task; null when it is closed or changes no repository files. */
     readonly worktree: TaskWorktreeBindingV1 | null;
   }>;
-  readonly readRuntimeSessions: () => Promise<readonly RuntimeSessionSelection[]>;
+  readonly readRuntimeSessions: (query?: RuntimeSessionReadQuery) => Promise<readonly RuntimeSessionSelection[]>;
   /** Read the canonical dispatch owner when a daemon-local stream is unavailable. */
   readonly readRuntimeDispatch: (runtimeSessionId: string) => Promise<RuntimeDispatchOwnerEvidence | null>;
   readonly publish: (draft: {
@@ -470,6 +471,9 @@ export interface RuntimeSpawnerInput {
    *  a no-op for instances without enforced isolation. Returns the filesystem failure (if
    *  any) so terminal settlement can record it honestly instead of swallowing it. */
   readonly reclaimRuntimeTempDirectory?: (instanceId: string, runtimeSessionId: string) => Error | null;
+  /** Names the local per-run temp directories the startup sweep may reclaim. The sweep
+   *  point-reads only these, so its cost follows local directories, not session history. */
+  readonly listRuntimeTempSessionIds?: () => readonly string[];
   /** Startup-only sweep: reclaims every per-run temp directory named in the caller's
    *  repository-scoped terminal session set. This is the retry path for a reclaim that failed at
    *  settlement; dispatch adoption also examines archived streams when a terminal projection is

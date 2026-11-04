@@ -205,6 +205,7 @@ test("the startup sweep treats only settled sessions as reclaimable and reports 
     exiting = "runtime_cccccccccccccccccccccccc";
   let selected: readonly string[] = [];
   const logged: string[] = [],
+    pointReads: string[] = [],
     originalError = console.error;
   console.error = ((line: string) => {
     logged.push(line);
@@ -214,21 +215,28 @@ test("the startup sweep treats only settled sessions as reclaimable and reports 
       exiting: new Set<string>([exiting]),
       processes: new Map([[adopted, { runtimeSessionId: adopted }]]),
       input: {
+        listRuntimeTempSessionIds: () => [settled, live, adopted, neverRegistered, exiting],
         reclaimSettledRuntimeTempDirectories: (ids: readonly string[]) => {
           selected = ids;
           return [{ instanceId: "provider-a", runtimeSessionId: settled, error: new Error("EBUSY: locked") }];
         },
       },
       requiredRuntimeProjection: () => ({
-        readRuntimeSessions: () => [
-          { runtimeSessionId: settled, outcome: "succeeded" },
-          { runtimeSessionId: live, outcome: null },
-          { runtimeSessionId: adopted, outcome: "failed" },
-          { runtimeSessionId: exiting, outcome: "succeeded" },
-        ],
+        readRuntimeSessions: () => assert.fail("the sweep must not read the whole session table"),
+        readRuntimeSession: (id: string) => {
+          pointReads.push(id);
+          const sessions: Record<string, { runtimeSessionId: string; outcome: string | null }> = {
+            [settled]: { runtimeSessionId: settled, outcome: "succeeded" },
+            [live]: { runtimeSessionId: live, outcome: null },
+            [adopted]: { runtimeSessionId: adopted, outcome: "failed" },
+            [exiting]: { runtimeSessionId: exiting, outcome: "succeeded" },
+          };
+          return sessions[id] ?? null;
+        },
       }),
     };
     await sweepSettledRuntimeTempDirectories(context as never);
+    assert.deepEqual(pointReads, [settled, live, adopted, neverRegistered, exiting]);
     assert.deepEqual(selected, [settled]);
     assert.equal(selected.includes(live), false, "live-at-center session stays");
     assert.equal(selected.includes(adopted), false, "locally re-adopted session stays");
@@ -244,21 +252,59 @@ test("the startup sweep treats only settled sessions as reclaimable and reports 
   }
 });
 
-test("the startup sweep leaves every directory alone when the center read fails", async () => {
-  let reclaimCalled = false;
+test("the startup sweep point-reads only local temp directories regardless of session history", async () => {
+  const local = ["runtime_0123456789abcdef01234567", "runtime_89abcdef0123456789abcdef"],
+    history = Array.from({ length: 5_000 }, (_, index) => ({
+      runtimeSessionId: `runtime_${String(index).padStart(24, "0")}`,
+      outcome: "succeeded" as const,
+    })),
+    pointReads: string[] = [];
+  let fullReads = 0,
+    reclaimed: readonly string[] = [];
   const context = {
     exiting: new Set<string>(),
     processes: new Map(),
     input: {
-      reclaimSettledRuntimeTempDirectories: () => {
-        reclaimCalled = true;
+      listRuntimeTempSessionIds: () => local,
+      reclaimSettledRuntimeTempDirectories: (ids: readonly string[]) => {
+        reclaimed = ids;
         return [];
       },
     },
-    requiredRuntimeProjection: () => {
-      throw new Error("center disconnected");
-    },
+    requiredRuntimeProjection: () => ({
+      readRuntimeSessions: () => {
+        fullReads += 1;
+        return history;
+      },
+      readRuntimeSession: (id: string) => {
+        pointReads.push(id);
+        return { runtimeSessionId: id, outcome: "succeeded" };
+      },
+    }),
   };
+  await sweepSettledRuntimeTempDirectories(context as never);
+  assert.equal(fullReads, 0, "the sweep must not read the 5,000-row settled history");
+  assert.deepEqual(pointReads, local, "the sweep reads exactly the local temp directory names");
+  assert.deepEqual(reclaimed, local);
+});
+
+test("the startup sweep leaves every directory alone when the center read fails", async () => {
+  let reclaimCalled = false;
+  const runtimeSessionId = "runtime_0123456789abcdef01234567",
+    context = {
+      exiting: new Set<string>(),
+      processes: new Map(),
+      input: {
+        listRuntimeTempSessionIds: () => [runtimeSessionId],
+        reclaimSettledRuntimeTempDirectories: () => {
+          reclaimCalled = true;
+          return [];
+        },
+      },
+      requiredRuntimeProjection: () => {
+        throw new Error("center disconnected");
+      },
+    };
   await sweepSettledRuntimeTempDirectories(context as never);
   assert.equal(reclaimCalled, false, "settled-ness is unverifiable without the session read");
 });
@@ -266,19 +312,24 @@ test("the startup sweep leaves every directory alone when the center read fails"
 test("settled temp maintenance is independent of runtime adoption", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-adoption-sweep-flag-"));
   try {
-    const sweeps: number[] = [],
+    const settled = "runtime_0123456789abcdef01234567",
+      sweeps: number[] = [],
       context = {
         exiting: new Set<string>(),
         processes: new Map(),
         input: {
           repoId: "repository",
           rootDir,
+          listRuntimeTempSessionIds: () => [settled],
           reclaimSettledRuntimeTempDirectories: () => {
             sweeps.push(sweeps.length);
             return [];
           },
         },
-        requiredRuntimeProjection: () => ({ readRuntimeSessions: () => [] }),
+        requiredRuntimeProjection: () => ({
+          readRuntimeSessions: () => [],
+          readRuntimeSession: () => ({ runtimeSessionId: settled, outcome: "succeeded" }),
+        }),
       };
     await sweepSettledRuntimeTempDirectories(context as never);
     assert.deepEqual(sweeps, [0], "maintenance reclaims settled temp directories");

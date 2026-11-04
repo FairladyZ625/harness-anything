@@ -123,6 +123,7 @@ export interface RepoCellOpenInput {
   readonly prepareRuntimeLaunch?: (instanceId: string, request: RuntimeLaunchRequest) => Promise<PreparedRuntimeLaunch>;
   readonly prepareCloudRelay?: NonNullable<Parameters<typeof makeRuntimeSpawner>[0]["prepareCloudRelay"]>;
   readonly reclaimRuntimeTempDirectory?: (instanceId: string, runtimeSessionId: string) => Error | null;
+  readonly listRuntimeTempSessionIds?: () => readonly string[];
   readonly reclaimSettledRuntimeTempDirectories?: (
     settledRuntimeSessionIds: readonly string[],
   ) => { readonly instanceId: string; readonly runtimeSessionId: string; readonly error: Error }[];
@@ -501,6 +502,7 @@ export async function openRepoWriterCell(
     prepareLaunch: input.prepareRuntimeLaunch ?? unavailableRuntimeInstanceStore,
     ...(input.prepareCloudRelay ? { prepareCloudRelay: input.prepareCloudRelay } : {}),
     ...(input.reclaimRuntimeTempDirectory ? { reclaimRuntimeTempDirectory: input.reclaimRuntimeTempDirectory } : {}),
+    ...(input.listRuntimeTempSessionIds ? { listRuntimeTempSessionIds: input.listRuntimeTempSessionIds } : {}),
     ...(input.reclaimSettledRuntimeTempDirectories
       ? { reclaimSettledRuntimeTempDirectories: input.reclaimSettledRuntimeTempDirectories }
       : {}),

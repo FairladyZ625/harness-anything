@@ -284,6 +284,11 @@ test("the settled-session sweep reclaims only settled per-run directories it own
     mkdirSync(path.join(lockedRoot, "scratch"));
     writeFileSync(path.join(lockedRoot, "scratch", "payload.txt"), "one-off fixture");
     chmodSync(lockedRoot, 0o500);
+    assert.deepEqual(
+      store.listRuntimeTempSessionIds(),
+      [sessionA, sessionB, sessionC, sessionD].sort(),
+      "the sweep enumerates only spawner-minted session directories in enforced instances",
+    );
     const failures = store.reclaimSettledRuntimeTempDirectories([sessionA, sessionC, sessionD]);
     assert.deepEqual(
       failures.map((failure) => [failure.instanceId, failure.runtimeSessionId]),
@@ -331,10 +336,16 @@ test("a repository sweep preserves another repository's live, settled and unregi
     }
     const sweep = (sessions: { runtimeSessionId: string; outcome: string | null }[]) =>
       sweepSettledRuntimeTempDirectories({
-        input: { reclaimSettledRuntimeTempDirectories: store.reclaimSettledRuntimeTempDirectories },
+        input: {
+          reclaimSettledRuntimeTempDirectories: store.reclaimSettledRuntimeTempDirectories,
+          listRuntimeTempSessionIds: store.listRuntimeTempSessionIds,
+        },
         processes: new Map(),
         exiting: new Set(),
-        requiredRuntimeProjection: () => ({ readRuntimeSessions: () => sessions }),
+        requiredRuntimeProjection: () => ({
+          readRuntimeSessions: () => assert.fail("the sweep must point-read local directories only"),
+          readRuntimeSession: (id: string) => sessions.find((session) => session.runtimeSessionId === id) ?? null,
+        }),
       } as never);
     await sweep([]);
     for (const id of ids)

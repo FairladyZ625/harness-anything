@@ -817,6 +817,20 @@ export function openRuntimeInstanceStore(input: {
     }
   }
 
+  /** Names the local per-run temp directories. The startup sweep point-reads these names so
+   *  its cost follows local directories instead of every session the repository ever ran. */
+  function listRuntimeTempSessionIds(): string[] {
+    const runtimeSessionIds = new Set<string>();
+    for (const config of read()) {
+      if (config.isolationState !== "enforced") continue;
+      const instanceTmpRoot = path.join(instancesRoot, config.instanceId, "tmp");
+      if (!existsSync(instanceTmpRoot)) continue;
+      for (const entry of readdirSync(instanceTmpRoot, { withFileTypes: true }))
+        if (entry.isDirectory() && runtimeTempSessionPattern.test(entry.name)) runtimeSessionIds.add(entry.name);
+    }
+    return [...runtimeSessionIds].sort();
+  }
+
   /** Reclaims only directories named by the caller's repository-scoped terminal session set.
    *  Unknown ids may belong to another repository sharing this node's instances; directory
    *  absence from one repository's session table is never evidence of an orphan. Enumerating
@@ -855,6 +869,7 @@ export function openRuntimeInstanceStore(input: {
     prepareLaunch,
     prepareCloudRelay,
     reclaimRuntimeTempDirectory,
+    listRuntimeTempSessionIds,
     reclaimSettledRuntimeTempDirectories,
     prepareDaemonGitEnvironment,
     refreshInstallations,

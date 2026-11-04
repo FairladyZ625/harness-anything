@@ -10,7 +10,7 @@ import type {
 import type { DocumentState } from "@harness-anything/kernel/internal/domain/doc-sync.contract.ts";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
 import { eventIndexEvent, readCutInTransaction, readEventRowsInTransaction } from "./pg-event-queries.ts";
-import { getPgProjectionValue, listPgProjectionValues } from "./pg-projection-values.ts";
+import { getPgProjectionValue, listPgProjectionValues, listPgRuntimeSessions } from "./pg-projection-values.ts";
 import type { PgTaskProjectionSourceOptions } from "./pg-task-source.ts";
 import type { AsyncQueries } from "./pg-runtime-dispatch-queries.ts";
 
@@ -98,7 +98,9 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
     readRuntimeInstallation: (id) => get("runtime-installation", id),
     readRuntimeInstallations: () => list("runtime-installation"),
     readRuntimeSession: (id) => get("runtime-session", id),
-    readRuntimeSessions: () => list("runtime-session"),
+    // Runtime sessions stay JSON text because documents may contain NUL, but the unsettled and
+    // node-owner predicates are evaluated by PostgreSQL against the partial expression index.
+    readRuntimeSessions: (query) => read((client) => listPgRuntimeSessions(client, scope, repoId, query)),
     readRuntimeSessionsForTask: async (taskId) =>
       (await list<RuntimeSession>("runtime-session")).filter((session) =>
         session.taskBindings.some((binding) => binding.taskId === taskId),

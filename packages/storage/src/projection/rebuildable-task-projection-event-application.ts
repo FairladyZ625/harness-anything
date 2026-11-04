@@ -141,10 +141,17 @@ const UPSERT_RUNTIME_INSTALLATION_SQL = [
   "value_json=excluded.value_json",
 ].join(" ");
 const UPSERT_RUNTIME_SESSION_SQL = [
-  "INSERT INTO runtime_session(runtime_session_id, workspace_revision, value_json) VALUES (?, ?, ?)",
+  "INSERT INTO runtime_session(runtime_session_id, workspace_revision, value_json, execution_node_id) VALUES (?, ?, ?, ?)",
   "ON CONFLICT(runtime_session_id) DO UPDATE SET workspace_revision=excluded.workspace_revision,",
-  "value_json=excluded.value_json",
+  "value_json=excluded.value_json,",
+  "execution_node_id=CASE WHEN excluded.execution_node_id <> '' THEN excluded.execution_node_id",
+  "ELSE runtime_session.execution_node_id END",
 ].join(" ");
+/** Session ownership comes from the launch event's canonical source; later events keep it. */
+function runtimeSessionExecutionNodeId(event: PersistedCanonicalEventV1): string {
+  if (event.type !== "runtime_session_started") return "";
+  return typeof event.source === "object" && event.source.kind === "node" ? event.source.nodeId : "";
+}
 const UPSERT_TASK_SNAPSHOT_SQL = [
   "INSERT INTO task_snapshot(task_id, workspace_revision, snapshot_json, status, updated_at)",
   "VALUES (?, ?, ?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET",
@@ -565,6 +572,7 @@ export function applyEvent(
           session.runtimeSessionId,
           event.workspaceRevision,
           canonicalJson(session),
+          runtimeSessionExecutionNodeId(event),
         );
         refreshRuntimeSessionAssociations(db, session);
         projectRuntimeSessionCanonicalEntity(db, session, event.workspaceRevision, `event:${event.opId}`);

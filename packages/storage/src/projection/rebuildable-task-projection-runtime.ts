@@ -26,7 +26,11 @@ import {
   runSql,
 } from "./rebuildable-task-projection-sql.ts";
 import type { LeaseInterval } from "@harness-anything/kernel";
-import type { RuntimeSessionPageQuery, RuntimeSessionPageRead } from "@harness-anything/kernel";
+import type {
+  RuntimeSessionPageQuery,
+  RuntimeSessionPageRead,
+  RuntimeSessionReadQuery,
+} from "@harness-anything/kernel";
 import { readRelationProjectionRows, readRelationProjectionRowsForTargets } from "./relation-entity-projection.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "@harness-anything/kernel";
@@ -367,10 +371,41 @@ export function readRuntimeSession(db: DatabaseSync, sessionId: string): Runtime
   const row = queryRows(db, "SELECT value_json FROM runtime_session WHERE runtime_session_id = ?", sessionId)[0];
   return row ? (JSON.parse(String(row.value_json)) as RuntimeSession) : null;
 }
-export function readRuntimeSessions(db: DatabaseSync): RuntimeSession[] {
-  return queryRows(db, "SELECT value_json FROM runtime_session ORDER BY runtime_session_id").map(
+export function readRuntimeSessions(db: DatabaseSync, query?: RuntimeSessionReadQuery): RuntimeSession[] {
+  if (query?.runtimeSessionId !== undefined) {
+    const session = readRuntimeSession(db, query.runtimeSessionId);
+    if (!session) return [];
+    if (query.unsettledOnly && session.outcome !== null) return [];
+    if (
+      query.executionOwnerNodeId !== undefined &&
+      runtimeSessionExecutionNode(db, session.runtimeSessionId) !== query.executionOwnerNodeId
+    )
+      return [];
+    return [session];
+  }
+  const clauses: string[] = [],
+    values: string[] = [];
+  // runtime_session_unsettled_order covers the outcome filter and the recovery ORDER BY together,
+  // so the read cannot fall back to scanning the repository's settled history.
+  if (query?.unsettledOnly) clauses.push("json_extract(value_json, '$.outcome') IS NULL");
+  // Edge recovery is scoped by the canonical dispatch source stored beside the session. The
+  // node_unsettled index applies both predicates before any session row is visited.
+  if (query?.executionOwnerNodeId !== undefined) {
+    clauses.push("execution_node_id = ?");
+    values.push(query.executionOwnerNodeId);
+  }
+  const where = clauses.length === 0 ? "" : ` WHERE ${clauses.join(" AND ")}`;
+  return queryRows(db, `SELECT value_json FROM runtime_session${where} ORDER BY runtime_session_id`, ...values).map(
     (row) => JSON.parse(String(row.value_json)) as RuntimeSession,
   );
+}
+function runtimeSessionExecutionNode(db: DatabaseSync, runtimeSessionId: string): string | null {
+  const row = queryRows(
+    db,
+    "SELECT execution_node_id FROM runtime_session WHERE runtime_session_id = ?",
+    runtimeSessionId,
+  )[0];
+  return row === undefined ? null : String(row.execution_node_id ?? "");
 }
 export function readRuntimeSessionsForTask(db: DatabaseSync, taskId: string): RuntimeSession[] {
   return queryRows(

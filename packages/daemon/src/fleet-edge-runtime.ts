@@ -30,6 +30,7 @@ import {
   resolveHarnessLayout,
   validateScheduleV1,
   type AgentRuntimeEventV1,
+  type RuntimeSessionReadQuery,
   type ScheduleV1,
   type TaskWorktreeBindingV1,
 } from "@harness-anything/kernel";
@@ -53,7 +54,7 @@ import { applyFleetMirrorCut, locateFleetMirrorView } from "./fleet-edge-mirror.
 import { transitionDocumentReadinessContract } from "./transition-document-access.ts";
 import { validateAgentRuntimeOverview, type AgentRuntimeOverviewResult } from "./agent-runtime-contract.ts";
 import { makeRuntimeSpawner, type RuntimeDaemonRoute, type RuntimeLauncher } from "./runtime-spawn.ts";
-import type { ReviewerReviewRecoveryInput, RuntimeAgent } from "./runtime-spawn-types.ts";
+import type { ReviewerReviewRecoveryInput, RuntimeAgent, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { readReplicaGeneration } from "./fleet/replica-generation.ts";
@@ -98,6 +99,7 @@ type RuntimePorts = {
   readonly prepareRuntimeLaunch: (instanceId: string, request: RuntimeLaunchRequest) => Promise<PreparedRuntimeLaunch>;
   readonly prepareCloudRelay: NonNullable<Parameters<typeof makeRuntimeSpawner>[0]["prepareCloudRelay"]>;
   readonly reclaimRuntimeTempDirectory: (instanceId: string, runtimeSessionId: string) => Error | null;
+  readonly listRuntimeTempSessionIds?: () => readonly string[];
   readonly reclaimSettledRuntimeTempDirectories: (
     settledRuntimeSessionIds: readonly string[],
   ) => { readonly instanceId: string; readonly runtimeSessionId: string; readonly error: Error }[];
@@ -196,6 +198,25 @@ export async function readFleetRuntimeSessionsPaged(readPage: (payload: JsonObje
     if (cursor !== null) seen.add(cursor);
   } while (cursor !== null);
   return sessions;
+}
+
+/**
+ * The unsettled/point-read recovery input reads the replica projection by key or unsettled set.
+ * Every selected field must survive: `providerUnreachable` is the center's persisted fault
+ * classification, so dropping it here would make adoption silently clear a live fault.
+ */
+export function readEdgeRuntimeSessions(
+  projection: Pick<TaskProjection, "readRuntimeSessions">,
+  query?: RuntimeSessionReadQuery,
+): readonly RuntimeSessionSelection[] {
+  return projection.readRuntimeSessions(query).map((session) => ({
+    runtimeSessionId: session.runtimeSessionId,
+    providerSessionId: session.providerSessionId,
+    instanceId: session.instanceId,
+    liveness: session.liveness,
+    outcome: session.outcome,
+    providerUnreachable: session.providerUnreachable ?? null,
+  }));
 }
 
 export function createFleetEdgeRuntimeWorkQueue(onError: (error: unknown) => void) {
@@ -718,25 +739,32 @@ export function openFleetEdgeRuntime(input: {
           worktree,
         };
       },
-      readRuntimeSessions: () =>
-        readFleetRuntimeSessionsPaged(async (payload) =>
-          withEdgeReadModel(
-            { ...request, principalId: (await input.readBinding()).actor.principal.personId, includeEntries: false },
-            (projection, frame, view) => ({
-              // Recovery needs the center's published outcome. Local terminal evidence is
-              // for public reads; treating it as publication would skip replay after a lost write.
-              ...repositoryRuntimeReads(
-                projection as TaskProjection,
-                {
-                  readContentBlob: (sha256) => readEdgeViewBlob(view, sha256),
-                },
-                undefined,
-                request.viewRoot,
-              ).overview(payload),
-              ...frame,
-            }),
-          ),
-        ),
+      readRuntimeSessions: async (query) => {
+        // Recovery needs the center's published outcome. Local terminal evidence is for public
+        // reads; treating it as publication would skip replay after a lost write. Read the
+        // replica projection directly so startup follows unsettled sessions, not full history.
+        if (!query?.unsettledOnly && query?.runtimeSessionId === undefined)
+          return readFleetRuntimeSessionsPaged(async (payload) =>
+            withEdgeReadModel(
+              { ...request, principalId: (await input.readBinding()).actor.principal.personId, includeEntries: false },
+              (projection, frame, view) => ({
+                ...repositoryRuntimeReads(
+                  projection as TaskProjection,
+                  {
+                    readContentBlob: (sha256) => readEdgeViewBlob(view, sha256),
+                  },
+                  undefined,
+                  request.viewRoot,
+                ).overview(payload),
+                ...frame,
+              }),
+            ),
+          );
+        const principalId = (await input.readBinding()).actor.principal.personId;
+        return withEdgeReadModel({ ...request, principalId, includeEntries: false }, (projection) =>
+          readEdgeRuntimeSessions(projection, query),
+        );
+      },
       readRuntimeDispatch: async (runtimeSessionId) =>
         withEdgeReadModel(
           {
@@ -830,6 +858,9 @@ export function openFleetEdgeRuntime(input: {
     prepareLaunch: input.ports.prepareRuntimeLaunch,
     prepareCloudRelay: input.ports.prepareCloudRelay,
     reclaimRuntimeTempDirectory: input.ports.reclaimRuntimeTempDirectory,
+    ...(input.ports.listRuntimeTempSessionIds
+      ? { listRuntimeTempSessionIds: input.ports.listRuntimeTempSessionIds }
+      : {}),
     reclaimSettledRuntimeTempDirectories: input.ports.reclaimSettledRuntimeTempDirectories,
     prepareDaemonGitEnvironment: input.ports.prepareDaemonGitEnvironment,
     resolveAgent: (agentId) => trustedScheduleAgents.get(agentId) ?? mirroredAgentDeclaration(request, agentId),

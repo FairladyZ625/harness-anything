@@ -6,6 +6,7 @@ import {
   archiveDispatchStream,
   readDispatchStream,
   readDispatchStreamHeader,
+  readDispatchStreamHeaders,
   readDispatchStreamSummary,
   reopenDispatchStream,
   type DispatchStreamHeader,
@@ -48,18 +49,33 @@ export async function adoptRuntimes(
   onProgress?: (completed: number) => void,
   options?: { readonly runtimeSessionId?: string; readonly authorizationBinding?: RuntimeBinding },
 ): Promise<readonly RuntimeRecoveryResult[]> {
+  // Canonical settlement can precede a crash before the local archive rename. Recover
+  // unsettled sessions plus live streams, never the repository's archived session history.
+  // A node scopes its scan to dispatches whose canonical source names it, so another node's
+  // unsettled runtimes never become candidates or trigger a dispatch point read.
+  const query = {
+    unsettledOnly: true,
+    ...(context.input.runtimeNode ? { executionOwnerNodeId: context.input.runtimeNode.nodeId } : {}),
+  } as const;
   const sessions = context.input.remote
-    ? await context.input.remote.readRuntimeSessions()
-    : context.requiredRuntimeProjection(context.input).readRuntimeSessions();
+    ? await context.input.remote.readRuntimeSessions(query)
+    : context.requiredRuntimeProjection(context.input).readRuntimeSessions(query);
+  const candidates = new Map<string, RuntimeSessionSelection | undefined>(
+    sessions.map((session) => [session.runtimeSessionId, session]),
+  );
+  for (const header of readDispatchStreamHeaders(context.input.rootDir)) {
+    const metadata = adoptableMetadata(header);
+    if (metadata && ownedByRuntimeSpawner(metadata.binding, context.input.runtimeNode, header))
+      if (!candidates.has(header.runtimeSessionId)) candidates.set(header.runtimeSessionId, undefined);
+  }
   let pending = recoveries.get(context);
   if (!pending) recoveries.set(context, (pending = new Map()));
   let completed = 0;
   // Point reads, including archived streams, belong to each recovery. A stalled
   // remote header lookup must not delay a sibling's restoration.
-  const attempts = sessions
-    .filter((session) => !options?.runtimeSessionId || session.runtimeSessionId === options.runtimeSessionId)
-    .map((session) => {
-      const runtimeSessionId = session.runtimeSessionId;
+  const attempts = [...candidates]
+    .filter(([id]) => !options?.runtimeSessionId || id === options.runtimeSessionId)
+    .map(([runtimeSessionId, candidate]) => {
       const existing = pending.get(runtimeSessionId);
       if (existing && !existing.result) return existing.promise;
       const alreadyOwned = hasLocalRuntimeOwner(context, runtimeSessionId);
@@ -69,6 +85,14 @@ export async function adoptRuntimes(
           .then(async () => {
             // The launch may not have written its stream header yet either.
             if (context.ownsModelSlot?.(runtimeSessionId)) return "ready" as const;
+            // Keep each point lookup inside its own recovery so a stalled edge read does not
+            // hold up siblings. The live directory bounds these extra canonical session reads.
+            const session =
+              candidate ??
+              (context.input.remote
+                ? (await context.input.remote.readRuntimeSessions({ runtimeSessionId }))[0]
+                : context.requiredRuntimeProjection(context.input).readRuntimeSession(runtimeSessionId));
+            if (!session) return "foreign" as const;
             const dispatch = context.input.remote
               ? await context.input.remote.readRuntimeDispatch(runtimeSessionId)
               : context.requiredRuntimeProjection(context.input).readRuntimeDispatch(runtimeSessionId);
@@ -401,25 +425,31 @@ function attachAdoptedObservations(context: RuntimeSpawnerContext, active: Activ
  *  archived dispatch streams. Other repositories share the node's instance store, so an
  *  unknown session must be retained. Locally adopted/settling sessions are still in use. */
 export async function sweepSettledRuntimeTempDirectories(context: RuntimeSpawnerContext): Promise<void> {
-  if (!context.input.reclaimSettledRuntimeTempDirectories) return;
-  const [sessionRead] = await Promise.allSettled([
-    Promise.resolve().then(() =>
-      context.input.remote
-        ? context.input.remote.readRuntimeSessions()
-        : context.requiredRuntimeProjection(context.input).readRuntimeSessions(),
-    ),
-  ]);
-  // Without an authoritative session read, settled-ness cannot be verified; leave every
-  // directory for the next start instead of guessing.
-  if (sessionRead.status !== "fulfilled") return;
-  const settledRuntimeSessionIds = sessionRead.value
-    .filter(
-      (session) =>
-        session.outcome !== null &&
-        !context.processes.has(session.runtimeSessionId) &&
-        !context.exiting.has(session.runtimeSessionId),
-    )
-    .map((session) => session.runtimeSessionId);
+  if (!context.input.reclaimSettledRuntimeTempDirectories || !context.input.listRuntimeTempSessionIds) return;
+  // Local temp directories are the only reclaim candidates. Point-reading exactly those names
+  // keeps startup maintenance at D reads instead of reading the repository's whole session table.
+  const runtimeSessionIds = [...new Set(context.input.listRuntimeTempSessionIds())];
+  if (runtimeSessionIds.length === 0) {
+    context.input.reclaimSettledRuntimeTempDirectories([]);
+    return;
+  }
+  const sessionReads = await Promise.allSettled(
+    runtimeSessionIds.map(async (runtimeSessionId) => {
+      if (context.input.remote)
+        return (await context.input.remote.readRuntimeSessions({ runtimeSessionId }))[0] ?? null;
+      return context.requiredRuntimeProjection(context.input).readRuntimeSession(runtimeSessionId);
+    }),
+  );
+  // Without an authoritative session read for a directory, leave that directory for the next
+  // start instead of guessing; an unknown session may belong to another repository on this node.
+  const settledRuntimeSessionIds: string[] = [];
+  for (const [index, read] of sessionReads.entries()) {
+    if (read.status !== "fulfilled" || !read.value || read.value.outcome === null) continue;
+    const runtimeSessionId = runtimeSessionIds[index]!;
+    if (context.processes.has(runtimeSessionId) || context.exiting.has(runtimeSessionId)) continue;
+    settledRuntimeSessionIds.push(runtimeSessionId);
+  }
+  if (settledRuntimeSessionIds.length === 0) return;
   const reclaimFailures = context.input.reclaimSettledRuntimeTempDirectories(settledRuntimeSessionIds);
   for (const failure of reclaimFailures)
     logRuntimeTempReclaimFailure(failure.instanceId, failure.runtimeSessionId, "by the startup sweep", failure.error);

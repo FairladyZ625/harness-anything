@@ -1,4 +1,5 @@
 import type { PoolClient } from "pg";
+import type { RuntimeSession } from "@harness-anything/kernel";
 import { canonicalJson } from "../projection/rebuildable-task-projection-sql.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 
@@ -89,4 +90,65 @@ export async function getPgProjectionValue<Value>(
     [scope.tenantId, scope.projectId, scope.policyEpoch, model, id, owner, [...(scope.readers ?? [])]],
   );
   return result.rows[0] ? (JSON.parse(result.rows[0].value) as Value) : null;
+}
+
+/**
+ * Runtime sessions are text values so documents may keep NUL bytes; the unsettled expression is
+ * scoped to this model by a partial index, which keeps recovery from scanning every session a
+ * repository ever ran. The model is a literal, not a parameter, so the planner can prove the
+ * partial-index predicate without relying on custom-plan parameter folding.
+ */
+export function pgRuntimeSessionReadStatement(
+  scope: PgProjectionScope,
+  repoId: string,
+  query: {
+    readonly runtimeSessionId?: string;
+    readonly unsettledOnly?: boolean;
+    readonly executionOwnerNodeId?: string;
+  } = {},
+): { readonly text: string; readonly values: readonly unknown[] } {
+  const values: unknown[] = [scope.tenantId, scope.projectId, scope.policyEpoch, [...(scope.readers ?? [])]],
+    where = [
+      "v.tenant_id=$1",
+      "v.project_id=$2",
+      "v.policy_epoch=$3",
+      "v.model='runtime-session'",
+      "(cardinality($4::text[])=0 OR v.readers && $4::text[])",
+    ],
+    bind = (value: unknown) => {
+      values.push(value);
+      return `$${values.length}`;
+    };
+  if (query.runtimeSessionId !== undefined) where.push(`v.entity_id=${bind(query.runtimeSessionId)}`);
+  if (query.unsettledOnly) where.push("(v.value::jsonb->>'outcome') IS NULL");
+  if (query.executionOwnerNodeId !== undefined) {
+    const repoParameter = bind(repoId),
+      nodeParameter = bind(query.executionOwnerNodeId);
+    where.push(`EXISTS (
+      SELECT 1 FROM ha_events e
+      WHERE e.tenant_id=$1 AND e.project_id=$2 AND e.policy_epoch=$3 AND e.repo_id=${repoParameter}
+        AND e.event_type='runtime_dispatch_requested'
+        AND e.event_json::jsonb->>'schema'='agent-runtime-event/v1'
+        AND e.event_json::jsonb#>>'{payload,runtimeSessionId}'=v.entity_id
+        AND e.event_json::jsonb#>>'{source,nodeId}'=${nodeParameter})`);
+  }
+  return {
+    text: `SELECT v.value FROM ha_projection_values v WHERE ${where.join(" AND ")} ORDER BY v.entity_id, v.owner_id`,
+    values,
+  };
+}
+
+export async function listPgRuntimeSessions(
+  client: PoolClient,
+  scope: PgProjectionScope,
+  repoId: string,
+  query: {
+    readonly runtimeSessionId?: string;
+    readonly unsettledOnly?: boolean;
+    readonly executionOwnerNodeId?: string;
+  } = {},
+): Promise<readonly RuntimeSession[]> {
+  const statement = pgRuntimeSessionReadStatement(scope, repoId, query),
+    result = await client.query<{ value: string }>(statement.text, [...statement.values]);
+  return result.rows.map(({ value }) => JSON.parse(value) as RuntimeSession);
 }

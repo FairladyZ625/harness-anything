@@ -52,6 +52,15 @@ import type {
 import type { DecisionListFilters, DecisionPageQuery } from "./decision-projection-model.ts";
 import type { EntityFreshness, EntityVersion, EntityVersionWitness } from "../domain/entity-freshness.ts";
 
+export interface RuntimeSessionReadQuery {
+  /** Point lookup for a local live stream whose canonical session may already be settled. */
+  readonly runtimeSessionId?: string;
+  /** Only sessions whose canonical outcome is still unset. Recovery must not scan settled history. */
+  readonly unsettledOnly?: boolean;
+  /** Only sessions whose canonical dispatch names this execution node as its source. Edge recovery
+   *  must not traverse another node's unsettled runtimes. */
+  readonly executionOwnerNodeId?: string;
+}
 export interface RuntimeSessionPageQuery {
   readonly taskId?: string;
   readonly limit: number;
@@ -302,7 +311,7 @@ export interface TaskProjection {
   readonly readRuntimeInstallation: (installationId: string) => RuntimeInstallation | null;
   readonly readRuntimeInstallations: () => readonly RuntimeInstallation[];
   readonly readRuntimeSession: (runtimeSessionId: string) => RuntimeSession | null;
-  readonly readRuntimeSessions: () => readonly RuntimeSession[];
+  readonly readRuntimeSessions: (query?: RuntimeSessionReadQuery) => readonly RuntimeSession[];
   readonly readRuntimeSessionsForTask: (taskId: string) => readonly RuntimeSession[];
   readonly readRuntimeSessionPage: (query: RuntimeSessionPageQuery) => RuntimeSessionPageRead;
   readonly readSquadRun: (squadRunId: string) => SquadRunProjectionRow | null;

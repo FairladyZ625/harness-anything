@@ -50,7 +50,7 @@ export function runtimeLeaseApi(
       withDatabase(projectionPath, readHead, (db) => readRuntimeSession(db, runtimeSessionIdValue)),
     readRuntimeSessionPage: (query) =>
       withDatabase(projectionPath, readHead, (db) => readRuntimeSessionPage(db, query)),
-    readRuntimeSessions: () => withDatabase(projectionPath, readHead, readRuntimeSessions),
+    readRuntimeSessions: (query) => withDatabase(projectionPath, readHead, (db) => readRuntimeSessions(db, query)),
     readRuntimeSessionsForTask: (taskId) =>
       withDatabase(projectionPath, readHead, (db) => readRuntimeSessionsForTask(db, taskId)),
     readSquadRun: (squadRunId) => withDatabase(projectionPath, readHead, (db) => readSquadRun(db, squadRunId)),

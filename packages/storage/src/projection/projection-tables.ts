@@ -41,8 +41,21 @@ export const REPOSITORY_READ_TABLES_SQL = `
     CREATE TABLE IF NOT EXISTS runtime_session (
       runtime_session_id TEXT PRIMARY KEY,
       workspace_revision INTEGER NOT NULL,
-      value_json TEXT NOT NULL
+      value_json TEXT NOT NULL,
+      -- Canonical dispatch source for an edge session; '' for center-local or legacy rows. Keeping
+      -- it beside the value lets recovery read one node's unsettled sessions without walking the
+      -- repository's dispatch history.
+      execution_node_id TEXT NOT NULL DEFAULT ''
     );
+    -- Startup recovery asks only for unsettled sessions. The trailing session id makes the
+    -- filter and ORDER BY one index range instead of a full history scan plus sort.
+    CREATE INDEX IF NOT EXISTS runtime_session_unsettled_order
+      ON runtime_session(json_extract(value_json, '$.outcome'), runtime_session_id);
+    -- Edge recovery filters by node before outcome, so node-settled history is never visited.
+    CREATE INDEX IF NOT EXISTS runtime_session_node_unsettled
+      ON runtime_session(execution_node_id, json_extract(value_json, '$.outcome'), runtime_session_id);
+    -- Replaced by runtime_session_unsettled_order, which also carries the recovery ORDER BY.
+    DROP INDEX IF EXISTS runtime_session_unsettled;
     CREATE TABLE IF NOT EXISTS runtime_session_task_binding (
       task_id TEXT NOT NULL,
       runtime_session_id TEXT NOT NULL,
@@ -139,6 +152,9 @@ export const REPOSITORY_READ_TABLES_SQL = `
     CREATE INDEX IF NOT EXISTS event_index_runtime_session ON event_index(
       json_extract(event_json, '$.payload.runtimeSessionId'), workspace_revision
     ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1';
+    -- Recovery now reads its node scope from runtime_session.execution_node_id; this superseded
+    -- dispatch-source scan index is removed when an existing projection reopens.
+    DROP INDEX IF EXISTS event_index_runtime_dispatch_node;
     CREATE INDEX IF NOT EXISTS event_index_schedule_events ON event_index(workspace_revision)
       WHERE json_extract(event_json, '$.schema') = 'schedule-event/v1';
     CREATE INDEX IF NOT EXISTS event_index_schedule_entity ON event_index (

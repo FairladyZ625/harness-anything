@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -93,6 +93,12 @@ test(
         sweeps.push(ids);
         return [];
       },
+      listRuntimeTempSessionIds: () =>
+        existsSync(path.join(root, "temp"))
+          ? readdirSync(path.join(root, "temp"), { withFileTypes: true })
+              .filter((entry) => entry.isDirectory() && entry.name.startsWith("runtime_"))
+              .map((entry) => entry.name)
+          : [],
       reclaimRuntimeTempDirectory: (_instanceId, id) => {
         reclaimed.push(id);
         rmSync(path.join(root, "temp", id), { recursive: true, force: true });
@@ -201,6 +207,9 @@ test(
       );
       assert.equal(reclaimed.length, 3, "failed provider launch also crosses the reclaim bridge");
       assert.equal(existsSync(path.join(root, "temp", reclaimed[2]!)), false);
+      // Model the settlement reclaim failure this startup sweep exists to retry: the terminal
+      // runs' local directories survived their streams being archived.
+      for (const id of [runtimeSessionId, secondId]) mkdirSync(path.join(root, "temp", id), { recursive: true });
       await cell.close();
       cell = await openRepoCell(cellInput);
       // Repository readiness no longer waits for node-local maintenance.
