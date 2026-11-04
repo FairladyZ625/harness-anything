@@ -20,6 +20,8 @@ import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { workspacePathFormat } from "@harness-anything/preset/internal/preset-command-contract";
 import {
   cliCapabilities,
+  cliCommandDomains,
+  declaredCommandDomains,
   deriveThinCliInputs,
   parseThinCommand,
   renderThinCapabilities,
@@ -848,6 +850,26 @@ test("hidden declarations leave capabilities and help while their routes still p
       `${id} has a live guidance caller and must stay visible`,
     );
   }
+});
+
+test("a fully hidden domain still answers its command's --help without advertising it", async () => {
+  assert.ok(declaredCommandDomains.includes("distill"), "the declared domain set keeps distill");
+  assert.ok(!cliCommandDomains.includes("distill"), "the visible domain set hides distill");
+  const logs: string[] = [],
+    log = console.log;
+  let exit: number;
+  console.log = (value: unknown) => {
+    logs.push(String(value));
+  };
+  try {
+    exit = await main(["distill", "candidate", "--help"]);
+  } finally {
+    console.log = log;
+  }
+  const output = logs.join("\n");
+  assert.equal(exit, 0, output);
+  assert.match(output, /Commands for distill:/u);
+  assert.doesNotMatch(output, /ha distill candidate/u, "the hidden command must not be advertised");
 });
 
 test("event commands project list filters and the show positional into read actions", () => {
