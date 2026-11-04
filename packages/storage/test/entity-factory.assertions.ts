@@ -10,6 +10,7 @@ import { createEntityStore, type OpenedEntityStore } from "../src/store/entity-s
 export function assertEntityFactory(input: {
   readonly store: CanonicalEventStore;
   readonly open: () => OpenedEntityStore;
+  readonly withReadSession?: (read: () => void) => void;
 }) {
   const { store } = input,
     base = store.readHead()?.revision ?? 0,
@@ -66,6 +67,9 @@ export function assertEntityFactory(input: {
   };
   try {
     append(upsert(1));
+    input.withReadSession?.(() => {
+      assert.equal(reader.get("agent", "factory-agent")?.workspaceRevision, base + 1);
+    });
     const newer = upsert(2);
     append(newer);
     append(

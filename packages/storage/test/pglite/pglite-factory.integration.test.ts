@@ -31,7 +31,18 @@ pgliteIntegrationSuite("PGlite synchronous factories", () => {
           executionId: "execution-factory",
           reader: () => makeTaskProjectionReader({ repoId, storage }),
         });
-        assertEntityFactory({ store, open: () => openEntityStore(rootDir, { repoId, storage }) });
+        assertEntityFactory({
+          store,
+          open: () => openEntityStore(rootDir, { repoId, storage }),
+          withReadSession: (read) => {
+            const reader = makeTaskProjectionReader({ repoId, storage });
+            try {
+              reader.withSession(() => read());
+            } finally {
+              reader.close();
+            }
+          },
+        });
         // Closing one facade cannot stop the owner still used by the other facade.
         projection.close();
         assert.equal(store.readHead()?.revision, events.length + 5);

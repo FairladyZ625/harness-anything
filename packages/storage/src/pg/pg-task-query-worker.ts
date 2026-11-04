@@ -1,6 +1,7 @@
+import { borrowPgReadClient } from "./pg-read-savepoint.ts";
 import { readCutInTransaction } from "./pg-event-queries.ts";
 import { isMainThread, parentPort, workerData, type MessagePort } from "node:worker_threads";
-import { Pool, type PoolClient, type QueryResult } from "pg";
+import { Pool, type PoolClient } from "pg";
 import { consumeKnownError } from "@harness-anything/kernel";
 import { createPgTaskProjectionSource } from "./pg-task-source.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
@@ -66,6 +67,12 @@ function startWorker(
   options: {
     readonly ownsPools?: boolean;
     readonly onClose?: () => void;
+    readonly onFailure?: (error: Error) => void;
+    readonly readSessions?: {
+      readonly begin: (client: PoolClient) => void;
+      readonly beforeEnd: (client: PoolClient) => Promise<void>;
+      readonly end: (client: PoolClient) => void;
+    };
     readonly epochs?: ReturnType<typeof pgEpochTransactions>;
     readonly canonical?: <Result>(
       request: PostgresTaskEventStoreRequest,
@@ -87,8 +94,8 @@ function startWorker(
       : undefined,
   });
   let source: ReturnType<typeof createPgTaskProjectionSource> | null = null,
-    sessionClient: PoolClient | null = null,
-    savepoint = 0;
+    sessionClient: PoolClient | null = null;
+  const pending = new Set<Promise<void>>();
   let queryNow: string | undefined;
   let stopped = false;
 
@@ -109,11 +116,13 @@ function startWorker(
     }
     // Destroy the checked-out client before draining the pool; no transaction can be
     // reused after an asynchronous connection error.
+    if (sessionClient) options.readSessions?.end(sessionClient);
     sessionClient?.release(error);
     sessionClient = null;
     if (ownsPools) void pool.end();
     input.responsePort.close();
     input.requestPort.close();
+    options.onFailure?.(error);
   };
   if (ownsPools) {
     pool.on("error", fail);
@@ -135,7 +144,7 @@ function startWorker(
           });
       }
     } finally {
-      client.release();
+      await client.release();
     }
     source = createPgTaskProjectionSource({
       pool: sessionPool(),
@@ -150,32 +159,15 @@ function startWorker(
   const sessionPool = () =>
     ({
       connect: async () => {
-        const client = sessionClient;
-        if (!client) throw new Error("PostgreSQL query requested outside a reader session");
-        const name = `ha_query_${++savepoint}`;
-        await client.query(`SAVEPOINT ${name}`);
-        return {
-          query: (query: string, values?: readonly unknown[]) => {
-            const normalized = query.trim().replace(/;$/u, "").toUpperCase();
-            if (/^BEGIN(?:\s|$)/u.test(normalized))
-              return Promise.resolve({ rows: [], rowCount: null } as unknown as QueryResult);
-            if (normalized === "COMMIT") return client.query(`RELEASE SAVEPOINT ${name}`) as Promise<QueryResult>;
-            if (normalized === "ROLLBACK")
-              return client
-                .query(`ROLLBACK TO SAVEPOINT ${name}`)
-                .then(() => client.query(`RELEASE SAVEPOINT ${name}`)) as Promise<QueryResult>;
-            return client.query(query, values as unknown[]) as Promise<QueryResult>;
-          },
-          on: client.on.bind(client),
-          removeListener: client.removeListener.bind(client),
-          release: () => undefined,
-        };
+        if (!sessionClient) throw new Error("PostgreSQL query requested outside a reader session");
+        return borrowPgReadClient(sessionClient);
       },
     }) as unknown as Pool;
 
   const finishSession = async (command: "COMMIT" | "ROLLBACK") => {
     if (!sessionClient) return;
     const client = sessionClient;
+    await options.readSessions?.beforeEnd(client);
     try {
       await client.query(command);
     } catch (error) {
@@ -183,6 +175,7 @@ function startWorker(
       throw error;
     } finally {
       sessionClient = null;
+      options.readSessions?.end(client);
     }
     if (!stopped) client.release();
     client.removeListener("error", fail);
@@ -191,6 +184,7 @@ function startWorker(
   let closing: Promise<void> | undefined;
   const closeResources = () =>
     (closing ??= (async () => {
+      await Promise.all(pending);
       await finishSession("ROLLBACK");
       await epochs?.close();
       if (ownsPools) {
@@ -333,6 +327,7 @@ function startWorker(
           ],
         );
         await readCutInTransaction(sessionClient, input.scope, [...(input.scope.readers ?? [])], input.repoId);
+        options.readSessions?.begin(sessionClient);
         respond(request.id, input.state, null);
         return;
       }
@@ -398,7 +393,17 @@ function startWorker(
     () => {
       if (stopped) return;
       respond(0, input.ready, null);
-      input.requestPort.on("message", (request: PgQueryWorkerRequest) => void handle(request));
+      input.requestPort.on("message", (request: PgQueryWorkerRequest) => {
+        const operation = handle(request);
+        if (request.op !== "close") pending.add(operation);
+        void operation.then(
+          () => pending.delete(operation),
+          (error: unknown) => {
+            pending.delete(operation);
+            fail(error instanceof Error ? error : new Error(String(error)));
+          },
+        );
+      });
     },
     async (error: unknown) => {
       if (stopped) {

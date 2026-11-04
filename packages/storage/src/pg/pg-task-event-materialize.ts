@@ -895,14 +895,15 @@ async function updateProjectionMeta(
   await client.query(
     `INSERT INTO ha_projection_meta
        (tenant_id, project_id, policy_epoch, projection_name, schema_version, watermark, source_revision, state_digest, updated_at, entity_declaration_watermark)
-     VALUES ($1, $2, $3, 'task/v1', $4, $5, $6, NULL, clock_timestamp(), $5)
+     VALUES ($1, $2, $3, 'task/v1', $4, $5, $6, NULL, clock_timestamp(), CASE WHEN $5::bigint <= 1::bigint THEN $5::bigint ELSE 0::bigint END)
      ON CONFLICT (tenant_id, project_id, policy_epoch, projection_name) DO UPDATE SET
        policy_epoch = excluded.policy_epoch, schema_version = excluded.schema_version,
        readers = '{}',
        watermark = GREATEST(ha_projection_meta.watermark, excluded.watermark),
        source_revision = GREATEST(ha_projection_meta.source_revision, excluded.source_revision),
        entity_declaration_watermark = CASE WHEN ha_projection_meta.entity_declaration_watermark >= ha_projection_meta.watermark
-         THEN GREATEST(ha_projection_meta.entity_declaration_watermark, excluded.entity_declaration_watermark)
+         AND ha_projection_meta.entity_declaration_watermark >= excluded.watermark - 1
+         THEN GREATEST(ha_projection_meta.entity_declaration_watermark, excluded.watermark)
          ELSE ha_projection_meta.entity_declaration_watermark END,
        updated_at = excluded.updated_at`,
     [scope.tenantId, scope.projectId, scope.policyEpoch, PG_PROJECTION_SCHEMA_VERSION, watermark, sourceRevision],

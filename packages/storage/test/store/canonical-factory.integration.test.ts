@@ -21,7 +21,18 @@ test("SQLite synchronous factories satisfy the shared canonical lifecycle contra
         executionId: "execution-factory",
         reader: () => makeTaskProjectionReader({ rootDir }),
       });
-      assertEntityFactory({ store, open: () => openEntityStore(rootDir) });
+      assertEntityFactory({
+        store,
+        open: () => openEntityStore(rootDir),
+        withReadSession: (read) => {
+          const reader = makeTaskProjectionReader({ rootDir });
+          try {
+            reader.withSession(() => read());
+          } finally {
+            reader.close();
+          }
+        },
+      });
     } finally {
       projection.close();
       await store.drain();

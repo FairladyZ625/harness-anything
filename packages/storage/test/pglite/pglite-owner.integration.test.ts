@@ -15,8 +15,45 @@ import { once } from "node:events";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
 import { createPGliteStorage } from "../../src/pglite/transaction.ts";
+import { makeTaskProjectionReader } from "../../src/projection/rebuildable-task-projection.ts";
+import { bundle, eventAt } from "../store/task-event-store.fixtures.ts";
 
 pgliteIntegrationSuite("PGlite physical owner", () => {
+  test("independent scoped facades can nest reads within one embedded snapshot", async () => {
+    await withTempStoreAsync(async (rootDir) => {
+      const first = {
+          backend: "pglite" as const,
+          dataDir: join(rootDir, "database"),
+          materialize: false,
+          scope: { tenantId: "scope-a", projectId: "scope-a", policyEpoch: 1 },
+        },
+        second = { ...first, scope: { tenantId: "scope-b", projectId: "scope-b", policyEpoch: 1 } },
+        a = makeTaskEventStore({ repoId: "nested-a", storage: first }),
+        b = makeTaskEventStore({ repoId: "nested-b", storage: second });
+      let reader: ReturnType<typeof makeTaskProjectionReader> | undefined;
+      try {
+        a.append(bundle(eventAt(1)));
+        b.append(bundle(eventAt(1)));
+        reader = makeTaskProjectionReader({ repoId: "nested-b", storage: second });
+        reader.withSession((queries) => {
+          const before = queries.read("task-00001").snapshot;
+          assert.ok(before.task);
+          assert.equal(a.readHead()?.revision, 1);
+          const nested = makeTaskProjectionReader({ repoId: "nested-a", storage: first });
+          try {
+            assert.ok(nested.withSession((inner) => inner.read("task-00001").snapshot.task));
+          } finally {
+            nested.close();
+          }
+          assert.deepEqual(queries.read("task-00001").snapshot, before);
+        });
+      } finally {
+        reader?.close();
+        await a.drain();
+        await b.drain();
+      }
+    });
+  });
   test("a second process cannot open the live owner's directory; process death releases its OS mutex", async () => {
     await withTempStoreAsync(async (rootDir) => {
       const dataDir = join(rootDir, "database");
@@ -126,6 +163,22 @@ pgliteIntegrationSuite("PGlite physical owner", () => {
         } finally {
           await worker?.terminate();
           nestedContext.close();
+        }
+        const readContext = prepareStorageWorkerContext(storage, repoId);
+        try {
+          worker = new Worker(new URL("./pglite-owner-worker.fixture.ts", import.meta.url), {
+            workerData: { repoId, storage, context: readContext.context, stateRoot: rootDir, readHeld: true },
+            transferList: readContext.transferList,
+          });
+          worker.once("exit", readContext.close);
+          const [held] = await once(worker, "message");
+          assert.equal(held.readHeld, true);
+          await worker.terminate();
+          assert.equal(store.readHead()?.revision, 1);
+          assert.ok(authority.acquire(repoId).epoch > next.epoch);
+        } finally {
+          await worker?.terminate();
+          readContext.close();
         }
       } finally {
         await worker?.terminate();

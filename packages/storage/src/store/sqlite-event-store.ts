@@ -305,9 +305,11 @@ function openSqliteEventStoreInternal(
       };
       backfillDocumentHeads(query, iterate, options.onOpenProgress);
       backfillEventQueryRefs(query, iterate, options.onOpenProgress);
-      backfillSqliteDeclarationIndex(query);
     });
-  if (!options.readOnly) ensureEventQueryIndexes(query);
+  if (!options.readOnly) {
+    backfillSqliteDeclarationIndex(query, transaction);
+    ensureEventQueryIndexes(query);
+  }
   // All lease mutations share the store's transaction and the same repository ownership boundary.
   const persistWriterLease = (fence: SqliteWriterFence | null): void => {
     /* @gate-identity check-bypass-write-boundary/bypass-write-122 */ db.prepare(
@@ -588,7 +590,7 @@ function openSqliteEventStoreInternal(
           );
       }),
     queryEvents: (input) => queryEvents(query, input),
-    readEntityDeclarations: (input) => readSqliteEntityDeclarations(query, input),
+    readEntityDeclarations: (input) => transaction(() => readSqliteEntityDeclarations(query, input), true),
     close: registerLedgerClose(databasePath, db),
   };
 }

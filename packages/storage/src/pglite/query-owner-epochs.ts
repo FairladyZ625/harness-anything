@@ -35,8 +35,8 @@ export function pgliteOwnerEpochs(pool: Pool) {
         release();
       }
     },
-    client(group: PGliteOwnerGroup, active: () => boolean) {
-      const authority = pgEpochTransactions(pool);
+    client(group: PGliteOwnerGroup, active: () => boolean, connections: Pool = pool) {
+      const authority = pgEpochTransactions(connections);
       let retained: { readonly repoId: string; readonly release: () => void } | null = null;
       const releaseFence = () => {
         if (!retained) return;
@@ -94,8 +94,8 @@ export function pgliteOwnerEpochs(pool: Pool) {
       request: PostgresTaskEventStoreRequest,
       operation: () => Promise<Result>,
     ): Promise<Result> {
-      if (!("writerFence" in request)) return operation();
       assertActive(group, active);
+      if (!("writerFence" in request)) return operation();
       const writing = Promise.resolve().then(() => {
         assertActive(group, active);
         return operation();
@@ -116,6 +116,7 @@ function assertActive(group: PGliteOwnerGroup, active: () => boolean): void {
       code: "pglite_connection_closed",
     });
 }
+export { assertActive as assertPGliteGroupActive };
 
 class OwnerGate {
   private owner: object | null = null;

@@ -42,13 +42,16 @@ export function applySqliteDeclarationIndex(query: Query, event: CanonicalEventV
   query("UPDATE entity_declaration_meta SET revision=? WHERE singleton=1", [event.workspaceRevision]);
 }
 
-export function backfillSqliteDeclarationIndex(query: Query): void {
-  let after = Number(query("SELECT revision FROM entity_declaration_meta WHERE singleton=1")[0]!.revision);
+export function backfillSqliteDeclarationIndex(query: Query, transaction: <A>(run: () => A) => A): void {
   for (;;) {
-    const rows = query("SELECT revision,event_json FROM event WHERE revision>? ORDER BY revision LIMIT 64", [after]);
-    if (rows.length === 0) return;
-    for (const row of rows) applySqliteDeclarationIndex(query, JSON.parse(String(row.event_json)) as CanonicalEventV1);
-    after = Number(rows.at(-1)!.revision);
+    const processed = transaction(() => {
+      const after = Number(query("SELECT revision FROM entity_declaration_meta WHERE singleton=1")[0]!.revision),
+        rows = query("SELECT revision,event_json FROM event WHERE revision>? ORDER BY revision LIMIT 64", [after]);
+      for (const row of rows)
+        applySqliteDeclarationIndex(query, JSON.parse(String(row.event_json)) as CanonicalEventV1);
+      return rows.length;
+    });
+    if (processed < 64) return;
   }
 }
 

@@ -1,3 +1,4 @@
+import { pgliteGroupReadPool } from "./read-session-pool.ts";
 import { parentPort, workerData, type MessagePort } from "node:worker_threads";
 import { createPGliteStorageBackend, type PGliteStorageBackend } from "./storage-backend.ts";
 import { pgliteOwnerEpochs, type PGliteOwnerGroup } from "./query-owner-epochs.ts";
@@ -46,6 +47,7 @@ async function startOwner(input: OwnerInput): Promise<void> {
   }
   const epochs = pgliteOwnerEpochs(backend.pool),
     groups = new Set<PGliteOwnerGroup>(),
+    groupPools = new Map<PGliteOwnerGroup, ReturnType<typeof pgliteGroupReadPool>>(),
     clients = new Map<
       MessagePort,
       { readonly session: ReturnType<typeof startPgQuerySession>; readonly owner: PGliteOwnerGroup }
@@ -57,15 +59,19 @@ async function startOwner(input: OwnerInput): Promise<void> {
   const group = (): PGliteOwnerGroup => {
     const value = { active: true, writes: new Set<Promise<unknown>>() };
     groups.add(value);
+    groupPools.set(value, pgliteGroupReadPool(backend.pool, value));
     return value;
   };
   const connect = (request: Connect, owner: PGliteOwnerGroup) => {
     const port = request.input.responsePort;
     let active = owner.active && !stopping;
     const live = () => active && owner.active && !stopping,
-      session = startPgQuerySession({ ...request.input, requestPort: port }, backend.pool, null, {
+      connections = groupPools.get(owner)!,
+      session = startPgQuerySession({ ...request.input, requestPort: port }, connections.pool, null, {
         ownsPools: false,
-        epochs: epochs.client(owner, live),
+        epochs: epochs.client(owner, live, connections.pool),
+        readSessions: connections,
+        onFailure: fail,
         canonical: (value, operation) => epochs.canonical(owner, live, value, operation),
         onClose: () => clients.delete(port),
       });
@@ -156,7 +162,10 @@ async function startOwner(input: OwnerInput): Promise<void> {
         void Promise.all(
           [...clients.values()].filter((client) => client.owner === child).map((client) => client.session.close()),
         )
-          .then(() => groups.delete(child))
+          .then(() => {
+            groupPools.delete(child);
+            groups.delete(child);
+          })
           .catch((error: unknown) => {
             consumeKnownError(error);
             fail(error instanceof Error ? error : new Error(String(error)));

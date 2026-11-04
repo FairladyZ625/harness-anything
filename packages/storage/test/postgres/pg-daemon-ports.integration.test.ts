@@ -64,7 +64,18 @@ test("daemon PG storage factories expose canonical lifecycle ports without local
       executionId: "execution-pg-daemon",
       reader: () => makeTaskProjectionReader({ repoId, storage }),
     });
-    assertEntityFactory({ store, open: () => openEntityStore(rootDir, { repoId, storage }) });
+    assertEntityFactory({
+      store,
+      open: () => openEntityStore(rootDir, { repoId, storage }),
+      withReadSession: (read) => {
+        const reader = makeTaskProjectionReader({ repoId, storage });
+        try {
+          reader.withSession(() => read());
+        } finally {
+          reader.close();
+        }
+      },
+    });
     const createdAt = (taskId: string, revision: number): TaskCreatedEvent => {
       const base = events[0] as TaskCreatedEvent;
       return {

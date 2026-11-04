@@ -195,6 +195,7 @@ export function makePostgresTaskEventStore(options: PostgresTaskEventCapabilityO
           pool,
           (client) => readPgEntityDeclarations(client, scope, repoId, request.query),
           scope,
+          { isolationLevel: "repeatable read" },
         );
       case "events": {
         const rows = (await executePostgresRead(pool, scope, "events", { ...request, repoId })) as readonly string[];
