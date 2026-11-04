@@ -7,7 +7,7 @@ import { adoptRuntimes, ownedByRuntimeSpawner, assertRuntimeRecoveryReady } from
 import { appendRuntimeWorkerRecord, readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
-import { probeProcessGroup } from "./runtime/process-group-reconciler.ts";
+import { probeProcessGroup, processGroupRecoveryHint } from "./runtime/process-group-reconciler.ts";
 import type { ActiveRuntime, RuntimeBinding, RuntimeDispatchOwnerEvidence } from "./runtime-spawn-types.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { disposeActiveRuntimeObservations } from "./runtime-spawn-active.ts";
@@ -131,10 +131,17 @@ export async function cancelRuntime(
         (matchingHeader === undefined || ownerEvidence.payload.dispatchId === matchingHeader.dispatchId)
           ? ownerEvidence.processGroupPid
           : null;
-      if (probeProcessGroup({ pgid: processGroupPid ?? undefined }) !== "proven_stopped")
+      if (
+        probeProcessGroup({
+          pgid: processGroupPid ?? undefined,
+          ...(matchingHeader
+            ? { dispatch: { rootDir: context.input.rootDir, dispatchId: matchingHeader.dispatchId } }
+            : {}),
+        }) !== "proven_stopped"
+      )
         throw runtimeSpawnError(
           "runtime_process_group_unproven",
-          `Owner process group ${String(processGroupPid ?? "unknown")} could not be proven stopped.`,
+          `Owner process group ${String(processGroupPid ?? "unknown")} could not be proven stopped.${processGroupRecoveryHint()}`,
         );
     }
     if (typeof instanceId === "string") {

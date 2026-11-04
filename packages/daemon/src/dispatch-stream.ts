@@ -205,6 +205,8 @@ const summaryKinds = new Set([
   "provider_binding",
   "process_start_rejected",
   "process_started",
+  "process_containment",
+  "process_stop_unproven",
   "process_exit",
   "process_lost",
   "attempt_outcome",

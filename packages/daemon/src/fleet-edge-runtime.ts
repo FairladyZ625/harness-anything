@@ -821,7 +821,11 @@ export function openFleetEdgeRuntime(input: {
         if (
           Number.isSafeInteger(processGroupPid) &&
           Number(processGroupPid) > 1 &&
-          reconcileProcessGroup({ pid: Number(processGroupPid), pgid: Number(processGroupPid) }) !== "proven_stopped"
+          reconcileProcessGroup({
+            pid: Number(processGroupPid),
+            pgid: Number(processGroupPid),
+            dispatch: { rootDir: request.workspaceRoot, dispatchId: terminal.dispatchId },
+          }) !== "proven_stopped"
         )
           throw edgeRuntimeError(
             "runtime_lease_release_failed",

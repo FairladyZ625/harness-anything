@@ -12,6 +12,7 @@ import { tailRuntimeSteerCommands } from "./runtime-worker-control.ts";
 import { runAcpProviderSession } from "./runtime-worker-acp.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import type { RuntimeCallbackRelay } from "./runtime-spawn-types.ts";
+import { establishRuntimeProcessGroup } from "./runtime/process-group-reconciler.ts";
 
 type RuntimeWorkerManifest = {
   readonly rootDir: string;
@@ -190,6 +191,8 @@ export async function runRuntimeWorkerHost(): Promise<void> {
     if (!settled) child?.kill("SIGTERM");
   });
   try {
+    const containmentId = await establishRuntimeProcessGroup();
+    if (containmentId) append({ kind: "process_containment", pid: process.pid, containmentId });
     await relay?.start();
     // This host owns the provider's lifetime. WINDSURF_EXT_HOST_PID comes from the editor terminal that started
     // the daemon, and devin's ACP server exits 0 as soon as that editor process is gone.
