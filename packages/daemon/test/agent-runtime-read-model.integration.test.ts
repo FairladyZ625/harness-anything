@@ -988,9 +988,9 @@ test("runtime overview pages at the server before DTO and dispatch expansion", (
     pageQuery: unknown;
   const projection = {
     readCut: () => ({ status: "ready", watermark: 1 }),
-    readRuntimeSessionPage: (query: unknown) => (
+    readRuntimeSessionPage: (query: { includeRemainingCount?: boolean }) => (
       (pageQuery = query),
-      { rows, nextRuntimeSessionId: "runtime-11", remainingCount: 13 }
+      { rows, nextRuntimeSessionId: "runtime-11", remainingCount: query.includeRemainingCount ? 13 : null }
     ),
     readRuntimeSessions: () => ((unboundedReads += 1), rows),
     readRuntimeInstallations: () => [],
@@ -1005,19 +1005,19 @@ test("runtime overview pages at the server before DTO and dispatch expansion", (
   assert.equal(overview.sessions.length, 12);
   assert.equal(unboundedReads, 0);
   assert.equal(exactDispatchReads, 12);
-  assert.deepEqual(pageQuery, { limit: 12, includeRemainingCount: true });
+  assert.deepEqual(pageQuery, { limit: 12, includeRemainingCount: false });
   assert.deepEqual(overview.page, {
     limit: 12,
     cursor: null,
     nextCursor: "runtime-session:runtime-11",
-    remainingCount: 13,
+    remainingCount: null,
   });
   makeAgentRuntimeReadModel({
     store: {} as never,
     projection: projection as never,
-    includeRemainingCount: false,
+    includeRemainingCount: true,
   }).overview({ limit: 12 });
-  assert.deepEqual(pageQuery, { limit: 12, includeRemainingCount: false });
+  assert.deepEqual(pageQuery, { limit: 12, includeRemainingCount: true });
 });
 
 test("provider output publication does not scale full projection reads with line count", async () => {

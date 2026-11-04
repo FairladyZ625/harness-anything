@@ -53,7 +53,7 @@ export function makeAgentRuntimeReadModel(input: {
   readonly rootDir?: string;
   /** Local public reads retain the center observation; edge reads may opt into process evidence. */
   readonly activityEvidence?: boolean;
-  /** Keep the previous public page receipt until its wire compatibility window closes. */
+  /** Explicit exact-count requests scan the remaining set; ordinary pages use P+1 lookahead. */
   readonly includeRemainingCount?: boolean;
   readonly now?: () => string;
 }) {
@@ -226,7 +226,7 @@ export function makeAgentRuntimeReadModel(input: {
           : input.projection.readRuntimeSessionPage({
               ...(query.taskId === null ? {} : { taskId: query.taskId }),
               limit: query.limit,
-              includeRemainingCount: input.includeRemainingCount !== false,
+              includeRemainingCount: input.includeRemainingCount === true,
               ...(query.afterRuntimeSessionId === null ? {} : { afterRuntimeSessionId: query.afterRuntimeSessionId }),
             });
       const sessions =
