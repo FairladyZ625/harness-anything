@@ -190,3 +190,9 @@ issue a fresh invitation after changing the selected access.
 On Wayland, add the printed npm prefix to PATH and use `ELECTRON_OZONE_PLATFORM_HINT=auto ha gui`. To inspect the
 resulting repository and dispatch an Agent, run `ha gui --root <edge-repository>` or the normal `ha runtime run` command
 from that repository.
+
+### Resuming a join
+
+Run the same `ha edge join '<invite-link>'` command again after a connection loss. The daemon queries the join as the signed-in person. Status contains only the join id, state and node id. If the credential is already saved locally, the daemon reuses it and resumes sync. If delivery was lost, the center replaces the credential on the same node in one write; the old credential stops working. Competing recovery requests use the node revision so only one replacement succeeds. Retry a version conflict after the winning recovery finishes.
+
+A paused device must be resumed from **My devices** before joining again. Removing a device permanently retires its node id; issue a new link to add a new device. **Add my device** shows a **Copy link** button for handing the token-free link to your other computer.

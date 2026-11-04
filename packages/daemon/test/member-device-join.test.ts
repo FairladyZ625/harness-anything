@@ -93,3 +93,67 @@ test("member links recheck current access and person at consume without freezing
   assert.equal(result.personId, "alice");
   assert.equal(f.keycloak.nodeClients.size, nodes + 1);
 });
+
+test("join status belongs to the authenticated person and exposes only join state and node id", async (t) => {
+  const f = await member(t),
+    link = linkFrom(await f.run(request));
+  assert.deepEqual(await f.run({ operation: "edge-join-status", joinId: link.joinId }), {
+    ok: true,
+    joinId: link.joinId,
+    state: "pending",
+  });
+  f.signIn("bob", ["access-management"]);
+  await assert.rejects(f.run({ operation: "edge-join-status", joinId: link.joinId }), { code: "authorization_denied" });
+});
+
+test("a lost credential is replaced on the same node; concurrent recovery has one winner", async (t) => {
+  const f = await member(t),
+    link = linkFrom(await f.run(request));
+  f.keycloak.interactiveSession("alice", "existing-device", keycloakUrl, "alice-login", link.loginClientId);
+  const input = { joinId: link.joinId, accessToken: "alice-login" },
+    lost = await f.admin.admitEdgeJoin(input),
+    before = f.keycloak.nodeClients.size;
+  f.keycloak.interactiveSession("bob", "other-device", keycloakUrl, "bob-login", link.loginClientId);
+  await assert.rejects(f.admin.edgeJoinStatus({ joinId: link.joinId, accessToken: "bob-login" }), {
+    code: "human_confirmation_required",
+  });
+  await assert.rejects(
+    f.admin.admitEdgeJoin({ ...input, accessToken: "bob-login", recovery: { nodeId: lost.nodeId } }),
+    { code: "human_confirmation_required" },
+  );
+  await assert.rejects(f.admin.admitEdgeJoin({ ...input, recovery: { nodeId: "another-node" } }), {
+    code: "edge_join_invalid",
+  });
+  const recover = () => f.admin.admitEdgeJoin({ ...input, recovery: { nodeId: lost.nodeId } });
+  const outcomes = await Promise.allSettled([recover(), recover()]);
+  assert.equal(outcomes.filter((entry) => entry.status === "fulfilled").length, 1);
+  assert.equal(outcomes.filter((entry) => entry.status === "rejected").length, 1);
+  const recovered = outcomes.find((entry) => entry.status === "fulfilled");
+  assert.ok(recovered?.status === "fulfilled");
+  assert.equal(recovered.value.nodeId, lost.nodeId);
+  assert.notEqual(recovered.value.credential, lost.credential);
+  assert.equal(await f.provider.authenticateNode(lost.nodeId, lost.credential), false);
+  assert.equal(await f.provider.authenticateNode(lost.nodeId, recovered.value.credential), true);
+  assert.equal(f.keycloak.nodeClients.size, before);
+  assert.deepEqual(await f.run({ operation: "edge-join-status", joinId: link.joinId }), {
+    ok: true,
+    joinId: link.joinId,
+    state: "consumed",
+    nodeId: lost.nodeId,
+  });
+  assert.equal(JSON.stringify(f.journal()).includes(recovered.value.credential), false);
+  const reuse = await f.admin.admitEdgeJoin({
+    ...input,
+    recovery: { nodeId: lost.nodeId, credential: recovered.value.credential },
+  });
+  assert.equal(reuse.credential, recovered.value.credential);
+  const node = (await f.provider.readNode("center-token", lost.nodeId))!;
+  await f.run({ operation: "device-pause", nodeId: lost.nodeId, expectedVersion: String(node.revision) });
+  await assert.rejects(recover(), { code: "device_paused" });
+  const paused = (await f.provider.readNode("center-token", lost.nodeId))!;
+  await f.run({ operation: "device-resume", nodeId: lost.nodeId, expectedVersion: String(paused.revision) });
+  const active = (await f.provider.readNode("center-token", lost.nodeId))!;
+  await f.run({ operation: "device-remove", nodeId: lost.nodeId, expectedVersion: String(active.revision) });
+  await assert.rejects(recover(), { code: "device_removed" });
+  assert.equal(await f.provider.authenticateNode(lost.nodeId, recovered.value.credential), false);
+});

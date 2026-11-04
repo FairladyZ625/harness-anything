@@ -870,17 +870,58 @@ export async function openPeer(options: Omit<FleetPeerOptions, "repoId">) {
   }
 }
 
-/** Joins before a CA file exists: pin the presented SPKI, then use that certificate as the CA. */
-export async function requestFleetEdgeJoinPinned(options: {
+interface EdgeJoinPinnedAddress {
   readonly hostname: string;
   readonly port: number;
   readonly servername?: string;
-  readonly joinId: string;
-  readonly inviteToken?: string;
-  readonly accessToken: string;
   readonly spkiSha256: string;
   readonly timeoutMs?: number;
-}): Promise<Extract<FleetFrameV1, { schema: "fleet.edge.join.result/v1" }> & { readonly certificate: string }> {
+}
+
+/** Status uses the same pinned, pre-session channel as admission, and never carries a credential. */
+export function requestFleetEdgeJoinStatusPinned(
+  options: EdgeJoinPinnedAddress & { readonly joinId: string; readonly accessToken: string },
+) {
+  return requestEdgeJoinPinned(
+    options,
+    {
+      schema: "fleet.edge.join.status/v1",
+      messageId: `${options.joinId}_status`,
+      joinId: options.joinId,
+      accessToken: options.accessToken,
+    },
+    "fleet.edge.join.status.result/v1",
+  );
+}
+
+/** Admission and recovery deliver credentials only to the joining daemon over the pinned channel. */
+export function requestFleetEdgeJoinPinned(
+  options: EdgeJoinPinnedAddress & {
+    readonly joinId: string;
+    readonly inviteToken?: string;
+    readonly accessToken: string;
+    readonly recovery?: import("./edge-join-admission.ts").EdgeJoinRecovery;
+  },
+) {
+  return requestEdgeJoinPinned(
+    options,
+    {
+      schema: "fleet.edge.join/v1",
+      messageId: `${options.joinId}_join`,
+      joinId: options.joinId,
+      ...(options.inviteToken === undefined ? {} : { inviteToken: options.inviteToken }),
+      ...(options.recovery ? { recovery: options.recovery } : {}),
+      accessToken: options.accessToken,
+    },
+    "fleet.edge.join.result/v1",
+  );
+}
+
+async function requestEdgeJoinPinned<S extends "fleet.edge.join.result/v1" | "fleet.edge.join.status.result/v1">(
+  options: EdgeJoinPinnedAddress,
+  request: FleetFrameV1,
+  schema: S,
+): Promise<Extract<FleetFrameV1, { schema: S }> & { readonly certificate: string }> {
   const socket = await new Promise<TLSSocket>((resolve, reject) => {
     const candidate = connect(
       {
@@ -904,27 +945,15 @@ export async function requestFleetEdgeJoinPinned(options: {
       throw Object.assign(new Error("The center certificate fingerprint does not match the invitation."), {
         code: "pin_mismatch",
       });
-    const response = await new Promise<Extract<FleetFrameV1, { schema: "fleet.edge.join.result/v1" }>>(
-      (resolve, reject) => {
-        const peerState = peerFor(socket, options.timeoutMs ?? 10_000);
-        const messageId = `${options.joinId}_join`;
-        socket.write(
-          serializeFleetFrame({
-            schema: "fleet.edge.join/v1",
-            messageId,
-            joinId: options.joinId,
-            ...(options.inviteToken === undefined ? {} : { inviteToken: options.inviteToken }),
-            accessToken: options.accessToken,
-          }),
-        );
-        peerState.next(options.timeoutMs ?? 10_000).then((frame) => {
-          if (frame.schema === "fleet.edge.join.result/v1") resolve(frame);
-          else if (frame.schema === "fleet.error/v1") reject(new FleetRemoteError(frame));
-          else reject(new Error("edge join result expected"));
-        }, reject);
-      },
-    );
-    return { ...response, certificate: new X509Certificate(peer.raw).raw.toString("base64") };
+    const peerState = peerFor(socket, options.timeoutMs ?? 10_000);
+    socket.write(serializeFleetFrame(request));
+    const frame = await peerState.next(options.timeoutMs ?? 10_000);
+    if (frame.schema === "fleet.error/v1") throw new FleetRemoteError(frame);
+    if (frame.schema !== schema) throw new Error(`Expected ${schema}.`);
+    return {
+      ...(frame as Extract<FleetFrameV1, { schema: S }>),
+      certificate: new X509Certificate(peer.raw).raw.toString("base64"),
+    };
   } finally {
     socket.destroy();
   }

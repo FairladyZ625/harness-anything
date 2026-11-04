@@ -69,9 +69,9 @@ export interface EdgeJoinStatusResult {
   readonly joinId: string;
   readonly state: EdgeJoinState;
   readonly nodeId?: string;
-  readonly tunnelState?: "connecting" | "connected" | "reconnecting" | "stopped";
 }
 export interface EdgeJoinSummary extends EdgeJoinStatusResult {
+  readonly tunnelState?: "connecting" | "connected" | "reconnecting" | "stopped";
   readonly personId: string;
   readonly repoIds: readonly string[];
   readonly groupIds: readonly string[];

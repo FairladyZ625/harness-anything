@@ -11,13 +11,18 @@ import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "
 import path from "node:path";
 import { createServer } from "node:https";
 import test from "node:test";
-import { readFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
+import { readFleetEdgeConfig, writeFleetEdgeConfig } from "../src/client/fleet-edge-config.ts";
 import { AccessAdminService } from "../src/access-admin-service.ts";
 import { createIdentitySession } from "../src/authorization-provider.ts";
 import { FleetFault } from "../src/fleet/center-types.ts";
 import { createEdgeJoinStore, decodeEdgeJoinLink, encodeEdgeJoinLink } from "../src/fleet/edge-join.ts";
 import { saveFleetCenterConfig } from "../src/fleet-center-config.ts";
 import { EdgeJoinSshTunnelManager } from "../src/fleet/edge-join-ssh-tunnel.ts";
+import { joinFleetEdge } from "../src/fleet/edge-join-client.ts";
+import { listenFleetTls } from "../src/fleet/center.ts";
+import { requestFleetEdgeJoinStatusPinned } from "../src/fleet/peer.ts";
+import { accessAdminFixture, edgeJoinCenter } from "./access-admin-service.fixture.ts";
+import { readFleetCenterConfig } from "../src/fleet-center-config.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { fleetNodeClaimFixture, localAuthFixture } from "./fleet-node-claim.fixtures.ts";
 
@@ -313,5 +318,109 @@ test(
     });
     assert.equal(formerOwnerWrite.code, "human_confirmation_required", JSON.stringify(formerOwnerWrite));
     assert.equal(f.owners.nodeOwner(formerOwnerNodeId), "person-two");
+  },
+);
+
+test(
+  "a dropped admission reply recovers over pinned TLS, persists 0600 credentials and reuses them on repeat join",
+  { timeout: 60_000 },
+  async (t) => {
+    const f = await edgeJoinCenter(t, await accessAdminFixture(t));
+    t.after(() => f.admin.close());
+    f.keycloak.account("alice");
+    f.keycloak.account("bob");
+    f.keycloak.permit("alice", "repo-a", ["repository-read"]);
+    f.signIn("alice", []);
+    const config = readFleetCenterConfig(f.root, "default")!;
+    let drop = true;
+    const issued: Awaited<ReturnType<typeof f.admin.admitEdgeJoin>>[] = [];
+    const center = await listenFleetTls({
+      host: { status: () => ({ repos: [] }) } as never,
+      stateRoot: path.join(f.root, "recovery-center"),
+      port: 0,
+      key: readFileSync(config.keyPath),
+      cert: readFileSync(config.certPath),
+      authenticate: () => false,
+      nodeOwner: () => null,
+      edgeJoinStatus: (input) => f.admin.edgeJoinStatus(input),
+      edgeJoin: async (input) => {
+        const result = await f.admin.admitEdgeJoin(input);
+        issued.push(result);
+        if (drop) {
+          drop = false;
+          throw new FleetFault("join_reply_lost", "Admission committed before reply delivery.");
+        }
+        return {
+          ...result,
+          repositories: [
+            {
+              repoId: "repo-a",
+              harnessYaml: "schema: harness-anything/v1\n",
+              originUrl: null,
+              originPushUrls: [],
+              defaultBranch: null,
+              defaultBranchCommit: null,
+            },
+          ],
+        };
+      },
+    });
+    t.after(() => center.close());
+    const created = await f.run({ operation: "edge-join-create", joinMode: "member-device", repoIds: ["repo-a"] });
+    // The in-memory realm has an HTTP control plane; the client uses the injected HTTPS login session below.
+    const rawLink = JSON.parse(
+      Buffer.from(String(created.link).slice("harness-edge://join/".length), "base64url").toString("utf8"),
+    );
+    const link = { ...rawLink, loginUrl: "https://login.example", centerOrigin: `https://127.0.0.1:${center.port}` };
+    f.keycloak.interactiveSession("alice", "existing-device", keycloakUrl, "alice-recovery", link.loginClientId);
+    f.keycloak.interactiveSession("bob", "other-device", keycloakUrl, "bob-recovery", link.loginClientId);
+    const address = {
+      hostname: "127.0.0.1",
+      port: center.port,
+      spkiSha256: link.spkiSha256,
+      joinId: link.joinId,
+      accessToken: "bob-recovery",
+    };
+    await assert.rejects(requestFleetEdgeJoinStatusPinned(address), { code: "human_confirmation_required" });
+    const ports = {
+      probeLogin: async () => {},
+      session: async () => ({
+        accessToken: "alice-recovery",
+        authority: { url: link.loginUrl, realm: link.loginRealm },
+      }),
+      beginLogin: async () => assert.fail("already authenticated"),
+      register: async () => ({ ok: true }),
+      sync: async () => ({ ok: true, knownHead: { sequence: 1 } }),
+    };
+    const request = {
+      link: encodeEdgeJoinLink(link),
+      workspaceRoot: path.join(f.root, "recovered-workspaces"),
+      quotaBytes: 1024 * 1024,
+    };
+    await assert.rejects(joinFleetEdge(request, ports), { code: "join_reply_lost" });
+    const recovered = await joinFleetEdge(request, ports),
+      saved = readFleetEdgeConfig(path.join(request.workspaceRoot, "repo-a"))!;
+    assert.equal(recovered.state, "synced");
+    assert.equal(saved.nodeId, issued[0]!.nodeId);
+    assert.notEqual(saved.credential, issued[0]!.credential);
+    assert.equal(await f.provider.authenticateNode(saved.nodeId, issued[0]!.credential), false);
+    assert.equal(await f.provider.authenticateNode(saved.nodeId, saved.credential), true);
+    if (process.platform !== "win32")
+      assert.equal(statSync(path.join(request.workspaceRoot, "repo-a", "fleet-edge.json")).mode & 0o777, 0o600);
+    const count = f.keycloak.nodeClients.size;
+    writeFleetEdgeConfig(path.join(request.workspaceRoot, "repo-a"), {
+      ...saved,
+      waitTimeoutMs: 3456,
+      maxAgeMs: 123,
+      maxLagRevisions: 2,
+      quotaBytes: 64 * 1024 * 1024,
+    });
+    const repeated = await joinFleetEdge({ link: request.link, workspaceRoot: request.workspaceRoot }, ports);
+    assert.equal(repeated.nodeId, saved.nodeId);
+    assert.equal(readFleetEdgeConfig(path.join(request.workspaceRoot, "repo-a"))!.credential, saved.credential);
+    assert.equal(f.keycloak.nodeClients.size, count);
+    assert.equal(JSON.stringify([recovered, repeated, f.journal()]).includes(saved.credential), false);
+    const status = await f.admin.edgeJoinStatus({ joinId: link.joinId, accessToken: "alice-recovery" });
+    assert.deepEqual(status, { joinId: link.joinId, state: "consumed", nodeId: saved.nodeId });
   },
 );

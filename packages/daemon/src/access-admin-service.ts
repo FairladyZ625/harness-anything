@@ -126,8 +126,17 @@ export class AccessAdminService {
 
   /** Pre-session admission used only by the fleet edge.join frame. The whole invite/node write is
    * serialized by the OIDC writer, and the machine credential is returned only to this caller. */
-  async admitEdgeJoin(input: { readonly joinId: string; readonly inviteToken?: string; readonly accessToken: string }) {
+  async admitEdgeJoin(input: {
+    readonly joinId: string;
+    readonly inviteToken?: string;
+    readonly accessToken: string;
+    readonly recovery?: import("./fleet/edge-join-admission.ts").EdgeJoinRecovery;
+  }) {
     return this.#edgeJoinAdmin.admit(input);
+  }
+
+  edgeJoinStatus(input: { readonly joinId: string; readonly accessToken: string }) {
+    return this.#edgeJoinAdmin.authenticatedStatus(input);
   }
 
   /** The fleet transport supplies an independently verified person and human access token. */
@@ -168,6 +177,7 @@ export class AccessAdminService {
       return this.#createPermissionRequest(request, requester);
     const ownDevices =
         request.operation?.startsWith("device-") === true ||
+        request.operation === "edge-join-status" ||
         (request.operation === "edge-join-create" && request.joinMode === "member-device"),
       publicRequest =
         request.operation === "permission-request-create" || request.operation === "permission-request-withdraw",
@@ -225,7 +235,7 @@ export class AccessAdminService {
       case "edge-join-status":
         return this.#oidc.serialize(async () => ({
           ok: true,
-          ...this.#edgeJoinAdmin.status(text(request.joinId, "joinId")),
+          ...this.#edgeJoinAdmin.status(text(request.joinId, "joinId"), actor),
         }));
       case "edge-join-list":
         return this.#oidc.serialize(async () => ({ ok: true, joins: this.#edgeJoinAdmin.list() }));

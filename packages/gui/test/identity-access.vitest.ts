@@ -452,6 +452,17 @@ it("adds my device through the shared create operation, displays its token-free 
   expect(container.querySelector<HTMLTextAreaElement>('[data-testid="devices-add-link"] textarea')!.value).toBe(
     "harness-edge://join/member-device",
   );
+  const writeText = vi.fn(async () => {});
+  const clipboard = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+  try {
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-testid="devices-add-copy"]')!.click());
+    expect(writeText).toHaveBeenCalledWith("harness-edge://join/member-device");
+    expect(container.querySelector('[data-testid="devices-add-copy"]')!.textContent).toBe("链接已复制");
+  } finally {
+    if (clipboard) Object.defineProperty(navigator, "clipboard", clipboard);
+    else Reflect.deleteProperty(navigator, "clipboard");
+  }
   await act(async () => container.querySelector<HTMLButtonElement>('[data-testid="devices-add-dismiss"]')!.click());
   expect(container.querySelector('[data-testid="devices-add-link"]')).toBeNull();
   issueEdgeJoin.mockImplementationOnce(async () => ({ ok: false, code: "authorization_denied" }) as never);

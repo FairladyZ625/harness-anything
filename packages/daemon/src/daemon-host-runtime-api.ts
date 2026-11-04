@@ -500,10 +500,12 @@ export function createDaemonHostRuntimeApi(
               verifyHuman: (auth) => context.oidc.bind(auth),
               createMemberEdgeJoin: (repos, person, token) =>
                 context.accessAdmin.createMemberEdgeJoin(repos, person, token),
+              edgeJoinStatus: (input) => context.accessAdmin.edgeJoinStatus(input),
               edgeJoin: (input) =>
                 context.accessAdmin.admitEdgeJoin({
                   joinId: input.joinId,
                   inviteToken: input.inviteToken,
+                  ...(input.recovery ? { recovery: input.recovery } : {}),
                   accessToken: input.accessToken,
                 }),
             },

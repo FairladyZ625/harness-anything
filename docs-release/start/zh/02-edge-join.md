@@ -160,3 +160,9 @@ ha daemon fleet edge sync --quota-bytes <字节数>
 
 把安装器打印的 npm 前缀加入 PATH 后，Wayland 会话启动 GUI 时使用 `ELECTRON_OZONE_PLATFORM_HINT=auto ha gui`。加入后可运行
 `ha gui --root <边缘仓库>` 查看中心台账，再从该仓库使用通常的 `ha runtime run` 派出 Agent。
+
+### 断线后继续加入
+
+断线后再次执行同一条 `ha edge join '<邀请链接>'`。daemon 按当前登录人查询 join，状态只含 joinId、状态和 nodeId。本机已保存凭据时复用并继续同步；凭据交付丢失时，中心在一次写入中替换同一 nodeId 的凭据，旧凭据随即失效。并发恢复按节点版本竞争，只有一个替换成功；遇到版本冲突，等本次恢复结束后重试。
+
+设备暂停后，需要先在「我的设备」恢复。移除设备会永久退役该 nodeId，重新添加请生成新链接。「添加我的设备」的链接旁有「复制链接」按钮，可将无令牌链接交给自己的另一台电脑。

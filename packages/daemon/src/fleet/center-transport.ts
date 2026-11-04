@@ -455,7 +455,11 @@ export async function serve(
       error instanceof FleetFault
         ? error
         : new FleetFault(
-            contractError ? "invalid_frame" : "handler_failed",
+            contractError
+              ? "invalid_frame"
+              : typeof (error as { code?: unknown })?.code === "string"
+                ? (error as { code: string }).code
+                : "handler_failed",
             error instanceof Error ? error.message : String(error),
           );
     if (frame.schema === "fleet.session.hello/v1" || contractError) recordFailure(fault, fault.code);
@@ -487,11 +491,28 @@ export async function serve(
   const dispatch = async (frame: FleetFrameV1) => {
     try {
       if (nodeId === null) {
+        if (frame.schema === "fleet.edge.join.status/v1") {
+          if (!options.edgeJoinStatus)
+            throw new FleetFault("edge_join_unavailable", "Edge join status is unavailable.");
+          const status = await options.edgeJoinStatus({ joinId: frame.joinId, accessToken: frame.accessToken });
+          helloAdmitted();
+          await enqueue(
+            immediate({
+              schema: "fleet.edge.join.status.result/v1",
+              messageId: mid(frame.messageId, "status"),
+              inReplyTo: frame.messageId,
+              ...status,
+            }),
+          );
+          socket.end();
+          return;
+        }
         if (frame.schema === "fleet.edge.join/v1") {
           if (!options.edgeJoin) throw new FleetFault("edge_join_unavailable", "Edge join is unavailable.");
           const admitted = await options.edgeJoin({
             joinId: frame.joinId,
             inviteToken: frame.inviteToken,
+            ...(frame.recovery ? { recovery: frame.recovery } : {}),
             accessToken: frame.accessToken,
           });
           helloAdmitted();

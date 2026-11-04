@@ -62,8 +62,13 @@ export interface FleetCenterOptions {
   readonly edgeJoin?: (input: {
     readonly joinId: string;
     readonly inviteToken?: string;
+    readonly recovery?: import("./edge-join-admission.ts").EdgeJoinRecovery;
     readonly accessToken: string;
   }) => EdgeJoinAdmission | Promise<EdgeJoinAdmission>;
+  readonly edgeJoinStatus?: (input: {
+    readonly joinId: string;
+    readonly accessToken: string;
+  }) => Promise<import("./edge-join.ts").EdgeJoinStatusResult>;
   readonly createMemberEdgeJoin?: (
     repoIds: readonly string[],
     personId: string,

@@ -156,9 +156,9 @@ export interface EdgeJoinStatusReply {
   readonly joinId: string;
   readonly state: "pending" | "consumed" | "expired" | "revoked";
   readonly nodeId?: string;
-  readonly tunnelState?: "connecting" | "connected" | "reconnecting" | "stopped";
 }
 export interface EdgeJoinSummary extends EdgeJoinStatusReply {
+  readonly tunnelState?: "connecting" | "connected" | "reconnecting" | "stopped";
   readonly personId: string;
   readonly repoIds: readonly string[];
   readonly groupIds: readonly string[];
