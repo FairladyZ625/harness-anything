@@ -588,7 +588,7 @@ export const declarations: readonly Declaration[] = Object.freeze([
       criterion(
         "task-lifecycle-command-transitions/rework.validate",
         "invalid_transition",
-        "The owner returns any unleased in_review cut with an auditable reason.",
+        "The owner returns any unleased in_review or review-exempt submitted cut with an auditable reason.",
       ),
       criterion(
         "repo-cell-proof/proofFor.ReworkTask",
@@ -601,7 +601,7 @@ export const declarations: readonly Declaration[] = Object.freeze([
       { authority: "operation-id", semanticKey: "taskId/executionId/reviewId" },
     ),
     explain:
-      "Return exhausted, owner-blocked, or owner-consented cuts to rework with an owner reason; resume the worker.",
+      "Return a review cut, or a review-exempt submitted cut, to rework with an owner reason; resume the worker.",
   }),
   lifecycle("consent", {
     input: input([

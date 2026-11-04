@@ -11,7 +11,7 @@ the canonical lifecycle transition.
 | Unblock a task                 | `{ "kind": "task-transition", "taskId": "<id>", "status": "active" }`                       | `taskId`, `status`; `reason` is optional                                                 | `task/transition`   | `contributor`       |
 | Cancel a task                  | `{ "kind": "task-transition", "taskId": "<id>", "status": "cancelled", "reason": "<why>" }` | `taskId`, `status`, `reason`; add `force: true` after execution has started              | `task/transition`   | `contributor`       |
 | Replan a task                  | `{ "kind": "task-transition", "taskId": "<id>", "status": "planned", "reason": "<why>" }`   | `taskId`, `status`, `reason`                                                             | `task/transition`   | `contributor`       |
-| Return a review cut for rework | `{ "kind": "task-rework", "taskId": "<id>", "reason": "<why>" }`                            | `taskId`, `reason`; `executionId` and `reviewId` may identify the current cut explicitly | `task/rework`       | `maintainer`        |
+| Return a review cut or a review-exempt submitted cut for rework | `{ "kind": "task-rework", "taskId": "<id>", "reason": "<why>" }`                            | `taskId`, `reason`; `executionId` and `reviewId` may identify the current cut explicitly | `task/rework`       | `maintainer`        |
 
 For example, an unblock request uses this envelope:
 
@@ -42,8 +42,10 @@ submitted cut to implementation. Use the execution-bound actions instead.
 Missing audit reasons remain `missing_field` failures from the aggregate;
 post-start cancellation without `force` remains `force_reason_required`.
 
-`task-rework` is the existing owner return action. It requires an unleased
-`in_review` task with a current submitted execution, the task-owning principal,
+`task-rework` is the existing owner return action. It requires an unleased task
+at the review gate — `in_review` for a review-gated cut, or review-exempt
+`submitted` for a cut whose frozen contract lifted the review gate — with a
+current submitted execution, the task-owning principal,
 the server-issued `task-rework@v1` proof, and an auditable reason. It returns the
 task to `active` at the implementation node, advances its iteration and closes
 the submitted execution as `changes_requested`. The owner still needs the

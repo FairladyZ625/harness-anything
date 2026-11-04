@@ -561,7 +561,8 @@ function reviewResponseSubmissionIssues(
   for (const response of responses) issues.push(...validateTaskReviewResponseV1(response));
   return issues;
 }
-/** The task owner can return any unleased submitted cut to implementation. */
+/** The task owner can return any unleased submitted cut to implementation: a review-gated cut
+ * (`in_review`) or a review-exempt low-risk cut (`submitted`). */
 export const rework: Transition = {
   actionId: "rework",
   matches: (command) => command.type === "ReworkTask",
@@ -571,6 +572,11 @@ export const rework: Transition = {
       issues = revisionIssues(snapshot, command),
       task = snapshot.task,
       current = execution(snapshot, command.executionId),
+      // `submitted` is the aggregate status of a review-exempt cut: submit only enters it when the
+      // frozen submission contract lifted the review gate. It is the same return target as an
+      // `in_review` cut, so the owner's semantic acceptance gets one rework path.
+      reviewExemptSubmission =
+        task?.status === "submitted" && current?.submission?.completionContract.closeoutGates.review === false,
       review = command.reviewId
         ? snapshot.reviews.find(
             (value) =>
@@ -582,7 +588,7 @@ export const rework: Transition = {
       currentDigest = current?.submission ? submissionDigest(current.submission) : undefined;
     if (
       !task ||
-      task.status !== "in_review" ||
+      (task.status !== "in_review" && !reviewExemptSubmission) ||
       task.currentNode !== "review" ||
       snapshot.lease !== null ||
       current?.state !== "submitted" ||
@@ -591,7 +597,8 @@ export const rework: Transition = {
       issues.push(
         lifecycleContractIssue(
           "invalid_transition",
-          "Task rework requires an unleased in_review task with a current submitted execution",
+          "Task rework requires an unleased in_review or review-exempt submitted task with a current " +
+            "submitted execution",
         ),
       );
     if (command.reviewId && (!review || review.submissionDigest !== currentDigest))
