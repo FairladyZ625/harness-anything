@@ -65,11 +65,14 @@ export interface RuntimeSessionPageQuery {
   readonly taskId?: string;
   readonly limit: number;
   readonly afterRuntimeSessionId?: string;
+  /** Explicit compatibility request: exact totals scan the remaining matching set. */
+  readonly includeRemainingCount?: boolean;
 }
 export interface RuntimeSessionPageRead {
   readonly rows: readonly RuntimeSession[];
   readonly nextRuntimeSessionId: string | null;
-  readonly remainingCount: number;
+  /** Null when another page exists and an exact count was not requested; zero at the end. */
+  readonly remainingCount: number | null;
 }
 
 export interface SquadRunProjectionRow {

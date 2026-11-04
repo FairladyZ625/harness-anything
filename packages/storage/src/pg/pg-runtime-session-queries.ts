@@ -56,11 +56,15 @@ export async function readPgSessionPage(
   const where = `${predicate} AND (cardinality($4::text[])=0 OR p.readers && $4::text[])`,
     rows = await client.query<{ value: string }>(
       `SELECT p.value FROM ${from} WHERE ${where} ORDER BY ${query.taskId ? "b.session_id" : "p.entity_id"} LIMIT $${parameters.length + 1}`,
-      [...parameters, query.limit],
+      [...parameters, query.limit + 1],
     ),
-    sessions = rows.rows.map(({ value }) => JSON.parse(value) as RuntimeSession),
+    sessions = rows.rows.slice(0, query.limit).map(({ value }) => JSON.parse(value) as RuntimeSession),
     last = sessions.at(-1)?.runtimeSessionId;
   if (last === undefined) return { rows: sessions, nextRuntimeSessionId: null, remainingCount: 0 };
+  if (query.includeRemainingCount !== true) {
+    const hasMore = rows.rows.length > query.limit;
+    return { rows: sessions, nextRuntimeSessionId: hasMore ? last : null, remainingCount: hasMore ? null : 0 };
+  }
   const count = await client.query<{ count: string }>(
     `SELECT count(*)::text AS count FROM ${from} WHERE ${where}`,
     parameters.map((value, index) => (index === 4 ? last : value)),

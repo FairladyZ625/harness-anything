@@ -1005,13 +1005,19 @@ test("runtime overview pages at the server before DTO and dispatch expansion", (
   assert.equal(overview.sessions.length, 12);
   assert.equal(unboundedReads, 0);
   assert.equal(exactDispatchReads, 12);
-  assert.deepEqual(pageQuery, { limit: 12 });
+  assert.deepEqual(pageQuery, { limit: 12, includeRemainingCount: true });
   assert.deepEqual(overview.page, {
     limit: 12,
     cursor: null,
     nextCursor: "runtime-session:runtime-11",
     remainingCount: 13,
   });
+  makeAgentRuntimeReadModel({
+    store: {} as never,
+    projection: projection as never,
+    includeRemainingCount: false,
+  }).overview({ limit: 12 });
+  assert.deepEqual(pageQuery, { limit: 12, includeRemainingCount: false });
 });
 
 test("provider output publication does not scale full projection reads with line count", async () => {

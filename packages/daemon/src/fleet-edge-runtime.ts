@@ -760,6 +760,8 @@ export function openFleetEdgeRuntime(input: {
                   },
                   undefined,
                   request.viewRoot,
+                  true,
+                  false,
                 ).overview(payload),
                 ...frame,
               }),

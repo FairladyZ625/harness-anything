@@ -10,6 +10,7 @@ export function repositoryRuntimeReads(
   /** Harness root holding dispatch streams; the only source of provider-reported context fill. */
   rootDir?: string,
   activityEvidence = true,
+  includeRemainingCount = true,
 ) {
   return makeAgentRuntimeReadModel({
     readAttemptChain: (id) => readRuntimeAttemptChain(id, projection),
@@ -19,6 +20,7 @@ export function repositoryRuntimeReads(
     store,
     ...(rootDir === undefined ? {} : { rootDir }),
     activityEvidence,
+    includeRemainingCount,
     ...(now ? { now } : {}),
   });
 }

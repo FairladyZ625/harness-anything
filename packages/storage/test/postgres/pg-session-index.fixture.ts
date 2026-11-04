@@ -79,9 +79,20 @@ export async function assertSessionIndexes(pool: Pool, seedPool: Pool, backend: 
     [],
   );
   assert.equal((await source.readRuntimeSessionPage({ limit: 2 })).rows[0]!.runtimeSessionId, "session-000001");
-  process.stdout.write(`SESSION_INDEX ${backend} pages-including-legacy-exact-count ${JSON.stringify(plans)}\n`);
-  await measurePgRead(backend, "readRuntimeSessionPage (legacy exact count)", () =>
-    timed.readRuntimeSessionPage({ limit: 64 }),
+  process.stdout.write(`SESSION_INDEX ${backend} bounded-keyset-pages ${JSON.stringify(plans)}\n`);
+  for (const scan of explainNodes(plans).filter((row) =>
+    ["ha_projection_values", "ha_runtime_session_tasks"].includes(String(row["Relation Name"])),
+  ))
+    assert.ok(
+      (Number(scan["Actual Rows"]) + Number(scan["Rows Removed by Filter"] ?? 0)) * Number(scan["Actual Loops"]) <= 65,
+      `session page scanned more than its page plus one: ${JSON.stringify(scan)}`,
+    );
+  await measurePgRead(backend, "readRuntimeSessionPage (bounded)", () => timed.readRuntimeSessionPage({ limit: 64 }));
+  plans.length = 0;
+  assert.equal(
+    (await source.readRuntimeSessionPage({ limit: 64, includeRemainingCount: true })).remainingCount,
+    100136,
   );
+  process.stdout.write(`SESSION_INDEX ${backend} explicit-legacy-exact-count ${JSON.stringify(plans)}\n`);
   await assertDispatchIndexes(pool, seedPool, backend);
 }

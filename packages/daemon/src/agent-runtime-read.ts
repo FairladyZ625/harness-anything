@@ -53,6 +53,8 @@ export function makeAgentRuntimeReadModel(input: {
   readonly rootDir?: string;
   /** Local public reads retain the center observation; edge reads may opt into process evidence. */
   readonly activityEvidence?: boolean;
+  /** Keep the previous public page receipt until its wire compatibility window closes. */
+  readonly includeRemainingCount?: boolean;
   readonly now?: () => string;
 }) {
   const installationDto = (raw: RuntimeInstallation): AgentRuntimeInstallationDto => {
@@ -224,6 +226,7 @@ export function makeAgentRuntimeReadModel(input: {
           : input.projection.readRuntimeSessionPage({
               ...(query.taskId === null ? {} : { taskId: query.taskId }),
               limit: query.limit,
+              includeRemainingCount: input.includeRemainingCount !== false,
               ...(query.afterRuntimeSessionId === null ? {} : { afterRuntimeSessionId: query.afterRuntimeSessionId }),
             });
       const sessions =
