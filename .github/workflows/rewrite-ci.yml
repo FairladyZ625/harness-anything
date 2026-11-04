@@ -668,6 +668,7 @@ jobs:
       - run: echo "npm_package_config_node_gyp_nodedir=$(dirname "$(dirname "$(command -v node)")")" >> "$GITHUB_ENV"
       - run: npm ci
       - name: Reject history-dependent reads (G38)
+        timeout-minutes: 2
         env:
           G38_PHASE: read
           G38_BACKEND: ${{ matrix.backend }}

@@ -17,6 +17,8 @@ import {
   READ_DIMENSIONS,
   READ_MARGINS,
   readScalesFor,
+  readScalesForProbe,
+  measureReadCosts,
 } from "../cost-budget-reads.mjs";
 
 const inventory = [{ id: "method:repo.fixture.read" }],
@@ -163,6 +165,72 @@ test("G38 rejects incomplete exemption provenance, duplicate exemptions and inva
   f.section.knownScaling = [];
   f.measured.sqlite.relations.fixture.small.counts.sqlRowsRead = -1;
   assert.throws(() => evaluateReadMeasurements(f), /invalid read measurement/u);
+});
+
+test("G38 bounds only the exact exempt probe and restores full scales when its exemption is removed", () => {
+  const f = fixture();
+  f.section.knownScaling = [{ ...exemption, measurementScales: { small: 5, large: 50 } }];
+  const pair = f.measured.pglite["runtime-sessions"].fixture;
+  pair.small.size = 5;
+  pair.large.size = 50;
+  pair.large.counts.sqlRowsRead = 45;
+  assert.equal(evaluateReadMeasurements(f).ok, true);
+  assert.deepEqual(readScalesForProbe(f.section, "fixture", "sqlite", "runtime-sessions"), { small: 200, large: 2000 });
+  pair.large.counts.fileReadBytes = 1000;
+  assert.match(evaluateReadMeasurements(f).errors.join("\n"), /fileReadBytes.*no knownScaling/u);
+  f.section.knownScaling[0].expiresAt = "2026-11-04T00:00:00Z";
+  assert.match(evaluateReadMeasurements(f).errors.join("\n"), /expired/u);
+  f.section.knownScaling = [];
+  assert.throws(() => evaluateReadMeasurements(f), /committed 10x scales/u);
+});
+
+test("G38 refuses inconsistent, non-10x and source-audit exemption bounds", () => {
+  for (const measurementScales of [
+    { small: 0, large: 0 },
+    { small: 5, large: 25 },
+    { small: 2000, large: 20000 },
+  ]) {
+    const f = fixture();
+    f.section.knownScaling = [{ ...exemption, measurementScales }];
+    assert.throws(() => evaluateReadMeasurements(f), /invalid knownScaling measurementScales/u);
+  }
+  const f = fixture();
+  f.section.knownScaling = [
+    { ...exemption, measurementScales: { small: 5, large: 50 } },
+    { ...exemption, metric: "sqlResultBytes" },
+  ];
+  assert.throws(() => evaluateReadMeasurements(f), /inconsistent or invalid/u);
+  f.section.knownScaling = [{ ...exemption, dimension: "source-events", measurementScales: { small: 5, large: 50 } }];
+  assert.throws(() => readScalesForProbe(f.section, "fixture", "pglite", "source-events"), /invalid/u);
+});
+
+test("G38 measures bounded scans separately while keeping every other probe at full history", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-g38-scale-groups-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  mkdirSync(path.join(rootDir, "packages/daemon/test/fixtures"), { recursive: true });
+  writeFileSync(
+    path.join(rootDir, "packages/daemon/test/fixtures/g38-read-cost.mjs"),
+    `export const READ_PROBES={bounded:{},regular:{}};
+     export async function measureReadScale(backend,dimension,size,{probeIds}) {
+       return Object.fromEntries(probeIds.map(id=>[id,{size,resultSize:1}]));
+     }`,
+  );
+  const section = {
+    knownScaling: [{ ...exemption, probe: "bounded", measurementScales: { small: 5, large: 50 } }],
+  };
+  const { measured } = await measureReadCosts(rootDir, {
+    dimensions: ["runtime-sessions"],
+    backends: ["sqlite", "pglite"],
+    section,
+  });
+  for (const backend of READ_BACKENDS) {
+    const pairs = measured[backend]["runtime-sessions"];
+    assert.deepEqual([pairs.regular.small.size, pairs.regular.large.size], [200, 2000]);
+    assert.deepEqual(
+      [pairs.bounded.small.size, pairs.bounded.large.size],
+      backend === "pglite" ? [5, 50] : [200, 2000],
+    );
+  }
 });
 
 test("PG scan accounting sees rows hidden by aggregates, filters and repeated loops", () => {

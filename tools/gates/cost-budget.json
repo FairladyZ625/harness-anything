@@ -928,8 +928,16 @@
     "schema": "read-cost-scaling-budget/v1",
     "readCoverage": {
       "measured": {
-        "background:projection-recovery": { "measurements": ["projection-recovery"] },
-        "method:repo.agentRuntime.attach": { "measurements": ["runtime-attach"] },
+        "background:projection-recovery": {
+          "measurements": [
+            "projection-recovery"
+          ]
+        },
+        "method:repo.agentRuntime.attach": {
+          "measurements": [
+            "runtime-attach"
+          ]
+        },
         "background:archive-maintenance": {
           "measurements": [
             "archive-maintenance"
@@ -1479,11 +1487,16 @@
       },
       "notApplicable": [
         {
-          "reads": ["method:daemon.skillEval.cases.list"],
+          "reads": [
+            "method:daemon.skillEval.cases.list"
+          ],
           "reason": "Returns the selected skill evaluation catalog cases from the host-local catalog (skill-eval-production.ts), not canonical repository history; selected catalog cases are the explicit result k."
         },
         {
-          "reads": ["method:daemon.fleet.center.read", "method:daemon.fleet.center.external-address.read"],
+          "reads": [
+            "method:daemon.fleet.center.read",
+            "method:daemon.fleet.center.external-address.read"
+          ],
           "reason": "Reads the current fleet-center listener/address singleton in daemon host state (json-rpc-server.ts), with no repository projection or history enumeration."
         },
         {
@@ -1589,6 +1602,2666 @@
         }
       ]
     },
-    "knownScaling": []
+    "knownScaling": [
+      {
+        "probe": "assignment-directory",
+        "backend": "sqlite",
+        "dimension": "task-history",
+        "metric": "sqlResultBytes",
+        "reason": "Task context or output directory enumerates historical entries; observed sqlResultBytes 269055 at 200 -> 2566939 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_8309ae1344faa6354ffbb60f54",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "assignment-directory",
+        "backend": "sqlite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "Task context or output directory enumerates historical entries; observed sqlRowsRead 247 at 200 -> 2047 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_8309ae1344faa6354ffbb60f54",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "fleet-overview",
+        "backend": "sqlite",
+        "dimension": "task-history",
+        "metric": "sqlResultBytes",
+        "reason": "Home/fleet aggregation reads historical collections; observed sqlResultBytes 309200 at 200 -> 309765 at 2000 (cold/warm maximum). Bytes-only boundary; scan attribution unverified, tracked separately.",
+        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "home-overview",
+        "backend": "sqlite",
+        "dimension": "task-history",
+        "metric": "sqlResultBytes",
+        "reason": "Home/fleet aggregation reads historical collections; observed sqlResultBytes 217606 at 200 -> 218124 at 2000 (cold/warm maximum). Bytes-only boundary; scan attribution unverified, tracked separately.",
+        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.artifacts.list",
+        "backend": "sqlite",
+        "dimension": "task-history",
+        "metric": "sqlResultBytes",
+        "reason": "Task context or output directory enumerates historical entries; observed sqlResultBytes 13227 at 200 -> 126632 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_8309ae1344faa6354ffbb60f54",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "repo.artifacts.list",
+        "backend": "sqlite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "Task context or output directory enumerates historical entries; observed sqlRowsRead 208 at 200 -> 2008 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_8309ae1344faa6354ffbb60f54",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "repo.tasks.runtimeContext.read",
+        "backend": "sqlite",
+        "dimension": "task-history",
+        "metric": "sqlResultBytes",
+        "reason": "Task context or output directory enumerates historical entries; observed sqlResultBytes 269055 at 200 -> 2566939 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_8309ae1344faa6354ffbb60f54",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "repo.tasks.runtimeContext.read",
+        "backend": "sqlite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "Task context or output directory enumerates historical entries; observed sqlRowsRead 247 at 200 -> 2047 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_8309ae1344faa6354ffbb60f54",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "fleet-overview",
+        "backend": "sqlite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "Home/fleet aggregation reads historical collections; observed sqlResultBytes 1314595 at 200 -> 10393634 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "fleet-overview",
+        "backend": "sqlite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "Home/fleet aggregation reads historical collections; observed sqlRowsRead 1512 at 200 -> 8712 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "home-overview",
+        "backend": "sqlite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "Home/fleet aggregation reads historical collections; observed sqlResultBytes 1452850 at 200 -> 12601042 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "home-overview",
+        "backend": "sqlite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "Home/fleet aggregation reads historical collections; observed sqlRowsRead 2388 at 200 -> 18588 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "fleet-overview",
+        "backend": "sqlite",
+        "dimension": "dispatches",
+        "metric": "fileReadBytes",
+        "reason": "Home/fleet historical dispatch aggregation; observed fileReadBytes 1620 at 5 -> 6480 at 50 (cold/warm maximum), k=1. Full PG 2000-history home/fleet observation remains unverified; bounded pair authorized by CEO 2026-11-05.",
+        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
+        "expiresAt": "2026-11-19T00:00:00Z",
+        "measurementScales": {
+          "small": 5,
+          "large": 50
+        }
+      },
+      {
+        "probe": "fleet-overview",
+        "backend": "sqlite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "Home/fleet historical dispatch aggregation; observed sqlResultBytes 500933 at 5 -> 8664615 at 50 (cold/warm maximum), k=1. Full PG 2000-history home/fleet observation remains unverified; bounded pair authorized by CEO 2026-11-05.",
+        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
+        "expiresAt": "2026-11-19T00:00:00Z",
+        "measurementScales": {
+          "small": 5,
+          "large": 50
+        }
+      },
+      {
+        "probe": "fleet-overview",
+        "backend": "sqlite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "Home/fleet historical dispatch aggregation; observed sqlRowsRead 1056 at 5 -> 8712 at 50 (cold/warm maximum), k=1. Full PG 2000-history home/fleet observation remains unverified; bounded pair authorized by CEO 2026-11-05.",
+        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
+        "expiresAt": "2026-11-19T00:00:00Z",
+        "measurementScales": {
+          "small": 5,
+          "large": 50
+        }
+      },
+      {
+        "probe": "home-overview",
+        "backend": "sqlite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "Home/fleet historical dispatch aggregation; observed sqlResultBytes 434904 at 5 -> 8812000 at 50 (cold/warm maximum), k=1. Full PG 2000-history home/fleet observation remains unverified; bounded pair authorized by CEO 2026-11-05.",
+        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
+        "expiresAt": "2026-11-19T00:00:00Z",
+        "measurementScales": {
+          "small": 5,
+          "large": 50
+        }
+      },
+      {
+        "probe": "home-overview",
+        "backend": "sqlite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "Home/fleet historical dispatch aggregation; observed sqlRowsRead 978 at 5 -> 8988 at 50 (cold/warm maximum), k=1. Full PG 2000-history home/fleet observation remains unverified; bounded pair authorized by CEO 2026-11-05.",
+        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
+        "expiresAt": "2026-11-19T00:00:00Z",
+        "measurementScales": {
+          "small": 5,
+          "large": 50
+        }
+      },
+      {
+        "probe": "fleet-overview",
+        "backend": "sqlite",
+        "dimension": "task-outputs",
+        "metric": "sqlResultBytes",
+        "reason": "Home/fleet aggregation reads historical collections; observed sqlResultBytes 305935 at 3400 -> 306500 at 34000 (cold/warm maximum). Bytes-only boundary; scan attribution unverified, tracked separately.",
+        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "home-overview",
+        "backend": "sqlite",
+        "dimension": "task-outputs",
+        "metric": "sqlResultBytes",
+        "reason": "Home/fleet aggregation reads historical collections; observed sqlResultBytes 216888 at 3400 -> 217406 at 34000 (cold/warm maximum). Bytes-only boundary; scan attribution unverified, tracked separately.",
+        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.artifacts.list",
+        "backend": "sqlite",
+        "dimension": "task-outputs",
+        "metric": "directoryEntries",
+        "reason": "Task context or output directory enumerates historical entries; observed directoryEntries 3405 at 3400 -> 34005 at 34000 (cold/warm maximum).",
+        "deletionTaskId": "task_8309ae1344faa6354ffbb60f54",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "fleet-overview",
+        "backend": "sqlite",
+        "dimension": "relations",
+        "metric": "sqlResultBytes",
+        "reason": "Home/fleet aggregation reads historical collections; observed sqlResultBytes 306156 at 200 -> 306721 at 2000 (cold/warm maximum). Bytes-only boundary; scan attribution unverified, tracked separately.",
+        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "home-overview",
+        "backend": "sqlite",
+        "dimension": "relations",
+        "metric": "sqlResultBytes",
+        "reason": "Home/fleet aggregation reads historical collections; observed sqlResultBytes 216782 at 200 -> 217300 at 2000 (cold/warm maximum). Bytes-only boundary; scan attribution unverified, tracked separately.",
+        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "agenda",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 4479 at 200 -> 71559 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "assignment-directory",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlResultBytes",
+        "reason": "Task context or output directory enumerates historical entries; observed sqlResultBytes 264965 at 200 -> 2466661 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_8309ae1344faa6354ffbb60f54",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "assignment-directory",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "Task context or output directory enumerates historical entries; observed sqlRowsRead 1293 at 200 -> 8493 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_8309ae1344faa6354ffbb60f54",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "claimable-tasks",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "fileReadBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed fileReadBytes 54 at 200 -> 270 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "claimable-tasks",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 1142478 at 200 -> 11106467 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "claimable-tasks",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 24960 at 200 -> 249536 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-doc-status",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1099 at 200 -> 10099 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-doc-sync-dry-run",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1099 at 200 -> 10099 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-doctor-health",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 5646 at 200 -> 45858 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-event-list",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 486 at 200 -> 4086 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-graph",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 293418 at 200 -> 2610312 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-graph",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1691 at 200 -> 7091 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-relation-list",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 31934 at 200 -> 147142 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-relation-list",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 859 at 200 -> 2659 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-schedule-runs",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 303 at 200 -> 4141 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-settings-read",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 417 at 200 -> 2200 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-settings-show",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 417 at 200 -> 2200 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-squad-status",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 455 at 200 -> 2255 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-task-list",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1007 at 200 -> 4405 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-task-read-set",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 227 at 200 -> 2027 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-task-review",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 276 at 200 -> 2076 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-task-show",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1521 at 200 -> 14359 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-work-list",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 745 at 200 -> 4345 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-work-show",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 262488 at 200 -> 2464172 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-work-show",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1020 at 200 -> 6420 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "document-point",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 232 at 200 -> 2032 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "document-prefix",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 273 at 200 -> 2073 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "explain-actions",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 578 at 200 -> 4178 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "fleet-overview",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "Home/fleet aggregation reads historical collections; observed sqlRowsRead 12906 at 200 -> 66906 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "home-overview",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "Home/fleet aggregation reads historical collections; observed sqlRowsRead 10165 at 200 -> 100645 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "in-flight-work",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 262530 at 200 -> 2464212 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "in-flight-work",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 857 at 200 -> 4457 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "output-point-same-task",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 269 at 200 -> 2069 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "projection:runtime-session-groups",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 5149 at 200 -> 26749 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "projection:schedule-plane",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 218201 at 200 -> 2107448 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "projection:schedule-plane",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 563 at 200 -> 4163 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "projection:schedule-run-history",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 300 at 200 -> 4138 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.agentRuntime.tokenUsage",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 261465 at 200 -> 2463147 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.agentRuntime.tokenUsage",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 761 at 200 -> 4361 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.artifacts.list",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlResultBytes",
+        "reason": "Task context or output directory enumerates historical entries; observed sqlResultBytes 215362 at 200 -> 2104603 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_8309ae1344faa6354ffbb60f54",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "repo.artifacts.list",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "Task context or output directory enumerates historical entries; observed sqlRowsRead 207 at 200 -> 2007 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_8309ae1344faa6354ffbb60f54",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "repo.settings.read",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 358 at 200 -> 2141 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.squad.run.read",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 414 at 200 -> 2214 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.squad.runs.list",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 437 at 200 -> 2237 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.tasks.completion.read",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 489 at 200 -> 4089 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.tasks.deliveryDiff.read",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 216 at 200 -> 2016 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.tasks.runtimeContext.read",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlResultBytes",
+        "reason": "Task context or output directory enumerates historical entries; observed sqlResultBytes 264965 at 200 -> 2466661 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_8309ae1344faa6354ffbb60f54",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "repo.tasks.runtimeContext.read",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "Task context or output directory enumerates historical entries; observed sqlRowsRead 1293 at 200 -> 8493 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_8309ae1344faa6354ffbb60f54",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "repo.tasks.wip",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1628 at 200 -> 12428 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.work.topology.read",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 448 at 200 -> 4048 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.works.briefs.read",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1501 at 200 -> 8701 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.works.index",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 745 at 200 -> 4345 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.workspace.scope.read",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 639225 at 200 -> 5304297 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.workspace.scope.read",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1025 at 200 -> 6557 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "runtime-await",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 10891 at 200 -> 55891 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "runtime-events",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 243 at 200 -> 2043 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "runtime-overview",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 358 at 200 -> 2158 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "runtime-overview-default",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 611 at 200 -> 4211 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "runtime-session",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 10891 at 200 -> 55891 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "task-dispatches",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 10528 at 200 -> 55528 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "task-list",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 848 at 200 -> 2648 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "workspace-summary",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 42102 at 200 -> 272504 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "workspace-summary",
+        "backend": "pglite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 830 at 200 -> 2630 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "agenda",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 362155 at 200 -> 2892555 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "agenda",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 10634 at 200 -> 102434 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "assignment-directory",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 301005 at 200 -> 2831341 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "assignment-directory",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 474 at 200 -> 4074 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "claimable-tasks",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 317979 at 200 -> 2848343 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "claimable-tasks",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 525 at 200 -> 4125 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-decision-list",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 214 at 200 -> 2014 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-decision-show",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 252 at 200 -> 2052 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-decision-validate",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 463 at 200 -> 4063 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-decision-verify",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 463 at 200 -> 4063 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-doctor-health",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 1184315 at 200 -> 11305621 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-doctor-health",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1847 at 200 -> 16247 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-event-list",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 648 at 200 -> 6048 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-graph",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 596976 at 200 -> 5657628 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-graph",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1338 at 200 -> 12138 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-relation-list",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 299452 at 200 -> 2829778 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-relation-list",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 471 at 200 -> 4071 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-schedule-reckon",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 148896 at 200 -> 1473700 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-schedule-reckon",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 673 at 200 -> 6073 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-schedule-runs",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1288 at 200 -> 12088 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-settings-read",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 658 at 200 -> 6041 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-settings-show",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 658 at 200 -> 6041 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-task-list",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 295414 at 200 -> 2825736 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-task-list",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 440 at 200 -> 4040 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-task-show",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1350 at 200 -> 12150 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-work-list",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 296196 at 200 -> 2826516 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-work-list",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 431 at 200 -> 4031 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-work-show",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 298528 at 200 -> 2828852 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-work-show",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 450 at 200 -> 4050 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "fleet-overview",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "Home/fleet aggregation reads historical collections; observed sqlResultBytes 1328507 at 200 -> 10244536 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "fleet-overview",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "Home/fleet aggregation reads historical collections; observed sqlRowsRead 31820 at 200 -> 305420 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "home-overview",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "Home/fleet aggregation reads historical collections; observed sqlResultBytes 1357537 at 200 -> 11645047 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "home-overview",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "Home/fleet aggregation reads historical collections; observed sqlRowsRead 26891 at 200 -> 257291 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "in-flight-work",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 445770 at 200 -> 4300892 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "in-flight-work",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1090 at 200 -> 10090 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "projection:runtime-session-groups",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 967368 at 200 -> 8677656 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "projection:runtime-session-groups",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 12237 at 200 -> 116637 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "projection:schedule-plane",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 657 at 200 -> 12095 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "projection:schedule-run-history",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1285 at 200 -> 12085 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.agentRuntime.tokenUsage",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 297505 at 200 -> 2827827 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.agentRuntime.tokenUsage",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 848 at 200 -> 8048 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.agentRuntime.tokenUsageDetail",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 417 at 200 -> 4017 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.decision.list",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 214 at 200 -> 2014 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.decision.show",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 252 at 200 -> 2052 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.decisions.list",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 214 at 200 -> 2014 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.reckoning.signals.read",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 148728 at 200 -> 1473528 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.reckoning.signals.read",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 667 at 200 -> 6067 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.settings.read",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 652 at 200 -> 6035 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.tasks.runtimeContext.read",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 301005 at 200 -> 2831341 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.tasks.runtimeContext.read",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 474 at 200 -> 4074 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.tasks.wip",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 295672 at 200 -> 2826000 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.tasks.wip",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 461 at 200 -> 4061 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.works.briefs.read",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 592478 at 200 -> 5653120 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.works.briefs.read",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 865 at 200 -> 8065 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.works.index",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 296196 at 200 -> 2826516 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.works.index",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 431 at 200 -> 4031 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.workspace.scope.read",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 762063 at 200 -> 4160059 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.workspace.scope.read",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1125 at 200 -> 6243 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "runtime-await",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 33793 at 200 -> 327193 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "runtime-events",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 643 at 200 -> 6043 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "runtime-overview",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 157133 at 200 -> 1481935 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "runtime-overview",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1307 at 200 -> 12107 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "runtime-overview-default",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 160653 at 200 -> 1485455 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "runtime-overview-default",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1961 at 200 -> 18161 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "runtime-session",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 33793 at 200 -> 327193 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "task-dispatches",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 394040 at 200 -> 1718940 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "task-dispatches",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 29340 at 200 -> 283140 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "task-list",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 299544 at 200 -> 2829886 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "task-list",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 477 at 200 -> 4077 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "workspace-summary",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 296820 at 200 -> 2827140 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "workspace-summary",
+        "backend": "pglite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 450 at 200 -> 4050 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "agenda",
+        "backend": "pglite",
+        "dimension": "task-outputs",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 1094097 at 3400 -> 10237018 at 34000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "agenda",
+        "backend": "pglite",
+        "dimension": "task-outputs",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 4008 at 3400 -> 34610 at 34000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-event-list",
+        "backend": "pglite",
+        "dimension": "task-outputs",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 6886 at 3400 -> 68086 at 34000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-schedule-runs",
+        "backend": "pglite",
+        "dimension": "task-outputs",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 6888 at 3400 -> 68088 at 34000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-settings-read",
+        "backend": "pglite",
+        "dimension": "task-outputs",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 3441 at 3400 -> 34041 at 34000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-settings-show",
+        "backend": "pglite",
+        "dimension": "task-outputs",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 3441 at 3400 -> 34041 at 34000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-task-show",
+        "backend": "pglite",
+        "dimension": "task-outputs",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 6998 at 3400 -> 68198 at 34000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "document-prefix",
+        "backend": "pglite",
+        "dimension": "task-outputs",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 1017478 at 3400 -> 10160321 at 34000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "document-prefix",
+        "backend": "pglite",
+        "dimension": "task-outputs",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 3476 at 3400 -> 34076 at 34000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "fleet-overview",
+        "backend": "pglite",
+        "dimension": "task-outputs",
+        "metric": "sqlRowsRead",
+        "reason": "Home/fleet aggregation reads historical collections; observed sqlRowsRead 32054 at 3400 -> 307454 at 34000 (cold/warm maximum).",
+        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "home-overview",
+        "backend": "pglite",
+        "dimension": "task-outputs",
+        "metric": "sqlResultBytes",
+        "reason": "Home/fleet aggregation reads historical collections; observed sqlResultBytes 2241495 at 3400 -> 20527329 at 34000 (cold/warm maximum).",
+        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "home-overview",
+        "backend": "pglite",
+        "dimension": "task-outputs",
+        "metric": "sqlRowsRead",
+        "reason": "Home/fleet aggregation reads historical collections; observed sqlRowsRead 21818 at 3400 -> 205421 at 34000 (cold/warm maximum).",
+        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "projection:runtime-session-groups",
+        "backend": "pglite",
+        "dimension": "task-outputs",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 14151 at 3400 -> 136551 at 34000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "projection:schedule-plane",
+        "backend": "pglite",
+        "dimension": "task-outputs",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 3457 at 3400 -> 68095 at 34000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "projection:schedule-run-history",
+        "backend": "pglite",
+        "dimension": "task-outputs",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 6885 at 3400 -> 68085 at 34000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.settings.read",
+        "backend": "pglite",
+        "dimension": "task-outputs",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 3435 at 3400 -> 34035 at 34000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.workspace.scope.read",
+        "backend": "pglite",
+        "dimension": "task-outputs",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 2578108 at 3400 -> 2584413 at 34000 (cold/warm maximum). Bytes-only boundary; scan attribution unverified, tracked separately.",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "runtime-await",
+        "backend": "pglite",
+        "dimension": "task-outputs",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 31822 at 3400 -> 307232 at 34000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "runtime-events",
+        "backend": "pglite",
+        "dimension": "task-outputs",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 3443 at 3400 -> 34043 at 34000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "runtime-overview",
+        "backend": "pglite",
+        "dimension": "task-outputs",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 3455 at 3400 -> 34055 at 34000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "runtime-overview-default",
+        "backend": "pglite",
+        "dimension": "task-outputs",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 6909 at 3400 -> 68109 at 34000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "runtime-session",
+        "backend": "pglite",
+        "dimension": "task-outputs",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 31822 at 3400 -> 307232 at 34000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "task-dispatches",
+        "backend": "pglite",
+        "dimension": "task-outputs",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 28333 at 3400 -> 273133 at 34000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "agenda",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1824 at 200 -> 14424 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "claimable-tasks",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 736 at 200 -> 6136 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-decision-list",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 214 at 200 -> 2014 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-decision-show",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 252 at 200 -> 2052 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-decision-validate",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 463 at 200 -> 4063 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-decision-verify",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 463 at 200 -> 4063 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-doctor-health",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 257323 at 200 -> 2009035 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-doctor-health",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 2035 at 200 -> 18235 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-event-list",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 248 at 200 -> 2048 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-graph",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 230618 at 200 -> 1982312 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-graph",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 2334 at 200 -> 22134 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-relation-list",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 213412 at 200 -> 1965098 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-relation-list",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1871 at 200 -> 18071 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-schedule-runs",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 250 at 200 -> 4088 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-settings-read",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 258 at 200 -> 2041 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-settings-show",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 258 at 200 -> 2041 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-task-show",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 312 at 200 -> 4150 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "fleet-overview",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "Home/fleet aggregation reads historical collections; observed sqlRowsRead 3705 at 200 -> 25305 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "home-overview",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "Home/fleet aggregation reads historical collections; observed sqlRowsRead 3748 at 200 -> 27148 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "projection:runtime-session-groups",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1303 at 200 -> 8503 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "projection:schedule-plane",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 257 at 200 -> 4095 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "projection:schedule-run-history",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 247 at 200 -> 4085 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.decision.list",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 214 at 200 -> 2014 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.decision.show",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 252 at 200 -> 2052 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.decisions.list",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 214 at 200 -> 2014 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.settings.read",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 252 at 200 -> 2035 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.workspace.scope.read",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 260579 at 200 -> 1617413 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.workspace.scope.read",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 307 at 200 -> 2239 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "runtime-await",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 2925 at 200 -> 19125 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "runtime-events",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 243 at 200 -> 2043 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "runtime-overview",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 255 at 200 -> 2055 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "runtime-overview-default",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 509 at 200 -> 4109 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "runtime-session",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 2925 at 200 -> 19125 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "task-dispatches",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 2631 at 200 -> 17031 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "task-list",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 682 at 200 -> 6082 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "workspace-summary",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 210780 at 200 -> 1962460 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "workspace-summary",
+        "backend": "pglite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1850 at 200 -> 18050 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "event-tail",
+        "backend": "pglite",
+        "dimension": "event-bytes",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 84411 at 200 -> 113212 at 2000 (cold/warm maximum). Bytes-only boundary; scan attribution unverified, tracked separately.",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "fleet-overview",
+        "backend": "pglite",
+        "dimension": "event-bytes",
+        "metric": "sqlResultBytes",
+        "reason": "Home/fleet aggregation reads historical collections; observed sqlResultBytes 367287 at 200 -> 396088 at 2000 (cold/warm maximum). Bytes-only boundary; scan attribution unverified, tracked separately.",
+        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.workspace.scope.read",
+        "backend": "pglite",
+        "dimension": "event-bytes",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 100287 at 200 -> 129088 at 2000 (cold/warm maximum). Bytes-only boundary; scan attribution unverified, tracked separately.",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "home-overview",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "Home/fleet historical dispatch aggregation; observed sqlRowsRead 5186 at 5 -> 60745 at 50 (cold/warm maximum), k=1. Full PG 2000-history home/fleet observation remains unverified; bounded pair authorized by CEO 2026-11-05.",
+        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
+        "expiresAt": "2026-11-19T00:00:00Z",
+        "measurementScales": {
+          "small": 5,
+          "large": 50
+        }
+      },
+      {
+        "probe": "home-overview",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "Home/fleet historical dispatch aggregation; observed sqlResultBytes 429132 at 5 -> 8646300 at 50 (cold/warm maximum), k=1. Full PG 2000-history home/fleet observation remains unverified; bounded pair authorized by CEO 2026-11-05.",
+        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
+        "expiresAt": "2026-11-19T00:00:00Z",
+        "measurementScales": {
+          "small": 5,
+          "large": 50
+        }
+      },
+      {
+        "probe": "fleet-overview",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "Home/fleet historical dispatch aggregation; observed sqlRowsRead 4742 at 5 -> 48321 at 50 (cold/warm maximum), k=1. Full PG 2000-history home/fleet observation remains unverified; bounded pair authorized by CEO 2026-11-05.",
+        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
+        "expiresAt": "2026-11-19T00:00:00Z",
+        "measurementScales": {
+          "small": 5,
+          "large": 50
+        }
+      },
+      {
+        "probe": "fleet-overview",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "Home/fleet historical dispatch aggregation; observed sqlResultBytes 569263 at 5 -> 8559357 at 50 (cold/warm maximum), k=1. Full PG 2000-history home/fleet observation remains unverified; bounded pair authorized by CEO 2026-11-05.",
+        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
+        "expiresAt": "2026-11-19T00:00:00Z",
+        "measurementScales": {
+          "small": 5,
+          "large": 50
+        }
+      },
+      {
+        "probe": "fleet-overview",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "fileReadBytes",
+        "reason": "Home/fleet historical dispatch aggregation; observed fileReadBytes 1620 at 5 -> 6480 at 50 (cold/warm maximum), k=1. Full PG 2000-history home/fleet observation remains unverified; bounded pair authorized by CEO 2026-11-05.",
+        "deletionTaskId": "task_f921ec6c33c9997fac8baccc89",
+        "expiresAt": "2026-11-19T00:00:00Z",
+        "measurementScales": {
+          "small": 5,
+          "large": 50
+        }
+      },
+      {
+        "probe": "agenda",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 6610 at 200 -> 62410 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "agenda",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 362175 at 200 -> 2892895 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "assignment-directory",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 474 at 200 -> 4074 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "assignment-directory",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 301025 at 200 -> 2831681 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "claimable-tasks",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 525 at 200 -> 4125 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "claimable-tasks",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 317999 at 200 -> 2848683 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-decision-list",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 214 at 200 -> 2014 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-decision-show",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 252 at 200 -> 2052 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-decision-validate",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 463 at 200 -> 4063 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-decision-verify",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 463 at 200 -> 4063 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-doctor-health",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1847 at 200 -> 16247 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-doctor-health",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 1184397 at 200 -> 11306983 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-event-list",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1686 at 200 -> 16086 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-graph",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1338 at 200 -> 12138 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-graph",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 597016 at 200 -> 5658308 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-relation-list",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 471 at 200 -> 4071 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-relation-list",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 299472 at 200 -> 2830118 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-schedule-reckon",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 873 at 200 -> 8073 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-schedule-reckon",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 148896 at 200 -> 1473700 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-schedule-runs",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1688 at 200 -> 16088 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-settings-read",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1696 at 200 -> 8041 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-settings-show",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1696 at 200 -> 8041 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-task-list",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 440 at 200 -> 4040 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-task-list",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 295434 at 200 -> 2826076 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-task-show",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1750 at 200 -> 16150 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-work-list",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 431 at 200 -> 4031 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-work-list",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 296216 at 200 -> 2826856 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-work-show",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 450 at 200 -> 4050 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "cli-work-show",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 298548 at 200 -> 2829192 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "in-flight-work",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1290 at 200 -> 12090 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "in-flight-work",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 445790 at 200 -> 4301232 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "projection:runtime-session-groups",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 11419 at 200 -> 108619 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "projection:runtime-session-groups",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 967408 at 200 -> 8678336 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "projection:schedule-plane",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1695 at 200 -> 16095 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "projection:schedule-run-history",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1685 at 200 -> 16085 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.agentRuntime.tokenUsage",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 847 at 200 -> 8047 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.agentRuntime.tokenUsage",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 297525 at 200 -> 2828167 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.agentRuntime.tokenUsageDetail",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 416 at 200 -> 4016 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.decision.list",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 214 at 200 -> 2014 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.decision.show",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 252 at 200 -> 2052 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.decisions.list",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 214 at 200 -> 2014 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.reckoning.signals.read",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 867 at 200 -> 8067 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.reckoning.signals.read",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 148728 at 200 -> 1473528 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.settings.read",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1690 at 200 -> 8035 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.tasks.runtimeContext.read",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 474 at 200 -> 4074 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.tasks.runtimeContext.read",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 301025 at 200 -> 2831681 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.tasks.wip",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 461 at 200 -> 4061 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.tasks.wip",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 295692 at 200 -> 2826340 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.works.briefs.read",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 865 at 200 -> 8065 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.works.briefs.read",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 592518 at 200 -> 5653800 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.works.index",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 431 at 200 -> 4031 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.works.index",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 296216 at 200 -> 2826856 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.workspace.scope.read",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1401 at 200 -> 6243 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "repo.workspace.scope.read",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 1077709 at 200 -> 4485124 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "runtime-await",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 25125 at 200 -> 241125 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "runtime-events",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 843 at 200 -> 8043 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "runtime-overview",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 1707 at 200 -> 16107 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "runtime-overview",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 157133 at 200 -> 1481935 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "runtime-overview-default",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 2561 at 200 -> 24161 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "runtime-overview-default",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 160653 at 200 -> 1485455 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "runtime-session",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 25125 at 200 -> 241125 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "task-dispatches",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 22683 at 200 -> 217083 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "task-dispatches",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 394040 at 200 -> 1718940 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "task-list",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 477 at 200 -> 4077 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "task-list",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 299564 at 200 -> 2830226 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "workspace-summary",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 450 at 200 -> 4050 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "workspace-summary",
+        "backend": "pglite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 296840 at 200 -> 2827480 at 2000 (cold/warm maximum).",
+        "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
+        "expiresAt": "2026-11-19T00:00:00Z"
+      }
+    ]
   }
 }

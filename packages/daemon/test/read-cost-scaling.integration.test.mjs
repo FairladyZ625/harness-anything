@@ -26,7 +26,7 @@ if (process.env.FLEET_STRESS_G38_LEGACY_BENCH === "1") {
       `G38 ${backend} executes all production read probes`,
       {
         skip:
-          backend === "pglite" && Number(process.versions.node.split(".")[0]) < 26
+          !full && backend === "pglite" && Number(process.versions.node.split(".")[0]) < 26
             ? "G38 PGlite measurement is pinned to Node 26; the dual-backend CI lane fails closed on older Node"
             : false,
       },

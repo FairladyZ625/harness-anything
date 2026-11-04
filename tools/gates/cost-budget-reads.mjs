@@ -7,6 +7,30 @@ import { pathToFileURL } from "node:url";
 export const READ_SCALES = Object.freeze({ small: 200, large: 2000 });
 export const READ_OUTPUT_SCALES = Object.freeze({ small: 3400, large: 34000 });
 export const readScalesFor = (dimension) => (dimension === "task-outputs" ? READ_OUTPUT_SCALES : READ_SCALES);
+// CEO 2026-11-05: known scans may use declared smaller 10x pairs in the required
+// lane. Removing the last exemption restores the full scales automatically.
+export function readScalesForProbe(section, id, backend, dimension) {
+  const full = readScalesFor(dimension),
+    entries = section.knownScaling.filter(
+      (entry) => entry.probe === id && entry.backend === backend && entry.dimension === dimension,
+    ),
+    bounded = entries.filter((entry) => entry.measurementScales);
+  if (!bounded.length) return full;
+  const scales = bounded[0].measurementScales;
+  required(
+    dimension !== "source-events" &&
+      Number.isSafeInteger(scales.small) &&
+      scales.small > 0 &&
+      scales.large === scales.small * 10 &&
+      scales.small < full.small &&
+      bounded.length === entries.length &&
+      bounded.every(
+        (entry) => entry.measurementScales.small === scales.small && entry.measurementScales.large === scales.large,
+      ),
+    `${id}/${backend}/${dimension}: inconsistent or invalid knownScaling measurementScales`,
+  );
+  return scales;
+}
 export const READ_BACKENDS = Object.freeze(["sqlite", "pglite"]);
 export const READ_DIMENSIONS = Object.freeze([
   "task-history",
@@ -157,11 +181,11 @@ export function evaluateReadMeasurements({
         probes[id].sourceAudit ? value === "source-events" : value !== "source-events",
       )) {
         const pair = measured[backend]?.[dimension]?.[id],
-          scales = readScalesFor(dimension);
+          scales = readScalesForProbe(section, id, backend, dimension);
         required(pair, `missing read measurement ${backend}/${dimension}/${id}`);
         required(
           pair.small.size === scales.small && pair.large.size === scales.large,
-          "read measurements must use the committed 10x scales",
+          "read measurements must use the committed 10x scales (including exact knownScaling bounds)",
         );
         required(
           pair.small.resultSize === pair.large.resultSize,
@@ -215,7 +239,7 @@ export function evaluateReadMeasurements({
 
 export async function measureReadCosts(
   rootDir,
-  { dimensions = READ_DIMENSIONS, backends = READ_BACKENDS, probeIds } = {},
+  { dimensions = READ_DIMENSIONS, backends = READ_BACKENDS, probeIds, section = { knownScaling: [] } } = {},
 ) {
   const { measureReadScale, READ_PROBES } = await import(
     pathToFileURL(path.join(rootDir, "packages/daemon/test/fixtures/g38-read-cost.mjs")).href
@@ -229,15 +253,20 @@ export async function measureReadCosts(
       const dimensionProbes = selected.filter((id) =>
         READ_PROBES[id].sourceAudit ? dimension === "source-events" : dimension !== "source-events",
       );
-      const small = await measureReadScale(backend, dimension, readScalesFor(dimension).small, {
-          probeIds: dimensionProbes,
-        }),
-        large = await measureReadScale(backend, dimension, readScalesFor(dimension).large, {
-          probeIds: dimensionProbes,
-        });
-      measured[backend][dimension] = Object.fromEntries(
-        dimensionProbes.map((id) => [id, { small: small[id], large: large[id] }]),
-      );
+      const groups = new Map();
+      for (const id of dimensionProbes) {
+        const scales = readScalesForProbe(section, id, backend, dimension),
+          key = JSON.stringify(scales);
+        if (!groups.has(key)) groups.set(key, { scales, ids: [] });
+        groups.get(key).ids.push(id);
+      }
+      measured[backend][dimension] = {};
+      for (const { scales, ids } of groups.values()) {
+        const small = await measureReadScale(backend, dimension, scales.small, { probeIds: ids }),
+          large = await measureReadScale(backend, dimension, scales.large, { probeIds: ids });
+        for (const id of ids) measured[backend][dimension][id] = { small: small[id], large: large[id] };
+        console.log(JSON.stringify({ g38ScaleGroup: { backend, dimension, scales, probes: ids } }));
+      }
       for (const [id, pair] of Object.entries(measured[backend][dimension]))
         console.log(JSON.stringify({ g38Measurement: { backend, dimension, id, pair } }));
     }
@@ -258,7 +287,7 @@ export async function evaluateReadCostScaling({
     ),
     inventory = await readInventory(rootDir),
     probeIds = validateReadCoverage(section, inventory, READ_PROBES),
-    { measured, durationMs } = await measureReadCosts(rootDir, { dimensions, backends, probeIds });
+    { measured, durationMs } = await measureReadCosts(rootDir, { dimensions, backends, probeIds, section });
   return {
     ...evaluateReadMeasurements({ section, inventory, probes: READ_PROBES, measured, dimensions, backends, now }),
     durationMs,
