@@ -29,6 +29,7 @@ import { writeFileDurably } from "../../storage/src/durable-file.ts";
 import { scrubProviderValue } from "./secret-scrub.ts";
 import { isFallbackProvider } from "./dispatch-stream-value.ts";
 import { dispatchProviderActivity, type DispatchProviderActivity } from "./dispatch-activity.ts";
+import { providerReconnectFromFrame } from "./runtime-provider-fault.ts";
 
 export { archiveDispatchStream } from "./dispatch-stream-archive.ts";
 
@@ -122,6 +123,13 @@ export type DispatchProcessState = {
 export type DispatchStreamActivity = {
   readonly kind: DispatchProviderActivity;
   readonly observedAt: string;
+};
+/** The latest provider-reported reconnect attempt in the stream's bounded summary window. */
+export type DispatchProviderReconnect = {
+  readonly occurredAt: string;
+  readonly attempt: number | null;
+  readonly limit: number | null;
+  readonly diagnostic: string;
 };
 
 /** Why the watchdog judged an attempt stalled, written before anything is terminated so the
@@ -418,6 +426,7 @@ export function readDispatchStreamSummary(rootDir: string, dispatchId: string): 
   const chunks = readBoundedStreamWindows(target, stat.size, headerEnd),
     records: DispatchStreamRecord[] = [];
   let lastProviderActivity: DispatchStreamActivity | null = null,
+    lastProviderReconnect: DispatchProviderReconnect | null = null,
     lastProgressAt = header.startedAt;
   const seenOffsets = new Set<number>();
   for (const chunk of chunks) {
@@ -427,8 +436,17 @@ export function readDispatchStreamSummary(rootDir: string, dispatchId: string): 
       const kind = lineKind(line.value);
       if (kind === "provider_event") {
         const record = parseRecord(line.value),
-          activity = record && providerActivityRecord(header.kindId, record);
-        if (
+          activity = record && providerActivityRecord(header.kindId, record),
+          reconnect = record && providerReconnectRecord(header.kindId, record);
+        // A reconnect attempt is the provider failing to carry the turn, not the turn progressing:
+        // it records the connection error but must not move the real-progress clock.
+        if (reconnect !== null) {
+          if (
+            lastProviderReconnect === null ||
+            Date.parse(reconnect.occurredAt) > Date.parse(lastProviderReconnect.occurredAt)
+          )
+            lastProviderReconnect = reconnect;
+        } else if (
           record &&
           typeof record.occurredAt === "string" &&
           Date.parse(record.occurredAt) > Date.parse(lastProgressAt)
@@ -450,7 +468,14 @@ export function readDispatchStreamSummary(rootDir: string, dispatchId: string): 
       }
     }
   }
-  const value = summarizeDispatch(header, records, stat.mtimeMs, lastProviderActivity, lastProgressAt);
+  const value = summarizeDispatch(
+    header,
+    records,
+    stat.mtimeMs,
+    lastProviderActivity,
+    lastProgressAt,
+    lastProviderReconnect,
+  );
   if (value.providerSessionId === null) {
     // provider_binding lands after the provider's startup preamble, which has no size bound;
     // when it falls between the head windows and the tail window, probe the gap directly
@@ -477,7 +502,7 @@ export function readDispatchStreamSummary(rootDir: string, dispatchId: string): 
     );
     if (runtimeMetrics) records.push(runtimeMetrics);
   }
-  return summarizeDispatch(header, records, stat.mtimeMs, lastProviderActivity, lastProgressAt);
+  return summarizeDispatch(header, records, stat.mtimeMs, lastProviderActivity, lastProgressAt, lastProviderReconnect);
 }
 
 export function readDispatchStreamHeaders(rootDir: string, includeArchived = false): readonly DispatchStreamHeader[] {
@@ -529,6 +554,7 @@ export function readDispatchStream(
    * schema. `null` when the daemon never fenced or executed an incident action for the dispatch. */
   readonly decisionActionRecord: DispatchStreamRecord | null;
   readonly lastProviderActivity: DispatchStreamActivity | null;
+  readonly lastProviderReconnect: DispatchProviderReconnect | null;
   readonly records: readonly DispatchStreamRecord[];
 } | null {
   const target = dispatchStreamPath(rootDir, dispatchId);
@@ -789,6 +815,7 @@ function summarizeDispatch(
   modifiedAtMs: number,
   lastProviderActivity: DispatchStreamActivity | null = latestProviderActivity(header.kindId, records),
   lastProgressAt = latestDispatchProgressAt(header, records),
+  lastProviderReconnect: DispatchProviderReconnect | null = latestProviderReconnect(header.kindId, records),
 ): DispatchStreamSummary {
   let providerSessionId: string | null = null,
     processState: DispatchProcessState | null = null,
@@ -856,21 +883,47 @@ function summarizeDispatch(
     runtimeMetrics,
     decisionActionRecord,
     lastProviderActivity,
+    lastProviderReconnect,
     records,
   };
 }
 
 function latestDispatchProgressAt(header: DispatchStreamHeader, records: readonly DispatchStreamRecord[]): string {
-  return records.reduce(
-    (latest, record) =>
-      (record.kind === "provider_event" || record.kind === "workspace_activity") &&
+  return records.reduce((latest, record) => {
+    // A reconnect is the provider failing to reach the model endpoint; it is the opposite of
+    // progress. Keeping it out of this clock is what lets a silent connection become visible.
+    if (record.kind === "provider_event" && providerReconnectRecord(header.kindId, record) !== null) return latest;
+    return (record.kind === "provider_event" || record.kind === "workspace_activity") &&
       typeof record.occurredAt === "string" &&
       Number.isFinite(Date.parse(record.occurredAt)) &&
       Date.parse(record.occurredAt) > Date.parse(latest)
-        ? record.occurredAt
-        : latest,
-    header.startedAt,
-  );
+      ? record.occurredAt
+      : latest;
+  }, header.startedAt);
+}
+
+function latestProviderReconnect(
+  kindId: string | undefined,
+  records: readonly DispatchStreamRecord[],
+): DispatchProviderReconnect | null {
+  let latest: DispatchProviderReconnect | null = null;
+  for (const record of records) {
+    const reconnect = providerReconnectRecord(kindId, record);
+    if (reconnect !== null && (latest === null || Date.parse(reconnect.occurredAt) > Date.parse(latest.occurredAt)))
+      latest = reconnect;
+  }
+  return latest;
+}
+
+function providerReconnectRecord(
+  kindId: string | undefined,
+  record: DispatchStreamRecord,
+): DispatchProviderReconnect | null {
+  if (record.kind !== "provider_event" || typeof record.occurredAt !== "string") return null;
+  const event = record.event;
+  if (event === null || typeof event !== "object" || Array.isArray(event)) return null;
+  const reconnect = providerReconnectFromFrame(kindId ?? "", event as Record<string, unknown>);
+  return reconnect === null ? null : { occurredAt: record.occurredAt, ...reconnect };
 }
 
 function latestProviderActivity(

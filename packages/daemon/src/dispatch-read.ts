@@ -19,6 +19,7 @@ import {
   readDispatchStreamSummary,
   type RuntimeMetrics,
   type DispatchProcessState,
+  type DispatchProviderReconnect,
   type DispatchTerminalOutcome,
 } from "./dispatch-stream.ts";
 import type {
@@ -30,7 +31,7 @@ import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 import { projectedTaskNotFound } from "./projection-readiness.ts";
 import type { AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts";
 import { runtimeResumeAdmission } from "./runtime-resume-admission.ts";
-import { dispatchActivityIdleMinutes, dispatchActivityStatus } from "./dispatch-activity.ts";
+import { dispatchActivityIdleMinutes, dispatchActivityStatus, providerConnectionFailure } from "./dispatch-activity.ts";
 import { cursorStep } from "./paginated-read.ts";
 
 type DispatchBatchRead = Extract<DaemonTaskDispatchesResult, { readonly taskIds: readonly string[] }>;
@@ -102,6 +103,11 @@ export interface RuntimeSessionActivityEvidence {
   readonly terminalOutcome: DispatchTerminalOutcome | null;
   /** Latest dispatch-stream metrics for the session's dispatch; null until the worker emits them. */
   readonly runtimeMetrics: RuntimeMetrics | null;
+  /** Last provider or workspace progress; reconnect attempts are excluded. */
+  readonly lastProgressAt?: string;
+  readonly lastProviderReconnect?: DispatchProviderReconnect | null;
+  /** Frozen stall threshold, so every reader judges the same session with the same deadline. */
+  readonly stallTimeoutMs?: number;
 }
 
 export function readRuntimeSessionActivityEvidence(
@@ -117,6 +123,9 @@ export function readRuntimeSessionActivityEvidence(
     runtimeMetrics: stream.runtimeMetrics,
     process: stream.process,
     terminalOutcome: stream.terminalOutcome,
+    lastProgressAt: stream.lastProgressAt,
+    lastProviderReconnect: stream.lastProviderReconnect,
+    ...(stream.header.stallTimeoutMs === undefined ? {} : { stallTimeoutMs: stream.header.stallTimeoutMs }),
   };
 }
 
@@ -551,6 +560,17 @@ function canonicalDispatchRow(
         : dispatchStream.process.exited === true
           ? false
           : runtimePidIsAlive(dispatchStream.process.pid),
+    providerUnreachable =
+      dispatchStream === null
+        ? null
+        : providerConnectionFailure({
+            lastProgressAt: dispatchStream.lastProgressAt,
+            providerReconnect: dispatchStream.lastProviderReconnect,
+            processAlive,
+            ...(dispatchStream.header.stallTimeoutMs === undefined
+              ? {}
+              : { stallTimeoutMs: dispatchStream.header.stallTimeoutMs }),
+          }),
     activityStatus = dispatchActivityStatus({
       status,
       taskStatus: taskRead?.snapshot.task?.status,
@@ -561,6 +581,7 @@ function canonicalDispatchRow(
       stalledAt: dispatchStream?.stalledAt,
       processAlive,
       providerActivity: dispatchStream?.lastProviderActivity?.kind ?? null,
+      providerReconnect: dispatchStream?.lastProviderReconnect ?? null,
     }),
     activityIdleMinutes = dispatchActivityIdleMinutes(activityProjectionObservedAt),
     fallbackReason = dispatchStream?.records.findLast(
@@ -619,6 +640,7 @@ function canonicalDispatchRow(
     activityStatus,
     activityObservedAt: activityProjectionObservedAt,
     activityIdleMinutes,
+    ...(providerUnreachable === null ? {} : { providerUnreachable }),
     instanceId: payload.instanceId,
     attemptGroupId: groupId,
     attemptIndex: payload.attemptIndex ?? 0,

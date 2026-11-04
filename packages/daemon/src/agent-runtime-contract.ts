@@ -6,6 +6,7 @@ import {
   type RuntimeSessionSemanticState,
 } from "@harness-anything/kernel";
 import { validAgentRuntimeAttemptChain, type AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts";
+import type { ProviderUnreachableEvidence } from "./protocol/task-dispatch-contract.ts";
 export type { AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts";
 export type { AgentRuntimeTargetV1, RuntimeInstallationState } from "@harness-anything/kernel";
 export interface AgentRuntimeInstallationDto {
@@ -173,6 +174,8 @@ export interface AgentRuntimeSessionDto {
     readonly missingEvidence: "exit-code-and-result" | "exit-code" | "result" | null;
     readonly reasonCode?: string;
     readonly cancelledBy?: ActorIdentity;
+    /** Present only while a live session is judged stuck on an unreachable provider. */
+    readonly providerUnreachable?: ProviderUnreachableEvidence;
   };
 }
 export function agentRuntimeInstallationState(
@@ -573,7 +576,7 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
     hasAgentRuntimeContractFields(
       value.activity,
       ["lastObservedAt", "outcome", "exitCode", "resultRef", "missingEvidence"],
-      ["reasonCode", "cancelledBy"],
+      ["reasonCode", "cancelledBy", "providerUnreachable"],
     ) &&
     typeof value.activity.lastObservedAt === "string" &&
     (value.activity.outcome === null ||
@@ -585,7 +588,19 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
       ["exit-code-and-result", "exit-code", "result"].includes(String(value.activity.missingEvidence))) &&
     (value.activity.reasonCode === undefined ||
       (typeof value.activity.reasonCode === "string" && value.activity.reasonCode.length > 0)) &&
-    (value.activity.cancelledBy === undefined || validCancellationActor(value.activity.cancelledBy))
+    (value.activity.cancelledBy === undefined || validCancellationActor(value.activity.cancelledBy)) &&
+    (value.activity.providerUnreachable === undefined || validProviderUnreachable(value.activity.providerUnreachable))
+  );
+}
+
+function validProviderUnreachable(value: unknown): value is ProviderUnreachableEvidence {
+  return (
+    isAgentRuntimeContractRecord(value) &&
+    hasExactAgentRuntimeContractFields(value, ["state", "lastProgressAt", "lastErrorAt", "lastError"]) &&
+    value.state === "provider_unreachable" &&
+    [value.lastProgressAt, value.lastErrorAt, value.lastError].every(
+      (field) => typeof field === "string" && field.length > 0,
+    )
   );
 }
 

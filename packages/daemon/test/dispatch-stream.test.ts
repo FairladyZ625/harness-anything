@@ -399,6 +399,8 @@ test("ZCode provider writes and its live worker host form current session activi
       process: { pid: process.pid, exitCode: null, signal: null, exited: false },
       terminalOutcome: null,
       runtimeMetrics: null,
+      lastProgressAt: "2026-09-06T00:00:05.000Z",
+      lastProviderReconnect: null,
     });
   } finally {
     rmSync(rootDir, { recursive: true, force: true });

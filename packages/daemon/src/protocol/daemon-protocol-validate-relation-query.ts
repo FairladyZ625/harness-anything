@@ -12,7 +12,12 @@ import {
 import { relationStateWords, decisionStateWords, taskStatusWords } from "./daemon-protocol-vocabulary.ts";
 import { isJsonObject, isUtcTimestamp, unknownFieldViolation, type JsonObject } from "./json-rpc-types.ts";
 import { DAEMON_WORKSPACE_SUMMARY_SCHEMA } from "./daemon-protocol-schema-ids.ts";
-import type { TaskDispatchAttempt, TaskDispatchResume, TaskDispatchRow } from "./task-dispatch-contract.ts";
+import type {
+  ProviderUnreachableEvidence,
+  TaskDispatchAttempt,
+  TaskDispatchResume,
+  TaskDispatchRow,
+} from "./task-dispatch-contract.ts";
 export function validateRelationNeighborhoodPayload(value: JsonObject): string[] {
   const allowed = ["entity", "hops", "status"],
     unknown = unknownFieldViolation(value, allowed);
@@ -204,6 +209,7 @@ export function validTaskDispatchRow(value: unknown): value is TaskDispatchRow {
       (dispatchText(value.activityObservedAt) && isUtcTimestamp(value.activityObservedAt))) &&
     (value.activityIdleMinutes === undefined ||
       (Number.isSafeInteger(value.activityIdleMinutes) && Number(value.activityIdleMinutes) >= 0)) &&
+    (value.providerUnreachable === undefined || validProviderUnreachable(value.providerUnreachable)) &&
     ["agentId", "agentName", "delegatedByAgentId", "delegatedByAgentName", "squadId", "parentRuntimeSessionId"].every(
       (field) => value[field] === undefined || dispatchText(value[field]),
     ) &&
@@ -301,6 +307,20 @@ function validDispatchRuling(value: unknown): boolean {
     dispatchText(value.path) &&
     Array.isArray(value.options) &&
     value.options.every((option) => typeof option === "string")
+  );
+}
+
+/** The live provider-unreachable judgment: a named class plus the two timestamps and raw error. */
+function validProviderUnreachable(value: unknown): value is ProviderUnreachableEvidence {
+  return (
+    isJsonObject(value) &&
+    dispatchFields(value, ["state", "lastProgressAt", "lastErrorAt", "lastError"], []) &&
+    value.state === "provider_unreachable" &&
+    dispatchText(value.lastProgressAt) &&
+    isUtcTimestamp(value.lastProgressAt) &&
+    dispatchText(value.lastErrorAt) &&
+    isUtcTimestamp(value.lastErrorAt) &&
+    dispatchText(value.lastError)
   );
 }
 

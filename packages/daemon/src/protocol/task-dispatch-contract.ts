@@ -3,6 +3,17 @@ export type TaskDispatchResume = {
   readonly agentId: string | null;
 };
 
+/** The single read-side judgment that a live dispatch is waiting on a provider it cannot reach.
+ * `lastError` is the provider's own reconnect diagnostic, kept verbatim. */
+export interface ProviderUnreachableEvidence {
+  readonly state: "provider_unreachable";
+  /** Last provider or workspace progress; reconnect attempts are not progress. */
+  readonly lastProgressAt: string;
+  /** When the provider reported the most recent failed connection attempt. */
+  readonly lastErrorAt: string;
+  readonly lastError: string;
+}
+
 export interface TaskDispatchAdvisory {
   readonly evaluatedAt: string;
   readonly pointId: string;
@@ -89,6 +100,8 @@ export interface TaskDispatchRow {
   readonly activityObservedAt?: string;
   /** Whole minutes since activityObservedAt; only meaningful for a live dispatch. */
   readonly activityIdleMinutes?: number;
+  /** Present only while the live dispatch is judged stuck on an unreachable provider. */
+  readonly providerUnreachable?: ProviderUnreachableEvidence;
   readonly runtimeSessionId: string;
   readonly instanceId: string;
   readonly attemptGroupId: string;

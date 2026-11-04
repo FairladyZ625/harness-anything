@@ -45,6 +45,7 @@ export function renderRuntimeStatus(value: JsonObject): string {
   if (value.session && typeof value.session === "object") {
     const session = value.session as Record<string, unknown>,
       activity = session.activity as Record<string, unknown>,
+      providerUnreachable = activity.providerUnreachable as Record<string, unknown> | undefined,
       cancelledBy = activity.cancelledBy as Record<string, unknown> | undefined,
       cancelPrincipal = cancelledBy?.principal as Record<string, unknown> | undefined,
       cancelExecutor = cancelledBy?.executor as Record<string, unknown> | null | undefined,
@@ -57,6 +58,14 @@ export function renderRuntimeStatus(value: JsonObject): string {
       `liveness: ${session.liveness}`,
       `outcome: ${activity.outcome ?? "-"}`,
       `result: ${activity.resultRef ?? "-"}`,
+      ...(providerUnreachable
+        ? [
+            `provider: ${String(providerUnreachable.state)}`,
+            `last-progress: ${String(providerUnreachable.lastProgressAt)}`,
+            `provider-error-at: ${String(providerUnreachable.lastErrorAt)}`,
+            `provider-error: ${String(providerUnreachable.lastError)}`,
+          ]
+        : []),
       ...(cancelledBy
         ? [
             `cancelled-by-principal: ${String(cancelPrincipal?.personId ?? "-")}`,
@@ -87,13 +96,15 @@ export function renderRuntimeStatus(value: JsonObject): string {
   const sessions = Array.isArray(value.sessions) ? (value.sessions as Record<string, unknown>[]) : [];
   return sessions.length
     ? [
-        "SESSION\tINSTANCE\tLIVENESS\tOUTCOME\tRESULT",
+        "SESSION\tINSTANCE\tLIVENESS\tACTIVITY\tOUTCOME\tRESULT",
         ...sessions.map((session) => {
-          const activity = session.activity as Record<string, unknown>;
+          const activity = session.activity as Record<string, unknown>,
+            providerUnreachable = activity.providerUnreachable as Record<string, unknown> | undefined;
           return [
             session.runtimeSessionId,
             session.instanceId,
             session.liveness,
+            providerUnreachable?.state ?? "-",
             activity.outcome ?? "-",
             activity.resultRef ?? "-",
           ]

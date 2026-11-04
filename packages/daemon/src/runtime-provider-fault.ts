@@ -31,10 +31,7 @@ const quota =
 const reconnectPrefix = /^Reconnecting\.\.\.[ \t]*/iu,
   reconnectBudget = /^(\d+)\s*\/\s*(\d+)(?=[ \t]*\(|[ \t]*$)/u;
 
-export function providerReconnectFromFrame(
-  kindId: RuntimeInstanceKind,
-  value: Record<string, unknown>,
-): ProviderReconnect | null {
+export function providerReconnectFromFrame(kindId: string, value: Record<string, unknown>): ProviderReconnect | null {
   if (kindId !== "codex" || value.type !== "error") return null;
   const diagnostic = diagnosticText(value.message);
   return diagnostic === null ? null : reconnectFromDiagnostic(diagnostic);
