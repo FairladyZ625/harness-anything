@@ -17,7 +17,7 @@ export async function assertSessionIndexes(pool: Pool, seedPool: Pool, backend: 
       (tenant_id,project_id,policy_epoch,model,entity_id,owner_id,workspace_revision,value)
       SELECT $1,$2,$3,'runtime-session','session-' || lpad(n::text,6,'0'),'',1,
         json_build_object('runtimeSessionId','session-' || lpad(n::text,6,'0'),
-          'liveness',CASE WHEN n>100150 THEN 'alive' ELSE 'exited' END,
+          'liveness',CASE WHEN n>100150 THEN 'live' ELSE 'exited' END,
           'taskBindings',json_build_array(json_build_object('taskId',CASE WHEN n>100000 THEN 'target' ELSE 'history' END,
             'executionId','execution-' || n::text)))::text FROM generate_series(1,100200)n`,
         [scope.tenantId, scope.projectId, scope.policyEpoch],
@@ -31,7 +31,7 @@ export async function assertSessionIndexes(pool: Pool, seedPool: Pool, backend: 
       assert.equal(
         (
           await client.query(
-            "SELECT 1 FROM ha_projection_values WHERE tenant_id=$1 AND model='runtime-session' AND value::json->>'liveness'='alive'",
+            "SELECT 1 FROM ha_projection_values WHERE tenant_id=$1 AND model='runtime-session' AND value::json->>'liveness'='live'",
             [scope.tenantId],
           )
         ).rows.length,

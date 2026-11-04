@@ -1,5 +1,6 @@
 // @write-boundary-exemption rebuildable-projection
 import type { PoolClient } from "pg";
+import { canonicalizeWriteValue } from "@harness-anything/kernel/internal/domain/write-chain.contract.ts";
 import { POSTGRES_SCOPE_COLUMNS_SQL } from "../postgres/scope-schema.ts";
 import { reduceEntityDeclarationState } from "../store/entity-declaration-state.ts";
 import type {
@@ -57,7 +58,13 @@ export async function reduceAndStoreDeclaration(
     (tenant_id,project_id,policy_epoch,entity_kind,entity_id,state,live,workspace_revision,readers)
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (tenant_id,project_id,policy_epoch,entity_kind,entity_id)
     DO UPDATE SET state=excluded.state,live=excluded.live,workspace_revision=excluded.workspace_revision,readers=excluded.readers`,
-    [...keys, JSON.stringify(state), state.declaration !== null, event.workspaceRevision, scope.readers ?? []],
+    [
+      ...keys,
+      JSON.stringify(canonicalizeWriteValue(state)),
+      state.declaration !== null,
+      event.workspaceRevision,
+      scope.readers ?? [],
+    ],
   );
 }
 

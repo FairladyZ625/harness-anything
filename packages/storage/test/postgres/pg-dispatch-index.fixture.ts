@@ -31,7 +31,7 @@ export async function assertDispatchIndexes(pool: Pool, seedPool: Pool, backend:
           'eventId','dispatch-'||n,'opId','dispatch-'||n,'workspaceRevision',n,'occurredAt','2026-11-04',
           'actor',json_build_object('executor',null,'principal',json_build_object('personId','test')),
           'source','local','payload',json_build_object('dispatchId',CASE WHEN n>100000 THEN 'target-'||n ELSE 'history-'||lpad(n::text,6,'0') END,
-            'dispatchKey','key-'||n,'runtimeSessionId',CASE WHEN n=100001 THEN 'session-100200' ELSE 'session-000001' END,
+            'dispatchKey','key-'||n,'runtimeSessionId',CASE WHEN n=100001 THEN 'session-100200' WHEN n<=50000 THEN 'orphan-'||lpad(n::text,6,'0') ELSE 'session-000001' END,
             'definitionSnapshotRef','definition-'||n,'taskId',CASE WHEN n>100000 THEN 'target' ELSE 'history' END,
             'executionId','execution-target','agentId','agent-target','squadId','squad-target',
             'startedAt',CASE WHEN n>100000 THEN '2026-11-04' ELSE '2020-01-01' END,
@@ -41,8 +41,8 @@ export async function assertDispatchIndexes(pool: Pool, seedPool: Pool, backend:
       FROM generate_series(1,100002)n`,
         [scope.tenantId, scope.projectId, scope.policyEpoch, repoId],
       );
-      // Simulate the preceding expansion's rows, not just a fresh schema. Readiness must detect v1.
-      await client.query("UPDATE ha_events SET read_index_version=1 WHERE tenant_id=$1 AND revision=100002", [
+      // Simulate the preceding expansion's rows, not just a fresh schema. Readiness must detect v2.
+      await client.query("UPDATE ha_events SET read_index_version=2 WHERE tenant_id=$1 AND revision=100002", [
         scope.tenantId,
       ]);
       await client.query("ANALYZE");
@@ -123,4 +123,51 @@ export async function assertDispatchIndexes(pool: Pool, seedPool: Pool, backend:
   await measurePgRead(backend, "readRuntimeDispatchesByMember", () =>
     timed.readRuntimeDispatchesByMember({ agentId: "agent-target", limit: 1 }),
   );
+  // Dispatch precedes session-start in production. The same transaction that adds/removes the
+  // projection must make the historical dispatch eligible/ineligible without rewriting its bytes.
+  const writePlan = (
+    await withPostgresTransaction(
+      pool,
+      (client) =>
+        client.query(
+          `EXPLAIN (ANALYZE,BUFFERS,FORMAT JSON)
+    UPDATE ha_events SET runtime_session_present=false WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+      AND runtime_session_id=$4 AND event_type='runtime_dispatch_requested'`,
+          [scope.tenantId, scope.projectId, scope.policyEpoch, "orphan-000001"],
+        ),
+      scope,
+    )
+  ).rows[0]!["QUERY PLAN"];
+  process.stdout.write(`DISPATCH_PRESENCE_WRITE ${backend} ${JSON.stringify(writePlan)}\n`);
+  for (const node of explainNodes([writePlan]).filter((row) => row["Relation Name"] === "ha_events"))
+    assert.ok(
+      (Number(node["Actual Rows"]) + Number(node["Rows Removed by Filter"] ?? 0)) * Number(node["Actual Loops"]) <= 1,
+      `presence update scanned unrelated dispatches: ${JSON.stringify(node)}`,
+    );
+  await withPostgresTransaction(
+    seedPool,
+    (client) =>
+      client.query(
+        `INSERT INTO ha_projection_values (tenant_id,project_id,policy_epoch,model,entity_id,owner_id,workspace_revision,value)
+     VALUES ($1,$2,$3,'runtime-session','orphan-000001','',100002,'{"runtimeSessionId":"orphan-000001","taskBindings":[]}')`,
+        [scope.tenantId, scope.projectId, scope.policyEpoch],
+      ),
+    scope,
+  );
+  assert.deepEqual(
+    (await timed.readRuntimeDispatchesByMember({ agentId: "agent-target", limit: 1 })).sessions.map(
+      (row) => row.runtimeSessionId,
+    ),
+    ["orphan-000001", "session-000001", "session-100200"],
+  );
+  await withPostgresTransaction(
+    seedPool,
+    (client) =>
+      client.query(
+        "DELETE FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model='runtime-session' AND entity_id='orphan-000001'",
+        [scope.tenantId, scope.projectId, scope.policyEpoch],
+      ),
+    scope,
+  );
+  assert.equal((await timed.readRuntimeDispatchesByMember({ squadId: "squad-target", limit: 1 })).sessions.length, 2);
 }

@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { ensureRuntimeMemberIndex } from "./runtime-member-index.ts";
 /** Shared query tables in the center projection and its full physical replica. */
 export const TASK_INDEX_TABLES_SQL = `
     CREATE TABLE IF NOT EXISTS task_snapshot (
@@ -169,4 +170,5 @@ export const REPOSITORY_READ_TABLES_SQL = `
 export function createProjectionTables(db: DatabaseSync): void {
   db.exec(TASK_INDEX_TABLES_SQL);
   db.exec(REPOSITORY_READ_TABLES_SQL);
+  ensureRuntimeMemberIndex(db);
 }

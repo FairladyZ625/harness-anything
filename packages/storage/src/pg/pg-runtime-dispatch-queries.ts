@@ -208,7 +208,7 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
             WHERE d.tenant_id=$1 AND d.project_id=$2 AND d.repo_id=$3 AND d.policy_epoch=$4
               AND d.revision <= (SELECT watermark FROM ha_projection_meta WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$4 AND projection_name='task/v1')
               AND (cardinality($5::text[])=0 OR (d.readers && $5::text[] AND p.readers && $5::text[]))
-              AND d.event_schema='agent-runtime-event/v1' AND d.event_type='runtime_dispatch_requested' AND d.${field}=$6
+              AND d.event_schema='agent-runtime-event/v1' AND d.event_type='runtime_dispatch_requested' AND d.runtime_session_present AND d.${field}=$6
               ${after ? "AND d.runtime_session_id > previous.runtime_session_id" : ""}
             ORDER BY d.runtime_session_id,d.dispatch_activity_at DESC,d.dispatch_id DESC LIMIT 1`,
           // One index seek per distinct session; the lateral query returning no row ends the recursion.

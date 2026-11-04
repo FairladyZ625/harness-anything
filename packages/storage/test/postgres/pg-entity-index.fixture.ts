@@ -11,6 +11,7 @@ import { tracedPgReads, explainNodes, reportPgVersion, measurePgRead } from "./p
 import { bundle, eventAt } from "../store/task-event-store.fixtures.ts";
 import { makePostgresTaskEventStore } from "../../src/postgres/pg-task-event-store.ts";
 import { borrowPgReadClient } from "../../src/pg/pg-read-savepoint.ts";
+import { createPgTaskProjectionSource } from "../../src/pg/pg-task-source.ts";
 
 export async function assertEntityIndexes(pool: Pool, seedPool: Pool, backend: string) {
   const scope = { tenantId: "entity-index", projectId: "entity-index", policyEpoch: 1 },
@@ -257,4 +258,22 @@ export async function assertEntityIndexes(pool: Pool, seedPool: Pool, backend: s
     warmed,
     "online expansion and full rebuild use the same reducer",
   );
+  const source = createPgTaskProjectionSource({ pool, scope, repoId, ownsPool: false }),
+    digest = await source.readStateDigest();
+  const state = warmed[0]!;
+  await withPostgresTransaction(
+    pool,
+    (client) =>
+      client.query(
+        "UPDATE ha_entity_declaration_heads SET state=$4 WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND entity_id='target-a'",
+        [
+          scope.tenantId,
+          scope.projectId,
+          scope.policyEpoch,
+          JSON.stringify({ retirement: state.retirement, declaration: state.declaration }),
+        ],
+      ),
+    scope,
+  );
+  assert.equal(await source.readStateDigest(), digest, "previous writers' JSON object order is not a state change");
 }

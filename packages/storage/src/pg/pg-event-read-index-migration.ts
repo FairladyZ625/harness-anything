@@ -57,6 +57,7 @@ export function eventReadIndexDdl(): readonly string[] {
       (column) => `ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS ${column} text COLLATE "C"`,
     ),
     "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS read_index_version smallint NOT NULL DEFAULT 0",
+    "ALTER TABLE ha_events ADD COLUMN IF NOT EXISTS runtime_session_present boolean NOT NULL DEFAULT false",
     `CREATE OR REPLACE FUNCTION ha_event_read_index_fields() RETURNS trigger
       LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$
       DECLARE v jsonb;
@@ -65,13 +66,17 @@ export function eventReadIndexDdl(): readonly string[] {
         ${Object.entries(eventReadFields)
           .map(([column, expression]) => `NEW.${column} := ${expression};`)
           .join("\n")}
-        NEW.read_index_version := 2;
+        NEW.runtime_session_present := NEW.event_type='runtime_dispatch_requested' AND EXISTS (
+          SELECT 1 FROM ha_projection_values p WHERE p.tenant_id=NEW.tenant_id AND p.project_id=NEW.project_id
+          AND p.policy_epoch=NEW.policy_epoch AND p.model='runtime-session' AND p.owner_id=''
+          AND p.entity_id=NEW.runtime_session_id COLLATE "default");
+        NEW.read_index_version := 3;
         RETURN NEW;
       END $function$`,
     `CREATE OR REPLACE TRIGGER ha_event_read_index_fields BEFORE INSERT OR UPDATE OF event_json ON ha_events
       FOR EACH ROW EXECUTE FUNCTION ha_event_read_index_fields()`,
-    `CREATE INDEX IF NOT EXISTS ha_events_read_index_pending_v2 ON ha_events
-      (tenant_id,project_id,policy_epoch,repo_id,revision) WHERE read_index_version<2`,
+    `CREATE INDEX IF NOT EXISTS ha_events_read_index_pending_v3 ON ha_events
+      (tenant_id,project_id,policy_epoch,repo_id,revision) WHERE read_index_version<3`,
     `CREATE INDEX IF NOT EXISTS ha_events_schema_revision ON ha_events
       (tenant_id,project_id,policy_epoch,repo_id,event_schema,revision)`,
     `CREATE INDEX IF NOT EXISTS ha_events_schema_entity_revision ON ha_events
@@ -88,6 +93,32 @@ export function eventReadIndexDdl(): readonly string[] {
       ([name, columns]) => `CREATE INDEX IF NOT EXISTS ha_events_dispatch_${name}
       ON ha_events (${eventScope},${columns}) WHERE event_schema='agent-runtime-event/v1' AND event_type='runtime_dispatch_requested'`,
     ),
+    ...["agent", "squad"].map(
+      (member) => `CREATE INDEX IF NOT EXISTS ha_events_dispatch_${member}_live_session
+      ON ha_events (${eventScope},${member}_id,runtime_session_id,dispatch_activity_at DESC,dispatch_id DESC)
+      WHERE event_schema='agent-runtime-event/v1' AND event_type='runtime_dispatch_requested' AND runtime_session_present`,
+    ),
+    // Projection rows retain the existing project scope, so their trigger has no repo_id prefix.
+    `CREATE INDEX IF NOT EXISTS ha_events_projection_dispatch_session ON ha_events
+      (tenant_id,project_id,policy_epoch,runtime_session_id) WHERE event_type='runtime_dispatch_requested'`,
+    `CREATE OR REPLACE FUNCTION ha_dispatch_session_presence() RETURNS trigger
+      LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$
+      BEGIN
+        IF TG_OP='DELETE' THEN
+          UPDATE ha_events SET runtime_session_present=false WHERE tenant_id=OLD.tenant_id AND project_id=OLD.project_id
+            AND policy_epoch=OLD.policy_epoch AND runtime_session_id=OLD.entity_id COLLATE "C"
+            AND event_type='runtime_dispatch_requested' AND runtime_session_present;
+        ELSE
+          UPDATE ha_events SET runtime_session_present=true WHERE tenant_id=NEW.tenant_id AND project_id=NEW.project_id
+            AND policy_epoch=NEW.policy_epoch AND runtime_session_id=NEW.entity_id COLLATE "C"
+            AND event_type='runtime_dispatch_requested' AND NOT runtime_session_present;
+        END IF;
+        RETURN NULL;
+      END $function$`,
+    `CREATE OR REPLACE TRIGGER ha_dispatch_session_present AFTER INSERT ON ha_projection_values
+      FOR EACH ROW WHEN (NEW.model='runtime-session' AND NEW.owner_id='') EXECUTE FUNCTION ha_dispatch_session_presence()`,
+    `CREATE OR REPLACE TRIGGER ha_dispatch_session_absent AFTER DELETE ON ha_projection_values
+      FOR EACH ROW WHEN (OLD.model='runtime-session' AND OLD.owner_id='') EXECUTE FUNCTION ha_dispatch_session_presence()`,
     `CREATE INDEX IF NOT EXISTS ha_events_dispatch_outcome ON ha_events (${eventScope},dispatch_id,revision DESC)
       WHERE event_schema='agent-runtime-event/v1' AND event_type='runtime_session_outcome_observed'`,
     `CREATE INDEX IF NOT EXISTS ha_events_task_index ON ha_events (${eventScope},task_index_id,revision DESC) WHERE event_type<>'ci_run_observed'`,
@@ -105,7 +136,7 @@ export function eventReadIndexDdl(): readonly string[] {
         WITH batch AS (
           SELECT tenant_id,project_id,repo_id,revision FROM ha_events
           WHERE tenant_id=tenant AND project_id=project AND policy_epoch=epoch AND repo_id=repo
-            AND read_index_version<2 ORDER BY revision LIMIT 64 FOR UPDATE
+            AND read_index_version<3 ORDER BY revision LIMIT 64 FOR UPDATE
         ), filled AS (
           UPDATE ha_events e SET event_json=e.event_json FROM batch b
           WHERE (e.tenant_id,e.project_id,e.repo_id,e.revision)=(b.tenant_id,b.project_id,b.repo_id,b.revision) RETURNING 1
@@ -122,7 +153,7 @@ export async function assertPgEventReadIndexReady(
 ): Promise<void> {
   const pending = await client.query(
     `SELECT 1 FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4
-      AND read_index_version<2 LIMIT 1`,
+      AND read_index_version<3 LIMIT 1`,
     [scope.tenantId, scope.projectId, scope.policyEpoch, repoId],
   );
   if (pending.rows.length)

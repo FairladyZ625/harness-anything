@@ -1,5 +1,6 @@
 // @write-boundary-exemption rebuildable-projection
 import path from "node:path";
+import { ensureRuntimeMemberIndex } from "./runtime-member-index.ts";
 import { DatabaseSync } from "node:sqlite";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 import {
@@ -556,6 +557,7 @@ ${REPOSITORY_READ_TABLES_SQL}
     );
   `);
   backfillRuntimeSessionExecutionNode(db);
+  ensureRuntimeMemberIndex(db, onValidationProgress);
   backfillRuntimeSessionBindings(db, onValidationProgress);
   createTaskRelationProjectionTable(db);
   createRelationGraphProjectionTables(db);

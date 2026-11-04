@@ -61,6 +61,7 @@ import {
   materializePgProjectionEvents,
   projectionStateDigest,
   rebuildPgProjection,
+  PG_PROJECTION_TABLES,
 } from "../../src/pg/index.ts";
 import {
   POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS,
@@ -745,7 +746,29 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
     const postgresSnapshotsBeforeRebuild = await source.list(),
       postgresSnapshot = await source.readSnapshot("task-parity");
     assert.ok(postgresSnapshot);
-    const nativeDigestBeforeRebuild = await source.readStateDigest();
+    const storedModels = () =>
+      withPostgresTransaction(
+        runtimePool,
+        async (client) => {
+          const result: Record<string, unknown[]> = {};
+          for (const table of PG_PROJECTION_TABLES.filter((name) => name !== "ha_projection_meta"))
+            result[table] = (
+              await client.query<{ value: unknown }>(
+                `SELECT to_jsonb(p)-ARRAY['tenant_id','project_id','policy_epoch','readers'] AS value FROM ${table} p WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND (cardinality($4::text[])=0 OR readers && $4::text[]) ORDER BY (to_jsonb(p)-ARRAY['tenant_id','project_id','policy_epoch','readers'])::text`,
+                [
+                  projectionScope.tenantId,
+                  projectionScope.projectId,
+                  projectionScope.policyEpoch,
+                  projectionScope.readers ?? [],
+                ],
+              )
+            ).rows.map(({ value }) => value);
+          return result;
+        },
+        projectionScope,
+      );
+    const nativeDigestBeforeRebuild = await source.readStateDigest(),
+      modelsBefore = await storedModels();
     const beforeRebuildDigest = await withPostgresTransaction(
       runtimePool,
       async (client) => {
@@ -1069,6 +1092,9 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
       projectionScope,
     );
     assert.equal(rebuiltMeta.rows[0]?.state_digest, beforeRebuildDigest);
+    const modelsAfter = await storedModels();
+    for (const table of PG_PROJECTION_TABLES.filter((name) => name !== "ha_projection_meta"))
+      assert.deepEqual(modelsAfter[table], modelsBefore[table], `rebuild changed ${table}`);
     assert.equal(await source.readStateDigest(), nativeDigestBeforeRebuild);
     await withPostgresTransaction(
       runtimePool,

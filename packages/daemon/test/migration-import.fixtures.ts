@@ -351,16 +351,18 @@ export function buildProjectionOracle(root: string): void {
         .prepare("INSERT INTO task_snapshot VALUES (?, ?, ?)")
         .run(row.taskId, revision, JSON.stringify({ task }));
       database.prepare("INSERT INTO task_package VALUES (?, ?)").run(row.taskId, packagePath);
-      database.prepare("INSERT INTO event_index VALUES (?, ?, ?, ?)").run(
-        `fixture-task-${row.taskId}`,
-        revision,
-        row.taskId,
-        JSON.stringify({
-          eventId: `fixture-event-${row.taskId}`,
-          occurredAt,
-          workspaceRevision: revision,
-        }),
-      );
+      database
+        .prepare("INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)")
+        .run(
+          `fixture-task-${row.taskId}`,
+          revision,
+          row.taskId,
+          JSON.stringify({
+            eventId: `fixture-event-${row.taskId}`,
+            occurredAt,
+            workspaceRevision: revision,
+          }),
+        );
     }
     for (const decision of cold.decisions) {
       revision += 1;

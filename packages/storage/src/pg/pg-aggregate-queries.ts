@@ -122,11 +122,18 @@ export function pgAggregateQueries(options: PgTaskProjectionSourceOptions): PgAg
           digest = sha256Text(`${digest}\n${table}`);
           const result = await client.query<{ row_value: Record<string, unknown> }>(
             `SELECT to_jsonb(projection) - ARRAY['tenant_id','project_id','policy_epoch','readers'] AS row_value FROM ${table} projection
-           WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND (cardinality($4::text[])=0 OR readers && $4::text[]) ORDER BY (to_jsonb(projection) - ARRAY['tenant_id','project_id','policy_epoch','readers'])::text`,
+           WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND (cardinality($4::text[])=0 OR readers && $4::text[]) ORDER BY ${table === "ha_entity_declaration_heads" ? "entity_kind,entity_id" : "(to_jsonb(projection) - ARRAY['tenant_id','project_id','policy_epoch','readers'])::text"}`,
             parameters,
           );
-          for (const { row_value } of result.rows)
-            digest = sha256Text(`${digest}\n${canonicalJson(row_value as never)}`);
+          for (const { row_value } of result.rows) {
+            // Current declarations retain JSON text for NUL/surrogate compatibility. Previous
+            // writers' object key order must not turn an equivalent rebuild into a new state.
+            const value =
+              table === "ha_entity_declaration_heads"
+                ? { ...row_value, state: JSON.parse(String(row_value.state)) }
+                : row_value;
+            digest = sha256Text(`${digest}\n${canonicalJson(value)}`);
+          }
         }
         for (const row of await readEventRowsInTransaction(client, scope, readers, repoId, "true"))
           digest = sha256Text(`${digest}\n${row.event_json}`);
