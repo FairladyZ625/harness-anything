@@ -1,6 +1,7 @@
 import { PGlite, type PGliteOptions } from "@electric-sql/pglite";
 import { createPgConfig } from "@electric-sql/pglite/node-postgres";
 import { Pool, type PoolConfig } from "pg";
+import { acquirePGliteDirectoryMutex } from "./data-dir-mutex.ts";
 
 export interface PGliteStorage {
   readonly db: PGlite;
@@ -22,18 +23,25 @@ export interface PGliteStorageOptions {
  */
 export function createPGliteStorage(options: PGliteStorageOptions = {}): PGliteStorage {
   assertPGliteRuntime();
-  const db = options.dataDir === undefined ? new PGlite(options.pglite) : new PGlite(options.dataDir, options.pglite);
+  const mutex = acquirePGliteDirectoryMutex(options.dataDir);
+  let db: PGlite;
+  try {
+    db = options.dataDir === undefined ? new PGlite(options.pglite) : new PGlite(options.dataDir, options.pglite);
+  } catch (error) {
+    mutex.close();
+    throw error;
+  }
   const pool = new Pool({ ...(createPgConfig(db) as unknown as PoolConfig), max: 1 });
-  let closed = false;
+  let closing: Promise<void> | undefined;
   return {
     db,
     pool,
-    close: async () => {
-      if (closed) return;
-      closed = true;
-      await pool.end();
-      if (!db.closed) await db.close();
-    },
+    close: () =>
+      (closing ??= (async () => {
+        await pool.end();
+        if (!db.closed) await db.close();
+        mutex.close();
+      })()),
   };
 }
 

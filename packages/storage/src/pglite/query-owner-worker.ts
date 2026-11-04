@@ -8,6 +8,7 @@ import type { PGliteOwnerServiceRequest } from "./owner-service.ts";
 import { prepareSqlBaseBackup } from "../postgres/pg-basebackup.ts";
 import { openPgMigrationEndpoint } from "../migration/postgres-endpoint.ts";
 import { resolvePostgresEventStoreScope } from "../pg/backend.ts";
+import { installPGliteDirectoryMutex, type PGliteDirectoryMutexProof } from "./data-dir-mutex.ts";
 
 interface OwnerInput {
   readonly kind: "pglite-query-owner";
@@ -15,6 +16,7 @@ interface OwnerInput {
   readonly storage: PGliteStorageBackendConfig;
   readonly ready: Int32Array;
   readonly responsePort: MessagePort;
+  readonly directoryMutex?: PGliteDirectoryMutexProof;
 }
 interface Connect {
   readonly operation: "connect";
@@ -29,6 +31,7 @@ const input = workerData as OwnerInput;
 if (input?.kind === "pglite-query-owner" && parentPort) void startOwner(input);
 
 async function startOwner(input: OwnerInput): Promise<void> {
+  installPGliteDirectoryMutex(input.directoryMutex);
   let backend: PGliteStorageBackend;
   try {
     backend = await createPGliteStorageBackend({ repoId: input.repoId, storage: input.storage });

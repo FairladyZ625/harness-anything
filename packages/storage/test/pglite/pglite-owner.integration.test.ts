@@ -10,8 +10,55 @@ import { openStorageMigrationEndpoint } from "../../src/migration/open.ts";
 import { openFleetStorage } from "../../src/storage-daemon-composition.ts";
 import { withTempStoreAsync } from "../store/helpers.ts";
 import { pgliteIntegrationSuite } from "./pglite-runtime.fixture.ts";
+import { fork, type ChildProcess } from "node:child_process";
+import { once } from "node:events";
+import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
+import { createPGliteStorage } from "../../src/pglite/transaction.ts";
 
 pgliteIntegrationSuite("PGlite physical owner", () => {
+  test("a second process cannot open the live owner's directory; process death releases its OS mutex", async () => {
+    await withTempStoreAsync(async (rootDir) => {
+      const dataDir = join(rootDir, "database");
+      let child: ChildProcess | undefined;
+      const start = (mode: string) => {
+        child = fork(fileURLToPath(new URL("./pglite-mutex-process.fixture.ts", import.meta.url)), [mode, dataDir], {
+          execArgv: [],
+          stdio: ["ignore", "ignore", "pipe", "ipc"],
+        });
+        return child;
+      };
+      try {
+        const holder = start("hold"),
+          [held] = await once(holder, "message");
+        assert.equal(held.held, true);
+        assert.throws(() => createPGliteStorage({ dataDir }), { code: "ERR_SQLITE_ERROR", errcode: 5 });
+        const exit = once(holder, "exit");
+        holder.kill("SIGKILL");
+        await exit;
+        const reopened = createPGliteStorage({ dataDir });
+        try {
+          await reopened.db.waitReady;
+          assert.deepEqual((await reopened.db.query("SELECT value FROM survived")).rows, [{ value: 7 }]);
+          const probe = start("probe"),
+            probeExit = once(probe, "exit"),
+            [denied] = await once(probe, "message");
+          assert.equal(denied.error?.code, "ERR_SQLITE_ERROR");
+          assert.equal(denied.error?.errcode, 5);
+          await probeExit;
+        } finally {
+          await reopened.close();
+        }
+        assert.equal(existsSync(`${dataDir}.harness-owner-lock`), true, "retain the lock inode across owner lifetimes");
+      } finally {
+        if (child && child.exitCode === null && child.signalCode === null) {
+          const exit = once(child, "exit");
+          child.kill("SIGKILL");
+          await exit;
+        }
+      }
+    });
+  });
   test("worker loss releases its fence after the accepted append and leaves other readers usable", async () => {
     await withTempStoreAsync(async (rootDir) => {
       const repoId = "pglite-worker-owner",
@@ -57,6 +104,28 @@ pgliteIntegrationSuite("PGlite physical owner", () => {
           assert.ok(archive.size > 0);
         } finally {
           source.close();
+        }
+        const nestedContext = prepareStorageWorkerContext(storage, repoId);
+        try {
+          worker = new Worker(new URL("./pglite-owner-worker.fixture.ts", import.meta.url), {
+            workerData: {
+              repoId,
+              storage,
+              context: nestedContext.context,
+              stateRoot: rootDir,
+              backupDirectory: join(rootDir, "nested-backup"),
+            },
+            transferList: nestedContext.transferList,
+          });
+          worker.once("exit", nestedContext.close);
+          const exited = once(worker, "exit"),
+            [archive] = await once(worker, "message");
+          assert.equal(archive.revision, 1);
+          assert.ok(archive.size > 0);
+          await exited;
+        } finally {
+          await worker?.terminate();
+          nestedContext.close();
         }
       } finally {
         await worker?.terminate();

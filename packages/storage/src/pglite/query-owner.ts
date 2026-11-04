@@ -12,11 +12,13 @@ import {
 import type { PGliteStorageBackendConfig } from "../storage-backend.ts";
 import { assertPGliteRuntime } from "./transaction.ts";
 import { resolvePostgresEventStoreScope } from "../pg/backend.ts";
+import { acquirePGliteDirectoryMutex } from "./data-dir-mutex.ts";
 
 interface Owner {
   readonly worker: Worker;
   readonly port: MessagePort;
   readonly state: Int32Array;
+  readonly releaseDirectory: () => void;
   references: number;
 }
 const owners = new Map<string, Owner>();
@@ -39,18 +41,18 @@ export function installPGliteWorkerContext(context: PGliteWorkerContext): void {
 
 export function preparePGliteWorkerContext(repoId: string, storage: PGliteStorageBackendConfig) {
   const scope = resolvePostgresEventStoreScope(storage.scope),
-    lease = acquireOwner({ repoId, scope, storage }),
+    lease = acquirePGliteOwnerTarget(repoId, storage),
     { port1, port2 } = new MessageChannel();
-  lease.owner.worker.postMessage({ operation: "attach", port: port2 }, [port2]);
+  lease.target.postMessage({ operation: "attach", port: port2 }, [port2]);
   return {
-    context: { key: datasetKey(repoId, scope, storage), port: port1, state: lease.owner.state },
+    context: { key: datasetKey(repoId, scope, storage), port: port1, state: lease.state },
     transferList: [port1],
     close: lease.release,
   };
 }
 
 export function retainPGliteOwner(repoId: string, storage: PGliteStorageBackendConfig) {
-  return acquireOwner({ repoId, scope: resolvePostgresEventStoreScope(storage.scope), storage }).release;
+  return acquirePGliteOwnerTarget(repoId, storage).release;
 }
 
 export function acquirePGliteOwnerTarget(repoId: string, storage: PGliteStorageBackendConfig) {
@@ -60,10 +62,14 @@ export function acquirePGliteOwnerTarget(repoId: string, storage: PGliteStorageB
   if (context) {
     if (closedContexts.has(context) || Atomics.load(context.state, 0) === -1)
       throw Object.assign(new Error("Embedded storage owner exited"), { code: "pglite_owner_unavailable" });
-    return { target: context.port as Pick<Worker, "postMessage">, release: () => undefined };
+    return { target: context.port as Pick<Worker, "postMessage">, state: context.state, release: () => undefined };
   }
   const lease = acquireOwner({ repoId, scope, storage });
-  return { target: lease.owner.worker as Pick<Worker, "postMessage">, release: lease.release };
+  return {
+    target: lease.owner.worker as Pick<Worker, "postMessage">,
+    state: lease.owner.state,
+    release: lease.release,
+  };
 }
 
 /** Synchronous ports share one physical embedded owner; no socket or second PGlite instance. */
@@ -137,8 +143,11 @@ function acquireOwner(options: PgQueryConnectionOptions & { readonly storage: PG
       code: "pglite_owner_unavailable",
     });
   if (!owner) {
+    const directoryMutex = acquirePGliteDirectoryMutex(dataDir);
     const { port1, port2 } = new MessageChannel(),
-      state = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT)),
+      state = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
+    let worker: Worker;
+    try {
       worker = new Worker(new URL(`./query-owner-worker${extname(import.meta.filename)}`, import.meta.url), {
         workerData: {
           kind: "pglite-query-owner",
@@ -146,18 +155,26 @@ function acquireOwner(options: PgQueryConnectionOptions & { readonly storage: PG
           storage: { backend: "pglite", dataDir, scope: options.scope },
           ready: state,
           responsePort: port2,
+          directoryMutex: directoryMutex.proof,
         },
         transferList: [port2],
         execArgv: process.execArgv.filter(
           (value) => value === "--experimental-strip-types" || value === "--enable-source-maps",
         ),
       });
-    owner = { worker, port: port1, state, references: 0 };
+    } catch (error) {
+      port1.close();
+      port2.close();
+      directoryMutex.close();
+      throw error;
+    }
+    owner = { worker, port: port1, state, references: 0, releaseDirectory: directoryMutex.close };
     owners.set(key, owner);
     worker.on("error", () => {
       Atomics.store(state, 0, -1);
     });
     worker.on("exit", () => {
+      directoryMutex.close();
       Atomics.store(state, 0, -1);
       if (owner!.references === 0 && owners.get(key) === owner) owners.delete(key);
     });
@@ -205,6 +222,7 @@ function acquireOwner(options: PgQueryConnectionOptions & { readonly storage: PG
           "Embedded database owner failed to close",
         );
         if (result.error) throw restorePgQueryError(result.error);
+        current.releaseDirectory();
         owners.delete(key);
       } finally {
         current.port.close();
