@@ -63,9 +63,10 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     phase: "Runtime-Instances-S1",
     path: ["runtime", "instance", "hosting-credential", "set", "<instance-id>"],
     positional: "instanceId",
-    summary: "Bind a GitHub or GitLab credential reference to an existing runtime instance.",
+    summary: "Bind a GitHub or GitLab credential reference to an existing runtime instance for one repository.",
     method: "daemon.runtimeInstance.hostingCredential.set",
     inputs: [
+      cliInput("--repo-id", "single", true, { code: "missing_field" }),
       cliInput("--provider", "single", true, { code: "invalid_field" }, { enum: ["github", "gitlab"] }),
       cliInput("--ref", "single", true, { code: "invalid_field" }, { regex: credentialReferenceRegex }),
     ],
@@ -76,9 +77,12 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     phase: "Runtime-Instances-S1",
     path: ["runtime", "instance", "hosting-credential", "unset", "<instance-id>"],
     positional: "instanceId",
-    summary: "Unbind a GitHub or GitLab credential reference from an existing runtime instance.",
+    summary: "Unbind a GitHub or GitLab credential reference from an existing runtime instance for one repository.",
     method: "daemon.runtimeInstance.hostingCredential.unset",
-    inputs: [cliInput("--provider", "single", true, { code: "invalid_field" }, { enum: ["github", "gitlab"] })],
+    inputs: [
+      cliInput("--repo-id", "single", true, { code: "missing_field" }),
+      cliInput("--provider", "single", true, { code: "invalid_field" }, { enum: ["github", "gitlab"] }),
+    ],
   }),
   defineHostAdminCommand({
     id: "ledger-backup",

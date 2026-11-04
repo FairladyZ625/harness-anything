@@ -87,7 +87,7 @@ export function readBeforeWriteQueue(
         hosting = await detectHostingProvider(context.rootDir, undefined, true),
         daemonGitEnvironment =
           hosting && typeof instanceId === "string"
-            ? await context.input.prepareDaemonGitEnvironment?.(instanceId, hosting.kind)
+            ? await context.input.prepareDaemonGitEnvironment?.(instanceId, hosting.kind, context.input.repoId)
             : undefined;
       const gitEnvironment = daemonGitEnvironment
         ? {

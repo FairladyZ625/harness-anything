@@ -831,7 +831,7 @@ export function createDaemonHostRepositoryApi(
               configuredProviderId: settings.decisions?.provider ?? null,
               listProviders: () => context.decisionProviders.list(),
             }),
-            await hostedCredentialDoctorCheck(cell.status().rootDir, { instances: context.instances.list() }),
+            await hostedCredentialDoctorCheck(cell.status().rootDir, { repoId, instances: context.instances.list() }),
             fleetVersionDoctorCheck([
               ...(context.fleetCenter?.versionWarnings() ?? []),
               ...[...context.fleetVersionWarnings.values()].map((warning) => warning.message),

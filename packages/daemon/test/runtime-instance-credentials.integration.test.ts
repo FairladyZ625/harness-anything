@@ -9,6 +9,8 @@ import { credentialPort, type CredentialPort } from "../src/agent-runtime-creden
 import { openRuntimeInstanceStore } from "../src/agent-runtime-instance-store.ts";
 import { runtimeInstanceCredentialService } from "../src/runtime-instance-credentials.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
+import { registerBootstrappedDaemonRepo, openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { localUserDaemonEndpoint, assertRuntimeCredentialEndpoint } from "../src/client/local-daemon-target.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
@@ -186,7 +188,8 @@ test("daemon FIFO orders simultaneous replacements and metadata updates; shared 
       ...original,
       instanceId: "other",
       name: "other",
-      hostingCredentialRefs: original.auth.mode === "api-key" ? { github: original.auth.credentialRef } : undefined,
+      hostingCredentialRefsByRepo:
+        original.auth.mode === "api-key" ? { "other-repo": { github: original.auth.credentialRef } } : undefined,
     });
     let entered!: () => void, release!: () => void;
     const storing = new Promise<void>((resolve) => {
@@ -395,5 +398,72 @@ test("real CLI stdin and GUI registry IPC bridge replace through the same isolat
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
     rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test("hosting ref rebinds through a live daemon are immediately visible to attached repository ports", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-live-hosting-rebind-")),
+    userRoot = path.join(parent, "user"),
+    rootDir = path.join(parent, "repo");
+  const backend = vault();
+  await backend.port.store("credential:v1:before", "fixture-before");
+  await backend.port.store("credential:v1:after", "fixture-after");
+  rosterRepo(rootDir, "repo-a");
+  registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId: "repo-a", userRoot, createConvenienceLinks: false });
+  let prepare: Parameters<typeof openRepoCell>[0]["prepareDaemonGitEnvironment"];
+  const installation = {
+    installationId: "codex-hosting",
+    kindId: "codex",
+    executablePath: "/fixture/codex",
+    version: "1.0.0",
+    observedAt: "2026-11-05T00:00:00.000Z",
+  } as const;
+  const host = await openDaemonHost({
+    userRoot,
+    daemonId: "hosting-rebind",
+    runtimeCredentialPort: backend.port,
+    runtimeDiscover: () => [installation],
+    runtimeGithubToken: async () => null,
+    openCell: async (input) => {
+      prepare = input.prepareDaemonGitEnvironment;
+      return openRepoCell(input);
+    },
+  });
+  try {
+    await host.attachmentsSettled();
+    await host.runtimeInstance(
+      "daemon.runtimeInstance.create",
+      {
+        instanceId: "shared",
+        name: "Shared",
+        kindId: "codex",
+        installationId: installation.installationId,
+        providerId: "openai",
+        models: ["gpt-5.6-sol"],
+        authMode: "subscription",
+      },
+      auth,
+    );
+    assert.ok(prepare, "a real attached cell retains the daemon's credential port");
+    const bind = (repoId: string, credentialRef: string) =>
+      host.runtimeInstance(
+        "daemon.runtimeInstance.hostingCredential.set",
+        { instanceId: "shared", repoId, provider: "github", credentialRef },
+        auth,
+      );
+    await bind("repo-a", "credential:v1:before");
+    assert.equal((await prepare("shared", "github", "repo-a"))?.GH_TOKEN, "fixture-before");
+    await bind("repo-a", "credential:v1:after");
+    assert.equal((await prepare("shared", "github", "repo-a"))?.GH_TOKEN, "fixture-after");
+    assert.equal(await prepare("shared", "github", "repo-b"), null);
+    await host.runtimeInstance(
+      "daemon.runtimeInstance.hostingCredential.unset",
+      { instanceId: "shared", repoId: "repo-a", provider: "github" },
+      auth,
+    );
+    assert.equal(await prepare("shared", "github", "repo-a"), null);
+  } finally {
+    await host.close();
+    rmSync(parent, { recursive: true, force: true });
   }
 });

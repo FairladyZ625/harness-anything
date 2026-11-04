@@ -17,12 +17,12 @@ import { validateRuntimeSpawnReceipt } from "../src/gui-s3-control.ts";
 const githubInstance = {
   instanceId: "instance-github",
   enabled: true,
-  hostingCredentialRefs: { github: "credential:v1:github" },
+  hostingCredentialRefsByRepo: { "repo-a": { github: "credential:v1:github" } },
 };
 const gitlabInstance = {
   instanceId: "instance-gitlab",
   enabled: true,
-  hostingCredentialRefs: { gitlab: "credential:v1:gitlab" },
+  hostingCredentialRefsByRepo: { "repo-a": { gitlab: "credential:v1:gitlab" } },
 };
 
 function repoWithOrigin(remote: string): string {
@@ -35,7 +35,7 @@ function repoWithOrigin(remote: string): string {
 test("doctor check reports ok when an enabled instance binds the detected provider", async (t) => {
   const rootDir = repoWithOrigin("https://github.com/example/repo.git");
   t.after(() => removeTemporaryDirectory(rootDir));
-  const check = await hostedCredentialDoctorCheck(rootDir, { instances: [githubInstance] });
+  const check = await hostedCredentialDoctorCheck(rootDir, { repoId: "repo-a", instances: [githubInstance] });
   assert.equal(check.id, "hosted-credential");
   assert.equal(check.status, "ok");
   assert.equal(check.count, 1);
@@ -50,6 +50,7 @@ test("doctor check warns with the configuration command when no enabled instance
     const rootDir = repoWithOrigin(remote);
     t.after(() => rmSync(rootDir, { recursive: true, force: true }));
     const disabledOnly = await hostedCredentialDoctorCheck(rootDir, {
+      repoId: "repo-a",
       instances: [
         { ...githubInstance, enabled: false },
         { ...gitlabInstance, enabled: false },
@@ -57,9 +58,10 @@ test("doctor check warns with the configuration command when no enabled instance
     });
     assert.equal(disabledOnly.status, "warn", provider);
     assert.match(disabledOnly.summary, new RegExp(`No enabled runtime instance binds a ${provider}`, "u"));
-    assert.equal(disabledOnly.next, `${hostingCredentialConfigurationAdvice(provider)}.`);
+    assert.equal(disabledOnly.next, `${hostingCredentialConfigurationAdvice(provider, "<instance-id>", "repo-a")}.`);
     // A binding for the other provider does not silence the warning.
     const otherProviderOnly = await hostedCredentialDoctorCheck(rootDir, {
+      repoId: "repo-a",
       instances: [provider === "github" ? gitlabInstance : githubInstance],
     });
     assert.equal(otherProviderOnly.status, "warn", provider);
@@ -71,7 +73,7 @@ test("doctor check stays indeterminate when origin names no GitHub or GitLab hos
   for (const remote of ["https://source.example.internal/example/repo.git", "git@bitbucket.org:example/repo.git"]) {
     const rootDir = repoWithOrigin(remote);
     t.after(() => rmSync(rootDir, { recursive: true, force: true }));
-    const check = await hostedCredentialDoctorCheck(rootDir, { instances: [githubInstance] });
+    const check = await hostedCredentialDoctorCheck(rootDir, { repoId: "repo-a", instances: [githubInstance] });
     assert.equal(check.status, "indeterminate", remote);
     assert.match(check.next, /hosting\.provider and hosting\.host/u);
   }
@@ -80,16 +82,19 @@ test("doctor check stays indeterminate when origin names no GitHub or GitLab hos
 test("the dispatch notice appears exactly when the repository has no provider credential", async (t) => {
   const rootDir = repoWithOrigin("https://github.com/example/repo.git");
   t.after(() => removeTemporaryDirectory(rootDir));
-  assert.equal(await hostingCredentialDispatchNotice(rootDir, { instances: [githubInstance] }), null);
-  const notice = await hostingCredentialDispatchNotice(rootDir, { instances: [] });
+  assert.equal(await hostingCredentialDispatchNotice(rootDir, { repoId: "repo-a", instances: [githubInstance] }), null);
+  const notice = await hostingCredentialDispatchNotice(rootDir, { repoId: "repo-a", instances: [] });
   assert.match(notice!, /cannot publish its branch until/u);
-  assert.match(notice!, new RegExp(hostingCredentialConfigurationAdvice("github").replaceAll(".", "\\."), "u"));
+  assert.match(
+    notice!,
+    new RegExp(hostingCredentialConfigurationAdvice("github", "<instance-id>", "repo-a").replaceAll(".", "\\."), "u"),
+  );
 });
 
 test("the notice annotates only task-bound command receipts and preserves prior warnings", async (t) => {
   const rootDir = repoWithOrigin("https://github.com/example/repo.git");
   t.after(() => removeTemporaryDirectory(rootDir));
-  const instances = { instances: [] as readonly unknown[] },
+  const instances = { repoId: "repo-a", instances: [] as readonly unknown[] },
     receipt = { schema: "command-receipt/v2", ok: true, warnings: ["existing"] };
   // Unbound dispatches and dry-run previews owe no publication, so they pass through.
   assert.equal(await annotateHostingCredentialNotice(receipt, { taskId: undefined }, rootDir, instances), receipt);
@@ -99,7 +104,10 @@ test("the notice annotates only task-bound command receipts and preserves prior 
   assert.deepEqual(annotated.warnings, ["existing", await hostingCredentialDispatchNotice(rootDir, instances)]);
   // A configured repository leaves the receipt untouched.
   assert.equal(
-    await annotateHostingCredentialNotice(receipt, { taskId: "task_x" }, rootDir, { instances: [githubInstance] }),
+    await annotateHostingCredentialNotice(receipt, { taskId: "task_x" }, rootDir, {
+      repoId: "repo-a",
+      instances: [githubInstance],
+    }),
     receipt,
   );
 });
@@ -131,4 +139,12 @@ test("spawn receipts carrying operator warnings still pass the protocol validato
     };
   assert.deepEqual(validateRuntimeSpawnReceipt(receipt), []);
   assert.notDeepEqual(validateRuntimeSpawnReceipt({ ...receipt, unknownField: 1 }), []);
+});
+
+test("a binding for another repository does not silence doctor or dispatch warnings", async (t) => {
+  const rootDir = repoWithOrigin("https://github.com/example/repo.git");
+  t.after(() => removeTemporaryDirectory(rootDir));
+  const readers = { repoId: "repo-b", instances: [githubInstance] };
+  assert.equal((await hostedCredentialDoctorCheck(rootDir, readers)).status, "warn");
+  assert.match((await hostingCredentialDispatchNotice(rootDir, readers))!, /--repo-id repo-b/u);
 });

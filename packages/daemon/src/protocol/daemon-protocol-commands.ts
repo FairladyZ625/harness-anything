@@ -627,6 +627,7 @@ export const daemonProtocolMethods = Object.freeze([
     params: shape({
       payload: shape({
         instanceId: "string",
+        repoId: "string",
         provider: optionalEnum(["github", "gitlab"]),
         credentialRef: "string",
       }),
@@ -640,6 +641,7 @@ export const daemonProtocolMethods = Object.freeze([
     params: shape({
       payload: shape({
         instanceId: "string",
+        repoId: "string",
         provider: optionalEnum(["github", "gitlab"]),
       }),
     }),

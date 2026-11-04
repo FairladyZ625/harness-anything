@@ -1,4 +1,5 @@
 import { createFleetMemberDeviceLink } from "./fleet/peer.ts";
+import { runtimeInstanceUsesCredential } from "./runtime-hosting-credentials.ts";
 import { markDaemonOperationPhase } from "./daemon-operation.ts";
 import type { FleetDeviceLoginNotice, IdentityManagementPort, IdentitySessionPort } from "@harness-anything/kernel";
 import { readHomeOverview } from "./home/home-overview-read.ts";
@@ -239,13 +240,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       userRoot: input.userRoot,
       vault,
       isCredentialInUse: (reference) =>
-        instanceStore
-          .list()
-          .some(
-            (config) =>
-              (config.auth.mode === "api-key" && config.auth.credentialRef === reference) ||
-              Object.values(config.hostingCredentialRefs ?? {}).includes(reference),
-          ),
+        instanceStore.list().some((config) => runtimeInstanceUsesCredential(config, reference)),
     }),
     runtimePorts = openDaemonRuntimePorts({ userRoot: input.userRoot, instances }),
     startedAt = input.startedAt ?? new Date().toISOString(),

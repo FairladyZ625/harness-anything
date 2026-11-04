@@ -130,7 +130,8 @@ export interface RepoCellOpenInput {
   ) => { readonly instanceId: string; readonly runtimeSessionId: string; readonly error: Error }[];
   readonly prepareDaemonGitEnvironment?: (
     instanceId: string,
-    provider?: "github" | "gitlab",
+    provider: "github" | "gitlab",
+    repoId: string,
   ) => Promise<NodeJS.ProcessEnv | null>;
   readonly bootstrap?: RepoBootstrapInput;
   readonly onBootstrap?: (receipt: RepoBootstrapReceipt) => void;

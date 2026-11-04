@@ -105,7 +105,8 @@ type RuntimePorts = {
   ) => { readonly instanceId: string; readonly runtimeSessionId: string; readonly error: Error }[];
   readonly prepareDaemonGitEnvironment: (
     instanceId: string,
-    provider?: "github" | "gitlab",
+    provider: "github" | "gitlab",
+    repoId: string,
   ) => Promise<NodeJS.ProcessEnv | null>;
 };
 const runtimeOverviewPageLimit = 16;

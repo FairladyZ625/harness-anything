@@ -9,6 +9,8 @@ export type RuntimeInstanceAuth =
   | { readonly mode: "subscription" }
   | { readonly mode: "api-key"; readonly credentialRef: string };
 
+export type HostingCredentialRefs = Readonly<{ readonly github?: string; readonly gitlab?: string }>;
+
 export interface RuntimeInstanceCommon {
   readonly schemaVersion: 2;
   readonly instanceId: string;
@@ -22,7 +24,9 @@ export interface RuntimeInstanceCommon {
   readonly permissionMode?: RuntimePermissionMode;
   readonly isolationState: RuntimeIsolationState;
   readonly auth: RuntimeInstanceAuth;
-  readonly hostingCredentialRefs?: Readonly<{ readonly github?: string; readonly gitlab?: string }>;
+  /** Disk-only previous-version residue; never used to authorize publication. Remove 2026-12-05. */
+  readonly hostingCredentialRefs?: HostingCredentialRefs;
+  readonly hostingCredentialRefsByRepo?: Readonly<Record<string, HostingCredentialRefs>>;
 }
 
 export interface ClaudeRuntimeInstanceConfig {

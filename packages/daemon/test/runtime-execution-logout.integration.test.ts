@@ -136,7 +136,7 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
       models: ["fixture"],
       permissionMode: "workspace-write",
       authMode: "subscription",
-      hostingCredentialRefs: { github: githubCredentialRef },
+      hostingCredentialRefsByRepo: { [repoId]: { github: githubCredentialRef } },
     },
   });
   assert.equal(instance.ok, true, JSON.stringify(instance));

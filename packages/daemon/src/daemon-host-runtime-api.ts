@@ -117,6 +117,7 @@ export function createDaemonHostRuntimeApi(
       await context.scheduleScheduler.refresh();
       return annotateSpawn && request.method === "repo.agentRuntime.spawn"
         ? annotateHostingCredentialNotice(receipt, request.action, request.workspaceRoot, {
+            repoId: request.repoId,
             instances: context.instances.list(),
           })
         : receipt;
@@ -163,6 +164,7 @@ export function createDaemonHostRuntimeApi(
       // The dispatch still runs; the notice only tells the operator the worker will not be
       // able to publish its delivery until the hosting credential is configured.
       return annotateHostingCredentialNotice(receipt, payload, cell.status().rootDir, {
+        repoId,
         instances: context.instances.list(),
       });
     },

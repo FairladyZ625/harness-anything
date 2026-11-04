@@ -1,6 +1,6 @@
 # 托管 Git 凭据
 
-任务分支推送经 daemon 完成。Daemon 使用机器操作者按 runtime instance 一次性
+任务分支推送经 daemon 完成。Daemon 使用机器操作者按 runtime instance 与仓库分别
 配置的 GitLab token（以及 GitHub 在 CLI 之外的 git 操作所需的 token）；runtime
 进程不读这份实例配置。GitHub 一侧不同：每次 runtime 启动都直接继承操作者本人的
 GitHub 凭据，因此 worker 自己就能推送、开 pull request、读 CI。本页是操作者配置
@@ -9,7 +9,7 @@ GitHub 凭据，因此 worker 自己就能推送、开 pull request、读 CI。�
 
 ## 这份凭据驱动什么
 
-每条命令解析「运行该派工的 runtime instance」上绑定的凭据，且只用于该任务：
+每条命令解析「运行该派工的 runtime instance」与该仓库共同绑定的凭据，且只用于该任务：
 
 | 命令 | 用凭据做什么 |
 | --- | --- |
@@ -21,10 +21,10 @@ shell 的 `PATH`（见[常驻服务](operations-server-daemon.zh-CN.md#常驻服
 ## 把凭据绑定到 runtime instance
 
 ```bash
-ha runtime instance hosting-credential set <instance-id> --provider github --ref credential:v1:<slug>
-ha runtime instance hosting-credential unset <instance-id> --provider github
-ha runtime instance hosting-credential set <instance-id> --provider gitlab --ref credential:v1:<slug>
-ha runtime instance hosting-credential unset <instance-id> --provider gitlab
+ha runtime instance hosting-credential set <instance-id> --repo-id <repo-id> --provider github --ref credential:v1:<slug>
+ha runtime instance hosting-credential unset <instance-id> --repo-id <repo-id> --provider github
+ha runtime instance hosting-credential set <instance-id> --repo-id <repo-id> --provider gitlab --ref credential:v1:<slug>
+ha runtime instance hosting-credential unset <instance-id> --repo-id <repo-id> --provider gitlab
 ```
 
 `--ref` 接受指向本机原生凭据库的不透明引用，不接受 token 本身。
@@ -33,6 +33,23 @@ macOS 上继续解析。`ha runtime instance show <instance-id>` 只投影凭据
 永不回显引用或 secret。worker 会话无权修改这一绑定；它是操作者侧设置，
 绑定缺失表现为 `runtime_credential_unavailable`（见
 [从 task 与 runtime 拒绝中恢复](operations-server-daemon.zh-CN.md#从-task-与-runtime-拒绝中恢复)）。
+
+`--repo-id` 是注册仓库命名空间，不是 checkout 路径。绑定或轮换仓库 A 不影响仓库 B，
+经 daemon 写入后立即生效，无需重启。Doctor 与派工提示使用同一个按仓库查找入口。
+
+### 现有实例级绑定
+
+旧 `runtime-instances.json` 的 `hostingCredentialRefs` 仅保留磁盘读取至 **2026-12-05**，
+不会回退用于发布。用 `set --repo-id` 为每个仓库显式重绑已有的不透明 ref，不需要读取
+或复制 secret。新写入使用 `hostingCredentialRefsByRepo`；这是节点本地元数据，未改变
+canonical event 格式，无 attach migration。兼容期后删除旧字段读取与凭据保留检查。
+
+### 多个边缘节点
+
+实际发布的节点从自身实例注册表与原生 vault 解析 `(instance, repoId, provider)`。
+每个发布节点都需配置对应仓库的 ref，canonical 台账不复制 ref 或 secret。中心仍独占
+任务接受与执行 fencing（云上中心使用 PostgreSQL）；本变更不引入租户级 secret store。
+同一节点的并发绑定经现有 credential FIFO 串行写入。
 
 ## 创建凭据库条目
 

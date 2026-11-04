@@ -1,3 +1,4 @@
+import { runtimeInstanceUsesCredential } from "./runtime-hosting-credentials.ts";
 import type { CredentialPort } from "./agent-runtime-credential-port.ts";
 import { runtimeInstanceError } from "./agent-runtime-instance-values.ts";
 import type { openRuntimeInstanceStore } from "./agent-runtime-instance-store.ts";
@@ -24,16 +25,7 @@ export function runtimeInstanceCredentialService(
     | { readonly ok: true }
     | { readonly ok: false; readonly code: "runtime_credential_unavailable" | "runtime_credential_cleanup_failed" };
   async function removeUnused(reference: string): Promise<Cleanup> {
-    if (
-      store
-        .list()
-        .some(
-          (config) =>
-            (config.auth.mode === "api-key" && config.auth.credentialRef === reference) ||
-            Object.values(config.hostingCredentialRefs ?? {}).includes(reference),
-        )
-    )
-      return { ok: true };
+    if (store.list().some((config) => runtimeInstanceUsesCredential(config, reference))) return { ok: true };
     try {
       await vault.remove(reference);
       return { ok: true };

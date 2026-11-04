@@ -143,7 +143,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     exiting = new Set<string>(),
     launch = input.launch ?? launchNative,
     prepareDaemonGitEnvironment = (instanceId: string, provider: "github" | "gitlab" = "github") =>
-      input.prepareDaemonGitEnvironment?.(instanceId, provider).then((value) => value ?? undefined) ??
+      input.prepareDaemonGitEnvironment?.(instanceId, provider, input.repoId).then((value) => value ?? undefined) ??
       Promise.resolve(undefined);
   const modelSlotQueue = input.modelSlotQueue ?? new ModelSlotQueue({ globalCapacity: 64, perOwnerCapacity: 64 });
   const ownsModelSlotQueue = input.modelSlotQueue === undefined;

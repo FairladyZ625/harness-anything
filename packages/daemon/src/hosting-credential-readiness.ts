@@ -1,3 +1,5 @@
+import { hostingCredentialReference } from "./runtime-hosting-credentials.ts";
+import type { HostingCredentialRefs } from "./agent-runtime-instance-types.ts";
 import {
   detectHostingProvider,
   hostingCredentialConfigurationAdvice,
@@ -13,10 +15,11 @@ import type { DoctorCheck } from "./repo-cell-doctor.ts";
 export interface HostingCredentialInstanceRow {
   readonly instanceId: string;
   readonly enabled: boolean;
-  readonly hostingCredentialRefs?: Readonly<Partial<Record<HostingProviderKind, string>>>;
+  readonly hostingCredentialRefsByRepo?: Readonly<Record<string, HostingCredentialRefs>>;
 }
 
 export interface HostingCredentialReaders {
+  readonly repoId: string;
   /** Enabled instance configs to inspect. */
   readonly instances: readonly HostingCredentialInstanceRow[];
 }
@@ -37,7 +40,7 @@ async function hostingCredentialSnapshot(
   return {
     provider: provider.kind,
     configuredInstanceIds: instances.instances
-      .filter((row) => row.enabled && row.hostingCredentialRefs?.[provider.kind] !== undefined)
+      .filter((row) => row.enabled && hostingCredentialReference(row, provider.kind, instances.repoId) !== undefined)
       .map((row) => row.instanceId),
   };
 }
@@ -76,7 +79,7 @@ export async function hostedCredentialDoctorCheck(
     status: "warn",
     summary: `No enabled runtime instance binds a ${provider} hosting credential; daemon-held task push, PR creation, and CI reads will fail with runtime_credential_unavailable.`,
     count: 0,
-    next: `${hostingCredentialConfigurationAdvice(provider)}.`,
+    next: `${hostingCredentialConfigurationAdvice(provider, "<instance-id>", instances.repoId)}.`,
   };
 }
 
@@ -93,7 +96,7 @@ export async function hostingCredentialDispatchNotice(
 ): Promise<string | null> {
   const { provider, configuredInstanceIds } = await hostingCredentialSnapshot(rootDir, instances);
   if (!provider || configuredInstanceIds.length > 0) return null;
-  return `No enabled runtime instance binds a ${provider} hosting credential; the dispatched worker cannot publish its branch until the operator configures one: ${hostingCredentialConfigurationAdvice(provider)}.`;
+  return `No enabled runtime instance binds a ${provider} hosting credential; the dispatched worker cannot publish its branch until the operator configures one: ${hostingCredentialConfigurationAdvice(provider, "<instance-id>", instances.repoId)}.`;
 }
 
 /**
