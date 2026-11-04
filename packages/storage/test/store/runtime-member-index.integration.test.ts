@@ -74,15 +74,24 @@ test("SQLite member reads skip duplicate and orphan dispatch history", async (t)
         }
         t.diagnostic(`SQLITE_MEMBER_PLANS ${JSON.stringify(queries)}`);
         assert.ok(queries.length >= 4);
-        for (const query of queries)
+        for (const query of queries) {
           assert.ok(
             query.plan.every(
               ({ detail }) =>
+                !/\bSCAN d\b/u.test(detail) &&
+                (!/\bSCAN event_index\b/u.test(detail) ||
+                  /USING INDEX event_index_runtime_member_pending/u.test(detail)) &&
                 !/CO-ROUTINE \(subquery/u.test(detail) &&
                 (query.sql.startsWith("WITH RECURSIVE") || !/USE TEMP B-TREE/u.test(detail)),
             ),
             `member read scans/sorts historical dispatches: ${JSON.stringify(query)}`,
           );
+          if (query.sql.startsWith("WITH RECURSIVE"))
+            assert.ok(
+              query.plan.some(({ detail }) => /SEARCH d .*\((?:workspace_revision|rowid)=\?/u.test(detail)),
+              `selected dispatch revisions must use point lookups: ${JSON.stringify(query)}`,
+            );
+        }
       } finally {
         guard.mock.restore();
       }

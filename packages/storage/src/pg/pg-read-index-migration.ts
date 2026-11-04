@@ -2,7 +2,8 @@ import { POSTGRES_SCOPE_COLUMNS_SQL } from "../postgres/scope-schema.ts";
 import type { PoolClient } from "pg";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 
-/** Additive v5 expansion. Retain the previous-writer triggers through 2026-11-18.
+/** Additive v5 expansion. Current and previous writers share these materialization triggers.
+ * Keep them after the previous-binary window (2026-11-18): current writes still require them.
  * Backfill runs as bounded management transactions; canonical text is never converted to JSONB.
  */
 export function readIndexDdl(): readonly string[] {

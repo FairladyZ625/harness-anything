@@ -39,6 +39,16 @@ export async function auditPgProjectionRows(
     admin,
     async (client) => {
       await client.query(`CREATE SCHEMA "${schema}"`);
+      // Read-index DDL and replay triggers must own their event table too. Resolving
+      // ha_events through the public fallback would change the source's triggers.
+      await client.query(
+        `CREATE TABLE "${schema}".ha_events (LIKE ha_events INCLUDING DEFAULTS INCLUDING CONSTRAINTS)`,
+      );
+      await client.query(
+        `INSERT INTO "${schema}".ha_events SELECT * FROM ha_events
+          WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4 AND revision<=$5`,
+        [tuple.scope.tenantId, tuple.scope.projectId, tuple.scope.policyEpoch, tuple.cut.repoId, tuple.cut.revision],
+      );
       await client.query(`SET LOCAL search_path TO "${schema}", public`);
       await ensurePgProjectionSchema(client);
       await rebuildPgProjection(client, tuple.scope, {

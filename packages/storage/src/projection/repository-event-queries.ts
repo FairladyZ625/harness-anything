@@ -96,7 +96,7 @@ const RUNTIME_DISPATCH_MEMBER_SESSIONS_SQL = (member: "agentId" | "squadId") => 
     CASE WHEN json_extract(d.event_json, '$.payload.reviewTarget.kind')='decision' THEN json_extract(d.event_json, '$.payload.reviewTarget.decisionId') END AS latestDecisionId,
     (SELECT group_concat(DISTINCT b.task_id) FROM runtime_session_task_binding b
       WHERE b.runtime_session_id=json_extract(d.event_json, '$.payload.runtimeSessionId')) AS taskIds
-  FROM latest JOIN event_index d ON d.workspace_revision=latest.revision ORDER BY runtimeSessionId`;
+  FROM latest CROSS JOIN event_index d ON d.workspace_revision=latest.revision ORDER BY runtimeSessionId`;
 };
 const RUNTIME_DISPATCH_PAGE_SQL = [
   "SELECT event_json FROM event_index",

@@ -50,7 +50,7 @@ const dispatchIndexes = [
 ] as const;
 
 /** RLS-safe scalar indexes over immutable event bytes; only a disposable parsing copy is JSONB.
- * Previous writers maintain these through the trigger until 2026-11-18.
+ * Current and previous writers share the trigger; it remains after the 2026-11-18 binary window.
  */
 export function eventReadIndexDdl(): readonly string[] {
   return [

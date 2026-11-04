@@ -1,0 +1,202 @@
+// harness-test-tier: integration
+import assert from "node:assert/strict";
+import test from "node:test";
+import type { PoolClient } from "pg";
+import { taskLifecycleWritePlan, type CanonicalEventV1 } from "@harness-anything/kernel";
+import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixture.ts";
+import { canonicalEventWritePlan, type CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
+import { createPgStorageBackend } from "../../src/pg/backend.ts";
+import { ensurePgProjectionSchema } from "../../src/pg/pg-projection-schema.ts";
+import { rebuildPgProjection } from "../../src/pg/pg-task-event-materialize.ts";
+import { backfillPgEntityDeclarationPage } from "../../src/pg/pg-entity-declaration-catchup.ts";
+import { withPostgresTransaction } from "../../src/postgres/transaction.ts";
+import { POSTGRES_SCOPE_SCHEMA_CONTRACT } from "../../src/postgres/scope-schema.ts";
+import { pgRuntimeFixture } from "./pg-runtime.fixture.ts";
+import { appendBootstrapQueryFixture } from "./query-bootstrap.fixture.ts";
+import { appendQueryParityFixtures } from "./pg-query-parity.fixture.ts";
+import { appendRuntimeQueryFixtures } from "./pg-runtime-query-parity.fixture.ts";
+import { appendGraphQueryFixtures } from "./pg-complete-query-parity.fixture.ts";
+import { runtimeProviderEvents } from "../runtime-provider-bytes.assertions.ts";
+
+test("external PG release sequence upgrades populated read indexes before reader handoff", async (t) => {
+  const fixture = await pgRuntimeFixture(),
+    repoId = "read-index-upgrade",
+    scope = { tenantId: "upgrade", projectId: "upgrade", policyEpoch: 1, readers: [] },
+    { eventStore, projection } = createPgStorageBackend({ pool: fixture.pool, repoId, scope }),
+    events: CanonicalEventV1[] = [],
+    blobs = new Map<string, Uint8Array>(),
+    keys = [scope.tenantId, scope.projectId, scope.policyEpoch],
+    manage = <T>(operation: (client: PoolClient) => Promise<T>) =>
+      withPostgresTransaction(fixture.adminPool, operation, scope),
+    append = async (candidate: CanonicalWriteBundle) => {
+      await eventStore.append(candidate, events.length, { repoId, holderId: "upgrade", epoch: 1 });
+      events.push(candidate.event);
+      for (const blob of candidate.blobs)
+        blobs.set(blob.sha256, typeof blob.body === "string" ? new TextEncoder().encode(blob.body) : blob.body);
+    },
+    read = async () => ({
+      cut: await projection.readCut(),
+      sessions: await projection.readRuntimeSessions({ unsettledOnly: true }),
+      task: await projection.readRuntimeSessionsForTask("task-parity"),
+      pins: await projection.listPinnedEntities(),
+      intervals: await projection.readLeaseIntervals("task-parity"),
+      fact: await projection.readFactGraph("F-11111111"),
+      dispatches: await projection.readRuntimeDispatchesBySession("runtime-query-session"),
+      event: await projection.readTaskEventExists("task-parity"),
+    });
+  try {
+    const lifecycle = lifecycleFixture({ taskId: "task-parity", executionId: "execution-parity" });
+    for (const event of lifecycle.events) await append({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
+    await appendBootstrapQueryFixture(append, () => events.length + 1, lifecycle.events[0]!.actor);
+    await appendQueryParityFixtures(append, () => events.length + 1);
+    await appendGraphQueryFixtures(append, () => events.length + 1);
+    await appendRuntimeQueryFixtures(append, () => events.length + 1);
+    const template = runtimeProviderEvents()[0]!;
+    assert.equal(template.type, "runtime_session_started");
+    if (template.type !== "runtime_session_started") throw new Error("invalid start fixture");
+    for (let n = 0; n < 130; n++) {
+      const event = {
+        ...template,
+        eventId: `upgrade-start-${n}`,
+        opId: `upgrade-start-${n}`,
+        workspaceRevision: events.length + 1,
+        payload: {
+          ...template.payload,
+          runtimeSessionId: `upgrade-session-${n}`,
+          taskBinding: { taskId: "task-parity", executionId: "execution-parity" },
+        },
+      };
+      await append({ event, plan: canonicalEventWritePlan(event, "agent-runtime/v1", event.opId), blobs: [] });
+    }
+    const before = await read();
+    assert.equal(before.cut.status, "ready");
+    assert.ok(before.sessions.length >= 130 && before.pins.length > 0 && before.intervals.length > 0);
+    const original = await manage(
+      async (client) =>
+        (
+          await client.query<{ value: string }>(
+            "SELECT value FROM ha_projection_values WHERE model='runtime-session' ORDER BY entity_id",
+          )
+        ).rows,
+    );
+    // Populated previous-writer state: canonical bytes and generation 5 stay intact;
+    // only the newly derived fields/task bindings and declaration watermark are absent.
+    await manage(async (client) => {
+      await client.query(`UPDATE ha_projection_values SET read_index_version=0,
+        runtime_liveness=NULL,runtime_outcome=NULL,order_at=NULL,order_revision=NULL,
+        execution_id=NULL,interval_open=NULL,fact_edge=NULL`);
+      await client.query(`UPDATE ha_events SET read_index_version=0,event_schema=NULL,
+        runtime_session_id=NULL,task_index_id=NULL,runtime_session_present=false,runtime_session_unsettled=false`);
+      await client.query("DELETE FROM ha_runtime_session_tasks");
+      await client.query("DELETE FROM ha_entity_declaration_heads");
+      await client.query("UPDATE ha_projection_meta SET entity_declaration_watermark=0");
+    });
+    // Phase 1 installs expansion only; it must not silently backfill legacy rows.
+    await manage(async (client) => {
+      await client.query(`SET LOCAL ROLE "${POSTGRES_SCOPE_SCHEMA_CONTRACT.roles.schemaOwner}"`);
+      await ensurePgProjectionSchema(client);
+    });
+    for (const operation of [
+      () => projection.readRuntimeSessions({ unsettledOnly: true }),
+      () => projection.listPinnedEntities(),
+      () => projection.readLeaseIntervals("task-parity"),
+      () => projection.readFactGraph("F-11111111"),
+      () => projection.readTaskEventExists("task-parity"),
+    ])
+      await assert.rejects(operation(), { code: "projection_pending" });
+
+    const countPending = () =>
+        manage(async (client) =>
+          Number(
+            (
+              await client.query<{ count: string }>(
+                "SELECT count(*) FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND ((model='runtime-session' AND read_index_version<2) OR (model IN ('pin','lease-interval','relation-write') AND read_index_version=0))",
+                keys,
+              )
+            ).rows[0]!.count,
+          ),
+        ),
+      batch = (client: PoolClient, kind: "projection" | "event") =>
+        client.query<{ processed: number }>(
+          kind === "projection"
+            ? "SELECT ha_backfill_projection_read_indexes($1,$2,$3) AS processed"
+            : "SELECT ha_backfill_event_read_indexes($1,$2,$3,$4) AS processed",
+          kind === "projection" ? keys : [...keys, repoId],
+        );
+    const first = await manage(async (client) => (await batch(client, "projection")).rows[0]!.processed);
+    assert.equal(first, 64);
+    const remainder = await countPending(),
+      interrupted = new Error("rollback read-index batch");
+    await assert.rejects(
+      manage(async (client) => {
+        await batch(client, "projection");
+        throw interrupted;
+      }),
+      (error) => error === interrupted,
+    );
+    assert.equal(await countPending(), remainder);
+    // Previous binary's original-column update remains valid during rollout and rollback.
+    await manage(async (client) => {
+      await client.query(
+        "UPDATE ha_projection_values SET value=value WHERE model='runtime-session' AND entity_id='upgrade-session-129'",
+      );
+      assert.equal(
+        (
+          await client.query<{ read_index_version: number }>(
+            "SELECT read_index_version FROM ha_projection_values WHERE model='runtime-session' AND entity_id='upgrade-session-129'",
+          )
+        ).rows[0]!.read_index_version,
+        2,
+      );
+    });
+    const pages: Record<string, number[]> = { projection: [first], event: [] };
+    for (const kind of ["projection", "event"] as const) {
+      for (;;) {
+        const processed = await manage(async (client) => (await batch(client, kind)).rows[0]!.processed);
+        pages[kind]!.push(processed);
+        assert.ok(processed >= 0 && processed <= 64);
+        if (processed === 0) break;
+      }
+    }
+    assert.equal(await countPending(), 0);
+    await manage(async (client) => {
+      assert.equal(
+        (
+          await client.query(
+            "SELECT 1 FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4 AND read_index_version<4 LIMIT 1",
+            [...keys, repoId],
+          )
+        ).rows.length,
+        0,
+      );
+      assert.deepEqual(
+        (
+          await client.query<{ value: string }>(
+            "SELECT value FROM ha_projection_values WHERE model='runtime-session' ORDER BY entity_id",
+          )
+        ).rows,
+        original,
+      );
+    });
+    for (;;) {
+      const page = await backfillPgEntityDeclarationPage(fixture.pool, scope, repoId, 64);
+      assert.ok(page.processed <= 64);
+      if (page.watermark === page.sourceRevision) break;
+    }
+    assert.deepEqual(await read(), before, "direct current reads after documented handoff");
+    await manage((client) =>
+      rebuildPgProjection(client, scope, {
+        events,
+        sourceRevision: events.length,
+        readContentBlob: (sha256) => blobs.get(sha256) ?? null,
+      }),
+    );
+    assert.deepEqual(await read(), before, "cold canonical replay preserves the upgraded read results");
+    await t.diagnostic(
+      `READ_INDEX_RELEASE ${JSON.stringify({ events: events.length, pages, rollback: true, directRead: true, coldReplay: true })}`,
+    );
+  } finally {
+    await fixture.pool.end();
+    await fixture.close();
+  }
+});
