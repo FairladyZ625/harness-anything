@@ -1,4 +1,4 @@
-import { assertRuntimeMemberIndexReady } from "./runtime-member-index.ts";
+import { assertRuntimeDispatchKeyIndexReady, assertRuntimeMemberIndexReady } from "./runtime-member-index.ts";
 import { prefixUpperBound } from "./document-read-range.ts";
 import { checkedPageLimit } from "./task-query-projection.ts";
 import { readArtifactEntityState } from "./artifact-entity-state-projection.ts";
@@ -43,7 +43,7 @@ const RUNTIME_DISPATCHES_SQL = [
   "ORDER BY workspace_revision",
 ].join(" ");
 const RUNTIME_DISPATCH_BY_ID_SQL = `${RUNTIME_DISPATCHES_SQL.replace("ORDER BY workspace_revision", "AND json_extract(event_json, '$.payload.dispatchId') = ? ORDER BY workspace_revision")} LIMIT 1`;
-const RUNTIME_DISPATCH_BY_KEY_SQL = `${RUNTIME_DISPATCHES_SQL.replace("ORDER BY workspace_revision", "AND json_extract(event_json, '$.payload.dispatchKey') = ? ORDER BY workspace_revision")} LIMIT 1`;
+const RUNTIME_DISPATCH_BY_KEY_SQL = `${RUNTIME_DISPATCHES_SQL.replace("ORDER BY workspace_revision", "AND dispatch_key = ? ORDER BY workspace_revision")} LIMIT 1`;
 const RUNTIME_DISPATCH_BY_RESUME_SOURCE_SQL = `${RUNTIME_DISPATCHES_SQL.replace("ORDER BY workspace_revision", "AND json_extract(event_json, '$.payload.resumedFromDispatchId') = ? ORDER BY workspace_revision")} LIMIT 1`;
 const RUNTIME_DISPATCHES_BY_FIELD_SQL = (field: string) =>
   RUNTIME_DISPATCHES_SQL.replace(
@@ -242,7 +242,10 @@ export function repositoryEventQueries(
     readRuntimeDispatchById: (dispatchId) =>
       withRead((db) => projectedDispatch(db, queryRow(db, RUNTIME_DISPATCH_BY_ID_SQL, dispatchId))),
     readRuntimeDispatchByDispatchKey: (dispatchKey) =>
-      withRead((db) => projectedDispatch(db, queryRow(db, RUNTIME_DISPATCH_BY_KEY_SQL, dispatchKey))),
+      withRead((db) => {
+        assertRuntimeDispatchKeyIndexReady(db);
+        return projectedDispatch(db, queryRow(db, RUNTIME_DISPATCH_BY_KEY_SQL, dispatchKey));
+      }),
     readRuntimeDispatchByResumeSource: (dispatchId) =>
       withRead((db) => projectedDispatch(db, queryRow(db, RUNTIME_DISPATCH_BY_RESUME_SOURCE_SQL, dispatchId))),
     readRuntimeDispatchesBySession: (runtimeSessionIdValue) =>

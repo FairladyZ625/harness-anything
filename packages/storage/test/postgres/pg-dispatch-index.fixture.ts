@@ -31,7 +31,9 @@ export async function assertDispatchIndexes(pool: Pool, seedPool: Pool, backend:
           'eventId','dispatch-'||n,'opId','dispatch-'||n,'workspaceRevision',n,'occurredAt','2026-11-04',
           'actor',json_build_object('executor',null,'principal',json_build_object('personId','test')),
           'source',json_build_object('kind','node','nodeId',CASE WHEN n>100000 THEN 'node-target' ELSE 'node-history' END),'payload',json_build_object('dispatchId',CASE WHEN n>100000 THEN 'target-'||n ELSE 'history-'||lpad(n::text,6,'0') END,
-            'dispatchKey','key-'||n,'runtimeSessionId',CASE WHEN n=100001 THEN 'session-100200' WHEN n<=50000 THEN 'orphan-'||lpad(n::text,6,'0') ELSE 'session-000001' END,
+            'dispatchKey',CASE WHEN n=100002 THEN NULL ELSE 'key-'||n END,
+            'idempotencyKey',CASE WHEN n=100002 THEN 'key-100002' END,
+            'runtimeSessionId',CASE WHEN n=100001 THEN 'session-100200' WHEN n<=50000 THEN 'orphan-'||lpad(n::text,6,'0') ELSE 'session-000001' END,
             'definitionSnapshotRef','definition-'||n,'taskId',CASE WHEN n>100000 THEN 'target' ELSE 'history' END,
             'executionId','execution-target','agentId','agent-target','squadId','squad-target',
             'startedAt',CASE WHEN n>100000 THEN '2026-11-04' ELSE '2020-01-01' END,
@@ -41,10 +43,12 @@ export async function assertDispatchIndexes(pool: Pool, seedPool: Pool, backend:
       FROM generate_series(1,100002)n`,
         [scope.tenantId, scope.projectId, scope.policyEpoch, repoId],
       );
-      // Simulate the preceding expansion's rows, not just a fresh schema. Readiness must detect v3.
-      await client.query("UPDATE ha_events SET read_index_version=3 WHERE tenant_id=$1 AND revision=100002", [
-        scope.tenantId,
-      ]);
+      // Simulate the preceding v4 expansion's rows, not just a fresh schema. Readiness must detect v4,
+      // and the v5 backfill must derive the historical idempotencyKey spelling.
+      await client.query(
+        "UPDATE ha_events SET read_index_version=4,dispatch_key=NULL WHERE tenant_id=$1 AND revision=100002",
+        [scope.tenantId],
+      );
       await client.query("ANALYZE");
     },
     scope,
@@ -88,6 +92,14 @@ export async function assertDispatchIndexes(pool: Pool, seedPool: Pool, backend:
   plans.length = 0;
   assert.equal((await source.readRuntimeDispatchById("target-100002"))?.event.payload.dispatchId, "target-100002");
   assert.equal(
+    (await source.readRuntimeDispatchByDispatchKey("key-100002"))?.event.payload.dispatchId,
+    "target-100002",
+  );
+  assert.equal(
+    (await source.readRuntimeDispatchByDispatchKey("key-100001"))?.event.payload.dispatchId,
+    "target-100001",
+  );
+  assert.equal(
     (await source.readRuntimeDispatch("session-000001", "definition-100002"))?.payload.dispatchId,
     "target-100002",
   );
@@ -120,6 +132,9 @@ export async function assertDispatchIndexes(pool: Pool, seedPool: Pool, backend:
     );
   const timed = createPgTaskProjectionSource({ pool, scope, repoId, ownsPool: false });
   await measurePgRead(backend, "readRuntimeDispatchById", () => timed.readRuntimeDispatchById("target-100002"));
+  await measurePgRead(backend, "readRuntimeDispatchByDispatchKey", () =>
+    timed.readRuntimeDispatchByDispatchKey("key-100002"),
+  );
   await measurePgRead(backend, "readRuntimeDispatchesByMember", () =>
     timed.readRuntimeDispatchesByMember({ agentId: "agent-target", limit: 1 }),
   );

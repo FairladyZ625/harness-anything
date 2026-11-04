@@ -4,7 +4,7 @@ This release retains projection generation **5**. Previous binaries continue to 
 original `value` and write their original columns. Current binaries write the additional
 `document_metadata` column in the same row and transaction. Scalar-index backfills do not
 rewrite canonical events or switch the projection generation. The same generation also adds runtime read indexes **v2** and event
-read indexes **v4**. External PostgreSQL does not backfill these automatically: ordinary
+read indexes **v5** (v4 plus the normalized dispatch-key column). External PostgreSQL does not backfill these automatically: ordinary
 reader startup and `TaskProjection.catchUp` do not run the two management SQL functions.
 Complete every phase below before switching readers. PGlite commits the same bounded
 SQL batches during its schema-owner initialization.
@@ -76,8 +76,12 @@ existing migration path; no ad-hoc repair script or canonical attach conversion 
    ```
 
    Again commit each <=64-row call and repeat to a committed `processed=0`. All old event
-   rows, including non-runtime schemas, must reach version 4. Resume by repeating the
-   function. Preserve tenant/project/policy-epoch **and repo** identity; do not merge scopes.
+   rows, including non-runtime schemas, must reach version 5. Version 5 derives
+   `dispatch_key` from either payload spelling (`dispatchKey`, or the pre-rename
+   `idempotencyKey`); reviewer dispatches stay out of that scalar column because the
+   projection's normalized `runtime-dispatch-key` rows carry their qualified keys. Resume by
+   repeating the function. Preserve tenant/project/policy-epoch **and repo** identity; do not
+   merge scopes.
 
 5. Verify readiness on the same claims before enabling current readers. Both probes must
    return no rows (use the actual deployment identifiers):
@@ -90,7 +94,7 @@ existing migration path; no ad-hoc repair script or canonical attach conversion 
    LIMIT 1;
    SELECT 1 FROM ha_events
    WHERE tenant_id='tenant-id' AND project_id='project-id' AND policy_epoch=1 AND repo_id='repo-id'
-     AND read_index_version<4 LIMIT 1;
+     AND read_index_version<5 LIMIT 1;
    ```
 
    Document metadata must also be complete as in phase 2. Finish the current declaration

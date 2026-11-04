@@ -87,7 +87,7 @@ test("external PG release sequence upgrades populated read indexes before reader
         runtime_liveness=NULL,runtime_outcome=NULL,order_at=NULL,order_revision=NULL,
         execution_id=NULL,interval_open=NULL,fact_edge=NULL`);
       await client.query(`UPDATE ha_events SET read_index_version=0,event_schema=NULL,
-        runtime_session_id=NULL,task_index_id=NULL,runtime_session_present=false,runtime_session_unsettled=false`);
+        runtime_session_id=NULL,dispatch_key=NULL,task_index_id=NULL,runtime_session_present=false,runtime_session_unsettled=false`);
       await client.query("DELETE FROM ha_runtime_session_tasks");
       await client.query("DELETE FROM ha_entity_declaration_heads");
       await client.query(
@@ -180,7 +180,7 @@ test("external PG release sequence upgrades populated read indexes before reader
       assert.equal(
         (
           await client.query(
-            "SELECT 1 FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4 AND read_index_version<4 LIMIT 1",
+            "SELECT 1 FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4 AND read_index_version<5 LIMIT 1",
             [...keys, repoId],
           )
         ).rows.length,

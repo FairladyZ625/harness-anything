@@ -4,7 +4,10 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { applyDecision, projectionFixture, proposal } from "./relation-graph-projection.fixtures.ts";
 import { withTempStoreAsync } from "./helpers.ts";
-import { ensureRuntimeMemberIndex } from "../../src/projection/runtime-member-index.ts";
+import {
+  assertRuntimeDispatchKeyIndexReady,
+  ensureRuntimeMemberIndex,
+} from "../../src/projection/runtime-member-index.ts";
 import { REPOSITORY_READ_TABLES_SQL } from "../../src/projection/projection-tables.ts";
 
 test("SQLite task point reads remain indexed through the member expansion", (t) => {
@@ -23,6 +26,55 @@ test("SQLite task point reads remain indexed through the member expansion", (t) 
       assert.ok(plan.some(({ detail }) => /SEARCH event_index .*\(task_id=\?\)/u.test(detail)));
       assert.ok(plan.every(({ detail }) => !/SCAN event_index/u.test(detail)));
     }
+  } finally {
+    db.close();
+  }
+});
+
+test("SQLite dispatch key expansion backfills both historical and current spellings", (t) => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(REPOSITORY_READ_TABLES_SQL);
+    const insert = db.prepare("INSERT INTO event_index(op_id,workspace_revision,event_json) VALUES(?,?,?)"),
+      dispatch = (payload: Readonly<Record<string, unknown>>) =>
+        JSON.stringify({ schema: "agent-runtime-event/v1", type: "runtime_dispatch_requested", payload });
+    insert.run("old", 1, dispatch({ dispatchId: "dispatch-old", idempotencyKey: "key-old" }));
+    insert.run("new", 2, dispatch({ dispatchId: "dispatch-new", dispatchKey: "key-new" }));
+    insert.run("task", 3, JSON.stringify({ schema: "task-event/v1", type: "task_created", payload: {} }));
+    const progress: { applied: number; total: number }[] = [];
+    ensureRuntimeMemberIndex(db, (entry) => progress.push(entry));
+    assert.deepEqual(
+      db
+        .prepare("SELECT op_id,dispatch_key FROM event_index ORDER BY workspace_revision")
+        .all()
+        .map((row) => ({ opId: String(row.op_id), dispatchKey: String(row.dispatch_key) })),
+      [
+        { opId: "old", dispatchKey: "key-old" },
+        { opId: "new", dispatchKey: "key-new" },
+        { opId: "task", dispatchKey: "" },
+      ],
+    );
+    assert.deepEqual(progress, [{ applied: 3, total: 3 }]);
+    const plan = db
+      .prepare(
+        "EXPLAIN QUERY PLAN SELECT event_json FROM event_index WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested' AND dispatch_key = ? ORDER BY workspace_revision LIMIT 1",
+      )
+      .all("key-old") as readonly { readonly detail: string }[];
+    t.diagnostic(`SQLITE_DISPATCH_KEY_PLAN ${JSON.stringify(plan)}`);
+    assert.match(
+      plan.map(({ detail }) => detail).join("\n"),
+      /SEARCH event_index USING INDEX event_index_runtime_dispatch_key/u,
+    );
+    assert.doesNotThrow(() => assertRuntimeDispatchKeyIndexReady(db));
+    // Old prepared statements and mixed-version writers insert only the original columns; the
+    // AFTER INSERT trigger still derives the key.
+    insert.run("after", 4, dispatch({ dispatchId: "dispatch-after", idempotencyKey: "key-after" }));
+    assert.equal(
+      db.prepare("SELECT dispatch_key FROM event_index WHERE op_id='after'").all()[0]!.dispatch_key,
+      "key-after",
+    );
+    db.exec("UPDATE event_index SET dispatch_key=NULL WHERE op_id='old'");
+    assert.throws(() => assertRuntimeDispatchKeyIndexReady(db), { code: "projection_pending" });
   } finally {
     db.close();
   }

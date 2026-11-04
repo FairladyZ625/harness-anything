@@ -10,6 +10,12 @@ const eventReadFields = {
   fact_anchor_id:
     "CASE WHEN NEW.event_type='fact_recorded' THEN v->>'factId' WHEN NEW.event_type='entity_migrated' THEN v#>>'{payload,entity,fact,factId}' END",
   dispatch_id: "v#>>'{payload,dispatchId}'",
+  // The dispatch key moved from payload.idempotencyKey to payload.dispatchKey. Reviewer keys are
+  // excluded because their canonical bytes are qualified by the read-time event transform; the
+  // projection's runtime-dispatch-key model serves those normalized bytes.
+  dispatch_key: `CASE WHEN NEW.event_type='runtime_dispatch_requested'
+    AND v#>>'{payload,role}' IS DISTINCT FROM 'reviewer'
+    THEN COALESCE(v#>>'{payload,dispatchKey}',v#>>'{payload,idempotencyKey}') END`,
   definition_snapshot_ref: "v#>>'{payload,definitionSnapshotRef}'",
   resumed_from_dispatch_id: "v#>>'{payload,resumedFromDispatchId}'",
   payload_task_id: "v#>>'{payload,taskId}'",
@@ -35,6 +41,7 @@ const eventReadFields = {
 const eventScope = "tenant_id,project_id,policy_epoch,repo_id";
 const dispatchIndexes = [
   ["id", "dispatch_id,revision"],
+  ["key", "dispatch_key,revision"],
   ["session", "runtime_session_id,revision"],
   ["definition", "runtime_session_id,definition_snapshot_ref,revision"],
   ["resume", "resumed_from_dispatch_id,revision"],
@@ -76,13 +83,13 @@ export function eventReadIndexDdl(): readonly string[] {
           SELECT 1 FROM ha_projection_values p WHERE p.tenant_id=NEW.tenant_id AND p.project_id=NEW.project_id
           AND p.policy_epoch=NEW.policy_epoch AND p.model='runtime-session' AND p.owner_id=''
           AND p.entity_id=NEW.runtime_session_id COLLATE "default" AND p.runtime_outcome IS NULL);
-        NEW.read_index_version := 4;
+        NEW.read_index_version := 5;
         RETURN NEW;
       END $function$`,
     `CREATE OR REPLACE TRIGGER ha_event_read_index_fields BEFORE INSERT OR UPDATE OF event_json ON ha_events
       FOR EACH ROW EXECUTE FUNCTION ha_event_read_index_fields()`,
-    `CREATE INDEX IF NOT EXISTS ha_events_read_index_pending_v4 ON ha_events
-      (tenant_id,project_id,policy_epoch,repo_id,revision) WHERE read_index_version<4`,
+    `CREATE INDEX IF NOT EXISTS ha_events_read_index_pending_v5 ON ha_events
+      (tenant_id,project_id,policy_epoch,repo_id,revision) WHERE read_index_version<5`,
     `CREATE INDEX IF NOT EXISTS ha_events_schema_revision ON ha_events
       (tenant_id,project_id,policy_epoch,repo_id,event_schema,revision)`,
     `CREATE INDEX IF NOT EXISTS ha_events_schema_entity_revision ON ha_events
@@ -152,7 +159,7 @@ export function eventReadIndexDdl(): readonly string[] {
         WITH batch AS (
           SELECT tenant_id,project_id,repo_id,revision FROM ha_events
           WHERE tenant_id=tenant AND project_id=project AND policy_epoch=epoch AND repo_id=repo
-            AND read_index_version<4 ORDER BY revision LIMIT 64 FOR UPDATE
+            AND read_index_version<5 ORDER BY revision LIMIT 64 FOR UPDATE
         ), filled AS (
           UPDATE ha_events e SET event_json=e.event_json FROM batch b
           WHERE (e.tenant_id,e.project_id,e.repo_id,e.revision)=(b.tenant_id,b.project_id,b.repo_id,b.revision) RETURNING 1
@@ -169,7 +176,7 @@ export async function assertPgEventReadIndexReady(
 ): Promise<void> {
   const pending = await client.query(
     `SELECT 1 FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4
-      AND read_index_version<4 LIMIT 1`,
+      AND read_index_version<5 LIMIT 1`,
     [scope.tenantId, scope.projectId, scope.policyEpoch, repoId],
   );
   if (pending.rows.length)

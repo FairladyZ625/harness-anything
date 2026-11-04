@@ -179,9 +179,12 @@ export async function materializePgQueryModels(
 
   if (isAgentRuntimeEvent(event)) {
     if (event.type === "runtime_dispatch_requested") {
+      const payload = event.payload as typeof event.payload & { readonly idempotencyKey?: string },
+        key = payload.dispatchKey ?? payload.idempotencyKey;
       // Keep each revision and its readers: lookup selects the first visible dispatch,
-      // including when several historical events carry the same normalized key.
-      await put("runtime-dispatch-key", event.payload.dispatchKey, revision, String(revision));
+      // including when several historical events carry the same normalized key. The pre-rename
+      // `idempotencyKey` spelling lands in the same column.
+      if (key !== undefined) await put("runtime-dispatch-key", key, revision, String(revision));
     }
     const installation = reduceRuntimeInstallation(
       event.type === "runtime_installation_observed"
