@@ -138,6 +138,8 @@ export const decisionRelationProtocolCommands = Object.freeze([
   }),
   defineCenterForwardWriteCommand({
     id: "distill-candidate",
+    // No Agent/person caller in either observation window; keep the protocol face executable.
+    hiddenSince: "2026-11-05",
     phase: "DecisionFact-B",
     path: ["distill", "candidate"],
     summary: "Create a generated, non-canonical candidate artifact from a file or governed artifact entity.",
@@ -151,6 +153,7 @@ export const decisionRelationProtocolCommands = Object.freeze([
   }),
   defineCenterForwardWriteCommand({
     id: "distill-promote",
+    hiddenSince: "2026-11-05",
     phase: "DecisionFact-B",
     path: ["distill", "promote"],
     summary: "Promote one validated candidate claim through the canonical immutable Fact write path.",

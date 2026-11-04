@@ -9,6 +9,8 @@ import {
   commandIdForDaemonMethod,
   daemonMethodAcceptsPayloadExecutor,
   daemonProtocolCommands,
+  hiddenCliCommands,
+  hiddenSince,
   thinCliCommands,
   validateDaemonRpcCall,
 } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
@@ -139,19 +141,23 @@ test("Decisions provider CLI accepts only the approved provider type and credent
 test("top-level help renders a derived domain directory and domain help filters commands", () => {
   const help = renderThinHelp();
   assert.equal(
-    thinCliCommands.length,
+    thinCliCommands.length + hiddenCliCommands.length,
     daemonProtocolCommands.filter((command) => !("internal" in command && command.internal)).length,
   );
-  for (const domain of [...new Set(daemonProtocolCommands.map((command) => command.path[0]))]
+  assert.ok(hiddenCliCommands.every((command) => !thinCliCommands.some(({ id }) => id === command.id)));
+  for (const domain of [...new Set(thinCliCommands.map((command) => command.path[0]))]
     .filter((value): value is string => value !== undefined)
     .sort())
     assert.match(help, new RegExp(`^  ${domain} \\(`, "mu"));
+  // The whole distill family is hidden, so the domain disappears from the directory.
+  assert.doesNotMatch(help, /^  distill \(/mu);
+  assert.doesNotMatch(help, /ha task pin |ha task witness-claim |ha settings show |ha entity get /u);
   assert.doesNotMatch(help, /ha task start <task-id>/u);
   const taskHelp = renderThinHelp([], "task");
   for (const command of thinCliCommands.filter(({ usage }) => usage.split(" ")[1] === "task"))
     assert.match(taskHelp, new RegExp(command.usage.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
   assert.doesNotMatch(taskHelp, /ha decision propose|ha preset list/u);
-  for (const domain of ["decision", "distill"]) {
+  for (const domain of ["decision", "relation"]) {
     const domainHelp = renderThinHelp([], domain);
     for (const command of thinCliCommands.filter(({ usage }) => usage.split(" ")[1] === domain))
       assert.match(domainHelp, new RegExp(command.usage.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
@@ -536,12 +542,7 @@ test("retired mutation migrations are explicitly absent from the thin router", (
 
 test("capabilities is an exact-set projection of the command contract", () => {
   assert.deepEqual(cliCapabilities, {
-    access: [
-      "node-unregister",
-      "permission-request-create",
-      "permission-request-decide",
-      "permission-request-withdraw",
-    ],
+    access: ["node-unregister"],
     agenda: ["agenda"],
     todo: [
       "todo-add",
@@ -615,7 +616,6 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "decision-validate",
       "decision-verify",
     ],
-    distill: ["distill-candidate", "distill-promote"],
     doc: [
       "doc-conflict-discard-local",
       "doc-conflict-overwrite-center",
@@ -629,7 +629,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
     ],
     doctor: ["doctor", "doctor-health"],
     edge: ["edge-join"],
-    entity: ["entity-archive", "entity-delete", "entity-get", "entity-import", "entity-list", "entity-update"],
+    entity: ["entity-archive", "entity-delete", "entity-import", "entity-update"],
     event: ["event-list", "event-show"],
     explain: ["explain"],
     fact: [
@@ -678,7 +678,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "provider-update",
     ],
     receipt: ["receipt-show"],
-    relation: ["relation-list", "relation-reconfirm", "relation-relate", "relation-triples", "relation-unrelate"],
+    relation: ["relation-list", "relation-reconfirm", "relation-relate", "relation-unrelate"],
     restore: ["ledger-restore-drill", "ledger-restore-offline"],
     // dec_DBF9CCB96B1A7D35A3214615E1 CH2/CH6: exact handoff command inventory.
     runtime: [
@@ -716,7 +716,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "schedule-update",
     ],
     script: ["preset-run-start", "script-inspect", "script-list", "script-run"],
-    settings: ["settings-read", "settings-show", "settings-update"],
+    settings: ["settings-read", "settings-update"],
     people: ["people-delegate", "people-revoke-delegation"],
     pin: ["entity-pin"],
     squad: [
@@ -749,7 +749,6 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "task-escalation-resolve",
       "task-list",
       "task-move",
-      "task-pin",
       "task-progress-append",
       "task-push",
       "task-read-set",
@@ -769,12 +768,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "task-supersede",
       "task-transition",
       "task-unassign",
-      "task-unpin",
-      "task-witness-claim",
       "task-witness-rerun",
-      "task-witness-revoke",
-      "task-witness-run",
-      "task-witness-settle",
     ],
     template: ["template-list", "template-render"],
     unpin: ["entity-unpin"],
@@ -788,6 +782,72 @@ test("capabilities is an exact-set projection of the command contract", () => {
     ],
     work: ["work-create", "work-list", "work-show"],
   });
+});
+
+test("hidden declarations leave capabilities and help while their routes still parse", () => {
+  assert.deepEqual(hiddenCliCommands.map(({ id }) => id).sort(), [
+    "distill-candidate",
+    "distill-promote",
+    "entity-get",
+    "entity-list",
+    "permission-request-create",
+    "permission-request-decide",
+    "permission-request-withdraw",
+    "relation-triples",
+    "settings-show",
+    "task-pin",
+    "task-unpin",
+    "task-witness-claim",
+    "task-witness-revoke",
+    "task-witness-run",
+    "task-witness-settle",
+  ]);
+  const capabilities = renderThinCapabilities();
+  for (const command of hiddenCliCommands) {
+    assert.equal(hiddenSince(command), "2026-11-05", `${command.id} must carry its hide date`);
+    const domain = command.path[0] ?? "";
+    assert.ok(!(cliCapabilities[domain] ?? []).includes(command.id), `${command.id} must leave capabilities`);
+    assert.ok(!capabilities.split("\n").includes(`  ${command.id}`), `${command.id} must leave the text surface`);
+    assert.ok(!renderThinHelp([], domain).includes(command.usage), `${command.id} must leave its domain help page`);
+  }
+  // Hiding is a projection change, not a route change: these still parse into their declared Action.
+  for (const argv of [
+    ["task", "pin", "task_a"],
+    ["task", "unpin", "task_a"],
+    ["settings", "show"],
+    ["task", "witness-claim", "task_a", "--execution-id", "exec_a", "--gate", "ci"],
+    ["task", "witness-settle", "task_a", "--execution-id", "exec_a", "--gate", "ci"],
+    [
+      "task",
+      "witness-revoke",
+      "task_a",
+      "--execution-id",
+      "exec_a",
+      "--gate",
+      "ci",
+      "--run-id",
+      "run_a",
+      "--reason",
+      "superseded",
+    ],
+    ["distill", "candidate", "--task", "task_a", "--input", "notes.md"],
+    ["distill", "promote", "--task", "task_a", "--candidate", "candidate.md", "--claim", "claim"],
+    ["access", "request-create", "--group-id", "viewer", "--resource", "repo-a"],
+    ["access", "request-withdraw", "--request-id", "req_a", "--request-version", "1"],
+    ["relation", "triples"],
+    ["entity", "list", "software/document"],
+    ["entity", "get", "software/document", "--id", "ENT-1"],
+  ]) {
+    const parsed = parseThinCommand(argv);
+    assert.equal(parsed.ok, true, `hidden route must still parse: ${argv.join(" ")}`);
+  }
+  // Live guidance callers keep these visible in this batch.
+  for (const id of ["agenda", "graph", "explain", "template-list", "template-render", "task-witness-rerun"]) {
+    assert.ok(
+      Object.values(cliCapabilities).some((ids) => ids.includes(id)),
+      `${id} has a live guidance caller and must stay visible`,
+    );
+  }
 });
 
 test("event commands project list filters and the show positional into read actions", () => {

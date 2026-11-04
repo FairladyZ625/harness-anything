@@ -149,6 +149,9 @@ export function buildCommandDenominator(commands, options = {}) {
         phase: command.phase ?? "unknown",
         commandClass: command.commandClass ?? "unknown",
         testCoverage: "unmeasured",
+        // Hidden commands stay in the denominator so this report can age their observation window;
+        // the date is the declaration's own `hiddenSince`, never a second hand-copied list.
+        hiddenSince: command.hiddenSince ?? null,
       };
     })
     .sort((left, right) => left.id.localeCompare(right.id));
@@ -193,7 +196,18 @@ export function auditCliUsage({
             : observable
               ? "unobserved-needs-review"
               : "not-observable-in-request-log",
-      retirementDisposition: count > 0 ? "retain-observed" : "needs-human-review",
+      // The sweep's decision input: a hidden command that still draws calls must stay visible;
+      // a hidden command with no calls is the deletion candidate once the window is old enough.
+      retirementDisposition:
+        count > 0
+          ? command.hiddenSince
+            ? "hidden-but-observed"
+            : "retain-observed"
+          : command.hiddenSince
+            ? observable
+              ? "hidden-zero-calls"
+              : "hidden-not-observable"
+            : "needs-human-review",
     };
   });
   const sourceAttribution = {
@@ -261,6 +275,7 @@ export function auditCliUsage({
         usage: row.usage,
         testCoverage: row.testCoverage ?? "unmeasured",
         disposition: row.retirementDisposition,
+        hiddenSince: row.hiddenSince,
         evidenceLimit: "absence in a short local retention window is not a six-month zero-use conclusion",
       })),
     correlation: {
@@ -472,7 +487,13 @@ async function main(argv) {
   const cliModule = await import(
     `${pathToFileURL(path.join(rootDir, "packages/cli/src/cli/thin-command-help.ts")).href}?audit=1`
   );
-  const commands = [...commandModule.thinCliCommands, ...cliModule.clientLocalCommands];
+  const commands = [
+    ...commandModule.thinCliCommands,
+    // Hidden commands are omitted from capabilities/help but still execute, so the retirement
+    // sweep must keep auditing them with their observation-window date.
+    ...commandModule.hiddenCliCommands,
+    ...cliModule.clientLocalCommands,
+  ];
   const requestFiles = options.files.length ? options.files : discoverRequestLogFiles(rootDir);
   const receipts = collectOpIds(options.receiptFiles);
   const events = collectOpIds(options.eventFiles);

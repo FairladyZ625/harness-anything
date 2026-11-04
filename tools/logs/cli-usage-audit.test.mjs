@@ -311,3 +311,42 @@ test("conn log discovery finds day files and size generations under the user roo
   );
   assert.deepEqual(discoverConnLogFiles(path.join(root, "absent")), []);
 });
+
+test("hidden commands keep their observation date in the sweep denominator", () => {
+  const now = Date.parse("2026-11-05T00:00:00.000Z"),
+    hidden = { ...descriptor("settings-show", "repo.task.read"), hiddenSince: "2026-11-05" },
+    report = auditCliUsage({
+      commands: buildCommandDenominator([hidden]),
+      requestRecords: [],
+      nowMs: now,
+    });
+  assert.equal(report.denominator[0].hiddenSince, "2026-11-05");
+  assert.equal(report.denominator[0].retirementDisposition, "hidden-zero-calls");
+  assert.equal(report.zeroObservation[0].id, "settings-show");
+  assert.equal(report.zeroObservation[0].hiddenSince, "2026-11-05");
+});
+
+test("a still-called hidden command is flagged instead of being reported as retained", () => {
+  const at = "2026-11-05T00:00:00.000Z",
+    hidden = { ...descriptor("task-pin", "repo.task.read"), hiddenSince: "2026-11-05" },
+    report = auditCliUsage({
+      commands: buildCommandDenominator([hidden]),
+      requestRecords: [row(at, "task-pin")],
+      nowMs: Date.parse(at),
+    });
+  assert.equal(report.denominator[0].retirementDisposition, "hidden-but-observed");
+});
+
+test("a hidden daemon-scoped command is not called zero-use from a repo-only log", () => {
+  const hidden = {
+      ...descriptor("permission-request-create", "daemon.rbac.manage"),
+      hiddenSince: "2026-11-05",
+    },
+    report = auditCliUsage({
+      commands: buildCommandDenominator([hidden]),
+      requestRecords: [],
+      nowMs: Date.parse("2026-11-05T00:00:00.000Z"),
+    });
+  assert.equal(report.denominator[0].retirementDisposition, "hidden-not-observable");
+  assert.deepEqual(report.zeroObservation, []);
+});
