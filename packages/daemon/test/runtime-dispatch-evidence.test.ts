@@ -1,6 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { zstdCompressSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -30,6 +31,18 @@ function input(rootDir: string, overrides: Partial<DispatchForensicsInput> = {})
     classification: "provider_fault",
     reason: "provider disconnected",
     endedAt: "2026-11-05T00:01:00.000Z",
+    request: {
+      dispatchOpId: dispatchId,
+      actor: { principal: { personId: "owner" }, executor: null },
+      source: "local",
+      permissionMode: "read-only",
+      model: "gpt-test",
+      reasoningEffort: null,
+      cwd: rootDir,
+      startedAt: "2026-11-05T00:00:00.000Z",
+      promptSource: null,
+      prompt: "investigate sk-live-secret and preserve the trace",
+    },
     ...overrides,
   };
 }
@@ -139,6 +152,110 @@ test("a normal success and an owner-ruling wait keep no evidence snapshot", () =
     assert.equal(dispatchForensicsRequired("stopped", "worker_stop"), true);
     assert.equal(dispatchForensicsRequired("unknown", "completed_without_final_text"), true);
     assert.equal(dispatchForensicsRequired("cancelled", "worker_stop"), false);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("the existing needs_attention classification marks a normal terminal for evidence", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "dispatch-forensics-marked-"));
+  try {
+    writeStream(rootDir);
+    assert.equal(dispatchForensicsRequired("succeeded", "needs_attention"), true);
+    assert.equal(dispatchForensicsRequired("failed", "needs_attention"), true);
+    assert.ok(captureDispatchForensics(input(rootDir, { outcome: "succeeded", classification: "needs_attention" })));
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a deepseek-harness transcript keeps its native turn namespaced by provider session", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "dispatch-forensics-dsh-")),
+    transcript = path.join(rootDir, "provider-home", "sessions", "project", providerSessionId, "session.v4.jsonl");
+  try {
+    writeStream(rootDir);
+    mkdirSync(path.dirname(transcript), { recursive: true });
+    writeFileSync(
+      transcript,
+      [
+        JSON.stringify({ type: "session", version: 4, id: providerSessionId }),
+        JSON.stringify({ type: "assistant/chunk", data: { turn: 1, step: 1, text: "answer" } }),
+        "",
+      ].join("\n"),
+    );
+    const forensics = captureDispatchForensics(
+        input(rootDir, { kindId: "deepseek-harness", instanceId: "deepseek-forensics" }),
+      ),
+      trace = JSON.parse(forensics!.requestTrace);
+    assert.deepEqual(trace.response.nativeTurnIds, [`deepseek-harness:${providerSessionId}:turn:1`]);
+    assert.ok(trace.response.turnIds.includes(`deepseek-harness:${providerSessionId}:turn:1`));
+    assert.deepEqual(trace.capture.providerRollout.truncated, false);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a high-ratio multi-frame deepseek transcript is bounded before it reaches the snapshot", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "dispatch-forensics-dsh-large-")),
+    transcript = path.join(rootDir, "provider-home", "sessions", "project", providerSessionId, "session.v4.jsonl.zstd"),
+    frame = zstdCompressSync(Buffer.from("a".repeat(8 * 1024 * 1024)));
+  try {
+    writeStream(rootDir);
+    mkdirSync(path.dirname(transcript), { recursive: true });
+    writeFileSync(transcript, Buffer.concat([frame, frame]));
+    const forensics = captureDispatchForensics(
+        input(rootDir, { kindId: "deepseek-harness", instanceId: "deepseek-forensics" }),
+      ),
+      trace = JSON.parse(forensics!.requestTrace);
+    assert.equal(trace.capture.providerRollout.truncated, true);
+    assert.ok(forensics!.providerRollout!.length <= 4 * 1024 * 1024 + 512);
+    assert.match(forensics!.providerRollout!, /runtime-dispatch-evidence-truncated\/v1/u);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a huge request prompt is truncated inside the request trace budget", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "dispatch-forensics-prompt-")),
+    prompt = "h".repeat(2 * 1024 * 1024);
+  try {
+    const stream = openDispatchStream(rootDir, {
+      dispatchId,
+      runtimeSessionId,
+      taskId: "task-owner",
+      executionId: "execution-owner",
+      instanceId: "codex-forensics",
+      startedAt: "2026-11-05T00:00:00.000Z",
+      dispatchOpId: dispatchId,
+      kindId: "codex",
+      permissionMode: "read-only",
+      cwd: rootDir,
+      binding: { actor: { principal: { personId: "owner" }, executor: null }, source: "local" },
+      prompt,
+      model: "gpt-test",
+      reasoningEffort: null,
+    });
+    stream.appendProviderEvent({ type: "thread.started", thread_id: providerSessionId }, "2026-11-05T00:00:01.000Z");
+    const forensics = captureDispatchForensics(
+        input(rootDir, {
+          request: {
+            dispatchOpId: dispatchId,
+            actor: { principal: { personId: "owner" }, executor: null },
+            source: "local",
+            permissionMode: "read-only",
+            model: "gpt-test",
+            reasoningEffort: null,
+            cwd: rootDir,
+            startedAt: "2026-11-05T00:00:00.000Z",
+            promptSource: null,
+            prompt,
+          },
+        }),
+      ),
+      trace = JSON.parse(forensics!.requestTrace);
+    assert.equal(trace.request.promptTruncated, true);
+    assert.equal(trace.request.promptBytes, Buffer.byteLength(prompt));
+    assert.ok(Buffer.byteLength(forensics!.requestTrace) <= 512 * 1024);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

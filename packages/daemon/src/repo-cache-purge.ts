@@ -1,7 +1,7 @@
 import { existsSync, realpathSync, rmSync } from "node:fs";
 import path from "node:path";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
-import { readDispatchStreamHeaders } from "./dispatch-stream.ts";
+import { readDispatchStreamHeaders, readDispatchStreamSummary, removeDispatchStream } from "./dispatch-stream.ts";
 import { removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 
 /**
@@ -39,11 +39,24 @@ export function purgeRepoCache(rootDir: string): readonly string[] {
     layout = resolveHarnessLayout(canonicalRoot),
     localRoot = layout.localRoot,
     dispatchIds = readDispatchStreamHeaders(canonicalRoot, true).map((header) => header.dispatchId),
+    pendingEvidence = new Set(
+      dispatchIds.filter(
+        (dispatchId) => readDispatchStreamSummary(canonicalRoot, dispatchId)?.evidenceState === "pending",
+      ),
+    ),
     removed: string[] = [];
   for (const dispatchId of dispatchIds) removeRuntimeCallbackRelay(dispatchId);
   for (const relative of cachePurgeDerivedDirectories) {
     const target = path.join(localRoot, ...relative.split("/"));
     if (!existsSync(target)) continue;
+    // A pending evidence stream is not regenerable cache: settlement failed to publish its
+    // snapshot, so the raw live/archived bytes are the only recoverable copy. Remove the other
+    // dispatch streams but leave those files (and the directory that holds them) in place.
+    if (relative === "runtime/dispatches" && pendingEvidence.size > 0) {
+      for (const dispatchId of dispatchIds)
+        if (!pendingEvidence.has(dispatchId)) removeDispatchStream(canonicalRoot, dispatchId);
+      continue;
+    }
     rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
     removed.push(`${path.relative(layout.rootDir, path.join(localRoot, ...relative.split("/")))}`);
   }

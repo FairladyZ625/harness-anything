@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -16,7 +16,11 @@ import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 test(
   "an abnormal dispatch keeps its evidence readable after the dispatches cache is purged",
   { timeout: 30_000 },
-  async () => {
+  async (context) => {
+    const settlementErrors: string[] = [];
+    context.mock.method(console, "error", (...args: unknown[]) => {
+      settlementErrors.push(args.map(String).join(" "));
+    });
     const root = mkdtempSync(path.join(tmpdir(), "ha-dispatch-evidence-")),
       providerHome = path.join(root, "provider-home"),
       providerSessionId = "provider-evidence";
@@ -162,13 +166,14 @@ test(
         assert.doesNotMatch(body, /sk-provider-secret/u, "no snapshot may carry the provider token");
       assert.match(traceBody, /request-1/u);
       assert.match(traceBody, /turn-1/u);
-      // Wait for the settlement compaction to finish before deleting the same archive root: the
-      // evidence copy is already durable, and this removes the teardown race from the fixture.
-      const archiveDir = path.join(root, ".harness", "runtime", "dispatches", "archive");
-      await eventually(
-        () =>
-          existsSync(path.join(archiveDir, `${dispatchId}.jsonl`)) &&
-          !readdirSync(archiveDir).some((name) => name.endsWith(".tmp")),
+      // The runtime outcome is the canonical settlement witness; the write-queue drain covers the
+      // compaction that runs after the outcome event, so the purge cannot race the same archive.
+      await cell.awaitRuntimeOutcome(String(receipt.runtimeSessionId));
+      await eventually(() => cell.status().queueDepth === 0);
+      assert.deepEqual(
+        settlementErrors.filter((line) => /runtime-(?:archive|forensics)|ENOENT/u.test(line)),
+        [],
+        "settlement errors must fail this test instead of surviving as async noise",
       );
       // The cache purge deletes the whole runtime/dispatches root, including the archived stream
       // that settlement just compacted. The evidence copy lives in the task package and survives.

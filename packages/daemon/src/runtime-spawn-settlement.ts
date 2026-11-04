@@ -5,6 +5,7 @@ import { consumeKnownError } from "@harness-anything/kernel";
 import {
   archiveDispatchStream,
   readDispatchStream,
+  readDispatchStreamSummary,
   scrubProviderValue,
   type DispatchTerminalOutcome,
 } from "./dispatch-stream.ts";
@@ -36,7 +37,7 @@ import { detectHostingProvider } from "./hosting-provider.ts";
 import { boundedRuntimeConclusion, currentWorktreeHead } from "./runtime-continuation-context.ts";
 import { reviewCutSupersededExplanation } from "./repo-cell-execution-selection.ts";
 import { disposeActiveRuntimeObservations } from "./runtime-spawn-active.ts";
-import { captureDispatchForensics } from "./runtime-dispatch-evidence.ts";
+import { captureDispatchForensics, dispatchForensicsRequired } from "./runtime-dispatch-evidence.ts";
 
 export async function publishExit(
   context: RuntimeSpawnerContext,
@@ -455,8 +456,25 @@ export async function publishExit(
     // archive below is what renames and compacts it, and a later cache purge deletes the whole
     // dispatches root. The copy rides the same settlement artifact transaction as the dispatch
     // record, so a success or an owner-ruling wait stores nothing extra.
-    let forensics: ReturnType<typeof captureDispatchForensics> = null;
-    if (active.task !== null || active.decisionReviewTarget !== null) {
+    let forensics: ReturnType<typeof captureDispatchForensics> = null,
+      evidencePending = false,
+      archivePublished = false;
+    const evidenceRequired =
+      (active.task !== null || active.decisionReviewTarget !== null) &&
+      dispatchForensicsRequired(outcome, attemptOutcome.classification);
+    // A pending marker is the durable block every later archive/compaction/purge pass reads.
+    // It is written onto the stream that still holds the raw bytes; a stream that is already
+    // gone has nothing left to preserve, so only the current-run block remains for it.
+    const markEvidencePending = (reason: string): void => {
+      evidencePending = true;
+      if (readDispatchStreamSummary(context.input.rootDir, active.dispatchId) === null) return;
+      try {
+        active.stream.appendEvidenceState?.({ state: "pending", reason }, context.input.now());
+      } catch (error) {
+        consumeKnownError(error);
+      }
+    };
+    if (evidenceRequired) {
       try {
         forensics = captureDispatchForensics({
           rootDir: context.input.rootDir,
@@ -472,10 +490,24 @@ export async function publishExit(
           classification: attemptOutcome.classification,
           reason: attemptOutcome.reason,
           endedAt,
+          request: {
+            dispatchOpId: active.dispatchOpId,
+            actor: active.binding.actor,
+            source: active.binding.source,
+            permissionMode: active.permissionMode,
+            model: active.model,
+            reasoningEffort: active.reasoningEffort,
+            cwd: active.cwd,
+            startedAt: active.startedAt,
+            promptSource: active.promptSource ?? null,
+            prompt: active.prompt,
+          },
         });
+        if (forensics === null) markEvidencePending("capture returned no stream bytes");
       } catch (error) {
         consumeKnownError(error);
         const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512);
+        markEvidencePending(`capture failed: ${detail || "unknown error"}`);
         console.error(`[runtime-forensics] ${active.dispatchId} could not be captured: ${detail}`);
       }
     }
@@ -524,6 +556,7 @@ export async function publishExit(
               "code" in archived && typeof archived.code === "string" ? ` ${archived.code}` : ""
             }${"detail" in archived && archived.detail ? ` ${JSON.stringify(archived.detail)}` : ""}`,
           );
+        archivePublished = true;
       } catch (error) {
         consumeKnownError(error);
         const detail = String(scrubProviderValue(error instanceof Error ? error.message : String(error))).slice(0, 512);
@@ -531,6 +564,7 @@ export async function publishExit(
         // event honest when publication fails, while still publishing the exit
         // event so the runtime cannot remain live forever.
         console.error(`[runtime-archive] ${active.dispatchId} could not be archived: ${detail}`);
+        if (evidenceRequired) markEvidencePending(`runtime archive publication failed: ${detail || "unknown error"}`);
         // A local projection or the edge's center-backed read can witness a registered review
         // despite an archive failure.
         // Settlement honesty for a local reviewer is whether the review was registered, not whether
@@ -563,6 +597,13 @@ export async function publishExit(
         sha256 = createHash("sha256").update(body).digest("hex");
         result = { sha256, size: Buffer.byteLength(body), mediaType: context.resultMediaType };
         resultRef = `artifact:runtime-result/sha256/${sha256}`;
+      }
+    }
+    if (forensics !== null && archivePublished) {
+      try {
+        active.stream.appendEvidenceState?.({ state: "stored" }, context.input.now());
+      } catch (error) {
+        consumeKnownError(error);
       }
     }
     if (cancelled) {
@@ -689,7 +730,7 @@ export async function publishExit(
       ...(processGroupPid === undefined ? {} : { processGroupPid }),
     };
     active.stream.appendTerminalOutcome(terminalOutcome, endedAt);
-    await publishTerminalOutcome(context, active, terminalBinding, terminalOutcome);
+    await publishTerminalOutcome(context, active, terminalBinding, terminalOutcome, !evidencePending);
     context.input.remote?.releaseExecutionCredential?.(active.runtimeSessionId);
   } catch (error) {
     const settlementCode = runtimeErrorCode(error);
@@ -716,6 +757,7 @@ async function publishTerminalOutcome(
   active: ActiveRuntime,
   terminalBinding: ActiveRuntime["binding"],
   terminal: DispatchTerminalOutcome,
+  archiveAllowed = true,
 ): Promise<void> {
   const { payload, body } = terminal;
   await context.publishRuntimeEvent(
@@ -758,7 +800,7 @@ async function publishTerminalOutcome(
     reason: active.lossReason ?? (payload.outcome === "succeeded" ? null : terminal.reason),
   });
   context.input.stream.publish(active.runtimeSessionId, { type: "exit", outcome: payload.outcome });
-  if (readDispatchStream(context.input.rootDir, active.dispatchId)?.fallbackState !== "scheduled")
+  if (archiveAllowed && readDispatchStream(context.input.rootDir, active.dispatchId)?.fallbackState !== "scheduled")
     archiveDispatchStream(context.input.rootDir, active.dispatchId);
   const onExitCommand = active.onExitCommand;
   if (typeof onExitCommand === "string")
