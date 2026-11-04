@@ -85,9 +85,10 @@ export function projectionDdl(): readonly string[] {
     ...documentMetadataDdl(),
     ...readIndexDdl(),
     ...eventReadIndexDdl(),
-    // Recovery asks only for runtime sessions. The partial predicate keeps the JSONB cast off
-    // document values (which may contain NUL) and lets the unsettled predicate use the index.
-    `CREATE INDEX IF NOT EXISTS ha_projection_values_runtime_unsettled ON ha_projection_values (tenant_id,project_id,policy_epoch,((value::jsonb)->>'outcome')) WHERE model = 'runtime-session'`,
+    // Retire only the disposable nonunique expression index after its scalar replacement exists.
+    // It rejects valid opaque provider bytes and cannot serve runtime RLS's outcome predicate.
+    // No table, column, identity key or canonical value is removed.
+    `DROP INDEX IF EXISTS ha_projection_values_runtime_unsettled`,
     `CREATE INDEX IF NOT EXISTS ha_projection_document_path ON ha_projection_values
       (tenant_id,project_id,policy_epoch,entity_id COLLATE "C") WHERE model='document' AND owner_id=''`,
     `CREATE TABLE IF NOT EXISTS ha_task_snapshots (

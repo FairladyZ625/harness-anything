@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { appendBootstrapQueryFixture } from "./query-bootstrap.fixture.ts";
 import assert from "node:assert/strict";
 import { assertPgReaderBridge } from "./pg-reader-bridge.fixture.ts";
 import { appendGraphQueryFixtures, assertCompleteQueryParity } from "./pg-complete-query-parity.fixture.ts";
@@ -15,6 +16,7 @@ import { assertTaskIndexQueryParity } from "./pg-task-index-parity.fixture.ts";
 import { appendRuntimeQueryFixtures, assertRuntimeQueryParity } from "./pg-runtime-query-parity.fixture.ts";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
+import { appendRecoveryQueryFixtures, assertRecoveryQueryContract } from "../runtime-recovery-query.assertions.ts";
 import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixture.ts";
 import { blockingOf } from "@harness-anything/kernel/internal/domain/task-blocking.ts";
 import {
@@ -22,7 +24,6 @@ import {
   compileEntityDeleted,
   compileEntityUpsert,
 } from "@harness-anything/kernel/internal/domain/entity-event-compile.ts";
-import { compileEntityPinEvent } from "@harness-anything/kernel/internal/domain/entity-pin-event.ts";
 import { taskLifecycleWritePlan } from "@harness-anything/kernel/internal/domain/task-lifecycle-publication.ts";
 import { compileFactWrite } from "@harness-anything/kernel/internal/domain/fact-event.ts";
 import {
@@ -36,22 +37,17 @@ import {
   type RelationEventRecord,
 } from "@harness-anything/kernel/internal/domain/relation-event.ts";
 import {
-  taskBootstrapWritePlan,
-  taskBootstrapPackagePath,
-} from "@harness-anything/kernel/internal/domain/task-bootstrap-event.ts";
-import {
   MIGRATION_DOCUMENT_POLICY_ID,
   MIGRATION_IMPORT_SOURCE,
   migrationImportWritePlan,
   type MigrationImportEventV1,
 } from "@harness-anything/kernel/internal/domain/migration-import-event.ts";
-import type { TaskBootstrapEventV1 } from "@harness-anything/kernel/internal/domain/task-bootstrap-event.ts";
 import {
   deriveRelationId,
   relationStrengthForType,
   type EntityRelationRecord,
 } from "@harness-anything/kernel/internal/domain/entity-relation.ts";
-import { sha256Text, stableStringify } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
+import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { Pool } from "pg";
 import {
   createPgEntityStore,
@@ -421,84 +417,7 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
     await appendCanonical({ event: childCreated, plan: taskLifecycleWritePlan(childCreated), blobs: [] });
     await appendCanonical({ event: childStart, plan: taskLifecycleWritePlan(childStart), blobs: [] });
 
-    const bootstrapTaskId = "task-bootstrap-projection",
-      bootstrapTaskBase = taskCreated(expectedRevision, bootstrapTaskId),
-      presetValue = { schema: "preset-snapshot/v1", id: "projection-replay" },
-      presetDigest = `sha256:${sha256Text(stableStringify(presetValue))}` as const,
-      presetBody = `${stableStringify({ ...presetValue, digest: presetDigest })}\n`,
-      bootstrapDocumentBody = "# Projection bootstrap\n",
-      bootstrapDocumentPath = `tasks/${bootstrapTaskId}-projection-bootstrap/task_plan.md`,
-      bootstrapEvent: TaskBootstrapEventV1 = {
-        schema: "task-bootstrap-event/v1",
-        eventId: "pg-bootstrap-projection",
-        workspaceRevision: expectedRevision,
-        opId: "pg-bootstrap-projection",
-        taskId: bootstrapTaskId,
-        type: "task_bootstrapped",
-        actor: event.actor,
-        source: "local",
-        occurredAt: "2026-08-11T00:21:00.000Z",
-        payload: {
-          task: { ...bootstrapTaskBase.payload.task, presetSnapshotDigest: presetDigest },
-          presetSnapshotClaim: {
-            digest: presetDigest,
-            sha256: sha256Text(presetBody),
-            size: Buffer.byteLength(presetBody),
-            mediaType: "application/json",
-          },
-          initialDocumentClaims: [
-            {
-              path: bootstrapDocumentPath,
-              sha256: sha256Text(bootstrapDocumentBody),
-              size: Buffer.byteLength(bootstrapDocumentBody),
-              mediaType: "text/markdown",
-              owner: "doc-sync",
-              policyId: "markdown-body-replaceable/v1",
-            },
-          ],
-        },
-      };
-    assert.equal(taskBootstrapPackagePath(bootstrapEvent), `tasks/${bootstrapTaskId}-projection-bootstrap`);
-    await appendCanonical({
-      event: bootstrapEvent,
-      plan: taskBootstrapWritePlan(bootstrapEvent),
-      blobs: [
-        {
-          sha256: bootstrapEvent.payload.presetSnapshotClaim.sha256,
-          size: bootstrapEvent.payload.presetSnapshotClaim.size,
-          mediaType: "application/json",
-          body: presetBody,
-        },
-        {
-          sha256: sha256Text(bootstrapDocumentBody),
-          size: Buffer.byteLength(bootstrapDocumentBody),
-          mediaType: "text/markdown",
-          body: bootstrapDocumentBody,
-        },
-      ],
-    });
-    const bootstrapStartBase = lifecycleFixture({
-        taskId: bootstrapTaskId,
-        executionId: "execution-bootstrap",
-      }).events.find((value) => value.type === "execution_started")!,
-      bootstrapStart = {
-        ...bootstrapStartBase,
-        eventId: "pg-bootstrap-start",
-        opId: "pg-bootstrap-start",
-        workspaceRevision: expectedRevision,
-      };
-    await appendCanonical({ event: bootstrapStart, plan: taskLifecycleWritePlan(bootstrapStart), blobs: [] });
-    const pinned = compileEntityPinEvent({
-      entityRef: `task/${bootstrapTaskId}`,
-      pinned: true,
-      eventId: "pg-bootstrap-pin",
-      opId: "pg-bootstrap-pin",
-      workspaceRevision: expectedRevision,
-      actor: event.actor,
-      source: "local",
-      occurredAt: "2026-08-11T00:22:00.000Z",
-    });
-    await appendCanonical(pinned);
+    const bootstrapTaskId = await appendBootstrapQueryFixture(appendCanonical, () => expectedRevision, event.actor);
 
     const importedTaskId = "task-migrated-projection",
       importedTask = taskCreated(expectedRevision, importedTaskId).payload.task,
@@ -736,6 +655,7 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
     await appendRuntimeQueryFixtures(appendCanonical, () => expectedRevision);
     await appendTaskEventQueryFixtures(appendCanonical, () => expectedRevision);
     await appendGraphQueryFixtures(appendCanonical, () => expectedRevision);
+    await appendRecoveryQueryFixtures(appendCanonical, () => expectedRevision);
     const leaseCases = await appendLeaseReplayFixtures(appendCanonical, () => expectedRevision);
     let releasedLeases: readonly import("@harness-anything/kernel").LeaseV1[] = [];
     const entities = createPgEntityStore({ pool: runtimePool, scope: projectionScope });
@@ -828,6 +748,8 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
           projectionScope,
           repoId,
         );
+        queryReader.withSession((queries) => assertRecoveryQueryContract(queries));
+        assertRecoveryQueryContract(sqliteProjection);
         assert.equal(existsSync(pgRoot), false);
         const leaseCase = leaseCases[0]!;
         const pgRead = queryReader.withSession((queries) => ({

@@ -39,7 +39,7 @@ test("SQLite member reads skip duplicate and orphan dispatch history", async (t)
           }),
         );
       for (const id of ["session-a", "session-b"])
-        db.prepare("INSERT INTO runtime_session VALUES(?,1,?)").run(
+        db.prepare("INSERT INTO runtime_session(runtime_session_id,workspace_revision,value_json) VALUES(?,1,?)").run(
           id,
           JSON.stringify({ runtimeSessionId: id, taskBindings: [] }),
         );
@@ -99,7 +99,7 @@ test("SQLite member reads skip duplicate and orphan dispatch history", async (t)
           .readRuntimeDispatchesByMember({ agentId: "agent-target", limit: 1 })
           .sessions.map((row) => row.runtimeSessionId);
       assert.deepEqual(read(), ["session-a", "session-b"]);
-      db.prepare("INSERT INTO runtime_session VALUES(?,1,?)").run(
+      db.prepare("INSERT INTO runtime_session(runtime_session_id,workspace_revision,value_json) VALUES(?,1,?)").run(
         "orphan-1",
         JSON.stringify({ runtimeSessionId: "orphan-1", taskBindings: [] }),
       );

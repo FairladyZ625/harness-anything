@@ -1,4 +1,6 @@
 import type { PoolClient } from "pg";
+import { assertPgReadIndexReady } from "./pg-read-index-migration.ts";
+import { assertPgEventReadIndexReady } from "./pg-event-read-index-migration.ts";
 import type { RuntimeSession } from "@harness-anything/kernel";
 import { canonicalJson } from "../projection/rebuildable-task-projection-sql.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
@@ -93,10 +95,8 @@ export async function getPgProjectionValue<Value>(
 }
 
 /**
- * Runtime sessions are text values so documents may keep NUL bytes; the unsettled expression is
- * scoped to this model by a partial index, which keeps recovery from scanning every session a
- * repository ever ran. The model is a literal, not a parameter, so the planner can prove the
- * partial-index predicate without relying on custom-plan parameter folding.
+ * Outcome is a materialized scalar: a JSONB cast cannot cross runtime RLS safely or represent
+ * every accepted opaque provider id. Keep the model literal so its partial index is provable.
  */
 export function pgRuntimeSessionReadStatement(
   scope: PgProjectionScope,
@@ -113,24 +113,36 @@ export function pgRuntimeSessionReadStatement(
       "v.project_id=$2",
       "v.policy_epoch=$3",
       "v.model='runtime-session'",
+      "v.owner_id=''",
       "(cardinality($4::text[])=0 OR v.readers && $4::text[])",
     ],
     bind = (value: unknown) => {
       values.push(value);
       return `$${values.length}`;
     };
-  if (query.runtimeSessionId !== undefined) where.push(`v.entity_id=${bind(query.runtimeSessionId)}`);
-  if (query.unsettledOnly) where.push("(v.value::jsonb->>'outcome') IS NULL");
+  const sessionParameter = query.runtimeSessionId === undefined ? undefined : bind(query.runtimeSessionId);
+  if (sessionParameter) where.push(`v.entity_id=${sessionParameter}`);
+  if (query.unsettledOnly) where.push("v.runtime_outcome IS NULL");
   if (query.executionOwnerNodeId !== undefined) {
     const repoParameter = bind(repoId),
       nodeParameter = bind(query.executionOwnerNodeId);
-    where.push(`EXISTS (
-      SELECT 1 FROM ha_events e
-      WHERE e.tenant_id=$1 AND e.project_id=$2 AND e.policy_epoch=$3 AND e.repo_id=${repoParameter}
-        AND e.event_type='runtime_dispatch_requested'
-        AND e.event_json::jsonb->>'schema'='agent-runtime-event/v1'
-        AND e.event_json::jsonb#>>'{payload,runtimeSessionId}'=v.entity_id
-        AND e.event_json::jsonb#>>'{source,nodeId}'=${nodeParameter})`);
+    const candidate = (after: boolean) => `SELECT e.runtime_session_id COLLATE "default" AS runtime_session_id
+      FROM ha_events e WHERE e.tenant_id=$1 AND e.project_id=$2 AND e.policy_epoch=$3 AND e.repo_id=${repoParameter}
+      AND e.event_schema='agent-runtime-event/v1' AND e.event_type='runtime_dispatch_requested'
+      AND e.source_node_id=${nodeParameter} AND e.runtime_session_present${query.unsettledOnly ? " AND e.runtime_session_unsettled" : ""}
+      AND (cardinality($4::text[])=0 OR e.readers && $4::text[])
+      ${sessionParameter ? `AND e.runtime_session_id COLLATE "default"=${sessionParameter}` : ""}
+      ${after ? 'AND e.runtime_session_id COLLATE "default">previous.runtime_session_id' : ""}
+      ORDER BY e.runtime_session_id COLLATE "default" LIMIT 1`;
+    return {
+      text: `WITH RECURSIVE owned AS ((${candidate(false)}) UNION ALL
+        SELECT next.* FROM owned previous CROSS JOIN LATERAL (${candidate(true)}) next)
+        SELECT selected.value FROM owned CROSS JOIN LATERAL (
+          SELECT v.value FROM ha_projection_values v WHERE ${where.join(" AND ")}
+            AND v.entity_id=owned.runtime_session_id COLLATE "default" LIMIT 1
+        ) selected ORDER BY owned.runtime_session_id`,
+      values,
+    };
   }
   return {
     text: `SELECT v.value FROM ha_projection_values v WHERE ${where.join(" AND ")} ORDER BY v.entity_id, v.owner_id`,
@@ -148,6 +160,8 @@ export async function listPgRuntimeSessions(
     readonly executionOwnerNodeId?: string;
   } = {},
 ): Promise<readonly RuntimeSession[]> {
+  if (query.unsettledOnly) await assertPgReadIndexReady(client, scope, "runtime-session");
+  if (query.executionOwnerNodeId !== undefined) await assertPgEventReadIndexReady(client, scope, repoId);
   const statement = pgRuntimeSessionReadStatement(scope, repoId, query),
     result = await client.query<{ value: string }>(statement.text, [...statement.values]);
   return result.rows.map(({ value }) => JSON.parse(value) as RuntimeSession);

@@ -12,7 +12,9 @@ test("SQLite runtime pages seek past history, peek once, and retain opt-in exact
     const { projection } = fixture,
       db = new DatabaseSync(projection.path);
     try {
-      const insert = db.prepare("INSERT INTO runtime_session VALUES(?,1,?)"),
+      const insert = db.prepare(
+          "INSERT INTO runtime_session(runtime_session_id,workspace_revision,value_json) VALUES(?,1,?)",
+        ),
         bind = db.prepare("INSERT INTO runtime_session_task_binding VALUES(?,?,?,'2026-11-04')");
       db.exec("BEGIN");
       for (let n = 1; n <= 100200; n++) {

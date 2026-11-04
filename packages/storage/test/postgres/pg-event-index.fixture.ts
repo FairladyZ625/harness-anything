@@ -1,5 +1,7 @@
+import { privateRuntimeEventTypes } from "@harness-anything/kernel/internal/domain/runtime-public-query.ts";
 import assert from "node:assert/strict";
 import type { Pool } from "pg";
+import { measureLegacySelector, legacyEventSql } from "./pg-legacy-read-plans.fixture.ts";
 import { createPgTaskProjectionSource } from "../../src/pg/pg-task-source.ts";
 import { withPostgresTransaction } from "../../src/postgres/transaction.ts";
 import { tracedPgReads, explainNodes, reportPgVersion, measurePgRead } from "./pg-explain.fixture.ts";
@@ -90,6 +92,51 @@ export async function assertEventIndexes(pool: Pool, seedPool: Pool, backend: st
   const plans: unknown[] = [],
     traced = tracedPgReads(pool, plans, (sql) => /^\s*SELECT[\s\S]*FROM ha_events/u.test(sql)),
     source = createPgTaskProjectionSource({ pool: traced, scope, repoId, ownsPool: false });
+  const legacyParameters = [scope.tenantId, scope.projectId, repoId, scope.policyEpoch, []];
+  for (const [method, predicate, args, limit] of [
+    [
+      "readScheduleEvents(id)",
+      "event_json::jsonb ->> 'schema' = 'schedule-event/v1' AND event_json::jsonb #>> '{entity,id}' = $6",
+      ["target"],
+      "",
+    ],
+    ["readScheduleEvents(all)", "event_json::jsonb ->> 'schema' = 'schedule-event/v1'", [], ""],
+    [
+      "readRuntimeSessionEvents",
+      "revision > $6 AND event_type <> ALL($7::text[]) AND event_json::jsonb #>> '{payload,runtimeSessionId}' = $8",
+      [0, privateRuntimeEventTypes, "session-target"],
+      "LIMIT 1",
+    ],
+    [
+      "readScheduleOutputEvents",
+      "event_json::jsonb #>> '{actor,executor,id}' = ANY($6::text[]) AND event_json::jsonb ->> 'schema' = ANY($7::text[])",
+      [["runtime-session:session-output"], ["fact-event/v1", "decision-event/v1", "task-event/v1"]],
+      "",
+    ],
+    [
+      "readReckoningEvents",
+      "event_type = $6 AND event_json::jsonb ->> 'occurredAt' >= $7 AND event_json::jsonb ->> 'occurredAt' <= $8",
+      ["fact_recorded", "2026-11-04", "2026-11-04"],
+      "",
+    ],
+  ] as const)
+    await measureLegacySelector(pool, scope, backend, method, legacyEventSql(predicate, limit), [
+      ...legacyParameters,
+      ...args,
+    ]);
+  await measureLegacySelector(
+    pool,
+    scope,
+    backend,
+    "readFactAnchors(refs)",
+    `SELECT f.value,(SELECT e.op_id FROM ha_events e WHERE e.tenant_id=f.tenant_id AND e.project_id=f.project_id AND e.policy_epoch=f.policy_epoch AND e.repo_id=$5
+    AND (cardinality($4::text[])=0 OR e.readers && $4::text[]) AND
+    ((e.event_type='fact_recorded' AND e.event_json::jsonb->>'factId'=f.fact_id)
+    OR (e.event_type='entity_migrated' AND e.event_json::jsonb#>>'{payload,entity,fact,factId}'=f.fact_id))
+    ORDER BY e.revision LIMIT 1) AS op_id FROM ha_facts f WHERE f.tenant_id=$1 AND f.project_id=$2 AND f.policy_epoch=$3
+    AND (cardinality($4::text[])=0 OR f.readers && $4::text[]) AND f.value->>'ref'=ANY($6::text[]) ORDER BY f.value->>'ref'`,
+    [scope.tenantId, scope.projectId, scope.policyEpoch, [], repoId, ["fact/F-4"]],
+  );
   assert.equal((await source.readScheduleEvents("target")).events.length, 1);
   assert.equal((await source.readScheduleEvents()).events.length, 33335);
   assert.equal((await source.readRuntimeSessionEvents("session-target", 0, 1)).length, 1);

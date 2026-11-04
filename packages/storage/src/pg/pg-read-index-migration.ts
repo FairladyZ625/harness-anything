@@ -13,6 +13,7 @@ export function readIndexDdl(): readonly string[] {
     `CREATE INDEX IF NOT EXISTS ha_runtime_session_tasks_session ON ha_runtime_session_tasks
       (tenant_id,project_id,policy_epoch,session_id,task_id)`,
     "ALTER TABLE ha_projection_values ADD COLUMN IF NOT EXISTS runtime_liveness text",
+    "ALTER TABLE ha_projection_values ADD COLUMN IF NOT EXISTS runtime_outcome text",
     "ALTER TABLE ha_projection_values ADD COLUMN IF NOT EXISTS read_index_version smallint NOT NULL DEFAULT 0",
     "ALTER TABLE ha_projection_values ADD COLUMN IF NOT EXISTS order_at text",
     "ALTER TABLE ha_projection_values ADD COLUMN IF NOT EXISTS order_revision bigint",
@@ -34,7 +35,9 @@ export function readIndexDdl(): readonly string[] {
       DECLARE v jsonb;
       BEGIN
         v := ha_read_index_json(NEW.value);
-        IF NEW.model='runtime-session' THEN NEW.runtime_liveness := v->>'liveness';
+        IF NEW.model='runtime-session' THEN
+          NEW.runtime_liveness := v->>'liveness';
+          NEW.runtime_outcome := v->>'outcome';
         ELSIF NEW.model='pin' THEN NEW.order_at := v->>'pinnedAt';
         ELSIF NEW.model='lease-interval' THEN
           NEW.order_revision := (v->>'acquiredRevision')::bigint;
@@ -43,7 +46,7 @@ export function readIndexDdl(): readonly string[] {
         ELSIF NEW.model='relation-write' THEN
           NEW.fact_edge := starts_with(v->>'ownerRef','fact/') OR starts_with(v->>'targetRef','fact/');
         END IF;
-        NEW.read_index_version := 1;
+        NEW.read_index_version := CASE WHEN NEW.model='runtime-session' THEN 2 ELSE 1 END;
         RETURN NEW;
       END $function$`,
     `CREATE OR REPLACE TRIGGER ha_projection_read_index_fields BEFORE INSERT OR UPDATE OF value,readers
@@ -73,6 +76,12 @@ export function readIndexDdl(): readonly string[] {
     `CREATE INDEX IF NOT EXISTS ha_projection_read_index_pending ON ha_projection_values
       (tenant_id,project_id,policy_epoch,model,owner_id,entity_id)
       WHERE read_index_version=0 AND model IN ('pin','lease-interval','relation-write','runtime-session')`,
+    `CREATE INDEX IF NOT EXISTS ha_projection_read_index_pending_v2 ON ha_projection_values
+      (tenant_id,project_id,policy_epoch,model,owner_id,entity_id)
+      WHERE (model='runtime-session' AND read_index_version<2)
+         OR (model IN ('pin','lease-interval','relation-write') AND read_index_version=0)`,
+    `CREATE INDEX IF NOT EXISTS ha_projection_runtime_unsettled_order ON ha_projection_values
+      (tenant_id,project_id,policy_epoch,entity_id,owner_id) WHERE model='runtime-session' AND runtime_outcome IS NULL`,
     `CREATE INDEX IF NOT EXISTS ha_projection_pin_order ON ha_projection_values
       (tenant_id,project_id,policy_epoch,order_at DESC,entity_id) WHERE model='pin'`,
     `CREATE INDEX IF NOT EXISTS ha_projection_interval_order ON ha_projection_values
@@ -88,8 +97,9 @@ export function readIndexDdl(): readonly string[] {
       BEGIN
         WITH batch AS (
           SELECT tenant_id,project_id,policy_epoch,model,owner_id,entity_id FROM ha_projection_values
-          WHERE tenant_id=tenant AND project_id=project AND policy_epoch=epoch AND read_index_version=0
-            AND model IN ('pin','lease-interval','relation-write','runtime-session')
+          WHERE tenant_id=tenant AND project_id=project AND policy_epoch=epoch
+            AND ((model='runtime-session' AND read_index_version<2)
+              OR (model IN ('pin','lease-interval','relation-write') AND read_index_version=0))
           ORDER BY model,owner_id,entity_id LIMIT 64 FOR UPDATE
         ), filled AS (
           UPDATE ha_projection_values p SET value=p.value FROM batch b
@@ -109,7 +119,8 @@ export async function assertPgReadIndexReady(
 ): Promise<void> {
   const pending = await client.query(
     `SELECT 1 FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
-      AND model=$4 AND model IN ('pin','lease-interval','relation-write','runtime-session') AND read_index_version=0 LIMIT 1`,
+      AND model=$4 AND ((model='runtime-session' AND read_index_version<2)
+        OR (model IN ('pin','lease-interval','relation-write') AND read_index_version=0)) LIMIT 1`,
     [scope.tenantId, scope.projectId, scope.policyEpoch, model],
   );
   if (pending.rows.length)

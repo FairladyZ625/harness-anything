@@ -1,6 +1,7 @@
 import { tracedPgReads, explainNodes, reportPgVersion, measurePgRead } from "./pg-explain.fixture.ts";
 import assert from "node:assert/strict";
 import type { Pool } from "pg";
+import { measureLegacySelector, legacyValueSql } from "./pg-legacy-read-plans.fixture.ts";
 import { createPgTaskProjectionSource } from "../../src/pg/pg-task-source.ts";
 import { withPostgresTransaction } from "../../src/postgres/transaction.ts";
 import { putPgProjectionValue } from "../../src/pg/pg-projection-values.ts";
@@ -55,6 +56,9 @@ export async function assertValueIndexes(pool: Pool, seedPool: Pool, backend: st
         acquiredRevision: 100001,
         releasedRevision: null,
       });
+      for (const model of ["entity:agent", "runtime-installation", "squad-run"])
+        for (const id of ["a", "b", "c"])
+          await putPgProjectionValue(client, scope, model, id, "", 2, { id, installationId: id, squadRunId: id });
       await client.query("ANALYZE ha_projection_values");
     },
     scope,
@@ -62,7 +66,44 @@ export async function assertValueIndexes(pool: Pool, seedPool: Pool, backend: st
   const plans: unknown[] = [],
     traced = tracedPgReads(pool, plans, (sql) => /^\s*SELECT[\s\S]*FROM ha_projection_values/u.test(sql));
   const source = createPgTaskProjectionSource({ pool: traced, scope, repoId: "value-index", ownsPool: false });
+  for (const [method, model, owner] of [
+    ["readFactGraph.edges", "relation-write", undefined],
+    ["listPinnedEntities", "pin", undefined],
+    ["readLeaseIntervals", "lease-interval", "task-target"],
+  ] as const)
+    await measureLegacySelector(pool, scope, backend, method, legacyValueSql(owner !== undefined), [
+      scope.tenantId,
+      scope.projectId,
+      scope.policyEpoch,
+      model,
+      [],
+      ...(owner === undefined ? [] : [owner]),
+    ]);
   const timed = createPgTaskProjectionSource({ pool, scope, repoId: "value-index", ownsPool: false });
+  for (const [method, model, read] of [
+    ["listEntities(agent)", "entity:agent", () => source.listEntities("agent")],
+    ["readRuntimeInstallations", "runtime-installation", () => source.readRuntimeInstallations()],
+    ["readSquadRuns", "squad-run", () => source.readSquadRuns()],
+  ] as const) {
+    await measureLegacySelector(pool, scope, backend, method, legacyValueSql(), [
+      scope.tenantId,
+      scope.projectId,
+      scope.policyEpoch,
+      model,
+      [],
+    ]);
+    assert.equal((await read()).length, 3);
+    process.stdout.write(`VALUE_INDEX ${backend} ${method} ${JSON.stringify(plans)}\n`);
+    for (const scan of scans(plans))
+      assert.ok(
+        (Number(scan["Actual Rows"]) + Number(scan["Rows Removed by Filter"] ?? 0)) * Number(scan["Actual Loops"]) <= 3,
+        `${method} scanned other model history: ${JSON.stringify(scan)}`,
+      );
+    plans.length = 0;
+  }
+  await measurePgRead(backend, "listEntities(agent)", () => timed.listEntities("agent"));
+  await measurePgRead(backend, "readRuntimeInstallations", () => timed.readRuntimeInstallations());
+  await measurePgRead(backend, "readSquadRuns", () => timed.readSquadRuns());
   const graph = await source.readFactGraph();
   process.stdout.write(`VALUE_INDEX ${backend} fact-edges ${JSON.stringify(plans)}\n`);
   assert.deepEqual(
