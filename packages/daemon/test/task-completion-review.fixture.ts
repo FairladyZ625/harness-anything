@@ -147,6 +147,13 @@ export async function fixture(
     readonly catalogModel?: string;
     readonly agentModel?: string;
     readonly additionalModels?: readonly string[];
+    /** Extra instances of other runtime kinds, for a rework that must resolve across a kind change. */
+    readonly extraRuntimeKinds?: readonly {
+      readonly instanceId: string;
+      readonly kindId: string;
+      readonly providerId: string;
+      readonly model: string;
+    }[];
     /** A stopped process-group identity used by owner-loss recovery tests. */
     readonly runtimePid?: number;
     /** Repository setup steps used to prove runtime admission precedes worktree preparation. */
@@ -162,7 +169,14 @@ export async function fixture(
   const root = mkdtempSync(path.join(tmpdir(), "ha-completion-review-")),
     repoId = workspaceId("completion-review"),
     catalogModel = options.catalogModel ?? "review-model",
-    agentModel = options.agentModel ?? catalogModel;
+    agentModel = options.agentModel ?? catalogModel,
+    extraInstances = (options.extraRuntimeKinds ?? []).map((row) => ({
+      ...instance(row.instanceId),
+      kindId: row.kindId,
+      providerId: row.providerId,
+      models: [row.model],
+      defaultModel: row.model,
+    }));
   git(root, "init", "-q", "-b", "main");
   git(root, "config", "user.name", "Completion Review Test");
   git(root, "config", "user.email", "review@example.invalid");
@@ -226,6 +240,7 @@ export async function fixture(
         noInstances
           ? []
           : [
+              ...extraInstances,
               { ...instance("ambient-first"), models: ["flash-model"], defaultModel: "flash-model" },
               ...(instancesAvailable
                 ? ["review-first", "review-second"].map((instanceId) => ({
@@ -236,29 +251,34 @@ export async function fixture(
                 : []),
             ],
       onRuntimeOutcome: (event) => noteOutcome(event.payload.runtimeSessionId),
-      prepareRuntimeLaunch: (instanceId, request) => ({
-        definition: {
-          schema: "agent-definition-snapshot/v1",
-          configVersion: 1,
-          instanceId,
-          installationId: installation.installationId,
-          kindId: "codex",
-          providerId: "openai",
-          model: request.model ?? (instanceId === "ambient-first" ? "flash-model" : catalogModel),
-          reasoningEffort: null,
-          fast: false,
-          baseUrl: null,
-          authMode: "subscription",
-        } satisfies AgentDefinitionSnapshot,
-        installation,
-        executablePath: installation.executablePath,
-        args: request.providerSessionId
-          ? ["exec", "resume", "--json", "--dangerously-bypass-approvals-and-sandbox", request.providerSessionId, "-"]
-          : ["exec", "--json", "--sandbox", "danger-full-access", "-"],
-        env: {},
-        cwd: request.cwd,
-        prompt: request.prompt,
-      }),
+      prepareRuntimeLaunch: (instanceId, request) => {
+        const extra = extraInstances.find((row) => row.instanceId === instanceId),
+          kindId = extra?.kindId ?? installation.kindId,
+          preparedInstallation = kindId === installation.kindId ? installation : { ...installation, kindId };
+        return {
+          definition: {
+            schema: "agent-definition-snapshot/v1",
+            configVersion: 1,
+            instanceId,
+            installationId: preparedInstallation.installationId,
+            kindId,
+            providerId: extra?.providerId ?? "openai",
+            model: request.model ?? (instanceId === "ambient-first" ? "flash-model" : (extra?.model ?? catalogModel)),
+            reasoningEffort: null,
+            fast: false,
+            baseUrl: null,
+            authMode: "subscription",
+          } satisfies AgentDefinitionSnapshot,
+          installation: preparedInstallation,
+          executablePath: preparedInstallation.executablePath,
+          args: request.providerSessionId
+            ? ["exec", "resume", "--json", "--dangerously-bypass-approvals-and-sandbox", request.providerSessionId, "-"]
+            : ["exec", "--json", "--sandbox", "danger-full-access", "-"],
+          env: {},
+          cwd: request.cwd,
+          prompt: request.prompt,
+        };
+      },
       runtimeLaunch: (prepared, persistence): RuntimeProcess => {
         if (options.providerInputLimit !== undefined && prepared.prompt.length > options.providerInputLimit)
           throw new Error(`input_too_large: ${prepared.prompt.length} > ${options.providerInputLimit}`);

@@ -333,7 +333,10 @@ function prepareWorkerContinuation(
     submission = execution.submission!,
     agentOverride = input.workerIdentity?.agentId !== undefined,
     agentId = input.workerIdentity?.agentId ?? previous?.agentId ?? cell.settings.readRepository().roles?.defaultWorker,
-    runtimeInstanceId = input.workerIdentity?.runtimeInstanceId ?? previous?.instanceId,
+    // A selected Agent owns its instance too. Only an explicit --instance pins the continuation's
+    // execution resource; otherwise the spawner resolves the declared runtime kind exactly like
+    // `ha agent run`, so an agent change never inherits an instance of the previous dispatch's kind.
+    runtimeInstanceId = input.workerIdentity?.runtimeInstanceId ?? (agentOverride ? undefined : previous?.instanceId),
     // A selected Agent owns its model. When the owner names one, the continuation must not pin the
     // previous dispatch's model: the runtime spawner resolves the declared Agent's model for the
     // selected instance, exactly like `ha agent run` does. Only a plain continuation (and an
