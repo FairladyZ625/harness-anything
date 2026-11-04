@@ -8,7 +8,7 @@ import {
 } from "@harness-anything/kernel";
 import { makeDaemonProjectionReader, makeTaskEventReader } from "@harness-anything/storage";
 import { readObservedRuntimeSession, readSettlementRuntimeSession } from "./agent-runtime-read.ts";
-import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import type { FleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { readRuntimeSessionActivityEvidence } from "./dispatch-read.ts";
 import { makeEntityActionCatalogExecutor, type EntityActionCatalogRuntimes } from "./entity-action-catalog-executor.ts";
 import { readEntityLocator } from "./entity-locator-read.ts";
@@ -51,7 +51,7 @@ export function makeRepoReadRuntime(
   input: Pick<
     RepoCellOpenInput,
     "repoId" | "rootDir" | "storage" | "mode" | "authoredBranch" | "now" | "runtimeInstances"
-  >,
+  > & { readonly edgeConfig?: () => FleetEdgeConfig | null },
 ) {
   let ledgerReader: ReturnType<typeof makeTaskEventReader> | null = null;
   const reader = makeDaemonProjectionReader({
@@ -84,7 +84,7 @@ export function makeRepoReadRuntime(
       reader.withSession((projection) => readObservedRuntimeSession(projection, input.rootDir, runtimeSessionId));
   let closed = false;
   const latched = () => "Query-only reader cannot start writer work.";
-  const edgeConfig = () => (input.mode === "remote-edge" ? readFleetEdgeConfig(input.rootDir) : null);
+  const edgeConfig = input.edgeConfig ?? (() => null);
   /**
    * An edge-replica read on an edge is answered from the materialized replica of the center cut, under the
    * replica owner's authorization, and reports where the answer came from (dec_FB7DE6338E7D3D94ED2A4C05A2).

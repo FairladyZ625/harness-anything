@@ -1,5 +1,6 @@
 import type { RepoCellBinding } from "./repo-cell-types.ts";
 import { makeRepoReadRuntime } from "./repo-read-runtime.ts";
+import { withBorrowedReplicaGeneration } from "./fleet/replica-generation.ts";
 import type { RepoReadPayload, RepoWriterRequestV1 } from "./repo-writer-protocol.ts";
 
 let runtime: ReturnType<typeof makeRepoReadRuntime> | null = null;
@@ -16,9 +17,14 @@ export async function executeRepoReadRequest(request: RepoWriterRequestV1): Prom
       ...frame.config,
       now: () => frame.now ?? new Date().toISOString(),
       runtimeInstances: () => frame.runtimeInstances ?? [],
+      edgeConfig: () => frame.edge?.config ?? null,
     });
     configKey = key;
   }
+  return withBorrowedReplicaGeneration(frame.edge?.pin, () => executeRead(request));
+}
+
+function executeRead(request: RepoWriterRequestV1): unknown {
   const reader = runtime!,
     args = frame.args;
   // Live policy resolution stays on the host's asynchronous authority port. Query sessions
@@ -41,7 +47,7 @@ export async function executeRepoReadRequest(request: RepoWriterRequestV1): Prom
       value = reader.readNodeAutoClaimAssignments(binding);
       break;
     case "observeTail":
-      value = await reader.observeTail(args[0] as never, args[1] as never, binding);
+      value = reader.observeTail(args[0] as never, args[1] as never, binding);
       break;
     case "readSession":
       value = reader.readSession(String(args[0]));

@@ -291,6 +291,10 @@ export interface RepoReadPayload {
   >;
   readonly method: string;
   readonly args: readonly unknown[];
+  readonly edge?: {
+    readonly config: import("./client/fleet-edge-config.ts").FleetEdgeConfig | null;
+    readonly pin?: import("./fleet/replica-generation.ts").BorrowedReplicaGeneration;
+  };
   readonly now?: string;
   readonly runtimeInstances?: readonly RuntimeInstanceSummary[];
 }

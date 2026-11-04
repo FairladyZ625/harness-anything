@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { Worker } from "node:worker_threads";
+import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { replicaGenerationReaders } from "./fleet/replica-generation.ts";
 import type { RepoCellOpenInput } from "./repo-cell-open.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
 import {
@@ -54,7 +56,15 @@ export function openRepoReadClient(input: RepoCellOpenInput, createWorker?: Repo
       if (closed) return Promise.reject(readError("repo_unavailable", "Repository reader is closed."));
       if (queue.length >= REPO_READ_QUEUE_LIMIT && slots.every((slot) => slot.job || slot.stopping))
         return Promise.reject(readError("read_overloaded", "Repository read queue is full; retry the read.", true));
-      const requestId = randomUUID();
+      const requestId = randomUUID(),
+        now = input.now?.(),
+        runtimeInstances = input.runtimeInstances?.();
+      // The receiver and collector live on the host. Worker-local Maps cannot protect its files.
+      const edgeConfig = input.mode === "remote-edge" ? readFleetEdgeConfig(input.rootDir) : undefined,
+        replicaRoot = edgeConfig
+          ? path.resolve(edgeConfig.viewRoot, "repos", input.repoId, "views", edgeConfig.nodeId)
+          : undefined,
+        replicaPin = replicaRoot ? replicaGenerationReaders(replicaRoot).acquire() : null;
       const payload: RepoReadPayload = {
         config: {
           repoId: input.repoId,
@@ -65,8 +75,16 @@ export function openRepoReadClient(input: RepoCellOpenInput, createWorker?: Repo
         },
         method,
         args,
-        now: input.now?.(),
-        runtimeInstances: input.runtimeInstances?.(),
+        now,
+        runtimeInstances,
+        ...(edgeConfig !== undefined
+          ? {
+              edge: {
+                config: edgeConfig,
+                ...(replicaRoot ? { pin: { root: replicaRoot, generation: replicaPin?.generation ?? null } } : {}),
+              },
+            }
+          : {}),
       };
       let settled!: () => void;
       const completion = new Promise<void>((resolve) => {
@@ -94,7 +112,7 @@ export function openRepoReadClient(input: RepoCellOpenInput, createWorker?: Repo
           },
         });
         pump();
-      });
+      }).finally(() => replicaPin?.release());
     },
     close: async () => {
       closed = true;

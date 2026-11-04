@@ -195,6 +195,22 @@ export async function installReplicaGeneration(input: {
  * install; the last release of a superseded generation collects it.
  */
 const generationReaders = new Map<string, ReturnType<typeof createGenerationReaders>>();
+export interface BorrowedReplicaGeneration {
+  readonly root: string;
+  readonly generation: ReplicaGeneration | null;
+}
+let borrowedGeneration: BorrowedReplicaGeneration | undefined;
+
+/** A query worker borrows the receiver owner's pin for one synchronous query, including nested blob reads. */
+export function withBorrowedReplicaGeneration<T>(pin: BorrowedReplicaGeneration | undefined, read: () => T): T {
+  const previous = borrowedGeneration;
+  borrowedGeneration = pin;
+  try {
+    return read();
+  } finally {
+    borrowedGeneration = previous;
+  }
+}
 export function replicaGenerationReaders(root: string) {
   const key = path.resolve(root);
   let readers = generationReaders.get(key);
@@ -204,6 +220,7 @@ export function replicaGenerationReaders(root: string) {
 
 /** Runs one synchronous read against the current generation (null before the first install) while it is pinned. */
 export function withReplicaGeneration<T>(root: string, read: (generation: ReplicaGeneration | null) => T): T {
+  if (borrowedGeneration?.root === path.resolve(root)) return read(borrowedGeneration.generation);
   const pin = replicaGenerationReaders(root).acquire();
   try {
     return read(pin?.generation ?? null);
