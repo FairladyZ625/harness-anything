@@ -1021,8 +1021,8 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
     }
     return pending;
   };
-  const runCommand: RepoCell["run"] = async (action, binding, signal) => {
-    const receipt = await run(action, binding, signal);
+  const runCommand: RepoCell["run"] = async (action, binding, signal, onExecutionStart) => {
+    const receipt = await run(action, binding, signal, onExecutionStart);
     if (isSquadControlResult(receipt)) return receipt;
     if (isSquadControlCommand(action.kind)) return squadControlRejected(action.kind, receipt);
     const completed = await continueBuiltin(action, binding, receipt);

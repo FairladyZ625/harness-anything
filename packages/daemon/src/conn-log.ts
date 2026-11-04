@@ -42,6 +42,16 @@ export interface DaemonTrafficLogEntry {
   readonly handlerStartedAt?: number;
   readonly repliedAt?: number;
   readonly dispatchDelayMs?: number;
+  /** Main-thread scheduling delay observed when this frame was first read; explains a widened queue wait. */
+  readonly eventLoopStallMs?: number;
+  readonly requestBytes?: number;
+  readonly replyBytes?: number;
+  /** Authenticated fleet node that sent the frame; null for local CLI/GUI connections. */
+  readonly nodeId?: string | null;
+  /** OpenTelemetry-compatible ids and closed stage windows for this request. */
+  readonly traceId?: string | null;
+  readonly spanId?: string | null;
+  readonly phases?: readonly { readonly name: string; readonly startedAtMs: number; readonly endedAtMs: number }[];
   readonly serviceMs?: number;
   readonly durationMs: number;
   readonly ok: boolean;
@@ -155,6 +165,35 @@ export function openDaemonConnLog(options: DaemonConnLogOptions): DaemonConnLog 
         repliedAt: new Date(repliedAt).toISOString(),
         atEnd: new Date(repliedAt).toISOString(),
         dispatchDelayMs,
+        ...(entry.eventLoopStallMs !== undefined && entry.eventLoopStallMs > 0
+          ? { eventLoopStallMs: entry.eventLoopStallMs }
+          : {}),
+        requestBytes: entry.requestBytes ?? 0,
+        replyBytes: entry.replyBytes ?? 0,
+        nodeId: entry.nodeId ?? null,
+        ...(entry.traceId ? { traceId: entry.traceId, spanId: entry.spanId ?? null } : {}),
+        ...(entry.phases && entry.phases.length > 0 ? { phases: entry.phases } : {}),
+        ...(entry.traceId
+          ? {
+              otel: {
+                traceId: entry.traceId,
+                spanId: entry.spanId ?? null,
+                name: entry.method ?? "unknown",
+                kind: "SERVER",
+                startTimeUnixNano: unixNano(entry.startedAt),
+                endTimeUnixNano: unixNano(repliedAt),
+                status: { code: entry.ok ? 0 : 2 },
+                attributes: [
+                  { key: "daemon.method", value: { stringValue: entry.method ?? "unknown" } },
+                  { key: "daemon.repo_id", value: { stringValue: entry.repoId ?? "" } },
+                  { key: "daemon.node_id", value: { stringValue: entry.nodeId ?? "" } },
+                  { key: "daemon.ok", value: { boolValue: entry.ok } },
+                  { key: "daemon.request_bytes", value: { intValue: String(entry.requestBytes ?? 0) } },
+                  { key: "daemon.reply_bytes", value: { intValue: String(entry.replyBytes ?? 0) } },
+                ],
+              },
+            }
+          : {}),
         serviceMs,
         durationMs: entry.durationMs,
         ok: entry.ok,
@@ -255,6 +294,9 @@ function seqOf(conn: string): number | null {
 }
 function connLabel(seq: number): string {
   return `c-${seq}`;
+}
+function unixNano(atMs: number): string {
+  return (BigInt(Math.round(atMs)) * 1_000_000n).toString();
 }
 function dayStamp(at: Date): string {
   return at.toISOString().slice(0, 10).replaceAll("-", "");

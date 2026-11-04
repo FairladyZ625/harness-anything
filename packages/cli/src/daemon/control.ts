@@ -36,6 +36,8 @@ import { runDaemonRepoControl } from "./repo-control.ts";
 import { runDaemonServiceControl } from "./service-control.ts";
 import { assertCanonicalCliEntry } from "./cli-entry-guard.ts";
 import { daemonMetricsArgsError, renderDaemonMetrics, runDaemonMetrics } from "./metrics.ts";
+import { parseDaemonSloOptions, renderDaemonSlo, runDaemonSlo } from "./slo.ts";
+import { parseDaemonTopOptions, runDaemonTop } from "./top.ts";
 import { renderDaemonFleetStatus, runDaemonFleetStatus } from "./fleet-status.ts";
 import { applyNodeAutoClaimControl, parseNodeAutoClaimControl } from "./node-auto-claim.ts";
 const fleetNumber = { port: /^(?:0|[1-9][0-9]{0,4})$/u, quota: /^[1-9][0-9]{0,15}$/u };
@@ -73,12 +75,8 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
     finish: ControlFinisher = (receipt, exitCode) => finishControlReceipt(renderReceipt, receipt, json, exitCode);
   try {
     if (!(command === "status" || command === undefined)) assertCanonicalCliEntry();
-    if (command === "metrics") {
-      const receipt = await runDaemonMetrics(argv, userRoot, daemonId);
-      if (json) return finish(receipt, 0);
-      console.log(renderDaemonMetrics(receipt));
-      return 0;
-    }
+    const observed = await runDaemonObserverCommand(command, argv, userRoot, daemonId, json, finish);
+    if (observed !== undefined) return observed;
     if (command === "projection" && subcommand === "rebuild") {
       const suppliedRoot = daemonOption(argv, "--root");
       if (argv.includes("--root") && (!suppliedRoot || suppliedRoot.startsWith("-")))
@@ -163,7 +161,7 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
         [
           "Use daemon projection rebuild, daemon repo register|update,",
           "daemon connection add|update|remove|probe, fleet status, fleet center start, fleet edge sync,",
-          "service install|uninstall|status, start --service, status [--diagnostics], metrics, or stop.",
+          "service install|uninstall|status, start --service, status [--diagnostics], metrics, top, slo, or stop.",
         ].join(" "),
       ),
       2,
@@ -205,6 +203,27 @@ async function maybeRunDaemonRepoControl(
 ): Promise<number | undefined> {
   if (command !== "repo") return undefined;
   return await runDaemonRepoControl(argv, subcommand, userRoot, daemonId, finish);
+}
+
+async function runDaemonObserverCommand(
+  command: string | undefined,
+  argv: readonly string[],
+  userRoot: string,
+  daemonId: string,
+  json: boolean,
+  finish: ControlFinisher,
+): Promise<number | undefined> {
+  if (command === "metrics") {
+    const receipt = await runDaemonMetrics(argv, userRoot, daemonId);
+    if (json) return finish(receipt, 0);
+    console.log(renderDaemonMetrics(receipt));
+    return 0;
+  }
+  if (command === "top") return await runDaemonTop(parseDaemonTopOptions(argv, userRoot, daemonId));
+  if (command !== "slo") return undefined;
+  const receipt = await runDaemonSlo(parseDaemonSloOptions(argv, userRoot, daemonId));
+  console.log(json ? JSON.stringify(receipt) : renderDaemonSlo(receipt));
+  return 0;
 }
 
 function metricsValidationError(argv: readonly string[], command: string | undefined): Error | undefined {

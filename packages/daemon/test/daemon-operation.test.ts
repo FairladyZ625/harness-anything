@@ -60,7 +60,10 @@ test("operation scopes isolate concurrent phases and remove synchronous, rejecte
       }),
       /async-error/u,
     );
-    assert.deepEqual([...o.active.values()], [{ method: "first", repoId: "repo-a", phase: "waiting" }]);
+    assert.deepEqual(
+      [...o.active.values()].map(({ method, repoId, phase }) => ({ method, repoId, phase })),
+      [{ method: "first", repoId: "repo-a", phase: "waiting" }],
+    );
     release();
     await first;
     assert.equal(o.active.size, 0);
@@ -75,7 +78,7 @@ test("basebackup span remains registered from snapshot through archive completio
     span.repoId = "repo-a";
     fleetBaseBackupTrace.asyncStart.publish(span);
     assert.deepEqual(
-      [...o.active.values()],
+      [...o.active.values()].map(({ method, repoId, actor, phase }) => ({ method, repoId, actor, phase })),
       [{ method: "fleet.basebackup", repoId: "repo-a", actor: "daemon", phase: "archive" }],
     );
     fleetBaseBackupTrace.end.publish(span);

@@ -1,4 +1,5 @@
 import type { JsonRpcRequest } from "../protocol/json-rpc-types.ts";
+import { encodeJsonRpcFrame } from "../protocol/json-rpc-encoding.ts";
 
 // The largest payload this transport legitimately carries in one frame is the entity content read's
 // 2 MiB UTF-8 ceiling (entity-content-read.ts); the cap doubles that to cover the JSON envelope and
@@ -7,6 +8,8 @@ export const JSON_LINE_FRAME_MAX_BYTES = 4 * 1024 * 1024;
 
 export interface JsonLineFrameBatch {
   readonly frames: ReadonlyArray<unknown>;
+  /** UTF-8 byte length of each complete line, in the same order as `frames`. */
+  readonly frameBytes?: ReadonlyArray<number>;
   readonly error?: Error;
 }
 
@@ -45,7 +48,7 @@ export function createJsonLineFrameReader(): JsonLineFrameReader {
 }
 
 export function encodeJsonLineFrame(frame: unknown): string {
-  return `${JSON.stringify(frame)}\n`;
+  return encodeJsonRpcFrame(frame);
 }
 
 export function isJsonRpcRequestLike(value: unknown): value is JsonRpcRequest | JsonRpcRequest[] {
@@ -54,20 +57,23 @@ export function isJsonRpcRequestLike(value: unknown): value is JsonRpcRequest | 
 }
 
 function parseLines(lines: ReadonlyArray<string>): JsonLineFrameBatch {
-  const frames: unknown[] = [];
+  const frames: unknown[] = [],
+    frameBytes: number[] = [];
   for (const rawLine of lines) {
     const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
     if (line.trim() === "") continue;
     try {
       frames.push(JSON.parse(line) as unknown);
+      frameBytes.push(Buffer.byteLength(rawLine, "utf8") + 1);
     } catch (error) {
       return {
         frames,
+        ...(frameBytes.length === frames.length ? { frameBytes } : {}),
         error: error instanceof Error ? error : new Error(String(error)),
       };
     }
   }
-  return { frames };
+  return { frames, ...(frameBytes.length > 0 ? { frameBytes } : {}) };
 }
 
 function isSingleJsonRpcRequestLike(value: unknown): value is JsonRpcRequest {

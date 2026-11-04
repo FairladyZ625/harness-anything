@@ -1,10 +1,21 @@
 import { Worker } from "node:worker_threads";
+import { createDaemonOperationTable } from "./daemon-operation-table.ts";
+import { createDaemonTraceCompletions } from "./daemon-trace-completions.ts";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { createDaemonOperationTable } from "./daemon-operation-table.ts";
-import type { DaemonOperationObserver } from "./daemon-operation.ts";
+import type { DaemonOperationObserver, DaemonOperationTrace } from "./daemon-operation.ts";
+import {
+  frameArrivalAt,
+  pruneEventLoopStallWindows,
+  recordEventLoopStallWindow,
+  type EventLoopStallWindow,
+} from "./daemon-event-loop-stall.ts";
 
+export interface DaemonDiagnosticsQueueRow {
+  readonly repoId: string;
+  readonly queueDepth: number | null;
+}
 export interface DaemonDiagnosticsOptions {
   readonly userRoot: string;
   readonly daemonId: string;
@@ -12,10 +23,13 @@ export interface DaemonDiagnosticsOptions {
   readonly heartbeatMs?: number;
   readonly stallThresholdMs?: number;
   readonly metricsIntervalMs?: number;
+  /** Last-known per-repository writer queue depth; carried on the existing metrics message. */
+  readonly writeQueues?: () => readonly DaemonDiagnosticsQueueRow[];
 }
 export async function openDaemonDiagnostics(options: DaemonDiagnosticsOptions) {
   const heartbeat = new BigInt64Array(new SharedArrayBuffer(16)),
     operations = createDaemonOperationTable(),
+    completions = createDaemonTraceCompletions(),
     histogram = monitorEventLoopDelay({ resolution: 20 }),
     extension = path.extname(fileURLToPath(import.meta.url)),
     worker = new Worker(new URL(`./daemon-diagnostics-worker${extension}`, import.meta.url), {
@@ -28,23 +42,50 @@ export async function openDaemonDiagnostics(options: DaemonDiagnosticsOptions) {
         metricsIntervalMs: options.metricsIntervalMs,
         heartbeat: heartbeat.buffer,
         operations: operations.buffer,
+        completions: completions.buffer,
       },
     });
   let closed = false,
     heartbeatDelayMax = 0;
+  const stallWindows: EventLoopStallWindow[] = [];
   const send = (message: object): void => {
     if (!closed) worker.postMessage(message);
   };
   const observer: DaemonOperationObserver = {
-    // Registration is published through shared memory, so a request that blocks the main thread
-    // immediately after `begin` is already visible to the watchdog.
-    begin: (fields) => operations.begin(fields),
+    begin: (fields) => {
+      const registration = operations.begin(fields),
+        startedAtMs = fields.startedAtMs ?? Number(process.hrtime.bigint() / 1_000_000n);
+      let ended = false;
+      return {
+        update: registration.update,
+        end: (trace?: DaemonOperationTrace) => {
+          if (ended) return;
+          ended = true;
+          registration.end();
+          const endedAtMs = trace?.endedAtMs ?? Number(process.hrtime.bigint() / 1_000_000n);
+          completions.record({
+            method: fields.method,
+            nodeId: trace?.nodeId ?? fields.nodeId ?? null,
+            endedAtMs,
+            durationMs: Math.max(0, endedAtMs - startedAtMs),
+            ok: (trace?.outcome ?? fields.outcome) !== "error",
+          });
+        },
+      };
+    },
   };
   const heartbeatMs = options.heartbeatMs ?? 250,
     nowMs = (): bigint => process.hrtime.bigint() / 1_000_000n,
     heartbeatDelay = (): number => Math.max(0, Number(nowMs() - Atomics.load(heartbeat, 0)) - heartbeatMs),
     pulse = (): void => {
-      heartbeatDelayMax = Math.max(heartbeatDelayMax, heartbeatDelay());
+      const delay = heartbeatDelay(),
+        wallAt = Date.now();
+      heartbeatDelayMax = Math.max(heartbeatDelayMax, delay);
+      if (delay > heartbeatMs) {
+        // Stall windows are compared with transport Date.now() observations, so keep wall time here.
+        recordEventLoopStallWindow(stallWindows, wallAt - delay, wallAt);
+        pruneEventLoopStallWindows(stallWindows, wallAt);
+      }
       Atomics.store(heartbeat, 0, nowMs());
     };
   Atomics.store(heartbeat, 0, nowMs());
@@ -59,6 +100,7 @@ export async function openDaemonDiagnostics(options: DaemonDiagnosticsOptions) {
         activeHandles: (process as NodeJS.Process & { _getActiveHandles(): readonly unknown[] })._getActiveHandles()
           .length,
         activeResources: process.getActiveResourcesInfo().length,
+        ...(options.writeQueues ? { writeQueues: options.writeQueues() } : {}),
         eventLoopDelayMs: {
           mean: Number.isFinite(histogram.mean) ? histogram.mean / 1e6 : 0,
           p99: histogram.percentile(99) / 1e6,
@@ -104,6 +146,9 @@ export async function openDaemonDiagnostics(options: DaemonDiagnosticsOptions) {
   worker.unref();
   return {
     observer,
+    /** Date a frame observation back only when it was read during a stall recovery turn. */
+    frameArrivalAt: (observedAtMs: number): number =>
+      frameArrivalAt(observedAtMs, stallWindows, heartbeatMs, heartbeatDelay()),
     state: (state: "starting" | "running" | "draining" | "stopping") => {
       // State must be visible even if the main thread blocks immediately after this call.
       Atomics.store(heartbeat, 1, BigInt(["starting", "running", "draining", "stopping"].indexOf(state)));

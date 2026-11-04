@@ -1,6 +1,12 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { observeDaemonOperation } from "../daemon-operation.ts";
+import {
+  beginDaemonOperation,
+  bindDaemonOperationPhase,
+  markDaemonOperationPhase,
+  observeDaemonOperation,
+} from "../daemon-operation.ts";
 import { validateTaskDispatchesPayload } from "../protocol/daemon-protocol-rpc-validation.ts";
+import { commandClassForAction } from "../protocol/daemon-protocol.contract.ts";
 import { createFleetDeliveryDrain } from "./center-delivery-drain.ts";
 import { createResourceBudget, DOC_SHOW_BUDGET_LIMITS, ResourceBudgetExceeded } from "./resource-budget.ts";
 import { fetchWorkerDelivery, workerGitIdentityForPerson } from "../runtime-worker-push.ts";
@@ -236,6 +242,15 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     return execute();
   };
   const runCenterWriter = (...args: Parameters<typeof options.host.run>) => options.host.run(...args);
+  const observedRunCenterWriter = async (
+    repoId: string,
+    action: Parameters<typeof options.host.run>[1],
+    auth: Parameters<typeof options.host.run>[2],
+  ) => {
+    markDaemonOperationPhase("repository-admission");
+    markDaemonOperationPhase(commandClassForAction(action.kind) === "repo-read" ? "projection-read" : "write-queue");
+    return runCenterWriter(repoId, action, auth);
+  };
   const writeReplicationSequence = (repoId: string, receipt: unknown): number | null =>
     typeof receipt === "object" && receipt !== null && "outcome" in receipt && receipt.outcome === "applied"
       ? replicationHead(repoId)
@@ -570,7 +585,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         frame.executionId !== undefined
       ) {
         const submitAuth = await writerAuth(a, frame.accessToken, frame.executionCredential),
-          shown = await runCenterWriter(a.repoId, { kind: "task-show", taskId: frame.taskId }, submitAuth);
+          shown = await observedRunCenterWriter(a.repoId, { kind: "task-show", taskId: frame.taskId }, submitAuth);
         if (shown.outcome !== "applied" || typeof shown.evidence !== "string")
           throw new FleetFault("task_read_failed", "Cannot read the delivery task at the center.");
         const snapshot = JSON.parse(shown.evidence) as FleetDeliveryTask;
@@ -609,7 +624,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
     if (frame.schema === "fleet.receipt.get/v1") {
       const a = await nodeContext(nodeId, frame.repoId, frame.accessToken),
-        receipt = await runCenterWriter(a.repoId, { kind: "receipt-show", opId: frame.opId }, await readerAuth(a));
+        receipt = await observedRunCenterWriter(
+          a.repoId,
+          { kind: "receipt-show", opId: frame.opId },
+          await readerAuth(a),
+        );
       return immediate({
         schema: "fleet.receipt.result/v1",
         messageId: mid(frame.messageId, "receipt"),
@@ -776,7 +795,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         // the node's registered owner, never against a client claim.
         let executionId = frame.executionId;
         if (executionId === null && frame.taskId) {
-          const shown = await runCenterWriter(
+          const shown = await observedRunCenterWriter(
             a.repoId,
             { kind: "task-show", taskId: frame.taskId },
             await auth(a, undefined, frame.executionCredential),
@@ -786,7 +805,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           const snapshot = JSON.parse(shown.evidence) as { readonly lease?: { readonly executionId?: unknown } | null };
           executionId = typeof snapshot.lease?.executionId === "string" ? snapshot.lease.executionId : null;
         }
-        const receipt = await runCenterWriter(
+        const receipt = await observedRunCenterWriter(
           a.repoId,
           {
             kind: "doc-submit",
@@ -864,7 +883,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             });
             if (admission.outcome !== "allowed")
               throw new FleetFault("authorization_denied", "Task delivery is not authorized.");
-            const shown = await runCenterWriter(a.repoId, { kind: "task-show", taskId: command.taskId }, submitAuth);
+            const shown = await observedRunCenterWriter(
+              a.repoId,
+              { kind: "task-show", taskId: command.taskId },
+              submitAuth,
+            );
             if (shown.outcome !== "applied" || typeof shown.evidence !== "string")
               throw new FleetFault("task_read_failed", "Cannot read the delivery task.");
             const snapshot = JSON.parse(shown.evidence) as FleetDeliveryTask;
@@ -908,7 +931,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           throw error;
         }
         try {
-          const receipt = await runCenterWriter(a.repoId, action, commandAuth);
+          const receipt = await observedRunCenterWriter(a.repoId, action, commandAuth);
           if (reservation) connectionSignal.throwIfAborted();
           const result = {
             outcome:
@@ -969,7 +992,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           throw new FleetFault("schedule_scope_mismatch", "Schedule command IDs must match.");
         assertFrameEpoch(a.repoId, frame.writerEpoch);
         const ingressAuth = await auth(a),
-          receipt = await runCenterWriter(a.repoId, { ...frame.action, idempotencyKey: frame.opId }, ingressAuth);
+          receipt = await observedRunCenterWriter(
+            a.repoId,
+            { ...frame.action, idempotencyKey: frame.opId },
+            ingressAuth,
+          );
         if (isSquadControlResult(receipt))
           throw new FleetFault(
             "execution_scope_mismatch",
@@ -1106,13 +1133,17 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         ...(await auth(a)),
         connectionSignal: connectionSignal ? AbortSignal.any([connectionSignal, closing.signal]) : closing.signal,
       };
+      markDaemonOperationPhase("repository-admission");
       let result;
       try {
         if (frame.method === "repo.agentRuntime.sessions.await") {
+          markDaemonOperationPhase("projection-read");
           result = await options.host.awaitRuntimeSessions(a.repoId, frame.payload as JsonObject, binding);
         } else if (frame.method === "repo.tasks.autoClaimCandidates") {
+          markDaemonOperationPhase("projection-read");
           result = await options.host.readNodeAutoClaimCandidates(a.repoId, binding);
         } else {
+          markDaemonOperationPhase("projection-read");
           if (frame.method === "repo.task.dispatches") {
             const errors = validateTaskDispatchesPayload(frame.payload);
             if (errors.length) throw new FleetFault("invalid_field", errors.join("; "));
@@ -1185,27 +1216,111 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   });
   // Bind once at the daemon composition boundary. TLS/frame queues need not inherit ALS.
   const observedAuthenticate = AsyncLocalStorage.bind((nodeId: string, credential: string, source: string) =>
-    observeDaemonOperation({ method: "fleet.hello", actor: null, phase: "authentication" }, () =>
+    observeDaemonOperation({ method: "fleet.hello", actor: null, nodeId, phase: "authentication" }, () =>
       guardedAuthenticate(nodeId, credential, source),
     ),
   );
   const observedReplicationStart = AsyncLocalStorage.bind((...args: Parameters<typeof onReplicationStart>) =>
     observeDaemonOperation(
-      { method: "replica.start", repoId: args[2].repoId, actor: `node:${args[0]}`, phase: "replication-stream" },
+      {
+        method: "replica.start",
+        repoId: args[2].repoId,
+        actor: `node:${args[0]}`,
+        nodeId: args[0],
+        phase: "replication-stream",
+      },
       () => onReplicationStart(...args),
     ),
   );
-  const observedHandle = AsyncLocalStorage.bind((...args: Parameters<typeof handle>) =>
-    observeDaemonOperation(
-      {
-        method: "method" in args[1] ? String(args[1].method) : args[1].schema,
-        repoId: "repoId" in args[1] ? String(args[1].repoId) : null,
-        actor: `node:${args[0]}`,
-        phase: "fleet-dispatch",
-      },
-      () => nodeAdmission.run(args[0], () => handle(...args)),
-    ),
-  );
+  const observedHandle = AsyncLocalStorage.bind((...args: Parameters<Parameters<typeof serve>[2]>) => {
+    const [nodeId, frame, window, clientGone, signal, progress, errorReply] = args,
+      runHandle = () => nodeAdmission.run(nodeId, () => handle(nodeId, frame, window, clientGone, signal, progress)),
+      scope = beginDaemonOperation({
+        method: "method" in frame ? String(frame.method) : frame.schema,
+        repoId: "repoId" in frame ? String(frame.repoId) : null,
+        actor: `node:${nodeId}`,
+        nodeId,
+        phase: "authentication",
+        requestBytes: Buffer.byteLength(JSON.stringify(frame), "utf8"),
+      });
+    if (!scope) return runHandle();
+    const startedAt = Date.now(),
+      method = "method" in frame ? String(frame.method) : frame.schema,
+      repoId = "repoId" in frame ? String(frame.repoId) : null;
+    let recorded = false,
+      replyBytes = 0,
+      businessOk = true,
+      businessCode: string | null = null;
+    const recordTraffic = (ok: boolean, code: string | null): void => {
+      if (recorded || !options.recordTraffic) return;
+      recorded = true;
+      const trace = scope.handle.trace(),
+        repliedAt = Date.now();
+      options.recordTraffic({
+        conn: `fleet:${nodeId}`,
+        transport: "fleet-tls",
+        method,
+        repoId,
+        actor: `node:${nodeId}`,
+        nodeId,
+        frameReceivedAt: startedAt,
+        handlerStartedAt: startedAt,
+        repliedAt,
+        startedAt,
+        dispatchDelayMs: 0,
+        serviceMs: Math.max(0, repliedAt - startedAt),
+        durationMs: Math.max(0, repliedAt - startedAt),
+        requestBytes: trace.requestBytes,
+        replyBytes,
+        traceId: trace.traceId,
+        spanId: trace.spanId,
+        phases: trace.phases,
+        ok,
+        code,
+        detail: null,
+      });
+    };
+    return scope.run(async () => {
+      const mark = bindDaemonOperationPhase();
+      markDaemonOperationPhase("authorization");
+      const delivery = await runHandle().catch(errorReply);
+      return {
+        ...delivery,
+        frames: (async function* () {
+          for await (const out of delivery.frames) {
+            const result = fleetFrameBusinessOutcome(out);
+            if (!result.ok) {
+              businessOk = false;
+              businessCode = result.code;
+            }
+            mark("serialization");
+            yield out;
+          }
+        })(),
+        beforeSend: () => {
+          mark("reply");
+          delivery.beforeSend?.();
+        },
+        onSent: (bytes: number) => {
+          replyBytes += bytes;
+          delivery.onSent?.(bytes);
+          scope.handle.update({ replyBytes });
+        },
+        onComplete: () => {
+          scope.handle.update({ outcome: businessOk ? "ok" : "error" });
+          recordTraffic(businessOk, businessCode);
+          scope.end();
+          delivery.onComplete?.();
+        },
+        onFailure: (error: unknown) => {
+          scope.handle.update({ outcome: "error" });
+          recordTraffic(false, fleetErrorCode(error));
+          scope.end();
+          delivery.onFailure?.(error);
+        },
+      };
+    });
+  });
   const server: Server = createServer({ key: options.key, cert: options.cert }, (socket) =>
     serve(
       socket,
@@ -1310,4 +1425,21 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     },
     versionWarnings: () => [...versionWarnings.values()],
   };
+}
+
+function fleetErrorCode(error: unknown): string | null {
+  return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+    ? error.code
+    : null;
+}
+
+/** A delivered Fleet frame can carry a business rejection even though transport completion is ok. */
+export function fleetFrameBusinessOutcome(frame: {
+  readonly schema: string;
+  readonly code?: string | null;
+  readonly outcome?: string;
+}): { readonly ok: boolean; readonly code: string | null } {
+  if (frame.schema === "fleet.error/v1") return { ok: false, code: frame.code ?? "error" };
+  if (frame.outcome === "op_rejected") return { ok: false, code: "op_rejected" };
+  return { ok: true, code: null };
 }

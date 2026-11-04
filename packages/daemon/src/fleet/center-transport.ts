@@ -81,6 +81,7 @@ export async function serve(
     clientGone: () => boolean,
     connectionSignal: AbortSignal,
     progress: (frame: FleetFrameV1) => Promise<void>,
+    errorReply: (error: unknown) => Delivery,
   ) => Promise<Delivery>,
   sessions: Map<string, Set<TLSSocket>>,
   replicationOwners: Map<string, TLSSocket>,
@@ -198,9 +199,9 @@ export async function serve(
             `Per-key send window is full (frameBytes=${bytes}, bufferedBytes=${socket.writableLength}, limit=${FLEET_KEY_SEND_WINDOW_BYTES}).`,
             true,
           );
+        delivery?.beforeSend?.();
         if (socket.writableLength + bytes > FLEET_SESSION_SEND_WINDOW_BYTES)
           await untilAborted(() => once(socket, "drain", { signal }), signal);
-        delivery?.beforeSend?.();
         const sent = socket.write(line);
         delivery?.onSent?.(bytes);
         if (!sent) await untilAborted(() => once(socket, "drain", { signal }), signal);
@@ -446,6 +447,43 @@ export async function serve(
       socket.destroy(error instanceof Error ? error : new Error(String(error)));
     }
   });
+  // The request owns this delivery, including its observation callbacks. No correlation table
+  // is needed: a transport error goes through the same pump as a successful result.
+  const errorReply = (error: unknown, frame: FleetFrameV1): Delivery => {
+    const contractError = error instanceof FleetContractError;
+    const fault =
+      error instanceof FleetFault
+        ? error
+        : new FleetFault(
+            contractError ? "invalid_frame" : "handler_failed",
+            error instanceof Error ? error.message : String(error),
+          );
+    if (frame.schema === "fleet.session.hello/v1" || contractError) recordFailure(fault, fault.code);
+    if (
+      fault.code === "replica_delivery_fenced" ||
+      fault.code === "replica_delivery_stalled" ||
+      (!contractError && !(error instanceof FleetFault))
+    )
+      (options.onError ?? ((entry) => console.error("[fleet-center] transport handler failed", entry)))({
+        nodeId,
+        messageId: frame.messageId,
+        error,
+      });
+    return {
+      ...immediate({
+        schema: "fleet.error/v1",
+        messageId: mid(frame.messageId, "error"),
+        inReplyTo: frame.messageId,
+        code: fault.code,
+        message: fault.message,
+        retryable: fault.retryable,
+        resumeOffset: fault.resumeOffset,
+      }),
+      onComplete: () => {
+        if (fault.code === "authentication_failed") socket.end();
+      },
+    };
+  };
   const dispatch = async (frame: FleetFrameV1) => {
     try {
       if (nodeId === null) {
@@ -535,45 +573,15 @@ export async function serve(
           () => socket.destroyed,
           disconnected.signal,
           (progress) => enqueue(immediate(progress)),
+          (error) => errorReply(error, frame),
         ),
       );
     } catch (error) {
       consumeKnownError(error);
-      const contractError = error instanceof FleetContractError;
-      const fault =
-        error instanceof FleetFault
-          ? error
-          : new FleetFault(
-              contractError ? "invalid_frame" : "handler_failed",
-              error instanceof Error ? error.message : String(error),
-            );
-      if (frame.schema === "fleet.session.hello/v1" || contractError) recordFailure(fault, fault.code);
-      if (
-        fault.code === "replica_delivery_fenced" ||
-        fault.code === "replica_delivery_stalled" ||
-        (!contractError && !(error instanceof FleetFault))
-      )
-        (options.onError ?? ((entry) => console.error("[fleet-center] transport handler failed", entry)))({
-          nodeId,
-          messageId: frame?.messageId ?? null,
-          error,
-        });
-      if (socket.destroyed) return;
-      await enqueue(
-        immediate({
-          schema: "fleet.error/v1",
-          messageId: mid(frame?.messageId ?? "invalid", "error"),
-          inReplyTo: frame?.messageId ?? "invalid",
-          code: fault.code,
-          message: fault.message,
-          retryable: fault.retryable,
-          resumeOffset: fault.resumeOffset,
-        }),
-      ).catch((deliveryError: unknown) => {
+      await enqueue(errorReply(error, frame)).catch((deliveryError: unknown) => {
         if (peerDisconnected(socket, deliveryError)) return;
         throw deliveryError;
       });
-      if (fault.code === "authentication_failed") socket.end();
     }
     window.requestRepos.delete(frame.messageId);
   };

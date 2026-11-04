@@ -10,6 +10,8 @@ import type { ReplicationFrame, ReplicationPeer } from "./protocol.ts";
 import type { ResourceBudget } from "./resource-budget.ts";
 
 export interface FleetCenterOptions {
+  /** Persist one transport record per completed frame; the runtime wires this to the conn log. */
+  readonly recordTraffic?: (entry: import("../conn-log.ts").DaemonTrafficLogEntry) => void;
   readonly commandResourceBudget?: ResourceBudget;
   readonly storage?: Readonly<Record<string, import("@harness-anything/storage").DaemonStorageConfig>>;
   readonly host: Pick<

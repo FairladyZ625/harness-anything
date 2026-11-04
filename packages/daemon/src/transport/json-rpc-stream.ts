@@ -3,7 +3,7 @@ import type { Readable, Writable } from "node:stream";
 import type { DaemonAuthenticationContext, DaemonTransportKind } from "./auth-context.ts";
 import { createJsonLineFrameReader, encodeJsonLineFrame, isJsonRpcRequestLike } from "./frame-codec.ts";
 import type { JsonRpcProtocolServer } from "../protocol/json-rpc-server.ts";
-import type { JsonRpcErrorResponse, JsonRpcRequest } from "../protocol/json-rpc-types.ts";
+import type { JsonRpcErrorResponse, JsonRpcRequest, JsonRpcResponse } from "../protocol/json-rpc-types.ts";
 
 export interface DaemonTransportConnection {
   readonly connectionId: string;
@@ -43,6 +43,11 @@ export interface JsonRpcStreamOptions {
   ) => TransportAuthenticationResult;
   readonly connectionId?: string;
   readonly onError?: (error: Error) => void;
+  /**
+   * Maps a frame observation time to its estimated arrival. Only a frame read in a stall recovery
+   * turn moves back to that stall's start; later frames are returned unchanged.
+   */
+  readonly adjustFrameArrival?: (observedAtMs: number) => number;
 }
 
 // A stopping daemon gives an in-flight request this long to reply before the
@@ -70,12 +75,12 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
 
   options.input.on("data", (chunk: Buffer | string) => {
     const batch = reader.push(chunk);
-    enqueueFrames(batch.frames);
+    enqueueFrames(batch.frames, batch.frameBytes);
     if (batch.error) failConnection(parseError(batch.error));
   });
   options.input.on("end", () => {
     const batch = reader.flush();
-    enqueueFrames(batch.frames);
+    enqueueFrames(batch.frames, batch.frameBytes);
     if (batch.error) failConnection(parseError(batch.error));
     else queue = queue.finally(() => server?.close());
   });
@@ -114,18 +119,27 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
     },
   };
 
-  function enqueueFrames(frames: ReadonlyArray<unknown>): void {
-    const frameReceivedAt = Date.now();
-    for (const frame of frames) {
+  function enqueueFrames(frames: ReadonlyArray<unknown>, frameBytes?: ReadonlyArray<number>): void {
+    const observedAt = Date.now(),
+      frameReceivedAt = Math.max(0, options.adjustFrameArrival?.(observedAt) ?? observedAt),
+      eventLoopStallMs = Math.max(0, observedAt - frameReceivedAt);
+    for (let index = 0; index < frames.length; index += 1) {
+      const frame = frames[index],
+        bytes = frameBytes?.[index];
       queue = queue
-        .then(() => handleFrame(frame, frameReceivedAt))
+        .then(() => handleFrame(frame, frameReceivedAt, bytes, eventLoopStallMs))
         .catch((error: unknown) => {
           failConnection(error instanceof Error ? error : new Error(String(error)));
         });
     }
   }
 
-  async function handleFrame(frame: unknown, frameReceivedAt: number): Promise<void> {
+  async function handleFrame(
+    frame: unknown,
+    frameReceivedAt: number,
+    frameBytes: number | undefined,
+    eventLoopStallMs: number,
+  ): Promise<void> {
     if (waitingForAuthentication) {
       const result = options.authenticateFirstFrame?.(frame, authContext);
       if (!result?.ok) {
@@ -143,8 +157,22 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
       writeFrame(streamErrorResponse(null, -32600, "Invalid Request"));
       return;
     }
-    const response = await server.handle(frame as JsonRpcRequest | JsonRpcRequest[], { frameReceivedAt });
-    if (response !== undefined) writeFrame(response);
+    let wrote = false;
+    const response = await server.handle(frame as JsonRpcRequest | JsonRpcRequest[], {
+      frameReceivedAt,
+      ...(frameBytes === undefined ? {} : { frameBytes }),
+      ...(eventLoopStallMs > 0 ? { eventLoopStallMs } : {}),
+      // A batch is one transport frame; let the server encode it once and write it below.
+      ...(Array.isArray(frame)
+        ? {}
+        : {
+            writeResponse: (value: JsonRpcResponse) => {
+              wrote = true;
+              return writeFrame(value);
+            },
+          }),
+    });
+    if (response !== undefined && !wrote) writeFrame(response);
   }
 
   function failConnection(error: Error): void {
@@ -154,11 +182,15 @@ export function serveJsonRpcStream(options: JsonRpcStreamOptions): DaemonTranspo
     options.output.end();
   }
 
-  function writeFrame(frame: unknown): boolean {
-    return options.output.write(encodeJsonLineFrame(frame));
+  function writeFrame(frame: unknown): number {
+    return writeFrameWithBackpressure(frame).bytes;
+  }
+  function writeFrameWithBackpressure(frame: unknown): { readonly bytes: number; readonly writable: boolean } {
+    const encoded = encodeJsonLineFrame(frame);
+    return { bytes: Buffer.byteLength(encoded, "utf8"), writable: options.output.write(encoded) };
   }
   async function emit(method: string, params: Record<string, unknown>): Promise<void> {
-    if (writeFrame({ jsonrpc: "2.0", method, params })) return;
+    if (writeFrameWithBackpressure({ jsonrpc: "2.0", method, params }).writable) return;
     await writableReady(options.output);
   }
   function disconnect(): void {

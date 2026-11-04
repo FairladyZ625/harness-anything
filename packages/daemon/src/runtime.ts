@@ -190,7 +190,11 @@ export async function startDaemon(input: {
     if (entry.event === "runtime_exit" || entry.event === "attachments_settled") requestDrainCheck();
   };
   try {
-    diagnostics = await openDaemonDiagnostics({ ...input, endpoint });
+    diagnostics = await openDaemonDiagnostics({
+      ...input,
+      endpoint,
+      writeQueues: () => host?.writeQueues() ?? [],
+    });
     const oidc = createIdentitySession(input.userRoot);
     host = await withDaemonObservation(diagnostics.observer, () =>
       openDaemonHost({
@@ -200,6 +204,7 @@ export async function startDaemon(input: {
         oidc,
         onRepoStatusChange: requestDrainCheck,
         buildDraining,
+        recordTraffic: connLog.request,
       }),
     );
     // One sink for the daemon; the protocol server is created per connection and reports into it.
@@ -209,6 +214,7 @@ export async function startDaemon(input: {
     transport = createUnixSocketTransportServer({
       daemonId: input.daemonId,
       socketPath: endpoint,
+      adjustFrameArrival: (observedAtMs) => diagnostics?.frameArrivalAt(observedAtMs) ?? observedAtMs,
       createProtocolServer: (authContext, emit, connectionId, signal) =>
         createJsonRpcProtocolServer({
           host: host!,

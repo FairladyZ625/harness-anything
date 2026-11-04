@@ -20,6 +20,8 @@ export interface UnixSocketTransportOptions {
   ) => JsonRpcProtocolServer;
   readonly onConnection?: (connection: DaemonTransportConnection) => void;
   readonly onConnectionClosed?: (connection: DaemonTransportConnection) => void;
+  /** Maps a frame observation to its estimated arrival during a stall recovery turn. */
+  readonly adjustFrameArrival?: (observedAtMs: number) => number;
 }
 
 export interface UnixSocketTransportServer {
@@ -62,6 +64,7 @@ export function createUnixSocketTransportServer(options: UnixSocketTransportOpti
       authContext,
       connectionId,
       createProtocolServer: options.createProtocolServer,
+      ...(options.adjustFrameArrival === undefined ? {} : { adjustFrameArrival: options.adjustFrameArrival }),
     });
     connections.add(connection);
     options.onConnection?.(connection);
