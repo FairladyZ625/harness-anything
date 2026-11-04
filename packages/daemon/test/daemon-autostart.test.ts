@@ -23,7 +23,7 @@ import {
 } from "../src/lifecycle-log.ts";
 import { startDetachedProcess, startDetachedProcessChecked } from "../src/process-port.ts";
 import { daemonSingletonLockPath } from "../src/daemon-singleton.ts";
-import { canonicalPath } from "../src/runtime-worker-push.ts";
+import { canonicalPath } from "../src/canonical-path.ts";
 
 function coded(code: string): Error & { code: string } {
   const error = Object.assign(new Error(`connect ${code}`), { code });

@@ -3,7 +3,7 @@ import {
   spawnSync,
   type ChildProcess,
 } from "node:child_process";
-import { consumeKnownError } from "@harness-anything/kernel";
+import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 
 /** Reads an OS error code without trusting the error's class; callers only branch on `code`. */
 export function childProcessErrorCode(error: unknown): string {

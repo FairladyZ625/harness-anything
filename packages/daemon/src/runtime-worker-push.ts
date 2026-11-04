@@ -1,6 +1,7 @@
+import { canonicalPath } from "./canonical-path.ts";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 import { cmdShellInvocation } from "@harness-anything/storage";
@@ -417,14 +418,6 @@ function gitInvocation(
 
 function samePath(left: string, right: string): boolean {
   return canonicalPath(left) === canonicalPath(right);
-}
-
-export function canonicalPath(value: string): string {
-  try {
-    return realpathSync.native(value).replaceAll("\\", "/").replace(/\/+$/u, "");
-  } catch {
-    return value.replaceAll("\\", "/").replace(/\/+$/u, "");
-  }
 }
 
 // A local origin (a missing mirror, a bare checkout path) makes git echo this host's filesystem
