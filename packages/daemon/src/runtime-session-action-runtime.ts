@@ -1,6 +1,7 @@
 import {
   attributeEntityActionCriterion,
   getExecutableEntityAction,
+  MIGRATION_IMPORT_SOURCE,
   type TaskProjection,
   type AgentRuntimeEventV1,
   stableStringify,
@@ -8,7 +9,7 @@ import {
 } from "@harness-anything/kernel";
 import { deriveActionResult, type EntityActionCatalogPreparer } from "./entity-action-catalog-executor.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
-import type { RepoCellBinding, RuntimeIngressAction } from "./repo-cell-types.ts";
+import type { RepoCellBinding, RepoTaskAction, RuntimeIngressAction } from "./repo-cell-types.ts";
 
 export function runtimeSessionActionPreparer(projection: () => TaskProjection): EntityActionCatalogPreparer {
   return (contract, action, binding) => {
@@ -17,6 +18,10 @@ export function runtimeSessionActionPreparer(projection: () => TaskProjection): 
       dispatchSource = dispatch?.source,
       ingressSource = binding.source,
       localOwner = dispatchSource === "local" && ingressSource === "local";
+    // Genesis replay imports a frozen source generation: its sessions have a creation event but no
+    // dispatch. Only a terminal event from the same person on the local center can settle one; the
+    // creation record is the ownership fence, so a remote node can never claim the session.
+    if (!dispatch && importedSessionTerminalSettlement(projection(), runtimeSessionId, action, binding)) return action;
     if (!localOwner) {
       if (
         !dispatch ||
@@ -63,6 +68,30 @@ export function runtimeSessionActionPreparer(projection: () => TaskProjection): 
       );
     return { ...action, dispatchId: dispatch.payload.dispatchId };
   };
+}
+
+/**
+ * A genesis-replayed RuntimeSession has no dispatch; its creation event is the only ownership
+ * record. This admits only a terminal settlement, only from the local center, and only for the
+ * person the session was imported for. Ordinary dispatch-backed sessions never reach it, and a
+ * remote node's source can never match.
+ */
+function importedSessionTerminalSettlement(
+  projection: TaskProjection,
+  runtimeSessionId: string,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+): boolean {
+  if (action.kind !== "runtime_session_exited" && action.kind !== "runtime_session_outcome_observed") return false;
+  if (binding.source !== "local") return false;
+  const started = projection
+    .readRuntimeSessionEvents(runtimeSessionId, 0, 1)
+    .find((event) => event.type === "runtime_session_started");
+  return (
+    started?.source === MIGRATION_IMPORT_SOURCE &&
+    started.actor.principal.personId === binding.actor.principal.personId &&
+    (started.actor.executor?.id ?? null) === (binding.actor.executor?.id ?? null)
+  );
 }
 
 /** Commit one RuntimeSession catalog Action while the caller owns the RepoCell writer queue. */

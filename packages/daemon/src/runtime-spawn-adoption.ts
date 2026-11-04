@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS, sameWriteSource } from "@harness-anything/kernel";
+import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS, MIGRATION_IMPORT_SOURCE, sameWriteSource } from "@harness-anything/kernel";
 import type { ActiveRuntime, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import {
   appendRuntimeWorkerRecord,
@@ -25,6 +25,7 @@ import type { RuntimePermissionMode } from "./runtime-permissions.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import type { RuntimeInstanceKind } from "./agent-runtime-instance-types.ts";
 import { isRuntimeKindId } from "./runtime-inventory.ts";
+import { IMPORTED_RUNTIME_TERMINAL_BODY, importedRuntimeTerminalResult } from "./runtime-imported-settlement.ts";
 
 export interface RuntimeRecoveryResult {
   readonly runtimeSessionId: string;
@@ -114,6 +115,15 @@ export async function adoptRuntimes(
                 });
                 return "settled" as const;
               }
+              // Genesis replay imports a frozen repository, so an unsettled session it created has
+              // no dispatch and no process here: it can never be adopted. Settle it once under its
+              // creation authority; the canonical outcome then leaves every future unsettled scan.
+              if (
+                dispatch === null &&
+                !context.input.remote &&
+                (await settleImportedRuntimeSession(context, runtimeSessionId))
+              )
+                return "settled" as const;
               throw context.runtimeSpawnError(
                 "runtime_recovery_missing_dispatch",
                 `Runtime ${runtimeSessionId} has no readable dispatch.`,
@@ -213,6 +223,45 @@ async function settleMissingDispatchStream(
     binding,
     resultBody,
   );
+}
+
+/**
+ * A genesis replay imports a frozen source repository: a runtime session the source never settled
+ * has no process and no dispatch in the destination, so adoption can never restore it. Its
+ * creation event is the only canonical ownership record left. Settle it once under that creator,
+ * and the canonical outcome removes it from every later unsettled scan. Only the local center can
+ * do this (`remote` edges never see the imported event history); opIds are session-derived, so a
+ * duplicate attempt is idempotent rather than a second settlement.
+ */
+async function settleImportedRuntimeSession(
+  context: RuntimeSpawnerContext,
+  runtimeSessionId: string,
+): Promise<boolean> {
+  const started = context
+    .requiredRuntimeProjection(context.input)
+    .readRuntimeSessionEvents(runtimeSessionId, 0, 1)
+    .find((event) => event.type === "runtime_session_started");
+  if (!started || started.source !== MIGRATION_IMPORT_SOURCE) return false;
+  const resultBody = IMPORTED_RUNTIME_TERMINAL_BODY,
+    result = importedRuntimeTerminalResult(),
+    opId = `runtime-recovery-imported-${runtimeSessionId}`,
+    binding: RuntimeBinding = { actor: started.actor, source: "local" };
+  await context.publishRuntimeEvent("runtime_session_exited", { runtimeSessionId }, `${opId}-exited`, binding);
+  await context.publishRuntimeEvent(
+    "runtime_session_outcome_observed",
+    {
+      runtimeSessionId,
+      outcome: "unknown",
+      exitCode: null,
+      resultRef: `artifact:runtime-result/sha256/${result.sha256}`,
+      result,
+      endedAt: context.input.now(),
+    },
+    `${opId}-outcome`,
+    binding,
+    resultBody,
+  );
+  return true;
 }
 
 async function restoreRuntime(

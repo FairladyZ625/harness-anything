@@ -36,7 +36,7 @@ import { adoptNativeProcess, terminateRuntimeTree } from "../src/runtime-spawn-p
 import { readRuntimeSessionActivityEvidence } from "../src/dispatch-read.ts";
 import { runtimeBindingForDispatch } from "../src/runtime-spawn-types.ts";
 import { runtimeSessionActionPreparer } from "../src/runtime-session-action-runtime.ts";
-import { getExecutableEntityAction } from "@harness-anything/kernel";
+import { getExecutableEntityAction, MIGRATION_IMPORT_SOURCE } from "@harness-anything/kernel";
 
 test("runtime dispatch persistence excludes RepoCell writer transport fields", () => {
   const actor = { principal: { personId: "runtime-owner" }, executor: null },
@@ -1110,4 +1110,59 @@ test("a settled runtime_metrics record straddling the backward-probe edge is sti
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
+});
+
+test("a genesis-imported session without a dispatch is terminalized only by its local creator", () => {
+  const runtimeSessionId = "runtime_imported_orphan",
+    actor = { principal: { personId: "owner" }, executor: null },
+    started = {
+      schema: "agent-runtime-event/v1",
+      type: "runtime_session_started",
+      actor,
+      source: MIGRATION_IMPORT_SOURCE,
+      occurredAt: "2026-08-31T22:14:03.245Z",
+      payload: { runtimeSessionId },
+    },
+    prepare = runtimeSessionActionPreparer(
+      () =>
+        ({
+          readRuntimeDispatch: () => null,
+          readRuntimeSessionEvents: () => [started],
+        }) as never,
+    ),
+    contract = getExecutableEntityAction("runtime_session_outcome_observed");
+  assert.ok(contract);
+  const outcome = {
+      kind: "runtime_session_outcome_observed",
+      runtimeSessionId,
+      outcome: "unknown",
+      exitCode: null,
+      resultRef: "artifact:runtime-result/sha256/" + "a".repeat(64),
+      result: null,
+    },
+    localCreator = { actor, source: "local" } as const;
+  assert.deepEqual(prepare(contract, outcome, localCreator), outcome);
+  // The session creation authority is the fence: another person, another source, or a non-terminal
+  // transition may not use the imported-session path.
+  assert.throws(
+    () =>
+      prepare(contract, outcome, {
+        actor: { principal: { personId: "someone-else" }, executor: null },
+        source: "local",
+      }),
+    (error: unknown) => (error as { code?: string }).code === "execution_scope_mismatch",
+  );
+  assert.throws(
+    () => prepare(contract, outcome, { actor, source: { kind: "node", nodeId: "edge-a" } }),
+    (error: unknown) => (error as { code?: string }).code === "execution_scope_mismatch",
+  );
+  assert.throws(
+    () =>
+      prepare(
+        getExecutableEntityAction("runtime_session_started")!,
+        { kind: "runtime_session_started", runtimeSessionId, instanceId: "i" },
+        localCreator,
+      ),
+    (error: unknown) => (error as { code?: string }).code === "execution_scope_mismatch",
+  );
 });

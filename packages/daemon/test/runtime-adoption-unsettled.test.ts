@@ -15,6 +15,10 @@ import {
 import { publishExit } from "../src/runtime-spawn-settlement.ts";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
 import type { RuntimeSessionReadQuery } from "@harness-anything/kernel";
+import {
+  importedRuntimeSessionProjection,
+  sameImportedRuntimeSessionProjection,
+} from "../src/runtime-imported-settlement.ts";
 
 const settledHistoryCount = 200;
 
@@ -280,5 +284,110 @@ test("edge recovery scopes the session read to this node and never point-reads a
   assert.deepEqual(
     results.map(({ runtimeSessionId, outcome }) => [runtimeSessionId, outcome]),
     [[localId, "settled"]],
+  );
+});
+
+test("an imported session without a dispatch is settled once and leaves the unsettled scan", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-adoption-imported-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  const runtimeSessionId = "runtime-imported-orphan",
+    startedAt = "2026-08-31T22:14:03.245Z",
+    started = {
+      schema: "agent-runtime-event/v1",
+      type: "runtime_session_started",
+      actor: { principal: { personId: "owner" }, executor: null },
+      source: "migration-import/v1",
+      occurredAt: startedAt,
+      payload: { runtimeSessionId },
+    },
+    session = {
+      runtimeSessionId,
+      instanceId: "codex-imported",
+      providerSessionId: null,
+      liveness: "unknown" as const,
+      outcome: null,
+    };
+  let settled = false;
+  const published: Array<{
+    readonly type: string;
+    readonly opId: string;
+    readonly binding: unknown;
+    readonly payload: Readonly<Record<string, unknown>>;
+  }> = [];
+  const context = {
+    input: {
+      rootDir,
+      now: () => "2026-11-05T00:00:00.000Z",
+      resultMediaType: "text/plain; charset=utf-8",
+    },
+    processes: new Map(),
+    exiting: new Set(),
+    requiredRuntimeProjection: () => ({
+      readRuntimeSessions: (query?: RuntimeSessionReadQuery) => (query?.unsettledOnly && settled ? [] : [session]),
+      readRuntimeDispatch: () => null,
+      readRuntimeSessionEvents: () => [started],
+    }),
+    publishRuntimeEvent: async (
+      type: string,
+      payload: Readonly<Record<string, unknown>>,
+      opId: string,
+      binding: unknown,
+    ) => {
+      published.push({ type, opId, binding, payload });
+      if (type === "runtime_session_outcome_observed") settled = true;
+      return {};
+    },
+    runtimeSpawnError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+  } as unknown as RuntimeSpawnerContext;
+
+  const first = await adoptRuntimes(context);
+  assert.deepEqual(
+    first.map(({ runtimeSessionId: id, dispatchId, outcome }) => [id, dispatchId, outcome]),
+    [[runtimeSessionId, null, "settled"]],
+  );
+  assert.deepEqual(
+    published.map(({ type }) => type),
+    ["runtime_session_exited", "runtime_session_outcome_observed"],
+  );
+  assert.deepEqual(published[0]?.binding, { actor: started.actor, source: "local" });
+  assert.equal(published[1]?.payload.outcome, "unknown");
+  assert.equal(published[1]?.payload.dispatchId, undefined);
+
+  const second = await adoptRuntimes(context);
+  assert.deepEqual(second, [], "a settled imported session never returns to the recovery scan");
+  assert.equal(published.length, 2, "settlement happens exactly once");
+});
+
+test("a recovered imported session still reconciles with its replayed source at a later observation stamp", () => {
+  const source = {
+      runtimeSessionId: "runtime_imported_reconcile",
+      instanceId: "codex",
+      installationId: "installation",
+      kindId: "codex",
+      definitionSnapshotRef: "artifact:runtime-definition/reconcile",
+      providerSessionId: null,
+      transcriptRef: null,
+      launchGeneration: 1,
+      liveness: "live" as const,
+      attachable: true,
+      taskBindings: [],
+      outcome: null,
+      exitCode: null,
+      resultRef: null,
+      lastObservedAt: "2026-08-24T03:06:09.253Z",
+    },
+    recovered = {
+      ...importedRuntimeSessionProjection(source),
+      lastObservedAt: "2026-11-05T00:00:00.000Z",
+    };
+  assert.equal(
+    sameImportedRuntimeSessionProjection(recovered, source),
+    true,
+    "the settlement observation stamp is not entity identity",
+  );
+  assert.equal(
+    sameImportedRuntimeSessionProjection({ ...recovered, outcome: "succeeded" }, source),
+    false,
+    "a different terminal outcome is not the replayed terminal",
   );
 });
