@@ -60,6 +60,8 @@ type ActiveRuntimeBase = Omit<
 > & {
   readonly lastProgressAtMs: number;
   readonly lastRealProgressAtMs?: number;
+  /** Canonical report restored on adoption so the next real progress can clear it. */
+  readonly providerUnreachable?: ActiveRuntime["providerUnreachable"];
   readonly providerSessionId?: string | null;
   readonly fallbackAttempt?: ActiveRuntime["fallbackAttempt"];
   readonly workspaceActivityCount?: number;
@@ -100,7 +102,7 @@ export function createActiveRuntime(base: ActiveRuntimeBase): ActiveRuntime {
     spendCapExceeded: false,
     lastProgressAtMs,
     lastRealProgressAtMs,
-    providerUnreachable: null,
+    providerUnreachable: base.providerUnreachable ?? null,
     workspaceActivityCount: base.workspaceActivityCount ?? 0,
     stalledAt: base.stalledAt ?? null,
     recordProviderProgress: null,

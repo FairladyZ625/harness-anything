@@ -16,6 +16,7 @@ import { validateAgentRuntimeOverview } from "../src/agent-runtime-contract.ts";
 import { readTaskDispatches } from "../src/dispatch-read.ts";
 import { appendRuntimeWorkerRecord, openDispatchStream, readDispatchStreamSummary } from "../src/dispatch-stream.ts";
 import { noteProviderProgress, noteProviderReconnect } from "../src/runtime-provider-connectivity.ts";
+import { createActiveRuntime } from "../src/runtime-spawn-active.ts";
 import { isStructuredSuccessResult, parseProviderFrame } from "../src/runtime-spawn-provider-frames.ts";
 import { consumeProviderLine } from "../src/runtime-spawn-provider-stream.ts";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
@@ -526,6 +527,116 @@ test("the live persisted worker-host path reports and clears without sliding the
     );
     assert.equal(published.length, 2);
     assert.equal(readDispatchStreamSummary(rootDir, dispatchId)!.lastProgressAt, recoveryAt);
+  } finally {
+    fs.rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("adoption restores an already reported fault so the first real progress clears it", async () => {
+  const now = Date.now(),
+    evidence: RuntimeProviderUnreachable = {
+      state: "provider_unreachable",
+      lastProgressAt: new Date(now - 10 * 60_000).toISOString(),
+      lastErrorAt: new Date(now - 9 * 60_000).toISOString(),
+      lastError: reconnectError,
+    },
+    // Adoption reconstructs ActiveRuntime from the canonical session; the reported fault must
+    // survive that reconstruction, otherwise the later real frame sees null and never emits the
+    // clearing `null` event.
+    active = createActiveRuntime({
+      runtimeSessionId,
+      kindId: "codex",
+      binding: {},
+      stallTimeoutMs: 5 * 60_000,
+      lastProgressAtMs: Date.parse(evidence.lastProgressAt),
+      lastRealProgressAtMs: Date.parse(evidence.lastProgressAt),
+      providerUnreachable: evidence,
+      workspaceActivityCount: 0,
+      stalledAt: null,
+    } as never),
+    published: { readonly payload: Record<string, unknown> }[] = [],
+    context = {
+      exiting: new Set<string>(),
+      publishRuntimeEvent: async (_type: string, payload: Record<string, unknown>) => {
+        published.push({ payload });
+        return {};
+      },
+    } as unknown as RuntimeSpawnerContext;
+  assert.deepEqual(active.providerUnreachable, evidence);
+  await noteProviderProgress(context, active, now);
+  assert.equal(published.length, 1);
+  assert.equal(published[0]?.payload.providerUnreachable, null);
+  assert.equal(active.providerUnreachable, null);
+});
+
+test("an old head marker does not mask a newer tail progress stamp", () => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "ha-provider-marker-order-")),
+    now = Date.now(),
+    startedAt = new Date(now - 60 * 60_000).toISOString(),
+    oldMarkerAt = new Date(now - 40 * 60_000).toISOString(),
+    newerProgressAt = new Date(now - 2 * 60_000).toISOString(),
+    padding = "m".repeat(10_000);
+  try {
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId,
+      executionId: "execution-provider-stalled",
+      runtimeSessionId,
+      instanceId: "instance-codex",
+      installationId: "installation-codex",
+      kindId: "codex",
+      startedAt,
+      stallTimeoutMs: 5 * 60_000,
+    });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, {
+      kind: "process_started",
+      occurredAt: startedAt,
+      pid: process.pid,
+    });
+    // An old daemon marker sits in the head window.
+    appendRuntimeWorkerRecord(rootDir, dispatchId, {
+      kind: "provider_progress",
+      occurredAt: oldMarkerAt,
+      lastProgressAt: oldMarkerAt,
+    });
+    // Real progress P2 lands in the middle gap, after the head window.
+    appendRuntimeWorkerRecord(rootDir, dispatchId, {
+      kind: "provider_event",
+      occurredAt: oldMarkerAt,
+      event: { type: "item.completed", item: { type: "agent_message", text: padding } },
+    });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, {
+      kind: "provider_event",
+      occurredAt: newerProgressAt,
+      event: { type: "item.completed", item: { type: "agent_message", text: "newer progress" } },
+    });
+    // No daemon marker follows; the worker host stamps every reconnect with P2 instead.
+    for (let index = 0; index < 20; index += 1) {
+      appendRuntimeWorkerRecord(rootDir, dispatchId, {
+        kind: "provider_event",
+        occurredAt: new Date(now - 90_000 + index * 1_000).toISOString(),
+        lastProgressAt: newerProgressAt,
+        event: { type: "error", message: `${reconnectError} ${padding}` },
+      });
+    }
+    const summary = readDispatchStreamSummary(rootDir, dispatchId)!;
+    assert.equal(summary.lastProgressAt, newerProgressAt);
+
+    const reads = (at: number) =>
+      makeAgentRuntimeReadModel({
+        store: { readContentBlob: () => null },
+        projection: projection(startedAt),
+        rootDir,
+        now: () => new Date(at).toISOString(),
+      });
+    // P2 is only two minutes old: the old P1 marker must not trigger the classification.
+    assert.equal(reads(now).overview({}).sessions[0]?.activity.providerUnreachable, undefined);
+    assert.deepEqual(reads(now + 4 * 60_000).overview({}).sessions[0]?.activity.providerUnreachable, {
+      state: "provider_unreachable",
+      lastProgressAt: newerProgressAt,
+      lastErrorAt: new Date(now - 90_000 + 19 * 1_000).toISOString(),
+      lastError: `${reconnectError} ${padding}`,
+    });
   } finally {
     fs.rmSync(rootDir, { recursive: true, force: true });
   }

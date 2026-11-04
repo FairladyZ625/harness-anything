@@ -341,7 +341,7 @@ export type ResumeProcessObservation = {
 
 export type RuntimeSessionSelection = Pick<
   RuntimeSession,
-  "runtimeSessionId" | "providerSessionId" | "instanceId" | "liveness" | "outcome"
+  "runtimeSessionId" | "providerSessionId" | "instanceId" | "liveness" | "outcome" | "providerUnreachable"
 >;
 
 export interface RemoteRuntimePersistence {

@@ -453,8 +453,10 @@ export function readDispatchStreamSummary(rootDir: string, dispatchId: string): 
   let lastProviderActivity: DispatchStreamActivity | null = null,
     lastProviderReconnect: DispatchProviderReconnect | null = null,
     lastProgressAt = header.startedAt,
-    lastReconnectProgressAt: string | null = null,
-    lastReconnectInTail = false,
+    // The newest exact facts may arrive in either order: an old daemon marker in the head and a
+    // newer worker-host stamp in the tail (or the reverse). Track each independently and merge by
+    // timestamp, never by "which kind exists".
+    lastReconnectProgressStamp: string | null = null,
     lastProgressMarkerAt: string | null = null,
     firstTailRecordAt: string | null = null;
   const seenOffsets = new Set<number>();
@@ -491,14 +493,15 @@ export function readDispatchStreamSummary(rootDir: string, dispatchId: string): 
           if (
             lastProviderReconnect === null ||
             Date.parse(reconnect.occurredAt) > Date.parse(lastProviderReconnect.occurredAt)
-          ) {
+          )
             lastProviderReconnect = reconnect;
-            lastReconnectProgressAt =
-              typeof record.lastProgressAt === "string" && Number.isFinite(Date.parse(record.lastProgressAt))
-                ? record.lastProgressAt
-                : null;
-            lastReconnectInTail = line.offset >= tailStart;
-          }
+          if (
+            typeof record.lastProgressAt === "string" &&
+            Number.isFinite(Date.parse(record.lastProgressAt)) &&
+            (lastReconnectProgressStamp === null ||
+              Date.parse(record.lastProgressAt) > Date.parse(lastReconnectProgressStamp))
+          )
+            lastReconnectProgressStamp = record.lastProgressAt;
         } else if (
           record &&
           typeof record.occurredAt === "string" &&
@@ -520,17 +523,21 @@ export function readDispatchStreamSummary(rootDir: string, dispatchId: string): 
       }
     }
   }
-  if (lastProgressMarkerAt !== null && Date.parse(lastProgressMarkerAt) > Date.parse(lastProgressAt))
-    lastProgressAt = lastProgressMarkerAt;
-  if (hasGap && lastProgressMarkerAt === null) {
-    // Legacy streams have no daemon marker. Prefer the progress clock stamped on the latest
-    // reconnect frame when it is in the tail; otherwise fall back to the first complete tail
-    // record. Both are conservative upper bounds on real progress, so a long reconnect flood
-    // cannot trigger the classification earlier than the true stall threshold.
-    const bound =
-      lastReconnectInTail && lastReconnectProgressAt !== null
-        ? lastReconnectProgressAt
-        : (firstTailRecordAt ?? new Date(stat.mtimeMs).toISOString());
+  const stableProgressAt =
+    lastProgressMarkerAt === null
+      ? lastReconnectProgressStamp
+      : lastReconnectProgressStamp === null
+        ? lastProgressMarkerAt
+        : Date.parse(lastProgressMarkerAt) >= Date.parse(lastReconnectProgressStamp)
+          ? lastProgressMarkerAt
+          : lastReconnectProgressStamp;
+  if (stableProgressAt !== null && Date.parse(stableProgressAt) > Date.parse(lastProgressAt))
+    lastProgressAt = stableProgressAt;
+  if (hasGap && stableProgressAt === null) {
+    // Legacy streams carry neither a daemon marker nor a worker-host stamp. Fall back to the
+    // first complete tail record: a conservative upper bound on real progress, so a long
+    // reconnect flood cannot trigger the classification earlier than the true stall threshold.
+    const bound = firstTailRecordAt ?? new Date(stat.mtimeMs).toISOString();
     if (Number.isFinite(Date.parse(bound)) && Date.parse(bound) > Date.parse(lastProgressAt)) lastProgressAt = bound;
   }
   const value = summarizeDispatch(
