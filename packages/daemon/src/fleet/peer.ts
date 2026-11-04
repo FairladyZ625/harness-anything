@@ -174,6 +174,8 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
     closed ??= new Error("replication connection closed");
     for (const waiter of waiters.splice(0)) waiter.reject(closed);
   });
+  const abortConnection = () => socket.destroy(signal.reason);
+  signal.addEventListener("abort", abortConnection, { once: true });
   const failReplicationSession = (error: unknown): void => {
     const failure = error instanceof Error ? error : new Error(String(error));
     if (!closed) {
@@ -393,6 +395,7 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
     });
     throw new Error("replication stream ended");
   } finally {
+    signal.removeEventListener("abort", abortConnection);
     await opened?.close();
     await failureReport;
     socket.destroy();

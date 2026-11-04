@@ -5,10 +5,17 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createServer, type TLSSocket } from "node:tls";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import { runFleetReplicaStream } from "../src/fleet/peer.ts";
 
 test("a replica stopped during token resolution never enters the session handshake", async (t) => {
+  await cancellationAt(t, "token");
+});
+test("a replica stopped while awaiting session.ready releases its connection", { timeout: 10_000 }, async (t) => {
+  await cancellationAt(t, "handshake");
+});
+
+async function cancellationAt(t: TestContext, phase: "token" | "handshake"): Promise<void> {
   const root = mkdtempSync(path.join(tmpdir(), "ha-replica-handshake-")),
     keyFile = path.join(root, "key.pem"),
     certFile = path.join(root, "cert.pem");
@@ -63,7 +70,7 @@ test("a replica stopped during token resolution never enters the session handsha
       signal: controller.signal,
       readAccessToken: async () => {
         tokenReads++;
-        controller.abort(stopped);
+        if (phase === "token") controller.abort(stopped);
         return "fixture-token";
       },
     }).then(
@@ -73,14 +80,19 @@ test("a replica stopped during token resolution never enters the session handsha
         return "stopped" as const;
       },
     );
-  try {
-    assert.equal(await Promise.race([running, hello.promise]), "stopped");
-    assert.equal(tokenReads, 1, "the stream reached the asynchronous token boundary");
-    assert.equal(terminalError, stopped, "cancellation preserves its original reason");
-  } finally {
+  t.after(async () => {
     controller.abort(stopped);
     for (const socket of sockets) socket.destroy();
     await new Promise<void>((resolve) => server.close(() => resolve()));
     await running;
+  });
+  if (phase === "handshake") {
+    await hello.promise;
+    controller.abort(stopped);
+    assert.equal(await running, "stopped");
+  } else {
+    assert.equal(await Promise.race([running, hello.promise]), "stopped");
   }
-});
+  assert.equal(tokenReads, 1, "the stream reached the asynchronous token boundary");
+  assert.equal(terminalError, stopped, "cancellation preserves its original reason");
+}
