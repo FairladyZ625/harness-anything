@@ -430,12 +430,12 @@ export function readRuntimeSessionPage(db: DatabaseSync, query: RuntimeSessionPa
           "SELECT runtime_session.value_json FROM runtime_session_task_binding",
           "JOIN runtime_session USING(runtime_session_id)",
           "WHERE runtime_session_task_binding.task_id = ?",
-          ...(after === undefined ? [] : ["AND runtime_session.runtime_session_id > ?"]),
-          "GROUP BY runtime_session.runtime_session_id ORDER BY runtime_session.runtime_session_id LIMIT ?",
+          ...(after === undefined ? [] : ["AND runtime_session_task_binding.runtime_session_id > ?"]),
+          "GROUP BY runtime_session_task_binding.runtime_session_id ORDER BY runtime_session_task_binding.runtime_session_id LIMIT ?",
         ].join(" "),
         taskId,
         ...(after === undefined ? [] : [after]),
-        query.limit,
+        query.limit + 1,
       )
     : queryRows(
         db,
@@ -445,11 +445,15 @@ export function readRuntimeSessionPage(db: DatabaseSync, query: RuntimeSessionPa
           "ORDER BY runtime_session_id LIMIT ?",
         ].join(" "),
         ...(after === undefined ? [] : [after]),
-        query.limit,
+        query.limit + 1,
       );
-  const sessions = rows.map((row) => JSON.parse(String(row.value_json)) as RuntimeSession),
+  const sessions = rows.slice(0, query.limit).map((row) => JSON.parse(String(row.value_json)) as RuntimeSession),
     lastId = sessions.at(-1)?.runtimeSessionId;
   if (lastId === undefined) return { rows: sessions, nextRuntimeSessionId: null, remainingCount: 0 };
+  if (query.includeRemainingCount !== true) {
+    const hasMore = rows.length > query.limit;
+    return { rows: sessions, nextRuntimeSessionId: hasMore ? lastId : null, remainingCount: hasMore ? null : 0 };
+  }
   const countRow = taskId
     ? queryRows(
         db,

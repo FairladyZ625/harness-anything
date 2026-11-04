@@ -1,3 +1,9 @@
+import {
+  SQLITE_DECLARATION_INDEX_DDL,
+  applySqliteDeclarationIndex,
+  backfillSqliteDeclarationIndex,
+  readSqliteEntityDeclarations,
+} from "./sqlite-entity-declarations.ts";
 import type {
   SqliteWriterFence,
   SqliteLedgerMetadata,
@@ -300,7 +306,10 @@ function openSqliteEventStoreInternal(
       backfillDocumentHeads(query, iterate, options.onOpenProgress);
       backfillEventQueryRefs(query, iterate, options.onOpenProgress);
     });
-  if (!options.readOnly) ensureEventQueryIndexes(query);
+  if (!options.readOnly) {
+    backfillSqliteDeclarationIndex(query, transaction);
+    ensureEventQueryIndexes(query);
+  }
   // All lease mutations share the store's transaction and the same repository ownership boundary.
   const persistWriterLease = (fence: SqliteWriterFence | null): void => {
     /* @gate-identity check-bypass-write-boundary/bypass-write-122 */ db.prepare(
@@ -581,6 +590,7 @@ function openSqliteEventStoreInternal(
           );
       }),
     queryEvents: (input) => queryEvents(query, input),
+    readEntityDeclarations: (input) => transaction(() => readSqliteEntityDeclarations(query, input), true),
     close: registerLedgerClose(databasePath, db),
   };
 }
@@ -689,6 +699,7 @@ function createSchema(db: DatabaseSync, query: SqliteQuery, repoId: string, gene
       PRIMARY KEY(task_id, execution_id, acquired_revision)
     ) STRICT;
     ${REPLICATION_LOG_SQL}
+    ${SQLITE_DECLARATION_INDEX_DDL}
   `);
   /* @gate-identity check-bypass-write-boundary/bypass-write-115 */ db.prepare(
     "INSERT OR IGNORE INTO ledger_meta(singleton, repo_id, generation, revision) " + "VALUES (1, ?, ?, 0)",
@@ -830,6 +841,7 @@ function updateDocumentHeadWatermark(query: SqliteQuery, revision: number): void
   );
 }
 function applyEventQueryRefs(query: SqliteQuery, event: CanonicalEventV1, updateWatermark = true): void {
+  if (updateWatermark) applySqliteDeclarationIndex(query, event);
   for (const ref of canonicalEventEntityRefs(event))
     query("INSERT OR IGNORE INTO event_query_entity(revision, ref, entity_id) VALUES (?, ?, ?)", [
       event.workspaceRevision,

@@ -80,6 +80,10 @@ export interface SqliteLedgerReconciliation {
   };
 }
 export interface SqliteEventStore {
+  readonly readEntityDeclarations: NonNullable<
+    import("@harness-anything/kernel/internal/ports/task-event-store.ts").CanonicalEventStore["readEntityDeclarations"]
+  >;
+
   readonly replicationPosition: () => ReplicationPosition;
   readonly pruneReplicationLog: (throughSequence: number) => void;
   readonly replicationCommits: (

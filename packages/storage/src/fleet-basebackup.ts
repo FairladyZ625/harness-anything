@@ -2,6 +2,7 @@ import { Worker } from "node:worker_threads";
 import { tracingChannel } from "node:diagnostics_channel";
 import path from "node:path";
 import type { ReplicationPosition } from "./store/replication-log.ts";
+import { prepareStorageWorkerContext } from "./storage-worker-context.ts";
 
 export interface BaseBackupMetadata {
   readonly schema: "fleet-basebackup/v3";
@@ -25,7 +26,9 @@ export interface SqliteBaseBackupInput {
 }
 export interface PostgresBaseBackupInput {
   readonly readerProfile?: BaseBackupMetadata["readerProfile"];
-  readonly storage: import("./storage-backend.ts").PostgresStorageBackendConfig;
+  readonly storage:
+    | import("./storage-backend.ts").PostgresStorageBackendConfig
+    | import("./storage-backend.ts").PGliteStorageBackendConfig;
   readonly repoId: string;
   readonly directory: string;
 }
@@ -52,10 +55,12 @@ export function startBaseBackup(
   // Handlers and captured state exist before the worker can report its first message.
   return new Promise((resolve, reject) => {
     signal?.throwIfAborted();
+    const context = "storage" in input ? prepareStorageWorkerContext(input.storage, input.repoId) : undefined;
     const worker = new Worker(
       new URL(`./fleet-basebackup-worker${path.extname(import.meta.filename)}`, import.meta.url),
       {
-        workerData: input,
+        workerData: { ...input, storageContext: context?.context },
+        transferList: context?.transferList,
       },
     );
     fleetBaseBackupTrace.start.publish(trace);
@@ -86,6 +91,7 @@ export function startBaseBackup(
     );
     worker.on("error", fail);
     worker.on("exit", (code) => {
+      context?.close();
       fleetBaseBackupTrace.end.publish(trace);
       signal?.removeEventListener("abort", abort);
       if (!completed) fail(new Error(`base backup worker exited before completion (${code})`));

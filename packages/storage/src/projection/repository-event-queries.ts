@@ -1,3 +1,6 @@
+import { assertRuntimeMemberIndexReady } from "./runtime-member-index.ts";
+import { prefixUpperBound } from "./document-read-range.ts";
+import { checkedPageLimit } from "./task-query-projection.ts";
 import { readArtifactEntityState } from "./artifact-entity-state-projection.ts";
 import { readEventList } from "./event-list-query.ts";
 import {
@@ -78,27 +81,23 @@ const RUNTIME_DISPATCHES_BY_MEMBER_SQL = (member: "agentId" | "squadId") =>
 // Full-history ingredients for the member's task-group totals: one row per session the member
 // dispatched, carrying its distinct bindings and the latest member dispatch's decision target.
 // The single grouping normalization lives in the daemon; this query only selects raw ingredients.
-const RUNTIME_DISPATCH_MEMBER_SESSIONS_SQL = (member: "agentId" | "squadId") =>
-  [
-    "SELECT d.runtime_session_id AS runtimeSessionId, d.decision_id AS latestDecisionId,",
-    "(SELECT group_concat(DISTINCT b.task_id) FROM runtime_session_task_binding b",
-    "WHERE b.runtime_session_id = d.runtime_session_id) AS taskIds",
-    "FROM (",
-    "SELECT json_extract(event_json, '$.payload.runtimeSessionId') AS runtime_session_id,",
-    "CASE WHEN json_extract(event_json, '$.payload.reviewTarget.kind') = 'decision'",
-    "THEN json_extract(event_json, '$.payload.reviewTarget.decisionId') END AS decision_id,",
-    "ROW_NUMBER() OVER (PARTITION BY json_extract(event_json, '$.payload.runtimeSessionId')",
-    "ORDER BY COALESCE(json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.occurredAt')) DESC,",
-    "json_extract(event_json, '$.payload.dispatchId') DESC) AS member_session_rank",
-    "FROM event_index",
-    "WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
-    "AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'",
-    `AND json_extract(event_json, '$.payload.${member}') = ?`,
-    ") d",
-    "JOIN runtime_session s ON s.runtime_session_id = d.runtime_session_id",
-    "WHERE d.member_session_rank = 1",
-    "ORDER BY d.runtime_session_id",
-  ].join(" ");
+const RUNTIME_DISPATCH_MEMBER_SESSIONS_SQL = (member: "agentId" | "squadId") => {
+  const session = "json_extract(event_json, '$.payload.runtimeSessionId')",
+    candidate = (after: boolean) => `SELECT workspace_revision FROM event_index
+      WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
+      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'
+      AND json_extract(event_json, '$.payload.${member}') = ? AND runtime_session_present=1
+      ${after ? `AND ${session} > (SELECT ${session} FROM event_index WHERE workspace_revision=latest.revision)` : ""}
+      ORDER BY ${session}, COALESCE(json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.occurredAt')) DESC,
+        json_extract(event_json, '$.payload.dispatchId') DESC LIMIT 1`;
+  return `WITH RECURSIVE latest(revision) AS (
+    SELECT (${candidate(false)}) UNION ALL SELECT (${candidate(true)}) FROM latest WHERE revision IS NOT NULL
+  ) SELECT json_extract(d.event_json, '$.payload.runtimeSessionId') AS runtimeSessionId,
+    CASE WHEN json_extract(d.event_json, '$.payload.reviewTarget.kind')='decision' THEN json_extract(d.event_json, '$.payload.reviewTarget.decisionId') END AS latestDecisionId,
+    (SELECT group_concat(DISTINCT b.task_id) FROM runtime_session_task_binding b
+      WHERE b.runtime_session_id=json_extract(d.event_json, '$.payload.runtimeSessionId')) AS taskIds
+  FROM latest CROSS JOIN event_index d ON d.workspace_revision=latest.revision ORDER BY runtimeSessionId`;
+};
 const RUNTIME_DISPATCH_PAGE_SQL = [
   "SELECT event_json FROM event_index",
   "WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
@@ -165,7 +164,18 @@ export function repositoryEventQueries(
   return {
     readArtifactEntityState: (kind, id) => withRead((db) => readArtifactEntityState(db, kind, id)),
     readEventList: (query) => withRead((db) => readEventList(db, query)),
-    readDocuments: (prefix) => withRead((db, cut) => ({ ...cut, documents: readDocumentRows(db, prefix) })),
+    readDocuments: (prefix, page) =>
+      withRead((db, cut) => {
+        const rows = readDocumentRows(db, prefix, page),
+          selected = page === undefined ? rows : rows.slice(0, page.limit);
+        return {
+          ...cut,
+          documents: selected,
+          ...(page === undefined
+            ? {}
+            : { page: { nextPath: rows.length > page.limit ? selected.at(-1)!.path : null } }),
+        };
+      }),
     readEventWitness: (revision) =>
       withRead((db) => {
         const row = queryRow(db, "SELECT witness_json FROM event_summary WHERE workspace_revision = ?", revision);
@@ -337,6 +347,7 @@ export function repositoryEventQueries(
           throw new Error("runtime dispatch member page requires exactly one of agentId or squadId");
         if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500)
           throw new Error("runtime dispatch member page requires a limit from 1 to 500");
+        assertRuntimeMemberIndexReady(db);
         const member: "agentId" | "squadId" = agentId === undefined ? "squadId" : "agentId",
           value = agentId ?? squadId!,
           raw = queryRows(db, RUNTIME_DISPATCHES_BY_MEMBER_SQL(member), value, limit + 1),
@@ -348,7 +359,7 @@ export function repositoryEventQueries(
                 isAgentRuntimeEvent(event) && event.type === "runtime_dispatch_requested",
             )
             .map(publicRuntimeDispatch),
-          sessions = queryRows(db, RUNTIME_DISPATCH_MEMBER_SESSIONS_SQL(member), value).map(
+          sessions = queryRows(db, RUNTIME_DISPATCH_MEMBER_SESSIONS_SQL(member), value, value).map(
             (row): RuntimeDispatchMemberSession => ({
               runtimeSessionId: String(row.runtimeSessionId),
               taskIds: String(row.taskIds ?? "")
@@ -430,15 +441,23 @@ function projectedDispatch(
 }
 
 /** Document descriptors at this cut, shared by replica publication and repository document lists. */
-export function readDocumentRows(db: DatabaseSync, prefix: string) {
+export function readDocumentRows(
+  db: DatabaseSync,
+  prefix: string,
+  page?: { readonly limit: number; readonly afterPath?: string },
+) {
+  const upper = prefixUpperBound(prefix),
+    values: (string | number)[] = [prefix, ...(upper === null ? [] : [upper])],
+    afterPredicate = page?.afterPath === undefined ? "" : "AND path > ?";
+  if (page?.afterPath !== undefined) values.push(page.afterPath);
+  if (page !== undefined) values.push(checkedPageLimit(page.limit) + 1);
   return queryRows(
     db,
     "SELECT path, json_extract(value_json, '$.blobSha256') AS blob_sha256, " +
       "json_extract(value_json, '$.size') AS size, json_extract(value_json, '$.mediaType') AS media_type, " +
       "json_extract(value_json, '$.policyId') AS policy_id " +
-      "FROM document WHERE substr(path, 1, length(?)) = ? ORDER BY path",
-    prefix,
-    prefix,
+      `FROM document WHERE path >= ? ${upper === null ? "" : "AND path < ?"} ${afterPredicate} ORDER BY path ${page === undefined ? "" : "LIMIT ?"}`,
+    ...values,
   ).map((row) => ({
     path: String(row.path),
     blobSha256: String(row.blob_sha256),

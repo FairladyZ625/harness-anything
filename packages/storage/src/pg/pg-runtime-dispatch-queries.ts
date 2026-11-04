@@ -1,3 +1,5 @@
+import { assertPgEventReadIndexReady } from "./pg-event-read-index-migration.ts";
+import { prefixUpperBound } from "../projection/document-read-range.ts";
 import type { PoolClient } from "pg";
 import type {
   AgentRuntimeEventV1,
@@ -46,13 +48,14 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
     order = "ha_events.revision",
     limit?: number,
   ): Promise<Dispatch[]> => {
+    await assertPgEventReadIndexReady(client, scope, repoId);
     const parameters = [scope.tenantId, scope.projectId, repoId, scope.policyEpoch, readers, ...values];
     if (limit !== undefined) parameters.push(limit);
     const result = await client.query<{ event_json: string }>(
       `SELECT event_json FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND policy_epoch=$4
        AND (cardinality($5::text[])=0 OR readers && $5::text[])
        AND revision <= (SELECT watermark FROM ha_projection_meta WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$4 AND projection_name='task/v1')
-       AND event_json::jsonb->>'schema'='agent-runtime-event/v1' AND event_type='runtime_dispatch_requested'
+       AND event_schema='agent-runtime-event/v1' AND event_type='runtime_dispatch_requested'
        AND ${predicate} ORDER BY ${order}${limit === undefined ? "" : ` LIMIT $${parameters.length}`}`,
       parameters,
     );
@@ -63,7 +66,7 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
       `SELECT event_json FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND policy_epoch=$4
        AND (cardinality($5::text[])=0 OR readers && $5::text[]) AND event_type='runtime_session_outcome_observed'
        AND revision <= (SELECT watermark FROM ha_projection_meta WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$4 AND projection_name='task/v1')
-       AND event_json::jsonb->>'schema'='agent-runtime-event/v1' AND event_json::jsonb#>>'{payload,dispatchId}'=$6
+       AND event_schema='agent-runtime-event/v1' AND dispatch_id=$6
        ORDER BY ha_events.revision DESC LIMIT 1`,
       [scope.tenantId, scope.projectId, repoId, scope.policyEpoch, readers, event.payload.dispatchId],
     );
@@ -80,11 +83,18 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
       outcome: outcome?.payload.outcome ?? null,
     };
   };
-  const byField = (field: string, value: string, first: boolean) =>
+  const dispatchFields = {
+    dispatchId: "dispatch_id",
+    resumedFromDispatchId: "resumed_from_dispatch_id",
+    runtimeSessionId: "runtime_session_id",
+    attemptGroupId: "attempt_group_id",
+    "reviewTarget,decisionId": "review_decision_id",
+  } as const;
+  const byField = (field: keyof typeof dispatchFields, value: string, first: boolean) =>
     transaction(async (client) => {
       const rows = await readDispatchRows(
         client,
-        `event_json::jsonb#>>'{payload,${field}}'=$6`,
+        `${dispatchFields[field]}=$6`,
         [value],
         "ha_events.revision",
         first ? 1 : undefined,
@@ -96,7 +106,7 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
       transaction(async (client) => {
         const rows = await readDispatchRows(
           client,
-          `event_json::jsonb#>>'{payload,runtimeSessionId}'=$6${definitionSnapshotRef === undefined ? "" : " AND event_json::jsonb#>>'{payload,definitionSnapshotRef}'=$7"}`,
+          `runtime_session_id=$6${definitionSnapshotRef === undefined ? "" : " AND definition_snapshot_ref=$7"}`,
           definitionSnapshotRef === undefined ? [sessionId] : [sessionId, definitionSnapshotRef],
           "ha_events.revision",
           1,
@@ -108,10 +118,10 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
       transaction(async (client) => {
         const [event] = await readDispatchRows(
           client,
-          `revision = (SELECT min(workspace_revision) FROM ha_projection_values
+          `revision = (SELECT workspace_revision FROM ha_projection_values
             WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$4
               AND model='runtime-dispatch-key' AND entity_id=$6
-              AND (cardinality($5::text[])=0 OR readers && $5::text[]))`,
+              AND (cardinality($5::text[])=0 OR readers && $5::text[]) ORDER BY workspace_revision LIMIT 1)`,
           [key],
           "ha_events.revision",
           1,
@@ -122,9 +132,7 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
     readRuntimeDispatchesBySession: (id) => byField("runtimeSessionId", id, false),
     readRuntimeDispatchEventsBySession: (id) =>
       transaction(async (client) =>
-        (await readDispatchRows(client, "event_json::jsonb#>>'{payload,runtimeSessionId}'=$6", [id])).map(
-          publicRuntimeDispatch,
-        ),
+        (await readDispatchRows(client, "runtime_session_id=$6", [id])).map(publicRuntimeDispatch),
       ),
     readRuntimeDispatchesByTaskIds: (taskIds) =>
       transaction(async (client) => {
@@ -136,9 +144,9 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
           new Set(taskIds).size !== taskIds.length
         )
           throw new Error("runtime dispatch task read requires 1..500 unique task ids");
-        return (
-          await readDispatchRows(client, "event_json::jsonb#>>'{payload,taskId}' = ANY($6::text[])", [taskIds])
-        ).map(publicRuntimeDispatch);
+        return (await readDispatchRows(client, "payload_task_id = ANY($6::text[])", [taskIds])).map(
+          publicRuntimeDispatch,
+        );
       }),
     readRuntimeDispatchByDispatchIdPrefix: (prefix, limit) =>
       transaction(async (client) => {
@@ -146,23 +154,25 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
           throw new Error("runtime dispatch id prefix requires a non-empty prefix");
         if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500)
           throw new Error("runtime dispatch id prefix limit must be from 1 to 500");
+        const upper = prefixUpperBound(prefix);
         const rows = await readDispatchRows(
           client,
-          "event_json::jsonb#>>'{payload,dispatchId}'>=$6 AND event_json::jsonb#>>'{payload,dispatchId}'<$7",
-          [prefix, `${prefix}\uFFFF`],
-          "event_json::jsonb#>>'{payload,dispatchId}'",
+          `dispatch_id >= $6${upper === null ? "" : " AND dispatch_id < $7"}`,
+          [prefix, ...(upper === null ? [] : [upper])],
+          "dispatch_id",
           limit,
         );
         return Promise.all(rows.map((event) => projected(client, event)));
       }),
     countRuntimeDispatchesByAgent: (agentId) =>
       transaction(async (client) => {
+        await assertPgEventReadIndexReady(client, scope, repoId);
         const result = await client.query<{ count: string }>(
           `SELECT count(*) AS count FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND policy_epoch=$4
            AND (cardinality($5::text[])=0 OR readers && $5::text[])
            AND revision <= (SELECT watermark FROM ha_projection_meta WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$4 AND projection_name='task/v1')
-           AND event_json::jsonb->>'schema'='agent-runtime-event/v1' AND event_type='runtime_dispatch_requested'
-           AND event_json::jsonb#>>'{payload,agentId}'=$6`,
+           AND event_schema='agent-runtime-event/v1' AND event_type='runtime_dispatch_requested'
+           AND agent_id=$6`,
           [scope.tenantId, scope.projectId, repoId, scope.policyEpoch, readers, agentId],
         );
         return Number(result.rows[0]?.count ?? 0);
@@ -171,11 +181,10 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
     readRuntimeDispatchesByDecision: (id) => byField("reviewTarget,decisionId", id, false),
     readRuntimeDispatchesByTaskExecution: (taskId, executionId) =>
       transaction(async (client) => {
-        const rows = await readDispatchRows(
-          client,
-          "event_json::jsonb#>>'{payload,taskId}'=$6 AND event_json::jsonb#>>'{payload,executionId}'=$7",
-          [taskId, executionId],
-        );
+        const rows = await readDispatchRows(client, "payload_task_id=$6 AND payload_execution_id=$7", [
+          taskId,
+          executionId,
+        ]);
         return Promise.all(rows.map((event) => projected(client, event)));
       }),
     readRuntimeDispatchesByMember: ({ agentId, squadId, limit }) =>
@@ -184,24 +193,30 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
           throw new Error("runtime dispatch member page requires exactly one of agentId or squadId");
         if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500)
           throw new Error("runtime dispatch member page requires a limit from 1 to 500");
-        const field = agentId === undefined ? "squadId" : "agentId",
+        const field = agentId === undefined ? "squad_id" : "agent_id",
           value = agentId ?? squadId!,
           raw = await readDispatchRows(
             client,
-            `event_json::jsonb#>>'{payload,${field}}'=$6`,
+            `${field}=$6`,
             [value],
-            "COALESCE(event_json::jsonb#>>'{payload,startedAt}',event_json::jsonb->>'occurredAt') DESC,event_json::jsonb#>>'{payload,dispatchId}' DESC",
+            "dispatch_activity_at DESC,dispatch_id DESC",
             limit + 1,
           ),
+          candidate = (after: boolean) => `SELECT d.event_json,p.value AS session,d.runtime_session_id
+            FROM ha_events d JOIN ha_projection_values p ON p.tenant_id=d.tenant_id AND p.project_id=d.project_id
+              AND p.policy_epoch=d.policy_epoch AND p.model='runtime-session' AND p.owner_id='' AND p.entity_id=d.runtime_session_id COLLATE "default"
+            WHERE d.tenant_id=$1 AND d.project_id=$2 AND d.repo_id=$3 AND d.policy_epoch=$4
+              AND d.revision <= (SELECT watermark FROM ha_projection_meta WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$4 AND projection_name='task/v1')
+              AND (cardinality($5::text[])=0 OR (d.readers && $5::text[] AND p.readers && $5::text[]))
+              AND d.event_schema='agent-runtime-event/v1' AND d.event_type='runtime_dispatch_requested' AND d.runtime_session_present AND d.${field}=$6
+              ${after ? "AND d.runtime_session_id > previous.runtime_session_id" : ""}
+            ORDER BY d.runtime_session_id,d.dispatch_activity_at DESC,d.dispatch_id DESC LIMIT 1`,
+          // One index seek per distinct session; the lateral query returning no row ends the recursion.
+          // https://wiki.postgresql.org/wiki/Loose_indexscan
           sessions = await client.query<{ event_json: string; session: string }>(
-            `SELECT DISTINCT ON (d.event_json::jsonb#>>'{payload,runtimeSessionId}') d.event_json, p.value AS session
-           FROM ha_events d JOIN ha_projection_values p ON p.tenant_id=d.tenant_id AND p.project_id=d.project_id AND p.policy_epoch=d.policy_epoch
-             AND p.model='runtime-session' AND p.entity_id=d.event_json::jsonb#>>'{payload,runtimeSessionId}'
-           WHERE d.tenant_id=$1 AND d.project_id=$2 AND d.repo_id=$3 AND d.policy_epoch=$4
-             AND d.revision <= (SELECT watermark FROM ha_projection_meta WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$4 AND projection_name='task/v1')
-             AND (cardinality($5::text[])=0 OR (d.readers && $5::text[] AND p.readers && $5::text[]))
-             AND d.event_type='runtime_dispatch_requested' AND d.event_json::jsonb#>>'{payload,${field}}'=$6
-           ORDER BY d.event_json::jsonb#>>'{payload,runtimeSessionId}',COALESCE(d.event_json::jsonb#>>'{payload,startedAt}',d.event_json::jsonb->>'occurredAt') DESC,d.event_json::jsonb#>>'{payload,dispatchId}' DESC`,
+            `WITH RECURSIVE latest AS ((${candidate(false)}) UNION ALL
+              SELECT next.* FROM latest previous CROSS JOIN LATERAL (${candidate(true)}) next)
+              SELECT event_json,session FROM latest ORDER BY runtime_session_id`,
             [scope.tenantId, scope.projectId, repoId, scope.policyEpoch, readers, value],
           );
         return {
@@ -225,9 +240,9 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
           throw new Error("runtime dispatch page requires a limit from 1 to 500");
         const rows = await readDispatchRows(
           client,
-          "event_json::jsonb#>>'{payload,startedAt}'>=$6 AND (event_json::jsonb#>>'{payload,startedAt}',event_json::jsonb#>>'{payload,dispatchId}')>($7::text,$8::text)",
+          "dispatch_started_at>=$6 AND (dispatch_started_at,dispatch_id)>($7::text,$8::text)",
           [startedAtGte, cursor?.startedAt ?? "", cursor?.dispatchId ?? ""],
-          "event_json::jsonb#>>'{payload,startedAt}', event_json::jsonb#>>'{payload,dispatchId}'",
+          "dispatch_started_at, dispatch_id",
           limit + 1,
         );
         const selected = rows.slice(0, limit),

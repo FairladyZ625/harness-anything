@@ -65,11 +65,14 @@ export interface RuntimeSessionPageQuery {
   readonly taskId?: string;
   readonly limit: number;
   readonly afterRuntimeSessionId?: string;
+  /** Explicit compatibility request: exact totals scan the remaining matching set. */
+  readonly includeRemainingCount?: boolean;
 }
 export interface RuntimeSessionPageRead {
   readonly rows: readonly RuntimeSession[];
   readonly nextRuntimeSessionId: string | null;
-  readonly remainingCount: number;
+  /** Null when another page exists and an exact count was not requested; zero at the end. */
+  readonly remainingCount: number | null;
 }
 
 export interface SquadRunProjectionRow {
@@ -251,7 +254,10 @@ export interface TaskProjection {
   readonly readEventWitness: (
     revision: number,
   ) => Pick<CanonicalEventV1, "workspaceRevision" | "occurredAt" | "actor" | "source"> | null;
-  readonly readDocuments: (prefix: string) => {
+  readonly readDocuments: (
+    prefix: string,
+    page?: { readonly limit: number; readonly afterPath?: string },
+  ) => {
     readonly status: "ready" | "pending";
     readonly documents: readonly {
       readonly path: string;
@@ -260,6 +266,8 @@ export interface TaskProjection {
       readonly mediaType: string;
       readonly policyId: string | null;
     }[];
+    /** Present for an explicit keyset read; null is the authoritative end signal. */
+    readonly page?: { readonly nextPath: string | null };
     readonly watermark: number;
     readonly sourceRevision: number;
   };

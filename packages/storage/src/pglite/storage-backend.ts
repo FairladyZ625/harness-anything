@@ -24,7 +24,7 @@ export async function createPGliteStorageBackend(options: PGliteStorageBackendOp
   const scope = resolvePostgresEventStoreScope(options.storage.scope),
     storage = createPGliteStorage({ dataDir: options.storage.dataDir, pglite: options.pglite });
   try {
-    await initializeSchema(storage.pool, scope);
+    await initializeSchema(storage.pool, scope, options.repoId);
     return {
       ...createPgStorageBackend({
         pool: storage.pool,
@@ -46,7 +46,11 @@ export async function createPGliteStorageBackend(options: PGliteStorageBackendOp
   }
 }
 
-async function initializeSchema(pool: PGliteStorage["pool"], scope: PostgresScopeClaims): Promise<void> {
+async function initializeSchema(
+  pool: PGliteStorage["pool"],
+  scope: PostgresScopeClaims,
+  repoId: string,
+): Promise<void> {
   await withPostgresTransaction(pool, async (client) => {
     for (const statement of POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS) {
       if (statement.startsWith("CREATE POLICY ")) await ensurePolicy(client, statement, POSTGRES_EVENT_LEDGER_TABLES);
@@ -54,6 +58,37 @@ async function initializeSchema(pool: PGliteStorage["pool"], scope: PostgresScop
     }
     await ensurePgProjectionSchema(client);
   });
+  // Commit each bounded expansion page before admitting readers of this embedded scope.
+  for (;;) {
+    const processed = await withPostgresTransaction(
+      pool,
+      async (client) =>
+        (
+          await client.query<{ processed: number }>(
+            "SELECT ha_backfill_projection_read_indexes($1,$2,$3) AS processed",
+            [scope.tenantId, scope.projectId, scope.policyEpoch],
+          )
+        ).rows[0]!.processed,
+      scope,
+    );
+    if (processed === 0) break;
+  }
+  for (;;) {
+    const processed = await withPostgresTransaction(
+      pool,
+      async (client) =>
+        (
+          await client.query<{ processed: number }>("SELECT ha_backfill_event_read_indexes($1,$2,$3,$4) AS processed", [
+            scope.tenantId,
+            scope.projectId,
+            scope.policyEpoch,
+            repoId,
+          ])
+        ).rows[0]!.processed,
+      scope,
+    );
+    if (processed === 0) break;
+  }
   // Embedded storage owns its schema: finish the dated v5 expansion before exposing this scope.
   // Each committed primary-key page advances; processed=0, rather than the cursor, ends the scan.
   let owner = "",

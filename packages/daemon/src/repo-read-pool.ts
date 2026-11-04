@@ -1,3 +1,8 @@
+import {
+  prepareStorageWorkerContext,
+  requiresStorageWorkerContext,
+  type StorageWorkerContext,
+} from "@harness-anything/storage";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { Worker } from "node:worker_threads";
@@ -21,7 +26,8 @@ export type RepoReadWorkerFactory = (
   url: URL,
   options: {
     readonly execArgv: string[];
-    readonly workerData: {
+    readonly transferList?: import("node:worker_threads").MessagePort[];
+    readonly workerData: { readonly storageContext?: StorageWorkerContext } & {
       readonly schema: string;
       readonly protocolVersion: number;
       readonly role: "reader";
@@ -37,11 +43,18 @@ type Job = {
   readonly reject: (error: Error) => void;
   readonly settled: () => void;
 };
-type Slot = { worker: Worker | null; job: Job | null; owner: object | null; stopping: Promise<void> | null };
+type Slot = {
+  worker: Worker | null;
+  job: Job | null;
+  owner: object | null;
+  contextOwner: object | null;
+  stopping: Promise<void> | null;
+};
 const slots: Slot[] = Array.from({ length: REPO_READ_WORKERS }, () => ({
   worker: null,
   job: null,
   owner: null,
+  contextOwner: null,
   stopping: null,
 }));
 const queue: Job[] = [];
@@ -135,25 +148,49 @@ function pump(): void {
   for (const slot of slots) {
     if (slot.job || slot.stopping || queue.length === 0) continue;
     const job = queue.shift()!;
+    if (
+      slot.worker &&
+      slot.owner !== job.owner &&
+      (slot.contextOwner !== null ||
+        requiresStorageWorkerContext((job.request.payload as RepoReadPayload).config.storage))
+    ) {
+      queue.unshift(job);
+      void stop(slot);
+      continue;
+    }
     slot.job = job;
     slot.owner = job.owner;
     void Promise.resolve()
       .then(() => {
         if (!slot.worker) {
-          const worker = (job.createWorker ?? ((url, options) => new Worker(url, options)))(
-            new URL(`./repo-writer-worker${path.extname(import.meta.filename)}`, import.meta.url),
-            {
-              workerData: {
-                schema: "harness-repo-writer-bootstrap/v1",
-                protocolVersion: REPO_WRITER_PROTOCOL_VERSION,
-                role: "reader",
-                config: { ...(job.request.payload as RepoReadPayload).config, ownerId: "repository-reader" },
+          const config = (job.request.payload as RepoReadPayload).config,
+            context = prepareStorageWorkerContext(config.storage, config.repoId);
+          let worker: Worker;
+          try {
+            worker = (job.createWorker ?? ((url, options) => new Worker(url, options)))(
+              new URL(`./repo-writer-worker${path.extname(import.meta.filename)}`, import.meta.url),
+              {
+                workerData: {
+                  storageContext: context.context,
+                  schema: "harness-repo-writer-bootstrap/v1",
+                  protocolVersion: REPO_WRITER_PROTOCOL_VERSION,
+                  role: "reader",
+                  config: { ...(job.request.payload as RepoReadPayload).config, ownerId: "repository-reader" },
+                },
+                transferList: context.transferList,
+                execArgv: process.execArgv.filter(
+                  (arg) => arg === "--experimental-strip-types" || arg === "--enable-source-maps",
+                ),
               },
-              execArgv: process.execArgv.filter(
-                (arg) => arg === "--experimental-strip-types" || arg === "--enable-source-maps",
-              ),
-            },
-          );
+            );
+          } catch (error) {
+            context.close();
+            throw error;
+          }
+          worker.once("exit", context.close);
+          // Only transferred physical capabilities bind a worker to its creating client.
+          // Other readers already close/reopen their query runtime when config changes.
+          slot.contextOwner = context.context === undefined ? null : job.owner;
           slot.worker = worker;
           worker.on("message", (receipt: RepoWriterReceiptV1) => {
             const active = slot.job;
@@ -189,6 +226,7 @@ function stop(slot: Slot): Promise<void> {
   const worker = slot.worker;
   slot.worker = null;
   slot.owner = null;
+  slot.contextOwner = null;
   slot.stopping = (worker ? worker.terminate().then(() => undefined) : Promise.resolve()).finally(() => {
     slot.stopping = null;
     pump();

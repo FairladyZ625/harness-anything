@@ -1,3 +1,5 @@
+import { readPgFactsInTransaction } from "./pg-fact-reads.ts";
+import { assertPgEventReadIndexReady } from "./pg-event-read-index-migration.ts";
 import type { PoolClient } from "pg";
 import type {
   TaskProjectionQueries,
@@ -5,11 +7,12 @@ import type {
   FactProjectionRow,
 } from "@harness-anything/kernel";
 import type { FactAnchorRow } from "@harness-anything/kernel/internal/ports/projection-contracts.ts";
+import { relationIsCurrent } from "@harness-anything/kernel/internal/domain/entity-relation.ts";
 import { coverageOf, type CoverageDecision } from "@harness-anything/kernel/internal/domain/decision-coverage.ts";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
 import { readCutInTransaction } from "./pg-event-queries.ts";
 import { readVersionedRelationsInTransaction } from "./pg-relation-queries.ts";
-import { listPgProjectionValues } from "./pg-projection-values.ts";
+import { assertPgReadIndexReady } from "./pg-read-index-migration.ts";
 import type { PgTaskProjectionSourceOptions, PgTaskProjectionSource } from "./pg-task-source.ts";
 import type { AsyncQueries } from "./pg-runtime-dispatch-queries.ts";
 
@@ -23,7 +26,7 @@ export type PgKnowledgeQueries = AsyncQueries<
 >;
 export function pgKnowledgeQueries(
   options: PgTaskProjectionSourceOptions,
-  source: Pick<PgTaskProjectionSource, "readDecision" | "searchFacts">,
+  source: Pick<PgTaskProjectionSource, "readDecision">,
 ): PgKnowledgeQueries {
   const { scope, repoId } = options,
     readers = [...(scope.readers ?? [])],
@@ -31,14 +34,18 @@ export function pgKnowledgeQueries(
   const read = <Result>(operation: (client: PoolClient) => Promise<Result>) =>
     withPostgresTransaction(options.pool, operation, scope, { isolationLevel: "repeatable read" });
   const anchors = async (client: PoolClient, refs?: readonly string[]): Promise<readonly FactAnchorRow[]> => {
+    await assertPgEventReadIndexReady(client, scope, repoId);
     const rows = await client.query<{ value: FactProjectionRow; op_id: string }>(
       `SELECT f.value,(SELECT e.op_id FROM ha_events e WHERE e.tenant_id=f.tenant_id AND e.project_id=f.project_id AND e.policy_epoch=f.policy_epoch AND e.repo_id=$5
         AND (cardinality($4::text[])=0 OR e.readers && $4::text[]) AND
-        ((e.event_type='fact_recorded' AND e.event_json::jsonb->>'factId'=f.fact_id)
-         OR (e.event_type='entity_migrated' AND e.event_json::jsonb#>>'{payload,entity,fact,factId}'=f.fact_id))
+        e.fact_anchor_id=f.fact_id
         ORDER BY e.revision LIMIT 1) AS op_id FROM ha_facts f WHERE f.tenant_id=$1 AND f.project_id=$2 AND f.policy_epoch=$3
-        AND (cardinality($4::text[])=0 OR f.readers && $4::text[])${refs === undefined ? "" : " AND f.value->>'ref'=ANY($6::text[])"} ORDER BY f.value->>'ref'`,
-      [...parameters, repoId, ...(refs === undefined ? [] : [refs])],
+        AND (cardinality($4::text[])=0 OR f.readers && $4::text[])${refs === undefined ? "" : " AND f.fact_id=ANY($6::text[])"} ORDER BY f.fact_id`,
+      [
+        ...parameters,
+        repoId,
+        ...(refs === undefined ? [] : [refs.filter((ref) => ref.startsWith("fact/")).map((ref) => ref.slice(5))]),
+      ],
     );
     return rows.rows.map(({ value, op_id }) => ({
       factRef: value.ref,
@@ -47,7 +54,7 @@ export function pgKnowledgeQueries(
       sourcePath: `event:${op_id}`,
     }));
   };
-  const decisions = async (client: PoolClient) =>
+  const decisions = async (client: PoolClient, ids?: readonly string[]) =>
     (
       await client.query<{
         decision_id: string;
@@ -61,21 +68,58 @@ export function pgKnowledgeQueries(
           }[];
         };
       }>(
-        `SELECT decision_id,value FROM ha_decisions WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND (cardinality($4::text[])=0 OR readers && $4::text[]) ORDER BY decision_id`,
-        parameters,
+        `SELECT decision_id,value FROM ha_decisions WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND (cardinality($4::text[])=0 OR readers && $4::text[]) ${ids === undefined ? "" : "AND decision_id=ANY($5::text[])"} ORDER BY decision_id`,
+        [...parameters, ...(ids === undefined ? [] : [ids])],
       )
     ).rows;
   const coverage = async (client: PoolClient, ids: readonly string[], basisRevision: number) => {
-    const selected = (await decisions(client)).filter(({ decision_id }) => ids.includes(decision_id)),
-      facts = await client.query<{ ref: string }>(
-        `SELECT value->>'ref' AS ref FROM ha_facts WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND (cardinality($4::text[])=0 OR readers && $4::text[]) ORDER BY fact_id`,
-        parameters,
+    const selected = await decisions(client, ids),
+      edges: VersionedRelationProjectionRow[] = [],
+      seen = new Set<string>();
+    let frontier = selected.flatMap(({ decision_id, value }) => [
+      `decision/${decision_id}`,
+      ...value.claims.map(({ id }) => `decision/${decision_id}/${id}`),
+    ]);
+    // Each source is expanded once. The empty frontier, rather than a cursor, ends the closure.
+    while (frontier.length) {
+      const sources = [...new Set(frontier)].filter((ref) => !seen.has(ref));
+      if (!sources.length) break;
+      for (const ref of sources) seen.add(ref);
+      const next = await readVersionedRelationsInTransaction(client, scope, readers, { sources });
+      edges.push(...next);
+      frontier = next
+        .filter(relationIsCurrent)
+        .map((edge) => edge.targetRef)
+        .filter((ref) => ref.startsWith("decision/") && !seen.has(ref));
+    }
+    const factRefs = [...new Set(edges.map((edge) => edge.targetRef).filter((ref) => ref.startsWith("fact/")))],
+      taskIds = [
+        ...new Set(
+          edges
+            .map((edge) => edge.targetRef)
+            .filter((ref) => ref.startsWith("task/"))
+            .map((ref) => ref.slice(5)),
+        ),
+      ];
+    if (factRefs.length)
+      edges.push(
+        ...(await readVersionedRelationsInTransaction(client, scope, readers, {
+          targets: factRefs,
+          relationType: "supersedes-fact",
+        })),
+      );
+    edges.sort((a, b) => (a.relationId < b.relationId ? -1 : a.relationId > b.relationId ? 1 : 0));
+    const facts = await client.query<{ ref: string }>(
+        `SELECT value->>'ref' AS ref FROM ha_facts WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+        AND (cardinality($4::text[])=0 OR readers && $4::text[]) AND fact_id=ANY($5::text[]) ORDER BY fact_id`,
+        [...parameters, factRefs.map((ref) => ref.slice(5))],
       ),
       tasks = await client.query<{ ref: string; status: string }>(
-        `SELECT 'task/' || task_id AS ref,snapshot#>>'{task,status}' AS status FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND (cardinality($4::text[])=0 OR readers && $4::text[]) ORDER BY task_id`,
-        parameters,
-      ),
-      edges = await readVersionedRelationsInTransaction(client, scope, readers, {});
+        `SELECT 'task/' || task_id AS ref,snapshot#>>'{task,status}' AS status FROM ha_task_snapshots
+        WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND (cardinality($4::text[])=0 OR readers && $4::text[])
+        AND task_id=ANY($5::text[]) ORDER BY task_id`,
+        [...parameters, taskIds],
+      );
     return coverageOf(
       selected.map(({ decision_id, value }) => ({
         ref: `decision/${decision_id}`,
@@ -127,9 +171,7 @@ export function pgKnowledgeQueries(
         return {
           ...cut,
           decisionAnchors,
-          edges: (await readVersionedRelationsInTransaction(client, scope, readers, {})).filter(
-            ({ ownerRef }) => !ownerRef.startsWith("fact/"),
-          ),
+          edges: await readVersionedRelationsInTransaction(client, scope, readers, { excludeFactOwned: true }),
           coverageRows: await coverage(
             client,
             rows.map(({ decision_id }) => decision_id),
@@ -138,12 +180,11 @@ export function pgKnowledgeQueries(
         };
       }),
     readDecisionIncomingRelations: (id) =>
-      read(async (client) =>
-        (await readVersionedRelationsInTransaction(client, scope, readers, {})).filter(
-          ({ ownerRef, targetRef }) =>
-            !ownerRef.startsWith("fact/") &&
-            (targetRef === `decision/${id}` || targetRef.startsWith(`decision/${id}/`)),
-        ),
+      read((client) =>
+        readVersionedRelationsInTransaction(client, scope, readers, {
+          excludeFactOwned: true,
+          targetRoot: `decision/${id}`,
+        }),
       ),
     readFactAnchors: (refs) =>
       read(async (client) => ({
@@ -151,13 +192,22 @@ export function pgKnowledgeQueries(
         rows: await anchors(client, refs),
       })),
     readFactGraph: () =>
-      read(async (client) => ({
-        ...(await readCutInTransaction(client, scope, readers, repoId)),
-        edges: (await listPgProjectionValues<VersionedRelationProjectionRow>(client, scope, "relation-write")).filter(
-          ({ ownerRef, targetRef }) => ownerRef.startsWith("fact/") || targetRef.startsWith("fact/"),
-        ) as unknown as ReturnType<TaskProjectionQueries["readFactGraph"]>["edges"],
-        factAnchors: await anchors(client),
-        facts: (await source.searchFacts({})).facts,
-      })),
+      read(async (client) => {
+        await assertPgReadIndexReady(client, scope, "relation-write");
+        const result = await client.query<{ value: string }>(
+          `SELECT value FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+          AND model='relation-write' AND fact_edge AND (cardinality($4::text[])=0 OR readers && $4::text[])
+          ORDER BY entity_id,owner_id`,
+          parameters,
+        );
+        return {
+          ...(await readCutInTransaction(client, scope, readers, repoId)),
+          edges: result.rows.map(
+            ({ value }) => JSON.parse(value) as VersionedRelationProjectionRow,
+          ) as unknown as ReturnType<TaskProjectionQueries["readFactGraph"]>["edges"],
+          factAnchors: await anchors(client),
+          facts: (await readPgFactsInTransaction(client, options, {})).facts,
+        };
+      }),
   };
 }

@@ -3,10 +3,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { ensurePgProjectionSchema } from "../../src/pg/index.ts";
 import { pgRuntimeSessionReadStatement } from "../../src/pg/pg-projection-values.ts";
-import { startManagedPostgresFixture } from "./managed-postgres.fixture.ts";
+import { pgRuntimeFixture } from "./pg-runtime.fixture.ts";
+import { explainNodes } from "./pg-explain.fixture.ts";
 
 test("PG unsettled runtime read touches only unsettled rows, not the settled history", async () => {
-  const fixture = await startManagedPostgresFixture(),
+  const fixture = await pgRuntimeFixture(),
     client = await fixture.adminPool.connect();
   try {
     await ensurePgProjectionSchema(client);
@@ -38,14 +39,15 @@ test("PG unsettled runtime read touches only unsettled rows, not the settled his
       ),
       plan = explained.rows[0]!["QUERY PLAN"][0]!.Plan,
       planText = JSON.stringify(plan);
-    assert.match(
-      planText,
-      /ha_projection_values_runtime_unsettled/u,
-      `unsettled read must use its partial index: ${planText}`,
-    );
+    for (const node of explainNodes(plan).filter((row) => row["Relation Name"] === "ha_projection_values"))
+      assert.ok(
+        (Number(node["Actual Rows"]) + Number(node["Rows Removed by Filter"] ?? 0)) * Number(node["Actual Loops"]) <= 2,
+        `unsettled read examined settled history: ${JSON.stringify(node)}`,
+      );
     assert.equal(plan["Actual Rows"], 2, `the read touched history rows: ${planText}`);
   } finally {
     client.release();
+    await fixture.pool.end();
     await fixture.close();
   }
 });

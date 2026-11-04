@@ -1,4 +1,7 @@
 import type { PoolClient } from "pg";
+import { entityDeclarationDdl } from "./pg-entity-declarations.ts";
+import { eventReadIndexDdl } from "./pg-event-read-index-migration.ts";
+import { readIndexDdl } from "./pg-read-index-migration.ts";
 import { documentMetadataDdl } from "./pg-document-metadata-migration.ts";
 import {
   POSTGRES_SCOPE_COLUMNS_SQL,
@@ -16,6 +19,8 @@ export const PG_PROJECTION_TABLES = Object.freeze([
   "ha_squads",
   "ha_projection_meta",
   "ha_projection_values",
+  "ha_runtime_session_tasks",
+  "ha_entity_declaration_heads",
 ] as const);
 
 // Metadata is an additive expansion of v5; retain the generation understood by previous binaries.
@@ -34,8 +39,8 @@ export function assertPgProjectionSchemaVersion(version: number | undefined): vo
 
 /**
  * Create the projection tables as the shared schema owner. Runtime callers only need the grants and RLS
- * policies; they must not run this function. The DDL is deliberately independent from A2's ledger tables so a
- * projection can be dropped and rebuilt from the canonical stream.
+ * policies; they must not run this function. A2's ledger schema must already exist: its derived read-index
+ * columns extend immutable event bytes. Projection tables can still be dropped and rebuilt from that stream.
  */
 export async function ensurePgProjectionSchema(client: PoolClient): Promise<void> {
   for (const statement of projectionDdl()) await client.query(statement);
@@ -74,11 +79,18 @@ export function projectionDdl(): readonly string[] {
       workspace_revision bigint NOT NULL, value text NOT NULL,
       PRIMARY KEY (tenant_id,project_id,policy_epoch,model,owner_id,entity_id)
     )`,
+    `CREATE INDEX IF NOT EXISTS ha_projection_values_ordered ON ha_projection_values (tenant_id,project_id,policy_epoch,model,entity_id,owner_id)`,
+    `CREATE INDEX IF NOT EXISTS ha_projection_values_latest ON ha_projection_values (tenant_id,project_id,policy_epoch,model,entity_id,workspace_revision DESC)`,
     `CREATE INDEX IF NOT EXISTS ha_projection_values_lookup ON ha_projection_values (tenant_id,project_id,policy_epoch,model,entity_id)`,
     ...documentMetadataDdl(),
-    // Recovery asks only for runtime sessions. The partial predicate keeps the JSONB cast off
-    // document values (which may contain NUL) and lets the unsettled predicate use the index.
-    `CREATE INDEX IF NOT EXISTS ha_projection_values_runtime_unsettled ON ha_projection_values (tenant_id,project_id,policy_epoch,((value::jsonb)->>'outcome')) WHERE model = 'runtime-session'`,
+    ...readIndexDdl(),
+    ...eventReadIndexDdl(),
+    // Retire only the disposable nonunique expression index after its scalar replacement exists.
+    // It rejects valid opaque provider bytes and cannot serve runtime RLS's outcome predicate.
+    // No table, column, identity key or canonical value is removed.
+    `DROP INDEX IF EXISTS ha_projection_values_runtime_unsettled`,
+    `CREATE INDEX IF NOT EXISTS ha_projection_document_path ON ha_projection_values
+      (tenant_id,project_id,policy_epoch,entity_id COLLATE "C") WHERE model='document' AND owner_id=''`,
     `CREATE TABLE IF NOT EXISTS ha_task_snapshots (
       ${POSTGRES_SCOPE_COLUMNS_SQL},
       readers text[] NOT NULL DEFAULT '{}',
@@ -162,6 +174,7 @@ export function projectionDdl(): readonly string[] {
       updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
       PRIMARY KEY (tenant_id, project_id, policy_epoch, projection_name)
     )`,
+    ...entityDeclarationDdl,
     ...PG_PROJECTION_TABLES.map(
       (table) => `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS readers text[] NOT NULL DEFAULT '{}'`,
     ),
@@ -171,6 +184,7 @@ export function projectionDdl(): readonly string[] {
     "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS created_at timestamptz",
     "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS completed_at timestamptz",
     "ALTER TABLE ha_facts ADD COLUMN IF NOT EXISTS memory_class text GENERATED ALWAYS AS (value->>'memoryClass') STORED",
+    "CREATE INDEX IF NOT EXISTS ha_task_snapshots_package_path ON ha_task_snapshots (tenant_id,project_id,policy_epoch,package_path)",
     "CREATE INDEX IF NOT EXISTS ha_task_snapshots_scope_revision ON ha_task_snapshots (tenant_id, project_id, workspace_revision DESC)",
     ...PG_PROJECTION_TABLES.map(
       (table) => `CREATE INDEX IF NOT EXISTS ${table}_readers_gin ON ${table} USING gin (readers)`,
@@ -180,6 +194,8 @@ export function projectionDdl(): readonly string[] {
     // JSONB extraction/containment is not leakproof. A stored scalar allows the runtime's
     // equality predicate to use this index below the forced RLS barrier.
     "CREATE INDEX IF NOT EXISTS ha_facts_memory_class ON ha_facts (tenant_id, project_id, policy_epoch, memory_class)",
+    'CREATE INDEX IF NOT EXISTS ha_relations_source_scope ON ha_relations (tenant_id,project_id,policy_epoch,source_ref COLLATE "C",relation_id)',
+    'CREATE INDEX IF NOT EXISTS ha_relations_target_scope ON ha_relations (tenant_id,project_id,policy_epoch,target_ref COLLATE "C",relation_id)',
     "CREATE INDEX IF NOT EXISTS ha_relations_source ON ha_relations (tenant_id, project_id, source_ref, relation_type)",
     "CREATE INDEX IF NOT EXISTS ha_relations_target ON ha_relations (tenant_id, project_id, target_ref, relation_type)",
     "CREATE INDEX IF NOT EXISTS ha_relations_value_gin ON ha_relations USING gin (value)",

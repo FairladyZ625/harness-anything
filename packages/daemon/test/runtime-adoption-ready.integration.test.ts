@@ -353,6 +353,13 @@ test("owner adoption checks dead PID before publishing live and preserves live c
         await work();
       },
       remote: {
+        async readRuntimeSession(id: string) {
+          return (
+            (await this.readRuntimeSessions()).find(
+              (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
+            ) ?? null
+          );
+        },
         readRuntimeSessions: async () => [accepted],
         readRuntimeDispatch: async () => ({ payload: { dispatchId }, source: { kind: "node", nodeId: "owner" } }),
         publish: async (draft) => {

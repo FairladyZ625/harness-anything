@@ -23,6 +23,8 @@ export type {
   TaskProjectionFactoryOptions,
   TaskProjectionReaderFactoryOptions,
   PostgresTaskProjectionFactoryOptions,
+  PGliteTaskProjectionFactoryOptions,
   PostgresTaskProjectionReaderFactoryOptions,
+  PGliteTaskProjectionReaderFactoryOptions,
 } from "./rebuildable-task-projection-factory.ts";
 export { ProjectionIdentityMismatchError, closeTaskProjectionsUnder } from "./rebuildable-task-projection-database.ts";

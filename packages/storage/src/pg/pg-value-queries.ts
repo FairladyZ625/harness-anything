@@ -1,8 +1,11 @@
+import { prefixUpperBound } from "../projection/document-read-range.ts";
+import { checkedPageLimit } from "./pg-query-page.ts";
+import { readPgTaskSessions, readPgSessionPage } from "./pg-runtime-session-queries.ts";
+import { assertPgReadIndexReady } from "./pg-read-index-migration.ts";
 import type { PoolClient } from "pg";
 import type {
   EntityProjectionRow,
   PinnedEntityProjectionRow,
-  RuntimeSession,
   LeaseInterval,
   SquadRunProjectionRow,
   CanonicalEventV1,
@@ -43,29 +46,40 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
   const get = <Result>(model: string, id: string) =>
     read((client) => getPgProjectionValue<Result>(client, scope, model, id));
   const list = <Result>(model: string) => read((client) => listPgProjectionValues<Result>(client, scope, model));
-  const documents = async (client: PoolClient, prefix: string) => {
-    const result = await client.query<{ value: string | null }>(
-      `SELECT document_metadata AS value FROM ha_projection_values
-       WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model='document'
-         AND (cardinality($4::text[])=0 OR readers && $4::text[]) ORDER BY entity_id,owner_id`,
-      [scope.tenantId, scope.projectId, scope.policyEpoch, readers],
-    );
-    return result.rows
-      .map(({ value }) => {
-        if (value === null)
-          throw Object.assign(new Error("Document metadata backfill is pending; retry after migration."), {
-            code: "projection_pending",
-          });
-        return JSON.parse(value) as Omit<DocumentState, "body">;
-      })
-      .filter(({ path }) => path.startsWith(prefix))
-      .map(({ path, blobSha256, size, mediaType, policyId }) => ({
-        path,
-        blobSha256,
-        size,
-        mediaType,
-        policyId: policyId ?? null,
-      }));
+  const documents = async (
+    client: PoolClient,
+    prefix: string,
+    page?: { readonly limit: number; readonly afterPath?: string },
+  ) => {
+    const upper = prefixUpperBound(prefix),
+      values: unknown[] = [
+        scope.tenantId,
+        scope.projectId,
+        scope.policyEpoch,
+        readers,
+        prefix,
+        ...(upper === null ? [] : [upper]),
+      ],
+      after = page?.afterPath,
+      afterPredicate = after === undefined ? "" : `AND entity_id COLLATE "C" > $${values.push(after)}`,
+      limitClause = page === undefined ? "" : `LIMIT $${values.push(checkedPageLimit(page.limit, 500) + 1)}`,
+      result = await client.query<{ value: string | null }>(
+        `SELECT document_metadata AS value FROM ha_projection_values
+         WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model='document'
+           AND owner_id='' AND entity_id COLLATE "C" >= $5
+           ${upper === null ? "" : 'AND entity_id COLLATE "C" < $6'}
+           AND (cardinality($4::text[])=0 OR readers && $4::text[])
+         ${afterPredicate} ORDER BY entity_id COLLATE "C" ${limitClause}`,
+        values,
+      );
+    return result.rows.map(({ value }) => {
+      if (value === null)
+        throw Object.assign(new Error("Document metadata backfill is pending; retry after migration."), {
+          code: "projection_pending",
+        });
+      const { path, blobSha256, size, mediaType, policyId } = JSON.parse(value) as Omit<DocumentState, "body">;
+      return { path, blobSha256, size, mediaType, policyId: policyId ?? null };
+    });
   };
   const ready = async (client: PoolClient) => {
     const cut = await readCutInTransaction(client, scope, readers, repoId);
@@ -91,45 +105,37 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
         );
         return row.rows[0] ? (JSON.parse(row.rows[0].value) as EntityProjectionRow) : null;
       }),
-    listPinnedEntities: async () =>
-      (await list<PinnedEntityProjectionRow>("pin")).toSorted((a, b) =>
-        a.pinnedAt === b.pinnedAt ? compare(a.entityRef, b.entityRef) : compare(b.pinnedAt, a.pinnedAt),
-      ),
+    listPinnedEntities: () =>
+      read(async (client) => {
+        await assertPgReadIndexReady(client, scope, "pin");
+        const result = await client.query<{ value: string }>(
+          `SELECT value FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+          AND model='pin' AND (cardinality($4::text[])=0 OR readers && $4::text[])
+          ORDER BY order_at DESC,entity_id`,
+          [scope.tenantId, scope.projectId, scope.policyEpoch, readers],
+        );
+        return result.rows.map(({ value }) => JSON.parse(value) as PinnedEntityProjectionRow);
+      }),
     readRuntimeInstallation: (id) => get("runtime-installation", id),
     readRuntimeInstallations: () => list("runtime-installation"),
     readRuntimeSession: (id) => get("runtime-session", id),
-    // Runtime sessions stay JSON text because documents may contain NUL, but the unsettled and
-    // node-owner predicates are evaluated by PostgreSQL against the partial expression index.
     readRuntimeSessions: (query) => read((client) => listPgRuntimeSessions(client, scope, repoId, query)),
-    readRuntimeSessionsForTask: async (taskId) =>
-      (await list<RuntimeSession>("runtime-session")).filter((session) =>
-        session.taskBindings.some((binding) => binding.taskId === taskId),
-      ),
-    readRuntimeSessionPage: (query) =>
-      read(async (client) => {
-        if (!Number.isInteger(query.limit) || query.limit < 1 || query.limit > 64)
-          throw new Error("runtime session page limit must be between 1 and 64");
-        const matched = (await listPgProjectionValues<RuntimeSession>(client, scope, "runtime-session")).filter(
-            (session) =>
-              (!query.taskId || session.taskBindings.some(({ taskId }) => taskId === query.taskId)) &&
-              (query.afterRuntimeSessionId === undefined || session.runtimeSessionId > query.afterRuntimeSessionId),
-          ),
-          rows = matched.slice(0, query.limit),
-          remainingCount = matched.length - rows.length;
-        return {
-          rows,
-          remainingCount,
-          nextRuntimeSessionId: remainingCount > 0 ? rows.at(-1)!.runtimeSessionId : null,
-        };
-      }),
+    readRuntimeSessionsForTask: (taskId) =>
+      read(async (client) => (await readPgTaskSessions(client, scope, [taskId])).get(taskId) ?? []),
+    readRuntimeSessionPage: (query) => read((client) => readPgSessionPage(client, scope, query)),
     readSquadRun: (id) => get<SquadRunProjectionRow>("squad-run", id),
     readSquadRuns: () => list<SquadRunProjectionRow>("squad-run"),
     readLeaseIntervals: (taskId) =>
-      read(async (client) =>
-        [...(await listPgProjectionValues<LeaseInterval>(client, scope, "lease-interval", taskId))].sort(
-          (a, b) => a.acquiredRevision - b.acquiredRevision,
-        ),
-      ),
+      read(async (client) => {
+        await assertPgReadIndexReady(client, scope, "lease-interval");
+        const result = await client.query<{ value: string }>(
+          `SELECT value FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+          AND model='lease-interval' AND owner_id=$5 AND (cardinality($4::text[])=0 OR readers && $4::text[])
+          ORDER BY order_revision`,
+          [scope.tenantId, scope.projectId, scope.policyEpoch, readers, taskId],
+        );
+        return result.rows.map(({ value }) => JSON.parse(value) as LeaseInterval);
+      }),
     readArtifactEntityState: (kind, id) => get(`artifact:${kind}`, id),
     readPresetSnapshot: (id) =>
       read(async (client) => ({
@@ -156,11 +162,19 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
         ...(await readCutInTransaction(client, scope, readers, repoId)),
         document: await getPgProjectionValue<DocumentState>(client, scope, "document", path),
       })),
-    readDocuments: (prefix) =>
-      read(async (client) => ({
-        ...(await readCutInTransaction(client, scope, readers, repoId)),
-        documents: await documents(client, prefix),
-      })),
+    readDocuments: (prefix, page) =>
+      read(async (client) => {
+        const cut = await readCutInTransaction(client, scope, readers, repoId),
+          rows = await documents(client, prefix, page),
+          selected = page === undefined ? rows : rows.slice(0, page.limit);
+        return {
+          ...cut,
+          documents: selected,
+          ...(page === undefined
+            ? {}
+            : { page: { nextPath: rows.length > page.limit ? selected.at(-1)!.path : null } }),
+        };
+      }),
     readReplicaBasis: (after) =>
       read(async (client) => {
         if (after !== null && (!Number.isSafeInteger(after) || after < 0))
@@ -184,13 +198,17 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
         const result = await client.query<{ task_id: string }>(
           `SELECT task_id FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
          AND (cardinality($4::text[])=0 OR readers && $4::text[])
-         AND ($5=package_path OR starts_with($5,package_path || '/')) ORDER BY length(package_path) DESC LIMIT 1`,
-          [scope.tenantId, scope.projectId, scope.policyEpoch, readers, path],
+         AND package_path=ANY($5::text[]) ORDER BY length(package_path) DESC LIMIT 1`,
+          [scope.tenantId, scope.projectId, scope.policyEpoch, readers, documentPathAncestors(path)],
         );
         return result.rows[0]?.task_id ?? null;
       }),
   };
 }
-function compare(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
+/** Raw path ancestors preserve the port's literal prefix semantics, including repeated slashes. */
+function documentPathAncestors(path: string): readonly string[] {
+  const paths = [path];
+  for (let index = path.indexOf("/"); index !== -1; index = path.indexOf("/", index + 1))
+    paths.push(path.slice(0, index));
+  return paths;
 }

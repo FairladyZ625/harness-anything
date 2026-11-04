@@ -564,7 +564,9 @@ function seedEntityBackfillProjection(root: string, fixture: ReturnType<typeof e
       startedRevision = scheduleRevision + 1,
       outcomeRevision = startedRevision + 1,
       unsettledStartedRevision = outcomeRevision + 1,
-      insertEvent = database.prepare("INSERT INTO event_index VALUES (?, ?, NULL, ?)");
+      insertEvent = database.prepare(
+        "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
+      );
     database
       .prepare("INSERT INTO entity_projection VALUES ('agent', 'backfill-agent', ?, ?)")
       .run(agentRevision, JSON.stringify(fixture.agent));

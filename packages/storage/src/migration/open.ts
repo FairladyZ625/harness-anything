@@ -1,6 +1,6 @@
 import { Pool } from "pg";
 import type { StorageBackendConfig } from "../storage-backend.ts";
-import { createPGliteStorageBackend } from "../pglite/index.ts";
+import { openPGliteOwnerMigrationEndpoint } from "../pglite/owner-service.ts";
 import { resolvePostgresEventStoreScope } from "../pg/backend.ts";
 import { openSqliteMigrationEndpoint } from "./sqlite-endpoint.ts";
 import { openPgMigrationEndpoint } from "./postgres-endpoint.ts";
@@ -24,20 +24,7 @@ export async function openStorageMigrationEndpoint(
     return openSqliteMigrationEndpoint({ repoId, rootDir: location.rootDir, role, scope });
   }
   if (storage.backend === "pglite") {
-    const embedded = await createPGliteStorageBackend({ repoId, storage });
-    try {
-      const endpoint = await openPgMigrationEndpoint({
-        pool: embedded.pool,
-        repoId,
-        scope,
-        backend: "pglite",
-        identity: storage.dataDir,
-      });
-      return { ...endpoint, close: embedded.close };
-    } catch (error) {
-      await embedded.close();
-      throw error;
-    }
+    return openPGliteOwnerMigrationEndpoint(repoId, storage);
   }
   if (storage.backend !== "postgres")
     throw new StorageMigrationError("storage_migration_invalid", "unknown storage backend");

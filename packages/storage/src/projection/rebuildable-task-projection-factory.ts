@@ -1,6 +1,6 @@
-import { createPgTaskQueryReader } from "../pg/pg-task-query-reader.ts";
+import { projectionCatchUpLimit } from "./catch-up-limit.ts";
+import { createSqlTaskQueryReader } from "../pg/sql-task-query-reader.ts";
 import { makePgTaskProjection } from "../pg/pg-task-projection.ts";
-import { resolvePostgresEventStoreScope } from "../pg/backend.ts";
 // @write-boundary-exemption rebuildable-projection
 import { resolveHarnessLayout } from "@harness-anything/kernel/internal/layout/index.ts";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
@@ -89,6 +89,7 @@ import {
   resolveStorageBackend,
   unsupportedStorageBackendError,
   type PostgresStorageBackendConfig,
+  type PGliteStorageBackendConfig,
   type SqliteStorageBackendConfig,
   type StorageBackendOptions,
 } from "../storage-backend.ts";
@@ -102,20 +103,30 @@ export type {
 
 export type { TaskProjectionCatchUpProgress } from "@harness-anything/kernel/internal/ports/task-projection-source.ts";
 
-export interface TaskProjectionFactoryOptions {
-  readonly storage?: SqliteStorageBackendConfig | PostgresStorageBackendConfig;
+interface CommonTaskProjectionFactoryOptions {
   readonly rootDir: string;
-  readonly eventStore: EventStreamPort;
   readonly projectionPath?: string;
   readonly catchUpLimit?: number;
   readonly now?: () => string;
   readonly onValidationProgress?: (progress: { readonly applied: number; readonly total: number }) => void;
   readonly onProgress?: (progress: TaskProjectionCatchUpProgress) => void;
 }
+export interface SqliteTaskProjectionFactoryOptions extends CommonTaskProjectionFactoryOptions {
+  readonly storage?: SqliteStorageBackendConfig;
+  readonly eventStore: EventStreamPort;
+}
+export interface CanonicalTaskProjectionFactoryOptions extends CommonTaskProjectionFactoryOptions {
+  readonly storage?: SqliteStorageBackendConfig | PostgresStorageBackendConfig | PGliteStorageBackendConfig;
+  readonly eventStore: LedgerEventStorePort;
+}
+export type TaskProjectionFactoryOptions = SqliteTaskProjectionFactoryOptions | CanonicalTaskProjectionFactoryOptions;
 export interface PostgresTaskProjectionFactoryOptions
   extends Omit<TaskProjectionFactoryOptions, "eventStore" | "storage"> {
   readonly storage: PostgresStorageBackendConfig;
   readonly eventStore: LedgerEventStorePort;
+}
+export interface PGliteTaskProjectionFactoryOptions extends Omit<PostgresTaskProjectionFactoryOptions, "storage"> {
+  readonly storage: PGliteStorageBackendConfig;
 }
 function requireSqliteBackend<Options extends StorageBackendOptions>(
   options: Options,
@@ -131,23 +142,22 @@ export function defaultLifecycleTaskProjectionPath(rootDir: string): string {
   return resolveHarnessLayout(rootDir).taskProjectionPath;
 }
 export function makeTaskProjection(options: PostgresTaskProjectionFactoryOptions): TaskProjectionPort;
+export function makeTaskProjection(options: PGliteTaskProjectionFactoryOptions): TaskProjectionPort;
 export function makeTaskProjection(options: TaskProjectionFactoryOptions): TaskProjection;
 export function makeTaskProjection(
-  options: TaskProjectionFactoryOptions | PostgresTaskProjectionFactoryOptions,
+  options: TaskProjectionFactoryOptions | PostgresTaskProjectionFactoryOptions | PGliteTaskProjectionFactoryOptions,
 ): TaskProjection;
 export function makeTaskProjection(
-  options: TaskProjectionFactoryOptions | PostgresTaskProjectionFactoryOptions,
+  options: TaskProjectionFactoryOptions | PostgresTaskProjectionFactoryOptions | PGliteTaskProjectionFactoryOptions,
 ): TaskProjection | TaskProjectionPort {
-  if (options.storage?.backend === "postgres")
-    return makePgTaskProjection(options as PostgresTaskProjectionFactoryOptions);
+  if (options.storage?.backend === "postgres" || options.storage?.backend === "pglite")
+    return makePgTaskProjection(options as PostgresTaskProjectionFactoryOptions | PGliteTaskProjectionFactoryOptions);
   requireSqliteBackend(options);
   const projectionPath = options.projectionPath ?? defaultLifecycleTaskProjectionPath(options.rootDir);
-  const limit = options.catchUpLimit ?? 4096,
+  const limit = projectionCatchUpLimit(options.catchUpLimit),
     now = options.now ?? (() => new Date().toISOString()),
     onProgress = options.onProgress ?? (() => undefined),
     readHead = options.eventStore.readHead;
-  if (!Number.isInteger(limit) || limit < 1 || limit > 4096)
-    throw new Error("task projection catch-up limit must be between 1 and 4096");
   if (localRuntimeStateFileSystem.exists(projectionPath)) {
     try {
       withDatabase(projectionPath, readHead, () => undefined, options.onValidationProgress);
@@ -293,20 +303,28 @@ export interface PostgresTaskProjectionReaderFactoryOptions
   readonly rootDir?: string;
   readonly repoId: string;
 }
+export interface PGliteTaskProjectionReaderFactoryOptions
+  extends Omit<PostgresTaskProjectionReaderFactoryOptions, "storage"> {
+  readonly storage: PGliteStorageBackendConfig;
+}
+type SqlTaskProjectionReaderFactoryOptions = Omit<PostgresTaskProjectionReaderFactoryOptions, "storage"> & {
+  readonly storage: PostgresStorageBackendConfig | PGliteStorageBackendConfig;
+};
 export function makeTaskProjectionReader(options: PostgresTaskProjectionReaderFactoryOptions): TaskProjectionReaderPort;
+export function makeTaskProjectionReader(options: PGliteTaskProjectionReaderFactoryOptions): TaskProjectionReaderPort;
+
+export function makeTaskProjectionReader(options: SqlTaskProjectionReaderFactoryOptions): TaskProjectionReaderPort;
 export function makeTaskProjectionReader(options: TaskProjectionReaderFactoryOptions): TaskProjectionReader;
 export function makeTaskProjectionReader(
-  options: TaskProjectionReaderFactoryOptions | PostgresTaskProjectionReaderFactoryOptions,
+  options: TaskProjectionReaderFactoryOptions | SqlTaskProjectionReaderFactoryOptions,
 ): TaskProjectionReader | TaskProjectionReaderPort {
-  if (options.storage?.backend === "postgres") {
+  if (options.storage?.backend === "postgres" || options.storage?.backend === "pglite") {
     const repoId = "repoId" in options ? options.repoId : undefined;
     if (!repoId) throw new TypeError("PostgreSQL projection reader requires a repository id");
-    const scope = resolvePostgresEventStoreScope(options.storage.scope);
-    return createPgTaskQueryReader({
-      connectionString: options.storage.connectionString,
+    return createSqlTaskQueryReader({
+      storage: options.storage,
       repoId,
       requireRuntimeRole: true,
-      scope,
       ...(options.projectionPath === undefined ? {} : { path: options.projectionPath }),
       now: options.now,
     });

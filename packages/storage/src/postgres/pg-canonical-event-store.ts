@@ -21,10 +21,9 @@ import {
   type CanonicalCommandOutcome,
   type CanonicalEventAppendReceipt,
 } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
-import { createPgTaskQueryReader } from "../pg/pg-task-query-reader.ts";
+import { createSqlTaskQueryReader } from "../pg/sql-task-query-reader.ts";
 import { validateContentRange } from "../content-blob-range.ts";
-import { resolvePostgresEventStoreScope } from "../pg/backend.ts";
-import type { PostgresTaskEventStoreOptions } from "../store/task-event-store-factory.ts";
+import type { PostgresTaskEventStoreOptions, PGliteTaskEventStoreOptions } from "../store/task-event-store-factory.ts";
 import { applyCanonicalTree } from "../canonical-tree-materialization.ts";
 import { resolveLedgerGitLayout } from "../store/ledger-git-layout.ts";
 import { localGitObjectRefStore, localGitWorktreeSettlement } from "../store/local-version-control-system.ts";
@@ -40,16 +39,14 @@ import { createDurableFollowerPublisher } from "../store/durable-follower-publis
 
 /** The existing PG worker bridge owns whole accepting transactions and the driver pool. */
 export function makePgCanonicalEventStore(
-  options: PostgresTaskEventStoreOptions,
+  options: PostgresTaskEventStoreOptions | PGliteTaskEventStoreOptions,
 ): CanonicalEventStore & { readonly pruneReplicationLog: (beforeSequence: number) => void } {
-  const reader = createPgTaskQueryReader({
-      connectionString: options.storage.connectionString,
-      requireRuntimeRole: true,
-      ...((options.rootInput ?? options.rootDir) === undefined
-        ? {}
-        : { authoredRoot: resolveHarnessLayout((options.rootInput ?? options.rootDir)!).authoredRoot }),
+  const rootInput = options.rootInput ?? options.rootDir,
+    reader = createSqlTaskQueryReader({
+      storage: options.storage,
       repoId: options.repoId,
-      scope: resolvePostgresEventStoreScope(options.storage.scope),
+      requireRuntimeRole: true,
+      ...(rootInput === undefined ? {} : { authoredRoot: resolveHarnessLayout(rootInput).authoredRoot }),
     }),
     execute = reader.executeCanonical,
     head: CanonicalEventStore["readHead"] = () =>
@@ -105,7 +102,19 @@ export function makePgCanonicalEventStore(
       return { status: "visible", commitSha: null, settlements: [], conflicts: [] };
     }
     const layout = resolveHarnessLayout(rootInput),
-      documents = materializeTree ? reader.withSession((q) => q.readDocuments("").documents) : [],
+      documents = materializeTree
+        ? reader.withSession((q) => {
+            const documents: ReturnType<typeof q.readDocuments>["documents"][number][] = [];
+            let afterPath: string | undefined;
+            for (;;) {
+              const result = q.readDocuments("", { limit: 500, ...(afterPath === undefined ? {} : { afterPath }) });
+              documents.push(...result.documents);
+              if (result.page!.nextPath === null) break;
+              afterPath = result.page!.nextPath;
+            }
+            return documents;
+          })
+        : [],
       entries = new Map(documents.map((doc) => [doc.path, { sha256: doc.blobSha256 }])),
       restored =
         request?.paths && !request.preview
@@ -222,6 +231,10 @@ export function makePgCanonicalEventStore(
     readEventAtRevision: (value) => execute({ operation: "event", key: "revision", value }) as CanonicalEventV1 | null,
     readEventById: (value) => execute({ operation: "event", key: "event_id", value }) as CanonicalEventV1 | null,
     queryEvents: (query) => execute({ operation: "events", query }) as readonly CanonicalEventV1[],
+    readEntityDeclarations: (query) =>
+      execute({ operation: "entity-declarations", query }) as ReturnType<
+        NonNullable<CanonicalEventStore["readEntityDeclarations"]>
+      >,
     readTaskEvent: (opId) => {
       const event = readEvent(opId);
       return event && isTaskEvent(event) ? event : null;

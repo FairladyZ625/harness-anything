@@ -38,6 +38,13 @@ test("adoption cannot settle a launch that still owns its model slot before PID 
     modelSlotQueue,
     store: () => ({ readEvent: () => null }),
     projection: () => ({
+      readRuntimeSession(id: string) {
+        return (
+          this.readRuntimeSessions().find(
+            (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
+          ) ?? null
+        );
+      },
       readRuntimeSessions: () => (publishedSessionId ? [liveSession(publishedSessionId)] : []),
       readRuntimeDispatch: () => ({ source: "local", payload: { dispatchId } }),
       currentLease: () => null,
@@ -115,6 +122,13 @@ test("adoption settles an owned live session whose dispatch never recorded a pro
       context = {
         input: { rootDir, repoId: "missing-process", now: () => "2026-09-13T00:01:00.000Z" },
         requiredRuntimeProjection: () => ({
+          readRuntimeSession(id: string) {
+            return (
+              this.readRuntimeSessions().find(
+                (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
+              ) ?? null
+            );
+          },
           readRuntimeSessions: () => [liveSession(runtimeSessionId)],
           readRuntimeDispatch: () => ({ source: "local", payload: { dispatchId } }),
         }),
@@ -150,6 +164,13 @@ test("adoption replays an archived dead dispatch whose canonical outcome was not
       context = {
         input: { rootDir, repoId: "archived-dead-process", now: () => "2026-10-31T04:00:00.000Z" },
         requiredRuntimeProjection: () => ({
+          readRuntimeSession(id: string) {
+            return (
+              this.readRuntimeSessions().find(
+                (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
+              ) ?? null
+            );
+          },
           readRuntimeSessions: () => [liveSession(runtimeSessionId)],
           readRuntimeDispatch: () => ({ source: "local", payload: { dispatchId } }),
         }),
@@ -181,6 +202,13 @@ test("recovery adoption preserves a runtime already owned by this daemon", async
     const context = {
       input: { rootDir, repoId: "owned-runtime", now: () => "2026-09-13T00:01:00.000Z" },
       requiredRuntimeProjection: () => ({
+        readRuntimeSession(id: string) {
+          return (
+            this.readRuntimeSessions().find(
+              (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
+            ) ?? null
+          );
+        },
         readRuntimeSessions: () => [liveSession(runtimeSessionId)],
         readRuntimeDispatch: () => ({ source: "local", payload: { dispatchId } }),
       }),
@@ -214,6 +242,13 @@ for (const failurePoint of ["liveness", "settlement", "in-flight"] as const) {
       const context = {
         input: { rootDir, repoId: "retry-adoption", now: () => "2026-09-13T00:01:00.000Z" },
         requiredRuntimeProjection: () => ({
+          readRuntimeSession(id: string) {
+            return (
+              this.readRuntimeSessions().find(
+                (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
+              ) ?? null
+            );
+          },
           readRuntimeSessions: () => [{ ...liveSession(runtimeSessionId), liveness: "unknown" }],
           readRuntimeDispatch: () => ({ source: "local", payload: { dispatchId } }),
         }),
@@ -267,6 +302,13 @@ test("adoption reports completed restores independently of a pending or failed s
     const context = {
       input: { rootDir, now: () => "2026-09-13T00:01:00.000Z" },
       requiredRuntimeProjection: () => ({
+        readRuntimeSession(id: string) {
+          return (
+            this.readRuntimeSessions().find(
+              (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
+            ) ?? null
+          );
+        },
         readRuntimeSessions: () => sessions,
         readRuntimeDispatch: (id: string) => ({
           source: "local",
@@ -564,6 +606,13 @@ for (const scenario of [
         repoId: "stream-group-proof",
         reclaimRuntimeTempDirectory: () => reclaimed.push(runtimeSessionId),
         remote: {
+          async readRuntimeSession(id: string) {
+            return (
+              (await this.readRuntimeSessions()).find(
+                (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
+              ) ?? null
+            );
+          },
           readRuntimeSessions: async () => [liveSession(runtimeSessionId)],
           readRuntimeDispatch: async () => ({
             actor: scenario === "different-person" ? { principal: { personId: "other" } } : binding.actor,
@@ -608,6 +657,13 @@ test("runtime cancel closes an exited session whose dispatch stream is missing",
           repoId: "cancel-exited-missing-stream",
           runtimeNode: { nodeId: "edge-a" },
           remote: {
+            async readRuntimeSession(id: string) {
+              return (
+                (await this.readRuntimeSessions()).find(
+                  (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
+                ) ?? null
+              );
+            },
             readRuntimeSessions: async () => [{ ...liveSession(runtimeSessionId), liveness: "exited" }],
             readRuntimeDispatch: async () => ({
               actor: binding.actor,
@@ -670,6 +726,13 @@ test("runtime cancel settles a live remote session when the owner stream is gone
             return null;
           },
           remote: {
+            async readRuntimeSession(id: string) {
+              return (
+                (await this.readRuntimeSessions()).find(
+                  (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
+                ) ?? null
+              );
+            },
             readRuntimeSessions: async () => [liveSession(runtimeSessionId)],
             readRuntimeDispatch: async () => owner,
           },
@@ -708,6 +771,13 @@ test("runtime cancel refuses to settle an owner session when its process group i
           repoId: "cancel-unproven-owner",
           runtimeNode: { nodeId: "edge-a" },
           remote: {
+            async readRuntimeSession(id: string) {
+              return (
+                (await this.readRuntimeSessions()).find(
+                  (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
+                ) ?? null
+              );
+            },
             readRuntimeSessions: async () => [{ ...liveSession(runtimeSessionId), liveness: "unknown" }],
             readRuntimeDispatch: async () => ({
               actor: edgeBinding.actor,
@@ -742,6 +812,13 @@ test("runtime cancel cannot settle a remote owner's runtime from another node", 
           repoId: "cancel-foreign-owner",
           runtimeNode: { nodeId: "edge-b" },
           remote: {
+            async readRuntimeSession(id: string) {
+              return (
+                (await this.readRuntimeSessions()).find(
+                  (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
+                ) ?? null
+              );
+            },
             readRuntimeSessions: async () => [liveSession(runtimeSessionId)],
             readRuntimeDispatch: async () => ({
               actor: binding.actor,
@@ -777,9 +854,11 @@ test("runtime cancel on a non-owner converges after the owner publishes a termin
           repoId: "cancel-terminal-remote-owner",
           runtimeNode: { nodeId: "edge-b" },
           remote: {
-            readRuntimeSessions: async () => [
-              { ...liveSession(runtimeSessionId), liveness: "exited", outcome: "succeeded" },
-            ],
+            readRuntimeSession: async (id: string) => {
+              assert.equal(id, runtimeSessionId);
+              return { ...liveSession(runtimeSessionId), liveness: "exited", outcome: "succeeded" };
+            },
+            readRuntimeSessions: async () => assert.fail("cancel must point-read the requested runtime"),
             readRuntimeDispatch: async () => ({
               actor: binding.actor,
               source: { kind: "node" as const, nodeId: "edge-a" },

@@ -174,9 +174,11 @@ test(
         "SELECT task_id FROM event_index WHERE task_id = ?",
         [seededTask.taskId],
       );
+      // CEO ruling dispatch_cf9bbeee04109a73b5c1a180 (2026-11-05): adding the member
+      // column can select either existing covering index; require the equality SEARCH.
       assert.match(
         plan.map((row) => row.detail).join(" "),
-        /USING (?:COVERING )?INDEX event_index_task_id/u,
+        /SEARCH event_index USING (?:COVERING )?INDEX event_index_task_(?:id|created) \(task_id=\?\)/u,
         "task_id lookups ride the index instead of scanning event_index",
       );
       assert.equal(

@@ -415,7 +415,8 @@ export function openPersistentWriterEpoch(options: {
   readonly storage?: StorageBackendConfig;
   readonly storageByRepo?: Readonly<Record<string, StorageBackendConfig>>;
 }): PersistentWriterEpoch {
-  if (options.storage?.backend === "postgres") return openPgWriterEpoch({ ...options, storage: options.storage });
+  if (options.storage?.backend === "postgres" || options.storage?.backend === "pglite")
+    return openPgWriterEpoch({ ...options, storage: options.storage });
   mkdirSync(options.stateRoot, { recursive: true });
   const holderId = options.holderId ?? `center-${process.pid}-${randomUUID()}`,
     now = options.now ?? (() => new Date().toISOString()),
@@ -432,7 +433,7 @@ export function openPersistentWriterEpoch(options: {
     let authority = authorities.get(repoId);
     if (!authority) {
       const storage = options.storageByRepo?.[repoId];
-      if (storage?.backend === "postgres") {
+      if (storage?.backend === "postgres" || storage?.backend === "pglite") {
         authority = openPgWriterEpoch({ ...options, storage });
         authorities.set(repoId, authority);
         return authority;
@@ -535,7 +536,7 @@ export function readLedgerWriterEpoch(
   rootDir: string | null | undefined,
   storage?: StorageBackendConfig,
 ): number {
-  if (storage?.backend === "postgres") return 0;
+  if (storage?.backend === "postgres" || storage?.backend === "pglite") return 0;
   if (typeof rootDir !== "string") return 0;
   const generation = resolveActiveGeneration({ rootInput: rootDir, repoId }),
     databasePath = sqliteLedgerPath(rootDir, generation);

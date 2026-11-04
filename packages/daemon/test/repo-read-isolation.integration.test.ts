@@ -8,7 +8,7 @@ import { Worker } from "node:worker_threads";
 import test from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { openRepoCellProxy } from "../src/repo-cell-proxy.ts";
-import { REPO_READ_WORKERS, REPO_READ_QUEUE_LIMIT } from "../src/repo-read-pool.ts";
+import { openRepoReadClient, REPO_READ_WORKERS, REPO_READ_QUEUE_LIMIT } from "../src/repo-read-pool.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { initIngressRepo, rpc } from "./fixtures/runtime-ingress.ts";
@@ -133,3 +133,25 @@ test(
 function p99(values: readonly number[]): number {
   return [...values].sort((a, b) => a - b)[Math.ceil(values.length * 0.99) - 1]!;
 }
+
+test("read clients without a physical worker context reuse workers across repository owners", async () => {
+  let workers = 0;
+  const clients = ["one", "two"].map((repoId) =>
+    openRepoReadClient({ repoId: repoId as never, rootDir: "/unused" as never, ownerId: repoId }, () => {
+      workers++;
+      return new Worker(
+        `const {parentPort} = require('node:worker_threads');
+        parentPort.on('message', request => parentPort.postMessage({
+          requestId: request.requestId, outcome: 'ok', value: request.payload.config.repoId
+        }));`,
+        { eval: true },
+      );
+    }),
+  );
+  try {
+    for (let n = 0; n < 6; n++) assert.equal(await clients[n % 2]!.request("probe", []), n % 2 === 0 ? "one" : "two");
+    assert.equal(workers, 1, "alternating owners must not cold-start a worker for every read");
+  } finally {
+    await Promise.all(clients.map((client) => client.close()));
+  }
+});

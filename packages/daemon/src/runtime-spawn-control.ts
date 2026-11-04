@@ -55,10 +55,9 @@ export async function cancelRuntime(
           ownedByRuntimeSpawner(matchingHeader.binding, context.input.runtimeNode, matchingHeader) &&
           !readDispatchStreamSummary(context.input.rootDir, matchingHeader.dispatchId)?.process));
   if (!owned) {
-    const sessions = context.input.remote
-        ? await context.input.remote.readRuntimeSessions()
-        : context.requiredRuntimeProjection(context.input).readRuntimeSessions(),
-      session = sessions.find((value) => value.runtimeSessionId === runtimeSessionId);
+    const session = context.input.remote
+      ? await context.input.remote.readRuntimeSession(runtimeSessionId)
+      : context.requiredRuntimeProjection(context.input).readRuntimeSession(runtimeSessionId);
     if (session?.outcome !== null && session?.outcome !== undefined)
       return context.controlReceipt(opId, runtimeSessionId, "already-exited");
     throw runtimeSpawnError(
@@ -112,10 +111,9 @@ export async function cancelRuntime(
     session =
       recorded && !missingOwnedProcess
         ? undefined
-        : (context.input.remote
-            ? await context.input.remote.readRuntimeSessions()
-            : context.requiredRuntimeProjection(context.input).readRuntimeSessions()
-          ).find((value) => value.runtimeSessionId === runtimeSessionId);
+        : context.input.remote
+          ? await context.input.remote.readRuntimeSession(runtimeSessionId)
+          : context.requiredRuntimeProjection(context.input).readRuntimeSession(runtimeSessionId);
   if (session && session.outcome === null) {
     const instanceId = matchingHeader?.instanceId ?? canonicalDispatch?.instanceId;
     let processGroupPid: number | null = null;

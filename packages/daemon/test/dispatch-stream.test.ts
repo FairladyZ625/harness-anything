@@ -458,6 +458,13 @@ test("adoption skips a stream above Node's string limit while runtime cancel sti
         input: { rootDir, repoId: "oversized-read" },
         requiredRuntimeProjection: () => ({
           readRuntimeDispatch: () => ({ source: "local", payload: { dispatchId } }),
+          readRuntimeSession(id: string) {
+            return (
+              this.readRuntimeSessions().find(
+                (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
+              ) ?? null
+            );
+          },
           readRuntimeSessions: () => [
             {
               runtimeSessionId: "runtime_777777777777777777777777",
@@ -636,6 +643,13 @@ test("fleet adoption does not probe a dispatch owned by another node", async () 
           runtimeNode: { nodeId: "node-b" },
           remote: {
             readRuntimeDispatch: async () => ({ payload: { dispatchId }, source: { kind: "node", nodeId: "node-a" } }),
+            async readRuntimeSession(id: string) {
+              return (
+                (await this.readRuntimeSessions()).find(
+                  (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
+                ) ?? null
+              );
+            },
             readRuntimeSessions: async () => [
               { runtimeSessionId, instanceId: "instance-1", providerSessionId: null, liveness: "live", outcome: null },
             ],
@@ -682,6 +696,13 @@ test("runtime cancel settles a live projection whose recorded process already ex
         input: { rootDir, repoId: "cancel-exited", now: () => "2026-09-11T00:00:00.000Z" },
         requiredRuntimeProjection: () => ({
           readRuntimeDispatch: () => ({ source: "local", payload: { dispatchId } }),
+          readRuntimeSession(id: string) {
+            return (
+              this.readRuntimeSessions().find(
+                (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
+              ) ?? null
+            );
+          },
           readRuntimeSessions: () => [
             { runtimeSessionId, instanceId: "instance-1", providerSessionId: null, liveness: "live", outcome: null },
           ],

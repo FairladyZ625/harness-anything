@@ -44,6 +44,7 @@ export { makeTaskEventReader, makeTaskEventStore, readCertifiedGitFollower } fro
 export type {
   CertifiedGitFollower,
   PostgresTaskEventStoreOptions,
+  PGliteTaskEventStoreOptions,
   SqliteCanonicalEventStore,
   SqliteTaskEventStoreOptions,
 } from "./task-event-store-factory.ts";

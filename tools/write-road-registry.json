@@ -154,6 +154,7 @@
     "packages/preset/src/preset-process-service.ts",
     "packages/storage/src/migration/engine.ts",
     "packages/storage/src/migration/projection.ts",
-    "packages/storage/src/migration/sqlite-endpoint.ts"
+    "packages/storage/src/migration/sqlite-endpoint.ts",
+    "packages/storage/src/pglite/data-dir-mutex.ts"
   ]
 }

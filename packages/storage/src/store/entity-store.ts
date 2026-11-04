@@ -1,3 +1,7 @@
+import { reduceEntityDeclarationState } from "./entity-declaration-state.ts";
+import type { EntityDeclarationState } from "@harness-anything/kernel/internal/ports/entity-declarations.ts";
+import { createSqlTaskQueryReader } from "../pg/sql-task-query-reader.ts";
+import { resolvePostgresEventStoreScope } from "../pg/backend.ts";
 import { deepFreeze } from "@harness-anything/kernel/internal/domain/artifact-entity.ts";
 import type { HarnessLayoutInput } from "@harness-anything/kernel/internal/layout/index.ts";
 import {
@@ -18,9 +22,8 @@ import {
 import { openSqliteEventStore } from "./sqlite-event-store.ts";
 import type { CanonicalEventStore } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 import {
-  resolveStorageBackend,
-  unsupportedStorageBackendError,
   type PostgresStorageBackendConfig,
+  type PGliteStorageBackendConfig,
   type SqliteStorageBackendConfig,
   type StorageBackendOptions,
   type StorageScope,
@@ -50,63 +53,57 @@ export interface EntityStore {
   readonly list: <T = unknown>(kind: string, scope?: StorageScope) => readonly StoredEntity<T>[];
 }
 
-type EntityEventSource = Pick<CanonicalEventStore, "readBatch" | "readContentBlob">;
+type EntityEventSource = Pick<CanonicalEventStore, "readBatch" | "readContentBlob" | "readEntityDeclarations">;
 type SqliteEntityStoreOptions = Omit<StorageBackendOptions, "storage"> & {
   readonly storage?: SqliteStorageBackendConfig;
 };
-export type PostgresEntityDeclarationStoreOptions = { readonly storage: PostgresStorageBackendConfig };
+export type PostgresEntityDeclarationStoreOptions = {
+  readonly storage: PostgresStorageBackendConfig;
+  readonly repoId?: string;
+};
+export type SqlEntityStoreOptions = {
+  readonly storage: PostgresStorageBackendConfig | PGliteStorageBackendConfig;
+  readonly repoId?: string;
+};
+export type OpenedEntityStore = EntityStore & { readonly close: () => void };
 
 const entityEventCaches = new WeakMap<
   EntityEventSource,
   {
     cursor: string | null;
-    latestByKind: Map<string, Map<string, StoredEntityEventV1>>;
+    headsByKind: Map<string, Map<string, EntityDeclarationState>>;
     records: Map<string, { event: StoredEntityEventV1; contract: EntityStoreKindContract; record: StoredEntity }>;
   }
 >();
-const retiredAgents = new WeakMap<
-  EntityEventSource,
-  Map<string, { readonly retiredAt: string; readonly reason: string; readonly successor?: string }>
->();
+function cacheFor(source: EntityEventSource) {
+  let cache = entityEventCaches.get(source);
+  if (!cache) {
+    cache = { cursor: null, headsByKind: new Map(), records: new Map() };
+    entityEventCaches.set(source, cache);
+  }
+  return cache;
+}
 
-function entityEventCache(source: EntityEventSource): Map<string, Map<string, StoredEntityEventV1>> {
-  const cache = entityEventCaches.get(source) ?? {
-    cursor: null,
-    latestByKind: new Map<string, Map<string, StoredEntityEventV1>>(),
-    records: new Map(),
-  };
-  const retired = retiredAgents.get(source) ?? new Map();
-  retiredAgents.set(source, retired);
-  entityEventCaches.set(source, cache);
+function entityEventCache(source: EntityEventSource): Map<string, Map<string, EntityDeclarationState>> {
+  const cache = cacheFor(source);
   for (;;) {
     const batch = source.readBatch(cache.cursor, 1024);
     for (const event of batch.events) {
       if (!isEntityEvent(event)) continue;
-      if (event.type === "agent_retired") {
-        retired.set(event.payload.entityId, {
-          retiredAt: event.payload.retiredAt,
-          reason: event.payload.reason,
-          ...(event.payload.successor === undefined ? {} : { successor: event.payload.successor }),
-        });
-        const latest = cache.latestByKind.get("agent") ?? new Map<string, StoredEntityEventV1>();
-        cache.latestByKind.set("agent", latest);
-        continue;
-      }
-      const latest = cache.latestByKind.get(event.payload.entityKind) ?? new Map<string, StoredEntityEventV1>();
-      cache.latestByKind.set(event.payload.entityKind, latest);
-      const previous = latest.get(event.payload.entityId);
+      const { entityKind, entityId } = event.payload,
+        heads = cache.headsByKind.get(entityKind) ?? new Map<string, EntityDeclarationState>(),
+        before = heads.get(entityId)?.declaration;
+      cache.headsByKind.set(entityKind, heads);
       if (
-        previous &&
-        isEntityDeclarationEvent(previous) &&
-        (isEntityDeclarationEvent(event) || event.type === "entity_deleted")
+        before &&
+        (isEntityDeclarationEvent(event) || event.type === "entity_deleted") &&
+        before.type !== "entity_reference_declared"
       )
-        if (previous.type !== "entity_reference_declared")
-          cache.records.delete(previous.payload.declarationDocumentClaim.sha256);
-      if (isEntityDeclarationEvent(event)) latest.set(event.payload.entityId, event);
-      else if (event.type === "entity_deleted") latest.delete(event.payload.entityId);
+        cache.records.delete(before.payload.declarationDocumentClaim.sha256);
+      heads.set(entityId, reduceEntityDeclarationState(heads.get(entityId) ?? null, event));
     }
     cache.cursor = batch.cursor;
-    if (batch.done) return cache.latestByKind;
+    if (batch.done) return cache.headsByKind;
   }
 }
 
@@ -120,33 +117,39 @@ export function createEntityStore(
   options: PostgresEntityDeclarationStoreOptions,
 ): EntityDeclarationStorePort;
 export function createEntityStore(source: EntityEventSource): EntityStore;
-export function createEntityStore(source: EntityEventSource, options: SqliteEntityStoreOptions): EntityStore;
+export function createEntityStore(source: EntityEventSource, options: StorageBackendOptions): EntityStore;
 export function createEntityStore(
   source: EntityEventSource,
   dynamicContracts: readonly EntityStoreKindContract[],
-  options?: SqliteEntityStoreOptions,
+  options?: StorageBackendOptions,
 ): EntityStore;
 export function createEntityStore(
   source: EntityEventSource,
   dynamicContractsOrOptions: readonly EntityStoreKindContract[] | StorageBackendOptions = [],
-  options: StorageBackendOptions = {},
+  _options: StorageBackendOptions = {},
 ): EntityStore | EntityDeclarationStorePort {
   const dynamicContracts = Array.isArray(dynamicContractsOrOptions) ? dynamicContractsOrOptions : [];
-  const backendOptions: StorageBackendOptions = Array.isArray(dynamicContractsOrOptions)
-    ? options
-    : (dynamicContractsOrOptions as StorageBackendOptions);
-  const backend = resolveStorageBackend(backendOptions);
-  if (backend.backend !== "sqlite") throw unsupportedStorageBackendError(backend.backend);
-  const sqliteSource = source as EntityEventSource;
+  // The supplied event source already owns backend selection and scope. This reader compiles
+  // bundles and interprets accepted declarations; it never opens another physical database.
+  const heads = (kind: string, id?: string, limit?: number): readonly EntityDeclarationState[] => {
+    if (source.readEntityDeclarations)
+      return source.readEntityDeclarations({
+        kind,
+        ...(id === undefined ? {} : { id }),
+        ...(limit === undefined ? {} : { limit }),
+      });
+    const values = entityEventCache(source).get(kind);
+    const candidates = id === undefined ? [...(values?.values() ?? [])] : [values?.get(id)];
+    const live = candidates.filter((state): state is EntityDeclarationState => state?.declaration != null);
+    return limit === undefined ? live : live.slice(0, limit);
+  };
   const contractForKind = (kind: string): EntityStoreKindContract => {
     const dynamic = dynamicContracts.find((candidate) => candidate.kind === kind);
     if (dynamic) return dynamic;
     try {
       return requireEntityStoreKindContract(kind);
     } catch (error) {
-      const declaration = [...(entityEventCache(sqliteSource).get(kind)?.values() ?? [])].find(
-        (event) => event.type === "entity_content_observed" || event.type === "entity_reference_declared",
-      );
+      const declaration = heads(kind, undefined, 1)[0]?.declaration;
       if (
         declaration &&
         (declaration.type === "entity_content_observed" || declaration.type === "entity_reference_declared")
@@ -155,66 +158,62 @@ export function createEntityStore(
       throw error;
     }
   };
-  const latestEvents = (kind: string): ReadonlyMap<string, StoredEntityEventV1> => {
-    const contract = contractForKind(kind);
-    return entityEventCache(sqliteSource).get(contract.kind) ?? new Map<string, StoredEntityEventV1>();
-  };
-  const records = (kind: string): readonly StoredEntity[] => {
-    const contract = contractForKind(kind);
-    return [...latestEvents(kind).values()]
-      .map((event) => {
-        const record = entityEventRecord(event, sqliteSource, contract);
-        return kind === "agent" && retiredAgents.get(sqliteSource)?.has(record.id)
-          ? ({
-              ...record,
-              value: {
-                ...(record.value as Record<string, unknown>),
-                lifecycleState: "retired",
-                retirement: retiredAgents.get(sqliteSource)!.get(record.id),
-              },
-            } as StoredEntity)
-          : record;
-      })
-      .sort((left, right) => left.id.localeCompare(right.id));
+  const recordFor = (kind: string, state: EntityDeclarationState, contract: EntityStoreKindContract): StoredEntity => {
+    const record = entityEventRecord(state.declaration!, source, contract);
+    return kind === "agent" && state.retirement
+      ? {
+          ...record,
+          value: {
+            ...(record.value as Record<string, unknown>),
+            lifecycleState: "retired",
+            retirement: state.retirement,
+          },
+        }
+      : record;
   };
   return {
     upsert: compileEntityUpsert,
     get: <T>(kind: string, id: string) => {
       const contract = contractForKind(kind),
-        event = latestEvents(kind).get(id);
-      if (event === undefined) return null;
-      const record = entityEventRecord(event, sqliteSource, contract);
-      return (
-        kind === "agent" && retiredAgents.get(sqliteSource)?.has(id)
-          ? {
-              ...record,
-              value: {
-                ...(record.value as Record<string, unknown>),
-                lifecycleState: "retired",
-                retirement: retiredAgents.get(sqliteSource)!.get(id),
-              },
-            }
-          : record
-      ) as StoredEntity<T>;
+        state = heads(contract.kind, id, 1)[0];
+      return state ? (recordFor(kind, state, contract) as StoredEntity<T>) : null;
     },
-    list: <T>(kind: string) => records(kind) as readonly StoredEntity<T>[],
+    list: <T>(kind: string) => {
+      const contract = contractForKind(kind);
+      return heads(contract.kind)
+        .map((state) => recordFor(kind, state, contract))
+        .sort((left, right) => left.id.localeCompare(right.id)) as readonly StoredEntity<T>[];
+    },
   };
 }
 
+export function openEntityStore(rootInput: HarnessLayoutInput, options: SqlEntityStoreOptions): OpenedEntityStore;
+export function openEntityStore(rootInput: HarnessLayoutInput, options?: SqliteEntityStoreOptions): OpenedEntityStore;
 export function openEntityStore(
   rootInput: HarnessLayoutInput,
-  options: PostgresEntityDeclarationStoreOptions,
-): EntityDeclarationStorePort;
-export function openEntityStore(rootInput: HarnessLayoutInput, options?: SqliteEntityStoreOptions): EntityStore;
-export function openEntityStore(
-  rootInput: HarnessLayoutInput,
-  options: StorageBackendOptions = {},
-): EntityStore | EntityDeclarationStorePort {
-  const backend = resolveStorageBackend(options);
-  if (backend.backend !== "sqlite") throw unsupportedStorageBackendError(backend.backend);
+  options: StorageBackendOptions & { readonly repoId?: string } = {},
+): OpenedEntityStore {
+  const storage = options.storage;
+  if (storage?.backend === "postgres" || storage?.backend === "pglite") {
+    resolvePostgresEventStoreScope(storage.scope);
+    if (!options.repoId) throw new TypeError("SQL entity store requires explicit repoId");
+    const reader = createSqlTaskQueryReader({ storage, repoId: options.repoId, requireRuntimeRole: true }),
+      source: EntityEventSource = {
+        readBatch: (cursor, maxItems) =>
+          reader.executeCanonical({ operation: "batch", cursor, maxItems }) as ReturnType<
+            EntityEventSource["readBatch"]
+          >,
+        readContentBlob: (sha256) => reader.executeCanonical({ operation: "content", sha256 }) as Uint8Array | null,
+        readEntityDeclarations: (query) =>
+          reader.executeCanonical({ operation: "entity-declarations", query }) as ReturnType<
+            NonNullable<EntityEventSource["readEntityDeclarations"]>
+          >,
+      };
+    return { ...createEntityStore(source), close: reader.close };
+  }
   const canonical = openSqliteEventStore({ rootInput, readOnly: true });
-  return createEntityStore(
-    {
+  return {
+    ...createEntityStore({
       readBatch: (cursor, maxItems) => {
         const start = cursor === null ? 0 : Number(cursor),
           events = canonical.eventsAfter(start, maxItems),
@@ -228,10 +227,10 @@ export function openEntityStore(
         };
       },
       readContentBlob: canonical.readContentObject,
-    },
-    [],
-    options as SqliteEntityStoreOptions,
-  );
+      readEntityDeclarations: canonical.readEntityDeclarations,
+    }),
+    close: canonical.close,
+  };
 }
 
 function entityEventRecord(
@@ -257,8 +256,8 @@ function entityEventRecord(
     });
   }
   const claim = event.payload.declarationDocumentClaim,
-    cache = entityEventCaches.get(source)!.records,
-    cached = cache.get(claim.sha256);
+    cache = source.readEntityDeclarations ? undefined : cacheFor(source).records,
+    cached = cache?.get(claim.sha256);
   if (cached?.event === event && cached.contract === contract) return cached.record;
   const bytes = source.readContentBlob(claim.sha256);
   if (!bytes || bytes.byteLength !== claim.size)
@@ -290,6 +289,6 @@ function entityEventRecord(
     documentSha256: claim.sha256,
     workspaceRevision: event.workspaceRevision,
   });
-  cache.set(claim.sha256, { event, contract, record });
+  cache?.set(claim.sha256, { event, contract, record });
   return record;
 }

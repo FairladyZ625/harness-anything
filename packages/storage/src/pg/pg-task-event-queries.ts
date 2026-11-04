@@ -33,25 +33,11 @@ export function pgTaskEventQueries(options: PgTaskProjectionSourceOptions): PgTa
       { isolationLevel: "repeatable read" },
     );
   return {
-    readTaskEventExists: async (id) =>
-      (
-        await readRows(
-          `CASE event_json::jsonb->>'schema'
-       WHEN 'task-progress-event/v1' THEN event_json::jsonb#>>'{payload,taskId}'
-       WHEN 'agent-runtime-event/v1' THEN CASE event_type
-         WHEN 'runtime_session_task_bound' THEN event_json::jsonb#>>'{payload,taskId}'
-         WHEN 'runtime_session_started' THEN event_json::jsonb#>>'{payload,taskBinding,taskId}' END
-       WHEN 'migration-import-event/v1' THEN COALESCE(event_json::jsonb#>>'{payload,entity,task,taskId}',
-         event_json::jsonb#>>'{payload,entity,execution,taskId}', event_json::jsonb#>>'{payload,entity,fact,taskId}')
-       ELSE event_json::jsonb->>'taskId' END=$6`,
-          [id],
-          true,
-        )
-      ).length > 0,
+    readTaskEventExists: async (id) => (await readRows("task_index_id=$6", [id], true)).length > 0,
     readTaskSubmissionOperation: async (taskId, executionId) =>
       (
         await readRows(
-          "event_json::jsonb->>'schema'='task-event/v1' AND event_type='execution_submitted' AND event_json::jsonb->>'taskId'=$6 AND event_json::jsonb#>>'{payload,execution,executionId}'=$7",
+          "event_schema='task-event/v1' AND event_type='execution_submitted' AND canonical_task_id=$6 AND task_execution_id=$7",
           [taskId, executionId],
           true,
         )
@@ -59,7 +45,7 @@ export function pgTaskEventQueries(options: PgTaskProjectionSourceOptions): PgTa
     readTaskCompletion: async (taskId, executionId) => {
       const row = (
         await readRows(
-          "event_json::jsonb->>'schema'='task-event/v1' AND event_type='task_completed' AND event_json::jsonb->>'taskId'=$6 AND event_json::jsonb#>>'{payload,execution,executionId}' IS NOT DISTINCT FROM $7::text",
+          "event_schema='task-event/v1' AND event_type='task_completed' AND canonical_task_id=$6 AND (task_execution_id=$7 OR (task_execution_id IS NULL AND $7::text IS NULL))",
           [taskId, executionId],
           true,
         )
@@ -67,7 +53,7 @@ export function pgTaskEventQueries(options: PgTaskProjectionSourceOptions): PgTa
       return row ? (JSON.parse(row.event_json) as ReturnType<TaskProjectionQueries["readTaskCompletion"]>) : null;
     },
     readSettingsEvent: async () => {
-      const row = (await readRows("event_json::jsonb->>'schema'='settings-event/v1'", [], true))[0];
+      const row = (await readRows("event_schema='settings-event/v1'", [], true))[0];
       return row ? (JSON.parse(row.event_json) as ReturnType<TaskProjectionQueries["readSettingsEvent"]>) : null;
     },
     readProgress: (id) =>
@@ -81,7 +67,7 @@ export function pgTaskEventQueries(options: PgTaskProjectionSourceOptions): PgTa
               scope,
               readers,
               repoId,
-              "event_json::jsonb->>'schema'='task-progress-event/v1' AND event_json::jsonb#>>'{payload,taskId}'=$6",
+              "event_schema='task-progress-event/v1' AND payload_task_id=$6",
               [id],
             )
           ).map(({ event_json }) => JSON.parse(event_json)) as ReturnType<
@@ -100,7 +86,7 @@ export function pgTaskEventQueries(options: PgTaskProjectionSourceOptions): PgTa
             scope,
             readers,
             repoId,
-            "event_json::jsonb->>'schema'='fact-event/v1' AND event_type='fact_recorded' AND event_json::jsonb#>>'{payload,registersDomainType}' IS NOT NULL",
+            "event_schema='fact-event/v1' AND event_type='fact_recorded' AND registers_domain_type IS NOT NULL",
             [],
           );
           const domainTypes = rows

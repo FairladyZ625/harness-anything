@@ -1,3 +1,5 @@
+import { materializePgEntityDeclaration } from "./pg-entity-declarations.ts";
+import { assertPgReadIndexReady } from "./pg-read-index-migration.ts";
 import { interpretReplayDeclaration } from "../projection/entity-declaration-replay.ts";
 import type { PoolClient } from "pg";
 import type {
@@ -15,7 +17,11 @@ import {
   runtimeSessionId,
   runtimeSessionEntityV1,
 } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
-import { isEntityEvent, isEntityDeclarationEvent } from "@harness-anything/kernel/internal/domain/entity-event.ts";
+import {
+  isEntityEvent,
+  isEntityDeclarationEvent,
+  contractForDeclarationEvent,
+} from "@harness-anything/kernel/internal/domain/entity-event.ts";
 import { isEntityPinEvent } from "@harness-anything/kernel/internal/domain/entity-pin-event.ts";
 import {
   isTaskEvent,
@@ -44,12 +50,7 @@ import {
 import { ENTITY_CONTENT_POLICY_ID } from "@harness-anything/kernel/internal/domain/entity-owned-content.ts";
 import { normalizeHistoricalPresetSnapshot } from "@harness-anything/kernel/internal/domain/historical-event-normalization.ts";
 import { reduceSquadRunProjection } from "../projection/rebuildable-task-projection-squad-runs.ts";
-import {
-  putPgProjectionValue,
-  deletePgProjectionValue,
-  getPgProjectionValue,
-  listPgProjectionValues,
-} from "./pg-projection-values.ts";
+import { putPgProjectionValue, deletePgProjectionValue, getPgProjectionValue } from "./pg-projection-values.ts";
 import type { PgProjectionEventInput, PgProjectionScope } from "./pg-task-event-materialize.ts";
 import type { TaskLifecycleSnapshot } from "@harness-anything/kernel";
 
@@ -92,6 +93,7 @@ export async function materializePgQueryModels(
     for (const projection of interpretEmbeddedEntityProjections(contract, event)) await entityRow(projection);
 
   if (isEntityEvent(event)) {
+    await materializePgEntityDeclaration(client, scope, event);
     const { entityKind, entityId } = event.payload,
       model = `entity:${entityKind}`;
     await put(
@@ -117,8 +119,7 @@ export async function materializePgQueryModels(
           },
         });
     } else if (isEntityDeclarationEvent(event)) {
-      const contract = entityKindContracts.find(({ kind }) => kind === entityKind);
-      if (!contract) throw new Error(`EntityKindContract is unavailable for ${entityKind}`);
+      const contract = contractForDeclarationEvent(event);
       let raw: unknown;
       if (event.type === "entity_reference_declared") raw = event.payload.descriptor;
       else {
@@ -253,7 +254,16 @@ export async function materializePgQueryModels(
     );
   }
   if (isTaskEvent(event)) {
-    const intervals = await listPgProjectionValues<LeaseInterval>(client, scope, "lease-interval", event.taskId);
+    const openIntervals = async (executionId: string): Promise<readonly LeaseInterval[]> => {
+      await assertPgReadIndexReady(client, scope, "lease-interval");
+      const rows = await client.query<{ value: string }>(
+        `SELECT value FROM ha_projection_values WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+          AND model='lease-interval' AND owner_id=$4 AND execution_id=$5 AND interval_open
+          AND (cardinality($6::text[])=0 OR readers && $6::text[]) ORDER BY order_revision`,
+        [scope.tenantId, scope.projectId, scope.policyEpoch, event.taskId, executionId, [...(scope.readers ?? [])]],
+      );
+      return rows.rows.map(({ value }) => JSON.parse(value) as LeaseInterval);
+    };
     if (event.type === "execution_started") {
       const lease = event.payload.lease;
       await put(
@@ -272,27 +282,25 @@ export async function materializePgQueryModels(
         event.taskId,
       );
     } else if (event.type === "lease_renewed") {
-      for (const interval of intervals)
-        if (interval.executionId === event.payload.lease.executionId && interval.releasedRevision === null)
-          await put(
-            "lease-interval",
-            String(interval.acquiredRevision),
-            { ...interval, leaseExpiresAt: event.payload.lease.expiresAt },
-            event.taskId,
-          );
+      for (const interval of await openIntervals(event.payload.lease.executionId))
+        await put(
+          "lease-interval",
+          String(interval.acquiredRevision),
+          { ...interval, leaseExpiresAt: event.payload.lease.expiresAt },
+          event.taskId,
+        );
     } else if (
       (event.type === "execution_submitted" && event.payload.supersedesSubmissionId === undefined) ||
       event.type === "lease_released" ||
       event.type === "task_completion_generation_retired"
     ) {
-      for (const interval of intervals)
-        if (interval.executionId === event.payload.execution.executionId && interval.releasedRevision === null)
-          await put(
-            "lease-interval",
-            String(interval.acquiredRevision),
-            { ...interval, releasedRevision: revision },
-            event.taskId,
-          );
+      for (const interval of await openIntervals(event.payload.execution.executionId))
+        await put(
+          "lease-interval",
+          String(interval.acquiredRevision),
+          { ...interval, releasedRevision: revision },
+          event.taskId,
+        );
     }
   }
 }

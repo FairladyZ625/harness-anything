@@ -7,7 +7,8 @@ import { generationThreeUpgradeStatus } from "./store/generation-three-selection
 import { removeFileDurably } from "./durable-file.ts";
 import { makeTaskProjectionReader } from "./projection/rebuildable-task-projection-factory.ts";
 import { openSqliteEventStore } from "./store/sqlite-event-store.ts";
-import { createPgTaskQueryReader } from "./pg/pg-task-query-reader.ts";
+import { createSqlTaskQueryReader } from "./pg/sql-task-query-reader.ts";
+import { retainPGliteOwner } from "./pglite/query-owner.ts";
 import { startBaseBackup } from "./fleet-basebackup.ts";
 import type { ReplicationPosition, ReplicationCommit } from "./store/replication-log.ts";
 import {
@@ -25,7 +26,7 @@ import {
 export function registerDaemonRepo(input: DaemonRegistryRegisterInput) {
   if (!input.canonicalRoot || input.mode === "remote-proxy") return writeDaemonRegistryRepo(input);
   const storage = input.repoId ? readDaemonStorageConfig(input.userRoot)[input.repoId] : undefined;
-  if (storage?.backend === "postgres") {
+  if (storage?.backend === "postgres" || storage?.backend === "pglite") {
     return writeDaemonRegistryRepo({ ...input, authoredBranch: storage.gitFollower?.branch ?? null });
   }
   const canonicalRoot = canonicalDaemonRegistryRoot(input.canonicalRoot);
@@ -40,10 +41,11 @@ export function registerDaemonRepo(input: DaemonRegistryRegisterInput) {
 
 export type DaemonStorageConfig =
   | import("./storage-backend.ts").SqliteStorageBackendConfig
-  | import("./storage-backend.ts").PostgresStorageBackendConfig;
+  | import("./storage-backend.ts").PostgresStorageBackendConfig
+  | import("./storage-backend.ts").PGliteStorageBackendConfig;
 
 export function hasDaemonGitFollower(storage?: DaemonStorageConfig): boolean {
-  return storage?.backend !== "postgres" || storage.gitFollower !== undefined;
+  return (storage?.backend !== "postgres" && storage?.backend !== "pglite") || storage.gitFollower !== undefined;
 }
 
 export function readDaemonHarnessConfig(input: {
@@ -51,7 +53,7 @@ export function readDaemonHarnessConfig(input: {
   readonly rootDir: string;
   readonly storage?: DaemonStorageConfig;
 }): string {
-  if (input.storage?.backend !== "postgres")
+  if (input.storage?.backend !== "postgres" && input.storage?.backend !== "pglite")
     return readFileSync(path.join(resolveHarnessLayout(input.rootDir).authoredRoot, "harness.yaml"), "utf8");
   const reader = makeDaemonProjectionReader(input);
   try {
@@ -76,7 +78,10 @@ export function readDaemonStorageConfig(userRoot?: string): Readonly<Record<stri
       throw new TypeError("daemon storage repository config is invalid");
     const config = raw as Record<string, unknown>;
     if (config.backend === "sqlite") continue;
-    if (
+    if (config.backend === "pglite") {
+      if (typeof config.dataDir !== "string" || !path.isAbsolute(config.dataDir))
+        throw new TypeError("PGlite daemon config requires an absolute filesystem dataDir");
+    } else if (
       config.backend !== "postgres" ||
       typeof config.connectionString !== "string" ||
       !config.connectionString ||
@@ -105,7 +110,7 @@ export function prepareDaemonRepoStorage(input: {
   readonly mode: string;
   readonly storage?: DaemonStorageConfig;
 }): void {
-  if (input.storage?.backend === "postgres") return;
+  if (input.storage?.backend === "postgres" || input.storage?.backend === "pglite") return;
   // A remote edge is read-only against the center's replica. Its prior local ledger is disposable;
   // canonical repositories still go through the kernel's strict offline-conversion requirement.
   if (
@@ -138,8 +143,27 @@ export function prepareDaemonRepoStorage(input: {
 export async function acquireRepoStorageLock(
   storage: DaemonStorageConfig | undefined,
   acquireLocal: () => Promise<{ readonly close: () => Promise<void> }>,
+  repoId?: string,
 ) {
-  return storage?.backend === "postgres" ? { close: async () => undefined } : acquireLocal();
+  if (storage?.backend === "postgres") return { close: async () => undefined };
+  const lock = await acquireLocal();
+  if (storage?.backend !== "pglite") return lock;
+  try {
+    if (!repoId) throw new TypeError("PGlite storage owner requires repoId");
+    const release = retainPGliteOwner(repoId, storage);
+    return {
+      close: async () => {
+        try {
+          release();
+        } finally {
+          await lock.close();
+        }
+      },
+    };
+  } catch (error) {
+    await lock.close();
+    throw error;
+  }
 }
 
 export function makeDaemonProjectionReader(input: {
@@ -148,7 +172,8 @@ export function makeDaemonProjectionReader(input: {
   readonly storage?: DaemonStorageConfig;
   readonly now?: () => string;
 }) {
-  if (input.storage?.backend === "postgres") return makeTaskProjectionReader({ ...input, storage: input.storage });
+  if (input.storage?.backend === "postgres" || input.storage?.backend === "pglite")
+    return makeTaskProjectionReader({ ...input, storage: input.storage });
   return makeTaskProjectionReader({ rootDir: input.rootDir, storage: input.storage, now: input.now });
 }
 
@@ -158,10 +183,9 @@ export function openFleetStorage(input: {
   readonly storage?: DaemonStorageConfig;
 }) {
   const storage = input.storage;
-  if (storage?.backend === "postgres") {
-    const reader = createPgTaskQueryReader({
-      connectionString: storage.connectionString,
-      scope: resolvePostgresEventStoreScope(storage.scope),
+  if (storage?.backend === "postgres" || storage?.backend === "pglite") {
+    const reader = createSqlTaskQueryReader({
+      storage,
       repoId: input.repoId,
       requireRuntimeRole: true,
     });

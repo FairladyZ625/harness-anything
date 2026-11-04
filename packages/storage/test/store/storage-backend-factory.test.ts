@@ -13,6 +13,7 @@ import {
   type StorageBackendOptions,
   type StorageScope,
 } from "../../src/store/task-event-store.ts";
+import { compileEntityUpsert } from "@harness-anything/kernel/internal/domain/entity-event-compile.ts";
 import type { EntityDeclarationStorePort, StoredEntity } from "../../src/store/entity-store.ts";
 import {
   makeTaskProjectionReader,
@@ -70,15 +71,8 @@ test("postgres factories require explicit scope before connecting", () => {
   );
   assert.throws(
     () =>
-      createEntityStore(emptyEventSource, {
-        storage: { backend: "postgres", connectionString: "postgres://localhost/ha", scope },
-      }),
-    /storage backend "postgres" is not implemented by kernel Wave 1/u,
-  );
-  assert.throws(
-    () =>
       openEntityStore("/tmp/unused", { storage: { backend: "postgres", connectionString: "postgres://localhost/ha" } }),
-    /storage backend "postgres" is not implemented by kernel Wave 1/u,
+    /requires tenant, project, and non-negative policy epoch scope/u,
   );
   assert.throws(
     () =>
@@ -90,10 +84,68 @@ test("postgres factories require explicit scope before connecting", () => {
   );
 });
 
+test("injected entity readers interpret the same accepted declaration for every storage config", () => {
+  const candidate = compileEntityUpsert({
+      entityKind: "agent",
+      entity: {
+        schema: "agent-declaration/v1",
+        id: "neutral-agent",
+        name: "Neutral",
+        instructions: "Shared source",
+        runtimes: [{ type: "codex" }],
+      },
+      eventId: "neutral-agent-event",
+      opId: "neutral-agent-op",
+      workspaceRevision: 1,
+      actor: { principal: { personId: "test" }, executor: null },
+      source: "local",
+      occurredAt: "2026-11-04T00:00:00.000Z",
+    }),
+    source = {
+      readBatch: (cursor: string | null) => ({
+        sourceRevision: 1,
+        events: cursor === null ? [candidate.event] : [],
+        cursor: "1",
+        done: true,
+        accessedItems: cursor === null ? 1 : 0,
+      }),
+      readContentBlob: (sha: string) => {
+        const body = candidate.blobs.find((blob) => blob.sha256 === sha)?.body;
+        return body === undefined ? null : new TextEncoder().encode(body);
+      },
+    };
+  const expected = createEntityStore(source).get("agent", "neutral-agent");
+  assert.ok(expected);
+  for (const config of [
+    { storage: { backend: "sqlite", scope } },
+    { storage: { backend: "postgres", connectionString: "postgres://unused", scope } },
+    { storage: { backend: "pglite", scope } },
+  ] satisfies StorageBackendOptions[]) {
+    const store = createEntityStore(source, config);
+    assert.deepEqual(store.get("agent", "neutral-agent"), expected);
+    assert.deepEqual(store.list("agent"), [expected]);
+    assert.equal(store.get("agent", "missing"), null);
+  }
+});
+
 const emptyEventSource = {
   readBatch: () => ({ sourceRevision: 0, events: [], cursor: null, done: true, accessedItems: 0 }),
   readContentBlob: () => null,
 };
+
+test("all projection factories reject invalid catch-up limits before opening storage", () => {
+  for (const storage of [
+    { backend: "sqlite" as const },
+    { backend: "postgres" as const, connectionString: "postgres://unused", scope },
+    { backend: "pglite" as const, scope },
+  ])
+    for (const catchUpLimit of [0, 4097, 1.5]) {
+      assert.throws(
+        () => makeTaskProjection({ rootDir: "/unused", eventStore: null as never, storage, catchUpLimit }),
+        /catch-up limit/u,
+      );
+    }
+});
 
 declare const ledgerPort: LedgerEventStorePort;
 declare const projectionPort: TaskProjectionPort;
@@ -144,6 +196,12 @@ void [
 void syncPortMethodTypes;
 
 function rejectsLegacyTopLevelConfig(): void {
+  // @ts-expect-error SQL projection construction needs canonical metadata, beyond a replay-only event source.
+  makeTaskProjection({
+    rootDir: "/unused",
+    eventStore: { ...emptyEventSource, readHead: () => null },
+    storage: { backend: "postgres", connectionString: "postgres://unused", scope },
+  });
   // @ts-expect-error backend belongs inside the single storage config field.
   const backendOption: StorageBackendOptions = { backend: "postgres" };
   // @ts-expect-error connectionString belongs inside the postgres storage config.

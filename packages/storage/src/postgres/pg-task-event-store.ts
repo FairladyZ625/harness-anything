@@ -1,3 +1,4 @@
+import { readPgEntityDeclarations } from "../pg/pg-entity-declarations.ts";
 import {
   freezeDeclaredWritePlan,
   type WritePlan,
@@ -50,6 +51,10 @@ export type PostgresTaskEventStoreRequest =
       readonly expectedRevision: number;
       readonly writerFence: PostgresWriterFence;
     }
+  | {
+      readonly operation: "entity-declarations";
+      readonly query: import("@harness-anything/kernel/internal/ports/entity-declarations.ts").EntityDeclarationReadQuery;
+    }
   | { readonly operation: "head" }
   | { readonly operation: "prune"; readonly beforeSequence: number; readonly writerFence: PostgresWriterFence }
   | { readonly operation: "stream" }
@@ -66,6 +71,7 @@ export type PostgresTaskEventStoreRequest =
   | { readonly operation: "content-range"; readonly sha256: string; readonly offset: number; readonly maxBytes: number }
   | { readonly operation: "content-size"; readonly sha256: string };
 export type PostgresTaskEventStoreResult =
+  | readonly import("@harness-anything/kernel/internal/ports/entity-declarations.ts").EntityDeclarationState[]
   | CanonicalEventAppendReceipt
   | CanonicalCommandOutcome
   | ReturnType<CanonicalEventStore["readHead"]>
@@ -184,6 +190,13 @@ export function makePostgresTaskEventStore(options: PostgresTaskEventCapabilityO
       }
       case "head":
         return readHead();
+      case "entity-declarations":
+        return withPostgresTransaction(
+          pool,
+          (client) => readPgEntityDeclarations(client, scope, repoId, request.query),
+          scope,
+          { isolationLevel: "repeatable read" },
+        );
       case "events": {
         const rows = (await executePostgresRead(pool, scope, "events", { ...request, repoId })) as readonly string[];
         return rows.map((body) => JSON.parse(body) as CanonicalEventV1);

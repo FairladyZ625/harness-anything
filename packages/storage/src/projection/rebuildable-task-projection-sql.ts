@@ -85,7 +85,11 @@ export function readStateDigest(db: DatabaseSync, sourceRevision: number): `sha2
     let digest = sha256Text("task-projection-state/v1");
     for (const [table, order] of stateDigestTables) {
       digest = sha256Text(`${digest}\n${table}`);
-      for (const row of prepareQuery(db, `SELECT * FROM ${table} ORDER BY ${order}`).iterate())
+      // Disposable event lookup fields are not part of the pre-expansion state fingerprint.
+      for (const row of prepareQuery(
+        db,
+        `SELECT ${table === "event_index" ? "op_id,workspace_revision,task_id,event_json" : "*"} FROM ${table} ORDER BY ${order}`,
+      ).iterate())
         digest = sha256Text(`${digest}\n${canonicalJson(row as ProjectionSqlRow)}`);
     }
     return `sha256:${digest}` as const;

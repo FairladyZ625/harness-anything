@@ -1,30 +1,28 @@
 import { randomUUID } from "node:crypto";
-import { createPgTaskQueryReader } from "../pg/pg-task-query-reader.ts";
-import { resolvePostgresEventStoreScope } from "../pg/backend.ts";
-import type { PostgresStorageBackendConfig } from "../storage-backend.ts";
+import { createSqlTaskQueryReader } from "../pg/sql-task-query-reader.ts";
+import type { PostgresStorageBackendConfig, PGliteStorageBackendConfig } from "../storage-backend.ts";
 import { WriterEpochError, type PersistentWriterEpoch, type WriterEpochLease } from "../writer-epoch-contract.ts";
 import type { PgEpochOperation } from "./pg-epoch-transaction.ts";
 import { configureWriterEpochStorage } from "../writer-epoch-storage.ts";
 
 export function openPgWriterEpoch(options: {
   readonly stateRoot: string;
-  readonly storage: PostgresStorageBackendConfig;
+  readonly storage: PostgresStorageBackendConfig | PGliteStorageBackendConfig;
   readonly holderId?: string;
   readonly now?: () => string;
 }): PersistentWriterEpoch {
-  if (!options.storage.authorityConnectionString)
+  if (options.storage.backend === "postgres" && !options.storage.authorityConnectionString)
     throw new WriterEpochError("writer_epoch_invalid", "PostgreSQL writer epoch requires an authority connection");
   const holderId = options.holderId ?? `center-${process.pid}-${randomUUID()}`,
     now = options.now ?? (() => new Date().toISOString()),
-    readers = new Map<string, ReturnType<typeof createPgTaskQueryReader>>(),
+    readers = new Map<string, ReturnType<typeof createSqlTaskQueryReader>>(),
     readerFor = (repoId: string) => {
       let reader = readers.get(repoId);
       if (!reader) {
-        reader = createPgTaskQueryReader({
-          connectionString: options.storage.connectionString,
-          authorityConnectionString: options.storage.authorityConnectionString,
+        reader = createSqlTaskQueryReader({
+          storage: options.storage,
+          epochAuthority: true,
           requireRuntimeRole: true,
-          scope: resolvePostgresEventStoreScope(options.storage.scope),
           repoId,
         });
         readers.set(repoId, reader);

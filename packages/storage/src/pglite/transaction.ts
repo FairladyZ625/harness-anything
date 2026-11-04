@@ -1,6 +1,7 @@
 import { PGlite, type PGliteOptions } from "@electric-sql/pglite";
 import { createPgConfig } from "@electric-sql/pglite/node-postgres";
 import { Pool, type PoolConfig } from "pg";
+import { acquirePGliteDirectoryMutex } from "./data-dir-mutex.ts";
 
 export interface PGliteStorage {
   readonly db: PGlite;
@@ -21,6 +22,30 @@ export interface PGliteStorageOptions {
  * its native poolSize=1 rather than presenting a fake multi-connection pool to callers.
  */
 export function createPGliteStorage(options: PGliteStorageOptions = {}): PGliteStorage {
+  assertPGliteRuntime();
+  const mutex = acquirePGliteDirectoryMutex(options.dataDir);
+  let db: PGlite;
+  try {
+    db = options.dataDir === undefined ? new PGlite(options.pglite) : new PGlite(options.dataDir, options.pglite);
+  } catch (error) {
+    mutex.close();
+    throw error;
+  }
+  const pool = new Pool({ ...(createPgConfig(db) as unknown as PoolConfig), max: 1 });
+  let closing: Promise<void> | undefined;
+  return {
+    db,
+    pool,
+    close: () =>
+      (closing ??= (async () => {
+        await pool.end();
+        if (!db.closed) await db.close();
+        mutex.close();
+      })()),
+  };
+}
+
+export function assertPGliteRuntime(): void {
   // Node 24's V8 can abort the host process while reclaiming WASM import wrappers.
   // Keep this check before construction: a native CHECK cannot become a JS rejection.
   // https://github.com/nodejs/node/issues/66366
@@ -32,17 +57,4 @@ export function createPGliteStorage(options: PGliteStorageOptions = {}): PGliteS
       { code: "pglite_runtime_unsupported" },
     );
   }
-  const db = options.dataDir === undefined ? new PGlite(options.pglite) : new PGlite(options.dataDir, options.pglite);
-  const pool = new Pool({ ...(createPgConfig(db) as unknown as PoolConfig), max: 1 });
-  let closed = false;
-  return {
-    db,
-    pool,
-    close: async () => {
-      if (closed) return;
-      closed = true;
-      await pool.end();
-      if (!db.closed) await db.close();
-    },
-  };
 }

@@ -199,7 +199,7 @@ export type AgentRuntimeOverviewResult = {
     readonly limit: number;
     readonly cursor: string | null;
     readonly nextCursor: string | null;
-    readonly remainingCount: number;
+    readonly remainingCount: number | null;
   };
   readonly watermark: number;
   readonly sourceRevision: number;
@@ -668,8 +668,7 @@ function validPage(value: unknown): boolean {
     (value.limit as number) <= 64 &&
     (value.cursor === null || typeof value.cursor === "string") &&
     (value.nextCursor === null || typeof value.nextCursor === "string") &&
-    Number.isInteger(value.remainingCount) &&
-    (value.remainingCount as number) >= 0
+    (value.remainingCount === null || (Number.isInteger(value.remainingCount) && (value.remainingCount as number) >= 0))
   );
 }
 export function isAgentDefinitionSnapshot(value: unknown): value is AgentDefinitionSnapshot {

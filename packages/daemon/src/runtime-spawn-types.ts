@@ -402,6 +402,7 @@ export interface RemoteRuntimePersistence {
     /** The worktree binding the center derived for this task; null when it is closed or changes no repository files. */
     readonly worktree: TaskWorktreeBindingV1 | null;
   }>;
+  readonly readRuntimeSession: (runtimeSessionId: string) => Promise<RuntimeSessionSelection | null>;
   readonly readRuntimeSessions: (query?: RuntimeSessionReadQuery) => Promise<readonly RuntimeSessionSelection[]>;
   /** Read the canonical dispatch owner when a daemon-local stream is unavailable. */
   readonly readRuntimeDispatch: (runtimeSessionId: string) => Promise<RuntimeDispatchOwnerEvidence | null>;
