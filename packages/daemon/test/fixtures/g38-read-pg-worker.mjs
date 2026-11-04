@@ -2,7 +2,7 @@
 // pattern. PGlite and every query execute on the worker; no socket, Docker or host service.
 import { parentPort, workerData } from "node:worker_threads";
 import pg from "pg";
-import { canonicalEventCut } from "@harness-anything/kernel";
+import assert from "node:assert/strict";
 import path from "node:path";
 import { localGitWorktreeSettlement } from "../../../storage/src/store/local-version-control-system.ts";
 import { rebuildPgProjection } from "../../../storage/src/pg/pg-task-event-materialize.ts";
@@ -17,6 +17,7 @@ let sqlRowsRead = 0,
 const original = pg.Client.prototype.query;
 pg.Client.prototype.query = function (...args) {
   const promise = original.apply(this, args);
+  if (!measuring) return promise;
   if (!promise?.then) throw new Error("G38 PG probe expects promise-based queries");
   return promise.then(async (result) => {
     if (!measuring) return result;
@@ -39,7 +40,7 @@ pg.Client.prototype.query = function (...args) {
 };
 installReadProbe();
 const { state, responsePort, size, dimension, rootDir } = workerData;
-let backend, cut;
+let backend;
 const respond = (value) => {
   responsePort.postMessage(value);
   Atomics.store(state, 0, 1);
@@ -57,25 +58,36 @@ try {
       scope: { tenantId: "g38", projectId: "read", policyEpoch: 0 },
     },
   });
-  const bundles = [];
-  await seedReadLedger(
+  const bundles = [],
+    writerFence = { repoId: "g38-read", holderId: "read-fixture", epoch: 1 };
+  let collecting = false;
+  const seeded = await seedReadLedger(
     {
       append: async (bundle) => {
-        bundles.push(bundle);
-        const { opId: _opId, ...identity } = canonicalEventCut("g38-read", bundle.event);
-        cut = identity;
+        if (collecting) bundles.push(bundle);
+        else await backend.eventStore.append(bundle, bundle.event.workspaceRevision - 1, writerFence);
       },
-      currentCut: () => cut,
+      beginHistory: () => {
+        collecting = true;
+      },
     },
     dimension,
     size,
   );
-  const last = bundles.pop();
-  await backend.eventStore.append({ ...last, preceding: bundles }, 0, {
-    repoId: "g38-read",
-    holderId: "read-fixture",
-    epoch: 1,
-  });
+  // Keep selected baseline operations independent. Only unrelated history shares a batch;
+  // otherwise reading a baseline receipt would legitimately return a growing command k.
+  const baseRevision = bundles[0].event.workspaceRevision - 1,
+    last = bundles.pop();
+  const accepted = await backend.eventStore.append({ ...last, preceding: bundles }, baseRevision, writerFence);
+  assert.equal(
+    accepted.cut.revision,
+    seeded.baseRevision + seeded.growth,
+    "PG fixture did not seed the committed collection size",
+  );
+  // Bulk fixtures need current planner statistics, just like PostgreSQL bulk restores.
+  // https://www.postgresql.org/docs/current/populate.html#POPULATE-ANALYZE
+  // This is setup, outside both cold/warm cost measurements; no scan is hidden.
+  await backend.pool.query("ANALYZE");
   respond({ ready: true });
 } catch (error) {
   respond({ error: { message: error.message, stack: error.stack } });

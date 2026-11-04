@@ -64,7 +64,7 @@ export async function runReadLane({
     )
       throw new Error("invalid G38 read dimension");
     if ((!backend || backend === "pglite") && Number(process.versions.node.split(".")[0]) < 26)
-      throw new Error("G38 PGlite requires Node 26; a skipped backend is not a pass");
+      throw new Error("G38 PGlite measurements run on Node 26; a skipped backend is not a pass");
     result = await evaluateReadCostScaling({
       rootDir,
       budgetPath,

@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { canonicalEventCut, canonicalLedgerCut } from "@harness-anything/kernel";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -18,7 +19,25 @@ export async function openReadBackend(backend, dimension, size) {
   if (backend === "sqlite") {
     let store = makeTaskEventStore({ repoId: "g38-read", rootDir });
     try {
-      await seedReadLedger({ append: (bundle) => store.append(bundle), currentCut: store.currentCut }, dimension, size);
+      let collecting = false;
+      const history = [];
+      const seeded = await seedReadLedger(
+        {
+          append: (bundle) => (collecting ? history.push(bundle) : store.append(bundle)),
+          beginHistory: () => {
+            collecting = true;
+          },
+        },
+        dimension,
+        size,
+      );
+      const terminal = history.pop();
+      store.append({ ...terminal, preceding: history });
+      assert.equal(
+        store.readHead()?.revision,
+        seeded.baseRevision + seeded.growth,
+        "SQLite fixture did not seed the committed collection size",
+      );
       await store.drain();
       store = makeTaskEventReader({ repoId: "g38-read", rootDir });
       const projection = makeTaskProjection({ rootDir, eventStore: store });

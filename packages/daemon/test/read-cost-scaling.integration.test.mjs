@@ -27,7 +27,7 @@ if (process.env.FLEET_STRESS_G38_LEGACY_BENCH === "1") {
       {
         skip:
           backend === "pglite" && Number(process.versions.node.split(".")[0]) < 26
-            ? "PGlite requires Node 26; the G38 dual-backend CI lane fails closed on older Node"
+            ? "G38 PGlite measurement is pinned to Node 26; the dual-backend CI lane fails closed on older Node"
             : false,
       },
       async (t) => {

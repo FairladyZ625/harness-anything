@@ -65,7 +65,7 @@ export const READ_PROBES = Object.freeze({
   "runtime-attach": {
     reads: ["method:repo.agentRuntime.attach"],
     run: async ({ runtime }) => {
-      const subscription = await runtime.attach(READ_SESSION_ID, "stream:0");
+      const subscription = await runtime.attach(READ_ACTIVE_SESSION_ID, "stream:0");
       try {
         assert.equal(subscription.initial.ok, true);
         return subscription.initial;

@@ -663,11 +663,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 26
-      - uses: actions/download-artifact@v4
-        with:
-          name: node-modules-${{ hashFiles('package-lock.json') }}
-          path: ${{ runner.temp }}
-      - run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
+          cache: npm
+      # Follow pglite-node26: the shared dependency artifact contains Node 24 native modules.
+      - run: echo "npm_package_config_node_gyp_nodedir=$(dirname "$(dirname "$(command -v node)")")" >> "$GITHUB_ENV"
+      - run: npm ci
       - name: Reject history-dependent reads (G38)
         env:
           G38_PHASE: read
@@ -690,7 +689,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 26
+          node-version: 24
       - uses: actions/download-artifact@v4
         with:
           name: node-modules-${{ hashFiles('package-lock.json') }}

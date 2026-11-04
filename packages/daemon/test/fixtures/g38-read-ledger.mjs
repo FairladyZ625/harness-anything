@@ -1,5 +1,6 @@
 // Read-scale replica: seed through the same canonical bundle shapes/reducers as the
 // backend parity contract. Setup is outside the measured interval.
+import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   compileVerticalDeclarationEvent,
@@ -14,6 +15,8 @@ import {
   stableStringify,
   compileEntityUpsert,
   createScheduleV1,
+  canonicalEventCut,
+  canonicalLedgerCut,
   compileScheduleDefinitionEvent,
 } from "@harness-anything/kernel";
 import { canonicalEventWritePlan } from "../../../storage/src/store/task-event-store.ts";
@@ -30,9 +33,11 @@ export const READ_ACTIVE_SESSION_ID = "history-active";
 export const READ_SESSION_ID = "runtime-query-session";
 export const READ_DOCUMENT = `tasks/${READ_TASK_ID}-g38/artifacts/selected.md`;
 
-export async function seedReadLedger({ append, currentCut }, dimension, size) {
+export async function seedReadLedger({ append, beginHistory = () => {} }, dimension, size) {
   let next = 1,
-    dispatchSource;
+    dispatchSource,
+    plannedCut = canonicalLedgerCut("g38-read", null);
+  const currentCut = () => plannedCut;
   const fixDispatchIds = (value) => {
     if (!value || typeof value !== "object") return;
     for (const [key, child] of Object.entries(value)) {
@@ -47,6 +52,9 @@ export async function seedReadLedger({ append, currentCut }, dimension, size) {
   };
   const add = async (bundle) => {
     fixDispatchIds(bundle.event);
+    if (bundle.event.type === "runtime_installation_observed") bundle.event.payload.capabilities = ["attach"];
+    if (bundle.event.opId === "history-large-event")
+      assert.equal(Buffer.byteLength(bundle.event.payload.text), size * 16);
     if (bundle.event.payload?.task) bundle.event.payload.task.packageDisposition = "active";
     if (bundle.event.type === "runtime_session_outcome_observed") {
       const body = "Finished fixture\n",
@@ -64,8 +72,19 @@ export async function seedReadLedger({ append, currentCut }, dimension, size) {
       bundle.plan = canonicalEventWritePlan(bundle.event, "agent-runtime/v1", bundle.event.opId);
     if (bundle.event.type === "runtime_dispatch_requested") dispatchSource = bundle.event;
     await append(bundle);
+    const { opId: _opId, ...identity } = canonicalEventCut("g38-read", bundle.event);
+    plannedCut = identity;
     next = bundle.event.workspaceRevision + 1;
   };
+  // Full-source audits need exactly k canonical inputs, not the RPC catalog fixture.
+  if (dimension === "source-events") {
+    beginHistory();
+    for (let index = 0; index < size; index++) {
+      const event = eventAt(next);
+      await add({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
+    }
+    return { revision: next - 1, baseRevision: 0, growth: size };
+  }
   // A real installed vertical and Settings keep the production read runtime's catalog,
   // completion and query judgments active; no fake early-return/failed-action measurements.
   await add(
@@ -224,13 +243,13 @@ export async function seedReadLedger({ append, currentCut }, dimension, size) {
       source: "local",
       payload: {
         runtimeSessionId: `history-${id}`,
-        instanceId: "history-instance",
+        instanceId: "runtime-query-instance",
         installationId: "runtime-query-installation",
         kindId: "codex",
         definitionSnapshotRef: "artifact:runtime-definitions/codex/v1",
-        taskBinding: { taskId: "history-task", executionId: `history-${id}` },
+        taskBinding: { taskId: "history-task", executionId: "history-execution" },
         launchGeneration: 1,
-        attachable: false,
+        attachable: !settled,
       },
     };
     await add({ event: start, plan: canonicalEventWritePlan(start, "agent-runtime/v1", start.opId), blobs: [] });
@@ -259,16 +278,38 @@ export async function seedReadLedger({ append, currentCut }, dimension, size) {
     });
   };
   await settledSession("active", false);
-  if (dimension === "dispatches") await settledSession("dispatch-source");
+  const activeDispatch = structuredClone(dispatchSource);
+  Object.assign(activeDispatch, {
+    eventId: "read-active-dispatch",
+    opId: "read-active-dispatch",
+    workspaceRevision: next,
+    occurredAt: "2026-11-05T00:00:00.000Z",
+  });
+  Object.assign(activeDispatch.payload, {
+    dispatchId: "read-active-dispatch",
+    dispatchKey: "read-active",
+    runtimeSessionId: READ_ACTIVE_SESSION_ID,
+    taskId: "history-task",
+    executionId: "history-execution",
+    attemptGroupId: "read-active",
+    attemptIndex: 1,
+    startedAt: "2026-11-05T00:00:00.000Z",
+  });
+  delete activeDispatch.payload.reviewTarget;
+  await add({
+    event: activeDispatch,
+    plan: canonicalEventWritePlan(activeDispatch, "agent-runtime/v1", activeDispatch.opId),
+    blobs: [],
+  });
 
-  // Every dimension varies alone. All history belongs to an unrelated subject, and
-  // its fixed-width ids/body metadata prevent decimal-id growth looking like IO noise.
+  const baseRevision = next - 1;
+  beginHistory();
+  // Each dispatch has its own settled session, as a real completed launch does.
+  // The runtime-only axis isolates session cost; selected subjects stay fixed on both axes.
+  // Fixed-width ids/body metadata prevent decimal-id growth looking like IO noise.
   for (let index = 0; index < size; index++) {
     const id = String(index).padStart(8, "0");
-    if (dimension === "source-events") {
-      const event = eventAt(next);
-      await add({ event, plan: taskLifecycleWritePlan(event), blobs: [] });
-    } else if (dimension === "runtime-sessions") {
+    if (dimension === "runtime-sessions") {
       await settledSession(id);
     } else if (dimension === "task-outputs") {
       await add(
@@ -281,6 +322,7 @@ export async function seedReadLedger({ append, currentCut }, dimension, size) {
         ),
       );
     } else if (dimension === "dispatches") {
+      await settledSession(id);
       const event = structuredClone(dispatchSource);
       Object.assign(event, {
         workspaceRevision: next,
@@ -291,11 +333,11 @@ export async function seedReadLedger({ append, currentCut }, dimension, size) {
       Object.assign(event.payload, {
         dispatchId: `dispatch-history-${id}`,
         dispatchKey: `history-${id}`,
-        runtimeSessionId: "history-dispatch-source",
+        runtimeSessionId: `history-${id}`,
         attemptGroupId: `history-attempt-${id}`,
         attemptIndex: 1,
         taskId: "history-task",
-        executionId: `history-${id}`,
+        executionId: "history-execution",
         startedAt: "2026-08-01T00:00:00.000Z",
       });
       delete event.payload.resumedFromDispatchId;
@@ -349,5 +391,12 @@ export async function seedReadLedger({ append, currentCut }, dimension, size) {
       }),
     );
   }
-  return { revision: next - 1 };
+  return {
+    revision: next - 1,
+    baseRevision,
+    growth:
+      dimension === "event-bytes"
+        ? 1
+        : size * (dimension === "runtime-sessions" ? 3 : dimension === "dispatches" ? 4 : 1),
+  };
 }

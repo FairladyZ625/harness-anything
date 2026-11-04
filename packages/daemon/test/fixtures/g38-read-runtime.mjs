@@ -79,10 +79,11 @@ export async function createReadFixtureRuntime({ projection, store, rootDir }, n
   const runtimeStream = makeAgentRuntimeStreamHub({
     readSession: (id) => readObservedRuntimeSession(projection, rootDir, id),
     canAttach: (session) => {
-      // The deterministic fixture grants a local worker; retain both real admission reads.
+      // A known live fixture worker supplies the process grant; both metadata reads stay real.
+      if (session.liveness === "exited") return false;
       if (
         !projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef) ||
-        !projection.readRuntimeInstallation(session.installationId)
+        !projection.readRuntimeInstallation(session.installationId)?.effectiveCapabilities.includes("attach")
       )
         throw new Error("Attach fixture lacks a dispatch/installation");
       return true;

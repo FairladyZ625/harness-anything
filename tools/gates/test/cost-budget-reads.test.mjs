@@ -242,6 +242,14 @@ test("G38 CI retains the legacy budget and joins every Node26 backend/collection
   assert.equal(reads.strategy["fail-fast"], false);
   assert.ok(reads.steps.some((step) => step.with?.["node-version"] === 26));
   assert.ok(
+    reads.steps.some((step) => step.run === "npm ci"),
+    "Node26 read shards build their own native modules",
+  );
+  assert.ok(
+    summary.steps.some((step) => step.with?.["node-version"] === 24),
+    "The metadata-only join uses the matching shared dependency artifact",
+  );
+  assert.ok(
     reads.steps.some(
       (step) =>
         step.run === "node tools/gates/cost-budget.mjs" && step.env?.G38_PHASE === "read" && !step["continue-on-error"],
