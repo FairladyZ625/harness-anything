@@ -86,6 +86,12 @@ export function taskWorktreeCandidateInventory(
       // acknowledges that version, but does not make an untouched stale mirror a new candidate.
       const current = baseBytes === null ? null : history?.projection?.readDocument(row.path).document;
       if (current && history?.store.queryEvents) {
+        const currentBytes = history.store.readContentBlob(current.blobSha256);
+        if (currentBytes === null)
+          throw new Error(`Missing accepted worktree document blob ${current.blobSha256} for ${row.path}.`);
+        // An already accepted copy is unchanged too. Leaving it in the overlay would hide a
+        // real canonical edit before the scanner can apply its CAS and lease checks.
+        if (row.safe && row.bytes !== null && Buffer.from(row.bytes).equals(currentBytes)) return [];
         if (!accepted.has(current.workspaceRevision))
           accepted.set(
             current.workspaceRevision,
@@ -98,13 +104,7 @@ export function taskWorktreeCandidateInventory(
           event.payload.executionId !== null &&
           executions.has(event.payload.executionId)
         ) {
-          const acknowledged = history.store.readContentBlob(current.blobSha256);
-          if (acknowledged === null)
-            throw new Error(`Missing accepted worktree document blob ${current.blobSha256} for ${row.path}.`);
-          // An already accepted copy is unchanged too. Leaving it in the overlay would hide a
-          // real canonical edit before the scanner can apply its CAS and lease checks.
-          if (row.safe && row.bytes !== null && Buffer.from(row.bytes).equals(acknowledged)) return [];
-          baseBytes = Buffer.from(acknowledged);
+          baseBytes = Buffer.from(currentBytes);
         }
       }
       return [{ ...row, baseBytes }];

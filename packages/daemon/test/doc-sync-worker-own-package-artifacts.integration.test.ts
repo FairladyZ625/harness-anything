@@ -460,34 +460,44 @@ test("a missing worktree base recovers this task execution's accepted version fo
 });
 
 for (const selection of ["task", "paths"] as const) {
-  test(`an acknowledged worker copy cannot hide a canonical edit selected by ${selection}`, async () => {
-    const fixture = await ownPackageFixture(`canonical-edit-${selection}`);
-    try {
-      const acceptedBody = "# Accepted worker edit\n",
-        canonicalEdit = "# Subsequent canonical edit\n",
-        action = selection === "task" ? { taskId: fixture.taskId } : { paths: [fixture.artifactPath] };
-      writeFileSync(fixture.workerArtifact, acceptedBody);
-      const accepted = await fixture.cell.run({ kind: "doc-submit", ...action }, holder);
-      assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
-      await waitForFixturePublication(fixture.cell, accepted.opId, holder);
-      // Canonical acceptance survived, but the node lost its local acknowledgement.
-      writeFileSync(
-        taskWorktreeDocumentBase(path.join(fixture.rootDir, ".worktrees", fixture.taskId), fixture.artifactPath),
-        "# Worker artifact v1\n",
-      );
-      writeFileSync(fixture.canonicalArtifact, canonicalEdit);
-      const status = await fixture.cell.run({ kind: "doc-status", ...action }, holder);
-      assert.match(String(status.summary), /eligible: 1/u, JSON.stringify(status));
-      const synced = await fixture.cell.run({ kind: "doc-submit", ...action }, holder);
-      assert.equal(synced.outcome, "applied", JSON.stringify(synced));
-      await waitForFixturePublication(fixture.cell, synced.opId, holder);
-      assert.equal(readFileSync(fixture.canonicalArtifact, "utf8"), canonicalEdit);
-      assert.equal(readFileSync(fixture.workerArtifact, "utf8"), acceptedBody);
-    } finally {
-      await fixture.cell.close();
-      rmSync(fixture.rootDir, { recursive: true, force: true });
-    }
-  });
+  for (const acceptedBy of ["execution", "owner"] as const) {
+    test(`a copy accepted by ${acceptedBy} cannot hide a canonical edit selected by ${selection}`, async () => {
+      const fixture = await ownPackageFixture(`canonical-edit-${selection}-${acceptedBy}`);
+      try {
+        const acceptedBody = "# Accepted worker edit\n",
+          canonicalEdit = "# Subsequent canonical edit\n",
+          action = selection === "task" ? { taskId: fixture.taskId } : { paths: [fixture.artifactPath] };
+        const acceptor =
+          acceptedBy === "execution"
+            ? holder
+            : withPolicyGroup(
+                { actor: { principal: { personId: "owner" }, executor: null }, source: "local" },
+                "admin",
+              );
+        writeFileSync(acceptedBy === "execution" ? fixture.workerArtifact : fixture.canonicalArtifact, acceptedBody);
+        const accepted = await fixture.cell.run({ kind: "doc-submit", ...action }, acceptor);
+        assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
+        await waitForFixturePublication(fixture.cell, accepted.opId, acceptor);
+        writeFileSync(fixture.workerArtifact, acceptedBody);
+        // The worker matches accepted content but still carries its old projection base.
+        writeFileSync(
+          taskWorktreeDocumentBase(path.join(fixture.rootDir, ".worktrees", fixture.taskId), fixture.artifactPath),
+          "# Worker artifact v1\n",
+        );
+        writeFileSync(fixture.canonicalArtifact, canonicalEdit);
+        const status = await fixture.cell.run({ kind: "doc-status", ...action }, holder);
+        assert.match(String(status.summary), /eligible: 1/u, JSON.stringify(status));
+        const synced = await fixture.cell.run({ kind: "doc-submit", ...action }, holder);
+        assert.equal(synced.outcome, "applied", JSON.stringify(synced));
+        await waitForFixturePublication(fixture.cell, synced.opId, holder);
+        assert.equal(readFileSync(fixture.canonicalArtifact, "utf8"), canonicalEdit);
+        assert.equal(readFileSync(fixture.workerArtifact, "utf8"), acceptedBody);
+      } finally {
+        await fixture.cell.close();
+        rmSync(fixture.rootDir, { recursive: true, force: true });
+      }
+    });
+  }
 }
 
 for (const document of ["artifact", "bootstrap"] as const) {
