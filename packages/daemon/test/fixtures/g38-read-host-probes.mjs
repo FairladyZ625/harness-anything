@@ -23,10 +23,26 @@ const now = () => "2026-11-05T00:00:00.000Z";
 export const HOST_READ_PROBES = {
   "archive-maintenance": {
     reads: ["background:archive-maintenance"],
+    // repo-cell-open schedules this maintenance pass over its explicit archive inputs;
+    // it is not a fixed-page projection read (CEO ruling 2026-11-05).
+    sourceAudit: {
+      inputCollection: "archived dispatch stream headers and compaction admission",
+      maxPerInput: {
+        sqlRowsRead: 16,
+        sqlResultBytes: 16384,
+        sha256Calls: 2,
+        sha256Bytes: 512,
+        gitProcesses: 1,
+        // Each fixed-width header is 90 bytes; 256 includes constant metadata reads.
+        fileReadBytes: 256,
+        // Compaction admission and retention each enumerate the input directory once.
+        directoryEntries: 4,
+      },
+    },
     prepare: ({ rootDir }, dimension, size) => {
       const archive = path.join(rootDir, ".harness/runtime/dispatches/archive");
       mkdirSync(archive, { recursive: true });
-      for (let index = 0; index < (dimension === "dispatches" ? size : 2); index++) {
+      for (let index = 0; index < (dimension === "source-events" ? size : 2); index++) {
         const dispatchId = `dispatch_${sha256Text(`dispatch-history-${String(index).padStart(8, "0")}`).slice(0, 24)}`;
         writeFileSync(
           path.join(archive, `${dispatchId}.jsonl`),

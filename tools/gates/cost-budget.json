@@ -4261,6 +4261,564 @@
         "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 296840 at 200 -> 2827480 at 2000 (cold/warm maximum).",
         "deletionTaskId": "task_b8a3cd12e10741592471c378a3",
         "expiresAt": "2026-11-19T00:00:00Z"
+      },
+      {
+        "probe": "claimable-tasks",
+        "backend": "sqlite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical runtime-sessions before producing a fixed result; observed sqlRowsRead 325 at 200 -> 2125 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "claimable-tasks",
+        "backend": "sqlite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical runtime-sessions before producing a fixed result; observed sqlResultBytes 322498 at 200 -> 2889171 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "cli-doctor-health",
+        "backend": "sqlite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical runtime-sessions before producing a fixed result; observed sqlRowsRead 935 at 200 -> 8135 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "cli-doctor-health",
+        "backend": "sqlite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical runtime-sessions before producing a fixed result; observed sqlResultBytes 1006908 at 200 -> 9629832 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "cli-schedule-reckon",
+        "backend": "sqlite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical runtime-sessions before producing a fixed result; observed sqlRowsRead 228 at 200 -> 2028 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "cli-schedule-reckon",
+        "backend": "sqlite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical runtime-sessions before producing a fixed result; observed sqlResultBytes 152280 at 200 -> 1486113 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "in-flight-work",
+        "backend": "sqlite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical runtime-sessions before producing a fixed result; observed sqlRowsRead 431 at 200 -> 4031 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "in-flight-work",
+        "backend": "sqlite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical runtime-sessions before producing a fixed result; observed sqlResultBytes 450146 at 200 -> 4350517 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "projection:runtime-session-groups",
+        "backend": "sqlite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical runtime-sessions before producing a fixed result; observed sqlRowsRead 1061 at 200 -> 8261 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "projection:runtime-session-groups",
+        "backend": "sqlite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical runtime-sessions before producing a fixed result; observed sqlResultBytes 986738 at 200 -> 8832652 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "repo.reckoning.signals.read",
+        "backend": "sqlite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical runtime-sessions before producing a fixed result; observed sqlRowsRead 220 at 200 -> 2020 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "repo.reckoning.signals.read",
+        "backend": "sqlite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical runtime-sessions before producing a fixed result; observed sqlResultBytes 151478 at 200 -> 1485301 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "repo.tasks.wip",
+        "backend": "sqlite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical runtime-sessions before producing a fixed result; observed sqlRowsRead 237 at 200 -> 2037 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "repo.tasks.wip",
+        "backend": "sqlite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical runtime-sessions before producing a fixed result; observed sqlResultBytes 299733 at 200 -> 2866319 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "repo.workspace.scope.read",
+        "backend": "sqlite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical runtime-sessions before producing a fixed result; observed sqlRowsRead 702 at 200 -> 2220 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "repo.workspace.scope.read",
+        "backend": "sqlite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical runtime-sessions before producing a fixed result; observed sqlResultBytes 187450 at 200 -> 585932 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "runtime-overview-default",
+        "backend": "sqlite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical runtime-sessions before producing a fixed result; observed sqlRowsRead 242 at 200 -> 2042 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "runtime-overview-default",
+        "backend": "sqlite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical runtime-sessions before producing a fixed result; observed sqlResultBytes 164147 at 200 -> 1497984 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "task-list",
+        "backend": "sqlite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlRowsRead",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical runtime-sessions before producing a fixed result; observed sqlRowsRead 259 at 200 -> 2059 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "task-list",
+        "backend": "sqlite",
+        "dimension": "runtime-sessions",
+        "metric": "sqlResultBytes",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical runtime-sessions before producing a fixed result; observed sqlResultBytes 298525 at 200 -> 2865143 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "claimable-tasks",
+        "backend": "sqlite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical dispatches before producing a fixed result; observed sqlRowsRead 325 at 200 -> 2125 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "claimable-tasks",
+        "backend": "sqlite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical dispatches before producing a fixed result; observed sqlResultBytes 322554 at 200 -> 2889387 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "cli-doctor-health",
+        "backend": "sqlite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical dispatches before producing a fixed result; observed sqlRowsRead 935 at 200 -> 8135 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "cli-doctor-health",
+        "backend": "sqlite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical dispatches before producing a fixed result; observed sqlResultBytes 1006984 at 200 -> 9630548 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "cli-schedule-reckon",
+        "backend": "sqlite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical dispatches before producing a fixed result; observed sqlRowsRead 228 at 200 -> 2028 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "cli-schedule-reckon",
+        "backend": "sqlite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical dispatches before producing a fixed result; observed sqlResultBytes 152293 at 200 -> 1486126 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "in-flight-work",
+        "backend": "sqlite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical dispatches before producing a fixed result; observed sqlRowsRead 431 at 200 -> 4031 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "in-flight-work",
+        "backend": "sqlite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical dispatches before producing a fixed result; observed sqlResultBytes 450161 at 200 -> 4350692 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "projection:runtime-session-groups",
+        "backend": "sqlite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical dispatches before producing a fixed result; observed sqlRowsRead 1061 at 200 -> 8261 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "projection:runtime-session-groups",
+        "backend": "sqlite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical dispatches before producing a fixed result; observed sqlResultBytes 986837 at 200 -> 8833071 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "repo.reckoning.signals.read",
+        "backend": "sqlite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical dispatches before producing a fixed result; observed sqlRowsRead 220 at 200 -> 2020 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "repo.reckoning.signals.read",
+        "backend": "sqlite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical dispatches before producing a fixed result; observed sqlResultBytes 151487 at 200 -> 1485310 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "repo.tasks.wip",
+        "backend": "sqlite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical dispatches before producing a fixed result; observed sqlRowsRead 237 at 200 -> 2037 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "repo.tasks.wip",
+        "backend": "sqlite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical dispatches before producing a fixed result; observed sqlResultBytes 299754 at 200 -> 2866500 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "repo.workspace.scope.read",
+        "backend": "sqlite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical dispatches before producing a fixed result; observed sqlRowsRead 978 at 200 -> 2220 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "repo.workspace.scope.read",
+        "backend": "sqlite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical dispatches before producing a fixed result; observed sqlResultBytes 272536 at 200 -> 616354 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "runtime-overview-default",
+        "backend": "sqlite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical dispatches before producing a fixed result; observed sqlRowsRead 242 at 200 -> 2042 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "runtime-overview-default",
+        "backend": "sqlite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical dispatches before producing a fixed result; observed sqlResultBytes 164161 at 200 -> 1497998 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "task-list",
+        "backend": "sqlite",
+        "dimension": "dispatches",
+        "metric": "sqlRowsRead",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical dispatches before producing a fixed result; observed sqlRowsRead 259 at 200 -> 2059 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "task-list",
+        "backend": "sqlite",
+        "dimension": "dispatches",
+        "metric": "sqlResultBytes",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical dispatches before producing a fixed result; observed sqlResultBytes 298559 at 200 -> 2865337 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "repo.workspace.scope.read",
+        "backend": "sqlite",
+        "dimension": "task-outputs",
+        "metric": "sqlResultBytes",
+        "reason": "Bytes-only boundary; the precise growing payload remains to be attributed. Upper-layer current-state/task/workspace aggregation reads historical task-outputs before producing a fixed result; observed sqlResultBytes 535308 at 3400 -> 537557 at 34000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "cli-doctor-health",
+        "backend": "sqlite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical relations before producing a fixed result; observed sqlRowsRead 535 at 200 -> 4135 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "cli-doctor-health",
+        "backend": "sqlite",
+        "dimension": "relations",
+        "metric": "sqlResultBytes",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical relations before producing a fixed result; observed sqlResultBytes 161390 at 200 -> 1162560 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "repo.workspace.scope.read",
+        "backend": "sqlite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical relations before producing a fixed result; observed sqlRowsRead 288 at 200 -> 2220 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "repo.workspace.scope.read",
+        "backend": "sqlite",
+        "dimension": "relations",
+        "metric": "sqlResultBytes",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical relations before producing a fixed result; observed sqlResultBytes 75188 at 200 -> 548193 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "workspace-summary",
+        "backend": "sqlite",
+        "dimension": "relations",
+        "metric": "sqlRowsRead",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical relations before producing a fixed result; observed sqlRowsRead 407 at 200 -> 4013 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "workspace-summary",
+        "backend": "sqlite",
+        "dimension": "relations",
+        "metric": "sqlResultBytes",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical relations before producing a fixed result; observed sqlResultBytes 111521 at 200 -> 1114275 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "claimable-tasks",
+        "backend": "sqlite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical task-history before producing a fixed result; observed sqlRowsRead 2725 at 200 -> 26257 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "claimable-tasks",
+        "backend": "sqlite",
+        "dimension": "task-history",
+        "metric": "sqlResultBytes",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical task-history before producing a fixed result; observed sqlResultBytes 1114448 at 200 -> 10840672 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "claimable-tasks",
+        "backend": "sqlite",
+        "dimension": "task-history",
+        "metric": "fileReadBytes",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical task-history before producing a fixed result; observed fileReadBytes 54 at 200 -> 270 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "cli-graph",
+        "backend": "sqlite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical task-history before producing a fixed result; observed sqlRowsRead 240 at 200 -> 2040 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "cli-graph",
+        "backend": "sqlite",
+        "dimension": "task-history",
+        "metric": "sqlResultBytes",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical task-history before producing a fixed result; observed sqlResultBytes 264817 at 200 -> 2562699 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "cli-work-show",
+        "backend": "sqlite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical task-history before producing a fixed result; observed sqlRowsRead 221 at 200 -> 2021 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "cli-work-show",
+        "backend": "sqlite",
+        "dimension": "task-history",
+        "metric": "sqlResultBytes",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical task-history before producing a fixed result; observed sqlResultBytes 263654 at 200 -> 2561511 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "in-flight-work",
+        "backend": "sqlite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical task-history before producing a fixed result; observed sqlRowsRead 431 at 200 -> 4031 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "in-flight-work",
+        "backend": "sqlite",
+        "dimension": "task-history",
+        "metric": "sqlResultBytes",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical task-history before producing a fixed result; observed sqlResultBytes 295291 at 200 -> 2801182 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "projection:schedule-plane",
+        "backend": "sqlite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical task-history before producing a fixed result; observed sqlRowsRead 223 at 200 -> 2023 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "projection:schedule-plane",
+        "backend": "sqlite",
+        "dimension": "task-history",
+        "metric": "sqlResultBytes",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical task-history before producing a fixed result; observed sqlResultBytes 16983 at 200 -> 130403 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "repo.agentRuntime.tokenUsage",
+        "backend": "sqlite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical task-history before producing a fixed result; observed sqlRowsRead 217 at 200 -> 2017 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "repo.agentRuntime.tokenUsage",
+        "backend": "sqlite",
+        "dimension": "task-history",
+        "metric": "sqlResultBytes",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical task-history before producing a fixed result; observed sqlResultBytes 263306 at 200 -> 2561160 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "repo.workspace.scope.read",
+        "backend": "sqlite",
+        "dimension": "task-history",
+        "metric": "sqlRowsRead",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical task-history before producing a fixed result; observed sqlRowsRead 488 at 200 -> 4220 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "repo.workspace.scope.read",
+        "backend": "sqlite",
+        "dimension": "task-history",
+        "metric": "sqlResultBytes",
+        "reason": "Upper-layer current-state/task/workspace aggregation reads historical task-history before producing a fixed result; observed sqlResultBytes 338110 at 200 -> 3172878 at 2000 (counts). CEO 2026-11-05 assigns this read to the upper-read-scans task.",
+        "deletionTaskId": "task_2cab6018a30923d9e935a0895f",
+        "expiresAt": "2026-11-26T00:00:00Z"
       }
     ]
   }
