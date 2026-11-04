@@ -876,6 +876,13 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
       taskContext: async () => {
         throw new Error("task context is not used by this taskless fallback test");
       },
+      async readRuntimeSession(id: string) {
+        return (
+          (await this.readRuntimeSessions()).find(
+            (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
+          ) ?? null
+        );
+      },
       readRuntimeSessions: async () =>
         published.flatMap((event) => {
           if (event.type !== "runtime_session_started") return [];

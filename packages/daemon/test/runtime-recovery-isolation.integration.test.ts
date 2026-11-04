@@ -55,6 +55,13 @@ function fixture(t: test.TestContext, settle: (active: ActiveRuntime) => Promise
     processes: new Map(),
     exiting: new Set(),
     requiredRuntimeProjection: () => ({
+      readRuntimeSession(id: string) {
+        return (
+          this.readRuntimeSessions().find(
+            (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
+          ) ?? null
+        );
+      },
       readRuntimeSessions: () => sessions,
       readRuntimeDispatch: (id: string) => ({
         source: "local",
@@ -90,6 +97,13 @@ for (const owner of ["node-a", "node-b", null]) {
         existing: async () => null,
         taskContext: async () => {
           throw new Error("taskless probe must not request task context");
+        },
+        async readRuntimeSession(id: string) {
+          return (
+            (await this.readRuntimeSessions()).find(
+              (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
+            ) ?? null
+          );
         },
         readRuntimeSessions: async () =>
           arrived
@@ -161,6 +175,13 @@ test("a session without a dispatch never holds its instance, while a dispatched 
     remote: {
       taskContext: async () => {
         throw new Error("taskless probe must not request task context");
+      },
+      async readRuntimeSession(id: string) {
+        return (
+          (await this.readRuntimeSessions()).find(
+            (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
+          ) ?? null
+        );
       },
       readRuntimeSessions: async () => sessions,
       readRuntimeDispatch: async (runtimeSessionId: string) =>
@@ -240,6 +261,13 @@ test("a failed recovery for an exited owner without a local process releases ins
       taskContext: async () => {
         throw new Error("taskless probe must not request task context");
       },
+      async readRuntimeSession(id: string) {
+        return (
+          (await this.readRuntimeSessions()).find(
+            (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
+          ) ?? null
+        );
+      },
       readRuntimeSessions: async () => [session],
       readRuntimeDispatch: async () => ({
         payload: { dispatchId },
@@ -290,6 +318,13 @@ test("an exited session with a process still owned locally retains instance capa
         runtimeNode: { nodeId: "node-a" },
         now: () => "2026-11-01T00:01:00.000Z",
         remote: {
+          async readRuntimeSession(id: string) {
+            return (
+              (await this.readRuntimeSessions()).find(
+                (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
+              ) ?? null
+            );
+          },
           readRuntimeSessions: async () => [session],
           readRuntimeDispatch: async () => ({
             payload: { dispatchId },
@@ -344,6 +379,13 @@ test("an exited owner session with a dispatch but no stream header settles and f
     remote: {
       taskContext: async () => {
         throw new Error("taskless probe must not request task context");
+      },
+      async readRuntimeSession(id: string) {
+        return (
+          (await this.readRuntimeSessions()).find(
+            (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
+          ) ?? null
+        );
       },
       readRuntimeSessions: async () => [session],
       readRuntimeDispatch: async () => ({
@@ -416,6 +458,13 @@ test("a missing dispatch stream cannot settle a live or foreign runtime", async 
         rootDir,
         runtimeNode: { nodeId: "node-a" },
         remote: {
+          async readRuntimeSession(id: string) {
+            return (
+              (await this.readRuntimeSessions()).find(
+                (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
+              ) ?? null
+            );
+          },
           readRuntimeSessions: async () => [session],
           readRuntimeDispatch: async () => {
             if (acquireSlotDuringDispatchRead) ownsSlot = true;
@@ -546,6 +595,13 @@ for (const fault of ["pending", "rejected"] as const) {
       input: {
         ...context.input,
         remote: {
+          async readRuntimeSession(id: string) {
+            return (
+              (await this.readRuntimeSessions()).find(
+                (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
+              ) ?? null
+            );
+          },
           readRuntimeSessions: async () => projection.readRuntimeSessions(),
           readRuntimeDispatch: async (id: string) => {
             if (id === "runtime-0") return lookup.promise;
@@ -578,6 +634,13 @@ test("canonical dispatch ownership excludes another node without requiring its l
       ...context.input,
       runtimeNode: { nodeId: "node-b" },
       remote: {
+        async readRuntimeSession(id: string) {
+          return (
+            (await this.readRuntimeSessions()).find(
+              (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
+            ) ?? null
+          );
+        },
         readRuntimeSessions: async () => projection.readRuntimeSessions(),
         readRuntimeDispatch: async (id: string) => ({
           ...projection.readRuntimeDispatch(id)!,

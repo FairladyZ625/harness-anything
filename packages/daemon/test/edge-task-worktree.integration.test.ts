@@ -491,6 +491,13 @@ function edgeSpawner(rootDir: string, worktree: TaskWorktreeBindingV1 | null) {
           causalContext: null,
           worktree,
         }),
+        async readRuntimeSession(id: string) {
+          return (
+            (await this.readRuntimeSessions()).find(
+              (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
+            ) ?? null
+          );
+        },
         readRuntimeSessions: async () => [],
         publish: async () => assert.fail("the launch boundary precedes every publication"),
         archive: async () => assert.fail("nothing settles before launch"),

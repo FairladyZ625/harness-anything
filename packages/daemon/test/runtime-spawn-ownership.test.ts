@@ -84,6 +84,13 @@ for (const source of ["local", { kind: "node", nodeId: "request-origin" }] as co
         processes: new Map(),
         exiting: new Set(),
         requiredRuntimeProjection: () => ({
+          readRuntimeSession(id: string) {
+            return (
+              this.readRuntimeSessions().find(
+                (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
+              ) ?? null
+            );
+          },
           readRuntimeSessions: () => [
             {
               runtimeSessionId,
@@ -163,6 +170,13 @@ for (const authorized of [true, false]) {
       processes: new Map(),
       exiting: new Set(),
       requiredRuntimeProjection: () => ({
+        readRuntimeSession(id: string) {
+          return (
+            this.readRuntimeSessions().find(
+              (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
+            ) ?? null
+          );
+        },
         readRuntimeSessions: () => [
           { runtimeSessionId, instanceId: "deepseek-worker", liveness: "live", outcome: null },
         ],
@@ -253,6 +267,13 @@ test("node-origin recovery observes a living local worker without settling it", 
     processes: new Map(),
     exiting: new Set(),
     requiredRuntimeProjection: () => ({
+      readRuntimeSession(id: string) {
+        return (
+          this.readRuntimeSessions().find(
+            (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
+          ) ?? null
+        );
+      },
       readRuntimeSessions: () => [{ runtimeSessionId, instanceId: "deepseek-worker", liveness: "live", outcome: null }],
       readRuntimeDispatch: () => ({ ...ownerBinding, payload: { dispatchId } }),
     }),
@@ -273,6 +294,13 @@ test("recovery preserves a live DeepSeek worker already registered by this local
       exiting: new Set(),
       ownsModelSlot: () => true,
       requiredRuntimeProjection: () => ({
+        readRuntimeSession(id: string) {
+          return (
+            this.readRuntimeSessions().find(
+              (session: { readonly runtimeSessionId: string }) => session.runtimeSessionId === id,
+            ) ?? null
+          );
+        },
         readRuntimeSessions: () => [
           { runtimeSessionId, instanceId: "deepseek-worker", providerSessionId: null, liveness: "live", outcome: null },
         ],

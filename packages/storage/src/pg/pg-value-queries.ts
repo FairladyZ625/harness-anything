@@ -44,28 +44,24 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
     read((client) => getPgProjectionValue<Result>(client, scope, model, id));
   const list = <Result>(model: string) => read((client) => listPgProjectionValues<Result>(client, scope, model));
   const documents = async (client: PoolClient, prefix: string) => {
-    const result = await client.query<{ value: string | null }>(
-      `SELECT document_metadata AS value FROM ha_projection_values
-       WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model='document'
-         AND (cardinality($4::text[])=0 OR readers && $4::text[]) ORDER BY entity_id,owner_id`,
-      [scope.tenantId, scope.projectId, scope.policyEpoch, readers],
-    );
-    return result.rows
-      .map(({ value }) => {
-        if (value === null)
-          throw Object.assign(new Error("Document metadata backfill is pending; retry after migration."), {
-            code: "projection_pending",
-          });
-        return JSON.parse(value) as Omit<DocumentState, "body">;
-      })
-      .filter(({ path }) => path.startsWith(prefix))
-      .map(({ path, blobSha256, size, mediaType, policyId }) => ({
-        path,
-        blobSha256,
-        size,
-        mediaType,
-        policyId: policyId ?? null,
-      }));
+    const upper = prefixUpperBound(prefix),
+      result = await client.query<{ value: string | null }>(
+        `SELECT document_metadata AS value FROM ha_projection_values
+         WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND model='document'
+           AND owner_id='' AND entity_id COLLATE "C" >= $5
+           ${upper === null ? "" : 'AND entity_id COLLATE "C" < $6'}
+           AND (cardinality($4::text[])=0 OR readers && $4::text[])
+         ORDER BY entity_id COLLATE "C"`,
+        [scope.tenantId, scope.projectId, scope.policyEpoch, readers, prefix, ...(upper === null ? [] : [upper])],
+      );
+    return result.rows.map(({ value }) => {
+      if (value === null)
+        throw Object.assign(new Error("Document metadata backfill is pending; retry after migration."), {
+          code: "projection_pending",
+        });
+      const { path, blobSha256, size, mediaType, policyId } = JSON.parse(value) as Omit<DocumentState, "body">;
+      return { path, blobSha256, size, mediaType, policyId: policyId ?? null };
+    });
   };
   const ready = async (client: PoolClient) => {
     const cut = await readCutInTransaction(client, scope, readers, repoId);
@@ -184,13 +180,38 @@ export function pgValueQueries(options: PgTaskProjectionSourceOptions): PgValueQ
         const result = await client.query<{ task_id: string }>(
           `SELECT task_id FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
          AND (cardinality($4::text[])=0 OR readers && $4::text[])
-         AND ($5=package_path OR starts_with($5,package_path || '/')) ORDER BY length(package_path) DESC LIMIT 1`,
-          [scope.tenantId, scope.projectId, scope.policyEpoch, readers, path],
+         AND package_path=ANY($5::text[]) ORDER BY length(package_path) DESC LIMIT 1`,
+          [scope.tenantId, scope.projectId, scope.policyEpoch, readers, documentPathAncestors(path)],
         );
         return result.rows[0]?.task_id ?? null;
       }),
   };
 }
+/** Exclusive UTF-8/C-collation boundary; wildcard characters remain literal path bytes. */
+function prefixUpperBound(prefix: string): string | null {
+  const points = Array.from(prefix, (character) => character.codePointAt(0)!);
+  for (let index = points.length - 1; index >= 0; index--) {
+    const point = points[index]!;
+    if (point < 0x10ffff) {
+      const next = point === 0xd7ff ? 0xe000 : point + 1;
+      return (
+        points
+          .slice(0, index)
+          .map((value) => String.fromCodePoint(value))
+          .join("") + String.fromCodePoint(next)
+      );
+    }
+  }
+  return null;
+}
 function compare(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/** Raw path ancestors preserve the port's literal prefix semantics, including repeated slashes. */
+function documentPathAncestors(path: string): readonly string[] {
+  const paths = [path];
+  for (let index = path.indexOf("/"); index !== -1; index = path.indexOf("/", index + 1))
+    paths.push(path.slice(0, index));
+  return paths;
 }

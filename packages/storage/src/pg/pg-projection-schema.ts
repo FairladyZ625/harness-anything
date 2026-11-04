@@ -79,6 +79,8 @@ export function projectionDdl(): readonly string[] {
     // Recovery asks only for runtime sessions. The partial predicate keeps the JSONB cast off
     // document values (which may contain NUL) and lets the unsettled predicate use the index.
     `CREATE INDEX IF NOT EXISTS ha_projection_values_runtime_unsettled ON ha_projection_values (tenant_id,project_id,policy_epoch,((value::jsonb)->>'outcome')) WHERE model = 'runtime-session'`,
+    `CREATE INDEX IF NOT EXISTS ha_projection_document_path ON ha_projection_values
+      (tenant_id,project_id,policy_epoch,entity_id COLLATE "C") WHERE model='document' AND owner_id=''`,
     `CREATE TABLE IF NOT EXISTS ha_task_snapshots (
       ${POSTGRES_SCOPE_COLUMNS_SQL},
       readers text[] NOT NULL DEFAULT '{}',
@@ -171,6 +173,7 @@ export function projectionDdl(): readonly string[] {
     "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS created_at timestamptz",
     "ALTER TABLE ha_task_snapshots ADD COLUMN IF NOT EXISTS completed_at timestamptz",
     "ALTER TABLE ha_facts ADD COLUMN IF NOT EXISTS memory_class text GENERATED ALWAYS AS (value->>'memoryClass') STORED",
+    "CREATE INDEX IF NOT EXISTS ha_task_snapshots_package_path ON ha_task_snapshots (tenant_id,project_id,policy_epoch,package_path)",
     "CREATE INDEX IF NOT EXISTS ha_task_snapshots_scope_revision ON ha_task_snapshots (tenant_id, project_id, workspace_revision DESC)",
     ...PG_PROJECTION_TABLES.map(
       (table) => `CREATE INDEX IF NOT EXISTS ${table}_readers_gin ON ${table} USING gin (readers)`,

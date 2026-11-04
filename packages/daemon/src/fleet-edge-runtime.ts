@@ -739,6 +739,11 @@ export function openFleetEdgeRuntime(input: {
           worktree,
         };
       },
+      readRuntimeSession: async (runtimeSessionId) =>
+        withEdgeReadModel(
+          { ...request, principalId: (await input.readBinding()).actor.principal.personId, includeEntries: false },
+          (projection) => projection.readRuntimeSession(runtimeSessionId),
+        ),
       readRuntimeSessions: async (query) => {
         // Recovery needs the center's published outcome. Local terminal evidence is for public
         // reads; treating it as publication would skip replay after a lost write. Read the
