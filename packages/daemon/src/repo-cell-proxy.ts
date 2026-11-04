@@ -28,7 +28,7 @@ export async function openRepoCellProxy(
   input: RepoCellOpenInput & { readonly onStatus?: (status: ReturnType<RepoCell["status"]>) => void },
   options: { readonly createReadWorker?: RepoReadWorkerFactory } = {},
 ): Promise<RepoCell> {
-  const lock = await acquireRepoStorageLock(input.storage, () => acquireWorkspaceLock(input.rootDir));
+  const lock = await acquireRepoStorageLock(input.storage, () => acquireWorkspaceLock(input.rootDir), input.repoId);
   let relayRuntimeSignal: NonNullable<RepoCellOpenInput["onRuntimeSignal"]> = () => undefined;
   // Orchestration waiters (runtime batch, agent create, sessions.await) park on these sets; an exit
   // signal or outcome notification re-checks the domain settle predicate. Activity and heartbeat

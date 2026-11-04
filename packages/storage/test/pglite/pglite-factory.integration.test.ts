@@ -16,7 +16,6 @@ pgliteIntegrationSuite("PGlite synchronous factories", () => {
         storage = {
           backend: "pglite" as const,
           dataDir: join(rootDir, "database"),
-          gitFollower: false,
           materialize: false,
           scope: { tenantId: "tenant", projectId: "project", policyEpoch: 1 },
         },

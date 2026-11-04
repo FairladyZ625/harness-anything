@@ -301,14 +301,16 @@ export interface PGliteTaskProjectionReaderFactoryOptions
   extends Omit<PostgresTaskProjectionReaderFactoryOptions, "storage"> {
   readonly storage: PGliteStorageBackendConfig;
 }
+type SqlTaskProjectionReaderFactoryOptions = Omit<PostgresTaskProjectionReaderFactoryOptions, "storage"> & {
+  readonly storage: PostgresStorageBackendConfig | PGliteStorageBackendConfig;
+};
 export function makeTaskProjectionReader(options: PostgresTaskProjectionReaderFactoryOptions): TaskProjectionReaderPort;
 export function makeTaskProjectionReader(options: PGliteTaskProjectionReaderFactoryOptions): TaskProjectionReaderPort;
+
+export function makeTaskProjectionReader(options: SqlTaskProjectionReaderFactoryOptions): TaskProjectionReaderPort;
 export function makeTaskProjectionReader(options: TaskProjectionReaderFactoryOptions): TaskProjectionReader;
 export function makeTaskProjectionReader(
-  options:
-    | TaskProjectionReaderFactoryOptions
-    | PostgresTaskProjectionReaderFactoryOptions
-    | PGliteTaskProjectionReaderFactoryOptions,
+  options: TaskProjectionReaderFactoryOptions | SqlTaskProjectionReaderFactoryOptions,
 ): TaskProjectionReader | TaskProjectionReaderPort {
   if (options.storage?.backend === "postgres" || options.storage?.backend === "pglite") {
     const repoId = "repoId" in options ? options.repoId : undefined;

@@ -1,4 +1,6 @@
 import { preparePgBaseBackup } from "./postgres/pg-basebackup.ts";
+import { installStorageWorkerContext, type StorageWorkerContext } from "./storage-worker-context.ts";
+import { pgliteOwnerService } from "./pglite/owner-service.ts";
 import { parentPort, workerData } from "node:worker_threads";
 import { backup, DatabaseSync } from "node:sqlite";
 import { createHash } from "node:crypto";
@@ -17,11 +19,20 @@ import type {
 } from "./fleet-basebackup.ts";
 import { BASE_BACKUP_ARCHIVE_ROOT } from "./fleet-basebackup-layout.ts";
 
-const input = workerData as BaseBackupInput;
-const metadata =
-  "storage" in input
-    ? await preparePgBaseBackup(input, (metadata) => parentPort!.postMessage({ kind: "pinned", metadata }))
-    : await prepareSqliteBackup(input);
+const { storageContext, ...input } = workerData as BaseBackupInput & { readonly storageContext?: StorageWorkerContext };
+installStorageWorkerContext(storageContext);
+const sqlBackup = async () => {
+  if (!("storage" in input)) throw new TypeError("SQL backup requires storage");
+  const pinned = (metadata: BaseBackupMetadata) => parentPort!.postMessage({ kind: "pinned", metadata });
+  if (input.storage.backend === "postgres") return preparePgBaseBackup(input, pinned);
+  const service = pgliteOwnerService(input.repoId, input.storage);
+  try {
+    return await service.call<BaseBackupMetadata>({ service: "backup", input }, pinned);
+  } finally {
+    service.close();
+  }
+};
+const metadata = "storage" in input ? await sqlBackup() : await prepareSqliteBackup(input);
 const payload = path.join(input.directory, "payload");
 writeFileDurably(path.join(payload, "backup.json"), JSON.stringify(metadata));
 const file = path.join(input.directory, "base.tar.gz");

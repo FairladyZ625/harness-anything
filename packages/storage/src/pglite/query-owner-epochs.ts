@@ -24,6 +24,17 @@ export function pgliteOwnerEpochs(pool: Pool) {
       return lock;
     };
   return {
+    async exclusive<Result>(group: PGliteOwnerGroup, repoId: string, operation: () => Promise<Result>) {
+      if (fences.get(repoId) === group)
+        throw new WriterEpochError("writer_epoch_invalid", "Cannot migrate inside an embedded append fence");
+      const release = await gate(repoId).enter(group);
+      try {
+        assertActive(group, () => group.active);
+        return await operation();
+      } finally {
+        release();
+      }
+    },
     client(group: PGliteOwnerGroup, active: () => boolean) {
       const authority = pgEpochTransactions(pool);
       let retained: { readonly repoId: string; readonly release: () => void } | null = null;

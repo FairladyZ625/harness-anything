@@ -1,3 +1,4 @@
+import { prepareStorageWorkerContext, type StorageWorkerContext } from "@harness-anything/storage";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { Worker } from "node:worker_threads";
@@ -21,7 +22,8 @@ export type RepoReadWorkerFactory = (
   url: URL,
   options: {
     readonly execArgv: string[];
-    readonly workerData: {
+    readonly transferList?: import("node:worker_threads").MessagePort[];
+    readonly workerData: { readonly storageContext?: StorageWorkerContext } & {
       readonly schema: string;
       readonly protocolVersion: number;
       readonly role: "reader";
@@ -135,25 +137,41 @@ function pump(): void {
   for (const slot of slots) {
     if (slot.job || slot.stopping || queue.length === 0) continue;
     const job = queue.shift()!;
+    if (slot.worker && slot.owner !== job.owner) {
+      queue.unshift(job);
+      void stop(slot);
+      continue;
+    }
     slot.job = job;
     slot.owner = job.owner;
     void Promise.resolve()
       .then(() => {
         if (!slot.worker) {
-          const worker = (job.createWorker ?? ((url, options) => new Worker(url, options)))(
-            new URL(`./repo-writer-worker${path.extname(import.meta.filename)}`, import.meta.url),
-            {
-              workerData: {
-                schema: "harness-repo-writer-bootstrap/v1",
-                protocolVersion: REPO_WRITER_PROTOCOL_VERSION,
-                role: "reader",
-                config: { ...(job.request.payload as RepoReadPayload).config, ownerId: "repository-reader" },
+          const config = (job.request.payload as RepoReadPayload).config,
+            context = prepareStorageWorkerContext(config.storage, config.repoId);
+          let worker: Worker;
+          try {
+            worker = (job.createWorker ?? ((url, options) => new Worker(url, options)))(
+              new URL(`./repo-writer-worker${path.extname(import.meta.filename)}`, import.meta.url),
+              {
+                workerData: {
+                  storageContext: context.context,
+                  schema: "harness-repo-writer-bootstrap/v1",
+                  protocolVersion: REPO_WRITER_PROTOCOL_VERSION,
+                  role: "reader",
+                  config: { ...(job.request.payload as RepoReadPayload).config, ownerId: "repository-reader" },
+                },
+                transferList: context.transferList,
+                execArgv: process.execArgv.filter(
+                  (arg) => arg === "--experimental-strip-types" || arg === "--enable-source-maps",
+                ),
               },
-              execArgv: process.execArgv.filter(
-                (arg) => arg === "--experimental-strip-types" || arg === "--enable-source-maps",
-              ),
-            },
-          );
+            );
+          } catch (error) {
+            context.close();
+            throw error;
+          }
+          worker.once("exit", context.close);
           slot.worker = worker;
           worker.on("message", (receipt: RepoWriterReceiptV1) => {
             const active = slot.job;

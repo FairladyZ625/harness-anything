@@ -11,6 +11,7 @@ import type { RuntimeAttemptTerminal, RuntimeDaemonRoute } from "./runtime-spawn
 export const REPO_WRITER_PROTOCOL_VERSION = 1 as const;
 
 export interface RepoWriterBootstrapV1 {
+  readonly storageContext?: import("@harness-anything/storage").StorageWorkerContext;
   readonly role?: "reader";
   readonly schema: "harness-repo-writer-bootstrap/v1";
   readonly protocolVersion: typeof REPO_WRITER_PROTOCOL_VERSION;

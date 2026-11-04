@@ -15,6 +15,26 @@ const valid = {
   scope: { tenantId: "tenant", projectId: "project", policyEpoch: 1, readers: ["person"] },
 };
 
+test("embedded daemon deployment requires a durable directory and the same explicit scope", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-embedded-storage-config-"));
+  try {
+    const embedded = { backend: "pglite", dataDir: path.join(root, "database"), scope: valid.scope };
+    writeFileSync(path.join(root, "daemon-storage.json"), JSON.stringify({ repo: embedded }));
+    assert.deepEqual(readDaemonStorageConfig(root), { repo: embedded });
+    for (const config of [
+      { ...embedded, dataDir: undefined },
+      { ...embedded, dataDir: "memory://daemon" },
+      { ...embedded, dataDir: "relative-database" },
+      { ...embedded, scope: undefined },
+    ]) {
+      writeFileSync(path.join(root, "daemon-storage.json"), JSON.stringify({ repo: config }));
+      assert.throws(() => readDaemonStorageConfig(root), TypeError);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("absent deployment config preserves SQLite; explicit PG config preserves its independent Git and tree options", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-storage-config-"));
   try {

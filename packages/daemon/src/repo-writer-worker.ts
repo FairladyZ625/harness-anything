@@ -31,11 +31,15 @@ import {
   closeWriterEpochFenceDescriptors,
   withWriterEpochFenceDescriptor,
   configureWriterEpochStorage,
+  installStorageWorkerContext,
 } from "@harness-anything/storage";
 
 const bootstrap = workerData as RepoWriterBootstrapV1;
 
-if (!isMainThread) void startRepoWriterWorker();
+if (!isMainThread) {
+  installStorageWorkerContext(bootstrap?.storageContext);
+  void startRepoWriterWorker();
+}
 
 async function startRepoWriterWorker(): Promise<void> {
   // One buffer pair serves the worker's whole life: syncCapability blocks the thread in Atomics.wait

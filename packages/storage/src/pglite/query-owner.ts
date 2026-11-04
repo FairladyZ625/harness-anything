@@ -11,6 +11,7 @@ import {
 } from "../pg/pg-task-query-reader.ts";
 import type { PGliteStorageBackendConfig } from "../storage-backend.ts";
 import { assertPGliteRuntime } from "./transaction.ts";
+import { resolvePostgresEventStoreScope } from "../pg/backend.ts";
 
 interface Owner {
   readonly worker: Worker;
@@ -19,6 +20,51 @@ interface Owner {
   references: number;
 }
 const owners = new Map<string, Owner>();
+export interface PGliteWorkerContext {
+  readonly key: string;
+  readonly port: MessagePort;
+  readonly state: Int32Array;
+}
+const contexts = new Map<string, PGliteWorkerContext>();
+const closedContexts = new WeakSet<PGliteWorkerContext>();
+
+/** A control port is transferred at worker bootstrap, never serialized into deployment config. */
+export function installPGliteWorkerContext(context: PGliteWorkerContext): void {
+  contexts.set(context.key, context);
+  context.port.once("close", () => {
+    closedContexts.add(context);
+  });
+  context.port.unref();
+}
+
+export function preparePGliteWorkerContext(repoId: string, storage: PGliteStorageBackendConfig) {
+  const scope = resolvePostgresEventStoreScope(storage.scope),
+    lease = acquireOwner({ repoId, scope, storage }),
+    { port1, port2 } = new MessageChannel();
+  lease.owner.worker.postMessage({ operation: "attach", port: port2 }, [port2]);
+  return {
+    context: { key: datasetKey(repoId, scope, storage), port: port1, state: lease.owner.state },
+    transferList: [port1],
+    close: lease.release,
+  };
+}
+
+export function retainPGliteOwner(repoId: string, storage: PGliteStorageBackendConfig) {
+  return acquireOwner({ repoId, scope: resolvePostgresEventStoreScope(storage.scope), storage }).release;
+}
+
+export function acquirePGliteOwnerTarget(repoId: string, storage: PGliteStorageBackendConfig) {
+  assertPGliteRuntime();
+  const scope = resolvePostgresEventStoreScope(storage.scope),
+    context = contexts.get(datasetKey(repoId, scope, storage));
+  if (context) {
+    if (closedContexts.has(context) || Atomics.load(context.state, 0) === -1)
+      throw Object.assign(new Error("Embedded storage owner exited"), { code: "pglite_owner_unavailable" });
+    return { target: context.port as Pick<Worker, "postMessage">, release: () => undefined };
+  }
+  const lease = acquireOwner({ repoId, scope, storage });
+  return { target: lease.owner.worker as Pick<Worker, "postMessage">, release: lease.release };
+}
 
 /** Synchronous ports share one physical embedded owner; no socket or second PGlite instance. */
 export function createPGliteTaskQueryReader(
@@ -28,9 +74,18 @@ export function createPGliteTaskQueryReader(
   let release: (() => void) | undefined;
   try {
     const reader = createPgTaskQueryReader({ ...options, path: options.path ?? "pglite:task-projection" }, (input) => {
-      const lease = acquireOwner(options);
-      release = lease.release;
-      lease.owner.worker.postMessage(
+      const context = contexts.get(datasetKey(options.repoId, options.scope, options.storage));
+      let target: Pick<Worker, "postMessage">;
+      if (context) {
+        if (closedContexts.has(context) || Atomics.load(context.state, 0) === -1)
+          throw Object.assign(new Error("Embedded storage owner exited"), { code: "pglite_owner_unavailable" });
+        target = context.port;
+      } else {
+        const lease = acquireOwner(options);
+        release = lease.release;
+        target = lease.owner.worker;
+      }
+      target.postMessage(
         {
           operation: "connect",
           input: {
@@ -63,20 +118,19 @@ export function createPGliteTaskQueryReader(
   }
 }
 
+function datasetKey(repoId: string, scope: PgQueryConnectionOptions["scope"], storage: PGliteStorageBackendConfig) {
+  const dataDir = storage.dataDir;
+  return dataDir === undefined
+    ? JSON.stringify(["memory", repoId, scope.tenantId, scope.projectId, scope.policyEpoch])
+    : dataDir.includes("://")
+      ? dataDir
+      : resolve(dataDir);
+}
+
 function acquireOwner(options: PgQueryConnectionOptions & { readonly storage: PGliteStorageBackendConfig }) {
+  assertPGliteRuntime();
   const dataDir = options.storage.dataDir,
-    key =
-      dataDir === undefined
-        ? JSON.stringify([
-            "memory",
-            options.repoId,
-            options.scope.tenantId,
-            options.scope.projectId,
-            options.scope.policyEpoch,
-          ])
-        : dataDir.includes("://")
-          ? dataDir
-          : resolve(dataDir);
+    key = datasetKey(options.repoId, options.scope, options.storage);
   let owner = owners.get(key);
   if (owner && Atomics.load(owner.state, 0) === -1)
     throw Object.assign(new Error("Embedded database owner is unavailable; close its readers before reopening"), {

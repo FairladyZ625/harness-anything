@@ -1,3 +1,4 @@
+import { prepareStorageWorkerContext } from "@harness-anything/storage";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -64,7 +65,11 @@ export async function openWriterSupervisor(
     readonly canonicalStore?: RepoWriterCanonicalStoreCapability;
     readonly createWorker?: (
       url: URL,
-      workerOptions: { readonly execArgv: readonly string[]; readonly workerData: RepoWriterBootstrapV1 },
+      workerOptions: {
+        readonly execArgv: readonly string[];
+        readonly workerData: RepoWriterBootstrapV1;
+        readonly transferList?: readonly import("node:worker_threads").MessagePort[];
+      },
     ) => Worker;
     readonly onAttachStatus?: (status: RepoCellStatus) => void;
     readonly onPublishedStatus?: (status: RepoCellStatus) => void;
@@ -209,14 +214,26 @@ export async function openWriterSupervisor(
     if (closed) return Promise.reject(new Error("WriterSupervisor is closed"));
     return new Promise((resolve, reject) => {
       const watchdogMs = resolveWriterReadyWatchdogMs(),
+        context = prepareStorageWorkerContext(input.storage, input.repoId),
         workerOptions = {
           execArgv: process.execArgv.filter(
             (argument) => argument === "--experimental-strip-types" || argument === "--enable-source-maps",
           ),
-          workerData: bootstrapMessage(input, options.canonicalStore !== undefined),
+          workerData: {
+            ...bootstrapMessage(input, options.canonicalStore !== undefined),
+            storageContext: context.context,
+          },
+          transferList: context.transferList,
         };
-      const candidate =
-        options.createWorker?.(writerWorkerUrl(), workerOptions) ?? new Worker(writerWorkerUrl(), workerOptions);
+      let candidate: Worker;
+      try {
+        candidate =
+          options.createWorker?.(writerWorkerUrl(), workerOptions) ?? new Worker(writerWorkerUrl(), workerOptions);
+      } catch (error) {
+        context.close();
+        throw error;
+      }
+      candidate.once("exit", context.close);
       let settled = false,
         lastAttachProgress: RepoCellAttachProgress | null = null;
       let readyWatchdog: ReturnType<typeof setTimeout>;
