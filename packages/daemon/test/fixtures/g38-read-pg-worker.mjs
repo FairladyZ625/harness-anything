@@ -8,7 +8,7 @@ import { localGitWorktreeSettlement } from "../../../storage/src/store/local-ver
 import { rebuildPgProjection } from "../../../storage/src/pg/pg-task-event-materialize.ts";
 import { withPostgresTransaction } from "../../../storage/src/postgres/transaction.ts";
 import { createPGliteStorageBackend } from "../../../storage/src/pglite/storage-backend.ts";
-import { seedReadLedger } from "./g38-read-ledger.mjs";
+import { seedReadLedger, READ_HISTORY_BATCH_SIZE } from "./g38-read-ledger.mjs";
 import { installReadProbe, resetReadProbe, snapshotReadProbe, planRowsRead } from "./g38-read-probe.mjs";
 
 let sqlRowsRead = 0,
@@ -74,11 +74,15 @@ try {
     dimension,
     size,
   );
-  // Keep selected baseline operations independent. Only unrelated history shares a batch;
-  // otherwise reading a baseline receipt would legitimately return a growing command k.
-  const baseRevision = bundles[0].event.workspaceRevision - 1,
-    last = bundles.pop();
-  const accepted = await backend.eventStore.append({ ...last, preceding: bundles }, baseRevision, writerFence);
+  // Both selected and historical command results stay bounded: a single all-history
+  // command would make receipt hydration another growing input, beyond this axis.
+  let accepted;
+  for (let offset = 0; offset < bundles.length; offset += READ_HISTORY_BATCH_SIZE) {
+    const batch = bundles.slice(offset, offset + READ_HISTORY_BATCH_SIZE),
+      baseRevision = batch[0].event.workspaceRevision - 1,
+      last = batch.pop();
+    accepted = await backend.eventStore.append({ ...last, preceding: batch }, baseRevision, writerFence);
+  }
   assert.equal(
     accepted.cut.revision,
     seeded.baseRevision + seeded.growth,

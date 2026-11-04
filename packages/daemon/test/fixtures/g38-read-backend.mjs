@@ -6,7 +6,7 @@ import path from "node:path";
 import { Worker, MessageChannel, receiveMessageOnPort } from "node:worker_threads";
 import { makeTaskEventStore, makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
 import { initRepo } from "../../../storage/test/store/task-event-store.fixtures.ts";
-import { seedReadLedger } from "./g38-read-ledger.mjs";
+import { seedReadLedger, READ_HISTORY_BATCH_SIZE } from "./g38-read-ledger.mjs";
 import { installReadProbe, resetReadProbe, snapshotReadProbe } from "./g38-read-probe.mjs";
 
 export async function openReadBackend(backend, dimension, size) {
@@ -31,8 +31,13 @@ export async function openReadBackend(backend, dimension, size) {
         dimension,
         size,
       );
-      const terminal = history.pop();
-      store.append({ ...terminal, preceding: history });
+      // Keep a historical command's own result bounded as the repository grows.
+      // One all-history command makes receipt hydration an additional growing input.
+      for (let offset = 0; offset < history.length; offset += READ_HISTORY_BATCH_SIZE) {
+        const batch = history.slice(offset, offset + READ_HISTORY_BATCH_SIZE),
+          terminal = batch.pop();
+        store.append({ ...terminal, preceding: batch });
+      }
       assert.equal(
         store.readHead()?.revision,
         seeded.baseRevision + seeded.growth,

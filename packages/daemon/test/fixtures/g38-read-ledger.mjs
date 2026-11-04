@@ -30,6 +30,7 @@ import { appendRuntimeQueryFixtures } from "../../../storage/test/postgres/pg-ru
 export const READ_TASK_ID = "task_111111111111111111111111";
 export const HISTORY_OUTPUT_TASK_ID = "task_333333333333333333333333";
 export const READ_ACTIVE_SESSION_ID = "history-active";
+export const READ_HISTORY_BATCH_SIZE = 100;
 export const READ_SESSION_ID = "runtime-query-session";
 export const READ_DOCUMENT = `tasks/${READ_TASK_ID}-g38/artifacts/selected.md`;
 
@@ -50,12 +51,12 @@ export async function seedReadLedger({ append, beginHistory = () => {} }, dimens
       else fixDispatchIds(child);
     }
   };
-  const add = async (bundle) => {
+  const add = async (bundle, packageDisposition = "active") => {
     fixDispatchIds(bundle.event);
     if (bundle.event.type === "runtime_installation_observed") bundle.event.payload.capabilities = ["attach"];
     if (bundle.event.opId === "history-large-event")
       assert.equal(Buffer.byteLength(bundle.event.payload.text), size * 16);
-    if (bundle.event.payload?.task) bundle.event.payload.task.packageDisposition = "active";
+    if (bundle.event.payload?.task) bundle.event.payload.task.packageDisposition = packageDisposition;
     if (bundle.event.type === "runtime_session_outcome_observed") {
       const body = "Finished fixture\n",
         claim = { sha256: sha256Text(body), size: Buffer.byteLength(body), mediaType: "text/plain; charset=utf-8" };
@@ -309,7 +310,13 @@ export async function seedReadLedger({ append, beginHistory = () => {} }, dimens
   // Fixed-width ids/body metadata prevent decimal-id growth looking like IO noise.
   for (let index = 0; index < size; index++) {
     const id = String(index).padStart(8, "0");
-    if (dimension === "runtime-sessions") {
+    if (dimension === "task-history") {
+      const event = eventAt(next),
+        taskId = `task_${String(index).padStart(24, "0")}`;
+      Object.assign(event, { taskId, eventId: `history-task-${id}`, opId: `history-task-${id}` });
+      Object.assign(event.payload.task, { taskId, title: `Historical task ${id}` });
+      await add({ event, plan: taskLifecycleWritePlan(event), blobs: [] }, "archived");
+    } else if (dimension === "runtime-sessions") {
       await settledSession(id);
     } else if (dimension === "task-outputs") {
       await add(

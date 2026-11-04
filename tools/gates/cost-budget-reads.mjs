@@ -9,6 +9,7 @@ export const READ_OUTPUT_SCALES = Object.freeze({ small: 3400, large: 34000 });
 export const readScalesFor = (dimension) => (dimension === "task-outputs" ? READ_OUTPUT_SCALES : READ_SCALES);
 export const READ_BACKENDS = Object.freeze(["sqlite", "pglite"]);
 export const READ_DIMENSIONS = Object.freeze([
+  "task-history",
   "runtime-sessions",
   "dispatches",
   "task-outputs",
