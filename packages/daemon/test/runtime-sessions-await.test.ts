@@ -378,10 +378,10 @@ for (const target of ["sessions", "tasks"] as const) {
 }
 
 test("orchestration waits for canonical publication after local host-loss evidence", async () => {
-  const { mkdtempSync, rmSync } = await import("node:fs"),
+  const { mkdtempSync, rmSync, utimesSync } = await import("node:fs"),
     { tmpdir } = await import("node:os"),
     path = await import("node:path"),
-    { openDispatchStream } = await import("../src/dispatch-stream.ts"),
+    { openDispatchStream, dispatchStreamPath } = await import("../src/dispatch-stream.ts"),
     { readSettlementRuntimeSession, readObservedRuntimeSession } = await import("../src/agent-runtime-read.ts"),
     { runtimeOutcomeSettled } = await import("../src/runtime-settlement.ts"),
     rootDir = mkdtempSync(path.join(tmpdir(), "ha-settlement-publication-")),
@@ -426,6 +426,9 @@ test("orchestration waits for canonical publication after local host-loss eviden
       },
       at,
     );
+    // Activity evidence includes the stream's mtime; keep it on the fixture's clock
+    // so the five-second grace assertion does not depend on the date of the test run.
+    utimesSync(dispatchStreamPath(rootDir, dispatchId), new Date(at), new Date(at));
     // The activity read deliberately exposes local evidence before its ledger append.
     assert.equal(
       runtimeOutcomeSettled(readObservedRuntimeSession(projection, rootDir, canonical.runtimeSessionId), at),
