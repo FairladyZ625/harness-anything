@@ -2,7 +2,7 @@
 
 ## Discover before adding records
 
-Start with the repository instructions, `ha --help`, `ha capabilities`, and `ha agenda`. Confirm which repository and initialized Harness workspace the CLI is connected to. If initialization is absent, inspect `ha init --help` and follow the approved setup flow. Do not initialize over an existing workspace or treat a downloaded skill as a configured runtime.
+Start with the repository instructions, `ha --help`, `ha capabilities`, and `ha agenda`. Confirm which repository and initialized Harness workspace the CLI is connected to. If `ha agenda` reports the workspace is not registered, complete `harness-install` and return to the user's actual request; if a required identity or authorization is missing, name each missing item and state that the task has not entered the Harness lifecycle. Do not initialize over an existing workspace or treat a downloaded skill as a configured runtime.
 
 Read existing tasks, decisions, presets, agent and squad declarations, project instructions, verification commands, and known issues before creating new ones. Reuse existing knowledge locations and current task records. Do not create a private model matrix or duplicate issue tracker merely because the skill has an optional template.
 
@@ -54,6 +54,6 @@ Roles describe duties; runtime configuration supplies tools and permissions; the
 
 ## Begin with the user's actual request
 
-Use the first real task as the first workflow. Read the relevant instructions, verify its premise and consumers, select the task preset, create or reuse its task, and define the acceptance evidence. Do not run an unrelated demo or require every optional template to be filled out before useful work can begin.
+Use the first real task as the first workflow, whether the CEO executes it or delegates it. Read the relevant instructions, verify its premise and consumers, select the task preset, create or reuse its task, and define the acceptance evidence. Do not run an unrelated demo or require every optional template to be filled out before useful work can begin.
 
 After a run, put project facts and execution evidence in their authorized project records; put a capability observation in the user's existing matrix only if it can guide another choice; put a cross-project coordination method in this public skill only after verifying it is general. See [maintenance](maintenance.md).

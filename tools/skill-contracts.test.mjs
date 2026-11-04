@@ -176,6 +176,24 @@ test("preset trigger skill routes task creation through preset selection", () =>
   assert.match(body, /Do not hand-create task package directories/u);
 });
 
+test("CEO task lifecycle has one front door: register the task before choosing the executor", () => {
+  // Locks section order only (issue #4289): an unregistered workspace and direct execution both pass
+  // through task creation first. It cannot prove an agent follows the skill; wording may change freely.
+  const body = readFileSync(path.join(skillsRoot, "harness-ceo", "SKILL.md"), "utf8");
+  const order = [
+    "Check `ha agenda`",
+    "workspace is not registered",
+    "Create each agreed unit of work",
+    "## Create the task first",
+  ].map((marker) => body.indexOf(marker));
+  assert.ok(!order.includes(-1), `harness-ceo/SKILL.md lost a front-door marker: ${order}`);
+  assert.deepEqual(
+    [...order].sort((left, right) => left - right),
+    order,
+  );
+  assert.doesNotMatch(body, /## Choose whether to delegate/u, "the old executor/lifecycle fork must stay deleted");
+});
+
 test("用户级技能链接可跨目录重复同步，并直接读取源码更新", () => {
   const tempRoot = mkdtempSync(path.join(os.tmpdir(), "ha-user-skills-"));
   try {
