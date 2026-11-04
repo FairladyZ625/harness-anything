@@ -15,10 +15,11 @@ existing migration path; no ad-hoc repair script or canonical attach conversion 
 1. As the existing schema owner, run `ensurePgProjectionSchema` before deploying current
    readers. It adds document metadata, scalar read columns, binding tables, indexes and
    shared materialization triggers. It does **not** backfill or change the generation. Keep this
-   DDL transaction short: it acquires a table schema lock, so run it outside a replay or
-   other long transaction. In that same schema-owner transaction, call
-   `grantPgProjectionRuntimeAccess(client)` immediately after `ensurePgProjectionSchema(client)`
-   and commit both together. It grants the existing runtime/migration roles access to the
+   installation outside a transaction: indexes, including the runtime/event indexes from
+   the preceding release, use `CREATE INDEX CONCURRENTLY`. Each column/trigger statement
+   holds only its own short schema-lock window. An interrupted build is retried by removing
+   its invalid disposable index before rebuilding. Call `grantPgProjectionRuntimeAccess(client)`
+   immediately after `ensurePgProjectionSchema(client)` on that same schema-owner connection. It grants the existing runtime/migration roles access to the
    new `ha_runtime_session_tasks` and `ha_entity_declaration_heads` tables as well as the
    existing projection tables. Old grants do not cover newly created tables; do not assume
    deployment-specific default privileges. Commit these grants before allowing previous or
@@ -149,3 +150,37 @@ PGlite owns its schema and commits the same bounded batches before exposing an o
 external PostgreSQL uses the management sequence above. Current writes and reads already work without
 these temporary objects; the upgrade test exercises this contract phase. Do not remove
 the original `value` document representation during the previous-binary window.
+
+## Decision ordering and positional search expansion
+
+This additive generation-5 expansion stores Decision state, legacy block/number and the
+same ASCII collation key used by SQLite. The previous writer's original-column inserts and
+updates run the shared scalar trigger. Complete each `ha_backfill_decision_indexes` call in
+its own management transaction, under the scope's existing claims, until `processed=0`:
+
+```sql
+SELECT ha_backfill_decision_indexes('tenant-id', 'project-id', 1) AS processed;
+```
+
+Each call locks at most 64 pending Decisions. A rollback leaves them pending and a new
+call resumes from the remaining primary-key range. No canonical values are rewritten.
+Keep the previous-writer trigger through 2026-11-19; current writers also depend on it.
+The backfill function may be removed once every scope is complete after that date.
+
+Search uses the exact Unicode61 token stream, per-column positions and a persistent
+term dictionary. Digest buckets only bound PostgreSQL's B-tree keys: each bucket retains
+exact terms and distinct collision slots. There is no tsvector position, occurrence or
+lexeme truncation. Phrase evaluation reads only postings for the query's distinct terms;
+its budget is query terms times their postings, including nonadjacent phrase candidates.
+Body postings retain the document repository and both head/blob reader sets.
+
+Before switching readers, use `backfillPgDecisionSearchPage(client, scope)` in a management
+transaction per page, until it returns 0. It locks at most 64 pending owners and computes
+tokens in the storage adapter. Current projection writes refresh the same representation
+within their existing transaction. Previous-writer updates invalidate affected Decisions;
+current search returns `projection_pending` until the current writer or management
+backfill refreshes them. Retain invalidation triggers through 2026-11-19.
+
+PGlite performs both bounded backfills before opening its scope. Only disposable isolated
+replay schemas and PGlite pass `{ indexBuild: "isolated" }` to schema initialization;
+external production schemas use the default concurrent build.

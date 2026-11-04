@@ -119,7 +119,7 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
       await client.query(`SET ROLE "${roles.schemaOwner}"`);
       try {
         for (const statement of POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS) await client.query(statement);
-        await ensurePgProjectionSchema(client);
+        await ensurePgProjectionSchema(client, { indexBuild: "isolated" });
       } finally {
         await client.query("RESET ROLE");
       }

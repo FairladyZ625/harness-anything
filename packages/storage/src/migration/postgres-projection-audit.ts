@@ -12,13 +12,23 @@ async function rows(client: PoolClient, tuple: Pick<MigrationTuple, "scope">) {
   const result: Record<string, unknown> = {},
     scope = tuple.scope;
   for (const table of PG_PROJECTION_TABLES) {
+    // Dictionary slots are allocation identities, not canonical values. Resolve them
+    // before replay comparison; a dangling slot remains a visible NULL term witness.
+    const sql =
+      table === "ha_search_terms"
+        ? `SELECT to_jsonb(p)-'term_slot' AS value FROM ${table} p WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3`
+        : table === "ha_decision_positions"
+          ? `SELECT (to_jsonb(p)-'term_slot')||jsonb_build_object('term',d.term) AS value FROM ha_decision_positions p
+            LEFT JOIN ha_search_terms d ON (d.tenant_id,d.project_id,d.policy_epoch,d.term_slot)
+              =(p.tenant_id,p.project_id,p.policy_epoch,p.term_slot)
+            WHERE p.tenant_id=$1 AND p.project_id=$2 AND p.policy_epoch=$3`
+          : `SELECT to_jsonb(p) - 'updated_at' - 'state_digest' AS value FROM ${table} p WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3`;
     const values = (
-      await client.query<{ value: Record<string, unknown> }>(
-        `SELECT to_jsonb(p) - 'updated_at' - 'state_digest' AS value FROM ${table} p WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3`,
-        [scope.tenantId, scope.projectId, scope.policyEpoch],
-      )
+      await client.query<{ value: Record<string, unknown> }>(sql, [scope.tenantId, scope.projectId, scope.policyEpoch])
     ).rows.map((row) => row.value);
-    result[table] = values.sort((a, b) => canonicalJson(a).localeCompare(canonicalJson(b)));
+    const unique =
+      table === "ha_search_terms" ? [...new Map(values.map((v) => [canonicalJson(v), v])).values()] : values;
+    result[table] = unique.sort((a, b) => canonicalJson(a).localeCompare(canonicalJson(b)));
   }
   return result;
 }
@@ -50,7 +60,7 @@ export async function auditPgProjectionRows(
         [tuple.scope.tenantId, tuple.scope.projectId, tuple.scope.policyEpoch, tuple.cut.repoId, tuple.cut.revision],
       );
       await client.query(`SET LOCAL search_path TO "${schema}", public`);
-      await ensurePgProjectionSchema(client);
+      await ensurePgProjectionSchema(client, { indexBuild: "isolated" });
       await rebuildPgProjection(client, tuple.scope, {
         events: tuple.events.map((row) => parseCanonicalEvent(row.eventJson)),
         sourceRevision: tuple.cut.revision,

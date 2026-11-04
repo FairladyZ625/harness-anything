@@ -17,7 +17,7 @@ test("canonical NUL documents retain bytes, queries and headDigest on PostgreSQL
       process.stdout.write(`CONTENT_SERVER PostgreSQL ${version}\n`);
       await withPostgresTransaction(fixture.adminPool, async (client) => {
         for (const statement of POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS) await client.query(statement);
-        await ensurePgProjectionSchema(client);
+        await ensurePgProjectionSchema(client, { indexBuild: "isolated" });
       });
       await assertContentParity(fixture.adminPool, "PostgreSQL");
     } finally {

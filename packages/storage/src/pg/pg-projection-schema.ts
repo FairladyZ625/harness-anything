@@ -2,6 +2,8 @@ import type { PoolClient } from "pg";
 import { entityDeclarationDdl } from "./pg-entity-declarations.ts";
 import { eventReadIndexDdl } from "./pg-event-read-index-migration.ts";
 import { readIndexDdl } from "./pg-read-index-migration.ts";
+import { decisionSearchDdl } from "./pg-decision-search-schema.ts";
+import { decisionIndexDdl } from "./pg-decision-index-migration.ts";
 import { documentMetadataDdl } from "./pg-document-metadata-migration.ts";
 import {
   POSTGRES_SCOPE_COLUMNS_SQL,
@@ -13,6 +15,8 @@ import {
 export const PG_PROJECTION_TABLES = Object.freeze([
   "ha_task_snapshots",
   "ha_decisions",
+  "ha_search_terms",
+  "ha_decision_positions",
   "ha_facts",
   "ha_relations",
   "ha_agents",
@@ -42,8 +46,23 @@ export function assertPgProjectionSchemaVersion(version: number | undefined): vo
  * policies; they must not run this function. A2's ledger schema must already exist: its derived read-index
  * columns extend immutable event bytes. Projection tables can still be dropped and rebuilt from that stream.
  */
-export async function ensurePgProjectionSchema(client: PoolClient): Promise<void> {
-  for (const statement of projectionDdl()) await client.query(statement);
+export async function ensurePgProjectionSchema(
+  client: PoolClient,
+  options: { readonly indexBuild?: "concurrent" | "isolated" } = {},
+): Promise<void> {
+  for (const statement of projectionDdl()) {
+    const index = /^CREATE INDEX IF NOT EXISTS ([a-z0-9_]+)/u.exec(statement);
+    if (index && options.indexBuild !== "isolated") {
+      // An interrupted concurrent build leaves an invalid index. IF NOT EXISTS alone
+      // would silently keep it forever. Only disposable, invalid indexes are removed.
+      const existing = await client.query<{ indisvalid: boolean }>(
+        "SELECT indisvalid FROM pg_index WHERE indexrelid=to_regclass($1)",
+        [index[1]],
+      );
+      if (existing.rows[0]?.indisvalid === false) await client.query(`DROP INDEX CONCURRENTLY ${index[1]}`);
+      await client.query(statement.replace("CREATE INDEX IF NOT EXISTS", "CREATE INDEX CONCURRENTLY IF NOT EXISTS"));
+    } else await client.query(statement);
+  }
   for (const table of PG_PROJECTION_TABLES) {
     for (const statement of postgresScopeRlsStatements(table)) {
       if (statement.startsWith("CREATE POLICY ")) {
@@ -66,6 +85,9 @@ export async function ensurePgProjectionSchema(client: PoolClient): Promise<void
 export async function grantPgProjectionRuntimeAccess(client: PoolClient): Promise<void> {
   const roles = POSTGRES_SCOPE_SCHEMA_CONTRACT.roles;
   await client.query(`GRANT USAGE ON SCHEMA public TO "${roles.runtime}", "${roles.migration}"`);
+  await client.query(
+    `GRANT USAGE ON SEQUENCE ha_search_terms_term_slot_seq TO "${roles.runtime}", "${roles.migration}"`,
+  );
   await client.query(
     `GRANT SELECT, INSERT, UPDATE, DELETE ON ${PG_PROJECTION_TABLES.map((table) => `"${table}"`).join(", ")} TO "${roles.runtime}", "${roles.migration}"`,
   );
@@ -114,6 +136,7 @@ export function projectionDdl(): readonly string[] {
       updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
       PRIMARY KEY (tenant_id, project_id, policy_epoch, decision_id)
     )`,
+    ...decisionIndexDdl(),
     `CREATE TABLE IF NOT EXISTS ha_facts (
       ${POSTGRES_SCOPE_COLUMNS_SQL},
       readers text[] NOT NULL DEFAULT '{}',
@@ -175,6 +198,9 @@ export function projectionDdl(): readonly string[] {
       PRIMARY KEY (tenant_id, project_id, policy_epoch, projection_name)
     )`,
     ...entityDeclarationDdl,
+    ...decisionSearchDdl(),
+    `CREATE INDEX IF NOT EXISTS ha_document_heads_search_owner ON ha_document_heads
+      (tenant_id,project_id,policy_epoch,path,repo_id)`,
     ...PG_PROJECTION_TABLES.map(
       (table) => `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS readers text[] NOT NULL DEFAULT '{}'`,
     ),

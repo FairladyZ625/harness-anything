@@ -29,7 +29,7 @@ pgliteIntegrationSuite("PGlite/PostgreSQL cold storage migration", () => {
     try {
       await withPostgresTransaction(fixture.adminPool, async (client) => {
         for (const sql of POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS) await client.query(sql);
-        await ensurePgProjectionSchema(client);
+        await ensurePgProjectionSchema(client, { indexBuild: "isolated" });
       });
       await a.eventStore.append(bundle(eventAt(1)), 0, { repoId, holderId: "seed", epoch: 1 });
       const cut = await a.eventStore.currentCut();

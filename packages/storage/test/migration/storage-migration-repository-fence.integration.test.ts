@@ -35,7 +35,7 @@ test("real PostgreSQL repository migration fence covers new tuples", async (t) =
     for (const pool of [fixture.adminPool, target])
       await withPostgresTransaction(pool, async (client) => {
         for (const sql of POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS) await client.query(sql);
-        await ensurePgProjectionSchema(client);
+        await ensurePgProjectionSchema(client, { indexBuild: "isolated" });
       });
     await fixture.adminPool.query("CREATE ROLE dm1_runtime LOGIN NOSUPERUSER NOBYPASSRLS");
     await fixture.adminPool.query("GRANT USAGE ON SCHEMA public TO dm1_runtime");

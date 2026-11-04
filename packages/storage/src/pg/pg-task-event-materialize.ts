@@ -1,3 +1,8 @@
+import {
+  canonicalDocumentClaims,
+  canonicalDocumentRetirements,
+} from "@harness-anything/kernel/internal/ports/canonical-document-claims.ts";
+import { refreshPgDecisionSearch } from "./pg-decision-search.ts";
 import { readVersionedRelationsInTransaction } from "./pg-relation-queries.ts";
 import { putPgProjectionValue } from "./pg-projection-values.ts";
 import { derivedRelationRecordsForReplay } from "../projection/relation-entity-projection.ts";
@@ -137,6 +142,15 @@ async function materializeProjectionEvent(
   }
   await storeEmbeddedRelations(client, scope, event, tables);
   await materializePgQueryModels(client, scope, { ...input, event }, snapshot);
+  const searchOwners = new Set<string>();
+  if (isDecisionEvent(event)) searchOwners.add(event.decisionId);
+  else if (isMigrationImportEvent(event) && event.payload.entity.kind === "decision")
+    searchOwners.add(event.payload.entity.decision.decisionId);
+  for (const claim of [...canonicalDocumentClaims(event), ...canonicalDocumentRetirements(event)]) {
+    const id = /^decisions\/decision-(dec_[A-Za-z0-9_-]+)\/decision[.]md$/u.exec(claim.path)?.[1];
+    if (id) searchOwners.add(id);
+  }
+  for (const id of searchOwners) await refreshPgDecisionSearch(client, scope, id);
   tables.add("ha_projection_values");
   await updateProjectionMeta(client, scope, revision, input.sourceHeadRevision ?? input.sourceRevision ?? revision);
   return { revision, taskId, snapshot, tables: [...tables].sort() };

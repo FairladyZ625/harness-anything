@@ -2,6 +2,7 @@ import type { PoolClient } from "pg";
 import { withPostgresTransaction, type PostgresScopeClaims } from "../postgres/transaction.ts";
 import { POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS, POSTGRES_EVENT_LEDGER_TABLES } from "../postgres/index.ts";
 import type { PostgresAppendHooks } from "../postgres/pg-event-store.ts";
+import { backfillPgDecisionSearchPage } from "../pg/pg-decision-search.ts";
 import { ensurePgProjectionSchema } from "../pg/pg-projection-schema.ts";
 import { createPgStorageBackend, resolvePostgresEventStoreScope, type PgStorageBackend } from "../pg/backend.ts";
 import type { PGliteStorageBackendConfig } from "../storage-backend.ts";
@@ -56,8 +57,31 @@ async function initializeSchema(
       if (statement.startsWith("CREATE POLICY ")) await ensurePolicy(client, statement, POSTGRES_EVENT_LEDGER_TABLES);
       else await client.query(statement);
     }
-    await ensurePgProjectionSchema(client);
+    await ensurePgProjectionSchema(client, { indexBuild: "isolated" });
   });
+  for (;;) {
+    const processed = await withPostgresTransaction(
+      pool,
+      async (client) =>
+        (
+          await client.query<{ processed: number }>("SELECT ha_backfill_decision_indexes($1,$2,$3) AS processed", [
+            scope.tenantId,
+            scope.projectId,
+            scope.policyEpoch,
+          ])
+        ).rows[0]!.processed,
+      scope,
+    );
+    if (processed === 0) break;
+  }
+  for (;;) {
+    const processed = await withPostgresTransaction(
+      pool,
+      (client) => backfillPgDecisionSearchPage(client, scope),
+      scope,
+    );
+    if (processed === 0) break;
+  }
   // Commit each bounded expansion page before admitting readers of this embedded scope.
   for (;;) {
     const processed = await withPostgresTransaction(

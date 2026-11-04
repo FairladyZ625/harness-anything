@@ -27,7 +27,7 @@ test("real PostgreSQL: SQLite roundtrip preserves event/blob bytes, outcomes, cu
     process.stdout.write(`MIGRATION_SERVER ${(await fixture.adminPool.query("SELECT version() AS v")).rows[0].v}\n`);
     await withPostgresTransaction(fixture.adminPool, async (client) => {
       for (const sql of POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS) await client.query(sql);
-      await ensurePgProjectionSchema(client);
+      await ensurePgProjectionSchema(client, { indexBuild: "isolated" });
     });
     mkdirSync(sourceRoot, { recursive: true });
     mkdirSync(targetRoot, { recursive: true });
