@@ -11,7 +11,11 @@ import {
 import { makeGitReadinessSource } from "./process-port.ts";
 import { presetSnapshotReader, taskWorktreeBinding } from "./task-worktree.ts";
 import type { AuthoredCandidateInventoryV1 } from "./doc-sync-candidate-scanner.ts";
-import { recoverTaskWorktreeDocumentBases, taskWorktreeDocumentBase } from "./worktree-setup.ts";
+import {
+  acceptTaskWorktreeDocumentBase,
+  recoverTaskWorktreeDocumentBases,
+  taskWorktreeDocumentBase,
+} from "./worktree-setup.ts";
 import type { CanonicalEventStore } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 import type { Snapshot } from "./repo-cell-types.ts";
 
@@ -91,7 +95,10 @@ export function taskWorktreeCandidateInventory(
           throw new Error(`Missing accepted worktree document blob ${current.blobSha256} for ${row.path}.`);
         // An already accepted copy is unchanged too. Leaving it in the overlay would hide a
         // real canonical edit before the scanner can apply its CAS and lease checks.
-        if (row.safe && row.bytes !== null && Buffer.from(row.bytes).equals(currentBytes)) return [];
+        if (row.safe && row.bytes !== null && Buffer.from(row.bytes).equals(currentBytes)) {
+          acceptTaskWorktreeDocumentBase(taskRoot, row.path, row.bytes);
+          return [];
+        }
         if (!accepted.has(current.workspaceRevision))
           accepted.set(
             current.workspaceRevision,

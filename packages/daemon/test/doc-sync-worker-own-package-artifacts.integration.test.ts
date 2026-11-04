@@ -492,6 +492,9 @@ for (const selection of ["task", "paths"] as const) {
         await waitForFixturePublication(fixture.cell, synced.opId, holder);
         assert.equal(readFileSync(fixture.canonicalArtifact, "utf8"), canonicalEdit);
         assert.equal(readFileSync(fixture.workerArtifact, "utf8"), acceptedBody);
+        const unchanged = await fixture.cell.run({ kind: "doc-submit", ...action }, holder);
+        assert.equal(unchanged.outcome, "no_changes", JSON.stringify(unchanged));
+        assert.equal(readFileSync(fixture.canonicalArtifact, "utf8"), canonicalEdit);
       } finally {
         await fixture.cell.close();
         rmSync(fixture.rootDir, { recursive: true, force: true });
