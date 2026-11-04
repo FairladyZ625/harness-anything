@@ -176,6 +176,79 @@ test("preset trigger skill routes task creation through preset selection", () =>
   assert.match(body, /Do not hand-create task package directories/u);
 });
 
+test("CEO task lifecycle has one front door: register the task before choosing the executor", () => {
+  // Four delivery paths share one first step. This test locks the document order, not model
+  // behavior: it proves a future edit cannot restore "direct work may skip the task" by moving
+  // the executor choice or the unregistered branch ahead of task creation. It cannot prove that an
+  // agent follows the skill, that `ha init` succeeds, or that a repository attaches; those need the
+  // task's real scenario evidence and CLI runs.
+  const body = readFileSync(path.join(skillsRoot, "harness-ceo", "SKILL.md"), "utf8");
+  const at = (needle) => {
+    const index = body.indexOf(needle);
+    assert.notEqual(index, -1, `harness-ceo/SKILL.md is missing the path marker: ${needle}`);
+    return index;
+  };
+  const agenda = at("Check `ha agenda`");
+  const create = at("Create each agreed unit of work through the supported task flow");
+  const executor = at("## Create the task first, then choose the executor");
+  const direct = at("Direct execution and delegation are executor choices, not lifecycle choices");
+  const identity = at("When delegating, choose the identity before the model");
+  const unregistered = at("workspace is not registered");
+  const install = body.indexOf("complete `harness-install`", unregistered);
+  const actualRequest = body.indexOf("return to the user's actual request", unregistered);
+  const missing = body.indexOf("if a required identity or authorization is missing", unregistered);
+
+  const before = (left, right, message) => assert.ok(left >= 0 && left < right, message);
+  before(agenda, create, "agenda and live records must be read before creating a task");
+  before(create, executor, "the task must exist before the executor choice");
+  before(executor, direct, "the executor paragraph must state the lifecycle rule");
+  before(executor, identity, "delegation identity is chosen after the task exists");
+  before(unregistered, install, "an unregistered workspace must route to harness-install");
+  before(install, actualRequest, "install must return to the same user request");
+  before(actualRequest, create, "the first task after install is the user's request");
+  before(missing, create, "missing prerequisites must be reported before any task is created");
+
+  // registered + direct:      agenda -> task -> executor -> direct
+  // registered + delegated:   agenda -> task -> executor -> identity
+  // unregistered + direct:    agenda -> install -> actual request -> task -> executor -> direct
+  // unregistered + delegated: agenda -> install -> actual request -> task -> executor -> identity
+  for (const [scenario, steps] of [
+    ["registered/direct", [agenda, create, executor, direct]],
+    ["registered/delegated", [agenda, create, executor, identity]],
+    ["unregistered/direct", [agenda, unregistered, install, actualRequest, create, executor, direct]],
+    ["unregistered/delegated", [agenda, unregistered, install, actualRequest, create, executor, identity]],
+  ]) {
+    assert.deepEqual(
+      [...steps].sort((left, right) => left - right),
+      steps,
+      `${scenario} must follow the documented order`,
+    );
+  }
+
+  assert.doesNotMatch(
+    body,
+    /## Choose whether to delegate/u,
+    "the old executor/lifecycle fork heading must stay deleted",
+  );
+  assert.match(body, /it still runs inside the task created above/u, "direct execution must stay inside the task");
+  assert.match(body, /the task has not entered the Harness lifecycle/u);
+  assert.match(body, /do not report independent output as delivered/u);
+});
+
+test("first-use references keep onboarding and direct execution on the same task front door", () => {
+  const initialization = readFileSync(path.join(skillsRoot, "harness-ceo", "references", "initialization.md"), "utf8");
+  const management = readFileSync(path.join(skillsRoot, "harness-ceo", "references", "management.md"), "utf8");
+  const install = readFileSync(path.join(skillsRoot, "harness-install", "SKILL.md"), "utf8");
+
+  assert.match(initialization, /workspace is not registered/u);
+  assert.match(initialization, /complete `harness-install`/u);
+  assert.match(initialization, /task has not entered the Harness lifecycle/u);
+  assert.match(initialization, /whether the CEO executes it or delegates it/u);
+  assert.match(management, /Direct execution is reasonable for a small bounded task once its task exists/u);
+  assert.match(management, /either way the task exists first/u);
+  assert.match(install, /复用用户给的首任务/u, "install must land on the triggering request, not a demo task");
+});
+
 test("用户级技能链接可跨目录重复同步，并直接读取源码更新", () => {
   const tempRoot = mkdtempSync(path.join(os.tmpdir(), "ha-user-skills-"));
   try {

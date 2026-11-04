@@ -1,6 +1,6 @@
 ---
 name: harness-ceo
-description: Coordinate Harness Anything work from task creation through delegated execution, durable supervision, evidence-based acceptance, integration, and task closeout. Use when acting as the accountable lead for one or more Harness tasks.
+description: Coordinate Harness Anything work from task creation through direct or delegated execution, durable supervision, evidence-based acceptance, integration, and task closeout. Use when acting as the accountable lead for one or more Harness tasks.
 ---
 
 # Harness CEO
@@ -9,11 +9,11 @@ Own the outcome from the user's request through verified delivery. Treat role as
 
 ## Start from the live repository
 
-Use the existing repository instructions and task records first. After `ha init`, discover the current surface with `ha --help` and `ha capabilities`; do not assume an old command list still applies. If the workspace is not initialized, inspect `ha init --help` and use the supported initialization flow only when authorized. Read `harness-install` for installation and onboarding, and `preset-trigger` for task preset selection; do not duplicate their setup instructions here.
+Use the existing repository instructions and task records first. Discover the current surface with `ha --help` and `ha capabilities`; do not assume an old command list still applies. `harness-install` owns installation and onboarding, and `preset-trigger` owns task preset selection; do not duplicate their instructions here.
 
-Check `ha agenda` and the relevant task or work before creating anything. Reuse the live task, decision, verification evidence, and user knowledge already present. A task plan may be stale: verify its premise, claimed missing deliverables, and real callers before assigning work. A file existing is not evidence that it is connected to a user-facing path.
+Check `ha agenda` and the relevant task or work before creating anything. Reuse the live task, decision, verification evidence, and user knowledge already present. If `ha agenda` reports `workspace is not registered`, complete `harness-install` for this repository and return to the user's actual request; if a required identity or authorization is missing, name each missing item, state that the task has not entered the Harness lifecycle, and do not report independent output as delivered. A task plan may be stale: verify its premise, claimed missing deliverables, and real callers before assigning work. A file existing is not evidence that it is connected to a user-facing path.
 
-Create each agreed unit of work through the supported task flow. Inspect `ha preset list --vertical software/coding` and `ha task create --help`, then choose the preset that matches the task. For example:
+Create each agreed unit of work through the supported task flow before producing its output; choosing to execute it yourself is not a reason to skip the task. Inspect `ha preset list --vertical software/coding` and `ha task create --help`, then choose the preset that matches the task. For example:
 
 ```bash
 ha task create --title "<one outcome>" --vertical software/coding --preset standard-task
@@ -21,11 +21,11 @@ ha task create --title "<one outcome>" --vertical software/coding --preset stand
 
 Use `docs-task` for a documentation/design-only task when its contract fits. A task plan is the authoritative mission: write its goal, current evidence, user or caller, acceptance, relevant context, constraints, and next checkpoint there. Do not maintain a second conflicting prompt. Use a standalone task for independent work. Use a work only to group tasks serving one agreed goal; inspect `ha work list` and `ha work show <work-id>` first. A new work requires an accepted decision, so use `ha decision propose --help` and `ha decision accept --help` when a real direction decision is needed, then `ha work create --title "<goal>" --decision <accepted-decision-id>`. Add child tasks with `ha task create --work <work-id> ...`. A work root is itself a task; close its open criteria with the `work-closeout` preset before completing the root.
 
-## Choose whether to delegate, then choose the identity
+## Create the task first, then choose the executor
 
-Compare the full cost of doing the work directly with dispatch: context preparation, waiting, review, rework, and integration all count. Use these four questions:
+Direct execution and delegation are executor choices, not lifecycle choices: create or reuse the task first, then submit the same evidence from either path. Compare the full cost of doing the work directly with dispatch: context preparation, waiting, review, rework, and integration all count. Use these four questions:
 
-1. Can the CEO safely produce and verify the change with the context already available? If yes, direct work may be cheaper for a small, bounded result. If doing it would consume attention needed for cross-line decisions or acceptance, delegate.
+1. Can the CEO safely produce and verify the change with the context already available? If yes, direct execution may be cheaper for a small, bounded result; it still runs inside the task created above. If doing it would consume attention needed for cross-line decisions or acceptance, delegate.
 2. Will dispatch cost more than it returns? Reduce waste by giving one coherent outcome enough context, not by splitting it into thin packets or limiting what the worker may inspect.
 3. Has the same method failed twice without new evidence? Change the method, assignment, or contract before trying again. Reusing the same weak packet is not a new attempt.
 4. Does the work require long-running exploration, measurement, or repeated trials? Delegate when it preserves the CEO's attention and gives the worker a clear result to own.
@@ -102,7 +102,7 @@ For PR queues, stacked changes, post-merge failures, or release status, read [in
 
 | Situation | Read |
 | --- | --- |
-| Decide whether to delegate, choose a slice, challenge overengineering | [management](references/management.md), [models](references/models.md) |
+| Choose the executor and identity, choose a slice, challenge overengineering | [management](references/management.md), [models](references/models.md) |
 | Create a task, choose a declaration, handle concurrent write ownership | [dispatch](references/dispatch.md), [roles](references/roles.md), [delegation packet](assets/delegation-packet.md) |
 | Monitor work, recover a lost turn, or hand off | [supervision](references/supervision.md), [continuation packet](assets/continuation.md) |
 | Validate claims, investigate a misleading status or failed check | [evidence](references/evidence.md), [verification](references/verification.md) |

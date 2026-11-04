@@ -4,12 +4,12 @@
 
 Delegation is useful when independent execution, focused context, or a second view returns more than the cost of briefing, waiting, reviewing, rework, and integration. Ask four questions before choosing the route:
 
-1. Can the CEO make a safe, well-grounded change with the current context? Direct work is reasonable for a small bounded task; preserve CEO attention when cross-line coordination or semantic judgment is the scarce resource.
+1. Can the CEO make a safe, well-grounded change with the current context? Direct execution is reasonable for a small bounded task once its task exists; preserve CEO attention when cross-line coordination or semantic judgment is the scarce resource.
 2. What is the complete dispatch cost? If brief, review, and integration will dominate, make the task coherent and give the worker the context to find the root cause. Do not reduce the packet to a thin recipe to save a few lines.
 3. Has the same method failed twice without new evidence? Stop repeating it. Change the method, identity, or contract; reuse prior evidence and explain why the next attempt can succeed.
 4. Will this require long-running exploration, measurement, or many trials? Delegate it when one owner can carry the work to evidence and report the result.
 
-There is no universal rule to always delegate or always do a small task yourself. Optimize the whole delivery path and keep authority where it belongs: the CEO owns scope, semantic acceptance, and authorized external decisions.
+There is no universal rule to always delegate or always execute a small task yourself; either way the task exists first. Optimize the whole delivery path and keep authority where it belongs: the CEO owns scope, semantic acceptance, and authorized external decisions.
 
 ## Choose coherent slices
 
