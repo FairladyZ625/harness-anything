@@ -341,8 +341,9 @@ function linkWorktreeLedger(rootDir: string, cwd: string, taskId: string | null,
       const base = taskWorktreeDocumentBase(cwd, `tasks/${path.basename(own!)}`);
       mkdirSync(path.dirname(base), { recursive: true });
       if (existsSync(checkedOut)) copyWorkerLedgerEntry(checkedOut, base);
-      // Publication may still be following the accepted cut; fill only files Git did not check out.
-      mirrorTaskPackage(own!, checkedOut, base);
+      // Keep versions for documents publication has not checked out, without injecting untracked
+      // authored files into a Git-owned tree. Existing checkout bases retain their original bytes.
+      copyWorkerLedgerEntry(own!, base);
     }
     return;
   }

@@ -394,12 +394,24 @@ for (const dirty of [false, true]) {
     git(root, "add", ".gitignore", "harness/tasks", "harness/harness.yaml");
     git(root, "commit", "-qm", "tracked authored documents");
     git(root, "update-ref", "refs/remotes/origin/main", "HEAD");
+    const lateDocument = `harness/tasks/${packageName}/artifacts/accepted-after-checkout.md`;
+    mkdirSync(path.dirname(path.join(root, lateDocument)), { recursive: true });
+    writeFileSync(path.join(root, lateDocument), "accepted center bytes\n");
     await addManagedWorktree(root, worktree);
     await runWorktreeSetup({ rootDir: root, cwd: worktree.cwd, taskId, steps: [], fresh: true });
     const base = taskWorktreeDocumentBase(worktree.cwd, ""),
       original = taskWorktreeDocumentBase(worktree.cwd, `tasks/${packageName}/task_plan.md`);
     assert.equal(path.relative(worktree.cwd, base).startsWith(`..${path.sep}`), true);
     assert.equal(readFileSync(original, "utf8"), "# Plan\n");
+    assert.equal(
+      existsSync(path.join(worktree.cwd, lateDocument)),
+      false,
+      "setup does not add authored files outside Git checkout",
+    );
+    assert.equal(
+      readFileSync(taskWorktreeDocumentBase(worktree.cwd, lateDocument.slice("harness/".length)), "utf8"),
+      "accepted center bytes\n",
+    );
     assert.equal(git(worktree.cwd, "status", "--porcelain", "--untracked-files=all"), "");
     if (dirty) writeFileSync(path.join(worktree.cwd, "README.md"), "unfinished work\n");
     const reclaimed = await reclaimManagedWorktree(root, worktree);
