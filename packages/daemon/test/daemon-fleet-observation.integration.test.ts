@@ -33,7 +33,8 @@ function observation() {
             record.phaseSequence = sequence;
           }
         },
-        end: () => {
+        end: (trace) => {
+          if (trace !== undefined) record.endedAtMs = trace.endedAtMs;
           record.endCount = Number(record.endCount ?? 0) + 1;
           active.delete(id);
         },
