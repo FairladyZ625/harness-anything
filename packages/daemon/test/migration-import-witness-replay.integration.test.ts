@@ -360,6 +360,10 @@ test("migration backfills agents, schedules, and runtime sessions with a source-
       String(dry.summary),
       /\| runtime-session \| runtime_backfill \| create \| event:fixture-runtime-outcome \|/u,
     );
+    assert.match(
+      String(dry.summary),
+      /\| runtime-session \| runtime_unsettled \| create \| event:fixture-runtime-unsettled-started \|/u,
+    );
 
     const first = (await cell.run(
       { kind: "migrate-import", sourceRoots },
@@ -368,6 +372,7 @@ test("migration backfills agents, schedules, and runtime sessions with a source-
     assert.equal(first.exitCode, 0, JSON.stringify(first));
     assert.match(String(first.backfillMapPath), /^migrations\/import_[0-9a-f_]+\/entity-backfill\.json$/u);
     const projection = new DatabaseSync(path.join(destination, ".harness/cache/task.sqlite"), { readOnly: true });
+    let unsettledResultRef = "";
     try {
       const entity = projection
           .prepare(
@@ -380,6 +385,9 @@ test("migration backfills agents, schedules, and runtime sessions with a source-
         }[],
         runtime = projection
           .prepare("SELECT value_json FROM runtime_session WHERE runtime_session_id='runtime_backfill'")
+          .get() as { readonly value_json: string },
+        unsettledRuntime = projection
+          .prepare("SELECT value_json FROM runtime_session WHERE runtime_session_id='runtime_unsettled'")
           .get() as { readonly value_json: string };
       assert.deepEqual(
         entity.map(({ entity_kind, entity_id }) => [entity_kind, entity_id]),
@@ -391,6 +399,15 @@ test("migration backfills agents, schedules, and runtime sessions with a source-
       assert.deepEqual(JSON.parse(entity[0]!.value_json), fixture.agent);
       assert.deepEqual(JSON.parse(entity[1]!.value_json), fixture.schedule);
       assert.deepEqual(JSON.parse(runtime.value_json), fixture.runtimeSession);
+      const importedUnsettled = JSON.parse(unsettledRuntime.value_json) as {
+        readonly liveness: string;
+        readonly outcome: string | null;
+        readonly resultRef: string;
+      };
+      assert.equal(importedUnsettled.outcome, "unknown", "genesis replay settles an unsettled source session");
+      assert.equal(importedUnsettled.liveness, "exited", "the imported terminal also closes liveness");
+      assert.match(importedUnsettled.resultRef, /^artifact:runtime-result\/sha256\/[0-9a-f]{64}$/u);
+      unsettledResultRef = importedUnsettled.resultRef;
     } finally {
       projection.close();
     }
@@ -404,6 +421,13 @@ test("migration backfills agents, schedules, and runtime sessions with a source-
       Buffer.from(appliedStore.readContentBlob(fixture.resultHash) ?? []).toString("utf8"),
       fixture.resultBody,
     );
+    assert.match(
+      Buffer.from(
+        appliedStore.readContentBlob(unsettledResultRef.slice("artifact:runtime-result/sha256/".length)) ?? [],
+      ).toString("utf8"),
+      /frozen source generation/u,
+      "the imported terminal carries a readable result body",
+    );
     const firstRevision = appliedStore.read().revision,
       firstEventCount = appliedStore.read().events.length,
       second = (await cell.run(
@@ -414,7 +438,7 @@ test("migration backfills agents, schedules, and runtime sessions with a source-
     const rerunStore = makeTaskEventReader({ repoId: "migration-entity-backfill-target", rootDir: destination });
     assert.equal(rerunStore.read().revision, firstRevision);
     assert.equal(rerunStore.read().events.length, firstEventCount);
-    assert.match(String(second.summary), /agent=1, schedule=1, runtime-session=1/u);
+    assert.match(String(second.summary), /agent=1, schedule=1, runtime-session=2/u);
   } finally {
     await cell?.close();
     rmSync(scratch, { recursive: true, force: true });
@@ -489,6 +513,25 @@ function entityBackfillSource(root: string) {
       resultRef: `artifact:runtime-result/sha256/${resultHash}`,
       lastObservedAt: "2026-08-29T00:00:02.000Z",
     },
+    // The source was frozen while this runtime was still live and unsettled: genesis replay must
+    // import it as a terminal unknown, never as an orphan the destination cannot adopt.
+    runtimeSessionUnsettled = {
+      runtimeSessionId: "runtime_unsettled",
+      instanceId: "codex-default",
+      installationId: "installation-codex",
+      kindId: "codex",
+      definitionSnapshotRef: "artifact:runtime-definition/backfill",
+      providerSessionId: null,
+      transcriptRef: null,
+      launchGeneration: 1,
+      liveness: "live",
+      attachable: true,
+      taskBindings: [],
+      outcome: null,
+      exitCode: null,
+      resultRef: null,
+      lastObservedAt: "2026-08-29T00:03:00.000Z",
+    },
     agentBody = `${JSON.stringify(agent, null, 2)}\n`,
     scheduleBody = `${JSON.stringify({ ...schedule, status: undefined }, null, 2)}\n`,
     objectRoot = path.join(root, `harness/objects/sha256/${resultHash.slice(0, 2)}`);
@@ -498,7 +541,16 @@ function entityBackfillSource(root: string) {
   writeFileSync(path.join(root, "harness/agents/backfill-agent.json"), agentBody);
   writeFileSync(path.join(root, "harness/schedules/backfill-schedule.json"), scheduleBody);
   writeFileSync(path.join(objectRoot, resultHash.slice(2)), resultBody);
-  return { agent, schedule, runtimeSession, resultBody, resultHash, agentBody, scheduleBody } as const;
+  return {
+    agent,
+    schedule,
+    runtimeSession,
+    runtimeSessionUnsettled,
+    resultBody,
+    resultHash,
+    agentBody,
+    scheduleBody,
+  } as const;
 }
 
 function seedEntityBackfillProjection(root: string, fixture: ReturnType<typeof entityBackfillSource>): void {
@@ -511,6 +563,7 @@ function seedEntityBackfillProjection(root: string, fixture: ReturnType<typeof e
       scheduleRevision = agentRevision + 1,
       startedRevision = scheduleRevision + 1,
       outcomeRevision = startedRevision + 1,
+      unsettledStartedRevision = outcomeRevision + 1,
       insertEvent = database.prepare("INSERT INTO event_index VALUES (?, ?, NULL, ?)");
     database
       .prepare("INSERT INTO entity_projection VALUES ('agent', 'backfill-agent', ?, ?)")
@@ -521,6 +574,9 @@ function seedEntityBackfillProjection(root: string, fixture: ReturnType<typeof e
     database
       .prepare("INSERT INTO runtime_session VALUES ('runtime_backfill', ?, ?)")
       .run(outcomeRevision, JSON.stringify(fixture.runtimeSession));
+    database
+      .prepare("INSERT INTO runtime_session VALUES ('runtime_unsettled', ?, ?)")
+      .run(unsettledStartedRevision, JSON.stringify(fixture.runtimeSessionUnsettled));
     insertEvent.run(
       "fixture-agent",
       agentRevision,
@@ -571,7 +627,18 @@ function seedEntityBackfillProjection(root: string, fixture: ReturnType<typeof e
         },
       }),
     );
-    database.prepare("UPDATE projection_meta SET watermark=? WHERE singleton=1").run(outcomeRevision);
+    insertEvent.run(
+      "fixture-runtime-unsettled-started",
+      unsettledStartedRevision,
+      JSON.stringify({
+        schema: "agent-runtime-event/v1",
+        eventId: "fixture-runtime-unsettled-started",
+        type: "runtime_session_started",
+        occurredAt: fixture.runtimeSessionUnsettled.lastObservedAt,
+        payload: { runtimeSessionId: "runtime_unsettled" },
+      }),
+    );
+    database.prepare("UPDATE projection_meta SET watermark=? WHERE singleton=1").run(unsettledStartedRevision);
   } finally {
     database.close();
   }

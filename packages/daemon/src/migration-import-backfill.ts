@@ -17,6 +17,11 @@ import {
 } from "@harness-anything/kernel";
 import type { MigrationImportContext } from "./migration-import-run.ts";
 import type { Prepared } from "./migration-import-types.ts";
+import {
+  IMPORTED_RUNTIME_TERMINAL_BODY,
+  importedRuntimeTerminalResult,
+  sameImportedRuntimeSessionProjection,
+} from "./runtime-imported-settlement.ts";
 
 export function prepareEntityBackfills(
   context: MigrationImportContext,
@@ -175,7 +180,9 @@ export function prepareEntityBackfills(
     const existing = context.existingRuntimeSessions.get(source.runtimeSessionId),
       sourceAnchor = source.sourceAnchor.source;
     if (existing !== undefined) {
-      const same = stableStringify(existing) === stableStringify(source.value);
+      const same =
+        stableStringify(existing) === stableStringify(source.value) ||
+        (source.value.outcome === null && sameImportedRuntimeSessionProjection(existing, source.value));
       context.backfillRows.push({
         entityType: "runtime-session",
         entityId: source.runtimeSessionId,
@@ -307,6 +314,38 @@ function runtimeSessionBundles(
       occurredAt: session.lastObservedAt,
       payload: { runtimeSessionId: session.runtimeSessionId, liveness: session.liveness },
     });
+  // Genesis replay reads a frozen source repository. A source runtime session with no outcome has
+  // no process and no dispatch in the destination, so importing it as unresolved would create an
+  // orphan that startup recovery can never adopt or settle. Record the same definitive terminal
+  // first-discovery recovery records, so both paths agree and a re-run stays unchanged.
+  if (session.outcome === null) {
+    const terminalResult = importedRuntimeTerminalResult();
+    specs.push(
+      ...(session.liveness === "exited"
+        ? []
+        : [
+            {
+              suffix: "unsettled-exited",
+              type: "runtime_session_exited" as const,
+              occurredAt: session.lastObservedAt,
+              payload: { runtimeSessionId: session.runtimeSessionId },
+            },
+          ]),
+      {
+        suffix: "unsettled-outcome",
+        type: "runtime_session_outcome_observed",
+        occurredAt: session.lastObservedAt,
+        payload: {
+          runtimeSessionId: session.runtimeSessionId,
+          outcome: "unknown",
+          exitCode: null,
+          resultRef: `artifact:runtime-result/sha256/${terminalResult.sha256}`,
+          result: terminalResult,
+        },
+        blobs: [{ ...terminalResult, body: IMPORTED_RUNTIME_TERMINAL_BODY }],
+      },
+    );
+  }
   if (session.outcome !== null && outcome === null)
     throw new Error("runtime outcome projection has no source result claim");
   if (session.outcome !== null && outcome?.result === null)

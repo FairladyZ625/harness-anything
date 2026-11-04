@@ -39,6 +39,7 @@ import type { RuntimeFallbackAttempt, RuntimeProviderFault } from "./runtime-fal
 import type { RuntimeProviderHealthStore } from "./runtime-provider-health.ts";
 import type { RuntimeContinuationSeed } from "./runtime-continuation-context.ts";
 import type { ModelSlotQueue } from "./runtime/model-slot-queue.ts";
+import type { RepoCellBinding } from "./repo-cell-types.ts";
 
 export interface RuntimeProcess {
   readonly pid: number;
@@ -448,6 +449,9 @@ export interface RuntimeSpawnerInput {
   ) => Promise<{ readonly event?: AgentRuntimeEventV1; readonly receipt: JsonObject }>;
   /** Serialize prepared recovery mutations; external observation and authorization run before this port. */
   readonly writeRuntime?: <T>(work: () => T | Promise<T>, binding: RuntimeBinding) => Promise<T>;
+  /** Cell-default local binding (writer fence + current operator session) for writes the cell owns
+   *  but no request carries, such as first-discovery settlement of a migration-imported session. */
+  readonly localRecoveryBinding?: () => Promise<RepoCellBinding>;
   readonly stream: Pick<AgentRuntimeStreamHub, "publish">;
   readonly now: () => string;
   readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
