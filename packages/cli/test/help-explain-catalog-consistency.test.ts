@@ -18,7 +18,12 @@ test("help, explain, and the router describe one Task Action catalog", () => {
       usage: taskActionCommandUsage,
     }).catalog(),
     helpRows = new Set(
-      [renderThinHelp([], "task"), renderThinHelp([], "preset"), renderThinHelp([], "pin"), renderThinHelp([], "unpin")]
+      [
+        renderThinHelp([], "task", undefined, [], true),
+        renderThinHelp([], "preset"),
+        renderThinHelp([], "pin"),
+        renderThinHelp([], "unpin"),
+      ]
         .join("\n")
         .split("\n")
         .map((line) => line.trim())

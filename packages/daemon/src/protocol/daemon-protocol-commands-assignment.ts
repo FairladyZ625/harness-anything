@@ -16,6 +16,8 @@ function assignmentCommands(kind: "agent" | "squad" | "schedule" | "task") {
   return [
     defineCenterForwardWriteCommand({
       id: `${kind}-assign`,
+      // Task assignment is admin surface; the other entities' assignment stays common.
+      helpTier: kind === "task" ? "maintenance" : "common",
       phase: "Governed-Entity-W1-D",
       path: [kind, "assign", `<${kind}-id>`],
       summary: `Assign a ${kind} to a person, node or team through the canonical Relation writer.`,
@@ -31,6 +33,8 @@ function assignmentCommands(kind: "agent" | "squad" | "schedule" | "task") {
     }),
     defineCenterForwardWriteCommand({
       id: `${kind}-unassign`,
+      // Task assignment is admin surface; the other entities' assignment stays common.
+      helpTier: kind === "task" ? "maintenance" : "common",
       phase: "Governed-Entity-W1-D",
       path: [kind, "unassign", `<${kind}-id>`],
       summary: `Remove the current ${kind} assignment through the canonical Relation writer.`,

@@ -54,6 +54,16 @@ function taskActionCliInputs(action: GeneratedTaskActionProtocolDeclaration) {
   );
 }
 
+// Help layering is CLI presentation, so the CLI declaration decides it. The review/recovery
+// actions are the advanced layer; create/start/submit/complete are the loop itself.
+const advancedTaskLifecycleIngresses = new Set([
+  "task-transition",
+  "task-review-execution",
+  "task-respond-review",
+  "task-rework",
+  "task-review-consent",
+]);
+
 function taskActionProtocolCommand(action: GeneratedTaskActionProtocolDeclaration) {
   const execution = action.execution;
   if (!execution?.topology) throw new Error(`Task Action ${action.id} has no command topology.`);
@@ -65,6 +75,7 @@ function taskActionProtocolCommand(action: GeneratedTaskActionProtocolDeclaratio
         : ["task", execution.ingress.slice("task-".length), "<task-id>"];
   const declaration = {
     id: execution.ingress,
+    helpTier: advancedTaskLifecycleIngresses.has(execution.ingress) ? "advanced" : "common",
     phase: "W3",
     path: syntaxPath,
     summary: action.explain,
@@ -110,6 +121,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
   ...derivedTaskActionProtocolCommands,
   defineCenterForwardWriteCommand({
     id: "task-escalate",
+    helpTier: "advanced",
     actionKind: "task-escalate",
     payloadFields: [
       { field: "taskId", type: "string", required: true, regex: "^[A-Za-z0-9_-]{1,96}$" },
@@ -132,6 +144,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
   }),
   defineCenterForwardWriteCommand({
     id: "task-escalation-resolve",
+    helpTier: "advanced",
     actionKind: "task-escalation-resolve",
     payloadFields: [
       { field: "taskId", type: "string", required: true, regex: "^[A-Za-z0-9_-]{1,96}$" },
@@ -221,6 +234,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
   }),
   defineCenterForwardWriteCommand({
     id: "task-dispatch-review",
+    helpTier: "advanced",
     payloadFields: [
       { field: "taskId", type: "string", required: false, wire: { omit: true } },
       {
@@ -293,6 +307,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
   }),
   defineLedgerWriteCommand({
     id: "task-rematerialize",
+    helpTier: "maintenance",
     phase: "W3",
     path: ["task", "rematerialize"],
     summary: "Re-render one Task's or every Task's managed lifecycle documents from the current canonical projection.",

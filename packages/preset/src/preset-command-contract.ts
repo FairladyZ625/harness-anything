@@ -155,6 +155,12 @@ export function cliCommandHelp(inputs: readonly CliInputFacet[], groups?: readon
   return lines.join("\n");
 }
 
+/** How prominently a domain's help directory lists a command. Commands that omit the field are
+ * "common". The field lives on the command declaration itself, next to `hiddenSince`, so the
+ * declaration list stays the single input to both capabilities and help. */
+export const cliHelpTiers = Object.freeze(["common", "advanced", "maintenance"] as const);
+export type CliHelpTier = (typeof cliHelpTiers)[number];
+
 export function defineCliCommand<
   const Command extends {
     readonly path: readonly string[];
@@ -163,6 +169,7 @@ export function defineCliCommand<
     readonly inputGroups?: readonly CliInputGroup[];
     readonly commandClass: CommandTopology["commandClass"];
     readonly admission: CommandAdmission;
+    readonly helpTier?: CliHelpTier;
   },
 >(declaration: Command) {
   const rawPath = declaration.syntaxPath ?? declaration.path,
@@ -181,11 +188,22 @@ export function defineCliCommand<
     // Normalized to the named type so the emitted command type stays portable instead of
     // dragging the caller's literal group tuple through declaration files.
     inputGroups = Object.freeze([...(declaration.inputGroups ?? [])]) as readonly CliInputGroup[],
-    help = cliCommandHelp(inputs, inputGroups);
+    help = cliCommandHelp(inputs, inputGroups),
+    helpTier: CliHelpTier = declaration.helpTier ?? "common";
   // Re-applying defineCliCommand to its own prior output (a daemon-effective rebuild spreading an
   // already-built command) must stay idempotent: syntaxPath, not the already-truncated routing path,
   // is the source of truth, so a positional like <task-id> survives every rebuild automatically.
-  return Object.freeze({ ...declaration, path, syntaxPath, inputs, flags: inputs, usage, help, inputGroups });
+  return Object.freeze({
+    ...declaration,
+    path,
+    syntaxPath,
+    inputs,
+    flags: inputs,
+    usage,
+    help,
+    inputGroups,
+    helpTier,
+  });
 }
 
 type CliCommandDeclaration = {
@@ -288,11 +306,11 @@ export const presetCommands = Object.freeze([
       "Create a task package with its complete metadata. --work <id> files it under that work (the work root ",
       "or any task in it becomes its parent); without --work the task stands alone. Choose the work by its ",
       "goal — the task belongs where it serves that goal, not under whichever line is currently busy; with ",
-      "no fitting work, create one with ha work create --title <name> --decision <id> or file under a general work. A repository-diff task is ",
+      "no fitting work, create one with ha work create --title <name> --decision <id> or file under a general work. ",
+      "A repository-diff task is bound to its own git worktree, checked out on first start or dispatch and ",
+      "reclaimed when the task closes; no command is needed. ",
       taskDecisionGuidance,
       " When applicable, pass --decision <decision-id>[/CH<n>] to associate the chosen clause.",
-      "bound to its own git worktree, checked out on first start or dispatch and reclaimed when the task closes; ",
-      "no command is needed.",
     ].join(""),
     method: "repo.task.create",
     inputs: taskCreateCliInputs,
