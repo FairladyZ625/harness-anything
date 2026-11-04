@@ -27,6 +27,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       id: `task-witness-${operation}`,
       // `rerun` stays visible: gate-customization and the completion-readiness next action name it.
       ...(operation === "rerun" ? {} : { hiddenSince: "2026-11-05" }),
+      helpTier: operation === "rerun" ? "maintenance" : "common",
       phase: "W3",
       path: ["task", `witness-${operation}`, "<task-id>"],
       summary:
@@ -53,6 +54,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
   }),
   defineCenterForwardWriteCommand({
     id: "task-settle",
+    helpTier: "advanced",
     payloadFields: [{ field: "taskId", type: "string", required: true, regex: "^[A-Za-z0-9_-]{1,96}$" }],
     phase: "W3",
     path: ["task", "settle", "<task-id>"],
@@ -64,6 +66,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
   }),
   defineCenterForwardWriteCommand({
     id: "task-release",
+    helpTier: "advanced",
     phase: "W3",
     path: ["task", "release", "<task-id>"],
     summary:
@@ -88,6 +91,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
   }),
   defineCenterForwardWriteCommand({
     id: "task-declare-executor",
+    helpTier: "maintenance",
     phase: "W3",
     path: ["task", "declare-executor", "<task-id>"],
     summary:
@@ -114,6 +118,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
   }),
   defineCenterForwardWriteCommand({
     id: "task-annotate",
+    helpTier: "advanced",
     phase: "W3",
     path: ["task", "annotate", "<task-id>"],
     summary:
@@ -140,6 +145,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
   }),
   defineCenterForwardWriteCommand({
     id: "task-attest",
+    helpTier: "advanced",
     phase: "W3",
     path: ["task", "attest", "<task-id>"],
     summary:
@@ -177,6 +183,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
   }),
   defineCenterForwardWriteCommand({
     id: "task-amend",
+    helpTier: "advanced",
     phase: "W3",
     path: ["task", "amend", "<task-id>"],
     summary: "Amend declared task prose or metadata without changing lifecycle authority.",
@@ -217,6 +224,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
   }),
   defineLedgerWriteCommand({
     id: "task-contract-migrate",
+    helpTier: "maintenance",
     phase: "W3",
     path: ["task", "contract", "migrate"],
     summary: "Backfill Task contracts, or explicitly migrate one inactive Task to an existing preset.",
@@ -238,6 +246,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
   }),
   defineCenterForwardWriteCommand({
     id: "task-archive",
+    helpTier: "maintenance",
     phase: "W3",
     path: ["task", "archive", "[<task-id>]"],
     summary: "Archive selected Task packages while retaining their evidence and lifecycle history.",
@@ -271,6 +280,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
   }),
   defineCenterForwardWriteCommand({
     id: "task-supersede",
+    helpTier: "advanced",
     phase: "W3",
     path: ["task", "supersede", "<old-task-id>"],
     summary: "Archive old work and preserve an explicit replacement lineage.",
@@ -307,6 +317,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
   }),
   defineCenterForwardWriteCommand({
     id: "task-rename",
+    helpTier: "advanced",
     // CLI alias only: the forwarded durable action is task-amend (a title patch), so authorization,
     // receipt, and the Action inventory key on the shared kind. Declared after task-amend so the
     // kind keeps resolving to the amend descriptor.
@@ -322,6 +333,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
   }),
   defineCenterForwardWriteCommand({
     id: "task-move",
+    helpTier: "advanced",
     // CLI alias only: the forwarded durable action is task-amend (a parentTaskId patch); relations,
     // dependencies, and dispatch history stay keyed to the task id and move with it.
     actionKind: "task-amend",
@@ -337,6 +349,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
   }),
   defineCenterForwardWriteCommand({
     id: "task-delete",
+    helpTier: "maintenance",
     phase: "W3",
     path: ["task", "delete"],
     summary: "Soft-delete through production authority; hard delete remains rejected with a repair path.",
@@ -373,6 +386,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
   }),
   defineCenterForwardWriteCommand({
     id: "task-reopen",
+    helpTier: "advanced",
     phase: "W3",
     path: ["task", "reopen", "<task-id>"],
     summary: "Reopen a nonterminal archived or tombstoned Task package.",
@@ -385,6 +399,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
   }),
   defineEdgeReplicaQueryOnlyReadCommand({
     id: "task-review",
+    helpTier: "advanced",
     repositoryRead: true,
     phase: "W3",
     path: ["task", "review", "<task-id>"],

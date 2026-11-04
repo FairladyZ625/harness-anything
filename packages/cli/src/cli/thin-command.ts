@@ -155,11 +155,12 @@ export function renderThinHelp(
   domain?: string,
   commandPrefix?: string,
   works: readonly ThinHelpWorkEntry[] = [],
+  all = false,
 ): string {
   const rows = [
-      ...thinCliCommands.map(({ usage, summary, help }) => {
+      ...thinCliCommands.map(({ usage, summary, help, path, helpTier }) => {
         const preferred = preferTaskActionHelp({ usage, summary, help });
-        return usage.startsWith("ha task create ")
+        const detailed = usage.startsWith("ha task create ")
           ? {
               ...preferred,
               help: [
@@ -176,8 +177,10 @@ export function renderThinHelp(
                 .join("\n"),
             }
           : preferred;
+        // The tier is read off the command declaration; help and capabilities share that one list.
+        return { ...detailed, route: path.join(" "), tier: helpTier };
       }),
-      ...clientLocalCommands,
+      ...clientLocalCommands.map((command) => ({ ...command, route: command.path.join(" "), tier: "common" as const })),
     ],
     commandWords = commandPrefix?.split(" ") ?? [],
     matchedPrefix = commandWords
@@ -191,14 +194,51 @@ export function renderThinHelp(
       : domain
         ? rows.filter(({ usage }) => usage.split(" ")[1] === domain)
         : rows,
+    // A named command and `--all` always get the detailed page: tiering narrows the domain
+    // directory, never the reference for a command the reader asked for by name.
+    layered =
+      domain !== undefined && matchedPrefix === undefined && !all && visible.some(({ tier }) => tier !== "common"),
+    byRoute = (left: { readonly route: string }, right: { readonly route: string }) =>
+      left.route < right.route ? -1 : left.route > right.route ? 1 : 0,
+    compactRow = ({ usage, summary }: { readonly usage: string; readonly summary: string }) =>
+      `  ${usage}\n    ${summary}`,
+    detailedRow = ({
+      usage,
+      summary,
+      help,
+    }: {
+      readonly usage: string;
+      readonly summary: string;
+      readonly help?: string;
+    }) => `  ${usage}\n    ${summary}${help ? `\n${help}` : ""}`,
     groups = commandDomains,
     body = domain
-      ? [
-          matchedPrefix && !matchedPrefix.split(" ").at(-1)?.startsWith("-")
-            ? `Command ${matchedPrefix}:`
-            : `Commands for ${domain}:`,
-          ...visible.map(({ usage, summary, help }) => `  ${usage}\n    ${summary}${help ? `\n${help}` : ""}`),
-        ]
+      ? layered
+        ? [
+            `Commands for ${domain} (common):`,
+            ...visible
+              .filter(({ tier }) => tier === "common")
+              .sort(byRoute)
+              .map(compactRow),
+            ...["advanced", "maintenance"].flatMap((tier) => {
+              const tierRows = visible.filter((row) => row.tier === tier).sort(byRoute);
+              return tierRows.length
+                ? [
+                    "",
+                    `${tier[0]!.toUpperCase()}${tier.slice(1)} (${tierRows.length}) — ha ${domain} --help --all lists their options:`,
+                    ...tierRows.map(({ route }) => `  ha ${route}`),
+                  ]
+                : [];
+            }),
+            "",
+            "Each command answers ha <command> --help with its full option reference.",
+          ]
+        : [
+            matchedPrefix && !matchedPrefix.split(" ").at(-1)?.startsWith("-")
+              ? `Command ${matchedPrefix}:`
+              : `Commands for ${domain}:`,
+            ...visible.map(detailedRow),
+          ]
       : [
           "Commands:",
           ...groups.map(({ name, count }) => `  ${name} (${count} command${count === 1 ? "" : "s"})`),

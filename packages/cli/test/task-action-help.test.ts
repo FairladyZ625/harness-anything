@@ -36,7 +36,7 @@ test("Task lifecycle help is projected from the generated Action declarations", 
 });
 
 test("Task help replaces every descriptor-backed lifecycle row", () => {
-  const help = renderThinHelp([], "task");
+  const help = renderThinHelp([], "task", undefined, [], true);
   for (const row of taskActionHelpRows) {
     assert.match(help, new RegExp(row.summary.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
     assert.match(help, new RegExp(row.usage.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));

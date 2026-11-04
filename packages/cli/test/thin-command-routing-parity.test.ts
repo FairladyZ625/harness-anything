@@ -155,7 +155,7 @@ test("top-level help renders a derived domain directory and domain help filters 
   assert.doesNotMatch(help, /^  distill \(/mu);
   assert.doesNotMatch(help, /ha task pin |ha task witness-claim |ha settings show |ha entity get /u);
   assert.doesNotMatch(help, /ha task start <task-id>/u);
-  const taskHelp = renderThinHelp([], "task");
+  const taskHelp = renderThinHelp([], "task", undefined, [], true);
   for (const command of thinCliCommands.filter(({ usage }) => usage.split(" ")[1] === "task"))
     assert.match(taskHelp, new RegExp(command.usage.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
   assert.doesNotMatch(taskHelp, /ha decision propose|ha preset list/u);

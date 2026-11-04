@@ -98,7 +98,7 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
     console.log(
       rows.length === 0 && works.length === 0 && domain === undefined
         ? renderThinHelp()
-        : renderThinHelp(rows, domain, helpCommandPrefix(argv), works),
+        : renderThinHelp(rows, domain, helpCommandPrefix(argv), works, argv.includes("--all")),
     );
     cliPhaseEnd("render", helpRenderStartedAt);
     return 0;

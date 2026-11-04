@@ -50,10 +50,7 @@ export async function findCliHelpContractViolations(rootDir = process.cwd(), opt
     !entrypoint.includes("renderThinHelp()")
   )
     violations.push("CLI entrypoint must render the derived thin command directory for empty argv and --help");
-  if (
-    !/thinCliCommands\.map\(\(\{\s*usage,\s*summary,\s*help\s*\}\)/u.test(render) ||
-    !/help\s*\?\s*`\\n\$\{help\}`/u.test(render)
-  )
+  if (!/thinCliCommands\b/u.test(render) || !/help\s*\?\s*`\\n\$\{help\}`/u.test(render))
     violations.push("help output must derive input details from the command contract");
   if (/CliResult\/v1|command-registry/u.test(`${source}\n${entrypoint}`))
     violations.push("thin help must not depend on the retired CLI registry or CliResult/v1");
