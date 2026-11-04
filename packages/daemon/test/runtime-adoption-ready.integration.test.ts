@@ -16,7 +16,11 @@ import type { AgentDefinitionSnapshot, RuntimeSession } from "@harness-anything/
 import type { RepoCellStatus } from "../src/repo-cell-types.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
+import {
+  openBootstrappedRepoCell as openRepoCell,
+  openFencedRepoCell,
+  waitForFixturePublication,
+} from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 
 for (const fault of ["authorization hold", "HEAD timeout", "HEAD signal"] as const) {
@@ -186,7 +190,9 @@ if(args[0]==="-C" && args[1]===${JSON.stringify(path.join(rootDir, "runtime-head
           );
           process.env.PATH = `${shim}${path.delimiter}${oldPath ?? ""}`;
         }
-        opening = openRepoCell(input);
+        // The settings are already seeded. Observe the product open boundary directly:
+        // the bootstrapped helper adds an asynchronous settings read after opening.
+        opening = openFencedRepoCell(input);
         const first = await Promise.race([
           opening.then((opened) => {
             cell = opened;
@@ -363,7 +369,7 @@ test("owner adoption checks dead PID before publishing live and preserves live c
         published.some((value) => value === "runtime_session_liveness_changed:live"),
         alive,
       );
-      assert.equal(hub.attach(runtimeSessionId, "stream:0").initial.ok, alive);
+      assert.equal((await hub.attach(runtimeSessionId, "stream:0")).initial.ok, alive);
       const selected = locallyObservedRuntimeSessions(
         [{ ...accepted, liveness: "live" }],
         new Map([[runtimeSessionId, { process: { pid } as RuntimeProcess }]]),

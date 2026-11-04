@@ -338,3 +338,137 @@ test("a sessions.await on an already-closed connection answers client_disconnect
     },
   );
 });
+
+for (const target of ["sessions", "tasks"] as const) {
+  test(`sessions.await retains a terminal notification during an asynchronous ${target} read`, async () => {
+    const { createRuntimeOutcomeWaiters } = await import("../src/runtime-settlement.ts"),
+      signals = createRuntimeOutcomeWaiters({ readSession: () => null, now: () => new Date().toISOString() });
+    let reads = 0;
+    const context: RuntimeAwaitContext = {
+      signalVersion: signals.signalVersion,
+      awaitSignal: signals.awaitSignal,
+      readSession: async () => {
+        const first = ++reads === 1;
+        if (first) signals.notify();
+        return sessionResult("sess-race", first ? null : { outcome: "succeeded", exitCode: 0 });
+      },
+      readTaskDispatches: async () => {
+        const first = ++reads === 1;
+        if (first) signals.notify();
+        return dispatchesResult(
+          [dispatchRow(first ? {} : { status: "succeeded", outcome: "succeeded", exitCode: 0 })],
+          { exitCode: first ? 1 : 0 },
+        );
+      },
+      codedError: (code, message) => Object.assign(new Error(message), { code }),
+    };
+    const pending = orchestrateRuntimeSessionsAwait(
+      target === "sessions" ? { runtimeSessionIds: ["sess-race"] } : { taskIds: ["task-1"] },
+      context,
+    );
+    try {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      assert.equal(reads, 2, "the stale in-flight snapshot must be re-read without waiting for the grace timer");
+      assert.equal((await pending).exitCode, 0);
+    } finally {
+      signals.notify();
+      await pending;
+    }
+  });
+}
+
+test("orchestration waits for canonical publication after local host-loss evidence", async () => {
+  const { mkdtempSync, rmSync, utimesSync } = await import("node:fs"),
+    { tmpdir } = await import("node:os"),
+    path = await import("node:path"),
+    { openDispatchStream, dispatchStreamPath } = await import("../src/dispatch-stream.ts"),
+    { readSettlementRuntimeSession, readObservedRuntimeSession } = await import("../src/agent-runtime-read.ts"),
+    { runtimeOutcomeSettled } = await import("../src/runtime-settlement.ts"),
+    rootDir = mkdtempSync(path.join(tmpdir(), "ha-settlement-publication-")),
+    at = "2026-11-04T00:00:00.000Z",
+    dispatchId = "dispatch_abcdefabcdefabcdefabcdef";
+  let canonical = {
+    runtimeSessionId: "session-publication",
+    definitionSnapshotRef: "snapshot",
+    liveness: "live",
+    attachable: true,
+    outcome: null,
+    exitCode: null,
+    resultRef: null,
+    lastObservedAt: at,
+  } as unknown as import("@harness-anything/kernel").RuntimeSession;
+  const projection = {
+    readRuntimeSession: () => canonical,
+    readRuntimeDispatch: () => ({ payload: { dispatchId } }) as never,
+  };
+  try {
+    const stream = openDispatchStream(rootDir, {
+      dispatchId,
+      runtimeSessionId: canonical.runtimeSessionId,
+      instanceId: "instance",
+      taskId: null,
+      executionId: null,
+      startedAt: at,
+    });
+    stream.appendTerminalOutcome(
+      {
+        payload: {
+          runtimeSessionId: canonical.runtimeSessionId,
+          outcome: "unknown",
+          exitCode: null,
+          resultRef: "artifact:runtime-result/publication",
+          result: null,
+          endedAt: at,
+          reasonCode: "runtime_process_lost",
+        },
+        body: "host no longer alive",
+        reason: "host no longer alive",
+      },
+      at,
+    );
+    // Activity evidence includes the stream's mtime; keep it on the fixture's clock
+    // so the five-second grace assertion does not depend on the date of the test run.
+    utimesSync(dispatchStreamPath(rootDir, dispatchId), new Date(at), new Date(at));
+    // The activity read deliberately exposes local evidence before its ledger append.
+    assert.equal(
+      runtimeOutcomeSettled(readObservedRuntimeSession(projection, rootDir, canonical.runtimeSessionId), at),
+      true,
+    );
+    assert.equal(
+      runtimeOutcomeSettled(readSettlementRuntimeSession(projection, rootDir, canonical.runtimeSessionId), at),
+      false,
+    );
+    assert.equal(
+      runtimeOutcomeSettled(
+        readSettlementRuntimeSession(projection, rootDir, canonical.runtimeSessionId),
+        "2026-11-04T00:00:05.000Z",
+      ),
+      true,
+    );
+    stream.appendTerminalOutcome(
+      {
+        payload: {
+          runtimeSessionId: canonical.runtimeSessionId,
+          outcome: "failed",
+          exitCode: 0,
+          resultRef: "artifact:runtime-result/publication-denied",
+          result: null,
+          endedAt: at,
+          reasonCode: "authorization_denied",
+        },
+        body: "Runtime archive publication failed",
+        reason: "authorization denied",
+      },
+      at,
+    );
+    assert.equal(readSettlementRuntimeSession(projection, rootDir, canonical.runtimeSessionId)?.outcome, "failed");
+    canonical = { ...canonical, liveness: "exited", outcome: "unknown" };
+    assert.equal(readSettlementRuntimeSession(projection, rootDir, canonical.runtimeSessionId)?.outcome, "unknown");
+    assert.equal(
+      runtimeOutcomeSettled(readSettlementRuntimeSession(projection, rootDir, canonical.runtimeSessionId), at),
+      true,
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});

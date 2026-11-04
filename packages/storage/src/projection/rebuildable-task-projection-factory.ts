@@ -70,6 +70,7 @@ import type {
 import type { LedgerEventStorePort } from "@harness-anything/kernel";
 import {
   closeDatabase,
+  closeQueryOnlyReader,
   discardDatabase,
   ProjectionIdentityMismatchError,
   ProjectionSchemaMismatchError,
@@ -391,6 +392,7 @@ export function makeTaskProjectionReader(
       readDocuments: taskQueries.readDocuments,
       readSettingsEvent: taskQueries.readSettingsEvent,
       readDocument: taskQueries.readDocument,
+      readDocumentMetadata: taskQueries.readDocumentMetadata,
       readReplicaBasis: taskQueries.readReplicaBasis,
       taskIdForDocumentPath: taskQueries.taskIdForDocumentPath,
       readPresetSnapshot: taskQueries.readPresetSnapshot,
@@ -459,6 +461,6 @@ export function makeTaskProjectionReader(
           publishedHead = null;
         }
       }),
-    close: () => undefined,
+    close: () => closeQueryOnlyReader(projectionPath),
   };
 }

@@ -16,6 +16,9 @@ type ValueQueries = Pick<
   | "readSquadRun"
   | "readSquadRuns"
   | "readLeaseIntervals"
+  | "readDecisions"
+  | "readDecision"
+  | "readDocumentMetadata"
   | "readDocument"
   | "readDocuments"
   | "readReplicaBasis"
@@ -27,6 +30,7 @@ type ValueQueries = Pick<
 function valueContract(queries: ValueQueries) {
   assert.equal(queries.getEntity("agent", "missing"), null);
   assert.equal(queries.readDocument("missing").document, null);
+  assert.equal(queries.readDocumentMetadata("missing").document, null);
   assert.equal(queries.readRuntimeSession("missing"), null);
   assert.ok(queries.readRuntimeSession("runtime-query-session"));
   assert.ok(queries.readRuntimeInstallation("runtime-query-installation"));
@@ -73,6 +77,9 @@ function valueContract(queries: ValueQueries) {
     ),
     documents,
     prefix: queries.readDocuments("tasks/task-parity-fixture/"),
+    decisionsMetadata: queries.readDecisions(["dec_PG_PARITY"], false),
+    decisionMetadata: queries.readDecision("dec_PG_PARITY", false),
+    metadata: documents.documents.map(({ path }) => queries.readDocumentMetadata(path)),
     documentRows: documents.documents.map(({ path }) => queries.readDocument(path)),
     replica: [queries.readReplicaBasis(null), queries.readReplicaBasis(0), queries.readReplicaBasis(1_000_000)],
     owners: documents.documents.map(({ path }) => queries.taskIdForDocumentPath(path)),

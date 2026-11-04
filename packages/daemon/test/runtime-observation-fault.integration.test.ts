@@ -63,7 +63,7 @@ parentPort.on("message", message => {
       "Worker",
       class extends originalWorker {
         constructor(filename: string | URL, options: WorkerOptions = {}) {
-          const writer = String(filename).includes("repo-writer-worker.");
+          const writer = String(filename).includes("repo-writer-worker.") && options.workerData?.role !== "reader";
           super(
             filename,
             writer

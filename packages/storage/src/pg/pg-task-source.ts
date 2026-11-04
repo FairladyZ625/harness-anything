@@ -95,7 +95,7 @@ export interface PgTaskProjectionSource
   readonly read: (taskId: string, presentationStatus?: boolean) => Promise<TaskProjectionRead>;
   readonly list: (query?: TaskProjectionListQuery) => Promise<TaskProjectionListRead>;
   readonly readSnapshot: (taskId: string) => Promise<TaskLifecycleSnapshot | null>;
-  readonly readDecision: (decisionId: string) => Promise<DecisionProjectionRead>;
+  readonly readDecision: (decisionId: string, withBody?: boolean) => Promise<DecisionProjectionRead>;
   readonly readFact: (factId: string) => Promise<FactProjectionRead>;
   readonly readFacts: (query?: {
     readonly limit?: number;
@@ -108,7 +108,7 @@ export interface PgTaskProjectionSource
     readonly relationType?: string;
     readonly limit?: number;
   }) => Promise<TaskRelationProjectionRead>;
-  readonly readDecisions: (decisionIds: readonly string[]) => Promise<DecisionProjectionListRead>;
+  readonly readDecisions: (decisionIds: readonly string[], withBody?: boolean) => Promise<DecisionProjectionListRead>;
   readonly listDecisions: (filters: DecisionListFilters) => Promise<DecisionProjectionListRead>;
   readonly searchFacts: (filters: FactSearchFilters) => Promise<FactProjectionSearchRead>;
   readonly listDecisionAgendaPage: (query: DecisionPageQuery) => Promise<DecisionAgendaProjectionPageRead>;
@@ -524,7 +524,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
       claims,
       { isolationLevel: "repeatable read" },
     );
-  const readDecisions = (decisionIds: readonly string[]): Promise<DecisionProjectionListRead> =>
+  const readDecisions = (decisionIds: readonly string[], withBody = true): Promise<DecisionProjectionListRead> =>
     withPostgresTransaction(
       options.pool,
       async (client) => {
@@ -548,7 +548,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
         );
         return {
           status: cut.status,
-          decisions: await readPgDecisionRows(client, options.scope, repoId, result.rows, true),
+          decisions: await readPgDecisionRows(client, options.scope, repoId, result.rows, withBody),
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
         };
@@ -556,8 +556,8 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
       claims,
       { isolationLevel: "repeatable read" },
     );
-  const readDecision = async (decisionId: string): Promise<DecisionProjectionRead> => {
-    const result = await readDecisions([decisionId]);
+  const readDecision = async (decisionId: string, withBody = true): Promise<DecisionProjectionRead> => {
+    const result = await readDecisions([decisionId], withBody);
     return {
       status: result.status,
       decision: result.decisions[0] ?? null,

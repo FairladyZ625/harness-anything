@@ -1,3 +1,4 @@
+import { executeRepoReadRequest } from "./repo-read-worker.ts";
 import { createAuthorizationProvider } from "./authorization-provider.ts";
 import { randomUUID } from "node:crypto";
 import { isMainThread, parentPort, workerData } from "node:worker_threads";
@@ -59,6 +60,7 @@ async function startRepoWriterWorker(): Promise<void> {
     activeStoreRequests = new Set<Promise<void>>();
   let draining = false;
   let cell: Awaited<ReturnType<typeof openRepoWriterCell>> | null = null;
+  let publishedHead: { generation: number | null; revision: number | undefined } | undefined;
   let openingStatus = statusDuringOpen({
     phase: "opening",
     applied: null,
@@ -99,6 +101,10 @@ async function startRepoWriterWorker(): Promise<void> {
     } else if (isWriterControl(message)) void handleControl(message);
   });
 
+  if (bootstrap.role === "reader") {
+    clearInterval(heartbeat);
+    return;
+  }
   try {
     const config = bootstrap.config,
       input: RepoCellOpenInput = {
@@ -203,12 +209,12 @@ async function startRepoWriterWorker(): Promise<void> {
         onMaterializationHealthChange: (materialization) => {
           const status = cell === null ? { ...openingStatus, materialization } : cell.status();
           openingStatus = status;
-          postStatus({ kind: "status", status });
+          postStatus({ kind: "status", status, ...completedLedgerCut(status) });
         },
         onQueueDepthChange: (queueDepth) => {
           const status = cell === null ? { ...openingStatus, queueDepth } : cell.status();
           openingStatus = status;
-          postStatus({ kind: "status", status });
+          postStatus({ kind: "status", status, ...completedLedgerCut(status) });
         },
         onBootstrap: (receipt) => notify("bootstrap", receipt),
         onOpenProgress: (progress) => {
@@ -226,9 +232,11 @@ async function startRepoWriterWorker(): Promise<void> {
       };
     if (config.defaultWriterEpochFence) configureWriterEpochStorage(config.defaultWriterEpochFence, config.storage);
     cell = await openRepoWriterCell(input, { close: async () => undefined } as never);
+    const readyStatus = cell.status();
     postStatus({
       kind: "ready",
-      status: cell.status(),
+      status: readyStatus,
+      ...completedLedgerCut(readyStatus),
       ...(cell.bootstrapReceipt ? { bootstrapReceipt: cell.bootstrapReceipt } : {}),
     });
   } catch (error) {
@@ -236,6 +244,26 @@ async function startRepoWriterWorker(): Promise<void> {
     postStatus({ kind: "closed", error: serializeWriterError(error) });
   } finally {
     clearInterval(heartbeat);
+  }
+
+  // Recovery and close can retire the writer handles before their queue notifications finish.
+  // Only an attached cell owns a completed readable cut; other states retain the last published cut.
+  function completedLedgerCut(status: RepoCellStatus, receiptCut?: RepoWriterStatusV1["ledgerCut"]) {
+    if (!cell || status.state !== "attached" || status.projectionReadable !== true) return {};
+    if (publishedHead?.generation === status.generation && publishedHead.revision === status.ledgerRevision) return {};
+    // Successful receipts already contain the committed digest. Reuse it only at this exact head;
+    // an intervening background append still requires the writer's current cut.
+    const cut =
+      receiptCut?.repoId === bootstrap.config.repoId && receiptCut.revision === status.ledgerRevision
+        ? receiptCut
+        : cell.replica.ledgerCut();
+    if (cut === null || cut === undefined) return { ledgerCut: null };
+    publishedHead = { generation: status.generation, revision: status.ledgerRevision };
+    return { ledgerCut: { repoId: cut.repoId, revision: cut.revision, headDigest: cut.headDigest } };
+  }
+  function publishCellStatus(kind: "cut" | "status", receiptCut?: RepoWriterStatusV1["ledgerCut"]): void {
+    const status = cell!.status();
+    postStatus({ kind, status, ...completedLedgerCut(status, receiptCut) });
   }
 
   function statusDuringOpen(attach: RepoCellAttachProgress): RepoCellStatus {
@@ -262,7 +290,7 @@ async function startRepoWriterWorker(): Promise<void> {
       executionStartedAtMs ??= monotonicMs();
     };
     activeRequests.set(request.requestId, abort);
-    if (!cell || draining) {
+    if ((bootstrap.role !== "reader" && !cell) || draining) {
       activeRequests.delete(request.requestId);
       return postReceipt(
         request.requestId,
@@ -273,6 +301,12 @@ async function startRepoWriterWorker(): Promise<void> {
       );
     }
     try {
+      if (bootstrap.role === "reader") {
+        if (request.method !== "read") throw new Error("Reader worker only accepts query requests.");
+        postReceipt(request.requestId, await executeRepoReadRequest(request));
+        return;
+      }
+      if (!cell) throw new Error("RepoWriterCell is unavailable");
       const binding = reviveBinding(
         request.binding,
         request.writerEpoch,
@@ -365,11 +399,11 @@ async function startRepoWriterWorker(): Promise<void> {
         }
       }
       // A drain that lands while this request is in flight closes the cell and posts "closed" itself.
-      if (cell) postStatus({ kind: "cut", status: cell.status() });
+      if (cell) publishCellStatus("cut", (value as { readonly cut?: RepoWriterStatusV1["ledgerCut"] } | null)?.cut);
       postReceipt(request.requestId, value, undefined, startedAtMs, monotonicMs(), executionStartedAtMs);
     } catch (error) {
       consumeKnownError(error);
-      if (cell) postStatus({ kind: "status", status: cell.status() });
+      if (cell) publishCellStatus("status");
       postReceipt(request.requestId, undefined, error, startedAtMs, monotonicMs(), executionStartedAtMs);
     } finally {
       activeRequests.delete(request.requestId);

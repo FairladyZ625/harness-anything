@@ -1,4 +1,5 @@
 import type { PoolClient } from "pg";
+import { documentMetadataDdl } from "./pg-document-metadata-migration.ts";
 import {
   POSTGRES_SCOPE_COLUMNS_SQL,
   POSTGRES_SCOPE_SCHEMA_CONTRACT,
@@ -17,6 +18,7 @@ export const PG_PROJECTION_TABLES = Object.freeze([
   "ha_projection_values",
 ] as const);
 
+// Metadata is an additive expansion of v5; retain the generation understood by previous binaries.
 export const PG_PROJECTION_SCHEMA_VERSION = 5;
 
 /** Rebuildable cache generations are admitted before either reads or incremental writes. */
@@ -73,6 +75,7 @@ export function projectionDdl(): readonly string[] {
       PRIMARY KEY (tenant_id,project_id,policy_epoch,model,owner_id,entity_id)
     )`,
     `CREATE INDEX IF NOT EXISTS ha_projection_values_lookup ON ha_projection_values (tenant_id,project_id,policy_epoch,model,entity_id)`,
+    ...documentMetadataDdl(),
     `CREATE TABLE IF NOT EXISTS ha_task_snapshots (
       ${POSTGRES_SCOPE_COLUMNS_SQL},
       readers text[] NOT NULL DEFAULT '{}',

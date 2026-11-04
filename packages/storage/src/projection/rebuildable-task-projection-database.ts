@@ -109,6 +109,17 @@ function closeQueryOnlyConnection(connection: QueryOnlyConnection): void {
   connection.fingerprint = null;
 }
 
+/** Release the cached query connection when its reader owner leaves the repository. */
+export function closeQueryOnlyReader(projectionPath: string): void {
+  const key = canonicalProjectionPath(projectionPath),
+    connection = queryOnlyConnections.get(key);
+  if (!connection) return;
+  queryOnlyConnections.delete(key);
+  // A nested reader borrows the outer transaction. Retire the cache entry now, but let
+  // that transaction's finally release its connection after every borrower has returned.
+  if (queryOnlySession?.db !== connection.db) closeQueryOnlyConnection(connection);
+}
+
 /** Test fixtures can close all projection databases before removing a temporary repository. */
 export function closeTaskProjectionsUnder(rootDir: string): void {
   const resolvedRoot = canonicalProjectionPath(rootDir),
@@ -231,6 +242,7 @@ export function withQueryOnlyDatabaseSession<A>(
     throw error;
   } finally {
     queryOnlySession = null;
+    if (queryOnlyConnections.get(resolvedProjectionPath) !== connection) closeQueryOnlyConnection(connection);
   }
 }
 export function discardDatabase(
@@ -485,6 +497,13 @@ function createTables(db: DatabaseSync, onValidationProgress?: ProjectionProgres
       path TEXT PRIMARY KEY,
       workspace_revision INTEGER NOT NULL,
       value_json TEXT NOT NULL
+    );
+    -- Cover document lists with metadata only. JSON extraction runs once at projection write,
+    -- never when listing a repository that contains a large inline historical body.
+    CREATE INDEX IF NOT EXISTS document_metadata ON document (
+      path, workspace_revision,
+      json_extract(value_json, '$.blobSha256'), json_extract(value_json, '$.size'),
+      json_extract(value_json, '$.mediaType'), json_extract(value_json, '$.policyId')
     );
     CREATE TABLE IF NOT EXISTS preset_snapshot (
       digest TEXT PRIMARY KEY,

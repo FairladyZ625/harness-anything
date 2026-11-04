@@ -38,7 +38,7 @@ function todoRelationTitle(
     kind = slash < 0 ? "entity" : ref.slice(0, slash),
     id = slash < 0 ? ref : ref.slice(slash + 1);
   if (kind === "task") return projection.read(id).snapshot.task?.title ?? id;
-  if (kind === "decision") return projection.readDecision(id).decision?.title ?? id;
+  if (kind === "decision") return projection.readDecision(id, false).decision?.title ?? id;
   const entity = projection.getEntity(kind, id),
     value = entity?.value;
   return typeof value?.title === "string" ? value.title : id;

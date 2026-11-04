@@ -99,7 +99,7 @@ export function pgKnowledgeQueries(
   };
   return {
     readDecisionDocumentState: async (id) => {
-      const row = (await source.readDecision(id)).decision;
+      const row = (await source.readDecision(id, false)).decision;
       if (!row) return null;
       const { body: _body, ...state } = row;
       return state;

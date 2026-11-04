@@ -62,7 +62,8 @@ export interface RuntimeAwaitContext {
   readonly readSession: (runtimeSessionId: string) => Promise<AgentRuntimeSessionResult>;
   readonly readTaskDispatches: (taskIds: readonly string[]) => Promise<DaemonTaskDispatchesResult>;
   /** Resolves on the next runtime signal/outcome notification or the settlement grace backstop. */
-  readonly awaitSignal: () => Promise<void>;
+  readonly signalVersion?: () => number;
+  readonly awaitSignal: (observedVersion?: number) => Promise<void>;
   /** Aborts when the connection that parked the wait closes; the wait holds no work, so it ends
    *  instead of keeping its settle re-reads alive for the runtime's whole life. */
   readonly connectionSignal?: AbortSignal;
@@ -390,6 +391,7 @@ async function awaitSessionSet(
     inFlight: readonly { readonly runtimeSessionId: string; readonly liveness: string }[],
     lastRead: AgentRuntimeSessionResult | undefined;
   for (;;) {
+    const signalVersion = context.signalVersion?.();
     const reads = await Promise.allSettled(runtimeSessionIds.map((id) => context.readSession(id))),
       settledNext: AwaitedSessionRow[] = [],
       inFlightNext: { readonly runtimeSessionId: string; readonly liveness: string }[] = [];
@@ -422,7 +424,7 @@ async function awaitSessionSet(
     // absent from this node's projection are reported, never waited on — otherwise the request
     // would hang on a session only another edge node can see.
     if (inFlight.length === 0 || (mode === "any" && settled.length > 0)) break;
-    await parkAwait(context);
+    await parkAwait(context, signalVersion);
   }
   const winner = settled[0],
     outcome =
@@ -482,6 +484,7 @@ async function awaitTaskDispatches(
   context: RuntimeAwaitContext,
 ): Promise<JsonObject> {
   for (;;) {
+    const signalVersion = context.signalVersion?.();
     const read = await context.readTaskDispatches(taskIds);
     if (read.ok !== true) return read as unknown as JsonObject;
     const rows = read.dispatches,
@@ -504,17 +507,17 @@ async function awaitTaskDispatches(
         exitCode: mode === "all" ? (read.exitCode ?? 0) : (winner?.exitCode ?? read.exitCode ?? 0),
       };
     }
-    await parkAwait(context);
+    await parkAwait(context, signalVersion);
   }
 }
 
 /** The park between settle re-reads. The connection signal is not a settle input: it ends the wait
  *  outright, because a reply to a closed connection has nowhere to land. */
-async function parkAwait(context: RuntimeAwaitContext): Promise<void> {
+async function parkAwait(context: RuntimeAwaitContext, signalVersion?: number): Promise<void> {
   const signal = context.connectionSignal;
   if (signal?.aborted) throw context.codedError("client_disconnected", "The connection that parked this wait closed.");
-  if (!signal) return context.awaitSignal();
-  const wake = context.awaitSignal();
+  if (!signal) return context.awaitSignal(signalVersion);
+  const wake = context.awaitSignal(signalVersion);
   return new Promise<void>((resolve, reject) => {
     const onAbort = () => {
       signal.removeEventListener("abort", onAbort);

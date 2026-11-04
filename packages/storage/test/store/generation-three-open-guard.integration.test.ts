@@ -4,6 +4,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync, unl
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { Worker } from "node:worker_threads";
 import test from "node:test";
 import { sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
 import { taskProjectionSchemaVersion } from "../../src/projection/projection-schema.ts";
@@ -19,6 +20,45 @@ import { eventAt, initRepo } from "./task-event-store.fixtures.ts";
 
 const repoId = "generation-three-open-guard",
   fence = { repoId, holder: "writer", epoch: 1 };
+
+test("activation preflight honors the ledger connection policy during a concurrent exclusive lock", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-activation-lock-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  initRepo(rootDir);
+  activateEmptyCanonicalGeneration({ repoId, rootInput: rootDir });
+  const databasePath = sqliteLedgerPath(rootDir, 3),
+    start = new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT),
+    holder = new Worker(
+      `const { DatabaseSync } = require("node:sqlite");
+       const { parentPort, workerData } = require("node:worker_threads");
+       const db = new DatabaseSync(workerData.databasePath);
+       db.exec("PRAGMA journal_mode=DELETE; BEGIN EXCLUSIVE");
+       parentPort.postMessage("locked");
+       const start = new Int32Array(workerData.start);
+       Atomics.wait(start, 0, 0);
+       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 400);
+       db.exec("COMMIT");
+       db.close();`,
+      { eval: true, workerData: { databasePath, start } },
+    );
+  try {
+    await new Promise<void>((resolve, reject) => {
+      holder.once("message", () => resolve());
+      holder.once("error", reject);
+      holder.once("exit", (code) => reject(new Error(`lock holder exited before admission: ${code}`)));
+    });
+    Atomics.store(new Int32Array(start), 0, 1);
+    Atomics.notify(new Int32Array(start), 0);
+    const reader = openSqliteEventStore({ repoId, databasePath, generation: 3, readOnly: true });
+    try {
+      assert.equal(reader.revision(), 0);
+    } finally {
+      reader.close();
+    }
+  } finally {
+    await holder.terminate();
+  }
+});
 
 test("canonical attach rejects a zero-byte main file before SQLite discards its recoverable WAL", (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-empty-canonical-ledger-"));

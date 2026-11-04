@@ -291,30 +291,29 @@ function attachRuntimeObservations(
       if ((error.code !== "ENOENT" && error.code !== "EPERM") || !workspaceRemoved()) throw error;
     };
   const workspaceChanged = (eventType: string, filename: string | Buffer | null): void => {
-    if (eventType === "rename" && workspaceRemoved()) {
-      active.recordWorkspaceProgress = null;
-      return;
-    }
     const relative = typeof filename === "string" ? filename : String(filename ?? "");
     // The daemon's own stream/cache writes are observations about the dispatch, not worker
     // progress. Ignoring the local runtime root also prevents appendWorkspaceActivity from
     // feeding its own watcher and extending the deadline indefinitely.
     const normalized = relative?.replaceAll(path.sep, "/");
     if (
-      !normalized ||
-      (ignoredRoot !== null &&
-        (normalized === ignoredRoot || (ignoredRoot !== "" && normalized.startsWith(`${ignoredRoot}/`))))
+      ignoredRoot !== null &&
+      (normalized === ignoredRoot || (ignoredRoot !== "" && normalized.startsWith(`${ignoredRoot}/`)))
     )
       return;
-    active.recordWorkspaceProgress?.();
+    observe(() => {
+      if (eventType === "rename" && workspaceRemoved()) {
+        active.recordWorkspaceProgress = null;
+        return;
+      }
+      if (normalized) active.recordWorkspaceProgress?.();
+    });
   };
   if (active.stalledAt === null) armStallDeadline(context, active, handles);
   // Recursive backends can return an empty watcher for an absent root without throwing.
   if (workspaceRemoved()) return "workspace-removed";
   try {
-    handles.watcher = watch(active.cwd, { recursive: true }, (event, filename) =>
-      observe(() => workspaceChanged(event, filename)),
-    );
+    handles.watcher = watch(active.cwd, { recursive: true }, workspaceChanged);
     handles.watcher.on("error", (error: NodeJS.ErrnoException) => {
       observe(() => {
         watchError(error);

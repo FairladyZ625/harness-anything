@@ -451,3 +451,34 @@ test("a terminal task frees its concurrency slot before its claim run returns", 
     rmSync(userRoot, { recursive: true, force: true });
   }
 });
+test("a disabled auto-claim loop never opens the owner replica and closes cleanly", async () => {
+  const userRoot = mkdtempSync(path.join(os.tmpdir(), "ha-disabled-claim-"));
+  let ownerReads = 0;
+  const loop = openNodeAutoClaimLoop({
+    userRoot,
+    now: () => "2026-11-02T00:00:00.000Z",
+    repos: () => ["repo-unavailable"],
+    repoIdOf: (repo: string) => repo,
+    ownerPersonIdFor: async () => {
+      ownerReads++;
+      throw Object.assign(new Error("The edge replica generation is unavailable."), { code: "replica_unavailable" });
+    },
+    candidates: async () => [] as string[],
+    taskIdOf: (taskId: string) => taskId,
+    assignmentOf: async () => null,
+    activeTaskKeys: async () => [],
+    agentIds: () => [],
+    claimAndRun: async () => {
+      throw new Error("disabled loop attempted a claim");
+    },
+  });
+  try {
+    await loop.trigger("replica-confirmed");
+    await loop.close();
+    assert.equal(ownerReads, 0);
+    assert.equal(loop.diagnostics()[0]?.reason, "disabled");
+  } finally {
+    await loop.close();
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});

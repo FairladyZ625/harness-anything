@@ -4,6 +4,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import tls from "node:tls";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { syncBuiltinESMExports } from "node:module";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
@@ -31,10 +32,17 @@ test(
     await f.command("center-node", { kind: "task-create", taskId: "newer-task", title: "Newer other view" });
     await pull("node-two");
     await f.center.close();
+    const reads = new AsyncLocalStorage<boolean>(),
+      offline = <T>(read: () => T): T => reads.run(true, read);
+    let readConnections = 0;
     const a = await fleetEdgeHostFixture(t, f, { name: "a", viewRoot, nodeId: "node-one" }),
       b = await fleetEdgeHostFixture(t, f, { name: "b", viewRoot, nodeId: "node-two" }),
-      read = (edge: typeof a) => edge.host.read("lease-repo", "repo.tasks.list", {}, localAuthFixture()),
-      connections = t.mock.method(tls, "connect");
+      read = (edge: typeof a) => offline(() => edge.host.read("lease-repo", "repo.tasks.list", {}, localAuthFixture())),
+      connect = tls.connect,
+      connections = t.mock.method(tls, "connect", (...args: Parameters<typeof connect>) => {
+        if (reads.getStore()) readConnections += 1;
+        return Reflect.apply(connect, tls, args);
+      });
     syncBuiltinESMExports();
     try {
       const older = await read(a),
@@ -50,11 +58,13 @@ test(
       assert.ok(older.cut!.revision < newer.cut!.revision);
       const row = older.rows[0]!,
         logical = `${row.packagePath}/task_plan.md`,
-        canonical = await a.host.read(
-          "lease-repo",
-          "repo.tasks.document.read",
-          { taskId: "scope-task", path: "task_plan.md" },
-          localAuthFixture(),
+        canonical = await offline(() =>
+          a.host.read(
+            "lease-repo",
+            "repo.tasks.document.read",
+            { taskId: "scope-task", path: "task_plan.md" },
+            localAuthFixture(),
+          ),
         );
       for (const edge of [a, b]) {
         const target = path.join(edge.edgeRoot, "harness", logical);
@@ -66,14 +76,14 @@ test(
         if (state === "eligible") writeFileSync(aPath, "# Changed only in A\n");
         if (state === "deletion") rmSync(aPath);
         for (const kind of ["doc-status", "doc-dry-run"]) {
-          const result = await a.command({ kind, paths: [logical] });
+          const result = await offline(() => a.command({ kind, paths: [logical] }));
           assert.equal(result.ok, true, JSON.stringify(result));
           assert.deepEqual(
             (result.rows as { state: string }[]).map(({ state }) => state),
             [state],
           );
           assert.equal((result.cut as { revision: number }).revision, older.cut!.revision);
-          const independent = await b.command({ kind, paths: [logical] });
+          const independent = await offline(() => b.command({ kind, paths: [logical] }));
           assert.equal(independent.ok, true, JSON.stringify(independent));
           assert.deepEqual(
             (independent.rows as { state: string }[]).map(({ state }) => state),
@@ -86,9 +96,11 @@ test(
       rmSync(locateFleetMirrorView(viewRoot, "lease-repo", "node-one")!.viewDir, { recursive: true, force: true });
       await assert.rejects(read(a), { code: "replica_unavailable" });
       assert.equal((await read(b)).rows.length, 2);
-      assert.equal(connections.mock.callCount(), 0);
+      // Background replica retries run in their own async context while cold readers start.
+      // The offline contract concerns these read/doc-preview requests, including their awaits.
+      assert.equal(readConnections, 0);
       t.diagnostic(
-        `two node views at revisions ${older.cut!.revision}/${newer.cut!.revision}; local doc states clean/eligible/deletion independent; missing own view unavailable; center TLS calls=0`,
+        `two node views at revisions ${older.cut!.revision}/${newer.cut!.revision}; local doc states clean/eligible/deletion independent; missing own view unavailable; read TLS calls=0; background TLS calls=${connections.mock.callCount()}`,
       );
     } finally {
       connections.mock.restore();

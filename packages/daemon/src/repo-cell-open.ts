@@ -1113,6 +1113,7 @@ export async function openRepoWriterCell(
       return runtimeReads;
     },
     awaitRuntimeOutcome: outcomeWaiters.awaitOutcome,
+    runtimeSignalVersion: outcomeWaiters.signalVersion,
     awaitRuntimeSignal: outcomeWaiters.awaitSignal,
     runtimeSpawner,
     settings,
@@ -1132,5 +1133,5 @@ export async function openRepoWriterCell(
     },
     lock,
   };
-  return { ...createRepoCellApi(apiContext), backup, pruneReplicationLog };
+  return Object.assign(createRepoCellApi(apiContext), { backup, pruneReplicationLog });
 }

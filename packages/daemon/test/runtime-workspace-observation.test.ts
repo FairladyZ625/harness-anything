@@ -10,7 +10,53 @@ import { attachActiveRuntime, disposeActiveRuntimeObservations } from "../src/ru
 import { openDispatchStream } from "../src/dispatch-stream.ts";
 import { classifyRuntimeExit } from "../src/runtime-provider-fault.ts";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
-import { active } from "./runtime-spawn-settlement.fixtures.ts";
+import { active, tasklessSettlementRuntime } from "./runtime-spawn-settlement.fixtures.ts";
+
+for (const localWorkspace of [false, true]) {
+  test(`daemon file changes never enter the runtime writer queue (local workspace: ${localWorkspace})`, async (t) => {
+    const root = mkdtempSync(path.join(tmpdir(), "ha-workspace-daemon-noise-")),
+      cwd = localWorkspace ? path.join(root, ".harness") : root;
+    mkdirSync(cwd, { recursive: true });
+    let changed: ((event: string, filename: string | null) => void) | undefined;
+    const watcher = Object.assign(new EventEmitter(), { close: () => undefined, unref: () => undefined });
+    t.mock.method(fs, "watch", (_path: unknown, _options: unknown, listener: typeof changed) => {
+      changed = listener;
+      return watcher;
+    });
+    syncBuiltinESMExports();
+    t.after(() => {
+      t.mock.restoreAll();
+      syncBuiltinESMExports();
+      rmSync(root, { recursive: true, force: true });
+    });
+    const scheduled: Array<() => void | Promise<void>> = [],
+      runtime = tasklessSettlementRuntime(cwd, null),
+      context = {
+        input: {
+          rootDir: root,
+          now: () => new Date().toISOString(),
+          schedule: (work: () => void | Promise<void>) => scheduled.push(work),
+        },
+        processes: new Map([[runtime.runtimeSessionId, runtime]]),
+        exiting: new Set(),
+      } as unknown as RuntimeSpawnerContext;
+    try {
+      attachActiveRuntime(context, runtime);
+      const ignored = localWorkspace ? "runtime/dispatches" : ".harness";
+      for (let index = 0; index < 100; index++) {
+        changed!("change", `${ignored}/output.jsonl`);
+        changed!("rename", path.join(ignored, "cache", "task.sqlite"));
+      }
+      assert.equal(scheduled.length, 0, "daemon observations must be filtered before writer admission");
+      changed!("change", `${ignored}-worker.txt`);
+      assert.equal(scheduled.length, 1, "a similarly named worker file still records progress");
+      await scheduled.shift()!();
+      assert.equal(runtime.workspaceActivityCount, 1);
+    } finally {
+      disposeActiveRuntimeObservations(runtime);
+    }
+  });
+}
 
 for (const notification of ["rename", "ENOENT", "EPERM"] as const) {
   test(`a removed workspace releases its watcher on ${notification} and retains provider observation`, async (t) => {

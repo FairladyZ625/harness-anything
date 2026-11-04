@@ -175,7 +175,8 @@ export interface RepoCellApiContext {
   /** Resolves when the session's projected outcome is settled per the domain settle predicate. */
   readonly awaitRuntimeOutcome: (runtimeSessionId: string) => Promise<void>;
   /** Resolves on the next runtime signal/outcome notification or the settlement grace backstop. */
-  readonly awaitRuntimeSignal: () => Promise<void>;
+  readonly runtimeSignalVersion: () => number;
+  readonly awaitRuntimeSignal: (observedVersion?: number) => Promise<void>;
   readonly settings: RepoCellSettingsState;
   readonly appendAuxiliaryRuntimeIngress: RepoCellOperationalContext["appendAuxiliaryRuntimeIngress"];
   bootstrapReceipt: RepoBootstrapReceipt | undefined;
@@ -494,7 +495,16 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
       readTaskDeliveryDiff(context.rootDir, context.projection, context.requiredCellText(payload.taskId, "taskId")),
     "repo.artifacts.list": (payload) =>
       readArtifactsGui(
-        { rootDir: context.rootDir, projection: context.projection, input: { repoId: context.input.repoId } },
+        {
+          rootDir: context.rootDir,
+          projection: {
+            readTaskStatuses: context.projection.readTaskStatuses,
+            readTaskRuntimeBatch: context.projection.readTaskRuntimeBatch,
+            readDocument: context.projection.readDocumentMetadata,
+            readEventWitness: context.projection.readEventWitness,
+          },
+          input: { repoId: context.input.repoId },
+        },
         payload,
       ),
     "repo.agentRuntime.overview": (payload) => context.runtimeReads.overview(payload),
@@ -1040,6 +1050,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
     steerRuntime,
     handoffRuntime,
     awaitRuntimeOutcome: context.awaitRuntimeOutcome,
+    runtimeSignalVersion: context.runtimeSignalVersion,
     awaitRuntimeSignal: context.awaitRuntimeSignal,
     runtimeIngress,
     catalog: context.catalog,
@@ -1061,8 +1072,8 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
       }));
     },
     [repoCellSynchronousRead]: readNow,
-    workspaceSummary: () => workspaceSummaryFromProjection(context.projection),
-    workspaceScope: (payload) => workspaceScopeFromProjection(context.projection, payload),
+    workspaceSummary: async () => workspaceSummaryFromProjection(context.projection),
+    workspaceScope: async (payload) => workspaceScopeFromProjection(context.projection, payload),
     observeTail: (payload, daemon) => {
       if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
       return readObserveTail({
@@ -1092,7 +1103,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
     runtime: context.runtimeStream,
     status: () => repoCellStatus(context),
     statusCuts: () => repoCellStatusCuts(context),
-    inFlightWork: () =>
+    inFlightWork: async () =>
       readRepoInFlightWork({
         projection: context.projection,
         repoId: context.input.repoId,

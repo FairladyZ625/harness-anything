@@ -561,18 +561,16 @@ test("each base backup owns a directory that keeps only its archive", { timeout:
   mkdirSync(path.join(backupsRoot, "payload"), { recursive: true });
   await fixture.openCenter();
   assert.equal(existsSync(path.join(backupsRoot, "payload")), false);
-  const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-harden-view-")),
-    viewDir = path.join(viewRoot, "repos", replicationRepoId, "views", "edge-one");
-  startHardeningStream(t, fixture, viewRoot);
-  await waitForState(
-    () => readReplicaGeneration(viewDir)?.metadata.position.sequence === centerSequence(fixture),
-    "initial convergence",
-    60_000,
-  );
+  // Publication precedes the ACK; the center deletes the archive after its last sender's ACK.
+  // Hold that existing protocol boundary so the directory is still owned when inspected.
+  const edge = fixture.startEdge("edge-one", { holdAcks: true });
+  await edge.waitForEvent("installed");
   const backups = readdirSync(backupsRoot);
   assert.equal(backups.length, 1, JSON.stringify(backups));
   assert.match(backups[0]!, /^[0-9a-f-]{36}$/u, "a backup directory is named for that backup, not shared");
   assert.deepEqual(readdirSync(path.join(backupsRoot, backups[0]!)), ["base.tar.gz"], "the staged payload is gone");
+  edge.control({ control: "release-acks" });
+  await waitForState(() => readdirSync(backupsRoot).length === 0, "last backup user to release its archive");
 });
 
 test(

@@ -16,12 +16,19 @@ export async function putPgProjectionValue(
   revision: number,
   value: unknown,
 ): Promise<void> {
+  let documentMetadata: string | null = null;
+  if (model === "document") {
+    const { body: _body, ...metadata } =
+      value as import("@harness-anything/kernel/internal/domain/doc-sync.contract.ts").DocumentState;
+    documentMetadata = canonicalJson(metadata);
+  }
   await client.query(
     `INSERT INTO ha_projection_values
-    (tenant_id,project_id,policy_epoch,readers,model,entity_id,owner_id,workspace_revision,value)
-    VALUES ($1,$2,$3,$4::text[],$5,$6,$7,$8,$9)
+    (tenant_id,project_id,policy_epoch,readers,model,entity_id,owner_id,workspace_revision,value,document_metadata)
+    VALUES ($1,$2,$3,$4::text[],$5,$6,$7,$8,$9,$10)
     ON CONFLICT (tenant_id,project_id,policy_epoch,model,owner_id,entity_id) DO UPDATE SET
-      readers=excluded.readers, workspace_revision=excluded.workspace_revision, value=excluded.value
+      readers=excluded.readers, workspace_revision=excluded.workspace_revision, value=excluded.value,
+      document_metadata=excluded.document_metadata
     WHERE ha_projection_values.workspace_revision <= excluded.workspace_revision`,
     [
       scope.tenantId,
@@ -33,6 +40,7 @@ export async function putPgProjectionValue(
       owner,
       revision,
       canonicalJson(value),
+      documentMetadata,
     ],
   );
 }

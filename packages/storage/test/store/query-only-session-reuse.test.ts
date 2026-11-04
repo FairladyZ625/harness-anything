@@ -76,9 +76,17 @@ test("sequential query-only sessions reuse one connection and follow new commits
     assert.equal(reader.withSession((queries) => queries.readCut()).sourceRevision, 3);
     assert.equal(countQueryOnlyProjectionOpens(), before + 1, "a same-file commit forced a reopen");
 
+    // A bounded worker switches repositories by closing its reader. A no-op close leaves
+    // every previously visited repository's SQLite handle in the module cache.
+    reader.close();
+    const replacement = makeTaskProjectionReader({ rootDir });
+    assert.equal(replacement.withSession((queries) => queries.readCut()).sourceRevision, 3);
+    assert.equal(countQueryOnlyProjectionOpens(), before + 2, "reader.close did not release its cached connection");
+
     closeTaskProjectionsUnder(rootDir);
     assert.equal(reader.withSession((queries) => queries.readCut()).sourceRevision, 3);
-    assert.equal(countQueryOnlyProjectionOpens(), before + 2, "teardown did not close the cached connection");
+    assert.equal(countQueryOnlyProjectionOpens(), before + 3, "teardown did not close the cached connection");
+    replacement.close();
     await store.drain();
   });
 });

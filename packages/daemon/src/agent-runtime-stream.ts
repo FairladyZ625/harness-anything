@@ -47,13 +47,13 @@ export interface AgentRuntimeWitnessBinding {
   readonly source: WriteSource;
 }
 export interface AgentRuntimeStreamHub {
-  readonly attach: (runtimeSessionId: string, afterCursor: string) => AgentRuntimeAttachSubscription;
+  readonly attach: (runtimeSessionId: string, afterCursor: string) => Promise<AgentRuntimeAttachSubscription>;
   readonly publish: (runtimeSessionId: string, signal: AgentRuntimeNativeSignal) => AgentRuntimeAttachEvent;
   readonly latestCursor: (runtimeSessionId: string) => string;
   readonly issueWitnessToken: (
     runtimeSessionId: string,
     binding: { readonly principalId: string; readonly source: WriteSource },
-  ) => AgentRuntimeWitnessToken;
+  ) => Promise<AgentRuntimeWitnessToken>;
   readonly bindWitness: (token: string) => AgentRuntimeWitnessBinding;
   readonly close: () => void;
 }
@@ -65,8 +65,8 @@ type StreamState = { sequence: number; events: BufferedEvent[]; subscribers: Set
 type Subscriber = { runtimeSessionId: string; cursor: number; detached: boolean; wake: (() => void) | null };
 
 export function makeAgentRuntimeStreamHub(input: {
-  readonly readSession: (runtimeSessionId: string) => RuntimeSession | null;
-  readonly canAttach: (session: RuntimeSession) => boolean;
+  readonly readSession: (runtimeSessionId: string) => RuntimeSession | null | Promise<RuntimeSession | null>;
+  readonly canAttach: (session: RuntimeSession) => boolean | Promise<boolean>;
   readonly now?: () => Date;
 }): AgentRuntimeStreamHub {
   const streams = new Map<string, StreamState>(),
@@ -85,9 +85,9 @@ export function makeAgentRuntimeStreamHub(input: {
   };
   const latestCursor = (runtimeSessionId: string) => cursor(stateFor(runtimeSessionId).sequence);
   return {
-    attach: (runtimeSessionId, afterCursor) => {
-      const session = input.readSession(runtimeSessionId);
-      if (session === null || !input.canAttach(session)) return unsupported(runtimeSessionId);
+    attach: async (runtimeSessionId, afterCursor) => {
+      const session = await input.readSession(runtimeSessionId);
+      if (session === null || !(await input.canAttach(session))) return unsupported(runtimeSessionId);
       const state = stateFor(runtimeSessionId),
         after = parseCursor(afterCursor);
       const oldest = state.events[0]?.sequence ?? state.sequence + 1,
@@ -126,8 +126,8 @@ export function makeAgentRuntimeStreamHub(input: {
       return event;
     },
     latestCursor,
-    issueWitnessToken: (runtimeSessionId, binding) => {
-      if (input.readSession(runtimeSessionId) === null)
+    issueWitnessToken: async (runtimeSessionId, binding) => {
+      if ((await input.readSession(runtimeSessionId)) === null)
         throw runtimeStreamError("runtime_session_not_found", `Runtime session ${runtimeSessionId} was not found.`);
       const token = randomUUID(),
         expiresAt = now().getTime() + WITNESS_TTL_MS;

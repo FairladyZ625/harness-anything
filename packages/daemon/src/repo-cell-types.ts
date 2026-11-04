@@ -230,7 +230,8 @@ export interface RepoCell {
   /** Resolves when the session's projected outcome is settled per the domain settle predicate. */
   readonly awaitRuntimeOutcome: (runtimeSessionId: string) => Promise<void>;
   /** Resolves on the next runtime signal/outcome notification or the settlement grace backstop. */
-  readonly awaitRuntimeSignal: () => Promise<void>;
+  readonly runtimeSignalVersion: () => number;
+  readonly awaitRuntimeSignal: (observedVersion?: number) => Promise<void>;
   readonly runtimeIngress: (action: RuntimeIngressAction, binding: RepoCellBinding) => Promise<JsonObject>;
   readonly catalog: ReturnType<typeof openGuiCatalog>;
   readonly terminal: RepoCellTerminal;
@@ -245,10 +246,10 @@ export interface RepoCell {
   ) => Promise<ReturnType<import("@harness-anything/kernel").TaskProjection["readEventWitness"]>>;
   /** Assignment edges and actor witnesses read from one authorized projection cut. */
   readonly readNodeAutoClaimAssignments: (binding: RepoCellBinding) => Promise<readonly RepoCellAutoClaimAssignment[]>;
-  readonly workspaceSummary: () => DaemonGuiReadResultMap["repo.workspace.summary.read"];
+  readonly workspaceSummary: () => Promise<DaemonGuiReadResultMap["repo.workspace.summary.read"]>;
   readonly workspaceScope: (
     payload: DaemonGuiReadPayloadMap["repo.workspace.scope.read"],
-  ) => DaemonGuiReadResultMap["repo.workspace.scope.read"];
+  ) => Promise<DaemonGuiReadResultMap["repo.workspace.scope.read"]>;
   readonly observeTail: (
     payload: unknown,
     daemon: { readonly userRoot: string; readonly daemonId: string },
@@ -263,7 +264,7 @@ export interface RepoCell {
   readonly runtime: Pick<AgentRuntimeStreamHub, "publish" | "issueWitnessToken" | "bindWitness">;
   readonly status: () => RepoCellStatus;
   readonly statusCuts: () => Pick<RepoCellStatus, "projectionWatermark" | "ledgerRevision"> | null;
-  readonly inFlightWork: () => readonly RepoInFlightWork[];
+  readonly inFlightWork: () => Promise<readonly RepoInFlightWork[]>;
   /** Waits for the event-derived Git follower while the caller's writer epoch is current. */
   readonly settlePendingMaterialization: (context: string) => Promise<void>;
   readonly backup?: (input: {

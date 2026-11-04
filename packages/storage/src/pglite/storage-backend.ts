@@ -1,5 +1,5 @@
 import type { PoolClient } from "pg";
-import { withPostgresTransaction } from "../postgres/transaction.ts";
+import { withPostgresTransaction, type PostgresScopeClaims } from "../postgres/transaction.ts";
 import { POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS, POSTGRES_EVENT_LEDGER_TABLES } from "../postgres/index.ts";
 import type { PostgresAppendHooks } from "../postgres/pg-event-store.ts";
 import { ensurePgProjectionSchema } from "../pg/pg-projection-schema.ts";
@@ -24,7 +24,7 @@ export async function createPGliteStorageBackend(options: PGliteStorageBackendOp
   const scope = resolvePostgresEventStoreScope(options.storage.scope),
     storage = createPGliteStorage({ dataDir: options.storage.dataDir, pglite: options.pglite });
   try {
-    await initializeSchema(storage.pool);
+    await initializeSchema(storage.pool, scope);
     return {
       ...createPgStorageBackend({
         pool: storage.pool,
@@ -46,7 +46,7 @@ export async function createPGliteStorageBackend(options: PGliteStorageBackendOp
   }
 }
 
-async function initializeSchema(pool: PGliteStorage["pool"]): Promise<void> {
+async function initializeSchema(pool: PGliteStorage["pool"], scope: PostgresScopeClaims): Promise<void> {
   await withPostgresTransaction(pool, async (client) => {
     for (const statement of POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS) {
       if (statement.startsWith("CREATE POLICY ")) await ensurePolicy(client, statement, POSTGRES_EVENT_LEDGER_TABLES);
@@ -54,6 +54,26 @@ async function initializeSchema(pool: PGliteStorage["pool"]): Promise<void> {
     }
     await ensurePgProjectionSchema(client);
   });
+  // Embedded storage owns its schema: finish the dated v5 expansion before exposing this scope.
+  // Each committed primary-key page advances; processed=0, rather than the cursor, ends the scan.
+  let owner = "",
+    entity = "";
+  for (;;) {
+    const batch = await withPostgresTransaction(
+      pool,
+      async (client) =>
+        (
+          await client.query<{ processed: number; next_owner: string; next_entity: string }>(
+            "SELECT * FROM ha_backfill_document_metadata($1,$2,$3,$4,$5)",
+            [scope.tenantId, scope.projectId, scope.policyEpoch, owner, entity],
+          )
+        ).rows[0]!,
+      scope,
+    );
+    if (batch.processed === 0) break;
+    owner = batch.next_owner;
+    entity = batch.next_entity;
+  }
 }
 
 async function ensurePolicy(client: PoolClient, statement: string, tables: readonly string[]): Promise<void> {

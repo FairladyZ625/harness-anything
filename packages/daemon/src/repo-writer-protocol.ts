@@ -11,6 +11,7 @@ import type { RuntimeAttemptTerminal, RuntimeDaemonRoute } from "./runtime-spawn
 export const REPO_WRITER_PROTOCOL_VERSION = 1 as const;
 
 export interface RepoWriterBootstrapV1 {
+  readonly role?: "reader";
   readonly schema: "harness-repo-writer-bootstrap/v1";
   readonly protocolVersion: typeof REPO_WRITER_PROTOCOL_VERSION;
   readonly config: {
@@ -49,6 +50,7 @@ export interface RepoWriterRequestV1 {
   readonly protocolVersion: typeof REPO_WRITER_PROTOCOL_VERSION;
   readonly requestId: string;
   readonly method:
+    | "read"
     | "canonicalStore"
     | "hasBuiltinExecutor"
     | "run"
@@ -94,6 +96,7 @@ export interface RepoWriterStatusV1 {
   readonly kind: "ready" | "cut" | "status" | "attach-progress" | "closed";
   readonly status?: RepoCellStatus;
   readonly bootstrapReceipt?: unknown;
+  readonly ledgerCut?: ReturnType<import("./repo-cell-types.ts").ReplicaCutSource["ledgerCut"]>;
   readonly error?: SerializedWriterErrorV1;
 }
 
@@ -279,3 +282,19 @@ export type RepoWriterCanonicalStoreCapability = (
   request: PostgresTaskEventStoreRequest,
   signal?: AbortSignal,
 ) => Promise<PostgresTaskEventStoreResult>;
+
+/** Reader workers use the existing writer RPC envelope and serialization contracts. */
+export interface RepoReadPayload {
+  readonly config: Pick<
+    import("./repo-cell-open.ts").RepoCellOpenInput,
+    "repoId" | "rootDir" | "storage" | "mode" | "authoredBranch"
+  >;
+  readonly method: string;
+  readonly args: readonly unknown[];
+  readonly edge?: {
+    readonly config: import("./client/fleet-edge-config.ts").FleetEdgeConfig | null;
+    readonly pin?: import("./fleet/replica-generation.ts").BorrowedReplicaGeneration;
+  };
+  readonly now?: string;
+  readonly runtimeInstances?: readonly RuntimeInstanceSummary[];
+}

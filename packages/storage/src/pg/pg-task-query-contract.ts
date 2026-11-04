@@ -48,6 +48,7 @@ export const PG_TASK_QUERY_METHODS = [
   "readSquadRuns",
   "readLeaseIntervals",
   "readDocument",
+  "readDocumentMetadata",
   "readDocuments",
   "readReplicaBasis",
   "taskIdForDocumentPath",
