@@ -18,7 +18,7 @@ import { readDispatchStreamHeaders } from "./dispatch-stream.ts";
 import { readEdgeViewBlob, readEdgeRuntimeResult } from "./runtime-result-read.ts";
 import { runRuntimeHandoff } from "./runtime-handoff.ts";
 import { recordRuntimeExecutionPrincipal } from "./runtime-execution-principal-store.ts";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { existsSync, lstatSync, readFileSync, watch } from "node:fs";
 import path from "node:path";
 import {
@@ -440,11 +440,13 @@ export function openFleetEdgeRuntime(input: {
         executionId: review.executionId,
         reviewId: `review-${review.dispatchId}`,
       } as const,
+      // One request identity for this review recovery; the retry loop below reuses it.
+      recoveryOpId = randomUUID(),
       taskCommand = () =>
         runFleetTaskCommandClient({
           ...writePeer,
           executionCredential: execution.credential,
-          opId: `runtime-review-recovery-${review.runtimeSessionId}`,
+          opId: recoveryOpId,
           repoId: request.repoId,
           taskId: review.taskId,
           action,
@@ -583,7 +585,7 @@ export function openFleetEdgeRuntime(input: {
                     ...writePeer,
                     repoId: request.repoId,
                     taskId,
-                    opId: `${taskStartOpId}-release`,
+                    opId: randomUUID(),
                     waitMs: centerWriteWaitMs,
                     action: {
                       kind: "task-release",
@@ -927,7 +929,7 @@ export function openFleetEdgeRuntime(input: {
               ...writePeer,
               repoId: request.repoId,
               taskId,
-              opId: `runtime-terminal-${terminal.runtimeSessionId}`,
+              opId: randomUUID(),
               waitMs: centerWriteWaitMs,
               action: {
                 kind: "task-release",
@@ -965,13 +967,14 @@ export function openFleetEdgeRuntime(input: {
         ...writePeer,
         repoId: request.repoId,
         scheduleId: scheduled.scheduleId,
-        opId: `${terminal.runtimeSessionId}-schedule-terminal-link`,
+        opId: randomUUID(),
         action: {
           kind: "schedule-dispatch-link",
           scheduleId: scheduled.scheduleId,
           claimFence: scheduled.claimFence,
           dispatchId: terminal.dispatchId,
           runtimeSessionId: terminal.runtimeSessionId,
+          idempotencyKey: `${terminal.runtimeSessionId}:terminal-link`,
         },
       });
       if (linked.outcome !== "applied")
@@ -985,13 +988,14 @@ export function openFleetEdgeRuntime(input: {
         ...writePeer,
         repoId: request.repoId,
         scheduleId: scheduled.scheduleId,
-        opId: `${terminal.runtimeSessionId}-schedule-attempt-terminal`,
+        opId: randomUUID(),
         action: {
           kind: "schedule-settle",
           scheduleId: scheduled.scheduleId,
           claimFence: scheduled.claimFence,
           outcome: terminal.outcome,
           endedAt: terminal.endedAt,
+          idempotencyKey: `${terminal.runtimeSessionId}:attempt-terminal`,
           ...(detail ? { detail } : {}),
         },
       });
@@ -1143,7 +1147,7 @@ export function openFleetEdgeRuntime(input: {
                   ...writePeer,
                   repoId: request.repoId,
                   taskId: null,
-                  opId: `handoff_${Date.now()}`,
+                  opId: randomUUID(),
                   waitMs: centerWriteWaitMs,
                   action: command as { kind: string },
                   ...(body ? { privatePayload: body } : {}),
@@ -1196,17 +1200,17 @@ export function openFleetEdgeRuntime(input: {
         center: await readFleetRepositoryMetadataClient({ ...writePeer, includeGitMetadata: true }),
         operation: "runtime dispatch",
       });
+    // The request identity and the Schedule business key are minted independently at this entry:
+    // the former correlates one round trip, the latter names the occurrence and rides the action.
     const operationKey =
-        typeof action.idempotencyKey === "string" && action.idempotencyKey
-          ? action.idempotencyKey
-          : `${actionKind}:${scheduleId}:${Date.now().toString(36)}`,
+        typeof action.idempotencyKey === "string" && action.idempotencyKey ? action.idempotencyKey : randomUUID(),
       command = await runScheduleCommand({
         ...writePeer,
         repoId: request.repoId,
         scheduleId,
-        opId: fleetScheduleOpId(request.repoId, request.nodeId, operationKey),
+        opId: randomUUID(),
         writerEpoch: assigned.writerEpoch,
-        action: { ...action, kind: actionKind, scheduleId },
+        action: { ...action, kind: actionKind, scheduleId, idempotencyKey: operationKey },
       });
     if (command.outcome !== "applied") return scheduleResult(actionKind, command);
     const receipt = command.receipt as JsonObject;
@@ -1268,16 +1272,16 @@ export function openFleetEdgeRuntime(input: {
           ...writePeer,
           repoId: request.repoId,
           scheduleId,
-          opId: fleetScheduleOpId(request.repoId, request.nodeId, idempotencyKey),
-          action: { kind: "schedule-dispatch-link", ...linked },
+          opId: randomUUID(),
+          action: { kind: "schedule-dispatch-link", ...linked, idempotencyKey },
         }),
       settleFailure: ({ idempotencyKey, ...failed }) =>
         runScheduleCommand({
           ...writePeer,
           repoId: request.repoId,
           scheduleId,
-          opId: fleetScheduleOpId(request.repoId, request.nodeId, idempotencyKey),
-          action: { kind: "schedule-settle", ...failed },
+          opId: randomUUID(),
+          action: { kind: "schedule-settle", ...failed, idempotencyKey },
         }),
     });
     if (dispatched.kind === "spawn-failed") throw dispatched.error;
@@ -1456,10 +1460,6 @@ function mirroredAgentDeclaration(
 function requiredScheduleText(value: unknown, field: string): string {
   if (typeof value === "string" && value.trim()) return value;
   throw edgeRuntimeError("invalid_field", `${field} is required.`);
-}
-
-function fleetScheduleOpId(repoId: string, nodeId: string, key: string): string {
-  return `schedule-${createHash("sha256").update(`${repoId}\0${nodeId}\0${key}`).digest("hex").slice(0, 32)}`;
 }
 
 function scheduleResult(

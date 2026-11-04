@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { readProjectedAgentDeclaration } from "./agent-declaration-resolution.ts";
 import {
   getExecutableEntityAction,
@@ -600,6 +601,8 @@ export async function settleScheduledRuntime(
   // settlement) can arrive after the occurrence already settled: the claim, not the runtime
   // exit, is the single-flight witness, and a settled claim is neither re-linked nor re-settled.
   if (current && !current.status.activeRun) return;
+  // Each settlement step is its own request: a fresh opaque actionId for authorization and
+  // replay, while the action's idempotencyKey stays the schedule business key.
   if (current?.status.activeRun?.runtimeSessionId !== terminal.runtimeSessionId) {
     await run(
       {
@@ -610,7 +613,7 @@ export async function settleScheduledRuntime(
         runtimeSessionId: terminal.runtimeSessionId,
         idempotencyKey: `${terminal.runtimeSessionId}:terminal-link`,
       },
-      `runtime-schedule-link:${terminal.runtimeSessionId}`,
+      randomUUID(),
     );
   }
   const detail = await scheduleSettlementDetail(cell.rootDir, scheduled, terminal.reason);
@@ -624,7 +627,7 @@ export async function settleScheduledRuntime(
       ...(detail ? { detail } : {}),
       idempotencyKey: `${terminal.runtimeSessionId}:attempt-terminal`,
     },
-    `runtime-schedule-settle:${terminal.runtimeSessionId}`,
+    randomUUID(),
   );
   if (receipt.outcome !== "applied")
     throw cell.cellCodedError(

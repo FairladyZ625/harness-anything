@@ -938,6 +938,9 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
               receipt.outcome === "op_rejected" || receipt.outcome === "indeterminate"
                 ? ("op_rejected" as const)
                 : ("applied" as const),
+            // The frame opId is the caller's request identity for this round trip. The receipt's
+            // opId remains the canonical command identity (content + revision), which is what
+            // receipt-show resolves; the two planes must not be conflated.
             opId: frame.opId,
             revision: receipt.revision ?? null,
             replicationSequence: writeReplicationSequence(a.repoId, receipt),
@@ -990,13 +993,16 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
         if (frame.scheduleId !== frame.action.scheduleId)
           throw new FleetFault("schedule_scope_mismatch", "Schedule command IDs must match.");
+        // A schedule write carries its own business idempotency key (the occurrence key). The
+        // transport request id is correlation only; the center must never substitute one for the other.
+        if (
+          commandClassForAction(frame.action.kind) !== "repo-read" &&
+          (typeof frame.action.idempotencyKey !== "string" || frame.action.idempotencyKey.trim() === "")
+        )
+          throw new FleetFault("invalid_field", "Schedule commands must carry the caller's business idempotencyKey.");
         assertFrameEpoch(a.repoId, frame.writerEpoch);
         const ingressAuth = await auth(a),
-          receipt = await observedRunCenterWriter(
-            a.repoId,
-            { ...frame.action, idempotencyKey: frame.opId },
-            ingressAuth,
-          );
+          receipt = await observedRunCenterWriter(a.repoId, frame.action, ingressAuth);
         if (isSquadControlResult(receipt))
           throw new FleetFault(
             "execution_scope_mismatch",
@@ -1048,6 +1054,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
               kind: "event",
               type: frame.eventType as import("@harness-anything/kernel").AgentRuntimeEventV1["type"],
               payload: frame.payload,
+              // Request/event correlation only. The RuntimeSession reducer decides duplicate,
+              // late, and invalid transitions; it no longer replays by this opId (dec_3E49EDAB CH3).
               opId: frame.opId,
               ...(resultBody === undefined ? {} : { resultBody }),
               ...(frame.dispatchContext === null ? {} : { dispatchContext: frame.dispatchContext }),
