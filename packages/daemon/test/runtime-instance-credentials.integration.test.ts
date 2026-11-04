@@ -336,7 +336,7 @@ test("real CLI stdin and GUI registry IPC bridge replace through the same isolat
   process.env.HARNESS_DAEMON_ID = daemonId;
   delete process.env.HARNESS_DAEMON_ENDPOINT;
   try {
-    const gui = createLocalGuiServiceBridge(f.root);
+    const gui = createLocalGuiServiceBridge();
     const { kind: _kind, ...payload } = create("claude");
     const created = (await gui.invoke("createRuntimeInstance", payload)) as Record<string, unknown>;
     assert.equal(created.ok, true, JSON.stringify(created));

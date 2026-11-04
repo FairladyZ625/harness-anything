@@ -50,7 +50,7 @@ test("GUI bridge is attach-only even when its first request finds no daemon", as
       true,
     );
     await daemon.stop();
-    const failure = (await createLocalGuiServiceBridge(rootDir).invoke("getTasks", {
+    const failure = (await createLocalGuiServiceBridge().invoke("getTasks", {
       repoId: "gui-first-attach",
     })) as Failure;
     assert.equal(failure.ok, false);
@@ -93,7 +93,7 @@ test("GUI bridge reuses a resident daemon and does not respawn it after an expli
       ).ok,
       true,
     );
-    const bridge = createLocalGuiServiceBridge(rootDir),
+    const bridge = createLocalGuiServiceBridge(),
       beforePid = readDaemonPid(userRoot, daemonId);
     assert.ok(beforePid);
     assert.equal((await bridge.invoke("getTasks", { repoId: "gui-resident-attach" })).ok, true);

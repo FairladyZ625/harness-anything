@@ -143,9 +143,8 @@ function usableLocalDocPath(candidate: unknown): string {
     throw new Error("Local document request requires a path string.");
   if (candidate.length > 4096 || CONTROL_CHARACTERS.test(candidate))
     throw new Error("Local document path contains unsupported characters.");
-  // 非 Windows 平台不接受反斜杠与 Windows 盘符形态(与 api/local-api 的
-  // isForeignAbsolutePath 同一口径);Windows 上反斜杠是合法分隔符。注意不能用
-  // path.win32.isAbsolute 判盘符 —— 它对 `/posix/abs` 也返回 true。
+  // 非 Windows 平台不接受反斜杠与 Windows 盘符形态;Windows 上反斜杠是合法分隔符。
+  // 注意不能用 path.win32.isAbsolute 判盘符 —— 它对 `/posix/abs` 也返回 true。
   if (process.platform !== "win32" && (candidate.includes(BACKSLASH) || WINDOWS_DRIVE.test(candidate)))
     throw new Error("Local document path uses an unsupported separator.");
   return candidate;

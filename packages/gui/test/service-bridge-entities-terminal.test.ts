@@ -28,7 +28,7 @@ test("GUI entity write channel validates then installs an Agent and preserves a 
   };
   Object.assign(process.env, fixture.env);
   try {
-    const bridge = createLocalGuiServiceBridge(fixture.rootDir),
+    const bridge = createLocalGuiServiceBridge(),
       scope = { repoId: fixture.repoId },
       agentDeclaration = {
         schema: "agent-declaration/v1",
@@ -154,7 +154,7 @@ test("GUI entity channel retires and deletes declarations through the CLI's acti
   };
   Object.assign(process.env, fixture.env);
   try {
-    const bridge = createLocalGuiServiceBridge(fixture.rootDir),
+    const bridge = createLocalGuiServiceBridge(),
       scope = { repoId: fixture.repoId },
       declaration = (id: string, name: string) => ({
         schema: "agent-declaration/v1",
@@ -318,7 +318,7 @@ test("GUI renderer bridge drives a resident PTY through spawn attach IO resize d
   };
   Object.assign(process.env, fixture.env);
   try {
-    const bridge = createLocalGuiServiceBridge(fixture.rootDir),
+    const bridge = createLocalGuiServiceBridge(),
       scope = { repoId: fixture.repoId };
     const spawned = (await bridge.invoke("spawnTerminal", {
       ...scope,

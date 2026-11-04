@@ -8,6 +8,7 @@ import path from "node:path";
 import { createInterface } from "node:readline";
 import test from "node:test";
 import { localUserDaemonEndpoint } from "@harness-anything/daemon/client";
+import { writeDaemonRegistryRepo } from "@harness-anything/kernel/daemon-registry";
 import { createLocalGuiServiceBridge } from "../src/main/local-composition-root.ts";
 import {
   DEFAULT_GUI_CONNECT_TIMEOUT_MS,
@@ -85,7 +86,7 @@ for (const scenario of cases) {
     process.env.HARNESS_DAEMON_USER_ROOT = parent;
     process.env.HARNESS_DAEMON_ID = daemonId;
     t.mock.timers.enable({ apis: ["setTimeout"] });
-    const pending = createLocalGuiServiceBridge(parent).invoke(scenario.method, scenario.payload);
+    const pending = createLocalGuiServiceBridge().invoke(scenario.method, scenario.payload);
     await arrived;
     t.mock.timers.tick(scenario.elapsed);
     if (!("timeout" in scenario)) {
@@ -121,7 +122,7 @@ test("a raised local gui.requestTimeoutMs governs the default read deadline, not
         const request = JSON.parse(line) as { id: number; method: string };
         if (request.method === "protocol.hello") {
           socket.write(
-            `${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ...fixtureDaemonHello(), methods: ["protocol.hello", "daemon.gui.system.read"] } })}\n`,
+            `${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ...fixtureDaemonHello(), methods: ["protocol.hello", "repo.tasks.list"] } })}\n`,
           );
         } else resolve();
       });
@@ -143,10 +144,21 @@ test("a raised local gui.requestTimeoutMs governs the default read deadline, not
     path.join(parent, ".harness/settings.local.json"),
     `${JSON.stringify({ schema: "settings-local/v1", locale: "en-US", gui: { connectTimeoutMs: 2000, requestTimeoutMs: 45_000 } })}\n`,
   );
+  mkdirSync(path.join(parent, "harness"), { recursive: true });
+  writeFileSync(path.join(parent, "harness", "harness.yaml"), "schema: harness-config/v1\n");
+  writeDaemonRegistryRepo({
+    userRoot: parent,
+    canonicalRoot: parent,
+    repoId: daemonId,
+    displayName: daemonId,
+    authoredBranch: "main",
+  });
   process.env.HARNESS_DAEMON_USER_ROOT = parent;
   process.env.HARNESS_DAEMON_ID = daemonId;
   t.mock.timers.enable({ apis: ["setTimeout"] });
-  const pending = Promise.resolve(createLocalGuiServiceBridge(parent).invoke("getSystemStatus", {}));
+  // Repository-scoped reads use the selected repo's settings file, so the deadline is read
+  // from the repository the request names rather than from a process-startup root.
+  const pending = Promise.resolve(createLocalGuiServiceBridge().invoke("getTasks", { repoId: daemonId }));
   await arrived;
   // The old built-in 30s deadline passes without settling the request.
   t.mock.timers.tick(30_000);

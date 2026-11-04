@@ -35,7 +35,7 @@ test("GUI names daemon method-set drift before sending the unavailable request",
   process.env.HARNESS_DAEMON_USER_ROOT = parent;
   process.env.HARNESS_DAEMON_ID = "method-drift";
   try {
-    const result = (await createLocalGuiServiceBridge(parent).invoke("getSystemStatus", {})) as {
+    const result = (await createLocalGuiServiceBridge().invoke("getSystemStatus", {})) as {
       readonly ok: boolean;
       readonly error: { readonly code: string; readonly hint: string };
     };

@@ -1,4 +1,4 @@
-import { guiArtifactCacheRoot, guiDaemonUserRoot } from "./gui-daemon-target.ts";
+import { guiArtifactCacheRoot, guiDaemonUserRoot, guiGlobalDaemonTarget } from "./gui-daemon-target.ts";
 import { registerProjectDirectoryIpc } from "./project-directory-ipc.ts";
 import { registerProjectWindowIpc } from "./project-window-ipc.ts";
 import {
@@ -33,7 +33,6 @@ import {
 } from "./local-composition-root.ts";
 import { registerConnectionAdminIpc } from "./connection-admin-ipc.ts";
 import { addLocalMainControls } from "./local-main-controls.ts";
-import { resolveLocalDaemonTarget, resolveLocalDaemonTargetFromRepos } from "@harness-anything/daemon/client";
 import {
   evaluateHtmlArtifactAttachment,
   evaluateHtmlArtifactRequest,
@@ -347,11 +346,12 @@ export async function startGuiApp(): Promise<void> {
       ),
     );
   }
-  const rootDir = resolveGuiProjectRoot(),
-    bridge = createLocalGuiServiceBridge(rootDir),
+  // The window's selected repository, not a process-startup root, owns every repo-scoped read:
+  // each request names its repoId and the bridge resolves that repo's canonical root per call.
+  const bridge = createLocalGuiServiceBridge(),
     controlled = addLocalMainControls({
       bridge,
-      target: async (repoId) => resolveLocalDaemonTarget({ rootDir, ...(repoId ? { repoIdOverride: repoId } : {}) }),
+      target: async () => guiGlobalDaemonTarget(),
     }),
     trustPolicy: IpcWebContentsTrustPolicy = {
       isTrustedWebContentsId: (id) => trustedWebContentsIds.has(id),
@@ -414,18 +414,16 @@ export async function startGuiApp(): Promise<void> {
     registrar,
     {
       canonicalRootOf: (repoId) => {
-        const target = resolveLocalDaemonTargetFromRepos(
-          { rootDir, repoIdOverride: repoId },
-          readDaemonRegistry({ userRoot: guiDaemonUserRoot() }).repos,
-        );
-        if (target.repoId !== repoId) throw new Error(`Repository ${repoId} is not registered and enabled.`);
-        return target.canonicalRoot;
+        const repo = readDaemonRegistry({ userRoot: guiDaemonUserRoot() }).repos.find((row) => row.repoId === repoId);
+        if (repo?.state !== "enabled" || repo.canonicalRoot === null)
+          throw new Error(`Repository ${repoId} is not registered and enabled.`);
+        return repo.canonicalRoot;
       },
       repoModeOf: (repoId) =>
         readDaemonRegistry({ userRoot: guiDaemonUserRoot() }).repos.find((repo) => repo.repoId === repoId)?.mode ??
         null,
       readDocument: async (repoId, taskId, artifactPath) => {
-        const result = await requestRepoScopedRpc(rootDir, repoId, "repo.tasks.document.read", {
+        const result = await requestRepoScopedRpc(repoId, "repo.tasks.document.read", {
           repo: { repoId },
           payload: { taskId, path: artifactPath },
         });
@@ -528,10 +526,6 @@ function createTrustedMainWindow(trustedWebContentsIds: Set<number>, initialRepo
     trustedWebContentsIds.delete(webContentsId);
   });
   return mainWindow;
-}
-
-export function resolveGuiProjectRoot(): string {
-  return path.resolve(process.env.HARNESS_GUI_ROOT ?? process.cwd());
 }
 
 app.on("window-all-closed", () => {

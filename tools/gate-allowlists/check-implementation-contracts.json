@@ -30,16 +30,6 @@
           "reason": "GUI implementation requires this runtime/security contract test."
         },
         {
-          "value": "packages/gui/test/local-api-auth.test.ts",
-          "ref": "ADR-0022#D6",
-          "reason": "GUI implementation requires this runtime/security contract test."
-        },
-        {
-          "value": "packages/gui/test/path-traversal.test.ts",
-          "ref": "ADR-0022#D6",
-          "reason": "GUI implementation requires this runtime/security contract test."
-        },
-        {
           "value": "packages/gui/test/terminal-no-ingestion.test.ts",
           "ref": "ADR-0022#D6",
           "reason": "GUI implementation requires this runtime/security contract test."
@@ -354,26 +344,6 @@
         "reason": "GUI bridge must expose a governed preload allowlist."
       },
       {
-        "value": "localApiBindHost = \"127.0.0.1\"",
-        "ref": "ADR-0022#D6",
-        "reason": "Local API must bind only to localhost."
-      },
-      {
-        "value": "createLocalApiSession",
-        "ref": "ADR-0022#D6",
-        "reason": "Local API must use explicit local session authorization."
-      },
-      {
-        "value": "authorizeLocalApiRequest",
-        "ref": "ADR-0022#D6",
-        "reason": "Local API must authorize requests explicitly."
-      },
-      {
-        "value": "validateProjectPath",
-        "ref": "ADR-0022#D6",
-        "reason": "GUI API must guard project paths."
-      },
-      {
         "value": "sanitizeMarkdownHtml",
         "ref": "ADR-0022#D6",
         "reason": "GUI markdown rendering must sanitize HTML."
@@ -441,18 +411,6 @@
         "ref": "ADR-0022#D6",
         "reason": "GUI tests must prove markdown sanitization.",
         "path": "packages/gui/test/markdown-sanitize.test.ts"
-      },
-      {
-        "value": "gui.localhost-authorization",
-        "ref": "ADR-0022#D6",
-        "reason": "GUI tests must prove localhost-only API binding.",
-        "path": "packages/gui/test/local-api-auth.test.ts"
-      },
-      {
-        "value": "gui.path-traversal-rejection",
-        "ref": "ADR-0022#D6",
-        "reason": "GUI tests must prove path traversal rejection.",
-        "path": "packages/gui/test/path-traversal.test.ts"
       },
       {
         "value": "gui.terminal-display-only",

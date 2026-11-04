@@ -51,7 +51,7 @@ test("GUI task writes settle from their own durable receipt without a follow-up 
   };
   Object.assign(process.env, fixture.env);
   const invoked: string[] = [],
-    bridge = createLocalGuiServiceBridge(fixture.rootDir),
+    bridge = createLocalGuiServiceBridge(),
     restoreWindow = installRendererBridge(bridge, invoked),
     scope = { repoId: fixture.repoId },
     taskId = "task-gui-receipt";

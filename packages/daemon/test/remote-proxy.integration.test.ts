@@ -239,7 +239,7 @@ test(
       process.env.HARNESS_DAEMON_ID = "proxy-a";
       delete process.env.HARNESS_DAEMON_ENDPOINT;
       try {
-        const gui = createLocalGuiServiceBridge(parent);
+        const gui = createLocalGuiServiceBridge();
         assert.equal(
           ((await gui.invoke("createRuntimeInstance", { ...payload, repoId })) as Record<string, unknown>).ok,
           true,

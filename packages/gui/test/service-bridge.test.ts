@@ -107,7 +107,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     assert.equal(seededHistory.ok, true, JSON.stringify(seededHistory));
     const seededAgentRevision = (seededHistory as { readonly revision?: unknown }).revision;
     assert.equal(typeof seededAgentRevision, "number", JSON.stringify(seededHistory));
-    const bridge = createLocalGuiServiceBridge(fixture.rootDir),
+    const bridge = createLocalGuiServiceBridge(),
       executionId = "execution-gui-bridge",
       scope = { repoId: fixture.repoId };
     const started = parseDaemonGuiActionResponse(
@@ -842,7 +842,7 @@ test("local GUI bridge fails closed without explicit daemon registration and nev
   const previous = process.env.HARNESS_DAEMON_USER_ROOT;
   process.env.HARNESS_DAEMON_USER_ROOT = userRoot;
   try {
-    const result = (await createLocalGuiServiceBridge(rootDir).invoke("getTasks", {
+    const result = (await createLocalGuiServiceBridge().invoke("getTasks", {
       repoId: "missing-repo",
     })) as Failure;
     assert.equal(result.ok, false);
