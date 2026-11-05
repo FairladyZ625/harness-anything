@@ -1,17 +1,15 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { EventEmitter, once } from "node:events";
 import { execFileSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
-import { validateCurrentAgentRuntimeEvent } from "@harness-anything/kernel/internal/domain/agent-runtime.ts";
 import { makeTaskProjectionReader } from "@harness-anything/storage";
-import { sqliteLedgerPath } from "../../storage/src/store/sqlite-ledger-layout.ts";
 import { withTempStoreAsync } from "../../storage/test/store/helpers.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { seedLegacyReadIndexEvents } from "./online-read-index.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 
 test("100000-event cache attaches before backfill and resumes a failed page through recovery", async (t) => {
@@ -28,74 +26,8 @@ test("100000-event cache attaches before backfill and resumes a failed page thro
     };
     let cell = await openBootstrappedRepoCell(input);
     await cell.close();
-    const projectionPath = resolveHarnessLayout(rootDir).taskProjectionPath,
-      db = new DatabaseSync(sqliteLedgerPath(rootDir));
-    db.exec("ATTACH DATABASE '" + projectionPath.replaceAll("'", "''") + "' AS cache");
-    let head = Number(db.prepare("SELECT revision FROM ledger_meta").get()!.revision);
-    let digest = "";
-    try {
-      // Populate an already caught-up canonical ledger/cache. Only the newly introduced column
-      // is removed; this isolates schema expansion from an unrelated cold canonical replay.
-      db.exec(`DROP TRIGGER cache.runtime_dispatch_key_0; DROP TRIGGER cache.runtime_dispatch_key_1;
-        DROP INDEX cache.event_index_runtime_dispatch_key; DROP INDEX cache.event_index_runtime_dispatch_key_pending;
-        ALTER TABLE cache.event_index DROP COLUMN dispatch_key; DROP TABLE cache.runtime_read_index_progress; BEGIN`);
-      const canonical = db.prepare("INSERT INTO event(revision,op_id,event_json,digest,occurred_at) VALUES(?,?,?,?,?)"),
-        projected = db.prepare("INSERT INTO cache.event_index(op_id,workspace_revision,event_json) VALUES(?,?,?)"),
-        source = db.prepare("INSERT INTO cache.event_source(workspace_revision,op_id,event_json) VALUES(?,?,?)");
-      for (let n = 1; n <= 100000; n++) {
-        const event = {
-          schema: "agent-runtime-event/v1",
-          type: "runtime_dispatch_requested",
-          eventId: `dispatch-${n}`,
-          opId: `dispatch-${n}`,
-          workspaceRevision: ++head,
-          actor: { principal: { personId: "fixture" }, executor: null },
-          source: "local",
-          occurredAt: "2026-11-05T00:00:00.000Z",
-          payload: {
-            dispatchId: `dispatch-${n}`,
-            runtimeSessionId: `session-${n}`,
-            instanceId: "fixture",
-            installationId: "installation",
-            kindId: "claude",
-            dispatchKey: `key-${n}`,
-            definitionSnapshotRef: "artifact:runtime-definitions/fixture/v1",
-            definitionSnapshot: {
-              schema: "agent-definition-snapshot/v1",
-              configVersion: 1,
-              instanceId: "fixture",
-              installationId: "installation",
-              kindId: "claude",
-              providerId: "anthropic",
-              model: "fixture",
-              reasoningEffort: null,
-              baseUrl: null,
-              authMode: "subscription",
-            },
-          },
-        };
-        if (n === 1) assert.deepEqual(validateCurrentAgentRuntimeEvent(event), []);
-        const json = JSON.stringify(event);
-        digest = `sha256:${createHash("sha256").update(json).digest("hex")}`;
-        canonical.run(head, event.opId, json, digest, event.occurredAt);
-        projected.run(event.opId, head, json);
-        source.run(head, event.opId, json);
-      }
-      db.prepare("UPDATE ledger_meta SET revision=?").run(head);
-      for (const table of ["event_query_meta", "document_head_meta", "attach_migration_scan_meta"])
-        db.prepare(`UPDATE ${table} SET revision=?`).run(head);
-      db.prepare("UPDATE cache.projection_meta SET watermark=?,scanned_revision=?,head_digest=?").run(
-        head,
-        head,
-        digest,
-      );
-      // The first 64-row page commits; the next transaction must roll back and publish a latch.
-      db.exec(`CREATE TRIGGER cache.inject_backfill_failure BEFORE UPDATE OF dispatch_key ON event_index
-        WHEN OLD.workspace_revision=65 BEGIN SELECT RAISE(ABORT,'injected read-index page failure'); END`);
-      db.exec("COMMIT; DETACH DATABASE cache");
-    } finally {
-      db.close();
-    }
+    const head = seedLegacyReadIndexEvents(rootDir, 100000, true),
+      projectionPath = resolveHarnessLayout(rootDir).taskProjectionPath;
     const start = performance.now();
     cell = await openBootstrappedRepoCell(input);
     const attachMs = performance.now() - start,
@@ -104,10 +36,14 @@ test("100000-event cache attaches before backfill and resumes a failed page thro
     try {
       assert.equal(cell.status().state, "attached");
       const pendingAtAttach = Number(
-        inspect.prepare("SELECT count(*) AS n FROM event_index WHERE dispatch_key IS NULL").get()!.n,
+        inspect
+          .prepare(
+            "SELECT count(*) AS n FROM event_index WHERE workspace_revision>(SELECT revision FROM runtime_read_index_progress)",
+          )
+          .get()!.n,
       );
       assert.ok(pendingAtAttach > 0, "attach consumed the historical migration");
-      assert.ok(attachMs < 5000, `attach took ${attachMs}ms`);
+      assert.equal(inspect.prepare("SELECT complete FROM runtime_read_index_progress").get()!.complete, 0);
       const readStart = performance.now();
       assert.equal(
         reader.withSession((q) => q.readRuntimeDispatchByDispatchKey("key-100000"))?.event.payload.dispatchId,
@@ -126,8 +62,8 @@ test("100000-event cache attaches before backfill and resumes a failed page thro
       assert.equal(failedProgress.revision, 64, "the failed page must preserve the last committed cursor");
       assert.equal(failedProgress.complete, 0);
       assert.equal(
-        inspect.prepare("SELECT dispatch_key FROM event_index WHERE workspace_revision=65").get()!.dispatch_key,
-        null,
+        inspect.prepare("SELECT dispatch_key FROM runtime_dispatch_index WHERE workspace_revision=65").get(),
+        undefined,
       );
       assert.equal(
         reader.withSession((q) => q.readRuntimeDispatchByDispatchKey("key-100000"))?.event.payload.dispatchId,

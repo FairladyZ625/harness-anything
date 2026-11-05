@@ -21,12 +21,73 @@ test("SQLite task point reads remain indexed through the member expansion", (t) 
     db.exec("ALTER TABLE event_index ADD COLUMN runtime_session_present INTEGER");
     plans.afterColumn = explain();
     ensureRuntimeMemberIndex(db);
+    assert.equal(runtimeReadIndexReady(db), true, "a new empty cache never needs the legacy reader");
     plans.afterExpansion = explain();
     t.diagnostic(`SQLITE_TASK_POINT_PLANS ${JSON.stringify(plans)}`);
     for (const plan of Object.values(plans) as { detail: string }[][]) {
       assert.ok(plan.some(({ detail }) => /SEARCH event_index .*\(task_id=\?\)/u.test(detail)));
       assert.ok(plan.every(({ detail }) => !/SCAN event_index/u.test(detail)));
     }
+  } finally {
+    db.close();
+  }
+});
+
+test("index expansion atomically replaces an old completion marker and retires history writers", (t) => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(REPOSITORY_READ_TABLES_SQL);
+    db.exec(`CREATE TABLE runtime_read_index_progress(singleton INTEGER PRIMARY KEY,revision INTEGER,complete INTEGER);
+      INSERT INTO runtime_read_index_progress VALUES(1,1,1);
+      CREATE TRIGGER runtime_dispatch_session_present AFTER INSERT ON runtime_session BEGIN
+        SELECT RAISE(ABORT,'obsolete history writer'); END`);
+    db.prepare("INSERT INTO event_index(op_id,workspace_revision,event_json) VALUES('old',1,?)").run(
+      JSON.stringify({
+        schema: "agent-runtime-event/v1",
+        type: "runtime_dispatch_requested",
+        payload: {
+          dispatchId: "old",
+          dispatchKey: "key",
+          runtimeSessionId: "session",
+          agentId: "agent",
+        },
+      }),
+    );
+    const prepare = db.prepare,
+      fault = t.mock.method(db, "prepare", function (sql: string) {
+        if (sql.includes("CREATE INDEX IF NOT EXISTS runtime_dispatch_session"))
+          throw new Error("injected DDL failure");
+        return Reflect.apply(prepare, db, [sql]);
+      });
+    try {
+      assert.throws(() => ensureRuntimeMemberIndex(db), /injected DDL failure/u);
+    } finally {
+      fault.mock.restore();
+    }
+    assert.equal(db.prepare("SELECT 1 FROM sqlite_master WHERE name='runtime_dispatch_index'").get(), undefined);
+    assert.equal(db.prepare("SELECT complete FROM runtime_read_index_progress").get()!.complete, 1);
+    ensureRuntimeMemberIndex(db);
+    assert.equal(runtimeReadIndexReady(db), false, "the old complete marker cannot publish an empty new index");
+    assert.deepEqual(backfillRuntimeReadIndexPage(db), { processed: 1, done: false });
+    assert.equal(backfillRuntimeReadIndexPage(db).done, true);
+    ensureRuntimeMemberIndex(db);
+    assert.equal(runtimeReadIndexReady(db), true, "reopening must retain completed progress");
+    db.prepare(
+      "INSERT INTO runtime_session(runtime_session_id,workspace_revision,value_json) VALUES('session',1,'{}')",
+    ).run();
+    assert.equal(
+      db.prepare("SELECT runtime_session_present FROM runtime_dispatch_index").get()!.runtime_session_present,
+      1,
+    );
+    db.exec("DELETE FROM runtime_session");
+    assert.equal(
+      db.prepare("SELECT runtime_session_present FROM runtime_dispatch_index").get()!.runtime_session_present,
+      0,
+    );
+    db.prepare("UPDATE event_index SET event_json=? WHERE workspace_revision=1").run(
+      JSON.stringify({ schema: "task-event/v1", type: "task_created" }),
+    );
+    assert.equal(db.prepare("SELECT count(*) AS n FROM runtime_dispatch_index").get()!.n, 0);
   } finally {
     db.close();
   }
@@ -52,7 +113,9 @@ test("SQLite dispatch key expansion backfills both historical and current spelli
     }
     assert.deepEqual(
       db
-        .prepare("SELECT op_id,dispatch_key FROM event_index ORDER BY workspace_revision")
+        .prepare(
+          "SELECT e.op_id,COALESCE(r.dispatch_key,'') AS dispatch_key FROM event_index e LEFT JOIN runtime_dispatch_index r USING(workspace_revision) ORDER BY e.workspace_revision",
+        )
         .all()
         .map((row) => ({ opId: String(row.op_id), dispatchKey: String(row.dispatch_key) })),
       [
@@ -64,26 +127,27 @@ test("SQLite dispatch key expansion backfills both historical and current spelli
     assert.deepEqual(progress, [{ applied: 3, total: 3 }]);
     const plan = db
       .prepare(
-        "EXPLAIN QUERY PLAN SELECT event_json FROM event_index WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested' AND dispatch_key = ? ORDER BY workspace_revision LIMIT 1",
+        "EXPLAIN QUERY PLAN SELECT e.event_json FROM runtime_dispatch_index r CROSS JOIN event_index e USING(workspace_revision) WHERE r.dispatch_key=? ORDER BY r.workspace_revision LIMIT 1",
       )
       .all("key-old") as readonly { readonly detail: string }[];
     t.diagnostic(`SQLITE_DISPATCH_KEY_PLAN ${JSON.stringify(plan)}`);
-    assert.match(
-      plan.map(({ detail }) => detail).join("\n"),
-      /SEARCH event_index USING INDEX event_index_runtime_dispatch_key/u,
-    );
+    assert.match(plan.map(({ detail }) => detail).join("\n"), /SEARCH r USING COVERING INDEX runtime_dispatch_key/u);
     assert.equal(runtimeReadIndexReady(db), true);
     // Old prepared statements and mixed-version writers insert only the original columns; the
     // AFTER INSERT trigger still derives the key.
     insert.run("after", 4, dispatch({ dispatchId: "dispatch-after", idempotencyKey: "key-after" }));
     assert.equal(
-      db.prepare("SELECT dispatch_key FROM event_index WHERE op_id='after'").all()[0]!.dispatch_key,
+      db.prepare("SELECT dispatch_key FROM runtime_dispatch_index WHERE workspace_revision=4").all()[0]!.dispatch_key,
       "key-after",
     );
-    db.exec("UPDATE event_index SET dispatch_key=NULL WHERE op_id='old'");
+    db.exec("DELETE FROM runtime_dispatch_index WHERE workspace_revision=1");
     db.exec("UPDATE runtime_read_index_progress SET revision=0,complete=0");
     assert.equal(runtimeReadIndexReady(db), false);
-    assert.equal(backfillRuntimeReadIndexPage(db).processed, 1);
+    assert.equal(backfillRuntimeReadIndexPage(db).processed, 4);
+    assert.equal(
+      db.prepare("SELECT dispatch_key FROM runtime_dispatch_index WHERE workspace_revision=1").get()!.dispatch_key,
+      "key-old",
+    );
     assert.equal(backfillRuntimeReadIndexPage(db).done, true);
   } finally {
     db.close();
@@ -131,7 +195,7 @@ test("SQLite member reads skip duplicate and orphan dispatch history", async (t)
       const queries: { sql: string; plan: { detail: string }[] }[] = [],
         prepare = DatabaseSync.prototype.prepare;
       const guard = t.mock.method(DatabaseSync.prototype, "prepare", function (this: DatabaseSync, sql: string) {
-        if (!/FROM event_index/u.test(sql)) return Reflect.apply(prepare, this, [sql]);
+        if (!/FROM (?:event_index|runtime_dispatch_index)/u.test(sql)) return Reflect.apply(prepare, this, [sql]);
         const plan = Reflect.apply(prepare, this, [`EXPLAIN QUERY PLAN ${sql}`]),
           statement = Reflect.apply(prepare, this, [sql]);
         return new Proxy(statement, {
@@ -162,7 +226,7 @@ test("SQLite member reads skip duplicate and orphan dispatch history", async (t)
           assert.ok(
             query.plan.every(
               ({ detail }) =>
-                !/\bSCAN d\b/u.test(detail) &&
+                !/\bSCAN (?:d|r|runtime_dispatch_index)\b/u.test(detail) &&
                 (!/\bSCAN event_index\b/u.test(detail) ||
                   /USING INDEX event_index_runtime_member_pending/u.test(detail)) &&
                 !/CO-ROUTINE \(subquery/u.test(detail) &&
@@ -179,7 +243,7 @@ test("SQLite member reads skip duplicate and orphan dispatch history", async (t)
       } finally {
         guard.mock.restore();
       }
-      db.exec("UPDATE event_index SET runtime_session_present=NULL");
+      db.exec("DELETE FROM runtime_dispatch_index");
       db.exec("UPDATE runtime_read_index_progress SET revision=0,complete=0");
       assert.deepEqual(
         projection

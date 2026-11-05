@@ -380,8 +380,8 @@ test("historical idempotencyKey dispatch is readable by the unified dispatch key
     projection.apply(current);
     const db = new DatabaseSync(projection.path);
     try {
-      db.exec("DROP TRIGGER IF EXISTS runtime_dispatch_key_0; DROP TRIGGER IF EXISTS runtime_dispatch_key_1");
-      db.prepare("UPDATE event_index SET event_json=?,dispatch_key=NULL WHERE op_id=?").run(
+      db.exec("DELETE FROM runtime_dispatch_index");
+      db.prepare("UPDATE event_index SET event_json=? WHERE op_id=?").run(
         serializePersistedCanonicalEvent(historical),
         current.opId,
       );
@@ -398,13 +398,10 @@ test("historical idempotencyKey dispatch is readable by the unified dispatch key
     try {
       const plan = planDb
         .prepare(
-          "EXPLAIN QUERY PLAN SELECT event_json FROM event_index WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1' AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested' AND dispatch_key = ? ORDER BY workspace_revision LIMIT 1",
+          "EXPLAIN QUERY PLAN SELECT e.event_json FROM runtime_dispatch_index r CROSS JOIN event_index e USING(workspace_revision) WHERE r.dispatch_key=? ORDER BY r.workspace_revision LIMIT 1",
         )
         .all(dispatchKey) as readonly { readonly detail: string }[];
-      assert.match(
-        plan.map(({ detail }) => detail).join("\n"),
-        /SEARCH event_index USING INDEX event_index_runtime_dispatch_key/u,
-      );
+      assert.match(plan.map(({ detail }) => detail).join("\n"), /SEARCH r USING COVERING INDEX runtime_dispatch_key/u);
     } finally {
       planDb.close();
     }

@@ -4,64 +4,87 @@ import { queryRows, runSql, transaction } from "./rebuildable-task-projection-sq
 
 const dispatch =
   "json_extract(event_json,'$.schema')='agent-runtime-event/v1' AND json_extract(event_json,'$.type')='runtime_dispatch_requested'";
-const present = `CASE WHEN ${dispatch} AND EXISTS (SELECT 1 FROM runtime_session s WHERE s.runtime_session_id=json_extract(event_index.event_json,'$.payload.runtimeSessionId')) THEN 1 ELSE 0 END`;
-// Unify the historical `idempotencyKey` spelling and the current `dispatchKey` in one indexed
-// column. Non-dispatch rows carry '' so NULL remains the "not yet expanded" marker.
-const dispatchKey = `CASE WHEN ${dispatch} THEN COALESCE(json_extract(event_json,'$.payload.dispatchKey'),json_extract(event_json,'$.payload.idempotencyKey'),'') ELSE '' END`;
+const columns = [
+  "dispatch_key",
+  "runtime_session_id",
+  "agentId",
+  "squadId",
+  "started_at",
+  "dispatch_id",
+  "runtime_session_present",
+];
+const materialize = `INSERT INTO runtime_dispatch_index(workspace_revision,${columns.join(",")})
+  SELECT workspace_revision,
+    COALESCE(json_extract(event_json,'$.payload.dispatchKey'),json_extract(event_json,'$.payload.idempotencyKey'),''),
+    json_extract(event_json,'$.payload.runtimeSessionId'),json_extract(event_json,'$.payload.agentId'),
+    json_extract(event_json,'$.payload.squadId'),COALESCE(json_extract(event_json,'$.payload.startedAt'),json_extract(event_json,'$.occurredAt')),
+    json_extract(event_json,'$.payload.dispatchId'),
+    EXISTS(SELECT 1 FROM runtime_session s WHERE s.runtime_session_id=json_extract(event_json,'$.payload.runtimeSessionId'))
+  FROM event_index WHERE workspace_revision=? AND ${dispatch}
+  ON CONFLICT(workspace_revision) DO UPDATE SET ${columns.map((column) => `${column}=excluded.${column}`).join(",")}`;
 
-/** Expand only. Historical rows are owned by the daemon writer maintenance queue. */
+/** Indexes start empty: both key extraction and B-tree insertion belong to bounded writer pages. */
 export function ensureRuntimeMemberIndex(db: DatabaseSync): void {
-  if (!queryRows(db, "PRAGMA table_info(event_index)").some(({ name }) => name === "runtime_session_present"))
-    runSql(db, "ALTER TABLE event_index ADD COLUMN runtime_session_present INTEGER");
-  if (!queryRows(db, "PRAGMA table_info(event_index)").some(({ name }) => name === "dispatch_key"))
-    runSql(db, "ALTER TABLE event_index ADD COLUMN dispatch_key TEXT");
-  const ddl = [
-    "CREATE INDEX IF NOT EXISTS event_index_runtime_member_pending ON event_index(workspace_revision) WHERE runtime_session_present IS NULL",
-    "CREATE INDEX IF NOT EXISTS event_index_runtime_dispatch_key_pending ON event_index(workspace_revision) WHERE dispatch_key IS NULL",
-    "CREATE INDEX IF NOT EXISTS event_index_runtime_dispatch_key ON event_index(dispatch_key, workspace_revision) WHERE " +
-      dispatch,
-    ...["INSERT", "UPDATE OF event_json"].map(
-      (
-        operation,
-        n,
-      ) => `CREATE TRIGGER IF NOT EXISTS runtime_dispatch_presence_${n} AFTER ${operation} ON event_index BEGIN
-      UPDATE event_index SET runtime_session_present=${present} WHERE op_id=NEW.op_id; END`,
-    ),
-    ...["INSERT", "UPDATE OF event_json"].map(
-      (operation, n) => `CREATE TRIGGER IF NOT EXISTS runtime_dispatch_key_${n} AFTER ${operation} ON event_index BEGIN
-      UPDATE event_index SET dispatch_key=${dispatchKey} WHERE op_id=NEW.op_id; END`,
-    ),
-    `CREATE TRIGGER IF NOT EXISTS runtime_dispatch_session_present AFTER INSERT ON runtime_session BEGIN
-      UPDATE event_index SET runtime_session_present=1 WHERE ${dispatch} AND json_extract(event_json,'$.payload.runtimeSessionId')=NEW.runtime_session_id AND COALESCE(runtime_session_present,0)<>1;
-    END`,
-    `CREATE TRIGGER IF NOT EXISTS runtime_dispatch_session_absent AFTER DELETE ON runtime_session BEGIN
-      UPDATE event_index SET runtime_session_present=0 WHERE ${dispatch} AND json_extract(event_json,'$.payload.runtimeSessionId')=OLD.runtime_session_id AND runtime_session_present=1;
-    END`,
-    ...["agentId", "squadId"].flatMap((member) => [
-      `CREATE INDEX IF NOT EXISTS event_index_runtime_member_${member}_time ON event_index(
-        json_extract(event_json,'$.payload.${member}'), COALESCE(json_extract(event_json,'$.payload.startedAt'),json_extract(event_json,'$.occurredAt')) DESC, json_extract(event_json,'$.payload.dispatchId') DESC
-      ) WHERE ${dispatch}`,
-      `CREATE INDEX IF NOT EXISTS event_index_runtime_member_${member}_session ON event_index(
-        json_extract(event_json,'$.payload.${member}'), json_extract(event_json,'$.payload.runtimeSessionId'), COALESCE(json_extract(event_json,'$.payload.startedAt'),json_extract(event_json,'$.occurredAt')) DESC, json_extract(event_json,'$.payload.dispatchId') DESC
-      ) WHERE ${dispatch} AND runtime_session_present=1`,
-    ]),
-  ];
-  for (const statement of ddl) runSql(db, statement);
-  runSql(
-    db,
-    `CREATE TABLE IF NOT EXISTS runtime_read_index_progress (
+  transaction(db, () => {
+    // Retire the previous derived-column writers. In particular its session trigger scans history.
+    // Existing columns/indexes may remain for rollback; do not free large B-trees during attach.
+    for (const name of [
+      "runtime_dispatch_presence_0",
+      "runtime_dispatch_presence_1",
+      "runtime_dispatch_key_0",
+      "runtime_dispatch_key_1",
+      "runtime_dispatch_session_present",
+      "runtime_dispatch_session_absent",
+    ])
+      runSql(db, `DROP TRIGGER IF EXISTS ${name}`);
+    const existed =
+      queryRows(db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='runtime_dispatch_index'").length > 0;
+    runSql(
+      db,
+      `CREATE TABLE IF NOT EXISTS runtime_dispatch_index (
+    workspace_revision INTEGER PRIMARY KEY, dispatch_key TEXT NOT NULL, runtime_session_id TEXT,
+    agentId TEXT, squadId TEXT, started_at TEXT, dispatch_id TEXT, runtime_session_present INTEGER NOT NULL
+  )`,
+    );
+    const ddl = [
+      "CREATE INDEX IF NOT EXISTS runtime_dispatch_key ON runtime_dispatch_index(dispatch_key,workspace_revision)",
+      "CREATE INDEX IF NOT EXISTS runtime_dispatch_session ON runtime_dispatch_index(runtime_session_id)",
+      ...["agentId", "squadId"].flatMap((member) => [
+        `CREATE INDEX IF NOT EXISTS runtime_dispatch_${member}_time ON runtime_dispatch_index(${member},started_at DESC,dispatch_id DESC)`,
+        `CREATE INDEX IF NOT EXISTS runtime_dispatch_${member}_session ON runtime_dispatch_index(${member},runtime_session_id,started_at DESC,dispatch_id DESC) WHERE runtime_session_present=1`,
+      ]),
+      ...["INSERT", "UPDATE OF event_json,workspace_revision"].map(
+        (operation, n) =>
+          `CREATE TRIGGER IF NOT EXISTS runtime_read_index_event_${n} AFTER ${operation} ON event_index BEGIN
+        DELETE FROM runtime_dispatch_index WHERE workspace_revision IN (NEW.workspace_revision${n === 1 ? ",OLD.workspace_revision" : ""});
+        ${materialize.replace("workspace_revision=?", "workspace_revision=NEW.workspace_revision")}; END`,
+      ),
+      `CREATE TRIGGER IF NOT EXISTS runtime_read_index_event_delete AFTER DELETE ON event_index BEGIN
+      DELETE FROM runtime_dispatch_index WHERE workspace_revision=OLD.workspace_revision; END`,
+      `CREATE TRIGGER IF NOT EXISTS runtime_read_index_session_present AFTER INSERT ON runtime_session BEGIN
+      UPDATE runtime_dispatch_index SET runtime_session_present=1 WHERE runtime_session_id=NEW.runtime_session_id AND runtime_session_present<>1; END`,
+      `CREATE TRIGGER IF NOT EXISTS runtime_read_index_session_absent AFTER DELETE ON runtime_session BEGIN
+      UPDATE runtime_dispatch_index SET runtime_session_present=0 WHERE runtime_session_id=OLD.runtime_session_id AND runtime_session_present=1; END`,
+    ];
+    for (const statement of ddl) runSql(db, statement);
+    runSql(
+      db,
+      `CREATE TABLE IF NOT EXISTS runtime_read_index_progress (
     singleton INTEGER PRIMARY KEY CHECK(singleton=1), revision INTEGER NOT NULL, complete INTEGER NOT NULL
   )`,
-  );
-  runSql(
-    db,
-    `INSERT OR IGNORE INTO runtime_read_index_progress
-    SELECT 1,0,CASE WHEN EXISTS(SELECT 1 FROM event_index WHERE runtime_session_present IS NULL LIMIT 1)
-      OR EXISTS(SELECT 1 FROM event_index WHERE dispatch_key IS NULL LIMIT 1) THEN 0 ELSE 1 END`,
-  );
+    );
+    // A cache completed by the previous column-based implementation must fill the new empty index.
+    // The table's existence makes this reset one-time and durable across repeated opens.
+    if (!existed) runSql(db, "UPDATE runtime_read_index_progress SET revision=0,complete=0");
+    runSql(
+      db,
+      `INSERT OR IGNORE INTO runtime_read_index_progress
+    SELECT 1,0,CASE WHEN EXISTS(SELECT 1 FROM event_index LIMIT 1) THEN 0 ELSE 1 END`,
+    );
+  });
 }
 
-/** One committed revision page; NULL partial indexes and the durable cursor skip completed history. */
+/** Seek the existing revision index; one transaction materializes at most 64 source rows. */
 export function backfillRuntimeReadIndexPage(db: DatabaseSync): { processed: number; done: boolean } {
   return transaction(db, () => {
     const progress = queryRows<{ revision: number; complete: number }>(
@@ -71,24 +94,10 @@ export function backfillRuntimeReadIndexPage(db: DatabaseSync): { processed: num
     if (progress.complete) return { processed: 0, done: true };
     const rows = queryRows<{ workspace_revision: number }>(
       db,
-      `SELECT workspace_revision FROM (
-      SELECT workspace_revision FROM (SELECT workspace_revision FROM event_index
-        WHERE runtime_session_present IS NULL AND workspace_revision>? ORDER BY workspace_revision LIMIT 64)
-      UNION SELECT workspace_revision FROM (SELECT workspace_revision FROM event_index
-        WHERE dispatch_key IS NULL AND workspace_revision>? ORDER BY workspace_revision LIMIT 64)
-      ) ORDER BY workspace_revision LIMIT 64`,
-      progress.revision,
+      "SELECT workspace_revision FROM event_index WHERE workspace_revision>? ORDER BY workspace_revision LIMIT 64",
       progress.revision,
     );
-    for (const row of rows)
-      runSql(
-        db,
-        `UPDATE event_index SET
-        runtime_session_present=CASE WHEN runtime_session_present IS NULL THEN ${present} ELSE runtime_session_present END,
-        dispatch_key=CASE WHEN dispatch_key IS NULL THEN ${dispatchKey} ELSE dispatch_key END
-        WHERE workspace_revision=?`,
-        row.workspace_revision,
-      );
+    for (const row of rows) runSql(db, materialize, row.workspace_revision);
     if (rows.length === 0) runSql(db, "UPDATE runtime_read_index_progress SET complete=1 WHERE singleton=1");
     else
       runSql(
@@ -101,7 +110,7 @@ export function backfillRuntimeReadIndexPage(db: DatabaseSync): { processed: num
 }
 
 export function runtimeReadIndexReady(db: DatabaseSync): boolean {
-  if (!queryRows(db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='runtime_read_index_progress'").length)
+  if (!queryRows(db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='runtime_dispatch_index'").length)
     return false;
   return queryRows(db, "SELECT 1 FROM runtime_read_index_progress WHERE singleton=1 AND complete=1").length > 0;
 }

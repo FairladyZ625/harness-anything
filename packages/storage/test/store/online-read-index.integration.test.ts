@@ -53,9 +53,9 @@ test("100000 events: projection open must not consume historical read-index back
     try {
       // Reconstruct the immediately previous binary's populated projection: all old columns,
       // indexes, and presence triggers are retained; only the newly introduced key is absent.
-      db.exec(`DROP TRIGGER runtime_dispatch_key_0; DROP TRIGGER runtime_dispatch_key_1;
-        DROP INDEX event_index_runtime_dispatch_key; DROP INDEX event_index_runtime_dispatch_key_pending;
-        ALTER TABLE event_index DROP COLUMN dispatch_key; DROP TABLE runtime_read_index_progress`);
+      db.exec(`DROP TRIGGER runtime_read_index_event_0; DROP TRIGGER runtime_read_index_event_1;
+        DROP TRIGGER runtime_read_index_event_delete; DROP TRIGGER runtime_read_index_session_present;
+        DROP TRIGGER runtime_read_index_session_absent; DROP TABLE runtime_dispatch_index; DROP TABLE runtime_read_index_progress`);
       seed(db, 100000);
       sourceRevision = 100000;
       db.exec("UPDATE projection_meta SET watermark=100000,scanned_revision=100000");
@@ -92,7 +92,10 @@ test("100000 events: projection open must not consume historical read-index back
       const key = projection.readRuntimeDispatchByDispatchKey("key-100000");
       assert.equal(key?.event.payload.dispatchId, "dispatch-100000");
       assert.equal(applied, 0, "opening must never consume a backfill page");
-      assert.ok(upgradeOpenMs < 5000, `100000-row expand took ${upgradeOpenMs}ms`);
+      const opened = new DatabaseSync(projectionPath, { readOnly: true });
+      assert.equal(opened.prepare("SELECT revision FROM runtime_read_index_progress").get()!.revision, 0);
+      assert.equal(opened.prepare("SELECT count(*) AS n FROM runtime_dispatch_index").get()!.n, 0);
+      opened.close();
       const first = projection.backfillReadIndexes!();
       assert.deepEqual(first, { processed: 64, done: false });
       const progressDb = new DatabaseSync(projectionPath, { readOnly: true });
@@ -120,7 +123,7 @@ test("100000 events: projection open must not consume historical read-index back
         }
         assert.equal(processed, 100000);
         assert.equal(inspect.prepare("SELECT complete FROM runtime_read_index_progress").get()!.complete, 1);
-        assert.equal(inspect.prepare("SELECT count(*) AS n FROM event_index WHERE dispatch_key IS NULL").get()!.n, 0);
+        assert.equal(inspect.prepare("SELECT count(*) AS n FROM runtime_dispatch_index").get()!.n, 100000);
         // Complete readers return the same history after the last batch commits.
         assert.equal(warm.readRuntimeDispatchByDispatchKey("key-100000")?.event.payload.dispatchId, "dispatch-100000");
         assert.deepEqual(warm.backfillReadIndexes!(), { processed: 0, done: true });
