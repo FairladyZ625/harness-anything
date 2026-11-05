@@ -249,15 +249,14 @@ export function compileExecutionExecutorDeclaration(input: {
     input.executor.kind !== "agent" ||
     !isNonEmptyString(input.executor.id) ||
     (input.dispatchTaskId !== undefined && !isNonEmptyString(input.dispatchTaskId)) ||
-    (input.actor.executor !== null && stableStringify(input.actor.executor) !== stableStringify(input.executor)) ||
     !isNonEmptyString(input.reason) ||
     input.workspaceRevision <= input.snapshot.revision
   )
     throw new TaskLifecycleContractError("invalid_proof", [
       lifecycleContractIssue(
         "invalid_executor_declaration",
-        "executor declaration requires the same principal to bind a dispatched agent to a submitted Execution at the " +
-          "review node that originally declared no executor; unblock a blocked task before retrying",
+        "executor declaration requires the execution's own principal to declare an agent for a submitted " +
+          "Execution at the review node that originally declared no executor; unblock a blocked task before retrying",
       ),
     ]);
   // The repair preserves the adjudication corridor: a `submitted` cut awaiting review

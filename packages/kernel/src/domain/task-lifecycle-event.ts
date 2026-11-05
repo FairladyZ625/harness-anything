@@ -546,14 +546,12 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
       (previousActor as ActorAxes).executor !== null ||
       (executionActor as ActorAxes).executor === null ||
       !isSamePerson(previousActor as ActorAxes, value.actor as ActorAxes) ||
-      !isSamePerson(executionActor as ActorAxes, value.actor as ActorAxes) ||
-      ((value.actor as ActorAxes).executor !== null &&
-        !sameActorIdentity(executionActor as ActorAxes, value.actor as ActorAxes))
+      !isSamePerson(executionActor as ActorAxes, value.actor as ActorAxes)
     )
       issues.push(
         invalidEventPayloadIssue(
           "executor declaration must preserve the previous bare actor, " +
-            "bind a dispatched agent on the same principal, and state a reason",
+            "bind a same-principal agent, and state a reason",
         ),
       );
   }

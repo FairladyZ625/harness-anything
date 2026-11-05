@@ -89,7 +89,7 @@ export function readCompletionContext(
               projection,
               taskId,
               executionId: executorlessReview.executionId,
-            }).authoring.map((candidate) => candidate.executorId),
+            }).exact.map((candidate) => candidate.executorId),
           }
         : {}),
       delivery: readCompletionDeliveryStatus(projection, snapshot, rootDir),

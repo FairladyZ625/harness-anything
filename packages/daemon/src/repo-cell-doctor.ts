@@ -225,7 +225,7 @@ function executorUndeclaredCheck(
         projection: cell.projection,
         taskId: entry.taskId,
         executionId: entry.executionId,
-      }).authoring.map((candidate) => candidate.executorId),
+      }).exact.map((candidate) => candidate.executorId),
     }));
   return {
     id: "executor-undeclared",

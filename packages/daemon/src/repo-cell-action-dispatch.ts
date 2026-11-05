@@ -30,7 +30,7 @@ import { runMigrationImport } from "./migration-import.ts";
 import { assertExecutionExecutorDeclarationEligible } from "./repo-cell-execution-selection.ts";
 import { runLedgerReconcileAction } from "./repo-cell-migration-actions.ts";
 import { type RepoCellBinding, type RepoTaskAction, type Snapshot } from "./repo-cell-types.ts";
-import { taskLineageExecutorCandidates } from "./dispatch-read.ts";
+import { selectExecutorDeclaration, taskLineageExecutorCandidates } from "./dispatch-read.ts";
 import { readCompletionContext } from "./task-completion-read.ts";
 import { dispatchDecisionReview, dispatchTaskReview } from "./task-review-dispatch.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
@@ -862,49 +862,47 @@ function dispatchedExecutor(
       taskId,
       executionId,
     }),
-    candidates = lineage.authoring,
-    matches = requested
-      ? candidates.filter(
-          (candidate) =>
-            requested === candidate.executorId ||
-            requested === candidate.runtimeSessionId ||
-            requested === candidate.agentId,
-        )
-      : candidates;
-  if (matches.length === 1)
+    selection = selectExecutorDeclaration({
+      requested,
+      exact: lineage.exact,
+      fallback: lineage.fallback,
+      reviewerIdentities: lineage.reviewerIdentities,
+    });
+  if (selection.kind === "replay")
     return {
-      executor: { kind: "agent", id: matches[0]!.executorId },
-      dispatchTaskId: matches[0]!.dispatchTaskId,
+      executor: { kind: "agent", id: selection.candidate.executorId },
+      dispatchTaskId: selection.candidate.dispatchTaskId,
     };
-  const choices = candidates.map((candidate) => candidate.executorId);
-  if (candidates.length === 0) {
+  if (selection.kind === "external") {
     assertExecutionExecutorDeclarationEligible(snapshot, taskId, executionId, declarationCandidates);
-    if (requested === undefined)
-      throw cell.cellCodedError(
-        "invalid_proof",
-        `Task ${taskId} has no authoring dispatch to replay. Declare the agent that performed the work with ` +
-          `ha task declare-executor ${taskId} --execution-id ${executionId} --agent <agent-id> ` +
-          "--reason <auditable-recovery-reason>; reviewer sessions never carry executor attribution.",
-      );
-    if (lineage.reviewerExecutorIds.has(requested))
-      throw cell.cellCodedError(
-        "invalid_proof",
-        `--agent ${requested} is a reviewer session on this lineage; reviewer sessions never carry executor ` +
-          "attribution. Name the authoring agent that performed the work.",
-      );
-    // Out-of-ledger work has no dispatch to replay: the owner's explicit agent id and reason are
-    // the attribution record, written through the same declaration event as a replayed dispatch.
-    return { executor: { kind: "agent", id: requested } };
+    // Out-of-ledger work has no dispatch to replay: the caller's explicit agent id and the reason
+    // are the attribution record, written through the same declaration event as a replayed dispatch.
+    return { executor: { kind: "agent", id: selection.executorId } };
   }
-  if (requested)
+  if (selection.kind === "reviewer-alias")
     throw cell.cellCodedError(
       "invalid_proof",
-      `--agent ${requested} does not name exactly one dispatch for execution ${executionId}. ` +
-        `Choose ${choices.join(" or ")} from ha task dispatches ${taskId}.`,
+      `--agent ${selection.requested} is a reviewer identity on this lineage; reviewer sessions never carry ` +
+        "executor attribution. Name the authoring agent that performed the work.",
+    );
+  if (selection.kind === "owner-declaration-required") {
+    assertExecutionExecutorDeclarationEligible(snapshot, taskId, executionId, declarationCandidates);
+    throw cell.cellCodedError(
+      "invalid_proof",
+      `Task ${taskId} has no authoring dispatch to replay. Declare the agent that performed the work with ` +
+        `ha task declare-executor ${taskId} --execution-id ${executionId} --agent <agent-id> ` +
+        "--reason <auditable-recovery-reason>; reviewer sessions never carry executor attribution.",
+    );
+  }
+  if (selection.requested !== undefined)
+    throw cell.cellCodedError(
+      "invalid_proof",
+      `--agent ${selection.requested} does not name exactly one dispatch for execution ${executionId}. ` +
+        `Choose ${selection.choices.join(" or ")} from ha task dispatches ${taskId}.`,
     );
   throw cell.cellCodedError(
     "invalid_command",
-    `Execution ${executionId} has multiple dispatched executors. Choose one explicitly with ${choices
+    `Execution ${executionId} has multiple dispatched executors. Choose one explicitly with ${selection.choices
       .map(
         (agent) =>
           `ha task declare-executor ${taskId} --execution-id ${executionId} --agent ${agent} --reason <reason>`,
