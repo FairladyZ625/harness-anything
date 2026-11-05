@@ -149,6 +149,17 @@ export const READ_PROBES = Object.freeze({
       }),
     size: (value) => value.edges.length,
   },
+  "relation-freshness-page": {
+    // Freshness derives permission-scoped witnesses before filtering and paging.
+    // The unfiltered relation-page probe does not exercise that scan.
+    reads: ["command:relation-list"],
+    run: ({ runtime }) =>
+      runtime.run(
+        { kind: "relation-list", relationType: "depends-on", state: "active", freshness: "suspect", limit: 1 },
+        runtime.binding,
+      ),
+    size: (value) => JSON.parse(value.evidence).rows.length,
+  },
   "startup-adopt": {
     reads: ["background:startup-adopt"],
     run: ({ recovery }) => adoptRuntimes(recovery),

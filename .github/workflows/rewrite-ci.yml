@@ -668,7 +668,10 @@ jobs:
       - run: echo "npm_package_config_node_gyp_nodedir=$(dirname "$(dirname "$(command -v node)")")" >> "$GITHUB_ENV"
       - run: npm ci
       - name: Reject history-dependent reads (G38)
-        timeout-minutes: 2
+        # Hang protection, not a cost budget. Run 41937390979's 14 shard logs
+        # measured 3.084–122.249s; pglite/task-outputs was slowest (job 126956238665).
+        # ceil(2 * 122.249 / 60) = 5 minutes; cost margins and existing probes stay intact.
+        timeout-minutes: 5
         env:
           G38_PHASE: read
           G38_BACKEND: ${{ matrix.backend }}
