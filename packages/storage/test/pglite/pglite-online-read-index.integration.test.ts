@@ -9,6 +9,7 @@ import { pgliteIntegrationSuite } from "./pglite-runtime.fixture.ts";
 import { reduceDecisionDocument } from "@harness-anything/kernel/internal/domain/decision-event-document.ts";
 import { proposal } from "../store/relation-graph-projection.fixtures.ts";
 import { createPGliteTaskQueryReader } from "../../src/pglite/query-owner.ts";
+import { withPostgresTransaction } from "../../src/postgres/transaction.ts";
 
 const scope = { tenantId: "online", projectId: "online", policyEpoch: 1 },
   repoId = "online";
@@ -190,6 +191,17 @@ pgliteIntegrationSuite("PGlite online read-index expansion", () => {
         await assert.rejects(backend.pool.query("INSERT INTO ha_events SELECT * FROM ha_events LIMIT 1"), {
           code: "23505",
         });
+        await backend.pool.query("CREATE ROLE ha_online_reader NOLOGIN");
+        await backend.pool.query("GRANT SELECT ON ha_events,ha_decisions TO ha_online_reader");
+        await withPostgresTransaction(
+          backend.pool,
+          async (client) => {
+            await client.query("SET LOCAL ROLE ha_online_reader");
+            for (const table of ["ha_events", "ha_decisions"])
+              assert.equal((await client.query(`SELECT count(*)::integer AS n FROM ${table}`)).rows[0]!.n, 0);
+          },
+          { ...scope, tenantId: "another-tenant" },
+        );
         await backend.close();
         backend = await createPGliteStorageBackend({ repoId, storage });
         assert.deepEqual(await backend.backfillReadIndexes(), { processed: 0, done: true });
