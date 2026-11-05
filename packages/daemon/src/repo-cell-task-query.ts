@@ -1,5 +1,5 @@
 import { mergedCloseoutCandidates } from "./task-merged-closeout.ts";
-import { requireTaskCollectionReady, taskPresentationReads } from "./task-presentation-read.ts";
+import { requireTaskParentMetadata, taskPresentationReads } from "./task-presentation-read.ts";
 import {
   admitTaskExecutionWip,
   allowsTaskStatusMove,
@@ -125,7 +125,7 @@ export function taskListPayload(
           }
         : { activePackagesOnly: true, requireParentMetadata: true },
     );
-  requireTaskCollectionReady(read, !flat || typeof action.parentTaskId === "string");
+  if (!flat || typeof action.parentTaskId === "string") requireTaskParentMetadata(read);
   let selected: ReturnType<typeof selectTaskIndex>;
   try {
     selected = selectTaskIndex(

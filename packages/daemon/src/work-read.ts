@@ -1,4 +1,4 @@
-import { requireTaskCollectionReady, taskPresentationReads } from "./task-presentation-read.ts";
+import { requireTaskParentMetadata, taskPresentationReads } from "./task-presentation-read.ts";
 import type {
   TaskIndexProjectionRow,
   TaskProjection,
@@ -44,7 +44,7 @@ export function workListFromProjection(
     activePackagesOnly: true,
     requireParentMetadata: true,
   });
-  requireTaskCollectionReady(read, true);
+  requireTaskParentMetadata(read);
   const rows = workRows(read.rows).filter((row) => input.all === true || !isTerminalStatus(row.status));
   return {
     schema: "work-list/v1" as const,
@@ -202,7 +202,7 @@ export function workIndexFromProjection(projection: TaskProjection) {
     activePackagesOnly: true,
     requireParentMetadata: true,
   });
-  requireTaskCollectionReady(read, true);
+  requireTaskParentMetadata(read);
   const byId = new Map(read.rows.map((row) => [row.taskId, row])),
     works = workRows(read.rows),
     members = new Map(works.map(({ taskId }) => [taskId, [] as string[]]));
