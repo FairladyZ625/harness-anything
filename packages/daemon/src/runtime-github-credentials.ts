@@ -4,8 +4,9 @@ import { runProcessExitAsync } from "./process-port.ts";
 import { registerSecretValue } from "./secret-scrub.ts";
 
 /**
- * The one launch-time injection point for the operator's GitHub credential. Every runtime child,
- * under enforced isolation or the operator environment, receives the same pair:
+ * The one launch-time injection point for the operator's GitHub credential. Runtime children that
+ * preserve credential-shaped environment names, under enforced isolation or the operator
+ * environment, receive the same pair:
  *
  *   GH_TOKEN                    the operator's own token, read once per launch
  *   GIT_CONFIG_*                github.com's credential helper is `gh auth git-credential`
