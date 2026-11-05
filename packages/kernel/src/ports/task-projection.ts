@@ -233,6 +233,10 @@ export interface TaskProjection {
   readonly readLatestRuntimeDispatchesByTaskIds: (
     taskIds: readonly string[],
   ) => readonly Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>[];
+  /** The newest dispatch for one runtime session; never its session history. */
+  readonly readLatestRuntimeDispatchBySession: (
+    runtimeSessionId: string,
+  ) => Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> | null;
   /** Dispatch ids starting with `prefix`, id order, capped at `limit` (`1..500`). */
   readonly readRuntimeDispatchByDispatchIdPrefix: (
     prefix: string,

@@ -775,7 +775,7 @@ export function listTaskRowsNarrow(
     }
   }
   const leaseJoin = query.leaseOnly
-      ? " JOIN (SELECT DISTINCT task_id FROM lease_interval WHERE released_revision IS NULL AND lease_expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')) lease_task ON lease_task.task_id = task_snapshot.task_id"
+      ? " JOIN (SELECT DISTINCT task_id FROM lease_interval WHERE released_revision IS NULL AND task_active = 1) lease_task ON lease_task.task_id = task_snapshot.task_id"
       : "",
     paged = query.limit !== undefined || query.cursor !== undefined,
     pageLimit = query.limit === undefined ? (paged ? 100 : null) : checkedPageLimit(query.limit);

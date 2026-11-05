@@ -113,6 +113,7 @@ export function taskQueryApi(
   | "readRuntimeDispatchEventsBySession"
   | "readRuntimeDispatchesByTaskIds"
   | "readLatestRuntimeDispatchesByTaskIds"
+  | "readLatestRuntimeDispatchBySession"
   | "readRuntimeDispatchByDispatchIdPrefix"
   | "countRuntimeDispatchesByAgent"
   | "readRuntimeDispatchesByTaskExecution"

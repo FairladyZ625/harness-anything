@@ -58,6 +58,7 @@ const dispatchIndexes = [
   // fleet overview reads one current dispatch per lease row. Effective time is
   // `startedAt ?? occurredAt`, matching the dispatch row's timestamp fallback.
   ["task_effective_time", "payload_task_id,(COALESCE(dispatch_started_at, occurred_at)) DESC,dispatch_id DESC"],
+  ["session_effective_time", "runtime_session_id,(COALESCE(dispatch_started_at, occurred_at)) DESC,dispatch_id DESC"],
 ] as const;
 
 /** RLS-safe scalar indexes over immutable event bytes; only a disposable parsing copy is JSONB.

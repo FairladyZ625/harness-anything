@@ -821,6 +821,11 @@ test("runtime dispatch history supports keyed reads and done-driven startedAt pa
       ["dispatch_history_2"],
     );
     assert.deepEqual(projection.readLatestRuntimeDispatchesByTaskIds(["missing-task"]), []);
+    assert.equal(
+      projection.readLatestRuntimeDispatchBySession("runtime-history-0")?.payload.dispatchId,
+      "dispatch_history_1",
+    );
+    assert.equal(projection.readLatestRuntimeDispatchBySession("missing-session"), null);
     assert.throws(() => projection.readLatestRuntimeDispatchesByTaskIds([]), /1\.\.500/u);
     assert.throws(() => projection.readLatestRuntimeDispatchesByTaskIds(["task-history", "task-history"]), /1\.\.500/u);
     assert.deepEqual(
@@ -859,6 +864,43 @@ test("runtime dispatch history supports keyed reads and done-driven startedAt pa
     assert.equal(second.done, true);
     assert.equal(second.nextCursor, null);
     assert.equal(second.rows[0]?.event.payload.dispatchId, "dispatch_history_2");
+  });
+});
+
+test("latest dispatch uses occurredAt when a newer event omits startedAt on the same task", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const store = makeTaskEventStore({ repoId: "runtime-race", rootDir }),
+      projection = makeTaskProjection({ rootDir, eventStore: store }),
+      requestedBase = witness("runtime_dispatch_requested");
+    for (const [index, payload] of [
+      {
+        dispatchId: "dispatch_race_old",
+        startedAt: "2026-09-01T10:00:00.000Z",
+      },
+      { dispatchId: "dispatch_race_new" },
+    ].entries()) {
+      const raced = eventFromProviderWitness(
+        {
+          ...requestedBase,
+          payload: {
+            ...requestedBase.payload,
+            ...payload,
+            runtimeSessionId: `runtime-race-${index}`,
+            taskId: "task-race",
+            executionId: "execution-race",
+            agentId: "agent-race",
+          },
+        },
+        { ...envelope(index + 1), occurredAt: `2026-09-0${index + 1}T11:00:00.000Z` },
+      )!;
+      store.append(bundle(raced));
+      projection.apply(raced);
+    }
+    assert.deepEqual(
+      projection.readLatestRuntimeDispatchesByTaskIds(["task-race"]).map(({ payload }) => payload.dispatchId),
+      ["dispatch_race_new"],
+    );
   });
 });
 

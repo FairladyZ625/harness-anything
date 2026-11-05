@@ -229,16 +229,16 @@ export function pgEventQueries(options: PgTaskProjectionSourceOptions) {
           throw new Error("event summary page requires a non-negative revision and a limit from 1 to 2048");
         const cut = await readCutInTransaction(client, claims, readers, repoId);
         if (fields === "fleet") {
-          // The fleet overview renders only the event header. `summary_json` is computed in JS at
-          // write time and stored as text: parsing a whole event with jsonb would reject legal
-          // NUL bytes in provider strings, and shipping whole bodies would charge one large event
-          // to a fixed page. Old rows without a summary fall back to the canonical text and are
-          // still parsed by the same JS summary function.
+          // The fleet overview renders only a bounded header. `summary_json` is the fleet summary
+          // computed in JS at write time (and backfilled for old rows): parsing a whole event with
+          // jsonb would reject legal NUL bytes in provider strings, and shipping whole bodies would
+          // charge one large historical event to a fixed page.
           const result = await client.query<{ event_json: string }>(
-            `SELECT COALESCE(summary_json, event_json) AS event_json
+            `SELECT summary_json AS event_json
              FROM ha_events
              WHERE tenant_id=$1 AND project_id=$2 AND repo_id=$3 AND policy_epoch=$4
                AND event_type <> 'ci_run_observed'
+               AND summary_json IS NOT NULL
                AND (cardinality($5::text[]) = 0 OR readers && $5::text[])
                AND revision <= $7 AND revision > $6
              ORDER BY revision ASC LIMIT $8`,

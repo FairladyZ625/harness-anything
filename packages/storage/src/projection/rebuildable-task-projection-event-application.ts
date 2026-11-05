@@ -734,6 +734,8 @@ export function applyEvent(
       event.payload.task.status,
       event.occurredAt,
     );
+    if (event.payload.task.status !== "active")
+      runSql(db, "UPDATE lease_interval SET task_active = 0 WHERE task_id = ? AND task_active = 1", event.taskId);
     refreshTaskRelationProjection(db, event.taskId, event.payload.task, event.workspaceRevision, event.occurredAt);
     upsertPresetSnapshot(
       db,

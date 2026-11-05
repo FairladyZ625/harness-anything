@@ -27,6 +27,7 @@ export type PgRuntimeDispatchQueries = AsyncQueries<
   | "readRuntimeDispatchEventsBySession"
   | "readRuntimeDispatchesByTaskIds"
   | "readLatestRuntimeDispatchesByTaskIds"
+  | "readLatestRuntimeDispatchBySession"
   | "readRuntimeDispatchByDispatchIdPrefix"
   | "countRuntimeDispatchesByAgent"
   | "readRuntimeDispatchesByTaskExecution"
@@ -188,6 +189,19 @@ export function pgRuntimeDispatchQueries(options: PgTaskProjectionSourceOptions)
         return result.rows.map(({ event_json }) =>
           publicRuntimeDispatch(eventIndexEvent(JSON.parse(event_json) as Dispatch)),
         );
+      }),
+    readLatestRuntimeDispatchBySession: (runtimeSessionId) =>
+      transaction(async (client) => {
+        if (typeof runtimeSessionId !== "string" || runtimeSessionId.length === 0)
+          throw new Error("runtime dispatch session latest read requires a non-empty session id");
+        const rows = await readDispatchRows(
+          client,
+          "runtime_session_id=$6",
+          [runtimeSessionId],
+          "COALESCE(ha_events.dispatch_started_at, ha_events.occurred_at) DESC, ha_events.dispatch_id DESC",
+          1,
+        );
+        return rows[0] ? publicRuntimeDispatch(rows[0]) : null;
       }),
     readRuntimeDispatchByDispatchIdPrefix: (prefix, limit) =>
       transaction(async (client) => {

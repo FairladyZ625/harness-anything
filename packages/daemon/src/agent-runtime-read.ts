@@ -288,11 +288,16 @@ export function makeAgentRuntimeReadModel(input: {
           // never enters the read.
           .readRuntimeSessions(query.unsettledOnly ? { inFlightOnly: true } : undefined)
           .filter((session) => runtimeSessionInActivityWindow(session, query.since)),
-        // Read the window sessions' own dispatches; the previous full-class scan made this
-        // projection facet's cost follow total dispatch history (F-28FB7113).
-        windowedDispatchEvents = sessions.flatMap((session) =>
-          input.projection.readRuntimeDispatchEventsBySession(session.runtimeSessionId),
-        ),
+        // In-flight aggregation reads one newest dispatch per live session, never the session's
+        // dispatch history. The full page (not unsettledOnly) still reads the history it renders.
+        windowedDispatchEvents = query.unsettledOnly
+          ? sessions.flatMap((session) => {
+              const latest = input.projection.readLatestRuntimeDispatchBySession(session.runtimeSessionId);
+              return latest === null ? [] : [latest];
+            })
+          : sessions.flatMap((session) =>
+              input.projection.readRuntimeDispatchEventsBySession(session.runtimeSessionId),
+            ),
         dispatchStartedAt = latestDispatchStartedAt(windowedDispatchEvents),
         // The in-flight aggregation needs the same grouping fields (reviewTarget, agent/squad)
         // as the full page; a shallow row keeps those bounded and drops the task-snapshot,

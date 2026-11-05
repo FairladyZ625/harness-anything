@@ -12,7 +12,7 @@ import {
   type CanonicalEventStore,
 } from "@harness-anything/kernel/internal/ports/task-event-store.ts";
 import { sha256Bytes, sha256Text } from "@harness-anything/kernel/internal/integrity/stable-hash.ts";
-import { canonicalEventSummary } from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";
+import { canonicalEventFleetSummary } from "@harness-anything/kernel/internal/domain/canonical-event-summary.ts";
 import {
   canonicalEventContentClaims,
   canonicalEventCut,
@@ -303,7 +303,7 @@ export async function executePostgresAppend(
             event.eventJson,
             // One bounded header computed by the same canonical summary used at read time. Keeping
             // it as text (never jsonb) is what makes legal NUL provider bytes readable.
-            JSON.stringify(canonicalEventSummary(parsedEvent)),
+            JSON.stringify(canonicalEventFleetSummary(parsedEvent)),
             event.eventDigest,
             event.occurredAt,
             event.actorRefs,
