@@ -11,7 +11,7 @@ import { readTaskAncestry } from "./task-ancestry-read.ts";
 /** The read side this assembler needs; it writes nothing and takes no lease. */
 export type TaskReadSetProjection = Pick<
   TaskProjection,
-  "read" | "readRelationQuery" | "readEntityVersionWitness" | "readTaskIndex" | "readDocumentMetadata"
+  "readRelationQuery" | "readEntityVersionWitness" | "readTaskIndex" | "readDocumentMetadata"
 >;
 
 /**
@@ -41,9 +41,19 @@ export function readTaskReadSet(
     const entityRef = row.sourceRef === taskRef ? row.targetRef : row.sourceRef;
     if (entityRef === taskRef || counterparts.has(entityRef)) continue;
     const parsed = parseEntityRef(entityRef);
+    const taskIndex = parsed?.kind === "task" ? projection.readTaskIndex({ taskIds: [parsed.id] }) : null;
+    if (
+      taskIndex &&
+      (taskIndex.status !== relations.status ||
+        taskIndex.watermark !== relations.watermark ||
+        taskIndex.sourceRevision !== relations.sourceRevision)
+    )
+      throw new Error("Task read set spans multiple event projection cuts.");
     counterparts.set(entityRef, {
       witness: projection.readEntityVersionWitness(entityRef),
-      ...(parsed?.kind === "task" ? { packagePath: projection.read(parsed.id).packagePath } : {}),
+      ...(parsed?.kind === "task"
+        ? { packagePath: taskIndex?.rows.find((row) => row.taskId === parsed.id)?.packagePath ?? null }
+        : {}),
     });
   }
   const input = {

@@ -1,4 +1,4 @@
-import { deriveTaskReadSet, type TaskProjection } from "@harness-anything/kernel";
+import { type TaskProjection } from "@harness-anything/kernel";
 
 /** Follow only parent IDs. Each projection read is checked by the caller against its serving cut. */
 export function readTaskAncestry(
@@ -24,7 +24,6 @@ export function readTaskAncestry(
     if (currentId !== taskId) rows.push(row);
     currentId = row.parentTaskId;
   }
-  const cut = reads[0]!;
   const planReads = rows.map((row) =>
     row.packagePath === null ? null : projection.readDocumentMetadata(`${row.packagePath}/task_plan.md`),
   );
@@ -33,12 +32,5 @@ export function readTaskAncestry(
     contentVersion: planReads[index]?.document?.workspaceRevision ?? null,
     documentAvailable: planReads[index]?.document != null,
   }));
-  const readSet = deriveTaskReadSet({
-    taskRef: `task/${taskId}`,
-    edges: [],
-    counterparts: new Map(),
-    ancestors,
-    projectionCut: { status: cut.status, watermark: cut.watermark, sourceRevision: cut.sourceRevision },
-  });
-  return { rows, ancestors, reads: [...reads, ...planReads.filter((read) => read !== null)], readSet };
+  return { rows, ancestors, reads: [...reads, ...planReads.filter((read) => read !== null)] };
 }

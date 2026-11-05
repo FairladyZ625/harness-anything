@@ -216,22 +216,45 @@ test("generated provenance edges do not trigger counterpart reads", async () => 
     targetObservedVersion: 1,
     currentTargetVersion: 1,
   }));
+  const explicit = {
+    relationId: "rel_required",
+    sourceRef: taskRef,
+    targetRef: "task/task_required",
+    relationType: "depends-on",
+    direction: "directed",
+    state: "active",
+    strength: "strong",
+    origin: "declared",
+    freshness: "current",
+    rationale: "required task",
+    targetObservedVersion: 1,
+    currentTargetVersion: 1,
+  };
   let witnessReads = 0;
+  const indexQueries: string[][] = [];
   const projection = {
-    readTaskIndex: () => ({ ...cut, rows: [] }),
-    readRelationQuery: () => ({ ...cut, rows: generated }),
-    readEntityVersionWitness: () => {
+    readTaskIndex: (query: { taskIds: string[] }) => {
+      indexQueries.push(query.taskIds);
+      return {
+        ...cut,
+        rows: query.taskIds.includes("task_required")
+          ? [{ taskId: "task_required", packagePath: "tasks/required" }]
+          : [],
+      };
+    },
+    readRelationQuery: () => ({ ...cut, rows: [...generated, explicit] }),
+    readEntityVersionWitness: (entityRef: string) => {
       witnessReads += 1;
-      throw new Error("generated edges need no witness");
+      return { entityRef, freshness: "current", currentVersion: 1 };
     },
     read: () => {
       throw new Error("generated edges need no task read");
     },
-    readDocumentMetadata: () => {
-      throw new Error("generated edges need no document read");
-    },
+    readDocumentMetadata: () => ({ ...cut, document: { path: "tasks/required/task_plan.md", workspaceRevision: 1 } }),
   } as unknown as Parameters<typeof readTaskReadSet>[0];
   const result = readTaskReadSet(projection, "task_host");
-  assert.equal(result.entries.length, 0);
-  assert.equal(witnessReads, 0);
+  assert.equal(result.entries.length, 1);
+  assert.equal(result.blocked, false);
+  assert.equal(witnessReads, 1);
+  assert.deepEqual(indexQueries, [["task_host"], ["task_required"]]);
 });

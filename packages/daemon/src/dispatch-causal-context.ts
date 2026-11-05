@@ -83,7 +83,8 @@ export function assembleTaskCausalContext(input: {
     string,
     { body: string; path: string; revision: number; sha256: string; size: number }
   >();
-  for (const entry of ancestry.readSet.entries) {
+  for (const entry of readSet.entries) {
+    if (entry.whyIncluded.source !== "ancestor") continue;
     const path = entry.locator!;
     const plan = projection.readDocument(path);
     reads.push(plan);
