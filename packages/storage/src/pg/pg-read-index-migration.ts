@@ -107,6 +107,16 @@ export function readIndexDdl(): readonly string[] {
           WHERE (p.tenant_id,p.project_id,p.policy_epoch,p.model,p.owner_id,p.entity_id)
             = (b.tenant_id,b.project_id,b.policy_epoch,b.model,b.owner_id,b.entity_id) RETURNING 1
         ) SELECT count(*)::integer INTO processed FROM filled;
+        IF processed=0 THEN
+          WITH batch AS (
+            SELECT task_id FROM ha_task_snapshots WHERE tenant_id=tenant AND project_id=project
+              AND policy_epoch=epoch AND parent_index_version=0 ORDER BY task_id LIMIT 64 FOR UPDATE
+          ), filled AS (
+            UPDATE ha_task_snapshots p SET snapshot=p.snapshot FROM batch b
+            WHERE p.tenant_id=tenant AND p.project_id=project AND p.policy_epoch=epoch
+              AND p.task_id=b.task_id RETURNING 1
+          ) SELECT count(*)::integer INTO processed FROM filled;
+        END IF;
         RETURN processed;
       END $function$`,
   ];
