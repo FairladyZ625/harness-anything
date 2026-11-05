@@ -289,6 +289,46 @@ test("case and accent paths keep binary order across keyset pages", async () => 
     assert.equal(new Set(seen).size, seen.length);
   });
 });
+test("prefix-related relative and package paths page without gaps or reordering", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    const { projection } = projectionFixture(rootDir);
+    projection.readCut();
+    const db = new DatabaseSync(projection.path);
+    const paths = [
+      "tasks/pkg-a/artifacts/a.html",
+      "tasks/pkg-a/artifacts/a.html/x.html",
+      "tasks/pkg-a-long/artifacts/a.html",
+    ];
+    try {
+      db.exec("BEGIN");
+      addEvent(db, 1, "2026-08-01T00:00:00.000Z");
+      for (const path of paths)
+        addDocument(db, {
+          revision: 1,
+          path,
+          mediaType: "text/html",
+          policyId: "opaque-textual-whole-file/v1",
+        });
+      db.exec("COMMIT");
+    } finally {
+      db.close();
+    }
+    const seen: [string, string][] = [];
+    let after: { occurredAt: string; relative: string; packageDir: string } | undefined;
+    for (let page = 0; page < paths.length; page += 1) {
+      const read = projection.readArtifactTimelinePage({ kind: "html", limit: 1, ...(after ? { after } : {}) });
+      seen.push(...read.rows.map(({ packageDir, relative }) => [packageDir, relative]));
+      if (!read.hasMore) break;
+      const last = read.rows.at(-1)!;
+      after = { occurredAt: last.occurredAt, relative: last.relative, packageDir: last.packageDir };
+    }
+    assert.deepEqual(seen, [
+      ["pkg-a", "artifacts/a.html"],
+      ["pkg-a-long", "artifacts/a.html"],
+      ["pkg-a", "artifacts/a.html/x.html"],
+    ]);
+  });
+});
 test("non-BMP paths page in code-point order, not UTF-16 code-unit order", async () => {
   await withTempStoreAsync(async (rootDir) => {
     const { projection } = projectionFixture(rootDir);

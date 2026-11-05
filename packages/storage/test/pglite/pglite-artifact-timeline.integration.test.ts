@@ -376,6 +376,45 @@ pgliteIntegrationSuite("PGlite artifact timeline index", () => {
       await db.close();
     }
   });
+  test("prefix-related relative and package paths keep the shorter prefix first across pages", async () => {
+    const db = await PGlite.create();
+    const client = { query: (text: string, values?: unknown[]) => db.query(text, values) };
+    try {
+      await createTimelineSchema(db);
+      const occurredAt = "2026-08-01T00:00:00.000Z",
+        documents = [
+          { path: "tasks/pkg-a/artifacts/a.html", packageDir: "pkg-a", relative: "artifacts/a.html" },
+          { path: "tasks/pkg-a/artifacts/a.html/x.html", packageDir: "pkg-a", relative: "artifacts/a.html/x.html" },
+          { path: "tasks/pkg-a-long/artifacts/a.html", packageDir: "pkg-a-long", relative: "artifacts/a.html" },
+        ];
+      for (const document of documents)
+        await projectPgArtifactDocument(client, { ...base, readers: [] }, document.path, html, occurredAt);
+      const seen: [string, string][] = [];
+      let cursor: { occurredAt: string; relative: string; packageDir: string } | undefined;
+      for (let page = 0; page < documents.length; page += 1) {
+        const read = await readPgArtifactTimeline(
+          client,
+          { ...base, readers: [] },
+          { kind: "html", limit: 1, ...(cursor ? { after: cursor } : {}) },
+        );
+        seen.push(...read.rows.map(({ packageDir, relative }) => [packageDir, relative]));
+        if (!read.hasMore) break;
+        const last = read.rows.at(-1)!;
+        cursor = { occurredAt: last.occurredAt, relative: last.relative, packageDir: last.packageDir };
+      }
+      assert.deepEqual(
+        seen,
+        [
+          ["pkg-a", "artifacts/a.html"],
+          ["pkg-a-long", "artifacts/a.html"],
+          ["pkg-a", "artifacts/a.html/x.html"],
+        ],
+        "SQL COLLATE C and the in-memory merge both put the shorter prefix first",
+      );
+    } finally {
+      await db.close();
+    }
+  });
   test("non-BMP paths keep code-point order across reader pages and the in-memory merge", async () => {
     const db = await PGlite.create();
     const client = { query: (text: string, values?: unknown[]) => db.query(text, values) };

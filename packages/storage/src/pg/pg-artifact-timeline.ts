@@ -267,14 +267,16 @@ export async function projectPgArtifactDocument(
 
 /** Compare Unicode code points, the order both stores use (`BINARY` / `COLLATE "C"`). JavaScript's
  * `<` compares UTF-16 code units, which puts non-BMP characters before U+E000..U+FFFF; merging
- * several reader ranges in memory must not disagree with the database order. */
+ * several reader ranges in memory must not disagree with the database order. A shorter string is a
+ * prefix and sorts first, matching `BINARY`/`COLLATE "C"` (`"a" < "a/b"`). */
 const compareText = (left: string, right: string): number => {
   const leftPoints = left[Symbol.iterator](),
     rightPoints = right[Symbol.iterator]();
   for (;;) {
     const leftStep = leftPoints.next(),
       rightStep = rightPoints.next();
-    if (leftStep.done || rightStep.done) return Number(leftStep.done) - Number(rightStep.done);
+    // The side that ended first is the prefix and therefore smaller.
+    if (leftStep.done || rightStep.done) return Number(rightStep.done) - Number(leftStep.done);
     const leftPoint = leftStep.value.codePointAt(0)!,
       rightPoint = rightStep.value.codePointAt(0)!;
     if (leftPoint !== rightPoint) return leftPoint < rightPoint ? -1 : 1;
