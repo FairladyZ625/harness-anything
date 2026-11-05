@@ -96,7 +96,11 @@ function receipt(submission, metadata = {}, id = taskId, decisionRelations = [])
 }
 
 function governanceSection(body) {
-  return body.match(/## Governance Declaration\n[\s\S]*?(?=\n## |$)/u)?.[0] ?? "";
+  return (
+    body.match(
+      /^##[ \t]+(?:Governance Declaration|Governance 声明|治理声明)[ \t]*\r?\n[\s\S]*?(?=^##[ \t]+|(?![\s\S]))/imu,
+    )?.[0] ?? ""
+  );
 }
 
 function render(submission = codeSubmission, options = {}) {
@@ -209,7 +213,7 @@ function renderProtected(submission = protectedSubmission(), body = templateWith
   });
 }
 
-test("PR renderer declares a touched protected surface with the task as authority", () => {
+test("PR renderer preserves the existing template declaration for lint to judge", () => {
   const submission = protectedSubmission(),
     body = renderTaskPrBody({
       taskId: protectedId,
@@ -218,12 +222,10 @@ test("PR renderer declares a touched protected surface with the task as authorit
       closeout,
       manifest,
     });
-  assert.match(body, /^- Protected surface touched: yes$/mu);
-  for (const file of protectedFiles) assert.ok(body.includes(`"${file}"`), `${file} is named in the scope`);
-  assert.match(body, new RegExp(`^- Authority: ${protectedId}$`, "mu"));
-  assert.equal((body.match(/^## Governance Declaration$/gmu) ?? []).length, 1, "the template default is replaced");
+  assert.equal(governanceSection(body), governanceSection(template));
   const governance = checkPrGovernance({ body, changedFiles: submission.changedFiles, manifest });
-  assert.equal(governance.ok, true, governance.issues.join("\n"));
+  assert.equal(governance.ok, false, "preservation must not turn missing authority into a lint pass");
+  assert.match(governance.issues.join("\n"), /must cite/u);
 });
 
 test("PR renderer prefers the governing decision recorded on the task", () => {
@@ -241,7 +243,7 @@ test("PR renderer prefers the governing decision recorded on the task", () => {
   assert.equal(checkPrGovernance({ body, changedFiles: submission.changedFiles, manifest }).ok, true);
 });
 
-test("PR renderer generates the governance declaration when the body has no section", () => {
+test("PR renderer generates the governance declaration when the body has no section", (t) => {
   const submission = protectedSubmission(),
     body = renderProtected(submission);
   assert.match(body, /^## Governance Declaration$/mu);
@@ -251,19 +253,25 @@ test("PR renderer generates the governance declaration when the body has no sect
   assert.equal((body.match(/^## Governance Declaration$/gmu) ?? []).length, 1);
   assert.equal(checkPrGovernance({ body, changedFiles: submission.changedFiles, manifest }).ok, true);
   assertPassesPrBodyCheck(body, submission);
+  t.diagnostic(
+    `protected rendering:\n${governanceSection(body)}lint=${JSON.stringify(checkPrGovernance({ body, changedFiles: submission.changedFiles, manifest }))}`,
+  );
 });
 
-test("PR renderer removes the governance section when no protected surface is touched", () => {
+test("PR renderer preserves an existing declaration for an unprotected cut", () => {
   const body = render(codeSubmission, { manifest });
-  assert.doesNotMatch(body, /^## Governance Declaration$/mu);
-  assert.doesNotMatch(body, /^- Protected surface touched:/mu);
+  assert.equal(governanceSection(body), governanceSection(template));
+  assert.equal(checkPrGovernance({ body, changedFiles: codeSubmission.changedFiles, manifest }).skipped, true);
 });
 
-test("PR renderer does not add a governance declaration to an unprotected cut", () => {
+test("PR renderer does not add a governance declaration to an unprotected cut", (t) => {
   const body = renderProtected(codeSubmission);
   assert.doesNotMatch(body, /^## Governance Declaration$/mu);
   assert.equal(checkPrGovernance({ body, changedFiles: codeSubmission.changedFiles, manifest }).skipped, true);
   assertPassesPrBodyCheck(body);
+  t.diagnostic(
+    `unprotected rendering: section=${JSON.stringify(governanceSection(body))}; lint=${JSON.stringify(checkPrGovernance({ body, changedFiles: codeSubmission.changedFiles, manifest }))}`,
+  );
 });
 
 test("re-rendering a protected cut keeps exactly one generated declaration", () => {
@@ -276,15 +284,15 @@ test("re-rendering a protected cut keeps exactly one generated declaration", () 
   assertPassesPrBodyCheck(second, submission);
 });
 
-test("re-rendering refreshes the generated scope when the protected set changes", () => {
+test("re-rendering preserves the existing declaration when the protected set changes", () => {
   const firstSubmission = { ...codeSubmission, changedFiles: [protectedFiles[0]] },
     secondSubmission = { ...codeSubmission, changedFiles: [protectedFiles[1]] },
     first = renderProtected(firstSubmission),
-    second = renderProtected(secondSubmission, first),
-    section = governanceSection(second);
-  assert.ok(first.includes(`"${protectedFiles[0]}"`), "the first cut declares its own path");
-  assert.ok(section.includes(`"${protectedFiles[1]}"`), "the regenerated scope names the current protected path");
-  assert.equal(section.includes(`"${protectedFiles[0]}"`), false, "the old scope is replaced");
+    second = renderProtected(secondSubmission, first);
+  assert.equal(governanceSection(second), governanceSection(first), "an existing section is never rewritten");
+  assert.ok(governanceSection(second).includes(`"${protectedFiles[0]}"`));
+  const fresh = renderProtected(secondSubmission);
+  assert.ok(governanceSection(fresh).includes(`"${protectedFiles[1]}"`), "a body without a section uses current facts");
   assert.equal(checkPrGovernance({ body: second, changedFiles: secondSubmission.changedFiles, manifest }).ok, true);
 });
 
@@ -329,20 +337,139 @@ test("a generated declaration cites only ledger facts and marks a missing author
     ]);
   assert.match(withoutDecision, new RegExp(`^- Authority: ${protectedId}$`, "mu"));
   assert.match(withoutDecision, /^- Authorization: 授权：仅 task，待评审确认$/mu);
-  assert.match(withoutDecision, /^- Break-glass: not used$/mu);
+  assert.doesNotMatch(governanceSection(withoutDecision), /break-glass/iu);
   assert.match(withDecision, new RegExp(`^- Authority: ${governingDecision}$`, "mu"));
   assert.match(withDecision, new RegExp(`^- Task: ${protectedId}$`, "mu"));
   assert.doesNotMatch(withDecision, /待评审确认/u);
-  assert.match(withDecision, /^- Break-glass: not used$/mu);
+  assert.doesNotMatch(governanceSection(withDecision), /break-glass/iu);
   assert.equal(checkPrGovernance({ body: withoutDecision, changedFiles: submission.changedFiles, manifest }).ok, true);
 });
 
-test("re-rendering an unprotected cut removes the previous protected declaration", () => {
+test("re-rendering an unprotected cut preserves the previous declaration", () => {
   const first = renderProtected(protectedSubmission()),
     second = renderProtected(codeSubmission, first);
   assert.match(governanceSection(first), /^- Protected surface touched: yes$/mu);
-  assert.doesNotMatch(second, /^## Governance Declaration$/mu);
+  assert.equal(governanceSection(second), governanceSection(first));
   assert.equal(checkPrGovernance({ body: second, changedFiles: codeSubmission.changedFiles, manifest }).skipped, true);
+});
+
+for (const heading of ["Governance Declaration", "Governance 声明", "治理声明"]) {
+  for (const submission of [protectedSubmission(), codeSubmission]) {
+    test(`an existing ${heading} emergency declaration survives verbatim (${submission === codeSubmission ? "unprotected" : "protected"})`, () => {
+      const authored = `## ${heading}\n\n- Protected surface touched: yes\n- Protected surface scope: author scope\n- Authority: ADR-0023\n- Break-glass: yes\n- Break-glass reason: urgent incident\n- Break-glass scope: tools/gates/cost-budget.json\n- Follow-up governance task: ${protectedId}\n\n`,
+        input = templateWithoutGovernance.replace("## Verification", `${authored}## Verification`),
+        rendered = renderTaskPrBody({
+          taskId: protectedId,
+          receipt: receipt(submission, {}, protectedId),
+          template,
+          body: input,
+          closeout: closeout.replace(residualRisk, "Break-glass was used due to an urgent incident."),
+          manifest,
+        });
+      assert.equal(governanceSection(rendered), authored);
+      assert.equal(checkPrGovernance({ body: rendered, changedFiles: submission.changedFiles, manifest }).ok, true);
+      assertPassesPrBodyCheck(rendered, submission);
+    });
+  }
+}
+
+for (const heading of ["Governance Declaration", "Governance 声明", "治理声明"]) {
+  test(`a closeout ${heading} section retains its original heading, formatting and subheadings`, () => {
+    const authored = `## ${heading}\r\n\r\n- Authority: ADR-0023 D5  \r\n### Emergency record\r\n- Break-glass: yes\r\n- Break-glass reason: urgent incident\r\n- Break-glass scope: tools/gates/cost-budget.json\r\n- Follow-up governance task: ${protectedId}\r\n\r\n`,
+      rendered = renderProtected(protectedSubmission(), templateWithoutGovernance),
+      body = renderTaskPrBody({
+        taskId: protectedId,
+        receipt: receipt(protectedSubmission(), {}, protectedId),
+        template: templateWithoutGovernance,
+        closeout: `${closeout}\n${authored}## Later section\nExcluded from the declaration.`,
+        manifest,
+      });
+    assert.equal(governanceSection(body), authored);
+    assert.doesNotMatch(governanceSection(body), /Excluded from the declaration/u);
+    assert.doesNotMatch(governanceSection(rendered), /break-glass/iu);
+    assert.equal(checkPrGovernance({ body, changedFiles: protectedSubmission().changedFiles, manifest }).ok, true);
+    assertPassesPrBodyCheck(body, protectedSubmission());
+  });
+}
+
+test("an existing body declaration takes precedence over a different closeout declaration", (t) => {
+  const input = template
+      .replace("- Authority: not applicable", "- Authority: ADR-0023")
+      .replace("- Break-glass: no", "- Break-glass: yes"),
+    body = renderTaskPrBody({
+      taskId: protectedId,
+      receipt: receipt(protectedSubmission(), {}, protectedId),
+      template,
+      body: input,
+      closeout: `${closeout}\n## Governance Declaration\n\n- Authority: ${protectedId}\n`,
+      manifest,
+    });
+  assert.equal(governanceSection(body), governanceSection(input));
+  const governance = checkPrGovernance({ body, changedFiles: protectedSubmission().changedFiles, manifest });
+  assert.equal(governance.ok, false, "missing emergency fields still fail lint");
+  for (const required of ["break-glass reason", "break-glass scope", "follow-up governance task"])
+    assert.ok(governance.issues.some((issue) => issue.includes(required)));
+  t.diagnostic(
+    `preserved incomplete emergency declaration:\n${governanceSection(body)}lint=${JSON.stringify(governance)}`,
+  );
+});
+
+test("all closeout governance sections survive, including a later emergency declaration", () => {
+  const first = "## Governance Declaration\n\n- Authority: ADR-0023\n\n",
+    second = `## 治理声明\n\n- Break-glass: yes\n- Break-glass reason: urgent incident\n- Break-glass scope: tools/gates/cost-budget.json\n- Follow-up governance task: ${protectedId}\n\n`,
+    body = renderTaskPrBody({
+      taskId: protectedId,
+      receipt: receipt(protectedSubmission(), {}, protectedId),
+      template: templateWithoutGovernance,
+      closeout: `${closeout}\n${first}## Intervening section\nOther notes.\n${second}`,
+      manifest,
+    });
+  assert.ok(body.includes(first));
+  assert.ok(body.includes(second));
+  assert.ok(body.indexOf(first) < body.indexOf(second));
+  assert.equal(checkPrGovernance({ body, changedFiles: protectedSubmission().changedFiles, manifest }).ok, true);
+});
+
+test("an empty closeout declaration is preserved and remains a lint failure", () => {
+  const body = renderTaskPrBody({
+    taskId: protectedId,
+    receipt: receipt(protectedSubmission(), {}, protectedId),
+    template: templateWithoutGovernance,
+    closeout: `${closeout}\n## 治理声明\n\n## Later section\nContent.`,
+    manifest,
+  });
+  assert.equal(governanceSection(body), "## 治理声明\n\n");
+  assert.equal(checkPrGovernance({ body, changedFiles: protectedSubmission().changedFiles, manifest }).ok, false);
+});
+
+test("a closeout declaration is preserved without a protected cut or a manifest", () => {
+  const authored = "## 治理声明\n\n- Authority: ADR-0023\n";
+  for (const suppliedManifest of [manifest, undefined]) {
+    const body = render(codeSubmission, {
+      template: templateWithoutGovernance,
+      closeout: `${closeout}\n${authored}`,
+      manifest: suppliedManifest,
+    });
+    assert.equal(governanceSection(body).trimEnd(), authored.trimEnd());
+  }
+});
+
+test("a non-derived or inactive decision is not generated as governance authority", () => {
+  for (const relation of [
+    { relationType: "narrows", state: "active" },
+    { relationType: "derives", state: "retired" },
+  ]) {
+    const body = renderProtected(protectedSubmission(), templateWithoutGovernance, [
+      {
+        sourceRef: `decision/${governingDecision}`,
+        targetRef: `task/${protectedId}`,
+        ...relation,
+      },
+    ]);
+    assert.match(body, new RegExp(`^- Authority: ${protectedId}$`, "mu"));
+    assert.doesNotMatch(governanceSection(body), new RegExp(governingDecision, "u"));
+    assert.doesNotMatch(governanceSection(body), /break-glass/iu);
+  }
 });
 
 test("PR renderer treats a lockfile-only cut as a dependency change", () => {
