@@ -82,11 +82,15 @@ function taskProjection(receipt, taskId) {
 }
 
 function findSection(sections, aliases) {
-  for (const alias of aliases) if (sections.has(alias)) return sections.get(alias);
-  for (const [heading, content] of sections)
-    for (const alias of aliases)
-      if (heading.startsWith(alias) && /^[ \t(（—–\-:：]/u.test(heading.slice(alias.length))) return content;
-  return undefined;
+  const matched = [...sections]
+    .filter(([heading]) =>
+      aliases.some(
+        (alias) =>
+          heading === alias || (heading.startsWith(alias) && /^[ \t(（—–\-:：]/u.test(heading.slice(alias.length))),
+      ),
+    )
+    .map(([, content]) => content);
+  return matched.length > 0 ? matched.join("\n\n") : undefined;
 }
 
 function authoredSources(closeout, profileId) {
@@ -187,6 +191,16 @@ export function renderTaskPrBody({ taskId, receipt, template, body = template, c
     baseline = withoutFacts(template),
     sources = authoredSources(typeof closeout === "string" ? closeout : "", profileId);
   let rendered = stripped;
+  if (hasDependencyChange(submissionFacts.changedFiles) && sources[DEPENDENCY_CHANGE.title]?.trim()) {
+    const { start, end } = sectionBounds(rendered, "Machine-Readable Declarations");
+    rendered =
+      rendered.slice(0, start) +
+      replaceDependencyDeclaration(
+        rendered.slice(start, end),
+        authoredContent(dependencyDescription(sources[DEPENDENCY_CHANGE.title])),
+      ) +
+      rendered.slice(end);
+  }
   for (const { title } of PR_SECTIONS) {
     if (normalizedSection(stripped, title) !== normalizedSection(baseline, title)) continue;
     const content = sources[title];
@@ -194,11 +208,6 @@ export function renderTaskPrBody({ taskId, receipt, template, body = template, c
     // heading is absent, publish the author's original document in its original order.
     rendered = fillSection(rendered, title, content?.trim() ? content : closeout);
   }
-  if (hasDependencyChange(submissionFacts.changedFiles) && sources[DEPENDENCY_CHANGE.title]?.trim())
-    rendered = replaceDependencyDeclaration(
-      rendered,
-      authoredContent(dependencyDescription(sources[DEPENDENCY_CHANGE.title])),
-    );
   rendered = declareProtectedSurfaces(rendered, taskId, submissionFacts.changedFiles, manifest);
   const { start, end } = markerPair(rendered, "PR template");
   return `${rendered.slice(0, start + START.length)}\n${delivery}\n${rendered.slice(end)}`;

@@ -6,6 +6,7 @@ import { checkPrBody } from "../../check-pr-body.mjs";
 import { checkPrGovernance } from "../../check-pr-governance.mjs";
 import { validateDependencyDeclaration } from "../dependency-policy.mjs";
 import { renderTaskPrBody } from "../render-task-pr-body.mjs";
+import { submissionFromCloseout } from "../../../packages/kernel/src/domain/transition-document-readiness.ts";
 
 const taskId = "task-private-example",
   firstSha = "1".repeat(40),
@@ -122,6 +123,33 @@ test("PR renderer fills the four authored sections from closeout and passes chec
 
 test("PR renderer keeps the none sentinel when the cut does not touch the dependency surface", () => {
   assert.match(render(), /^Dependency-Change: none$/mu);
+});
+
+test("PR renderer preserves exact and suffixed authored risk sections in source order", () => {
+  const firstRisk = "A: security issue open.",
+    suffixedRisk = "B: critical credentials exposed.",
+    authored = closeout.replace(residualRisk, `${firstRisk}\n\n## Residual Risk (security)\n\n${suffixedRisk}`),
+    submitted = submissionFromCloseout(authored, codeSubmission),
+    body = render(submitted, { closeout: authored });
+  assert.ok(submitted.residualRisks.some((risk) => risk.includes(suffixedRisk)));
+  assert.ok(body.includes(firstRisk), "the original risk remains verbatim");
+  assert.ok(body.includes(suffixedRisk), "the suffixed risk remains verbatim");
+  assert.ok(body.indexOf(firstRisk) < body.indexOf(suffixedRisk), "risks retain the authored order");
+  assertPassesPrBodyCheck(body);
+});
+
+test("PR renderer replaces only the generated dependency declaration and preserves the authored Summary", () => {
+  const authoredSummary = "Observed problem:\nDependency-Change: unpinned production package",
+    authored = dependencyCloseout.replace(summary, authoredSummary),
+    body = render(dependencySubmission, { closeout: authored });
+  assert.ok(body.includes(authoredSummary), "the author's complete Summary remains verbatim");
+  assert.match(
+    body,
+    /^Dependency-Change: Added the `\.\/testing` exports subpath\. No dependency range changed; the lockfile stays in sync\.$/mu,
+  );
+  assert.notDeepEqual(validateDependencyDeclaration(dependencySubmission.changedFiles, body), []);
+  const refreshed = render(dependencySubmission, { closeout: authored, body });
+  assert.ok(refreshed.includes(authoredSummary), "re-rendering also preserves the author's complete Summary");
 });
 
 test("PR renderer describes a package.json change instead of the rejected none sentinel", () => {
