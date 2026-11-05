@@ -1608,24 +1608,6 @@
     },
     "knownScaling": [
       {
-        "probe": "assignment-directory",
-        "backend": "sqlite",
-        "dimension": "task-history",
-        "metric": "sqlResultBytes",
-        "reason": "Task context or output directory enumerates historical entries; observed sqlResultBytes 269055 at 200 -> 2566939 at 2000 (cold/warm maximum).",
-        "deletionTaskId": "task_8309ae1344faa6354ffbb60f54",
-        "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
-        "probe": "assignment-directory",
-        "backend": "sqlite",
-        "dimension": "task-history",
-        "metric": "sqlRowsRead",
-        "reason": "Task context or output directory enumerates historical entries; observed sqlRowsRead 247 at 200 -> 2047 at 2000 (cold/warm maximum).",
-        "deletionTaskId": "task_8309ae1344faa6354ffbb60f54",
-        "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
         "probe": "fleet-overview",
         "backend": "sqlite",
         "dimension": "task-history",
@@ -1658,24 +1640,6 @@
         "dimension": "task-history",
         "metric": "sqlRowsRead",
         "reason": "Task context or output directory enumerates historical entries; observed sqlRowsRead 208 at 200 -> 2008 at 2000 (cold/warm maximum).",
-        "deletionTaskId": "task_8309ae1344faa6354ffbb60f54",
-        "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
-        "probe": "repo.tasks.runtimeContext.read",
-        "backend": "sqlite",
-        "dimension": "task-history",
-        "metric": "sqlResultBytes",
-        "reason": "Task context or output directory enumerates historical entries; observed sqlResultBytes 269055 at 200 -> 2566939 at 2000 (cold/warm maximum).",
-        "deletionTaskId": "task_8309ae1344faa6354ffbb60f54",
-        "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
-        "probe": "repo.tasks.runtimeContext.read",
-        "backend": "sqlite",
-        "dimension": "task-history",
-        "metric": "sqlRowsRead",
-        "reason": "Task context or output directory enumerates historical entries; observed sqlRowsRead 247 at 200 -> 2047 at 2000 (cold/warm maximum).",
         "deletionTaskId": "task_8309ae1344faa6354ffbb60f54",
         "expiresAt": "2026-11-26T00:00:00Z"
       },
@@ -1832,24 +1796,6 @@
         "metric": "sqlRowsRead",
         "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 4479 at 200 -> 71559 at 2000 (cold/warm maximum).",
         "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
-        "probe": "assignment-directory",
-        "backend": "pglite",
-        "dimension": "task-history",
-        "metric": "sqlResultBytes",
-        "reason": "Task context or output directory enumerates historical entries; observed sqlResultBytes 264965 at 200 -> 2466661 at 2000 (cold/warm maximum).",
-        "deletionTaskId": "task_8309ae1344faa6354ffbb60f54",
-        "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
-        "probe": "assignment-directory",
-        "backend": "pglite",
-        "dimension": "task-history",
-        "metric": "sqlRowsRead",
-        "reason": "Task context or output directory enumerates historical entries; observed sqlRowsRead 1293 at 200 -> 8493 at 2000 (cold/warm maximum).",
-        "deletionTaskId": "task_8309ae1344faa6354ffbb60f54",
         "expiresAt": "2026-11-26T00:00:00Z"
       },
       {
@@ -2033,24 +1979,6 @@
         "expiresAt": "2026-11-26T00:00:00Z"
       },
       {
-        "probe": "repo.tasks.runtimeContext.read",
-        "backend": "pglite",
-        "dimension": "task-history",
-        "metric": "sqlResultBytes",
-        "reason": "Task context or output directory enumerates historical entries; observed sqlResultBytes 264965 at 200 -> 2466661 at 2000 (cold/warm maximum).",
-        "deletionTaskId": "task_8309ae1344faa6354ffbb60f54",
-        "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
-        "probe": "repo.tasks.runtimeContext.read",
-        "backend": "pglite",
-        "dimension": "task-history",
-        "metric": "sqlRowsRead",
-        "reason": "Task context or output directory enumerates historical entries; observed sqlRowsRead 1293 at 200 -> 8493 at 2000 (cold/warm maximum).",
-        "deletionTaskId": "task_8309ae1344faa6354ffbb60f54",
-        "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
         "probe": "repo.tasks.wip",
         "backend": "pglite",
         "dimension": "task-history",
@@ -2128,32 +2056,6 @@
         "dimension": "runtime-sessions",
         "metric": "sqlResultBytes",
         "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 362155 at 200 -> 2892555 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlResultBytes warm 88745 -> 151855, firstCall 88745 -> 151855 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
-        "probe": "assignment-directory",
-        "backend": "pglite",
-        "dimension": "runtime-sessions",
-        "metric": "sqlResultBytes",
-        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 301005 at 200 -> 2831341 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlResultBytes warm 27659 -> 90705, firstCall 27659 -> 90705 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
-        "probe": "assignment-directory",
-        "backend": "pglite",
-        "dimension": "runtime-sessions",
-        "metric": "sqlRowsRead",
-        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 474 at 200 -> 4074 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlRowsRead warm 136 -> 174, firstCall 136 -> 174 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
         "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
         "expiresAt": "2026-11-26T00:00:00Z",
         "measurementScales": {
@@ -2523,32 +2425,6 @@
         "dimension": "runtime-sessions",
         "metric": "sqlRowsRead",
         "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 667 at 200 -> 6067 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlRowsRead warm 82 -> 217, firstCall 82 -> 217 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
-        "probe": "repo.tasks.runtimeContext.read",
-        "backend": "pglite",
-        "dimension": "runtime-sessions",
-        "metric": "sqlResultBytes",
-        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 301005 at 200 -> 2831341 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlResultBytes warm 27659 -> 90705, firstCall 27659 -> 90705 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
-        "probe": "repo.tasks.runtimeContext.read",
-        "backend": "pglite",
-        "dimension": "runtime-sessions",
-        "metric": "sqlRowsRead",
-        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 474 at 200 -> 4074 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlRowsRead warm 136 -> 174, firstCall 136 -> 174 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
         "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
         "expiresAt": "2026-11-26T00:00:00Z",
         "measurementScales": {
@@ -3018,32 +2894,6 @@
         }
       },
       {
-        "probe": "assignment-directory",
-        "backend": "pglite",
-        "dimension": "dispatches",
-        "metric": "sqlRowsRead",
-        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 474 at 200 -> 4074 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlRowsRead warm 136 -> 174, firstCall 136 -> 174 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
-        "probe": "assignment-directory",
-        "backend": "pglite",
-        "dimension": "dispatches",
-        "metric": "sqlResultBytes",
-        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 301025 at 200 -> 2831681 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlResultBytes warm 27659 -> 90725, firstCall 27659 -> 90725 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
         "probe": "claimable-tasks",
         "backend": "pglite",
         "dimension": "dispatches",
@@ -3353,32 +3203,6 @@
         "dimension": "dispatches",
         "metric": "sqlResultBytes",
         "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 148728 at 200 -> 1473528 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlResultBytes warm 5208 -> 38328, firstCall 5208 -> 38328 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
-        "probe": "repo.tasks.runtimeContext.read",
-        "backend": "pglite",
-        "dimension": "dispatches",
-        "metric": "sqlRowsRead",
-        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlRowsRead 474 at 200 -> 4074 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlRowsRead warm 136 -> 174, firstCall 136 -> 174 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
-        "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
-        "expiresAt": "2026-11-26T00:00:00Z",
-        "measurementScales": {
-          "small": 5,
-          "large": 50
-        }
-      },
-      {
-        "probe": "repo.tasks.runtimeContext.read",
-        "backend": "pglite",
-        "dimension": "dispatches",
-        "metric": "sqlResultBytes",
-        "reason": "PG projection/canonical queries scan historical rows before returning a fixed result; observed sqlResultBytes 301025 at 200 -> 2831681 at 2000 (cold/warm maximum). Required bounded-pair witness: sqlResultBytes warm 27659 -> 90725, firstCall 27659 -> 90725 at 5/50. Full unexempted readers keep their original scales; removing the last exemption restores the full pair.",
         "deletionTaskId": "task_cd8349fd2c187c5600ab5e7b06",
         "expiresAt": "2026-11-26T00:00:00Z",
         "measurementScales": {
@@ -4140,15 +3964,6 @@
         "expiresAt": "2026-11-26T00:00:00Z"
       },
       {
-        "probe": "assignment-directory",
-        "backend": "sqlite",
-        "dimension": "task-history",
-        "metric": "sqliteVmSteps",
-        "reason": "Existing assigned reader also grows in the native execution/scan observation; observed sqliteVmSteps 4192 at 200 -> 31192 at 2000 (counts). Same exact reader/dimension deletion responsibility; no margin change.",
-        "deletionTaskId": "task_8309ae1344faa6354ffbb60f54",
-        "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
         "probe": "claimable-tasks",
         "backend": "sqlite",
         "dimension": "task-history",
@@ -4226,15 +4041,6 @@
         "dimension": "task-history",
         "metric": "sqliteVmSteps",
         "reason": "Existing assigned reader also grows in the native execution/scan observation; observed sqliteVmSteps 1122 at 200 -> 10122 at 2000 (counts). Same exact reader/dimension deletion responsibility; no margin change.",
-        "deletionTaskId": "task_8309ae1344faa6354ffbb60f54",
-        "expiresAt": "2026-11-26T00:00:00Z"
-      },
-      {
-        "probe": "repo.tasks.runtimeContext.read",
-        "backend": "sqlite",
-        "dimension": "task-history",
-        "metric": "sqliteVmSteps",
-        "reason": "Existing assigned reader also grows in the native execution/scan observation; observed sqliteVmSteps 4192 at 200 -> 31192 at 2000 (counts). Same exact reader/dimension deletion responsibility; no margin change.",
         "deletionTaskId": "task_8309ae1344faa6354ffbb60f54",
         "expiresAt": "2026-11-26T00:00:00Z"
       },
