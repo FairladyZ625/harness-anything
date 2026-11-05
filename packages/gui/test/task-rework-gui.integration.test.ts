@@ -5,7 +5,7 @@ import { createLocalGuiServiceBridge } from "../src/index.ts";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
 import { prepareGuiReworkCut } from "../test-support/rework-task.mjs";
 import { restoreEnv } from "./service-bridge.fixtures.ts";
-import { parseDaemonGuiActionResponse } from "@harness-anything/daemon/client";
+import { parseDaemonGuiActionResponse, parseDaemonGuiReadResult } from "@harness-anything/daemon/client";
 
 test("GUI rework reads the canonical cut, rejects a stale digest, and repeats one completed handoff through the canonical action", async () => {
   const fixture = await startGuiResidentDaemonFixture({ repoId: "gui-rework", daemonId: "gui-rework" });
@@ -46,6 +46,14 @@ test("GUI rework reads the canonical cut, rejects a stale digest, and repeats on
     assert.equal(completed.task.executionArrangement.executionId, cut.executionId);
     assert.equal(completed.task.executionArrangement.submissionDigest, request.submissionDigest);
     assert.equal(completed.task.iteration, 1);
+    const board = parseDaemonGuiReadResult(
+      "repo.tasks.list",
+      await bridge.invoke("getTasks", { repoId: fixture.repoId }),
+    );
+    assert.deepEqual(board.invalidRows, [], JSON.stringify(board.invalidRows));
+    const served = board.rows.find((row) => row.taskId === cut.taskId)!;
+    assert.equal(served.snapshot.task?.iteration, 1);
+    assert.equal(served.snapshot.task?.executionArrangement?.id, completed.task.executionArrangement.id);
     const repeated = parseDaemonGuiActionResponse("repo.task.rework", await bridge.invoke("reworkTask", request));
     assert.equal(repeated.outcome, "applied", JSON.stringify(repeated));
     const after = await read();

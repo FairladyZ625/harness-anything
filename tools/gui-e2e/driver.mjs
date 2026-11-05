@@ -60,7 +60,7 @@ export async function startGuiDriver({ workspaceRoot, rootDir, env, runRoot, hea
       },
       async shot(name) {
         const target = path.join(runRoot, `${name}.png`);
-        await page.screenshot({ path: target, fullPage: true });
+        await page.screenshot({ path: target, fullPage: true, animations: "disabled" });
         return target;
       },
       assertConsoleClean(from = 0) {

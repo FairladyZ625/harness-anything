@@ -5,18 +5,10 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { resolveE2EProbeElectronForTest } from "../e2e-probe.mjs";
 
-// Use the same native display/Electron availability contract as driver.test.mjs.
 // This entry makes the GUI catalog scenario callable from the isolated dispatcher.
 test("the real hidden task page arranges one round and shows the actual failure receipt", { timeout: 300000 }, (t) => {
-  const root = path.resolve(import.meta.dirname, "../.."),
-    runtime = resolveE2EProbeElectronForTest(root);
-  if (!runtime.available) {
-    t.skip(runtime.reason);
-    return;
-  }
-  t.after(runtime.close);
+  const root = path.resolve(import.meta.dirname, "../..");
   const out = mkdtempSync(path.join(tmpdir(), "gui-rework-shots-"));
   t.after(() => rmSync(out, { recursive: true, force: true }));
   const args = [
@@ -30,12 +22,19 @@ test("the real hidden task page arranges one round and shows the actual failure 
   ];
   let result;
   try {
-    const diagnostics = execFileSync(process.execPath, args, {
-      cwd: root,
-      env: runtime.env,
-      encoding: "utf8",
-      maxBuffer: 16 * 1024 * 1024,
-    });
+    // Xvfb lives only inside this isolated test process, never on the worker's desktop.
+    const virtualDisplay = process.platform === "linux" && !process.env.DISPLAY;
+    const diagnostics = execFileSync(
+      virtualDisplay ? "xvfb-run" : process.execPath,
+      virtualDisplay ? ["--auto-servernum", process.execPath, ...args] : args,
+      {
+        cwd: root,
+        env: process.env,
+        encoding: "utf8",
+        maxBuffer: 16 * 1024 * 1024,
+        timeout: 240000,
+      },
+    );
     if (diagnostics.trim()) t.diagnostic(diagnostics.trim());
     // The runner persists its authoritative result. Fixture child diagnostics are not
     // a second machine-result protocol to parse.

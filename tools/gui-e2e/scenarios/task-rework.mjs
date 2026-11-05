@@ -75,6 +75,18 @@ export default {
     assert.equal(completed.task.executionArrangement.ready, true);
     assert.equal(completed.task.executionArrangement.executionId, cut.executionId);
     assert.equal(completed.task.executionArrangement.submissionDigest, target.submissionDigest);
+    const board = await requestDaemonJsonRpcAt(
+      fixture.endpoint,
+      "repo.tasks.list",
+      { repo: { repoId: fixture.repoId }, payload: {} },
+      1000,
+      10000,
+    );
+    assert.deepEqual(board.invalidRows, [], JSON.stringify(board));
+    assert.equal(board.rows.find((row) => row.taskId === cut.taskId)?.snapshot.task.iteration, 1);
+    await page.waitForFunction(() =>
+      globalThis.document.querySelector('[data-testid="task-detail-header"]')?.textContent.includes("Active"),
+    );
     await shot("task-rework-ready-wide");
     await page.getByTestId("task-rework-submit").click();
     await page.waitForFunction(() =>
