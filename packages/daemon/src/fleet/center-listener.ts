@@ -28,7 +28,13 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import { createServer, type Server, type TLSSocket } from "node:tls";
-import { resolveHarnessLayout, sha256Bytes, TASK_EVENT_SHAPE_COMPAT_VERSION } from "@harness-anything/kernel";
+import {
+  resolveHarnessLayout,
+  sha256Bytes,
+  TASK_EVENT_SHAPE_COMPAT_VERSION,
+  type SquadRunObservation,
+} from "@harness-anything/kernel";
+import { squadObservationEventOpId } from "../squad-observation.ts";
 import { daemonBuildStamp } from "../build-identity.ts";
 import { readFileWindow, syncDirectory, syncFile } from "@harness-anything/storage";
 import {
@@ -255,6 +261,34 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     typeof receipt === "object" && receipt !== null && "outcome" in receipt && receipt.outcome === "applied"
       ? replicationHead(repoId)
       : null;
+  // A Fleet request opId is correlation, not the stored command id. Keep a bounded, process-local
+  // request -> canonical-op mapping so a caller that lost the response can recover the committed
+  // receipt by its request id. Losing this map on restart only drops the correlation; the write
+  // itself stays authoritative (dec_3E49EDAB CH1).
+  const requestReceiptTargets = new Map<string, string>(),
+    REQUEST_RECEIPT_LIMIT = 1_024,
+    requestReceiptKey = (repoId: string, requestOpId: string) => `${repoId}\0${requestOpId}`,
+    rememberRequestReceipt = (repoId: string, requestOpId: string, canonicalOpId: unknown): void => {
+      if (typeof canonicalOpId !== "string" || canonicalOpId.length === 0) return;
+      const key = requestReceiptKey(repoId, requestOpId);
+      requestReceiptTargets.delete(key);
+      requestReceiptTargets.set(key, canonicalOpId);
+      while (requestReceiptTargets.size > REQUEST_RECEIPT_LIMIT) {
+        const oldest = requestReceiptTargets.keys().next().value;
+        if (oldest === undefined) break;
+        requestReceiptTargets.delete(oldest);
+      }
+    },
+    resolveRequestReceipt = (repoId: string, requestOpId: string): string =>
+      requestReceiptTargets.get(requestReceiptKey(repoId, requestOpId)) ?? requestOpId,
+    // A no_changes or rejection receipt may name an id that was never appended. Remember only a
+    // target receipt-show can actually resolve, so a legal retry cannot overwrite an earlier
+    // committed mapping with an unpublished id (review F3).
+    isRecoverableReceipt = (receipt: unknown): boolean => {
+      if (typeof receipt !== "object" || receipt === null) return false;
+      const value = receipt as { readonly outcome?: unknown; readonly event?: unknown };
+      return value.outcome === "applied" || (value.event !== null && value.event !== undefined);
+    };
   const projectionReady = new Map<string, Promise<void>>();
   const backupQueues = new Map<string, Promise<void>>();
   type CachedBackup = {
@@ -624,9 +658,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
     if (frame.schema === "fleet.receipt.get/v1") {
       const a = await nodeContext(nodeId, frame.repoId, frame.accessToken),
+        canonicalOpId = resolveRequestReceipt(a.repoId, frame.opId),
         receipt = await observedRunCenterWriter(
           a.repoId,
-          { kind: "receipt-show", opId: frame.opId },
+          { kind: "receipt-show", opId: canonicalOpId },
           await readerAuth(a),
         );
       return immediate({
@@ -932,12 +967,16 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         }
         try {
           const receipt = await observedRunCenterWriter(a.repoId, action, commandAuth);
+          if (isRecoverableReceipt(receipt)) rememberRequestReceipt(a.repoId, frame.opId, receipt.opId);
           if (reservation) connectionSignal.throwIfAborted();
           const result = {
             outcome:
               receipt.outcome === "op_rejected" || receipt.outcome === "indeterminate"
                 ? ("op_rejected" as const)
                 : ("applied" as const),
+            // The frame opId is the caller's request identity for this round trip. The receipt's
+            // opId remains the canonical command identity (content + revision); receipt-show
+            // resolves either the request id (through the correlation map) or that canonical id.
             opId: frame.opId,
             revision: receipt.revision ?? null,
             replicationSequence: writeReplicationSequence(a.repoId, receipt),
@@ -990,13 +1029,25 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
         if (frame.scheduleId !== frame.action.scheduleId)
           throw new FleetFault("schedule_scope_mismatch", "Schedule command IDs must match.");
+        // A schedule write carries its own business idempotency key (the occurrence key). The
+        // transport request id is correlation only; a frame that names its business key never has
+        // the request id substituted for it.
+        //
+        // Tolerant reader for the previous fleet protocol shape (dec_659E15CF): before the business
+        // key moved into the action, an edge sent it as frame.opId. A schedule write without the
+        // field keeps that old dedup source instead of being rejected. A frame cannot name its
+        // protocol version here, so current-build frames without the field take the same branch
+        // during the window; the strict invalid_field check returns with the branch's deletion.
+        // 兼容分支：已部署边缘全部升级到带 idempotencyKey 的构建后删除，最迟 2026-12-05。
+        const action =
+          commandClassForAction(frame.action.kind) !== "repo-read" &&
+          (typeof frame.action.idempotencyKey !== "string" || frame.action.idempotencyKey.trim() === "")
+            ? { ...frame.action, idempotencyKey: frame.opId }
+            : frame.action;
         assertFrameEpoch(a.repoId, frame.writerEpoch);
         const ingressAuth = await auth(a),
-          receipt = await observedRunCenterWriter(
-            a.repoId,
-            { ...frame.action, idempotencyKey: frame.opId },
-            ingressAuth,
-          );
+          receipt = await observedRunCenterWriter(a.repoId, action, ingressAuth);
+        if (isRecoverableReceipt(receipt)) rememberRequestReceipt(a.repoId, frame.opId, receipt.opId);
         if (isSquadControlResult(receipt))
           throw new FleetFault(
             "execution_scope_mismatch",
@@ -1041,6 +1092,19 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           resultBody = bytes.toString("utf8");
         }
         let receipt: Awaited<ReturnType<typeof options.host.runtimeIngress>>;
+        // The frame opId correlates the caller's request. Most runtime events get a center-minted
+        // storage identity, so a reused frame opId cannot hit storage dedup/op_conflict and the
+        // RuntimeSession reducer decides duplicate, late, and interleaved transitions. A Squad
+        // observation instead carries its own identity (run + revision) in the payload, and the
+        // Squad ingress validates the stored identity against it. Deriving that identity from the
+        // payload keeps frame.opId correlation-only while preserving the same observation's replay
+        // identity across different requests.
+        const runtimeEventOpId =
+          frame.eventType === "runtime_squad_run_observed"
+            ? squadObservationEventOpId(
+                frame.payload as unknown as Pick<SquadRunObservation, "squadRunId" | "runRevision">,
+              )
+            : randomUUID();
         try {
           receipt = await options.host.runtimeIngress(
             a.repoId,
@@ -1048,12 +1112,14 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
               kind: "event",
               type: frame.eventType as import("@harness-anything/kernel").AgentRuntimeEventV1["type"],
               payload: frame.payload,
-              opId: frame.opId,
+              opId: runtimeEventOpId,
               ...(resultBody === undefined ? {} : { resultBody }),
               ...(frame.dispatchContext === null ? {} : { dispatchContext: frame.dispatchContext }),
             },
             await auth(a),
           );
+          if (isRecoverableReceipt(receipt))
+            rememberRequestReceipt(a.repoId, frame.opId, receipt.opId ?? runtimeEventOpId);
         } catch (error) {
           const code = runtimeErrorCode(error);
           if (code) throw new FleetFault(code, runtimeErrorMessage(error));

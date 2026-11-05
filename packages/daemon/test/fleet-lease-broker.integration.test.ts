@@ -8,6 +8,7 @@ import { randomUUID } from "node:crypto";
 import { sha256Bytes } from "@harness-anything/kernel";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import {
+  readFleetReceiptClient,
   readFleetRepositoryMetadataClient,
   runFleetUploadClient,
   runFleetTaskCommandClient,
@@ -497,6 +498,34 @@ test(
     assert.equal(f.eventCount(), before);
     await adapter.setTeamMember("center-token", team.id, member, true);
     assert.equal((await f.command("node-one", { kind: "task-start", taskId: "task-team" })).outcome, "applied");
+  },
+);
+
+test(
+  "a committed task receipt is recoverable by the request opId after its response is lost",
+  { timeout: 60000 },
+  async (t) => {
+    const f = await fleetNodeClaimFixture(t);
+    await f.command("node-one", { kind: "task-create", taskId: "task-receipt", title: "Receipt" });
+    const requestOpId = randomUUID(),
+      applied = await runFleetTaskCommandClient({
+        ...f.peer("node-one"),
+        opId: requestOpId,
+        taskId: "task-receipt",
+        action: { kind: "task-start", taskId: "task-receipt" },
+        waitMs: 5_000,
+      });
+    assert.equal(applied.outcome, "applied", JSON.stringify(applied));
+    const canonicalOpId = applied.receipt?.opId;
+    assert.equal(typeof canonicalOpId, "string");
+    assert.notEqual(canonicalOpId, requestOpId, "the stored receipt keeps its canonical command identity");
+
+    // The caller only has the request opId after losing the response; receipt-show must still find
+    // the committed canonical receipt through the listener's correlation map.
+    const recovered = await readFleetReceiptClient({ ...f.peer("node-one"), opId: requestOpId });
+    assert.equal(recovered.outcome, "applied", JSON.stringify(recovered));
+    assert.equal(recovered.opId, canonicalOpId);
+    assert.equal(recovered.revision, applied.revision);
   },
 );
 

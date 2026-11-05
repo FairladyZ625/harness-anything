@@ -649,6 +649,13 @@ export function withoutDryRun(action: RepoTaskAction): RepoTaskAction {
   return canonical;
 }
 
+/**
+ * The center's canonical command identity: a content + target-revision digest, not the transport
+ * request id. A Fleet frame's opId correlates one round trip and is never hashed here, and no
+ * business id/attempt index/timestamp feeds this key. Retries of the same command at the same
+ * target revision replay this event; a request that changes the command or its target revision
+ * yields a different key and is adjudicated by the single writer (dec_3E49EDAB CH1/CH2).
+ */
 export function operationId(
   action: RepoTaskAction,
   binding: RepoCellBinding,

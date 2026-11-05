@@ -460,7 +460,8 @@ export async function runFleetEdgeTask(
           ok: false,
           command: action.kind,
           outcome: "op_rejected",
-          opId: `conflict-open:${taskId}`,
+          // The request identity this call already minted; the conflict stays a code + taskId.
+          opId,
           ...(receiptFormat === "cli" ? { canonicalOutcome: "op_rejected", mirrorOutcome: "conflict_open" } : {}),
           origin: "fleet-edge",
           code: "conflict_open",

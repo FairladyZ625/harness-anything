@@ -109,7 +109,7 @@ export function ScheduleWorkspace({
     setActionError(null);
     setReceipt(null);
     try {
-      const idempotencyKey = `gui:schedule-${kind}:${schedule.scheduleId}:${Date.now().toString(36)}`;
+      const idempotencyKey = `gui:schedule-${kind}:${schedule.scheduleId}:${crypto.randomUUID()}`;
       const next =
         kind === "enable"
           ? await schedulesClient.enable(repoId, schedule.scheduleId, idempotencyKey)
@@ -133,7 +133,7 @@ export function ScheduleWorkspace({
     setReceipt(null);
     try {
       const kind = selected === null ? "create" : "update",
-        idempotencyKey = `gui:schedule-${kind}:${input.scheduleId}:${Date.now().toString(36)}`,
+        idempotencyKey = `gui:schedule-${kind}:${input.scheduleId}:${crypto.randomUUID()}`,
         // Create stays agent-shaped (a built-in is only ever system-seeded); an update may
         // carry the partial builtin edit input.
         next =
@@ -159,7 +159,7 @@ export function ScheduleWorkspace({
     setActionError(null);
     setReceipt(null);
     try {
-      const idempotencyKey = `gui:schedule-delete:${schedule.scheduleId}:${Date.now().toString(36)}`;
+      const idempotencyKey = `gui:schedule-delete:${schedule.scheduleId}:${crypto.randomUUID()}`;
       const next = await schedulesClient.delete(
         repoId,
         schedule.scheduleId,

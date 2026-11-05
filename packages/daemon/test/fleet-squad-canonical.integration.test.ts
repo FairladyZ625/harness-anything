@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { randomUUID } from "node:crypto";
 import { utimesSync } from "node:fs";
 import path from "node:path";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
@@ -212,6 +213,11 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
     .at(-1)!;
   assert.ok(observed, "real coordinator emitted an accepted observation");
   assert.equal(observed.payload.squadRunId, runId);
+  assert.equal(
+    observed.opId,
+    `squad-observed-${runId}-${observed.payload.runRevision}`,
+    "the observation identity is its run revision, not the transport request",
+  );
   assert.equal(observed.payload.subject.kind, "task");
   const parentExecutionId = observed.payload.subject.executionId;
   assert.equal(observed.source && typeof observed.source === "object" ? observed.source.nodeId : null, "node-one");
@@ -233,6 +239,15 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
     payload: observed.payload,
   });
   assert.equal(identicalReplay.receipt.outcome, "no_changes", JSON.stringify(identicalReplay));
+  // The transport request id is correlation only. A fresh request for the same observation must
+  // still resolve to its run-revision identity instead of appending a second canonical event.
+  const freshRequestReplay = await runFleetRuntimeEventClient({
+    ...f.peer("node-one"),
+    eventType: observed.type,
+    opId: randomUUID(),
+    payload: observed.payload,
+  });
+  assert.equal(freshRequestReplay.receipt.outcome, "no_changes", JSON.stringify(freshRequestReplay));
   await assert.rejects(
     runFleetRuntimeEventClient({
       ...f.peer("node-two"),

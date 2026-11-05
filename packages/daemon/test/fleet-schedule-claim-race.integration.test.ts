@@ -2,15 +2,18 @@
 // TC-FLEET-CHAOS-02 (design: harness/tasks/task_0f452959ff91b5dcaa78604f61-fleet/artifacts/
 // fleet-concurrency-test-design.md §3.2): two edge nodes release their claims for the same Schedule
 // occurrence through one barrier; the center's single write queue must admit exactly one holder,
-// reject the other, and never mint a second claim fence. A retry of the winner's own idempotency
-// key is the *same* occurrence, so it replays the winning receipt instead of claiming again.
+// reject the other, and never mint a second claim fence. The frame opId is each request's own
+// random correlation id; the occurrence business key rides action.idempotencyKey. A retry with the
+// winner's own business key is the *same* occurrence, so it replays the winning receipt instead of
+// claiming again. Reusing a frame opId under a different business key must not replay anything:
+// the transport id is not a business dedup key.
 //
 // Both edges speak the production edge write port (runFleetScheduleCommandClient), the same call
 // fleet-edge-runtime's schedule ingress makes. The center is registered `remote-center`, so a won
 // claim is not dispatched here; the subject under test is the claim itself.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -23,7 +26,7 @@ import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-set
 import { openRuntimeInstanceStore } from "../src/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
-import { runFleetScheduleCommandClient } from "../src/fleet/peer.ts";
+import { readFleetReceiptClient, runFleetScheduleCommandClient } from "../src/fleet/peer.ts";
 
 const repoId = "schedule-claim-race",
   scheduleId = "claim-race",
@@ -40,9 +43,11 @@ test(
     const fixture = await claimRaceFixture(t),
       before = fixture.eventCount(),
       gate = Promise.withResolvers<void>(),
+      alphaOpId = randomUUID(),
+      betaOpId = randomUUID(),
       claims = [
-        claimAfter(gate.promise, fixture, "edge-alpha", occurrenceKey),
-        claimAfter(gate.promise, fixture, "edge-beta", occurrenceKey),
+        claimAfter(gate.promise, fixture, "edge-alpha", occurrenceKey, alphaOpId),
+        claimAfter(gate.promise, fixture, "edge-beta", occurrenceKey, betaOpId),
       ];
     gate.resolve();
     const [alpha, beta] = await Promise.all(claims);
@@ -66,26 +71,48 @@ test(
 
     // The holder the winner observed is the node that actually claimed: no cross-node claim.
     const winner = winners[0]!,
+      winnerOpId = winner.nodeId === "edge-alpha" ? alphaOpId : betaOpId,
       claimed = activeRun(winner.result);
     assert.equal(claimed.nodeId, winner.nodeId, "the recorded holder is the node that won");
     assert.match(claimed.claimFence, /^claim_[0-9a-f]{24}$/u);
-    // The center rewrites the action's idempotency key to the frame opId, and an edge's opId is
-    // derived from repo+nodeId+key. Two different edges therefore derive *different* occurrence ids
-    // for the same tick; what prevents a second live run is single flight on the Schedule, not
-    // occurrence identity. Pin that: the ids differ, yet only one holder exists.
-    const perEdge = expectedOccurrenceIds();
-    assert.equal(new Set(Object.values(perEdge)).size, 2, "two edges derive two occurrence ids");
-    assert.equal(claimed.occurrenceId, perEdge[winner.nodeId], "the winner holds its own derived occurrence");
+    // Both requests carry their own random correlation id (never a repo/schedule/session string),
+    // while the occurrence business key is action.idempotencyKey. The center therefore derives one
+    // occurrence identity for the tick; single flight, not occurrence identity, rejects the loser.
+    assert.notEqual(alphaOpId, betaOpId, "each request has its own operation id");
+    for (const opId of [alphaOpId, betaOpId]) {
+      assert.match(opId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u);
+      assert.equal(opId.includes(repoId) || opId.includes(scheduleId) || opId.includes(occurrenceKey), false);
+    }
+    const expected = expectedOccurrenceId(occurrenceKey);
+    assert.equal(
+      claimed.occurrenceId,
+      expected,
+      "both edges carry the same business key, so the center derives one occurrence",
+    );
 
     // One canonical claim event, not two: a losing attempt writes no schedule event.
     assert.equal(fixture.eventCount(), before + 1, "the race appended exactly one canonical event");
     assert.deepEqual(fixture.claimEvents(), [claimed.claimFence]);
 
-    // Idempotent replay of the winner's own key: same occurrence, same fence, still one event.
-    const replay = await fixture.claim(winner.nodeId, occurrenceKey);
+    // Idempotent replay of the winner's own key: same action content, same occurrence, same fence.
+    const replay = await fixture.claim(winner.nodeId, occurrenceKey, winnerOpId);
     assert.equal(replay.outcome, "applied", JSON.stringify(replay));
     assert.equal(activeRun(replay).claimFence, claimed.claimFence, "a retry replays the winning fence");
     assert.equal(fixture.eventCount(), before + 1, "a replayed claim appends nothing");
+
+    // The caller may lose the response and only keep its request opId. receipt-show must resolve
+    // the committed canonical receipt through the listener's correlation map.
+    const recovered = await fixture.receipt(winner.nodeId, winnerOpId);
+    assert.equal(recovered.outcome, "applied", JSON.stringify(recovered));
+    assert.equal(recovered.opId, winner.result.receipt?.opId);
+
+    // Reusing the same frame opId for a different business intent is a different request. If the
+    // center still used frame.opId as the business key it would replay the winner's applied
+    // receipt; it must instead reach the Schedule single-flight check and reject.
+    const reused = await fixture.claim(winner.nodeId, `${occurrenceKey}:different-intent`, winnerOpId);
+    assert.equal(reused.outcome, "op_rejected", JSON.stringify(reused));
+    assert.equal(reused.code, "schedule_single_flight_active");
+    assert.equal(fixture.eventCount(), before + 1, "a different intent under the same frame opId appends nothing");
   },
 );
 
@@ -94,7 +121,7 @@ test(
   { timeout: 90_000 },
   async (t) => {
     const fixture = await claimRaceFixture(t);
-    const winner = await fixture.claim("edge-alpha", occurrenceKey),
+    const winner = await fixture.claim("edge-alpha", occurrenceKey, randomUUID()),
       fence = activeRun(winner).claimFence,
       heldEvents = fixture.eventCount();
     // A different idempotency key is a different occurrence, but single flight counts occurrences of
@@ -107,13 +134,39 @@ test(
   },
 );
 
+test(
+  "a previous-version schedule frame without the business key keeps the old frame-opId dedup semantics",
+  { timeout: 90_000 },
+  async (t) => {
+    const fixture = await claimRaceFixture(t),
+      legacyOpId = randomUUID(),
+      legacyAction = { kind: "schedule-run-now", scheduleId, scheduledFor } as const;
+    // The previous protocol shape carried the occurrence key in frame.opId; the center keeps that
+    // old source only for frames that cannot express action.idempotencyKey.
+    const accepted = await fixture.command("edge-alpha", legacyAction, legacyOpId);
+    assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
+    const claimed = activeRun(accepted);
+    assert.equal(claimed.occurrenceId, expectedOccurrenceId(legacyOpId));
+    // Same shape and same request id: the old semantics replay the same business occurrence.
+    const replayed = await fixture.command("edge-alpha", legacyAction, legacyOpId);
+    assert.equal(replayed.outcome, "applied", JSON.stringify(replayed));
+    assert.equal(activeRun(replayed).claimFence, claimed.claimFence, "the old shape still dedups on frame.opId");
+    // A different request id is a different old-style business key, so it does not replay; it
+    // reaches the Schedule single-flight check and is rejected while the first claim is live.
+    const second = await fixture.command("edge-alpha", legacyAction, randomUUID());
+    assert.equal(second.outcome, "op_rejected", JSON.stringify(second));
+    assert.equal(second.code, "schedule_single_flight_active");
+  },
+);
+
 function claimAfter(
   gate: Promise<void>,
   fixture: Awaited<ReturnType<typeof claimRaceFixture>>,
   nodeId: string,
   key: string,
+  opId: string,
 ): Promise<ClaimResult> {
-  return gate.then(() => fixture.claim(nodeId, key));
+  return gate.then(() => fixture.claim(nodeId, key, opId));
 }
 
 function activeRun(result: ClaimResult): {
@@ -131,18 +184,12 @@ function activeRun(result: ClaimResult): {
 }
 
 /**
- * Per-edge occurrence ids as the center derives them. `runFleetScheduleCommandClient` sends the
- * frame opId, and the schedule ingress substitutes `{ ...frame.action, idempotencyKey: frame.opId }`
- * before compiling, so the domain hashes the caller's op id — which carries the node id.
+ * The occurrence id the center derives from the caller's business key. The frame opId is not part
+ * of this hash: it correlates the request, and the same tick key from two edges names one occurrence.
  */
-function expectedOccurrenceIds(): Record<string, string> {
-  const ids: Record<string, string> = {};
-  for (const nodeId of ["edge-alpha", "edge-beta"]) {
-    const opId = `schedule-${createHash("sha256").update(`${repoId}\0${nodeId}\0${occurrenceKey}`).digest("hex").slice(0, 32)}`,
-      hash = createHash("sha256").update(`${scheduleId}\0scheduled\0${scheduledFor}\0${opId}`).digest("hex");
-    ids[nodeId] = `occurrence_${hash.slice(0, 24)}`;
-  }
-  return ids;
+function expectedOccurrenceId(key: string): string {
+  const hash = createHash("sha256").update(`${scheduleId}\0scheduled\0${scheduledFor}\0${key}`).digest("hex");
+  return `occurrence_${hash.slice(0, 24)}`;
 }
 
 async function claimRaceFixture(t: TestContext) {
@@ -239,21 +286,35 @@ async function claimRaceFixture(t: TestContext) {
     owners.auth({ nodeId: "edge-alpha" }),
   );
   assert.equal(created.outcome, "applied", JSON.stringify(created));
-  const claim = async (nodeId: string, key: string): Promise<ClaimResult> =>
-    runFleetScheduleCommandClient({
-      port: center!.port,
-      ca: certificate,
-      servername: "localhost",
-      nodeId,
-      credential: `credential-${nodeId}`,
-      readAccessToken: owners.readAccessToken(nodeId),
-      opId: scheduleOpId(nodeId, key),
-      repoId,
-      scheduleId,
-      action: { kind: "schedule-run-now", scheduleId, scheduledFor, idempotencyKey: key },
-    });
+  const command = (nodeId: string, action: Readonly<Record<string, unknown>>, opId: string): Promise<ClaimResult> =>
+      runFleetScheduleCommandClient({
+        port: center!.port,
+        ca: certificate,
+        servername: "localhost",
+        nodeId,
+        credential: `credential-${nodeId}`,
+        readAccessToken: owners.readAccessToken(nodeId),
+        opId,
+        repoId,
+        scheduleId,
+        action: action as { readonly kind: string } & Readonly<Record<string, unknown>>,
+      }),
+    claim = (nodeId: string, key: string, opId = randomUUID()): Promise<ClaimResult> =>
+      command(nodeId, { kind: "schedule-run-now", scheduleId, scheduledFor, idempotencyKey: key }, opId);
   return {
     claim,
+    command,
+    receipt: (nodeId: string, opId: string) =>
+      readFleetReceiptClient({
+        port: center!.port,
+        ca: certificate,
+        servername: "localhost",
+        nodeId,
+        credential: `credential-${nodeId}`,
+        readAccessToken: owners.readAccessToken(nodeId),
+        repoId,
+        opId,
+      }),
     eventCount: () => makeTaskEventReader({ rootDir: repo, repoId }).read().events.length,
     claimEvents: () =>
       makeTaskEventReader({ rootDir: repo, repoId })
@@ -264,11 +325,6 @@ async function claimRaceFixture(t: TestContext) {
         )
         .map((event) => event.payload.schedule.status.activeRun?.claimFence ?? ""),
   };
-}
-
-/** fleet-edge-runtime's own op id derivation, so a retry by the same node reuses its receipt. */
-function scheduleOpId(nodeId: string, key: string): string {
-  return `schedule-${createHash("sha256").update(`${repoId}\0${nodeId}\0${key}`).digest("hex").slice(0, 32)}`;
 }
 
 function tlsCertificate(keyFile: string, certFile: string): void {

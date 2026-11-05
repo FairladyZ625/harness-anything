@@ -24,7 +24,7 @@ export function useSettingsMutation(repoId: string | null) {
       const receipt = await harnessClient.updateSettings({
         repoId,
         ...input,
-        idempotencyKey: `settings-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        idempotencyKey: `settings-${crypto.randomUUID()}`,
       });
       // 失败回执(ok:false)也走错误面:静默吞掉会让整表提交原地消失(2026-09-18 实测:
       // 路由白名单漂移让每次提交都 unknown_field 拒收,UI 无任何显示)。
