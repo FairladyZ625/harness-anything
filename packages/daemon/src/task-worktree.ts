@@ -162,7 +162,7 @@ export async function checkoutTaskWorktree(
         );
       const fresh = !existsSync(cwd);
       await ensurePinnedCommit(rootDir, binding.branch, pinnedCommit);
-      if (fresh) await addManagedWorktree(rootDir, { cwd, branch: binding.branch, baseRef: pinnedCommit });
+      if (fresh) await addPinnedReviewWorktree(rootDir, cwd, binding.branch, pinnedCommit);
       const verify = () => verifyReviewCheckout(cwd, pinnedCommit);
       await verify();
       const prepared = await runWorktreeSetup({ rootDir, cwd, taskId, steps, stepTimeoutMs, fresh });
@@ -284,6 +284,73 @@ async function ensurePinnedCommit(rootDir: string, branch: string, commit: strin
     `The frozen delivery commit ${commit} is not available in ${rootDir}. Push the frozen cut or dispatch the review ` +
       "on a node that holds it; a reviewer must not inspect another commit.",
   );
+}
+
+/**
+ * Creates a fresh reviewer checkout at the frozen commit. `addManagedWorktree` reuses a surviving
+ * branch and ignores its baseRef, which would check out the stale cut this review must not read;
+ * here a diverged branch is preserved under its own name before the task branch is created at the
+ * frozen commit. A branch that is an ancestor of the frozen commit is simply advanced.
+ */
+async function addPinnedReviewWorktree(rootDir: string, cwd: string, branch: string, commit: string): Promise<void> {
+  const branchTip = await refTip(rootDir, `refs/heads/${branch}`);
+  if (branchTip === null) {
+    await reviewGit(rootDir, "worktree", "add", cwd, "-b", branch, commit);
+    return;
+  }
+  if (branchTip === commit) {
+    await reviewGit(rootDir, "worktree", "add", cwd, branch);
+    return;
+  }
+  const ancestor = await runProcessExitAsync(
+    "git",
+    ["-C", rootDir, "merge-base", "--is-ancestor", branchTip, commit],
+    undefined,
+    { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    undefined,
+    undefined,
+    { timeoutMs: 30_000 },
+  );
+  if (ancestor.exitCode === 0) {
+    await reviewGit(rootDir, "branch", "-f", branch, commit);
+    await reviewGit(rootDir, "worktree", "add", cwd, branch);
+    return;
+  }
+  const preserved = `${branch}-superseded-${branchTip.slice(0, 12)}`;
+  try {
+    await reviewGit(rootDir, "branch", "-m", branch, preserved);
+  } catch (error) {
+    throw cellCodedError(
+      "review_checkout_branch_in_use",
+      `A reviewer checkout cannot move branch ${branch} aside to the frozen commit: ${errorText(error)}`,
+    );
+  }
+  await reviewGit(rootDir, "worktree", "add", cwd, "-b", branch, commit);
+}
+
+async function refTip(rootDir: string, ref: string): Promise<string | null> {
+  const result = await runProcessExitAsync(
+    "git",
+    ["-C", rootDir, "rev-parse", "--verify", "--quiet", ref],
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    { timeoutMs: 30_000 },
+  );
+  return result.exitCode === 0 ? result.stdout.trim() : null;
+}
+
+function reviewGit(rootDir: string, ...args: string[]): Promise<string> {
+  return runProcessTextAsync(
+    "git",
+    ["-C", rootDir, ...args],
+    undefined,
+    { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    undefined,
+    undefined,
+    { timeoutMs: 30_000 },
+  ).then((output) => output.trim());
 }
 
 /** The reviewer's checkout is the frozen cut or it is not prepared: never advance, reset, or silently accept another HEAD. */

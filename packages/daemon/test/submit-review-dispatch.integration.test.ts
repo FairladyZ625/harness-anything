@@ -25,7 +25,7 @@ function gitIn(cwd: string, ...args: string[]): string {
 }
 
 /** Publish a WIP cut, then replace it locally with a different final commit the branch lacks. */
-function publishSupersededWipCut(f: ChildFixture, worktree: string): string {
+function publishSupersededWipCut(f: ChildFixture, worktree: string): { readonly wip: string; readonly frozen: string } {
   const baseline = gitIn(worktree, "rev-parse", "HEAD"),
     origin = path.join(f.root, "origin.git");
   execFileSync("git", ["init", "--bare", "-q", "--initial-branch=main", origin]);
@@ -34,6 +34,7 @@ function publishSupersededWipCut(f: ChildFixture, worktree: string): string {
   writeFileSync(path.join(worktree, "wip.txt"), "superseded WIP cut\n");
   gitIn(worktree, "add", "wip.txt");
   gitIn(worktree, "commit", "-qm", "test: superseded WIP cut");
+  const wip = gitIn(worktree, "rev-parse", "HEAD");
   gitIn(worktree, "push", "-q", "origin", `HEAD:refs/heads/${taskId}`);
   // The final cut replaces the WIP commit instead of extending it, so the two histories
   // diverge: the checkout is "behind" the published branch and holds a commit it lacks.
@@ -41,7 +42,7 @@ function publishSupersededWipCut(f: ChildFixture, worktree: string): string {
   writeFileSync(path.join(worktree, "final.txt"), "frozen delivery\n");
   gitIn(worktree, "add", "final.txt");
   gitIn(worktree, "commit", "-qm", "test: final frozen cut");
-  return gitIn(worktree, "rev-parse", "HEAD");
+  return { wip, frozen: gitIn(worktree, "rev-parse", "HEAD") };
 }
 
 /** Freeze a missing reviewer so submit cannot auto-dispatch; install the real one for the manual lane. */
@@ -320,7 +321,7 @@ test(
     try {
       await f.install();
       const worktree = path.join(f.root, ".worktrees", taskId),
-        frozen = publishSupersededWipCut(f, worktree),
+        { frozen } = publishSupersededWipCut(f, worktree),
         submitted = (await f.submit()) as Record<string, unknown>;
       assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
       assert.equal(
@@ -347,12 +348,13 @@ test(
     });
     try {
       const worktree = path.join(f.root, ".worktrees", taskId),
-        frozen = publishSupersededWipCut(f, worktree);
+        { wip, frozen } = publishSupersededWipCut(f, worktree);
       await submitWithDeferredReview(f);
-      // A node that takes the review over has no checkout at all; cutting it from the still-old
-      // published branch would review the replaced WIP cut instead of the frozen delivery.
+      // A node that takes the review over has no checkout at all, but its task branch may survive
+      // at the replaced WIP cut. The branch is preserved under a new name; the checkout must still
+      // be the frozen commit rather than whatever the stale branch names.
       gitIn(f.root, "worktree", "remove", "--force", worktree);
-      gitIn(f.root, "branch", "-D", taskId);
+      gitIn(f.root, "branch", "-f", taskId, wip);
       const dispatched = (await f.run({
         kind: "task-dispatch-review",
         taskIds: [taskId],
@@ -365,6 +367,11 @@ test(
         gitIn(worktree, "rev-parse", "HEAD"),
         frozen,
         "a fresh reviewer checkout is created at the frozen cut",
+      );
+      assert.equal(
+        gitIn(f.root, "rev-parse", `refs/heads/${taskId}-superseded-${wip.slice(0, 12)}`),
+        wip,
+        "the surviving stale branch is preserved under its own name",
       );
     } finally {
       await f.close();
@@ -382,7 +389,7 @@ test(
     });
     try {
       const worktree = path.join(f.root, ".worktrees", taskId),
-        frozen = publishSupersededWipCut(f, worktree);
+        { frozen } = publishSupersededWipCut(f, worktree);
       await submitWithDeferredReview(f);
       // Another node may still hold an old checkout of this task. A review must not silently
       // inspect that tree and register a verdict against the frozen cut.
