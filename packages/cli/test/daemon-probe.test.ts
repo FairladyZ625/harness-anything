@@ -341,6 +341,28 @@ test("one sustained multi-signal event captures exactly once", () => {
   assert.equal(tracker.evaluate(combined(700_001)), "rss");
 });
 
+test("an event starting inside the cooldown is captured when the cooldown expires", () => {
+  const tracker = createTriggerTracker({
+    unresponsiveMs: 30_000,
+    cpuPercent: 90,
+    cpuSustainMs: 60_000,
+    rssBytes: 100,
+    cooldownMs: 600_000,
+  });
+  const sample = (at: number, state: "up" | "down", rssBytes: number) => ({
+    at,
+    state,
+    cpuPercent: 0,
+    rssBytes,
+  });
+  assert.equal(tracker.evaluate(sample(0, "up", 200)), "rss");
+  assert.equal(tracker.evaluate(sample(1_000, "up", 0)), null);
+  assert.equal(tracker.evaluate(sample(2_000, "down", 0)), null);
+  assert.equal(tracker.evaluate(sample(32_000, "down", 0)), null);
+  assert.equal(tracker.evaluate(sample(602_000, "down", 0)), "unresponsive");
+  assert.equal(tracker.evaluate(sample(3_600_000, "down", 0)), null);
+});
+
 test("unresponsive loop captures one scene and writes a capture record", async (t) => {
   const fake = await startFakeDaemon();
   const dir = mkdtempSync(path.join(tmpdir(), "ha-probe-loop-"));

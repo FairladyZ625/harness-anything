@@ -182,7 +182,7 @@ export async function runProbeLoop(deps: ProbeLoopDeps, options: ProbeLoopOption
     samples += 1;
     counts[sample.state] += 1;
     deps.onSample?.(sample);
-    await appendSafely(deps.writer, errors, sampleRecord(sample));
+    await appendSafely(deps.writer, errors, sampleRecord(sample, options.intervalMs));
     const reason = tracker.evaluate(sample);
     if (reason !== null) {
       const captured = await runCapture(deps, sample, reason, options, errors);
@@ -262,10 +262,11 @@ async function runCapture(
   }
 }
 
-function sampleRecord(sample: ProbeSample): Readonly<Record<string, unknown>> {
+function sampleRecord(sample: ProbeSample, intervalMs: number): Readonly<Record<string, unknown>> {
   return {
     kind: "sample",
     at: new Date(sample.at).toISOString(),
+    intervalMs,
     state: sample.state,
     latencyMs: sample.latencyMs,
     helloMs: sample.helloMs,

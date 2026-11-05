@@ -53,9 +53,11 @@ export function createTriggerTracker(options: TriggerOptions): TriggerTracker {
         cpuDue = highCpu && cpuSince !== null && sample.at - cpuSince >= options.cpuSustainMs,
         reason: TriggerReason | null = downDue ? "unresponsive" : cpuDue ? "high-cpu" : highRss ? "rss" : null;
       if (reason === null) return null;
+      // A cooldown does not discard the event: leave it uncaptured so the next sample after the
+      // cooldown captures the still-running failure once.
+      if (lastCaptureAt !== null && sample.at - lastCaptureAt < options.cooldownMs) return null;
       eventCaptured = true;
       lastReason = reason;
-      if (lastCaptureAt !== null && sample.at - lastCaptureAt < options.cooldownMs) return null;
       lastCaptureAt = sample.at;
       return reason;
     },

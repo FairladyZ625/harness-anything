@@ -115,12 +115,14 @@ interface RunWindow {
   startAt: number;
   stopAt: number | null;
   intervalMs: number;
+  lastSampleAt: number | null;
 }
 
 interface SampleState {
   state: string;
   startAt: number;
   lastAt: number;
+  intervalMs: number;
 }
 
 interface AccumulatorState {
@@ -139,6 +141,7 @@ interface AccumulatorState {
   lastAt: number | null;
   current: SampleState | null;
   fallbackGroup: SampleState | null;
+  fallbackIntervalMs: number;
 }
 
 const defaultIntervalMs = 5_000;
@@ -160,6 +163,7 @@ export function createTimelineAccumulator(sinceMs: number, untilMs: number): Tim
     lastAt: null,
     current: null,
     fallbackGroup: null,
+    fallbackIntervalMs: defaultIntervalMs,
   };
   return {
     add: (record) => addTimelineRecord(state, record),
@@ -172,7 +176,7 @@ function activeInterval(state: AccumulatorState): number {
     const run = state.runs[index]!;
     if (run.stopAt === null) return run.intervalMs;
   }
-  return defaultIntervalMs;
+  return state.fallbackIntervalMs;
 }
 
 function maxGap(intervalMs: number): number {
@@ -186,24 +190,33 @@ function closeCurrent(state: AccumulatorState, endAt: number): void {
   state.current = null;
 }
 
-function closeOpenRun(state: AccumulatorState, at: number): void {
-  for (const run of state.runs) if (run.stopAt === null) run.stopAt = at;
+// Close the active run at the last evidence boundary, not at the control record. A new start/stop
+// can arrive hours after the last sample (probe killed and restarted); the interval in between was
+// not observed and must be reported as a gap, not as the previous state.
+function closeActiveRun(state: AccumulatorState, at: number): void {
+  const run = lastOpenRun(state.runs);
+  if (run === null) {
+    if (state.current !== null) closeCurrent(state, Math.min(at, state.current.lastAt + state.current.intervalMs));
+    return;
+  }
+  const end = run.lastSampleAt === null ? run.startAt : Math.min(at, run.lastSampleAt + run.intervalMs);
+  if (state.current !== null) closeCurrent(state, Math.min(end, state.current.lastAt + state.current.intervalMs));
+  run.stopAt = end;
+  if (at > end) pushSegment(state.gaps, end, at);
 }
 
 function addTimelineRecord(state: AccumulatorState, record: Readonly<Record<string, unknown>>): void {
   if (record.kind === "probe_start") {
     const at = Date.parse(String(record.at));
     if (!Number.isFinite(at) || at > state.untilMs) return;
-    closeCurrent(state, at);
-    closeOpenRun(state, at);
-    state.runs.push({ startAt: at, stopAt: null, intervalMs: startInterval(record) });
+    closeActiveRun(state, at);
+    state.runs.push({ startAt: at, stopAt: null, intervalMs: startInterval(record), lastSampleAt: null });
     return;
   }
   if (record.kind === "probe_stop") {
     const at = Date.parse(String(record.at));
     if (!Number.isFinite(at) || at > state.untilMs) return;
-    closeCurrent(state, at);
-    closeOpenRun(state, at);
+    closeActiveRun(state, at);
     return;
   }
   if (record.kind === "capture") {
@@ -240,31 +253,55 @@ function addSample(state: AccumulatorState, record: Readonly<Record<string, unkn
   if (typeof record.latencyMs === "number") state.histogram.add(record.latencyMs);
   state.firstAt = state.firstAt === null ? at : Math.min(state.firstAt, at);
   state.lastAt = state.lastAt === null ? at : Math.max(state.lastAt, at);
-  if (state.runs.length === 0) addFallbackSample(state, at, sampleState);
-  else addRunSample(state, at, sampleState);
+  const interval = sampleInterval(record, state);
+  if (state.runs.length === 0) addFallbackSample(state, at, sampleState, interval);
+  else addRunSample(state, at, sampleState, interval);
 }
 
-function addFallbackSample(state: AccumulatorState, at: number, sampleState: string): void {
+function sampleInterval(record: Readonly<Record<string, unknown>>, state: AccumulatorState): number {
+  const declared = record.intervalMs;
+  if (typeof declared === "number" && Number.isFinite(declared) && declared > 0) {
+    state.fallbackIntervalMs = Math.max(250, declared);
+    return state.fallbackIntervalMs;
+  }
+  return state.runs.length === 0 ? state.fallbackIntervalMs : activeInterval(state);
+}
+
+function addFallbackSample(state: AccumulatorState, at: number, sampleState: string, intervalMs: number): void {
   const group = state.fallbackGroup;
-  if (group === null) state.fallbackGroup = { state: sampleState, startAt: at, lastAt: at };
-  else if (at - group.lastAt > maxGap(defaultIntervalMs)) {
-    closeCurrent(state, group.lastAt + defaultIntervalMs);
-    pushSegment(state.fallbackObserved, group.startAt, group.lastAt + defaultIntervalMs);
-    pushSegment(state.gaps, group.lastAt + defaultIntervalMs, at);
-    state.fallbackGroup = { state: sampleState, startAt: at, lastAt: at };
-  } else group.lastAt = at;
-  if (state.current === null) state.current = { state: sampleState, startAt: at, lastAt: at };
+  if (group === null) state.fallbackGroup = { state: sampleState, startAt: at, lastAt: at, intervalMs };
+  else {
+    const gap = at - group.lastAt;
+    // Without run metadata, infer a normal interval from the first gap up to one minute so a
+    // legitimate `--interval 60s` window is not split; a one-hour hole stays a hole.
+    if (gap > 0 && gap <= 60_000) state.fallbackIntervalMs = Math.max(250, gap);
+    const observedInterval = Math.max(intervalMs, state.fallbackIntervalMs);
+    if (gap > maxGap(observedInterval)) {
+      closeCurrent(state, group.lastAt + observedInterval);
+      pushSegment(state.fallbackObserved, group.startAt, group.lastAt + observedInterval);
+      pushSegment(state.gaps, group.lastAt + observedInterval, at);
+      state.fallbackGroup = { state: sampleState, startAt: at, lastAt: at, intervalMs: observedInterval };
+    } else {
+      group.lastAt = at;
+      group.intervalMs = observedInterval;
+    }
+  }
+  if (state.current === null) state.current = { state: sampleState, startAt: at, lastAt: at, intervalMs };
   else if (state.current.state !== sampleState) {
     closeCurrent(state, at);
-    state.current = { state: sampleState, startAt: at, lastAt: at };
-  } else state.current.lastAt = at;
+    state.current = { state: sampleState, startAt: at, lastAt: at, intervalMs };
+  } else {
+    state.current.lastAt = at;
+    state.current.intervalMs = intervalMs;
+  }
 }
 
-function addRunSample(state: AccumulatorState, at: number, sampleState: string): void {
+function addRunSample(state: AccumulatorState, at: number, sampleState: string, intervalMs: number): void {
   const run = runAt(state.runs, at),
-    interval = run?.intervalMs ?? defaultIntervalMs;
+    interval = run?.intervalMs ?? intervalMs;
+  if (run !== null) run.lastSampleAt = at;
   if (state.current === null) {
-    state.current = { state: sampleState, startAt: at, lastAt: at };
+    state.current = { state: sampleState, startAt: at, lastAt: at, intervalMs: interval };
     return;
   }
   const gap = at - state.current.lastAt;
@@ -272,22 +309,22 @@ function addRunSample(state: AccumulatorState, at: number, sampleState: string):
     const end = state.current.lastAt + interval;
     closeCurrent(state, end);
     pushSegment(state.gaps, end, at);
-    state.current = { state: sampleState, startAt: at, lastAt: at };
+    state.current = { state: sampleState, startAt: at, lastAt: at, intervalMs: interval };
     return;
   }
   if (state.current.state !== sampleState) {
     closeCurrent(state, at);
-    state.current = { state: sampleState, startAt: at, lastAt: at };
-  } else state.current.lastAt = at;
+    state.current = { state: sampleState, startAt: at, lastAt: at, intervalMs: interval };
+  } else {
+    state.current.lastAt = at;
+    state.current.intervalMs = interval;
+  }
 }
 
 function finishTimeline(state: AccumulatorState): TimelineSummary {
   if (state.current !== null) {
     const open = lastOpenRun(state.runs),
-      end = Math.min(
-        state.lastAt === null ? state.current.lastAt : state.current.lastAt + activeInterval(state),
-        open?.stopAt ?? state.untilMs,
-      );
+      end = Math.min(state.current.lastAt + state.current.intervalMs, open?.stopAt ?? state.untilMs);
     closeCurrent(state, Math.max(state.current.startAt, end));
   }
   const observed = state.runs.length === 0 ? finishFallback(state) : finishRuns(state);
@@ -324,7 +361,7 @@ function finishTimeline(state: AccumulatorState): TimelineSummary {
 function finishFallback(state: AccumulatorState): readonly TimelineSegment[] {
   const group = state.fallbackGroup;
   if (group !== null)
-    pushSegment(state.fallbackObserved, group.startAt, Math.min(state.untilMs, group.lastAt + defaultIntervalMs));
+    pushSegment(state.fallbackObserved, group.startAt, Math.min(state.untilMs, group.lastAt + group.intervalMs));
   return state.fallbackObserved;
 }
 
@@ -333,7 +370,7 @@ function finishRuns(state: AccumulatorState): readonly TimelineSegment[] {
   for (const run of state.runs) {
     const end = Math.min(
       state.untilMs,
-      run.stopAt ?? (state.lastAt === null ? run.startAt : state.lastAt + run.intervalMs),
+      run.stopAt ?? (run.lastSampleAt === null ? run.startAt : run.lastSampleAt + run.intervalMs),
     );
     if (end > run.startAt)
       observed.push({

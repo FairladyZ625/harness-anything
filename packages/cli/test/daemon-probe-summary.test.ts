@@ -135,6 +135,35 @@ test("PID reuse does not carry a later generation's activity or exit backwards",
   );
 });
 
+test("a later future start cannot change a frozen --until result", () => {
+  const conn = {
+      files: 1,
+      records: 1,
+      requests: 1,
+      firstAt: 5_000,
+      lastAt: 5_000,
+      lastActivityByPid: new Map([[1, 5_000]]),
+      lastActivityByStartIndex: new Map([[0, 5_000]]),
+      activityMinutes: new Uint8Array(1),
+    },
+    options = { sinceMs: 0, untilMs: 10_000, currentPid: null, currentPidAlive: false },
+    withoutFuture = deriveAvailability(lifecycle([{ at: 0, pid: 1 }], []), conn, options),
+    withFuture = deriveAvailability(
+      lifecycle(
+        [
+          { at: 0, pid: 1 },
+          { at: 20_000, pid: 2 },
+        ],
+        [],
+      ),
+      conn,
+      options,
+    );
+  assert.deepEqual(withFuture, withoutFuture);
+  assert.equal(withoutFuture.downtimeMs, 0);
+  assert.equal(withoutFuture.unobservedFromMs, 5_000);
+});
+
 test("silent segments are bounded by observed minutes and ranked by duration", () => {
   const activity = new Uint8Array(12);
   for (const minute of [0, 1, 4, 8, 9, 11]) activity[minute] = 1;
@@ -259,6 +288,38 @@ test("a gap between samples is unobserved, not a continuous downtime segment", (
   assert.deepEqual(summary.unobservedSegments, [{ fromMs: 5_000, toMs: 3_600_000, durationMs: 3_595_000 }]);
 });
 
+test("a restart after a long probe outage does not extend the previous down segment", () => {
+  const accumulator = createTimelineAccumulator(0, 7_200_000);
+  accumulator.add({ kind: "probe_start", at: new Date(0).toISOString(), options: { intervalMs: 5_000 } });
+  accumulator.add({ kind: "sample", at: new Date(0).toISOString(), state: "down", latencyMs: 2_000 });
+  accumulator.add({ kind: "probe_start", at: new Date(3_600_000).toISOString(), options: { intervalMs: 5_000 } });
+  accumulator.add({ kind: "sample", at: new Date(3_600_000).toISOString(), state: "up", latencyMs: 1 });
+  const summary = accumulator.finish();
+  assert.deepEqual(summary.downSegments, [{ fromMs: 0, toMs: 5_000, durationMs: 5_000 }]);
+  assert.equal(summary.observedMs, 10_000);
+  assert.equal(summary.unobservedMs, 7_190_000);
+});
+
+test("a long stop after the last sample is unobserved, not the previous state", () => {
+  const accumulator = createTimelineAccumulator(0, 7_200_000);
+  accumulator.add({ kind: "probe_start", at: new Date(0).toISOString(), options: { intervalMs: 5_000 } });
+  accumulator.add({ kind: "sample", at: new Date(0).toISOString(), state: "down", latencyMs: 2_000 });
+  accumulator.add({ kind: "probe_stop", at: new Date(3_600_000).toISOString() });
+  const summary = accumulator.finish();
+  assert.deepEqual(summary.downSegments, [{ fromMs: 0, toMs: 5_000, durationMs: 5_000 }]);
+  assert.equal(summary.observedMs, 5_000);
+});
+
+test("a long interval inferred before the window is not treated as a probe outage", () => {
+  const accumulator = createTimelineAccumulator(30_000, 180_000);
+  for (const at of [60_000, 120_000, 180_000])
+    accumulator.add({ kind: "sample", at: new Date(at).toISOString(), state: "up", latencyMs: 1 });
+  const summary = accumulator.finish();
+  assert.equal(summary.observedMs, 120_000);
+  assert.equal(summary.unobservedMs, 30_000);
+  assert.deepEqual(summary.unobservedSegments, [{ fromMs: 30_000, toMs: 60_000, durationMs: 30_000 }]);
+});
+
 test("probe_start/probe_stop bound observed time and leave the rest unobserved", () => {
   const accumulator = createTimelineAccumulator(0, 60_000);
   accumulator.add({ kind: "probe_start", at: new Date(0).toISOString(), options: { intervalMs: 5_000 } });
@@ -285,6 +346,49 @@ test("summary reports unobserved rather than zero availability without samples",
   const text = renderProbeSummary(result);
   assert.match(text, /unobserved \(no samples in window; availability is unknown, not 0%\)/u);
   assert.match(text, /logs: starts=0/u);
+});
+
+test("summary keeps a long interval declared by records inside the window", async (t) => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-probe-window-"));
+  t.after(() => rmSync(userRoot, { recursive: true, force: true }));
+  const logDir = path.join(userRoot, "logs");
+  mkdirSync(logDir, { recursive: true });
+  const at = (ms: number) => new Date(ms).toISOString(),
+    lines = [
+      JSON.stringify({
+        schema: "daemon-probe/v1",
+        daemonId: "default",
+        kind: "probe_start",
+        at: at(0),
+        options: { intervalMs: 60_000 },
+      }),
+      ...[60_000, 120_000, 180_000].map((ms) =>
+        JSON.stringify({
+          schema: "daemon-probe/v1",
+          daemonId: "default",
+          kind: "sample",
+          at: at(ms),
+          state: "up",
+          latencyMs: 1,
+          intervalMs: 60_000,
+        }),
+      ),
+    ];
+  writeFileSync(path.join(logDir, "daemon-default-probe-19700101.jsonl"), `${lines.join("\n")}\n`);
+  const result = await runProbeSummary({
+    options: {
+      sinceMs: 30_000,
+      untilMs: 180_000,
+      windowLabel: "test",
+      dayLabel: null,
+      minSilenceMs: 300_000,
+      json: false,
+    },
+    userRoot,
+    daemonId: "default",
+  });
+  assert.equal(result.probe.observedMs, 120_000);
+  assert.equal(result.probe.unobservedMs, 30_000);
 });
 
 test("summary streams a large sample timeline without retaining the records", async (t) => {
@@ -314,7 +418,7 @@ test("summary streams a large sample timeline without retaining the records", as
   assert.equal(result.probe.up, 10_000);
   assert.equal(result.probe.slow, 10_000);
   assert.equal(result.probe.downSegments.length, 0);
-  assert.equal(result.probe.observedMs, 20_004_000);
+  assert.equal(result.probe.observedMs, 20_000_000);
 });
 
 test("summary renders observed availability, captures, and the offline log view", async (t) => {

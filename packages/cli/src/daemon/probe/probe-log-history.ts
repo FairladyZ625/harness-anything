@@ -84,8 +84,11 @@ export interface LogHistoryOptions {
 export async function readDaemonLogHistory(options: LogHistoryOptions): Promise<LogHistory> {
   const dir = path.join(options.userRoot, "logs"),
     lifecycle = await readLifecycleHistory(dir, options),
-    conn = await readConnHistory(dir, options, lifecycle.starts),
-    evidence = deriveAvailability(lifecycle, conn, options),
+    // Future starts are not evidence for this cut: a `--until` snapshot must not change when the
+    // live daemon restarts later, and a future start must not close the last known generation.
+    startsInCut = lifecycle.starts.filter((start) => start.at <= options.untilMs),
+    conn = await readConnHistory(dir, options, startsInCut),
+    evidence = deriveAvailability({ ...lifecycle, starts: startsInCut }, conn, options),
     silent = computeSilentSegments(conn.activityMinutes, options.sinceMs, options.minSilenceMs);
   return { conn, lifecycle, evidence, silent };
 }
@@ -190,7 +193,7 @@ export function deriveAvailability(
   conn: ConnHistory,
   options: Pick<LogHistoryOptions, "sinceMs" | "untilMs" | "currentPid" | "currentPidAlive">,
 ): AvailabilityEvidence {
-  const starts = lifecycle.starts,
+  const starts = lifecycle.starts.filter((start) => start.at <= options.untilMs),
     live: LiveSegment[] = [],
     downtime: DowntimeSegment[] = [],
     startsPerDay: Record<string, number> = {};
@@ -198,7 +201,7 @@ export function deriveAvailability(
   for (let index = 0; index < starts.length; index += 1) {
     const start = starts[index]!,
       nextStart = starts[index + 1]?.at ?? null,
-      exitAt = firstExitBetween(lifecycle.exitsByPid.get(start.pid) ?? [], start.at, nextStart);
+      exitAt = firstExitBetween(lifecycle.exitsByPid.get(start.pid) ?? [], start.at, nextStart, options.untilMs);
     let end: number;
     if (exitAt !== null) end = exitAt;
     else {
@@ -292,9 +295,15 @@ export function summarizeDurations(values: readonly number[]): {
 
 // An exit only belongs to this generation when it lands before the next start of any PID; a later
 // exit with the same PID belongs to the reused PID and must not close the earlier generation.
-function firstExitBetween(exits: readonly number[], startAt: number, nextStart: number | null): number | null {
+function firstExitBetween(
+  exits: readonly number[],
+  startAt: number,
+  nextStart: number | null,
+  untilMs: number,
+): number | null {
   for (const exit of exits) {
     if (exit < startAt) continue;
+    if (exit > untilMs) return null;
     if (nextStart !== null && exit >= nextStart) return null;
     return exit;
   }
