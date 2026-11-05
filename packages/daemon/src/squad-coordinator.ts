@@ -745,12 +745,12 @@ export function makeSquadCoordinator(input: {
       worktree: null,
       rejection: null,
     };
-    const save = async (current: SquadState, publish = false): Promise<SquadState> => {
+    const save = async (current: SquadState): Promise<SquadState> => {
       const updated = revise(current, {
         workerAttempts: [...current.workerAttempts.filter((row) => row.attemptId !== attemptId), attempt],
         phase: "workers_running",
       });
-      await writeState(updated, publish);
+      await writeState(updated);
       return updated;
     };
     state = await save(state);
@@ -840,7 +840,7 @@ export function makeSquadCoordinator(input: {
         runtimeSessionId = requiredReceiptText(receipt, "runtimeSessionId"),
         completed = { ...attempt, dispatchId, runtimeSessionId };
       attempt = completed;
-      return save(state, true);
+      return save(state);
     } catch (error) {
       const lease = attempt.taskId
         ? input.query((projection) => projection.read(attempt.taskId!).snapshot).lease
@@ -934,10 +934,8 @@ export function makeSquadCoordinator(input: {
             row.attemptId === attempt.attemptId ? { ...row, ownershipCheck: check } : row,
           ),
         });
-        await writeState(state, false);
+        await writeState(state);
       }
-      // Publish the settled ownership checks once, before the next leader turn reads them.
-      await writeState(state);
       await settleEndedAssignments(state);
       return await spawnLeader(state, trigger);
     } catch (error) {
@@ -1078,12 +1076,8 @@ export function makeSquadCoordinator(input: {
         revision: state.revision,
       });
   }
-  async function writeState(state: SquadState, publish = true): Promise<void> {
+  async function writeState(state: SquadState): Promise<void> {
     recordState(state);
-    // A dispatch the coordinator is still assembling only needs its durable stream revision;
-    // the settled state publishes once. Serializing a canonical observation for every
-    // intermediate revision made a two-child dispatch pay a materialization barrier per step.
-    if (!publish) return;
     await publication.publishState(state);
     if (terminal(state)) await publication.settleScheduleSubjectRun(state);
   }

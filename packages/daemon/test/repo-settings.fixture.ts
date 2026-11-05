@@ -94,7 +94,7 @@ function settingsBase(rootDir: string): string {
   return readFileSync(settingsPath, "utf8");
 }
 
-function fixtureFence(
+export function fixtureFence(
   repoId: string,
   rootDir: string,
   stateRoot: string,
@@ -240,7 +240,7 @@ export const openBootstrappedRepoCell: typeof openProductRepoCell = async (input
   return openProductRepoCell({ keycloakCenter: policyTestCenter, ...input, defaultWriterEpochFence });
 };
 
-async function settleSettingsEvent(input: {
+export async function settleSettingsEvent(input: {
   readonly repoId: string;
   readonly rootDir: string;
   readonly storage?: import("@harness-anything/storage").DaemonStorageConfig;

@@ -2,34 +2,75 @@
 import { makeScheduleScheduler } from "../src/schedule-scheduler.ts";
 import { taskPrPublicationNote } from "../src/runtime-spawn-mission.ts";
 import { latestSquadStates } from "./squad-run-state.fixture.ts";
-import type { SquadState } from "../src/squad-run-state.ts";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { BuiltinPolicyAdapter, builtinAuthorityUrl } from "@harness-anything/authorization-builtin";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
-import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
+import test, { after } from "node:test";
+import { makeTaskEventReader, makeTaskProjectionReader } from "@harness-anything/storage";
+import { openRepoWriterCell } from "../src/repo-cell-open.ts";
+import { acquireWorkspaceLock } from "../src/repo-cell-lock.ts";
 import { isExecutionWipTask } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import type { RuntimeLauncher } from "../src/runtime-spawn-types.ts";
 import type { SquadRunReadResult } from "../src/squad-run-contract.ts";
 type WorkerAttempt = SquadRunReadResult["run"]["workerAttempts"][number];
 import { appendRuntimeWorkerRecord, readDispatchStreamHeader } from "../src/dispatch-stream.ts";
-import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
+import {
+  type openBootstrappedRepoCell,
+  fixtureFence,
+  settleSettingsEvent,
+  waitForFixturePublication,
+} from "./repo-settings.fixture.ts";
 import { evidence, git } from "./task-surface.fixtures.ts";
 import { realizedTaskPlan, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { eventually } from "./schedule-actions.fixtures.ts";
-import { waitForCondition } from "../../../tools/fixtures/wait-for-condition.ts";
+import { waitForPromise } from "../../../tools/fixtures/wait-for-condition.ts";
 
-const binding = withPolicyGroup(
-  {
-    actor: { principal: { personId: "squad-owner" }, executor: { kind: "agent" as const, id: "coordinator" } },
-    source: "local" as const,
+const identityRoot = mkdtempSync(path.join(tmpdir(), "ha-squad-identity-")),
+  identityProvider = new BuiltinPolicyAdapter({ userRoot: identityRoot }),
+  owner = identityProvider.addUser({
+    username: "squad-owner",
+    personId: "squad-owner",
+    displayName: "Squad Owner",
+    email: "squad-owner@example.invalid",
+    password: "fixture-password",
+  }),
+  accessToken = "squad-fixture-owner-session",
+  centerToken = identityProvider.issueCenterToken(),
+  identityUrl = builtinAuthorityUrl(identityRoot);
+identityProvider.registerSession(accessToken, {
+  personId: owner.personId,
+  subject: owner.userId,
+  expiresAt: Date.now() + 3_600_000,
+  sessionExpiresAt: null,
+  roles: ["admin"],
+});
+after(() => rmSync(identityRoot, { recursive: true, force: true }));
+const localCenter = async () => ({
+  url: identityUrl,
+  realm: "local",
+  clientId: "harness-center",
+  accessToken: centerToken,
+  provider: identityProvider,
+});
+const binding = {
+  actor: { principal: { personId: owner.personId }, executor: { kind: "agent" as const, id: "coordinator" } },
+  source: "local" as const,
+  keycloakAuthorization: {
+    session: {
+      provider: identityProvider,
+      personId: owner.personId,
+      accessToken,
+      url: identityUrl,
+      realm: "local",
+      clientId: "harness-center",
+    },
+    center: localCenter,
   },
-  "admin",
-);
+};
 type Provider = {
   prompt: string;
   cwd: string;
@@ -53,31 +94,6 @@ type Status = {
   pendingLeaderCallbackCount: number;
 };
 
-/** The coordinator records every revision in the run's dispatch stream before it publishes the
- * canonical read model. Waiting on that durable state observes the same transition without
- * spending a `squad-status` command (authorization + canonical projection read) per poll. */
-function statusFromState(state: SquadState): Status {
-  return {
-    squadRunId: state.squadRunId,
-    status: state.phase,
-    error: state.error,
-    leaderTurns: state.leaderTurns.map((turn) => ({
-      dispatchId: turn.dispatchId,
-      runtimeSessionId: turn.runtimeSessionId,
-    })),
-    workerAttempts: state.workerAttempts.map((attempt) => ({
-      dispatchId: attempt.dispatchId,
-      runtimeSessionId: attempt.runtimeSessionId,
-      taskId: attempt.taskId,
-      executionId: attempt.executionId,
-      worktree: attempt.worktree,
-      rejection: attempt.rejection,
-    })),
-    workerCallbackCount: state.observedWorkerRuntimeSessionIds.length,
-    pendingLeaderCallbackCount: state.pendingLeaderTriggers.length + state.workerWaits.length,
-  };
-}
-
 async function stopFixtureProcess(child: ReturnType<typeof spawn>): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return;
   const closed = new Promise<void>((resolve) => child.once("close", () => resolve()));
@@ -98,7 +114,7 @@ test(
   { timeout: 30_000 },
   async (t) => {
     const fixture = await openFixture(t, "delivery");
-    const planningLeader = fixture.stateStatus()!.leaderTurns[0].runtimeSessionId;
+    const planningLeader = (await fixture.status()).leaderTurns[0].runtimeSessionId;
     assert.equal(fixture.task(fixture.taskId).snapshot.lease?.actor.executor?.id, `runtime-session:${planningLeader}`);
     await fixture.plan(["src/a.txt"], ["docs/"]);
     const running = await fixture.waitStatus(
@@ -178,7 +194,7 @@ test(
       await fixture.finish(child.dispatchId!, "child delivery");
       if (index === 0) {
         await fixture.waitStatus((state) => state.workerCallbackCount === 1);
-        assert.equal(fixture.stateStatus()!.leaderTurns.length, 1, "one live child keeps the leader suspended");
+        assert.equal((await fixture.status()).leaderTurns.length, 1, "one live child keeps the leader suspended");
       }
     }
     const resumed = await fixture.waitStatus((state) => state.leaderTurns.length === 2);
@@ -203,7 +219,7 @@ test(
     for (const child of resumed.workerAttempts)
       fixture.providers.find((p) => p.dispatchId === child.dispatchId)!.exit!(0);
     await fixture.cell.settlePendingMaterialization("duplicate child notifications");
-    assert.equal(fixture.stateStatus()!.leaderTurns.length, 2);
+    assert.equal((await fixture.status()).leaderTurns.length, 2);
     const leader = fixture.providers.find((p) => p.dispatchId === resumed.leaderTurns[1].dispatchId)!;
     assert.match(leader.prompt, /outside\.txt/u);
     // The leader carries the commander delivery contract for the CEO, not the worker delivery
@@ -267,10 +283,8 @@ test(
     );
     const launches = fixture.providers.length;
     await fixture.reopen();
-    // Recovery is asserted from the reopened durable run state. The canonical `squad-status`
-    // DTO has dedicated integration coverage; reading it here would pay the cell's cold
-    // projection start inside this timeout-sensitive orchestration test.
-    const recovered = fixture.stateStatus()!;
+    // Reopening restores the same canonical run without launching another leader.
+    const recovered = await fixture.status();
     assert.equal(recovered.status, "converged");
     assert.equal(recovered.leaderTurns.length, 2);
     assert.equal(fixture.providers.length, launches, "reopening the center must not dispatch another leader");
@@ -483,7 +497,7 @@ for (const ending of ["cancelled", "failed"] as const)
         JSON.stringify({ schema: "squad-decision/v1", action: "converged" }),
       );
       await fixture.waitStatus((state) => state.status === "failed");
-      assert.equal(fixture.stateStatus()!.status, "failed");
+      assert.equal((await fixture.status()).status, "failed");
     }
     assertChildrenClosed(fixture, running.workerAttempts);
     const afterWip = await fixture.cell.read("repo.tasks.wip", {}, binding);
@@ -523,7 +537,7 @@ test("failed child wakes the leader with the failure after its sibling settles",
   );
   await fixture.finish(running.workerAttempts[0].dispatchId!, "child could not complete", 1);
   await fixture.waitStatus((state) => state.workerCallbackCount === 1);
-  assert.equal(fixture.stateStatus()!.leaderTurns.length, 1);
+  assert.equal((await fixture.status()).leaderTurns.length, 1);
   await fixture.finish(running.workerAttempts[1].dispatchId!, "sibling completed");
   const resumed = await fixture.waitStatus((state) => state.leaderTurns.length === 2);
   const leader = fixture.providers.find((p) => p.dispatchId === resumed.leaderTurns[1].dispatchId)!;
@@ -559,7 +573,7 @@ test(
           dispatches: [{ to, prompt: realizedTaskPlan(`stage ${to}`), ownedPaths: owned }],
         }),
       );
-    await dispatchStage(fixture.stateStatus()!.leaderTurns[0], "one", ["a.txt"]);
+    await dispatchStage((await fixture.status()).leaderTurns[0], "one", ["a.txt"]);
     const stageOne = await fixture.waitStatus(
       (state) => state.workerAttempts.length === 1 && state.workerAttempts[0].runtimeSessionId !== null,
     );
@@ -670,6 +684,26 @@ test(
   },
 );
 
+// Exercise the real single writer and durable storage directly. Supervisor/reader RPC and
+// their cold worker imports have separate integration coverage; this suite owns orchestration.
+const openOrchestrationCell: typeof openBootstrappedRepoCell = async (input) => {
+  await identityProvider.claimRepositoryOwner(centerToken, input.repoId, owner.personId);
+  const fence = fixtureFence(
+    input.repoId,
+    input.rootDir,
+    path.join(input.rootDir, ".harness", "fixture-writer-epochs"),
+    input.storage,
+  );
+  await settleSettingsEvent({ ...input, writerEpochFence: fence, runtimeInstances: input.runtimeInstances?.() });
+  const lock = await acquireWorkspaceLock(input.rootDir);
+  try {
+    return await openRepoWriterCell({ keycloakCenter: localCenter, ...input, defaultWriterEpochFence: fence }, lock);
+  } catch (error) {
+    await lock.close();
+    throw error;
+  }
+};
+
 async function openFixture(
   t: { after(fn: () => Promise<void>): void },
   slug: string,
@@ -681,7 +715,8 @@ async function openFixture(
     userRoot = path.join(parent, "user"),
     repoId = workspaceId(`squad-e2e-${slug}`),
     taskId = `task-squad-e2e-${slug}`,
-    providers: Provider[] = [];
+    providers: Provider[] = [],
+    outcomeWaiters = new Set<() => void>();
   mkdirSync(root);
   git(root, "init", "-q", "-b", "main");
   git(root, "config", "user.name", "Task Surface Test");
@@ -700,13 +735,6 @@ async function openFixture(
   writeFileSync(path.join(root, ".gitignore"), "harness/\n.harness/\n.worktrees/\n");
   git(root, "add", ".gitignore");
   git(root, "commit", "-qm", "test: fixture boundaries");
-  // Squad orchestration exercises the external identity path. The product default remains
-  // builtin when this selector is absent; this multi-process fixture must opt into Keycloak.
-  mkdirSync(path.join(userRoot, "rbac"), { recursive: true });
-  writeFileSync(
-    path.join(userRoot, "rbac", "config.json"),
-    JSON.stringify({ schema: "harness-managed-rbac/v1", mode: "external" }),
-  );
   const runtimeLaunch: RuntimeLauncher = (prepared, persistence) => {
     const child = spawn(process.execPath, ["-e", "process.stdin.resume()"], {
       detached: true,
@@ -741,7 +769,7 @@ async function openFixture(
     };
   };
   const open = () =>
-    openBootstrappedRepoCell({
+    openOrchestrationCell({
       keycloakSession: async () => binding.keycloakAuthorization.session,
       repoId,
       rootDir: canonicalRoot(root),
@@ -797,6 +825,9 @@ async function openFixture(
         prompt: request.prompt,
       }),
       runtimeLaunch,
+      onRuntimeOutcome: () => {
+        for (const wake of outcomeWaiters) wake();
+      },
     });
   let cell = await open();
   t.after(async () => {
@@ -886,13 +917,9 @@ async function openFixture(
   const status = async () =>
     evidence(await cell.run({ kind: "squad-status", squadRunId }, binding)) as unknown as Status;
   const task = (id: string) => {
-    const projection = makeTaskProjection({
-      rootDir: root,
-      eventStore: makeTaskEventReader({ repoId, rootDir: root }),
-    });
+    const projection = makeTaskProjectionReader({ rootDir: root });
     try {
-      projection.catchUp();
-      return projection.read(id);
+      return projection.withSession((query) => query.read(id));
     } finally {
       projection.close();
     }
@@ -939,24 +966,28 @@ async function openFixture(
     });
     if (!offline) provider.exit!(code);
   };
-  const stateStatus = (): Status | null => {
-    const state = latestSquadStates(root).get(squadRunId);
-    return state ? statusFromState(state) : null;
-  };
-  const waitStatus = async (predicate: (state: Status) => unknown) => {
-    let last: Status | null = null;
-    await waitForCondition(
-      () => {
-        last = stateStatus();
-        if (last === null) return false;
-        if (predicate(last)) return true;
-        if (last.status === "failed") throw new Error(JSON.stringify(last));
-        return false;
-      },
-      `Squad ${squadRunId} to reach the expected state`,
-      { timeoutMs: 10_000, intervalMs: 10, describeLast: () => JSON.stringify(last) },
-    );
-    return last!;
+  const waitStatus = async (predicate: (state: Status) => unknown): Promise<Status> => {
+    const initial = await status();
+    if (predicate(initial)) return initial;
+    const deadline = performance.now() + 10_000;
+    for (;;) {
+      const changed = Promise.withResolvers<void>();
+      outcomeWaiters.add(changed.resolve);
+      try {
+        // Outcome notification schedules the coordinator on the same writer queue. Drain it
+        // before inspecting state; subscribing first also covers an outcome racing the drain.
+        await cell.settlePendingMaterialization("squad outcome waiter");
+        const current = await status();
+        if (predicate(current)) return current;
+        if (current.status === "failed") throw new Error(JSON.stringify(current));
+        await waitForPromise(changed.promise, `Squad ${squadRunId} outcome`, {
+          timeoutMs: Math.max(1, deadline - performance.now()),
+          describeLast: () => JSON.stringify(current),
+        });
+      } finally {
+        outcomeWaiters.delete(changed.resolve);
+      }
+    }
   };
   return {
     parent,
@@ -970,7 +1001,6 @@ async function openFixture(
     },
     providers,
     status,
-    stateStatus,
     task,
     finish,
     waitStatus,

@@ -1,5 +1,5 @@
 import type { AgentRuntimeEventV1, ReceiptDiagnostic, TaskProjection } from "@harness-anything/kernel";
-import { scrubProviderValue } from "./dispatch-stream.ts";
+import { scrubProviderValue } from "./secret-scrub.ts";
 
 export function requiredRuntimeSpawnText(value: unknown, field: string): string {
   if (typeof value === "string" && value.length) return value;

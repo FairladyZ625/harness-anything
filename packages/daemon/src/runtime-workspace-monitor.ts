@@ -1,6 +1,6 @@
 import { statSync, watch, type FSWatcher } from "node:fs";
 import path from "node:path";
-import { resolveHarnessLayout } from "@harness-anything/kernel";
+import { resolveHarnessLayout } from "@harness-anything/kernel/internal/layout/index.ts";
 import { runtimeErrorCode, runtimeErrorMessage } from "./runtime-spawn-errors.ts";
 import { watchLinuxWorkspace } from "./runtime-workspace-watch-linux.ts";
 
