@@ -21,8 +21,8 @@ for (const localWorkspace of [false, true]) {
     mkdirSync(cwd, { recursive: true });
     let changed: ((event: string, filename: string | null) => void) | undefined;
     const watcher = Object.assign(new EventEmitter(), { close: () => undefined, unref: () => undefined });
-    t.mock.method(fs, "watch", (_path: unknown, _options: unknown, listener: typeof changed) => {
-      changed = listener;
+    t.mock.method(fs, "watch", (target: unknown, _options: unknown, listener: typeof changed) => {
+      if (String(target) === cwd) changed = listener;
       return watcher;
     });
     syncBuiltinESMExports();
@@ -184,7 +184,7 @@ globalThis.setTimeout = (callback, delay, ...args) => nativeTimeout(callback, de
 let now = ${String(at)};
 Date.now = () => now;
 fs.watch = function(target, options, listener) {
-  if (String(target) !== ${JSON.stringify(root)} || !options?.recursive)
+  if (String(target) !== ${JSON.stringify(root)} || (!options?.recursive && process.platform !== "linux"))
     return nativeWatch.call(this, target, options, listener);
   const watcher = nativeWatch.call(this, target, options, (event, filename) => {
     if (String(filename) === "second.txt") now = ${String(at + 200)};

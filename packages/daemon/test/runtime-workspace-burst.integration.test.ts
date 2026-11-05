@@ -81,7 +81,7 @@ test(
     let supervisor: Awaited<ReturnType<typeof openWriterSupervisor>> | undefined;
     let churn: Worker | undefined;
     const stopChurn = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 2)),
-      shutdownGate = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 5)),
+      shutdownGate = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 6)),
       maxWriteMs = 3_000;
     try {
       const repoRoot = path.join(parent, "repo");
@@ -126,7 +126,10 @@ if (workerData?.shutdownGate && workerData?.cwd !== ${JSON.stringify(repoRoot)})
       super(url, options);
       if (isMonitor) {
         const gate = new Int32Array(workerData.shutdownGate), post = this.postMessage.bind(this);
-        this.once("exit", () => Atomics.store(gate, 4, Math.round(performance.now())));
+        this.once("exit", () => {
+          Atomics.store(gate, 4, Math.round(performance.now()));
+          Atomics.store(gate, 5, Atomics.load(new Int32Array(workerData.stopChurn), 1));
+        });
         this.postMessage = (message, ...args) => {
           if (message !== "close") return post(message, ...args);
           Atomics.store(gate, 0, 1);
@@ -141,7 +144,7 @@ if (workerData?.shutdownGate && workerData?.cwd !== ${JSON.stringify(repoRoot)})
 const nativeWatch = fs.watch;
 fs.watch = function(target, options, listener) {
   const watcher = nativeWatch.call(this, target, options, listener);
-  if (String(target) === ${JSON.stringify(repoRoot)} && options?.recursive) {
+  if (String(target) === ${JSON.stringify(repoRoot)} && (options?.recursive || process.platform === "linux")) {
     if (workerData?.cwd === ${JSON.stringify(repoRoot)}) fs.writeFileSync(${JSON.stringify(watcherReady)}, "ready");
     else parentPort.postMessage({ schema: "test-recursive-workspace-watch" });
   }
@@ -180,7 +183,7 @@ syncBuiltinESMExports();
           createWorker: (url, options) => {
             const worker = new Worker(url, {
               ...options,
-              workerData: { ...options.workerData, shutdownGate: shutdownGate.buffer },
+              workerData: { ...options.workerData, shutdownGate: shutdownGate.buffer, stopChurn: stopChurn.buffer },
               execArgv: [...options.execArgv, "--import", `data:text/javascript,${encodeURIComponent(preload)}`],
             });
             worker.on("message", (message: { schema?: string }) => {
@@ -226,7 +229,7 @@ syncBuiltinESMExports();
             dir: path.join(repoRoot, "node_modules"),
             files: fileCount,
             stop: stopChurn.buffer,
-            limit: measureP95 ? 1_000_000 : 100_000,
+            limit: 1_000_000,
           },
         },
       );
@@ -344,9 +347,14 @@ syncBuiltinESMExports();
       assert.equal(exitReceipt.outcome, "applied", JSON.stringify(exitReceipt));
       assert.ok(exitWriteMs < maxWriteMs, `ordinary write during monitor shutdown took ${String(exitWriteMs)} ms`);
       assert.ok(Atomics.load(stopChurn, 1) > beforeExitWrite, "workspace changes continued during the exit write");
-      const shutdownReleasedAt = performance.now();
+      const writesAtShutdown = Atomics.load(stopChurn, 1),
+        shutdownReleasedAt = performance.now();
       Atomics.store(shutdownGate, 1, 1);
       Atomics.notify(shutdownGate, 1);
+      await runtimeExited.promise;
+      const monitorExitMs = Math.round(Atomics.load(shutdownGate, 4) - shutdownReleasedAt),
+        outcomeMs = Math.round(performance.now() - shutdownReleasedAt),
+        writesAtMonitorExit = Atomics.load(shutdownGate, 5);
       Atomics.store(stopChurn, 0, 1);
       await churnExited;
       const maxQueueDepth = Math.max(0, ...publishedQueueDepths.filter((depth): depth is number => depth !== null));
@@ -356,10 +364,11 @@ syncBuiltinESMExports();
       assert.ok(churnWrites > 0, "changes continued while the ordinary write ran");
       assert.equal(churnLimitReached, false, "the bounded churn must still be active during the ordinary write");
       assert.ok(maxQueueDepth <= 3, `workspace churn left ${String(maxQueueDepth)} queued writes`);
-      await runtimeExited.promise;
       t.diagnostic(
-        `shutdownToMonitorExitMs=${Math.round(Atomics.load(shutdownGate, 4) - shutdownReleasedAt)} shutdownToOutcomeMs=${Math.round(performance.now() - shutdownReleasedAt)}`,
+        `shutdownToMonitorExitMs=${monitorExitMs} shutdownToOutcomeMs=${outcomeMs} writesAtShutdown=${writesAtShutdown} writesAtExit=${writesAtMonitorExit}`,
       );
+      assert.ok(writesAtMonitorExit > writesAtShutdown, "workspace changes continued through monitor shutdown");
+      assert.ok(monitorExitMs <= 1_000, `monitor shutdown took ${String(monitorExitMs)} ms`);
     } finally {
       Atomics.store(shutdownGate, 1, 1);
       Atomics.notify(shutdownGate, 1);

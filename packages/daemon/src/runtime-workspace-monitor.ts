@@ -2,6 +2,7 @@ import { statSync, watch, type FSWatcher } from "node:fs";
 import path from "node:path";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { runtimeErrorCode, runtimeErrorMessage } from "./runtime-spawn-errors.ts";
+import { watchLinuxWorkspace } from "./runtime-workspace-watch-linux.ts";
 
 export type WorkspaceMonitorObservation =
   | { readonly kind: "workspace_activity"; readonly occurredAt: string }
@@ -19,7 +20,7 @@ export function observeRuntimeWorkspace(
     ignoredRoot = (
       relativeRoot === "" || relativeRoot === "." ? path.join("runtime", "dispatches") : relativeRoot
     ).replaceAll(path.sep, "/");
-  let watcher: FSWatcher | null = null,
+  let watcher: Pick<FSWatcher, "close" | "unref" | "on"> | ReturnType<typeof watchLinuxWorkspace> | null = null,
     timer: NodeJS.Timeout | null = null,
     pendingRename = false,
     pendingActivity: number | null = null,
@@ -82,7 +83,8 @@ export function observeRuntimeWorkspace(
     return { close };
   }
   try {
-    watcher = watch(cwd, { recursive: true }, onChange);
+    watcher =
+      process.platform === "linux" ? watchLinuxWorkspace(cwd, onChange) : watch(cwd, { recursive: true }, onChange);
     watcher.on("error", fail);
     watcher.unref?.();
   } catch (error) {
