@@ -199,7 +199,7 @@ export async function assertPgEventReadIndexReady(
 ): Promise<void> {
   const pending = await client.query(
     `SELECT 1 FROM ha_events WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND repo_id=$4
-      AND (read_index_version<5 OR summary_json IS NULL) LIMIT 1`,
+      AND read_index_version<5 LIMIT 1`,
     [scope.tenantId, scope.projectId, scope.policyEpoch, repoId],
   );
   if (pending.rows.length)
