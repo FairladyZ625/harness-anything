@@ -143,4 +143,122 @@ describe("account session recovery", () => {
       window.removeEventListener("harness-auth-signed-in", signedIn);
     }
   });
+
+  it("recovers when login confirms before the first status read resolves", async () => {
+    const statuses: PendingStatus[] = [],
+      status = vi.fn(
+        () =>
+          new Promise<unknown>((resolve, reject) => {
+            statuses.push({ resolve, reject });
+          }),
+      ),
+      auth = {
+        status,
+        bindingStatus: vi.fn(async () => ({ ok: true, mode: "managed", ready: true })),
+        bootstrapStatus: vi.fn(async () => ({ ok: true, required: false })),
+        login: vi.fn(async () => {
+          await new Promise<void>((resolve) => setTimeout(resolve, 10));
+        }),
+        logout: vi.fn(async () => ({ ok: true })),
+        cancelLogin: vi.fn(async () => ({ ok: true })),
+        openConsole: vi.fn(async () => ({ ok: true })),
+        configure: vi.fn(async () => ({ ok: true })),
+        bootstrapAdmin: vi.fn(async () => ({ ok: true })),
+      } satisfies OidcAuthApi;
+    const signedIn = vi.fn(),
+      fail = { current: true };
+    window.addEventListener("harness-auth-signed-in", signedIn);
+    try {
+      await act(async () =>
+        root.render(
+          <QueryClientProvider client={client}>
+            <Probe fail={fail} />
+            <RepositoryReadNotice repoId="repo-a" />
+            <AccessServiceTab autoLogin auth={auth} access={undefined} repoId="repo-a" rootDir="/repo" />
+          </QueryClientProvider>,
+        ),
+      );
+      await flushUntil(() => statuses.length === 1);
+      // The first session read is still pending; login finishes first and its refresh reads true.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10);
+      });
+      await flushUntil(() => statuses.length === 2);
+      fail.current = false;
+      await act(async () => {
+        statuses[1]!.resolve({ ok: true, authenticated: true });
+      });
+      await flushUntil(() => container.querySelector('[data-testid="probe-data"]')?.textContent === "rows");
+      // The unknown first read resolves later and must not double-notify.
+      await act(async () => {
+        statuses[0]!.resolve({ ok: true, authenticated: true });
+      });
+      await flush();
+      expect(signedIn).toHaveBeenCalledOnce();
+      expect(container.querySelector('[data-testid="repository-read-notice"]')).toBeNull();
+    } finally {
+      window.removeEventListener("harness-auth-signed-in", signedIn);
+    }
+  });
+
+  it("recovers when the page still holds a stale authenticated state at re-login", async () => {
+    const statuses: PendingStatus[] = [],
+      status = vi.fn(
+        () =>
+          new Promise<unknown>((resolve, reject) => {
+            statuses.push({ resolve, reject });
+          }),
+      ),
+      auth = {
+        status,
+        bindingStatus: vi.fn(async () => ({ ok: true, mode: "managed", ready: true })),
+        bootstrapStatus: vi.fn(async () => ({ ok: true, required: false })),
+        login: vi.fn(async () => {
+          await new Promise<void>((resolve) => setTimeout(resolve, 10));
+        }),
+        logout: vi.fn(async () => ({ ok: true })),
+        cancelLogin: vi.fn(async () => ({ ok: true })),
+        openConsole: vi.fn(async () => ({ ok: true })),
+        configure: vi.fn(async () => ({ ok: true })),
+        bootstrapAdmin: vi.fn(async () => ({ ok: true })),
+      } satisfies OidcAuthApi;
+    const signedIn = vi.fn(),
+      fail = { current: true };
+    const renderTab = async (autoLogin: boolean) =>
+      await act(async () =>
+        root.render(
+          <QueryClientProvider client={client}>
+            <Probe fail={fail} />
+            <RepositoryReadNotice repoId="repo-a" />
+            <AccessServiceTab autoLogin={autoLogin} auth={auth} access={undefined} repoId="repo-a" rootDir="/repo" />
+          </QueryClientProvider>,
+        ),
+      );
+    window.addEventListener("harness-auth-signed-in", signedIn);
+    try {
+      await renderTab(false);
+      await flushUntil(() => statuses.length === 1);
+      // The service surface confirms authenticated=true, then the daemon session expires and a
+      // re-login starts from the business-read surface before the next 3s poll notices.
+      await act(async () => {
+        statuses[0]!.resolve({ ok: true, authenticated: true });
+      });
+      await flushUntil(() => container.querySelector('[data-testid="repository-read-state"]') !== null);
+      await renderTab(true);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10);
+      });
+      await flushUntil(() => statuses.length === 2);
+      fail.current = false;
+      await act(async () => {
+        statuses[1]!.resolve({ ok: true, authenticated: true });
+      });
+      await flushUntil(() => container.querySelector('[data-testid="probe-data"]')?.textContent === "rows");
+      await flush();
+      expect(signedIn).toHaveBeenCalledOnce();
+      expect(container.querySelector('[data-testid="repository-read-notice"]')).toBeNull();
+    } finally {
+      window.removeEventListener("harness-auth-signed-in", signedIn);
+    }
+  });
 });

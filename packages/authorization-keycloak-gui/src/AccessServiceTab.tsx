@@ -80,6 +80,7 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
       sessionRequest = useRef(0),
       auxRequest = useRef(0),
       sessionAuthenticated = useRef<boolean | null>(null),
+      loginConfirmationPending = useRef(false),
       autoLoginHandled = useRef(false);
     useEffect(
       () => () => {
@@ -94,11 +95,18 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
       const authenticated = reply.authenticated === true;
       const previous = sessionAuthenticated.current;
       sessionAuthenticated.current = authenticated;
+      if (!authenticated) loginConfirmationPending.current = false;
       setSession(reply);
       setSessionFailed(false);
-      // A recovery notification is a transition, not a poll result: every later read that sees
-      // the first authenticated state after a signed-out one emits it exactly once.
-      if (authenticated && previous === false) window.dispatchEvent(new Event("harness-auth-signed-in"));
+      // A recovery notification is either a false->true transition or the confirmation of a
+      // login that just completed. The login flag covers an unknown/stale prior state: when the
+      // first read is still pending, or the page still holds an authenticated snapshot that the
+      // daemon has already invalidated, the next confirmed authenticated read must still restore
+      // the reads that authentication refused.
+      if (authenticated && (previous === false || loginConfirmationPending.current)) {
+        loginConfirmationPending.current = false;
+        window.dispatchEvent(new Event("harness-auth-signed-in"));
+      }
     };
 
     const refresh = async () => {
@@ -132,6 +140,7 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
 
     useEffect(() => {
       sessionAuthenticated.current = null;
+      loginConfirmationPending.current = false;
       setSession(null);
       setSessionFailed(false);
       void refresh().catch((error: unknown) => setFeedback(message(error)));
@@ -183,12 +192,16 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
       // login that the first call's cleanup would then tear down.
       if (loggingIn.current) return Promise.resolve();
       loggingIn.current = true;
+      loginConfirmationPending.current = false;
       return run(async () => {
         setLogin({ userCode });
         try {
           const openBrowser = (page: EmbeddedLoginPage) =>
             setLogin({ userCode, url: page.url, partitionToken: page.partitionToken });
           await auth.login(repoId, openBrowser, userCode, rootDir);
+          // The identity port still has to confirm this login; whichever successful status read
+          // observes it first (this refresh or the periodic poll) consumes this flag.
+          loginConfirmationPending.current = true;
         } finally {
           loggingIn.current = false;
           setLogin(null);
