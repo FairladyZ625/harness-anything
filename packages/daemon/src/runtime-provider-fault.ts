@@ -24,7 +24,7 @@ const quota =
   // (`request failed (404)`, missing workspace metadata, a completed connection with no content)
   // stays outside: those are not connection losses and must not switch providers.
   connectionFailure =
-    /\b(?:connection (?:error|refused|reset|closed|aborted|dropped|lost|failed|terminated|interrupted|timed out|timeout)|failed to connect|socket (?:error|hang ?up|closed)|network (?:error|failure|unreachable|is unreachable)|transport (?:error|failure|failed))\b|\b(?:ECONNRESET|ECONNREFUSED|ECONNABORTED|ETIMEDOUT|EPIPE|EAI_AGAIN|ENOTFOUND|ENETUNREACH|EHOSTUNREACH)\b/iu,
+    /\b(?:connection (?:error|refused|reset|closed|aborted|dropped|lost|failed|terminated|interrupted|timed out|timeout)|failed to connect|socket (?:error|hang ?up|closed)|network (?:error|failure|unreachable|is unreachable)|transport (?:error|failure))\b|\b(?:ECONNRESET|ECONNREFUSED|ECONNABORTED|ETIMEDOUT|EPIPE|EAI_AGAIN|ENOTFOUND|ENETUNREACH|EHOSTUNREACH)\b/iu,
   model = /\b(?:unrecognized[_ -]?model|model[_ -]?not[_ -]?found|unknown[_ -]?model)\b/iu,
   auth = /\b(?:unauthorized|unauthenticated|authentication failed|invalid[_ -]?(?:api[_ -]?key|token))\b/iu;
 
@@ -343,10 +343,14 @@ function providerFaultFromDiagnostic(
   if (quota.test(joined)) return fault("quota_exhausted", reason, "quota_exhausted", resetAt);
   if (responseCode === 429 || /rate[_ -]?limit|too many requests/iu.test(joined))
     return fault("rate_limited", reason, "rate_limited", resetAt);
+  // A connection diagnostic can also carry capacity, broken-stream, or status wording (for example
+  // `Connection error, please try again later` or `stream disconnected: connection reset by peer`).
+  // The connection cause owns the classification so the post-tool no-replay guard in
+  // classifyRuntimeExit covers those overlaps too; pure capacity/stream diagnostics stay below.
+  if (connectionFailure.test(joined)) return fault("provider_disconnected", reason);
   if (capacity.test(joined)) return fault("server_error", reason);
   if (incompleteStream.test(joined)) return fault("server_error", reason);
   if (responseCode !== null && responseCode >= 500 && responseCode <= 599) return fault("server_error", reason);
-  if (connectionFailure.test(joined)) return fault("provider_disconnected", reason);
   if (model.test(joined)) return fault("unrecognized_model", reason);
   if (responseCode === 401 || auth.test(joined)) return fault("auth_failed", reason);
   return null;

@@ -142,6 +142,68 @@ test("the connection-failure family covers transport wording but not task refusa
     assert.equal(providerFaultFromStderr("devin", refusal), null, refusal);
 });
 
+// A connection diagnostic can also contain the capacity, broken-stream, or HTTP wording that older
+// rules match first. The no-replay rule must follow the connection cause, not whichever regex ran
+// first: post-tool the attempt may have left work behind, so it stays gate_red. Pure capacity and
+// pure stream diagnostics keep their existing provider_fault semantics.
+test("connection failures overlapping capacity, stream, or HTTP rules keep the post-tool no-replay guard", () => {
+  const overlaps = [
+    ["capacity", "Connection error, please try again later"],
+    ["stream", "stream disconnected: connection reset by peer"],
+  ];
+  for (const [family, diagnostic] of overlaps) {
+    const fault = providerFaultFromFrame("devin", { type: "acp.error", message: diagnostic }),
+      beforeTool = classifyRuntimeExit(
+        active({ kindId: "devin", providerOutcome: "failed", failureText: diagnostic, providerFault: fault }),
+        1,
+      ),
+      afterTool = classifyRuntimeExit(
+        active({
+          kindId: "devin",
+          providerOutcome: "failed",
+          failureText: diagnostic,
+          providerFault: fault,
+          toolCallObserved: true,
+        }),
+        1,
+      );
+    assert.equal(fault?.code, "provider_disconnected", family);
+    assert.equal(beforeTool.classification, "provider_fault", family);
+    assert.equal(afterTool.classification, "gate_red", family);
+  }
+
+  const httpOverlap = providerFaultFromFrame("codex", {
+      type: "turn.failed",
+      error: { http_status: 500, message: "connection reset by peer" },
+    }),
+    httpBeforeTool = classifyRuntimeExit(
+      active({ providerOutcome: "failed", providerFault: httpOverlap, errorBuffer: "connection reset by peer" }),
+      1,
+    ),
+    httpAfterTool = classifyRuntimeExit(
+      active({
+        providerOutcome: "failed",
+        providerFault: httpOverlap,
+        toolCallObserved: true,
+        errorBuffer: "connection reset by peer",
+      }),
+      1,
+    );
+  assert.equal(httpOverlap?.code, "provider_disconnected");
+  assert.equal(httpBeforeTool.classification, "provider_fault");
+  assert.equal(httpAfterTool.classification, "gate_red");
+
+  for (const diagnostic of ["service is busy; please try again later", "stream disconnected before completion"]) {
+    const fault = providerFaultFromFrame("codex", { type: "turn.failed", error: { message: diagnostic } }),
+      afterTool = classifyRuntimeExit(
+        active({ providerOutcome: "failed", failureText: diagnostic, providerFault: fault, toolCallObserved: true }),
+        1,
+      );
+    assert.equal(fault?.code, "server_error", diagnostic);
+    assert.equal(afterTool.classification, "provider_fault", diagnostic);
+  }
+});
+
 test("Codex tool item.started closes the startup retry window before item completion", () => {
   const unavailable = {
       type: "turn.failed",
