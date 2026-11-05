@@ -308,13 +308,16 @@ async function dispatchContinuation(
         }),
         proof = await cell.proofFor(command, snapshot, { ...ownerBinding, authorizationDecision }, cell.projection),
         result = await cell.service.execute(command, proof);
-      if (result.outcome !== "applied" || !result.event || !result.proof)
-        return cell.rejected(input.opId, "handoff_incomplete");
+      if (result.outcome !== "applied") {
+        const { event: _event, snapshot: _snapshot, frozenPlan: _plan, ...receipt } = result;
+        return receipt;
+      }
+      // The lifecycle service's applied receipt includes its accepted event and durable proof.
       return cell.lifecycleReceipt(
-        result.event,
+        result.event!,
         result.snapshot,
-        cell.publicPublication(cell.store.publication(result.event)),
-        result.proof,
+        cell.publicPublication(cell.store.publication(result.event!)),
+        result.proof!,
       );
     });
     if (completed.outcome !== "applied") return { continuation: { mode: "handoff", ...completed }, steps: [completed] };
