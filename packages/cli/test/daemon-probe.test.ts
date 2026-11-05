@@ -16,6 +16,7 @@ import {
 } from "../src/daemon/probe/probe-metrics.ts";
 import { parseDurationMs, parseProbeArgs, parseSummaryArgs } from "../src/daemon/probe/probe-options.ts";
 import { pingDaemon, runProbeLoop, takeProbeSample } from "../src/daemon/probe/probe-run.ts";
+import { currentDaemonProtocolVersion } from "@harness-anything/daemon/internal/protocol/version";
 import { createTimelineWriter, readProbeTimeline } from "../src/daemon/probe/probe-timeline.ts";
 import { createTriggerTracker, type TriggerSample } from "../src/daemon/probe/probe-trigger.ts";
 
@@ -95,7 +96,7 @@ function answer(
   requests.push(request.method);
   if (state.mode === "hang") return;
   if (request.method === "protocol.hello") {
-    reply(socket, request.id, { ok: true, protocolVersion: 1, methods: advertised });
+    reply(socket, request.id, { ok: true, protocolVersion: currentDaemonProtocolVersion, methods: advertised });
     return;
   }
   if (state.mode === "status-hang") return;
