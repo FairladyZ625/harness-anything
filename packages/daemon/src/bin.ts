@@ -2,6 +2,8 @@
 import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 
+let exitAfterSupersession = false;
+
 async function main(argv: readonly string[]): Promise<number> {
   if (argv[0] === "--runtime-worker-host") {
     const { runRuntimeWorkerHost } = await import("./runtime-worker-host.ts");
@@ -59,7 +61,9 @@ async function runResidentDaemon(
     { resolveOperatorGithubToken } = await import("./runtime-github-credentials.ts"),
     { ensureLocalDaemonRunning } = await import("./client/daemon-autostart.ts"),
     { daemonSupersededExitCode } = await import("./client/daemon-service.ts"),
-    { localUserDaemonEndpoint } = await import("./client/local-daemon-target.ts");
+    { localUserDaemonEndpoint } = await import("./client/local-daemon-target.ts"),
+    { releaseDaemonPidFile } = await import("./daemon-singleton.ts");
+  process.once("exit", () => releaseDaemonPidFile(userRoot, daemonId, process.pid));
   // The signal latch registers before startup: a TERM that lands during the
   // startup replay parks here and drains at the next yield instead of being
   // swallowed by synchronous work. stop() is idempotent, so a second signal
@@ -90,6 +94,7 @@ async function runResidentDaemon(
         // inherits this token, so an isolated instance HOME needs no `gh auth login` of its own.
         runtimeGithubToken: resolveOperatorGithubToken,
         buildSupersessionEnabled,
+        retainPidUntilExit: true,
         shutdownRequested: () => stopping !== null,
         requestShutdown: requestStop,
         onSupersededExit: buildSupersessionEnabled
@@ -107,7 +112,11 @@ async function runResidentDaemon(
                   invokingRoot: process.cwd(),
                   launch: () => ({ command: process.execPath, args: process.argv.slice(1), env: process.env }),
                 });
-              if (successor.ok) return;
+              if (successor.ok) {
+                superseded = true;
+                parked?.();
+                return;
+              }
               process.stderr.write(`daemon successor failed readiness: ${successor.hint}\n`);
               daemon = await startResident(false);
             }
@@ -123,7 +132,10 @@ async function runResidentDaemon(
       await idle;
       await stopping;
     } else await daemon.stop();
-    return superseded ? daemonSupersededExitCode : 0;
+    // All daemon-owned resources have drained and the successor is ready (or the service
+    // manager will start it). Remaining referenced handles must not keep the old process alive.
+    exitAfterSupersession = superseded;
+    return superseded && supervised ? daemonSupersededExitCode : 0;
   } finally {
     if (ownerLivenessTimer) clearInterval(ownerLivenessTimer);
     process.removeListener("SIGTERM", requestStop);
@@ -166,7 +178,9 @@ function deferredServeReceipt(
 }
 
 try {
-  process.exitCode = await main(process.argv.slice(2));
+  const exitCode = await main(process.argv.slice(2));
+  if (exitAfterSupersession) process.exit(exitCode);
+  process.exitCode = exitCode;
 } catch (error) {
   process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
   process.exitCode = 1;

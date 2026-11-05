@@ -25,8 +25,8 @@ export interface DaemonServeDeferred {
   readonly witness: "unix-socket" | "singleton-lock";
 }
 export type DaemonServeStart = RunningDaemon | DaemonServeDeferred;
-/** Teardown must reach the pid file and the lock even when an earlier step rejects; the drain's own
- *  rejection is the one that propagates, so a failing teardown step must not mask or replace it. */
+/** Teardown must reach the lock even when an earlier step rejects; resident supersession keeps
+ *  its pid until process exit. A teardown failure must not mask the drain's own rejection. */
 async function settleTeardownStep(step: () => Promise<void>): Promise<void> {
   try {
     await step();
@@ -55,10 +55,12 @@ export async function startDaemon(input: {
   /** Optional platform skill evaluation capability supplied by the daemon composition root. */
   readonly skillEval?: DaemonHostOpenInput["skillEval"];
   readonly skillEvalRunner?: DaemonHostOpenInput["skillEvalRunner"];
-  /** Called after a build-superseded exit released everything, so the resident entry can hand the
-   * slot to the disk build. */
+  /** Called after a build-superseded exit released the socket and singleton, so the resident
+   * entry can hand the slot to the disk build. */
   readonly onSupersededExit?: () => void | Promise<void>;
   readonly buildSupersessionEnabled?: boolean;
+  /** Resident entries retain the outgoing pid until actual process exit for force-stop discovery. */
+  readonly retainPidUntilExit?: boolean;
   readonly shutdownDeadlineMs?: number;
   readonly shutdownDeadlineExceeded?: () => void;
 }): Promise<DaemonServeStart> {
@@ -107,8 +109,8 @@ export async function startDaemon(input: {
   // Git follower drain, so for the whole length of that drain the endpoint said "gone" while the pid file and
   // the lock said "here". Three observers each guessed differently in that gap. Admission is now this
   // flag rather than a closed socket, so the endpoint stays bound and answers `daemon_stopping` until
-  // the drain finishes, and endpoint, pid file and lock are released together: an observer either
-  // finds a daemon that can speak for itself, or finds nothing at all.
+  // the drain finishes. A resident supersession may retain the outgoing pid until process exit;
+  // the singleton remains the authority for claiming the released socket.
   const stop = (outcome: "stop_requested" | "build_superseded" = "stop_requested"): Promise<void> => {
     if (stopPromise) return stopPromise;
     stopping = true;
@@ -149,8 +151,10 @@ export async function startDaemon(input: {
         await settleTeardownStep(() => connLog.settle());
         await settleTeardownStep(() => requestLog?.settle() ?? Promise.resolve());
         await settleTeardownStep(() => diagnostics!.close());
-        // Same shape for the pid file: an unremovable pid file must not strand the lock behind it.
-        await settleTeardownStep(async () => rmSync(pidPath, { force: true }));
+        // A resident being superseded keeps its pid until it really exits, so force-stop can find
+        // it after the socket closes. Its exit hook removes only its own pid; a successor may replace it.
+        if (outcome !== "build_superseded" || input.retainPidUntilExit !== true)
+          await settleTeardownStep(async () => rmSync(pidPath, { force: true }));
         singleton.release();
         clearTimeout(deadline);
       }

@@ -236,13 +236,21 @@ export async function readDaemonServiceState(unit: DaemonServiceUnit): Promise<D
   const [command, ...args] = daemonServiceCommands(unit).state;
   return parseDaemonServiceState(unit.manager, await runProcessExitAsync(command, args));
 }
-export async function runDaemonServiceCommand(command: DaemonServiceCommand): Promise<void> {
-  const result = await runProcessExitAsync(command[0], command.slice(1));
+export async function runDaemonServiceCommand(command: DaemonServiceCommand, timeoutMs?: number): Promise<void> {
+  const result = await runProcessExitAsync(
+    command[0],
+    command.slice(1),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    timeoutMs === undefined ? {} : { timeoutMs, timeoutSignal: "SIGKILL" },
+  );
   if (result.exitCode !== 0)
     throw new Error(`${command.join(" ")} exited ${result.exitCode}: ${result.stderr.trim() || result.stdout.trim()}`);
 }
-export function startDaemonServiceUnit(unit: DaemonServiceUnit): Promise<void> {
-  return runDaemonServiceCommand(daemonServiceCommands(unit).start);
+export function startDaemonServiceUnit(unit: DaemonServiceUnit, timeoutMs: number): Promise<void> {
+  return runDaemonServiceCommand(daemonServiceCommands(unit).start, timeoutMs);
 }
 
 function systemdQuote(value: string, expandDollar = true): string {
