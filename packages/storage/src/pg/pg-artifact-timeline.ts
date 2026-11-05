@@ -294,7 +294,7 @@ export async function readPgArtifactTimeline(
   client: PoolClient,
   scope: PgProjectionScope,
   query: ArtifactTimelineQuery,
-): Promise<Pick<ArtifactTimelineRead, "rows" | "hasMore" | "counts" | "countsCapped">> {
+): Promise<Pick<ArtifactTimelineRead, "rows" | "hasMore" | "counts">> {
   if (query.kind !== "html" && query.kind !== "md" && query.kind !== "raw")
     throw new Error("artifact timeline kind is invalid");
   const limit = checkedPageLimit(query.limit, 500),
@@ -346,8 +346,7 @@ export async function readPgArtifactTimeline(
     }
   }
   const ordered = [...rowsByPath.values()].sort(comparePageRows),
-    counts: Record<ArtifactTimelineKind, number> = { html: 0, md: 0, raw: 0 },
-    countsCapped: Record<ArtifactTimelineKind, boolean> = { html: false, md: false, raw: false };
+    counts: Record<ArtifactTimelineKind, number> = { html: 0, md: 0, raw: 0 };
   if (scopedReaders.length <= 1) {
     const totals = await client.query<{ readonly kind: ArtifactTimelineKind; readonly total: string | number }>(
       `SELECT kind, total FROM ha_artifact_counts
@@ -359,8 +358,7 @@ export async function readPgArtifactTimeline(
   } else {
     // A multi-reader union cannot be summed from per-reader totals (intersections), but the badge
     // does not need an exact count above the cap. Each facet reads at most cap+1 distinct paths and
-    // reports the cap with countsCapped when the union is larger, so this path is O(cap x readers)
-    // regardless of repository size.
+    // reports min(actual, cap), so this path is O(cap x readers) regardless of repository size.
     const totals = await client.query<{ readonly kind: ArtifactTimelineKind; readonly total: string | number }>(
       `SELECT facet.kind, COUNT(page.path) AS total
        FROM (VALUES ('html'::text), ('md'::text), ('raw'::text)) AS facet(kind)
@@ -373,11 +371,7 @@ export async function readPgArtifactTimeline(
        GROUP BY facet.kind`,
       [...scopeValues(scope), scopedReaders, ARTIFACT_TIMELINE_COUNT_CAP + 1],
     );
-    for (const row of totals.rows) {
-      const total = Number(row.total);
-      counts[row.kind] = Math.min(total, ARTIFACT_TIMELINE_COUNT_CAP);
-      countsCapped[row.kind] = total > ARTIFACT_TIMELINE_COUNT_CAP;
-    }
+    for (const row of totals.rows) counts[row.kind] = Math.min(Number(row.total), ARTIFACT_TIMELINE_COUNT_CAP);
   }
   return {
     rows: ordered.slice(0, limit).map((row) => ({
@@ -392,7 +386,6 @@ export async function readPgArtifactTimeline(
     })),
     hasMore: ordered.length > limit,
     counts,
-    countsCapped,
   };
 }
 

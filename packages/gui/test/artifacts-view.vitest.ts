@@ -58,7 +58,6 @@ function dto(overrides: Partial<ArtifactsListResult> = {}): ArtifactsListResult 
     artifacts: [row()],
     page: { limit: 100, cursor: null, nextCursor: null },
     counts: { html: 2, md: 5729, raw: 3 },
-    countsCapped: { html: false, md: false, raw: false },
     watermark: 12,
     sourceRevision: 12,
     ...overrides,
@@ -212,16 +211,17 @@ describe("artifacts timeline — list, preview, and task jump", () => {
     expect(text).toContain("HTML");
     expect(text).toContain("2");
     expect(text).toContain("Markdown");
-    expect(text).toContain("5729");
+    expect(text).toContain("999+");
+    expect(text).not.toContain("5729");
     expect(text).toContain("Binary");
     expect(text).toContain("3");
   });
 
-  it("renders a capped facet count as the cap plus a plus sign, never as an exact total", async () => {
+  it("renders any count >=999 as 999+ without a new protocol field", async () => {
     const container = await renderSurface(
       createElement(ArtifactsWorkspace, {
         repoId: "repo-a",
-        data: dto({ counts: { html: 2, md: 999, raw: 3 }, countsCapped: { html: false, md: true, raw: false } }),
+        data: dto({ counts: { html: 1000, md: 999, raw: 3 } }),
         pending: false,
         kind: "html",
         onKindChange: noop,
@@ -579,20 +579,6 @@ describe("artifacts client pagination", () => {
         [{ repoId: "repo-a", kind: "html", limit: 100 }],
         [{ repoId: "repo-a", kind: "html", limit: 100, cursor: "second" }],
       ]);
-    } finally {
-      vi.unstubAllGlobals();
-    }
-  });
-  it("accepts the previous daemon payload without countsCapped and defaults to no capped facet", async () => {
-    const legacy = dto();
-    delete legacy.countsCapped;
-    const listArtifacts = vi.fn().mockResolvedValue(legacy);
-    vi.stubGlobal("window", { harness: { listArtifacts } });
-    try {
-      const result = await artifactsClient.list("repo-a", "html");
-      expect(result.counts).toEqual(legacy.counts);
-      expect(result.countsCapped).toEqual({ html: false, md: false, raw: false });
-      expect(result.artifacts.map(({ path }) => path)).toEqual(["artifacts/reports/weathering.html"]);
     } finally {
       vi.unstubAllGlobals();
     }

@@ -354,7 +354,6 @@ test("non-BMP paths page in code-point order, not UTF-16 code-unit order", async
     for (let page = 0; page < names.length; page += 1) {
       const read = projection.readArtifactTimelinePage({ kind: "html", limit: 1, ...(after ? { after } : {}) });
       seen.push(...read.rows.map(({ relative }) => relative));
-      assert.deepEqual(read.countsCapped, { html: false, md: false, raw: false });
       if (!read.hasMore) break;
       const last = read.rows.at(-1)!;
       after = { occurredAt: last.occurredAt, relative: last.relative, packageDir: last.packageDir };

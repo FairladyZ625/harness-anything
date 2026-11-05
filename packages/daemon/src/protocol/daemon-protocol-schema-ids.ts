@@ -306,9 +306,7 @@ export const DAEMON_AGENT_ENTITY_CATALOG_SCHEMA = Object.freeze({
     ]),
   }),
   DAEMON_ARTIFACTS_LIST_SCHEMA = Object.freeze({
-    // `countsCapped` stays optional for the dec_659E15CF current→previous window: v3 daemons omit
-    // it and readers treat absence as false. Remove the compatibility after the next protocol
-    // release, by 2026-12-05 or when the current minor advances, whichever is first.
+    // The payload shape is unchanged from v3: capped counts are encoded in `counts` itself.
     id: "daemon.artifacts-list/v4",
     required: Object.freeze([
       "ok",

@@ -368,10 +368,8 @@ pgliteIntegrationSuite("PGlite artifact timeline index", () => {
       await flushPgArtifactDocuments(client, { ...base, readers: ["a"] }, entries);
       const single = await readPgArtifactTimeline(client, { ...base, readers: ["a"] }, { kind: "html", limit: 1 });
       assert.equal(single.counts.html, ARTIFACT_TIMELINE_COUNT_CAP + 1, "one reader keeps the maintained exact total");
-      assert.deepEqual(single.countsCapped, { html: false, md: false, raw: false });
       const union = await readPgArtifactTimeline(client, { ...base, readers: ["a", "b"] }, { kind: "html", limit: 1 });
       assert.equal(union.counts.html, ARTIFACT_TIMELINE_COUNT_CAP, "a union above the cap reports the cap");
-      assert.deepEqual(union.countsCapped, { html: true, md: false, raw: false });
     } finally {
       await db.close();
     }

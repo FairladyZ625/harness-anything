@@ -98,17 +98,16 @@ export interface ArtifactTimelineRow {
   readonly taskTitle: string | null;
   readonly packagePath: string | null;
 }
-/** Upper bound for the exact union count a multi-reader request may compute. Above it the count is
- * reported as this value with `countsCapped` set, so a badge read stays O(cap x readers). */
+/** Upper bound for the exact union count a multi-reader request may compute. A larger union is
+ * reported as this value, so a badge read stays O(cap x readers); the GUI renders >= cap as `999+`. */
 export const ARTIFACT_TIMELINE_COUNT_CAP = 999;
 export interface ArtifactTimelineRead {
   readonly status: "ready" | "pending";
   readonly rows: readonly ArtifactTimelineRow[];
   readonly hasMore: boolean;
-  /** Per-kind totals for the whole readable timeline, not this page. */
+  /** Per-kind totals for the whole readable timeline, not this page. Multi-reader unions are
+   * capped at `ARTIFACT_TIMELINE_COUNT_CAP`; no separate marker is part of the wire shape. */
   readonly counts: Readonly<Record<ArtifactTimelineKind, number>>;
-  /** Per-kind flag: `counts[kind]` is the cap because the exact multi-reader union is larger. */
-  readonly countsCapped: Readonly<Record<ArtifactTimelineKind, boolean>>;
   readonly watermark: number;
   readonly sourceRevision: number;
 }

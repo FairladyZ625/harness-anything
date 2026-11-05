@@ -72,8 +72,7 @@ export function readArtifactsGui(
       limit,
       ...(cursor === undefined ? {} : { after: decodeArtifactCursor(cursor) }),
     }),
-    last = read.rows.at(-1),
-    anyCapped = read.countsCapped.html || read.countsCapped.md || read.countsCapped.raw;
+    last = read.rows.at(-1);
   return {
     ok: true,
     status: read.status,
@@ -98,10 +97,6 @@ export function readArtifactsGui(
       nextCursor: read.hasMore && last ? encodeArtifactCursor(last) : null,
     } satisfies CursorPage,
     counts: read.counts,
-    // Optional for the dec_659E15CF current→previous window. Omit it when no facet is capped so
-    // the response keeps the previous v3 shape; a v3 reader treats absence as false. Remove the
-    // conditional by the next protocol release / 2026-12-05, whichever is first.
-    ...(anyCapped ? { countsCapped: read.countsCapped } : {}),
     watermark: read.watermark,
     sourceRevision: read.sourceRevision,
   };

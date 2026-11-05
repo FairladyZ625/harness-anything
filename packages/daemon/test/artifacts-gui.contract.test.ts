@@ -43,7 +43,6 @@ function projectionStub(
         rows: result.rows,
         hasMore: result.hasMore ?? false,
         counts: result.counts ?? { html: result.rows.length, md: 0, raw: 0 },
-        countsCapped: result.countsCapped ?? { html: false, md: false, raw: false },
         watermark: result.watermark ?? 9,
         sourceRevision: result.sourceRevision ?? 9,
       };
@@ -100,8 +99,6 @@ test("the read renders the projection page as a ledger-time artifact row", () =>
   assert.equal(parseDaemonGuiReadResult("repo.artifacts.list", result), result);
   assert.equal(result.kind, "html");
   assert.deepEqual(result.counts, { html: 2, md: 1, raw: 1 });
-  // No facet is capped, so the v4 daemon keeps the previous v3 shape and omits the optional flag.
-  assert.equal(result.countsCapped, undefined);
   assert.deepEqual(result.artifacts, [
     {
       taskId: "task_reported",
@@ -142,21 +139,29 @@ test("the read renders the projection page as a ledger-time artifact row", () =>
   assert.equal(raw.artifacts[0]!.timeSource, "ledger");
 });
 
-test("a capped multi-reader count is surfaced per facet instead of being reported as exact", () => {
+test("the v3 closed validator reads a capped page without an extra protocol field", () => {
   const result = readArtifactsGui(
     {
-      projection: projectionStub(() => ({
-        rows: [row()],
-        counts: { html: 999, md: 12, raw: 0 },
-        countsCapped: { html: true, md: false, raw: false },
-      })),
+      projection: projectionStub(() => ({ rows: [row()], counts: { html: 999, md: 12, raw: 0 } })),
       input: { repoId: "artifacts-gui" },
     },
     {},
   );
   assert.deepEqual(validateArtifactsList(result), []);
-  assert.deepEqual(result.countsCapped, { html: true, md: false, raw: false });
   assert.deepEqual(result.counts, { html: 999, md: 12, raw: 0 });
+  // The old GUI's closed v3 validator only knows these fields; the capped page must not add any.
+  assert.deepEqual(Object.keys(result).sort(), [
+    "artifacts",
+    "counts",
+    "kind",
+    "ok",
+    "page",
+    "repoId",
+    "sourceRevision",
+    "status",
+    "watermark",
+  ]);
+  assert.equal("countsCapped" in result, false);
 });
 
 test("pagination forwards the decoded keyset and stops at the authoritative end signal", () => {
@@ -228,25 +233,15 @@ test("the artifacts list validator locks the wire shape", () => {
     ],
     page: { limit: 100, cursor: null, nextCursor: null },
     counts: { html: 1, md: 0, raw: 0 },
-    countsCapped: { html: false, md: false, raw: false },
     watermark: 9,
     sourceRevision: 9,
   };
   assert.deepEqual(validateArtifactsList(base), []);
   assert.equal(serializeArtifactsList(base), `${JSON.stringify(base)}\n`);
-  // The previous v3 daemon omits countsCapped; a reader in the current→previous window must
-  // accept the legacy payload and treat absence as no capped facet (dec_659E15CF).
-  const legacy = { ...base };
-  delete legacy.countsCapped;
-  assert.deepEqual(validateArtifactsList(legacy), []);
-  assert.equal(serializeArtifactsList(legacy), `${JSON.stringify(legacy)}\n`);
-  assert.equal(parseDaemonGuiReadResult("repo.artifacts.list", legacy), legacy);
   for (const mutate of [
     (value: ArtifactsListResult) => ({ ...value, kind: "pdf" }),
     (value: ArtifactsListResult) => ({ ...value, counts: { html: 1 } }),
     (value: ArtifactsListResult) => ({ ...value, counts: { html: 1, md: 0 } }),
-    (value: ArtifactsListResult) => ({ ...value, countsCapped: { html: false, md: false } }),
-    (value: ArtifactsListResult) => ({ ...value, countsCapped: { html: "no", md: false, raw: false } }),
     (value: ArtifactsListResult) => ({ ...value, artifacts: "many" }),
     (value: ArtifactsListResult) => ({ ...value, apiKey: "secret" }),
     (value: ArtifactsListResult) => ({ ...value, nextCursor: null }),
