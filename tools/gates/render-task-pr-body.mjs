@@ -11,7 +11,7 @@ import {
   readSubmissionFacts,
   renderSubmissionFacts,
 } from "../../packages/kernel/src/domain/submission-facts.ts";
-import { markdownSections } from "../../packages/kernel/src/domain/transition-document-readiness.ts";
+import { markdownSectionEntries } from "../../packages/kernel/src/domain/transition-document-readiness.ts";
 import { hasDependencyChange, replaceDependencyDeclaration } from "./dependency-policy.mjs";
 import { repoRoot } from "./git.mjs";
 
@@ -82,7 +82,7 @@ function taskProjection(receipt, taskId) {
 }
 
 function findSection(sections, aliases) {
-  const matched = [...sections]
+  const matched = sections
     .filter(([heading]) =>
       aliases.some(
         (alias) =>
@@ -94,7 +94,7 @@ function findSection(sections, aliases) {
 }
 
 function authoredSources(closeout, profileId) {
-  const sections = markdownSections(closeout),
+  const sections = [...markdownSectionEntries(closeout)],
     sources = Object.fromEntries(PR_SECTIONS.map(({ title, aliases }) => [title, findSection(sections, aliases)]));
   sources[DEPENDENCY_CHANGE.title] = findSection(sections, DEPENDENCY_CHANGE.aliases);
   sources["What Changed"] ??= sources.Summary;

@@ -138,6 +138,20 @@ test("PR renderer preserves exact and suffixed authored risk sections in source 
   assertPassesPrBodyCheck(body);
 });
 
+test("PR renderer preserves interleaved repeated risk sections in source order", () => {
+  const risks = ["A: issue opened.", "B: issue fixed.", "C: issue reopened."],
+    authored = closeout.replace(
+      residualRisk,
+      `${risks[0]}\n\n## Residual Risk (security)\n\n${risks[1]}\n\n## Residual Risk\n\n${risks[2]}`,
+    ),
+    submitted = submissionFromCloseout(authored, codeSubmission),
+    body = render(submitted, { closeout: authored }),
+    riskBody = body.match(/## Residual Risk\n([\s\S]*?)(?=\n## |$)/u)?.[1].trim();
+  assert.ok(submitted.residualRisks.includes(risks.join("\n\n")), "the frozen risks retain the authored order");
+  assert.equal(riskBody, risks.join("\n\n"), "the PR must end with the reopened issue, matching the frozen risks");
+  assertPassesPrBodyCheck(body);
+});
+
 test("PR renderer replaces only the generated dependency declaration and preserves the authored Summary", () => {
   const authoredSummary = "Observed problem:\nDependency-Change: unpinned production package",
     authored = dependencyCloseout.replace(summary, authoredSummary),

@@ -278,14 +278,22 @@ function meaningfulMarkdown(body: string): boolean {
 export function markdownSections(body: string, headingPrefixes: readonly string[] = []): ReadonlyMap<string, string> {
   const sections = new Map<string, string>();
   const prefixes = headingPrefixes.map(normalizeHeading);
+  for (const [authoredHeading, content] of markdownSectionEntries(body)) {
+    const heading =
+      prefixes.find(
+        (prefix) => authoredHeading.startsWith(prefix) && /^[ \t]*[(—–-]/u.test(authoredHeading.slice(prefix.length)),
+      ) ?? authoredHeading;
+    const previous = sections.get(heading);
+    sections.set(heading, [previous, content].filter((value) => value !== undefined).join("\n\n"));
+  }
+  return sections;
+}
+
+/** Read each authored occurrence in source order, before any grouping by heading. */
+export function* markdownSectionEntries(body: string): Generator<readonly [string, string]> {
   let heading: string | null = null;
   let content: string[] = [];
   let fence: { marker: string; length: number } | null = null;
-  const retain = () => {
-    if (heading === null) return;
-    const previous = sections.get(heading);
-    sections.set(heading, [previous, content.join("\n").trim()].filter((value) => value !== undefined).join("\n\n"));
-  };
   for (const line of body.split(/\r?\n/u)) {
     const delimiter = /^ {0,3}(`{3,}|~{3,})(.*)$/u.exec(line);
     if (fence === null && delimiter) {
@@ -303,18 +311,12 @@ export function markdownSections(body: string, headingPrefixes: readonly string[
     }
     const match = fence === null ? /^##[ \t]+(.+?)[ \t]*#*[ \t]*$/u.exec(line) : null;
     if (match) {
-      retain();
+      if (heading !== null) yield [heading, content.join("\n").trim()];
       heading = normalizeHeading(match[1]!);
-      const authoredHeading = heading;
-      heading =
-        prefixes.find(
-          (prefix) => authoredHeading.startsWith(prefix) && /^[ \t]*[(—–-]/u.test(authoredHeading.slice(prefix.length)),
-        ) ?? heading;
       content = [];
     } else content.push(line);
   }
-  retain();
-  return sections;
+  if (heading !== null) yield [heading, content.join("\n").trim()];
 }
 
 function declarationTextReady(kind: "agent.instructions" | "squad.roster", body: string): boolean {
