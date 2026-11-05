@@ -1397,6 +1397,11 @@
             "task-dispatches"
           ]
         },
+        "method:repo.task.show": {
+          "measurements": [
+            "repo.task.show"
+          ]
+        },
         "method:repo.tasks.assignmentDirectory": {
           "measurements": [
             "assignment-directory"

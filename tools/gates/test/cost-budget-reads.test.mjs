@@ -19,10 +19,18 @@ import {
   readScalesFor,
   readScalesForProbe,
   measureReadCosts,
+  readInventory,
 } from "../cost-budget-reads.mjs";
 
 const inventory = [{ id: "method:repo.fixture.read" }],
   probes = { fixture: { reads: inventory.map(({ id }) => id) } };
+
+test("G38 production read inventory has registered measurements for every protocol reader", async () => {
+  const rootDir = path.resolve(import.meta.dirname, "../../.."),
+    section = JSON.parse(readFileSync(path.join(rootDir, "tools/gates/cost-budget.json"), "utf8")).readCostScaling,
+    { READ_PROBES } = await import("../../../packages/daemon/test/fixtures/g38-read-cost.mjs");
+  validateReadCoverage(section, await readInventory(rootDir), READ_PROBES);
+});
 function fixture() {
   const section = {
     schema: "read-cost-scaling-budget/v1",

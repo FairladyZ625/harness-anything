@@ -279,6 +279,8 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
     ["repo.agentRuntime.handoff", { operation: "export", dispatchId: "dispatch_" + "a".repeat(24) }],
     ["daemon.gui.control.request", { kind: "refresh", authorityRepoId: "alpha", reason: "Refresh catalog" }],
     ["repo.task.create", { title: "Create from GUI", presetId: "standard-task" }],
+    ["repo.task.show", { taskId: "task-a" }],
+    ["repo.task.rework", { taskId: "task-a", executionId: "execution-a", submissionDigest: `sha256:${"a".repeat(64)}`, takeover: true, reason: "Owner arranges this round" }],
     ["repo.task.start", { taskId: "task-a", executionId: "execution-a" }],
     ["repo.task.progress.append", { taskId: "task-a", executionId: "execution-a", text: "Progress", evidence: [{ type: "test", path: "report.txt", summary: "Passed" }] }],
     ["repo.task.submit", { taskId: "task-a", executionId: "execution-a" }],

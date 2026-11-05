@@ -14,6 +14,7 @@ import {
 } from "./execution.ts";
 import type { ExecutionV1, LeaseV1 } from "./execution.ts";
 import { taskClasses } from "./task.ts";
+import { taskAmendment } from "./task-lifecycle-event.ts";
 import type { ContractValidationIssue, TaskV2 } from "./task.ts";
 import { validateTaskGraph } from "./task-graph.ts";
 import { isNonEmptyString } from "./write-chain.contract.ts";
@@ -649,12 +650,13 @@ export const rework: Transition = {
         snapshot.task?.currentNode === "review" &&
         (snapshot.task.status === "submitted" || reviewedCut);
     if (command.handoffId !== undefined || (command.takeover === true && !returnNow)) {
-      const task = arrangeExecution(snapshot, command);
+      const task = arrangeExecution(snapshot, command),
+        mutation = taskAmendment(task, command.reason, ["executionArrangement"]);
       return {
         snapshot: { ...snapshot, task, revision: command.workspaceRevision },
-        event: envelope<TaskMutationEvent>(command, "task_amended", {
-          task,
-          mutation: { command: "amend", reason: command.reason, fields: ["executionArrangement"] },
+        event: envelope<TaskMutationEvent>(command, mutation.type, {
+          task: mutation.task,
+          mutation: mutation.audit,
         }),
       };
     }
