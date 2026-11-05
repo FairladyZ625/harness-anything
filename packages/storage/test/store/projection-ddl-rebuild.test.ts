@@ -91,6 +91,8 @@ test("previous projection DDL is replaced on reopen and hot reads use their inde
     stale.exec(`DROP INDEX lease_cas_execution;
       DROP INDEX legacy_block;
       DROP INDEX plain_block;
+      DROP INDEX decision_state_legacy_page;
+      DROP INDEX decision_state_plain_page;
       ALTER TABLE lease_cas DROP COLUMN execution_id;
       ALTER TABLE task_snapshot DROP COLUMN package_disposition;
       ALTER TABLE decision DROP COLUMN decision_sort_key;
