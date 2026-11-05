@@ -36,6 +36,13 @@ const DEPENDENCY_CHANGE = Object.freeze({
   aliases: Object.freeze(["dependency change", "dependency-change", "依赖变更", "依赖改动", "依赖变化"]),
 });
 
+// The closeout is the authoring place for a governance declaration; a section written there is
+// published verbatim, including any emergency fields the author recorded.
+const GOVERNANCE_DECLARATION = Object.freeze({
+  title: "Governance Declaration",
+  aliases: Object.freeze(["governance declaration", "governance 声明", "治理声明"]),
+});
+
 // A closeout materialized before the What Changed scaffold existed keeps that shape for the life of
 // the task package and is frozen at submit, so map its authored Summary onto the PR template's What
 // Changed instead of failing the only publication path. The lightweight closeout materializes only
@@ -112,6 +119,7 @@ function authoredSources(closeout, profileId) {
   const sections = [...markdownSectionEntries(closeout)],
     sources = Object.fromEntries(PR_SECTIONS.map(({ title, aliases }) => [title, findSection(sections, aliases)]));
   sources[DEPENDENCY_CHANGE.title] = findSection(sections, DEPENDENCY_CHANGE.aliases);
+  sources[GOVERNANCE_DECLARATION.title] = findSection(sections, GOVERNANCE_DECLARATION.aliases);
   sources["What Changed"] ??= sources.Summary;
   if (profileId === LIGHTWEIGHT_PROFILE) sources["Residual Risk"] ??= LIGHTWEIGHT_RESIDUAL_RISK;
   return sources;
@@ -185,38 +193,56 @@ function dependencyDescription(content) {
     .join(" ");
 }
 
-// The governance gate classifies protected paths from the gate manifest and requires the published
-// body to cite an authorizing ADR/decision/task. The declaration is machine-derived on every
-// render; the closeout is the authoring surface, so this section is regenerated as a whole.
+// Three rules, in order (owner 2026-11-05):
+// 1. A declaration written in the closeout is the author's; publish it verbatim.
+// 2. Otherwise, a protected cut gets a generated declaration citing only machine-readable ledger
+//    facts: a derived decision id, else the task id with an explicit pending-authorization note.
+// 3. An unprotected cut carries no declaration; a stale generated section is removed.
 const GOVERNANCE_TITLE = /^##[ \t]+(?:Governance Declaration|Governance 声明|治理声明)[ \t]*$/mu;
 
-function governanceDeclaration(authority, files) {
-  return [
+function governanceDeclaration(taskId, decision, files) {
+  const lines = [
     "## Governance Declaration",
     "",
     "- Protected surface touched: yes",
     `- Protected surface scope: ${files.map(pathCode).join(", ")}`,
-    `- Authority: ${authority}`,
+    `- Authority: ${decision ?? taskId}`,
+  ];
+  if (decision) lines.push(`- Task: ${taskId}`);
+  else lines.push("- Authorization: 授权：仅 task，待评审确认");
+  lines.push(
     "- Machine-check boundary: this PR only asserts the declaration exists; reviewers decide whether it is true and sufficient.",
-    "- Break-glass: no",
-  ].join("\n");
+    "- Break-glass: not used",
+  );
+  return lines.join("\n");
 }
 
-function declareProtectedSurfaces(body, taskId, changedFiles, manifest, decision) {
-  if (!manifest) return body;
-  const files = classifyProtectedChanges(changedFiles, deriveProtectedSurfaceRules(manifest)).map(({ file }) => file);
-  if (files.length === 0) return body;
-  const declaration = governanceDeclaration(decision ?? taskId, files),
-    existing = GOVERNANCE_TITLE.exec(body);
+function replaceGovernanceSection(body, section) {
+  const existing = GOVERNANCE_TITLE.exec(body);
   if (existing) {
     const start = existing.index,
       next = /^##[ \t]+/mu.exec(body.slice(start + existing[0].length)),
       end = next ? start + existing[0].length + next.index : body.length;
-    return `${body.slice(0, start)}${declaration}\n\n${body.slice(end)}`;
+    return section === null
+      ? `${body.slice(0, start)}${body.slice(end)}`
+      : `${body.slice(0, start)}${section}\n\n${body.slice(end)}`;
   }
+  if (section === null) return body;
   const verification = /^##[ \t]+(?:Verification|验证)[ \t]*$/mu.exec(body);
-  if (!verification) return `${body.replace(/\s+$/u, "")}\n\n${declaration}\n`;
-  return `${body.slice(0, verification.index)}${declaration}\n\n${body.slice(verification.index)}`;
+  if (!verification) return `${body.replace(/\s+$/u, "")}\n\n${section}\n`;
+  return `${body.slice(0, verification.index)}${section}\n\n${body.slice(verification.index)}`;
+}
+
+function declareProtectedSurfaces(body, taskId, changedFiles, manifest, decision, closeoutDeclaration) {
+  if (!manifest) return body;
+  if (typeof closeoutDeclaration === "string" && closeoutDeclaration.trim().length > 0)
+    return replaceGovernanceSection(
+      body,
+      `## Governance Declaration\n\n${authoredContent(closeoutDeclaration.trim())}`,
+    );
+  const files = classifyProtectedChanges(changedFiles, deriveProtectedSurfaceRules(manifest)).map(({ file }) => file);
+  if (files.length === 0) return replaceGovernanceSection(body, null);
+  return replaceGovernanceSection(body, governanceDeclaration(taskId, decision, files));
 }
 
 export function renderTaskPrBody({ taskId, receipt, template, body = template, closeout, manifest }) {
@@ -244,7 +270,14 @@ export function renderTaskPrBody({ taskId, receipt, template, body = template, c
     // heading is absent, publish the author's original document in its original order.
     rendered = fillSection(rendered, title, content?.trim() ? content : closeout);
   }
-  rendered = declareProtectedSurfaces(rendered, taskId, submissionFacts.changedFiles, manifest, decisionAuthority);
+  rendered = declareProtectedSurfaces(
+    rendered,
+    taskId,
+    submissionFacts.changedFiles,
+    manifest,
+    decisionAuthority,
+    sources[GOVERNANCE_DECLARATION.title],
+  );
   const { start, end } = markerPair(rendered, "PR template");
   return `${rendered.slice(0, start + START.length)}\n${delivery}\n${rendered.slice(end)}`;
 }
