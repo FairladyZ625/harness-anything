@@ -36,6 +36,43 @@ pgliteIntegrationSuite("runtime unsettled RLS", () => {
           (policy) => policy.polname === "ha_runtime_unsettled_scope_policy" && policy.has_using && policy.has_check,
         ),
       );
+
+      // Scope isolation under a real non-owner role, not just the query's own WHERE.
+      await backend.pool.query(
+        "SELECT set_config('ha.tenant_id','t',false), set_config('ha.project_id','p',false), set_config('ha.policy_epoch','0',false)",
+      );
+      await backend.pool.query(
+        "INSERT INTO ha_runtime_unsettled(tenant_id,project_id,policy_epoch,readers,entity_id,value) VALUES ('t','p',0,'{}','session-1','{}')",
+      );
+      const role = "ha_runtime_unsettled_test";
+      await backend.pool.query(`DROP ROLE IF EXISTS ${role}`);
+      await backend.pool.query(`CREATE ROLE ${role} NOBYPASSRLS`);
+      await backend.pool.query(`GRANT USAGE ON SCHEMA public TO ${role}`);
+      await backend.pool.query(`GRANT SELECT, INSERT ON ha_runtime_unsettled TO ${role}`);
+      await backend.pool.query(`SET ROLE ${role}`);
+      const crossScope = (
+        await backend.pool.query(
+          "SELECT set_config('ha.tenant_id','other',false), set_config('ha.project_id','other',false), set_config('ha.policy_epoch','0',false)",
+        )
+      ).rows[0];
+      assert.ok(crossScope);
+      assert.equal(
+        (await backend.pool.query("SELECT count(*)::int AS count FROM ha_runtime_unsettled")).rows[0].count,
+        0,
+      );
+      await assert.rejects(
+        () =>
+          backend.pool.query(
+            "INSERT INTO ha_runtime_unsettled(tenant_id,project_id,policy_epoch,readers,entity_id,value) VALUES ('t','p',0,'{}','session-2','{}')",
+          ),
+        /row-level security policy/u,
+      );
+      await backend.pool.query("SELECT set_config('ha.tenant_id','t',false), set_config('ha.project_id','p',false)");
+      assert.equal(
+        (await backend.pool.query("SELECT count(*)::int AS count FROM ha_runtime_unsettled")).rows[0].count,
+        1,
+      );
+      await backend.pool.query("RESET ROLE");
     } finally {
       await backend.close();
       rmSync(dataDir, { recursive: true, force: true });
