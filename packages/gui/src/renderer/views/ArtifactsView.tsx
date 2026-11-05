@@ -37,7 +37,7 @@ const TIME_SOURCE_LABEL: Record<ArtifactGuiRowDto["timeSource"], MessageKey> = {
 
 /** 计数超过服务端上限时只显示封顶值 + `+`,不假装知道精确总数。 */
 const cappedCount = (result: ArtifactsListResult, kind: ArtifactGuiKind): string =>
-  result.countsCapped[kind] ? `${result.counts[kind]}+` : String(result.counts[kind]);
+  result.countsCapped?.[kind] ? `${result.counts[kind]}+` : String(result.counts[kind]);
 
 /** 读失败行(页面与工作台产物面板共用):等宽微字 + 红底细行。 */
 export const ARTIFACTS_READ_ERROR_ROW_CLASS = [

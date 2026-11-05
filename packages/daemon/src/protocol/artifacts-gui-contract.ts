@@ -42,8 +42,11 @@ export interface ArtifactsListResult {
   readonly page: CursorPage;
   /** 遍历事实:三种 kind 的全量计数(与返回 facet 无关),筛选 chip 用。 */
   readonly counts: { readonly html: number; readonly md: number; readonly raw: number };
-  /** 超过计数上限的 facet 为 true:counts 已封顶,GUI 角标显示 `999+`。 */
-  readonly countsCapped: { readonly html: boolean; readonly md: boolean; readonly raw: boolean };
+  /** 超过计数上限的 facet 为 true:counts 已封顶,GUI 角标显示 `999+`。
+   *
+   * 兼容窗口:上一版(v3)daemon 不返回该字段,缺省视为 false。按 dec_659E15CF 的“当前+上一版”
+   * 窗口保留读取兼容;**下一版协议发布后删除**,最迟 2026-12-05 或当前 minor 前进时(以先到者为准)。 */
+  readonly countsCapped?: { readonly html: boolean; readonly md: boolean; readonly raw: boolean };
   readonly watermark: number;
   readonly sourceRevision: number;
 }
@@ -108,7 +111,7 @@ export function validateArtifactsList(value: unknown): readonly string[] {
     !Array.isArray(value.artifacts) ||
     !queryPageRow(value.page) ||
     !artifactCounts(value.counts) ||
-    !artifactCountFlags(value.countsCapped) ||
+    (value.countsCapped !== undefined && !artifactCountFlags(value.countsCapped)) ||
     !Number.isSafeInteger(value.watermark) ||
     !Number.isSafeInteger(value.sourceRevision)
   )

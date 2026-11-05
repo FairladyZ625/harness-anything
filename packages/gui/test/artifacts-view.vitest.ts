@@ -583,6 +583,20 @@ describe("artifacts client pagination", () => {
       vi.unstubAllGlobals();
     }
   });
+  it("accepts the previous daemon payload without countsCapped and defaults to no capped facet", async () => {
+    const legacy = dto();
+    delete legacy.countsCapped;
+    const listArtifacts = vi.fn().mockResolvedValue(legacy);
+    vi.stubGlobal("window", { harness: { listArtifacts } });
+    try {
+      const result = await artifactsClient.list("repo-a", "html");
+      expect(result.counts).toEqual(legacy.counts);
+      expect(result.countsCapped).toEqual({ html: false, md: false, raw: false });
+      expect(result.artifacts.map(({ path }) => path)).toEqual(["artifacts/reports/weathering.html"]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
   it("rejects repeated cursors and a later-page failure without returning a partial collection", async () => {
     const first = dto({ page: { limit: 100, cursor: null, nextCursor: "same" } });
     const listArtifacts = vi.fn().mockResolvedValue(first);

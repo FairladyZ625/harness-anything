@@ -100,7 +100,8 @@ test("the read renders the projection page as a ledger-time artifact row", () =>
   assert.equal(parseDaemonGuiReadResult("repo.artifacts.list", result), result);
   assert.equal(result.kind, "html");
   assert.deepEqual(result.counts, { html: 2, md: 1, raw: 1 });
-  assert.deepEqual(result.countsCapped, { html: false, md: false, raw: false });
+  // No facet is capped, so the v4 daemon keeps the previous v3 shape and omits the optional flag.
+  assert.equal(result.countsCapped, undefined);
   assert.deepEqual(result.artifacts, [
     {
       taskId: "task_reported",
@@ -233,11 +234,17 @@ test("the artifacts list validator locks the wire shape", () => {
   };
   assert.deepEqual(validateArtifactsList(base), []);
   assert.equal(serializeArtifactsList(base), `${JSON.stringify(base)}\n`);
+  // The previous v3 daemon omits countsCapped; a reader in the current→previous window must
+  // accept the legacy payload and treat absence as no capped facet (dec_659E15CF).
+  const legacy = { ...base };
+  delete legacy.countsCapped;
+  assert.deepEqual(validateArtifactsList(legacy), []);
+  assert.equal(serializeArtifactsList(legacy), `${JSON.stringify(legacy)}\n`);
+  assert.equal(parseDaemonGuiReadResult("repo.artifacts.list", legacy), legacy);
   for (const mutate of [
     (value: ArtifactsListResult) => ({ ...value, kind: "pdf" }),
     (value: ArtifactsListResult) => ({ ...value, counts: { html: 1 } }),
     (value: ArtifactsListResult) => ({ ...value, counts: { html: 1, md: 0 } }),
-    (value: ArtifactsListResult) => ({ ...value, countsCapped: undefined }),
     (value: ArtifactsListResult) => ({ ...value, countsCapped: { html: false, md: false } }),
     (value: ArtifactsListResult) => ({ ...value, countsCapped: { html: "no", md: false, raw: false } }),
     (value: ArtifactsListResult) => ({ ...value, artifacts: "many" }),

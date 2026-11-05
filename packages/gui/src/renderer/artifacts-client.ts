@@ -35,7 +35,10 @@ export const artifactsClient = {
         value.ok !== true ||
         !Array.isArray(value.artifacts) ||
         !isRendererRecord(value.counts) ||
-        !isRendererRecord(value.countsCapped) ||
+        // Compatibility with the previous v3 daemon: countsCapped may be absent (dec_659E15CF
+        // current→previous window); absence means no facet is capped. Remove after the next
+        // protocol release, by 2026-12-05 or when the current minor advances, whichever is first.
+        (value.countsCapped !== undefined && !isRendererRecord(value.countsCapped)) ||
         !isRendererRecord(value.page) ||
         !(
           value.page.nextCursor === null ||
@@ -47,7 +50,12 @@ export const artifactsClient = {
         throw rendererReadError(value, "Artifacts list bridge returned an invalid result.");
       return value as unknown as ArtifactsListResult;
     }, "artifacts list");
-    return { ...pages[0], artifacts: pages.flatMap((page) => page.artifacts) };
+    const first = pages[0]!;
+    return {
+      ...first,
+      countsCapped: first.countsCapped ?? { html: false, md: false, raw: false },
+      artifacts: pages.flatMap((page) => page.artifacts),
+    };
   },
 };
 
