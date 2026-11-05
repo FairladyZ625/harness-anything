@@ -13,6 +13,7 @@ import { App } from "../src/renderer/App.tsx";
 import { adaptRuntimeRelationRows, buildTriadicRendererData } from "../src/renderer/triadic-data.ts";
 import { DEFAULT_TASK_FILTERS } from "../src/renderer/model/taskFilters.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
+import { rendererQueryDefaults } from "../src/renderer/query-pacing.ts";
 
 const REPO_ID = "canonical";
 const AT = "2026-08-29T00:00:00.000Z";
@@ -179,37 +180,44 @@ async function mountApp(options: {
         },
       ],
     }),
-    getTasks: async () => ({
-      ok: true,
-      status: "ready",
-      rows: [taskRow("task_probe")],
-      invalidRows: [],
-      watermark: revision,
-      sourceRevision: revision,
-      warnings: parentDeferred ? ["task_parent_metadata_deferred"] : [],
-    }),
-    getWorkspaceSummary: async () =>
-      options.workspaceSummaryResult ?? {
-        schema: "daemon.workspace-summary/v1",
+    getTasks: async (payload) => {
+      calls.push({ method: "getTasks", payload: payload ?? null });
+      return {
         ok: true,
         status: "ready",
-        tasks: { lastChangedAt: null, total: 1, byStatus: { planned: 1 } },
-        decisions: {
-          total: 0,
-          inboxCount: 0,
-          byState: { proposed: 0, in_effect: 0, rejected: 0, deferred: 0, superseded: 0, outcome_retired: 0 },
-          groups: [
-            { id: "proposed", states: ["proposed"], count: 0, decisionIds: [] },
-            { id: "in_effect", states: ["in_effect"], count: 0, decisionIds: [] },
-            { id: "rejected", states: ["rejected"], count: 0, decisionIds: [] },
-            { id: "deferred", states: ["deferred"], count: 0, decisionIds: [] },
-            { id: "retired", states: ["superseded", "outcome_retired"], count: 0, decisionIds: [] },
-          ],
-        },
-        watermark: 1,
-        sourceRevision: 1,
-        warnings: [],
-      },
+        rows: [taskRow("task_probe")],
+        invalidRows: [],
+        watermark: revision,
+        sourceRevision: revision,
+        warnings: parentDeferred ? ["task_parent_metadata_deferred"] : [],
+      };
+    },
+    getWorkspaceSummary: async () => {
+      calls.push({ method: "getWorkspaceSummary", payload: null });
+      return (
+        options.workspaceSummaryResult ?? {
+          schema: "daemon.workspace-summary/v1",
+          ok: true,
+          status: "ready",
+          tasks: { lastChangedAt: null, total: 1, byStatus: { planned: 1 } },
+          decisions: {
+            total: 0,
+            inboxCount: 0,
+            byState: { proposed: 0, in_effect: 0, rejected: 0, deferred: 0, superseded: 0, outcome_retired: 0 },
+            groups: [
+              { id: "proposed", states: ["proposed"], count: 0, decisionIds: [] },
+              { id: "in_effect", states: ["in_effect"], count: 0, decisionIds: [] },
+              { id: "rejected", states: ["rejected"], count: 0, decisionIds: [] },
+              { id: "deferred", states: ["deferred"], count: 0, decisionIds: [] },
+              { id: "retired", states: ["superseded", "outcome_retired"], count: 0, decisionIds: [] },
+            ],
+          },
+          watermark: 1,
+          sourceRevision: 1,
+          warnings: [],
+        }
+      );
+    },
     getCatalogSnapshot: async () => ({
       schema: "gui-catalog-snapshot/v2",
       ok: true,
@@ -276,7 +284,7 @@ async function mountApp(options: {
     }),
   });
 
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client = new QueryClient({ defaultOptions: { queries: { ...rendererQueryDefaults.queries, retry: false } } });
   startOnView(options.view);
   const container = document.createElement("div");
   document.body.append(container);
