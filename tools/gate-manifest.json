@@ -176,6 +176,8 @@
         "clean-build",
         "dependency-policy",
         "cost-budget",
+        "cost-budget-reads",
+        "cost-budget-read-summary",
         "lint",
         "entity-id-links"
       ],
@@ -4654,28 +4656,31 @@
         "tools/gates/receipt-verify.mjs",
         "tools/gates/receipts/**",
         "tools/fixtures/task-plan.mjs",
-        "tools/temporary-directory-cleanup.mjs"
+        "tools/temporary-directory-cleanup.mjs",
+        "tools/gates/cost-budget-*.mjs"
       ],
       "authoritySource": [
         "decision/dec_FB488BE3EF6B107814A7E3C2FD#CH1",
         "tools/gates/contracts/gates.contract.mjs:G38",
-        "task_c0acc7af3f6bf1d067df4dfc58"
+        "task_c0acc7af3f6bf1d067df4dfc58",
+        "decision/dec_72FADB86879F5EBF366F46F162/CH3"
       ],
       "consumerScope": [
         "projection rebuild git process count on packages/daemon/fixtures/perf/cost-budget-ledger.json",
         "G1 write-path cost scaling through the daemon request path at 200 and 2000 events",
-        "budget raises in tools/gates/cost-budget.json backed by receipts in tools/gates/receipts"
+        "budget raises in tools/gates/cost-budget.json backed by receipts in tools/gates/receipts",
+        "protocol-derived read coverage; SQLite/PGlite fixed-result history scaling and explicit-input source audit slopes"
       ],
       "githubContext": {
         "requiredContexts": [],
-        "workflowJobs": ["cost-budget"],
-        "nodeVersions": [24]
+        "workflowJobs": ["cost-budget", "cost-budget-reads", "cost-budget-read-summary"],
+        "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
         "allowed": false,
         "location": null,
         "adrOrDecisionRequired": false,
-        "notes": "A budget above its baseline needs a valid cost-budget receipt; there is no path allowlist."
+        "notes": "A budget above its baseline needs a valid cost-budget receipt; there is no path allowlist. Read-side knownScaling must name an exact probe/backend/collection/metric, expiry and deletion task; stale/expired entries fail."
       },
       "changeControl": {
         "ordinaryImplementationMayModify": false,
@@ -4685,20 +4690,33 @@
           "tools/gates/cost-budget.json",
           "tools/gates/test/cost-budget.test.mjs",
           "package.json:scripts.harness:check-cost-budget",
-          "tools/gate-manifest.json"
+          "tools/gate-manifest.json",
+          "tools/gates/cost-budget-reads.mjs",
+          "tools/gates/cost-budget-read-lane.mjs",
+          "tools/gates/test/cost-budget-reads.test.mjs"
         ]
       },
       "bypassFixtureRequired": false,
       "executionSurfaces": {
-        "packageJson": { "check": false, "checkPr": false, "script": "harness:check-cost-budget" },
-        "rewriteCi": { "pullRequestJobs": ["cost-budget"], "nonPullRequestJobs": [] },
-        "branchProtection": { "required": false, "contexts": [] },
+        "packageJson": {
+          "check": false,
+          "checkPr": false,
+          "script": "harness:check-cost-budget"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": ["cost-budget", "cost-budget-reads", "cost-budget-read-summary"],
+          "nonPullRequestJobs": []
+        },
+        "branchProtection": {
+          "required": false,
+          "contexts": []
+        },
         "classes": ["local", "pr"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": ["tools/gates/test/cost-budget.test.mjs"]
+        "evidence": ["tools/gates/test/cost-budget.test.mjs", "tools/gates/test/cost-budget-reads.test.mjs"]
       }
     },
     {

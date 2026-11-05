@@ -643,6 +643,71 @@ jobs:
           path: ${{ runner.temp }}
       - run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
       - name: Reject deterministic cost regressions (G38)
+        env:
+          G38_PHASE: legacy
+        run: node tools/gates/cost-budget.mjs
+
+  # dec_72FADB86879F5EBF366F46F162/CH3; owner 2026-11-04 + CEO 2026-11-05 ruling.
+  # The same G38 entrypoint splits backend/collection setup and rejoins the complete matrix.
+  cost-budget-reads:
+    needs: install
+    if: always() && github.event_name == 'pull_request' && needs.install.outputs.code != 'false'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: [sqlite, pglite]
+        dimension: [task-history, runtime-sessions, dispatches, task-outputs, relations, event-bytes, source-events]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+      # Follow pglite-node26: the shared dependency artifact contains Node 24 native modules.
+      - run: echo "npm_package_config_node_gyp_nodedir=$(dirname "$(dirname "$(command -v node)")")" >> "$GITHUB_ENV"
+      - run: npm ci
+      - name: Reject history-dependent reads (G38)
+        # Hang protection, not a cost budget. Run 41937390979's 14 shard logs
+        # measured 3.084–122.249s; pglite/task-outputs was slowest (job 126956238665).
+        # ceil(2 * 122.249 / 60) = 5 minutes; cost margins and existing probes stay intact.
+        timeout-minutes: 5
+        env:
+          G38_PHASE: read
+          G38_BACKEND: ${{ matrix.backend }}
+          G38_DIMENSION: ${{ matrix.dimension }}
+          G38_OUTPUT: ${{ runner.temp }}/g38/${{ matrix.backend }}-${{ matrix.dimension }}.json
+        run: node tools/gates/cost-budget.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: g38-read-${{ matrix.backend }}-${{ matrix.dimension }}
+          path: ${{ runner.temp }}/g38/*.json
+          if-no-files-found: error
+
+  cost-budget-read-summary:
+    needs: [install, cost-budget-reads]
+    if: always() && github.event_name == 'pull_request' && needs.install.outputs.code != 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: node-modules-${{ hashFiles('package-lock.json') }}
+          path: ${{ runner.temp }}
+      - run: tar -xf "$RUNNER_TEMP/node-modules.tar" && touch packages/daemon/dist/build-id.txt
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: g38-read-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/g38
+      - name: Require the complete dual-backend read matrix (G38)
+        env:
+          G38_PHASE: read-summary
+          G38_RESULTS: ${{ runner.temp }}/g38
         run: node tools/gates/cost-budget.mjs
 
   lint:

@@ -40,6 +40,7 @@ export async function runLedgerReconcileAction(
         repoId: cell.input.repoId,
         rootDir: cell.rootDir,
         snapshotPath: legacyGenerationSnapshotPath(cell.rootDir),
+        generation,
         gitReadback,
       });
     return cell.readResult(

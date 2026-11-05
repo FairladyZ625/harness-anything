@@ -1,0 +1,93 @@
+// All instrumentation stays in the G38 fixture. Result bytes expose growing JSON
+// payloads; native VM work and Count-page visits expose scans behind fixed results.
+import fs from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
+import { StatementSync } from "node:sqlite";
+import { installCostProbe, resetCostProbe, snapshotCostProbe } from "./g1-cost-probe.mjs";
+import { installSqliteWorkProbe, resetSqliteWork, snapshotSqliteWork } from "./g38-sqlite-work.mjs";
+let installed = false,
+  sqlResultBytes = 0,
+  asyncFileReadBytes = 0,
+  directoryEntries = 0;
+const bytes = (row) => Buffer.byteLength(JSON.stringify(row) ?? "", "utf8");
+export function installReadProbe() {
+  if (installed) return;
+  installSqliteWorkProbe();
+  installed = true;
+  installCostProbe();
+  for (const name of ["get", "all"]) {
+    const original = StatementSync.prototype[name];
+    StatementSync.prototype[name] = function (...args) {
+      const result = original.apply(this, args);
+      sqlResultBytes += bytes(result);
+      return result;
+    };
+  }
+  const originalRead = fs.promises.readFile,
+    originalReadSync = fs.readSync,
+    originalDirectory = fs.promises.readdir,
+    originalDirectorySync = fs.readdirSync;
+  fs.promises.readFile = async (...args) => {
+    const value = await originalRead(...args);
+    asyncFileReadBytes += typeof value === "string" ? Buffer.byteLength(value) : value.byteLength;
+    return value;
+  };
+  fs.readSync = (...args) => {
+    const count = originalReadSync(...args);
+    asyncFileReadBytes += count;
+    return count;
+  };
+  fs.promises.readdir = async (...args) => {
+    const value = await originalDirectory(...args);
+    directoryEntries += value.length;
+    return value;
+  };
+  fs.readdirSync = (...args) => {
+    const value = originalDirectorySync(...args);
+    directoryEntries += value.length;
+    return value;
+  };
+  syncBuiltinESMExports();
+  const original = StatementSync.prototype.iterate;
+  StatementSync.prototype.iterate = function (...args) {
+    const iterator = original.apply(this, args),
+      next = iterator.next.bind(iterator);
+    iterator.next = (...values) => {
+      const value = next(...values);
+      if (!value.done) sqlResultBytes += bytes(value.value);
+      return value;
+    };
+    return iterator;
+  };
+}
+export function resetReadProbe() {
+  resetCostProbe();
+  resetSqliteWork();
+  sqlResultBytes = 0;
+  asyncFileReadBytes = 0;
+  directoryEntries = 0;
+}
+export function snapshotReadProbe() {
+  const counts = snapshotCostProbe();
+  return {
+    ...counts,
+    fileReadBytes: counts.fileReadBytes + asyncFileReadBytes,
+    sqlResultBytes,
+    directoryEntries,
+    ...snapshotSqliteWork(),
+  };
+}
+
+// EXPLAIN reports per-loop row averages. Include filtered/rechecked rows and every
+// scan, including scans below an Aggregate or a recursive/CTE wrapper.
+export function planRowsRead(plan) {
+  const own = /Scan$/u.test(plan["Node Type"] ?? "")
+    ? ((plan["Actual Rows"] ?? 0) +
+        (plan["Rows Removed by Filter"] ?? 0) +
+        (plan["Rows Removed by Index Recheck"] ?? 0)) *
+      (plan["Actual Loops"] ?? 1)
+    : 0;
+  // JSON EXPLAIN emits rounded per-loop averages (e.g. 0.33 × 3 = 0.99).
+  // Round each scan upward to an integer visit count before adding sibling scans.
+  return Math.ceil(own) + (plan.Plans ?? []).reduce((sum, child) => sum + planRowsRead(child), 0);
+}
