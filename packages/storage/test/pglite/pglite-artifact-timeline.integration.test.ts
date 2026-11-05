@@ -137,8 +137,8 @@ pgliteIntegrationSuite("PGlite artifact timeline index", () => {
       try {
         await backend.pool.query(
           `INSERT INTO ha_artifact_documents
-             (tenant_id, project_id, policy_epoch, reader, readers, path, package_dir, relative, kind, sort_ms, occurred_at, size_bytes)
-           VALUES ('t','p',1,'*','{}','tasks/task-x/artifacts/bogus.html','task-x','artifacts/bogus.html','html',-1,'2026-08-01T00:00:00.000Z',7)`,
+             (tenant_id, project_id, policy_epoch, all_readers, reader, readers, path, package_dir, relative, kind, sort_ms, occurred_at, size_bytes)
+           VALUES ('t','p',1,true,'','{}','tasks/task-x/artifacts/bogus.html','task-x','artifacts/bogus.html','html',-1,'2026-08-01T00:00:00.000Z',7)`,
         );
         await backend.pool.query("UPDATE ha_artifact_counts SET total=99 WHERE kind='md'");
         await backend.pool.query("UPDATE ha_projection_meta SET artifact_index_version=0");
@@ -169,8 +169,8 @@ pgliteIntegrationSuite("PGlite artifact timeline index", () => {
       try {
         await dirty.pool.query(
           `INSERT INTO ha_artifact_documents
-             (tenant_id, project_id, policy_epoch, reader, readers, path, package_dir, relative, kind, sort_ms, occurred_at, size_bytes)
-           VALUES ('t','p',1,'*','{}','tasks/task-x/artifacts/bogus.html','task-x','artifacts/bogus.html','html',-1,'2026-08-01T00:00:00.000Z',7)`,
+             (tenant_id, project_id, policy_epoch, all_readers, reader, readers, path, package_dir, relative, kind, sort_ms, occurred_at, size_bytes)
+           VALUES ('t','p',1,true,'','{}','tasks/task-x/artifacts/bogus.html','task-x','artifacts/bogus.html','html',-1,'2026-08-01T00:00:00.000Z',7)`,
         );
         await dirty.pool.query("UPDATE ha_artifact_counts SET total=99 WHERE kind='md'");
       } finally {
@@ -294,6 +294,46 @@ pgliteIntegrationSuite("PGlite artifact timeline index", () => {
       const expected = names.map((name) => `artifacts/${name}`).sort((left, right) => (left < right ? -1 : 1));
       assert.deepEqual(seen, expected);
       assert.equal(new Set(seen).size, seen.length);
+    } finally {
+      await db.close();
+    }
+  });
+  test("the internal all-reader row cannot be reached by a literal reader identity", async () => {
+    const db = await PGlite.create();
+    const client = { query: (text: string, values?: unknown[]) => db.query(text, values) };
+    try {
+      await createTimelineSchema(db);
+      await projectPgArtifactDocument(
+        client,
+        { ...base, readers: ["*"] },
+        "tasks/pkg-a/artifacts/star.html",
+        html,
+        "2026-08-01T00:00:00.000Z",
+      );
+      await projectPgArtifactDocument(
+        client,
+        { ...base, readers: ["a"] },
+        "tasks/pkg-a/artifacts/a.html",
+        html,
+        "2026-08-02T00:00:00.000Z",
+      );
+      const literalStar = await readPgArtifactTimeline(
+        client,
+        { ...base, readers: ["*"] },
+        { kind: "html", limit: 10 },
+      );
+      assert.deepEqual(
+        literalStar.rows.map(({ relative }) => relative),
+        ["artifacts/star.html"],
+        "a literal '*' reader must match the document's own reader set, not the internal all-reader row",
+      );
+      assert.deepEqual(literalStar.counts, { html: 1, md: 0, raw: 0 });
+      const all = await readPgArtifactTimeline(client, { ...base, readers: [] }, { kind: "html", limit: 10 });
+      assert.deepEqual(
+        all.rows.map(({ relative }) => relative),
+        ["artifacts/a.html", "artifacts/star.html"],
+      );
+      assert.deepEqual(all.counts, { html: 2, md: 0, raw: 0 });
     } finally {
       await db.close();
     }
