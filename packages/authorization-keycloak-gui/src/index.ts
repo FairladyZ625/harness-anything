@@ -46,6 +46,8 @@ export interface AuthorizationKeycloakUi {
     readonly repoId?: string;
     readonly rootDir?: string;
     readonly repoMode?: "local" | "remote-proxy" | "remote-center" | "remote-edge";
+    readonly autoLogin?: boolean;
+    readonly onAutoLoginConsumed?: () => void;
   }>;
   readonly DevicesTab: ComponentType<{
     readonly access: AccessAdminApi;

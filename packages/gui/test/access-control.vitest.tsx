@@ -521,7 +521,9 @@ describe("账号与访问控制页", () => {
     expect(byTestId("binding-managed-elsewhere").textContent).toContain("此处仅读取");
 
     // remote-edge: the binding card already reads the center's authority (source fleet-center).
-    auth.bindingStatus.mockImplementationOnce(async () => ({
+    // The account header and the service card now read the same binding port; both calls
+    // must see the edge's center-owned authority.
+    auth.bindingStatus.mockImplementation(async () => ({
       ok: true,
       source: "fleet-center",
       mode: "external",

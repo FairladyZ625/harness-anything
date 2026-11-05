@@ -60,7 +60,12 @@ function mountSidebar(
   works: WorkIndexRead = WORKS,
   agenda?: AgendaSuccess,
   activeRepoId: string | null = "repo",
+  identityAuth?: {
+    readonly status: (repoId?: string, rootDir?: string) => Promise<unknown>;
+    readonly bindingStatus: (repoId?: string, rootDir?: string) => Promise<unknown>;
+  },
 ) {
+  if (identityAuth) Object.defineProperty(window, "harness", { configurable: true, value: { auth: identityAuth } });
   const onNavigate = vi.fn(),
     onUnpinWork = vi.fn(),
     onOpenPinned = vi.fn(),
@@ -121,6 +126,7 @@ function mountSidebar(
     unmount: () => {
       act(() => root.unmount());
       client.clear();
+      Reflect.deleteProperty(window, "harness");
     },
   };
 }
@@ -423,4 +429,70 @@ it("does not claim a Keycloak identity when the provider binding read fails", as
     unmount();
     Reflect.deleteProperty(window, "harness");
   }
+});
+
+it("re-reads the account port after a repository read reports authentication_required", async () => {
+  let authenticated = true;
+  const status = vi.fn(async () =>
+      authenticated ? { ok: true, authenticated: true, personId: "person-a" } : { ok: true, authenticated: false },
+    ),
+    bindingStatus = vi.fn(async () => ({ ok: true, mode: "managed", ready: true }));
+  const { host, render, unmount } = mountSidebar([], WORKS, undefined, "repo", { status, bindingStatus });
+  await render();
+  await vi.waitFor(() => expect(host.textContent).toContain("person-a"));
+  authenticated = false;
+  await act(async () => window.dispatchEvent(new Event("harness-auth-changed")));
+  await vi.waitFor(() => expect(host.textContent).toContain("尚未登录"));
+  expect(host.textContent).not.toContain("person-a");
+  unmount();
+});
+
+it("replaces a stale account with an unavailable state when the identity read fails", async () => {
+  let fail = false;
+  const status = vi.fn(async () => {
+      if (fail) throw new Error("identity service unavailable");
+      return { ok: true, authenticated: true, personId: "person-a" };
+    }),
+    bindingStatus = vi.fn(async () => ({ ok: true, mode: "managed", ready: true }));
+  const { host, render, unmount } = mountSidebar([], WORKS, undefined, "repo", { status, bindingStatus });
+  await render();
+  await vi.waitFor(() => expect(host.textContent).toContain("person-a"));
+  fail = true;
+  await act(async () => window.dispatchEvent(new Event("harness-auth-changed")));
+  await vi.waitFor(() => expect(host.textContent).toContain("身份不可用"));
+  expect(host.textContent).toContain("身份服务暂时不可用");
+  expect(host.textContent).not.toContain("person-a");
+  unmount();
+});
+
+it("ignores a slower earlier identity read after a newer read signed the shell out", async () => {
+  let releaseFirstBinding!: (value: unknown) => void;
+  const firstBinding = new Promise((resolve) => {
+    releaseFirstBinding = resolve;
+  });
+  let statusCalls = 0,
+    bindingCalls = 0;
+  const status = vi.fn(async () => {
+      statusCalls += 1;
+      return statusCalls === 1
+        ? { ok: true, authenticated: true, personId: "person-a" }
+        : { ok: true, authenticated: false };
+    }),
+    bindingStatus = vi.fn(() => {
+      bindingCalls += 1;
+      return bindingCalls === 1 ? firstBinding : Promise.resolve({ ok: true, mode: "managed", ready: true });
+    });
+  const { host, render, unmount } = mountSidebar([], WORKS, undefined, "repo", { status, bindingStatus });
+  await render();
+  // The first read holds an authenticated status but a delayed binding reply.
+  await vi.waitFor(() => expect(bindingCalls).toBe(1));
+  // A business-read wake-up starts a newer read, which signs out first.
+  await act(async () => window.dispatchEvent(new Event("harness-auth-changed")));
+  await vi.waitFor(() => expect(host.textContent).toContain("尚未登录"));
+  // The older read now finishes with the old person and must not restore it.
+  await act(async () => releaseFirstBinding({ ok: true, mode: "managed", ready: true }));
+  await act(async () => undefined);
+  expect(host.textContent).not.toContain("person-a");
+  expect(host.textContent).toContain("尚未登录");
+  unmount();
 });

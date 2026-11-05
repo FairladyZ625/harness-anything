@@ -96,6 +96,9 @@ import { hostProjectWindowApi, useProjectWindowHost, useProjectWindowTitle } fro
 import { DaemonStartupGate } from "./components/DaemonStartupGate.tsx";
 import { AuroraBackdrop, LiquidFilterDef } from "./components/GlassFoundation.tsx";
 import { RepositoryReadNotice } from "./components/RepositoryReadNotice.tsx";
+import { requestAccountLogin } from "./account-login-request.ts";
+import { appMainSurface } from "./app-main-surface.ts";
+import { t } from "./i18n/index.tsx";
 type DecisionPoolGroupId = WorkspaceSummaryRead["decisions"]["groups"][number]["id"];
 function AppShell() {
   const desktopOnly = guiTransport().capabilities().terminal?.status === "unavailable";
@@ -150,6 +153,11 @@ function AppShell() {
   const ledgerReadError = [workspaceSummaryQuery.error, tasksQuery.error].find(
     (error): error is Error => error instanceof Error,
   );
+  const ledgerReadCode =
+      ledgerReadError && "code" in ledgerReadError && typeof ledgerReadError.code === "string"
+        ? ledgerReadError.code
+        : undefined,
+    ledgerAuthRequired = ledgerReadCode === "authentication_required";
   const ledgerUnavailable = [workspaceSummaryQuery.error, tasksQuery.error].some(
     (error) =>
       error && "code" in error && (error.code === "replica_unavailable" || error.code === "authorization_denied"),
@@ -161,7 +169,12 @@ function AppShell() {
     connected: !tasksQuery.isRefetchError && !tasksQuery.isError && !workspaceSummaryQuery.isError,
     refreshing: tasksQuery.isFetching,
     empty: workspaceSummaryQuery.isSuccess === true && workspaceSummaryQuery.data.tasks.total === 0,
-    error: workspaceSummaryQuery.isError || tasksQuery.isError ? (ledgerReadError?.message ?? "") : null,
+    error:
+      workspaceSummaryQuery.isError || tasksQuery.isError
+        ? ledgerAuthRequired
+          ? t("components.appSidebar.ledgerAuthenticationRequired")
+          : (ledgerReadError?.message ?? "")
+        : null,
   };
   const refreshLedger = useCallback(() => {
     void tasksQuery.refetch();
@@ -179,6 +192,7 @@ function AppShell() {
   const { location, navigate, updateLocation, back, forward, closePreview, canBack, canForward } =
     useAppLocation(projectId);
   const { view, selectedId, previewId, focusedEntityRef, taskFilters, drill } = location;
+  const mainSurface = appMainSurface(view, ledgerUnavailable);
   const taskWipQuery = useTaskWipQuery(activeRepoId, view === "board" || view === "overview");
   // 侧栏置顶工作、总览、议程和研发态势消费 `ha agenda` 同一条 repo.agenda.read 投影；
   // 侧栏跨视图常驻，因此读面也随仓库常驻，不建立第二份 pin 状态。
@@ -588,7 +602,13 @@ function AppShell() {
           ) : null}
           <NavigationHistoryBar canBack={canBack} canForward={canForward} onBack={back} onForward={forward} />
           <FleetVersionWarningBanner warning={fleetOverview.overview?.versionWarning} />
-          <RepositoryReadNotice repoId={activeRepoId} />
+          <RepositoryReadNotice
+            repoId={activeRepoId}
+            onLogin={() => {
+              goto("identityAccess");
+              requestAccountLogin();
+            }}
+          />
           {activeRepoId &&
             (selected ||
               (view === "workspace" && location.scopeRootTaskId) ||
@@ -621,7 +641,16 @@ function AppShell() {
             className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden"
           >
             <div className="content-viewport flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-              {ledgerUnavailable ? (
+              {/* The account recovery surface must stay reachable when a business read failed:
+                  a ledger-level unavailable state elsewhere must not swallow its sign-in entry. */}
+              {mainSurface === "account" ? (
+                <IdentityAccessView
+                  key={activeRepoId ?? "local"}
+                  repos={systemQuery.data?.repos ?? []}
+                  repoId={activeRepoId ?? undefined}
+                  rootDir={activeRepo?.canonicalRoot ?? undefined}
+                />
+              ) : mainSurface === "ledger-unavailable" ? (
                 <WorkspaceSummaryPending error={ledgerReadError} />
               ) : selected && selectedWorkRootId === null ? (
                 renderTaskDetail(selected, {
@@ -1047,13 +1076,6 @@ function AppShell() {
                   repos={systemQuery.data?.repos ?? []}
                   onBack={back}
                   onNavigateEntity={navigateToEntity}
-                />
-              ) : view === "identityAccess" ? (
-                <IdentityAccessView
-                  key={activeRepoId ?? "local"}
-                  repos={systemQuery.data?.repos ?? []}
-                  repoId={activeRepoId ?? undefined}
-                  rootDir={activeRepo?.canonicalRoot ?? undefined}
                 />
               ) : (
                 <SettingsView

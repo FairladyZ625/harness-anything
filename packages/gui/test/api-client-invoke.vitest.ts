@@ -93,6 +93,38 @@ describe("renderer invoke assembles wire params per protocol declaration", () =>
     });
   });
 
+  it("turns authentication_required into a coded failure and wakes the identity surfaces", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            ok: false,
+            error: { code: "authentication_required", hint: "Sign in with the configured identity provider." },
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    window.sessionStorage.setItem("harness.browser.access-token", "secret");
+    const wake = vi.fn();
+    window.addEventListener("harness-auth-changed", wake);
+    try {
+      await expect(
+        (invoke as (...invokeArgs: readonly unknown[]) => Promise<unknown>)(
+          "repo.tasks.list",
+          { repoId: "canonical" },
+          "getTasks",
+        ),
+      ).rejects.toMatchObject({
+        code: "authentication_required",
+        message: "Sign in with the configured identity provider.",
+      });
+      expect(wake).toHaveBeenCalledOnce();
+    } finally {
+      window.removeEventListener("harness-auth-changed", wake);
+    }
+  });
+
   it("keeps repo-only and empty-input methods free of a payload key", async () => {
     const settings = await browserInvoke("repo.settings.read", { repoId: "canonical" }, "getSettings");
     expect(settings.params).toEqual({ repo: { repoId: "canonical" } });

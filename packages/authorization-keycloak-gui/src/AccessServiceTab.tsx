@@ -52,12 +52,17 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
     repoId,
     rootDir,
     repoMode,
+    autoLogin = false,
+    onAutoLoginConsumed,
   }: {
     readonly auth: OidcAuthApi;
     readonly repoId?: string;
     readonly rootDir?: string;
     readonly repoMode?: RepoMode;
     readonly access: AccessAdminApi | undefined;
+    /** The account header or an error surface asked for the sign-in flow on arrival. */
+    readonly autoLogin?: boolean;
+    readonly onAutoLoginConsumed?: () => void;
   }) {
     const [session, setSession] = useState<RecordValue | null>(null),
       [sessionFailed, setSessionFailed] = useState(false),
@@ -72,7 +77,11 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
       readonly loadError?: string;
     } | null>(null);
     const loggingIn = useRef(false),
-      sessionRequest = useRef(0);
+      sessionRequest = useRef(0),
+      auxRequest = useRef(0),
+      sessionAuthenticated = useRef<boolean | null>(null),
+      loginConfirmationPending = useRef(false),
+      autoLoginHandled = useRef(false);
     useEffect(
       () => () => {
         if (loggingIn.current) void auth.cancelLogin();
@@ -80,13 +89,33 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
       [auth],
     );
 
+    // A session read is authoritative for the session snapshot alone. The binding and bootstrap
+    // reads are ancillary: their failure or a newer poll must not swallow a confirmed sign-in.
+    const applySession = (reply: RecordValue) => {
+      const authenticated = reply.authenticated === true;
+      const previous = sessionAuthenticated.current;
+      sessionAuthenticated.current = authenticated;
+      if (!authenticated) loginConfirmationPending.current = false;
+      setSession(reply);
+      setSessionFailed(false);
+      // A recovery notification is either a false->true transition or the confirmation of a
+      // login that just completed. The login flag covers an unknown/stale prior state: when the
+      // first read is still pending, or the page still holds an authenticated snapshot that the
+      // daemon has already invalidated, the next confirmed authenticated read must still restore
+      // the reads that authentication refused.
+      if (authenticated && (previous === false || loginConfirmationPending.current)) {
+        loginConfirmationPending.current = false;
+        window.dispatchEvent(new Event("harness-auth-signed-in"));
+      }
+    };
+
     const refresh = async () => {
       const request = ++sessionRequest.current;
       const statusReply = await auth.status(repoId, rootDir).then(
         (reply) => ({ ok: true as const, reply: reply as RecordValue }),
         (error: unknown) => ({ ok: false as const, error }),
       );
-      // A read superseded by a newer request or a repository change must not write state.
+      // A read superseded by a newer session read or a repository change must not write state.
       if (sessionRequest.current !== request) return;
       if (!statusReply.ok) {
         // A failed identity read must not leave the previous session labelled as current.
@@ -94,10 +123,10 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
         setSessionFailed(true);
         throw statusReply.error;
       }
-      setSession(statusReply.reply);
-      setSessionFailed(false);
+      applySession(statusReply.reply);
+      const aux = ++auxRequest.current;
       const nextBinding = (await auth.bindingStatus(repoId, rootDir)) as RecordValue;
-      if (sessionRequest.current !== request) return;
+      if (auxRequest.current !== aux) return;
       if (nextBinding.configured === false) {
         setBinding(null);
         setBootstrapRequired(false);
@@ -105,16 +134,19 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
       }
       setBinding(nextBinding);
       const bootstrap = (await auth.bootstrapStatus(repoId, rootDir)) as RecordValue;
-      if (sessionRequest.current !== request) return;
+      if (auxRequest.current !== aux) return;
       setBootstrapRequired(bootstrap.required === true);
     };
 
     useEffect(() => {
+      sessionAuthenticated.current = null;
+      loginConfirmationPending.current = false;
       setSession(null);
       setSessionFailed(false);
       void refresh().catch((error: unknown) => setFeedback(message(error)));
       return () => {
         sessionRequest.current += 1;
+        auxRequest.current += 1;
       };
     }, [repoId, rootDir]);
 
@@ -141,8 +173,7 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
         void auth.status(repoId, rootDir).then(
           (reply) => {
             if (sessionRequest.current !== request) return;
-            setSession(reply as RecordValue);
-            setSessionFailed(false);
+            applySession(reply as RecordValue);
           },
           (error: unknown) => {
             if (sessionRequest.current !== request) return;
@@ -156,19 +187,39 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
       return () => clearInterval(interval);
     }, [auth, repoId, rootDir]);
 
-    const signIn = (userCode?: string) =>
-      run(async () => {
-        loggingIn.current = true;
+    const signIn = (userCode?: string) => {
+      // One in-flight login owns the panel. A second entry point must not start a main-process
+      // login that the first call's cleanup would then tear down.
+      if (loggingIn.current) return Promise.resolve();
+      loggingIn.current = true;
+      loginConfirmationPending.current = false;
+      return run(async () => {
         setLogin({ userCode });
         try {
           const openBrowser = (page: EmbeddedLoginPage) =>
             setLogin({ userCode, url: page.url, partitionToken: page.partitionToken });
           await auth.login(repoId, openBrowser, userCode, rootDir);
+          // The identity port still has to confirm this login; whichever successful status read
+          // observes it first (this refresh or the periodic poll) consumes this flag.
+          loginConfirmationPending.current = true;
         } finally {
           loggingIn.current = false;
           setLogin(null);
         }
       });
+    };
+
+    // The account header and the business-read error surface share this one login flow.
+    useEffect(() => {
+      if (!autoLogin) {
+        autoLoginHandled.current = false;
+        return;
+      }
+      if (autoLoginHandled.current) return;
+      autoLoginHandled.current = true;
+      onAutoLoginConsumed?.();
+      void signIn();
+    }, [autoLogin, onAutoLoginConsumed, signIn]);
 
     const provider = identityProviderOf(binding?.mode),
       builtin = provider === "builtin",
