@@ -1,14 +1,22 @@
 // harness-test-tier: integration
-import { revokeTestPolicyActions } from "./keycloak-policy.fixtures.ts";
+import { revokeTestPolicyActions, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { waitForFixturePublication } from "./repo-settings.fixture.ts";
-import { executionId, fixture, owner, reviewerExecutionBinding, taskId } from "./task-completion-review.fixture.ts";
+import {
+  executionId,
+  fixture,
+  owner,
+  principal,
+  reviewerExecutionBinding,
+  taskId,
+} from "./task-completion-review.fixture.ts";
 import { reviewDispatchKey } from "../src/task-review-dispatch.ts";
+import { dispatchStreamPath } from "../src/dispatch-stream.ts";
 
 type ChildFixture = Awaited<ReturnType<typeof fixture>>;
 
@@ -198,6 +206,7 @@ test(
       const resumed = await f.run({ kind: "task-submit", taskId, executionId });
       assert.equal(resumed.outcome, "applied", JSON.stringify(resumed));
       assert.equal(f.launches.length, 1, "resumed submit shares the cut dispatch identity");
+      assert.match(JSON.stringify(resumed.warnings), /already holds review dispatch .*no new reviewer was dispatched/u);
       const completed = await f.complete();
       assert.equal(completed.outcome, "op_rejected", JSON.stringify(completed));
       assert.equal(f.launches.length, 1);
@@ -749,6 +758,156 @@ test(
   },
 );
 
+/** Cancel the one reviewer the fixture launched and wait for its terminal outcome to project. */
+async function cancelLiveReview(f: ChildFixture) {
+  const dispatch = f
+    .events()
+    .findLast((event) => event.type === "runtime_dispatch_requested" && event.payload.role === "reviewer");
+  assert.ok(dispatch?.type === "runtime_dispatch_requested", "the fixture launched no reviewer");
+  const cancelled = await f.cell().cancelRuntime({ runtimeSessionId: dispatch.payload.runtimeSessionId }, principal);
+  assert.equal(cancelled.detail, "cancelled", JSON.stringify(cancelled));
+  assert.equal(await f.awaitOutcome(dispatch.payload.runtimeSessionId), "cancelled");
+  return dispatch;
+}
+
+test(
+  "an amendment after the prior review was cancelled dispatches the replacement cut",
+  { timeout: 20_000 },
+  async () => {
+    const f = await fixture(false, true, false, false, false, { autoSubmit: false });
+    try {
+      await f.install();
+      await f.submit();
+      assert.equal(f.launches.length, 1);
+      const cancelled = await cancelLiveReview(f);
+      const closeoutPath = path.join(f.root, "harness", f.packagePath, "closeout.md");
+      writeFileSync(
+        closeoutPath,
+        readFileSync(closeoutPath, "utf8").replace("Reviewed delivery ", "Replacement after cancelled review "),
+      );
+      const amended = await f.run({ kind: "task-submit", taskId, executionId, amend: true });
+      assert.equal(amended.outcome, "applied", JSON.stringify(amended));
+      assert.equal(f.launches.length, 2, "the replacement cut must dispatch its own reviewer");
+      const replacement = f
+        .events()
+        .findLast((event) => event.type === "runtime_dispatch_requested" && event.payload.role === "reviewer");
+      assert.ok(replacement?.type === "runtime_dispatch_requested");
+      assert.notEqual(replacement.payload.runtimeSessionId, cancelled.payload.runtimeSessionId);
+      assert.notEqual(replacement.payload.dispatchKey, cancelled.payload.dispatchKey);
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test(
+  "an amendment whose cut is unchanged after its review was cancelled reopens the review seat",
+  { timeout: 20_000 },
+  async () => {
+    // The T6 field path: the cancelled reviewer settles without archiving its mission/dispatch
+    // documents (a lost owner stream is the deterministic local shape), so the next amendment
+    // re-derives the very same cut key. The cancelled dispatch row must not be mistaken for a
+    // live seat: the automatic port has to advance the attempt chain, as dispatch-review does.
+    const f = await fixture(false, true, false, false, false, {
+      autoSubmit: false,
+      runtimePid: 2_147_483_646,
+    });
+    try {
+      await f.install();
+      await f.submit();
+      assert.equal(f.launches.length, 1);
+      const dispatch = f
+        .events()
+        .findLast((event) => event.type === "runtime_dispatch_requested" && event.payload.role === "reviewer");
+      assert.ok(dispatch?.type === "runtime_dispatch_requested");
+      rmSync(dispatchStreamPath(f.root, dispatch.payload.dispatchId), { force: true });
+      await f.reopen();
+      const cancelled = await f
+        .cell()
+        .cancelRuntime({ runtimeSessionId: dispatch.payload.runtimeSessionId }, principal);
+      assert.equal(cancelled.detail, "cancelled", JSON.stringify(cancelled));
+      assert.equal(await f.awaitOutcome(dispatch.payload.runtimeSessionId), "cancelled");
+      const amended = await f.run({ kind: "task-submit", taskId, executionId, amend: true });
+      assert.equal(amended.outcome, "applied", JSON.stringify(amended));
+      assert.equal(f.launches.length, 2, "the cancelled review seat must be reopened by the amendment");
+      const replacement = f
+        .events()
+        .findLast((event) => event.type === "runtime_dispatch_requested" && event.payload.role === "reviewer");
+      assert.ok(replacement?.type === "runtime_dispatch_requested");
+      assert.notEqual(replacement.payload.runtimeSessionId, dispatch.payload.runtimeSessionId);
+      assert.match(String(replacement.payload.dispatchKey), /:attempt1$/u);
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test("a resumed submit of an already-reviewed cut keeps the registered review", { timeout: 30_000 }, async () => {
+  const f = await fixture(false, true, false, false, false, {
+    autoSubmit: false,
+    runtimePid: 2_147_483_646,
+  });
+  try {
+    await f.install();
+    await f.submit();
+    const dispatch = f
+      .events()
+      .findLast((event) => event.type === "runtime_dispatch_requested" && event.payload.role === "reviewer");
+    assert.ok(dispatch?.type === "runtime_dispatch_requested");
+    // Register under the dispatch's own report/packet paths: automatic submission artifacts
+    // exclude exactly those, so the resumed cut keeps the same digest and reaches the hook.
+    const { dispatchId, runtimeSessionId } = dispatch.payload,
+      report = `${f.packagePath}/artifacts/reports/${dispatchId}.md`,
+      packet = `${f.packagePath}/artifacts/reports/${dispatchId}.json`;
+    mkdirSync(path.dirname(path.join(f.root, "harness", packet)), { recursive: true });
+    writeFileSync(path.join(f.root, "harness", report), "# Review\n\nApproved.\n");
+    writeFileSync(
+      path.join(f.root, "harness", packet),
+      JSON.stringify({
+        verdict: "approved",
+        reason: "The submitted cut was checked.",
+        evidenceChecked: ["README.md"],
+        findings: [],
+        resolutions: [],
+      }),
+    );
+    const reviewed = await f.cell().run(
+      {
+        kind: "task-review-execution",
+        taskId,
+        executionId,
+        reviewId: `review-${dispatchId}`,
+        fromFile: `harness/${packet}`,
+      },
+      withPolicyGroup(
+        {
+          actor: {
+            principal: owner.actor.principal,
+            executor: { kind: "agent", id: `runtime-session:${runtimeSessionId}` },
+          },
+          source: "local",
+        },
+        "admin",
+      ),
+    );
+    assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+    // Settle the reviewer without archiving its mission/dispatch documents, so the cut digest
+    // stays unchanged and the resumed submit reaches the automatic dispatch hook.
+    rmSync(dispatchStreamPath(f.root, dispatchId), { force: true });
+    await f.reopen();
+    const cancelled = await f.cell().cancelRuntime({ runtimeSessionId }, principal);
+    assert.equal(cancelled.detail, "cancelled", JSON.stringify(cancelled));
+    assert.equal(await f.awaitOutcome(runtimeSessionId), "cancelled");
+    const resumed = await f.run({ kind: "task-submit", taskId, executionId });
+    assert.equal(resumed.outcome, "applied", JSON.stringify(resumed));
+    assert.equal(f.launches.length, 1, "a registered review must not be replaced by another reviewer");
+    assert.match(JSON.stringify(resumed.warnings), /no new reviewer was dispatched/u);
+  } finally {
+    await f.close();
+  }
+});
+
+// Keep this last: it revokes runtime-spawn for the rest of this test file's policy realm.
 test("automatic submit dispatch cannot lend its authorization decision to runtime-spawn", async () => {
   const f = await fixture(false, true, false, false, false, { autoSubmit: false });
   try {
