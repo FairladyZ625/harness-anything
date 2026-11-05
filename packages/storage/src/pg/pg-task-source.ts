@@ -185,7 +185,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
             package_path: string | null;
             presentation_status: string;
           }>(
-            `SELECT snapshot, package_path, ${presentationStatusSql(5)} AS presentation_status FROM ha_task_snapshots
+            `SELECT snapshot, package_path, ${presentationStatus ? presentationStatusSql(5) : "snapshot #>> '{task,status}'"} AS presentation_status FROM ha_task_snapshots
              WHERE tenant_id = $1 AND project_id = $2 AND policy_epoch = $3 AND task_id = $4
                AND (cardinality($5::text[]) = 0 OR readers && $5::text[])`,
             [claims.tenantId, claims.projectId, claims.policyEpoch, taskId, readers],
@@ -253,8 +253,11 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           where.push(`updated_at <= $${values.length}::timestamptz`);
         }
         if (query.parentTaskId !== undefined) {
-          values.push(query.parentTaskId);
-          where.push(`snapshot #>> '{task,metadata,parentTaskId}' IS NOT DISTINCT FROM $${values.length}`);
+          if (query.parentTaskId === null) where.push("snapshot #>> '{task,metadata,parentTaskId}' IS NULL");
+          else {
+            values.push(query.parentTaskId);
+            where.push(`snapshot #>> '{task,metadata,parentTaskId}' = $${values.length}`);
+          }
         }
         for (const [key, value] of [
           ["workKind", query.workKind],
@@ -311,7 +314,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           completed_at: string | null;
           updated_at: string;
         }>(
-          `SELECT task_id, package_path, generation, workspace_revision::text, snapshot, created_at::text, completed_at::text, updated_at::text, ${presentationStatusSql(4)} AS presentation_status FROM ha_task_snapshots
+          `SELECT task_id, package_path, generation, workspace_revision::text, snapshot, created_at::text, completed_at::text, updated_at::text, ${query.presentationStatus ? presentationStatusSql(4) : "snapshot #>> '{task,status}'"} AS presentation_status FROM ha_task_snapshots
            WHERE ${where.join(" AND ")} ORDER BY ${query.pinnedFirst ? "COALESCE((snapshot #>> '{task,pinned}')::boolean, false) DESC, " : ""}task_id${limit === null ? "" : ` LIMIT $${values.length}`}`,
           values,
         );

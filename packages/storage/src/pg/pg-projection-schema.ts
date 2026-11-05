@@ -215,6 +215,7 @@ export function projectionDdl(): readonly string[] {
     "ALTER TABLE ha_facts ADD COLUMN IF NOT EXISTS memory_class text GENERATED ALWAYS AS (value->>'memoryClass') STORED",
     "CREATE INDEX IF NOT EXISTS ha_task_snapshots_package_path ON ha_task_snapshots (tenant_id,project_id,policy_epoch,package_path)",
     "CREATE INDEX IF NOT EXISTS ha_task_snapshots_scope_revision ON ha_task_snapshots (tenant_id, project_id, workspace_revision DESC)",
+    "CREATE INDEX IF NOT EXISTS ha_task_snapshots_parent ON ha_task_snapshots (tenant_id,project_id,policy_epoch,(snapshot #>> '{task,metadata,parentTaskId}'),task_id)",
     ...PG_PROJECTION_TABLES.map(
       (table) => `CREATE INDEX IF NOT EXISTS ${table}_readers_gin ON ${table} USING gin (readers)`,
     ),
