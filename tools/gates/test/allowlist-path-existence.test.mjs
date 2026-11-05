@@ -109,3 +109,20 @@ test("B13 accepts the action-catalog null allowlist and its decision citations r
   );
   assert.deepEqual(auditAllowlistRefReachability(EVIDENCE_INDEX, refs).findings, []);
 });
+
+test("B13 keeps the backup compatibility exception tied to its decision and removal date", () => {
+  const allowlist = JSON.parse(
+    readFileSync(path.join(repoRoot, "tools/gate-allowlists/check-poll-spin-boundary.json"), "utf8"),
+  );
+  const entry = allowlist.entries.exceptions.find(
+    ({ key }) => key === "packages/storage/src/fleet-basebackup-worker.ts#prepareSqliteBackup#await-in-loop",
+  );
+  assert.ok(entry, "the previous-reader compatibility window still needs its bounded backup migration");
+  assert.equal(entry.ref, "dec_659E15CFEC2FD7E254BE02EB89");
+  assert.match(entry.reason, /Removed with the previous-reader window by 2026-12-05/u);
+  assert.deepEqual(
+    auditAllowlistRefReachability(EVIDENCE_INDEX, [{ source: "backup compatibility exception", ref: entry.ref }])
+      .findings,
+    [],
+  );
+});
