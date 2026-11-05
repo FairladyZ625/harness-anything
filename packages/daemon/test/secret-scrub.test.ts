@@ -42,6 +42,22 @@ test("assignments redact compound credential names and quoted JSON values", () =
   }
 });
 
+test("plain-text authorization schemes redact the credential body, not only the scheme word", () => {
+  const basic = "dXNlcjpwYXNzd29yZA==",
+    bearer = "opaque-bearer-credential-123";
+  for (const text of [
+    `Authorization: Basic ${basic}`,
+    `{"Authorization":"Basic ${basic}"}`,
+    `authorization: bearer ${bearer}`,
+    `Proxy-Authorization: Basic ${basic}`,
+  ]) {
+    const scrubbed = scrubSecretText(text);
+    assert.equal(scrubbed.includes(basic), false, `${text} leaked its Basic credential`);
+    assert.equal(scrubbed.includes(bearer), false, `${text} leaked its bearer credential`);
+    assert.match(scrubbed, /\[REDACTED\]/u, `${text} produced no redaction`);
+  }
+});
+
 test("ordinary key-shaped prose and public material stay readable", () => {
   for (const text of [
     "monkey=banana",

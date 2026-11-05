@@ -139,18 +139,25 @@ function readRange(file: string, start: number, length: number): Buffer {
   });
 }
 
-/** Keep only complete lines at the head cut so a reader never decodes half a UTF-8 record. */
+/**
+ * Keep only complete lines at the head cut. A window with no newline is one unterminated
+ * provider record: retaining any of it could start or end inside an arbitrary credential value,
+ * where no scrubber can recover the missing field/scheme context. Fail closed and keep none.
+ */
 function completeHead(buffer: Buffer): string {
   const text = buffer.toString("utf8"),
     newline = text.lastIndexOf("\n");
-  return newline < 0 ? text : text.slice(0, newline + 1);
+  return newline < 0 ? "" : text.slice(0, newline + 1);
 }
 
-/** Drop the partial first line after the tail cut; the truncation record already separates them. */
+/**
+ * Drop the partial first line after the tail cut. If the window has no newline it is entirely a
+ * fragment of one record, so keep none rather than publish a mid-credential suffix.
+ */
 function completeTail(buffer: Buffer): string {
   const text = buffer.toString("utf8"),
     newline = text.indexOf("\n");
-  return newline < 0 ? text : text.slice(newline + 1);
+  return newline < 0 ? "" : text.slice(newline + 1);
 }
 
 function snapshotBytes(buffer: Buffer): Snapshot {
@@ -168,7 +175,10 @@ function truncatedSnapshot(headBuffer: Buffer, tailBuffer: Buffer, totalBytes: n
     tail = completeTail(tailBuffer),
     marker = `${JSON.stringify({
       schema: truncatedRecordSchema,
+      kind: "dispatch-stream-snapshot",
+      truncated: true,
       reason: "snapshot_limit",
+      bytes: totalBytes,
       totalBytes,
       capturedBytes: Buffer.byteLength(head) + Buffer.byteLength(tail),
     })}\n`;

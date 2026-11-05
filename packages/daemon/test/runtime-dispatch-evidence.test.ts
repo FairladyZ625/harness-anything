@@ -1,11 +1,11 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { zstdCompressSync } from "node:zlib";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { openDispatchStream } from "../src/dispatch-stream.ts";
+import { dispatchStreamPath, openDispatchStream } from "../src/dispatch-stream.ts";
 import {
   captureDispatchForensics,
   dispatchForensicsRequired,
@@ -261,6 +261,73 @@ test("a huge request prompt is truncated inside the request trace budget", () =>
     assert.equal(trace.request.promptTruncated, true);
     assert.equal(trace.request.promptBytes, Buffer.byteLength(prompt));
     assert.ok(Buffer.byteLength(forensics!.requestTrace) <= 512 * 1024);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a truncated provider line still redacts Basic authorization before the evidence copy", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "dispatch-forensics-truncated-auth-"));
+  try {
+    writeStream(rootDir);
+    const basic = "dXNlcjpwYXNzd29yZA==";
+    // Deliberately incomplete JSON: the line falls back to the plain-text scrubber.
+    appendFileSync(
+      dispatchStreamPath(rootDir, dispatchId),
+      `{"type":"request","headers":{"Authorization":"Basic ${basic}"\n`,
+    );
+    const forensics = captureDispatchForensics(input(rootDir));
+    assert.ok(forensics);
+    assert.equal(forensics.stream.includes(basic), false, "the truncated line must not retain the Basic credential");
+    assert.match(forensics.stream, /\[REDACTED\]/u);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a large single-line provider record still redacts Basic authorization in the head window", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "dispatch-forensics-large-auth-")),
+    basic = "dXNlcjpwYXNzd29yZA==";
+  try {
+    writeStream(rootDir);
+    appendFileSync(
+      dispatchStreamPath(rootDir, dispatchId),
+      `{"type":"request","headers":{"Authorization":"Basic ${basic}"${',"padding":"' + "x".repeat(4 * 1024 * 1024)}`,
+    );
+    const forensics = captureDispatchForensics(input(rootDir));
+    assert.ok(forensics);
+    assert.equal(
+      forensics.stream.includes(basic),
+      false,
+      "the large incomplete line must not retain Basic credentials",
+    );
+    assert.match(forensics.stream, /\[REDACTED\]/u);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a 5 MiB single line whose tail starts inside Basic credentials publishes no fragment", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "dispatch-forensics-tail-auth-")),
+    basic = "dXNlcjpwYXNzd29yZA==",
+    prefix = '{"padding":"',
+    auth = '","authorization":"Basic ',
+    beginning = prefix + "x".repeat(3 * 1024 * 1024 - prefix.length - auth.length) + auth,
+    suffix = "y".repeat(2 * 1024 * 1024 - basic.length),
+    record = `${beginning}${basic}${suffix}`;
+  try {
+    writeStream(rootDir);
+    appendFileSync(dispatchStreamPath(rootDir, dispatchId), record);
+    const forensics = captureDispatchForensics(input(rootDir));
+    assert.ok(forensics);
+    assert.equal(
+      forensics.stream.includes(basic),
+      false,
+      "a tail window that starts inside the Basic value must not publish any fragment",
+    );
+    assert.equal(forensics.stream.includes(basic.slice(3)), false);
+    assert.match(forensics.stream, /"truncated":true/u);
+    assert.match(forensics.stream, /"kind":"dispatch-stream-snapshot"/u);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

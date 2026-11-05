@@ -22,6 +22,11 @@ const tokenKey = /token/iu,
     ].join("|"),
     "iu",
   ),
+  // An Authorization value often carries a scheme plus a credential separated by whitespace
+  // ("Basic dXNlcjpwYXNz"). The generic assignment rule stops at the space and would leave the
+  // base64 body behind, so consume scheme + credential together before that rule runs.
+  authorizationScheme =
+    /\b((?:proxy[-_ ]?)?authorization)((?:\\?["'])?\s*[:=]\s*(?:\\?["'])?)[A-Za-z][A-Za-z0-9_-]*\s+[^\s,;}"']+/giu,
   bearer = /\bBearer\s+[^\s,;]+/giu,
   knownToken = /\b(?:sk|rk|ghp|github_pat|xox[baprs])[-_A-Za-z0-9]{8,}\b/giu,
   // Hosted-provider personal tokens have pinned prefixes: GitHub `gh[posur]_`, GitLab `glpat-`.
@@ -81,6 +86,7 @@ export function scrubProviderValue(value: unknown): unknown {
     if (scrubbed.includes(secret)) scrubbed = scrubbed.split(secret).join("[REDACTED]");
   return scrubbed
     .replace(urlUserInfo, "$1[REDACTED]@")
+    .replace(authorizationScheme, "$1$2[REDACTED]")
     .replace(bearer, "Bearer [REDACTED]")
     .replace(privateKeyBlock, "[REDACTED]")
     .replace(awsAccessKeyId, "[REDACTED]")
