@@ -235,7 +235,12 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
     withPostgresTransaction(
       options.pool,
       async (client) => {
-        if (query.parentTaskId !== undefined || query.workRootsOnly || query.requireParentMetadata)
+        if (
+          query.parentTaskId !== undefined ||
+          query.workRootsOnly ||
+          query.requireParentMetadata ||
+          (query.presentationStatus && query.status !== undefined)
+        )
           await assertPgTaskParentIndexReady(client, options.scope);
         const parentReady = !query.presentationStatus || (await pgTaskParentIndexReady(client, options.scope));
         const deriveStatus = query.presentationStatus && parentReady;

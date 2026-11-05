@@ -134,7 +134,10 @@ existing migration path; no ad-hoc repair script or canonical attach conversion 
    scoped readiness rows along with the projection cut, without a restart or manual marker.
    Current document lists return `projection_pending` until their own expansion is complete.
    Parent-dependent task reads also return `projection_pending` until their scalar expansion
-   completes; raw task point reads remain available.
+   completes, including filters on derived presentation status. Ordinary task point reads and
+   lists without those filters remain available with `task_parent_metadata_deferred`; their
+   parent-derived fields are delayed. GUI probes restart the existing paged read and invalidate
+   mounted dependent reads when this warning changes, even if no canonical revision advances.
    A ready projection generation alone does not certify these extensions.
 
 7. Contract the summary pending index only after all scope/repo page jobs commit completion.
@@ -253,7 +256,6 @@ writer window; no canonical bytes or previous columns are removed.
 PGlite opens the scope after additive schema setup and performs both backfills in bounded background pages. Only disposable isolated
 replay schemas and PGlite pass `{ indexBuild: "isolated" }` to schema initialization;
 external production schemas use the default concurrent build.
-
 
 ### Decision queries during an online upgrade
 

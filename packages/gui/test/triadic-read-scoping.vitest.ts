@@ -136,6 +136,7 @@ function startOnView(view: string) {
  */
 async function mountApp(options: {
   readonly view: string;
+  readonly parentDeferred?: boolean;
   readonly decisionResult?: unknown;
   readonly workspaceSummaryResult?: unknown;
 }): Promise<{
@@ -144,6 +145,7 @@ async function mountApp(options: {
   readonly navigate: (label: string) => Promise<void>;
   readonly selectDecisionGroup: (label: string) => Promise<void>;
   readonly advanceLedger: () => Promise<void>;
+  readonly completeParentIndex: () => Promise<void>;
   readonly mark: () => number;
   /** 把缓存里完整关系图的 dataUpdatedAt 回拨 ageMs:模拟「挂了一会儿再回来」,
    * 不用假时钟也能驱动 react-query 的挂载期新鲜度判定。 */
@@ -151,6 +153,7 @@ async function mountApp(options: {
 }> {
   const calls: RecordedCall[] = [];
   let revision = 1;
+  let parentDeferred = options.parentDeferred ?? false;
   const bridge: Record<string, (payload?: Record<string, unknown> | null) => Promise<unknown>> = {
     getSystemStatus: async () => ({
       schema: "gui-system-status/v1",
@@ -183,7 +186,7 @@ async function mountApp(options: {
       invalidRows: [],
       watermark: revision,
       sourceRevision: revision,
-      warnings: [],
+      warnings: parentDeferred ? ["task_parent_metadata_deferred"] : [],
     }),
     getWorkspaceSummary: async () =>
       options.workspaceSummaryResult ?? {
@@ -304,6 +307,13 @@ async function mountApp(options: {
     });
     await flush();
   };
+  const completeParentIndex = async () => {
+    parentDeferred = false;
+    await act(async () => {
+      window.dispatchEvent(new Event("visibilitychange"));
+    });
+    await flush();
+  };
   const mark = () => calls.length;
   const backdateGraph = (ageMs: number) => {
     const query = client.getQueryCache().find({ queryKey: ["triadic", REPO_ID, "relation-graph"] });
@@ -331,7 +341,16 @@ async function mountApp(options: {
     });
     await flush();
   };
-  return { calls: () => calls.slice(), container, navigate, selectDecisionGroup, advanceLedger, mark, backdateGraph };
+  return {
+    calls: () => calls.slice(),
+    container,
+    navigate,
+    selectDecisionGroup,
+    advanceLedger,
+    completeParentIndex,
+    mark,
+    backdateGraph,
+  };
 }
 
 const mounted: { root: Root; container: HTMLElement }[] = [];
@@ -462,6 +481,17 @@ describe("三元读取按挂载域分层", () => {
     const atOverview = mark();
     await advanceLedger();
     expect(decisionCalls(calls().slice(atOverview))).toEqual([]);
+  });
+
+  it("parent index completion invalidates mounted dependents at the same canonical revision", async () => {
+    const { calls, mark, completeParentIndex } = await mountApp({ view: "overview", parentDeferred: true });
+    const before = mark();
+    await completeParentIndex();
+    const refreshed = calls().slice(before);
+    expect(refreshed.filter(({ method }) => method === "getTasks")).toHaveLength(2);
+    expect(refreshed.filter(({ method }) => method === "getAgenda")).toHaveLength(1);
+    expect(refreshed.filter(({ method }) => method === "getWorkspaceSummary")).toHaveLength(1);
+    expect(relationGraphCalls(refreshed)).toEqual([]);
   });
 
   it("任务看板不读任何关系切面,也不为关闭的 ⌘K 读决策摘要", async () => {

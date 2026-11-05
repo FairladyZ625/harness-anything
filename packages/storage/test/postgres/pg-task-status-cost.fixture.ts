@@ -174,6 +174,20 @@ export async function assertTaskStatusCost(pool: Pool, seedPool: Pool, backend: 
       await assert.rejects(source.list(query), { code: "projection_pending", message: "索引迁移中" });
       observe(`pending/${name}`, 0);
     }
+    // A deferred display value cannot decide membership, including later pages.
+    for (const status of ["done", "planned", "active"] as const) {
+      plans.length = 0;
+      await assert.rejects(source.list({ taskIds: ["target"], presentationStatus: true, status, limit: 1 }), {
+        code: "projection_pending",
+        message: "索引迁移中",
+      });
+      observe(`pending/status-${status}`, 0);
+    }
+    await assert.rejects(
+      source.list({ presentationStatus: true, status: "done", limit: 1, cursor: first.page.nextCursor }),
+      { code: "projection_pending" },
+    );
+    assert.equal((await source.list({ taskIds: ["target"], status: "planned", limit: 1 })).rows.length, 1);
     plans.length = 0;
     await assert.rejects(source.readTaskChildCounts(["target"]), { code: "projection_pending" });
     observe("pending/child-count", 0);
@@ -263,6 +277,42 @@ export async function assertTaskStatusCost(pool: Pool, seedPool: Pool, backend: 
     assert.equal(completedDisplay.snapshot.task?.status, "done");
     assert.deepEqual(completedDisplay.warnings, []);
     assert.equal((await source.read("target")).snapshot.task?.status, "planned");
+    for (const status of ["done", "planned", "active"] as const) {
+      const filtered = await source.list({ taskIds: ["target"], presentationStatus: true, status, limit: 1 });
+      assert.deepEqual(
+        filtered.rows.map((row) => row.taskId),
+        status === "done" ? ["target"] : [],
+      );
+      assert.deepEqual(filtered.warnings, []);
+    }
+    const doneFirst = await source.list({ presentationStatus: true, status: "done", limit: 1 });
+    assert.deepEqual(
+      doneFirst.rows.map((row) => row.taskId),
+      ["child-1"],
+    );
+    const doneNext = await source.list({
+      presentationStatus: true,
+      status: "done",
+      limit: 1,
+      cursor: doneFirst.page!.nextCursor!,
+    });
+    assert.deepEqual(
+      doneNext.rows.map((row) => row.taskId),
+      ["child-2"],
+    );
+    const doneLast = await source.list({
+      presentationStatus: true,
+      status: "done",
+      limit: 1,
+      cursor: doneNext.page!.nextCursor!,
+    });
+    assert.deepEqual(
+      doneLast.rows.map((row) => row.taskId),
+      ["target"],
+    );
+    assert.equal(doneLast.page?.nextCursor, null);
+    assert.equal(completedDisplay.watermark, displayed.watermark);
+
     await withPostgresTransaction(
       seedPool,
       (client) =>

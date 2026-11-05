@@ -42,6 +42,7 @@ import { adaptProjectionRows } from "./task-adapter.ts";
 import { deriveAttestationLanes, type AttestationPoolTabId } from "./model/attestation-pool.ts";
 import {
   invalidateLedgerDependents,
+  hasDeferredTaskParentMetadata,
   mergeTaskRows,
   useActiveTasksQuery,
   useTasksQuery,
@@ -351,9 +352,10 @@ function AppShell() {
   /** chrome 的决策标题/命令面板:完整投影在场就复用,否则用常驻窄面。 */
   const chromeDecisions = fullProjectionMounted ? decisions : decisionSummary.decisions;
 
+  const taskParentMetadataDeferred = tasksQuery.data ? hasDeferredTaskParentMetadata(tasksQuery.data) : false;
   useEffect(() => {
     if (!activeRepoId || !tasksQuery.data) return;
-    const cut = `${activeRepoId}:${tasksQuery.data.watermark}:${tasksQuery.data.sourceRevision}`;
+    const cut = `${activeRepoId}:${tasksQuery.data.watermark}:${tasksQuery.data.sourceRevision}:${taskParentMetadataDeferred}`;
     // 首次水合只是建立比较基准,不是「台账变化」。把它当变化会让刚完成的
     // workspace summary / 三元切面立刻再读一遍;后续 cut 才失效挂载中的读面。
     if (lastLedgerCut.current === null) {
@@ -363,7 +365,13 @@ function AppShell() {
     if (lastLedgerCut.current === cut) return;
     lastLedgerCut.current = cut;
     void invalidateLedgerDependents(queryClient, activeRepoId);
-  }, [activeRepoId, queryClient, tasksQuery.data?.sourceRevision, tasksQuery.data?.watermark]);
+  }, [
+    activeRepoId,
+    queryClient,
+    tasksQuery.data?.sourceRevision,
+    tasksQuery.data?.watermark,
+    taskParentMetadataDeferred,
+  ]);
 
   useEffect(() => {
     if (!systemQuery.isSuccess || !tasksQuery.isSuccess) return;

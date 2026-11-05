@@ -72,7 +72,12 @@ function installFakeLedger(
   const rows = Array.from({ length: size }, (_, index) => projectionRow(index));
   const revisionOf = new Map(rows.map((row) => [row.taskId, 1_000]));
   const isolated = new Set(options.isolated ?? []);
-  const state = { watermark: 1_000, sourceRevision: 1_000, status: "ready" as "ready" | "pending" };
+  const state = {
+    watermark: 1_000,
+    sourceRevision: 1_000,
+    status: "ready" as "ready" | "pending",
+    parentDeferred: false,
+  };
   const calls: LedgerCall[] = [];
   const getTasks = vi.fn(
     async (payload: {
@@ -112,7 +117,7 @@ function installFakeLedger(
           })),
         watermark: state.watermark,
         sourceRevision: state.sourceRevision,
-        warnings: [],
+        warnings: state.parentDeferred ? ["task_parent_metadata_deferred"] : [],
         page: {
           limit,
           cursor: after,
@@ -123,6 +128,7 @@ function installFakeLedger(
   );
   Object.defineProperty(window, "harness", { configurable: true, value: { getTasks } });
   return {
+    getTasks,
     calls,
     state,
     rows,
@@ -146,6 +152,70 @@ async function refresh(ledger: ReturnType<typeof installFakeLedger>, previous?: 
 }
 
 describe("W6 Goal 第二项演进:受控快读水化(顺序续读 + 页预算封顶)", () => {
+  it("restarts cached parent statuses when backfill completes without a canonical event", async () => {
+    const ledger = installFakeLedger();
+    ledger.state.parentDeferred = true;
+    ledger.rows[0] = projectionRow(0, "planned");
+    const initial = (await refresh(ledger)).cut;
+    expect(initial.rows[0]?.snapshot.task?.status).toBe("planned");
+    expect(initial.warnings).toEqual(["task_parent_metadata_deferred"]);
+    ledger.state.parentDeferred = false;
+    ledger.rows[0] = projectionRow(0, "done");
+    const completed = await refresh(ledger, initial);
+    expect(ledger.calls[4]).toMatchObject({ changedAfterRevision: 1_000, rows: 0 });
+    expect(completed.cut.watermark).toBe(initial.watermark);
+    expect(completed.cut.rows[0]?.snapshot.task?.status).toBe("done");
+    expect(completed.cut.warnings).toEqual([]);
+    expect(completed.cut.rows).toHaveLength(LEDGER_ROWS);
+    expect(completed.requests).toBe(5);
+    expect((await refresh(ledger, completed.cut)).requests).toBe(1);
+  });
+
+  it("restarts partial hydration on parent readiness changes within the page budget", async () => {
+    const size = HYDRATION_PAGE_BUDGET * TASK_LIST_PAGE_LIMIT + 1;
+    const ledger = installFakeLedger(size);
+    ledger.state.parentDeferred = true;
+    ledger.rows[0] = projectionRow(0, "planned");
+    const initial = (await refresh(ledger)).cut;
+    expect(initial.page?.nextCursor).toBeTruthy();
+    ledger.state.parentDeferred = false;
+    ledger.rows[0] = projectionRow(0, "done");
+    const next = await refresh(ledger, initial);
+    expect(next.requests).toBe(HYDRATION_PAGE_BUDGET);
+    expect(next.cut.rows[0]?.snapshot.task?.status).toBe("done");
+    expect(next.cut.status).toBe("pending");
+    const completed = await refresh(ledger, next.cut);
+    expect(completed.cut.rows).toHaveLength(size);
+    expect(completed.cut.status).toBe("ready");
+    expect(completed.cut.warnings).toEqual([]);
+  });
+
+  it("keeps the deferred warning if readiness changes on the final allowed request", async () => {
+    const ledger = installFakeLedger(HYDRATION_PAGE_BUDGET * TASK_LIST_PAGE_LIMIT + 1);
+    ledger.state.parentDeferred = true;
+    ledger.rows[0] = projectionRow(0, "planned");
+    const read = ledger.getTasks.getMockImplementation()!;
+    ledger.getTasks.mockImplementation(async (payload) => {
+      if (ledger.calls.length === HYDRATION_PAGE_BUDGET - 1) {
+        ledger.state.parentDeferred = false;
+        ledger.rows[0] = projectionRow(0, "done");
+      }
+      return read(payload);
+    });
+    const interrupted = await refresh(ledger);
+    expect(interrupted.requests).toBe(HYDRATION_PAGE_BUDGET);
+    expect(interrupted.cut.status).toBe("pending");
+    expect(interrupted.cut.warnings).toEqual(["task_parent_metadata_deferred"]);
+    expect(interrupted.cut.rows[0]?.snapshot.task?.status).toBe("planned");
+    const restarted = await refresh(ledger, interrupted.cut);
+    expect(restarted.requests).toBeLessThanOrEqual(HYDRATION_PAGE_BUDGET);
+    expect(restarted.cut.rows[0]?.snapshot.task?.status).toBe("done");
+    expect(restarted.cut.warnings).toEqual([]);
+    const completed = await refresh(ledger, restarted.cut);
+    expect(completed.cut.rows).toHaveLength(ledger.rows.length);
+    expect(completed.cut.status).toBe("ready");
+  });
+
   it("冷启动一次刷新把台账顺序拉完:游标链有效,不再每页等 2s 探针节拍", async () => {
     const ledger = installFakeLedger();
     const { cut, requests } = await refresh(ledger);

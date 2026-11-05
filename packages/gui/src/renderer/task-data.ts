@@ -109,26 +109,45 @@ export function taskListQuery(repoId: string) {
  * (task-adapter),所以"还没读完"在界面上是显形的。
  */
 export async function readTaskList(repoId: string, previous?: TaskListSuccess): Promise<TaskListSuccess> {
-  const resumeCursor = previous?.page?.nextCursor ?? null;
-  let cut: TaskListSuccess;
-  if (previous && resumeCursor !== null) {
-    cut = joinLedgerCut(previous, await readTaskPage(repoId, { cursor: resumeCursor }), "resume");
-  } else if (!previous) {
-    cut = joinLedgerCut(undefined, await readTaskPage(repoId, {}), "restart");
-  } else {
-    const delta = await readTaskPage(repoId, { changedAfterRevision: previous.watermark });
-    const regressed = delta.watermark < previous.watermark || delta.sourceRevision < previous.sourceRevision;
-    cut = regressed
-      ? joinLedgerCut(undefined, await readTaskPage(repoId, {}), "restart")
-      : joinLedgerCut(previous, delta, "delta");
+  let cut = previous;
+  let mode: "restart" | "resume" | "delta" = !previous
+    ? "restart"
+    : previous.page?.nextCursor != null
+      ? "resume"
+      : "delta";
+  // A readiness change may alter historical display statuses without advancing
+  // the canonical revision. Discard that mixed generation through the same
+  // restart path as a regressed cut, including during cursor hydration.
+  for (let pages = 0; pages < HYDRATION_PAGE_BUDGET; pages += 1) {
+    const facets =
+      mode === "restart"
+        ? {}
+        : mode === "resume"
+          ? { cursor: cut!.page!.nextCursor! }
+          : { changedAfterRevision: cut!.watermark };
+    const read = await readTaskPage(repoId, facets);
+    if (
+      mode !== "restart" &&
+      cut &&
+      (read.watermark < cut.watermark ||
+        read.sourceRevision < cut.sourceRevision ||
+        hasDeferredTaskParentMetadata(read) !== hasDeferredTaskParentMetadata(cut))
+    ) {
+      mode = "restart";
+      continue;
+    }
+    cut = joinLedgerCut(cut, read, mode);
+    if (cut.page?.nextCursor == null) return cut;
+    mode = "resume";
   }
-  // 受控快读水化:沿游标顺序补完剩余页。终止条件:预算耗尽(pages 每轮严格 +1,
-  // 上界 HYDRATION_PAGE_BUDGET)或读完成(nextCursor 为空);任何一页出错整个
-  // 刷新失败,无内部重试,交回 react-query 的重试与下一探针节拍。
-  for (let pages = 1; cut.page?.nextCursor != null && pages < HYDRATION_PAGE_BUDGET; pages += 1) {
-    cut = joinLedgerCut(cut, await readTaskPage(repoId, { cursor: cut.page.nextCursor }), "resume");
-  }
-  return cut;
+  // If the last request detected a change, retain the old warning and cursor:
+  // the next probe will detect it again and restart, never publish stale rows
+  // as fresh. The restart itself consumes the existing page-request budget.
+  return { ...cut!, status: "pending" };
+}
+
+export function hasDeferredTaskParentMetadata(read: Pick<TaskListSuccess, "warnings">): boolean {
+  return read.warnings.includes("task_parent_metadata_deferred");
 }
 
 type LedgerReadFacets = Pick<TaskQueryFacets, "changedAfterRevision" | "cursor">;
