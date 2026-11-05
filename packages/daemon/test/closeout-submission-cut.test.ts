@@ -120,6 +120,7 @@ function deriveInput(
   accepted: readonly { readonly path: string; readonly revision: number }[] = [],
   reviews: readonly { readonly reviewId: string }[] = [],
   reviewerDispatches: readonly string[] = [],
+  closeoutBody?: string,
 ): Parameters<typeof deriveCloseoutSubmission> {
   const snapshot = {
       reviews,
@@ -147,7 +148,7 @@ function deriveInput(
         completionGateIds: gates,
       },
     } as unknown as Parameters<typeof deriveCloseoutSubmission>[3],
-    body = closeout(summary),
+    body = closeoutBody ?? closeout(summary),
     projection = {
       readDocuments: () => ({ documents: accepted }),
       readPresetSnapshot: () => ({ snapshot: { ...completionSnapshot, profile: { outputShape } } }),
@@ -813,6 +814,40 @@ test("re-freezing after rebase fetches a stale origin main and excludes its path
   assert.deepEqual(result.submission.changedFiles, ["packages/kernel/src/own.ts"]);
   assert.equal(result.submission.productionDelta?.baseSha, advancedMain);
   assert.equal(result.submission.productionDelta?.added, 1);
+});
+
+function submitCloseoutBody(root: string, sha: string, body: string) {
+  return readCloseoutSubmission(
+    ...deriveInput(
+      root,
+      "Delivered.",
+      undefined,
+      ["lint"],
+      undefined,
+      undefined,
+      sha,
+      "repository-diff",
+      undefined,
+      undefined,
+      [],
+      [],
+      [],
+      body,
+    ),
+  );
+}
+
+test("submit accepts the original Event-Migration import and the client-local migrate commands", async (t) => {
+  const { root } = fixture(t);
+  put(root, "packages/kernel/fixtures/canonical-events/example/accepted.json", "{}\n");
+  put(root, "src/live.ts", "export const liveValue = 2;\n");
+  const sha = commit(root),
+    base = closeout("Delivered.");
+  for (const name of ["import", "ledger", "completion", "agent-declaration", "writer-epoch"]) {
+    const body = base.replace("Tests passed.", `Tests passed.\nEvent-Migration: ha migrate ${name}`),
+      result = await submitCloseoutBody(root, sha, body);
+    assert.equal(result.ok, true, `${name}: actual submit accepts the declaration`);
+  }
 });
 
 test("an execution started before the baseline froze keeps the comparison cut in force when it started", (t) => {

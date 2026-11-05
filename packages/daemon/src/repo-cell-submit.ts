@@ -27,7 +27,7 @@ import { createSubmissionArtifactReader } from "./submission-artifacts.ts";
 import { runDocAction } from "./doc-sync-actions.ts";
 import { makeGitReadinessSource, runProcessText, runProcessTextAsync } from "./process-port.ts";
 import { repositoryBaseRef } from "./schedule-occurrence-workspace.ts";
-import { readTaskTransitionDocument, taskCloseoutTemplateWarnings } from "./transition-document-access.ts";
+import { readTaskTransitionDocument } from "./transition-document-access.ts";
 import { dispatchInReviewCutReview } from "./task-review-dispatch.ts";
 import { presetSnapshotReader, taskOutputShape, taskWorktreeBinding } from "./task-worktree.ts";
 import { taskWorktreeCandidateInventory, taskWorktreeRoot } from "./task-worktree-candidates.ts";
@@ -1021,7 +1021,7 @@ export async function readCloseoutSubmission(
     return {
       ok: true,
       submission,
-      warnings: taskCloseoutTemplateWarnings({ projection: cell.projection, taskId, bodyOverrides: deriveArgs[4] }),
+      warnings: [],
     };
   } catch (error) {
     if (!(error instanceof Error) || !("code" in error) || !submissionStopCodes.includes(String(error.code)))
