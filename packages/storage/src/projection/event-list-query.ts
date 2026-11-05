@@ -4,12 +4,16 @@ import type {
   EventListQuery,
   EventListRow,
 } from "@harness-anything/kernel/internal/domain/event-list.ts";
+import { assertEventSummaryReadIndexReady } from "./event-summary-read-index.ts";
 import { queryRows } from "./rebuildable-task-projection-sql.ts";
 
 /** Shared center/replica list query; only descriptor rows cross this read boundary. */
 export function readEventList(db: DatabaseSync, query: EventListQuery): EventListPage {
   if (!Number.isSafeInteger(query.limit) || query.limit < 1 || query.limit > 500)
     throw new Error("event list limit must be between 1 and 500");
+  // A read-only connection may share a cache that a writer is still expanding; an incomplete
+  // index must fail closed instead of returning a page that silently omits unfilled rows.
+  assertEventSummaryReadIndexReady(db);
   const where: string[] = [],
     values: (string | number)[] = [];
   const add = (sql: string, ...args: (string | number)[]) => {

@@ -54,36 +54,59 @@ export function ensureEventSummaryReadIndexColumns(db: DatabaseSync): void {
     runSql(db, `ALTER TABLE event_summary ADD COLUMN ${readIndexVersion} INTEGER NOT NULL DEFAULT 0`);
 }
 
+// Schema objects are created once per cache generation and never dropped while this connection is
+// open, so the sqlite_master lookup is cached per connection. Pending rows are still probed every
+// read: a concurrent writer backfilling an older cache must fail closed, not return a partial page.
+const schemaReady = new WeakSet<DatabaseSync>();
+/** Readers must not answer from a cache whose derived columns or ref rows are still incomplete. */
+export function assertEventSummaryReadIndexReady(db: DatabaseSync): void {
+  if (!schemaReady.has(db)) {
+    const expanded =
+      queryRows(db, "SELECT 1 FROM sqlite_master WHERE type='index' AND name='event_summary_read_index_pending'")
+        .length > 0;
+    if (!expanded) throw pendingReadIndex();
+    schemaReady.add(db);
+  }
+  if (queryRows(db, `SELECT 1 FROM event_summary WHERE ${readIndexVersion} < 1 LIMIT 1`).length > 0)
+    throw pendingReadIndex();
+}
+const pendingReadIndex = () =>
+  Object.assign(new Error("Event summary read-index backfill is pending; retry after migration."), {
+    code: "projection_pending",
+  });
+
 /** Fill historical rows in bounded batches; the trigger owns the per-row derivation. */
 export function backfillEventSummaryReadIndex(
   db: DatabaseSync,
   onProgress?: (progress: { readonly applied: number; readonly total: number }) => void,
 ): void {
-  let applied = 0,
-    total = 0;
-  // Terminal signal is the pending-row count itself: a batch that does not lower it means the
-  // fill trigger is missing or not firing, and continuing would loop forever.
+  let applied = 0;
+  // One pending scan supplies the progress total; batches are selected through the same partial
+  // index, so the migration stays linear instead of re-counting all remaining rows per batch.
+  const total = Number(
+    queryRows(db, `SELECT count(*) AS count FROM event_summary WHERE ${readIndexVersion} < 1`)[0]!.count,
+  );
+  if (total === 0) return;
   for (;;) {
-    const pending = Number(
-      queryRows(db, `SELECT count(*) AS count FROM event_summary WHERE ${readIndexVersion} < 1`)[0]!.count,
-    );
-    if (pending === 0) return;
-    if (total === 0) total = pending;
     const rows = queryRows<{ workspace_revision: number }>(
       db,
       `SELECT workspace_revision FROM event_summary WHERE ${readIndexVersion} < 1 ORDER BY workspace_revision LIMIT 64`,
     );
-    if (rows.length === 0) throw new Error("event summary read-index backfill has pending rows but none readable");
+    if (rows.length === 0) return;
     transaction(db, () => {
       for (const row of rows)
         runSql(db, "UPDATE event_summary SET row_json = row_json WHERE workspace_revision = ?", row.workspace_revision);
     });
-    const remaining = Number(
-      queryRows(db, `SELECT count(*) AS count FROM event_summary WHERE ${readIndexVersion} < 1`)[0]!.count,
-    );
-    if (remaining >= pending)
+    // One point read proves this batch moved. A missing or non-firing trigger would leave the
+    // first pending row at 0; without this the loop would re-select it forever.
+    const advanced = queryRows<{ read_index_version: number }>(
+      db,
+      "SELECT read_index_version FROM event_summary WHERE workspace_revision = ?",
+      rows[0]!.workspace_revision,
+    )[0];
+    if (advanced === undefined || Number(advanced.read_index_version) < 1)
       throw new Error("event summary read-index backfill made no progress; fill triggers are missing");
-    applied += pending - remaining;
+    applied += rows.length;
     onProgress?.({ applied, total });
   }
 }
