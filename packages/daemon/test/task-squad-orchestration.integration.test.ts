@@ -736,7 +736,9 @@ async function openFixture(
   git(root, "add", ".gitignore");
   git(root, "commit", "-qm", "test: fixture boundaries");
   const runtimeLaunch: RuntimeLauncher = (prepared, persistence) => {
-    const child = spawn(process.execPath, ["-e", "process.stdin.resume()"], {
+    // Git is already required by the fixture. Its stdin reader supplies a real PID
+    // without booting another JavaScript runtime for a process that only waits.
+    const child = spawn("git", ["hash-object", "--stdin"], {
       detached: true,
       stdio: ["pipe", "ignore", "ignore"],
     });
@@ -830,34 +832,38 @@ async function openFixture(
       },
     });
   let cell = await open();
+  const taskProjection = makeTaskProjectionReader({ rootDir: root });
   t.after(async () => {
     await Promise.all(
       providers.flatMap((provider) => (provider.process ? [stopFixtureProcess(provider.process)] : [])),
     );
+    taskProjection.close();
     await cell.close();
     rmSync(parent, { recursive: true, force: true });
   });
-  for (const [id, role] of [
-    ["leader", "commander"],
-    ["one", "worker"],
-    ["two", "worker"],
-  ]) {
-    const receipt = await cell.run(
-      {
-        kind: "agent-install",
-        declaration: {
-          schema: "agent-declaration/v1",
-          id,
-          name: id,
-          role,
-          instructions: "Perform the assigned role.",
-          runtimes: [{ type: "codex" }],
+  await Promise.all(
+    [
+      ["leader", "commander"],
+      ["one", "worker"],
+      ["two", "worker"],
+    ].map(async ([id, role]) => {
+      const receipt = await cell.run(
+        {
+          kind: "agent-install",
+          declaration: {
+            schema: "agent-declaration/v1",
+            id,
+            name: id,
+            role,
+            instructions: "Perform the assigned role.",
+            runtimes: [{ type: "codex" }],
+          },
         },
-      },
-      binding,
-    );
-    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-  }
+        binding,
+      );
+      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    }),
+  );
   const installed = await cell.run(
     {
       kind: "squad-install",
@@ -916,48 +922,36 @@ async function openFixture(
   const squadRunId = String(evidence(started).squadRunId);
   const status = async () =>
     evidence(await cell.run({ kind: "squad-status", squadRunId }, binding)) as unknown as Status;
-  const task = (id: string) => {
-    const projection = makeTaskProjectionReader({ rootDir: root });
-    try {
-      return projection.withSession((query) => query.read(id));
-    } finally {
-      projection.close();
-    }
-  };
+  const task = (id: string) => taskProjection.withSession((query) => query.read(id));
   const finish = async (dispatchId: string, text: string, code = 0, offline = false) => {
     const provider = providers.find((row) => row.dispatchId === dispatchId)!;
-    await stopFixtureProcess(provider.process!);
     if (offline)
       appendRuntimeWorkerRecord(root, dispatchId, {
         kind: "process_started",
         occurredAt: new Date().toISOString(),
         pid: provider.process?.pid,
       });
-    for (const event of [
-      { type: "thread.started", thread_id: provider.sessionId },
-      {
-        type: "item.completed",
-        item: {
-          id: "write",
-          type: "file_change",
-          changes: [{ path: "delivery.txt", kind: "add" }],
-          status: "completed",
-        },
-      },
+    const events = [
+      ...(offline ? [{ type: "thread.started", thread_id: provider.sessionId }] : []),
       {
         type: "item.completed",
         item: { id: "result", type: "agent_message", text },
       },
       { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } },
-    ]) {
-      if (offline)
+    ];
+    if (offline) {
+      for (const event of events)
         appendRuntimeWorkerRecord(root, dispatchId, {
           kind: "provider_event",
           occurredAt: new Date().toISOString(),
           event,
         });
-      else provider.output!(JSON.stringify(event) + "\n");
+    } else {
+      // Preserve every frame in one output chunk, avoiding a repository queue task
+      // for each line of this already complete fixture result.
+      provider.output!(events.map((event) => JSON.stringify(event) + "\n").join(""));
     }
+    await stopFixtureProcess(provider.process!);
     appendRuntimeWorkerRecord(root, dispatchId, {
       kind: "process_exit",
       occurredAt: new Date().toISOString(),
@@ -967,8 +961,6 @@ async function openFixture(
     if (!offline) provider.exit!(code);
   };
   const waitStatus = async (predicate: (state: Status) => unknown): Promise<Status> => {
-    const initial = await status();
-    if (predicate(initial)) return initial;
     const deadline = performance.now() + 10_000;
     for (;;) {
       const changed = Promise.withResolvers<void>();
