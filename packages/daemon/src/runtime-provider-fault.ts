@@ -340,14 +340,15 @@ function providerFaultFromDiagnostic(
   const joined = [code, diagnostic].filter((value): value is string => value !== null).join(" "),
     reason = providerReason(responseCode, joined);
   if (/^request_unavailable$/iu.test(code ?? "")) return fault("request_unavailable", reason);
+  // A connection diagnostic can also carry quota, rate-limit, capacity, broken-stream, or status
+  // wording (for example `Connection error, please try again later` or a 429 whose body also says
+  // the connection dropped). The connection cause owns the classification so the post-tool
+  // no-replay guard in classifyRuntimeExit covers those overlaps too; pure quota/rate/capacity/
+  // stream diagnostics stay below with their existing fault classes.
+  if (connectionFailure.test(joined)) return fault("provider_disconnected", reason);
   if (quota.test(joined)) return fault("quota_exhausted", reason, "quota_exhausted", resetAt);
   if (responseCode === 429 || /rate[_ -]?limit|too many requests/iu.test(joined))
     return fault("rate_limited", reason, "rate_limited", resetAt);
-  // A connection diagnostic can also carry capacity, broken-stream, or status wording (for example
-  // `Connection error, please try again later` or `stream disconnected: connection reset by peer`).
-  // The connection cause owns the classification so the post-tool no-replay guard in
-  // classifyRuntimeExit covers those overlaps too; pure capacity/stream diagnostics stay below.
-  if (connectionFailure.test(joined)) return fault("provider_disconnected", reason);
   if (capacity.test(joined)) return fault("server_error", reason);
   if (incompleteStream.test(joined)) return fault("server_error", reason);
   if (responseCode !== null && responseCode >= 500 && responseCode <= 599) return fault("server_error", reason);

@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
+import { isProviderFailureClassification } from "../src/runtime-fallback-contract.ts";
 import {
   classifyRuntimeExit,
   observeProviderFault,
@@ -201,6 +202,47 @@ test("connection failures overlapping capacity, stream, or HTTP rules keep the p
       );
     assert.equal(fault?.code, "server_error", diagnostic);
     assert.equal(afterTool.classification, "provider_fault", diagnostic);
+  }
+});
+
+// A connection diagnostic can also arrive beside a 429 or quota/rate-limit wording. Those classes
+// are checked before the connection family elsewhere, and `provider_quota` is fallback-eligible, so
+// letting them win would replay an attempt that may already have called a tool. The connection
+// cause therefore outranks them; pure quota/rate-limit diagnostics keep their existing class.
+test("connection failures overlapping quota or rate-limit keep the post-tool no-replay guard", () => {
+  const overlaps: [string, Record<string, unknown>][] = [
+    ["429", { http_status: 429, message: "Connection error, send a message to continue retrying" }],
+    ["rate-limit text", { message: "Connection error, send a message to continue retrying: too many requests" }],
+    ["quota text", { message: "Connection error, send a message to continue retrying: quota exceeded" }],
+  ];
+  for (const [family, error] of overlaps) {
+    const fault = providerFaultFromFrame("codex", { type: "turn.failed", error }),
+      beforeTool = classifyRuntimeExit(active({ providerOutcome: "failed", providerFault: fault }), 1),
+      afterTool = classifyRuntimeExit(
+        active({ providerOutcome: "failed", providerFault: fault, toolCallObserved: true }),
+        1,
+      );
+    assert.equal(fault?.code, "provider_disconnected", family);
+    assert.equal(beforeTool.classification, "provider_fault", family);
+    assert.equal(isProviderFailureClassification(beforeTool.classification), true, family);
+    assert.equal(afterTool.classification, "gate_red", family);
+    assert.equal(isProviderFailureClassification(afterTool.classification), false, family);
+  }
+
+  const pureFaults: [string, Record<string, unknown>, string][] = [
+    ["pure 429", { http_status: 429, message: "request throttled" }, "rate_limited"],
+    ["pure quota", { message: "quota exceeded" }, "quota_exhausted"],
+  ];
+  for (const [family, error, code] of pureFaults) {
+    const fault = providerFaultFromFrame("codex", { type: "turn.failed", error }),
+      beforeTool = classifyRuntimeExit(active({ providerOutcome: "failed", providerFault: fault }), 1),
+      afterTool = classifyRuntimeExit(
+        active({ providerOutcome: "failed", providerFault: fault, toolCallObserved: true }),
+        1,
+      );
+    assert.equal(fault?.code, code, family);
+    assert.equal(beforeTool.classification, "provider_quota", family);
+    assert.equal(afterTool.classification, "provider_quota", family);
   }
 });
 
