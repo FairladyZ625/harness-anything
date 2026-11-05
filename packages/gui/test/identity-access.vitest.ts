@@ -8,6 +8,7 @@ import { identityProviderOf } from "@harness-anything/authorization-gui/identity
 import type { AuthorizationUiComponents } from "@harness-anything/authorization-gui/ui-component-contract";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { IdentityAccessView } from "../src/renderer/views/IdentityAccessView.tsx";
+import { requestAccountLogin, resetAccountLoginRequestForTest } from "../src/renderer/account-login-request.ts";
 
 let container: HTMLDivElement, root: Root;
 
@@ -43,6 +44,7 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   Reflect.deleteProperty(window, "harness");
+  resetAccountLoginRequestForTest();
 });
 
 describe("IdentityAccessView", () => {
@@ -234,6 +236,59 @@ describe("IdentityAccessView", () => {
     await act(async () => undefined);
     expect(container.textContent).not.toContain("person-a");
     expect(container.textContent).toContain("身份不可用");
+  });
+
+  it("lands a signed-out account on the service tab and starts the shared login from the header", async () => {
+    let finish!: () => void;
+    const api = auth({
+      status: vi.fn(async () => ({ ok: true, authenticated: false })),
+      login: vi.fn((_repoId, openBrowser) => {
+        openBrowser({ url: "https://identity.example.test/auth" });
+        return new Promise<void>((resolve) => {
+          finish = resolve;
+        });
+      }),
+      cancelLogin: vi.fn(async () => finish()),
+    });
+    Object.defineProperty(window, "harness", {
+      configurable: true,
+      value: { auth: api, access: { forRepository: () => ({}) } },
+    });
+    await act(async () => root.render(createElement(IdentityAccessView)));
+    await act(async () => undefined);
+    const selected = container.querySelector('[role="tab"][aria-selected="true"]');
+    expect(selected?.textContent).toContain("服务与会话");
+    expect(container.querySelector('[data-testid="access-current-provider"]')?.textContent).toContain("Keycloak");
+    const header = container.querySelector<HTMLButtonElement>('[data-testid="account-header-sign-in"]')!;
+    expect(header).not.toBeNull();
+    await act(async () => header.click());
+    expect(api.login).toHaveBeenCalledOnce();
+    expect(container.querySelector("webview")?.getAttribute("src")).toBe("https://identity.example.test/auth");
+    await act(async () => finish());
+  });
+
+  it("honours a business-read sign-in request when the account page arrives", async () => {
+    const api = auth({ status: vi.fn(async () => ({ ok: true, authenticated: false })) });
+    requestAccountLogin();
+    await render(api);
+    await act(async () => undefined);
+    expect(api.login).toHaveBeenCalledOnce();
+  });
+
+  it("reports an unreadable identity service without claiming signed out or offering sign-in", async () => {
+    await render(
+      auth({
+        status: vi.fn(async () => {
+          throw new Error("identity service down");
+        }),
+        bindingStatus: vi.fn(async () => ({ ok: true, mode: "managed", ready: true })),
+      }),
+    );
+    expect(container.textContent).toContain("身份不可用");
+    expect(container.textContent).toContain("身份服务暂时不可用");
+    expect(container.textContent).not.toContain("尚未登录");
+    expect(container.querySelector('[data-testid="account-header-sign-in"]')).toBeNull();
+    expect(container.querySelector('[data-testid="access-current-provider"]')?.textContent).toContain("Keycloak");
   });
 });
 

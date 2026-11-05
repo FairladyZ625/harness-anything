@@ -13,7 +13,6 @@ import { useConnectionsQuery } from "../connection-data.ts";
 import { RepoModeBadge } from "./RepoModeBadge.tsx";
 import { t } from "../i18n/index.tsx";
 import { guiHostBridge } from "../gui-transport.ts";
-import { consumeKnownError } from "../../api/error-consumption.ts";
 import { readIdentity, type IdentitySnapshot } from "../identity-session.ts";
 import { useAgendaQuery } from "../agenda-data.ts";
 import { useWorkIndexQuery } from "../task-data.ts";
@@ -66,10 +65,16 @@ export interface AppSidebarProps {
  *   也不与滚动区形成嵌套双滚动条(底部是 shrink-0,不产生自己的滚动)。
  */
 function identitySubtitle(identity: IdentitySnapshot): string {
+  if (identity.phase === "unavailable") return t("identityAccess.identityUnavailableHint");
   if (identity.provider === "unknown") return "";
   if (identity.provider === "builtin")
     return t(identity.authenticated ? "identityAccess.localIdentity" : "identityAccess.localSignIn");
   return t(identity.authenticated ? "identityAccess.keycloakIdentity" : "identityAccess.signIn");
+}
+
+function identityName(identity: IdentitySnapshot): string {
+  if (identity.phase === "unavailable") return t("identityAccess.identityUnavailable");
+  return identity.authenticated ? identity.personId : t("identityAccess.signedOut");
 }
 
 export function AppSidebar({
@@ -107,10 +112,13 @@ export function AppSidebar({
     auth = authCandidate && typeof authCandidate.status === "function" ? authCandidate : undefined;
   const refreshIdentity = () => {
     if (!auth) return;
+    const requestRepoId = activeRepoId;
+    // readIdentity resolves the unavailable phase itself; a rejection here is a programming
+    // error and must surface, not be turned into a second silent state.
     void readIdentity(auth, activeRepoId ?? undefined, identityRoot).then((value) => {
-      if (identityTarget.current !== activeRepoId) return;
+      if (identityTarget.current !== requestRepoId) return;
       setIdentity(value);
-    }, consumeKnownError);
+    });
   };
   useEffect(() => {
     setIdentity(null);
@@ -377,13 +385,15 @@ export function AppSidebar({
             className={`grid size-6 shrink-0 place-items-center rounded-full bg-surface-raised
               font-mono ui-micro font-semibold text-text-muted`}
           >
-            {identity?.authenticated ? (identity.personId?.slice(0, 1).toUpperCase() ?? "K") : "?"}
+            {identity?.phase === "unavailable"
+              ? "!"
+              : identity?.phase === "ready" && identity.authenticated
+                ? identity.personId.slice(0, 1).toUpperCase() || "K"
+                : "?"}
           </span>
           {identity ? (
             <span className="min-w-0">
-              <span className="block truncate text-xs text-text">
-                {identity.authenticated ? (identity.personId ?? "") : t("identityAccess.signedOut")}
-              </span>
+              <span className="block truncate text-xs text-text">{identityName(identity)}</span>
               <span className="block truncate ui-micro text-text-faint">{identitySubtitle(identity)}</span>
             </span>
           ) : null}

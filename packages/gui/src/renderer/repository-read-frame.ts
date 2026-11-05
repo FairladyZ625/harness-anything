@@ -10,11 +10,13 @@ export function repositoryReadFrame(value: unknown): Partial<RepositoryReadFrame
   return { cut: frame.cut, freshness: frame.freshness, warning: frame.warning };
 }
 
+const reportedReadFailures = new Set(["replica_unavailable", "authorization_denied", "authentication_required"]);
+
 export function repositoryReadFailure(value: unknown): Error | null {
   if (!isRendererRecord(value) || value.ok !== false) return null;
   const detail = isRendererRecord(value.error) ? value.error : value,
     code = detail.code ?? value.code;
-  if (code !== "replica_unavailable" && code !== "authorization_denied") return null;
+  if (typeof code !== "string" || !reportedReadFailures.has(code)) return null;
   return Object.assign(new Error(String(detail.hint ?? detail.message ?? value.rejectionExplanation ?? code)), {
     code,
   });

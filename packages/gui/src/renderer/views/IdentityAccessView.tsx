@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import type { RepoMode } from "../components/RepoModeBadge.tsx";
+import { Button } from "../components/primitives/Button.tsx";
 import { TabPanel } from "../components/primitives/EntryBoundary.tsx";
 import { Tabs } from "../components/primitives/Tabs.tsx";
 import { IdText } from "../components/IdText.tsx";
 import { guiHostBridge } from "../gui-transport.ts";
 import { t } from "../i18n/index.tsx";
 import type { AuthorizationUiComponents } from "@harness-anything/authorization-gui/ui-component-contract";
+import type { IdentityProvider } from "@harness-anything/authorization-gui/identity-presentation";
+import { readIdentity, type IdentitySnapshot } from "../identity-session.ts";
+import { consumeAccountLoginRequest, subscribeAccountLoginRequest } from "../account-login-request.ts";
 import {
   AccessServiceTab,
   DevicesTab,
@@ -19,15 +23,32 @@ import {
 type AccessTab = "devices" | "service" | "teams" | "groups" | "grants" | "requests" | "receipts";
 
 /** The header shows a confirmed account, an explicit unavailable state, or nothing while the read is in flight. */
-type CurrentIdentity =
-  | { readonly phase: "loading" }
-  | { readonly phase: "failed" }
-  | { readonly phase: "ready"; readonly authenticated: boolean; readonly personId?: string };
+type CurrentIdentity = { readonly phase: "loading" } | IdentitySnapshot;
+
+function providerLabel(provider: IdentityProvider): string {
+  return provider === "builtin"
+    ? t("identityAccess.localIdentity")
+    : provider === "keycloak"
+      ? t("identityAccess.keycloakIdentity")
+      : "";
+}
+
+function signInLabel(provider: IdentityProvider): string {
+  return provider === "builtin"
+    ? t("identityAccess.localSignIn")
+    : provider === "keycloak"
+      ? t("identityAccess.signIn")
+      : t("identityAccess.signInNeutral");
+}
 
 /**
  * Accounts and access control. Every tab is a region board whose ruler is the tab panel: at 900px
  * and wider the board fills the height under the tab bar and regions scroll inside themselves;
  * narrower, it stacks into one column and the panel scrolls.
+ *
+ * A signed-out or unreadable identity lands on the service tab, which owns the one sign-in surface;
+ * a confirmed account keeps the grants landing. The header repeats the state and, when signed out,
+ * carries the same sign-in action rather than a second login implementation.
  */
 export function IdentityAccessView({
   repos = [],
@@ -48,7 +69,8 @@ export function IdentityAccessView({
     ui = components ?? bridge?.authorizationUi,
     auth = bridge?.auth && typeof bridge.auth.status === "function" ? bridge.auth : undefined,
     access = bridge?.access?.forRepository(repoId),
-    [tab, setTab] = useState<AccessTab>("grants");
+    [tab, setTab] = useState<AccessTab>("grants"),
+    [autoLogin, setAutoLogin] = useState(false);
 
   const [identity, setIdentity] = useState<CurrentIdentity>({ phase: "loading" }),
     identityRequest = useRef(0);
@@ -57,24 +79,11 @@ export function IdentityAccessView({
     const refreshIdentity = () => {
       if (!auth) return;
       const request = ++identityRequest.current;
-      void auth.status(repoId, rootDir).then(
-        (reply) => {
-          // A read that started before the repository changed must not restore its person.
-          if (identityRequest.current !== request) return;
-          const status = reply as { readonly authenticated?: boolean; readonly personId?: string };
-          setIdentity({
-            phase: "ready",
-            authenticated: status.authenticated === true,
-            ...(status.personId ? { personId: status.personId } : {}),
-          });
-        },
-        () => {
-          // A failed read invalidates the previous account; the page says "unavailable" instead of
-          // keeping a stale person or pretending the session was signed out.
-          if (identityRequest.current !== request) return;
-          setIdentity({ phase: "failed" });
-        },
-      );
+      void readIdentity(auth, repoId, rootDir).then((snapshot) => {
+        // A read that started before the repository changed must not restore its person.
+        if (identityRequest.current !== request) return;
+        setIdentity(snapshot);
+      });
     };
     refreshIdentity();
     window.addEventListener("harness-auth-changed", refreshIdentity);
@@ -83,16 +92,38 @@ export function IdentityAccessView({
       window.removeEventListener("harness-auth-changed", refreshIdentity);
     };
   }, [auth, repoId, rootDir]);
+
+  // A business read that needs authentication or the error surface's sign-in action requests the
+  // account surface; the same request starts the service tab's existing login flow once it mounts.
+  useEffect(() => {
+    const consume = () => {
+      if (consumeAccountLoginRequest()) setAutoLogin(true);
+    };
+    consume();
+    return subscribeAccountLoginRequest(consume);
+  }, []);
+
+  const signedOut = identity.phase === "ready" && !identity.authenticated,
+    needsSignInLanding = identity.phase === "unavailable" || signedOut;
+  // Land on the tab that owns sign-in when the account is gone or unreadable; a later tab choice
+  // stays the person's choice until the state changes again.
+  useEffect(() => {
+    if (needsSignInLanding) setTab("service");
+  }, [needsSignInLanding]);
+
   if (!auth) return <p role="alert">{t("identityAccess.electronOnly")}</p>;
   const identityText =
-      identity.phase === "failed"
+      identity.phase === "unavailable"
         ? t("identityAccess.identityUnavailable")
         : identity.phase === "ready"
           ? identity.authenticated
-            ? (identity.personId ?? "")
+            ? identity.personId
             : t("identityAccess.signedOut")
           : "",
-    identityPersonId = identity.phase === "ready" && identity.authenticated ? (identity.personId ?? "") : "";
+    identityProvider = identity.phase === "loading" ? "unknown" : identity.provider,
+    identityPersonId = identity.phase === "ready" && identity.authenticated ? identity.personId : "",
+    builtInLogin = ui?.Login === undefined,
+    loginLabel = signInLabel(identityProvider);
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="identity-access-view">
       <header className="flex flex-wrap items-baseline gap-3 px-5 py-3">
@@ -104,7 +135,24 @@ export function IdentityAccessView({
             {t("accessControl.members.identity")}: <IdText value={identityText} className="text-text" />
           </span>
         )}
+        {identityProvider !== "unknown" && (
+          <span data-testid="access-current-provider" className="ui-meta text-text-muted">
+            {providerLabel(identityProvider)}
+          </span>
+        )}
+        {identity.phase === "unavailable" && (
+          <span data-testid="access-identity-unavailable-hint" className="ui-meta text-text-muted">
+            {t("identityAccess.identityUnavailableHint")}
+          </span>
+        )}
         <span className="min-w-0 truncate text-sm text-text-muted">{t("accessControl.tagline")}</span>
+        {signedOut && builtInLogin && identityProvider !== "unknown" ? (
+          <span className="ml-auto">
+            <Button variant="primary" testId="account-header-sign-in" onClick={() => setAutoLogin(true)}>
+              {loginLabel}
+            </Button>
+          </span>
+        ) : null}
       </header>
       <div className="px-5">
         <Tabs
@@ -143,6 +191,8 @@ export function IdentityAccessView({
               repoId={repoId}
               rootDir={rootDir}
               repoMode={repos.find((repo) => repo.repoId === repoId)?.mode}
+              autoLogin={autoLogin}
+              onAutoLoginConsumed={() => setAutoLogin(false)}
             />
           )
         ) : ui?.AccessControl ? (

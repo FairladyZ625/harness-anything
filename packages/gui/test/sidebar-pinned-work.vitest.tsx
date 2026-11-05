@@ -60,7 +60,12 @@ function mountSidebar(
   works: WorkIndexRead = WORKS,
   agenda?: AgendaSuccess,
   activeRepoId: string | null = "repo",
+  identityAuth?: {
+    readonly status: (repoId?: string, rootDir?: string) => Promise<unknown>;
+    readonly bindingStatus: (repoId?: string, rootDir?: string) => Promise<unknown>;
+  },
 ) {
+  if (identityAuth) Object.defineProperty(window, "harness", { configurable: true, value: { auth: identityAuth } });
   const onNavigate = vi.fn(),
     onUnpinWork = vi.fn(),
     onOpenPinned = vi.fn(),
@@ -121,6 +126,7 @@ function mountSidebar(
     unmount: () => {
       act(() => root.unmount());
       client.clear();
+      Reflect.deleteProperty(window, "harness");
     },
   };
 }
@@ -423,4 +429,38 @@ it("does not claim a Keycloak identity when the provider binding read fails", as
     unmount();
     Reflect.deleteProperty(window, "harness");
   }
+});
+
+it("re-reads the account port after a repository read reports authentication_required", async () => {
+  let authenticated = true;
+  const status = vi.fn(async () =>
+      authenticated ? { ok: true, authenticated: true, personId: "person-a" } : { ok: true, authenticated: false },
+    ),
+    bindingStatus = vi.fn(async () => ({ ok: true, mode: "managed", ready: true }));
+  const { host, render, unmount } = mountSidebar([], WORKS, undefined, "repo", { status, bindingStatus });
+  await render();
+  await vi.waitFor(() => expect(host.textContent).toContain("person-a"));
+  authenticated = false;
+  await act(async () => window.dispatchEvent(new Event("harness-auth-changed")));
+  await vi.waitFor(() => expect(host.textContent).toContain("尚未登录"));
+  expect(host.textContent).not.toContain("person-a");
+  unmount();
+});
+
+it("replaces a stale account with an unavailable state when the identity read fails", async () => {
+  let fail = false;
+  const status = vi.fn(async () => {
+      if (fail) throw new Error("identity service unavailable");
+      return { ok: true, authenticated: true, personId: "person-a" };
+    }),
+    bindingStatus = vi.fn(async () => ({ ok: true, mode: "managed", ready: true }));
+  const { host, render, unmount } = mountSidebar([], WORKS, undefined, "repo", { status, bindingStatus });
+  await render();
+  await vi.waitFor(() => expect(host.textContent).toContain("person-a"));
+  fail = true;
+  await act(async () => window.dispatchEvent(new Event("harness-auth-changed")));
+  await vi.waitFor(() => expect(host.textContent).toContain("身份不可用"));
+  expect(host.textContent).toContain("身份服务暂时不可用");
+  expect(host.textContent).not.toContain("person-a");
+  unmount();
 });

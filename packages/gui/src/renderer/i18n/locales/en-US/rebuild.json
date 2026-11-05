@@ -58,6 +58,7 @@
   "identityAccess.signedInAs": "Signed in · {personId}",
   "identityAccess.signedOut": "Not signed in",
   "identityAccess.identityUnavailable": "Identity unavailable",
+  "identityAccess.identityUnavailableHint": "Identity service is temporarily unavailable; the sign-in state cannot be confirmed",
   "identityAccess.cancelLogin": "Cancel sign-in",
   "identityAccess.deviceApproval": "Approve device sign-in",
   "identityAccess.closeDeviceApproval": "Close approval page",

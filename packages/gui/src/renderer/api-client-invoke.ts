@@ -62,6 +62,12 @@ export async function invoke<Method extends keyof DaemonRpcMethodMap>(
   ) as DaemonRpcMethodMap[Method]["params"];
   const result = await guiTransport().request(method, wireParams, bridgeMethod);
   const failure = readMethods.has(method) ? repositoryReadFailure(result) : null;
-  if (failure) throw failure;
+  if (failure) {
+    // The read is authoritative for its operation: tell the identity surfaces to re-read the
+    // session port. They remain the only account-state authority; this is a wake-up, not a state.
+    if ((failure as Error & { readonly code?: string }).code === "authentication_required")
+      window.dispatchEvent(new Event("harness-auth-changed"));
+    throw failure;
+  }
   return result;
 }

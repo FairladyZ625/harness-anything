@@ -52,12 +52,17 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
     repoId,
     rootDir,
     repoMode,
+    autoLogin = false,
+    onAutoLoginConsumed,
   }: {
     readonly auth: OidcAuthApi;
     readonly repoId?: string;
     readonly rootDir?: string;
     readonly repoMode?: RepoMode;
     readonly access: AccessAdminApi | undefined;
+    /** The account header or an error surface asked for the sign-in flow on arrival. */
+    readonly autoLogin?: boolean;
+    readonly onAutoLoginConsumed?: () => void;
   }) {
     const [session, setSession] = useState<RecordValue | null>(null),
       [sessionFailed, setSessionFailed] = useState(false),
@@ -72,7 +77,8 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
       readonly loadError?: string;
     } | null>(null);
     const loggingIn = useRef(false),
-      sessionRequest = useRef(0);
+      sessionRequest = useRef(0),
+      autoLoginHandled = useRef(false);
     useEffect(
       () => () => {
         if (loggingIn.current) void auth.cancelLogin();
@@ -107,6 +113,7 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
       const bootstrap = (await auth.bootstrapStatus(repoId, rootDir)) as RecordValue;
       if (sessionRequest.current !== request) return;
       setBootstrapRequired(bootstrap.required === true);
+      return statusReply.reply;
     };
 
     useEffect(() => {
@@ -127,7 +134,12 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
           return refresh();
         })
         .then(
-          () => setBusy(false),
+          (session) => {
+            // The account surface is the only login implementation; this event tells read surfaces
+            // that a real session now exists so they can retry what authentication refused.
+            if (session?.authenticated === true) window.dispatchEvent(new Event("harness-auth-signed-in"));
+            setBusy(false);
+          },
           (error: unknown) => {
             setFeedback(message(error));
             setBusy(false);
@@ -169,6 +181,18 @@ export function createAccessServiceTab(host: KeycloakUiHost) {
           setLogin(null);
         }
       });
+
+    // The account header and the business-read error surface share this one login flow.
+    useEffect(() => {
+      if (!autoLogin) {
+        autoLoginHandled.current = false;
+        return;
+      }
+      if (autoLoginHandled.current) return;
+      autoLoginHandled.current = true;
+      onAutoLoginConsumed?.();
+      void signIn();
+    }, [autoLogin, onAutoLoginConsumed, signIn]);
 
     const provider = identityProviderOf(binding?.mode),
       builtin = provider === "builtin",
