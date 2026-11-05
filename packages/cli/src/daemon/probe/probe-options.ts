@@ -34,6 +34,11 @@ export type ParseResult<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly message: string };
 
+// Only read-only diagnostic methods may be invoked by the probe. The name is still probed through
+// hello's advertised list, so a daemon without the capability is skipped; an arbitrary method is
+// refused rather than sent over the socket (a worker must not be able to reach daemon.stop here).
+export const JS_STACK_METHOD_ALLOWLIST: readonly string[] = Object.freeze(["daemon.diagnostics.stack"]);
+
 export const probeDefaults = Object.freeze({
   intervalMs: 5_000,
   timeoutMs: 2_000,
@@ -120,8 +125,11 @@ export function parseProbeArgs(argv: readonly string[], userRoot: string): Parse
   if (sampleSeconds.value > 60) return { ok: false, message: "Use --sample-seconds from 1 to 60." };
   const captureDir = at("--capture-dir");
   const jsStackMethod = at("--js-stack-method") ?? probeDefaults.jsStackMethod;
-  if (!/^[A-Za-z][A-Za-z0-9_.-]*$/u.test(jsStackMethod))
-    return { ok: false, message: "Use a dotted RPC method name for --js-stack-method." };
+  if (!JS_STACK_METHOD_ALLOWLIST.includes(jsStackMethod))
+    return {
+      ok: false,
+      message: `Use a read-only diagnostic stack method (${JS_STACK_METHOD_ALLOWLIST.join(", ")}); control methods are refused.`,
+    };
   if (interval.value < 250) return { ok: false, message: "Use --interval of at least 250ms." };
   if (timeout.value > 120_000) return { ok: false, message: "Use --timeout of at most 120s." };
   if (duration.value !== null && duration.value < interval.value)

@@ -38,7 +38,12 @@ export function createProbeLogSink(options: ProbeLogSinkOptions): ProbeLogSink {
 
   const appendLine = (line: string): Promise<void> => {
     if (settled) return Promise.resolve();
-    chain = chain.then(() => writeLine(line));
+    // A transient mkdir/open/write failure must not poison the queue: the next append retries on a
+    // fresh chain position instead of inheriting a permanently rejected promise.
+    chain = chain.then(
+      () => writeLine(line),
+      () => writeLine(line),
+    );
     return chain;
   };
 

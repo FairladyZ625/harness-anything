@@ -61,8 +61,9 @@ again, and a cleared/re-fired event waits out `--cooldown`. Capture artifacts go
 - Linux: `/proc/<pid>/{status,stack,wchan,syscall,stat}` concatenated into one text file;
   an unreadable file is named in that dump rather than failing the capture;
 - JS stack: only when the daemon advertises the method in `protocol.hello.methods`. The
-  expected method is `daemon.diagnostics.stack` (override with `--js-stack-method`); when it
-  is absent the record says `not-advertised` and the probe continues.
+  expected method is `daemon.diagnostics.stack`; `--js-stack-method` only accepts this
+  read-only diagnostic name (control methods such as `daemon.stop` are refused). When it is
+  absent the record says `not-advertised` and the probe continues.
 
 ## Summarize
 
@@ -82,6 +83,9 @@ The summary prints two independent views:
    samples), healthy percent, latency percentiles, downtime and slow segments, and the
    capture artifacts. With no samples it prints `unobserved`; absence is never reported as
    0% availability.
+   The summary also reports observed and unobserved time: a gap between probe runs or
+   between samples wider than the run interval is reported as unobserved, not as downtime.
+
 2. **Offline log view**, always available even if the probe never ran: process starts per
    UTC day from the lifecycle log, repository attach durations from
    `repo_attach_completed.durationMs`, and unavailable intervals. A normal restart is dated

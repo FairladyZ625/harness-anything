@@ -1,7 +1,7 @@
 import path from "node:path";
 import { daemonProcessAlive, readDaemonPid } from "@harness-anything/daemon/internal/daemon-singleton";
 import type { SummaryOptions } from "./probe-options.ts";
-import { readDaemonLogHistory, summarizeDurations, type AvailabilityEvidence } from "./probe-log-history.ts";
+import { readDaemonLogHistory, type AvailabilityEvidence } from "./probe-log-history.ts";
 import { readProbeTimeline } from "./probe-timeline.ts";
 
 export interface TimelineSegment {
@@ -27,6 +27,9 @@ export interface TimelineSummary {
   readonly latency: { readonly p50Ms: number | null; readonly p95Ms: number | null; readonly maxMs: number | null };
   readonly observedFromMs: number | null;
   readonly observedToMs: number | null;
+  readonly observedMs: number;
+  readonly unobservedMs: number;
+  readonly unobservedSegments: readonly TimelineSegment[];
   readonly downSegments: readonly TimelineSegment[];
   readonly slowSegments: readonly TimelineSegment[];
   readonly captures: readonly TimelineCapture[];
@@ -59,32 +62,23 @@ export interface SummaryInput {
   readonly daemonId: string;
 }
 
+export interface TimelineAccumulator {
+  readonly add: (record: Readonly<Record<string, unknown>>) => void;
+  readonly finish: () => TimelineSummary;
+}
+
 export async function runProbeSummary(input: SummaryInput): Promise<ProbeSummaryResult> {
   const { options } = input,
-    samples: { at: number; state: string; latencyMs: number }[] = [],
-    captures: TimelineCapture[] = [];
+    accumulator = createTimelineAccumulator(options.sinceMs, options.untilMs);
+  // The timeline is aggregated as it is read: one pass, counter/histogram/segment state only. A day
+  // of samples is never retained as an array, which keeps summary memory independent of log size.
   for await (const record of readProbeTimeline({
     dir: path.join(input.userRoot, "logs"),
     daemonId: input.daemonId,
     sinceMs: options.sinceMs,
     untilMs: options.untilMs,
-  })) {
-    if (record.kind === "sample") {
-      const at = Date.parse(String(record.at)),
-        latencyMs = typeof record.latencyMs === "number" ? record.latencyMs : Number.NaN;
-      if (Number.isFinite(at) && typeof record.state === "string") samples.push({ at, state: record.state, latencyMs });
-    } else if (record.kind === "capture") {
-      const atMs = Date.parse(String(record.at));
-      if (!Number.isFinite(atMs)) continue;
-      captures.push({
-        atMs,
-        reason: typeof record.reason === "string" ? record.reason : "unknown",
-        files: Array.isArray(record.files)
-          ? record.files.filter((file): file is string => typeof file === "string")
-          : [],
-      });
-    }
-  }
+  }))
+    accumulator.add(record);
   const currentPid = readDaemonPid(input.userRoot, input.daemonId),
     history = await readDaemonLogHistory({
       userRoot: input.userRoot,
@@ -101,7 +95,7 @@ export async function runProbeSummary(input: SummaryInput): Promise<ProbeSummary
     command: "daemon-probe-summary",
     daemonId: input.daemonId,
     window: { label: options.windowLabel, sinceMs: options.sinceMs, untilMs: options.untilMs },
-    probe: summarizeProbeTimeline(samples, captures, options.sinceMs, options.untilMs),
+    probe: accumulator.finish(),
     logs: {
       conn: {
         files: history.conn.files,
@@ -117,58 +111,266 @@ export async function runProbeSummary(input: SummaryInput): Promise<ProbeSummary
   };
 }
 
+interface RunWindow {
+  startAt: number;
+  stopAt: number | null;
+  intervalMs: number;
+}
+
+interface SampleState {
+  state: string;
+  startAt: number;
+  lastAt: number;
+}
+
+interface AccumulatorState {
+  readonly sinceMs: number;
+  readonly untilMs: number;
+  readonly counts: { up: number; slow: number; down: number };
+  readonly histogram: LatencyHistogram;
+  readonly runs: RunWindow[];
+  readonly gaps: TimelineSegment[];
+  readonly fallbackObserved: TimelineSegment[];
+  readonly downSegments: TimelineSegment[];
+  readonly slowSegments: TimelineSegment[];
+  readonly captures: TimelineCapture[];
+  samples: number;
+  firstAt: number | null;
+  lastAt: number | null;
+  current: SampleState | null;
+  fallbackGroup: SampleState | null;
+}
+
+const defaultIntervalMs = 5_000;
+
+export function createTimelineAccumulator(sinceMs: number, untilMs: number): TimelineAccumulator {
+  const state: AccumulatorState = {
+    sinceMs,
+    untilMs,
+    counts: { up: 0, slow: 0, down: 0 },
+    histogram: createLatencyHistogram(),
+    runs: [],
+    gaps: [],
+    fallbackObserved: [],
+    downSegments: [],
+    slowSegments: [],
+    captures: [],
+    samples: 0,
+    firstAt: null,
+    lastAt: null,
+    current: null,
+    fallbackGroup: null,
+  };
+  return {
+    add: (record) => addTimelineRecord(state, record),
+    finish: () => finishTimeline(state),
+  };
+}
+
+function activeInterval(state: AccumulatorState): number {
+  for (let index = state.runs.length - 1; index >= 0; index -= 1) {
+    const run = state.runs[index]!;
+    if (run.stopAt === null) return run.intervalMs;
+  }
+  return defaultIntervalMs;
+}
+
+function maxGap(intervalMs: number): number {
+  return Math.max(intervalMs * 3, 15_000);
+}
+
+function closeCurrent(state: AccumulatorState, endAt: number): void {
+  if (state.current === null) return;
+  if (state.current.state === "down") pushSegment(state.downSegments, state.current.startAt, endAt);
+  else if (state.current.state === "slow") pushSegment(state.slowSegments, state.current.startAt, endAt);
+  state.current = null;
+}
+
+function closeOpenRun(state: AccumulatorState, at: number): void {
+  for (const run of state.runs) if (run.stopAt === null) run.stopAt = at;
+}
+
+function addTimelineRecord(state: AccumulatorState, record: Readonly<Record<string, unknown>>): void {
+  if (record.kind === "probe_start") {
+    const at = Date.parse(String(record.at));
+    if (!Number.isFinite(at) || at > state.untilMs) return;
+    closeCurrent(state, at);
+    closeOpenRun(state, at);
+    state.runs.push({ startAt: at, stopAt: null, intervalMs: startInterval(record) });
+    return;
+  }
+  if (record.kind === "probe_stop") {
+    const at = Date.parse(String(record.at));
+    if (!Number.isFinite(at) || at > state.untilMs) return;
+    closeCurrent(state, at);
+    closeOpenRun(state, at);
+    return;
+  }
+  if (record.kind === "capture") {
+    addCapture(state, record);
+    return;
+  }
+  if (record.kind === "sample") addSample(state, record);
+}
+
+function startInterval(record: Readonly<Record<string, unknown>>): number {
+  const options = record.options;
+  if (typeof options !== "object" || options === null || !("intervalMs" in options)) return defaultIntervalMs;
+  const interval = (options as { readonly intervalMs?: unknown }).intervalMs;
+  return typeof interval === "number" ? Math.max(250, interval) : defaultIntervalMs;
+}
+
+function addCapture(state: AccumulatorState, record: Readonly<Record<string, unknown>>): void {
+  const atMs = Date.parse(String(record.at));
+  if (!Number.isFinite(atMs) || atMs < state.sinceMs || atMs > state.untilMs) return;
+  state.captures.push({
+    atMs,
+    reason: typeof record.reason === "string" ? record.reason : "unknown",
+    files: Array.isArray(record.files) ? record.files.filter((file): file is string => typeof file === "string") : [],
+  });
+}
+
+function addSample(state: AccumulatorState, record: Readonly<Record<string, unknown>>): void {
+  const at = Date.parse(String(record.at)),
+    sampleState = record.state;
+  if (!Number.isFinite(at) || at < state.sinceMs || at > state.untilMs) return;
+  if (sampleState !== "up" && sampleState !== "slow" && sampleState !== "down") return;
+  state.samples += 1;
+  state.counts[sampleState] += 1;
+  if (typeof record.latencyMs === "number") state.histogram.add(record.latencyMs);
+  state.firstAt = state.firstAt === null ? at : Math.min(state.firstAt, at);
+  state.lastAt = state.lastAt === null ? at : Math.max(state.lastAt, at);
+  if (state.runs.length === 0) addFallbackSample(state, at, sampleState);
+  else addRunSample(state, at, sampleState);
+}
+
+function addFallbackSample(state: AccumulatorState, at: number, sampleState: string): void {
+  const group = state.fallbackGroup;
+  if (group === null) state.fallbackGroup = { state: sampleState, startAt: at, lastAt: at };
+  else if (at - group.lastAt > maxGap(defaultIntervalMs)) {
+    closeCurrent(state, group.lastAt + defaultIntervalMs);
+    pushSegment(state.fallbackObserved, group.startAt, group.lastAt + defaultIntervalMs);
+    pushSegment(state.gaps, group.lastAt + defaultIntervalMs, at);
+    state.fallbackGroup = { state: sampleState, startAt: at, lastAt: at };
+  } else group.lastAt = at;
+  if (state.current === null) state.current = { state: sampleState, startAt: at, lastAt: at };
+  else if (state.current.state !== sampleState) {
+    closeCurrent(state, at);
+    state.current = { state: sampleState, startAt: at, lastAt: at };
+  } else state.current.lastAt = at;
+}
+
+function addRunSample(state: AccumulatorState, at: number, sampleState: string): void {
+  const run = runAt(state.runs, at),
+    interval = run?.intervalMs ?? defaultIntervalMs;
+  if (state.current === null) {
+    state.current = { state: sampleState, startAt: at, lastAt: at };
+    return;
+  }
+  const gap = at - state.current.lastAt;
+  if (gap > maxGap(interval)) {
+    const end = state.current.lastAt + interval;
+    closeCurrent(state, end);
+    pushSegment(state.gaps, end, at);
+    state.current = { state: sampleState, startAt: at, lastAt: at };
+    return;
+  }
+  if (state.current.state !== sampleState) {
+    closeCurrent(state, at);
+    state.current = { state: sampleState, startAt: at, lastAt: at };
+  } else state.current.lastAt = at;
+}
+
+function finishTimeline(state: AccumulatorState): TimelineSummary {
+  if (state.current !== null) {
+    const open = lastOpenRun(state.runs),
+      end = Math.min(
+        state.lastAt === null ? state.current.lastAt : state.current.lastAt + activeInterval(state),
+        open?.stopAt ?? state.untilMs,
+      );
+    closeCurrent(state, Math.max(state.current.startAt, end));
+  }
+  const observed = state.runs.length === 0 ? finishFallback(state) : finishRuns(state);
+  const merged = mergeIntervals(observed),
+    observedWithoutGaps = subtractIntervals(merged, mergeIntervals(state.gaps)),
+    observedMs = observedWithoutGaps.reduce((total, segment) => total + segment.durationMs, 0),
+    unobservedSegments = subtractWindow(state.sinceMs, state.untilMs, observedWithoutGaps),
+    unobservedMs = unobservedSegments.reduce((total, segment) => total + segment.durationMs, 0);
+  return {
+    status: state.samples === 0 ? "unobserved" : "observed",
+    samples: state.samples,
+    up: state.counts.up,
+    slow: state.counts.slow,
+    down: state.counts.down,
+    availabilityPercent:
+      state.samples === 0 ? null : round2(((state.counts.up + state.counts.slow) / state.samples) * 100),
+    healthyPercent: state.samples === 0 ? null : round2((state.counts.up / state.samples) * 100),
+    latency: {
+      p50Ms: state.histogram.percentile(0.5),
+      p95Ms: state.histogram.percentile(0.95),
+      maxMs: state.histogram.maxMs(),
+    },
+    observedFromMs: state.firstAt,
+    observedToMs: state.lastAt,
+    observedMs,
+    unobservedMs,
+    unobservedSegments,
+    downSegments: mergeIntervals(state.downSegments),
+    slowSegments: mergeIntervals(state.slowSegments),
+    captures: state.captures,
+  };
+}
+
+function finishFallback(state: AccumulatorState): readonly TimelineSegment[] {
+  const group = state.fallbackGroup;
+  if (group !== null)
+    pushSegment(state.fallbackObserved, group.startAt, Math.min(state.untilMs, group.lastAt + defaultIntervalMs));
+  return state.fallbackObserved;
+}
+
+function finishRuns(state: AccumulatorState): readonly TimelineSegment[] {
+  const observed: TimelineSegment[] = [];
+  for (const run of state.runs) {
+    const end = Math.min(
+      state.untilMs,
+      run.stopAt ?? (state.lastAt === null ? run.startAt : state.lastAt + run.intervalMs),
+    );
+    if (end > run.startAt)
+      observed.push({
+        fromMs: Math.max(state.sinceMs, run.startAt),
+        toMs: end,
+        durationMs: end - Math.max(state.sinceMs, run.startAt),
+      });
+  }
+  return observed;
+}
+
+/**
+ * Compatibility wrapper for small in-memory fixtures. Production summary uses the streaming
+ * accumulator above; this sorts only the caller-supplied array.
+ */
 export function summarizeProbeTimeline(
   samples: readonly { readonly at: number; readonly state: string; readonly latencyMs: number }[],
   captures: readonly TimelineCapture[],
   sinceMs: number,
   untilMs: number,
 ): TimelineSummary {
-  const ordered = [...samples].sort((left, right) => left.at - right.at),
-    counts = { up: 0, slow: 0, down: 0 };
-  for (const sample of ordered)
-    if (sample.state === "up" || sample.state === "slow" || sample.state === "down") counts[sample.state] += 1;
-  const total = ordered.length,
-    latencies = ordered.map((sample) => sample.latencyMs).filter((value) => Number.isFinite(value)),
-    latency = summarizeDurations(latencies),
-    interval = medianInterval(ordered, 5_000),
-    downSegments: TimelineSegment[] = [],
-    slowSegments: TimelineSegment[] = [];
-  if (total > 0) {
-    let segmentState = ordered[0]!.state,
-      segmentStart = ordered[0]!.at;
-    for (let index = 1; index < total; index += 1) {
-      const sample = ordered[index]!;
-      if (sample.state !== segmentState) {
-        pushSegment(
-          segmentState === "down" ? downSegments : segmentState === "slow" ? slowSegments : null,
-          segmentStart,
-          sample.at,
-        );
-        segmentState = sample.state;
-        segmentStart = sample.at;
-      }
-    }
-    pushSegment(
-      segmentState === "down" ? downSegments : segmentState === "slow" ? slowSegments : null,
-      segmentStart,
-      ordered.at(-1)!.at + interval,
-    );
-  }
-  return {
-    status: total === 0 ? "unobserved" : "observed",
-    samples: total,
-    up: counts.up,
-    slow: counts.slow,
-    down: counts.down,
-    availabilityPercent: total === 0 ? null : round2(((counts.up + counts.slow) / total) * 100),
-    healthyPercent: total === 0 ? null : round2((counts.up / total) * 100),
-    latency: { p50Ms: latency.p50Ms, p95Ms: latency.p95Ms, maxMs: latency.maxMs },
-    observedFromMs: total === 0 ? null : ordered[0]!.at,
-    observedToMs: total === 0 ? null : ordered.at(-1)!.at,
-    downSegments,
-    slowSegments,
-    captures: captures.filter((capture) => capture.atMs >= sinceMs && capture.atMs <= untilMs),
-  };
+  const accumulator = createTimelineAccumulator(sinceMs, untilMs);
+  for (const sample of [...samples].sort((left, right) => left.at - right.at))
+    accumulator.add({
+      kind: "sample",
+      at: new Date(sample.at).toISOString(),
+      state: sample.state,
+      latencyMs: sample.latencyMs,
+    });
+  for (const capture of captures)
+    accumulator.add({
+      kind: "capture",
+      at: new Date(capture.atMs).toISOString(),
+      reason: capture.reason,
+      files: capture.files,
+    });
+  return accumulator.finish();
 }
 
 export function renderProbeSummary(result: ProbeSummaryResult): string {
@@ -181,12 +383,16 @@ export function renderProbeSummary(result: ProbeSummaryResult): string {
       probe.status === "observed"
         ? `latency ms p50=${formatNumber(probe.latency.p50Ms)} p95=${formatNumber(probe.latency.p95Ms)} max=${formatNumber(probe.latency.maxMs)}`
         : null,
+      probe.status === "observed"
+        ? `observed=${formatDuration(probe.observedMs)} unobserved=${formatDuration(probe.unobservedMs)}`
+        : null,
       `captures=${probe.captures.length}`,
       ...probe.captures.flatMap((capture) => [
         `  ${iso(capture.atMs)} reason=${capture.reason} files=${capture.files.length === 0 ? "none" : capture.files.join(",")}`,
       ]),
       ...renderTimelineSegments("downtime segments", probe.downSegments),
       ...renderTimelineSegments("slow segments", probe.slowSegments),
+      ...renderTimelineSegments("unobserved segments", probe.unobservedSegments),
       "",
       `logs: starts=${logs.evidence.starts} (${renderStartsPerDay(logs.evidence.startsPerDay)})`,
       `attach: completed=${logs.evidence.attach.count} p50=${formatMillis(logs.evidence.attach.p50Ms)} p95=${formatMillis(logs.evidence.attach.p95Ms)} max=${formatMillis(logs.evidence.attach.maxMs)} failed=${logs.evidence.attachFailed} timed-out=${logs.evidence.attachTimedOut}`,
@@ -223,18 +429,125 @@ function renderStartsPerDay(startsPerDay: Readonly<Record<string, number>>): str
   return days.length === 0 ? "none in window" : days.map(([day, count]) => `${day}: ${String(count)}`).join(", ");
 }
 
-function pushSegment(target: TimelineSegment[] | null, fromMs: number, toMs: number): void {
-  if (target === null || toMs <= fromMs) return;
+function runAt(runs: readonly RunWindow[], at: number): RunWindow | null {
+  for (let index = runs.length - 1; index >= 0; index -= 1) {
+    const run = runs[index]!;
+    if (run.startAt <= at && (run.stopAt === null || at <= run.stopAt)) return run;
+  }
+  return null;
+}
+
+function lastOpenRun(runs: readonly RunWindow[]): RunWindow | null {
+  for (let index = runs.length - 1; index >= 0; index -= 1) {
+    const run = runs[index]!;
+    if (run.stopAt === null) return run;
+  }
+  return null;
+}
+
+function pushSegment(target: TimelineSegment[], fromMs: number, toMs: number): void {
+  if (toMs <= fromMs) return;
   target.push({ fromMs, toMs, durationMs: toMs - fromMs });
 }
 
-function medianInterval(samples: readonly { readonly at: number }[], fallback: number): number {
-  if (samples.length < 2) return fallback;
-  const deltas = samples
-    .slice(1)
-    .map((sample, index) => sample.at - samples[index]!.at)
-    .sort((a, b) => a - b);
-  return deltas[Math.floor(deltas.length / 2)] ?? fallback;
+function mergeIntervals(segments: readonly TimelineSegment[]): readonly TimelineSegment[] {
+  const sorted = [...segments].sort((left, right) => left.fromMs - right.fromMs),
+    merged: TimelineSegment[] = [];
+  for (const segment of sorted) {
+    const previous = merged.at(-1);
+    if (previous !== undefined && segment.fromMs <= previous.toMs)
+      merged[merged.length - 1] = {
+        fromMs: previous.fromMs,
+        toMs: Math.max(previous.toMs, segment.toMs),
+        durationMs: Math.max(previous.toMs, segment.toMs) - previous.fromMs,
+      };
+    else merged.push(segment);
+  }
+  return merged;
+}
+
+function subtractIntervals(
+  source: readonly TimelineSegment[],
+  cuts: readonly TimelineSegment[],
+): readonly TimelineSegment[] {
+  let remaining = [...source];
+  for (const cut of cuts) {
+    const next: TimelineSegment[] = [];
+    for (const segment of remaining) {
+      if (cut.toMs <= segment.fromMs || cut.fromMs >= segment.toMs) {
+        next.push(segment);
+        continue;
+      }
+      if (cut.fromMs > segment.fromMs)
+        next.push({ fromMs: segment.fromMs, toMs: cut.fromMs, durationMs: cut.fromMs - segment.fromMs });
+      if (cut.toMs < segment.toMs)
+        next.push({ fromMs: cut.toMs, toMs: segment.toMs, durationMs: segment.toMs - cut.toMs });
+    }
+    remaining = next;
+  }
+  return remaining;
+}
+
+function subtractWindow(
+  sinceMs: number,
+  untilMs: number,
+  observed: readonly TimelineSegment[],
+): readonly TimelineSegment[] {
+  return subtractIntervals([{ fromMs: sinceMs, toMs: untilMs, durationMs: untilMs - sinceMs }], observed);
+}
+
+interface LatencyHistogram {
+  readonly add: (ms: number) => void;
+  readonly percentile: (percentile: number) => number | null;
+  readonly maxMs: () => number | null;
+}
+
+// Fixed-memory latency quantiles: 1 ms buckets below 1 s, then 10 ms/100 ms/1 s buckets. The
+// approximation is only above 1 s (the console rounds those anyway), and memory stays constant for
+// any number of samples.
+function createLatencyHistogram(): LatencyHistogram {
+  const small = new Uint32Array(1_001),
+    medium = new Uint32Array(900),
+    large = new Uint32Array(900),
+    huge = new Uint32Array(3_501);
+  let count = 0,
+    max = 0;
+  return {
+    add: (ms) => {
+      if (!Number.isFinite(ms) || ms < 0) return;
+      count += 1;
+      max = Math.max(max, ms);
+      const value = Math.floor(ms);
+      if (value < 1_000) small[value] = (small[value] ?? 0) + 1;
+      else if (value < 10_000)
+        medium[Math.floor((value - 1_000) / 10)] = (medium[Math.floor((value - 1_000) / 10)] ?? 0) + 1;
+      else if (value < 100_000)
+        large[Math.floor((value - 10_000) / 100)] = (large[Math.floor((value - 10_000) / 100)] ?? 0) + 1;
+      else huge[Math.min(huge.length - 1, Math.floor((value - 100_000) / 1_000))] += 1;
+    },
+    percentile: (percentile) => {
+      if (count === 0) return null;
+      let rank = Math.max(1, Math.ceil(percentile * count));
+      for (let index = 0; index < small.length; index += 1) {
+        rank -= small[index] ?? 0;
+        if (rank <= 0) return index;
+      }
+      for (let index = 0; index < medium.length; index += 1) {
+        rank -= medium[index] ?? 0;
+        if (rank <= 0) return 1_000 + index * 10;
+      }
+      for (let index = 0; index < large.length; index += 1) {
+        rank -= large[index] ?? 0;
+        if (rank <= 0) return 10_000 + index * 100;
+      }
+      for (let index = 0; index < huge.length; index += 1) {
+        rank -= huge[index] ?? 0;
+        if (rank <= 0) return 100_000 + index * 1_000;
+      }
+      return max;
+    },
+    maxMs: () => (count === 0 ? null : max),
+  };
 }
 
 export function formatDuration(ms: number): string {

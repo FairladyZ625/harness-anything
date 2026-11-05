@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { ensureProbeDirectory, writeProbeFile } from "@harness-anything/daemon/internal/probe-log-sink";
+import { JS_STACK_METHOD_ALLOWLIST } from "./probe-options.ts";
 import { openProbeRpc } from "./probe-rpc.ts";
 import { runProbeCommand } from "./process-port.ts";
 import type { TriggerReason } from "./probe-trigger.ts";
@@ -120,6 +121,13 @@ export async function probeJsStack(
   timeoutMs: number,
   dir: string,
 ): Promise<JsStackResult> {
+  if (!JS_STACK_METHOD_ALLOWLIST.includes(method))
+    return {
+      method,
+      status: "failed",
+      file: null,
+      detail: `refused non-diagnostic method ${method}; only ${JS_STACK_METHOD_ALLOWLIST.join(", ")} may be called`,
+    };
   let rpc;
   try {
     rpc = await openProbeRpc(socketPath, timeoutMs);

@@ -1,6 +1,6 @@
-// Trigger state is per reason and deliberately sticky: once a condition produces a capture, the same
-// ongoing event never produces a second one. Re-arming requires the condition to clear; the cooldown
-// then covers a rapid clear/re-fire cycle, which would otherwise flood the capture directory.
+// One capture per ongoing event, not one per reason. Down, sustained CPU, and RSS may all be true
+// for the same stall; they share one event latch and one global cooldown, otherwise a single stall
+// would call the OS stack sampler three times. The latch clears only after every condition is gone.
 export type TriggerReason = "unresponsive" | "high-cpu" | "rss";
 
 export type ProbeState = "up" | "slow" | "down";
@@ -26,55 +26,39 @@ export interface TriggerTracker {
 }
 
 export function createTriggerTracker(options: TriggerOptions): TriggerTracker {
-  const armed = new Set<TriggerReason>(),
-    lastCaptureAt = new Map<TriggerReason, number>();
   let downSince: number | null = null,
-    cpuSince: number | null = null;
+    cpuSince: number | null = null,
+    eventCaptured = false,
+    lastCaptureAt: number | null = null,
+    lastReason: TriggerReason | null = null;
   return {
     evaluate: (sample) => {
-      let fired: TriggerReason | null = null;
-      if (sample.state === "down") {
-        downSince ??= sample.at;
-        if (sample.at - downSince >= options.unresponsiveMs)
-          fired = fire("unresponsive", sample.at, armed, lastCaptureAt, options.cooldownMs);
-      } else {
+      const down = sample.state === "down",
+        highCpu = sample.cpuPercent !== null && sample.cpuPercent >= options.cpuPercent,
+        highRss = sample.rssBytes !== null && sample.rssBytes >= options.rssBytes;
+      if (!down && !highCpu && !highRss) {
         downSince = null;
-        armed.delete("unresponsive");
+        cpuSince = null;
+        eventCaptured = false;
+        return null;
       }
-      if (!fired) {
-        if (sample.cpuPercent !== null && sample.cpuPercent >= options.cpuPercent) {
-          cpuSince ??= sample.at;
-          if (sample.at - cpuSince >= options.cpuSustainMs)
-            fired = fire("high-cpu", sample.at, armed, lastCaptureAt, options.cooldownMs);
-        } else {
-          cpuSince = null;
-          armed.delete("high-cpu");
-        }
-      }
-      if (!fired) {
-        if (sample.rssBytes !== null && sample.rssBytes >= options.rssBytes)
-          fired = fire("rss", sample.at, armed, lastCaptureAt, options.cooldownMs);
-        else armed.delete("rss");
-      }
-      return fired;
+      if (down) downSince ??= sample.at;
+      else downSince = null;
+      if (highCpu) cpuSince ??= sample.at;
+      else cpuSince = null;
+      // The event is already represented by a previous capture. It stays suppressed until every
+      // condition clears, even after the cooldown has elapsed.
+      if (eventCaptured) return null;
+      const downDue = down && downSince !== null && sample.at - downSince >= options.unresponsiveMs,
+        cpuDue = highCpu && cpuSince !== null && sample.at - cpuSince >= options.cpuSustainMs,
+        reason: TriggerReason | null = downDue ? "unresponsive" : cpuDue ? "high-cpu" : highRss ? "rss" : null;
+      if (reason === null) return null;
+      eventCaptured = true;
+      lastReason = reason;
+      if (lastCaptureAt !== null && sample.at - lastCaptureAt < options.cooldownMs) return null;
+      lastCaptureAt = sample.at;
+      return reason;
     },
-    armedReasons: () => [...armed],
+    armedReasons: () => (eventCaptured && lastReason !== null ? [lastReason] : []),
   };
-}
-
-function fire(
-  reason: TriggerReason,
-  at: number,
-  armed: Set<TriggerReason>,
-  lastCaptureAt: Map<TriggerReason, number>,
-  cooldownMs: number,
-): TriggerReason | null {
-  if (armed.has(reason)) return null;
-  const last = lastCaptureAt.get(reason);
-  // Arm even when the cooldown suppresses the capture: the event was already answered by the
-  // previous capture, so waiting out the cooldown must not turn one event into two scenes.
-  armed.add(reason);
-  if (last !== undefined && at - last < cooldownMs) return null;
-  lastCaptureAt.set(reason, at);
-  return reason;
 }

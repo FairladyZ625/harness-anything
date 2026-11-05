@@ -293,7 +293,8 @@ async function appendSafely(
   return writer.append(record).then(
     () => true,
     (error: unknown) => {
-      errors.push(`timeline: ${errorMessage(error)}`);
+      if (errors.length < 20) errors.push(`timeline: ${errorMessage(error)}`);
+      else if (errors.length === 20) errors.push("timeline: further errors suppressed");
       return false;
     },
   );

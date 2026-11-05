@@ -68,7 +68,7 @@ export function createProcessMetricsReader(options: MetricsReaderOptions = {}): 
         if (result.stat !== null) {
           const ticks = result.stat.utimeTicks + result.stat.stimeTicks;
           if (previous !== null && previous.pid === pid && at > previous.at)
-            cpuPercent = Math.max(0, ((ticks - previous.ticks) / hz / (at - previous.at)) * 100);
+            cpuPercent = Math.max(0, ((ticks - previous.ticks) / hz) * (1000 / (at - previous.at)) * 100);
           previous = { pid, ticks, at };
         }
         return withUnavailable({ ...result.metrics, cpuPercent });

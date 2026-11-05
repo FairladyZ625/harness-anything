@@ -12,7 +12,12 @@ import {
   type LifecycleHistory,
 } from "../src/daemon/probe/probe-log-history.ts";
 import { parseSummaryArgs } from "../src/daemon/probe/probe-options.ts";
-import { renderProbeSummary, runProbeSummary, summarizeProbeTimeline } from "../src/daemon/probe/probe-summary.ts";
+import {
+  createTimelineAccumulator,
+  renderProbeSummary,
+  runProbeSummary,
+  summarizeProbeTimeline,
+} from "../src/daemon/probe/probe-summary.ts";
 import { createTimelineWriter } from "../src/daemon/probe/probe-timeline.ts";
 
 const HOUR = 3_600_000;
@@ -55,6 +60,11 @@ test("availability derivation dates a missing exit by the pid's last conn activi
         [2, 30 * 60_000],
         [3, HOUR + 1],
       ]),
+      lastActivityByStartIndex: new Map([
+        [0, 5 * 60_000],
+        [1, 30 * 60_000],
+        [2, HOUR + 1],
+      ]),
       activityMinutes: new Uint8Array(1),
     },
     { sinceMs: 0, untilMs: 2 * HOUR, currentPid: null, currentPidAlive: false },
@@ -80,12 +90,49 @@ test("a live current pid covers the window end and is not unobserved", () => {
       firstAt: null,
       lastAt: null,
       lastActivityByPid: new Map(),
+      lastActivityByStartIndex: new Map(),
       activityMinutes: new Uint8Array(1),
     },
     { sinceMs: 0, untilMs: HOUR, currentPid: 7, currentPidAlive: true },
   );
   assert.equal(evidence.unobservedFromMs, null);
   assert.equal(evidence.downtimeMs, 0);
+});
+
+test("PID reuse does not carry a later generation's activity or exit backwards", () => {
+  const evidence = deriveAvailability(
+    lifecycle(
+      [
+        { at: 0, pid: 1 },
+        { at: 10_000, pid: 2 },
+        { at: 20_000, pid: 1 },
+      ],
+      [{ at: 30_000, pid: 1 }],
+    ),
+    {
+      files: 1,
+      records: 3,
+      requests: 3,
+      firstAt: 5_000,
+      lastAt: 21_000,
+      lastActivityByPid: new Map([[1, 21_000]]),
+      lastActivityByStartIndex: new Map([
+        [0, 5_000],
+        [2, 21_000],
+      ]),
+      activityMinutes: new Uint8Array(1),
+    },
+    { sinceMs: 0, untilMs: 30_000, currentPid: null, currentPidAlive: false },
+  );
+  assert.deepEqual(evidence.live, [
+    { fromMs: 0, toMs: 5_000, pid: 1 },
+    { fromMs: 20_000, toMs: 30_000, pid: 1 },
+  ]);
+  assert.equal(evidence.downtime[0]!.fromMs, 5_000);
+  assert.equal(
+    evidence.live.some((segment) => segment.fromMs === 0 && segment.toMs === 30_000),
+    false,
+  );
 });
 
 test("silent segments are bounded by observed minutes and ranked by duration", () => {
@@ -195,6 +242,36 @@ test("timeline summary separates slow and down segments", () => {
   assert.equal(summary.captures.length, 1);
 });
 
+test("a gap between samples is unobserved, not a continuous downtime segment", () => {
+  const summary = summarizeProbeTimeline(
+    [
+      { at: 0, state: "down", latencyMs: 1 },
+      { at: 3_600_000, state: "up", latencyMs: 1 },
+    ],
+    [],
+    0,
+    3_600_000,
+  );
+  assert.equal(summary.availabilityPercent, 50);
+  assert.deepEqual(summary.downSegments, [{ fromMs: 0, toMs: 5_000, durationMs: 5_000 }]);
+  assert.equal(summary.observedMs, 5_000);
+  assert.equal(summary.unobservedMs, 3_595_000);
+  assert.deepEqual(summary.unobservedSegments, [{ fromMs: 5_000, toMs: 3_600_000, durationMs: 3_595_000 }]);
+});
+
+test("probe_start/probe_stop bound observed time and leave the rest unobserved", () => {
+  const accumulator = createTimelineAccumulator(0, 60_000);
+  accumulator.add({ kind: "probe_start", at: new Date(0).toISOString(), options: { intervalMs: 5_000 } });
+  accumulator.add({ kind: "sample", at: new Date(0).toISOString(), state: "down", latencyMs: 1 });
+  accumulator.add({ kind: "sample", at: new Date(10_000).toISOString(), state: "up", latencyMs: 1 });
+  accumulator.add({ kind: "probe_stop", at: new Date(10_000).toISOString() });
+  const summary = accumulator.finish();
+  assert.equal(summary.observedMs, 10_000);
+  assert.equal(summary.unobservedMs, 50_000);
+  assert.deepEqual(summary.downSegments, [{ fromMs: 0, toMs: 10_000, durationMs: 10_000 }]);
+  assert.deepEqual(summary.unobservedSegments, [{ fromMs: 10_000, toMs: 60_000, durationMs: 50_000 }]);
+});
+
 test("summary reports unobserved rather than zero availability without samples", async (t) => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-probe-empty-"));
   t.after(() => rmSync(userRoot, { recursive: true, force: true }));
@@ -208,6 +285,36 @@ test("summary reports unobserved rather than zero availability without samples",
   const text = renderProbeSummary(result);
   assert.match(text, /unobserved \(no samples in window; availability is unknown, not 0%\)/u);
   assert.match(text, /logs: starts=0/u);
+});
+
+test("summary streams a large sample timeline without retaining the records", async (t) => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-probe-large-"));
+  t.after(() => rmSync(userRoot, { recursive: true, force: true }));
+  const logDir = path.join(userRoot, "logs");
+  mkdirSync(logDir, { recursive: true });
+  const start = Date.parse("2026-11-03T00:00:00.000Z"),
+    lines: string[] = [];
+  for (let index = 0; index < 20_000; index += 1)
+    lines.push(
+      JSON.stringify({
+        schema: "daemon-probe/v1",
+        daemonId: "default",
+        kind: "sample",
+        at: new Date(start + index * 1_000).toISOString(),
+        state: index % 2 === 0 ? "up" : "slow",
+        latencyMs: index % 10,
+      }),
+    );
+  writeFileSync(path.join(logDir, "daemon-default-probe-20261103.jsonl"), `${lines.join("\n")}\n`);
+  const options = parseSummaryArgs(["daemon", "probe", "summary", "--day", "20261103"]);
+  assert.equal(options.ok, true);
+  if (!options.ok) return;
+  const result = await runProbeSummary({ options: options.value, userRoot, daemonId: "default" });
+  assert.equal(result.probe.samples, 20_000);
+  assert.equal(result.probe.up, 10_000);
+  assert.equal(result.probe.slow, 10_000);
+  assert.equal(result.probe.downSegments.length, 0);
+  assert.equal(result.probe.observedMs, 20_004_000);
 });
 
 test("summary renders observed availability, captures, and the offline log view", async (t) => {

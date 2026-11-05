@@ -16,6 +16,8 @@ export interface ConnHistory {
   readonly firstAt: number | null;
   readonly lastAt: number | null;
   readonly lastActivityByPid: ReadonlyMap<number, number>;
+  /** Last conn activity keyed by the index of the lifecycle start that owned it (PID reuse safe). */
+  readonly lastActivityByStartIndex: ReadonlyMap<number, number>;
   readonly activityMinutes: Uint8Array;
 }
 
@@ -81,8 +83,8 @@ export interface LogHistoryOptions {
 
 export async function readDaemonLogHistory(options: LogHistoryOptions): Promise<LogHistory> {
   const dir = path.join(options.userRoot, "logs"),
-    conn = await readConnHistory(dir, options),
     lifecycle = await readLifecycleHistory(dir, options),
+    conn = await readConnHistory(dir, options, lifecycle.starts),
     evidence = deriveAvailability(lifecycle, conn, options),
     silent = computeSilentSegments(conn.activityMinutes, options.sinceMs, options.minSilenceMs);
   return { conn, lifecycle, evidence, silent };
@@ -90,7 +92,11 @@ export async function readDaemonLogHistory(options: LogHistoryOptions): Promise<
 
 // Minute buckets are the bounded-memory alternative to sorting every conn record: one byte per
 // minute for the whole window (about 10 KB for seven days), independent of request volume.
-async function readConnHistory(dir: string, options: LogHistoryOptions): Promise<ConnHistory> {
+async function readConnHistory(
+  dir: string,
+  options: LogHistoryOptions,
+  starts: readonly { readonly at: number; readonly pid: number }[],
+): Promise<ConnHistory> {
   const stem = `daemon-${safeId(options.daemonId)}-conn-`,
     days = daysInRange(options.sinceMs, options.untilMs),
     files = (await listLogFiles(dir)).filter(
@@ -98,7 +104,11 @@ async function readConnHistory(dir: string, options: LogHistoryOptions): Promise
     ),
     minuteCount = Math.ceil((options.untilMs - options.sinceMs) / 60_000) + 1,
     activity = new Uint8Array(Math.max(1, minuteCount)),
-    lastByPid = new Map<number, number>();
+    lastByPid = new Map<number, number>(),
+    startIndicesByPid = new Map<number, number[]>(),
+    lastByStart = new Map<number, number>();
+  for (const [index, start] of starts.entries())
+    startIndicesByPid.set(start.pid, [...(startIndicesByPid.get(start.pid) ?? []), index]);
   let records = 0,
     requests = 0,
     firstAt: number | null = null,
@@ -109,6 +119,10 @@ async function readConnHistory(dir: string, options: LogHistoryOptions): Promise
         pid = typeof record.pid === "number" ? record.pid : null;
       if (!Number.isFinite(at) || pid === null) return;
       lastByPid.set(pid, Math.max(lastByPid.get(pid) ?? 0, at));
+      if (at <= options.untilMs) {
+        const generation = latestStartIndex(startIndicesByPid.get(pid) ?? [], starts, at);
+        if (generation !== null) lastByStart.set(generation, Math.max(lastByStart.get(generation) ?? 0, at));
+      }
       if (at >= options.sinceMs && at <= options.untilMs) {
         records += 1;
         if (record.event === "request") requests += 1;
@@ -127,6 +141,7 @@ async function readConnHistory(dir: string, options: LogHistoryOptions): Promise
     firstAt,
     lastAt,
     lastActivityByPid: lastByPid,
+    lastActivityByStartIndex: lastByStart,
     activityMinutes: activity,
   };
 }
@@ -158,6 +173,7 @@ async function readLifecycleHistory(dir: string, options: LogHistoryOptions): Pr
     if (!completed) continue;
   }
   starts.sort((left, right) => left.at - right.at);
+  for (const exitsForPid of exits.values()) exitsForPid.sort((left, right) => left - right);
   return {
     files: files.length,
     records,
@@ -181,12 +197,12 @@ export function deriveAvailability(
   let lastEvidenceAt: number | null = conn.lastAt;
   for (let index = 0; index < starts.length; index += 1) {
     const start = starts[index]!,
-      exitAt = firstExitAfter(lifecycle.exitsByPid.get(start.pid) ?? [], start.at),
-      nextStart = starts[index + 1]?.at ?? null;
+      nextStart = starts[index + 1]?.at ?? null,
+      exitAt = firstExitBetween(lifecycle.exitsByPid.get(start.pid) ?? [], start.at, nextStart);
     let end: number;
     if (exitAt !== null) end = exitAt;
     else {
-      const lastActivity = conn.lastActivityByPid.get(start.pid) ?? null;
+      const lastActivity = conn.lastActivityByStartIndex.get(index) ?? null;
       end =
         nextStart !== null
           ? Math.max(start.at, lastActivity ?? start.at)
@@ -274,9 +290,34 @@ export function summarizeDurations(values: readonly number[]): {
   return { count: sorted.length, p50Ms: at(0.5), p95Ms: at(0.95), maxMs: sorted.at(-1)! };
 }
 
-function firstExitAfter(exits: readonly number[], startAt: number): number | null {
-  for (const exit of exits) if (exit >= startAt) return exit;
+// An exit only belongs to this generation when it lands before the next start of any PID; a later
+// exit with the same PID belongs to the reused PID and must not close the earlier generation.
+function firstExitBetween(exits: readonly number[], startAt: number, nextStart: number | null): number | null {
+  for (const exit of exits) {
+    if (exit < startAt) continue;
+    if (nextStart !== null && exit >= nextStart) return null;
+    return exit;
+  }
   return null;
+}
+
+function latestStartIndex(
+  indices: readonly number[],
+  starts: readonly { readonly at: number }[],
+  at: number,
+): number | null {
+  let low = 0,
+    high = indices.length - 1,
+    found: number | null = null;
+  while (low <= high) {
+    const middle = (low + high) >>> 1,
+      index = indices[middle]!;
+    if (starts[index]!.at <= at) {
+      found = index;
+      low = middle + 1;
+    } else high = middle - 1;
+  }
+  return found;
 }
 
 function mergeSegments(segments: readonly DowntimeSegment[]): readonly DowntimeSegment[] {

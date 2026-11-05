@@ -60,36 +60,35 @@ export function createTimelineWriter(options: TimelineWriterOptions): TimelineWr
 export async function* readProbeTimeline(
   options: TimelineReadOptions,
 ): AsyncGenerator<Readonly<Record<string, unknown>>> {
-  for (const day of daysInRange(options.sinceMs, options.untilMs)) {
-    const records = await readTimelineFile(
-      probeTimelinePath(options.dir, options.daemonId, day),
-      options.sinceMs,
-      options.untilMs,
-    );
-    for (const record of records) yield record;
-  }
+  for (const day of daysInRange(options.sinceMs, options.untilMs))
+    yield* readTimelineFile(probeTimelinePath(options.dir, options.daemonId, day), options.sinceMs, options.untilMs);
 }
 
-async function readTimelineFile(
+async function* readTimelineFile(
   file: string,
   sinceMs: number,
   untilMs: number,
-): Promise<readonly Readonly<Record<string, unknown>>[]> {
+): AsyncGenerator<Readonly<Record<string, unknown>>> {
   const input = createReadStream(file),
     lines = createInterface({ input, crlfDelay: Number.POSITIVE_INFINITY }),
-    records: Readonly<Record<string, unknown>>[] = [];
+    iterator = lines[Symbol.asyncIterator]();
   try {
-    for await (const line of lines) {
-      const parsed = parseTimelineLine(line);
+    while (true) {
+      const step = await iterator.next().then(
+        (value) => ({ ok: true as const, value }),
+        (error: unknown) => ({ ok: false as const, error }),
+      );
+      if (!step.ok) {
+        // A day without a probe file is normal; any other read failure is the caller's to see.
+        if (!isMissingFile(step.error)) throw step.error;
+        break;
+      }
+      if (step.value.done) break;
+      const parsed = parseTimelineLine(step.value.value);
       if (!parsed.ok) continue;
       const at = Date.parse(String(parsed.value.at));
-      if (Number.isFinite(at) && at >= sinceMs && at <= untilMs) records.push(parsed.value);
+      if (Number.isFinite(at) && at >= sinceMs && at <= untilMs) yield parsed.value;
     }
-    return records;
-  } catch (error) {
-    // A day without a probe file is normal; any other read failure is the caller's to see.
-    if (!isMissingFile(error)) throw error;
-    return [];
   } finally {
     lines.close();
     input.close();

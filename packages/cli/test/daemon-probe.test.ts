@@ -1,12 +1,13 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createCapturePort, probeJsStack, type CaptureRequest } from "../src/daemon/probe/probe-capture.ts";
 import {
+  createProcessMetricsReader,
   parseDarwinPs,
   parseDarwinThreadCount,
   parseLsofFileCount,
@@ -156,6 +157,9 @@ test("probe rejects unknown flags and a sub-interval duration", () => {
   if (!tooShort.ok) assert.match(tooShort.message, /at least one --interval/u);
   const badCpu = parseProbeArgs(["daemon", "probe", "--cpu-percent", "101"], "/tmp/ha-probe");
   assert.equal(badCpu.ok, false);
+  const controlMethod = parseProbeArgs(["daemon", "probe", "--js-stack-method", "daemon.stop"], "/tmp/ha-probe");
+  assert.equal(controlMethod.ok, false);
+  if (!controlMethod.ok) assert.match(controlMethod.message, /read-only diagnostic/u);
 });
 
 test("summary accepts a UTC day and rejects an impossible one", () => {
@@ -214,6 +218,37 @@ test("process counter parsers keep unavailable fields null", () => {
   assert.equal(parseDarwinThreadCount("USER PID TT STATE\n"), null);
   assert.equal(parseLsofFileCount("p42\nfcwd\nn/tmp\nf1\nn/var/log\n"), 2);
   assert.equal(parseLsofFileCount(""), null);
+});
+
+test("linux CPU percent is a full-core ratio over elapsed seconds", async () => {
+  let at = 0,
+    ticks = 0;
+  const reader = createProcessMetricsReader({
+    platform: "linux",
+    now: () => at,
+    clockTicksPerSecond: 100,
+    readFileText: async (file) => {
+      if (file.endsWith("/status")) return "VmRSS:\t100 kB\nThreads:\t1\n";
+      const fields = Array(22).fill("0");
+      fields[11] = String(ticks);
+      return `1 (daemon) ${fields.join(" ")}`;
+    },
+    readDirNames: async () => [],
+  });
+  assert.equal((await reader.read(1)).cpuPercent, null);
+  at = 1_000;
+  ticks = 100;
+  assert.equal((await reader.read(1)).cpuPercent, 100);
+  const tracker = createTriggerTracker({
+    unresponsiveMs: 10_000,
+    cpuPercent: 90,
+    cpuSustainMs: 1_000,
+    rssBytes: 1_000_000,
+    cooldownMs: 0,
+  });
+  assert.equal(tracker.evaluate({ at: 0, state: "up", cpuPercent: null, rssBytes: 0 }), null);
+  assert.equal(tracker.evaluate({ at: 1_000, state: "up", cpuPercent: 100, rssBytes: 0 }), null);
+  assert.equal(tracker.evaluate({ at: 2_000, state: "up", cpuPercent: 100, rssBytes: 0 }), "high-cpu");
 });
 
 test("ping classifies a normal, slow, and unresponsive daemon", async (t) => {
@@ -289,6 +324,21 @@ test("trigger fires once per event, disarms on recovery, and honors cooldown", (
   });
   assert.equal(rss.evaluate({ at: 0, state: "up", cpuPercent: 0, rssBytes: 2_000 }), "rss");
   assert.equal(rss.evaluate({ at: 1, state: "up", cpuPercent: 0, rssBytes: 2_000 }), null);
+});
+
+test("one sustained multi-signal event captures exactly once", () => {
+  const tracker = createTriggerTracker({
+    unresponsiveMs: 30_000,
+    cpuPercent: 90,
+    cpuSustainMs: 60_000,
+    rssBytes: 100,
+    cooldownMs: 600_000,
+  });
+  const combined = (at: number): TriggerSample => ({ at, state: "down", cpuPercent: 95, rssBytes: 200 });
+  assert.equal(tracker.evaluate(combined(0)), "rss");
+  for (const at of [30_000, 35_000, 60_000, 65_000]) assert.equal(tracker.evaluate(combined(at)), null);
+  assert.equal(tracker.evaluate({ at: 700_000, state: "up", cpuPercent: 0, rssBytes: 0 }), null);
+  assert.equal(tracker.evaluate(combined(700_001)), "rss");
 });
 
 test("unresponsive loop captures one scene and writes a capture record", async (t) => {
@@ -381,6 +431,23 @@ test("takeProbeSample records metrics and tolerates a failing pid read", async (
     readMetrics: async () => ({ ...zeroMetrics, pid: null, unavailable: ["pid"] }),
   });
   assert.equal(noPid.pid, null);
+});
+
+test("timeline writer recovers after a transient directory failure", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-probe-recover-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const dir = path.join(root, "logs"),
+    at = Date.parse("2026-11-03T10:00:00.000Z");
+  writeFileSync(dir, "not a directory");
+  const writer = createTimelineWriter({ dir, daemonId: "default", keptDays: 7, now: () => new Date(at) });
+  await assert.rejects(writer.append({ kind: "sample", at: new Date(at).toISOString(), state: "down" }));
+  rmSync(dir);
+  mkdirSync(dir);
+  await writer.append({ kind: "sample", at: new Date(at).toISOString(), state: "up" });
+  await writer.close();
+  const records = await collectTimelineRange(dir, "default", at - 1, at + 1);
+  assert.equal(records.length, 1);
+  assert.equal(records[0]!.state, "up");
 });
 
 test("timeline rolls by day and streams only the requested range", async (t) => {
@@ -479,8 +546,11 @@ test("JS stack is captured only when hello advertises the method", async (t) => 
   assert.ok(captured.file !== null);
   assert.match(readFileSync(captured.file!, "utf8"), /at main/u);
   const missing = await probeJsStack(fake.socketPath, "daemon.other.stack", 1_000, dir);
-  assert.equal(missing.status, "not-advertised");
+  assert.equal(missing.status, "failed");
   assert.equal(missing.file, null);
+  const control = await probeJsStack(fake.socketPath, "daemon.stop", 1_000, dir);
+  assert.equal(control.status, "failed");
+  assert.match(control.detail ?? "", /refused non-diagnostic method daemon\.stop/u);
 });
 
 test("JS stack probe reports unreachable when hello times out", async (t) => {
