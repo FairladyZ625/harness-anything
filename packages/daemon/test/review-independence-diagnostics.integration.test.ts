@@ -937,10 +937,11 @@ test("review binding permits independent runtimes but still rejects the executio
     started.close();
     assert.ok(executionId, "planned runtime dispatch must create and hold an execution lease");
     processes[0]!.exit?.(0);
-    // The exit listener above chained its publication synchronously; only the queue drain remains.
+    // Exit publication follows asynchronous workspace-monitor shutdown; wait for the terminal
+    // signal before draining materialization and checking the original exit event.
     await runtimeEvent(
       cell,
-      Promise.resolve(),
+      cell.awaitRuntimeOutcome(original.runtimeSessionId),
       rootDir,
       "review-runtime-bound",
       (event) =>

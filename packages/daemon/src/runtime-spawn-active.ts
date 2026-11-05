@@ -1,12 +1,12 @@
 import type { ActiveRuntime, ResumeProcessObservation } from "./runtime-spawn-types.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { appendRuntimeWorkerRecord, type DispatchStallEvidence } from "./dispatch-stream.ts";
-import { statSync, watch, type FSWatcher } from "node:fs";
-import path from "node:path";
-import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS, resolveHarnessLayout } from "@harness-anything/kernel";
+import { DEFAULT_RUNTIME_STALL_TIMEOUT_MS } from "@harness-anything/kernel";
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
 import { noteProviderProgress } from "./runtime-provider-connectivity.ts";
 import { runtimeErrorCode } from "./runtime-spawn-errors.ts";
+import { openRuntimeWorkspaceMonitor } from "./runtime-workspace-monitor-thread.ts";
+import { createWorkspaceActivityQueue } from "./runtime-workspace-activity-queue.ts";
 
 type ActiveRuntimeBase = Omit<
   ActiveRuntime,
@@ -133,29 +133,30 @@ export function createActiveRuntime(base: ActiveRuntimeBase): ActiveRuntime {
 
 type RuntimeObservationHandles = {
   timer: NodeJS.Timeout | null;
-  workspaceTimer: NodeJS.Timeout | null;
-  watcher: FSWatcher | null;
+  monitor: ReturnType<typeof openRuntimeWorkspaceMonitor> | null;
   disposed: boolean;
   flushOnExit: boolean;
-  flushWorkspace: (() => void) | null;
 };
 
 const observationHandles = new WeakMap<ActiveRuntime, RuntimeObservationHandles>();
 const stallSettlementStarted = new WeakSet<ActiveRuntime>();
-const workspaceActivityIntervalMs = 1_000;
 
-export function disposeActiveRuntimeObservations(active: ActiveRuntime, flushOnExit = false): void {
+function releaseActiveRuntimeObservations(active: ActiveRuntime, flushOnExit: boolean): Promise<number | null> {
   const handles = observationHandles.get(active);
-  if (!handles) return;
+  if (!handles) return Promise.resolve(null);
   handles.flushOnExit = flushOnExit;
-  if (flushOnExit) handles.flushWorkspace?.();
   handles.disposed = true;
   if (handles.timer) clearTimeout(handles.timer);
-  if (handles.workspaceTimer) clearTimeout(handles.workspaceTimer);
-  handles.watcher?.close();
   active.recordProviderProgress = null;
   active.recordWorkspaceProgress = null;
   observationHandles.delete(active);
+  return handles.monitor?.close() ?? Promise.resolve(null);
+}
+
+export function disposeActiveRuntimeObservations(active: ActiveRuntime): void {
+  void releaseActiveRuntimeObservations(active, false).catch((error: unknown) =>
+    console.error("[runtime-observation] watcher termination failed", error),
+  );
 }
 
 export async function settleStalledRuntime(context: RuntimeSpawnerContext, active: ActiveRuntime): Promise<void> {
@@ -239,31 +240,10 @@ function armStallDeadline(
   handles.timer.unref();
 }
 
-function attachRuntimeObservations(
-  context: RuntimeSpawnerContext,
-  active: ActiveRuntime,
-): "watching" | "workspace-removed" {
-  const handles: RuntimeObservationHandles = {
-    timer: null,
-    workspaceTimer: null,
-    watcher: null,
-    disposed: false,
-    flushOnExit: false,
-    flushWorkspace: null,
-  };
-  const localRoot =
-      typeof context.input.rootDir === "string" ? resolveHarnessLayout(context.input.rootDir).localRoot : null,
-    localRootRelative = localRoot === null ? null : path.relative(active.cwd, localRoot),
-    ignoredRoot =
-      localRootRelative === null
-        ? null
-        : (localRootRelative === "." || localRootRelative === ""
-            ? path.join("runtime", "dispatches")
-            : localRootRelative
-          ).replaceAll(path.sep, "/");
+function attachRuntimeObservations(context: RuntimeSpawnerContext, active: ActiveRuntime): void {
+  const handles: RuntimeObservationHandles = { timer: null, monitor: null, disposed: false, flushOnExit: false };
   observationHandles.set(active, handles);
-  // EventEmitter callbacks run after registration's try/catch has returned. Keep their
-  // filesystem work inside the runtime's scheduling boundary, never the writer's event loop.
+  // Worker messages are already coalesced. Enter the single writer only once per observation.
   const observe = (work: () => void | Promise<void>, workspace = false): void => {
     context.input.schedule(() => {
       if (
@@ -274,14 +254,14 @@ function attachRuntimeObservations(
       try {
         return work();
       } catch (error) {
-        retireObservationFault(context, active, error);
-        throw error; // The existing queue reports the original error; it cannot escape the watcher callback.
+        retireObservationFault(context, active, error, handles.flushOnExit);
+        throw error;
       }
     }, active.binding);
   };
-  const progress = (workspaceChanged: boolean, flushOnExit = false, observationAtMs?: number): void | Promise<void> => {
+  const progress = (workspaceChanged: boolean, observationAtMs?: number): void | Promise<void> => {
     if (
-      (handles.disposed && !flushOnExit) ||
+      (handles.disposed && !handles.flushOnExit) ||
       context.processes.get(active.runtimeSessionId) !== active ||
       active.stalledAt !== null
     )
@@ -289,13 +269,9 @@ function attachRuntimeObservations(
     const observedAtMs = observationAtMs ?? Date.now();
     active.lastProgressAtMs = Math.max(active.lastProgressAtMs, observedAtMs);
     if (workspaceChanged) {
-      // A file change is real progress even while the provider is retrying: move the reported
-      // clock and clear a previously emitted connection fault through the same event channel.
       active.workspaceActivityCount += 1;
       active.lastRealProgressAtMs = Math.max(active.lastRealProgressAtMs, observedAtMs);
-      active.stream.appendWorkspaceActivity?.(
-        observationAtMs === undefined ? context.input.now() : new Date(observationAtMs).toISOString(),
-      );
+      active.stream.appendWorkspaceActivity?.(new Date(observedAtMs).toISOString());
       const publication = noteProviderProgress(context, active, observedAtMs);
       armStallDeadline(context, active, handles);
       return publication;
@@ -303,96 +279,34 @@ function attachRuntimeObservations(
     armStallDeadline(context, active, handles);
   };
   active.recordProviderProgress = () => progress(false);
-  active.recordWorkspaceProgress = () => progress(true);
-  // Workspaces can be reclaimed independently of the durable dispatch. Observe only a workspace
-  // that still exists; its removal must not prevent the repository from restoring this runtime.
-  const workspaceRemoved = (): boolean => {
-      if (statSync(active.cwd, { throwIfNoEntry: false })) return false;
-      handles.watcher?.close();
-      handles.watcher = null;
-      return true;
-    },
-    watchError = (error: NodeJS.ErrnoException): void => {
-      // Windows reports deletion as EPERM; only an absent root makes it an ordinary removal.
-      if ((error.code !== "ENOENT" && error.code !== "EPERM") || !workspaceRemoved()) throw error;
-    };
-  let pendingRename = false,
-    pendingActivity: number | null = null,
-    workspaceQueued = false,
-    lastWorkspaceQueuedAt = -Infinity;
-  // A watcher notification is an advisory liveness signal, not a durable event per file.
-  // Merge before writer admission, and persist the most recent signal at most once per second.
-  // A trailing timer preserves the last signal and a possible workspace removal after a burst.
-  const queueWorkspaceObservation = (force = false): void => {
-    if (workspaceQueued || (!pendingRename && pendingActivity === null)) return;
-    const remaining = lastWorkspaceQueuedAt + workspaceActivityIntervalMs - Date.now();
-    if (!force && remaining > 0) {
-      if (!handles.workspaceTimer) {
-        handles.workspaceTimer = setTimeout(() => {
-          handles.workspaceTimer = null;
-          queueWorkspaceObservation();
-        }, remaining);
-        handles.workspaceTimer.unref();
-      }
-      return;
-    }
-    if (handles.workspaceTimer) clearTimeout(handles.workspaceTimer);
-    handles.workspaceTimer = null;
-    workspaceQueued = true;
-    lastWorkspaceQueuedAt = Date.now();
-    observe(() => {
-      workspaceQueued = false;
-      const renamed = pendingRename,
-        changed = pendingActivity;
-      pendingRename = false;
-      pendingActivity = null;
-      if (renamed && workspaceRemoved()) {
-        active.recordWorkspaceProgress = null;
-        return;
-      }
-      if (changed !== null) return progress(true, handles.flushOnExit, changed);
-    }, true);
-  };
-  handles.flushWorkspace = () => queueWorkspaceObservation(true);
-  const workspaceChanged = (eventType: string, filename: string | Buffer | null): void => {
-    if (handles.disposed || context.processes.get(active.runtimeSessionId) !== active || active.stalledAt !== null)
-      return;
-    const relative = typeof filename === "string" ? filename : String(filename ?? "");
-    // The daemon's own stream/cache writes are observations about the dispatch, not worker
-    // progress. Ignoring the local runtime root also prevents appendWorkspaceActivity from
-    // feeding its own watcher and extending the deadline indefinitely.
-    const normalized = relative?.replaceAll(path.sep, "/");
-    if (
-      ignoredRoot !== null &&
-      (normalized === ignoredRoot || (ignoredRoot !== "" && normalized.startsWith(`${ignoredRoot}/`)))
-    )
-      return;
-    pendingRename ||= eventType === "rename";
-    if (normalized) pendingActivity = Date.now();
-    queueWorkspaceObservation();
-  };
+  active.recordWorkspaceProgress = (observedAtMs) => progress(true, observedAtMs);
   if (active.stalledAt === null) armStallDeadline(context, active, handles);
-  // Recursive backends can return an empty watcher for an absent root without throwing.
-  if (workspaceRemoved()) return "workspace-removed";
-  try {
-    handles.watcher = watch(active.cwd, { recursive: true }, workspaceChanged);
-    handles.watcher.on("error", (error: NodeJS.ErrnoException) => {
+  const queueWorkspace = createWorkspaceActivityQueue(
+    (work) => observe(work, true),
+    (observedAtMs) => progress(true, observedAtMs),
+  );
+  handles.monitor = openRuntimeWorkspaceMonitor(context.input.rootDir, active.cwd, (record) => {
+    if (record.kind === "workspace_activity") {
+      queueWorkspace(Date.parse(record.occurredAt));
+    } else if (record.kind === "workspace_removed") {
       observe(() => {
-        watchError(error);
         active.recordWorkspaceProgress = null;
       });
-    });
-    handles.watcher.unref?.();
-  } catch (error) {
-    // Check the directory after watch refuses it as well: deletion can race registration.
-    // Other watcher errors, including ENOENT below a workspace that still exists, stay faults.
-    watchError(error as NodeJS.ErrnoException);
-    return "workspace-removed";
-  }
-  return "watching";
+    } else if (record.kind === "workspace_observation_failed") {
+      const error = Object.assign(new Error(record.message), record.code ? { code: record.code } : {});
+      observe(() => {
+        throw error;
+      }, true);
+    }
+  });
 }
 
-function retireObservationFault(context: RuntimeSpawnerContext, active: ActiveRuntime, error: unknown): void {
+function retireObservationFault(
+  context: RuntimeSpawnerContext,
+  active: ActiveRuntime,
+  error: unknown,
+  providerExited = false,
+): void {
   active.observationError = error instanceof Error ? error : new Error(String(error));
   active.lossReason = `Runtime workspace observation failed (${runtimeErrorCode(error)}): ${active.observationError.message}`;
   context.input.recordLifecycle?.({
@@ -402,6 +316,7 @@ function retireObservationFault(context: RuntimeSpawnerContext, active: ActiveRu
     error: active.lossReason,
   });
   disposeActiveRuntimeObservations(active);
+  if (providerExited) return;
   // Termination may wait on another process. It must not hold the ledger writer; only
   // the prepared loss record and normal terminal settlement return to its existing queue.
   void Promise.resolve()
@@ -429,6 +344,10 @@ export function attachActiveRuntime(
   resumeObservation?: ResumeProcessObservation,
 ): void {
   const runtimeSessionId = active.runtimeSessionId,
+    exitState: {
+      closed?: Promise<number | null>;
+      recordProgress?: ActiveRuntime["recordWorkspaceProgress"];
+    } = {},
     handlers = {
       output: (chunk: string, persisted = false) => {
         if (context.processes.get(runtimeSessionId) === active)
@@ -448,23 +367,35 @@ export function attachActiveRuntime(
       },
       exit: (code: number | null, lossReason?: string) => {
         if (context.processes.get(runtimeSessionId) === active) {
-          disposeActiveRuntimeObservations(active, true);
-          context.input.schedule(async () => {
-            if (context.processes.get(runtimeSessionId) !== active) return;
-            if (lossReason) active.lossReason = lossReason;
-            await context.consumeChunk(active, "", true);
-            await context.publishExit(active, code);
-          }, active.binding);
+          if (!exitState.closed) {
+            exitState.recordProgress = active.recordWorkspaceProgress;
+            exitState.closed = releaseActiveRuntimeObservations(active, true);
+          }
+          void exitState.closed.then(
+            (finalProgressAt) => {
+              context.input.schedule(async () => {
+                if (context.processes.get(runtimeSessionId) !== active) return;
+                if (finalProgressAt !== null) await exitState.recordProgress?.(finalProgressAt);
+                if (lossReason && !active.observationError) active.lossReason = lossReason;
+                await context.consumeChunk(active, "", true);
+                await context.publishExit(active, code);
+              }, active.binding);
+            },
+            (error: unknown) => {
+              context.input.schedule(async () => {
+                if (context.processes.get(runtimeSessionId) !== active) return;
+                retireObservationFault(context, active, error, true);
+                await context.consumeChunk(active, "", true);
+                await context.publishExit(active, code);
+              }, active.binding);
+            },
+          );
         }
       },
     };
-  // Observations first: the watchdog and its workspace watcher belong to this registration, so a
-  // provider exit that arrives while the process handlers are being wired already finds a
-  // disposable registration instead of one created after disposal. A present workspace the watcher cannot
-  // open is a real fault: it travels out of here, and the launcher's failed-launch path terminates
-  // the process and retires the dispatch.
+  // Register observations before process handlers so an immediate exit can dispose them.
   try {
-    if (attachRuntimeObservations(context, active) === "workspace-removed") active.recordWorkspaceProgress = null;
+    attachRuntimeObservations(context, active);
   } catch (error) {
     disposeActiveRuntimeObservations(active);
     throw error;

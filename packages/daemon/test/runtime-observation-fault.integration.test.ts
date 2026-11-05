@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, watch, writeFileSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -19,7 +19,8 @@ test(
     const root = mkdtempSync(path.join(tmpdir(), "ha-writer-watch-fault-"));
     initIngressRepo(root, 0);
     const faultCwd = path.join(root, "faulted-workspace"),
-      siblingCwd = path.join(root, "sibling-workspace");
+      siblingCwd = path.join(root, "sibling-workspace"),
+      watcherReady = path.join(root, "watcher-ready");
     mkdirSync(faultCwd);
     mkdirSync(siblingCwd);
     const originalWorker = workerThreads.Worker;
@@ -38,25 +39,21 @@ test(
         terminated: number;
       }
     >();
-    // This preload runs in the real RepoWriter thread. It retains the native FSWatcher,
-    // and emits only after the test sends a message following successful registration.
+    // The writer's nested monitor worker inherits this preload; trigger a native watcher error
+    // only after both runtimes are attached and the test changes the faulted workspace.
     const preload = `
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
-import { parentPort } from "node:worker_threads";
 const nativeWatch = fs.watch;
-let target;
 fs.watch = function(...args) {
   const watcher = nativeWatch.apply(this, args);
-  if (String(args[0]) === ${JSON.stringify(faultCwd)}) target = watcher;
+  if (String(args[0]) === ${JSON.stringify(faultCwd)}) {
+    watcher.once("change", () => watcher.emit("error", Object.assign(new Error("native watcher permission denied"), {code:"EACCES"})));
+    fs.writeFileSync(${JSON.stringify(watcherReady)}, "ready");
+  }
   return watcher;
 };
 syncBuiltinESMExports();
-parentPort.on("message", message => {
-  if (message?.schema !== "test-workspace-observation-fault") return;
-  if (!target) throw new Error("the target watcher was not registered");
-  target.emit("error", Object.assign(new Error("native watcher permission denied"), {code:"EACCES"}));
-});
 `;
     t.mock.method(
       workerThreads,
@@ -193,7 +190,8 @@ parentPort.on("message", message => {
     assert.equal(writers.length, 1);
     const writer = writers[0]!,
       threadId = writer.threadId;
-    writer.postMessage({ schema: "test-workspace-observation-fault" });
+    await waitForFile(watcherReady);
+    writeFileSync(path.join(faultCwd, "trigger.txt"), "change");
     assert.match(await survive(observationFailed.promise), /EACCES.*native watcher permission denied/u);
     await survive(terminationStarted.promise);
     // The runtime's termination is intentionally pending: neither ledger reads nor writes may wait for it.
@@ -230,3 +228,18 @@ parentPort.on("message", message => {
     assert.equal(sibling.terminated, 0);
   },
 );
+
+function waitForFile(file: string): Promise<void> {
+  return new Promise((resolve) => {
+    const watcher = watch(path.dirname(file), () => {
+      if (existsSync(file)) {
+        watcher.close();
+        resolve();
+      }
+    });
+    if (existsSync(file)) {
+      watcher.close();
+      resolve();
+    }
+  });
+}

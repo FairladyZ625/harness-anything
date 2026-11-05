@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -9,25 +9,35 @@ import { policyTestCenter, withPolicyGroup } from "./keycloak-policy.fixtures.ts
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openPersistentWriterEpoch } from "@harness-anything/storage";
 import { openWriterSupervisor } from "../src/writer-supervisor.ts";
+import { dispatchStreamPath, readDispatchStream } from "../src/dispatch-stream.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import { actor, initRepo } from "./task-surface.fixtures.ts";
 
 test(
-  "real workspace changes keep the writer queue bounded after a controlled finite burst",
+  "ordinary writes remain available while an active runtime workspace continuously changes thousands of files",
   { timeout: 300_000 },
   async (t) => {
-    const notificationTarget = Number(process.env.FLEET_STRESS_WORKSPACE_NOTIFICATIONS ?? 100),
+    // Scoped acceptance: <= 4,000 files, continuous churn, machine CPU idle >= 20%,
+    // and ordinary-write p95 <= 500 ms. Enable the measured Linux run explicitly;
+    // the normal integration test keeps its broader single-write regression guard.
+    const measureP95 = process.env.FLEET_STRESS_WORKSPACE_P95 === "1",
+      fileCount = Number(process.env.FLEET_STRESS_WORKSPACE_FILES ?? 2_000),
       parent = mkdtempSync(path.join(tmpdir(), "ha-writer-queue-depth-")),
       repoId = workspaceId("writer-queue-depth"),
       stateRoot = path.join(parent, "writer-epochs"),
       releasePath = path.join(parent, "release-provider"),
+      readyPath = path.join(parent, "provider-ready"),
+      providerFinished = path.join(parent, "provider-finished"),
+      watcherReady = path.join(parent, "watcher-ready"),
       executablePath = writeProviderExecutable(
         path.join(parent, "provider.mjs"),
         `import fs from "node:fs";
+      fs.writeFileSync(${JSON.stringify(readyPath)}, "ready");
       await new Promise(resolve => { const watcher = fs.watch(${JSON.stringify(parent)}, () => {
         if (fs.existsSync(${JSON.stringify(releasePath)})) { watcher.close(); resolve(); }
       }); if (fs.existsSync(${JSON.stringify(releasePath)})) { watcher.close(); resolve(); } });
+      fs.writeFileSync(${JSON.stringify(providerFinished)}, "finished");
 ` +
           'console.log(JSON.stringify({ type: "thread.started", thread_id: "queue-depth-session" }));\n' +
           'console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }));\n',
@@ -69,18 +79,16 @@ test(
         isolationState: "enforced" as const,
       };
     let supervisor: Awaited<ReturnType<typeof openWriterSupervisor>> | undefined;
+    let churn: Worker | undefined;
+    const stopChurn = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 2)),
+      shutdownGate = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT * 5)),
+      maxWriteMs = 3_000;
     try {
       const repoRoot = path.join(parent, "repo");
       mkdirSync(repoRoot);
       mkdirSync(path.join(repoRoot, "node_modules"));
       const rootDir = canonicalRoot(repoRoot);
       initRepo(rootDir);
-      // Keep the file churn out of Git snapshots so this measures writer queue contention.
-      writeFileSync(path.join(repoRoot, ".git", "info", "exclude"), "node_modules/\n");
-      // Populate before watching: the measured burst modifies files, avoiding recursive watcher
-      // directory-discovery work for each newly created entry.
-      for (let index = 0; index < Math.max(1_000, notificationTarget); index += 1)
-        writeFileSync(path.join(repoRoot, "node_modules", `file-${index}`), "before");
       const authority = openPersistentWriterEpoch({ stateRoot, holderId: "writer-queue-depth" }),
         lease = authority.acquire(repoId),
         fence = {
@@ -101,30 +109,42 @@ test(
         })
       ).close();
       const runtimeExited = deferred<void>(),
-        burstObserved = deferred<number>(),
         publishedQueueDepths: (number | null)[] = [];
-      // Buffer actual native notifications in the writer thread and release them together. This
-      // makes the queue contention deterministic without inventing file events or sleeping.
-      // Drop later notifications in the fixture so only the measured burst competes with the write.
+      let workspaceWatchRegistrations = 0;
+      // The watcher must not be installed in the writer thread, even if the workspace churns.
       const preload = `
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
-import { parentPort } from "node:worker_threads";
+import threads, { parentPort, workerData } from "node:worker_threads";
+if (workerData?.shutdownGate && workerData?.cwd !== ${JSON.stringify(repoRoot)}) {
+  Atomics.store(new Int32Array(workerData.shutdownGate), 2, 1);
+  const NativeWorker = threads.Worker;
+  threads.Worker = class extends NativeWorker {
+    constructor(url, options = {}) {
+      const isMonitor = options.workerData?.cwd === ${JSON.stringify(repoRoot)};
+      if (isMonitor) Atomics.store(new Int32Array(workerData.shutdownGate), 3, 1);
+      super(url, options);
+      if (isMonitor) {
+        const gate = new Int32Array(workerData.shutdownGate), post = this.postMessage.bind(this);
+        this.once("exit", () => Atomics.store(gate, 4, Math.round(performance.now())));
+        this.postMessage = (message, ...args) => {
+          if (message !== "close") return post(message, ...args);
+          Atomics.store(gate, 0, 1);
+          Atomics.notify(gate, 0);
+          void Promise.resolve(Atomics.waitAsync(gate, 1, 0).value).then(() => post(message, ...args));
+        };
+      }
+    }
+  };
+  syncBuiltinESMExports();
+}
 const nativeWatch = fs.watch;
 fs.watch = function(target, options, listener) {
-  if (String(target) !== ${JSON.stringify(repoRoot)}) return nativeWatch.call(this, target, options, listener);
-  const pending = [];
-  let released = false;
-  const watcher = nativeWatch.call(this, target, options, (event, filename) => {
-    if (released) return;
-    pending.push([event, filename]);
-    if (pending.length === ${notificationTarget}) {
-      released = true;
-      watcher.close();
-      for (const args of pending) listener(...args);
-      parentPort.postMessage({ schema: "test-native-workspace-burst", count: pending.length });
-    }
-  });
+  const watcher = nativeWatch.call(this, target, options, listener);
+  if (String(target) === ${JSON.stringify(repoRoot)} && options?.recursive) {
+    if (workerData?.cwd === ${JSON.stringify(repoRoot)}) fs.writeFileSync(${JSON.stringify(watcherReady)}, "ready");
+    else parentPort.postMessage({ schema: "test-recursive-workspace-watch" });
+  }
   return watcher;
 };
 syncBuiltinESMExports();
@@ -160,16 +180,17 @@ syncBuiltinESMExports();
           createWorker: (url, options) => {
             const worker = new Worker(url, {
               ...options,
+              workerData: { ...options.workerData, shutdownGate: shutdownGate.buffer },
               execArgv: [...options.execArgv, "--import", `data:text/javascript,${encodeURIComponent(preload)}`],
             });
-            worker.on("message", (message: { schema?: string; count?: number }) => {
-              if (message.schema === "test-native-workspace-burst") burstObserved.resolve(message.count!);
+            worker.on("message", (message: { schema?: string }) => {
+              if (message.schema === "test-recursive-workspace-watch") workspaceWatchRegistrations += 1;
             });
             return worker;
           },
         },
       );
-      const spawned = await supervisor.request<{ readonly runtimeSessionId: string }>(
+      const spawned = await supervisor.request<{ readonly runtimeSessionId: string; readonly dispatchId: string }>(
         "spawnRuntime",
         {
           runtimeInstanceId: instance.instanceId,
@@ -181,24 +202,169 @@ syncBuiltinESMExports();
         binding,
       );
       assert.equal(typeof spawned.runtimeSessionId, "string");
+      await waitForFile(readyPath);
+      await waitForFile(watcherReady);
+      assert.equal(workspaceWatchRegistrations, 0, "the writer must not recursively watch the workspace");
       publishedQueueDepths.length = 0;
-      for (let index = 0; index < Math.max(1_000, notificationTarget); index += 1)
-        writeFileSync(path.join(repoRoot, "node_modules", `file-${index}`), "workspace activity");
-      const notifications = await burstObserved.promise,
-        maxQueueDepth = Math.max(0, ...publishedQueueDepths.filter((depth): depth is number => depth !== null)),
-        writeStarted = performance.now(),
+      churn = new Worker(
+        `const fs = require("node:fs");
+         const path = require("node:path");
+         const { parentPort, workerData } = require("node:worker_threads");
+         const stop = new Int32Array(workerData.stop);
+         for (let i = 0; i < workerData.files; i++) fs.writeFileSync(path.join(workerData.dir, "file-" + i), "created");
+         parentPort.postMessage({ ready: true });
+         let writes = 0;
+         while (Atomics.load(stop, 0) === 0 && writes < workerData.limit) {
+           fs.writeFileSync(path.join(workerData.dir, "file-" + (writes % workerData.files)), "changed");
+           writes++;
+           Atomics.store(stop, 1, writes);
+         }
+         parentPort.postMessage({ writes, limitReached: writes === workerData.limit });`,
+        {
+          eval: true,
+          workerData: {
+            dir: path.join(repoRoot, "node_modules"),
+            files: fileCount,
+            stop: stopChurn.buffer,
+            limit: measureP95 ? 1_000_000 : 100_000,
+          },
+        },
+      );
+      let churnWrites = 0,
+        churnLimitReached = false;
+      const ready = new Promise<void>((resolve, reject) => {
+        churn!.on("message", (message: { ready?: boolean; writes?: number; limitReached?: boolean }) => {
+          if (message.ready) resolve();
+          if (typeof message.writes === "number") churnWrites = message.writes;
+          if (message.limitReached) churnLimitReached = true;
+        });
+        churn!.once("error", reject);
+      });
+      const churnExited = new Promise<void>((resolve, reject) => {
+        churn!.once("error", reject);
+        churn!.once("exit", (code) =>
+          code === 0 ? resolve() : reject(new Error(`churn worker exited ${String(code)}`)),
+        );
+      });
+      void churnExited.catch(() => {});
+      await ready;
+      await waitForWorkspaceProgress(repoRoot, spawned.dispatchId);
+      const writeStarted = performance.now(),
         receipt = await supervisor.request<{ readonly outcome: string }>(
           "run",
-          { action: { kind: "task-create", taskId: "task_workspace_burst", title: "Write during a workspace burst" } },
+          { action: { kind: "task-create", taskId: "task_workspace_burst", title: "Write during workspace churn" } },
           binding,
         ),
         writeMs = Math.round(performance.now() - writeStarted);
-      t.diagnostic(`nativeNotifications=${notifications} maxQueueDepth=${maxQueueDepth} taskCreateMs=${writeMs}`);
+      t.diagnostic(`initialTaskCreateMs=${writeMs} workspaceFiles=${fileCount}`);
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-      assert.ok(maxQueueDepth <= 3, `workspace burst left ${String(maxQueueDepth)} queued writes`);
+      assert.ok(writeMs < maxWriteMs, `ordinary write during workspace churn took ${String(writeMs)} ms`);
+      if (measureP95) {
+        assert.ok(fileCount > 0 && fileCount <= 4_000, "p95 acceptance requires at most 4,000 files");
+        assert.equal(process.platform, "linux", "CPU idle measurement uses Linux /proc/stat");
+        const samples: {
+          elapsedMs: number;
+          idleBefore: number;
+          totalBefore: number;
+          idleAfter: number;
+          totalAfter: number;
+          churnBefore: number;
+          churnAfter: number;
+        }[] = [];
+        for (let index = 0; index < 40; index++) {
+          const cpuBefore = cpuTicks(),
+            churnBefore = Atomics.load(stopChurn, 1),
+            start = performance.now();
+          const sampleReceipt = await supervisor.request<{ readonly outcome: string }>(
+            "run",
+            {
+              action: {
+                kind: "task-create",
+                taskId: `task_workspace_p95_${index}`,
+                title: "Measured workspace churn write",
+              },
+            },
+            binding,
+          );
+          const elapsedMs = performance.now() - start,
+            churnAfter = Atomics.load(stopChurn, 1),
+            cpuAfter = cpuTicks();
+          samples.push({
+            elapsedMs,
+            idleBefore: cpuBefore.idle,
+            totalBefore: cpuBefore.total,
+            idleAfter: cpuAfter.idle,
+            totalAfter: cpuAfter.total,
+            churnBefore,
+            churnAfter,
+          });
+          assert.equal(sampleReceipt.outcome, "applied", JSON.stringify(sampleReceipt));
+        }
+        const sorted = samples.map((sample) => sample.elapsedMs).sort((a, b) => a - b),
+          p95 = sorted[Math.ceil(sorted.length * 0.95) - 1]!,
+          idle = samples.map(
+            (sample) => (100 * (sample.idleAfter - sample.idleBefore)) / (sample.totalAfter - sample.totalBefore),
+          ),
+          durationMs = samples.reduce((sum, sample) => sum + sample.elapsedMs, 0),
+          changes = samples.reduce((sum, sample) => sum + sample.churnAfter - sample.churnBefore, 0);
+        t.diagnostic(`p95Samples=${JSON.stringify(samples)}`);
+        t.diagnostic(
+          `p95Summary=${JSON.stringify({ fileCount, sampleCount: samples.length, p95Ms: p95, minIdlePercent: Math.min(...idle), changes, durationMs, changesPerSecond: (changes * 1000) / durationMs })}`,
+        );
+        assert.ok(
+          samples.every((sample) => sample.churnAfter > sample.churnBefore),
+          "churn must continue during each measured write",
+        );
+        assert.ok(
+          idle.every((value) => value >= 20),
+          "CPU idle below 20%: acceptance measurement is inconclusive",
+        );
+        assert.ok(p95 <= 500, `ordinary write p95 was ${String(p95)} ms`);
+      }
       writeFileSync(releasePath, "release");
+      await Atomics.waitAsync(shutdownGate, 0, 0, 20_000).value;
+      t.diagnostic(
+        `shutdownGate=${Array.from(shutdownGate).join(",")} providerFinished=${String(existsSync(providerFinished))}`,
+      );
+      assert.equal(Atomics.load(shutdownGate, 0), 1, "monitor shutdown must be requested and deliberately held open");
+      const beforeExitWrite = Atomics.load(stopChurn, 1),
+        exitWriteStarted = performance.now();
+      let timeout: NodeJS.Timeout | undefined;
+      const exitReceipt = await Promise.race([
+        supervisor.request<{ readonly outcome: string }>(
+          "run",
+          { action: { kind: "task-create", taskId: "task_during_monitor_close", title: "Write during monitor close" } },
+          binding,
+        ),
+        new Promise<never>((_resolve, reject) => {
+          timeout = setTimeout(() => reject(new Error("ordinary write was blocked by monitor shutdown")), 5_000);
+        }),
+      ]).finally(() => clearTimeout(timeout));
+      const exitWriteMs = Math.round(performance.now() - exitWriteStarted);
+      assert.equal(exitReceipt.outcome, "applied", JSON.stringify(exitReceipt));
+      assert.ok(exitWriteMs < maxWriteMs, `ordinary write during monitor shutdown took ${String(exitWriteMs)} ms`);
+      assert.ok(Atomics.load(stopChurn, 1) > beforeExitWrite, "workspace changes continued during the exit write");
+      const shutdownReleasedAt = performance.now();
+      Atomics.store(shutdownGate, 1, 1);
+      Atomics.notify(shutdownGate, 1);
+      Atomics.store(stopChurn, 0, 1);
+      await churnExited;
+      const maxQueueDepth = Math.max(0, ...publishedQueueDepths.filter((depth): depth is number => depth !== null));
+      t.diagnostic(
+        `workspaceFiles=${fileCount} churnWrites=${churnWrites} maxQueueDepth=${maxQueueDepth} taskCreateMs=${writeMs} exitTaskCreateMs=${exitWriteMs} maxWriteMs=${maxWriteMs}`,
+      );
+      assert.ok(churnWrites > 0, "changes continued while the ordinary write ran");
+      assert.equal(churnLimitReached, false, "the bounded churn must still be active during the ordinary write");
+      assert.ok(maxQueueDepth <= 3, `workspace churn left ${String(maxQueueDepth)} queued writes`);
       await runtimeExited.promise;
+      t.diagnostic(
+        `shutdownToMonitorExitMs=${Math.round(Atomics.load(shutdownGate, 4) - shutdownReleasedAt)} shutdownToOutcomeMs=${Math.round(performance.now() - shutdownReleasedAt)}`,
+      );
     } finally {
+      Atomics.store(shutdownGate, 1, 1);
+      Atomics.notify(shutdownGate, 1);
+      Atomics.store(stopChurn, 0, 1);
+      await churn?.terminate();
       writeFileSync(releasePath, "release");
       await supervisor?.close();
       rmSync(parent, { recursive: true, force: true });
@@ -209,4 +375,38 @@ syncBuiltinESMExports();
 function deferred<T>(): { readonly promise: Promise<T>; readonly resolve: (value: T) => void } {
   let resolve!: (value: T) => void;
   return { promise: new Promise<T>((settle) => (resolve = settle)), resolve };
+}
+
+function waitForFile(file: string): Promise<void> {
+  return new Promise((resolve) => {
+    const watcher = watch(path.dirname(file), () => {
+      if (existsSync(file)) {
+        watcher.close();
+        resolve();
+      }
+    });
+    if (existsSync(file)) {
+      watcher.close();
+      resolve();
+    }
+  });
+}
+
+function waitForWorkspaceProgress(rootDir: string, dispatchId: string): Promise<void> {
+  return new Promise((resolve) => {
+    const check = () => {
+      if (readDispatchStream(rootDir, dispatchId)?.records.some((record) => record.kind === "workspace_activity")) {
+        watcher.close();
+        resolve();
+      }
+    };
+    const watcher = watch(path.dirname(dispatchStreamPath(rootDir, dispatchId)), check);
+    check();
+  });
+}
+
+// Linux aggregate machine CPU counters; guest time is already included in user/nice.
+function cpuTicks(): { idle: number; total: number } {
+  const fields = readFileSync("/proc/stat", "utf8").split("\n", 1)[0]!.trim().split(/\s+/).slice(1, 9).map(Number);
+  return { idle: fields[3]!, total: fields.reduce((sum, value) => sum + value, 0) };
 }

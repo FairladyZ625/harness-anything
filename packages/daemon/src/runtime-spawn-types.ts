@@ -230,7 +230,7 @@ export type ActiveRuntime = {
   workspaceActivityCount: number;
   stalledAt: string | null;
   recordProviderProgress: (() => void) | null;
-  recordWorkspaceProgress: (() => void | Promise<void>) | null;
+  recordWorkspaceProgress: ((observedAtMs?: number) => void | Promise<void>) | null;
   readonly startedAt: string;
   readonly stream: DispatchStreamWriter;
   readonly fallbackAttempt: RuntimeFallbackAttempt | null;
