@@ -1,10 +1,19 @@
 #!/usr/bin/env node
 import path from "node:path";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { consumeKnownError } from "@harness-anything/kernel/internal/error-consumption";
 
 let exitAfterSupersession = false;
 
 async function main(argv: readonly string[]): Promise<number> {
+  if (argv[0] === "--after-parent-exit") {
+    // The inherited pipe closes only when the old process actually exits, releasing OS writer locks.
+    process.stdin.resume();
+    await once(process.stdin, "end");
+    process.argv.splice(2, 1);
+    return main(argv.slice(1));
+  }
   if (argv[0] === "--runtime-worker-host") {
     const { runRuntimeWorkerHost } = await import("./runtime-worker-host.ts");
     await runRuntimeWorkerHost();
@@ -39,12 +48,15 @@ async function main(argv: readonly string[]): Promise<number> {
   // so under supervision the operator's stop is still the operator's: leaving cleanly is what keeps
   // the service manager from trying again. Only `ha daemon start --service` clears the marker.
   const supervised = argv.includes("--supervised"),
-    stoppedAt = supervised ? readDaemonStoppedAt(userRoot, daemonId) : null;
+    respectStoppedMarker = supervised || argv.includes("--respect-stopped-marker"),
+    stoppedAt = respectStoppedMarker ? readDaemonStoppedAt(userRoot, daemonId) : null;
   if (stoppedAt) {
     process.stderr.write(`daemon not started: stopped by the operator at ${stoppedAt}\n`);
     return 0;
   }
-  if (!supervised) clearDaemonStoppedMarker(userRoot, daemonId);
+  if (!respectStoppedMarker) clearDaemonStoppedMarker(userRoot, daemonId);
+  const markerOption = process.argv.indexOf("--respect-stopped-marker", 2);
+  if (markerOption !== -1) process.argv.splice(markerOption, 1);
   return runResidentDaemon(userRoot, daemonId, supervised, (receipt, code) => {
     console.log(JSON.stringify(receipt));
     return code;
@@ -72,6 +84,7 @@ async function runResidentDaemon(
   let daemon: Awaited<ReturnType<typeof startDaemon>>,
     stopping: Promise<void> | null = null,
     superseded = false,
+    supersessionFailed = false,
     parked: (() => void) | undefined,
     ownerLivenessTimer: NodeJS.Timeout | undefined;
   const idle = new Promise<void>((resolve) => {
@@ -97,6 +110,24 @@ async function runResidentDaemon(
         retainPidUntilExit: true,
         shutdownRequested: () => stopping !== null,
         requestShutdown: requestStop,
+        onSupersededDrainFailure: buildSupersessionEnabled
+          ? async () => {
+              try {
+                // A failed drain cannot prove that every writer handle was released. Supervision
+                // restarts after exit; the on-demand successor waits for our pipe to close first.
+                if (!supervised) await startAfterResidentExit(userRoot, daemonId);
+              } catch (error) {
+                process.stderr.write(
+                  `daemon failure recovery could not start: ${error instanceof Error ? error.message : String(error)}\n`,
+                );
+                throw error;
+              } finally {
+                supersessionFailed = true;
+                superseded = true;
+                parked?.();
+              }
+            }
+          : undefined,
         onSupersededExit: buildSupersessionEnabled
           ? async () => {
               // The service manager restarts a daemon that exits non-zero; starting a successor here
@@ -128,18 +159,49 @@ async function runResidentDaemon(
       ownerLivenessTimer = setInterval(() => {
         if (!processExists(ownerPid)) requestStop();
       }, 250);
-    if (stopping === null) {
-      await idle;
-      await stopping;
-    } else await daemon.stop();
+    const [stopResult] = await Promise.allSettled([
+      (async () => {
+        if (stopping === null) {
+          await idle;
+          await stopping;
+        } else await daemon.stop();
+      })(),
+    ]);
+    if (stopResult?.status === "rejected") {
+      if (!superseded) throw stopResult.reason;
+      process.stderr.write(
+        `daemon supersession failed: ${stopResult.reason instanceof Error ? stopResult.reason.message : String(stopResult.reason)}\n`,
+      );
+    }
     // All daemon-owned resources have drained and the successor is ready (or the service
     // manager will start it). Remaining referenced handles must not keep the old process alive.
     exitAfterSupersession = superseded;
-    return superseded && supervised ? daemonSupersededExitCode : 0;
+    return superseded && supervised ? daemonSupersededExitCode : supersessionFailed ? 1 : 0;
   } finally {
     if (ownerLivenessTimer) clearInterval(ownerLivenessTimer);
     process.removeListener("SIGTERM", requestStop);
     process.removeListener("SIGINT", requestStop);
+  }
+}
+
+async function startAfterResidentExit(userRoot: string, daemonId: string): Promise<void> {
+  const { closeDaemonOutputFd, daemonStdioLogPath, openDaemonOutputFd } = await import("./lifecycle-log.ts");
+  const output = openDaemonOutputFd(daemonStdioLogPath(userRoot, daemonId));
+  try {
+    const child = spawn(
+      process.execPath,
+      [process.argv[1]!, "--after-parent-exit", ...process.argv.slice(2), "--respect-stopped-marker"],
+      {
+        detached: true,
+        windowsHide: true,
+        stdio: ["pipe", output, output],
+        env: process.env,
+      },
+    );
+    await once(child, "spawn");
+    child.unref();
+  } finally {
+    closeDaemonOutputFd(output);
   }
 }
 
