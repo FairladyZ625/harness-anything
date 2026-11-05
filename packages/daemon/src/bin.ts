@@ -6,13 +6,13 @@ import { consumeKnownError } from "@harness-anything/kernel/internal/error-consu
 
 let exitAfterSupersession = false;
 
-async function main(argv: readonly string[]): Promise<number> {
+async function main(argv: readonly string[], afterParentExit = false): Promise<number> {
   if (argv[0] === "--after-parent-exit") {
     // The inherited pipe closes only when the old process actually exits, releasing OS writer locks.
     process.stdin.resume();
     await once(process.stdin, "end");
     process.argv.splice(2, 1);
-    return main(argv.slice(1));
+    return main(argv.slice(1), true);
   }
   if (argv[0] === "--runtime-worker-host") {
     const { runRuntimeWorkerHost } = await import("./runtime-worker-host.ts");
@@ -51,12 +51,29 @@ async function main(argv: readonly string[]): Promise<number> {
     respectStoppedMarker = supervised || argv.includes("--respect-stopped-marker"),
     stoppedAt = respectStoppedMarker ? readDaemonStoppedAt(userRoot, daemonId) : null;
   if (stoppedAt) {
+    if (afterParentExit) exitAfterSupersession = true;
     process.stderr.write(`daemon not started: stopped by the operator at ${stoppedAt}\n`);
     return 0;
   }
   if (!respectStoppedMarker) clearDaemonStoppedMarker(userRoot, daemonId);
   const markerOption = process.argv.indexOf("--respect-stopped-marker", 2);
   if (markerOption !== -1) process.argv.splice(markerOption, 1);
+  if (afterParentExit) {
+    const { installedDaemonServiceUnit } = await import("./client/daemon-service.ts");
+    if (installedDaemonServiceUnit({ userRoot, daemonId })) {
+      // An installed unit owns startup even if the failed incumbent was launched manually.
+      const { ensureLocalDaemonRunning } = await import("./client/daemon-autostart.ts");
+      const { localUserDaemonEndpoint } = await import("./client/local-daemon-target.ts");
+      exitAfterSupersession = true;
+      const result = await ensureLocalDaemonRunning({
+        socketPath: localUserDaemonEndpoint(userRoot, daemonId),
+        invokingRoot: process.cwd(),
+        launch: () => ({ command: process.execPath, args: process.argv.slice(1), env: process.env }),
+      });
+      if (!result.ok) process.stderr.write(`daemon failure recovery could not start service: ${result.hint}\n`);
+      return result.ok ? 0 : 1;
+    }
+  }
   return runResidentDaemon(userRoot, daemonId, supervised, (receipt, code) => {
     console.log(JSON.stringify(receipt));
     return code;
@@ -245,6 +262,7 @@ try {
   process.exitCode = exitCode;
 } catch (error) {
   process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-  process.exitCode = 1;
   consumeKnownError(error);
+  if (exitAfterSupersession) process.exit(1);
+  process.exitCode = 1;
 }

@@ -2,13 +2,14 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
+import { daemonServiceUnit } from "../src/client/daemon-service.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import { readDaemonLifecycleRecords } from "../src/lifecycle-log.ts";
 import { acquireDaemonSingleton, readDaemonPid } from "../src/daemon-singleton.ts";
@@ -31,13 +32,14 @@ async function until(predicate: () => boolean | Promise<boolean>, message: strin
   }
 }
 
-for (const { failDrain, supervised } of [
-  { failDrain: true, supervised: true },
-  { failDrain: false, supervised: true },
-  { failDrain: true, supervised: false },
+for (const { failDrain, supervised, fakeService } of [
+  { failDrain: true, supervised: true, fakeService: false },
+  { failDrain: false, supervised: true, fakeService: false },
+  { failDrain: true, supervised: false, fakeService: false },
+  { failDrain: true, supervised: false, fakeService: true },
 ]) {
   test(
-    `${supervised ? "supervised" : "on-demand"} resident ${failDrain ? "failed drain" : "handoff"} preserves and re-adopts a runtime calling the CLI`,
+    `${fakeService ? "installed-service" : supervised ? "supervised" : "on-demand"} resident ${failDrain ? "failed drain" : "handoff"} preserves and re-adopts a runtime calling the CLI`,
     { skip: process.platform === "win32" ? "requires POSIX detached process groups" : false, timeout: 90_000 },
     async () => {
       const parent = mkdtempSync(path.join(tmpdir(), "ha-resident-readopt-")),
@@ -52,10 +54,12 @@ for (const { failDrain, supervised } of [
         sessionFile = path.join(parent, "session.json"),
         failureEntered = path.join(parent, "failure-entered"),
         failureRelease = path.join(parent, "failure-release"),
+        managerSeen = path.join(parent, "manager-seen"),
         release = path.join(parent, "release"),
         cliBefore = path.join(parent, "cli-before"),
         cliAfter = path.join(parent, "cli-after"),
         providerPid = path.join(parent, "provider.pid"),
+        buildWitness = path.join(parent, "disk-build.pid"),
         endpoint = localUserDaemonEndpoint(userRoot, repoId),
         provider = writeProviderExecutable(
           path.join(parent, "provider.mjs"),
@@ -124,8 +128,20 @@ probe(); const timer = setInterval(() => { if (!fs.existsSync(${JSON.stringify(r
           failBeforeCellClose: !supervised,
         }),
       );
+      if (fakeService) {
+        const unit = daemonServiceUnit({ userRoot, daemonId: repoId }, process.platform, parent)!;
+        mkdirSync(path.dirname(unit.unitPath), { recursive: true });
+        writeFileSync(unit.unitPath, "isolated test unit\n");
+        const manager = path.join(parent, unit.manager === "launchd" ? "launchctl" : "systemctl");
+        writeFileSync(
+          manager,
+          `#!${process.execPath}\nconst fs = require("node:fs"), {spawn} = require("node:child_process"); fs.writeFileSync(${JSON.stringify(managerSeen)}, "started"); const child = spawn(process.execPath, ${JSON.stringify([entry, "--service", "--supervised", "--user-root", userRoot, "--daemon-id", repoId])}, {env:process.env, detached:true, stdio:"ignore"}); child.unref();\n`,
+        );
+        chmodSync(manager, 0o755);
+      }
       const env = {
         ...process.env,
+        ...(fakeService ? { PATH: `${parent}${path.delimiter}${process.env.PATH ?? ""}` } : {}),
         HOME: parent,
         HA_READOPTION_CONFIG: config,
         NODE_OPTIONS: [
@@ -172,7 +188,14 @@ probe(); const timer = setInterval(() => { if (!fs.existsSync(${JSON.stringify(r
         workerPid = readDaemonLifecycleRecords(userRoot, repoId).find(
           (e) => e.event === "runtime_spawn" && e.runtimeSessionId === sessionId,
         )!.pid!;
-        const started = Date.now();
+        const started = Date.now(),
+          diskEntry = readFileSync(entry, "utf8"),
+          replacementEntry = diskEntry.replace(
+            /^(#![^\n]*\n)/u,
+            `$1await import("node:fs").then(({ writeFileSync }) => writeFileSync(${JSON.stringify(buildWitness)}, String(process.pid)));\n`,
+          );
+        assert.notEqual(replacementEntry, diskEntry, "the disk build must contain a new entry");
+        writeFileSync(entry, replacementEntry);
         writeFileSync(marker, "build-b\n");
         await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 2000, 2000, undefined, true);
         if (!supervised) {
@@ -206,6 +229,13 @@ probe(); const timer = setInterval(() => { if (!fs.existsSync(${JSON.stringify(r
           `new resident did not adopt runtime: ${successorError}`,
         );
         await until(() => existsSync(cliAfter), `runtime CLI did not recover: ${successorError}`);
+        if (fakeService) assert.ok(existsSync(managerSeen), "the installed service manager must own the successor");
+        await until(() => existsSync(buildWitness), "the successor did not execute the replaced disk entry");
+        assert.equal(
+          Number(readFileSync(buildWitness, "utf8")),
+          readDaemonPid(userRoot, repoId),
+          "the new daemon must execute the replaced entry itself",
+        );
         const records = readDaemonLifecycleRecords(userRoot, repoId),
           spawns = records.filter((e) => e.event === "runtime_spawn" && e.runtimeSessionId === sessionId),
           starts = records.filter((e) => e.event === "process_start"),
@@ -237,7 +267,7 @@ probe(); const timer = setInterval(() => { if (!fs.existsSync(${JSON.stringify(r
           { liveness: "live", outcome: null },
         );
         projection.close();
-        if (!supervised) {
+        if (!supervised && !fakeService) {
           // The failure successor must not retain its private wait-for-parent flag into a later upgrade.
           writeFileSync(marker, "build-c\n");
           await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 2000, 2000, undefined, true);
