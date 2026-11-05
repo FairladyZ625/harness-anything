@@ -4,30 +4,73 @@ import { taskPrPublicationNote } from "../src/runtime-spawn-mission.ts";
 import { latestSquadStates } from "./squad-run-state.fixture.ts";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { BuiltinPolicyAdapter, builtinAuthorityUrl } from "@harness-anything/authorization-builtin";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
-import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/storage";
+import test, { after } from "node:test";
+import { makeTaskEventReader, makeTaskProjectionReader } from "@harness-anything/storage";
+import { openRepoWriterCell } from "../src/repo-cell-open.ts";
+import { acquireWorkspaceLock } from "../src/repo-cell-lock.ts";
 import { isExecutionWipTask } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import type { RuntimeLauncher } from "../src/runtime-spawn-types.ts";
 import type { SquadRunReadResult } from "../src/squad-run-contract.ts";
 type WorkerAttempt = SquadRunReadResult["run"]["workerAttempts"][number];
 import { appendRuntimeWorkerRecord, readDispatchStreamHeader } from "../src/dispatch-stream.ts";
-import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
+import {
+  type openBootstrappedRepoCell,
+  fixtureFence,
+  settleSettingsEvent,
+  waitForFixturePublication,
+} from "./repo-settings.fixture.ts";
 import { evidence, git } from "./task-surface.fixtures.ts";
 import { realizedTaskPlan, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { eventually } from "./schedule-actions.fixtures.ts";
+import { waitForPromise } from "../../../tools/fixtures/wait-for-condition.ts";
 
-const binding = withPolicyGroup(
-  {
-    actor: { principal: { personId: "squad-owner" }, executor: { kind: "agent" as const, id: "coordinator" } },
-    source: "local" as const,
+const identityRoot = mkdtempSync(path.join(tmpdir(), "ha-squad-identity-")),
+  identityProvider = new BuiltinPolicyAdapter({ userRoot: identityRoot }),
+  owner = identityProvider.addUser({
+    username: "squad-owner",
+    personId: "squad-owner",
+    displayName: "Squad Owner",
+    email: "squad-owner@example.invalid",
+    password: "fixture-password",
+  }),
+  accessToken = "squad-fixture-owner-session",
+  centerToken = identityProvider.issueCenterToken(),
+  identityUrl = builtinAuthorityUrl(identityRoot);
+identityProvider.registerSession(accessToken, {
+  personId: owner.personId,
+  subject: owner.userId,
+  expiresAt: Date.now() + 3_600_000,
+  sessionExpiresAt: null,
+  roles: ["admin"],
+});
+after(() => rmSync(identityRoot, { recursive: true, force: true }));
+const localCenter = async () => ({
+  url: identityUrl,
+  realm: "local",
+  clientId: "harness-center",
+  accessToken: centerToken,
+  provider: identityProvider,
+});
+const binding = {
+  actor: { principal: { personId: owner.personId }, executor: { kind: "agent" as const, id: "coordinator" } },
+  source: "local" as const,
+  keycloakAuthorization: {
+    session: {
+      provider: identityProvider,
+      personId: owner.personId,
+      accessToken,
+      url: identityUrl,
+      realm: "local",
+      clientId: "harness-center",
+    },
+    center: localCenter,
   },
-  "admin",
-);
+};
 type Provider = {
   prompt: string;
   cwd: string;
@@ -37,12 +80,16 @@ type Provider = {
   exit?: (code: number | null) => void;
   process?: ReturnType<typeof spawn>;
 };
+type WorkerAttemptView = Pick<
+  WorkerAttempt,
+  "dispatchId" | "runtimeSessionId" | "taskId" | "executionId" | "worktree" | "rejection"
+>;
 type Status = {
   squadRunId: string;
   status: string;
   error: string | null;
   leaderTurns: Array<{ dispatchId: string; runtimeSessionId: string }>;
-  workerAttempts: WorkerAttempt[];
+  workerAttempts: WorkerAttemptView[];
   workerCallbackCount: number;
   pendingLeaderCallbackCount: number;
 };
@@ -236,6 +283,7 @@ test(
     );
     const launches = fixture.providers.length;
     await fixture.reopen();
+    // Reopening restores the same canonical run without launching another leader.
     const recovered = await fixture.status();
     assert.equal(recovered.status, "converged");
     assert.equal(recovered.leaderTurns.length, 2);
@@ -636,6 +684,26 @@ test(
   },
 );
 
+// Exercise the real single writer and durable storage directly. Supervisor/reader RPC and
+// their cold worker imports have separate integration coverage; this suite owns orchestration.
+const openOrchestrationCell: typeof openBootstrappedRepoCell = async (input) => {
+  await identityProvider.claimRepositoryOwner(centerToken, input.repoId, owner.personId);
+  const fence = fixtureFence(
+    input.repoId,
+    input.rootDir,
+    path.join(input.rootDir, ".harness", "fixture-writer-epochs"),
+    input.storage,
+  );
+  await settleSettingsEvent({ ...input, writerEpochFence: fence, runtimeInstances: input.runtimeInstances?.() });
+  const lock = await acquireWorkspaceLock(input.rootDir);
+  try {
+    return await openRepoWriterCell({ keycloakCenter: localCenter, ...input, defaultWriterEpochFence: fence }, lock);
+  } catch (error) {
+    await lock.close();
+    throw error;
+  }
+};
+
 async function openFixture(
   t: { after(fn: () => Promise<void>): void },
   slug: string,
@@ -647,7 +715,8 @@ async function openFixture(
     userRoot = path.join(parent, "user"),
     repoId = workspaceId(`squad-e2e-${slug}`),
     taskId = `task-squad-e2e-${slug}`,
-    providers: Provider[] = [];
+    providers: Provider[] = [],
+    outcomeWaiters = new Set<() => void>();
   mkdirSync(root);
   git(root, "init", "-q", "-b", "main");
   git(root, "config", "user.name", "Task Surface Test");
@@ -666,15 +735,10 @@ async function openFixture(
   writeFileSync(path.join(root, ".gitignore"), "harness/\n.harness/\n.worktrees/\n");
   git(root, "add", ".gitignore");
   git(root, "commit", "-qm", "test: fixture boundaries");
-  // Squad orchestration exercises the external identity path. The product default remains
-  // builtin when this selector is absent; this multi-process fixture must opt into Keycloak.
-  mkdirSync(path.join(userRoot, "rbac"), { recursive: true });
-  writeFileSync(
-    path.join(userRoot, "rbac", "config.json"),
-    JSON.stringify({ schema: "harness-managed-rbac/v1", mode: "external" }),
-  );
   const runtimeLaunch: RuntimeLauncher = (prepared, persistence) => {
-    const child = spawn(process.execPath, ["-e", "process.stdin.resume()"], {
+    // Git is already required by the fixture. Its stdin reader supplies a real PID
+    // without booting another JavaScript runtime for a process that only waits.
+    const child = spawn("git", ["hash-object", "--stdin"], {
       detached: true,
       stdio: ["pipe", "ignore", "ignore"],
     });
@@ -707,7 +771,7 @@ async function openFixture(
     };
   };
   const open = () =>
-    openBootstrappedRepoCell({
+    openOrchestrationCell({
       keycloakSession: async () => binding.keycloakAuthorization.session,
       repoId,
       rootDir: canonicalRoot(root),
@@ -763,36 +827,43 @@ async function openFixture(
         prompt: request.prompt,
       }),
       runtimeLaunch,
+      onRuntimeOutcome: () => {
+        for (const wake of outcomeWaiters) wake();
+      },
     });
   let cell = await open();
+  const taskProjection = makeTaskProjectionReader({ rootDir: root });
   t.after(async () => {
     await Promise.all(
       providers.flatMap((provider) => (provider.process ? [stopFixtureProcess(provider.process)] : [])),
     );
+    taskProjection.close();
     await cell.close();
     rmSync(parent, { recursive: true, force: true });
   });
-  for (const [id, role] of [
-    ["leader", "commander"],
-    ["one", "worker"],
-    ["two", "worker"],
-  ]) {
-    const receipt = await cell.run(
-      {
-        kind: "agent-install",
-        declaration: {
-          schema: "agent-declaration/v1",
-          id,
-          name: id,
-          role,
-          instructions: "Perform the assigned role.",
-          runtimes: [{ type: "codex" }],
+  await Promise.all(
+    [
+      ["leader", "commander"],
+      ["one", "worker"],
+      ["two", "worker"],
+    ].map(async ([id, role]) => {
+      const receipt = await cell.run(
+        {
+          kind: "agent-install",
+          declaration: {
+            schema: "agent-declaration/v1",
+            id,
+            name: id,
+            role,
+            instructions: "Perform the assigned role.",
+            runtimes: [{ type: "codex" }],
+          },
         },
-      },
-      binding,
-    );
-    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-  }
+        binding,
+      );
+      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    }),
+  );
   const installed = await cell.run(
     {
       kind: "squad-install",
@@ -851,52 +922,36 @@ async function openFixture(
   const squadRunId = String(evidence(started).squadRunId);
   const status = async () =>
     evidence(await cell.run({ kind: "squad-status", squadRunId }, binding)) as unknown as Status;
-  const task = (id: string) => {
-    const projection = makeTaskProjection({
-      rootDir: root,
-      eventStore: makeTaskEventReader({ repoId, rootDir: root }),
-    });
-    try {
-      projection.catchUp();
-      return projection.read(id);
-    } finally {
-      projection.close();
-    }
-  };
+  const task = (id: string) => taskProjection.withSession((query) => query.read(id));
   const finish = async (dispatchId: string, text: string, code = 0, offline = false) => {
     const provider = providers.find((row) => row.dispatchId === dispatchId)!;
-    await stopFixtureProcess(provider.process!);
     if (offline)
       appendRuntimeWorkerRecord(root, dispatchId, {
         kind: "process_started",
         occurredAt: new Date().toISOString(),
         pid: provider.process?.pid,
       });
-    for (const event of [
-      { type: "thread.started", thread_id: provider.sessionId },
-      {
-        type: "item.completed",
-        item: {
-          id: "write",
-          type: "file_change",
-          changes: [{ path: "delivery.txt", kind: "add" }],
-          status: "completed",
-        },
-      },
+    const events = [
+      ...(offline ? [{ type: "thread.started", thread_id: provider.sessionId }] : []),
       {
         type: "item.completed",
         item: { id: "result", type: "agent_message", text },
       },
       { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } },
-    ]) {
-      if (offline)
+    ];
+    if (offline) {
+      for (const event of events)
         appendRuntimeWorkerRecord(root, dispatchId, {
           kind: "provider_event",
           occurredAt: new Date().toISOString(),
           event,
         });
-      else provider.output!(JSON.stringify(event) + "\n");
+    } else {
+      // Preserve every frame in one output chunk, avoiding a repository queue task
+      // for each line of this already complete fixture result.
+      provider.output!(events.map((event) => JSON.stringify(event) + "\n").join(""));
     }
+    await stopFixtureProcess(provider.process!);
     appendRuntimeWorkerRecord(root, dispatchId, {
       kind: "process_exit",
       occurredAt: new Date().toISOString(),
@@ -905,15 +960,26 @@ async function openFixture(
     });
     if (!offline) provider.exit!(code);
   };
-  const waitStatus = async (predicate: (state: Status) => unknown) => {
-    let last: Status | undefined;
-    for (let attempt = 0; attempt < 500; attempt += 1) {
-      last = await status();
-      if (predicate(last)) return last;
-      if (last.status === "failed") throw new Error(JSON.stringify(last));
-      await new Promise((resolve) => setTimeout(resolve, 20));
+  const waitStatus = async (predicate: (state: Status) => unknown): Promise<Status> => {
+    const deadline = performance.now() + 10_000;
+    for (;;) {
+      const changed = Promise.withResolvers<void>();
+      outcomeWaiters.add(changed.resolve);
+      try {
+        // Outcome notification schedules the coordinator on the same writer queue. Drain it
+        // before inspecting state; subscribing first also covers an outcome racing the drain.
+        await cell.settlePendingMaterialization("squad outcome waiter");
+        const current = await status();
+        if (predicate(current)) return current;
+        if (current.status === "failed") throw new Error(JSON.stringify(current));
+        await waitForPromise(changed.promise, `Squad ${squadRunId} outcome`, {
+          timeoutMs: Math.max(1, deadline - performance.now()),
+          describeLast: () => JSON.stringify(current),
+        });
+      } finally {
+        outcomeWaiters.delete(changed.resolve);
+      }
     }
-    throw new Error(`Squad did not reach expected state: ${JSON.stringify(last)}`);
   };
   return {
     parent,
@@ -921,6 +987,7 @@ async function openFixture(
     bare,
     repoId,
     taskId,
+    squadRunId,
     get cell() {
       return cell;
     },
@@ -935,7 +1002,7 @@ async function openFixture(
       cell = await open();
     },
     plan: async (first: string[], second: string[]) => {
-      const state = await status();
+      const state = await waitStatus((current) => current.leaderTurns.length >= 1);
       await finish(
         state.leaderTurns[0].dispatchId,
         JSON.stringify({
@@ -947,7 +1014,7 @@ async function openFixture(
         }),
       );
     },
-    submit: async (child: WorkerAttempt, head: string) => {
+    submit: async (child: WorkerAttemptView, head: string) => {
       await cell.settlePendingMaterialization("child closeout fixture");
       const row = task(child.taskId!),
         holder = {
