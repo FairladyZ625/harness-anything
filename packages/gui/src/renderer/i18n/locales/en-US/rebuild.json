@@ -456,5 +456,20 @@
   "devices.save": "Save name",
   "devices.name": "Device name",
   "devices.confirmation": "Further requests will use the new device state. Pausing or removing revokes this device’s sessions; resuming requires approval again. A running device may still be stopping. Removed device IDs cannot be reused.",
-  "shell.nav.liveFloor": "Live floor"
+  "shell.nav.liveFloor": "Live floor",
+  "taskRework.title": "Execution arrangement for this round",
+  "taskRework.rule": "Rework is automatic by default. Taking this round first settles the old execution, then hands it over. Submitting this round restores automatic rework.",
+  "taskRework.loading": "Reading submitted cuts and handoff state…",
+  "taskRework.ready": "This round’s handoff is complete. The operation receipt states whether a worker was dispatched.",
+  "taskRework.incomplete": "Handoff is incomplete: waiting for the review result or the old execution to settle.",
+  "taskRework.auto": "Automatic rework; no arrangement for this round.",
+  "taskRework.round": "Round {iteration}",
+  "taskRework.arranger": "Arranged by",
+  "taskRework.target": "Submitted cut",
+  "taskRework.digest": "Submission digest",
+  "taskRework.reason": "Reason for arranging this round",
+  "taskRework.agent": "Registered Agent ID (leave empty to arrange from this session)",
+  "taskRework.submit": "I will arrange this round",
+  "taskRework.empty": "There is no submitted cut to take over. Arrange it here after submission or return.",
+  "taskRework.submitting": "Recording this round’s arrangement…"
 }

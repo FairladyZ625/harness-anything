@@ -36,6 +36,7 @@ export const taskQueryKeys = {
   document: (repoId: string, taskId: string, path: string) => ["tasks", repoId, taskId, "document", path] as const,
   documentList: (repoId: string, taskId: string) => ["tasks", repoId, taskId, "document-list"] as const,
   deliveryDiff: (repoId: string, taskId: string) => ["tasks", repoId, taskId, "delivery-diff"] as const,
+  rework: (repoId: string, taskId: string) => ["tasks", repoId, taskId, "rework"] as const,
 };
 
 export function useTaskWipQuery(repoId: string | null, enabled: boolean) {

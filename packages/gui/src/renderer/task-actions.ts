@@ -4,11 +4,14 @@ import type { GuiActionResult } from "../api/renderer-dto.ts";
 import { harnessClient } from "./api-client.ts";
 import type { TaskRow } from "./model/types.ts";
 import { taskQueryKeys } from "./task-data.ts";
+import { t } from "./i18n/core.ts";
+import { taskReworkClient, type TaskReworkInput } from "./task-rework-client.ts";
 
 type ReceiptRecord = GuiActionResult & {
   readonly revision?: number;
   readonly code?: string;
   readonly nextAction?: string;
+  readonly rejectionExplanation?: string | null;
   readonly error?: { readonly code?: string; readonly hint?: string };
   readonly continuation?: { readonly outcome?: string; readonly code?: string; readonly rejectionExplanation?: string };
   readonly proof?: {
@@ -32,16 +35,16 @@ export interface TaskSettlement {
 export function settleTaskReceipt(initial: GuiActionResult): TaskSettlement {
   const receipt = initial as ReceiptRecord,
     proof = receipt.proof;
-  if (receipt.continuation && receipt.continuation.outcome !== "applied")
+  if (receipt.continuation && !["applied", "no_changes"].includes(receipt.continuation.outcome ?? ""))
     return {
-      state: "op_rejected",
+      state: ["pending", "indeterminate"].includes(receipt.continuation.outcome ?? "") ? "pending" : "op_rejected",
       opId: receipt.opId,
       code: receipt.continuation.code,
       hint: receipt.continuation.rejectionExplanation,
       receipt,
     };
   if (
-    receipt.outcome === "applied" &&
+    (receipt.outcome === "applied" || receipt.outcome === "no_changes") &&
     proof?.durable === true &&
     proof.canonicalVisible === true &&
     proof.committedRevision === proof.appliedCut
@@ -65,7 +68,8 @@ export function settleTaskReceipt(initial: GuiActionResult): TaskSettlement {
     state: "op_rejected",
     opId: receipt.opId,
     code: receipt.error?.code ?? receipt.code ?? "write_rejected",
-    hint: receipt.error?.hint ?? receipt.nextAction ?? "Inspect the canonical rejection.",
+    hint:
+      receipt.error?.hint ?? receipt.rejectionExplanation ?? receipt.nextAction ?? "Inspect the canonical rejection.",
     receipt,
   };
 }
@@ -76,7 +80,7 @@ export function createGuiExecutionId(randomUUID: () => string = () => crypto.ran
 
 export interface TaskMutationFeedback {
   readonly state: "pending" | "success" | "error";
-  readonly kind: "start" | "progress" | "submit" | "complete" | "pin" | "attest" | "consent";
+  readonly kind: "start" | "progress" | "submit" | "complete" | "pin" | "attest" | "consent" | "rework";
   readonly opId: string;
   readonly code?: string;
   readonly hint: string;
@@ -118,7 +122,14 @@ export function useTaskActions(repoId: string) {
       kind: TaskMutationFeedback["kind"],
       settlement: TaskSettlement,
     ): Promise<TaskMutationFeedback> => {
-      if (settlement.state !== "applied")
+      if (settlement.state !== "applied") {
+        // A failed continuation can follow an accepted arrangement. Refresh that canonical
+        // read even on failure; the GUI must not keep claiming that automatic rework owns it.
+        if (kind === "rework")
+          await queryClient.invalidateQueries({
+            queryKey: taskQueryKeys.rework(repoId, taskId),
+            refetchType: "active",
+          });
         return publish(taskId, {
           state: settlement.state === "op_rejected" ? "error" : "pending",
           kind,
@@ -126,6 +137,7 @@ export function useTaskActions(repoId: string) {
           code: settlement.code,
           hint: settlement.hint ?? "canonical receipt 尚未 settled；不要重放 mutation。",
         });
+      }
       // 回执本身就是落定证明(durable + canonicalVisible + committedRevision===appliedCut):
       // 只失效任务切面,新行状态由挂载中的台账探针正常 refetch 带上来,不强制整表重读。
       await queryClient.invalidateQueries({ queryKey: taskQueryKeys.all(repoId), refetchType: "active" });
@@ -185,6 +197,23 @@ export function useTaskActions(repoId: string) {
         return reread(task.taskId, "start", settlement);
       }),
     [once, reread],
+  );
+  const reworkTask = useCallback(
+    (task: Pick<TaskRow, "taskId">, input: TaskReworkInput): Promise<TaskMutationFeedback> =>
+      once(`rework:${task.taskId}`, task.taskId, async () => {
+        publish(task.taskId, {
+          state: "pending",
+          kind: "rework",
+          opId: "awaiting-receipt",
+          hint: t("taskRework.submitting"),
+        });
+        return reread(
+          task.taskId,
+          "rework",
+          settleTaskReceipt(await taskReworkClient.rework(repoId, task.taskId, input)),
+        );
+      }),
+    [repoId, once, reread, publish],
   );
   const appendProgress = useCallback(
     (
@@ -336,6 +365,7 @@ export function useTaskActions(repoId: string) {
   return {
     feedback,
     startTask,
+    reworkTask,
     appendProgress,
     submitTask,
     completeTask,

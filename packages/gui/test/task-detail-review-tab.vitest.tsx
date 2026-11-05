@@ -43,7 +43,7 @@ const task: TaskRow = {
   ...projectedTaskFields("active"),
 };
 
-async function selectedTab(initialTab?: "closeout") {
+async function selectedTab(initialTab?: "closeout" | "dispatch") {
   vi.stubGlobal("window", {
     harness: {
       getTaskDocuments: vi.fn(async () => ({ ok: true, status: "ready", taskId: task.taskId, documents: [] })),
@@ -84,6 +84,11 @@ async function selectedTab(initialTab?: "closeout") {
 describe("任务详情的评审落点", () => {
   it("initialTab=closeout 时打开即停在收口页签", async () => {
     expect(await selectedTab("closeout")).toBe("task-tab-closeout");
+  });
+
+  it("派工页签提供本轮接管入口", async () => {
+    await selectedTab("dispatch");
+    expect(document.querySelector('[data-testid="task-rework-panel"]')).not.toBeNull();
   });
 
   it("缺省仍从概况开始", async () => {

@@ -44,6 +44,8 @@ test("preload exposes only the approved API methods", () => {
   assert.deepEqual(preloadAllowlist, approved);
   assert.equal(isAllowedPreloadApiMethod("getTasks"), true);
   assert.equal(isAllowedPreloadApiMethod("getTaskDetail"), false);
+  assert.equal(isAllowedPreloadApiMethod("showTask"), true);
+  assert.equal(isAllowedPreloadApiMethod("reworkTask"), true);
   assert.throws(() => assertPreloadPayload("readFile", {}), /not allowed/u);
   assert.throws(() => assertPreloadPayload("getTasks", []), /object or null/u);
   assert.throws(() => assertPreloadPayload("getTasks", null), /repoId/u);
@@ -230,12 +232,13 @@ test("preload exposes only the approved API methods", () => {
   // S8 CH2: assignTask and unassignTask.
   // dec_DBF9CCB96B1A7D35A3214615E1 CH2/CH6: one dispatcher for export/claim/revoke.
   // dec_E369B8616F50A6208B293997E7/CH5 (W2-2) deletes the task.adjudicate facet with the command.
-  assert.equal(editingFacets.length, 63);
+  // dec_5DBF5F2B38719E4B52003D178D/CH1: showTask + reworkTask share the canonical Task actions.
+  assert.equal(editingFacets.length, 65);
   assert.equal(preloadAllowlist.includes("readVerticalDeclaration"), true);
   // entity.update / entity.archive / entity.delete plus vertical kind upsert / publish-schema / retire
   // are explicit GUI facets. Todo contributes eight GUI actions from the repository todo task.
-  // The same single handoff dispatcher accounts for the approved 62 actions / 63 editing facets.
-  assert.equal(daemonGuiActionMethods.length, 62);
+  // The same single handoff dispatcher accounts for the approved 64 actions / 65 editing facets.
+  assert.equal(daemonGuiActionMethods.length, 64);
   assert.equal(daemonGuiActionMethods.find(({ method }) => method === "repo.task.create")?.actionKind, "task-create");
   assert.equal(
     daemonGuiActionMethods.some(({ method }) => method === "repo.entity.delete"),

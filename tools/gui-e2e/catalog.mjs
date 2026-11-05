@@ -10,6 +10,7 @@ import providerProjectAccess from "./scenarios/provider-project-access.mjs";
 import decisionsProvider from "./scenarios/decisions-provider.mjs";
 import deviceLoginApproval from "./scenarios/device-login-approval.mjs";
 import accountLogin from "./scenarios/account-login.mjs";
+import taskRework from "./scenarios/task-rework.mjs";
 import taskAssignment from "./scenarios/task-assignment.mjs";
 import accessOverview from "./scenarios/access-overview.mjs";
 import permissionRequests from "./scenarios/permission-requests.mjs";
@@ -80,6 +81,7 @@ export const catalog = [
   accountLogin,
   deviceLoginApproval,
   taskAssignment,
+  taskRework,
   workTeams,
   accessOverview,
   permissionRequests,

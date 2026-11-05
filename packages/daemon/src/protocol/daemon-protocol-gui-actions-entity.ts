@@ -1,4 +1,5 @@
-import { shape } from "./daemon-protocol-gui-types.ts";
+import { generatedTaskActionProtocolDeclarations } from "@harness-anything/preset/internal/preset-command-contract";
+import { optionalEnum, type RpcShape, shape } from "./daemon-protocol-gui-types.ts";
 import { DAEMON_GUI_COMMAND_RECEIPT_SCHEMA, guiAction, guiS3Action } from "./daemon-protocol-schema-ids.ts";
 
 /** GUI 的实体写入面。三条动作都只是既有 center 单写路的命名 ingress:声明实体走
@@ -212,3 +213,34 @@ export const taskCompletionGuiActions = Object.freeze([
     "repo-write",
   ),
 ]);
+
+// CLI task-rework runs through repo.task.run; it has no dedicated preset RPC method. The GUI
+// alias consumes that Action's generated input fields, then uses the same task-rework ingress.
+const reworkInput = generatedTaskActionProtocolDeclarations.find((action) => action.id === "rework")!.input;
+const reworkFields = Object.fromEntries(
+  reworkInput.fields.map((field) => {
+    const scalar = field.type === "boolean" ? "boolean" : field.type === "number" ? "number" : "string";
+    return [field.field, field.enum ? optionalEnum(field.enum) : `${scalar}${field.required ? "" : "?"}`];
+  }),
+) as RpcShape["fields"];
+
+export const taskReworkGuiActions = Object.freeze([
+  guiAction(
+    "task.show",
+    "repo.task.show",
+    "task-show",
+    shape({ taskId: "string" }),
+    "showTask",
+    "/api/tasks/:taskId",
+    "repo-read",
+  ),
+  guiAction(
+    "task.rework",
+    "repo.task.rework",
+    "task-rework",
+    shape(reworkFields),
+    "reworkTask",
+    "/api/tasks/:taskId/rework",
+    "repo-write",
+  ),
+] as const);

@@ -7,7 +7,7 @@ import { optionalEnum, shape, type RpcShape } from "./daemon-protocol-gui-types.
 import { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
 import { todoGuiActions } from "./daemon-protocol-gui-todo.ts";
 import { entityDeclarationGuiActions, entityImportGuiActions } from "./daemon-protocol-gui-actions-entity.ts";
-import { taskCompletionGuiActions } from "./daemon-protocol-gui-actions-entity.ts";
+import { taskCompletionGuiActions, taskReworkGuiActions } from "./daemon-protocol-gui-actions-entity.ts";
 import {
   CATALOG_REREAD_RECEIPT_SCHEMA,
   DAEMON_CONTROL_RECEIPT_SCHEMA,
@@ -98,6 +98,7 @@ export const daemonGuiActionMethods = Object.freeze([
     "/api/tasks",
     "repo-write",
   ),
+  ...taskReworkGuiActions,
   guiAction(
     "task.start",
     "repo.task.start",

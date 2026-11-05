@@ -19,6 +19,7 @@ import { TaskCloseoutTab } from "../components/taskDetail/TaskCloseoutTab.tsx";
 import { TaskRelationsTab, type TaskDecisionRef } from "../components/taskDetail/TaskRelationsTab.tsx";
 import { TaskDocumentSidebar, TaskFilesTab } from "../components/taskDetail/TaskFilesTab.tsx";
 import { TaskExecutionPanel } from "../components/taskDetail/TaskExecutionPanel.tsx";
+import { TaskReworkPanel } from "../components/taskDetail/TaskReworkPanel.tsx";
 import { PageRegions, RegionDragHandle } from "../components/primitives/page-regions.tsx";
 import type { RelationEdge, TaskRow } from "../model/types.ts";
 import { isExternal } from "../model/types.ts";
@@ -500,6 +501,13 @@ export function TaskDetailView({
                       />
                     ) : activeTab === "dispatch" ? (
                       <>
+                        {!external && (
+                          <TaskReworkPanel
+                            key={`rework:${task.projectId}:${task.taskId}`}
+                            task={task}
+                            onNavigateEntity={onNavigateEntity}
+                          />
+                        )}
                         {/* 执行与干预(W3-T1):轮次步骤实时计时、失败步重试与运行中插话。 */}
                         {!external && (
                           <TaskExecutionPanel key={`execution:${task.projectId}:${task.taskId}`} task={task} />

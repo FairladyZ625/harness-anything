@@ -456,5 +456,20 @@
   "devices.save": "保存名称",
   "devices.name": "设备名称",
   "devices.confirmation": "后续请求将按新设备状态处理。暂停或移除会撤销该设备会话；恢复需要重新批准。在跑设备可能仍在停止中。已移除的设备 ID 不可复用。",
-  "shell.nav.liveFloor": "现场"
+  "shell.nav.liveFloor": "现场",
+  "taskRework.title": "本轮执行安排",
+  "taskRework.rule": "默认自动返工。声明“这一轮由我安排”后，框架先收口旧执行再交接；本轮提交后恢复自动。",
+  "taskRework.loading": "正在读取目标提交与交接状态…",
+  "taskRework.ready": "本轮交接已完成。后续派工结果以操作回执为准。",
+  "taskRework.incomplete": "交接尚未完成：可能仍在等待评审结果或旧执行收口。",
+  "taskRework.auto": "默认自动返工，尚无本轮安排。",
+  "taskRework.round": "第 {iteration} 轮",
+  "taskRework.arranger": "安排人",
+  "taskRework.target": "目标提交",
+  "taskRework.digest": "提交摘要",
+  "taskRework.reason": "本轮安排原因",
+  "taskRework.agent": "登记的 Agent ID（留空由当前会话安排）",
+  "taskRework.submit": "这一轮由我安排",
+  "taskRework.empty": "当前没有可接管的提交。提交进入评审或被退回后可在这里安排。",
+  "taskRework.submitting": "正在提交本轮安排…"
 }

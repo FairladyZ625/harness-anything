@@ -87,6 +87,20 @@ describe("renderer app model", () => {
     ).toMatchObject({ state: "op_rejected", code: "runtime_unavailable", hint: "No instance available." });
   });
 
+  it("keeps duplicate handoffs successful and pending continuations pending", () => {
+    const proof = { committedRevision: 8, appliedCut: 8, durable: true, canonicalVisible: true };
+    expect(settleTaskReceipt(receipt({ proof, continuation: { outcome: "no_changes" } }))).toMatchObject({
+      state: "applied",
+    });
+    for (const outcome of ["pending", "indeterminate"])
+      expect(
+        settleTaskReceipt(
+          receipt({ proof, continuation: { outcome, code: "handoff_wait", rejectionExplanation: "Still settling." } }),
+        ),
+      ).toMatchObject({ state: "pending", code: "handoff_wait", hint: "Still settling." });
+    expect(settleTaskReceipt(receipt({ outcome: "no_changes", proof }))).toMatchObject({ state: "applied" });
+  });
+
   it("preserves raw rejection code, hint, and opId", () => {
     const settled = settleTaskReceipt({
       schema: "command-receipt/v2",
