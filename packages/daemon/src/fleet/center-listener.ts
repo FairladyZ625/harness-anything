@@ -28,7 +28,13 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import { createServer, type Server, type TLSSocket } from "node:tls";
-import { resolveHarnessLayout, sha256Bytes, TASK_EVENT_SHAPE_COMPAT_VERSION } from "@harness-anything/kernel";
+import {
+  resolveHarnessLayout,
+  sha256Bytes,
+  TASK_EVENT_SHAPE_COMPAT_VERSION,
+  type SquadRunObservation,
+} from "@harness-anything/kernel";
+import { squadObservationEventOpId } from "../squad-observation.ts";
 import { daemonBuildStamp } from "../build-identity.ts";
 import { readFileWindow, syncDirectory, syncFile } from "@harness-anything/storage";
 import {
@@ -1086,10 +1092,19 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           resultBody = bytes.toString("utf8");
         }
         let receipt: Awaited<ReturnType<typeof options.host.runtimeIngress>>;
-        // The frame opId correlates the caller's request; the center mints the event's stored
-        // identity here. Reusing a frame opId therefore cannot hit storage dedup/op_conflict:
-        // the RuntimeSession reducer decides duplicate, late, and interleaved transitions.
-        const runtimeEventOpId = randomUUID();
+        // The frame opId correlates the caller's request. Most runtime events get a center-minted
+        // storage identity, so a reused frame opId cannot hit storage dedup/op_conflict and the
+        // RuntimeSession reducer decides duplicate, late, and interleaved transitions. A Squad
+        // observation instead carries its own identity (run + revision) in the payload, and the
+        // Squad ingress validates the stored identity against it. Deriving that identity from the
+        // payload keeps frame.opId correlation-only while preserving the same observation's replay
+        // identity across different requests.
+        const runtimeEventOpId =
+          frame.eventType === "runtime_squad_run_observed"
+            ? squadObservationEventOpId(
+                frame.payload as unknown as Pick<SquadRunObservation, "squadRunId" | "runRevision">,
+              )
+            : randomUUID();
         try {
           receipt = await options.host.runtimeIngress(
             a.repoId,

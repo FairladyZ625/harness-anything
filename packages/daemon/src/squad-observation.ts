@@ -2,6 +2,13 @@ import type { SquadRunObservation } from "@harness-anything/kernel";
 import { synthesisReportPath } from "./squad-leader-decision.ts";
 import { squadTaskRef, type SquadState } from "./squad-run-state.ts";
 
+/** One observation is identified by its run and revision, not by the transport request that carried it. */
+export function squadObservationEventOpId(
+  observation: Pick<SquadRunObservation, "squadRunId" | "runRevision">,
+): string {
+  return `squad-observed-${observation.squadRunId}-${observation.runRevision}`;
+}
+
 /** Explicit field selection: local control state is never a repository read model. */
 export function squadRunObservation(state: SquadState): SquadRunObservation {
   if (!state.stateDispatchId) throw new Error("Squad observation requires its initial dispatch.");
