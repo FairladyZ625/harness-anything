@@ -197,3 +197,41 @@ test("task read-set derives one ordered projection per cut and never writes back
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+test("generated provenance edges do not trigger counterpart reads", async () => {
+  const { readTaskReadSet } = await import("@harness-anything/application");
+  const cut = { status: "ready" as const, watermark: 1, sourceRevision: 1 };
+  const taskRef = "task/task_host";
+  const generated = Array.from({ length: 34_000 }, (_, index) => ({
+    relationId: `rel_generated_${index}`,
+    sourceRef: taskRef,
+    targetRef: `execution/exe_${index}`,
+    relationType: "executes",
+    direction: "directed",
+    state: "active",
+    strength: "strong",
+    origin: "generated",
+    freshness: "current",
+    rationale: "execution provenance",
+    targetObservedVersion: 1,
+    currentTargetVersion: 1,
+  }));
+  let witnessReads = 0;
+  const projection = {
+    readTaskIndex: () => ({ ...cut, rows: [] }),
+    readRelationQuery: () => ({ ...cut, rows: generated }),
+    readEntityVersionWitness: () => {
+      witnessReads += 1;
+      throw new Error("generated edges need no witness");
+    },
+    read: () => {
+      throw new Error("generated edges need no task read");
+    },
+    readDocumentMetadata: () => {
+      throw new Error("generated edges need no document read");
+    },
+  } as unknown as Parameters<typeof readTaskReadSet>[0];
+  const result = readTaskReadSet(projection, "task_host");
+  assert.equal(result.entries.length, 0);
+  assert.equal(witnessReads, 0);
+});

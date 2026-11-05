@@ -52,6 +52,11 @@ export interface TaskReadSetEdge {
   readonly currentTargetVersion: EntityVersion | null;
 }
 
+/** Only explicit active relations can contribute reading requirements. */
+export function taskReadSetRelationCandidates(edges: readonly TaskReadSetEdge[]): readonly TaskReadSetEdge[] {
+  return edges.filter((edge) => edge.state === "active" && explicitRelationOrigins.includes(edge.origin));
+}
+
 export interface TaskReadSetCounterpart {
   readonly witness: EntityVersionWitness;
   /** Only the projection knows a task package path; every other kind derives from its ref. */
@@ -108,8 +113,7 @@ export interface TaskReadSet {
 export function deriveTaskReadSet(input: TaskReadSetInput): TaskReadSet {
   const entries: ReadSetEntry[] = [],
     blockedReasons: ReadSetBlockedReason[] = [];
-  for (const edge of input.edges) {
-    if (edge.state !== "active" || !explicitRelationOrigins.includes(edge.origin)) continue;
+  for (const edge of taskReadSetRelationCandidates(input.edges)) {
     const entityRef = edge.sourceRef === input.taskRef ? edge.targetRef : edge.sourceRef;
     if (entityRef === input.taskRef) continue;
     const counterpart = input.counterparts.get(entityRef),

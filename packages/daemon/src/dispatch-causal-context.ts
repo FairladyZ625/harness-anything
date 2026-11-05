@@ -249,7 +249,7 @@ export function assembleTaskCausalContext(input: {
     ...(inherited.length === 0
       ? []
       : [
-          "# 继承的任务与 Work 约束 / Inherited constraints\n按祖先顺序保留原文；子任务只能收窄限制。冲突须明确报告，不能以较后文字覆盖上层约束。",
+          "# 继承的任务与 Work 约束 / Inherited constraints\n系统和权限边界优先，生效治理决策为依据；按祖先顺序保留原文，子任务只能收窄限制，扩大权限须有明确授权。冲突须明确报告，不能以较后文字覆盖上层约束。",
           ...inherited,
         ]),
   ].join("\n\n");

@@ -485,6 +485,32 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
       binding,
     );
     assert.match(String(preview.mission), /最终代码 commit 后先运行 `ha task submit <task-id>` 冻结交付事实/u);
+
+    await createTask(cell, root, {
+      taskId: "task_ctx_missing_work",
+      title: "Missing inherited plan",
+      parentTaskId: "task_ctx_root",
+    });
+    const retired = await cell.run(
+      { kind: "doc-retire", paths: [workPlanPath], reason: "Exercise missing inherited plan admission." },
+      binding,
+    );
+    assert.equal(retired.outcome, "applied", JSON.stringify(retired));
+    await waitForFixturePublication(cell, retired.opId, binding);
+    prompt = null;
+    await assert.rejects(
+      cell.spawnRuntime(
+        {
+          runtimeInstanceId: definition.instanceId,
+          cwd: { scope: "repo-root" },
+          taskId: "task_ctx_missing_work",
+          dispatchKey: "dispatch-missing-work",
+        },
+        binding,
+      ),
+      (error: unknown) => error instanceof Error && error.message.includes(workPlanPath),
+    );
+    assert.equal(prompt, null, "the provider must not launch without its required ancestor plan");
   } finally {
     await cell?.close();
     rmSync(root, { recursive: true, force: true });

@@ -966,3 +966,46 @@ test("a required decision document missing from the read set stops dispatch asse
   });
   assert.throws(() => assembleTaskCausalContext({ projection, taskId: "task_leaf" }), /dec_REQUIRED\/decision\.md/u);
 });
+
+test("conflicting inherited restrictions remain visible in ancestor order", () => {
+  const projection = stub({
+    readTaskIndex: () => ({
+      ...cut(),
+      rows: [
+        { taskId: "task_outer", title: "Work", taskClass: "work", parentTaskId: null, packagePath: "tasks/outer" },
+        {
+          taskId: "task_parent",
+          title: "Parent",
+          taskClass: "standard",
+          parentTaskId: "task_outer",
+          packagePath: "tasks/parent",
+        },
+        {
+          taskId: "task_leaf",
+          title: "Leaf",
+          taskClass: "standard",
+          parentTaskId: "task_parent",
+          packagePath: "tasks/leaf",
+        },
+      ],
+    }),
+    readDocument: (path: string) => ({
+      ...cut(),
+      document: {
+        workspaceRevision: 1,
+        blobSha256: "a".repeat(64),
+        body: path.includes("outer")
+          ? "# Work\n\n## Constraints\nNever publish.\n"
+          : "# Parent\n\n## Constraints\nPublish immediately.\n",
+      },
+    }),
+  });
+  const context = assembleTaskCausalContext({ projection, taskId: "task_leaf" });
+  assert.ok(context);
+  assert.ok(context.includes("Never publish."));
+  assert.ok(context.includes("Publish immediately."));
+  assert.ok(context.indexOf("Never publish.") < context.indexOf("Publish immediately."));
+  assert.match(context, /冲突须明确报告/u);
+  assert.match(context, /task\/task_outer — tasks\/outer\/task_plan\.md/u);
+  assert.match(context, /task\/task_parent — tasks\/parent\/task_plan\.md/u);
+});

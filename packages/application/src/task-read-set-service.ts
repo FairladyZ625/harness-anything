@@ -1,5 +1,6 @@
 import {
   deriveTaskReadSet,
+  taskReadSetRelationCandidates,
   parseEntityRef,
   type TaskProjection,
   type TaskReadSet,
@@ -26,6 +27,7 @@ export function readTaskReadSet(
 ): TaskReadSet {
   const taskRef = `task/${taskId}`,
     relations = projection.readRelationQuery({ entity: taskRef, state: "active" }),
+    edges = taskReadSetRelationCandidates(relations.rows),
     counterparts = new Map<string, TaskReadSetCounterpart>();
   for (const read of ancestry.reads) {
     if (
@@ -35,7 +37,7 @@ export function readTaskReadSet(
     )
       throw new Error("Task read set spans multiple event projection cuts.");
   }
-  for (const row of relations.rows) {
+  for (const row of edges) {
     const entityRef = row.sourceRef === taskRef ? row.targetRef : row.sourceRef;
     if (entityRef === taskRef || counterparts.has(entityRef)) continue;
     const parsed = parseEntityRef(entityRef);
@@ -46,7 +48,7 @@ export function readTaskReadSet(
   }
   const input = {
     taskRef,
-    edges: relations.rows,
+    edges,
     ancestors: ancestry.ancestors,
     counterparts,
     projectionCut: {
