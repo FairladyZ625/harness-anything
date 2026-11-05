@@ -4,7 +4,12 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
-import { classifyProtectedChanges, deriveProtectedSurfaceRules } from "../check-pr-governance.mjs";
+import {
+  classifyProtectedChanges,
+  deriveProtectedSurfaceRules,
+  governanceDeclarationCites,
+  governanceSections,
+} from "../check-pr-governance.mjs";
 import {
   SUBMISSION_FACTS_END,
   SUBMISSION_FACTS_START,
@@ -170,17 +175,37 @@ function dependencyDescription(content) {
     .join(" ");
 }
 
-// The governance gate classifies protected paths from the gate manifest; the renderer reuses that
-// classification and cites the task itself as the authority, so a touched protected surface is
-// declared on the only rendering path instead of failing pr-body-lint after the PR opens.
+// The governance gate classifies protected paths from the gate manifest and requires the published
+// body to cite an authorizing ADR/decision/task. The renderer reuses that classification and the
+// lint's own section detection: a protected cut gets the declaration even when the input body (for
+// example a worker-authored pr-body.md) never carried the template defaults, and an existing cited
+// declaration is left untouched so re-rendering cannot lose it.
+function governanceDeclaration(taskId, files) {
+  return [
+    "## Governance Declaration",
+    "",
+    "- Protected surface touched: yes",
+    `- Protected surface scope: ${files.map(pathCode).join(", ")}`,
+    `- Authority: ${taskId}`,
+    "- Machine-check boundary: this PR only asserts the declaration exists; reviewers decide whether it is true and sufficient.",
+    "- Break-glass: no",
+  ].join("\n");
+}
+
+function insertGovernanceDeclaration(body, declaration) {
+  const match = /^##[ \t]+(?:Verification|验证)[ \t]*$/mu.exec(body);
+  if (!match) return `${body.replace(/\s+$/u, "")}\n\n${declaration}\n`;
+  return `${body.slice(0, match.index)}${declaration}\n\n${body.slice(match.index)}`;
+}
+
 function declareProtectedSurfaces(body, taskId, changedFiles, manifest) {
   if (!manifest) return body;
   const files = classifyProtectedChanges(changedFiles, deriveProtectedSurfaceRules(manifest)).map(({ file }) => file);
-  if (files.length === 0) return body;
-  return body
-    .replace(/^- Protected surface touched: no$/mu, "- Protected surface touched: yes")
-    .replace(/^- Protected surface scope:\s*$/mu, `- Protected surface scope: ${files.map(pathCode).join(", ")}`)
-    .replace(/^- Authority: not applicable$/mu, `- Authority: ${taskId}`);
+  if (files.length === 0 || governanceDeclarationCites(body)) return body;
+  const declaration = governanceDeclaration(taskId, files),
+    [existing] = governanceSections(body);
+  if (!existing) return insertGovernanceDeclaration(body, declaration);
+  return `${body.slice(0, existing.start)}${declaration}\n\n${body.slice(existing.end)}`;
 }
 
 export function renderTaskPrBody({ taskId, receipt, template, body = template, closeout, manifest }) {

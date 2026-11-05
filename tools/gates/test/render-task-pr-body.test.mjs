@@ -67,7 +67,13 @@ Not emitted into the PR body.
 - No dependency range changed; the lockfile stays in sync.
 
 ## Same Mechanism Elsewhere`,
-  );
+  ),
+  manifest = JSON.parse(readFileSync(new URL("../../gate-manifest.json", import.meta.url), "utf8")),
+  protectedId = "task_0123456789abcdef0123456789",
+  protectedFiles = ["tools/gate-allowlists/check-fallback-boundaries.json", "tools/gates/cost-budget.json"],
+  // A body can reach the renderer from an author or an older template without the governance
+  // defaults; the marker pair and the four authored sections are what the renderer requires.
+  templateWithoutGovernance = template.replace(/^## Governance Declaration\n[\s\S]*?(?=^## Verification)/mu, "");
 
 function receipt(submission, metadata = {}, id = taskId) {
   return {
@@ -183,9 +189,7 @@ test("PR renderer describes a package.json change instead of the rejected none s
 });
 
 test("PR renderer declares a touched protected surface with the task as authority", () => {
-  const manifest = JSON.parse(readFileSync(new URL("../../gate-manifest.json", import.meta.url), "utf8")),
-    protectedId = "task_0123456789abcdef0123456789",
-    submission = { ...codeSubmission, changedFiles: [...codeSubmission.changedFiles, "tools/run-node-tests.mjs"] },
+  const submission = { ...codeSubmission, changedFiles: [...codeSubmission.changedFiles, "tools/run-node-tests.mjs"] },
     body = renderTaskPrBody({
       taskId: protectedId,
       receipt: receipt(submission, {}, protectedId),
@@ -196,15 +200,98 @@ test("PR renderer declares a touched protected surface with the task as authorit
   assert.match(body, /^- Protected surface touched: yes$/mu);
   assert.match(body, /^- Protected surface scope: `"tools\/run-node-tests\.mjs"`$/mu);
   assert.match(body, new RegExp(`^- Authority: ${protectedId}$`, "mu"));
+  assert.equal((body.match(/^## Governance Declaration$/gmu) ?? []).length, 1, "the template default is replaced");
   const governance = checkPrGovernance({ body, changedFiles: submission.changedFiles, manifest });
   assert.equal(governance.ok, true, governance.issues.join("\n"));
 });
 
 test("PR renderer keeps the governance defaults when no protected surface is touched", () => {
-  const manifest = JSON.parse(readFileSync(new URL("../../gate-manifest.json", import.meta.url), "utf8")),
-    body = render(codeSubmission, { manifest });
+  const body = render(codeSubmission, { manifest });
   assert.match(body, /^- Protected surface touched: no$/mu);
   assert.match(body, /^- Authority: not applicable$/mu);
+});
+
+function protectedSubmission() {
+  return { ...codeSubmission, changedFiles: [...codeSubmission.changedFiles, ...protectedFiles] };
+}
+
+test("PR renderer generates the governance declaration when the body has no section", () => {
+  const submission = protectedSubmission(),
+    body = renderTaskPrBody({
+      taskId: protectedId,
+      receipt: receipt(submission, {}, protectedId),
+      template: templateWithoutGovernance,
+      closeout,
+      manifest,
+    });
+  assert.match(body, /^## Governance Declaration$/mu);
+  assert.match(body, /^- Protected surface touched: yes$/mu);
+  assert.match(body, new RegExp(`^- Authority: ${protectedId}$`, "mu"));
+  for (const file of protectedFiles) assert.ok(body.includes(`"${file}"`), `${file} is named in the scope`);
+  assert.equal((body.match(/^## Governance Declaration$/gmu) ?? []).length, 1);
+  assert.ok(
+    body.indexOf("## Governance Declaration") < body.indexOf("## Verification"),
+    "the generated declaration keeps the template order",
+  );
+  const governance = checkPrGovernance({ body, changedFiles: submission.changedFiles, manifest });
+  assert.equal(governance.ok, true, governance.issues.join("\n"));
+  assertPassesPrBodyCheck(body, submission);
+});
+
+test("PR renderer does not add a governance declaration to an unprotected cut", () => {
+  const body = renderTaskPrBody({
+    taskId: protectedId,
+    receipt: receipt(codeSubmission, {}, protectedId),
+    template: templateWithoutGovernance,
+    closeout,
+    manifest,
+  });
+  assert.doesNotMatch(body, /^## Governance Declaration$/mu);
+  assert.equal(checkPrGovernance({ body, changedFiles: codeSubmission.changedFiles, manifest }).skipped, true);
+  assertPassesPrBodyCheck(body);
+});
+
+test("re-rendering a protected cut keeps exactly one governance declaration", () => {
+  const submission = protectedSubmission(),
+    first = renderTaskPrBody({
+      taskId: protectedId,
+      receipt: receipt(submission, {}, protectedId),
+      template: templateWithoutGovernance,
+      closeout,
+      manifest,
+    }),
+    second = renderTaskPrBody({
+      taskId: protectedId,
+      receipt: receipt(submission, {}, protectedId),
+      template: templateWithoutGovernance,
+      closeout,
+      manifest,
+      body: first,
+    });
+  assert.equal((second.match(/^## Governance Declaration$/gmu) ?? []).length, 1);
+  assert.match(second, new RegExp(`^- Authority: ${protectedId}$`, "mu"));
+  assert.equal(checkPrGovernance({ body: second, changedFiles: submission.changedFiles, manifest }).ok, true);
+  assertPassesPrBodyCheck(second, submission);
+});
+
+test("an authored governance declaration with a citation survives re-rendering", () => {
+  const submission = protectedSubmission(),
+    authored = templateWithoutGovernance.replace(
+      "## Verification",
+      "## Governance Declaration\n\n- Authority: ADR-0023 D5/D8\n- Break-glass: no\n\n## Verification",
+    ),
+    body = renderTaskPrBody({
+      taskId: protectedId,
+      receipt: receipt(submission, {}, protectedId),
+      template: templateWithoutGovernance,
+      closeout,
+      manifest,
+      body: authored,
+    });
+  assert.match(body, /^- Authority: ADR-0023 D5\/D8$/mu);
+  assert.doesNotMatch(body, new RegExp(`^- Authority: ${protectedId}$`, "mu"));
+  assert.equal((body.match(/^## Governance Declaration$/gmu) ?? []).length, 1);
+  assert.equal(checkPrGovernance({ body, changedFiles: submission.changedFiles, manifest }).ok, true);
 });
 
 test("PR renderer treats a lockfile-only cut as a dependency change", () => {
