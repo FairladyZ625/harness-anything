@@ -61,3 +61,31 @@ test("task show states the expected-version optimistic-concurrency commands rese
     /^expected-version: 161594 \(pass as --expected-version to assign\/unassign\/transition\)$/mu,
   );
 });
+
+test("task show labels the delivery baseline as the start-frozen comparison cut, not the delivery head", () => {
+  const sha = "4".repeat(40),
+    rendered = renderCliReceipt({
+      ok: true,
+      command: "task-show",
+      outcome: "applied",
+      summary: "task-show: applied",
+      evidence: JSON.stringify({
+        task: { status: "in_review", currentNode: "review", completionGateIds: [] },
+        deliveryBaselineNote:
+          "the comparison cut frozen at execution start, before the first submission — " +
+          "not the delivery head; advancing main or --amend never refreshes it",
+        currentExecutions: [{ executionId: "execution-1", state: "submitted" }],
+        executions: [
+          { schema: "execution/v1", executionId: "execution-1", deliveryBaseline: { kind: "commit", commitSha: sha } },
+        ],
+      }),
+    });
+  assert.match(
+    rendered.text,
+    new RegExp(
+      `^delivery baseline: ${sha} \\(the comparison cut frozen at execution start, before the first submission — ` +
+        "not the delivery head; advancing main or --amend never refreshes it\\)$",
+      "mu",
+    ),
+  );
+});

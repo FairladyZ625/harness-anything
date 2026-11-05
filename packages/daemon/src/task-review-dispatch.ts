@@ -4,6 +4,7 @@ import { createEntityStore } from "@harness-anything/storage";
 import {
   completionGateIds,
   consumeKnownError,
+  EXECUTION_DELIVERY_BASELINE_NOTE,
   gateAppliesToSubmission,
   currentSubmittedExecutions,
   historicalReadConclusions,
@@ -370,8 +371,10 @@ export function reviewDispatchPrompt(input: {
     `Read ha task show ${taskId} --json and select execution ${execution.executionId} from executions. ` +
       "Its submission contains the authoritative delivery, frozen completion contract, and complete artifact anchors. " +
       "The prompt references that submission; it does not inline evidence or enumerate anchors.",
-    `The execution-frozen delivery baseline is ${JSON.stringify(execution.deliveryBaseline ?? null)}; ` +
-      "treat it and the submission delivery as authoritative. Read the G33 production-delta result for this cut " +
+    `The execution-frozen delivery baseline is ${JSON.stringify(execution.deliveryBaseline ?? null)}; it is ` +
+      `${EXECUTION_DELIVERY_BASELINE_NOTE}. The delivered head is the submission's commitSha ` +
+      "(null for artifact-only cuts); treat the baseline and the submission delivery as authoritative. " +
+      "Read the G33 production-delta result for this cut " +
       "when frozen facts are present. Historical read conclusion: " +
       `${historicalReadConclusions[0]!.conclusion} ` +
       "Use the shared Kernel readSubmissionFacts result for legacy paths; do not reject a legacy cut solely for " +

@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/storage";
-import { type ExecutionV1 } from "@harness-anything/kernel";
+import { EXECUTION_DELIVERY_BASELINE_NOTE, type ExecutionV1 } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -164,6 +164,17 @@ test("a rework execution freezes the delivery branch's fork point, not the advan
     assert.equal(baselineA.commitSha, forkPoint);
     assert.equal(baselineB.commitSha, forkPoint);
     git(rootDir, "merge-base", "--is-ancestor", baselineB.commitSha, branchTip);
+    // `ha task show --json` must carry the same sentence with the raw start-frozen field, so a
+    // reader cannot mistake the comparison cut for a stale delivery head.
+    const shown = JSON.parse(String((await cell.run({ kind: "task-show", taskId }, worker)).evidence)) as {
+      readonly deliveryBaselineNote?: string;
+      readonly executions: readonly { readonly executionId: string; readonly deliveryBaseline?: unknown }[];
+    };
+    assert.equal(shown.deliveryBaselineNote, EXECUTION_DELIVERY_BASELINE_NOTE);
+    assert.deepEqual(
+      shown.executions.find((execution) => execution.executionId === executionB)?.deliveryBaseline,
+      baselineB,
+    );
   } finally {
     await reader.drain();
     await cell.close();
