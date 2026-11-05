@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { homedir } from "node:os";
+import { userInfo } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -11,9 +11,11 @@ import {
   toolValue,
 } from "./tool-command-contract.mjs";
 
-export function assessHermeticConfig({ userRoot, daemonId, userRootSource, home = homedir() }) {
+export function assessHermeticConfig({ userRoot, daemonId, userRootSource, identityHome = userInfo().homedir }) {
   const failures = [];
-  const defaultUserRoot = path.resolve(home, ".harness");
+  // The production daemon root belongs to the account, not to the mutable HOME a runtime may
+  // redirect; otherwise an injected HOME makes the real default root look dedicated.
+  const defaultUserRoot = path.resolve(identityHome, ".harness");
   const effectiveDaemonId = daemonId ?? toolOption(testHermeticPreflightCommand, "--daemon-id").defaultValue;
 
   if (userRoot === undefined) {
