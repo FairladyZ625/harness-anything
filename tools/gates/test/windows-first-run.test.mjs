@@ -1,7 +1,11 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
-import { evaluateWindowsFirstRun } from "../windows-first-run.mjs";
+import { evaluateWindowsFirstRun, ledgerCloneArgs } from "../windows-first-run.mjs";
 import { makeRepo } from "./helpers.mjs";
 
 // The gate drives a real CLI over a real repository, so these fixtures stand in a scripted bin
@@ -65,6 +69,27 @@ test("G34 passes when the first-run path initializes, publishes, clones faithful
   const result = await evaluateWith({});
   assert.equal(result.ok, true, result.errors.join("\n"));
   assert.equal(result.checks.length, 11);
+});
+
+// The resident daemon materializes its ledger after the init receipt, so a local-path clone copies
+// .git/objects file by file while tmp_obj_* entries are renamed away. The gate must request the Git
+// transport; a loose-object copy leaves no pack and is the shape that failed on Windows.
+test("G34 clones the ledger over the Git transport instead of copying .git/objects", () => {
+  const source = makeRepo({ "harness.yaml": "name: firstrun\n" }),
+    destinationRoot = mkdtempSync(path.join(tmpdir(), "rebuild-gate-clone-")),
+    destination = path.join(destinationRoot, "clone");
+  try {
+    const args = ledgerCloneArgs(source.rootDir, destination);
+    assert.ok(args.includes("--no-local"), `clone must force the Git transport: ${args.join(" ")}`);
+    assert.ok(!args.includes("--local"), `clone must not request the local optimization: ${args.join(" ")}`);
+    const result = spawnSync("git", args, { encoding: "utf8", windowsHide: true });
+    assert.equal(result.status, 0, result.stderr);
+    const packDirectory = path.join(destination, ".git", "objects", "pack"),
+      packs = existsSync(packDirectory) ? readdirSync(packDirectory).filter((name) => name.endsWith(".pack")) : [];
+    assert.ok(packs.length > 0, "the clone must receive a pack from upload-pack, not a loose-object copy");
+  } finally {
+    rmSync(destinationRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }
 });
 
 // #1565: stop did stop the daemon but reported daemon_stop_timeout. A stop that cannot say what
