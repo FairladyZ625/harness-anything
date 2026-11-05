@@ -105,6 +105,16 @@ export function configureLedgerMaintenance(repoRoot: string): LedgerMaintenanceR
   // the full active tree.
   pin("core.splitIndex", "false");
   pin("core.untrackedCache", "true");
+  // Git detects a worktree edit through the index's stat comparison, which only stays sound while
+  // it may compare ctime and the inode (git-config(1) core.checkStat / core.trustctime): a host
+  // that opts into `minimal` or `trustctime=false` leaves whole-second mtime and size, and
+  // `rsync -a` restores mtime while an equal-length edit keeps size, so a changed document reads
+  // as untouched and doc sync silently publishes nothing (deli-ai-lab T7, 2026-11-05). Repository
+  // scope outranks global and system scope, so the ledger keeps the full model whatever the host's
+  // Git policy is. POSIX cannot set ctime, so keeping it compared needs no content read; falling
+  // back to hashing every candidate is the cost this pin avoids.
+  pin("core.checkStat", "default");
+  pin("core.trustctime", "true");
   const geometric = version !== null && atLeastGitVersion(version.parts, geometricMaintenanceFloor);
   if (geometric) pin("maintenance.strategy", "geometric");
   if (!geometric)

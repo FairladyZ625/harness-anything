@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { configureLedgerMaintenance, installLedgerCommitGuard } from "../../src/index.ts";
@@ -120,6 +120,56 @@ test("ledger maintenance config outranks a global gc.autoDetach opt-out", () => 
       configureLedgerMaintenance(repoRoot);
       // Repository scope wins, so a global opt-out cannot pull a repack into a ledger write.
       assert.equal(git(repoRoot, "config", "--get", "gc.autoDetach"), "true");
+    } finally {
+      if (previous === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+      else process.env.GIT_CONFIG_GLOBAL = previous;
+    }
+  });
+});
+
+test("ledger maintenance keeps Git's full stat model under a global checkStat=minimal opt-out", () => {
+  withTempStore((rootDir) => {
+    const repoRoot = ledger(rootDir),
+      globalConfig = path.join(rootDir, "global-gitconfig"),
+      previous = process.env.GIT_CONFIG_GLOBAL;
+    // The opt-out is real: core.checkStat=minimal and core.trustctime=false leave whole-second
+    // mtime and file size as the only fields Git compares.
+    writeFileSync(globalConfig, "[core]\n\tcheckStat = minimal\n\ttrustctime = false\n", "utf8");
+    process.env.GIT_CONFIG_GLOBAL = globalConfig;
+    try {
+      git(repoRoot, "config", "user.name", "Ledger Maintenance");
+      git(repoRoot, "config", "user.email", "ledger-maintenance@example.invalid");
+      const target = path.join(repoRoot, "report.md"),
+        original = new Date("2020-01-01T00:00:00.000Z");
+      // An old mtime keeps the index entry outside Git's racy-timestamp recheck, so the seed is
+      // stat-clean for the reason this test cares about rather than by content rehashing.
+      writeFileSync(target, "# AAAA\n", "utf8");
+      utimesSync(target, original, original);
+      git(repoRoot, "add", "report.md");
+      git(repoRoot, "commit", "--quiet", "-m", "seed");
+      assert.equal(git(repoRoot, "status", "--porcelain=v1"), "", "the seed must start stat-clean");
+      const receipt = configureLedgerMaintenance(repoRoot);
+      // `rsync -a` publishes a fresh inode and ctime while restoring mtime; an equal-length edit
+      // keeps size identical too. ctime and the inode are the only evidence left.
+      const staging = `${target}.rsync`;
+      writeFileSync(staging, "# BBBB\n", "utf8");
+      utimesSync(staging, original, original);
+      renameSync(staging, target);
+      assert.equal(
+        git(repoRoot, "status", "--porcelain=v1"),
+        "M report.md",
+        "a mtime-preserving rewrite must stay visible through ctime and the inode",
+      );
+      // The artifact-add guard asks `git diff --quiet HEAD` for the same question; repository-scoped
+      // pins cover that stat comparison too, not just the candidate scanner's status call.
+      const diff = spawnSync("git", ["-C", repoRoot, "diff", "--quiet", "HEAD", "--", "report.md"], {
+        encoding: "utf8",
+      });
+      assert.equal(diff.status, 1, "git diff must report the same rewrite the status does");
+      assert.ok(receipt.applied.includes("core.checkStat=default"));
+      assert.ok(receipt.applied.includes("core.trustctime=true"));
+      assert.equal(git(repoRoot, "config", "--get", "core.checkStat"), "default");
+      assert.equal(git(repoRoot, "config", "--get", "core.trustctime"), "true");
     } finally {
       if (previous === undefined) delete process.env.GIT_CONFIG_GLOBAL;
       else process.env.GIT_CONFIG_GLOBAL = previous;
