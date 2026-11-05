@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { pgProjectionStoredRows } from "../../src/pg/pg-projection-stored-rows.ts";
 import { appendBootstrapQueryFixture } from "./query-bootstrap.fixture.ts";
 import assert from "node:assert/strict";
 import { assertPgReaderBridge } from "./pg-reader-bridge.fixture.ts";
@@ -119,7 +120,7 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
       await client.query(`SET ROLE "${roles.schemaOwner}"`);
       try {
         for (const statement of POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS) await client.query(statement);
-        await ensurePgProjectionSchema(client);
+        await ensurePgProjectionSchema(client, { indexBuild: "isolated" });
       } finally {
         await client.query("RESET ROLE");
       }
@@ -671,10 +672,11 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
         runtimePool,
         async (client) => {
           const result: Record<string, unknown[]> = {};
-          for (const table of PG_PROJECTION_TABLES.filter((name) => name !== "ha_projection_meta"))
+          for (const table of PG_PROJECTION_TABLES.filter((name) => name !== "ha_projection_meta")) {
+            const stored = pgProjectionStoredRows(table);
             result[table] = (
               await client.query<{ value: unknown }>(
-                `SELECT to_jsonb(p)-ARRAY['tenant_id','project_id','policy_epoch','readers'] AS value FROM ${table} p WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND (cardinality($4::text[])=0 OR readers && $4::text[]) ORDER BY (to_jsonb(p)-ARRAY['tenant_id','project_id','policy_epoch','readers'])::text`,
+                `SELECT (${stored.row})-ARRAY['tenant_id','project_id','policy_epoch','readers'] AS value FROM ${stored.from} WHERE projection.tenant_id=$1 AND projection.project_id=$2 AND projection.policy_epoch=$3 AND (cardinality($4::text[])=0 OR projection.readers && $4::text[]) ORDER BY ((${stored.row})-ARRAY['tenant_id','project_id','policy_epoch','readers'])::text`,
                 [
                   projectionScope.tenantId,
                   projectionScope.projectId,
@@ -683,6 +685,7 @@ test("PG and SQLite projections agree on lifecycle judgments, graphs, entities, 
                 ],
               )
             ).rows.map(({ value }) => value);
+          }
           return result;
         },
         projectionScope,

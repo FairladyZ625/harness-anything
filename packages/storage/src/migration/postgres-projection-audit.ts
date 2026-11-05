@@ -1,3 +1,4 @@
+import { pgProjectionStoredRows } from "../pg/pg-projection-stored-rows.ts";
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { parseCanonicalEvent } from "@harness-anything/kernel/internal/domain/doc-sync-canonical-events.ts";
@@ -12,19 +13,22 @@ async function rows(client: PoolClient, tuple: Pick<MigrationTuple, "scope">) {
   const result: Record<string, unknown> = {},
     scope = tuple.scope;
   for (const table of PG_PROJECTION_TABLES) {
-    const values = (
-      await client.query<{ value: Record<string, unknown> }>(
-        `SELECT to_jsonb(p) - 'updated_at' - 'state_digest' AS value FROM ${table} p WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3`,
-        [scope.tenantId, scope.projectId, scope.policyEpoch],
-      )
-    ).rows.map((row) => row.value);
+    const stored = pgProjectionStoredRows(table),
+      values = (
+        await client.query<{ value: Record<string, unknown> }>(
+          `SELECT (${stored.row})-'updated_at'-'state_digest' AS value FROM ${stored.from}
+         WHERE projection.tenant_id=$1 AND projection.project_id=$2 AND projection.policy_epoch=$3`,
+          [scope.tenantId, scope.projectId, scope.policyEpoch],
+        )
+      ).rows.map((row) => row.value);
     result[table] = values.sort((a, b) => canonicalJson(a).localeCompare(canonicalJson(b)));
   }
   return result;
 }
-/** A same-dialect replay compares every physical projection row, including models without public list methods.
- * Wall-clock cache timestamps and the optional lazily-computed digest are excluded; every other column remains.
- * The management transaction owns an isolated schema; exported source rows are read only by the granted login.
+/** A same-dialect replay compares complete model values, including models without public lists.
+ * Allocation slots resolve to exact words; unused dictionary addresses have no search meaning.
+ * Every posting column remains. Wall-clock timestamps and the lazily computed digest are excluded.
+ * The management transaction owns an isolated schema; the source is read by its granted login.
  */
 export async function auditPgProjectionRows(
   admin: Pool,
@@ -50,7 +54,7 @@ export async function auditPgProjectionRows(
         [tuple.scope.tenantId, tuple.scope.projectId, tuple.scope.policyEpoch, tuple.cut.repoId, tuple.cut.revision],
       );
       await client.query(`SET LOCAL search_path TO "${schema}", public`);
-      await ensurePgProjectionSchema(client);
+      await ensurePgProjectionSchema(client, { indexBuild: "isolated" });
       await rebuildPgProjection(client, tuple.scope, {
         events: tuple.events.map((row) => parseCanonicalEvent(row.eventJson)),
         sourceRevision: tuple.cut.revision,

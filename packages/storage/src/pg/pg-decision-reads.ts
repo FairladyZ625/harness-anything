@@ -22,10 +22,17 @@ export async function readPgDecisionRows(
   const ids = rows.map((row) => row.decision_id),
     readers = [...(scope.readers ?? [])],
     relations = await client.query<{ value: Record<string, unknown> }>(
-      `SELECT value FROM ha_relations WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
-       AND split_part(source_ref, '/', 1)='decision' AND split_part(source_ref, '/', 2)=ANY($4::text[])
-       AND (cardinality($5::text[])=0 OR readers && $5::text[]) ORDER BY relation_id`,
-      [scope.tenantId, scope.projectId, scope.policyEpoch, ids, readers],
+      `SELECT edge.value FROM unnest($4::text[]) AS requested(root)
+       CROSS JOIN LATERAL (
+         SELECT relation_id,value FROM ha_relations WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+           AND source_ref=requested.root AND (cardinality($5::text[])=0 OR readers && $5::text[])
+         UNION ALL
+         SELECT relation_id,value FROM ha_relations WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+           AND source_ref COLLATE "C" >= (requested.root || '/') COLLATE "C"
+           AND source_ref COLLATE "C" < (requested.root || '0') COLLATE "C"
+           AND (cardinality($5::text[])=0 OR readers && $5::text[])
+       ) edge ORDER BY edge.relation_id`,
+      [scope.tenantId, scope.projectId, scope.policyEpoch, ids.map((id) => `decision/${id}`), readers],
     ),
     documents = withBody
       ? await client.query<{
@@ -64,27 +71,29 @@ export async function readPgDecisionRows(
       },
     ]),
   );
+  const relationsByOwner = new Map<string, EntityRelationRecord[]>();
+  for (const { value: relation } of relations.rows) {
+    const owner = relationOwnerRef(String(relation.source)),
+      bucket = relationsByOwner.get(owner) ?? [];
+    bucket.push({
+      relation_id: relation.id,
+      source: relation.source,
+      target: relation.target,
+      type: relation.type,
+      direction: relation.direction,
+      strength: relation.strength,
+      origin: relation.origin,
+      rationale: relation.rationale,
+      state: relation.state,
+    } as EntityRelationRecord);
+    relationsByOwner.set(owner, bucket);
+  }
   return rows.map(({ decision_id, value }) => {
     const row = decisionProjectionRow(decision_id, value);
     return {
       ...row,
       body: bodyByPath.get(row.path) ?? null,
-      relations: relations.rows
-        .filter(({ value: relation }) => relationOwnerRef(String(relation.source)) === `decision/${decision_id}`)
-        .map(
-          ({ value: relation }) =>
-            ({
-              relation_id: relation.id,
-              source: relation.source,
-              target: relation.target,
-              type: relation.type,
-              direction: relation.direction,
-              strength: relation.strength,
-              origin: relation.origin,
-              rationale: relation.rationale,
-              state: relation.state,
-            }) as EntityRelationRecord,
-        ),
+      relations: relationsByOwner.get(`decision/${decision_id}`) ?? [],
     };
   });
 }

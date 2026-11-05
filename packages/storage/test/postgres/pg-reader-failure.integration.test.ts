@@ -14,7 +14,7 @@ test("query worker failures stay inside the reader and preserve the calling proc
   try {
     await withPostgresTransaction(fixture.adminPool, async (client) => {
       for (const statement of POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS) await client.query(statement);
-      await ensurePgProjectionSchema(client);
+      await ensurePgProjectionSchema(client, { indexBuild: "isolated" });
     });
     for (const mode of ["idle", "session", "crash", "exit"])
       await t.test(mode, async () => {

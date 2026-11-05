@@ -1,7 +1,8 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { PoolClient } from "pg";
+import { Pool, type PoolClient } from "pg";
+import { setImmediate as yieldTurn } from "node:timers/promises";
 import { taskLifecycleWritePlan, type CanonicalEventV1 } from "@harness-anything/kernel";
 import { lifecycleFixture } from "../../../kernel/test/store/task-lifecycle-fixture.ts";
 import { canonicalEventWritePlan, type CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
@@ -106,7 +107,7 @@ test("external PG release sequence upgrades populated read indexes before reader
     // Phase 1 installs expansion only; it must not silently backfill legacy rows.
     await manage(async (client) => {
       await client.query(`SET LOCAL ROLE "${roles.schemaOwner}"`);
-      await ensurePgProjectionSchema(client);
+      await ensurePgProjectionSchema(client, { indexBuild: "isolated" });
       await grantPgProjectionRuntimeAccess(client);
     });
     for (const operation of [
@@ -217,3 +218,167 @@ test("external PG release sequence upgrades populated read indexes before reader
     await fixture.close();
   }
 });
+
+test("Decision expansion resumes 64-owner batches and repairs an interrupted concurrent index", async () => {
+  const fixture = await pgRuntimeFixture(),
+    scope = { tenantId: "decision-upgrade", projectId: "decision-upgrade", policyEpoch: 1 },
+    manage = <T>(f: (client: PoolClient) => Promise<T>) => withPostgresTransaction(fixture.adminPool, f, scope),
+    keys = [scope.tenantId, scope.projectId, scope.policyEpoch];
+  try {
+    await manage(async (client) => {
+      await client.query(
+        `INSERT INTO ha_decisions(tenant_id,project_id,policy_epoch,decision_id,workspace_revision,value)
+        SELECT $1,$2,$3,'dec_upgrade_'||n,1,'{"state":"proposed"}'::jsonb FROM generate_series(1,130)n`,
+        keys,
+      );
+      // Previous-generation state has original columns but no derived ordering keys.
+      await client.query("UPDATE ha_decisions SET decision_sort_key=NULL");
+    });
+    const batch = () =>
+        manage(
+          async (client) =>
+            (
+              await client.query<{ processed: number }>(
+                "SELECT ha_backfill_decision_indexes($1,$2,$3) AS processed",
+                keys,
+              )
+            ).rows[0]!.processed,
+        ),
+      pending = () =>
+        manage(async (client) =>
+          Number(
+            (
+              await client.query<{ n: string }>(
+                "SELECT count(*) AS n FROM ha_decisions WHERE decision_sort_key IS NULL",
+              )
+            ).rows[0]!.n,
+          ),
+        );
+    assert.equal(await batch(), 64);
+    const rollback = new Error("interrupt decision index page");
+    await assert.rejects(
+      manage(async (client) => {
+        await client.query("SELECT ha_backfill_decision_indexes($1,$2,$3)", keys);
+        throw rollback;
+      }),
+      (e) => e === rollback,
+    );
+    assert.equal(await pending(), 66);
+    assert.equal(await batch(), 64);
+    assert.equal(await batch(), 2);
+    assert.equal(await batch(), 0);
+    await manage(async (client) => {
+      await client.query(
+        "UPDATE ha_decisions SET value=jsonb_set(value,'{state}','\"in_effect\"') WHERE decision_id='dec_upgrade_1'",
+      );
+      assert.equal(
+        (await client.query("SELECT decision_state FROM ha_decisions WHERE decision_id='dec_upgrade_1'")).rows[0]!
+          .decision_state,
+        "in_effect",
+      );
+    });
+    const admin = await fixture.adminPool.connect();
+    try {
+      await admin.query("DROP INDEX ha_decisions_state_order");
+      // PostgreSQL itself produces the invalid artifact left by a failed concurrent build.
+      await assert.rejects(
+        admin.query("CREATE UNIQUE INDEX CONCURRENTLY ha_decisions_state_order ON ha_decisions(decision_state)"),
+        { code: "23505" },
+      );
+      assert.equal(
+        (await admin.query("SELECT indisvalid FROM pg_index WHERE indexrelid='ha_decisions_state_order'::regclass"))
+          .rows[0]!.indisvalid,
+        false,
+      );
+      await ensurePgProjectionSchema(admin);
+      assert.equal(
+        (await admin.query("SELECT indisvalid FROM pg_index WHERE indexrelid='ha_decisions_state_order'::regclass"))
+          .rows[0]!.indisvalid,
+        true,
+      );
+      await assertOnlineIndexDml(admin, fixture.port, keys);
+    } finally {
+      admin.release();
+    }
+  } finally {
+    await fixture.pool.end();
+    await fixture.close();
+  }
+});
+
+/** Pin a real concurrent build at PostgreSQL's writer wait, then commit a new writer.
+ * No desktop/system services or timed scheduling participate in this test.
+ */
+async function assertOnlineIndexDml(admin: PoolClient, port: number, keys: readonly unknown[]) {
+  const peers = new Pool({ host: "127.0.0.1", port, user: "postgres", database: "postgres", max: 2 }),
+    blocker = await peers.connect(),
+    observer = await peers.connect(),
+    entered = Promise.withResolvers<void>(),
+    resume = Promise.withResolvers<void>();
+  let holding = false;
+  await admin.query("DROP INDEX ha_decisions_state_order");
+  const pid = (await admin.query("SELECT pg_backend_pid() AS pid")).rows[0]!.pid;
+  const proxy = new Proxy(admin, {
+    get(target, key) {
+      if (key === "query")
+        return async (sql: string, ...args: unknown[]) => {
+          if (sql.startsWith("CREATE INDEX CONCURRENTLY IF NOT EXISTS ha_decisions_state_order")) {
+            entered.resolve();
+            await resume.promise;
+          }
+          return Reflect.apply(target.query, target, [sql, ...args]);
+        };
+      const value: unknown = Reflect.get(target, key);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+  await admin.query("SET statement_timeout=15000");
+  const build = ensurePgProjectionSchema(proxy);
+  const insert = (client: PoolClient, id: string, writerScope = keys) =>
+    client.query(
+      `INSERT INTO ha_decisions
+    (tenant_id,project_id,policy_epoch,decision_id,workspace_revision,value)
+    VALUES($1,$2,$3,$4,1,'{"state":"proposed"}'::jsonb)`,
+      [...writerScope, id],
+    );
+  try {
+    await Promise.race([
+      entered.promise,
+      build.then(() => {
+        throw new Error("concurrent build did not reach the Decision index");
+      }),
+    ]);
+    await blocker.query("BEGIN");
+    holding = true;
+    await insert(blocker, "dec_online_blocker");
+    resume.resolve();
+    const deadline = Date.now() + 10000;
+    for (;;) {
+      const phase = (await observer.query("SELECT phase FROM pg_stat_progress_create_index WHERE pid=$1", [pid]))
+        .rows[0]?.phase;
+      if (phase === "waiting for writers before build") break;
+      assert.ok(Date.now() < deadline, `concurrent build did not enter its writer wait; phase=${phase}`);
+      await yieldTurn();
+    }
+    await observer.query("SET statement_timeout=2000");
+    // Independent project writers share the physical table, not its readiness
+    // aggregate. Keep row contention out of the test for table-wide DDL locks.
+    await insert(observer, "dec_online_new_writer", [keys[0], `${String(keys[1])}-online`, keys[2]]);
+    await observer.query("RESET statement_timeout");
+    await blocker.query("COMMIT");
+    holding = false;
+    await build;
+    process.stdout.write('ONLINE_INDEX_DML {"phase":"waiting for writers before build","newWriterCommitted":true}\n');
+  } finally {
+    resume.resolve();
+    try {
+      if (holding) await blocker.query("ROLLBACK");
+      await build;
+    } finally {
+      blocker.release();
+      observer.release();
+      await peers.end();
+      await admin.query("RESET statement_timeout");
+    }
+  }
+}

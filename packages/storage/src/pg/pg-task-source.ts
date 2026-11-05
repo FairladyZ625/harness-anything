@@ -35,9 +35,9 @@ import type { FactProjectionRow } from "@harness-anything/kernel/internal/ports/
 import type { EventListPage, EventListQuery } from "@harness-anything/kernel/internal/domain/event-list.ts";
 import { factInvalidated, factLiveness } from "@harness-anything/kernel/internal/domain/fact-liveness.ts";
 import { readPgDecisionRows } from "./pg-decision-reads.ts";
-import { filterLiteralTextRows } from "./pg-text-search.ts";
+import { assertPgDecisionIndexReady } from "./pg-decision-index-migration.ts";
+import { listPgDecisionRows } from "./pg-decision-list.ts";
 import { effectiveLeaseValue } from "../projection/rebuildable-task-projection-runtime.ts";
-import { compareDecisionIds, decisionLegacyId, decisionLegacyNumber } from "../projection/decision-projection-reads.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 import { withPostgresTransaction, type PostgresScopeClaims } from "../postgres/transaction.ts";
 
@@ -487,6 +487,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
     withPostgresTransaction(
       options.pool,
       async (client) => {
+        await assertPgDecisionIndexReady(client, options.scope);
         const cut = await readCutInTransaction(client, claims, readers, repoId),
           cursor = query.cursor === undefined ? null : (decodeTaskListCursor(query.cursor, 1)[0] ?? null),
           limit = checkedPageLimit(query.limit ?? 100),
@@ -494,7 +495,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
         if (cursor !== null) values.push(cursor);
         values.push(limit + 1);
         const rows = await client.query<{ decision_id: string; value: DecisionDocumentShape }>(
-          `SELECT decision_id, value FROM ha_decisions WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND (cardinality($4::text[])=0 OR readers && $4::text[]) AND value->>'state'=$5${cursor === null ? "" : ' AND decision_id COLLATE "C" > $6'} ORDER BY decision_id COLLATE "C" LIMIT $${values.length}`,
+          `SELECT decision_id, value FROM ha_decisions WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND (cardinality($4::text[])=0 OR readers && $4::text[]) AND decision_state=$5${cursor === null ? "" : ' AND decision_id COLLATE "C" > $6'} ORDER BY decision_id COLLATE "C" LIMIT $${values.length}`,
           values,
         );
         const visible = rows.rows.slice(0, limit),
@@ -546,79 +547,8 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
     withPostgresTransaction(
       options.pool,
       async (client) => {
-        const cut = await readCutInTransaction(client, claims, readers, repoId),
-          result = await client.query<{ decision_id: string; value: DecisionDocumentShape }>(
-            `SELECT decision_id,value FROM ha_decisions
-             WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
-               AND (cardinality($4::text[])=0 OR readers && $4::text[])
-             ORDER BY decision_id`,
-            [claims.tenantId, claims.projectId, claims.policyEpoch, readers],
-          ),
-          search = filters.search?.trim(),
-          rows = result.rows
-            .filter(({ decision_id, value }) => {
-              const legacy = decisionLegacyId(decision_id),
-                applies = value.appliesTo as
-                  | { modules?: readonly string[]; productLines?: readonly string[] }
-                  | undefined;
-              return (
-                (!filters.state || value.state === filters.state) &&
-                (!filters.module || applies?.modules?.includes(filters.module)) &&
-                (!filters.productLine || applies?.productLines?.includes(filters.productLine)) &&
-                (!filters.legacyId || legacy === filters.legacyId) &&
-                (!filters.legacyRange ||
-                  (legacy !== undefined &&
-                    decisionLegacyNumber(decision_id)! >= filters.legacyRange.start &&
-                    decisionLegacyNumber(decision_id)! <= filters.legacyRange.end))
-              );
-            })
-            .sort((left, right) => compareDecisionIds(left.decision_id, right.decision_id)),
-          searchRows = search
-            ? filterLiteralTextRows(
-                await readPgDecisionRows(client, options.scope, repoId, rows, true),
-                search,
-                (row) => [
-                  row.title,
-                  row.question,
-                  [...row.chosen, ...row.rejected].map((option) => option.text).join(" "),
-                  row.claims.map((claim) => claim.text).join(" "),
-                  row.body?.body ?? "",
-                ],
-              )
-            : null,
-          searchById = searchRows === null ? null : new Map(searchRows.map((row) => [row.decisionId, row])),
-          matched = searchById === null ? rows : rows.filter(({ decision_id }) => searchById.has(decision_id)),
-          paged = filters.limit !== undefined || filters.cursor !== undefined,
-          limit = filters.limit === undefined ? (paged ? 100 : null) : checkedPageLimit(filters.limit),
-          cursor = filters.cursor === undefined ? null : decodeTaskListCursor(filters.cursor, 1)[0]!;
-        const afterCursor =
-            cursor === null
-              ? matched
-              : matched.filter(({ decision_id }) => compareDecisionIds(decision_id, cursor) > 0),
-          selected = limit === null ? afterCursor : afterCursor.slice(0, limit),
-          hasMore = limit !== null && afterCursor.length > limit,
-          decisions =
-            searchById === null
-              ? await readPgDecisionRows(client, options.scope, repoId, selected, filters.withBody === true)
-              : selected.map(({ decision_id }) => {
-                  const row = searchById.get(decision_id)!;
-                  return filters.withBody === true ? row : { ...row, body: null };
-                });
-        return {
-          status: cut.status,
-          decisions,
-          watermark: cut.watermark,
-          sourceRevision: cut.sourceRevision,
-          ...(limit === null
-            ? {}
-            : {
-                page: {
-                  limit,
-                  cursor: filters.cursor ?? null,
-                  nextCursor: hasMore && decisions.at(-1) ? encodeTaskListCursor([decisions.at(-1)!.decisionId]) : null,
-                },
-              }),
-        };
+        const cut = await readCutInTransaction(client, claims, readers, repoId);
+        return { ...cut, ...(await listPgDecisionRows(client, options.scope, repoId, filters)) };
       },
       claims,
       { isolationLevel: "repeatable read" },

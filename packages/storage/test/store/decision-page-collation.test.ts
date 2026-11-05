@@ -4,6 +4,7 @@ import test from "node:test";
 import type { DecisionEventDraftV1 } from "../../src/domain/decision-event-types.ts";
 import { readDecisionDocumentState } from "../../src/projection/decision-event-projection.ts";
 import { compileDecisionWrite } from "@harness-anything/kernel";
+import { compareDecisionIds, decisionLegacyId } from "../../src/projection/decision-projection-reads.ts";
 import { listDecisionRowsPage, reduceDecisionEvent } from "../../src/projection/decision-event-projection.ts";
 import { encodePageCursor } from "../../src/projection/task-query-projection.ts";
 import { decisionProjectionDatabase, proposal } from "./relation-graph-projection.fixtures.ts";
@@ -39,7 +40,7 @@ test("decision pages preserve localeCompare order for mixed ids across cursor bo
       );
     }
 
-    const expected = listDecisionRowsPage(db, {}).rows.map(({ decisionId }) => decisionId),
+    const expected = [...decisionIds].sort(compareDecisionIds),
       visited: string[] = [];
     let cursor: string | undefined;
     do {
@@ -129,6 +130,37 @@ test("historical Decision amendments replay when a legacy appended claim carries
       loadBearing: false,
       fulfillment: "standing_policy",
     });
+  } finally {
+    db.close();
+  }
+});
+
+test("legacy alias equality keeps the canonical Number spelling across indexed and unpaged reads", () => {
+  const db = decisionProjectionDatabase(),
+    ids = ["dec_E9007199254740992_a", "dec_E9007199254740993_b"];
+  try {
+    for (const [index, id] of ids.entries())
+      reduceDecisionEvent(
+        db,
+        compileDecisionWrite({
+          decisionReviewRequirement: "off",
+          event: proposal(index + 1, id),
+          currentDecision: null,
+          currentRelations: [],
+          currentDocument: null,
+        }).event,
+      );
+    for (const legacyId of ["E9007199254740992", "E9007199254740993"]) {
+      const expected = ids.filter((id) => decisionLegacyId(id) === legacyId).sort(compareDecisionIds);
+      assert.deepEqual(
+        listDecisionRowsPage(db, { legacyId }).rows.map((row) => row.decisionId),
+        expected,
+      );
+      assert.deepEqual(
+        listDecisionRowsPage(db, { legacyId, limit: 10 }).rows.map((row) => row.decisionId),
+        expected,
+      );
+    }
   } finally {
     db.close();
   }

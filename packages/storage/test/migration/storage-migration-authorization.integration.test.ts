@@ -22,7 +22,7 @@ test("real PG: session_user grant prevents claims/run-id spoofing and grants exp
   try {
     await withPostgresTransaction(fixture.adminPool, async (client) => {
       for (const sql of POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS) await client.query(sql);
-      await ensurePgProjectionSchema(client);
+      await ensurePgProjectionSchema(client, { indexBuild: "isolated" });
     });
     for (const [repoId, s] of [
       ["multiple", scope],

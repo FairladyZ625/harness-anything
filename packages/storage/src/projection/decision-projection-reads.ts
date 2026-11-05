@@ -315,28 +315,7 @@ export function listDecisionRowsPage(
     where.push("EXISTS (SELECT 1 FROM json_each(decision.applies_json, '$.productLines') WHERE value=?)");
     values.push(filters.productLine);
   }
-  if (filters.limit !== undefined || filters.cursor !== undefined)
-    return listDecisionRowsPageFromIndex(db, filters, where, values);
-
-  const ids = queryRows<{ readonly decision_id: string }>(
-    db,
-    `SELECT decision_id FROM decision${where.length ? ` WHERE ${where.join(" AND ")}` : ""}`,
-    ...values,
-  )
-    .map((row) => row.decision_id)
-    .filter((decisionId) => {
-      const legacy = decisionLegacyId(decisionId);
-      return (
-        (!filters.legacyId || legacy === filters.legacyId) &&
-        (!filters.legacyRange ||
-          (legacy !== undefined &&
-            decisionLegacyNumber(decisionId)! >= filters.legacyRange.start &&
-            decisionLegacyNumber(decisionId)! <= filters.legacyRange.end))
-      );
-    })
-    .sort(compareDecisionIds);
-
-  return { rows: readDecisionRows(db, ids, filters.withBody === true) };
+  return listDecisionRowsPageFromIndex(db, filters, where, values);
 }
 
 function listDecisionRowsPageFromIndex(
@@ -344,8 +323,10 @@ function listDecisionRowsPageFromIndex(
   filters: DecisionListFilters,
   where: readonly string[],
   values: readonly (string | number)[],
-): { readonly rows: readonly DecisionProjectionRow[]; readonly page: ProjectionPage } {
-  const pageLimit = filters.limit === undefined ? 100 : checkedPageLimit(filters.limit),
+): { readonly rows: readonly DecisionProjectionRow[]; readonly page?: ProjectionPage } {
+  const paged = filters.limit !== undefined || filters.cursor !== undefined,
+    pageLimit = filters.limit === undefined ? (paged ? 100 : null) : checkedPageLimit(filters.limit),
+    sqlLimit = pageLimit === null ? -1 : pageLimit + 1,
     cursorId = filters.cursor === undefined ? undefined : decodePageCursor(filters.cursor, 1)[0]!,
     cursorLegacyNumber = cursorId === undefined ? null : decisionLegacyNumber(cursorId),
     cursorSortKey = cursorId === undefined ? "" : decisionIdSortKey(cursorId),
@@ -354,7 +335,7 @@ function listDecisionRowsPageFromIndex(
 
   if (filters.legacyId) {
     const match = /^E([1-9][0-9]*)$/u.exec(filters.legacyId);
-    if (match) {
+    if (match && decisionLegacyId(`dec_${filters.legacyId}`) === filters.legacyId) {
       legacyWhere.push("legacy_number = ?");
       legacyValues.push(Number(match[1]));
     } else legacyWhere.push("0");
@@ -376,7 +357,7 @@ function listDecisionRowsPageFromIndex(
       `WHERE ${[...legacyWhere, "(legacy_number, decision_sort_key, decision_id) > (?, ?, ?)"].join(" AND ")}`,
       "ORDER BY legacy_number, decision_sort_key, decision_id LIMIT ?)",
     ].join(" ");
-  legacyValues.push(...cursorBoundary, pageLimit + 1);
+  legacyValues.push(...cursorBoundary, sqlLimit);
 
   const branches = [legacyBranch],
     queryValues: (string | number)[] = [...legacyValues];
@@ -391,7 +372,7 @@ function listDecisionRowsPageFromIndex(
         "ORDER BY decision_sort_key, decision_id LIMIT ?)",
       ].join(" "),
     );
-    queryValues.push(...values, plainBoundary, plainCursor, pageLimit + 1);
+    queryValues.push(...values, plainBoundary, plainCursor, sqlLimit);
   }
 
   const raw = queryRows<{ readonly decision_id: string }>(
@@ -402,17 +383,21 @@ function listDecisionRowsPageFromIndex(
         ") ORDER BY legacy_number IS NULL, legacy_number, decision_sort_key, tie LIMIT ?",
       ].join(" "),
       ...queryValues,
-      pageLimit + 1,
+      sqlLimit,
     ),
-    pageIds = raw.slice(0, pageLimit).map(({ decision_id }) => decision_id),
+    pageIds = (pageLimit === null ? raw : raw.slice(0, pageLimit)).map(({ decision_id }) => decision_id),
     last = pageIds.at(-1);
   return {
     rows: readDecisionRows(db, pageIds, filters.withBody === true),
-    page: {
-      limit: pageLimit,
-      cursor: filters.cursor ?? null,
-      nextCursor: raw.length > pageLimit && last ? encodePageCursor([last]) : null,
-    },
+    ...(pageLimit === null
+      ? {}
+      : {
+          page: {
+            limit: pageLimit,
+            cursor: filters.cursor ?? null,
+            nextCursor: raw.length > pageLimit && last ? encodePageCursor([last]) : null,
+          },
+        }),
   };
 }
 

@@ -29,7 +29,7 @@ test("PG query edge inputs retain the SQLite contract", async (t) => {
   try {
     await withPostgresTransaction(pool, async (client) => {
       for (const statement of POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS) await client.query(statement);
-      await ensurePgProjectionSchema(client);
+      await ensurePgProjectionSchema(client, { indexBuild: "isolated" });
     });
     const scope = { tenantId: "edges", projectId: "edges", policyEpoch: 1, readers: ["visible"] },
       repoId = "edge-parity",

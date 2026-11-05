@@ -17,7 +17,7 @@ export async function assertRuntimeIndexReplacement(
     "CREATE INDEX ha_projection_values_runtime_unsettled ON ha_projection_values (tenant_id,project_id,policy_epoch,((value::jsonb)->>'outcome')) WHERE model='runtime-session'",
   );
   // Reopen through the real schema expansion path, not a test-only repair implementation.
-  await withPostgresTransaction(schemaPool, ensurePgProjectionSchema);
+  await withPostgresTransaction(schemaPool, (client) => ensurePgProjectionSchema(client, { indexBuild: "isolated" }));
   const repoId = "provider-replacement",
     backend = createPgStorageBackend({ pool, scope, repoId });
   for (const event of runtimeProviderEvents())

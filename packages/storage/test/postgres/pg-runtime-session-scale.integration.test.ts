@@ -10,7 +10,7 @@ test("PG unsettled runtime read touches only unsettled rows, not the settled his
   const fixture = await pgRuntimeFixture(),
     client = await fixture.adminPool.connect();
   try {
-    await ensurePgProjectionSchema(client);
+    await ensurePgProjectionSchema(client, { indexBuild: "isolated" });
     // A settled history far larger than the two sessions recovery still needs.
     await client.query(
       `INSERT INTO ha_projection_values

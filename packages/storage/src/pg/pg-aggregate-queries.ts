@@ -15,6 +15,7 @@ import { decodePageCursor, encodePageCursor, checkedPageLimit } from "../project
 import { withPostgresTransaction } from "../postgres/transaction.ts";
 import { readCutInTransaction, readEventRowsInTransaction } from "./pg-event-queries.ts";
 import { readRelationsInTransaction } from "./pg-relation-queries.ts";
+import { pgProjectionStoredRows } from "./pg-projection-stored-rows.ts";
 import { PG_PROJECTION_TABLES } from "./pg-projection-schema.ts";
 import { readPgTaskSessions } from "./pg-runtime-session-queries.ts";
 import type { PgTaskProjectionSourceOptions } from "./pg-task-source.ts";
@@ -120,9 +121,10 @@ export function pgAggregateQueries(options: PgTaskProjectionSourceOptions): PgAg
         let digest = sha256Text("pg-task-projection-state/v1");
         for (const table of PG_PROJECTION_TABLES.filter((name) => name !== "ha_projection_meta")) {
           digest = sha256Text(`${digest}\n${table}`);
+          const stored = pgProjectionStoredRows(table);
           const result = await client.query<{ row_value: Record<string, unknown> }>(
-            `SELECT to_jsonb(projection) - ARRAY['tenant_id','project_id','policy_epoch','readers'] AS row_value FROM ${table} projection
-           WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND (cardinality($4::text[])=0 OR readers && $4::text[]) ORDER BY ${table === "ha_entity_declaration_heads" ? "entity_kind,entity_id" : "(to_jsonb(projection) - ARRAY['tenant_id','project_id','policy_epoch','readers'])::text"}`,
+            `SELECT (${stored.row}) - ARRAY['tenant_id','project_id','policy_epoch','readers'] AS row_value FROM ${stored.from}
+           WHERE projection.tenant_id=$1 AND projection.project_id=$2 AND projection.policy_epoch=$3 AND (cardinality($4::text[])=0 OR projection.readers && $4::text[]) ORDER BY ${table === "ha_entity_declaration_heads" ? "entity_kind,entity_id" : `((${stored.row}) - ARRAY['tenant_id','project_id','policy_epoch','readers'])::text`}`,
             parameters,
           );
           for (const { row_value } of result.rows) {

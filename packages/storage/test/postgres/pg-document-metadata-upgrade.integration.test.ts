@@ -73,7 +73,7 @@ test("populated v5 upgrades online with bounded backfill and previous/current re
     const admin = await fixture.adminPool.connect();
     try {
       await admin.query(`SET ROLE "${POSTGRES_SCOPE_SCHEMA_CONTRACT.roles.schemaOwner}"`);
-      await ensurePgProjectionSchema(admin);
+      await ensurePgProjectionSchema(admin, { indexBuild: "isolated" });
     } finally {
       await admin.query("RESET ROLE");
       admin.release();

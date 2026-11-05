@@ -82,6 +82,10 @@ export function createDecisionProjectionTables(db: DatabaseSync): void {
       WHERE legacy_number IS NOT NULL;
     CREATE INDEX IF NOT EXISTS plain_block ON decision(decision_sort_key, decision_id)
       WHERE legacy_number IS NULL;
+    CREATE INDEX IF NOT EXISTS decision_state_legacy_page
+      ON decision(state, legacy_number, decision_sort_key, decision_id) WHERE legacy_number IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS decision_state_plain_page
+      ON decision(state, decision_sort_key, decision_id) WHERE legacy_number IS NULL;
     CREATE INDEX IF NOT EXISTS decision_state_page ON decision(state, decision_id);
     CREATE INDEX IF NOT EXISTS decision_judgment_consent_owner
       ON decision_judgment_consent(decision_id, workspace_revision);
