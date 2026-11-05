@@ -551,6 +551,7 @@ test("JS stack is captured only when hello advertises the method", async (t) => 
   const control = await probeJsStack(fake.socketPath, "daemon.stop", 1_000, dir);
   assert.equal(control.status, "failed");
   assert.match(control.detail ?? "", /refused non-diagnostic method daemon\.stop/u);
+  assert.equal(fake.requests.includes("daemon.stop"), false, "control method must never be sent");
 });
 
 test("JS stack probe reports unreachable when hello times out", async (t) => {
