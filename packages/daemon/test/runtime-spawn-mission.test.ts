@@ -524,6 +524,17 @@ test("implementation missions use the escalation CLI and reviewers receive only 
   assert.doesNotMatch(explicitPromptMission(null, null, "Free-form prompt.", "medium"), /无人值守会话/u);
 });
 
+test("task-bound read-only reviewers are told how to read required ledger documents", () => {
+  const mission = dispatchMissionForPermission("Review.", "read-only", {
+    kindId: "codex",
+    platform: "linux",
+    reviewer: true,
+    taskBound: true,
+  });
+  assert.match(mission, /Read required ledger documents with `ha doc show`/u);
+  assert.doesNotMatch(mission, /daemon-ledger commands are unavailable/u);
+});
+
 test("Windows Codex read-only reviewers are directed to the runnable cmd shell", () => {
   const codex = dispatchMissionForPermission("Review the frozen cut.", "read-only", {
       kindId: "codex",

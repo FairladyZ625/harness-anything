@@ -32,6 +32,7 @@ interface ReadSetEvidence {
     readonly authority: string;
     readonly freshness: string;
     readonly locator: string | null;
+    readonly contentVersion: string | number | null;
     readonly whyIncluded: { readonly source: string; readonly relationId: string; readonly type: string };
   }[];
   readonly blocked: boolean;
@@ -164,6 +165,25 @@ test("task read-set derives one ordered projection per cut and never writes back
     assert.equal(isolated.blocked, false);
     assert.equal(isolated.taskRef, "task/task_read_set_isolated");
 
+    const moved = await cell.run(
+      {
+        kind: "task-amend",
+        taskId: "task_read_set_isolated",
+        patches: [{ field: "parentTaskId", value: "task_read_set_host" }],
+      },
+      binding,
+    );
+    assert.equal(moved.outcome, "applied", JSON.stringify(moved));
+    const inherited = JSON.parse(String((await readSet("task_read_set_isolated")).evidence)) as ReadSetEvidence;
+    assert.equal(inherited.blocked, false, JSON.stringify(inherited));
+    assert.equal(inherited.entries.length, 1);
+    assert.equal(inherited.entries[0]?.entityRef, "task/task_read_set_host");
+    assert.equal(inherited.entries[0]?.whyIncluded.source, "ancestor");
+    assert.equal(inherited.entries[0]?.required, true);
+    assert.equal(inherited.entries[0]?.authority, "normative");
+    assert.match(String(inherited.entries[0]?.locator), /task_plan\.md$/u);
+    assert.equal(typeof inherited.entries[0]?.contentVersion, "number");
+
     // Negative control: an unknown id and a short prefix of a real id are the same not-found
     // answer from the shared judgment, naming the id that was asked for.
     for (const absent of ["task_read_set_absent", "task_read_set_ho"]) {
@@ -176,4 +196,65 @@ test("task read-set derives one ordered projection per cut and never writes back
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
   }
+});
+
+test("generated provenance edges do not trigger counterpart reads", async () => {
+  const { readTaskReadSet } = await import("@harness-anything/application");
+  const cut = { status: "ready" as const, watermark: 1, sourceRevision: 1 };
+  const taskRef = "task/task_host";
+  const generated = Array.from({ length: 34_000 }, (_, index) => ({
+    relationId: `rel_generated_${index}`,
+    sourceRef: taskRef,
+    targetRef: `execution/exe_${index}`,
+    relationType: "executes",
+    direction: "directed",
+    state: "active",
+    strength: "strong",
+    origin: "generated",
+    freshness: "current",
+    rationale: "execution provenance",
+    targetObservedVersion: 1,
+    currentTargetVersion: 1,
+  }));
+  const explicit = {
+    relationId: "rel_required",
+    sourceRef: taskRef,
+    targetRef: "task/task_required",
+    relationType: "depends-on",
+    direction: "directed",
+    state: "active",
+    strength: "strong",
+    origin: "declared",
+    freshness: "current",
+    rationale: "required task",
+    targetObservedVersion: 1,
+    currentTargetVersion: 1,
+  };
+  let witnessReads = 0;
+  const indexQueries: string[][] = [];
+  const projection = {
+    readTaskIndex: (query: { taskIds: string[] }) => {
+      indexQueries.push(query.taskIds);
+      return {
+        ...cut,
+        rows: query.taskIds.includes("task_required")
+          ? [{ taskId: "task_required", packagePath: "tasks/required" }]
+          : [],
+      };
+    },
+    readRelationQuery: () => ({ ...cut, rows: [...generated, explicit] }),
+    readEntityVersionWitness: (entityRef: string) => {
+      witnessReads += 1;
+      return { entityRef, freshness: "current", currentVersion: 1 };
+    },
+    read: () => {
+      throw new Error("generated edges need no task read");
+    },
+    readDocumentMetadata: () => ({ ...cut, document: { path: "tasks/required/task_plan.md", workspaceRevision: 1 } }),
+  } as unknown as Parameters<typeof readTaskReadSet>[0];
+  const result = readTaskReadSet(projection, "task_host");
+  assert.equal(result.entries.length, 1);
+  assert.equal(result.blocked, false);
+  assert.equal(witnessReads, 1);
+  assert.deepEqual(indexQueries, [["task_host"], ["task_required"]]);
 });

@@ -666,26 +666,35 @@ test("doc show --raw writes the document body verbatim and keeps decorated outpu
         const result =
           request.method === "protocol.hello"
             ? fixtureDaemonHello()
-            : (() => {
-                const evidenceFile = path.join(parent, `doc-${transfer++}.sealed`);
-                writeFileSync(evidenceFile, body);
-                writeFileSync(evidenceFile.replace(/\.sealed$/u, ".json"), "{}\n");
-                descriptorFiles.push(evidenceFile);
-                return {
+            : request.params?.payload?.action?.offset !== undefined
+              ? {
                   schema: "command-receipt/v2",
                   ok: true,
                   command: "doc-show",
                   outcome: "applied",
-                  evidenceFile,
-                  evidenceSize: Buffer.byteLength(body),
-                  evidenceContentEncoding: "utf8",
-                  versionWarning: {
-                    centerBuildCommit: "center-build",
-                    localBuildCommit: "edge-build",
-                    upgradeCommand: "ha update",
-                  },
-                };
-              })();
+                  evidence: Buffer.from("Raw").toString("base64"),
+                  evidenceEncoding: "base64",
+                }
+              : (() => {
+                  const evidenceFile = path.join(parent, `doc-${transfer++}.sealed`);
+                  writeFileSync(evidenceFile, body);
+                  writeFileSync(evidenceFile.replace(/\.sealed$/u, ".json"), "{}\n");
+                  descriptorFiles.push(evidenceFile);
+                  return {
+                    schema: "command-receipt/v2",
+                    ok: true,
+                    command: "doc-show",
+                    outcome: "applied",
+                    evidenceFile,
+                    evidenceSize: Buffer.byteLength(body),
+                    evidenceContentEncoding: "utf8",
+                    versionWarning: {
+                      centerBuildCommit: "center-build",
+                      localBuildCommit: "edge-build",
+                      upgradeCommand: "ha update",
+                    },
+                  };
+                })();
         socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`);
       }
     });
@@ -755,6 +764,32 @@ test("doc show --raw writes the document body verbatim and keeps decorated outpu
     assert.equal(existsSync(descriptorFiles[2]!), true, "JSON mode hands the descriptor to its caller");
     assert.equal(existsSync(descriptorFiles[2]!.replace(/\.sealed$/u, ".json")), true);
     assert.deepEqual(actions[2], { kind: "doc-show", path: "context/raw.md" });
+    const ranged = await spawnRaw([
+      "doc",
+      "show",
+      "--path",
+      "context/raw.md",
+      "--raw",
+      "--offset",
+      "2",
+      "--length",
+      "3",
+      "--content-sha256",
+      "a".repeat(64),
+      "--content-revision",
+      "3",
+    ]);
+    assert.equal(ranged.status, 0, `${ranged.stderr}\n${ranged.stdout}`);
+    assert.equal(ranged.stdout, "Raw");
+    assert.deepEqual(actions[3], {
+      kind: "doc-show",
+      path: "context/raw.md",
+      raw: true,
+      offset: 2,
+      length: 3,
+      contentSha256: "a".repeat(64),
+      contentRevision: 3,
+    });
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
     rmSync(parent, { recursive: true, force: true });

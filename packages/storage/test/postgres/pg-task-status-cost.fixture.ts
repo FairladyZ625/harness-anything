@@ -98,6 +98,22 @@ export async function assertTaskStatusCost(pool: Pool, seedPool: Pool, backend: 
       }
     }
     plans.length = 0;
+    const index = await source.readTaskIndex({ taskIds: ["target"] });
+    assert.deepEqual(
+      index.rows.map(({ taskId }) => taskId),
+      ["target"],
+    );
+    const sql = plans.map((plan) => String((plan as { sql?: unknown }).sql));
+    assert.ok(
+      !sql.some((statement) => /FROM ha_relations\b/iu.test(statement)),
+      "a point index read must not hydrate task relations",
+    );
+    assert.ok(
+      !sql.some((statement) => /\bsnapshot\s*,/iu.test(statement)),
+      "a point index read must not transfer the full task snapshot",
+    );
+    observe("index/point", 1);
+    plans.length = 0;
     assert.deepEqual((await source.list({ parentTaskId: "missing", limit: 1 })).rows, []);
     observe("parent/missing", 0);
     plans.length = 0;

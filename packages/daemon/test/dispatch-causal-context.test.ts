@@ -7,16 +7,33 @@ import { CAUSAL_CONTEXT_MAX_BYTES, assembleTaskCausalContext } from "../src/disp
 const cut = (revision = 1) => ({ status: "ready" as const, watermark: revision, sourceRevision: revision });
 
 function stub(overrides: Record<string, unknown> = {}): TaskProjection {
-  return {
+  const projection = {
     readCut: () => cut(),
     readTaskIndex: () => ({ ...cut(), rows: [] }),
     readTaskRelationsByTargets: () => ({ ...cut(), rows: [] }),
     readDecisions: () => ({ ...cut(), decisions: [] }),
     readRelationQuery: () => ({ ...cut(), rows: [] }),
     searchFacts: () => ({ ...cut(), facts: [] }),
-    readDocument: () => ({ ...cut(), document: null }),
+    readEntityVersionWitness: (entityRef: string) => ({ entityRef, freshness: "current", currentVersion: 1 }),
+    read: () => ({ ...cut(), packagePath: "tasks/mock", snapshot: { task: null } }),
+    readDocumentMetadata: () => ({ ...cut(), document: { path: "tasks/mock/task_plan.md", workspaceRevision: 1 } }),
+    readDocument: () => ({
+      ...cut(),
+      document: { body: "# Plan\n", workspaceRevision: 1, blobSha256: "a".repeat(64) },
+    }),
     ...overrides,
   } as unknown as TaskProjection;
+  const readIndex = projection.readTaskIndex;
+  return {
+    ...projection,
+    readTaskIndex: (query) => {
+      const read = readIndex(query);
+      return {
+        ...read,
+        rows: read.rows.map((row) => ({ ...row, packagePath: row.packagePath ?? `tasks/${row.taskId}` })),
+      };
+    },
+  } as TaskProjection;
 }
 
 /**
@@ -26,7 +43,7 @@ function stub(overrides: Record<string, unknown> = {}): TaskProjection {
  * same way — that is the determinism contract budget shedding relies on.
  */
 function assertLineGrammar(block: string): void {
-  const lines = block.split("\n");
+  const lines = background(block).split("\n");
   assert.ok(lines.length >= 3, "a block needs at least the root pair and a refs line");
   assert.match(lines[0]!, /^<task-context(?: truncated="yes")?>$/u, "root open line");
   assert.equal(lines.at(-1), "</task-context>", "root close line");
@@ -38,6 +55,14 @@ function assertLineGrammar(block: string): void {
     );
     assert.doesNotMatch(line, /&(?!amp;|lt;|gt;|quot;)/u, `raw ampersand outside an entity: ${line}`);
   }
+}
+
+function background(block: string): string {
+  return block.slice(0, block.indexOf("</task-context>") + "</task-context>".length);
+}
+
+function backgroundByteLength(block: string): number {
+  return Buffer.byteLength(background(block), "utf8");
 }
 
 test("a task with no causal neighborhood injects no block", () => {
@@ -133,7 +158,7 @@ test("the block carries work, decision, and fact refs at one cut", () => {
   );
   assert.match(block, /<question ref="decision\/dec_ABC">How are receipts delivered\?<\/question>/u);
   assert.match(block, /<refs>task\/task_root decision\/dec_ABC fact\/F-0001<\/refs>/u);
-  assert.ok(Buffer.byteLength(block, "utf8") <= CAUSAL_CONTEXT_MAX_BYTES);
+  assert.ok(backgroundByteLength(block) <= CAUSAL_CONTEXT_MAX_BYTES);
 });
 
 test("free text is XML-escaped exactly once in elements and attributes", () => {
@@ -348,7 +373,7 @@ test("decision chosen, claims, question, fact statements, and titles render at f
   );
   assert.match(block, new RegExp(`<question ref="decision/dec_FULL">${long}</question>`, "u"));
   assert.match(block, new RegExp(`<goal ref="task/task_root">${long}</goal>`, "u"));
-  assert.ok(Buffer.byteLength(block, "utf8") <= CAUSAL_CONTEXT_MAX_BYTES);
+  assert.ok(backgroundByteLength(block) <= CAUSAL_CONTEXT_MAX_BYTES);
 });
 
 test("an over-budget neighborhood sheds whole facts from the far end and notes every omitted ref", () => {
@@ -412,10 +437,7 @@ test("an over-budget neighborhood sheds whole facts from the far end and notes e
   });
   const block = assembleTaskCausalContext({ projection, taskId: "task_leaf" });
   assert.ok(block !== null);
-  assert.ok(
-    Buffer.byteLength(block, "utf8") <= CAUSAL_CONTEXT_MAX_BYTES,
-    `block is ${Buffer.byteLength(block, "utf8")} bytes`,
-  );
+  assert.ok(backgroundByteLength(block) <= CAUSAL_CONTEXT_MAX_BYTES, `block is ${backgroundByteLength(block)} bytes`);
   assert.match(block, /^<task-context truncated="yes">\n/u, "shed entries mark the root truncated");
   assert.match(block, /<work ref="task\/task_root">Budget work<\/work>/u, "identity lines outrank facts");
   assert.match(block, /The one contract that derives this task — Kept whole/u, "the decision layer survives");
@@ -496,10 +518,10 @@ test("a details-only shed at the byte ceiling keeps the close tag instead of cla
     const block = assembleTaskCausalContext({ projection: nearCeiling(statementBytes), taskId: "task_leaf" });
     assert.ok(block !== null);
     assert.ok(
-      Buffer.byteLength(block, "utf8") <= CAUSAL_CONTEXT_MAX_BYTES,
-      `${String(statementBytes)}: block is ${String(Buffer.byteLength(block, "utf8"))} bytes`,
+      backgroundByteLength(block) <= CAUSAL_CONTEXT_MAX_BYTES,
+      `${String(statementBytes)}: block is ${String(backgroundByteLength(block))} bytes`,
     );
-    assert.ok(block.endsWith("</task-context>"), `${String(statementBytes)}: the close tag survives`);
+    assert.ok(background(block).endsWith("</task-context>"), `${String(statementBytes)}: the close tag survives`);
     assertLineGrammar(block);
   }
   const noteFits = assembleTaskCausalContext({ projection: nearCeiling(7_512), taskId: "task_leaf" });
@@ -568,10 +590,7 @@ test("shed detail lines mark the root truncated while every kept line stays pars
   });
   const block = assembleTaskCausalContext({ projection, taskId: "task_leaf" });
   assert.ok(block !== null);
-  assert.ok(
-    Buffer.byteLength(block, "utf8") <= CAUSAL_CONTEXT_MAX_BYTES,
-    `block is ${Buffer.byteLength(block, "utf8")} bytes`,
-  );
+  assert.ok(backgroundByteLength(block) <= CAUSAL_CONTEXT_MAX_BYTES, `block is ${backgroundByteLength(block)} bytes`);
   assert.match(block, /^<task-context truncated="yes">\n/u, "shed detail lines mark the root truncated");
   assert.match(block, /<work ref="task\/task_W+">Long-id work<\/work>/u, "identity lines outrank detail tails");
   assert.match(block, /<parent ref="task\/task_P+">Long-id parent<\/parent>/u, "both identity lines fit");
@@ -654,10 +673,7 @@ test("ASCII noise, long ids, and long source paths stay inside the byte budget",
   });
   const block = assembleTaskCausalContext({ projection, taskId: "task_leaf" });
   assert.ok(block !== null);
-  assert.ok(
-    Buffer.byteLength(block, "utf8") <= CAUSAL_CONTEXT_MAX_BYTES,
-    `block is ${Buffer.byteLength(block, "utf8")} bytes`,
-  );
+  assert.ok(backgroundByteLength(block) <= CAUSAL_CONTEXT_MAX_BYTES, `block is ${backgroundByteLength(block)} bytes`);
   assert.match(block, /^<task-context[^>]*>\n/u);
   assert.match(block, /<refs>[^<]*fact\/F-long/u);
   assert.doesNotMatch(block, /ha graph/u, "the lookup guidance lives in the mission, not the refs tail");
@@ -780,4 +796,216 @@ test("a block with no served facts carries no facts note", () => {
   assert.ok(block !== null);
   assert.match(block, /<decision ref="decision\/dec_ABC"/u);
   assert.doesNotMatch(block, /<note>/u, "no facts served means no facts note");
+});
+
+test("ancestry lookup queries only the current task and each parent", () => {
+  const rows = [
+    { taskId: "task_work", title: "Work", taskClass: "work", parentTaskId: null, packagePath: null },
+    { taskId: "task_middle", title: "Middle", taskClass: "standard", parentTaskId: "task_work", packagePath: null },
+    { taskId: "task_leaf", title: "Leaf", taskClass: "standard", parentTaskId: "task_middle", packagePath: null },
+  ];
+  const queries: string[][] = [];
+  const projection = stub({
+    readTaskIndex: (query: { taskIds?: string[] }) => {
+      assert.ok(query.taskIds, "the query must be scoped to explicit task IDs");
+      queries.push(query.taskIds);
+      return { ...cut(), rows: rows.filter((row) => query.taskIds!.includes(row.taskId)) };
+    },
+  });
+  assert.ok(assembleTaskCausalContext({ projection, taskId: "task_leaf" }));
+  assert.deepEqual(queries, [["task_leaf"], ["task_middle"], ["task_work"]]);
+});
+
+test("ancestor constraints survive the background budget and identify their projection cut", () => {
+  const rows = [
+    { taskId: "task_work", title: "Work", taskClass: "work", parentTaskId: null, packagePath: "tasks/work" },
+    {
+      taskId: "task_middle",
+      title: "Middle",
+      taskClass: "standard",
+      parentTaskId: "task_work",
+      packagePath: "tasks/middle",
+    },
+    {
+      taskId: "task_leaf",
+      title: "Leaf",
+      taskClass: "standard",
+      parentTaskId: "task_middle",
+      packagePath: "tasks/leaf",
+    },
+  ];
+  const queries: unknown[] = [];
+  const projection = stub({
+    readTaskIndex: (query: unknown) => {
+      queries.push(query);
+      const ids = (query as { taskIds?: string[] }).taskIds;
+      return { ...cut(), rows: ids ? rows.filter((row) => ids.includes(row.taskId)) : rows };
+    },
+    readDocument: (path: string) => ({
+      ...cut(),
+      document: {
+        body: path.includes("middle")
+          ? "# Middle\n\n## Constraints\n\nOnly local candidates.\n"
+          : `# Work\n\n## Goal\n\n${"background ".repeat(1000)}\n\n## Constraints\n\nDo not publish to shared systems.\n`,
+      },
+    }),
+  });
+  const context = assembleTaskCausalContext({ projection, taskId: "task_leaf" });
+  assert.ok(context?.includes("Do not publish to shared systems."));
+  assert.ok(context.includes("Only local candidates."));
+  assert.ok(context.includes("tasks/work/task_plan.md"));
+  assert.ok(context.includes("watermark=1"));
+  assert.ok(queries.every((query) => Array.isArray((query as { taskIds?: unknown }).taskIds)));
+});
+
+test("missing ancestor plan fails dispatch context assembly", () => {
+  const projection = stub({
+    readDocument: () => ({ ...cut(), document: null }),
+    readTaskIndex: () => ({
+      ...cut(),
+      rows: [
+        { taskId: "task_work", title: "Work", taskClass: "work", parentTaskId: null, packagePath: "tasks/work" },
+        {
+          taskId: "task_leaf",
+          title: "Leaf",
+          taskClass: "standard",
+          parentTaskId: "task_work",
+          packagePath: "tasks/leaf",
+        },
+      ],
+    }),
+  });
+  assert.throws(() => assembleTaskCausalContext({ projection, taskId: "task_leaf" }), /tasks\/work\/task_plan\.md/u);
+});
+
+test("large ancestor plan uses bounded version-pinned range instructions", () => {
+  const content = `# Work\n\n## Constraints\n${"no publish ".repeat(4000)}`;
+  const digest = "b".repeat(64);
+  const projection = stub({
+    readTaskIndex: () => ({
+      ...cut(),
+      rows: [
+        { taskId: "task_work", title: "Work", taskClass: "work", parentTaskId: null, packagePath: "tasks/work" },
+        {
+          taskId: "task_leaf",
+          title: "Leaf",
+          taskClass: "standard",
+          parentTaskId: "task_work",
+          packagePath: "tasks/leaf",
+        },
+      ],
+    }),
+    readDocumentMetadata: () => ({ ...cut(), document: { path: "tasks/work/task_plan.md", workspaceRevision: 12 } }),
+    readDocument: () => ({
+      ...cut(),
+      document: { body: content, size: Buffer.byteLength(content), blobSha256: digest, workspaceRevision: 12 },
+    }),
+  });
+  const context = assembleTaskCausalContext({ projection, taskId: "task_leaf" });
+  assert.ok(context);
+  assert.ok(!context.includes(content));
+  assert.ok(Buffer.byteLength(context) < CAUSAL_CONTEXT_MAX_BYTES + 2048);
+  assert.match(context, /--offset <偏移> --length <1至65536>/u);
+  assert.ok(context.includes(`--content-sha256 ${digest} --content-revision 12`));
+  assert.ok(context.includes(`bytes=${Buffer.byteLength(content)}`));
+});
+
+test("missing ancestor metadata blocks and reports the required plan", () => {
+  const projection = stub({
+    readTaskIndex: () => ({
+      ...cut(),
+      rows: [
+        { taskId: "task_work", title: "Work", taskClass: "work", parentTaskId: null, packagePath: "tasks/work" },
+        {
+          taskId: "task_leaf",
+          title: "Leaf",
+          taskClass: "standard",
+          parentTaskId: "task_work",
+          packagePath: "tasks/leaf",
+        },
+      ],
+    }),
+    readDocumentMetadata: () => ({ ...cut(), document: null }),
+  });
+  assert.throws(() => assembleTaskCausalContext({ projection, taskId: "task_leaf" }), /tasks\/work\/task_plan\.md/u);
+});
+
+test("a required decision document missing from the read set stops dispatch assembly", () => {
+  const projection = stub({
+    readTaskIndex: () => ({
+      ...cut(),
+      rows: [{ taskId: "task_leaf", title: "Leaf", taskClass: "standard", parentTaskId: null }],
+    }),
+    readRelationQuery: (query: { entity?: string }) => ({
+      ...cut(),
+      rows: query.entity
+        ? [
+            {
+              relationId: "rel_req",
+              sourceRef: "decision/dec_REQUIRED/CH1",
+              targetRef: "task/task_leaf",
+              relationType: "derives",
+              direction: "directed",
+              state: "active",
+              strength: "strong",
+              origin: "declared",
+              freshness: "current",
+              rationale: "Required authority",
+              targetObservedVersion: 1,
+              currentTargetVersion: 1,
+            },
+          ]
+        : [],
+    }),
+    readEntityVersionWitness: () => ({
+      entityRef: "decision/dec_REQUIRED/CH1",
+      freshness: "current",
+      currentVersion: 1,
+    }),
+    readDocumentMetadata: () => ({ ...cut(), document: null }),
+  });
+  assert.throws(() => assembleTaskCausalContext({ projection, taskId: "task_leaf" }), /dec_REQUIRED\/decision\.md/u);
+});
+
+test("conflicting inherited restrictions remain visible in ancestor order", () => {
+  const projection = stub({
+    readTaskIndex: () => ({
+      ...cut(),
+      rows: [
+        { taskId: "task_outer", title: "Work", taskClass: "work", parentTaskId: null, packagePath: "tasks/outer" },
+        {
+          taskId: "task_parent",
+          title: "Parent",
+          taskClass: "standard",
+          parentTaskId: "task_outer",
+          packagePath: "tasks/parent",
+        },
+        {
+          taskId: "task_leaf",
+          title: "Leaf",
+          taskClass: "standard",
+          parentTaskId: "task_parent",
+          packagePath: "tasks/leaf",
+        },
+      ],
+    }),
+    readDocument: (path: string) => ({
+      ...cut(),
+      document: {
+        workspaceRevision: 1,
+        blobSha256: "a".repeat(64),
+        body: path.includes("outer")
+          ? "# Work\n\n## Constraints\nNever publish.\n"
+          : "# Parent\n\n## Constraints\nPublish immediately.\n",
+      },
+    }),
+  });
+  const context = assembleTaskCausalContext({ projection, taskId: "task_leaf" });
+  assert.ok(context);
+  assert.ok(context.includes("Never publish."));
+  assert.ok(context.includes("Publish immediately."));
+  assert.ok(context.indexOf("Never publish.") < context.indexOf("Publish immediately."));
+  assert.match(context, /冲突须明确报告/u);
+  assert.match(context, /task\/task_outer — tasks\/outer\/task_plan\.md/u);
+  assert.match(context, /task\/task_parent — tasks\/parent\/task_plan\.md/u);
 });

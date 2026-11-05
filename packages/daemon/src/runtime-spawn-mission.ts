@@ -133,7 +133,9 @@ export function dispatchMissionForPermission(
     "",
     "# Read-only Dispatch Contract",
     "",
-    "Repository writes and daemon-ledger commands are unavailable in this runtime.",
+    ...(runtime?.reviewer && runtime.taskBound
+      ? ["Repository writes are unavailable in this runtime. Read required ledger documents with `ha doc show`."]
+      : ["Repository writes and daemon-ledger commands are unavailable in this runtime."]),
     "Do not call `ha task progress append`, `ha fact record`, or `ha doc sync --submit`;",
     "return the complete report in final stdout for the dispatcher to persist.",
     ...(runtime?.kindId === "codex" && runtime.platform === "win32" && runtime.reviewer

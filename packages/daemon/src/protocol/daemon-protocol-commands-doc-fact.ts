@@ -126,6 +126,16 @@ export const docFactProtocolCommands = Object.freeze([
       cliInput("--raw", "boolean", false, {
         code: "invalid_field",
       }),
+      cliInput("--offset", "single", false, { code: "invalid_field" }, { projection: "number" }),
+      cliInput("--length", "single", false, { code: "invalid_field" }, { projection: "number" }),
+      cliInput("--content-sha256", "single", false, { code: "invalid_field" }, { field: "contentSha256" }),
+      cliInput(
+        "--content-revision",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { field: "contentRevision", projection: "number" },
+      ),
     ],
   }),
   defineCenterForwardWriteCommand({

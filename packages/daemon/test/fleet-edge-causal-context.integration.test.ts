@@ -18,6 +18,7 @@ import { fleetFixture, git, initRepo, localAuthFixture } from "./fleet-runtime-r
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { eventually } from "./schedule-actions.fixtures.ts";
+import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { evidence } from "./task-surface.fixtures.ts";
 import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
 const replicaQuota = 64 * 1024 * 1024;
@@ -73,6 +74,48 @@ test(
     assert.ok(vertical.outcome === "applied" || vertical.outcome === "no_changes", JSON.stringify(vertical));
     if (vertical.outcome === "applied")
       await waitForFleetPublication(fixture.host, fixture.subject.repoId, vertical.opId, localAuthFixture());
+    const parent = await fixture.host.run(
+      fixture.subject.repoId,
+      { kind: "task-create", taskId: "task_edge_parent", title: "Edge Work" },
+      localAuthFixture(),
+    );
+    assert.equal(parent.outcome, "applied", JSON.stringify(parent));
+    await waitForFleetPublication(fixture.host, fixture.subject.repoId, parent.opId, localAuthFixture());
+    const parentPackage = String((parent as Record<string, unknown>).packagePath);
+    await realizeTaskPlanFixture(
+      fixture.repo,
+      parentPackage,
+      (planPath) =>
+        fixture.host.run(fixture.subject.repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
+      "Edge Work",
+    );
+    const parentPlan = `${parentPackage}/task_plan.md`;
+    const parentFile = path.join(fixture.repo, "harness", parentPlan);
+    writeFileSync(
+      parentFile,
+      readFileSync(parentFile, "utf8").replace(
+        "## Constraints",
+        "## Constraints\n\nEdge must not publish without acceptance.",
+      ),
+    );
+    const savedParent = await fixture.host.run(
+      fixture.subject.repoId,
+      { kind: "doc-submit", paths: [parentPlan] },
+      localAuthFixture(),
+    );
+    assert.equal(savedParent.outcome, "applied", JSON.stringify(savedParent));
+    await waitForFleetPublication(fixture.host, fixture.subject.repoId, savedParent.opId, localAuthFixture());
+    const moved = await fixture.host.run(
+      fixture.subject.repoId,
+      {
+        kind: "task-amend",
+        taskId: fixture.subject.taskId,
+        patches: [{ field: "parentTaskId", value: "task_edge_parent" }],
+      },
+      localAuthFixture(),
+    );
+    assert.equal(moved.outcome, "applied", JSON.stringify(moved));
+    await waitForFleetPublication(fixture.host, fixture.subject.repoId, moved.opId, localAuthFixture());
     const proposed = await fixture.host.run(
         fixture.subject.repoId,
         {
@@ -275,6 +318,9 @@ test(
     assert.ok(explicitBlock !== null, `no causal block in remote-edge prompt:\n${explicitPrompt}`);
     assert.match(explicitBlock, /CENTERFRESH-ZQ decision/u);
     assert.match(explicitPrompt, /# 本任务授权范围/u);
+    assert.match(explicitPrompt, /Edge must not publish without acceptance\./u);
+    const parentVersion = /task\/task_edge_parent — [^\n]+revision=(\d+); sha256=([a-f0-9]{64})/u.exec(explicitPrompt);
+    assert.ok(parentVersion);
     assert.ok(explicitPrompt.includes(`decision/${decisionId}/CH1; state=in_effect`));
     assert.match(explicitBlock, /CENTERFRESH-ZQ evidence recorded post-pull\./u);
     assert.match(explicitBlock, /<refs>[^<]/u);
@@ -340,6 +386,8 @@ test(
     assert.ok(taskBoundBlock !== null, "task-bound remote-edge dispatch lost the causal block");
     assert.match(taskBoundBlock, /CENTERFRESH-ZQ decision/u);
     assert.match(taskBoundPrompt, /# 本任务授权范围/u);
+    assert.match(taskBoundPrompt, /Edge must not publish without acceptance\./u);
+    assert.ok(taskBoundPrompt.includes(`revision=${parentVersion[1]}; sha256=${parentVersion[2]}`));
     assert.ok(taskBoundPrompt.includes(`decision/${decisionId}/CH1; state=in_effect`));
     // The second dispatch settles against the center too: teardown must not close the center under it.
     await eventually(

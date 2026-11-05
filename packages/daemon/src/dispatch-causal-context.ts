@@ -1,4 +1,5 @@
-import type { DecisionProjectionRow, TaskIndexProjectionRow, TaskProjectionQueries } from "@harness-anything/kernel";
+import { readTaskAncestry, readTaskReadSet } from "@harness-anything/application";
+import type { DecisionProjectionRow, TaskProjectionQueries } from "@harness-anything/kernel";
 import { requireSameProjectionCut, type ProjectionCut } from "./projection-cut.ts";
 
 /**
@@ -18,7 +19,8 @@ import { requireSameProjectionCut, type ProjectionCut } from "./projection-cut.t
  * an override of its role or safety instructions. An execution-surface section follows
  * the XML for active derives edges from in-effect chosen decisions; it is outside
  * the background byte budget so truncation cannot shed authorization conditions.
- * Fleet-edge dispatch fetches
+ * Required ancestor plans follow outside the background budget, inline when small and as
+ * pinned bounded reads when large. Fleet-edge dispatch fetches
  * the same block from the center's canonical read — a stale mirrored markdown
  * is never summarized as fact.
  *
@@ -68,21 +70,34 @@ export function assembleTaskCausalContext(input: {
   readonly taskId: string;
 }): string | null {
   const { projection, taskId } = input,
-    reads: ProjectionCut[] = [projection.readCut()],
-    taskIndex = projection.readTaskIndex({}),
-    byId = new Map(taskIndex.rows.map((row) => [row.taskId, row] as const)),
-    self = byId.get(taskId),
-    ancestors: TaskIndexProjectionRow[] = [],
-    visited = new Set([taskId]);
-  reads.push(taskIndex);
-  // Parent chain terminates on the ledger's own parentTaskId field, a missing
-  // row, or a cycle guard — each round strictly consumes one unseen ancestor.
-  for (let parentId = self?.parentTaskId ?? null; parentId !== null && !visited.has(parentId); ) {
-    visited.add(parentId);
-    const row = byId.get(parentId);
-    if (row === undefined) break;
-    ancestors.push(row);
-    parentId = row.parentTaskId;
+    ancestry = readTaskAncestry(projection, taskId),
+    readSet = readTaskReadSet(projection, taskId, ancestry),
+    ancestors = ancestry.rows,
+    reads: ProjectionCut[] = [projection.readCut(), ...ancestry.reads];
+  if (readSet.blocked) {
+    throw Object.assign(new Error(readSet.blockedReasons.map((reason) => reason.detail).join(" ")), {
+      code: "content_not_ready",
+    });
+  }
+  const inheritedPlans = new Map<
+    string,
+    { body: string; path: string; revision: number; sha256: string; size: number }
+  >();
+  for (const entry of readSet.entries) {
+    if (entry.whyIncluded.source !== "ancestor") continue;
+    const path = entry.locator!;
+    const plan = projection.readDocument(path);
+    reads.push(plan);
+    if (plan.document === null || plan.status !== "ready" || plan.watermark < plan.sourceRevision) {
+      throw Object.assign(new Error(`Required ancestor plan is unavailable: ${path}`), { code: "content_not_ready" });
+    }
+    inheritedPlans.set(entry.entityRef, {
+      body: plan.document.body,
+      path,
+      revision: plan.document.workspaceRevision,
+      sha256: plan.document.blobSha256,
+      size: plan.document.size,
+    });
   }
   const parent = ancestors[0] ?? null,
     work = ancestors.find((row) => row.taskClass === "work") ?? ancestors.at(-1) ?? null,
@@ -127,12 +142,8 @@ export function assembleTaskCausalContext(input: {
   // Archived Facts stay in the ledger but leave the agent-facing retrieval surface: neither
   // their statements nor their refs belong in the injected block.
   const servedFactRefs = factRefs.filter((ref) => facts.get(ref)?.archived !== true);
-  let workGoal: string | null = null;
-  if (work?.packagePath) {
-    const plan = projection.readDocument(`${work.packagePath}/task_plan.md`);
-    reads.push(plan);
-    if (plan.document !== null && plan.watermark >= plan.sourceRevision) workGoal = planGoalSummary(plan.document.body);
-  }
+  const workPlan = work === null ? undefined : inheritedPlans.get(`task/${work.taskId}`),
+    workGoal = workPlan === undefined ? null : planGoalSummary(workPlan.body);
   requireSameProjectionCut("dispatch causal context", reads);
   if (work === null && parent === null && decisionIds.length === 0) return null;
   // Priority order is relation distance from the dispatched task: identity lines first,
@@ -213,9 +224,36 @@ export function assembleTaskCausalContext(input: {
   ];
   const authorization = decisionExecutionSurface(decisionRead?.decisions ?? [], derives.rows),
     factsNote = servedFactRefs.length > 0 ? FACTS_NOTE : null;
-  return [renderWithinBudget(details, refs, factsNote), ...(authorization === null ? [] : [authorization])].join(
-    "\n\n",
-  );
+  let remainingInlineBytes = 16 * 1024;
+  const inherited = ancestors
+    .slice()
+    .reverse()
+    .map((row) => {
+      const plan = inheritedPlans.get(`task/${row.taskId}`)!;
+      const source = `task/${row.taskId} — ${plan.path}; revision=${String(plan.revision)}; sha256=${plan.sha256}; watermark=${String(reads[0]!.watermark)}`;
+      const bytes = Buffer.byteLength(plan.body, "utf8");
+      if (bytes <= remainingInlineBytes) {
+        remainingInlineBytes -= bytes;
+        return `${source}\n\n${plan.body}`;
+      }
+      return (
+        `${source}; bytes=${String(plan.size)}\n此计划超出内联限额，执行受约束动作之前必须按字节分片读取并拼接全文：` +
+        `ha doc show --path <上述路径> --raw --offset <偏移> --length <1至65536> ` +
+        `--content-sha256 ${plan.sha256} --content-revision ${String(plan.revision)}。` +
+        `从偏移 0 连续读取至 ${String(plan.size)} 字节，校验拼接结果的 SHA-256 等于 ${plan.sha256}，再读取保存的全文；` +
+        "任何分片读取失败或摘要不符时停止并重新派工。"
+      );
+    });
+  return [
+    renderWithinBudget(details, refs, factsNote),
+    ...(authorization === null ? [] : [authorization]),
+    ...(inherited.length === 0
+      ? []
+      : [
+          "# 继承的任务与 Work 约束 / Inherited constraints\n系统和权限边界优先，生效治理决策为依据；按祖先顺序保留原文，子任务只能收窄限制，扩大权限须有明确授权。冲突须明确报告，不能以较后文字覆盖上层约束。",
+          ...inherited,
+        ]),
+  ].join("\n\n");
 }
 
 /** Current deriving decisions supply authority; gate-file changes are declared for merge review. */

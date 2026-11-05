@@ -47,6 +47,32 @@ test("an empty edge set yields an empty read set instead of an error or a filena
   assert.deepEqual(derived.projectionCut, cut);
 });
 
+test("assignment targets are not reading requirements while strong documents still block", () => {
+  const derived = deriveTaskReadSet({
+    taskRef,
+    edges: [
+      ...["node/node-one", "person/person-one", "team/team-one"].map((targetRef, index) =>
+        edge({ relationId: `rel_assignment_${index}`, targetRef, relationType: "assigned-to", strength: "strong" }),
+      ),
+      edge({
+        relationId: "rel_required_decision",
+        sourceRef: "decision/dec_ABCDEF0123456789/C1",
+        targetRef: taskRef,
+        relationType: "derives",
+        strength: "strong",
+      }),
+    ],
+    counterparts: new Map(),
+    projectionCut: cut,
+  });
+  assert.deepEqual(
+    derived.entries.map(({ entityRef }) => entityRef),
+    ["decision/dec_ABCDEF0123456789/C1"],
+  );
+  assert.equal(derived.blocked, true);
+  assert.ok(derived.blockedReasons.some(({ entityRef }) => entityRef.startsWith("decision/")));
+});
+
 test("only explicitly declared active edges become reading material", () => {
   const derived = deriveTaskReadSet({
     taskRef,
@@ -268,4 +294,32 @@ test("every entry says which edge admitted it and the cut it was read at", () =>
     rationale: "the task implements this decision",
   });
   assert.deepEqual(derived.projectionCut, cut);
+});
+
+test("parent plans are required normative reading and missing locators block", () => {
+  const derived = deriveTaskReadSet({
+    taskRef,
+    edges: [],
+    counterparts: new Map(),
+    projectionCut: cut,
+    ancestors: [
+      { taskId: "task_work", packagePath: "tasks/work" },
+      { taskId: "task_parent", packagePath: null },
+    ],
+  });
+  assert.deepEqual(
+    derived.entries.map(({ entityRef, locator, required, authority, whyIncluded }) => [
+      entityRef,
+      locator,
+      required,
+      authority,
+      whyIncluded.source,
+    ]),
+    [
+      ["task/task_parent", null, true, "normative", "ancestor"],
+      ["task/task_work", "tasks/work/task_plan.md", true, "normative", "ancestor"],
+    ],
+  );
+  assert.equal(derived.blocked, true);
+  assert.equal(derived.blockedReasons[0]?.entityRef, "task/task_parent");
 });

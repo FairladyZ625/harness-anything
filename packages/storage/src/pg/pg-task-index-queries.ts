@@ -66,35 +66,68 @@ export function pgTaskIndexQueries(
         return Object.fromEntries(result.rows.map(({ parent_id, count }) => [parent_id, Number(count)]));
       }),
     readTaskIndex: async (query = {}) => {
+      // A parent-chain lookup needs task identity and plan locator, never an execution snapshot
+      // or its relation hydration. Keep all other list filters on the existing list authority.
+      if (query.taskIds !== undefined && Object.keys(query).length === 1) {
+        return read(async (client) => {
+          const cut = await readCutInTransaction(client, scope, readers, options.repoId);
+          const result = await client.query<{
+            task_id: string;
+            task: TaskLifecycleSnapshot["task"];
+            package_path: string | null;
+            updated_at: string;
+          }>(
+            `SELECT task_id, snapshot->'task' AS task, package_path, updated_at::text FROM ha_task_snapshots
+             WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+               AND (cardinality($4::text[])=0 OR readers && $4::text[]) AND task_id=ANY($5::text[])
+             ORDER BY task_id`,
+            [...parameters, query.taskIds],
+          );
+          return {
+            ...cut,
+            schema: "task-index-projection/v1" as const,
+            page: null,
+            warnings: [],
+            rows: result.rows.flatMap((row) =>
+              indexRow(row.task_id, row.task, row.package_path, new Date(row.updated_at).toISOString()),
+            ),
+          } satisfies ReturnType<TaskProjectionQueries["readTaskIndex"]>;
+        });
+      }
       // The index is ordered by task id even when the full-snapshot list asks for pins first.
       const result = await source.list({ ...query, pinnedFirst: false });
       return {
         ...result,
-        schema: "task-index-projection/v1",
+        schema: "task-index-projection/v1" as const,
         page: result.page ?? null,
-        rows: result.rows.flatMap((row) => {
-          const task = row.snapshot.task;
-          return task
-            ? [
-                {
-                  taskId: row.taskId,
-                  supersededBy: task.supersededBy ?? null,
-                  title: task.title,
-                  status: task.status,
-                  pinned: task.pinned,
-                  parentTaskId: task.metadata?.parentTaskId ?? null,
-                  workKind: task.metadata?.workKind ?? null,
-                  riskTier: task.metadata?.riskTier ?? null,
-                  urgency: task.metadata?.urgency ?? null,
-                  taskClass: task.taskClass,
-                  packageDisposition: task.packageDisposition ?? "active",
-                  packagePath: row.packagePath,
-                  updatedAt: row.updatedAt,
-                },
-              ]
-            : [];
-        }),
+        rows: result.rows.flatMap((row) => indexRow(row.taskId, row.snapshot.task, row.packagePath, row.updatedAt)),
       } satisfies ReturnType<TaskProjectionQueries["readTaskIndex"]>;
     },
   };
+}
+
+function indexRow(
+  taskId: string,
+  task: TaskLifecycleSnapshot["task"],
+  packagePath: string | null,
+  updatedAt: string,
+): ReturnType<TaskProjectionQueries["readTaskIndex"]>["rows"] {
+  if (!task) return [];
+  return [
+    {
+      taskId,
+      supersededBy: task.supersededBy ?? null,
+      title: task.title,
+      status: task.status,
+      pinned: task.pinned,
+      parentTaskId: task.metadata?.parentTaskId ?? null,
+      workKind: task.metadata?.workKind ?? null,
+      riskTier: task.metadata?.riskTier ?? null,
+      urgency: task.metadata?.urgency ?? null,
+      taskClass: task.taskClass,
+      packageDisposition: task.packageDisposition ?? "active",
+      packagePath,
+      updatedAt,
+    },
+  ];
 }

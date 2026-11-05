@@ -136,6 +136,23 @@ test(
     const shown = await e.command({ kind: "doc-show", path: planPath });
     assert.equal(shown.ok, true, JSON.stringify(shown));
     assert.equal(shown.evidence, plan.body, JSON.stringify(shown));
+    const firstRange = await e.command({ kind: "doc-show", path: planPath, offset: 0, length: 8 });
+    assert.equal(firstRange.ok, true, JSON.stringify(firstRange));
+    assert.deepEqual(Buffer.from(String(firstRange.evidence), "base64"), Buffer.from(plan.body).subarray(0, 8));
+    const pin = { contentSha256: firstRange.evidenceBlobSha256, contentRevision: firstRange.evidenceWorkspaceRevision };
+    const secondRange = await e.command({ kind: "doc-show", path: planPath, offset: 8, length: 8, ...pin });
+    assert.equal(secondRange.ok, true, JSON.stringify(secondRange));
+    assert.deepEqual(Buffer.from(String(secondRange.evidence), "base64"), Buffer.from(plan.body).subarray(8, 16));
+    const staleRange = await e.command({
+      kind: "doc-show",
+      path: planPath,
+      offset: 8,
+      length: 8,
+      ...pin,
+      contentSha256: "0".repeat(64),
+    });
+    assert.equal(staleRange.ok, false);
+    assert.equal(staleRange.code, "content_changed");
     const missing = await e.command({
       kind: "doc-show",
       path: planPath.replace("task_plan.md", "artifacts/missing.md"),

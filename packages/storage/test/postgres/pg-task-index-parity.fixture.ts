@@ -34,6 +34,7 @@ function taskIndexContract(queries: IndexQueries) {
     next,
     idempotency,
     empty: queries.readTaskIndex({ taskIds: [] }),
+    point: queries.readTaskIndex({ taskIds: ["task-parity", "missing"] }),
     filtered: queries.readTaskIndex({ taskIds: ["task-parity", "missing"], presentationStatus: true }),
     statuses: queries.readTaskStatuses(),
     someStatuses: queries.readTaskStatuses(["task-parity", "missing"]),

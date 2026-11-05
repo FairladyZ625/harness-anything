@@ -611,7 +611,7 @@ export async function runFleetEdgeTask(
             docChanges: bundle === null ? undefined : bundle.docChanges,
             mirrorBaseCut: bundle === null ? undefined : bundle.mirrorBaseCut,
           } as Parameters<typeof runFleetTaskCommandClient>[0];
-          return action.kind === "doc-show"
+          return action.kind === "doc-show" && action.offset === undefined
             ? runFleetDocShowRange({
                 peer: commandPeer,
                 action,
