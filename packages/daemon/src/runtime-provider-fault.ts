@@ -17,6 +17,14 @@ const quota =
   // request) stays outside: those are not transport faults and must not switch providers.
   incompleteStream =
     /\b(?:incomplete response|(?:stream|sse).*(?:disconnected|ended|incomplete|event type mismatch)|event type mismatch|before message_stop|deepseek messages (?:stream|sse|transport failed)\b)/iu,
+  // A dropped connection never delivered an answer to judge, so it is the same transport fault as a
+  // broken stream (dec_FCD38D503B0C0752B83A417246 CH2). The family is named by transport vocabulary
+  // and the OS error codes Node surfaces, not by one provider's sentence: the measured case is
+  // devin-main's `Connection error, send a message to continue retrying`. A well-formed refusal
+  // (`request failed (404)`, missing workspace metadata, a completed connection with no content)
+  // stays outside: those are not connection losses and must not switch providers.
+  connectionFailure =
+    /\b(?:connection (?:error|refused|reset|closed|aborted|dropped|lost|failed|terminated|interrupted|timed out|timeout)|failed to connect|socket (?:error|hang ?up|closed)|network (?:error|failure|unreachable|is unreachable)|transport (?:error|failure|failed))\b|\b(?:ECONNRESET|ECONNREFUSED|ECONNABORTED|ETIMEDOUT|EPIPE|EAI_AGAIN|ENOTFOUND|ENETUNREACH|EHOSTUNREACH)\b/iu,
   model = /\b(?:unrecognized[_ -]?model|model[_ -]?not[_ -]?found|unknown[_ -]?model)\b/iu,
   auth = /\b(?:unauthorized|unauthenticated|authentication failed|invalid[_ -]?(?:api[_ -]?key|token))\b/iu;
 
@@ -186,6 +194,10 @@ export function classifyRuntimeExit(
   // work after the worker has already called a tool.
   if (attemptFailed && providerFault?.code === "request_unavailable" && active.toolCallObserved)
     return classified("gate_red", providerFault.reason);
+  // A connection that dropped after the worker already called a tool may have left work behind;
+  // keep that attempt a task failure instead of replaying it on the next provider.
+  if (attemptFailed && providerFault?.code === "provider_disconnected" && active.toolCallObserved)
+    return classified("gate_red", providerFault.reason);
   if (attemptFailed && providerFault)
     return {
       ...classified(providerFault.faultClass ? "provider_quota" : "provider_fault", providerFault.reason),
@@ -334,6 +346,7 @@ function providerFaultFromDiagnostic(
   if (capacity.test(joined)) return fault("server_error", reason);
   if (incompleteStream.test(joined)) return fault("server_error", reason);
   if (responseCode !== null && responseCode >= 500 && responseCode <= 599) return fault("server_error", reason);
+  if (connectionFailure.test(joined)) return fault("provider_disconnected", reason);
   if (model.test(joined)) return fault("unrecognized_model", reason);
   if (responseCode === 401 || auth.test(joined)) return fault("auth_failed", reason);
   return null;

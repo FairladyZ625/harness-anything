@@ -84,6 +84,64 @@ test("request_unavailable is retryable only before tool activity; other startup 
   );
 });
 
+// Measured on instance devin-main (2026-09-18~19): the ACP provider reported
+// `Connection error, send a message to continue retrying` after the upstream connection dropped.
+// A turn that never reached a tool call is a transport failure, not a task verdict
+// (dec_FCD38D503B0C0752B83A417246 CH2); once a tool has run, the attempt may have changed the
+// workspace and must not be replayed on the next provider.
+test("connection loss retries before tool activity and stays a task failure after it", () => {
+  const diagnostic = "Connection error, send a message to continue retrying",
+    frameFault = providerFaultFromFrame("devin", { type: "acp.error", message: diagnostic }),
+    stderrFault = providerFaultFromStderr("devin", diagnostic),
+    beforeTool = classifyRuntimeExit(
+      active({
+        kindId: "devin",
+        providerOutcome: "failed",
+        failureText: diagnostic,
+        providerFault: frameFault,
+      }),
+      1,
+    ),
+    afterTool = classifyRuntimeExit(
+      active({
+        kindId: "devin",
+        providerOutcome: "failed",
+        failureText: diagnostic,
+        providerFault: frameFault,
+        toolCallObserved: true,
+      }),
+      1,
+    );
+
+  assert.equal(frameFault?.code, "provider_disconnected");
+  assert.equal(stderrFault?.code, "provider_disconnected");
+  assert.equal(frameFault?.reason, diagnostic);
+  assert.equal(beforeTool.outcome, "failed");
+  assert.equal(beforeTool.classification, "provider_fault");
+  assert.equal(afterTool.outcome, "failed");
+  assert.equal(afterTool.classification, "gate_red");
+  assert.equal(afterTool.reason, diagnostic);
+});
+
+test("the connection-failure family covers transport wording but not task refusals", () => {
+  for (const diagnostic of [
+    "Connection error, send a message to continue retrying",
+    "connection reset by peer",
+    "read ECONNRESET",
+    "socket hang up",
+    "Failed to connect to upstream",
+    "network is unreachable",
+    "transport error",
+  ])
+    assert.equal(providerFaultFromStderr("devin", diagnostic)?.code, "provider_disconnected", diagnostic);
+  for (const refusal of [
+    "Connection metadata is missing from the workspace",
+    "Connection established; the request returned no content",
+    "DeepSeek Messages request failed (404)",
+  ])
+    assert.equal(providerFaultFromStderr("devin", refusal), null, refusal);
+});
+
 test("Codex tool item.started closes the startup retry window before item completion", () => {
   const unavailable = {
       type: "turn.failed",
