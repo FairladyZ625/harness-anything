@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, watch, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -18,10 +18,11 @@ test(
   "ordinary writes remain available while an active runtime workspace continuously changes thousands of files",
   { timeout: 300_000 },
   async (t) => {
-    // Acceptance scope: at most 4,000 files under continuous churn, CPU idle >= 20%,
-    // with ordinary-write p95 <= 500 ms. This regression samples individual writes;
-    // it does not measure CPU idle, churn rate, or a statistically meaningful p95.
-    const fileCount = Number(process.env.FLEET_STRESS_WORKSPACE_FILES ?? 2_000),
+    // Scoped acceptance: <= 4,000 files, continuous churn, machine CPU idle >= 20%,
+    // and ordinary-write p95 <= 500 ms. Enable the measured Linux run explicitly;
+    // the normal integration test keeps its broader single-write regression guard.
+    const measureP95 = process.env.FLEET_STRESS_WORKSPACE_P95 === "1",
+      fileCount = Number(process.env.FLEET_STRESS_WORKSPACE_FILES ?? 2_000),
       parent = mkdtempSync(path.join(tmpdir(), "ha-writer-queue-depth-")),
       repoId = workspaceId("writer-queue-depth"),
       stateRoot = path.join(parent, "writer-epochs"),
@@ -213,15 +214,20 @@ syncBuiltinESMExports();
          for (let i = 0; i < workerData.files; i++) fs.writeFileSync(path.join(workerData.dir, "file-" + i), "created");
          parentPort.postMessage({ ready: true });
          let writes = 0;
-         while (Atomics.load(stop, 0) === 0 && writes < 100000) {
+         while (Atomics.load(stop, 0) === 0 && writes < workerData.limit) {
            fs.writeFileSync(path.join(workerData.dir, "file-" + (writes % workerData.files)), "changed");
            writes++;
            Atomics.store(stop, 1, writes);
          }
-         parentPort.postMessage({ writes, limitReached: writes === 100000 });`,
+         parentPort.postMessage({ writes, limitReached: writes === workerData.limit });`,
         {
           eval: true,
-          workerData: { dir: path.join(repoRoot, "node_modules"), files: fileCount, stop: stopChurn.buffer },
+          workerData: {
+            dir: path.join(repoRoot, "node_modules"),
+            files: fileCount,
+            stop: stopChurn.buffer,
+            limit: measureP95 ? 1_000_000 : 100_000,
+          },
         },
       );
       let churnWrites = 0,
@@ -253,6 +259,68 @@ syncBuiltinESMExports();
       t.diagnostic(`initialTaskCreateMs=${writeMs} workspaceFiles=${fileCount}`);
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
       assert.ok(writeMs < maxWriteMs, `ordinary write during workspace churn took ${String(writeMs)} ms`);
+      if (measureP95) {
+        assert.ok(fileCount > 0 && fileCount <= 4_000, "p95 acceptance requires at most 4,000 files");
+        assert.equal(process.platform, "linux", "CPU idle measurement uses Linux /proc/stat");
+        const samples: {
+          elapsedMs: number;
+          idleBefore: number;
+          totalBefore: number;
+          idleAfter: number;
+          totalAfter: number;
+          churnBefore: number;
+          churnAfter: number;
+        }[] = [];
+        for (let index = 0; index < 40; index++) {
+          const cpuBefore = cpuTicks(),
+            churnBefore = Atomics.load(stopChurn, 1),
+            start = performance.now();
+          const sampleReceipt = await supervisor.request<{ readonly outcome: string }>(
+            "run",
+            {
+              action: {
+                kind: "task-create",
+                taskId: `task_workspace_p95_${index}`,
+                title: "Measured workspace churn write",
+              },
+            },
+            binding,
+          );
+          const elapsedMs = performance.now() - start,
+            churnAfter = Atomics.load(stopChurn, 1),
+            cpuAfter = cpuTicks();
+          samples.push({
+            elapsedMs,
+            idleBefore: cpuBefore.idle,
+            totalBefore: cpuBefore.total,
+            idleAfter: cpuAfter.idle,
+            totalAfter: cpuAfter.total,
+            churnBefore,
+            churnAfter,
+          });
+          assert.equal(sampleReceipt.outcome, "applied", JSON.stringify(sampleReceipt));
+        }
+        const sorted = samples.map((sample) => sample.elapsedMs).sort((a, b) => a - b),
+          p95 = sorted[Math.ceil(sorted.length * 0.95) - 1]!,
+          idle = samples.map(
+            (sample) => (100 * (sample.idleAfter - sample.idleBefore)) / (sample.totalAfter - sample.totalBefore),
+          ),
+          durationMs = samples.reduce((sum, sample) => sum + sample.elapsedMs, 0),
+          changes = samples.reduce((sum, sample) => sum + sample.churnAfter - sample.churnBefore, 0);
+        t.diagnostic(`p95Samples=${JSON.stringify(samples)}`);
+        t.diagnostic(
+          `p95Summary=${JSON.stringify({ fileCount, sampleCount: samples.length, p95Ms: p95, minIdlePercent: Math.min(...idle), changes, durationMs, changesPerSecond: (changes * 1000) / durationMs })}`,
+        );
+        assert.ok(
+          samples.every((sample) => sample.churnAfter > sample.churnBefore),
+          "churn must continue during each measured write",
+        );
+        assert.ok(
+          idle.every((value) => value >= 20),
+          "CPU idle below 20%: acceptance measurement is inconclusive",
+        );
+        assert.ok(p95 <= 500, `ordinary write p95 was ${String(p95)} ms`);
+      }
       writeFileSync(releasePath, "release");
       await Atomics.waitAsync(shutdownGate, 0, 0, 20_000).value;
       t.diagnostic(
@@ -335,4 +403,10 @@ function waitForWorkspaceProgress(rootDir: string, dispatchId: string): Promise<
     const watcher = watch(path.dirname(dispatchStreamPath(rootDir, dispatchId)), check);
     check();
   });
+}
+
+// Linux aggregate machine CPU counters; guest time is already included in user/nice.
+function cpuTicks(): { idle: number; total: number } {
+  const fields = readFileSync("/proc/stat", "utf8").split("\n", 1)[0]!.trim().split(/\s+/).slice(1, 9).map(Number);
+  return { idle: fields[3]!, total: fields.reduce((sum, value) => sum + value, 0) };
 }
