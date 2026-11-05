@@ -207,6 +207,8 @@ against the scope generation. A concurrent transition leaves `done=false` for th
 An absent summary is initialized as unknown in its own page (`done=false`); commit it
 before the next page scans history. The management scan holds no writer locks; readers never probe the historical pending
 index or depend on VACUUM.
+Without a summary, a scope with no Decision owners serves ready empty reads without initialization;
+a scope containing owners still requires management confirmation. An explicit unknown summary remains pending.
 Current writers initialize empty scopes before writing. The additive summary table and
 triggers must be installed before deploying readers and retained across the current/previous
 writer window; no canonical bytes or previous columns are removed.

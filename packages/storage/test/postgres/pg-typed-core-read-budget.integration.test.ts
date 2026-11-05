@@ -176,6 +176,23 @@ test("typed-core ready-cut result budgets at 100001 rows", async (t) => {
       );
       assert.ok(scanned <= 200002, `query has 200002 token postings but scans ${scanned}`);
     });
+    await t.test("missing summary rejects a populated scope with one owner seek", async () => {
+      await withPostgresTransaction(
+        fixture.adminPool,
+        (client) => client.query("DELETE FROM ha_decision_read_status"),
+        scope,
+      );
+      plans.length = 0;
+      await assert.rejects(() => source.listDecisions({ state: "proposed", limit: 1 }), {
+        code: "projection_pending",
+      });
+      assertBudget("missing summary at 100001 owners", "ha_decisions", 0);
+      const ownerPlan = explainNodes(plans).find((node) => node["Relation Name"] === "ha_decisions")!;
+      assert.ok(
+        Number(ownerPlan["Shared Hit Blocks"] ?? 0) + Number(ownerPlan["Shared Read Blocks"] ?? 0) <= 32,
+        "the first-owner seek must not traverse historical heap pages",
+      );
+    });
   } finally {
     await fixture.pool.end();
     await fixture.close();

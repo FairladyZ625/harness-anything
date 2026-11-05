@@ -81,8 +81,18 @@ export async function assertPgDecisionReadReady(
       WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3`,
     [scope.tenantId, scope.projectId, scope.policyEpoch],
   );
-  if (result.rows[0]?.pending !== "0" && Number(result.rows[0]?.pending ?? NaN) !== 0)
-    throw Object.assign(new Error(`Decision ${kind} backfill is pending`), { code: "projection_pending" });
+  if (Number(result.rows[0]?.pending ?? NaN) === 0) return;
+  if (result.rows.length === 0) {
+    // A pristine scope needs no backfill. Check all owners at the caller's read
+    // snapshot, without filtering by readiness, state or reader visibility.
+    const owners = await client.query(
+      `SELECT 1 FROM ha_decisions WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3
+        ORDER BY decision_id LIMIT 1`,
+      [scope.tenantId, scope.projectId, scope.policyEpoch],
+    );
+    if (owners.rows.length === 0) return;
+  }
+  throw Object.assign(new Error(`Decision ${kind} backfill is pending`), { code: "projection_pending" });
 }
 
 /** Management scans without writer locks, then publishes only if no pending-state
