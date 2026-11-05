@@ -2,6 +2,7 @@
 import { makeScheduleScheduler } from "../src/schedule-scheduler.ts";
 import { taskPrPublicationNote } from "../src/runtime-spawn-mission.ts";
 import { latestSquadStates } from "./squad-run-state.fixture.ts";
+import type { SquadState } from "../src/squad-run-state.ts";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
@@ -20,6 +21,7 @@ import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-sett
 import { evidence, git } from "./task-surface.fixtures.ts";
 import { realizedTaskPlan, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { eventually } from "./schedule-actions.fixtures.ts";
+import { waitForCondition } from "../../../tools/fixtures/wait-for-condition.ts";
 
 const binding = withPolicyGroup(
   {
@@ -37,15 +39,44 @@ type Provider = {
   exit?: (code: number | null) => void;
   process?: ReturnType<typeof spawn>;
 };
+type WorkerAttemptView = Pick<
+  WorkerAttempt,
+  "dispatchId" | "runtimeSessionId" | "taskId" | "executionId" | "worktree" | "rejection"
+>;
 type Status = {
   squadRunId: string;
   status: string;
   error: string | null;
   leaderTurns: Array<{ dispatchId: string; runtimeSessionId: string }>;
-  workerAttempts: WorkerAttempt[];
+  workerAttempts: WorkerAttemptView[];
   workerCallbackCount: number;
   pendingLeaderCallbackCount: number;
 };
+
+/** The coordinator records every revision in the run's dispatch stream before it publishes the
+ * canonical read model. Waiting on that durable state observes the same transition without
+ * spending a `squad-status` command (authorization + canonical projection read) per poll. */
+function statusFromState(state: SquadState): Status {
+  return {
+    squadRunId: state.squadRunId,
+    status: state.phase,
+    error: state.error,
+    leaderTurns: state.leaderTurns.map((turn) => ({
+      dispatchId: turn.dispatchId,
+      runtimeSessionId: turn.runtimeSessionId,
+    })),
+    workerAttempts: state.workerAttempts.map((attempt) => ({
+      dispatchId: attempt.dispatchId,
+      runtimeSessionId: attempt.runtimeSessionId,
+      taskId: attempt.taskId,
+      executionId: attempt.executionId,
+      worktree: attempt.worktree,
+      rejection: attempt.rejection,
+    })),
+    workerCallbackCount: state.observedWorkerRuntimeSessionIds.length,
+    pendingLeaderCallbackCount: state.pendingLeaderTriggers.length + state.workerWaits.length,
+  };
+}
 
 async function stopFixtureProcess(child: ReturnType<typeof spawn>): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return;
@@ -67,7 +98,7 @@ test(
   { timeout: 30_000 },
   async (t) => {
     const fixture = await openFixture(t, "delivery");
-    const planningLeader = (await fixture.status()).leaderTurns[0].runtimeSessionId;
+    const planningLeader = fixture.stateStatus()!.leaderTurns[0].runtimeSessionId;
     assert.equal(fixture.task(fixture.taskId).snapshot.lease?.actor.executor?.id, `runtime-session:${planningLeader}`);
     await fixture.plan(["src/a.txt"], ["docs/"]);
     const running = await fixture.waitStatus(
@@ -147,7 +178,7 @@ test(
       await fixture.finish(child.dispatchId!, "child delivery");
       if (index === 0) {
         await fixture.waitStatus((state) => state.workerCallbackCount === 1);
-        assert.equal((await fixture.status()).leaderTurns.length, 1, "one live child keeps the leader suspended");
+        assert.equal(fixture.stateStatus()!.leaderTurns.length, 1, "one live child keeps the leader suspended");
       }
     }
     const resumed = await fixture.waitStatus((state) => state.leaderTurns.length === 2);
@@ -172,7 +203,7 @@ test(
     for (const child of resumed.workerAttempts)
       fixture.providers.find((p) => p.dispatchId === child.dispatchId)!.exit!(0);
     await fixture.cell.settlePendingMaterialization("duplicate child notifications");
-    assert.equal((await fixture.status()).leaderTurns.length, 2);
+    assert.equal(fixture.stateStatus()!.leaderTurns.length, 2);
     const leader = fixture.providers.find((p) => p.dispatchId === resumed.leaderTurns[1].dispatchId)!;
     assert.match(leader.prompt, /outside\.txt/u);
     // The leader carries the commander delivery contract for the CEO, not the worker delivery
@@ -236,7 +267,10 @@ test(
     );
     const launches = fixture.providers.length;
     await fixture.reopen();
-    const recovered = await fixture.status();
+    // Recovery is asserted from the reopened durable run state. The canonical `squad-status`
+    // DTO has dedicated integration coverage; reading it here would pay the cell's cold
+    // projection start inside this timeout-sensitive orchestration test.
+    const recovered = fixture.stateStatus()!;
     assert.equal(recovered.status, "converged");
     assert.equal(recovered.leaderTurns.length, 2);
     assert.equal(fixture.providers.length, launches, "reopening the center must not dispatch another leader");
@@ -449,7 +483,7 @@ for (const ending of ["cancelled", "failed"] as const)
         JSON.stringify({ schema: "squad-decision/v1", action: "converged" }),
       );
       await fixture.waitStatus((state) => state.status === "failed");
-      assert.equal((await fixture.status()).status, "failed");
+      assert.equal(fixture.stateStatus()!.status, "failed");
     }
     assertChildrenClosed(fixture, running.workerAttempts);
     const afterWip = await fixture.cell.read("repo.tasks.wip", {}, binding);
@@ -489,7 +523,7 @@ test("failed child wakes the leader with the failure after its sibling settles",
   );
   await fixture.finish(running.workerAttempts[0].dispatchId!, "child could not complete", 1);
   await fixture.waitStatus((state) => state.workerCallbackCount === 1);
-  assert.equal((await fixture.status()).leaderTurns.length, 1);
+  assert.equal(fixture.stateStatus()!.leaderTurns.length, 1);
   await fixture.finish(running.workerAttempts[1].dispatchId!, "sibling completed");
   const resumed = await fixture.waitStatus((state) => state.leaderTurns.length === 2);
   const leader = fixture.providers.find((p) => p.dispatchId === resumed.leaderTurns[1].dispatchId)!;
@@ -525,7 +559,7 @@ test(
           dispatches: [{ to, prompt: realizedTaskPlan(`stage ${to}`), ownedPaths: owned }],
         }),
       );
-    await dispatchStage((await fixture.status()).leaderTurns[0], "one", ["a.txt"]);
+    await dispatchStage(fixture.stateStatus()!.leaderTurns[0], "one", ["a.txt"]);
     const stageOne = await fixture.waitStatus(
       (state) => state.workerAttempts.length === 1 && state.workerAttempts[0].runtimeSessionId !== null,
     );
@@ -905,15 +939,24 @@ async function openFixture(
     });
     if (!offline) provider.exit!(code);
   };
+  const stateStatus = (): Status | null => {
+    const state = latestSquadStates(root).get(squadRunId);
+    return state ? statusFromState(state) : null;
+  };
   const waitStatus = async (predicate: (state: Status) => unknown) => {
-    let last: Status | undefined;
-    for (let attempt = 0; attempt < 500; attempt += 1) {
-      last = await status();
-      if (predicate(last)) return last;
-      if (last.status === "failed") throw new Error(JSON.stringify(last));
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
-    throw new Error(`Squad did not reach expected state: ${JSON.stringify(last)}`);
+    let last: Status | null = null;
+    await waitForCondition(
+      () => {
+        last = stateStatus();
+        if (last === null) return false;
+        if (predicate(last)) return true;
+        if (last.status === "failed") throw new Error(JSON.stringify(last));
+        return false;
+      },
+      `Squad ${squadRunId} to reach the expected state`,
+      { timeoutMs: 10_000, intervalMs: 10, describeLast: () => JSON.stringify(last) },
+    );
+    return last!;
   };
   return {
     parent,
@@ -921,11 +964,13 @@ async function openFixture(
     bare,
     repoId,
     taskId,
+    squadRunId,
     get cell() {
       return cell;
     },
     providers,
     status,
+    stateStatus,
     task,
     finish,
     waitStatus,
@@ -935,7 +980,7 @@ async function openFixture(
       cell = await open();
     },
     plan: async (first: string[], second: string[]) => {
-      const state = await status();
+      const state = await waitStatus((current) => current.leaderTurns.length >= 1);
       await finish(
         state.leaderTurns[0].dispatchId,
         JSON.stringify({
@@ -947,7 +992,7 @@ async function openFixture(
         }),
       );
     },
-    submit: async (child: WorkerAttempt, head: string) => {
+    submit: async (child: WorkerAttemptView, head: string) => {
       await cell.settlePendingMaterialization("child closeout fixture");
       const row = task(child.taskId!),
         holder = {
