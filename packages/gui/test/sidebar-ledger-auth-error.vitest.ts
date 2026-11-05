@@ -23,7 +23,12 @@ function readFailure(code: string, hint: string) {
   return { ok: false as const, error: { code, hint } };
 }
 
-async function mountApp(options: { readonly code: string; readonly hint: string }): Promise<HTMLElement> {
+interface ReadFailure {
+  readonly code: string;
+  readonly hint: string;
+}
+
+async function mountApp(options: { readonly summary: ReadFailure; readonly tasks: ReadFailure }): Promise<HTMLElement> {
   const bridge: Record<string, (payload?: Record<string, unknown> | null) => Promise<unknown>> = {
     getSystemStatus: async () => ({
       schema: "gui-system-status/v1",
@@ -49,8 +54,8 @@ async function mountApp(options: { readonly code: string; readonly hint: string 
         },
       ],
     }),
-    getTasks: async () => readFailure(options.code, options.hint),
-    getWorkspaceSummary: async () => readFailure(options.code, options.hint),
+    getTasks: async () => readFailure(options.tasks.code, options.tasks.hint),
+    getWorkspaceSummary: async () => readFailure(options.summary.code, options.summary.hint),
     getAgenda: async () => ({
       ok: true,
       status: "ready",
@@ -124,10 +129,11 @@ afterEach(() => {
 
 describe("sidebar ledger failure surface", () => {
   it("does not repeat an authentication failure that the read banner already owns", async () => {
-    const container = await mountApp({
+    const authenticationRequired = {
       code: "authentication_required",
       hint: "Sign in with the configured identity provider.",
-    });
+    };
+    const container = await mountApp({ summary: authenticationRequired, tasks: authenticationRequired });
     const panel = statusPanel(container);
     expect(panel).not.toBeNull();
     // 横幅/账号卡是唯一入口:侧栏状态区不出现认证错误文案,也不出现失败行与刷新按钮。
@@ -142,7 +148,10 @@ describe("sidebar ledger failure surface", () => {
 
   it("still shows a non-authentication ledger failure in full", async () => {
     const hint = "Replica is unavailable; retry after the cell reattaches.";
-    const container = await mountApp({ code: "replica_unavailable", hint });
+    const container = await mountApp({
+      summary: { code: "replica_unavailable", hint },
+      tasks: { code: "replica_unavailable", hint },
+    });
     const panel = statusPanel(container);
     expect(panel.querySelector('[data-testid="task-error-state"]')).not.toBeNull();
     expect(panel.textContent).toContain("台账桥读取失败");
@@ -152,5 +161,33 @@ describe("sidebar ledger failure surface", () => {
     expect(errorLine.textContent).toContain(hint);
     expect(errorLine.className).toContain("break-words");
     expect(panel.textContent).not.toContain("刚刚刷新");
+  });
+
+  it("keeps the tasks failure visible when the workspace summary requires authentication", async () => {
+    const hint = "Replica is unavailable; retry after the cell reattaches.";
+    const container = await mountApp({
+      summary: { code: "authentication_required", hint: "Sign in with the configured identity provider." },
+      tasks: { code: "replica_unavailable", hint },
+    });
+    const panel = statusPanel(container);
+    // 认证错误不能把另一条读的非认证故障一起藏掉:状态栏显示 tasks 的 replica 故障。
+    expect(panel.textContent).toContain("台账桥读取失败");
+    expect(panel.textContent).toContain(hint);
+    expect(panel.textContent).not.toContain("需要登录");
+    expect(panel.querySelector('[data-testid="task-error-state"]')).not.toBeNull();
+  });
+
+  it("keeps the workspace summary failure visible when the tasks read requires authentication", async () => {
+    const hint = "Workspace projection is unavailable; retry shortly.";
+    const container = await mountApp({
+      summary: { code: "replica_unavailable", hint },
+      tasks: { code: "authentication_required", hint: "Sign in with the configured identity provider." },
+    });
+    const panel = statusPanel(container);
+    // 反过来同样成立:非认证错误在第一条时照常显示,不因另一条读认证失败而消失。
+    expect(panel.textContent).toContain("台账桥读取失败");
+    expect(panel.textContent).toContain(hint);
+    expect(panel.textContent).not.toContain("需要登录");
+    expect(panel.querySelector('[data-testid="task-error-state"]')).not.toBeNull();
   });
 });
