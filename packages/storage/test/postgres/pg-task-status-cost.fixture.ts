@@ -123,7 +123,10 @@ export async function assertTaskStatusCost(pool: Pool, seedPool: Pool, backend: 
     observe("parent/last-page", 1);
   }
   for (const [key, [small, large]] of Object.entries(pairs)) {
-    assert.ok(large! <= small! + 20, `${key} scans ${small} -> ${large} for one leaf`);
-    assert.ok(large! <= 4, `${key} must only seek the selected task and its children`);
+    assert.ok(large! <= small! + 20, `${key} scans ${small} -> ${large} for one selected task`);
+    assert.ok(
+      small! <= 4 && large! <= 4,
+      `${key} must only seek the selected task and its children: ${small} -> ${large}`,
+    );
   }
 }
