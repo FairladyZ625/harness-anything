@@ -5457,6 +5457,24 @@
         "reason": "Explicit relation-list freshness=suspect pagination derives permission-scoped witnesses before filtering; fixed k=1 at 200/2000. Observed sqlResultBytes warm 194627 -> 1946313, firstCall 194627 -> 1946313. CEO 2026-11-05 assigns freshness removal to the reader-context task; no margin or scale change.",
         "deletionTaskId": "task_b80a85013dc38038dbdf9a4a4b",
         "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "relation-freshness-page",
+        "backend": "sqlite",
+        "dimension": "runtime-sessions",
+        "metric": "sqliteVmSteps",
+        "reason": "The explicit relation-list freshness filter derives endpoint witnesses even at a fixed result k=0; unrelated runtime-sessions history grows SQLite VM work. Observed warm 1553 -> 10553, firstCall 1571 -> 10571 at 200/2000. CEO 2026-11-05 assigns freshness read-path removal to the reader-context task; no margin or scale change.",
+        "deletionTaskId": "task_b80a85013dc38038dbdf9a4a4b",
+        "expiresAt": "2026-11-26T00:00:00Z"
+      },
+      {
+        "probe": "relation-freshness-page",
+        "backend": "sqlite",
+        "dimension": "dispatches",
+        "metric": "sqliteVmSteps",
+        "reason": "The explicit relation-list freshness filter derives endpoint witnesses even at a fixed result k=0; unrelated dispatches history grows SQLite VM work. Observed warm 1553 -> 10553, firstCall 1571 -> 10571 at 200/2000. CEO 2026-11-05 assigns freshness read-path removal to the reader-context task; no margin or scale change.",
+        "deletionTaskId": "task_b80a85013dc38038dbdf9a4a4b",
+        "expiresAt": "2026-11-26T00:00:00Z"
       }
     ]
   }
