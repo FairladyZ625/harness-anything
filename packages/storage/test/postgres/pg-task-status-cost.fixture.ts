@@ -129,4 +129,129 @@ export async function assertTaskStatusCost(pool: Pool, seedPool: Pool, backend: 
       `${key} must only seek the selected task and its children: ${small} -> ${large}`,
     );
   }
+  // A nullable parent is also a valid root: legacy rows must stay distinguishable
+  // until the management path has filled their scalar, without blocking raw reads.
+  const manage = <T>(operation: (client: import("pg").PoolClient) => Promise<T>) =>
+      withPostgresTransaction(seedPool, operation, scope),
+    keys = [scope.tenantId, scope.projectId, scope.policyEpoch],
+    source = createPgTaskProjectionSource({ pool, scope, repoId: "task-status-cost", ownsPool: false }),
+    stored = () =>
+      manage(
+        async (client) =>
+          (
+            await client.query<{ task_id: string; snapshot: unknown }>(
+              "SELECT task_id,snapshot FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 ORDER BY task_id",
+              keys,
+            )
+          ).rows,
+      ),
+    pending = () =>
+      manage(async (client) =>
+        Number(
+          (
+            await client.query<{ count: string }>(
+              "SELECT count(*)::text AS count FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND parent_index_version=0",
+              keys,
+            )
+          ).rows[0]!.count,
+        ),
+      ),
+    fill = async (client: import("pg").PoolClient) =>
+      (
+        await client.query<{ processed: number }>(
+          "SELECT ha_backfill_projection_read_indexes($1,$2,$3) AS processed",
+          keys,
+        )
+      ).rows[0]!.processed,
+    original = await stored();
+  await manage((client) =>
+    client.query(
+      "UPDATE ha_task_snapshots SET parent_task_id=NULL,parent_index_version=0 WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3",
+      keys,
+    ),
+  );
+  assert.equal((await source.read("target")).snapshot.task?.status, "planned");
+  await assert.rejects(source.read("target", true), { code: "projection_pending" });
+  await assert.rejects(source.list({ parentTaskId: "target" }), { code: "projection_pending" });
+  await assert.rejects(source.readTaskChildCounts(["target"]), { code: "projection_pending" });
+  assert.deepEqual(await source.readTaskChildCounts([]), {});
+  // An unchanged previous-writer UPDATE still passes through the installed trigger.
+  await manage(async (client) => {
+    await client.query(
+      "UPDATE ha_task_snapshots SET snapshot=snapshot WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND task_id='child-1'",
+      keys,
+    );
+    const row = (
+      await client.query<{ parent_task_id: string; parent_index_version: number }>(
+        "SELECT parent_task_id,parent_index_version FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND task_id='child-1'",
+        keys,
+      )
+    ).rows[0]!;
+    assert.deepEqual(row, { parent_task_id: "target", parent_index_version: 1 });
+  });
+  const count = await pending(),
+    rollback = new Error("rollback parent expansion");
+  assert.equal(count, 2002);
+  await assert.rejects(
+    manage(async (client) => {
+      assert.equal(await fill(client), 64);
+      throw rollback;
+    }),
+    (error) => error === rollback,
+  );
+  assert.equal(await pending(), count);
+  const outsideScope = { ...scope, projectId: "task-parent-outside" },
+    outsideKeys = [outsideScope.tenantId, outsideScope.projectId, outsideScope.policyEpoch];
+  await withPostgresTransaction(
+    seedPool,
+    async (client) => {
+      await client.query(
+        `INSERT INTO ha_task_snapshots(tenant_id,project_id,policy_epoch,task_id,workspace_revision,snapshot)
+      VALUES($1,$2,$3,'outside',1,jsonb_set($4::jsonb,'{task,taskId}',to_jsonb('outside'::text)))`,
+        [...outsideKeys, JSON.stringify(snapshot)],
+      );
+      await client.query(
+        "UPDATE ha_task_snapshots SET parent_index_version=0 WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3",
+        outsideKeys,
+      );
+    },
+    outsideScope,
+  );
+  let total = 0;
+  const pages: number[] = [];
+  for (;;) {
+    const processed = await manage(fill);
+    assert.ok(processed >= 0 && processed <= 64);
+    pages.push(processed);
+    if (processed === 0) break;
+    total += processed;
+    assert.ok(total <= count, "backfill must advance a bounded set of pending rows");
+  }
+  assert.equal(total, count);
+  assert.equal(await pending(), 0);
+  assert.deepEqual(await stored(), original, "backfill preserves every snapshot");
+  assert.equal((await source.read("target", true)).snapshot.task?.status, "planned");
+  assert.deepEqual(await source.readTaskChildCounts(["target"]), { target: 2 });
+  assert.deepEqual(
+    (await source.list({ parentTaskId: "target" })).rows.map(({ taskId }) => taskId),
+    ["child-1", "child-2"],
+  );
+  await withPostgresTransaction(
+    seedPool,
+    async (client) => {
+      assert.equal(
+        (
+          await client.query<{ parent_index_version: number }>(
+            "SELECT parent_index_version FROM ha_task_snapshots WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3",
+            outsideKeys,
+          )
+        ).rows[0]!.parent_index_version,
+        0,
+      );
+    },
+    outsideScope,
+  );
+  process.stdout.write(
+    `TASK_PARENT_UPGRADE ${JSON.stringify({ backend, pages, total, rolledBack: 64, snapshotsPreserved: original.length, outsideScopeUntouched: true })}\n`,
+  );
 }

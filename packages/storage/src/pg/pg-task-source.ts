@@ -1,3 +1,4 @@
+import { assertPgTaskParentIndexReady } from "./pg-task-parent-index.ts";
 import { readPgFactsInTransaction } from "./pg-fact-reads.ts";
 import { pgGraphQueries, type PgGraphQueries } from "./pg-graph-queries.ts";
 import { pgKnowledgeQueries, type PgKnowledgeQueries } from "./pg-knowledge-queries.ts";
@@ -67,13 +68,13 @@ const RETIRED_TASK_SQL = `NOT (
 // a hash join that scans unrelated tasks even when only two descendants are needed.
 const presentationStatusSql = (readersParameter: number) => `CASE
   WHEN ha_task_snapshots.snapshot #>> '{task,status}' IN ('done','cancelled') THEN ha_task_snapshots.snapshot #>> '{task,status}'
-  WHEN ha_task_snapshots.snapshot #>> '{task,taskClass}' = 'work' OR (ha_task_snapshots.snapshot #>> '{task,metadata,parentTaskId}' IS NULL AND EXISTS (
-    SELECT 1 FROM ha_task_snapshots child WHERE child.tenant_id=ha_task_snapshots.tenant_id AND child.project_id=ha_task_snapshots.project_id AND child.policy_epoch=ha_task_snapshots.policy_epoch AND (cardinality($${readersParameter}::text[])=0 OR child.readers && $${readersParameter}::text[]) AND child.snapshot #>> '{task,metadata,parentTaskId}'=ha_task_snapshots.task_id
+  WHEN ha_task_snapshots.snapshot #>> '{task,taskClass}' = 'work' OR (ha_task_snapshots.parent_task_id IS NULL AND EXISTS (
+    SELECT 1 FROM ha_task_snapshots child WHERE child.tenant_id=ha_task_snapshots.tenant_id AND child.project_id=ha_task_snapshots.project_id AND child.policy_epoch=ha_task_snapshots.policy_epoch AND (cardinality($${readersParameter}::text[])=0 OR child.readers && $${readersParameter}::text[]) AND child.parent_task_id=ha_task_snapshots.task_id
   )) THEN COALESCE((WITH RECURSIVE members(task_id,status) AS (
-    SELECT child.task_id, child.snapshot #>> '{task,status}' FROM ha_task_snapshots child WHERE child.tenant_id=ha_task_snapshots.tenant_id AND child.project_id=ha_task_snapshots.project_id AND child.policy_epoch=ha_task_snapshots.policy_epoch AND (cardinality($${readersParameter}::text[])=0 OR child.readers && $${readersParameter}::text[]) AND child.snapshot #>> '{task,metadata,parentTaskId}'=ha_task_snapshots.task_id AND child.task_id<>ha_task_snapshots.task_id AND ${RETIRED_TASK_SQL}
+    SELECT child.task_id, child.snapshot #>> '{task,status}' FROM ha_task_snapshots child WHERE child.tenant_id=ha_task_snapshots.tenant_id AND child.project_id=ha_task_snapshots.project_id AND child.policy_epoch=ha_task_snapshots.policy_epoch AND (cardinality($${readersParameter}::text[])=0 OR child.readers && $${readersParameter}::text[]) AND child.parent_task_id=ha_task_snapshots.task_id AND child.task_id<>ha_task_snapshots.task_id AND ${RETIRED_TASK_SQL}
     UNION SELECT child.task_id, child.status FROM members parent CROSS JOIN LATERAL (
       SELECT child.task_id, child.snapshot #>> '{task,status}' AS status FROM ha_task_snapshots child
-      WHERE child.tenant_id=ha_task_snapshots.tenant_id AND child.project_id=ha_task_snapshots.project_id AND child.policy_epoch=ha_task_snapshots.policy_epoch AND (cardinality($${readersParameter}::text[])=0 OR child.readers && $${readersParameter}::text[]) AND child.snapshot #>> '{task,metadata,parentTaskId}'=parent.task_id AND child.task_id<>ha_task_snapshots.task_id AND ${RETIRED_TASK_SQL} OFFSET 0
+      WHERE child.tenant_id=ha_task_snapshots.tenant_id AND child.project_id=ha_task_snapshots.project_id AND child.policy_epoch=ha_task_snapshots.policy_epoch AND (cardinality($${readersParameter}::text[])=0 OR child.readers && $${readersParameter}::text[]) AND child.parent_task_id=parent.task_id AND child.task_id<>ha_task_snapshots.task_id AND ${RETIRED_TASK_SQL} OFFSET 0
     ) child
   ) SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM members WHERE status NOT IN ('done','cancelled')) THEN CASE WHEN EXISTS (SELECT 1 FROM members) THEN CASE WHEN EXISTS (SELECT 1 FROM members WHERE status='done') THEN 'done' ELSE 'cancelled' END END WHEN ha_task_snapshots.snapshot #>> '{task,status}'='planned' AND EXISTS (SELECT 1 FROM members WHERE status NOT IN ('planned','cancelled')) THEN 'active' END), ha_task_snapshots.snapshot #>> '{task,status}')
   ELSE ha_task_snapshots.snapshot #>> '{task,status}' END`;
@@ -184,6 +185,7 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
     withPostgresTransaction(
       options.pool,
       async (client) => {
+        if (presentationStatus) await assertPgTaskParentIndexReady(client, options.scope);
         const cut = await readCutInTransaction(client, claims, readers, repoId),
           result = await client.query<{
             snapshot: TaskLifecycleSnapshot;
@@ -220,6 +222,8 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
     withPostgresTransaction(
       options.pool,
       async (client) => {
+        if (query.presentationStatus || query.parentTaskId !== undefined || query.workRootsOnly)
+          await assertPgTaskParentIndexReady(client, options.scope);
         const cut = await readCutInTransaction(client, claims, readers, repoId),
           values: unknown[] = [claims.tenantId, claims.projectId, claims.policyEpoch, readers],
           where = [
@@ -258,10 +262,10 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
           where.push(`updated_at <= $${values.length}::timestamptz`);
         }
         if (query.parentTaskId !== undefined) {
-          if (query.parentTaskId === null) where.push("snapshot #>> '{task,metadata,parentTaskId}' IS NULL");
+          if (query.parentTaskId === null) where.push("parent_task_id IS NULL");
           else {
             values.push(query.parentTaskId);
-            where.push(`snapshot #>> '{task,metadata,parentTaskId}' = $${values.length}`);
+            where.push(`parent_task_id = $${values.length}`);
           }
         }
         for (const [key, value] of [
@@ -280,13 +284,13 @@ export function createPgTaskProjectionSource(options: PgTaskProjectionSourceOpti
         if (query.workRootsOnly === true)
           where.push(
             `(snapshot #>> '{task,taskClass}' = 'work' OR (
-               snapshot #>> '{task,metadata,parentTaskId}' IS NULL AND EXISTS (
+               parent_task_id IS NULL AND EXISTS (
                  SELECT 1 FROM ha_task_snapshots AS child
                  WHERE child.tenant_id = ha_task_snapshots.tenant_id
                    AND child.project_id = ha_task_snapshots.project_id
                    AND child.policy_epoch = ha_task_snapshots.policy_epoch
                    AND (cardinality($4::text[]) = 0 OR child.readers && $4::text[])
-                   AND child.snapshot #>> '{task,metadata,parentTaskId}' = ha_task_snapshots.task_id
+                   AND child.parent_task_id = ha_task_snapshots.task_id
                )
              ))`,
           );

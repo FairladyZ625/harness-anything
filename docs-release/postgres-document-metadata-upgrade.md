@@ -4,7 +4,9 @@ This release retains projection generation **5**. Previous binaries continue to 
 original `value` and write their original columns. Current binaries write the additional
 `document_metadata` column in the same row and transaction. Scalar-index backfills do not
 rewrite canonical events or switch the projection generation. The same generation also adds runtime read indexes **v2** and event
-read indexes **v5** (v4 plus the normalized dispatch-key column). External PostgreSQL does not backfill these automatically: ordinary
+read indexes **v5** (v4 plus the normalized dispatch-key column), and a task-parent scalar
+index. JSON parent expressions cannot serve indexed predicates under runtime RLS; the
+shared snapshot trigger maintains `parent_task_id` for both writer versions. External PostgreSQL does not backfill these automatically: ordinary
 reader startup and `TaskProjection.catchUp` do not run the two management SQL functions.
 Complete every phase below before switching readers. PGlite commits the same bounded
 SQL batches during its schema-owner initialization.
@@ -42,7 +44,7 @@ existing migration path; no ad-hoc repair script or canonical attach conversion 
    interruption, resume from that cursor or restart from empty strings. Concurrent previous
    writes maintain metadata through the trigger, including inserts behind the cursor.
 
-3. Backfill runtime/pin/interval/fact-edge metadata for each tenant/project/policy epoch.
+3. Backfill runtime/pin/interval/fact-edge and task-parent metadata for each tenant/project/policy epoch.
    Use the same management connection and claims, one call per transaction:
 
    ```sql
@@ -58,6 +60,9 @@ existing migration path; no ad-hoc repair script or canonical attach conversion 
    Use the schema-owner role name already configured for this deployment. Each call takes
    at most 64 pending rows, updates their scalar fields and runtime task bindings in the
    same transaction, and advances their version (runtime to 2, the other models to 1).
+   After those models finish, the same function fills at most 64 pending task snapshots
+   per call, setting `parent_index_version=1` without changing their snapshot values.
+   A call processes only one batch, so its combined limit remains 64 rows.
    Repeat until a **committed** call returns `processed=0`. No client cursor is needed:
    the partial pending index is the durable remainder. On interruption or transaction
    rollback, repeat the same call; committed rows are skipped and rolled-back rows remain
@@ -84,7 +89,7 @@ existing migration path; no ad-hoc repair script or canonical attach conversion 
    repeating the function. Preserve tenant/project/policy-epoch **and repo** identity; do not
    merge scopes.
 
-5. Verify readiness on the same claims before enabling current readers. Both probes must
+5. Verify readiness on the same claims before enabling current readers. All three probes must
    return no rows (use the actual deployment identifiers):
 
    ```sql
@@ -96,6 +101,9 @@ existing migration path; no ad-hoc repair script or canonical attach conversion 
    SELECT 1 FROM ha_events
    WHERE tenant_id='tenant-id' AND project_id='project-id' AND policy_epoch=1 AND repo_id='repo-id'
      AND read_index_version<5 LIMIT 1;
+   SELECT 1 FROM ha_task_snapshots
+   WHERE tenant_id='tenant-id' AND project_id='project-id' AND policy_epoch=1
+     AND parent_index_version=0 LIMIT 1;
    ```
 
    Document metadata must also be complete as in phase 2. Finish the current declaration
@@ -109,7 +117,9 @@ existing migration path; no ad-hoc repair script or canonical attach conversion 
 6. Switch readers after every scope and repo is complete. During a partially filled snapshot,
    current document lists return `projection_pending` instead of a partial list or reading
    bodies; runtime/event reads likewise return `projection_pending` until their own expansion
-   is complete. A ready projection generation alone does not certify these extensions.
+   is complete. Parent-dependent task reads also return `projection_pending` until their
+   scalar expansion completes; raw task point reads remain available. A ready projection
+   generation alone does not certify these extensions.
    Previous readers and writers stay usable throughout. Rollback to the previous
    binary leaves the additive column and trigger in place; keep both through the window.
 

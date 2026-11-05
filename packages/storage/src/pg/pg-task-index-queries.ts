@@ -1,3 +1,4 @@
+import { assertPgTaskParentIndexReady } from "./pg-task-parent-index.ts";
 import type { TaskProjectionQueries, TaskLifecycleSnapshot } from "@harness-anything/kernel";
 import type { PoolClient } from "pg";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
@@ -53,11 +54,13 @@ export function pgTaskIndexQueries(
       })),
     readTaskChildCounts: (ids) =>
       read(async (client) => {
+        if (ids.length === 0) return {};
+        await assertPgTaskParentIndexReady(client, scope);
         const result = await client.query<{ parent_id: string; count: string }>(
-          `SELECT snapshot#>>'{task,metadata,parentTaskId}' AS parent_id,count(*)::text FROM ha_task_snapshots
+          `SELECT parent_task_id AS parent_id,count(*)::text FROM ha_task_snapshots
          WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3 AND (cardinality($4::text[])=0 OR readers && $4::text[])
          AND COALESCE(snapshot#>>'{task,packageDisposition}','active')='active'
-         AND snapshot#>>'{task,metadata,parentTaskId}'=ANY($5::text[]) GROUP BY snapshot#>>'{task,metadata,parentTaskId}'`,
+         AND parent_task_id=ANY($5::text[]) GROUP BY parent_task_id`,
           [...parameters, ids],
         );
         return Object.fromEntries(result.rows.map(({ parent_id, count }) => [parent_id, Number(count)]));
