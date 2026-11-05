@@ -18,7 +18,7 @@
  */
 export const EVIDENCE_INDEX = Object.freeze({
   schema: "harness-anything/evidence-index/v1",
-  syncedAt: "2026-10-24",
+  syncedAt: "2026-11-05",
   tasks: Object.freeze([
     "task_01130d097481420c8d59e1fe08",
     "task_01KWGEEEFS13Z4HNVHZSYZ9Z3E",
@@ -70,6 +70,7 @@ export const EVIDENCE_INDEX = Object.freeze({
     "dec_57A9D27BA446C23759A08B1C13",
     "dec_585DB10A4218D9FA00F67B9537",
     "dec_5EC2631352B17EE2BF4979E37E",
+    "dec_659E15CFEC2FD7E254BE02EB89",
     "dec_78A329289D1AA69527529DA92C",
     "dec_9284BD6119D453EEECEED62450",
     "dec_99000027E6BCC263E341D38DC0",
