@@ -384,12 +384,12 @@ async function assertOnlineIndexDml(admin: PoolClient, port: number, keys: reado
     if (summary) {
       await client.query(
         `INSERT INTO ha_repo_heads(tenant_id,project_id,policy_epoch,repo_id,readers)
-         VALUES($1,$2,$3,'online-summary','{}') ON CONFLICT DO NOTHING`,
-        writerScope,
+         VALUES($1,$2,$3,'online-'||$4,'{}') ON CONFLICT DO NOTHING`,
+        [...writerScope, id],
       );
       return client.query(
         `INSERT INTO ha_events(tenant_id,project_id,policy_epoch,repo_id,revision,op_id,event_id,event_type,event_json,event_digest,occurred_at,readers)
-         VALUES($1,$2,$3,'online-summary',1,$4,$4,'task_created',$5,'sha256:x','2026-11-05T00:00:00Z','{}')`,
+         VALUES($1,$2,$3,'online-'||$4,1,$4,$4,'task_created',$5,'sha256:x','2026-11-05T00:00:00Z','{}')`,
         [...writerScope, id, JSON.stringify({ ...eventAt(1), opId: id, eventId: id })],
       );
     }
@@ -420,8 +420,8 @@ async function assertOnlineIndexDml(admin: PoolClient, port: number, keys: reado
       await yieldTurn();
     }
     await observer.query("SET statement_timeout=2000");
-    // Independent project writers share the physical table, not its readiness
-    // aggregate. Keep row contention out of the test for table-wide DDL locks.
+    // Independent repositories share the physical table, not the repository-epoch
+    // authority row. Keep row contention out of the test for table-wide DDL locks.
     await insert(observer, "dec_online_new_writer", [keys[0], `${String(keys[1])}-online`, keys[2]]);
     await observer.query("RESET statement_timeout");
     await blocker.query("COMMIT");
