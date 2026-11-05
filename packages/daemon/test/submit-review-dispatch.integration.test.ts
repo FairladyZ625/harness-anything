@@ -414,6 +414,54 @@ test(
   },
 );
 
+test("a reviewer never moves a task branch checked out by another worktree", { timeout: 30_000 }, async () => {
+  const f = await fixture(false, true, false, false, false, {
+    autoSubmit: false,
+    create: { presetId: "standard-task" },
+  });
+  try {
+    const worktree = path.join(f.root, ".worktrees", taskId),
+      { wip, frozen } = publishSupersededWipCut(f, worktree);
+    await submitWithDeferredReview(f);
+    gitIn(f.root, "worktree", "remove", "--force", worktree);
+    // A peer worktree owns the task branch at the replaced WIP cut. Renaming or moving that
+    // branch would rewrite the peer's symbolic HEAD and break its delivery path.
+    const peer = path.join(f.root, "peer-worktree");
+    gitIn(f.root, "worktree", "add", peer, taskId);
+    gitIn(peer, "reset", "--hard", wip);
+    const peerEntry = () => {
+      const entry = gitIn(f.root, "worktree", "list", "--porcelain")
+        .split("\n\n")
+        .find((block) => block.startsWith(`worktree ${peer}\n`));
+      assert.ok(entry, "the peer worktree is registered");
+      return entry;
+    };
+    const peerBefore = peerEntry();
+    assert.equal(gitIn(peer, "symbolic-ref", "HEAD"), `refs/heads/${taskId}`);
+    assert.equal(gitIn(peer, "rev-parse", "HEAD"), wip);
+    const dispatched = (await f.run({
+      kind: "task-dispatch-review",
+      taskIds: [taskId],
+      agentId: "closeout-reviewer",
+    })) as Record<string, unknown>;
+    assert.equal(dispatched.outcome, "op_rejected", JSON.stringify(dispatched));
+    assert.equal(dispatched.code, "review_dispatch_failed", JSON.stringify(dispatched));
+    assert.match(
+      String(dispatched.rejectionExplanation),
+      /cannot use branch .* checked out at/u,
+      JSON.stringify(dispatched),
+    );
+    assert.equal(f.launches.length, 0, "a branch owned by another worktree must not start a reviewer");
+    assert.equal(gitIn(peer, "branch", "--show-current"), taskId, "the peer keeps its branch name");
+    assert.equal(gitIn(peer, "symbolic-ref", "HEAD"), `refs/heads/${taskId}`, "the peer keeps its symbolic HEAD");
+    assert.equal(gitIn(peer, "rev-parse", "HEAD"), wip, "the peer keeps its HEAD commit");
+    assert.equal(peerEntry(), peerBefore, "the peer worktree entry keeps its branch, HEAD and config identity");
+    assert.notEqual(frozen, wip);
+  } finally {
+    await f.close();
+  }
+});
+
 test(
   "a low-risk subtask under a work parent resolves the repository default preset, inherits vertical and locale, and completes with zero review or consent work",
   { timeout: 30_000 },

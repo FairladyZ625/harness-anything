@@ -293,6 +293,17 @@ async function ensurePinnedCommit(rootDir: string, branch: string, commit: strin
  * frozen commit. A branch that is an ancestor of the frozen commit is simply advanced.
  */
 async function addPinnedReviewWorktree(rootDir: string, cwd: string, branch: string, commit: string): Promise<void> {
+  // Renaming or force-updating a branch that another worktree has checked out rewrites that
+  // worktree's symbolic HEAD and breaks its delivery path. Preserve the other checkout instead.
+  const otherOwner = (await branchWorktrees(rootDir, branch)).find(
+    (owner) => path.resolve(owner) !== path.resolve(cwd),
+  );
+  if (otherOwner !== undefined)
+    throw cellCodedError(
+      "review_checkout_branch_in_use",
+      `A reviewer checkout cannot use branch ${branch}: it is checked out at ${otherOwner}. ` +
+        "Leave that worktree untouched; dispatch the review on a node without that branch, or remove the old checkout first.",
+    );
   const branchTip = await refTip(rootDir, `refs/heads/${branch}`);
   if (branchTip === null) {
     await reviewGit(rootDir, "worktree", "add", cwd, "-b", branch, commit);
@@ -326,6 +337,16 @@ async function addPinnedReviewWorktree(rootDir: string, cwd: string, branch: str
     );
   }
   await reviewGit(rootDir, "worktree", "add", cwd, "-b", branch, commit);
+}
+
+/** Every worktree currently checking out this branch; a linked worktree's symbolic HEAD names it too. */
+async function branchWorktrees(rootDir: string, branch: string): Promise<readonly string[]> {
+  return (await reviewGit(rootDir, "worktree", "list", "--porcelain")).split("\n\n").flatMap((entry) => {
+    const lines = entry.split("\n"),
+      worktree = lines.find((line) => line.startsWith("worktree ")),
+      ref = lines.find((line) => line.startsWith("branch "));
+    return worktree !== undefined && ref === `branch refs/heads/${branch}` ? [worktree.slice("worktree ".length)] : [];
+  });
 }
 
 async function refTip(rootDir: string, ref: string): Promise<string | null> {
