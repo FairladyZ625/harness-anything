@@ -67,11 +67,18 @@ export function assertPgProjectionSchemaVersion(version: number | undefined): vo
  */
 export async function ensurePgProjectionSchema(
   client: PoolClient,
-  options: { readonly indexBuild?: "concurrent" | "isolated" } = {},
+  options: { readonly indexBuild?: "concurrent" | "isolated" | "deferred" } = {},
 ): Promise<void> {
   for (const statement of projectionDdl()) {
     const index = /^CREATE INDEX IF NOT EXISTS ([a-z0-9_]+)/u.exec(statement);
-    if (index?.[1] === "ha_events_summary_pending" && (await contractPgEventSummaryIndex(client, options))) continue;
+    if (index && options.indexBuild === "deferred") continue;
+    if (
+      index?.[1] === "ha_events_summary_pending" &&
+      (await contractPgEventSummaryIndex(client, {
+        indexBuild: options.indexBuild === "isolated" ? "isolated" : "concurrent",
+      }))
+    )
+      continue;
     if (index && options.indexBuild !== "isolated") {
       // An interrupted concurrent build leaves an invalid index. IF NOT EXISTS alone
       // would silently keep it forever. Only disposable, invalid indexes are removed.

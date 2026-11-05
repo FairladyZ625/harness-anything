@@ -27,7 +27,7 @@ export function decisionSearchDdl(): readonly string[] {
     `CREATE OR REPLACE TRIGGER ha_decision_search_invalidate BEFORE INSERT OR UPDATE OF value,readers
       ON ha_decisions FOR EACH ROW EXECUTE FUNCTION ha_decision_search_invalidate()`,
     // Previous writers invalidate the same row. Backfill/tokenization is owned by current
-    // projection catch-up; readers surface projection_pending until its transaction commits.
+    // projection catch-up; readers use the previous search path until its transaction commits.
     `CREATE OR REPLACE FUNCTION ha_decision_document_search_invalidate() RETURNS trigger
       LANGUAGE plpgsql SET search_path FROM CURRENT AS $function$ BEGIN
         UPDATE ha_decisions SET search_ready=false

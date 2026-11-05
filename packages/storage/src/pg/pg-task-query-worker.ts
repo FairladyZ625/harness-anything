@@ -81,6 +81,7 @@ function startWorker(
   authorityPool: Pool | null,
   options: {
     readonly ownsPools?: boolean;
+    readonly backfillReadIndexes?: () => Promise<{ processed: number; done: boolean }>;
     readonly onClose?: () => void;
     readonly onFailure?: (error: Error) => void;
     readonly readSessions?: {
@@ -314,7 +315,11 @@ function startWorker(
       }
       if (request.op === "backfill-read-indexes") {
         if (sessionClient) throw new Error("read-index maintenance cannot run inside a read session");
-        respond(request.id, input.state, await backfillPgReadIndexPage(pool, input.scope, input.repoId));
+        respond(
+          request.id,
+          input.state,
+          await (options.backfillReadIndexes?.() ?? backfillPgReadIndexPage(pool, input.scope, input.repoId)),
+        );
         return;
       }
       if (request.op === "warm-indexes") {

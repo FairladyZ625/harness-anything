@@ -1,4 +1,4 @@
-import { assertPgDecisionReadReady } from "./pg-decision-read-status.ts";
+import { isPgDecisionReadReady } from "./pg-decision-read-status.ts";
 import type { PoolClient } from "pg";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 import { decisionIdSortKey } from "../projection/decision-projection-reads.ts";
@@ -7,10 +7,6 @@ import { decisionIdSortKey } from "../projection/decision-projection-reads.ts";
  * Current writers also use it; the bounded backfill is removable after that window.
  */
 export function decisionIndexDdl(): readonly string[] {
-  const alphabet = "-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz",
-    primary = [...alphabet].map((c) => decisionIdSortKey(c).split(" ")[0]).join(""),
-    secondary = [...alphabet].map((c) => decisionIdSortKey(c).split(" ")[1]).join("");
-  const literal = (value: string) => `'${value.replaceAll("'", "''")}'`;
   return [
     "ALTER TABLE ha_decisions ADD COLUMN IF NOT EXISTS decision_state text",
     "ALTER TABLE ha_decisions ADD COLUMN IF NOT EXISTS legacy_group smallint",
@@ -24,8 +20,7 @@ export function decisionIndexDdl(): readonly string[] {
         NEW.legacy_group := CASE WHEN legacy IS NULL THEN 1 ELSE 0 END;
         NEW.legacy_number := COALESCE(legacy::double precision,0);
         NEW.decision_state := NEW.value->>'state';
-        NEW.decision_sort_key := translate(NEW.decision_id,${literal(alphabet)},${literal(primary)})
-          || ' ' || translate(NEW.decision_id,${literal(alphabet)},${literal(secondary)});
+        NEW.decision_sort_key := ${decisionSortSql("NEW.decision_id")};
         RETURN NEW;
       END $function$`,
     `CREATE OR REPLACE TRIGGER ha_decision_index_fields BEFORE INSERT OR UPDATE OF value,decision_id
@@ -56,7 +51,20 @@ export function decisionIndexDdl(): readonly string[] {
   ];
 }
 
-/** New readers must not treat an unfilled scalar index as an empty ready result. */
-export async function assertPgDecisionIndexReady(client: PoolClient, scope: PgProjectionScope): Promise<void> {
-  await assertPgDecisionReadReady(client, scope, "scalar");
+function decisionSortSql(column: string): string {
+  const alphabet = "-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz",
+    primary = [...alphabet].map((c) => decisionIdSortKey(c).split(" ")[0]).join(""),
+    secondary = [...alphabet].map((c) => decisionIdSortKey(c).split(" ")[1]).join("");
+  const literal = (value: string) => `'${value.replaceAll("'", "''")}'`;
+  return `translate(${column},${literal(alphabet)},${literal(primary)}) || ' ' || translate(${column},${literal(alphabet)},${literal(secondary)})`;
+}
+
+/** Delete the previous reader after all deployed scopes complete, no later than 2026-12-05. */
+export async function pgDecisionReadSource(client: PoolClient, scope: PgProjectionScope): Promise<string> {
+  if (await isPgDecisionReadReady(client, scope, "scalar")) return "ha_decisions";
+  return `(SELECT tenant_id,project_id,policy_epoch,readers,decision_id,workspace_revision,value,updated_at,
+    COALESCE(decision_state,value->>'state') AS decision_state,
+    CASE WHEN legacy IS NULL THEN 1 ELSE 0 END AS legacy_group,COALESCE(legacy::double precision,0) AS legacy_number,
+    COALESCE(decision_sort_key,${decisionSortSql("decision_id")}) AS decision_sort_key
+    FROM ha_decisions CROSS JOIN LATERAL (SELECT substring(decision_id from '(?:^|_)E([1-9][0-9]*)(?:_|$)') AS legacy) parsed)`;
 }

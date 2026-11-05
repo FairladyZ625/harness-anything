@@ -57,7 +57,7 @@ export function decisionReadStatusDdl(): readonly string[] {
 }
 
 /** Current writers initialize pristine scopes before their first Decision insert.
- * Existing rows leave both counters unknown; readers require management backfill.
+ * Existing rows leave both counters unknown; readers keep the previous path until backfill.
  */
 export async function initializePgDecisionReadStatus(client: PoolClient, scope: PgProjectionScope): Promise<void> {
   await client.query(
@@ -71,17 +71,17 @@ export async function initializePgDecisionReadStatus(client: PoolClient, scope: 
   );
 }
 
-export async function assertPgDecisionReadReady(
+export async function isPgDecisionReadReady(
   client: PoolClient,
   scope: PgProjectionScope,
   kind: "scalar" | "search",
-): Promise<void> {
+): Promise<boolean> {
   const result = await client.query<{ pending: string | null }>(
     `SELECT ${kind === "scalar" ? "scalar_pending" : "search_pending"} AS pending FROM ha_decision_read_status
       WHERE tenant_id=$1 AND project_id=$2 AND policy_epoch=$3`,
     [scope.tenantId, scope.projectId, scope.policyEpoch],
   );
-  if (Number(result.rows[0]?.pending ?? NaN) === 0) return;
+  if (Number(result.rows[0]?.pending ?? NaN) === 0) return true;
   if (result.rows.length === 0) {
     // A pristine scope needs no backfill. Check all owners at the caller's read
     // snapshot, without filtering by readiness, state or reader visibility.
@@ -90,9 +90,9 @@ export async function assertPgDecisionReadReady(
         ORDER BY decision_id LIMIT 1`,
       [scope.tenantId, scope.projectId, scope.policyEpoch],
     );
-    if (owners.rows.length === 0) return;
+    if (owners.rows.length === 0) return true;
   }
-  throw Object.assign(new Error(`Decision ${kind} backfill is pending`), { code: "projection_pending" });
+  return false;
 }
 
 /** Management scans without writer locks, then publishes only if no pending-state

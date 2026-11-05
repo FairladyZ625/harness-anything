@@ -69,6 +69,7 @@ async function startOwner(input: OwnerInput): Promise<void> {
       connections = groupPools.get(owner)!,
       session = startPgQuerySession({ ...request.input, requestPort: port }, connections.pool, null, {
         ownsPools: false,
+        backfillReadIndexes: () => backend.backfillReadIndexes(request.input.scope, request.input.repoId),
         epochs: epochs.client(owner, live, connections.pool),
         readSessions: connections,
         onFailure: fail,

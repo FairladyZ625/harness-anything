@@ -167,8 +167,8 @@ export async function assertDecisionSearchEdges(pool: Pool, backend: string) {
       },
       scope,
     );
-    await assert.rejects(() => pg.listDecisionAgendaPage({ state: "proposed" }), { code: "projection_pending" });
-    await assert.rejects(() => pg.listDecisions({ limit: 1 }), { code: "projection_pending" });
+    assert.ok((await pg.listDecisionAgendaPage({ state: "proposed" })).decisions.length > 0);
+    assert.equal((await pg.listDecisions({ limit: 1 })).decisions.length, 1);
     await withPostgresTransaction(
       pool,
       async (client) => {
@@ -185,7 +185,10 @@ export async function assertDecisionSearchEdges(pool: Pool, backend: string) {
       },
       scope,
     );
-    await assert.rejects(() => pg.listDecisions({ search: "replacement" }), { code: "projection_pending" });
+    assert.deepEqual(
+      (await pg.listDecisions({ search: "replacement" })).decisions.map((row) => row.decisionId),
+      ["dec_SEARCH_0"],
+    );
     await withPostgresTransaction(
       pool,
       async (client) =>

@@ -1,11 +1,9 @@
-import type { PoolClient } from "pg";
+import { initializePGliteReadSchema, backfillPGliteIndexPage } from "./read-index-schema.ts";
+import { backfillPgReadIndexPage } from "../pg/pg-read-index-backfill.ts";
 import type { PgProjectionScope } from "../pg/pg-task-event-materialize.ts";
 import { withPostgresTransaction } from "../postgres/transaction.ts";
-import { POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS, POSTGRES_EVENT_LEDGER_TABLES } from "../postgres/index.ts";
 import type { PostgresAppendHooks } from "../postgres/pg-event-store.ts";
-import { backfillPgDecisionSearchPage } from "../pg/pg-decision-search.ts";
 import { contractPgEventSummaryIndex } from "../pg/pg-event-read-index-migration.ts";
-import { ensurePgProjectionSchema } from "../pg/pg-projection-schema.ts";
 import { backfillPgArtifactDocuments } from "../pg/pg-artifact-timeline.ts";
 import { createPgStorageBackend, resolvePostgresEventStoreScope, type PgStorageBackend } from "../pg/backend.ts";
 import type { PGliteStorageBackendConfig } from "../storage-backend.ts";
@@ -21,6 +19,10 @@ export interface PGliteStorageBackend extends PgStorageBackend {
   readonly db: PGliteStorage["db"];
   readonly pool: PGliteStorage["pool"];
   readonly close: PGliteStorage["close"];
+  readonly backfillReadIndexes: (
+    scope?: PgProjectionScope,
+    repoId?: string,
+  ) => Promise<{ processed: number; done: boolean }>;
 }
 
 /** Open the shared PostgreSQL ledger/projection adapters on PGlite's one-connection driver. */
@@ -28,7 +30,17 @@ export async function createPGliteStorageBackend(options: PGliteStorageBackendOp
   const scope = resolvePostgresEventStoreScope(options.storage.scope),
     storage = createPGliteStorage({ dataDir: options.storage.dataDir, pglite: options.pglite });
   try {
-    await initializeSchema(storage.pool, scope);
+    await withPostgresTransaction(storage.pool, async (client) => {
+      await initializePGliteReadSchema(client);
+    });
+    await withPostgresTransaction(storage.pool, (client) =>
+      contractPgEventSummaryIndex(client, { indexBuild: "isolated" }),
+    );
+    await withPostgresTransaction(
+      storage.pool,
+      (client) => backfillPgArtifactDocuments(client, scope, options.repoId),
+      scope,
+    );
     return {
       ...createPgStorageBackend({
         pool: storage.pool,
@@ -36,6 +48,10 @@ export async function createPGliteStorageBackend(options: PGliteStorageBackendOp
         scope,
         readAuthoredDocument: options.readAuthoredDocument,
       }),
+      backfillReadIndexes: async (claims = scope, repoId = options.repoId) => {
+        const page = await withPostgresTransaction(storage.pool, backfillPGliteIndexPage);
+        return page.done ? backfillPgReadIndexPage(storage.pool, claims, repoId) : page;
+      },
       db: storage.db,
       pool: storage.pool,
       close: storage.close,
@@ -48,54 +64,4 @@ export async function createPGliteStorageBackend(options: PGliteStorageBackendOp
     }
     throw error;
   }
-}
-
-async function initializeSchema(pool: PGliteStorage["pool"], scope: PgProjectionScope): Promise<void> {
-  await withPostgresTransaction(pool, async (client) => {
-    for (const statement of POSTGRES_EVENT_LEDGER_SCHEMA_STATEMENTS) {
-      if (statement.startsWith("CREATE POLICY ")) await ensurePolicy(client, statement, POSTGRES_EVENT_LEDGER_TABLES);
-      else await client.query(statement);
-    }
-    await ensurePgProjectionSchema(client, { indexBuild: "isolated" });
-  });
-  for (;;) {
-    const processed = await withPostgresTransaction(
-      pool,
-      async (client) =>
-        (
-          await client.query<{ processed: number }>("SELECT ha_backfill_decision_indexes($1,$2,$3) AS processed", [
-            scope.tenantId,
-            scope.projectId,
-            scope.policyEpoch,
-          ])
-        ).rows[0]!.processed,
-      scope,
-    );
-    if (processed === 0) break;
-  }
-  for (;;) {
-    const page = await withPostgresTransaction(pool, (client) => backfillPgDecisionSearchPage(client, scope), scope);
-    if (page.done) break;
-  }
-  // PGlite has exclusive schema ownership. Serving PostgreSQL contracts on its schema-owner
-  // connection, using CONCURRENTLY outside transactions after every scope's page job commits.
-  await withPostgresTransaction(pool, (client) => contractPgEventSummaryIndex(client, { indexBuild: "isolated" }));
-  // Documents projected before the artifact timeline index existed need one backfill before any
-  // reader is admitted. The helper no-ops on a fresh projection, whose first materialization
-  // already declares the index complete.
-  await withPostgresTransaction(pool, (client) => backfillPgArtifactDocuments(client, scope, repoId), scope);
-}
-
-async function ensurePolicy(client: PoolClient, statement: string, tables: readonly string[]): Promise<void> {
-  const match = /^CREATE POLICY "([a-z0-9_]+)" ON "([a-z0-9_]+)"/u.exec(statement);
-  if (!match) throw new Error("unexpected PostgreSQL scope policy statement");
-  const [, policy, table] = match;
-  if (!tables.includes(table!)) throw new Error(`unexpected PostgreSQL scope policy table: ${table}`);
-  await client.query(
-    `DO $policy$ BEGIN
-       IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = current_schema() AND tablename = '${table}' AND policyname = '${policy}') THEN
-         EXECUTE $policy_sql$${statement}$policy_sql$;
-       END IF;
-     END $policy$`,
-  );
 }

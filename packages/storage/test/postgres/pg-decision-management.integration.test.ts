@@ -33,13 +33,7 @@ test("Decision readiness distinguishes pristine scopes from unknown backfill wit
         page: { limit: 1, cursor: null, nextCursor: null },
       });
     };
-    const assertPending = async () => {
-      for (const filters of [{}, { state: "proposed" as const, limit: 1 }, { search: "needle", limit: 1 }])
-        await assert.rejects(() => source.listDecisions(filters), { code: "projection_pending" });
-      await assert.rejects(() => source.listDecisionAgendaPage({ state: "proposed", limit: 1 }), {
-        code: "projection_pending",
-      });
-    };
+    const assertPending = () => assertEmpty(source);
     await t.test("a new native PG backend serves empty lists, search and agenda before the first event", async () => {
       await assertEmpty(source);
       await assertEmpty(sourceFor());
@@ -61,7 +55,7 @@ test("Decision readiness distinguishes pristine scopes from unknown backfill wit
       await client.query("UPDATE ha_decisions SET search_ready=true");
       await client.query("DELETE FROM ha_decision_read_status");
     });
-    await t.test("an older nonempty scope with no summary stays pending regardless of filters or ACL", assertPending);
+    await t.test("an older scope keeps correct ACL-filtered reads without a completion summary", assertPending);
     await t.test("another tenant, project or policy epoch remains empty and ready", async () => {
       for (const other of [
         { ...scope, tenantId: "another-tenant" },
@@ -70,7 +64,7 @@ test("Decision readiness distinguishes pristine scopes from unknown backfill wit
       ])
         await assertEmpty(sourceFor(other));
     });
-    await t.test("an explicit unknown summary is pending even without owners", async () => {
+    await t.test("an unknown summary does not block an empty previous reader", async () => {
       await manage(async (client) => {
         await client.query("DELETE FROM ha_decisions");
         await client.query("INSERT INTO ha_decision_read_status(tenant_id,project_id,policy_epoch) VALUES($1,$2,$3)", [
@@ -81,7 +75,7 @@ test("Decision readiness distinguishes pristine scopes from unknown backfill wit
       });
       await assertPending();
       await manage((client) => client.query("UPDATE ha_decision_read_status SET scalar_pending=0"));
-      await assert.rejects(() => source.listDecisions({ search: "needle", limit: 1 }), { code: "projection_pending" });
+      assert.equal((await source.listDecisions({ search: "needle", limit: 1 })).decisions.length, 0);
       await manage((client) => client.query("UPDATE ha_decision_read_status SET search_pending=0"));
       await assertEmpty(source);
     });
@@ -133,7 +127,7 @@ test("public management backfill completes a previous-writer Decision search exp
       repoId: "public-decision-upgrade",
       ownsPool: false,
     });
-    await assert.rejects(() => source.listDecisions({ search: "needle", limit: 1 }), { code: "projection_pending" });
+    assert.equal((await source.listDecisions({ search: "needle", limit: 1 })).decisions.length, 1);
     const manage = <T>(run: (client: import("pg").PoolClient) => Promise<T>) =>
       storage.withPostgresTransaction(fixture.adminPool, run, scope);
     const rollback = new Error("interrupt public backfill");
@@ -231,7 +225,7 @@ test("public management backfill completes a previous-writer Decision search exp
       await peers.end();
     }
     assert.equal((await count()).search_pending, "1");
-    await assert.rejects(() => source.listDecisions({ search: "needle", limit: 1 }), { code: "projection_pending" });
+    assert.equal((await source.listDecisions({ search: "needle", limit: 1 })).decisions.length, 1);
     assert.deepEqual(await manage((client) => backfill(client, scope)), { processed: 1, done: false });
     assert.deepEqual(await manage((client) => backfill(client, scope)), { processed: 0, done: true });
     // Commit a real previous-writer transition after management's empty snapshot.

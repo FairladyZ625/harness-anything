@@ -7,7 +7,7 @@ import { decisionIdSortKey, decisionLegacyId, decisionLegacyNumber } from "../pr
 import { decodePageCursor, encodePageCursor } from "../projection/task-query-projection.ts";
 import type { PgProjectionScope } from "./pg-task-event-materialize.ts";
 import { checkedPageLimit } from "./pg-query-page.ts";
-import { assertPgDecisionIndexReady } from "./pg-decision-index-migration.ts";
+import { pgDecisionReadSource } from "./pg-decision-index-migration.ts";
 import { readPgDecisionRows } from "./pg-decision-reads.ts";
 import { searchPgDecisionIds } from "./pg-decision-search.ts";
 
@@ -26,7 +26,7 @@ export async function listPgDecisionRows(
       "policy_epoch=$3",
       "(cardinality($4::text[])=0 OR readers && $4::text[])",
     ];
-  await assertPgDecisionIndexReady(client, scope);
+  const source = await pgDecisionReadSource(client, scope);
   const bind = (value: unknown) => {
     values.push(value);
     return `$${values.length}`;
@@ -59,7 +59,7 @@ export async function listPgDecisionRows(
     limit = filters.limit === undefined ? (paged ? 100 : null) : checkedPageLimit(filters.limit),
     limitSql = limit === null ? "" : ` LIMIT ${bind(limit + 1)}`,
     result = await client.query<{ decision_id: string; value: Record<string, unknown> }>(
-      `SELECT decision_id,value FROM ha_decisions WHERE ${where.join(" AND ")}
+      `SELECT decision_id,value FROM ${source} WHERE ${where.join(" AND ")}
        ORDER BY legacy_group,legacy_number,decision_sort_key,decision_id COLLATE "C"${limitSql}`,
       values,
     ),
