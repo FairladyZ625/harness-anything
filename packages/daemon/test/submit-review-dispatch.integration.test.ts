@@ -264,6 +264,51 @@ test("submit and amend dispatch their own frozen cuts without owner forward", { 
 });
 
 test(
+  "submit dispatches its reviewer when the published task branch still points at a replaced WIP commit",
+  { timeout: 30_000 },
+  async () => {
+    // The worker's delivery order is commit → submit → push. A WIP commit pushed earlier can
+    // therefore be the remote task branch's only tip while the frozen cut replaces it locally.
+    // Review dispatch must not require the checkout to be behind that published branch.
+    const f = await fixture(false, true, false, false, false, {
+      autoSubmit: false,
+      create: { presetId: "standard-task" },
+    });
+    try {
+      await f.install();
+      const worktree = path.join(f.root, ".worktrees", taskId),
+        git = (...args: string[]) => execFileSync("git", ["-C", worktree, ...args], { encoding: "utf8" }).trim(),
+        baseline = git("rev-parse", "HEAD"),
+        origin = path.join(f.root, "origin.git");
+      execFileSync("git", ["init", "--bare", "-q", "--initial-branch=main", origin]);
+      execFileSync("git", ["-C", f.root, "remote", "add", "origin", origin]);
+      execFileSync("git", ["-C", f.root, "push", "-q", "origin", "main:main"]);
+      writeFileSync(path.join(worktree, "wip.txt"), "superseded WIP cut\n");
+      git("add", "wip.txt");
+      git("commit", "-qm", "test: superseded WIP cut");
+      git("push", "-q", "origin", `HEAD:refs/heads/${taskId}`);
+      // The final cut replaces the WIP commit instead of extending it, so the two histories
+      // diverge: the checkout is "behind" the published branch and holds a commit it lacks.
+      git("reset", "--hard", baseline);
+      writeFileSync(path.join(worktree, "final.txt"), "frozen delivery\n");
+      git("add", "final.txt");
+      git("commit", "-qm", "test: final frozen cut");
+      const submitted = (await f.submit()) as Record<string, unknown>;
+      assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+      assert.equal(
+        f.launches.length,
+        1,
+        `the frozen cut must dispatch one reviewer: ${JSON.stringify(submitted.warnings ?? [])}`,
+      );
+      assert.equal(f.launches[0]!.cwd, worktree, "the reviewer inspects the frozen cut in the task worktree");
+      assert.doesNotMatch(JSON.stringify(submitted.warnings ?? []), /task_worktree_diverged|is behind/u);
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test(
   "a low-risk subtask under a work parent resolves the repository default preset, inherits vertical and locale, and completes with zero review or consent work",
   { timeout: 30_000 },
   async () => {

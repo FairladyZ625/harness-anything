@@ -131,6 +131,16 @@ export interface TaskWorktreeCheckout {
  * An accepted handoff commit instead requires that exact, retrievable SHA and a clean checkout before and after
  * setup. An existing checkout at another commit is preserved and refused.
  */
+export interface TaskWorktreeCheckoutOptions {
+  /**
+   * A reviewer judges the frozen cut in the checkout it was given; the published task branch is the
+   * implementer's publication lane, not a precondition for a review. An existing checkout stays at its own HEAD
+   * instead of being fetched forward, so a cut submitted before its push is still reviewable. Defaults to
+   * continuing the published branch, the implementer takeover rule.
+   */
+  readonly followPublishedBranch?: boolean;
+}
+
 export async function checkoutTaskWorktree(
   rootDir: string,
   taskId: string,
@@ -138,6 +148,7 @@ export async function checkoutTaskWorktree(
   worktree: WorktreeSetupSettings,
   acceptedCommit?: string,
   stackedCommit?: string,
+  options: TaskWorktreeCheckoutOptions = {},
 ): Promise<TaskWorktreeCheckout | null> {
   const cwd = path.join(rootDir, binding.path),
     steps = worktree.setup,
@@ -192,13 +203,18 @@ export async function checkoutTaskWorktree(
     // as. A worker may move a task to another delivery branch, and judging it against origin/<task id> then measures
     // the abandoned branch.
     const branch = fresh ? binding.branch : ((await heldBranch(cwd)) ?? binding.branch),
-      published = await publishedBranchRef(rootDir, branch);
+      followPublished = options.followPublishedBranch !== false,
+      // A reviewer's checkout already holds the frozen cut; sampling the published branch would only make the
+      // review depend on a publication that the delivery order puts after the submit that dispatched it.
+      published = followPublished || fresh ? await publishedBranchRef(rootDir, branch) : null;
     if (fresh) await addManagedWorktree(rootDir, { cwd, branch, baseRef: published ?? defaultRef! });
-    // A checkout this node already had, or a branch that survived one, may predate another node's push.
-    if (published) await continuePublishedBranch(cwd, published);
-    // With no published task branch to continue, a checkout a refused or cancelled dispatch cut may also predate
-    // the default branch itself: one that never worked is advanced, so the retry starts on the present baseline.
-    else if (defaultRef) await advanceIdleCheckout(cwd, defaultRef);
+    if (followPublished) {
+      // A checkout this node already had, or a branch that survived one, may predate another node's push.
+      if (published) await continuePublishedBranch(cwd, published);
+      // With no published task branch to continue, a checkout a refused or cancelled dispatch cut may also predate
+      // the default branch itself: one that never worked is advanced, so the retry starts on the present baseline.
+      else if (defaultRef) await advanceIdleCheckout(cwd, defaultRef);
+    }
     return {
       cwd,
       branch,
